@@ -1,0 +1,17 @@
+# Minimal lit box example.
+#
+# Camera at [4, 3, 5] looking at the origin — the box is clearly visible from there.
+# FOV 45° is a comfortable default; 30° works too (tighter, less perspective distortion).
+# Light at [6, 8, 6] above-right, model: blinn_phong (diffuse + specular highlight).
+# Correct spelling: blinn_phong  (underscore, not hyphen).
+
+:.ui
+
+d : ui.display
+
+f : d.Frame()
+d.add_frame((0.1, 0.1, 0.6, 0.7))
+
+d.draw_box(center: [0, 0, 0], scale: [1, 2, 3], color: "red")
+d.add_camera(pos: [4, 3, 5], target: [0, 0, 0], fov: 45)
+d.add_light(pos: [6, 8, 6], model: "blinn_phong", color: "white")
