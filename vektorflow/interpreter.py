@@ -498,6 +498,13 @@ class VFunction:
     closure: dict[str, Any]
     func_type: ast.FuncType | None = None
     field_sources: dict[str, Any] = field(default_factory=dict)
+    ip: Any = field(default=None, repr=False)
+
+    def __call__(self, *args: Any) -> Any:
+        """Allow VFunction to be used as a Python callable (e.g. event handlers)."""
+        if self.ip is None:
+            raise TypeError("VFunction has no interpreter reference; cannot call from Python")
+        return self.ip._call(self, list(args), self.ip.globals)
 
 
 @dataclass
@@ -725,6 +732,7 @@ class Interpreter:
             vf = VFunction(
                 node.name, node.params, body, closure, None, field_sources={}
             )
+            vf.ip = self
             closure[node.name] = vf
             env[node.name] = vf
             return None
@@ -761,6 +769,7 @@ class Interpreter:
                 node.func_type,
                 field_sources=_collect_field_sources(node.body),
             )
+            vf.ip = self
             closure[node.name] = vf
             if node.name == "display" and len(node.params) == 1:
                 _validate_overload_params_use_custom_types(
@@ -1020,9 +1029,11 @@ class Interpreter:
             return self._eval_binop(node, env)
         if isinstance(node, ast.Lambda):
             params = [ast.Param(p, None) for p in node.params]
-            return VFunction(
+            vf = VFunction(
                 None, params, node.body, dict(env), None, field_sources={}
             )
+            vf.ip = self
+            return vf
         if isinstance(node, ast.OpRef):
             return OpCallable(node.symbol, self)
         if isinstance(node, ast.Call):

@@ -1,53 +1,57 @@
 # Interaction demo — mouse events drive scene objects in real time.
 #
-# Mouse wheel  -> zoom camera in/out
-# Left click   -> print which object was clicked
-# Right click  -> rotate clicked box 45 deg around Y
-# Hover        -> print object_id under cursor (if any)
+# Mouse wheel  -> zoom camera along its axis (translate forward/back)
+# Left click   -> identify which object (or background) was clicked
+# Right click  -> rotate the clicked box 45 deg around Y
+# Hover        -> print object_id under cursor when non-zero
+#
+# Run:  vkf examples/interaction.vkf
 
 :.ui
 :.time
 
-d   : ui.display
-f   : d.Frame()
+d : ui.display
 d.add_frame((0.05, 0.05, 0.7, 0.8))
 
-box   : d.add_box(center:[0,0,0], scale:[1,2,1], color:"#4488ff")
-box2  : d.add_box(center:[2,0,0], scale:[1,1,1], color:"#ff8844")
+box1  : d.add_box(center:[0,0,0], scale:[1,2,1], color:"#4488ff")
+box2  : d.add_box(center:[2.5,0,0], scale:[1,1,1], color:"#ff8844")
 cam   : d.add_camera(pos:[5,4,6], target:[0,0,0], fov:45)
 light : d.add_light(pos:[8,10,8], model:"blinn_phong", color:"white")
 
-# Wheel zooms camera along its own axis
-ui.mouse.on_wheel(fn(e) =>
-    # step = -1 (scroll down = zoom out) or +1 (zoom in)
-    cam.translate([0, 0, e.step * -0.3])
-)
+# --- handlers (named funcs for multi-step bodies) ---
 
-# Left click: identify object
-ui.mouse.on_down(fn(e) =>
-    if e.button == 0:
-        if e.object_id > 0:
-            obj : d.get_object(e.object_id)
-            print("clicked object_id=" + str(e.object_id) + " -> " + str(obj))
-        else:
-            print("clicked background at (" + str(e.x) + ", " + str(e.y) + ")")
-)
+on_wheel(e):
+  cam.translate([0, 0, e.step * -0.3])
 
-# Right click: rotate whatever box is under cursor
-ui.mouse.on_down(fn(e) =>
-    if e.button == 2 and e.object_id > 0:
-        obj : d.get_object(e.object_id)
-        if obj != null:
-            obj.rotate_by(45, around:"y")
-)
+on_click(e):
+  e.button=0?
+    true?
+      e.object_id>0?
+        true?  :: "clicked object_id=$e.object_id"
+        false? :: "clicked background at ($e.x, $e.y)"
 
-# Hover: just log when you enter an object
-ui.mouse.on_hover(fn(e) =>
-    pass  # uncomment below to trace:
-    # if e.object_id > 0: print("hover obj=" + str(e.object_id))
-)
+on_right_click(e):
+  e.button=2?
+    true?
+      e.object_id>0?
+        true?
+          obj : d.get_object(e.object_id)
+          obj.rotate_by(45, around:"y")
 
-# Main loop — poll events and keep the overlay refreshed
-loop:
+on_hover(e):
+  e.object_id>0?
+    true?  :: "hover obj=$e.object_id"
+
+# --- register handlers ---
+ui.mouse.on_wheel(on_wheel)
+ui.mouse.on_down(on_click)
+ui.mouse.on_down(on_right_click)
+ui.mouse.on_hover(on_hover)
+
+# --- event loop (~60 fps) ---
+running: 1
+running=1?
+  1?
     ui.poll()
-    time.sleep(0.016)   # ~60 fps
+    time.sleep(0.016)
+    @>
