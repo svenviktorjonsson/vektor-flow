@@ -815,7 +815,9 @@ def _write_vf_display_json(payload: dict[str, Any]) -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text, encoding="utf-8")
         _sync_json_to_all_built_webs(root, "vf-display.json", text)
-        _copy_vf_ui_file_to_built_web(root, "vf-display.js")
+        # Copy all web assets that may have changed to the built overlay web dir.
+        for f in ("vf-display.js", "vkf-scene.html", "vf-frame.js", "vf-frame.css", "vf-widgets.js"):
+            _copy_vf_ui_file_to_built_web(root, f)
         for js in ("vf-geom-core.js", "vf-geom-wgpu.js", "vf-geom-math.js", "vf-geom-mount.js"):
             _copy_geom_file_to_built_web(root, js)
     except (OSError, TypeError, ValueError):

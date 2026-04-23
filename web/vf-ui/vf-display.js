@@ -9,17 +9,40 @@
  *
  * Each mesh in geom.meshes can carry:
  *   { type:"box", center:[x,y,z], scale:[sx,sy,sz], color:"red", rotation:[rx,ry,rz] }
- *   rotation is Euler degrees [rx, ry, rz] applied ZYX.
+ *   rotation = Euler degrees [rx, ry, rz] applied ZYX.
  *
  * Each mesh gets its own VfGeomWgpu renderer so model matrices are independent.
  */
 (function (global) {
   "use strict";
 
-  var ctxCache = new WeakMap();
-  // frame_id -> { renderers: [{renderer, ref}], camera, lights, canvases }
-  var frameRecs = {};
+  // ── Logging ───────────────────────────────────────────────────────────────
+  function vlog(level, text) {
+    var s = "[vf-display] " + String(text);
+    try {
+      if (global.console) {
+        if (level === "error" && global.console.error) { global.console.error(s); return; }
+        if (level === "warn"  && global.console.warn)  { global.console.warn(s);  return; }
+        if (global.console.log) { global.console.log(s); }
+      }
+    } catch (_) {}
+    // Also forward to C++ host via webview postMessage (same path as vf-log.js)
+    try {
+      if (global.chrome && global.chrome.webview && global.chrome.webview.postMessage) {
+        global.chrome.webview.postMessage({ type: "vf_log", level: level, message: s, t: Date.now() });
+      }
+    } catch (_) {}
+  }
 
+  vlog("info", "vf-display.js loaded");
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  var ctxCache = new WeakMap();
+  // frame_id -> { entries: [{renderer, ref}] }
+  var frameRecs = {};
+  var _lastPayloadSummary = "";   // cheap change-detect for log spam suppression
+
+  // ── 2-D canvas helpers ────────────────────────────────────────────────────
   function get2d(canvas) {
     if (!canvas) { return null; }
     var c = ctxCache.get(canvas);
@@ -67,25 +90,24 @@
     } catch (_) { return null; }
   }
 
-  // ── Euler ZYX rotation matrix (degrees) ──────────────────────────────────
-  // Returns a column-major Float32Array mat4.
+  // ── Euler ZYX rotation matrix (degrees) — column-major Float32Array ───────
   function mat4EulerZYX(rx, ry, rz) {
     var Mm = global.VfGeomMath;
-    if (!Mm) { return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); }
+    if (!Mm) {
+      vlog("warn", "mat4EulerZYX: VfGeomMath not loaded, returning identity");
+      return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+    }
     var toRad = Math.PI / 180;
-    // Rx
     var cx = Math.cos(rx * toRad), sx = Math.sin(rx * toRad);
     var Rx = new Float32Array([1,0,0,0, 0,cx,sx,0, 0,-sx,cx,0, 0,0,0,1]);
-    // Ry
     var cy = Math.cos(ry * toRad), sy = Math.sin(ry * toRad);
     var Ry = new Float32Array([cy,0,-sy,0, 0,1,0,0, sy,0,cy,0, 0,0,0,1]);
-    // Rz
     var cz = Math.cos(rz * toRad), sz = Math.sin(rz * toRad);
     var Rz = new Float32Array([cz,sz,0,0, -sz,cz,0,0, 0,0,1,0, 0,0,0,1]);
     return Mm.mat4Mul(Mm.mat4Mul(Rz, Ry), Rx);
   }
 
-  // Build model matrix for a mesh spec: translate(center) * EulerZYX(rotation)
+  // Build model matrix: translate(center) * EulerZYX(rotation)
   function meshModelMatrix(spec) {
     var Mm = global.VfGeomMath;
     if (!Mm) { return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); }
@@ -99,17 +121,23 @@
   // Build a single-mesh object for the renderer from a spec
   function buildSingleMesh(spec, camera, lights) {
     var Core = global.VfGeomCore;
-    if (!Core) { return null; }
+    if (!Core) {
+      vlog("error", "buildSingleMesh: VfGeomCore not loaded");
+      return null;
+    }
     var mesh;
     if (spec.type === "box") {
-      // center always [0,0,0] — translation handled via model matrix
       mesh = Core.buildBox([0,0,0], spec.scale || [1,1,1], spec.color || null, spec.id || "box");
     } else if (spec.preset) {
       mesh = Core.getPreset(spec.preset);
     } else {
+      vlog("warn", "buildSingleMesh: unknown mesh spec type=" + spec.type);
       return null;
     }
-    if (!mesh) { return null; }
+    if (!mesh) {
+      vlog("error", "buildSingleMesh: Core returned null for type=" + spec.type);
+      return null;
+    }
     var out = {};
     for (var k in mesh) { out[k] = mesh[k]; }
     out.camera = camera || null;
@@ -118,7 +146,7 @@
     return out;
   }
 
-  // ── Per-frame renderer management ────────────────────────────────────────
+  // ── Per-frame renderer management ─────────────────────────────────────────
 
   function ensureGeomCanvas(frameEl, idx) {
     if (!frameEl) { return null; }
@@ -128,55 +156,97 @@
     if (existing) { return existing; }
     var c = document.createElement("canvas");
     c.className = "vf-geom-canvas " + cls;
-    // stack canvases via z-index (idx 0 = bottom)
-    c.style.cssText = "display:block;width:100%;height:100%;position:absolute;inset:0;z-index:" + idx + ";pointer-events:none;";
+    c.style.cssText = "display:block;width:100%;height:100%;position:absolute;inset:0;z-index:" + (10 + idx) + ";pointer-events:none;";
     body.style.position = "relative";
     body.appendChild(c);
+    vlog("info", "ensureGeomCanvas: created canvas idx=" + idx + " for frame body (body w=" + body.offsetWidth + " h=" + body.offsetHeight + ")");
     return c;
   }
 
   function updateGeomFrame(fid, geomSpec) {
     var Ctor = global.VfGeomWgpu;
-    if (!Ctor) { return; }
+    if (!Ctor) {
+      vlog("warn", "updateGeomFrame [" + fid + "]: VfGeomWgpu not loaded — geom skipped");
+      return;
+    }
+
     var frameEl = findFrameEl(fid);
-    if (!frameEl) { return; }
+    if (!frameEl) {
+      vlog("warn", "updateGeomFrame [" + fid + "]: no DOM element .vf-frame[data-vf-frame-id=" + fid + "] found — frame not placed yet?");
+      return;
+    }
 
     var specs   = geomSpec.meshes || [];
     var camera  = geomSpec.camera || null;
     var lights  = geomSpec.lights || [];
 
+    vlog("info", "updateGeomFrame [" + fid + "]: meshes=" + specs.length +
+      " camera=" + (camera ? JSON.stringify(camera.pos) : "none") +
+      " lights=" + lights.length);
+
     if (!frameRecs[fid]) { frameRecs[fid] = { entries: [] }; }
     var rec = frameRecs[fid];
 
-    // Grow or reuse per-mesh renderers
     for (var i = 0; i < specs.length; i++) {
       var spec = specs[i];
       var mesh = buildSingleMesh(spec, camera, lights);
-      if (!mesh) { continue; }
+      if (!mesh) {
+        vlog("warn", "updateGeomFrame [" + fid + "]: mesh " + i + " build failed, skipping");
+        continue;
+      }
 
       if (i < rec.entries.length) {
-        // Update existing renderer's mesh reference
         rec.entries[i].ref.mesh = mesh;
+        // log only on first few updates to avoid spam
+        if (rec.entries[i]._logCount == null) { rec.entries[i]._logCount = 0; }
+        rec.entries[i]._logCount++;
+        if (rec.entries[i]._logCount <= 3) {
+          vlog("info", "updateGeomFrame [" + fid + "]: updated renderer " + i +
+            " center=" + JSON.stringify(spec.center) +
+            " scale=" + JSON.stringify(spec.scale) +
+            " rot=" + JSON.stringify(spec.rotation || [0,0,0]));
+        }
       } else {
-        // Spawn new renderer for this mesh
+        // Spawn new renderer
         var canvas = ensureGeomCanvas(frameEl, i);
-        if (!canvas) { continue; }
-        syncCanvasSize(canvas);
+        if (!canvas) {
+          vlog("error", "updateGeomFrame [" + fid + "]: could not create canvas for mesh " + i);
+          continue;
+        }
+        var sz = syncCanvasSize(canvas);
+        vlog("info", "updateGeomFrame [" + fid + "]: spawning renderer " + i +
+          " canvas=" + (sz ? sz.w + "x" + sz.h : "?") +
+          " mesh.type=" + spec.type +
+          " center=" + JSON.stringify(spec.center) +
+          " scale=" + JSON.stringify(spec.scale) +
+          " cam=" + (camera ? JSON.stringify(camera.pos) : "none"));
+
         var refHolder = { mesh: mesh };
-        (function(rh) {
+        (function(rh, fidInner, meshIdx) {
+          var entry = { renderer: null, ref: rh, _logCount: 0 };
+          rec.entries.push(entry);
           var r = new Ctor(canvas, function() { return rh.mesh; });
-          rec.entries.push({ renderer: r, ref: rh });
+          entry.renderer = r;
           r.init().then(function(ok) {
-            if (!ok && global.console) { global.console.warn("vf-display geom: WebGPU failed for frame " + fid + " mesh " + i); }
-            else if (ok) { r.start(); }
+            if (!ok) {
+              vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init FAILED (WebGPU unavailable?)");
+            } else {
+              vlog("info", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init OK, starting render loop");
+              r.start();
+            }
+          }).catch(function(err) {
+            vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init threw: " + (err && err.message ? err.message : String(err)));
           });
-        })(refHolder);
+        })(refHolder, fid, i);
       }
     }
 
-    // Stop and hide renderers for meshes that were removed
+    // Stop renderers for meshes that were removed
     for (var j = specs.length; j < rec.entries.length; j++) {
-      try { rec.entries[j].renderer.stop(); } catch(_) {}
+      try {
+        vlog("info", "updateGeomFrame [" + fid + "]: stopping renderer " + j + " (mesh removed)");
+        rec.entries[j].renderer.stop();
+      } catch(_) {}
       rec.entries[j].ref.mesh = null;
     }
   }
@@ -184,20 +254,38 @@
   // ── Main render from JSON ─────────────────────────────────────────────────
 
   function renderFromJson(data) {
-    if (!data || typeof data !== "object") { return; }
+    if (!data || typeof data !== "object") {
+      vlog("warn", "renderFromJson: data is null or not an object");
+      return;
+    }
 
+    // Log a summary of what arrived (suppress repeat spam)
+    var geomKeys = data.geom ? Object.keys(data.geom) : [];
+    var summary = "geomFrames=" + geomKeys.length +
+      " screenOps=" + (data.screen ? data.screen.length : 0) +
+      " frameKeys=" + (data.frames ? Object.keys(data.frames).length : 0);
+    if (summary !== _lastPayloadSummary) {
+      vlog("info", "renderFromJson: " + summary + " geomIds=[" + geomKeys.join(",") + "]");
+      _lastPayloadSummary = summary;
+    }
+
+    // 2-D screen canvas
     var sc = document.getElementById("vf-screen-canvas");
     if (sc) {
       var sz = syncCanvasSize(sc);
       if (sz) { drawOpList(get2d(sc), sz.w, sz.h, data.screen); }
     }
 
+    // 2-D per-frame canvases
     var frames = data.frames;
     if (frames && typeof frames === "object") {
       for (var fid in frames) {
         if (!Object.prototype.hasOwnProperty.call(frames, fid)) { continue; }
         var el = findFrameEl(fid);
-        if (!el) { continue; }
+        if (!el) {
+          vlog("warn", "renderFromJson: 2D frame [" + fid + "] not found in DOM");
+          continue;
+        }
         var cv = el.querySelector("canvas.vf-frame__draw-canvas");
         if (!cv) { continue; }
         var fsz = syncCanvasSize(cv);
@@ -206,6 +294,7 @@
       }
     }
 
+    // 3-D geom
     var geom = data.geom;
     if (geom && typeof geom === "object") {
       for (var gid in geom) {
@@ -215,6 +304,8 @@
     }
   }
 
+  // ── Fetch + render cycle ──────────────────────────────────────────────────
+
   function displayJsonUrl() {
     if (typeof location === "undefined" || !location.href) { return "vf-display.json"; }
     var path = location.pathname || "/";
@@ -223,17 +314,54 @@
     return base + "vf-display.json";
   }
 
+  var _lastFetchFailed = false;
+  var _lastFetchText   = "";
+
   function loadAndRender() {
-    if (typeof fetch === "undefined") { return; }
-    fetch(displayJsonUrl() + "?t=" + Date.now(), { cache: "no-store" })
-      .then(function(r) { if (!r.ok) { return null; } return r.text(); })
+    if (typeof fetch === "undefined") {
+      vlog("warn", "loadAndRender: fetch not available");
+      return;
+    }
+    var url = displayJsonUrl() + "?t=" + Date.now();
+    fetch(url, { cache: "no-store" })
+      .then(function(r) {
+        if (!r.ok) {
+          if (!_lastFetchFailed) {
+            vlog("warn", "loadAndRender: vf-display.json fetch " + r.status + " (file may not exist yet)");
+            _lastFetchFailed = true;
+          }
+          return null;
+        }
+        _lastFetchFailed = false;
+        return r.text();
+      })
       .then(function(t) {
         if (t == null) { return; }
-        var o; try { o = JSON.parse(t); } catch(e) { return; }
+        if (t === _lastFetchText) { return; }  // no change, skip parse
+        _lastFetchText = t;
+        var o; try { o = JSON.parse(t); } catch(e) {
+          vlog("error", "loadAndRender: JSON.parse failed: " + e.message + " (first 200 chars: " + t.slice(0,200) + ")");
+          return;
+        }
         renderFromJson(o);
       })
-      .catch(function(){});
+      .catch(function(err) {
+        vlog("warn", "loadAndRender: fetch error: " + (err && err.message ? err.message : String(err)));
+      });
   }
 
+  // ── Dependency check on load ──────────────────────────────────────────────
+  // Logged once after a short delay so other scripts have time to register.
+  setTimeout(function() {
+    vlog("info", "dependency check: VfGeomCore=" + (!!global.VfGeomCore) +
+      " VfGeomMath=" + (!!global.VfGeomMath) +
+      " VfGeomWgpu=" + (!!global.VfGeomWgpu));
+    if (!global.VfGeomCore)  { vlog("warn", "VfGeomCore not found — vf-geom-core.js may not be loaded or failed"); }
+    if (!global.VfGeomMath)  { vlog("warn", "VfGeomMath not found — vf-geom-math.js may not be loaded or failed"); }
+    if (!global.VfGeomWgpu)  { vlog("warn", "VfGeomWgpu not found — vf-geom-wgpu.js may not be loaded or failed"); }
+  }, 800);
+
   global.VfDisplay = { renderFromJson: renderFromJson, loadAndRender: loadAndRender };
+
+  vlog("info", "VfDisplay registered");
 })(typeof window !== "undefined" ? window : this);

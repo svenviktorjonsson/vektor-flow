@@ -8,6 +8,22 @@
 (function (global) {
   "use strict";
 
+  // ── Logger (forwards to C++ host log via same channel as vf-log.js) ───────
+  function clog(level, text) {
+    var s = "[vf-geom-core] " + String(text);
+    try {
+      if (global.console) {
+        if (level === "error" && global.console.error) { global.console.error(s); return; }
+        if (global.console.log) { global.console.log(s); }
+      }
+    } catch (_) {}
+    try {
+      if (global.chrome && global.chrome.webview && global.chrome.webview.postMessage) {
+        global.chrome.webview.postMessage({ type: "vf_log", level: level, message: s, t: Date.now() });
+      }
+    } catch (_) {}
+  }
+
   var V = 10; // floats per vertex: x,y,z, nx,ny,nz, r,g,b,a
   var N2 = [0, 0, 1]; // default normal (faces viewer in z=0 plane)
 
@@ -148,6 +164,7 @@
    * @param {string} [id]
    */
   function buildBox(center, scale, color, id) {
+    clog("info", "buildBox id=" + id + " center=" + JSON.stringify(center) + " scale=" + JSON.stringify(scale));
     center = center || [0,0,0];
     scale  = scale  || [1,1,1];
     var col = color ? parseColor(color) : null;
@@ -349,6 +366,7 @@
     return fn ? fn() : preset2dTriangle();
   }
 
+  clog("info", "VfGeomCore registered");
   global.VfGeomCore = {
     STRIDE:      V,
     BYTES_PER_VERTEX: V * 4,

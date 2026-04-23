@@ -53,9 +53,30 @@
     <script src="katex/katex.min.js"></script>
     <script src="vf-frame.js"></script>
     <script src="vf-widgets.js"></script>
+    <!-- 3-D WebGPU geometry pipeline (must load before vf-display.js) -->
+    <script src="geom/vf-geom-math.js"></script>
+    <script src="geom/vf-geom-core.js"></script>
+    <script src="geom/vf-geom-wgpu.js"></script>
     <script src="vf-display.js"></script>
     <script>
       // Scene: transparent. Frame chrome: --vf-ui-alpha (see vf-frame.css).
+      // ── Diagnostic logger (writes to C:\temp\vektor-flow-log.txt via vf-log.js channel) ──
+      function slog(level, text) {
+        var s = "[vkf-scene] " + String(text);
+        try {
+          if (typeof console !== "undefined") {
+            if (level === "error" && console.error) { console.error(s); }
+            else if (level === "warn" && console.warn) { console.warn(s); }
+            else if (console.log) { console.log(s); }
+          }
+        } catch (_) {}
+        try {
+          if (typeof chrome !== "undefined" && chrome.webview && chrome.webview.postMessage) {
+            chrome.webview.postMessage({ type: "vf_log", level: level, message: s, t: Date.now() });
+          }
+        } catch (_) {}
+      }
+      slog("info", "inline script start — VfFrame=" + (typeof VfFrame) + " VfDisplay=" + (typeof VfDisplay));
 
       (function () {
         var layer0 = document.getElementById("layer");
@@ -118,6 +139,8 @@
       function displayRefresh() {
         if (typeof VfDisplay !== "undefined" && VfDisplay.loadAndRender) {
           VfDisplay.loadAndRender();
+        } else {
+          slog("warn", "displayRefresh: VfDisplay.loadAndRender not available");
         }
       }
 
@@ -126,11 +149,14 @@
         try {
           const r = await fetch("vkf-scene.json?t=" + Date.now(), { cache: "no-store" });
           if (!r.ok) {
+            slog("warn", "loadScene: vkf-scene.json fetch " + r.status + " — no scene yet, will retry");
             displayRefresh();
             return;
           }
           raw = await r.text();
-        } catch (_) {
+          slog("info", "loadScene: vkf-scene.json fetched (" + raw.length + " bytes)");
+        } catch (fetchErr) {
+          slog("warn", "loadScene: fetch threw: " + (fetchErr && fetchErr.message ? fetchErr.message : String(fetchErr)));
           return;
         }
         /* Scene can be unchanged while ``d.draw_rect`` still updates — always re-fetch display JSON. */
@@ -143,14 +169,18 @@
         let data;
         try {
           data = JSON.parse(raw);
-        } catch (_) {
+        } catch (parseErr) {
+          slog("error", "loadScene: JSON.parse failed: " + parseErr.message);
           displayRefresh();
           return;
         }
         if (!Array.isArray(data)) {
+          slog("warn", "loadScene: vkf-scene.json is not an array (got " + typeof data + ")");
           displayRefresh();
           return;
         }
+        const upsertCount = data.filter(c => c && c.kind === "frame_upsert").length;
+        slog("info", "loadScene: " + data.length + " commands, " + upsertCount + " frame_upserts");
 
         const layer = document.getElementById("layer");
         layer.innerHTML = "";
@@ -186,6 +216,7 @@
           );
           const dockable =
             (flags.dockable !== false) && (flags.minimizable !== false);
+          slog("info", "loadScene: mounting frame id=" + id + " title=" + JSON.stringify(title) + " alpha=" + alpha);
           const panel = VfFrame.mount(layer, {
             id: id,
             title: title,
@@ -238,6 +269,17 @@
         });
         ro.observe(c);
       })();
+
+      // Log geometry script availability after a short delay
+      setTimeout(function() {
+        slog("info", "geom deps: VfGeomCore=" + (typeof VfGeomCore !== "undefined") +
+          " VfGeomMath=" + (typeof VfGeomMath !== "undefined") +
+          " VfGeomWgpu=" + (typeof VfGeomWgpu !== "undefined") +
+          " VfDisplay=" + (typeof VfDisplay !== "undefined") +
+          " VfFrame=" + (typeof VfFrame !== "undefined"));
+        slog("info", "navigator.gpu=" + (navigator && navigator.gpu ? "present" : "MISSING") +
+          " webview=" + (typeof chrome !== "undefined" && chrome.webview ? "present" : "missing"));
+      }, 300);
 
       loadScene();
       setInterval(loadScene, 1500);
