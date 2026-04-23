@@ -42,6 +42,102 @@
   var frameRecs = {};
   var _lastPayloadSummary = "";   // cheap change-detect for log spam suppression
 
+  // ── Event forwarding ──────────────────────────────────────────────────────
+  // frame_id -> { fid, canvases: [...] } for hit-testing
+  var _frameEventMap = {};  // fid -> { fid, el }
+  var _apiPort = 0;         // discovered from window.__agentPort
+
+  function getApiPort() {
+    if (_apiPort) { return _apiPort; }
+    if (typeof global !== "undefined" && global.__agentPort) {
+      _apiPort = parseInt(global.__agentPort, 10) || 0;
+    }
+    return _apiPort;
+  }
+
+  function postEvent(evt) {
+    var port = getApiPort();
+    if (!port) { return; }  // no port yet — events queued until next hover/click
+    var body = JSON.stringify({ line: JSON.stringify(evt) });
+    try {
+      fetch("http://127.0.0.1:" + port + "/api/enqueue", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    body,
+      }).catch(function(){});
+    } catch(_) {}
+  }
+
+  /** Convert a canvas-relative MouseEvent to the { frame_id, object_id, simplex_id }
+   *  by firing a pickAt on the renderer that owns that canvas. */
+  function resolvePickAt(canvas, cx, cy, fid, rendererIdx) {
+    var rec = frameRecs[fid];
+    if (!rec || rendererIdx >= rec.entries.length) { return null; }
+    return rec.entries[rendererIdx].renderer;
+  }
+
+  /** Attach mouse/wheel listeners to a geom canvas.
+   *  Multiple overlapping geom canvases per frame are each listened to. */
+  function attachCanvasEvents(canvas, fid, meshIdx) {
+    // Avoid double-attach
+    if (canvas.__vfEventsAttached) { return; }
+    canvas.__vfEventsAttached = true;
+    canvas.style.pointerEvents = "auto";  // enable pointer events for geom canvases
+
+    function canvasXY(e) {
+      var r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    function canvasXYscaled(e) {
+      // Account for CSS pixels vs device pixels
+      var r  = canvas.getBoundingClientRect();
+      var sx = canvas.width  / (r.width  || 1);
+      var sy = canvas.height / (r.height || 1);
+      return {
+        x:  (e.clientX - r.left) * sx,
+        y:  (e.clientY - r.top)  * sy,
+        cx: e.clientX - r.left,
+        cy: e.clientY - r.top,
+      };
+    }
+
+    function emitWithPick(evtType, e, extra) {
+      var p = canvasXYscaled(e);
+      var renderer = resolvePickAt(canvas, p.x, p.y, fid, meshIdx);
+      if (!renderer) {
+        postEvent(Object.assign({ type: "vf_event", event: evtType,
+          x: p.cx, y: p.cy, frame_id: fid, object_id: 0, simplex_id: 0 }, extra));
+        return;
+      }
+      renderer.pickAt(p.x, p.y, function(oid, sid) {
+        postEvent(Object.assign({ type: "vf_event", event: evtType,
+          x: p.cx, y: p.cy, frame_id: fid,
+          object_id: oid, simplex_id: sid }, extra));
+      });
+    }
+
+    canvas.addEventListener("mousemove", function(e) {
+      emitWithPick("hover", e, {});
+    }, { passive: true });
+
+    canvas.addEventListener("mousedown", function(e) {
+      emitWithPick("down", e, { button: e.button });
+    }, { passive: true });
+
+    canvas.addEventListener("mouseup", function(e) {
+      emitWithPick("up", e, { button: e.button });
+    }, { passive: true });
+
+    canvas.addEventListener("wheel", function(e) {
+      var p = canvasXY(e);
+      var step = e.deltaY > 0 ? 1 : -1;
+      postEvent({ type: "vf_event", event: "wheel",
+        x: p.x, y: p.y, step: step, frame_id: fid, object_id: 0, simplex_id: 0 });
+    }, { passive: true });
+
+    vlog("info", "attachCanvasEvents: frame=" + fid + " meshIdx=" + meshIdx);
+  }
+
   // ── 2-D canvas helpers ────────────────────────────────────────────────────
   function get2d(canvas) {
     if (!canvas) { return null; }
@@ -222,22 +318,25 @@
           " cam=" + (camera ? JSON.stringify(camera.pos) : "none"));
 
         var refHolder = { mesh: mesh };
-        (function(rh, fidInner, meshIdx) {
+        (function(rh, fidInner, meshIdx, cv) {
           var entry = { renderer: null, ref: rh, _logCount: 0 };
           rec.entries.push(entry);
           var r = new Ctor(canvas, function() { return rh.mesh; });
           entry.renderer = r;
+          // Assign stable object_id (1-based: 0 means "no object")
+          r._objectId = meshIdx + 1;
           r.init().then(function(ok) {
             if (!ok) {
               vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init FAILED (WebGPU unavailable?)");
             } else {
               vlog("info", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init OK, starting render loop");
               r.start();
+              attachCanvasEvents(cv, fidInner, meshIdx);
             }
           }).catch(function(err) {
             vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init threw: " + (err && err.message ? err.message : String(err)));
           });
-        })(refHolder, fid, i);
+        })(refHolder, fid, i, canvas);
       }
     }
 
@@ -360,6 +459,40 @@
     if (!global.VfGeomMath)  { vlog("warn", "VfGeomMath not found — vf-geom-math.js may not be loaded or failed"); }
     if (!global.VfGeomWgpu)  { vlog("warn", "VfGeomWgpu not found — vf-geom-wgpu.js may not be loaded or failed"); }
   }, 800);
+
+  // ── Keyboard events ────────────────────────────────────────────────────
+  // Attached to window once — keyboard events have no natural canvas target.
+  (function() {
+    if (global.__vfKeyboardAttached) { return; }
+    global.__vfKeyboardAttached = true;
+
+    function activeFrameId() {
+      // Try to find which frame has focus or is under the pointer
+      var active = document.activeElement;
+      if (active) {
+        var fr = active.closest && active.closest(".vf-frame");
+        if (fr) { return fr.getAttribute("data-vf-frame-id") || ""; }
+      }
+      return "";
+    }
+
+    function keyEvt(evtName, e) {
+      postEvent({
+        type:     "vf_event",
+        event:    evtName,
+        key:      e.key,
+        code:     e.code || "",
+        ctrl:     e.ctrlKey  || false,
+        shift:    e.shiftKey || false,
+        alt:      e.altKey   || false,
+        frame_id: activeFrameId(),
+      });
+    }
+
+    global.addEventListener("keydown", function(e) { keyEvt("key_down", e); }, { passive: true, capture: true });
+    global.addEventListener("keyup",   function(e) { keyEvt("key_up",   e); }, { passive: true, capture: true });
+    vlog("info", "keyboard listeners attached");
+  })();
 
   global.VfDisplay = { renderFromJson: renderFromJson, loadAndRender: loadAndRender };
 

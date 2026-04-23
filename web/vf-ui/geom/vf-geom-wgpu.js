@@ -98,6 +98,37 @@ fn fs(i: Vout) -> @location(0) vec4f {
 }
 `;
 
+
+  // ---------------------------------------------------------------------------
+  // Picking shader — writes object_id + primitive_index to rg32uint texture
+  // ---------------------------------------------------------------------------
+  var PICK_SHADER = `
+struct PickScene {
+  mvp      : mat4x4<f32>,   // 64 bytes
+  model    : mat4x4<f32>,   // 64 bytes
+  object_id: u32,           // 4 bytes
+  _p0: u32, _p1: u32, _p2: u32,  // padding to 144 bytes total
+}
+@group(0) @binding(0) var<uniform> pk: PickScene;
+
+struct PVin {
+  @location(0) pos: vec3<f32>,
+  @location(1) _n:  vec3<f32>,
+  @location(2) _c:  vec4<f32>,
+}
+@vertex
+fn vs_pick(v: PVin) -> @builtin(position) vec4<f32> {
+  let wp = (pk.model * vec4f(v.pos, 1.0)).xyz;
+  return pk.mvp * vec4f(wp, 1.0);
+}
+@fragment
+fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
+  return vec2<u32>(pk.object_id, prim);
+}
+`;
+
+  var PICK_UB_SIZE = 144; // 16+16 f32 + 4 u32 = 128+16 = 144 bytes
+
   var M = null;
   function getMath() {
     if (!M) { M = global.VfGeomMath; }
@@ -185,7 +216,31 @@ fn fs(i: Vout) -> @location(0) vec4f {
           pipeTri  = device.createRenderPipeline(makeDesc("triangle-list", "back"));
           pipeLine = device.createRenderPipeline(makeDesc("line-list"));
         }
-        sharedWgpu = { device, format, bindLayout, pipeTri, pipeLine };
+        // Picking pipeline — writes rg32uint (object_id, prim_index)
+        var pickMod = device.createShaderModule({ code: PICK_SHADER });
+        var pickBindLayout = device.createBindGroupLayout({
+          entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: "uniform" },
+          }],
+        });
+        var pickPipeLayout = device.createPipelineLayout({ bindGroupLayouts: [pickBindLayout] });
+        var pickPipeDesc = {
+          layout: pickPipeLayout,
+          vertex:   { module: pickMod, entryPoint: "vs_pick", buffers: [vbufDesc] },
+          fragment: { module: pickMod, entryPoint: "fs_pick",
+                      targets: [{ format: "rg32uint" }] },
+          primitive: { topology: "triangle-list" },
+          depthStencil: { depthWriteEnabled: true, depthCompare: "less", format: "depth24plus" },
+        };
+        var pipePick;
+        if (typeof device.createRenderPipelineAsync === "function") {
+          pipePick = await device.createRenderPipelineAsync(pickPipeDesc);
+        } else {
+          pipePick = device.createRenderPipeline(pickPipeDesc);
+        }
+        sharedWgpu = { device, format, bindLayout, pipeTri, pipeLine, pipePick, pickBindLayout };
         wlog("info", "getSharedWgpu: OK");
         return sharedWgpu;
       } catch (err) {
@@ -309,10 +364,85 @@ fn fs(i: Vout) -> @location(0) vec4f {
     this._running    = false;
     this._raf        = 0;
     this._resizeRaf  = 0;
+    // Picking
+    this._objectId      = 0;       // set by display.js before init
+    this._pickTex       = null;    // rg32uint render target
+    this._pickDepthTex  = null;
+    this._pickUb        = null;    // picking uniform buffer (PICK_UB_SIZE bytes)
+    this._pickBG        = null;    // picking bind group
+    this._pickReadBuf   = null;    // 8-byte mapAsync readback buffer
+    this._pickW         = 0;
+    this._pickH         = 0;
+    this._pickPending   = false;   // readback in flight
+    this._pickCallback  = null;    // fn(object_id, simplex_id, x, y) called after readback
   }
 
   VfGeomWgpu.prototype = {
-    _ensureDepth: function () {
+    _ensurePickTextures: function () {
+      if (!this._device || !sharedWgpu) { return; }
+      var c = this._canvas;
+      var w = Math.max(1, c.width);
+      var h = Math.max(1, c.height);
+      if (this._pickTex && this._pickW === w && this._pickH === h) { return; }
+      // Destroy old
+      if (this._pickTex)      { try { this._pickTex.destroy(); }      catch(_){} }
+      if (this._pickDepthTex) { try { this._pickDepthTex.destroy(); } catch(_){} }
+      this._pickW = w; this._pickH = h;
+      this._pickTex = this._device.createTexture({
+        size: [w, h, 1],
+        format: "rg32uint",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      });
+      this._pickDepthTex = this._device.createTexture({
+        size: [w, h, 1], format: "depth24plus",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      // Readback buffer: 1 pixel of rg32uint = 2×u32 = 8 bytes.
+      // Align to 256 bytes (WebGPU bytesPerRow minimum).
+      if (this._pickReadBuf) { try { this._pickReadBuf.destroy(); } catch(_){} }
+      this._pickReadBuf = this._device.createBuffer({
+        size: 256,   // bytesPerRow must be ≥ 256
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+    },
+
+    _buildPickUniform: function (mvp, model) {
+      var buf = new ArrayBuffer(PICK_UB_SIZE);
+      var f32 = new Float32Array(buf);
+      var u32 = new Uint32Array(buf);
+      for (var i = 0; i < 16; i++) { f32[i]      = mvp[i]; }
+      for (var i = 0; i < 16; i++) { f32[16 + i] = model[i]; }
+      u32[32] = this._objectId >>> 0;  // offset 128
+      return new Uint8Array(buf);
+    },
+
+    /** Ask for the object_id + simplex_id at canvas pixel (cx, cy).
+     *  cb(object_id, simplex_id, cx, cy) called asynchronously (next frame). */
+    pickAt: function (cx, cy, cb) {
+      if (this._pickPending || !this._device || !this._pickTex || !this._pickReadBuf) { return; }
+      var self = this;
+      var px = Math.max(0, Math.min(this._pickW - 1, Math.floor(cx)));
+      var py = Math.max(0, Math.min(this._pickH - 1, Math.floor(cy)));
+      this._pickPending = true;
+      // Schedule readback on the next rendered frame
+      this._pickCallback = function() {
+        var buf = self._pickReadBuf;
+        buf.mapAsync(GPUMapMode.READ).then(function() {
+          var u32 = new Uint32Array(buf.getMappedRange(0, 8));
+          var oid = u32[0], sid = u32[1];
+          buf.unmap();
+          self._pickPending = false;
+          if (cb) { cb(oid, sid, cx, cy); }
+        }).catch(function(e) {
+          wlog("warn", "pickAt mapAsync failed: " + (e && e.message ? e.message : e));
+          self._pickPending = false;
+        });
+        self._pickCallback = null;
+      };
+      this._pendingPickPx = [px, py];
+    },
+
+        _ensureDepth: function () {
       var c = this._canvas;
       var w = Math.max(1, c.width);
       var h = Math.max(1, c.height);
@@ -425,6 +555,61 @@ fn fs(i: Vout) -> @location(0) vec4f {
       pass.drawIndexed(this._ibCount, 1, 0, 0, 0);
       pass.end();
       this._device.queue.submit([enc.finish()]);
+
+      // ── Picking pass (triangle-list only, skips wireframe) ────────────────
+      var sg2 = sharedWgpu;
+      if (sg2 && sg2.pipePick && this._pickTex && this._topology === "triangle-list") {
+        // Ensure picking UB + BG exist
+        if (!this._pickUb) {
+          this._pickUb = this._device.createBuffer({
+            size: PICK_UB_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+          this._pickBG = this._device.createBindGroup({
+            layout: sg2.pickBindLayout,
+            entries: [{ binding: 0, resource: { buffer: this._pickUb } }],
+          });
+        }
+        var pickUb = this._buildPickUniform(mvp, modelMat);
+        this._device.queue.writeBuffer(this._pickUb, 0, pickUb);
+
+        var pickEnc  = this._device.createCommandEncoder();
+        var pickPass = pickEnc.beginRenderPass({
+          colorAttachments: [{
+            view:       this._pickTex.createView(),
+            clearValue: [0, 0, 0, 0],
+            loadOp:  "clear",
+            storeOp: "store",
+          }],
+          depthStencilAttachment: {
+            view:              this._pickDepthTex.createView(),
+            depthClearValue:   1.0,
+            depthLoadOp:       "clear",
+            depthStoreOp:      "discard",
+          },
+        });
+        pickPass.setPipeline(sg2.pipePick);
+        pickPass.setBindGroup(0, this._pickBG);
+        pickPass.setVertexBuffer(0, this._vb);
+        pickPass.setIndexBuffer(this._ib, "uint32");
+        pickPass.drawIndexed(this._ibCount);
+        pickPass.end();
+
+        // If a pickAt request is pending, copy 1 pixel → readback buffer
+        var ppx = this._pendingPickPx;
+        if (ppx) {
+          this._pendingPickPx = null;
+          pickEnc.copyTextureToBuffer(
+            { texture: this._pickTex, origin: { x: ppx[0], y: ppx[1], z: 0 }, mipLevel: 0 },
+            { buffer: this._pickReadBuf, offset: 0, bytesPerRow: 256 },
+            { width: 1, height: 1, depthOrArrayLayers: 1 }
+          );
+        }
+        this._device.queue.submit([pickEnc.finish()]);
+
+        // Fire the callback after submit (readback is now in flight)
+        if (this._pickCallback) { this._pickCallback(); }
+      }
     },
 
     _frame: function (t) {
@@ -458,6 +643,10 @@ fn fs(i: Vout) -> @location(0) vec4f {
       if (this._depthTex)  { try { this._depthTex.destroy(); } catch(_){} this._depthTex = null; }
       if (this._uniformBuf){ try { this._uniformBuf.destroy(); } catch(_){} this._uniformBuf = null; }
       if (this._ctx)       { try { this._ctx.unconfigure(); } catch(_){} }
+      if (this._pickTex)      { try { this._pickTex.destroy();      } catch(_){} this._pickTex      = null; }
+      if (this._pickDepthTex) { try { this._pickDepthTex.destroy(); } catch(_){} this._pickDepthTex = null; }
+      if (this._pickUb)       { try { this._pickUb.destroy();       } catch(_){} this._pickUb       = null; }
+      if (this._pickReadBuf)  { try { this._pickReadBuf.destroy();  } catch(_){} this._pickReadBuf  = null; }
     },
 
     onResize: function () {
@@ -466,6 +655,8 @@ fn fs(i: Vout) -> @location(0) vec4f {
       self._resizeRaf = requestAnimationFrame(function () {
         self._resizeRaf = 0;
         if (!self._running || !self._device || !self._vb || !self._ib) { return; }
+        self._ensureDepth();
+        self._ensurePickTextures();
         try { self._renderContent(performance.now()); } catch(e) {}
       });
     },
@@ -500,7 +691,8 @@ fn fs(i: Vout) -> @location(0) vec4f {
         entries: [{ binding: 0, resource: { buffer: this._uniformBuf } }],
       });
       this._ensureDepth();
-      wlog("info", "init OK " + c.width + "x" + c.height);
+      this._ensurePickTextures();
+      wlog("info", "init OK " + c.width + "x" + c.height + " objectId=" + this._objectId);
       return true;
     } catch (e3) {
       wlog("error", "init buf: " + (e3 && e3.message ? e3.message : e3));

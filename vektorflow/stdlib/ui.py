@@ -21,6 +21,11 @@ from .screen import (
 )
 from .screen import _copy_vf_ui_file_to_built_web
 from .screen import _sync_json_to_all_built_webs
+from .events import (
+    UIMouse, UIKeyboard,
+    MouseEvent, KeyEvent,
+    start_event_poller, get_global_poller,
+)
 
 # ---------------------------------------------------------------------------
 # Lighting models supported by vf-geom-wgpu.js
@@ -394,16 +399,7 @@ class SceneLight:
 # Placeholder dataclasses
 # ---------------------------------------------------------------------------
 
-@dataclass
-class UIMouse:
-    __vf_py_attrs__ = True
-    _doc = "ui.mouse (pointer); events use a visible frame in the host."
-
-
-@dataclass
-class UIKeyboard:
-    __vf_py_attrs__ = True
-    _doc = "ui.keyboard; events use a visible frame in the host."
+# UIMouse and UIKeyboard are now imported from .events
 
 
 # ---------------------------------------------------------------------------
@@ -495,16 +491,71 @@ class FrameRef:
 
 @dataclass
 class UIRoot:
-    """``use(\\\"ui\\\")`` / ``:.ui`` — use ``ui.mouse``, ``ui.keyboard``, ``ui.display``."""
+    """``use("ui")`` / ``:.ui`` — use ``ui.mouse``, ``ui.keyboard``, ``ui.display``, ``ui.poll()``.
+
+    Events
+    ------
+    Call ``ui.poll()`` from your loop to drain incoming mouse/keyboard events
+    and fire registered callbacks.  The event poller background thread starts
+    automatically when the first frame is placed.
+
+    Example::
+
+        :.ui
+        d : ui.display
+        f : d.Frame()
+        d.add_frame((0.1, 0.1, 0.8, 0.8))
+        cam : d.add_camera(pos:[4,3,5])
+
+        ui.mouse.on_wheel(fn(e) => cam.translate([0, 0, e.step * 0.3]))
+        ui.mouse.on_down( fn(e) => print("click", e.object_id))
+
+        loop:
+            ui.poll()
+    """
 
     __vf_py_attrs__ = True
-    mouse: UIMouse = field(default_factory=UIMouse)
+    mouse:    UIMouse    = field(default_factory=UIMouse)
     keyboard: UIKeyboard = field(default_factory=UIKeyboard)
-    display: "Display" = field(default_factory=lambda: Display())
+    display:  "Display"  = field(default_factory=lambda: Display())
+    _poller_started: bool = field(default=False, repr=False, init=False)
+
+    def __post_init__(self) -> None:
+        # Wire the global poller to push events into our mouse/keyboard queues
+        def _dispatch(evt: dict) -> None:
+            t = evt.get("type")
+            if t != "vf_event":
+                return
+            ev = evt.get("event", "")
+            if ev in ("hover", "down", "up", "wheel"):
+                self.mouse._push(evt)
+            elif ev in ("key_down", "key_up"):
+                self.keyboard._push(evt)
+        p = get_global_poller()
+        p.subscribe(_dispatch)
+
+    def _ensure_poller(self) -> None:
+        if not self._poller_started:
+            object.__setattr__(self, "_poller_started", True)
+            start_event_poller()
+
+    def poll(self) -> None:
+        """Drain the event queue and fire all registered mouse/keyboard callbacks.
+
+        Call this once per iteration of your main loop::
+
+            while True:
+                ui.poll()
+                time.sleep(0.016)   # ~60 fps
+        """
+        self._ensure_poller()
+        self.mouse.poll()
+        self.keyboard.poll()
 
     def __getattr__(self, name: str) -> Any:
         raise AttributeError(
-            f"ui has no attribute {name!r} (use ui.mouse, ui.keyboard, ui.display)"
+            f"ui has no attribute {name!r} "
+            f"(use ui.mouse, ui.keyboard, ui.display, ui.poll())"
         )
 
 
@@ -548,6 +599,10 @@ class Display:
     _last_frame: FrameRef | None = field(default=None, repr=False)
     # geom: frame_id -> { meshes: [...], camera: {...}|None, lights: [...] }
     _geom: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    # (fid, mesh_index) -> SceneBox/SceneCamera/SceneLight (for get_object)
+    _scene_objects: dict[tuple, Any] = field(default_factory=dict, repr=False)
+    # All FrameRefs ever placed (for get_frame)
+    _frame_refs: list[Any] = field(default_factory=list, repr=False)
 
     # ---- properties -------------------------------------------------------
 
@@ -650,7 +705,10 @@ class Display:
         }
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
-        return SceneBox(data, self, fid)
+        obj = SceneBox(data, self, fid)
+        idx = len(self._geom_for(fid)["meshes"]) - 1
+        self._scene_objects[(fid, idx)] = obj
+        return obj
 
     def _add_camera(
         self,
@@ -692,6 +750,39 @@ class Display:
         return SceneLight(data, self, fid)
 
     # ---- geom helpers -----------------------------------------------------
+
+    # ---- object / frame lookup -------------------------------------------
+
+    def get_object(self, object_id: int) -> Any:
+        """Return the scene object (SceneBox/SceneCamera/SceneLight) for a given object_id.
+
+        ``object_id`` is 1-based (0 = no object). The id is the 1-based index of
+        the mesh in the frame's mesh list (matches the ``object_id`` sent by the JS
+        picking pass).
+
+        Returns ``None`` if not found.
+        """
+        if object_id <= 0:
+            return None
+        # Walk all frames, look at stored SceneBox references
+        idx = object_id - 1  # 0-based index
+        for fid, entries in self._geom.items():
+            if fid.startswith("__pending_"):
+                continue
+            meshes = entries.get("meshes", [])
+            if idx < len(meshes):
+                return self._scene_objects.get((fid, idx))
+        return None
+
+    def get_frame(self, frame_id: str) -> Any:
+        """Return the :class:`FrameRef` for a given ``frame_id``.
+
+        Returns ``None`` if not found.
+        """
+        for fr in self._frame_refs:
+            if fr._frame_id == frame_id:
+                return fr
+        return None
 
     def _geom_for(self, fid: str) -> dict[str, Any]:
         if fid not in self._geom:
@@ -759,6 +850,8 @@ class Display:
             existing["lights"].extend(geom_data["lights"])
             self._geom[f._frame_id] = existing
         self._last_frame = f
+        if f not in self._frame_refs:
+            self._frame_refs.append(f)
 
     def _append_frame_op(self, frame_id: str, op: dict[str, Any]) -> None:
         self._frame_ops.setdefault(frame_id, []).append(op)
