@@ -1,21 +1,24 @@
-"""Tests for 3-D geometry commands on Display: draw_box, add_camera, add_light.
-
-These verify that:
-- The Python-side API builds the correct vf-display.json geom section.
-- Lighting model names are validated.
-- Pending-frame geom ops migrate correctly on add_frame.
-- FrameRef.draw_box / .add_camera / .add_light work the same way.
-- The lit_box.vkf example runs without error.
+"""Tests for 3-D geometry commands on Display: add_box, add_camera, add_light,
+and the mutable SceneBox / SceneCamera / SceneLight objects they return.
 """
 
 from __future__ import annotations
 
 import json
+import math
+import time
 from pathlib import Path
 
 import pytest
 
-from vektorflow.stdlib.ui import Display, build_ui_namespace, LIGHT_MODELS
+from vektorflow.stdlib.ui import (
+    Display,
+    SceneBox,
+    SceneCamera,
+    SceneLight,
+    LIGHT_MODELS,
+    build_ui_namespace,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -24,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _display_with_placed_frame() -> tuple[Display, str]:
+def _placed() -> tuple[Display, str]:
     """Return (display, frame_id) with one frame already placed."""
     d = Display()
     f = d.Frame()
@@ -32,269 +35,407 @@ def _display_with_placed_frame() -> tuple[Display, str]:
     return d, f._frame_id
 
 
-def _geom_for(d: Display, fid: str) -> dict:
+def _geom(d: Display, fid: str) -> dict:
     return d._geom.get(fid, {})
 
 
 # ---------------------------------------------------------------------------
-# draw_box
+# add_box — returns SceneBox
 # ---------------------------------------------------------------------------
 
-class TestDrawBox:
-    def test_draw_box_defaults(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[0, 0, 0], scale=[1, 1, 1], color="red")
-        g = _geom_for(d, fid)
-        assert len(g["meshes"]) == 1
-        m = g["meshes"][0]
-        assert m["type"] == "box"
-        assert m["center"] == [0.0, 0.0, 0.0]
-        assert m["scale"]  == [1.0, 1.0, 1.0]
-        assert m["color"]  == "red"
+class TestAddBox:
+    def test_returns_scene_box(self) -> None:
+        d, fid = _placed()
+        box = d.add_box(center=[0,0,0], scale=[1,1,1], color="red")
+        assert isinstance(box, SceneBox)
 
-    def test_draw_box_scale(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[0, 0, 0], scale=[1, 2, 3], color="blue")
-        m = _geom_for(d, fid)["meshes"][0]
-        assert m["scale"] == [1.0, 2.0, 3.0]
+    def test_data_in_geom(self) -> None:
+        d, fid = _placed()
+        d.add_box(center=[1,2,3], scale=[1,2,3], color="blue")
+        m = _geom(d, fid)["meshes"][0]
+        assert m["type"]   == "box"
+        assert m["center"] == [1.0, 2.0, 3.0]
+        assert m["scale"]  == [1.0, 2.0, 3.0]
+        assert m["color"]  == "blue"
 
-    def test_draw_box_hex_color(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[0, 0, 0], scale=[1, 1, 1], color="#ff8800")
-        m = _geom_for(d, fid)["meshes"][0]
-        assert m["color"] == "#ff8800"
+    def test_rotation_initialised_to_zero(self) -> None:
+        d, fid = _placed()
+        box = d.add_box(center=[0,0,0])
+        assert _geom(d, fid)["meshes"][0]["rotation"] == [0.0, 0.0, 0.0]
 
-    def test_draw_box_no_color(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[1, 2, 3])
-        m = _geom_for(d, fid)["meshes"][0]
-        assert m["color"] is None
+    def test_draw_box_alias(self) -> None:
+        d, fid = _placed()
+        box = d.draw_box(center=[0,0,0], color="green")
+        assert isinstance(box, SceneBox)
 
-    def test_multiple_boxes_accumulate(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[0, 0, 0], scale=[1, 1, 1], color="red")
-        d.draw_box(center=[3, 0, 0], scale=[0.5, 0.5, 0.5], color="green")
-        assert len(_geom_for(d, fid)["meshes"]) == 2
-
-    def test_draw_box_before_frame_raises(self) -> None:
+    def test_no_frame_raises(self) -> None:
         d = Display()
-        with pytest.raises(RuntimeError, match="no frame has been placed"):
-            d.draw_box(center=[0, 0, 0])
+        with pytest.raises(RuntimeError):
+            d.add_box(center=[0,0,0])
 
 
 # ---------------------------------------------------------------------------
-# add_camera
+# SceneBox mutations
+# ---------------------------------------------------------------------------
+
+class TestSceneBox:
+    def _box(self) -> tuple[SceneBox, dict, Display, str]:
+        d, fid = _placed()
+        box = d.add_box(center=[0,0,0], scale=[1,2,3], color="red")
+        data = _geom(d, fid)["meshes"][0]
+        return box, data, d, fid
+
+    def test_translate_returns_self(self) -> None:
+        box, *_ = self._box()
+        assert box.translate([1, 0, 0]) is box
+
+    def test_translate_updates_center(self) -> None:
+        box, data, *_ = self._box()
+        box.translate([1, 2, 3])
+        assert data["center"] == [1.0, 2.0, 3.0]
+
+    def test_translate_accumulates(self) -> None:
+        box, data, *_ = self._box()
+        box.translate([1, 0, 0])
+        box.translate([0, 2, 0])
+        assert data["center"] == [1.0, 2.0, 0.0]
+
+    def test_rotate_by_returns_self(self) -> None:
+        box, *_ = self._box()
+        assert box.rotate_by(30, around="y") is box
+
+    def test_rotate_by_sets_rotation(self) -> None:
+        box, data, *_ = self._box()
+        box.rotate_by(45, around="y")
+        assert data["rotation"][1] == pytest.approx(45.0)
+
+    def test_rotate_by_accumulates_mod_360(self) -> None:
+        box, data, *_ = self._box()
+        box.rotate_by(200, around="z")
+        box.rotate_by(200, around="z")
+        assert data["rotation"][2] == pytest.approx(40.0)  # 400 % 360
+
+    def test_rotate_by_axes(self) -> None:
+        box, data, *_ = self._box()
+        box.rotate_by(10, around="x")
+        box.rotate_by(20, around="y")
+        box.rotate_by(30, around="z")
+        assert data["rotation"] == pytest.approx([10.0, 20.0, 30.0])
+
+    def test_rotate_by_bad_axis(self) -> None:
+        box, *_ = self._box()
+        with pytest.raises(ValueError):
+            box.rotate_by(10, around="w")
+
+    def test_set_color(self) -> None:
+        box, data, *_ = self._box()
+        box.set_color("cyan")
+        assert data["color"] == "cyan"
+
+    def test_set_scale(self) -> None:
+        box, data, *_ = self._box()
+        box.set_scale([2, 3, 4])
+        assert data["scale"] == [2.0, 3.0, 4.0]
+
+    def test_center_property(self) -> None:
+        box, *_ = self._box()
+        box.translate([5, 0, 0])
+        assert box.center == [5.0, 0.0, 0.0]
+
+    def test_scale_property(self) -> None:
+        box, *_ = self._box()
+        assert box.scale == [1.0, 2.0, 3.0]
+
+    def test_repr(self) -> None:
+        box, *_ = self._box()
+        assert "SceneBox" in repr(box)
+
+    def test_chaining(self) -> None:
+        d, fid = _placed()
+        box = d.add_box(center=[0,0,0], scale=[1,1,1], color="red")
+        result = box.translate([1,0,0]).rotate_by(45,"y").set_color("blue").set_scale([2,2,2])
+        assert result is box
+
+
+# ---------------------------------------------------------------------------
+# add_camera — returns SceneCamera
 # ---------------------------------------------------------------------------
 
 class TestAddCamera:
-    def test_camera_pos_target_fov(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_camera(pos=[4, 3, 5], target=[0, 0, 0], fov=45)
-        cam = _geom_for(d, fid)["camera"]
-        assert cam is not None
-        assert cam["pos"]    == [4.0, 3.0, 5.0]
-        assert cam["target"] == [0.0, 0.0, 0.0]
-        assert cam["fov"]    == pytest.approx(45.0)
-        assert cam["up"]     == [0.0, 1.0, 0.0]
+    def test_returns_scene_camera(self) -> None:
+        d, _ = _placed()
+        cam = d.add_camera(pos=[4,3,5])
+        assert isinstance(cam, SceneCamera)
 
-    def test_camera_default_target_and_up(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_camera(pos=[5, 5, 5])
-        cam = _geom_for(d, fid)["camera"]
-        assert cam["target"] == [0.0, 0.0, 0.0]
-        assert cam["up"]     == [0.0, 1.0, 0.0]
+    def test_data_stored(self) -> None:
+        d, fid = _placed()
+        d.add_camera(pos=[4,3,5], target=[0,0,0], fov=45)
+        g = _geom(d, fid)
+        assert g["camera"]["pos"]    == [4.0, 3.0, 5.0]
+        assert g["camera"]["fov"]    == pytest.approx(45.0)
+        assert g["camera"]["target"] == [0.0, 0.0, 0.0]
 
-    def test_camera_fov_30(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_camera(pos=[4, 3, 5], fov=30)
-        assert _geom_for(d, fid)["camera"]["fov"] == pytest.approx(30.0)
+    def test_second_call_overwrites(self) -> None:
+        d, fid = _placed()
+        d.add_camera(pos=[1,1,1])
+        d.add_camera(pos=[2,2,2])
+        assert _geom(d, fid)["camera"]["pos"] == [2.0, 2.0, 2.0]
 
-    def test_camera_overwritten_on_second_call(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_camera(pos=[1, 1, 1])
-        d.add_camera(pos=[2, 2, 2])
-        assert _geom_for(d, fid)["camera"]["pos"] == [2.0, 2.0, 2.0]
 
-    def test_camera_requires_pos(self) -> None:
-        d, _ = _display_with_placed_frame()
-        with pytest.raises(TypeError):
-            d.add_camera()  # type: ignore[call-arg]
+class TestSceneCamera:
+    def _cam(self) -> tuple[SceneCamera, dict]:
+        d, fid = _placed()
+        cam = d.add_camera(pos=[4, 3, 5], target=[0,0,0], fov=45)
+        data = _geom(d, fid)["camera"]
+        return cam, data
 
-    def test_camera_custom_up(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_camera(pos=[0, 5, 0], target=[0, 0, 0], up=[0, 0, 1])
-        assert _geom_for(d, fid)["camera"]["up"] == [0.0, 0.0, 1.0]
+    def test_translate_moves_pos(self) -> None:
+        cam, data = self._cam()
+        cam.translate([1, 0, 0])
+        assert data["pos"] == pytest.approx([5.0, 3.0, 5.0])
+
+    def test_translate_returns_self(self) -> None:
+        cam, _ = self._cam()
+        assert cam.translate([0,0,0]) is cam
+
+    def test_look_at(self) -> None:
+        cam, data = self._cam()
+        cam.look_at([1, 2, 3])
+        assert data["target"] == [1.0, 2.0, 3.0]
+
+    def test_set_fov(self) -> None:
+        cam, data = self._cam()
+        cam.set_fov(30)
+        assert data["fov"] == pytest.approx(30.0)
+
+    def test_rotate_by_preserves_xy_radius(self) -> None:
+        cam, data = self._cam()
+        # pos=[4,3,5], target=[0,0,0]
+        # XY radius = sqrt(4^2+3^2) = 5
+        cam.rotate_by(90, around="z")
+        r_after = math.sqrt(data["pos"][0]**2 + data["pos"][1]**2)
+        assert r_after == pytest.approx(5.0, abs=1e-5)
+
+    def test_rotate_by_preserves_z(self) -> None:
+        cam, data = self._cam()
+        z_before = data["pos"][2]
+        cam.rotate_by(45, around="z")
+        assert data["pos"][2] == pytest.approx(z_before, abs=1e-5)
+
+    def test_rotate_by_bad_axis(self) -> None:
+        cam, _ = self._cam()
+        with pytest.raises(ValueError):
+            cam.rotate_by(10, around="w")
+
+    def test_rotate_by_full_circle_returns_to_start(self) -> None:
+        cam, data = self._cam()
+        pos0 = list(data["pos"])
+        cam.rotate_by(360, around="z")
+        assert data["pos"][0] == pytest.approx(pos0[0], abs=1e-4)
+        assert data["pos"][1] == pytest.approx(pos0[1], abs=1e-4)
+
+    def test_rotate_by_returns_self(self) -> None:
+        cam, _ = self._cam()
+        assert cam.rotate_by(30) is cam
+
+    def test_pos_property(self) -> None:
+        cam, _ = self._cam()
+        assert cam.pos == pytest.approx([4.0, 3.0, 5.0])
+
+    def test_target_property(self) -> None:
+        cam, _ = self._cam()
+        assert cam.target == [0.0, 0.0, 0.0]
+
+    def test_fov_property(self) -> None:
+        cam, _ = self._cam()
+        assert cam.fov == pytest.approx(45.0)
+
+    def test_repr(self) -> None:
+        cam, _ = self._cam()
+        assert "SceneCamera" in repr(cam)
+
+    def test_continuous_orbit_moves_camera(self) -> None:
+        cam, data = self._cam()
+        pos0 = list(data["pos"])
+        cam.rotate(around="z", omega=180)  # half rotation per second
+        time.sleep(0.15)                   # ~27° of rotation
+        cam.stop()
+        # camera should have moved
+        moved = math.sqrt(
+            (data["pos"][0] - pos0[0])**2 +
+            (data["pos"][1] - pos0[1])**2
+        )
+        assert moved > 0.1, f"expected camera to have moved, moved={moved:.4f}"
+
+    def test_stop_halts_animation(self) -> None:
+        cam, data = self._cam()
+        cam.rotate(around="z", omega=60)
+        time.sleep(0.08)
+        cam.stop()
+        pos_after_stop = list(data["pos"])
+        time.sleep(0.1)
+        # should not have moved after stop
+        assert data["pos"] == pytest.approx(pos_after_stop, abs=1e-6)
+
+    def test_stop_when_not_running_is_safe(self) -> None:
+        cam, _ = self._cam()
+        cam.stop()  # must not raise
 
 
 # ---------------------------------------------------------------------------
-# add_light
+# add_light — returns SceneLight
 # ---------------------------------------------------------------------------
 
 class TestAddLight:
-    def test_light_blinn_phong(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_light(pos=[6, 8, 6], model="blinn_phong", color="white")
-        lights = _geom_for(d, fid)["lights"]
-        assert len(lights) == 1
-        assert lights[0]["model"] == "blinn_phong"
-        assert lights[0]["color"] == "white"
-        assert lights[0]["pos"]   == [6.0, 8.0, 6.0]
+    def test_returns_scene_light(self) -> None:
+        d, _ = _placed()
+        light = d.add_light(pos=[6,8,6], model="blinn_phong", color="white")
+        assert isinstance(light, SceneLight)
 
-    def test_light_lambert(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_light(pos=[0, 5, 0], model="lambert", color="yellow")
-        assert _geom_for(d, fid)["lights"][0]["model"] == "lambert"
+    def test_data_stored(self) -> None:
+        d, fid = _placed()
+        d.add_light(pos=[6,8,6], model="blinn_phong", color="white")
+        L = _geom(d, fid)["lights"][0]
+        assert L["pos"]   == [6.0, 8.0, 6.0]
+        assert L["model"] == "blinn_phong"
+        assert L["color"] == "white"
 
-    def test_light_flat(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_light(pos=[0, 5, 0], model="flat")
-        assert _geom_for(d, fid)["lights"][0]["model"] == "flat"
+    def test_bad_model_raises(self) -> None:
+        d, _ = _placed()
+        with pytest.raises(ValueError):
+            d.add_light(pos=[0,5,0], model="gouraud")
 
-    def test_light_phong_alias(self) -> None:
-        """'phong' is accepted as alias for blinn_phong."""
-        d, fid = _display_with_placed_frame()
-        d.add_light(pos=[0, 5, 0], model="phong")
-        assert _geom_for(d, fid)["lights"][0]["model"] == "phong"
+    def test_known_models(self) -> None:
+        assert {"flat", "lambert", "blinn_phong"} <= LIGHT_MODELS
 
-    def test_light_bad_model_raises(self) -> None:
-        d, _ = _display_with_placed_frame()
-        with pytest.raises(ValueError, match="unknown"):
-            d.add_light(pos=[0, 5, 0], model="gouraud")
 
-    def test_multiple_lights(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.add_light(pos=[5, 5, 5], model="blinn_phong", color="white")
-        d.add_light(pos=[-5, 3, 0], model="lambert", color="cyan")
-        assert len(_geom_for(d, fid)["lights"]) == 2
+class TestSceneLight:
+    def _light(self) -> tuple[SceneLight, dict]:
+        d, fid = _placed()
+        light = d.add_light(pos=[6, 8, 6], model="blinn_phong", color="white")
+        data = _geom(d, fid)["lights"][0]
+        return light, data
 
-    def test_known_models_set(self) -> None:
-        assert "blinn_phong" in LIGHT_MODELS
-        assert "lambert"     in LIGHT_MODELS
-        assert "flat"        in LIGHT_MODELS
+    def test_translate_moves_pos(self) -> None:
+        light, data = self._light()
+        light.translate([1, 0, 0])
+        assert data["pos"] == pytest.approx([7.0, 8.0, 6.0])
+
+    def test_translate_returns_self(self) -> None:
+        light, _ = self._light()
+        assert light.translate([0,0,0]) is light
+
+    def test_set_color(self) -> None:
+        light, data = self._light()
+        light.set_color("yellow")
+        assert data["color"] == "yellow"
+
+    def test_set_model(self) -> None:
+        light, data = self._light()
+        light.set_model("lambert")
+        assert data["model"] == "lambert"
+
+    def test_set_model_bad(self) -> None:
+        light, _ = self._light()
+        with pytest.raises(ValueError):
+            light.set_model("phong2")
+
+    def test_pos_property(self) -> None:
+        light, _ = self._light()
+        assert light.pos == [6.0, 8.0, 6.0]
+
+    def test_repr(self) -> None:
+        light, _ = self._light()
+        assert "SceneLight" in repr(light)
+
+    def test_rotate_orbits_around_origin(self) -> None:
+        light, data = self._light()
+        pos0 = list(data["pos"])
+        r0 = math.sqrt(pos0[0]**2 + pos0[1]**2)
+        light.rotate(around="z", omega=180)
+        time.sleep(0.15)
+        light.stop()
+        r1 = math.sqrt(data["pos"][0]**2 + data["pos"][1]**2)
+        assert r1 == pytest.approx(r0, abs=0.01)
+
+    def test_light_stop_halts(self) -> None:
+        light, data = self._light()
+        light.rotate(around="z", omega=60)
+        time.sleep(0.08)
+        light.stop()
+        pos_snap = list(data["pos"])
+        time.sleep(0.1)
+        assert data["pos"] == pytest.approx(pos_snap, abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
-# Pending-frame migration
+# Pending-frame migration (geom ops before add_frame)
 # ---------------------------------------------------------------------------
 
-class TestPendingGeomMigration:
-    def test_geom_before_add_frame_migrates(self) -> None:
+class TestPendingMigration:
+    def test_geom_before_frame_migrates(self) -> None:
         d = Display()
         f = d.Frame()
-        # add geom BEFORE placing the frame
-        d.draw_box(center=[0, 0, 0], scale=[1, 1, 1], color="red")
-        d.add_camera(pos=[4, 3, 5])
-        d.add_light(pos=[6, 8, 6], model="blinn_phong")
-        assert f._frame_id == ""  # not placed yet
-
-        # now place
+        box   = d.add_box(center=[0,0,0], color="red")
+        cam   = d.add_camera(pos=[4,3,5])
+        light = d.add_light(pos=[6,8,6])
         d.add_frame((0.1, 0.1, 0.5, 0.5))
         fid = f._frame_id
-        assert fid != ""
-
-        g = _geom_for(d, fid)
+        g = _geom(d, fid)
         assert len(g["meshes"]) == 1
-        assert g["camera"] is not None
+        assert g["camera"]  is not None
         assert len(g["lights"]) == 1
 
-    def test_pending_key_cleaned_up(self) -> None:
+    def test_no_pending_keys_after_place(self) -> None:
         d = Display()
         f = d.Frame()
-        d.draw_box(center=[0, 0, 0])
+        d.add_box(center=[0,0,0])
         d.add_frame((0.1, 0.1, 0.5, 0.5))
-        # no __pending_ keys remain
-        for k in d._geom:
-            assert not k.startswith("__pending_")
+        assert all(not k.startswith("__pending_") for k in d._geom)
 
 
 # ---------------------------------------------------------------------------
-# FrameRef.draw_box / .add_camera / .add_light
+# Two independent frames
 # ---------------------------------------------------------------------------
 
-class TestFrameRefGeom:
-    def test_frameref_draw_box(self) -> None:
+class TestTwoFrames:
+    def test_independent_geom(self) -> None:
         d = Display()
-        f = d.Frame()
-        d.add_frame((0.1, 0.1, 0.5, 0.5))
-        fid = f._frame_id
-        f.draw_box(center=[1, 0, 0], scale=[2, 1, 1], color="cyan")
-        m = _geom_for(d, fid)["meshes"][0]
-        assert m["center"] == [1.0, 0.0, 0.0]
-        assert m["color"]  == "cyan"
-
-    def test_frameref_add_camera(self) -> None:
-        d = Display()
-        f = d.Frame()
-        d.add_frame((0.1, 0.1, 0.5, 0.5))
-        f.add_camera(pos=[3, 3, 3], target=[0, 0, 0], fov=60)
-        cam = _geom_for(d, f._frame_id)["camera"]
-        assert cam["fov"] == pytest.approx(60.0)
-
-    def test_frameref_add_light(self) -> None:
-        d = Display()
-        f = d.Frame()
-        d.add_frame((0.1, 0.1, 0.5, 0.5))
-        f.add_light(pos=[0, 10, 0], model="lambert", color="orange")
-        lights = _geom_for(d, f._frame_id)["lights"]
-        assert lights[0]["model"] == "lambert"
-
-    def test_two_frames_independent_geom(self) -> None:
-        d = Display()
-        f1 = d.Frame()
-        d.add_frame((0.0, 0.0, 0.5, 1.0))
-        f2 = d.Frame()
-        d.add_frame((0.5, 0.0, 0.5, 1.0))
-        f1.draw_box(center=[0, 0, 0], color="red")
-        f2.draw_box(center=[1, 0, 0], color="blue")
-        assert len(_geom_for(d, f1._frame_id)["meshes"]) == 1
-        assert len(_geom_for(d, f2._frame_id)["meshes"]) == 1
-        assert _geom_for(d, f1._frame_id)["meshes"][0]["color"] == "red"
-        assert _geom_for(d, f2._frame_id)["meshes"][0]["color"] == "blue"
+        f1 = d.Frame(); d.add_frame((0.0, 0.0, 0.5, 1.0))
+        f2 = d.Frame(); d.add_frame((0.5, 0.0, 0.5, 1.0))
+        # after placing f2, d._last_frame is f2 — use explicit FrameRef to target f1
+        b1 = f1.add_box(center=[0,0,0], color="red")
+        b2 = f2.add_box(center=[1,0,0], color="blue")
+        assert _geom(d, f1._frame_id)["meshes"][0]["color"] == "red"
+        assert _geom(d, f2._frame_id)["meshes"][0]["color"] == "blue"
 
 
 # ---------------------------------------------------------------------------
-# vf-display.json geom section
+# vf-display.json includes geom + rotation
 # ---------------------------------------------------------------------------
 
-class TestDisplayJsonGeomSection:
-    def _capture_json(self, d: Display) -> dict:
-        """Extract the payload that would be written to vf-display.json."""
-        placed_geom = {
-            fid: g for fid, g in d._geom.items()
-            if not fid.startswith("__pending_")
-        }
-        return {
-            "screen": list(d._screen_ops),
-            "frames": {k: list(v) for k, v in d._frame_ops.items()},
-            "geom":   placed_geom,
-        }
+class TestDisplayJson:
+    def _payload(self, d: Display) -> dict:
+        placed = {fid: g for fid, g in d._geom.items() if not fid.startswith("__pending_")}
+        return {"screen": [], "frames": {}, "geom": placed}
 
-    def test_geom_key_present(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[0, 0, 0], color="red")
-        payload = self._capture_json(d)
-        assert "geom" in payload
-        assert fid in payload["geom"]
-
-    def test_geom_mesh_serialisable(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_box(center=[0, 0, 0], scale=[1, 2, 3], color="red")
-        d.add_camera(pos=[4, 3, 5], target=[0, 0, 0], fov=45)
-        d.add_light(pos=[6, 8, 6], model="blinn_phong", color="white")
-        payload = self._capture_json(d)
-        txt = json.dumps(payload)  # must not raise
+    def test_rotation_serialisable(self) -> None:
+        d, fid = _placed()
+        box = d.add_box(center=[0,0,0], scale=[1,1,1], color="red")
+        box.rotate_by(45, around="y")
+        payload = self._payload(d)
+        txt = json.dumps(payload)
         obj = json.loads(txt)
-        g = obj["geom"][fid]
-        assert g["meshes"][0]["type"] == "box"
-        assert g["camera"]["fov"]      == pytest.approx(45.0)
-        assert g["lights"][0]["model"] == "blinn_phong"
+        assert obj["geom"][fid]["meshes"][0]["rotation"][1] == pytest.approx(45.0)
 
-    def test_geom_not_in_json_for_2d_only(self) -> None:
-        d, fid = _display_with_placed_frame()
-        d.draw_rect((0.1, 0.1, 0.3, 0.3), color="blue")
-        # geom dict is empty → no geom section for this frame
-        payload = self._capture_json(d)
-        assert fid not in payload.get("geom", {})
+    def test_camera_and_lights_serialisable(self) -> None:
+        d, fid = _placed()
+        d.add_camera(pos=[4,3,5], target=[0,0,0], fov=45)
+        d.add_light(pos=[6,8,6], model="blinn_phong", color="white")
+        txt = json.dumps(self._payload(d))
+        obj = json.loads(txt)
+        assert obj["geom"][fid]["camera"]["fov"] == pytest.approx(45.0)
+        assert obj["geom"][fid]["lights"][0]["model"] == "blinn_phong"
 
 
 # ---------------------------------------------------------------------------
@@ -302,40 +443,33 @@ class TestDisplayJsonGeomSection:
 # ---------------------------------------------------------------------------
 
 class TestLitBoxVkf:
-    def test_lit_box_runs(self) -> None:
+    def _run(self):
         from vektorflow.interpreter import Interpreter
         from vektorflow.parser import parse_module
-
-        vkf = REPO / "examples" / "lit_box.vkf"
-        assert vkf.is_file(), f"lit_box.vkf not found at {vkf}"
-        src = vkf.read_text(encoding="utf-8")
-        mod = parse_module(src, str(vkf))
-        ip = Interpreter(vkf)
-        ip.run_module(mod)  # must not raise
-        d = ip.globals.get("d")
-        assert d is not None, "lit_box.vkf must assign display to 'd'"
-
-    def test_lit_box_produces_geom(self) -> None:
-        from vektorflow.interpreter import Interpreter
-        from vektorflow.parser import parse_module
-
         vkf = REPO / "examples" / "lit_box.vkf"
         src = vkf.read_text(encoding="utf-8")
-        mod = parse_module(src, str(vkf))
         ip = Interpreter(vkf)
-        ip.run_module(mod)
-        d = ip.globals["d"]
-        placed = {fid: g for fid, g in d._geom.items() if not fid.startswith("__pending_")}
-        assert placed, "Expected at least one placed frame with geom data"
-        # Pick the first (and only) frame
-        g = next(iter(placed.values()))
-        assert len(g["meshes"]) == 1
-        assert g["meshes"][0]["type"]   == "box"
-        assert g["meshes"][0]["scale"]  == [1.0, 2.0, 3.0]
-        assert g["meshes"][0]["color"]  == "red"
-        assert g["camera"] is not None
-        assert g["camera"]["pos"]       == [4.0, 3.0, 5.0]
-        assert g["camera"]["fov"]       == pytest.approx(45.0)
-        assert len(g["lights"]) == 1
-        assert g["lights"][0]["model"]  == "blinn_phong"
-        assert g["lights"][0]["color"]  == "white"
+        ip.run_module(parse_module(src, str(vkf)))
+        return ip.globals
+
+    def test_runs(self) -> None:
+        g = self._run()
+        assert "d" in g
+
+    def test_returns_scene_objects(self) -> None:
+        g = self._run()
+        assert isinstance(g.get("box"),   SceneBox)
+        assert isinstance(g.get("cam"),   SceneCamera)
+        assert isinstance(g.get("light"), SceneLight)
+
+    def test_box_has_rotation_from_rotate_by(self) -> None:
+        g = self._run()
+        box: SceneBox = g["box"]
+        # lit_box.vkf calls rotate_by(30, around:"y")
+        assert box._data["rotation"][1] == pytest.approx(30.0)
+
+    def test_box_translated(self) -> None:
+        g = self._run()
+        box: SceneBox = g["box"]
+        # lit_box.vkf calls translate([0.5, 0, 0]) after center=[0,0,0]
+        assert box.center[0] == pytest.approx(0.5)

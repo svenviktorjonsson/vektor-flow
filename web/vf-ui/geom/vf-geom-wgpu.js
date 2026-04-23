@@ -359,7 +359,7 @@ fn fs(i: Vout) -> @location(0) vec4f {
       var up    = cam.up     || [0, 1, 0];
 
       var projMat, viewMat, mvp, modelMat;
-      modelMat = Mm.mat4Identity();
+      modelMat = mesh._modelMatrix || Mm.mat4Identity();
 
       if (mesh.mode3d === false) {
         // 2D ortho — ignore camera
