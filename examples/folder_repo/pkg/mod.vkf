@@ -1,0 +1,3 @@
+# Module inside a package folder.
+
+answer() : 42

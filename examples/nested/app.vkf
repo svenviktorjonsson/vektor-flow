@@ -1,0 +1,5 @@
+# Example: import from cwd — `.lib/helpers` resolves lib/helpers.vkf.
+
+lib : .lib.helpers
+
+:: lib.scale(2, 10)

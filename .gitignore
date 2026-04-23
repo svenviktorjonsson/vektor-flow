@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+**/bin/
+**/obj/
+dist/
+.coverage
+.mypy_cache/
+.ruff_cache/
+*.swp
+.DS_Store
+web/vf-ui/vkf-scene.json

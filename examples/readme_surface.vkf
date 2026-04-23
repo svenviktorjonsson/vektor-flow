@@ -1,0 +1,27 @@
+# Surface features aligned with README (reference interpreter).
+# Full `?` branching, `@>`, and defaults: `examples/branching.vkf`.
+
+Point : (x:num, y:num)
++(a:Point, b:Point): (x:a.x+b.x, y:a.y+b.y)
+display(value:Point): "($value.x.1f, $value.y.1f)"
+
+p : (x:1, y:2)
+q : (x:3, y:4)
+r : p + q
+:: r
+
+u : (x:0, y:0)
+u.x : 10
+u.y : 20
+:: u
+
+v : [1..3]
+:: v.0 + v.1 + v.2
+
+:: ($(x): x^2)(7)
+
+:: "interp $u.x.0f"
+
+# One-line `?` (default last): disc `2` → arm `1?` no match → default `9`.
+pick: 2? (1? 10; 9)
+:: pick

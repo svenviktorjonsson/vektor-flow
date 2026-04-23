@@ -1,0 +1,32 @@
+# Branching with `discriminant?` only (no if / switch).
+# See README: Branching (`expr?`). Run: vkf examples/branching.vkf
+
+# --- Parenthesized: equality arms + bare default ---
+a: 2
+b: a? (2? $ + 1; 9)
+:: b
+
+# --- Boolean disc: `true?` / `false?` ---
+x: 1
+x>2? (true? :: x; false? :: x + 1)
+
+# --- If/else with safe `t` on both paths (init + default line) ---
+f():
+  v: 4
+  t: 0
+  v>3?
+    true?
+      p: 3
+      q: p + 1
+      t: p * q
+    t: -1
+  @: t
+:: f()
+
+# --- @> re-enters the same outer `?` (repeat until `0?` arm) ---
+k: 0
+k<3?
+  1?
+    k: k + 1
+    @>
+  0? :: k

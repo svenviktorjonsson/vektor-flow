@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "vkf: run current file",
+      "type": "shell",
+      "command": "python",
+      "args": ["-m", "vektorflow.cli", "${file}"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "vkf: tokens (current file)",
+      "type": "shell",
+      "command": "python",
+      "args": ["-m", "vektorflow.cli", "tokens", "${file}"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

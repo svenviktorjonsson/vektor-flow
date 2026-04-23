@@ -1,0 +1,137 @@
+{
+  "name": "vektorflow",
+  "displayName": "Vektor Flow",
+  "description": "Syntax highlighting and run support for Vektor Flow (.vkf) files",
+  "version": "0.0.6",
+  "publisher": "vektorflow",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "keywords": ["vektorflow", "vkf", "math"],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:vektorflow",
+    "onCommand:vektorflow.runFile"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "vektorflow",
+        "aliases": ["Vektor Flow", "vkf"],
+        "extensions": [".vkf"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vektorflow",
+        "scopeName": "source.vektorflow",
+        "path": "./syntaxes/vektorflow.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vektorflow.runFile",
+        "title": "Run Vektor Flow File",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vektorflow.runFile",
+          "when": "editorLangId == vektorflow",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "vektorflow.runFile"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Vektor Flow",
+      "properties": {
+        "vektorflow.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable used to run: python -m vektorflow.cli <file>. Use an absolute path or activate a venv and set this to that interpreter."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "files.associations": {
+        "*.vkf": "vektorflow"
+      },
+      "[vektorflow]": {
+        "editor.tokenColorCustomizations": {
+          "textMateRules": [
+            { "scope": "comment.line.number-sign.vektorflow", "settings": { "foreground": "#5E9A65", "fontStyle": "italic" } },
+            { "scope": "string.quoted.double.vektorflow", "settings": { "foreground": "#D98C6A" } },
+            { "scope": "constant.character.escape.vektorflow", "settings": { "foreground": "#C9A65C" } },
+            { "scope": "punctuation.interpolation.dollar.vektorflow", "settings": { "foreground": "#FFB24D", "fontStyle": "bold" } },
+            { "scope": "variable.interpolation.name.vektorflow", "settings": { "foreground": "#B89CFF" } },
+            { "scope": "punctuation.interpolation.paren.start.vektorflow", "settings": { "foreground": "#4DD4C4" } },
+            { "scope": "punctuation.interpolation.paren.end.vektorflow", "settings": { "foreground": "#4DD4C4" } },
+            { "scope": "meta.embedded.expr.interpolation.vektorflow", "settings": { "foreground": "#E8DED0" } },
+            { "scope": "keyword.module.spill.start.vektorflow", "settings": { "foreground": "#B97ACC", "fontStyle": "bold" } },
+            { "scope": "keyword.module.spill.dot.vektorflow", "settings": { "foreground": "#9D6BB8" } },
+            { "scope": "entity.name.module.std.vektorflow", "settings": { "foreground": "#5BC0DE", "fontStyle": "bold" } },
+            { "scope": "entity.name.namespace.std.vektorflow", "settings": { "foreground": "#6EC9E8" } },
+            { "scope": "entity.name.function.call.vektorflow", "settings": { "foreground": "#E3C16F", "fontStyle": "bold" } },
+            { "scope": "entity.name.function.definition.vektorflow", "settings": { "foreground": "#56C9A8", "fontStyle": "bold" } },
+            { "scope": "variable.parameter.list.vektorflow", "settings": { "foreground": "#9BC9B0" } },
+            { "scope": "punctuation.block.head.vektorflow", "settings": { "foreground": "#D4A0FF" } },
+            { "scope": "variable.name.binding.vektorflow", "settings": { "foreground": "#7AB8E8", "fontStyle": "bold" } },
+            { "scope": "keyword.operator.emit.line-sugar.vektorflow", "settings": { "foreground": "#C678DD", "fontStyle": "bold" } },
+            { "scope": "constant.language.match-arm.boolean.vektorflow", "settings": { "foreground": "#56B3FF", "fontStyle": "bold" } },
+            { "scope": "keyword.wildcard.match.vektorflow", "settings": { "foreground": "#A0A8C0", "fontStyle": "bold" } },
+            { "scope": "constant.language.boolean.vektorflow", "settings": { "foreground": "#3FA8FF" } },
+            { "scope": "constant.numeric.float.vektorflow", "settings": { "foreground": "#9FD4A8" } },
+            { "scope": "constant.numeric.integer.vektorflow", "settings": { "foreground": "#9FD4A8" } },
+            { "scope": "keyword.operator.emit.vektorflow", "settings": { "foreground": "#E0B84D", "fontStyle": "bold" } },
+            { "scope": "keyword.operator.pipe.vektorflow", "settings": { "foreground": "#E5984D" } },
+            { "scope": "keyword.operator.comparison.vektorflow", "settings": { "foreground": "#A8A4FF" } },
+            { "scope": "keyword.operator.fatarrow.vektorflow", "settings": { "foreground": "#6BB3FF" } },
+            { "scope": "keyword.operator.thinarrow.vektorflow", "settings": { "foreground": "#6BB3FF" } },
+            { "scope": "keyword.operator.range.vektorflow", "settings": { "foreground": "#D7BA5D" } },
+            { "scope": "keyword.operator.xor.vektorflow", "settings": { "foreground": "#3FD6C0" } },
+            { "scope": "keyword.operator.bool.and.vektorflow", "settings": { "foreground": "#5EE6D0" } },
+            { "scope": "keyword.operator.bool.or.vektorflow", "settings": { "foreground": "#5EE6D0" } },
+            { "scope": "keyword.control.at.emit.vektorflow", "settings": { "foreground": "#C678DD", "fontStyle": "bold" } },
+            { "scope": "keyword.control.at.return.vektorflow", "settings": { "foreground": "#B87ACC" } },
+            { "scope": "keyword.control.at.continue.vektorflow", "settings": { "foreground": "#4AC8E0" } },
+            { "scope": "keyword.control.at.break.vektorflow", "settings": { "foreground": "#4AC8E0" } },
+            { "scope": "keyword.control.at.exit.vektorflow", "settings": { "foreground": "#E05252", "fontStyle": "bold" } },
+            { "scope": "keyword.operator.infix.vektorflow", "settings": { "foreground": "#D0B050" } },
+            { "scope": "keyword.operator.assignment.vektorflow", "settings": { "foreground": "#D896D8" } },
+            { "scope": "keyword.operator.relational.punctuation.vektorflow", "settings": { "foreground": "#8A9CFF" } },
+            { "scope": "keyword.operator.arithmetic.vektorflow", "settings": { "foreground": "#E0C26A" } },
+            { "scope": "keyword.operator.concat.vektorflow", "settings": { "foreground": "#E0A45C" } },
+            { "scope": "keyword.operator.lognot.vektorflow", "settings": { "foreground": "#3FD0B0" } },
+            { "scope": "keyword.operator.lambda.vektorflow", "settings": { "foreground": "#50D0FF" } },
+            { "scope": "keyword.operator.kwargbind.vektorflow", "settings": { "foreground": "#D8969E" } },
+            { "scope": "keyword.operator.deref.vektorflow", "settings": { "foreground": "#7A8CA8" } },
+            { "scope": "keyword.operator.abs.vektorflow", "settings": { "foreground": "#D0A840" } },
+            { "scope": "keyword.operator.match.vektorflow", "settings": { "foreground": "#C678DD" } },
+            { "scope": "entity.name.type.class.vektorflow", "settings": { "foreground": "#5AC8E8", "fontStyle": "italic" } },
+            { "scope": "punctuation.parens.begin.vektorflow", "settings": { "foreground": "#B8C850" } },
+            { "scope": "punctuation.parens.end.vektorflow", "settings": { "foreground": "#B8C850" } },
+            { "scope": "punctuation.brackets.begin.vektorflow", "settings": { "foreground": "#B968E8" } },
+            { "scope": "punctuation.brackets.end.vektorflow", "settings": { "foreground": "#B968E8" } },
+            { "scope": "punctuation.braces.begin.vektorflow", "settings": { "foreground": "#C8A830" } },
+            { "scope": "punctuation.braces.end.vektorflow", "settings": { "foreground": "#C8A830" } },
+            { "scope": "punctuation.separator.comma.vektorflow", "settings": { "foreground": "#8B96A8" } },
+            { "scope": "punctuation.terminator.statement.vektorflow", "settings": { "foreground": "#8B96A8" } },
+            { "scope": "punctuation.section.parens.begin.vektorflow", "settings": { "foreground": "#B8C850" } },
+            { "scope": "variable.other.vektorflow", "settings": { "foreground": "#6CB3E8" } }
+          ]
+        }
+      }
+    }
+  },
+  "scripts": {}
+}

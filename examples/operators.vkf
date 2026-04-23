@@ -1,0 +1,34 @@
+# Vectors: element-wise + - * / (same length).
+# Concatenation: & splices end-to-end (vectors, tuples, strings).
+
+A : [1, 2, 3]
+B : [10, 20, 30]
+
+:: A + B
+:: A & [4, 5]
+
+# Multisets: + union, - difference, * intersection, / symmetric difference
+# (missing key ⇒ multiplicity 0).
+
+S : {1:1, 2:1, 3:1}
+T : {2:1, 3:1, 4:1}
+:: S + T
+:: S - T
+:: S * T
+:: S / T
+
+# Structs (immutable; field updates copy the struct).
+p : ()
+p.x : 3
+p.type : "cool"
+:: p
+
+# Branching: `discriminant?` with `cond? body` / default — see `examples/branching.vkf`.
+# Example: `n: 1` then `:: n? (0? 99; n)` prints `1` (default arm is bare `n`).
+
+# Block with tab indent, last expression returns.
+f(x, y) :
+	t : x^2
+	t + y^2
+
+:: f(2, 3)                       # 13

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vektor Flow — VKF scene</title>
+    <link rel="stylesheet" href="vf-frame.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+      crossorigin="anonymous"
+    />
+    <style>
+      /* After katex, etc. UA can still look white; !important + host DefaultBackgroundColor (before init) both matter. */
+      html,
+      body,
+      #layer {
+        margin: 0;
+        overflow: hidden;
+        background-color: transparent !important;
+        background: transparent !important;
+        pointer-events: none;
+      }
+      html,
+      body {
+        height: 100%;
+        min-height: 100%;
+      }
+      #layer {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        min-height: 100%;
+        z-index: 1;
+        pointer-events: none;
+      }
+      /* Full-viewport, frameless, transparent; ``d.draw`` / ``d.draw_rect`` (``vf-display.json`` ``screen``). */
+      .vf-screen-canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        z-index: 0;
+        pointer-events: none;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="vf-screen-canvas" class="vf-screen-canvas" aria-hidden="true"></canvas>
+    <div id="layer"></div>
+    <script src="katex/katex.min.js"></script>
+    <script src="vf-frame.js"></script>
+    <script src="vf-widgets.js"></script>
+    <script src="vf-display.js"></script>
+    <script>
+      // Scene: transparent. Frame chrome: --vf-ui-alpha (see vf-frame.css).
+
+      (function () {
+        var layer0 = document.getElementById("layer");
+        if (!layer0) return;
+        function syncHostAfterSceneLayout() {
+          if (typeof VfFrame === "undefined" || !VfFrame.postNativeHostLayout) return;
+          var el = document.getElementById("layer");
+          if (el) VfFrame.postNativeHostLayout(el, { stageAlpha: 1 });
+        }
+        /* After restore from dock, WebView2 client area can repaints black until layout/hit tests refresh. */
+        layer0.addEventListener(
+          "vf-frame-restore",
+          function () {
+            requestAnimationFrame(function () {
+              requestAnimationFrame(syncHostAfterSceneLayout);
+            });
+          },
+          true
+        );
+      })();
+
+      let lastSceneText = "";
+
+      /** @param spec frame_upsert payload.spec (includes ``rect``: x,y,w,h in 0..1 relative to #layer). */
+      function applySpecRectToPanel(panel, spec) {
+        var r = spec && spec.rect;
+        var x = r && typeof r.x === "number" ? r.x : 0;
+        var y = r && typeof r.y === "number" ? r.y : 0;
+        var w = r && typeof r.w === "number" ? r.w : 1;
+        var h = r && typeof r.h === "number" ? r.h : 1;
+        function clamp01(v) {
+          return Math.max(0, Math.min(1, v));
+        }
+        x = clamp01(x);
+        y = clamp01(y);
+        w = clamp01(w);
+        h = clamp01(h);
+        var root = panel.root;
+        root.style.left = 100 * x + "%";
+        root.style.top = 100 * y + "%";
+        root.style.width = 100 * w + "%";
+        root.style.height = 100 * h + "%";
+        root.classList.add("vf-frame--user-sized");
+        if (typeof panel.syncPointerPassThrough === "function") {
+          panel.syncPointerPassThrough();
+        }
+        if (typeof panel.renderTitle === "function") {
+          panel.renderTitle();
+        }
+      }
+
+      function postExitToHost() {
+        var wv = window.chrome && window.chrome.webview;
+        if (wv && typeof wv.postMessage === "function") {
+          wv.postMessage({ type: "close" });
+        }
+      }
+
+      /** Fetches ``vf-display.json`` and draws (Canvas2D on ``vf-screen-canvas`` + frame bodies). */
+      function displayRefresh() {
+        if (typeof VfDisplay !== "undefined" && VfDisplay.loadAndRender) {
+          VfDisplay.loadAndRender();
+        }
+      }
+
+      async function loadScene() {
+        let raw;
+        try {
+          const r = await fetch("vkf-scene.json?t=" + Date.now(), { cache: "no-store" });
+          if (!r.ok) {
+            displayRefresh();
+            return;
+          }
+          raw = await r.text();
+        } catch (_) {
+          return;
+        }
+        /* Scene can be unchanged while ``d.draw_rect`` still updates — always re-fetch display JSON. */
+        if (raw === lastSceneText) {
+          displayRefresh();
+          return;
+        }
+        lastSceneText = raw;
+
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (_) {
+          displayRefresh();
+          return;
+        }
+        if (!Array.isArray(data)) {
+          displayRefresh();
+          return;
+        }
+
+        const layer = document.getElementById("layer");
+        layer.innerHTML = "";
+
+        const upserts = data.filter(function (c) {
+          return c && c.kind === "frame_upsert" && c.payload && c.payload.spec;
+        });
+        function syncNative() {
+          if (typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
+            VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+          }
+        }
+        for (let i = 0; i < upserts.length; i++) {
+          const spec = upserts[i].payload.spec;
+          const flags = spec.flags || {};
+          const id = spec.id != null ? String(spec.id) : "frame-" + i;
+          const rawTitle = spec.title != null ? String(spec.title).trim() : "";
+          const rawName = spec.name != null ? String(spec.name).trim() : "";
+          const title = rawTitle || rawName;
+          const alpha = VfFrame._coerceAlpha(spec.alpha, 1);
+          const isMaster = spec.master === true;
+          var tAlign = spec.title_align;
+          var titleAlign =
+            tAlign === "center" || tAlign === "right" || tAlign === "left" ? tAlign : "left";
+          const rawDock =
+            spec.dock_loc != null
+              ? spec.dock_loc
+              : spec.dock_location != null
+                ? spec.dock_location
+                : spec.minimized_dock;
+          const dockLocation = VfFrame.normalizeDockLocationKey(
+            rawDock != null ? String(rawDock) : "bl"
+          );
+          const dockable =
+            (flags.dockable !== false) && (flags.minimizable !== false);
+          const panel = VfFrame.mount(layer, {
+            id: id,
+            title: title,
+            titleAlign: titleAlign,
+            inLayerDrag: true,
+            draggable: flags.draggable !== false,
+            dockable: dockable,
+            resizable: flags.resizable !== false,
+            closable: flags.closable !== false,
+            alpha: alpha,
+            master: isMaster,
+            dockLocation: dockLocation,
+            zIndexBase: 1000 + i * 2,
+            onBeforeDestroy: function () {
+              if (typeof VfWidgets !== "undefined" && VfWidgets.onFrameClose) {
+                VfWidgets.onFrameClose(id);
+              }
+            },
+            onFrameRemoved: function () {
+              if (layer._vfMasterTeardown) return;
+              if (layer.querySelectorAll(".vf-frame").length === 0) {
+                postExitToHost();
+              }
+            },
+          });
+          applySpecRectToPanel(panel, spec);
+          if (spec.body && Array.isArray(spec.body) && spec.body.length) {
+            if (typeof VfWidgets !== "undefined" && VfWidgets.mount) {
+              VfWidgets.startStatePoll();
+              VfWidgets.mount(panel, id, spec.body);
+            }
+          }
+        }
+        /* Immediate layout so native g_hitRegions is populated (mouse forwarding) without 2+ frames' delay. */
+        syncNative();
+        displayRefresh();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            syncNative();
+            displayRefresh();
+          });
+        });
+      }
+
+      (function watchScreenCanvas() {
+        var c = document.getElementById("vf-screen-canvas");
+        if (!c || typeof ResizeObserver === "undefined") return;
+        var ro = new ResizeObserver(function () {
+          displayRefresh();
+        });
+        ro.observe(c);
+      })();
+
+      loadScene();
+      setInterval(loadScene, 1500);
+      setInterval(displayRefresh, 500);
+      window.addEventListener("resize", function () {
+        var layer = document.getElementById("layer");
+        if (layer && typeof VfFrame !== "undefined" && VfFrame.layoutMinimizedDock) {
+          VfFrame.layoutMinimizedDock(layer);
+        }
+        if (layer && typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
+          requestAnimationFrame(function () {
+            VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+          });
+        }
+        if (typeof VfDisplay !== "undefined" && VfDisplay.loadAndRender) {
+          VfDisplay.loadAndRender();
+        }
+      });
+      (function observeLayout() {
+        var layer = document.getElementById("layer");
+        if (!layer || typeof ResizeObserver === "undefined") return;
+        var t = 0;
+        var ro = new ResizeObserver(function () {
+          if (typeof VfFrame === "undefined" || !VfFrame.postNativeHostLayout) return;
+          var n = performance.now();
+          if (n - t < 32) return;
+          t = n;
+          requestAnimationFrame(function () {
+            VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+          });
+        });
+        ro.observe(layer);
+      })();
+      (function nativeLayoutOnMove() {
+        var t = 0;
+        document.addEventListener(
+          "pointermove",
+          function () {
+            var n = performance.now();
+            if (n - t < 48) return;
+            t = n;
+            var layer = document.getElementById("layer");
+            if (layer && typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
+              VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+            }
+          },
+          true
+        );
+      })();
+    </script>
+  </body>
+</html>

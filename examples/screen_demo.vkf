@@ -1,0 +1,25 @@
+# Frame demo: one rect on the full host, one rect inside a single frame.
+# ``d.draw`` = frameless background (stays *under* the panel). ``f.draw`` = that panel’s content area.
+
+:.ui
+
+d: ui.display
+
+f: d.frame(
+    title: "Panel",
+    draggable: true,
+    alpha: 0.88,
+    closable: true,
+    dockable: true,
+    resizable: false,
+    dock_loc: "bl",
+    master: true
+)
+# Single window in the lower area — top of the host stays free so the background square shows.
+d.add_frame(f, (0.15, 0.52, 0.5, 0.38))
+
+# 1) Background (normalized to the *whole* view): top-left band — not covered by the frame.
+d.draw((0.06, 0.06, 0.22, 0.2), color: "#3d5c3d")
+
+# 2) Same pipeline as (1) but in *frame* coordinates (normalized to the frame body only).
+f.draw((0.08, 0.1, 0.84, 0.55), color: "#3a7ca5")

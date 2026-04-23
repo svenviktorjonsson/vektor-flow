@@ -1,0 +1,1478 @@
+"""Parse token stream into AST (phase-1 subset)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from . import ast
+from .errors import ParseError, SourceLocation
+from .tokens import (
+    AMPERSAND,
+    AND,
+    ARROW,
+    AT_BANG,
+    AT_BAR,
+    AT_COLON,
+    AT_EMIT,
+    AT_GT,
+    BAR,
+    CARET,
+    COLON,
+    COMMA,
+    DEDENT,
+    DOLLAR,
+    DOT,
+    EMIT,
+    EOF,
+    EQ,
+    FALSE,
+    GE,
+    GT,
+    IDENT,
+    INDENT,
+    LBRACE,
+    LBRACKET,
+    LE,
+    LPAREN,
+    LT,
+    MINUS,
+    NEQ,
+    NEWLINE,
+    NOT,
+    NUMBER,
+    OR,
+    XOR,
+    PERCENT,
+    PIPE,
+    PLUS,
+    QUESTION,
+    RANGE,
+    RBRACE,
+    RBRACKET,
+    RPAREN,
+    SEMICOLON,
+    SLASH,
+    STAR,
+    STRING,
+    STRING_RAW,
+    Token,
+    TRUE,
+)
+
+# Statement-level operator definitions: `+(a, b): …`, `/\\(a, b): …`, `~(x): …`, etc.
+OPERATOR_FUNC_KINDS = frozenset(
+    {
+        PLUS,
+        MINUS,
+        STAR,
+        SLASH,
+        PERCENT,
+        CARET,
+        AMPERSAND,
+        EQ,
+        NEQ,
+        LT,
+        LE,
+        GT,
+        GE,
+        AND,
+        OR,
+        XOR,
+        NOT,
+    }
+)
+
+
+def _token_kind_to_op_symbol(kind: str) -> str:
+    m = {
+        PLUS: "+",
+        MINUS: "-",
+        STAR: "*",
+        SLASH: "/",
+        PERCENT: "%",
+        CARET: "^",
+        EQ: "=",
+        NEQ: "!=",
+        LT: "<",
+        LE: "<=",
+        GT: ">",
+        GE: ">=",
+        AND: "/\\",
+        OR: "\\/",
+        XOR: "><",
+        NOT: "~",
+        AMPERSAND: "&",
+    }
+    if kind not in m:
+        raise ParseError(f"unsupported operator token for definition: {kind}")
+    return m[kind]
+
+
+# Operator tokens that can start a call: ``+(2, 3)``, ``/\\(1, 0)`` (not unary ``~`` — use ``~(x)``).
+_ATOM_CALL_OP_KINDS = frozenset(OPERATOR_FUNC_KINDS - {NOT})
+
+# ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
+# before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
+_PRIMITIVE_TYPE_IDENTS = frozenset({"num", "str", "bool"})
+
+
+class Parser:
+    def __init__(self, tokens: list[Token]) -> None:
+        self.toks = tokens
+        self.i = 0
+
+    def _peek(self) -> str:
+        self._skip_trivia()
+        if self.i >= len(self.toks):
+            return EOF
+        return self.toks[self.i].kind
+
+    def _peek_raw(self) -> str:
+        if self.i >= len(self.toks):
+            return EOF
+        return self.toks[self.i].kind
+
+    def _skip_trivia(self) -> None:
+        while self.i < len(self.toks) and self.toks[self.i].kind == NEWLINE:
+            self.i += 1
+
+    def _advance(self) -> Token:
+        self._skip_trivia()
+        if self.i >= len(self.toks):
+            raise ParseError("unexpected end of input", self._loc_here())
+        t = self.toks[self.i]
+        self.i += 1
+        return t
+
+    def _loc_here(self) -> SourceLocation:
+        if self.i >= len(self.toks):
+            return self.toks[-1].location
+        return self.toks[self.i].location
+
+    def _expect(self, kind: str) -> Token:
+        self._skip_trivia()
+        if self._peek_raw() != kind:
+            raise ParseError(f"expected {kind}, got {self._peek_raw()}", self._loc_here())
+        return self._advance()
+
+    def _emit_disallowed_in_value_expr(self, ctx: str) -> None:
+        """``::`` is a statement-level emit; it may not appear after a subexpression in a literal or arg list."""
+        self._skip_trivia()
+        if self._peek_raw() == EMIT:
+            raise ParseError(
+                f"emit (`::`) is not allowed inside {ctx}; use a separate statement or bind first",
+                self._loc_here(),
+            )
+
+    def _consume_newline_raw(self) -> None:
+        """Consume exactly one ``NEWLINE`` without ``_advance`` (which would skip past ``INDENT``)."""
+        if self._peek_raw() != NEWLINE:
+            raise ParseError(f"expected {NEWLINE}, got {self._peek_raw()}", self._loc_here())
+        self.i += 1
+
+    def _expect_end_of_simple_control_stmt(self) -> None:
+        """After ``@>``, ``@|``, ``@!``: no expression; end the statement without eating the next line.
+
+        Only one line break is consumed as statement end, so a sibling line (e.g. the
+        next ``0 =>`` arm) is not lost to ``@>``.
+        """
+        k = self._peek_raw()
+        if k == NEWLINE:
+            self.i += 1
+            return
+        if k in (SEMICOLON, EOF, RPAREN, DEDENT):
+            if k == SEMICOLON:
+                self.i += 1
+            return
+        raise ParseError(
+            "expected end of line, `;`, `)`, end of input, or dedent after `@>` / `@|` / `@!`",
+            self._loc_here(),
+        )
+
+    def _expect_end_of_return_stmt(self) -> None:
+        """After ``@`` expr: same terminators (allows ``(@ x)``-style endings)."""
+        # Do not call ``_skip_trivia`` here: it consumes all newlines, so the next
+        # statement on the following line (e.g. ``99``) would be read as invalid.
+        k = self._peek_raw()
+        if k in (NEWLINE, SEMICOLON, EOF, RPAREN):
+            if k == SEMICOLON:
+                self.i += 1
+            elif k == NEWLINE:
+                self.i += 1
+            return
+        raise ParseError(
+            "expected end of line, `;`, `)`, or end of input after `@:` / `@::` return",
+            self._loc_here(),
+        )
+
+    def _parse_switch_arm_body(self) -> Any:
+        """One match arm: one line (one statement) or newline + indented block."""
+        if self._peek_raw() == NEWLINE:
+            self._consume_newline_raw()
+            self._skip_trivia()
+            if self._peek_raw() != INDENT:
+                raise ParseError(
+                    "expected indented block after a `?` arm head (or put the body on the same line)",
+                    self._loc_here(),
+                )
+            self._expect(INDENT)
+            body_stmts: list[Any] = []
+            while True:
+                self._skip_trivia()
+                if self._peek_raw() in (DEDENT, EOF):
+                    break
+                body_stmts.extend(self.parse_stmt_semicolon_chain())
+            self._expect(DEDENT)
+            return self._func_body_from_stmts(body_stmts)
+        st = self.parse_stmt()
+        return self._func_body_from_stmts([st])
+
+    def _parse_one_switch_arm(self) -> ast.MatchArm:
+        self._skip_trivia()
+        if self._peek_raw() == QUESTION:
+            self._advance()
+            body = self._parse_switch_arm_body()
+            return ast.MatchArm(None, body)
+        mark = self.i
+        head = self.parse_or_expr()
+        self._skip_trivia()
+        if self._peek_raw() == QUESTION:
+            self._advance()
+            body = self._parse_switch_arm_body()
+            return ast.MatchArm(head, body)
+        self.i = mark
+        st = self.parse_stmt()
+        return ast.MatchArm(None, self._func_body_from_stmts([st]))
+
+    def _parse_match_arms_after_question(self) -> list[ast.MatchArm]:
+        if self._peek_raw() == LPAREN:
+            self._advance()
+            self._skip_trivia()
+            arms = self._parse_switch_arms_list(
+                end_tokens={SEMICOLON, RPAREN, NEWLINE, EOF, PIPE, COMMA}
+            )
+            self._expect(RPAREN)
+            return arms
+        if self._peek_raw() == NEWLINE:
+            self._consume_newline_raw()
+            self._skip_trivia()
+            if self._peek_raw() == INDENT:
+                return self._parse_match_arms_indented()
+            raise ParseError(
+                "expected `(` for match arms on the same line, or an indented block after `?`",
+                self._loc_here(),
+            )
+        return self._parse_switch_arms_list(
+            end_tokens={SEMICOLON, NEWLINE, EOF, RPAREN, PIPE, COMMA, DEDENT}
+        )
+
+    def _parse_switch_arms_list(self, end_tokens: set) -> list[ast.MatchArm]:
+        """Parse arms until ``end_tokens``. Stmts like ``@|`` / ``@>`` may consume a trailing ``;``;
+        a following arm is still read without an extra ``;`` before it."""
+        arms: list[ast.MatchArm] = []
+        while True:
+            self._skip_trivia()
+            while self._peek_raw() == SEMICOLON:
+                self._advance()
+            if self._peek_raw() in end_tokens or self._peek_raw() == EOF:
+                break
+            arm = self._parse_one_switch_arm()
+            arms.append(arm)
+        if not arms:
+            raise ParseError("expected at least one match arm after `?`", self._loc_here())
+        return arms
+
+    def _parse_match_arms_indented(self) -> list[ast.MatchArm]:
+        self._expect(INDENT)
+        arms: list[ast.MatchArm] = []
+        while True:
+            self._skip_trivia()
+            while self._peek_raw() == SEMICOLON:
+                self._advance()
+            if self._peek_raw() in (DEDENT, EOF):
+                break
+            arms.append(self._parse_one_switch_arm())
+        if not arms:
+            raise ParseError("expected at least one match arm after `?`", self._loc_here())
+        self._expect(DEDENT)
+        return arms
+
+    def _kind_after_balanced_call(self) -> str | None:
+        """If at ``IDENT`` ``(``, return the kind after the matching ``)``, skipping newlines."""
+        if self._peek_raw() != IDENT:
+            return None
+        if self.i + 1 >= len(self.toks) or self.toks[self.i + 1].kind != LPAREN:
+            return None
+        depth = 1
+        j = self.i + 2
+        while j < len(self.toks) and depth > 0:
+            k = self.toks[j].kind
+            if k == LPAREN:
+                depth += 1
+            elif k == RPAREN:
+                depth -= 1
+            j += 1
+        if depth != 0:
+            return None
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j < len(self.toks):
+            return self.toks[j].kind
+        return EOF
+
+    def _paren_is_only_func_param_list(self, lparen_idx: int) -> bool:
+        """True if ``(`` … ``)`` at ``lparen_idx`` is only ``name``, ``name: type``, commas, newlines."""
+        if lparen_idx >= len(self.toks) or self.toks[lparen_idx].kind != LPAREN:
+            return False
+        depth = 1
+        j = lparen_idx + 1
+        while j < len(self.toks) and depth > 0:
+            k = self.toks[j].kind
+            if k == LPAREN:
+                depth += 1
+                j += 1
+                continue
+            if k == RPAREN:
+                depth -= 1
+                j += 1
+                if depth == 0:
+                    return True
+                continue
+            if depth != 1:
+                j += 1
+                continue
+            if k == NEWLINE:
+                j += 1
+                continue
+            if k not in (IDENT, COMMA, COLON):
+                return False
+            j += 1
+        return False
+
+    def _kind_after_balanced_call_from_lparen(self, lparen_idx: int) -> str | None:
+        """Kind after the ``)`` matching ``lparen_idx`` (``lparen_idx`` points at ``LPAREN``)."""
+        if lparen_idx >= len(self.toks) or self.toks[lparen_idx].kind != LPAREN:
+            return None
+        depth = 1
+        j = lparen_idx + 1
+        while j < len(self.toks) and depth > 0:
+            k = self.toks[j].kind
+            if k == LPAREN:
+                depth += 1
+            elif k == RPAREN:
+                depth -= 1
+            j += 1
+        if depth != 0:
+            return None
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j < len(self.toks):
+            return self.toks[j].kind
+        return EOF
+
+    def parse_module(self) -> ast.Module:
+        stmts: list[Any] = []
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() == EOF:
+                break
+            stmts.append(self.parse_stmt())
+        return ast.Module(stmts)
+
+    def parse_stmt(self) -> Any:
+        self._skip_trivia()
+        # Leading ``:: expr`` — print to stdout; ``:: :`` prints the current local scope (see StructIdentity).
+        # ``::: expr`` is sugar for ``:: (expr & "\\n")`` (line-oriented print, like ``::"$a\\n"`` with interpolation).
+        if self._peek_raw() == EMIT:
+            self._advance()
+            if self._peek_raw() == COLON:
+                self._advance()
+                if self._peek_raw() in (NEWLINE, EOF, SEMICOLON):
+                    return ast.StdioPrint(ast.StructIdentity())
+                val = self.parse_expr()
+                return ast.StdioPrint(
+                    ast.BinOp(AMPERSAND, val, ast.StringLit("\n"))
+                )
+            val = self.parse_expr()
+            return ast.StdioPrint(val)
+
+        # ``:.path`` — spill module exports into current scope
+        if self._peek_raw() == COLON:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == DOT:
+                self._advance()
+                path = self._parse_dot_module_path_from_dot()
+                return ast.SpillImport(path)
+
+        # Lone ``:`` — expression ``StructIdentity`` (return current local scope as a record)
+        if self._peek_raw() == COLON:
+            self._advance()
+            # Do not skip newlines here: the line must end after `:` or `;` (see StructIdentity).
+            if self._peek_raw() in (NEWLINE, EOF, SEMICOLON):
+                return ast.ExprStmt(ast.StructIdentity())
+            raise ParseError(
+                "expected end of line or `;` after `:` (use `:` alone to return the local scope)",
+                self._loc_here(),
+            )
+
+        if self._peek_raw() == AT_GT:
+            self._advance()
+            self._expect_end_of_simple_control_stmt()
+            return ast.ContinueStmt()
+
+        if self._peek_raw() == AT_BAR:
+            self._advance()
+            self._expect_end_of_simple_control_stmt()
+            return ast.BreakStmt()
+
+        if self._peek_raw() == AT_BANG:
+            self._advance()
+            self._expect_end_of_simple_control_stmt()
+            return ast.ExitProgramStmt()
+
+        # ``@:: expr`` — print then return (single lexer token; not ``@`` + ``::``).
+        if self._peek_raw() == AT_EMIT:
+            self._advance()
+            if self._peek_raw() in (NEWLINE, SEMICOLON, EOF, RPAREN):
+                raise ParseError(
+                    "expected expression after `@::` (return and emit)",
+                    self._loc_here(),
+                )
+            val = self.parse_expr()
+            self._expect_end_of_return_stmt()
+            return ast.ReturnEmitStmt(val)
+
+        # ``@:`` return — ``@:|a|`` is unambiguous (return `|a|`).
+        if self._peek_raw() == AT_COLON:
+            self._advance()
+            if self._peek_raw() in (NEWLINE, SEMICOLON, EOF, RPAREN):
+                if self._peek_raw() == SEMICOLON:
+                    self.i += 1
+                return ast.ReturnStmt(None)
+            val = self.parse_expr()
+            self._expect_end_of_return_stmt()
+            return ast.ReturnStmt(val)
+
+        # Operator function: `+(a, b):` / `<(a, b):` — before `IDENT (` normal func
+        if self._peek_raw() in OPERATOR_FUNC_KINDS:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                k_after = self._kind_after_balanced_call_from_lparen(self.i + 1)
+                if k_after == COLON:
+                    return self.parse_operator_func_def()
+
+        # ``f(x):::`` / ``f(x) ::`` — body from stdin (print is only ``:: expr``, not trailing)
+        if self._peek_raw() == IDENT:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                lpar = self.i + 1
+                if self._paren_is_only_func_param_list(lpar):
+                    k_after = self._kind_after_balanced_call()
+                    if k_after == EMIT:
+                        return self.parse_func_def_stdin()
+
+        # Function: IDENT ( ... ) :  or  IDENT ( ... ) -> codomain :
+        if self._peek_raw() == IDENT:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                k_after = self._kind_after_balanced_call()
+                if k_after in (COLON, ARROW):
+                    return self.parse_func_def()
+
+        # Bind: lvalue `:` expr (single colon, not ::); lvalue is postfix (``a``, ``a.b``, ``a.(1)``, …)
+        if self._peek_raw() == IDENT:
+            if not (
+                self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN
+            ):
+                mark = self.i
+                target = self.parse_postfix()
+                self._skip_trivia()
+                if self._peek_raw() == COLON and (
+                    self.i + 1 >= len(self.toks) or self.toks[self.i + 1].kind != COLON
+                ):
+                    self._advance()
+                    val = self._parse_bind_rhs(target)
+                    return ast.Bind(target, val)
+                self.i = mark
+
+        expr = self.parse_expr()
+        # After a multiline ``expr?`` / ``…?`` block, ``DEDENT`` can be immediately followed
+        # by ``::`` (no ``NEWLINE`` token between). The next statement must be a leading
+        # ``:: expr`` print, not a mis-parse of trailing ``t ::`` (stdio) on the match.
+        if isinstance(expr, ast.MatchStmt) and self._peek_raw() == EMIT:
+            return expr
+        # Do not ``_skip_trivia`` here: it consumes newlines, so ``f(10, 20)`` on one
+        # line would incorrectly absorb leading ``::`` on the next line as trailing ``::``.
+        # Trailing ``name ::`` / ``name :::`` — stdin read; ``:::`` prints ``name: `` before the caret.
+        if self._peek_raw() == EMIT:
+            self._advance()
+            self._skip_trivia()
+            if self._peek_raw() == COLON:
+                self._advance()
+                self._skip_trivia()
+                if self._peek_raw() not in (NEWLINE, EOF):
+                    raise ParseError(
+                        "trailing `:::` only reads stdin after `name: ` prompt; nothing may follow on the line",
+                        self._loc_here(),
+                    )
+                if isinstance(expr, ast.Ident):
+                    return ast.StdioPrompt(expr)
+                raise ParseError(
+                    "`:::` line input expects a simple name before `:::`",
+                    self._loc_here(),
+                )
+            if self._peek_raw() not in (NEWLINE, EOF):
+                raise ParseError(
+                    ":: only supports stdio; use io.write_text(path, text) to write to a file",
+                    self._loc_here(),
+                )
+            if isinstance(expr, ast.Ident):
+                return ast.StdioReadLine(expr)
+            raise ParseError(
+                "trailing :: only reads a line into a simple name; use leading :: to print ( :: expr )",
+                self._loc_here(),
+            )
+        self._skip_trivia()
+        if isinstance(expr, ast.MatchStmt):
+            return expr
+        return ast.ExprStmt(expr)
+
+    def _parse_dot_module_path_from_dot(self) -> ast.DotModulePath:
+        self._expect(DOT)
+        segments: list[str] = []
+        while True:
+            if self._peek_raw() in (STRING, STRING_RAW):
+                segments.append(str(self._advance().value))
+            elif self._peek_raw() == IDENT:
+                segments.append(str(self._advance().value))
+            else:
+                raise ParseError(
+                    "expected identifier or string segment in .module path",
+                    self._loc_here(),
+                )
+            self._skip_trivia()
+            if self._peek_raw() == DOT:
+                self._advance()
+                continue
+            break
+        return ast.DotModulePath(segments)
+
+    def parse_func_def_stdin(self) -> ast.FuncDefStdin:
+        name = str(self._expect(IDENT).value)
+        self._expect(LPAREN)
+        params = self.parse_func_params()
+        self._expect(RPAREN)
+        if self._peek_raw() != EMIT:
+            raise ParseError("expected :: or ::: after function head", self._loc_here())
+        self._advance()
+        if self._peek_raw() == COLON:
+            self._advance()
+            return ast.FuncDefStdin(name, params, True)
+        return ast.FuncDefStdin(name, params, False)
+
+    def parse_operator_func_def(self) -> ast.FuncDef:
+        t = self._advance()
+        if t.kind not in OPERATOR_FUNC_KINDS:
+            raise ParseError(
+                f"expected operator token, got {t.kind}", self._loc_here()
+            )
+        name = _token_kind_to_op_symbol(t.kind)
+        self._expect(LPAREN)
+        params = self.parse_func_params()
+        self._expect(RPAREN)
+        self._expect(COLON)
+        if self._peek_raw() == NEWLINE:
+            self._consume_newline_raw()
+            if self._peek_raw() != INDENT:
+                raise ParseError(
+                    "operator function must have a body (indent a block after the colon)",
+                    self._loc_here(),
+                )
+            body_stmts: list[Any] = []
+            while True:
+                self._skip_trivia()
+                if self._peek_raw() in (DEDENT, EOF):
+                    break
+                body_stmts.extend(self.parse_stmt_semicolon_chain())
+            self._expect(DEDENT)
+            return ast.FuncDef(name, params, self._func_body_from_stmts(body_stmts))
+        stmts = self.parse_stmt_semicolon_chain()
+        return ast.FuncDef(name, params, self._func_body_from_stmts(stmts))
+
+    def parse_stmt_semicolon_chain(self) -> list[Any]:
+        """One or more statements separated by ``;`` (same logical indentation line)."""
+        out: list[Any] = []
+        while True:
+            out.append(self.parse_stmt())
+            self._skip_trivia()
+            if self._peek_raw() == SEMICOLON:
+                self._advance()
+                self._skip_trivia()
+                continue
+            break
+        return out
+
+    def _func_body_from_stmts(self, stmts: list[Any]) -> Any:
+        """Single trailing expression keeps legacy shape; multiple stmts use :class:`Block`."""
+        if not stmts:
+            return ast.Block([])
+        if len(stmts) == 1 and isinstance(stmts[0], ast.ExprStmt):
+            return stmts[0].expr
+        return ast.Block(stmts)
+
+    def parse_func_params(self) -> list[ast.Param]:
+        params: list[ast.Param] = []
+        if self._peek_raw() == RPAREN:
+            return params
+        while True:
+            pname = str(self._expect(IDENT).value)
+            if self._peek_raw() == COLON:
+                self._advance()
+                t = self._parse_arrow_type()
+                if isinstance(t, ast.FuncType):
+                    params.append(ast.Param(pname, None, t))
+                elif isinstance(t, ast.PrimTypeRef):
+                    params.append(ast.Param(pname, t.name, None))
+                else:
+                    raise ParseError("expected type after ':'", self._loc_here())
+            else:
+                params.append(ast.Param(pname, None, None))
+            if self._peek_raw() == COMMA:
+                self._advance()
+                continue
+            break
+        return params
+
+    def _parse_arrow_type(self) -> Any:
+        """Parse ``num``, ``num -> num``, ``num -> num -> num`` (right-associative).
+
+        Returns :class:`PrimTypeRef` or :class:`FuncType` (codomain is ``str`` or nested
+        :class:`FuncType`).
+        """
+        left = ast.PrimTypeRef(str(self._expect(IDENT).value))
+        if self._peek_raw() != ARROW:
+            return left
+        self._advance()
+        rhs = self._parse_arrow_type()
+        if isinstance(rhs, ast.FuncType):
+            return ast.FuncType(left, rhs)
+        if isinstance(rhs, ast.PrimTypeRef):
+            return ast.FuncType(left, rhs.name)
+        raise ParseError("internal: arrow type tail must be PrimTypeRef or FuncType", self._loc_here())
+
+    def _normalize_codomain_for_func_type(self, cod: Any) -> Any:
+        if isinstance(cod, ast.PrimTypeRef):
+            return cod.name
+        if isinstance(cod, ast.FuncType):
+            return cod
+        raise ParseError("internal: invalid function codomain", self._loc_here())
+
+    def parse_func_def(self) -> ast.FuncDef:
+        name = str(self._expect(IDENT).value)
+        self._expect(LPAREN)
+        params = self.parse_func_params()
+        self._expect(RPAREN)
+        func_type: ast.FuncType | None = None
+        if self._peek_raw() == ARROW:
+            self._advance()
+            cod = self._parse_arrow_type()
+            domain = self._params_to_domain_type(params)
+            func_type = ast.FuncType(domain, self._normalize_codomain_for_func_type(cod))
+        self._expect(COLON)
+        if self._peek_raw() == NEWLINE:
+            self._consume_newline_raw()
+            # No INDENT: empty body — struct constructor (``class``) with no statements.
+            if self._peek_raw() != INDENT:
+                return ast.FuncDef(name, params, ast.Block([]), func_type)
+            self._expect(INDENT)
+            body_stmts: list[Any] = []
+            while True:
+                self._skip_trivia()
+                if self._peek_raw() in (DEDENT, EOF):
+                    break
+                body_stmts.extend(self.parse_stmt_semicolon_chain())
+            self._expect(DEDENT)
+            return ast.FuncDef(name, params, self._func_body_from_stmts(body_stmts), func_type)
+        stmts = self.parse_stmt_semicolon_chain()
+        return ast.FuncDef(name, params, self._func_body_from_stmts(stmts), func_type)
+
+    def _name_is_type_bind(self, name: str) -> bool:
+        return len(name) > 0 and name[0].isalpha() and name[0].isupper()
+
+    def _is_type_record_shape(self) -> bool:
+        """True if the next ``( … )`` is a flat type record (``ident:ident`` pairs only)."""
+        self._skip_trivia()
+        if self._peek_raw() != LPAREN:
+            return False
+        j = self.i + 1
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks):
+            return False
+        if self.toks[j].kind == RPAREN:
+            return True
+        while True:
+            if self.toks[j].kind != IDENT:
+                return False
+            j += 1
+            if j >= len(self.toks) or self.toks[j].kind != COLON:
+                return False
+            j += 1
+            if j >= len(self.toks):
+                return False
+            rhs_k = self.toks[j].kind
+            if rhs_k == NUMBER:
+                return False
+            if rhs_k != IDENT:
+                return False
+            j += 1
+            while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+                j += 1
+            if j >= len(self.toks):
+                return False
+            if self.toks[j].kind == RPAREN:
+                return True
+            if self.toks[j].kind == COMMA:
+                j += 1
+                while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+                    j += 1
+                continue
+            return False
+
+    def _parse_type_record(self) -> ast.TypeExpr:
+        self._expect(LPAREN)
+        return self._parse_type_record_after_lparen()
+
+    def _parse_type_record_after_lparen(self) -> ast.TypeExpr:
+        fields: list[tuple[str, str]] = []
+        if self._peek_raw() == RPAREN:
+            self._advance()
+            return ast.TypeExpr([])
+        while True:
+            fname = str(self._expect(IDENT).value)
+            self._expect(COLON)
+            tname = str(self._expect(IDENT).value)
+            fields.append((fname, tname))
+            if self._peek_raw() == COMMA:
+                self._advance()
+                continue
+            self._expect(RPAREN)
+            return ast.TypeExpr(fields)
+
+    def _is_type_record_contents_after_lparen(self) -> bool:
+        """True if ``(`` was just consumed and body matches ``ident:ident [, …]``."""
+        j = self.i
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks):
+            return False
+        if self.toks[j].kind == RPAREN:
+            return False
+        while True:
+            if self.toks[j].kind != IDENT:
+                return False
+            j += 1
+            if j >= len(self.toks) or self.toks[j].kind != COLON:
+                return False
+            j += 1
+            if j >= len(self.toks):
+                return False
+            if self.toks[j].kind != IDENT:
+                return False
+            j += 1
+            while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+                j += 1
+            if j >= len(self.toks):
+                return False
+            if self.toks[j].kind == RPAREN:
+                return True
+            if self.toks[j].kind == COMMA:
+                j += 1
+                while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+                    j += 1
+                continue
+            return False
+
+    def _parse_tuple_type(self) -> ast.TupleTypeExpr:
+        self._expect(LPAREN)
+        els: list[str] = []
+        if self._peek_raw() == RPAREN:
+            self._advance()
+            return ast.TupleTypeExpr([])
+        while True:
+            els.append(str(self._expect(IDENT).value))
+            if self._peek_raw() == COMMA:
+                self._advance()
+                continue
+            self._expect(RPAREN)
+            return ast.TupleTypeExpr(els)
+
+    def _parse_type_domain(self) -> ast.PrimTypeRef | ast.TupleTypeExpr | ast.TypeExpr:
+        self._skip_trivia()
+        if self._peek_raw() == LPAREN:
+            if self._is_type_record_shape():
+                return self._parse_type_record()
+            return self._parse_tuple_type()
+        if self._peek_raw() == IDENT:
+            return ast.PrimTypeRef(str(self._advance().value))
+        raise ParseError("expected type (record, tuple, or name)", self._loc_here())
+
+    def _parse_type_definition(self) -> ast.TypeExpr | ast.FuncType:
+        """Parse a type RHS after ``Name :`` when ``Name`` is a type binding (capitalized)."""
+        domain = self._parse_type_domain()
+        self._skip_trivia()
+        if self._peek_raw() == ARROW:
+            self._advance()
+            codomain = str(self._expect(IDENT).value)
+            return ast.FuncType(domain, codomain)
+        if isinstance(domain, ast.TypeExpr):
+            return domain
+        raise ParseError(
+            "tuple or bare type name requires '->' codomain (e.g. num -> num, (num,num) -> num)",
+            self._loc_here(),
+        )
+
+    def _parse_bind_rhs(self, target: Any) -> Any:
+        if isinstance(target, ast.Ident) and self._name_is_type_bind(target.name):
+            saved = self.i
+            try:
+                return self._parse_type_definition()
+            except ParseError:
+                self.i = saved
+                return self.parse_expr()
+        return self.parse_expr()
+
+    def parse_expr(self) -> Any:
+        return self.parse_pipe()
+
+    def parse_pipe(self) -> Any:
+        self._skip_trivia()
+        # Leading ``>>`` (no LHS yet) — stdin supplies the line piped into ``$`` (see ``StdinPipe``).
+        if self._peek_raw() == PIPE:
+            self._advance()
+            right = self.parse_expr()
+            return ast.StdinPipe(right)
+        left = self.parse_or_expr()
+        if self._peek_raw() == QUESTION:
+            self._advance()
+            arms = self._parse_match_arms_after_question()
+            left = ast.MatchStmt(left, arms)
+        segments: list[Any] = []
+        while True:
+            k = self._peek_raw()
+            if k == PIPE:
+                self._advance()
+                segments.append(self._parse_pipe_rhs())
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                if self._peek_raw() == PIPE:
+                    self._advance()
+                    segments.append(self._parse_pipe_rhs())
+                    continue
+                self.i = saved
+                break
+            break
+        if not segments:
+            return left
+        return ast.PipeChain(left, segments)
+
+    def _parse_pipe_rhs(self) -> Any:
+        """RHS of ``>>``: semicolon-separated statements (``:: $``; ``$? …``; binds; …).
+
+        Each ``:: expr`` prints with a trailing newline unless ``expr`` stringifies to text
+        that already ends with ``\\n`` (e.g. ``$ & "\\n"`` controls the line ending explicitly).
+        """
+        stmts = self.parse_stmt_semicolon_chain()
+        return self._func_body_from_stmts(stmts)
+
+    def parse_or_expr(self) -> Any:
+        left = self.parse_and_expr()
+        while True:
+            k = self._peek_raw()
+            if k in (OR, XOR):
+                op = self._advance().kind
+                right = self.parse_and_expr()
+                left = ast.BinOp(op, left, right)
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                k2 = self._peek_raw()
+                if k2 in (OR, XOR):
+                    if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                        self.i = saved
+                        break
+                    op = self._advance().kind
+                    right = self.parse_and_expr()
+                    left = ast.BinOp(op, left, right)
+                    continue
+                self.i = saved
+                break
+            break
+        return left
+
+    def parse_and_expr(self) -> Any:
+        left = self.parse_not_expr()
+        while True:
+            k = self._peek_raw()
+            if k == AND:
+                self._advance()
+                right = self.parse_not_expr()
+                left = ast.BinOp(AND, left, right)
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                if self._peek_raw() == AND:
+                    if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                        self.i = saved
+                        break
+                    self._advance()
+                    right = self.parse_not_expr()
+                    left = ast.BinOp(AND, left, right)
+                    continue
+                self.i = saved
+                break
+            break
+        return left
+
+    def parse_not_expr(self) -> Any:
+        self._skip_trivia()
+        if self._peek_raw() == NOT:
+            self._advance()
+            return ast.UnaryOp(NOT, self.parse_not_expr())
+        return self.parse_cmp_expr()
+
+    def parse_cmp_expr(self) -> Any:
+        cmp_ops = (EQ, NEQ, LT, LE, GT, GE)
+        left = self.parse_add_expr()
+        while True:
+            k = self._peek_raw()
+            if k in cmp_ops:
+                op = self._advance().kind
+                left = ast.BinOp(op, left, self.parse_add_expr())
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                if self._peek_raw() in cmp_ops:
+                    op = self._advance().kind
+                    left = ast.BinOp(op, left, self.parse_add_expr())
+                    continue
+                self.i = saved
+                break
+            break
+        return left
+
+    def parse_add_expr(self) -> Any:
+        left = self.parse_mul_expr()
+        while True:
+            k = self._peek_raw()
+            if k in (PLUS, MINUS, AMPERSAND):
+                op = self._advance().kind
+                left = ast.BinOp(op, left, self.parse_mul_expr())
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                if self._peek_raw() in (PLUS, MINUS, AMPERSAND):
+                    op = self._advance().kind
+                    left = ast.BinOp(op, left, self.parse_mul_expr())
+                    continue
+                self.i = saved
+                break
+            break
+        return left
+
+    def parse_mul_expr(self) -> Any:
+        left = self.parse_power()
+        while True:
+            k = self._peek_raw()
+            if k in (STAR, SLASH, PERCENT):
+                op = self._advance().kind
+                left = ast.BinOp(op, left, self.parse_power())
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                k2 = self._peek_raw()
+                if k2 in (STAR, SLASH, PERCENT):
+                    op = self._advance().kind
+                    left = ast.BinOp(op, left, self.parse_power())
+                    continue
+                self.i = saved
+                break
+            if self._implicit_mul_follows():
+                left = ast.BinOp(STAR, left, self.parse_power())
+                continue
+            break
+        return left
+
+    def parse_power(self) -> Any:
+        left = self.parse_unary()
+        k = self._peek_raw()
+        if k == CARET:
+            self._advance()
+            right = self.parse_power()
+            return ast.BinOp(CARET, left, right)
+        if k == NEWLINE:
+            saved = self.i
+            self._skip_trivia()
+            if self._peek_raw() == CARET:
+                self._advance()
+                right = self.parse_power()
+                return ast.BinOp(CARET, left, right)
+            self.i = saved
+        return left
+
+    def parse_unary(self) -> Any:
+        self._skip_trivia()
+        if self._peek_raw() == MINUS:
+            self._advance()
+            return ast.UnaryOp(MINUS, self.parse_unary())
+        if self._peek_raw() == BAR:
+            self._advance()
+            inner = self.parse_expr()
+            if self._peek_raw() != BAR:
+                raise ParseError("expected '|' to close absolute value", self._loc_here())
+            self._advance()
+            return ast.AbsExpr(inner)
+        return self.parse_postfix()
+
+    def _call_may_continue_after_newline(self, left: Any) -> bool:
+        """``f`` / ``obj.m`` / ``g(x)`` may be split across lines before ``(``; literals may not."""
+        return isinstance(left, (ast.Ident, ast.Attribute, ast.Call))
+
+    def _params_to_domain_type(
+        self, params: list[ast.Param]
+    ) -> ast.PrimTypeRef | ast.TupleTypeExpr | ast.TypeExpr:
+        if not params:
+            return ast.TupleTypeExpr([])
+        fields: list[tuple[str, Any]] = []
+        for p in params:
+            if p.param_func_type is not None:
+                fields.append((p.name, p.param_func_type))
+            else:
+                fields.append((p.name, p.type_name or "any"))
+        return ast.TypeExpr(fields)
+
+    def _dot_adjacency(self) -> tuple[bool, bool]:
+        """Lexer records whether `.` touches the operand on each side (no whitespace)."""
+        v = self.toks[self.i - 1].value
+        if isinstance(v, tuple) and len(v) == 2:
+            return (bool(v[0]), bool(v[1]))
+        return (True, True)
+
+    def _reject_illegal_follow_after_loose_dot(self) -> None:
+        """After `a.` with whitespace after `.`, the reach ends (type-of); certain tokens may not follow on the same line."""
+        dot_line = self.toks[self.i - 1].location.line
+        j = self.i
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks) or self.toks[j].kind == EOF:
+            return
+        t = self.toks[j]
+        if t.location.line != dot_line:
+            return
+        if t.kind in (RPAREN, RBRACKET, RBRACE, COMMA, SEMICOLON):
+            return
+        # Operators and `::` may follow (e.g. `a. = t`, `a. + 1`); field/index starters may not.
+        if t.kind in (IDENT, LPAREN, NUMBER, STRING, STRING_RAW, DOLLAR):
+            raise ParseError(
+                "space after `.` ends the reach; use `a.b` with no space between `.` and the name",
+                self._loc_here(),
+            )
+
+    def _parse_dot_suffix(
+        self, left: Any, left_tight: bool, right_tight: bool
+    ) -> Any:
+        """After ``.``: ``(…)``, ``.$``, index, field — or loose dot → type-of (``a.``)."""
+        if not left_tight:
+            raise ParseError(
+                "`.` must be adjacent to the left operand (no space before `.`)",
+                self._loc_here(),
+            )
+        if not right_tight:
+            self._reject_illegal_follow_after_loose_dot()
+            return ast.TypeOf(left)
+        self._skip_trivia()
+        k0 = self._peek_raw()
+        if k0 not in (LPAREN, DOLLAR, NUMBER, STRING, STRING_RAW, IDENT):
+            return ast.TypeOf(left)
+        if self._peek_raw() == LPAREN:
+            self._advance()
+            indices: list[Any] = []
+            if self._peek_raw() == RPAREN:
+                raise ParseError(
+                    "expected at least one index in .(...)", self._loc_here()
+                )
+            while True:
+                indices.append(self.parse_expr())
+                if self._peek_raw() == COMMA:
+                    self._advance()
+                    continue
+                break
+            self._expect(RPAREN)
+            return ast.DottedIndex(left, indices)
+        if self._peek_raw() == DOLLAR:
+            self._advance()
+            if self._peek_raw() == LPAREN:
+                self._advance()
+                if self._peek_raw() == RPAREN:
+                    raise ParseError(
+                        "expected expression in .$(...)", self._loc_here()
+                    )
+                expr = self.parse_expr()
+                self._expect(RPAREN)
+                return ast.DottedIndex(left, [expr])
+            if self._peek_raw() == IDENT:
+                name = str(self._advance().value)
+                return ast.DottedIndex(left, [ast.Ident(name)])
+            raise ParseError(
+                "expected identifier or (expr) after .$", self._loc_here()
+            )
+        if self._peek_raw() == NUMBER:
+            n = float(self._advance().value)
+            return ast.DottedIndex(left, [ast.NumberLit(n)])
+        if self._peek_raw() == STRING:
+            s = self._expect(STRING)
+            return ast.Attribute(left, str(s.value))
+        if self._peek_raw() == STRING_RAW:
+            s = self._expect(STRING_RAW)
+            return ast.Attribute(left, str(s.value))
+        name = str(self._expect(IDENT).value)
+        return ast.Attribute(left, name)
+
+    def _parse_call_argument(self) -> Any:
+        """``expr``, ``name: value``, or ``:expr`` (spread)."""
+        self._skip_trivia()
+        if self._peek_raw() == COLON:
+            self._advance()
+            inner = self.parse_expr()
+            return ast.SpreadArg(inner)
+        if self._peek_raw() == IDENT:
+            j = self.i + 1
+            while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+                j += 1
+            if j < len(self.toks) and self.toks[j].kind == COLON:
+                name = str(self._advance().value)
+                self._expect(COLON)
+                val = self.parse_expr()
+                return ast.NamedCallArg(name, val)
+        return self.parse_expr()
+
+    def _parse_tuple_literal_element(self) -> Any:
+        """One slot in ``( … )``: ``:expr`` spreads into the flat tuple; else normal ``expr``."""
+        self._skip_trivia()
+        if self._peek_raw() == COLON:
+            self._advance()
+            inner = self.parse_expr()
+            return ast.SpreadArg(inner)
+        return self.parse_expr()
+
+    def parse_postfix(self) -> Any:
+        left = self.parse_atom()
+        while True:
+            k = self._peek_raw()
+            if k == DOT:
+                self._advance()
+                lt, rt = self._dot_adjacency()
+                left = self._parse_dot_suffix(left, lt, rt)
+                continue
+            if k == LPAREN:
+                self._advance()
+                args: list[Any] = []
+                if self._peek_raw() != RPAREN:
+                    while True:
+                        args.append(self._parse_call_argument())
+                        self._emit_disallowed_in_value_expr("function call argument")
+                        if self._peek_raw() == COMMA:
+                            self._advance()
+                            continue
+                        break
+                self._expect(RPAREN)
+                left = ast.Call(left, args)
+                continue
+            if k == NEWLINE:
+                saved = self.i
+                self._skip_trivia()
+                if self._peek_raw() == DOT:
+                    self._advance()
+                    lt, rt = self._dot_adjacency()
+                    left = self._parse_dot_suffix(left, lt, rt)
+                    continue
+                if self._peek_raw() == LPAREN and self._call_may_continue_after_newline(left):
+                    if isinstance(left, ast.Ident) and left.name in _PRIMITIVE_TYPE_IDENTS:
+                        self.i = saved
+                        break
+                    self._advance()
+                    args: list[Any] = []
+                    if self._peek_raw() != RPAREN:
+                        while True:
+                            args.append(self._parse_call_argument())
+                            self._emit_disallowed_in_value_expr("function call argument")
+                            if self._peek_raw() == COMMA:
+                                self._advance()
+                                continue
+                            break
+                    self._expect(RPAREN)
+                    left = ast.Call(left, args)
+                    continue
+                self.i = saved
+                break
+            break
+        return left
+
+    def parse_atom(self) -> Any:
+        self._skip_trivia()
+        k = self._peek_raw()
+        if k in _ATOM_CALL_OP_KINDS:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                sym = _token_kind_to_op_symbol(self._advance().kind)
+                self._expect(LPAREN)
+                args: list[Any] = []
+                if self._peek_raw() != RPAREN:
+                    while True:
+                        args.append(self._parse_call_argument())
+                        self._emit_disallowed_in_value_expr("function call argument")
+                        if self._peek_raw() == COMMA:
+                            self._advance()
+                            continue
+                        break
+                self._expect(RPAREN)
+                return ast.Call(ast.OpRef(sym), args)
+        if k == RANGE:
+            self._advance()
+            if self._peek_raw() == NUMBER:
+                n = float(self._advance().value)
+                return ast.RangeExpr(None, ast.NumberLit(n))
+            return ast.RangeExpr(None, None)
+        if k == NUMBER:
+            n = float(self._advance().value)
+            if self._peek_raw() == RANGE:
+                self._advance()
+                if self._peek_raw() == NUMBER:
+                    end = float(self._advance().value)
+                    return ast.RangeExpr(ast.NumberLit(n), ast.NumberLit(end))
+                return ast.RangeExpr(ast.NumberLit(n), None)
+            return ast.NumberLit(n)
+        if k == STRING:
+            return ast.StringLit(str(self._advance().value), raw=False)
+        if k == STRING_RAW:
+            return ast.StringLit(str(self._advance().value), raw=True)
+        if k == TRUE:
+            self._advance()
+            return ast.BoolLit(True)
+        if k == FALSE:
+            self._advance()
+            return ast.BoolLit(False)
+        if k == DOT:
+            return self._parse_dot_module_path_from_dot()
+        if k == IDENT:
+            return ast.Ident(str(self._advance().value))
+        if k == DOLLAR:
+            self._advance()
+            return ast.Ident("$")
+        if k == LPAREN:
+            self._advance()
+            if self._peek_raw() == RPAREN:
+                self._advance()
+                return ast.StructLit([])
+            if self._is_type_record_contents_after_lparen():
+                te = self._parse_type_record_after_lparen()
+                self._skip_trivia()
+                if self._peek_raw() == ARROW:
+                    self._advance()
+                    cod = str(self._expect(IDENT).value)
+                    return ast.FuncType(te, cod)
+                return te
+            if (
+                self._peek_raw() == DOLLAR
+                and self.i + 1 < len(self.toks)
+                and self.toks[self.i + 1].kind == LPAREN
+            ):
+                self._advance()
+                self._expect(LPAREN)
+                pnames: list[str] = []
+                if self._peek_raw() != RPAREN:
+                    while True:
+                        pnames.append(str(self._expect(IDENT).value))
+                        if self._peek_raw() == COMMA:
+                            self._advance()
+                            continue
+                        break
+                self._expect(RPAREN)
+                self._expect(COLON)
+                body = self.parse_expr()
+                self._expect(RPAREN)
+                return ast.Lambda(pnames, body)
+            if self._peek_raw() == IDENT:
+                saved = self.i
+                self._expect(IDENT)
+                self._skip_trivia()
+                if self._peek_raw() == COLON:
+                    self.i = saved
+                    return self._parse_struct_literal()
+                self.i = saved
+            e = self._parse_tuple_literal_element()
+            self._emit_disallowed_in_value_expr("tuple literal")
+            self._skip_trivia()
+            if self._peek_raw() == COMMA:
+                els = [e]
+                while self._peek_raw() == COMMA:
+                    self._advance()
+                    self._skip_trivia()
+                    if self._peek_raw() == RPAREN:
+                        break
+                    els.append(self._parse_tuple_literal_element())
+                    self._emit_disallowed_in_value_expr("tuple literal")
+                self._expect(RPAREN)
+                node = ast.TupleLit(els)
+                axis = self._parse_optional_axis_suffix()
+                if axis is not None:
+                    node.axis_tag = axis
+                return node
+            self._expect(RPAREN)
+            if isinstance(e, ast.SpreadArg):
+                return ast.TupleLit([e])
+            return e
+        if k == LBRACKET:
+            self._advance()
+            els: list[Any] = []
+            if self._peek_raw() != RBRACKET:
+                while True:
+                    els.append(self._parse_vector_element())
+                    self._emit_disallowed_in_value_expr("vector literal")
+                    if self._peek_raw() == COMMA:
+                        self._advance()
+                        continue
+                    break
+            self._expect(RBRACKET)
+            node = ast.ListLit(els)
+            axis = self._parse_optional_axis_suffix()
+            if axis is not None:
+                node.axis_tag = axis
+            return node
+        if k == LBRACE:
+            self._advance()
+            if self._peek_raw() == RBRACE:
+                self._expect(RBRACE)
+                node = ast.MultisetLit([])
+                axis = self._parse_optional_axis_suffix()
+                if axis is not None:
+                    node.axis_tag = axis
+                return node
+            pairs: list[tuple[Any, Any]] = []
+            while True:
+                ke = self.parse_expr()
+                if self._peek_raw() != COLON:
+                    raise ParseError(
+                        "multiset literal must use {value:count, …}; use collections.map for a hash map",
+                        self._loc_here(),
+                    )
+                self._advance()
+                ce = self.parse_expr()
+                pairs.append((ke, ce))
+                self._emit_disallowed_in_value_expr("multiset literal")
+                if self._peek_raw() == COMMA:
+                    self._advance()
+                    continue
+                break
+            self._expect(RBRACE)
+            node = ast.MultisetLit(pairs)
+            axis = self._parse_optional_axis_suffix()
+            if axis is not None:
+                node.axis_tag = axis
+            return node
+
+        raise ParseError(f"unexpected token in expression: {k}", self._loc_here())
+
+    def _parse_vector_element(self) -> Any:
+        """One vector slot: ``:expr`` multiset spill, ``expr`` or ``expr : count`` repeat."""
+        self._skip_trivia()
+        if self._peek_raw() == COLON:
+            self._advance()
+            inner = self.parse_expr()
+            return ast.MsetSpill(inner)
+        e = self.parse_expr()
+        self._skip_trivia()
+        if self._peek_raw() == COLON:
+            self._advance()
+            cnt = self.parse_expr()
+            return ast.VectorRepeat(e, cnt)
+        return e
+
+    def _is_axis_suffix_identifier(self, name: str) -> bool:
+        """``_``, ``_i``, ``_ij`` — lowercase axis labels (fast path on literals only)."""
+        if name == "_":
+            return True
+        if not name.startswith("_") or len(name) < 2:
+            return False
+        rest = name[1:]
+        return rest.isalpha() and rest.islower()
+
+    def _parse_optional_axis_suffix(self) -> str | None:
+        """After ``]`` / ``}`` / ``)`` for literals only. Suffix must be on the **same line** as the closing bracket (no newline before ``_i``)."""
+        if self.i >= len(self.toks):
+            return None
+        if self._peek_raw() == NEWLINE:
+            return None
+        if self._peek_raw() != IDENT:
+            return None
+        name = str(self.toks[self.i].value)
+        if not self._is_axis_suffix_identifier(name):
+            return None
+        self.i += 1  # raw advance — do not skip newlines (``_skip_trivia`` would consume the next line)
+        if name == "_":
+            return "i"
+        return name[1:]
+
+    def _parse_struct_literal(self) -> ast.StructLit:
+        fields: list[tuple[str, Any]] = []
+        while True:
+            name = str(self._expect(IDENT).value)
+            self._expect(COLON)
+            fe = self.parse_expr()
+            self._emit_disallowed_in_value_expr("struct literal")
+            fields.append((name, fe))
+            if self._peek_raw() == COMMA:
+                self._advance()
+                continue
+            break
+        self._expect(RPAREN)
+        return ast.StructLit(fields)
+
+    def _implicit_mul_follows(self) -> bool:
+        k = self._peek_raw()
+        if k == NEWLINE:
+            return False
+        return k in (
+            NUMBER,
+            IDENT,
+            LPAREN,
+            LBRACKET,
+            LBRACE,
+            DOLLAR,
+            DOT,
+            STRING,
+            STRING_RAW,
+        )
+
+
+def parse_module(source: str, filename: str = "<stdin>") -> ast.Module:
+    from .lexer import tokenize
+
+    toks = tokenize(source, filename=filename)
+    p = Parser(toks)
+    return p.parse_module()
+
+
+def parse_expression(source: str, filename: str = "<expr>") -> Any:
+    """Parse a single expression (used by string ``$(...)`` interpolation)."""
+    from .lexer import tokenize
+
+    toks = tokenize(source, filename=filename)
+    p = Parser(toks)
+    e = p.parse_expr()
+    p._skip_trivia()
+    if p._peek_raw() != EOF:
+        raise ParseError("trailing tokens in interpolated expression", p._loc_here())
+    return e

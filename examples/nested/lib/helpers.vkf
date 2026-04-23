@@ -1,0 +1,3 @@
+# Shared helpers — import with use("lib/helpers") (no .vkf needed).
+
+scale(x, k) : x * k

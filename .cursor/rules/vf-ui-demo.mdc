@@ -1,0 +1,25 @@
+---
+description: After vf-ui/overlay/screen changes, run rebuild-and-run-demo.ps1; user should not run steps by hand
+globs: web/vf-ui/**,native/VfOverlay/**,vektorflow/**,examples/screen_demo.vkf,scripts/*.ps1,rebuild-and-run-demo.ps1
+alwaysApply: false
+---
+
+# Rebuild and run the screen demo (no manual steps)
+
+The user should **not** have to run pip, cmake, or `python` by hand. After **any** edit that touches `web/vf-ui/`, `native/VfOverlay/`, `vektorflow` (stdlib screen, UI IR, launch), or `examples/screen_demo.vkf`, you **must** run the full pipeline before ending, so the running host always matches the tree:
+
+```powershell
+.\rebuild-and-run-demo.ps1
+```
+
+(from the **vektor-flow** repo root; same as `.\scripts\run-screen-demo.ps1`)
+
+That single command, with **no** `-SkipBuild`, does in order: `pip install -e .`, build vf-overlay (incremental `cmake --build` when `native\VfOverlay\build` exists, or full `build-vf-overlay.ps1` when it does not), then `python -m vektorflow.cli examples/screen_demo.vkf`.
+
+- Use **`-Full`** only when CMake/VS solution changed and incremental build is not enough.
+- **Never** use **`-SkipBuild`** to “save time” after UI or native edits — the overlay will often show **stale** HTML/CSS/JS from the old `web/` next to the exe.
+- **Never** run `python -m vektorflow.cli examples/screen_demo.vkf` alone to validate UI work.
+
+`vf-overlay.exe` loads static files from `web/` **beside the executable**, not from the repo path; CMake copies `web/vf-ui` there on each successful build of `vf-overlay`.
+
+This repository is **vektor-flow** only.

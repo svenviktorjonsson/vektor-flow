@@ -1,0 +1,15 @@
+# Piping with the $ sigil.
+
+:: [1..5] >> $^2                  # vector: [1, 4, 9, 16, 25]
+:: (1..5) >> $^2                  # tuple:  (1, 4, 9, 16, 25)
+
+# Anonymous lambda via $(...)
+:: ($(x): x^2)(3)                # 9
+
+# Lambda bound to $ in the current flow, then referenced bare:
+$(x): x^2
+:: [1..5] >> $                    # [1, 4, 9, 16, 25]
+
+# String interpolation with format spec.
+a : 4.2345
+:: "printing $a.2f"              # printing 4.23

@@ -1,0 +1,75 @@
+# Two frames, widgets, and a tight event loop (host event queue + io.sleep_ms + @>) — re-enable the loop when wired.
+# Run after vf-overlay is built: scripts/build-vf-overlay.ps1, then: vkf examples/gui_event_loop.vkf
+# The ``bridge`` stdlib is not registered; use vektorflow.stdlib.bridge / vf-overlay HTTP when you hook the queue.
+# Optional: set VEKTORFLOW_VF_API or VEKTORFLOW_VF_PORT if the port file is not found.
+
+:.ui
+:.io
+:.collections
+
+d: ui.display
+w: d.widget
+
+fa: d.frame(
+    title: "Frame A (sender)",
+    master: true,
+    dockable: true,
+    closable: true,
+    resizable: true
+)
+fb: d.frame(
+    title: "Frame B (log)",
+    dockable: true,
+    closable: true
+)
+
+# Widget bodies: use list(...) to build a linked list the display layer flattens to an array in JSON.
+d.add_frame(
+    fa,
+    (0.04, 0.16, 0.4, 0.48),
+    body: list(
+        w.label("head", text: "Click the button; B updates. Close a frame to stop."),
+        w.button("b1", label: "Send to B"),
+        w.input_field("inp", text: "", placeholder: "…input…"),
+        w.slider("sl", value: 0.35, vmin: 0, vmax: 1, step: 0.01),
+        w.dropdown("dd", list("alpha", "beta", "gamma"), value: 0)
+    )
+)
+d.add_frame(
+    fb,
+    right_of: fa,
+    body: list(
+        w.label("status", text: "…"),
+        w.text_area("log", text: "[ready]\n"),
+        w.checkbox("ch", label: "Mirror slider to A (demo)", checked: true)
+    )
+)
+
+# Wait for the overlay HTTP (vf-api-port.txt) after add_frame may have started vf-overlay.
+# (bridge is not a stdlib — connect via vektorflow.ui.bridge in Python, or re-enable a registry entry.)
+
+# --- Event loop: re-enable and indent so @> sits in the `true?` arm of `running?`
+# running: true
+# running?
+#     true?
+#         ev: … pop from host queue (see vektorflow.ui.bridge) …
+#         ev?
+#             ""?
+#                 io.sleep_ms(40)
+#             _?
+#                 ev.event?
+#                     "frame.closed"?
+#                         running: false
+#                     "button.pressed"?
+#                         ev.widgetId?
+#                             "b1"?
+#                                 d.widget_set(
+#                                     fb.id,
+#                                     "log",
+#                                     map(
+#                                         text: "Ping from A. "
+#                                     )
+#                                 )
+#         @>
+#     false?
+#         :: 0
