@@ -542,7 +542,7 @@ class Interpreter:
         self.builtin["j"] = 1j
 
     def _merge_stdlibs(self) -> None:
-        for name in ("math", "capture", "io", "collections", "ui"):
+        for name in ("math", "capture", "io", "collections", "stat", "ui"):
             if name in STDLIB_MODULES:
                 try:
                     self.builtin[name] = resolve_stdlib(name)

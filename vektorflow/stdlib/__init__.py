@@ -2,7 +2,7 @@
 
 ``screen`` and ``bridge`` are not registered; implementations stay importable
 from :mod:`vektorflow.stdlib.screen` and :mod:`vektorflow.stdlib.bridge` for
-later use. Public host UI: ``use(\\\"ui\\\")`` and ``ui.display``.
+later use. Public host UI: ``use(\"ui\")`` and ``ui.display``.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from . import capture as capturelib
 from . import collections as collectionslib
 from . import io as iolib
 from . import math as mathlib
+from . import stat as statlib
 from . import time as timelib
 from . import ui as uilib
 
@@ -23,6 +24,7 @@ STDLIB_MODULES: dict[str, StdlibFactory] = {
     "capture": capturelib.build_capture_namespace,
     "io": iolib.build_io_namespace,
     "collections": collectionslib.build_collections_namespace,
+    "stat": statlib.build_stat_namespace,
     "time": timelib.build_time_namespace,
     "ui": uilib.build_ui_namespace,
 }
