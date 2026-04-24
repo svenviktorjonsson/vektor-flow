@@ -149,20 +149,27 @@
       const wv = typeof globalThis !== "undefined" && globalThis.chrome && globalThis.chrome.webview;
       if (!wv || typeof wv.postMessage !== "function" || !layer) return;
       const sa = typeof o.stageAlpha === "number" ? Math.max(0, Math.min(1, o.stageAlpha)) : 1;
-      const nodes = layer.querySelectorAll(".vf-frame");
+      // Collect hit regions from .vf-frame panels AND geom canvases (.vf-geom-canvas)
+      const hitCandidates = [
+        ...layer.querySelectorAll(".vf-frame:not(.vf-frame--pass-through)"),
+        ...layer.querySelectorAll(".vf-geom-canvas"),
+      ];
       const hitRegions = [];
-      for (let i = 0; i < nodes.length; i++) {
-        const el = nodes[i];
+      // Deduplicate by rounded rect key
+      const seen = new Set();
+      for (const el of hitCandidates) {
         if (!(el instanceof HTMLElement)) continue;
-        if (el.classList.contains("vf-frame--pass-through")) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 1 || r.height < 1) continue;
+        const key = Math.round(r.left) + "," + Math.round(r.top) + "," + Math.round(r.right) + "," + Math.round(r.bottom);
+        if (seen.has(key)) continue;
+        seen.add(key);
         /* Integer DIPs: subpixel getBoundingClientRect() churn produced new JSON every frame and
          * re-ran SetWindowRgn/EnumWindows in the host (visible jiggle). */
         hitRegions.push({
-          left: Math.round(r.left),
-          top: Math.round(r.top),
-          right: Math.round(r.right),
+          left:   Math.round(r.left),
+          top:    Math.round(r.top),
+          right:  Math.round(r.right),
           bottom: Math.round(r.bottom),
         });
       }

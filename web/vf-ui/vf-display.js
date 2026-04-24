@@ -236,9 +236,13 @@
     }
     var out = {};
     for (var k in mesh) { out[k] = mesh[k]; }
-    out.camera = camera || null;
-    out.lights  = lights  || [];
-    out._modelMatrix = meshModelMatrix(spec);
+    out.camera   = camera || null;
+    out.lights   = lights  || [];
+    // Forward spec fields so vf-geom-wgpu.js can recompute TRS every frame
+    out.center   = spec.center   || [0,0,0];
+    out.rotation = spec.rotation || [0,0,0];
+    out.scale    = spec.scale    || [1,1,1];
+    out._modelMatrix = meshModelMatrix(spec);  // fallback if VfGeomMath.mat4ModelTRS absent
     return out;
   }
 
@@ -252,11 +256,25 @@
     if (existing) { return existing; }
     var c = document.createElement("canvas");
     c.className = "vf-geom-canvas " + cls;
-    c.style.cssText = "display:block;width:100%;height:100%;position:absolute;inset:0;z-index:" + (10 + idx) + ";pointer-events:none;";
+    c.style.cssText = "display:block;width:100%;height:100%;position:absolute;inset:0;z-index:" + (10 + idx) + ";pointer-events:auto;";
     body.style.position = "relative";
+    body.style.pointerEvents = "auto";
     body.appendChild(c);
     vlog("info", "ensureGeomCanvas: created canvas idx=" + idx + " for frame body (body w=" + body.offsetWidth + " h=" + body.offsetHeight + ")");
     return c;
+  }
+
+  // ── Notify native host of updated hit regions after geom frames change ─────
+  var _layoutDebounceTimer = null;
+  function schedulePostGeomLayout() {
+    if (_layoutDebounceTimer) { clearTimeout(_layoutDebounceTimer); }
+    _layoutDebounceTimer = setTimeout(function() {
+      _layoutDebounceTimer = null;
+      var layer = document.getElementById("vf-layer") || document.body;
+      if (global.VfFrame && typeof global.VfFrame.postNativeHostLayout === "function") {
+        global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+      }
+    }, 50);
   }
 
   function updateGeomFrame(fid, geomSpec) {
@@ -348,6 +366,8 @@
       } catch(_) {}
       rec.entries[j].ref.mesh = null;
     }
+    // Notify native host of updated hit regions (geom canvases)
+    schedulePostGeomLayout();
   }
 
   // ── Main render from JSON ─────────────────────────────────────────────────

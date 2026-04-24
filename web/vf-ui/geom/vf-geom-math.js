@@ -42,7 +42,6 @@
 
   /**
    * Perspective for WebGPU / D3D / Metal NDC: z in [0, 1] (not OpenGL [-1, 1]).
-   * Same memory layout (column-major) as WGSL mat4x4 in uniform.
    */
   function mat4PerspectiveZ01(fovYRad, aspect, n, f) {
     var t = 1.0 / Math.tan(fovYRad * 0.5);
@@ -51,7 +50,7 @@
   }
 
   /**
-   * Orthographic for WebGPU depth [0, 1]. For 2D in z=0 use near=0, far=1.
+   * Orthographic for WebGPU depth [0, 1].
    */
   function mat4OrthoZ01(l, r, b, t, n, f) {
     var lr = 1.0 / (l - r);
@@ -73,10 +72,45 @@
     return m;
   }
 
+  function mat4RotationX(a) {
+    var c = Math.cos(a), s = Math.sin(a);
+    return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]);
+  }
+
   function mat4RotationY(a) {
-    var c = Math.cos(a);
-    var s = Math.sin(a);
-    return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
+    var c = Math.cos(a), s = Math.sin(a);
+    return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]);
+  }
+
+  function mat4RotationZ(a) {
+    var c = Math.cos(a), s = Math.sin(a);
+    return new Float32Array([c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]);
+  }
+
+  /** Euler ZYX rotation (degrees) — column-major.  Apply order: first X, then Y, then Z. */
+  function mat4EulerZYX(rx_deg, ry_deg, rz_deg) {
+    var d = Math.PI / 180;
+    var Rx = mat4RotationX(rx_deg * d);
+    var Ry = mat4RotationY(ry_deg * d);
+    var Rz = mat4RotationZ(rz_deg * d);
+    return mat4Mul(mat4Mul(Rz, Ry), Rx);
+  }
+
+  /** Build TRS model matrix: T(center) * EulerZYX(rotation_deg) * S(scale). */
+  function mat4ModelTRS(center, rotation_deg, scale) {
+    var cx = center  ? center[0]       : 0;
+    var cy = center  ? center[1]       : 0;
+    var cz = center  ? center[2]       : 0;
+    var rx = rotation_deg ? rotation_deg[0] : 0;
+    var ry = rotation_deg ? rotation_deg[1] : 0;
+    var rz = rotation_deg ? rotation_deg[2] : 0;
+    var sx = scale   ? scale[0]        : 1;
+    var sy = scale   ? scale[1]        : 1;
+    var sz = scale   ? scale[2]        : 1;
+    var T  = mat4Translation(cx, cy, cz);
+    var R  = mat4EulerZYX(rx, ry, rz);
+    var S  = mat4Scale(sx, sy, sz);
+    return mat4Mul(T, mat4Mul(R, S));
   }
 
   function mat4Scale(x, y, z) {
@@ -89,9 +123,7 @@
 
   function vec3Normalize(a) {
     var l = vec3Len(a);
-    if (l < 1e-12) {
-      return [0, 0, 1];
-    }
+    if (l < 1e-12) { return [0, 0, 1]; }
     return [a[0] / l, a[1] / l, a[2] / l];
   }
 
@@ -107,7 +139,6 @@
     return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   }
 
-  /** Non-normalized face normal of triangle a,b,c (ccw in right-handed Y-up: points toward viewer if CCW is front). */
   function triFaceNormal3(a, b, c) {
     var e0 = vec3Sub(b, a);
     var e1 = vec3Sub(c, a);
@@ -115,20 +146,24 @@
   }
 
   global.VfGeomMath = {
-    mat4Identity: mat4Identity,
-    mat4Mul: mat4Mul,
-    mat4Perspective: mat4Perspective,
-    mat4Ortho: mat4Ortho,
+    mat4Identity:      mat4Identity,
+    mat4Mul:           mat4Mul,
+    mat4Perspective:   mat4Perspective,
+    mat4Ortho:         mat4Ortho,
     mat4PerspectiveZ01: mat4PerspectiveZ01,
-    mat4OrthoZ01: mat4OrthoZ01,
-    mat4Translation: mat4Translation,
-    mat4RotationY: mat4RotationY,
-    mat4Scale: mat4Scale,
-    vec3Len: vec3Len,
-    vec3Normalize: vec3Normalize,
-    vec3Add: vec3Add,
-    vec3Sub: vec3Sub,
-    vec3Cross: vec3Cross,
-    triFaceNormal3: triFaceNormal3,
+    mat4OrthoZ01:      mat4OrthoZ01,
+    mat4Translation:   mat4Translation,
+    mat4RotationX:     mat4RotationX,
+    mat4RotationY:     mat4RotationY,
+    mat4RotationZ:     mat4RotationZ,
+    mat4EulerZYX:      mat4EulerZYX,
+    mat4ModelTRS:      mat4ModelTRS,
+    mat4Scale:         mat4Scale,
+    vec3Len:           vec3Len,
+    vec3Normalize:     vec3Normalize,
+    vec3Add:           vec3Add,
+    vec3Sub:           vec3Sub,
+    vec3Cross:         vec3Cross,
+    triFaceNormal3:    triFaceNormal3,
   };
 })(typeof window !== "undefined" ? window : this);

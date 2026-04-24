@@ -402,8 +402,13 @@ def _copy_vf_ui_file_to_built_web(root: Path, src_rel: str) -> None:
     CMake copies ``web/vf-ui`` at link time; if ``vf-widgets.js`` was added later or the tree was
     not rebuilt, the WebView 404s the script, ``VfWidgets`` is undefined, and only frame chrome
     appears (no body controls).
+
+    For ``vkf-scene.html`` the version stamps on all ``<script src="...?v=NNN">`` tags are
+    rewritten to the current Unix timestamp so WebView2 never serves stale cached JS.
     """
     import shutil
+    import re as _re
+    import time as _time
 
     from vektorflow.ui.launch import find_vf_overlay_exe
 
@@ -416,7 +421,14 @@ def _copy_vf_ui_file_to_built_web(root: Path, src_rel: str) -> None:
     dest = exe.parent / "web" / src_rel
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
+        if src_rel == "vkf-scene.html":
+            # Stamp a fresh version so WebView2 cache-busts all JS on each launch
+            v = str(int(_time.time()))
+            text = src.read_text(encoding="utf-8", errors="replace")
+            text = _re.sub(r'\?v=\d+', '?v=' + v, text)
+            dest.write_text(text, encoding="utf-8")
+        else:
+            shutil.copy2(src, dest)
     except OSError:
         pass
 

@@ -489,7 +489,15 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
       var up    = cam.up     || [0, 1, 0];
 
       var projMat, viewMat, mvp, modelMat;
-      modelMat = mesh._modelMatrix || Mm.mat4Identity();
+      // Compute model matrix live from mesh data so rotation/center/scale
+      // changes applied after init() are always reflected correctly.
+      if (mesh.center !== undefined || mesh.rotation !== undefined || mesh.scale !== undefined) {
+        modelMat = Mm.mat4ModelTRS
+          ? Mm.mat4ModelTRS(mesh.center, mesh.rotation, mesh.scale)
+          : (mesh._modelMatrix || Mm.mat4Identity());
+      } else {
+        modelMat = mesh._modelMatrix || Mm.mat4Identity();
+      }
 
       if (mesh.mode3d === false) {
         // 2D ortho — ignore camera
