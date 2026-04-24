@@ -1124,7 +1124,9 @@ static bool IsInteractiveHostClientPoint(POINT ptHostPhysical) {
     if (!g_hwnd)
         return true;
 
-    /* Explicit regions from JS (DIP), tested in physical client space — primary path. */
+    /* Explicit regions from JS (DIP), tested in physical client space — primary path.
+       When hitRegions are populated, ONLY those rects are interactive; everything else
+       passes through to whatever window is behind the overlay. */
     if (!g_hitRegions.empty()) {
         RECT rcPhys{};
         for (const RECT& rc : g_hitRegions) {
@@ -1135,11 +1137,8 @@ static bool IsInteractiveHostClientPoint(POINT ptHostPhysical) {
         return false;
     }
 
-    /*
-      No hitRegions from JS yet (e.g. before first postNativeHostLayout) — the old bottom-strip fallback
-      only treated the ~bottom 48–240 dip as interactive, so the WebView never received drags on the
-      title bar in the upper client (in-layer VfFrame drag was impossible).
-    */
+    /* No hitRegions yet (before first postNativeHostLayout): pass through if hidden,
+       block if visible (safe default until JS reports its layout). */
     if (EffectiveStagePassThrough())
         return false;
     RECT cr{};
@@ -1164,8 +1163,7 @@ static LRESULT CALLBACK WebViewChildSubclass(HWND hwnd, UINT msg, WPARAM wParam,
         ScreenToClient(parent, &pt);
         if (IsInteractiveHostClientPoint(pt))
             return DefSubclassProc(hwnd, msg, wParam, lParam);
-        if (!EffectiveStagePassThrough())
-            return DefSubclassProc(hwnd, msg, wParam, lParam);
+        /* Outside hit regions → always transparent to input, even when visible. */
         return (LRESULT)HTTRANSPARENT;
     }
     case WM_MOUSEACTIVATE: {
@@ -1436,7 +1434,10 @@ static void ApplyPassThroughShapeToSubtree(HWND w, HWND host) {
 static void SyncPassThroughInputShape(HWND host) {
     if (!host)
         return;
-    if (!EffectiveStagePassThrough()) {
+    /* Apply shape whenever we have explicit hit regions — not only when hidden.
+       This is what makes clicks outside panels pass through to background apps
+       even while the overlay is fully visible. */
+    if (!EffectiveStagePassThrough() && g_hitRegions.empty()) {
         SetWindowRgn(host, nullptr, TRUE);
         EnumChildWindows(
             host,
@@ -2126,9 +2127,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         ScreenToClient(h, &pt);
         if (IsInteractiveHostClientPoint(pt))
             return DefWindowProcW(h, msg, w, l);
-        /* Pass-through to windows behind only when α≈0 or Hide (see EffectiveStagePassThrough). */
-        if (!EffectiveStagePassThrough())
-            return DefWindowProcW(h, msg, w, l);
+        /* Outside hit regions → always transparent to input, even when visible. */
         return (LRESULT)HTTRANSPARENT;
     }
     case WM_MOUSEACTIVATE: {
