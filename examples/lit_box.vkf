@@ -4,7 +4,7 @@
 # add_camera -> SceneCamera (translate, look_at, set_fov, rotate_by, rotate/stop)
 # add_light  -> SceneLight  (translate, set_color, set_model, rotate/stop)
 
-:.ui
+ui:.ui
 
 d : ui.display
 

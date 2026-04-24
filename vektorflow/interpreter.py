@@ -700,8 +700,14 @@ class Interpreter:
             if not isinstance(mod, dict):
                 raise EvalError("spill import requires a module namespace")
             if node.alias is not None:
-                # ``alias:.path`` — bind only, no spill
-                env[node.alias] = mod
+                # ``alias:.path`` — bind only, no spill.
+                # If the module wraps a single value under the short name (e.g. ui returns
+                # {"ui": UIRoot()}), unwrap it so ``ui:.ui`` gives the UIRoot directly.
+                short = node.path.segments[-1] if node.path.segments else None
+                if short and list(mod.keys()) == [short]:
+                    env[node.alias] = mod[short]
+                else:
+                    env[node.alias] = mod
             else:
                 # ``:.path`` — spill exports AND bind under short name
                 short_name = node.path.segments[-1] if node.path.segments else None

@@ -1,7 +1,7 @@
 # Frame demo: one rect on the full host, one rect inside a single frame.
-# ``d.draw`` = frameless background (stays *under* the panel). ``f.draw`` = that panel’s content area.
+# ``d.draw`` = frameless background (stays *under* the panel). ``f.draw`` = that panel's content area.
 
-:.ui
+ui:.ui
 
 d: ui.display
 

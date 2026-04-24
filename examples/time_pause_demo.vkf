@@ -2,15 +2,15 @@
 # Run:  vkf examples/time_pause_demo.vkf
 # Last pause 60s (Ctrl+C to exit early if you like.)
 
-:.time
+t:.time
 
 :: "--- time demo — pauses only, minimal prints ---"
 :: "0.4s"
-sleep(0.4)
+t.sleep(0.4)
 :: "1.5s"
-sleep(1.5)
+t.sleep(1.5)
 :: "3s (read the lines above)"
-sleep(3.0)
+t.sleep(3.0)
 :: "60s final pause (then one line: done.)"
-sleep(60)
+t.sleep(60)
 :: "done."

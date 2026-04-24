@@ -3,9 +3,9 @@
 # The ``bridge`` stdlib is not registered; use vektorflow.stdlib.bridge / vf-overlay HTTP when you hook the queue.
 # Optional: set VEKTORFLOW_VF_API or VEKTORFLOW_VF_PORT if the port file is not found.
 
-:.ui
-:.io
-:.collections
+ui:.ui
+io:.io
+col:.collections
 
 d: ui.display
 w: d.widget
@@ -23,22 +23,22 @@ fb: d.frame(
     closable: true
 )
 
-# Widget bodies: use list(...) to build a linked list the display layer flattens to an array in JSON.
+# Widget bodies: use col.list(...) to build a linked list the display layer flattens to an array in JSON.
 d.add_frame(
     fa,
     (0.04, 0.16, 0.4, 0.48),
-    body: list(
+    body: col.list(
         w.label("head", text: "Click the button; B updates. Close a frame to stop."),
         w.button("b1", label: "Send to B"),
         w.input_field("inp", text: "", placeholder: "…input…"),
         w.slider("sl", value: 0.35, vmin: 0, vmax: 1, step: 0.01),
-        w.dropdown("dd", list("alpha", "beta", "gamma"), value: 0)
+        w.dropdown("dd", col.list("alpha", "beta", "gamma"), value: 0)
     )
 )
 d.add_frame(
     fb,
     right_of: fa,
-    body: list(
+    body: col.list(
         w.label("status", text: "…"),
         w.text_area("log", text: "[ready]\n"),
         w.checkbox("ch", label: "Mirror slider to A (demo)", checked: true)

@@ -7,8 +7,8 @@
 #
 # Run:  vkf examples/interaction.vkf
 
-:.ui
-:.time
+ui:.ui
+t:.time
 
 d : ui.display
 d.add_frame((0.05, 0.05, 0.7, 0.8))
@@ -53,5 +53,5 @@ running: 1
 running=1?
   1?
     ui.poll()
-    time.sleep(0.016)
+    t.sleep(0.016)
     @>

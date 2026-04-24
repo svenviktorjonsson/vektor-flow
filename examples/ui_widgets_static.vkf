@@ -2,8 +2,8 @@
 # No event loop, no host bridge. `last` tracks the most recently added frame for chaining where useful.
 # Run:  vkf examples/ui_widgets_static.vkf
 
-:.ui
-:.collections
+ui:.ui
+col:.collections
 
 d: ui.display
 w: d.widget
@@ -18,9 +18,9 @@ a: d.frame(
 d.add_frame(
     a,
     (0.28, 0.32, 0.2, 0.15),
-    body: list(
+    body: col.list(
         w.label("l0", text: "Label + dropdown + button + slider"),
-        w.dropdown("dd", list("one", "two", "three"), value: 0),
+        w.dropdown("dd", col.list("one", "two", "three"), value: 0),
         w.button("go", label: "Button"),
         w.slider("sl", value: 0.5, vmin: 0, vmax: 1, step: 0.02)
     )
@@ -31,7 +31,7 @@ r: d.frame(title: "After (alias: right_of)", dock_loc: "bl")
 d.add_frame(
     r,
     after: last,
-    body: list(
+    body: col.list(
         w.label("r0", text: "Input + checkbox"),
         w.input_field("in1", text: "", placeholder: "Input"),
         w.checkbox("ch1", label: "Checkbox", checked: false)
@@ -43,7 +43,7 @@ le: d.frame(title: "Before (alias: left_of)", dock_loc: "bl")
 d.add_frame(
     le,
     before: a,
-    body: list(
+    body: col.list(
         w.label("b0", text: "before: a")
     )
 )
@@ -52,7 +52,7 @@ u: d.frame(title: "Under", dock_loc: "bl")
 d.add_frame(
     u,
     under: a,
-    body: list(
+    body: col.list(
         w.text_area("ta1", text: "Text area (static).")
     )
 )
@@ -63,7 +63,7 @@ o: d.frame(title: "Over (anchor)", dock_loc: "bl")
 d.add_frame(
     o,
     over: a,
-    body: list(
+    body: col.list(
         w.label("o0", text: "over: a  (bl => below anchor)")
     )
 )
