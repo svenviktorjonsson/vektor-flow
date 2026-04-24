@@ -375,6 +375,14 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
     this._pickH         = 0;
     this._pickPending   = false;   // readback in flight
     this._pickCallback  = null;    // fn(object_id, simplex_id, x, y) called after readback
+    // Hit-map readback (for native overlay pass-through)
+    this._hitMapBuf     = null;
+    this._hitMapW       = 0;
+    this._hitMapH       = 0;
+    this._hitMapPending = false;
+    this._hitMapFrame   = 0;
+    this._hitMapInterval= 6;
+    this._lastHitJson   = null;
   }
 
   VfGeomWgpu.prototype = {
@@ -544,7 +552,7 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
       var pass = enc.beginRenderPass({
         colorAttachments: [{
           view:       this._ctx.getCurrentTexture().createView(),
-          clearValue: { r: 0.1, g: 0.1, b: 0.13, a: 1 },
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
           loadOp:  "clear",
           storeOp: "store",
         }],
@@ -617,7 +625,137 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
 
         // Fire the callback after submit (readback is now in flight)
         if (this._pickCallback) { this._pickCallback(); }
+
+        // Hit-map readback for native overlay pass-through (throttled)
+        this._hitMapFrame++;
+        if (this._hitMapFrame >= this._hitMapInterval && !this._hitMapPending) {
+          this._hitMapFrame = 0;
+          this._ensureHitMapBuf();
+          this._scheduleHitMapReadback();
+        }
       }
+    },
+
+    /* Ensure a GPUBuffer large enough to read back the full picking texture.
+       rg32uint = 8 bytes/pixel, bytesPerRow must be a multiple of 256. */
+    _ensureHitMapBuf: function () {
+      var c = this._canvas;
+      var w = Math.max(1, c.width);
+      var h = Math.max(1, c.height);
+      var bpr = Math.ceil(w * 8 / 256) * 256;
+      var needed = bpr * h;
+      if (this._hitMapBuf && this._hitMapW === w && this._hitMapH === h) { return; }
+      if (this._hitMapBuf) { try { this._hitMapBuf.destroy(); } catch(_){} }
+      this._hitMapBuf = this._device.createBuffer({
+        size: needed,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      this._hitMapW = w;
+      this._hitMapH = h;
+    },
+
+    /* Read back the picking texture, derive coarse 16-px-tile hit rects,
+       merge with VfFrame panel rects, and post to native via postNativeHostLayout.
+       Alpha ≥ 0.05 → interactive. Here: any picked pixel (object_id > 0) → interactive. */
+    _scheduleHitMapReadback: function () {
+      if (this._hitMapPending || !this._device || !this._pickTex || !this._hitMapBuf) { return; }
+      var self = this;
+      var w = this._hitMapW;
+      var h = this._hitMapH;
+      var bpr = Math.ceil(w * 8 / 256) * 256;
+      var enc = this._device.createCommandEncoder();
+      enc.copyTextureToBuffer(
+        { texture: this._pickTex, origin: { x: 0, y: 0, z: 0 }, mipLevel: 0 },
+        { buffer: this._hitMapBuf, offset: 0, bytesPerRow: bpr, rowsPerImage: h },
+        { width: w, height: h, depthOrArrayLayers: 1 }
+      );
+      this._device.queue.submit([enc.finish()]);
+      this._hitMapPending = true;
+      this._hitMapBuf.mapAsync(GPUMapMode.READ).then(function () {
+        try {
+          var mapped = self._hitMapBuf.getMappedRange();
+          var u32    = new Uint32Array(mapped);
+          var TILE   = 16;
+          var canvas = self._canvas;
+          var cw = canvas.width, ch = canvas.height;
+          var cr = canvas.getBoundingClientRect();
+          var scaleX = cr.width  / cw;
+          var scaleY = cr.height / ch;
+          var cols   = Math.ceil(cw / TILE);
+          var rows   = Math.ceil(ch / TILE);
+          var bprU32 = bpr / 4;
+          var occupied = new Uint8Array(rows * cols);
+          for (var ty = 0; ty < rows; ty++) {
+            for (var tx = 0; tx < cols; tx++) {
+              var px0 = tx * TILE, py0 = ty * TILE;
+              var px1 = Math.min(cw, px0 + TILE);
+              var py1 = Math.min(ch, py0 + TILE);
+              done: for (var py = py0; py < py1; py++) {
+                var rowOff = py * bprU32;
+                for (var px = px0; px < px1; px++) {
+                  if (u32[rowOff + px * 2] !== 0) {  // object_id (first u32 of rg32uint)
+                    occupied[ty * cols + tx] = 1;
+                    break done;
+                  }
+                }
+              }
+            }
+          }
+          // Row-span merge → rects in CSS/DIP space
+          var rects = [];
+          for (var ty = 0; ty < rows; ty++) {
+            var inSpan = false, spanStart = 0;
+            for (var tx = 0; tx <= cols; tx++) {
+              var occ = tx < cols ? occupied[ty * cols + tx] : 0;
+              if (occ && !inSpan)  { inSpan = true; spanStart = tx; }
+              else if (!occ && inSpan) {
+                inSpan = false;
+                rects.push({
+                  left:   Math.round(cr.left + spanStart * TILE * scaleX),
+                  top:    Math.round(cr.top  + ty        * TILE * scaleY),
+                  right:  Math.round(cr.left + tx        * TILE * scaleX),
+                  bottom: Math.round(cr.top  + (ty + 1)  * TILE * scaleY),
+                });
+              }
+            }
+          }
+          self._hitMapBuf.unmap();
+          self._hitMapPending = false;
+          // Merge panel (VfFrame) hit regions too
+          var panelRects = [];
+          var doc = canvas.ownerDocument;
+          var layer = (canvas.closest ? canvas.closest("#layer") : null) ||
+                      (doc ? doc.getElementById("layer") : null);
+          if (layer) {
+            var nodes = layer.querySelectorAll(".vf-frame:not(.vf-frame--pass-through)");
+            for (var i = 0; i < nodes.length; i++) {
+              var el = nodes[i];
+              if (!(el instanceof HTMLElement)) { continue; }
+              var er = el.getBoundingClientRect();
+              if (er.width < 1 || er.height < 1) { continue; }
+              panelRects.push({
+                left: Math.round(er.left), top: Math.round(er.top),
+                right: Math.round(er.right), bottom: Math.round(er.bottom),
+              });
+            }
+          }
+          var allRects = rects.concat(panelRects);
+          if (typeof VfFrame !== "undefined" && typeof VfFrame.postNativeHostLayout === "function") {
+            var json = JSON.stringify(allRects);
+            if (json !== self._lastHitJson) {
+              self._lastHitJson = json;
+              VfFrame.postNativeHostLayout(layer, { stageAlpha: 1, hitRegions: allRects });
+            }
+          }
+        } catch (e) {
+          try { self._hitMapBuf.unmap(); } catch(_) {}
+          self._hitMapPending = false;
+          wlog("warn", "hitMapReadback: " + (e && e.message ? e.message : e));
+        }
+      }).catch(function (e) {
+        self._hitMapPending = false;
+        wlog("warn", "hitMapReadback mapAsync: " + (e && e.message ? e.message : e));
+      });
     },
 
     _frame: function (t) {
@@ -655,6 +793,7 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
       if (this._pickDepthTex) { try { this._pickDepthTex.destroy(); } catch(_){} this._pickDepthTex = null; }
       if (this._pickUb)       { try { this._pickUb.destroy();       } catch(_){} this._pickUb       = null; }
       if (this._pickReadBuf)  { try { this._pickReadBuf.destroy();  } catch(_){} this._pickReadBuf  = null; }
+      if (this._hitMapBuf)    { try { this._hitMapBuf.destroy();    } catch(_){} this._hitMapBuf    = null; }
     },
 
     onResize: function () {
@@ -684,9 +823,9 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
     this._ctx = c.getContext("webgpu");
     if (!this._ctx) { wlog("error", "getContext('webgpu') null"); return false; }
     try {
-      this._ctx.configure({ device: this._device, format: this._format, alphaMode: "opaque" });
+      this._ctx.configure({ device: this._device, format: this._format, alphaMode: "premultiplied" });
     } catch (e) {
-      try { this._ctx.configure({ device: this._device, format: this._format, alphaMode: "premultiplied" }); }
+      try { this._ctx.configure({ device: this._device, format: this._format, alphaMode: "opaque" }); }
       catch (e2) { wlog("error", "configure failed: " + (e2 && e2.message ? e2.message : e2)); return false; }
     }
     try {
