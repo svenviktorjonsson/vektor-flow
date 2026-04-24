@@ -1,6 +1,6 @@
 /* Vektor Flow — minimal floating frame chrome (standalone). */
 
-/* When frame alpha < threshold (~0.01), nothing in the shell receives clicks. */
+/* When frame alpha < threshold (~0.05), nothing in the shell receives clicks. */
 .vf-frame--pass-through,
 .vf-frame--pass-through * {
   pointer-events: none !important;
@@ -318,7 +318,9 @@
   bottom: 0;
   width: 18px;
   height: 18px;
-  cursor: nwse-resize;
+  cursor: default;
+  pointer-events: none;
+  display: none;
   background: linear-gradient(
     135deg,
     transparent 0%,
@@ -327,6 +329,12 @@
     rgba(200, 200, 220, calc(0.35 * var(--vf-ui-alpha, 1))) 100%
   );
   border-bottom-right-radius: 9px;
+}
+
+.vf-frame--resizable .vf-frame__resize-grip {
+  display: block;
+  cursor: nwse-resize;
+  pointer-events: auto;
 }
 
 /* --- vf-widgets.js: control column inside .vf-frame__body --- */

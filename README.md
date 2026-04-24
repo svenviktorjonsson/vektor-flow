@@ -206,59 +206,66 @@ f(x, y) :
 	t + y^2
 ```
 
-### Branching (`expr?`)
+Rule: any indented block returns its **last row** by default.  
+Use **`@:`** only for an **early** return before the last row.
 
-**No** **`if`**, **no** C-style **`cond ? a : b`**, **no** top-level **`if`**, and **no** **`switch` / `case`**. Branching is **`discriminant?`** then **arms** written only with **`?`** (no fat arrow).
-
-- **Conditional arm:** **`condition? body`** — the arm runs when the discriminant **equals** the value of **`condition`** (see *Operators* for **`=`**). **Boolean subjects:** for **`x>3?`**, the discriminant is a boolean, so use **`true?`** / **`false?`** arms (or other expressions that **equal** that value).
-- **Default arm:** leading **`? body`** (no head expression), or a **bare** statement arm **last** in the list (e.g. after **`;`** in parentheses) — the parser only treats it as a default if there is **no** `condition?` form (see *examples* below).
-- **Subject as `$`:** While a **`?`** block is choosing and running an arm, **`$`** is the discriminant (e.g. **`$ + 1`**, **`$>3`** in a condition **compares the subject**; matching is still by **equality** of the arm’s **condition value** to the discriminant, not by “predicate true/false” unless the discriminant is that boolean).
-- **Expression value:** When **`expr? …`** appears as an **expression** (e.g. on the right of **`name :`**), the chosen arm’s value is produced.
-- **Re-check (while-style):** End an arm with **`@>`** (not inside a `>>` pipe) to re-run the **same** **outer** **`discriminant?`** from the top; bind side effects in the body before **`@>`** (see `examples/branching.vkf`).
-
-**Parenthesized arms** (one line or multiple arms separated by `;`):
-
-`b: a? (2? $ + 1; 9)` — when **`a`** equals **`2`**, the first arm runs; otherwise the default **`9`**.
-
-Boolean `expr?` with two named arms: `x: 1` and `x>2? (true? :: x; false? :: x+1)` — each arm’s head **equals** the discriminant (`true` or `false`). If you need a single **default** instead of `false?`, pre-bind any name the default will read (e.g. **`t: 0`**) before the **`?`**, or set that name in the default arm to a literal.
-
-**Indented arms** (single default — body is a block):
+The same rule applies to multiline parenthesized blocks:
 
 ```
-result: x?
-	$^2
+(
+  this
+  can
+  be done
+)
 ```
 
-**If / else with a long `true?` block** (initialize outer names so the default arm does not refer to names only set inside `true?`):
+The block value is the last line (`be done` in this example), unless an earlier `@:` is used.
+
+### Conditionals And Switch
+
+Use the two forms consistently:
+
+- **`?`** = if-style conditional
+- **`??`** + **`=>`** = switch dispatch
+
+**If / else style (`?`)**:
 
 ```
-f():
-	x: 4
-	t: 0
-	x>3?
-		true?
-			a: 3
-			b: a + 1
-			t: a * b
-		t: -1
-	@: t
-:: f()
+x > 3?
+  :: "gt"
+  :: "le"
 ```
 
-**`@>` loop** (re-run the same `k < 3?` until the `0?` arm prints):
+**Switch style (`??` with `=>`)**:
 
 ```
-k: 0
-k < 3?
-	1?
-		k: k + 1
-		@>
-	0? :: k
+event.get()??
+  ui.MOUSE_MOVE => on_mouse_move(e)
+  ui.MOUSE_DOWN => on_mouse_down(e)
+  ui.MOUSE_UP => on_mouse_up(e)
+  _ => @:
 ```
 
-**Pipes `>>`:** Inside a streamed segment, **`@|`** breaks the inner pipe loop and **`@>`** continues / re-asks. With **`expr?`** in the RHS, that gives conditional break vs re-check. **Control** forms like **`@|`** / **`@>`** are **statements** — put them in an arm **body** (including a one-line **`? ( … )`** group). After **`@|`**, a **`;`** before the next arm may be consumed for the control statement; the next arm is still read.
+The key rule is simple: **do not use `?` arm syntax as switch-case**.  
+If you are dispatching over event kinds or enum-like values, use **`??`** and **`=>`**.
 
-The reference interpreter implements this form; older docs that mention **`=>`** are obsolete.
+For switch expressions, if you omit a default arm and no case matches, the result is **`null`**:
+
+```
+expr??
+  A => one
+  B => two
+```
+
+Within each `=>` branch, the branch result is the **last line** in that branch body, unless an earlier **`@:`** is used to return before the end of the branch.
+
+Also, the single-form conditional expression:
+
+```
+expr? this
+```
+
+returns **`this`** when `expr` is true-like, otherwise **`null`**.
 
 ### Containers
 
@@ -489,7 +496,7 @@ The language uses the same **`:`** for **binding a name to a type shape** and **
 
 Dispatch is by the declared parameter types (`Point`, …), with **structural** matching when a value is untagged (struct literal with the right fields). The reference interpreter supports **named type shapes**, **struct literals**, **typed parameters**, **operator definitions** (`+`, `<`, `/\`, …), **unary** `-(a):` / `~(a):`, **`display` overloads** `display(value: T): …` for **`::`** output, **string** `$a.2f` **interpolation**, **default struct ordering** for `<` / `<=` / `==`, **`[1..5]`** vector range expansion, **lambdas** `($(x): x^2)`, and **`operator(...)`** calls (e.g. `+(2, 3)`).
 
-There is **no** C-style ternary **`cond ? a : b`** — the second **`:`** would fight **`:`** as **bind / pour / `header : body`**. Branching is **`expr?`** with **`cond? body`** arms (see *Branching (`expr?`)*), not **`switch` / `case`** and not a top-level **`if`**.
+There is **no** C-style ternary **`cond ? a : b`** — the second **`:`** would fight **`:`** as **bind / pour / `header : body`**. Use **`?`** for if-style conditionals and **`??` + `=>`** for switch-style dispatch.
 
 ### Operators
 

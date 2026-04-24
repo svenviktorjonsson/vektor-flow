@@ -135,12 +135,7 @@ bool g_layoutCoalesceScheduled = false;
 std::mutex g_lastLayoutSnapshotMutex;
 std::string g_lastLayoutSnapshotUtf8;
 
-/* Skip SetWindowRgn/EnumWindows when layout messages repeat the same interactive regions. */
-static std::vector<RECT> g_lastPassThroughSyncHitRegionsDip;
-static bool g_lastPassThroughSyncStagePass{false};
-
-/* Until the page posts a layout, stay non-pass-through; 0.0 + empty hitRegions made the full surface HTTRANSPARENT. */
-double g_stageAlpha = 1.0;
+double g_stageAlpha = 0.0;
 bool g_stagePassThrough = false;
 bool g_contentHidden = false;
 int g_toolbarPx = 160;
@@ -497,26 +492,7 @@ static bool HitDiagVerboseEnabled() {
   hitRegions use getBoundingClientRect() (DIP); native maps each rect to physical client pixels for PtInRect.
 */
 
-static bool HitRegionsDipUnchanged(
-    const std::vector<RECT>& a, const std::vector<RECT>& b) {
-    if (a.size() != b.size())
-        return false;
-    for (size_t i = 0; i < a.size(); i++) {
-        if (a[i].left != b[i].left || a[i].top != b[i].top || a[i].right != b[i].right
-            || a[i].bottom != b[i].bottom)
-            return false;
-    }
-    return true;
-}
-
 void ApplyLayoutJson(const std::string& jsonUtf8) {
-    {
-        std::lock_guard<std::mutex> snap(g_lastLayoutSnapshotMutex);
-        if (!g_lastLayoutSnapshotUtf8.empty() && jsonUtf8 == g_lastLayoutSnapshotUtf8) {
-            return;
-        }
-    }
-    bool needPassThroughResync = true;
     cJSON* root = cJSON_Parse(jsonUtf8.c_str());
     if (!root)
         return;
@@ -582,10 +558,6 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
                 std::lock_guard<std::mutex> snap(g_lastLayoutSnapshotMutex);
                 g_lastLayoutSnapshotUtf8 = jsonUtf8;
             }
-            if (HitRegionsDipUnchanged(g_hitRegions, g_lastPassThroughSyncHitRegionsDip)
-                && (EffectiveStagePassThrough() == g_lastPassThroughSyncStagePass)) {
-                needPassThroughResync = false;
-            }
         } else if (_stricmp(type->valuestring, "stageAlpha") == 0) {
             cJSON* v = cJSON_GetObjectItem(root, "value");
             if (cJSON_IsNumber(v)) {
@@ -601,11 +573,9 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
     }
     cJSON_Delete(root);
     /* WebView2 may create new HWNDs when layout/size changes; rediscover and subclass. */
-    if (g_hwnd && needPassThroughResync) {
+    if (g_hwnd) {
         PostMessageW(g_hwnd, WM_APP_SUBCLASS_WEBVIEW_CHILDREN, 0, 0);
         SyncPassThroughInputShape(g_hwnd);
-        g_lastPassThroughSyncHitRegionsDip = g_hitRegions;
-        g_lastPassThroughSyncStagePass = EffectiveStagePassThrough();
     }
 }
 
@@ -1434,10 +1404,7 @@ static void ApplyPassThroughShapeToSubtree(HWND w, HWND host) {
 static void SyncPassThroughInputShape(HWND host) {
     if (!host)
         return;
-    /* Apply shape whenever we have explicit hit regions — not only when hidden.
-       This is what makes clicks outside panels pass through to background apps
-       even while the overlay is fully visible. */
-    if (!EffectiveStagePassThrough() && g_hitRegions.empty()) {
+    if (!EffectiveStagePassThrough()) {
         SetWindowRgn(host, nullptr, TRUE);
         EnumChildWindows(
             host,

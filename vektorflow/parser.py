@@ -25,6 +25,7 @@ from .tokens import (
     EMIT,
     EOF,
     EQ,
+    FAT_ARROW,
     FALSE,
     GE,
     GT,
@@ -227,48 +228,27 @@ class Parser:
         st = self.parse_stmt()
         return self._func_body_from_stmts([st])
 
-    def _parse_one_switch_arm(self) -> ast.MatchArm:
-        self._skip_trivia()
-        if self._peek_raw() == QUESTION:
-            self._advance()
-            body = self._parse_switch_arm_body()
-            return ast.MatchArm(None, body)
-        mark = self.i
-        head = self.parse_or_expr()
-        self._skip_trivia()
-        if self._peek_raw() == QUESTION:
-            self._advance()
-            body = self._parse_switch_arm_body()
-            return ast.MatchArm(head, body)
-        self.i = mark
-        st = self.parse_stmt()
-        return ast.MatchArm(None, self._func_body_from_stmts([st]))
+    def _parse_conditional_body(self) -> Any:
+        """Parse body for ``expr? body`` (single-branch conditional)."""
+        return self._parse_switch_arm_body()
 
-    def _parse_match_arms_after_question(self) -> list[ast.MatchArm]:
-        if self._peek_raw() == LPAREN:
+    def _parse_one_switch_arm_fat_arrow(self) -> ast.MatchArm:
+        """One ``??`` arm: ``case => body`` (or ``_ => body`` as default)."""
+        self._skip_trivia()
+        cond: Any | None
+        if self._peek_raw() == IDENT and str(self.toks[self.i].value) == "_":
             self._advance()
-            self._skip_trivia()
-            arms = self._parse_switch_arms_list(
-                end_tokens={SEMICOLON, RPAREN, NEWLINE, EOF, PIPE, COMMA}
-            )
-            self._expect(RPAREN)
-            return arms
-        if self._peek_raw() == NEWLINE:
-            self._consume_newline_raw()
-            self._skip_trivia()
-            if self._peek_raw() == INDENT:
-                return self._parse_match_arms_indented()
-            raise ParseError(
-                "expected `(` for match arms on the same line, or an indented block after `?`",
-                self._loc_here(),
-            )
-        return self._parse_switch_arms_list(
-            end_tokens={SEMICOLON, NEWLINE, EOF, RPAREN, PIPE, COMMA, DEDENT}
-        )
+            cond = None
+        else:
+            cond = self.parse_or_expr()
+        self._skip_trivia()
+        if self._peek_raw() != FAT_ARROW:
+            raise ParseError("expected `=>` in `??` switch arm", self._loc_here())
+        self._advance()
+        body = self._parse_switch_arm_body()
+        return ast.MatchArm(cond, body)
 
-    def _parse_switch_arms_list(self, end_tokens: set) -> list[ast.MatchArm]:
-        """Parse arms until ``end_tokens``. Stmts like ``@|`` / ``@>`` may consume a trailing ``;``;
-        a following arm is still read without an extra ``;`` before it."""
+    def _parse_switch_arms_list_fat_arrow(self, end_tokens: set) -> list[ast.MatchArm]:
         arms: list[ast.MatchArm] = []
         while True:
             self._skip_trivia()
@@ -276,26 +256,39 @@ class Parser:
                 self._advance()
             if self._peek_raw() in end_tokens or self._peek_raw() == EOF:
                 break
-            arm = self._parse_one_switch_arm()
-            arms.append(arm)
+            arms.append(self._parse_one_switch_arm_fat_arrow())
         if not arms:
-            raise ParseError("expected at least one match arm after `?`", self._loc_here())
+            raise ParseError("expected at least one switch arm after `??`", self._loc_here())
         return arms
 
-    def _parse_match_arms_indented(self) -> list[ast.MatchArm]:
-        self._expect(INDENT)
-        arms: list[ast.MatchArm] = []
-        while True:
+    def _parse_match_arms_after_double_question(self) -> list[ast.MatchArm]:
+        """Parse ``??`` arms (inline or indented; each arm uses ``=>``)."""
+        self._skip_trivia()
+        if self._peek_raw() == LPAREN:
+            self._advance()
             self._skip_trivia()
-            while self._peek_raw() == SEMICOLON:
-                self._advance()
-            if self._peek_raw() in (DEDENT, EOF):
-                break
-            arms.append(self._parse_one_switch_arm())
-        if not arms:
-            raise ParseError("expected at least one match arm after `?`", self._loc_here())
-        self._expect(DEDENT)
-        return arms
+            arms = self._parse_switch_arms_list_fat_arrow(
+                end_tokens={SEMICOLON, RPAREN, NEWLINE, EOF, PIPE, COMMA}
+            )
+            self._expect(RPAREN)
+            return arms
+        if self._peek_raw() == INDENT:
+            self._expect(INDENT)
+            arms: list[ast.MatchArm] = []
+            while True:
+                self._skip_trivia()
+                while self._peek_raw() == SEMICOLON:
+                    self._advance()
+                if self._peek_raw() in (DEDENT, EOF):
+                    break
+                arms.append(self._parse_one_switch_arm_fat_arrow())
+            if not arms:
+                raise ParseError("expected at least one switch arm after `??`", self._loc_here())
+            self._expect(DEDENT)
+            return arms
+        return self._parse_switch_arms_list_fat_arrow(
+            end_tokens={SEMICOLON, NEWLINE, EOF, RPAREN, PIPE, COMMA, DEDENT}
+        )
 
     def _kind_after_balanced_call(self) -> str | None:
         """If at ``IDENT`` ``(``, return the kind after the matching ``)``, skipping newlines."""
@@ -506,7 +499,7 @@ class Parser:
         # After a multiline ``expr?`` / ``…?`` block, ``DEDENT`` can be immediately followed
         # by ``::`` (no ``NEWLINE`` token between). The next statement must be a leading
         # ``:: expr`` print, not a mis-parse of trailing ``t ::`` (stdio) on the match.
-        if isinstance(expr, ast.MatchStmt) and self._peek_raw() == EMIT:
+        if isinstance(expr, (ast.MatchStmt, ast.ConditionalExpr)) and self._peek_raw() == EMIT:
             return expr
         # Do not ``_skip_trivia`` here: it consumes newlines, so ``f(10, 20)`` on one
         # line would incorrectly absorb leading ``::`` on the next line as trailing ``::``.
@@ -862,8 +855,13 @@ class Parser:
         left = self.parse_or_expr()
         if self._peek_raw() == QUESTION:
             self._advance()
-            arms = self._parse_match_arms_after_question()
-            left = ast.MatchStmt(left, arms)
+            if self._peek_raw() == QUESTION:
+                self._advance()
+                arms = self._parse_match_arms_after_double_question()
+                left = ast.MatchStmt(left, arms)
+            else:
+                body = self._parse_conditional_body()
+                left = ast.ConditionalExpr(left, body)
         segments: list[Any] = []
         while True:
             k = self._peek_raw()

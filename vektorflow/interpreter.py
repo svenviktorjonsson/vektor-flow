@@ -668,6 +668,9 @@ class Interpreter:
         if isinstance(node, ast.MatchStmt):
             self._eval_match(node, env)
             return None
+        if isinstance(node, ast.ConditionalExpr):
+            self.eval_expr(node, env)
+            return None
         if isinstance(node, ast.Bind):
             if isinstance(node.target, ast.Ident) and isinstance(
                 node.value, (ast.TypeExpr, ast.FuncType)
@@ -817,6 +820,15 @@ class Interpreter:
             return
         self.eval_expr(body, env)
 
+    def _eval_branch_body_value(self, body: Any, env: dict[str, Any]) -> Any:
+        """Evaluate branch body and return its value without swallowing ``@:`` signals."""
+        if isinstance(body, ast.Block):
+            result: Any = None
+            for stmt in body.statements:
+                result = self.eval_stmt(stmt, env)
+            return result
+        return self.eval_expr(body, env)
+
     @staticmethod
     def _arm_ends_with_match_rewind(body: Any) -> bool:
         """True if the last statement is ``@>`` (switch re-entry), not a ``>>`` pipe’s continue."""
@@ -848,7 +860,7 @@ class Interpreter:
                     return
                 if restart:
                     continue
-                raise EvalError("non-exhaustive match: no arm matched and no default arm")
+                return
         finally:
             if prev_dollar is _NO_PREVIOUS_DOLLAR:
                 env.pop("$", None)
@@ -868,7 +880,7 @@ class Interpreter:
                         if not self._match_eq(disc, m):
                             continue
                     try:
-                        return self._eval_function_body(arm.body, env)
+                        return self._eval_branch_body_value(arm.body, env)
                     except ContinueSignal:
                         if self._arm_ends_with_match_rewind(arm.body):
                             restart = True
@@ -876,7 +888,7 @@ class Interpreter:
                         raise
                 if restart:
                     continue
-                raise EvalError("non-exhaustive match: no arm matched and no default arm")
+                return None
         finally:
             if prev_dollar is _NO_PREVIOUS_DOLLAR:
                 env.pop("$", None)
@@ -884,6 +896,16 @@ class Interpreter:
                 env["$"] = prev_dollar
 
     def eval_expr(self, node: Any, env: dict[str, Any]) -> Any:
+        if isinstance(node, ast.ConditionalExpr):
+            while True:
+                if not bool(self.eval_expr(node.condition, env)):
+                    return None
+                try:
+                    return self._eval_branch_body_value(node.body, env)
+                except ContinueSignal:
+                    if self._arm_ends_with_match_rewind(node.body):
+                        continue
+                    raise
         if isinstance(node, ast.MatchStmt):
             return self._eval_match_as_value(node, env)
         if isinstance(node, ast.NumberLit):

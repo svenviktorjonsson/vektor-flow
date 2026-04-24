@@ -347,11 +347,11 @@ class ReturnEmitStmt:
 
 @dataclass
 class MatchArm:
-    """One branch in an ``expr?`` block: ``condition? body`` or a default arm.
+    """One branch in an ``expr??`` switch: ``condition => body`` or ``_ => body``.
 
-    ``condition`` is ``None`` for a default / else arm (write ``? body`` or a bare
-    ``body`` after ``;``). Otherwise the arm runs when ``discriminant = condition``
-    (equality). The subject is also available as ``$`` while choosing and running arms.
+    ``condition`` is ``None`` for the default arm (written as ``_ =>``). Otherwise the
+    arm runs when ``discriminant = condition`` (equality). The subject is also available
+    as ``$`` while choosing and running arms.
     """
 
     condition: Any | None
@@ -360,14 +360,26 @@ class MatchArm:
 
 @dataclass
 class MatchStmt:
-    """**Switch** — ``discriminant?`` then arms ``cond? body``, ``? default``, or bare ``else`` body.
+    """**Switch** — ``discriminant??`` followed by ``case => body`` arms.
 
-    Branching uses only ``?`` (no ``=>``). When a :class:`MatchStmt` appears as an
-    expression, the matched arm’s value is returned; as a statement, only effects run.
+    When a :class:`MatchStmt` appears as an expression, the matched arm’s value is
+    returned; as a statement, only effects run.
     """
 
     discriminant: Any
     arms: list[MatchArm]
+
+
+@dataclass
+class ConditionalExpr:
+    """Single-branch conditional: ``expr? body``.
+
+    Evaluates ``expr`` with host truthiness. When truthy, evaluates ``body`` and returns
+    its value; otherwise returns ``null``.
+    """
+
+    condition: Any
+    body: Any
 
 
 @dataclass

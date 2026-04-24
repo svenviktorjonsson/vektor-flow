@@ -48,28 +48,22 @@ d.add_frame(
 # Wait for the overlay HTTP (vf-api-port.txt) after add_frame may have started vf-overlay.
 # (bridge is not a stdlib — connect via vektorflow.ui.bridge in Python, or re-enable a registry entry.)
 
-# --- Event loop: re-enable and indent so @> sits in the `true?` arm of `running?`
+# --- Event loop sketch (new syntax): explicit dispatch with `??` + `=>`
 # running: true
 # running?
-#     true?
-#         ev: … pop from host queue (see vektorflow.ui.bridge) …
-#         ev?
-#             ""?
-#                 io.sleep_ms(40)
-#             _?
-#                 ev.event?
-#                     "frame.closed"?
-#                         running: false
-#                     "button.pressed"?
-#                         ev.widgetId?
-#                             "b1"?
-#                                 d.widget_set(
-#                                     fb.id,
-#                                     "log",
-#                                     map(
-#                                         text: "Ping from A. "
-#                                     )
-#                                 )
-#         @>
-#     false?
-#         :: 0
+#     ev: … pop from host queue (see vektorflow.ui.bridge) …
+#     ev=null? io.sleep_ms(40)
+#     ev!=null?
+#         ev.event??
+#             "frame.closed" => running: false
+#             "button.pressed" =>
+#                 ev.widgetId??
+#                     "b1" =>
+#                         d.widget_set(
+#                             fb.id,
+#                             "log",
+#                             map(
+#                                 text: "Ping from A. "
+#                             )
+#                         )
+#     @>

@@ -1,57 +1,41 @@
-# Interaction demo — mouse events drive scene objects in real time.
-#
-# Mouse wheel  -> zoom camera along its axis (translate forward/back)
-# Left click   -> identify which object (or background) was clicked
-# Right click  -> rotate the clicked box 45 deg around Y
-# Hover        -> print object_id under cursor when non-zero
-#
-# Run:  vkf examples/interaction.vkf
+# Interaction event logger
+# Purpose: print all queued UI events (mouse + key) in a simple dispatch loop.
 
 ui:.ui
 t:.time
 
-d : ui.display
-d.add_frame((0.05, 0.05, 0.7, 0.8))
+events: ui.events
+d: ui.display
 
-box1  : d.add_box(center:[0,0,0], scale:[1,2,1], color:"#4488ff")
-box2  : d.add_box(center:[2.5,0,0], scale:[1,1,1], color:"#ff8844")
-cam   : d.add_camera(pos:[5,4,6], target:[0,0,0], fov:45)
-light : d.add_light(pos:[8,10,8], model:"blinn_phong", color:"white")
+f: d.add_frame((0.08, 0.08, 0.7, 0.78))
+box: f.add_box(center:[0,0,0], scale:[1.2,1.2,1.2], color:"#4f8dff")
+cam: f.add_camera(pos:[4,3,6], target:[0,0,0], fov:45)
+light: f.add_light(pos:[8,10,8], model:"blinn_phong", color:"white")
 
-# --- handlers (named funcs for multi-step bodies) ---
+log_mouse(e):
+  :: "mouse type=$e.type object_id=$e.object_id"
+  :: e
 
-on_wheel(e):
-  cam.translate([0, 0, e.step * -0.3])
+log_key(e):
+  :: "key type=$e.type key=$e.key code=$e.code"
+  :: e
 
-on_click(e):
-  e.button=0?
-    true?
-      e.object_id>0?
-        true?  :: "clicked object_id=$e.object_id"
-        false? :: "clicked background at ($e.x, $e.y)"
+dispatch(e):
+  e.type??
+    ui.MOUSE_MOVE  => log_mouse(e)
+    ui.MOUSE_HOVER => log_mouse(e)
+    ui.MOUSE_DOWN  => log_mouse(e)
+    ui.MOUSE_UP    => log_mouse(e)
+    ui.MOUSE_WHEEL => log_mouse(e)
+    ui.MOUSE_DRAG  => log_mouse(e)
+    ui.KEY_DOWN    => log_key(e)
+    ui.KEY_UP      => log_key(e)
+    _ =>
+      :: "event type=$e.type"
+      :: e
 
-on_right_click(e):
-  e.button=2?
-    true?
-      e.object_id>0?
-        true?
-          obj : d.get_object(e.object_id)
-          obj.rotate_by(45, around:"y")
-
-on_hover(e):
-  e.object_id>0?
-    true?  :: "hover obj=$e.object_id"
-
-# --- register handlers ---
-ui.mouse.on_wheel(on_wheel)
-ui.mouse.on_down(on_click)
-ui.mouse.on_down(on_right_click)
-ui.mouse.on_hover(on_hover)
-
-# --- event loop (~60 fps) ---
-running: 1
-running=1?
-  1?
-    ui.poll()
-    t.sleep(0.016)
-    @>
+running: true
+running?
+  events.poll()? dispatch(events.get())
+  t.sleep(0.016)
+  @>

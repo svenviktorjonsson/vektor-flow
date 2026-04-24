@@ -1,0 +1,8 @@
+ui:.ui
+d:ui.display
+d.add_oval((0.08,0.12,0.2,0.16), color:"#4fd3ff")
+f:d.add_frame((0.34,0.08,0.58,0.84), resizable:false)
+f.add_oval((0.06,0.08,0.22,0.12), color:"#2a3d73")
+b:f.add_box(center:[0,0,0], scale:[1.1,1.1,1.1], color:"#ff8844")
+cam:f.add_camera(pos:[3.8,2.7,4.8], target:[0,0,0], fov:45)
+li:f.add_light(pos:[5,8,6], model:"blinn_phong", color:"white")

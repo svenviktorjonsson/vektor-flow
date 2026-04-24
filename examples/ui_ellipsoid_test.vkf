@@ -1,0 +1,7 @@
+ui:.ui
+d:ui.display
+f:d.add_frame((0.2,0.2,0.6,0.6))
+e:f.add_ellipsoid(center:[0,0,0], scale:[1.2,0.8,0.9], color:"#66ccff")
+cam:f.add_camera(pos:[0,1.8,4.0], target:[0,0,0], fov:42)
+li:f.add_light(pos:[4,6,4], model:"blinn_phong", color:"white")
+e.rotate_by(20, around:"y")

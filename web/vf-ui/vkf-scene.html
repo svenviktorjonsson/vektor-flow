@@ -84,7 +84,7 @@
         function syncHostAfterSceneLayout() {
           if (typeof VfFrame === "undefined" || !VfFrame.postNativeHostLayout) return;
           var el = document.getElementById("layer");
-          if (el) VfFrame.postNativeHostLayout(el, { stageAlpha: 1 });
+          if (el) VfFrame.postNativeHostLayout(el, { stageAlpha: 0 });
         }
         /* After restore from dock, WebView2 client area can repaints black until layout/hit tests refresh. */
         layer0.addEventListener(
@@ -190,7 +190,7 @@
         });
         function syncNative() {
           if (typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
-            VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+            VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
           }
         }
         for (let i = 0; i < upserts.length; i++) {
@@ -297,7 +297,7 @@
         }
         if (layer && typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
           requestAnimationFrame(function () {
-            VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+            VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
           });
         }
         if (typeof VfDisplay !== "undefined" && VfDisplay.loadAndRender) {
@@ -314,7 +314,7 @@
           if (n - t < 32) return;
           t = n;
           requestAnimationFrame(function () {
-            VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+            VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
           });
         });
         ro.observe(layer);
@@ -329,7 +329,7 @@
             t = n;
             var layer = document.getElementById("layer");
             if (layer && typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
-              VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+              VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
             }
           },
           true

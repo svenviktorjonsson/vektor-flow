@@ -1,0 +1,24 @@
+# Wheel zoom interaction on known-good box renderer
+
+ui:.ui
+t:.time
+events : ui.events
+
+d : ui.display
+f : d.add_frame((0.28, 0.08, 0.64, 0.84))
+
+box   : f.add_box(center:[0,0,0], scale:[1.3,1.3,1.3], color:"#ff8844")
+cam   : f.add_camera(pos:[4,3,5], target:[0,0,0], fov:45)
+light : f.add_light(pos:[7,8,6], model:"blinn_phong", color:"white")
+
+box.rotate_by(22, around:"y")
+
+dispatch(e):
+  e.type??
+    ui.MOUSE_WHEEL => cam.zoom_by_wheel(e.step)
+
+running: true
+running?
+  events.poll()? dispatch(events.get())
+  t.sleep(0.016)
+  @>

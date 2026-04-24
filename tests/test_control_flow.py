@@ -1,4 +1,4 @@
-"""Control flow: ``@:`` return, ``@>`` / ``@|`` on ``>>`` pipes, ``@!`` exit, and **switches** ``expr?``."""
+"""Control flow: ``@:`` return, ``@>`` / ``@|`` on ``>>`` pipes, ``@!`` exit, conditionals, and switches."""
 
 from __future__ import annotations
 
@@ -43,65 +43,85 @@ f(x):
     assert _run(src) == "11"
 
 
-def test_match_conditional_assign() -> None:
-    """``expr?`` dispatches on equality; arms use only ``?`` (no ``=>``)."""
+def test_conditional_assign() -> None:
+    """``expr? body`` runs body when truthy and otherwise falls through."""
     src = """
 f(n):
   n < 1?
-    1?
-      n: 1
-      @: n
-    0? @: n
+    n: 1
+    @: n
+  @: n
 :: f(0)
 """
     assert _run(src) == "1"
 
 
-def test_match_recursion_count() -> None:
-    """Tail dispatch via a switch and ``@:`` (no ``>>`` pipe)."""
+def test_conditional_recursion_count() -> None:
+    """Tail recursion driven by ``expr? body`` with explicit fallthrough return."""
     src = """
 g(i):
-  i < 3?
-    1? @: g(i + 1)
-    0? @: i
+  i < 3? @: g(i + 1)
+  @: i
 :: g(0)
 """
     assert _run(src) == "3"
 
 
-def test_match_rewind_body_then_at_gt() -> None:
-    """Switch re-entry: ``@>`` last in an arm runs prior binds, then re-runs the same ``expr?``."""
+def test_switch_rewind_body_then_at_gt() -> None:
+    """Switch re-entry: ``@>`` last in an arm runs prior binds, then re-runs the same ``expr??``."""
     src = """
 k : 0
-k < 3?
-  1?
+k < 3??
+  1 =>
     k : k + 1
     @>
-  0? :: k
+  0 => :: k
 """
     assert _run(src) == "3"
 
 
-def test_match_at_module_level_then_leading_print() -> None:
-    """Indented ``?`` + ``DEDENT`` can be directly followed by ``::`` (no spurious stdio line)."""
+def test_conditional_at_module_level_then_leading_print() -> None:
+    """Indented conditional + ``DEDENT`` can be directly followed by ``::``."""
     src = """
 x: 4
 t: 0
 x>3?
-  true?
-    a: 3
-    b: a + 1
-    t: a * b
-  t: -1
+  a: 3
+  b: a + 1
+  t: a * b
+x<=3? t: -1
 :: t
 """
     assert _run(src) == "12"
 
 
-def test_match_ternary_print() -> None:
-    """Ternary with emit per arm: ``(true? …; false? …)`` on the value of the discriminant."""
-    assert _run("x : 5\nx>2? (true? :: x; false? :: x+1)") == "5"
-    assert _run("x : 1\nx>2? (true? :: x; false? :: x+1)") == "2"
+def test_switch_ternary_print() -> None:
+    """Switch with ``??`` + ``=>`` on a boolean discriminant."""
+    assert _run("x : 5\nx>2?? (true => :: x; false => :: x+1)") == "5"
+    assert _run("x : 1\nx>2?? (true => :: x; false => :: x+1)") == "2"
+
+
+def test_conditional_expression_returns_null_on_false() -> None:
+    assert _run("x: 1\n:: (x>2? 99)") == "null"
+
+
+def test_conditional_rewind_with_at_gt() -> None:
+    src = """
+k: 0
+k<3?
+  k: k + 1
+  @>
+:: k
+"""
+    assert _run(src) == "3"
+
+
+def test_switch_expression_returns_null_when_no_arm_matches() -> None:
+    assert _run("x: 9\n:: x?? (1 => 10)") == "null"
+
+
+def test_switch_statement_no_match_is_noop() -> None:
+    assert _run("x: 9\nx?? (1 => :: 10)\n:: 1") == "1"
 
 
 def test_break_outside_pipe_errors() -> None:

@@ -23,8 +23,8 @@ p.x : 3
 p.type : "cool"
 :: p
 
-# Branching: `discriminant?` with `cond? body` / default — see `examples/branching.vkf`.
-# Example: `n: 1` then `:: n? (0? 99; n)` prints `1` (default arm is bare `n`).
+# Branching: `expr? body` (conditional) and `discriminant??` (switch) — see `examples/branching.vkf`.
+# Example: `n: 1` then `:: n?? (0 => 99; _ => n)` prints `1`.
 
 # Block with tab indent, last expression returns.
 f(x, y) :

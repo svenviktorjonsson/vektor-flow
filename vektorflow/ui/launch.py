@@ -273,7 +273,6 @@ def maybe_launch_vf_overlay() -> None:
     global _launched
     if _launched or not ui_auto_launch_enabled():
         return
-    _launched = True
 
     root = find_vektorflow_repo_root()
     if root is None:
@@ -295,14 +294,22 @@ def maybe_launch_vf_overlay() -> None:
         return
     _log_launch_line(f"maybe_launch: launching {exe} cwd={exe.parent}")
 
+    use_terminal = (os.environ.get("VF_UI_TERMINAL") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    popen_kwargs: dict[str, object] = {"cwd": str(exe.parent)}
+    if not use_terminal:
+        popen_kwargs["stdin"] = subprocess.DEVNULL
+        popen_kwargs["stdout"] = subprocess.DEVNULL
+        popen_kwargs["stderr"] = subprocess.DEVNULL
+
     try:
-        subprocess.Popen(
-            [str(exe)],
-            cwd=str(exe.parent),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        subprocess.Popen([str(exe)], **popen_kwargs)
+        _launched = True
         _log_launch_line("maybe_launch: Popen returned ok")
     except OSError as e:
         _log_launch_line(f"maybe_launch: Popen failed: {e!r}")

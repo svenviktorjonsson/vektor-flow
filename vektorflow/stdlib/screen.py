@@ -359,9 +359,8 @@ class Screen:
         _write_vkf_scene_to_vf_ui(self._commands)
         _write_vf_ui_state_to_vf_ui(self._ui_state)
         if len(self._commands) == 1:
-            from vektorflow.ui.launch import maybe_launch_vf_overlay
-
-            maybe_launch_vf_overlay()
+            from vektorflow.ui.launch import maybe_launch_ui
+            maybe_launch_ui()
 
     def dumps(self) -> str:
         """JSON scene log for debugging / host bridge."""

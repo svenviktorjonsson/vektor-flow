@@ -42,8 +42,8 @@ class TestPipeElementwise:
         assert _run(":: {1:2, 2:1} >> $ * 2") == "{2:2, 4:1}"
 
     def test_lazy_range_pipe_emit_print_until_break(self) -> None:
-        """``..`` drives ``>>`` until ``@|``; RHS uses ``$?`` arms; default ``0`` covers non-20."""
-        out = _run("..>>::$;$? (20? @|; 0)")
+        """``..`` drives ``>>`` until ``@|``; RHS uses ``$??`` switch arms."""
+        out = _run("..>>::$;$?? (20 => @|; _ => 0)")
         lines = [x.rstrip() for x in out.splitlines() if x.strip() != ""]
         assert lines == [str(i) for i in range(21)]
 

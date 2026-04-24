@@ -2,13 +2,13 @@
  * vf-display.js — renders from vf-display.json.
  *
  * JSON structure:
- *   { "screen": [...rect ops],
- *     "frames": { "<frame_id>": [...rect ops] },
+ *   { "screen": [...2D ops],
+ *     "frames": { "<frame_id>": [...2D ops] },
  *     "geom":   { "<frame_id>": { meshes:[...], camera:{...}, lights:[...] } }
  *   }
  *
  * Each mesh in geom.meshes can carry:
- *   { type:"box", center:[x,y,z], scale:[sx,sy,sz], color:"red", rotation:[rx,ry,rz] }
+ *   { type:"box|ellipsoid|torus", center:[x,y,z], scale:[sx,sy,sz], color:"red", rotation:[rx,ry,rz], ... }
  *   rotation = Euler degrees [rx, ry, rz] applied ZYX.
  *
  * Each mesh gets its own VfGeomWgpu renderer so model matrices are independent.
@@ -117,7 +117,18 @@
     }
 
     canvas.addEventListener("mousemove", function(e) {
-      emitWithPick("hover", e, {});
+      // Move must be low-latency; do not gate it on async GPU picking.
+      var p = canvasXY(e);
+      postEvent({
+        type: "vf_event",
+        event: "move",
+        x: p.x,
+        y: p.y,
+        frame_id: fid,
+        object_id: 0,
+        simplex_id: 0,
+        buttons: Number(e.buttons) || 0
+      });
     }, { passive: true });
 
     canvas.addEventListener("mousedown", function(e) {
@@ -129,11 +140,14 @@
     }, { passive: true });
 
     canvas.addEventListener("wheel", function(e) {
+      try { e.__vfHandledWheel = true; } catch(_) {}
       var p = canvasXY(e);
       var step = e.deltaY > 0 ? 1 : -1;
+      if (e && typeof e.preventDefault === "function") { e.preventDefault(); }
       postEvent({ type: "vf_event", event: "wheel",
-        x: p.x, y: p.y, step: step, frame_id: fid, object_id: 0, simplex_id: 0 });
-    }, { passive: true });
+        x: p.x, y: p.y, step: step, delta: Number(e.deltaY) || 0,
+        ctrl: !!e.ctrlKey, frame_id: fid, object_id: 0, simplex_id: 0 });
+    }, { passive: false });
 
     vlog("info", "attachCanvasEvents: frame=" + fid + " meshIdx=" + meshIdx);
   }
@@ -159,12 +173,120 @@
     if (!ops || !ops.length) { return; }
     for (var i = 0; i < ops.length; i++) {
       var o = ops[i];
-      if (!o || o.op !== "rect") { continue; }
+      if (!o) { continue; }
       var p = normToPx(o.rect, w, h);
       if (!p) { continue; }
       ctx.fillStyle = o.color != null ? String(o.color) : "#888";
-      ctx.fillRect(p.x, p.y, p.rw, p.rh);
+      if (o.op === "rect") {
+        ctx.fillRect(p.x, p.y, p.rw, p.rh);
+        continue;
+      }
+      if (o.op === "oval") {
+        var cx = p.x + p.rw * 0.5;
+        var cy = p.y + p.rh * 0.5;
+        var rx = Math.max(0.5, p.rw * 0.5);
+        var ry = Math.max(0.5, p.rh * 0.5);
+        ctx.beginPath();
+        if (typeof ctx.ellipse === "function") {
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        } else {
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.scale(rx, ry);
+          ctx.arc(0, 0, 1, 0, Math.PI * 2);
+          ctx.restore();
+        }
+        ctx.fill();
+      }
     }
+  }
+
+  var _globalWheelBridgeInstalled = false;
+  var _globalDragBridgeInstalled = false;
+  var _dragState = null; // { fid, lastX, lastY }
+  function installGlobalWheelBridge() {
+    if (_globalWheelBridgeInstalled) { return; }
+    _globalWheelBridgeInstalled = true;
+    document.addEventListener("wheel", function(e) {
+      try {
+        if (e && e.__vfHandledWheel) { return; }
+        var t = e.target;
+        if (!(t instanceof Element)) { return; }
+        var frameEl = t.closest(".vf-frame");
+        if (!frameEl) { return; } // do not steal wheel outside frames
+        var fid = frameEl.getAttribute("data-vf-frame-id") || "";
+        var r = frameEl.getBoundingClientRect();
+        var x = e.clientX - r.left;
+        var y = e.clientY - r.top;
+        var dy = Number(e.deltaY) || 0;
+        if (!dy) { return; }
+        var step = dy > 0 ? 1 : -1;
+        if (typeof e.preventDefault === "function") { e.preventDefault(); }
+        postEvent({
+          type: "vf_event",
+          event: "wheel",
+          x: x, y: y,
+          step: step,
+          delta: dy,
+          ctrl: !!e.ctrlKey,
+          frame_id: fid,
+          object_id: 0,
+          simplex_id: 0
+        });
+      } catch (_) {}
+    }, { capture: true, passive: false });
+  }
+
+  function installGlobalDragBridge() {
+    if (_globalDragBridgeInstalled) { return; }
+    _globalDragBridgeInstalled = true;
+
+    document.addEventListener("mousedown", function(e) {
+      try {
+        if (!e || e.button !== 0) { return; }
+        var t = e.target;
+        if (!(t instanceof Element)) { return; }
+        var frameEl = t.closest(".vf-frame");
+        if (!frameEl) { return; }
+        var fid = frameEl.getAttribute("data-vf-frame-id") || "";
+        _dragState = { fid: fid, lastX: e.clientX, lastY: e.clientY };
+      } catch (_) {}
+    }, true);
+
+    document.addEventListener("mouseup", function(e) {
+      try {
+        if (e && e.button === 0) { _dragState = null; }
+      } catch (_) {}
+    }, true);
+
+    document.addEventListener("mousemove", function(e) {
+      try {
+        if (!_dragState) { return; }
+        var buttons = Number(e.buttons) || 0;
+        if ((buttons & 1) === 0) {
+          _dragState = null;
+          return;
+        }
+        var dx = e.clientX - _dragState.lastX;
+        var dy = e.clientY - _dragState.lastY;
+        if (!dx && !dy) { return; }
+        _dragState.lastX = e.clientX;
+        _dragState.lastY = e.clientY;
+        postEvent({
+          type: "vf_event",
+          event: "drag",
+          x: e.clientX,
+          y: e.clientY,
+          dx: dx,
+          dy: dy,
+          button: 0,
+          buttons: buttons,
+          frame_id: _dragState.fid,
+          object_id: 0,
+          simplex_id: 0
+        });
+      } catch (_) {}
+    }, true);
   }
 
   function syncCanvasSize(canvas) {
@@ -224,6 +346,14 @@
     var mesh;
     if (spec.type === "box") {
       mesh = Core.buildBox([0,0,0], spec.scale || [1,1,1], spec.color || null, spec.id || "box");
+    } else if (spec.type === "ellipsoid") {
+      mesh = Core.buildSphere([0,0,0], 0.5, spec.color || null, spec.id || "ellipsoid");
+    } else if (spec.type === "torus") {
+      var major = Number(spec.major_radius);
+      var minor = Number(spec.minor_radius);
+      if (!(major > 0)) { major = 0.65; }
+      if (!(minor > 0)) { minor = 0.22; }
+      mesh = Core.buildTorus([0,0,0], major, minor, spec.color || null, spec.id || "torus");
     } else if (spec.preset) {
       mesh = Core.getPreset(spec.preset);
     } else {
@@ -270,11 +400,62 @@
     if (_layoutDebounceTimer) { clearTimeout(_layoutDebounceTimer); }
     _layoutDebounceTimer = setTimeout(function() {
       _layoutDebounceTimer = null;
-      var layer = document.getElementById("vf-layer") || document.body;
+      var layer = document.getElementById("layer") || document.getElementById("vf-layer") || document.body;
       if (global.VfFrame && typeof global.VfFrame.postNativeHostLayout === "function") {
-        global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+        global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
       }
     }, 50);
+  }
+
+  function _setDisplayHitRegions(regions) {
+    try {
+      global.__vfDisplayHitRegions = Array.isArray(regions) ? regions : [];
+    } catch (_) {}
+  }
+
+  function _appendOvalHitRegions(out, p) {
+    if (!p) { return; }
+    var cx = p.x + p.rw * 0.5;
+    var cy = p.y + p.rh * 0.5;
+    var rx = Math.max(0.5, p.rw * 0.5);
+    var ry = Math.max(0.5, p.rh * 0.5);
+    var step = 4;
+    var y0 = Math.floor(p.y);
+    var y1 = Math.ceil(p.y + p.rh);
+    for (var y = y0; y <= y1; y += step) {
+      var yy = ((y + step * 0.5) - cy) / ry;
+      var inside = 1 - yy * yy;
+      if (inside <= 0) { continue; }
+      var xh = rx * Math.sqrt(inside);
+      out.push({
+        left: Math.floor(cx - xh),
+        top: y,
+        right: Math.ceil(cx + xh),
+        bottom: y + step
+      });
+    }
+  }
+
+  function buildScreenHitRegions(screenOps, w, h) {
+    var out = [];
+    if (!screenOps || !screenOps.length || !w || !h) { return out; }
+    for (var i = 0; i < screenOps.length; i++) {
+      var o = screenOps[i];
+      if (!o) { continue; }
+      var p = normToPx(o.rect, w, h);
+      if (!p) { continue; }
+      if (o.op === "rect") {
+        out.push({
+          left: Math.floor(p.x),
+          top: Math.floor(p.y),
+          right: Math.ceil(p.x + p.rw),
+          bottom: Math.ceil(p.y + p.rh)
+        });
+      } else if (o.op === "oval") {
+        _appendOvalHitRegions(out, p);
+      }
+    }
+    return out;
   }
 
   function updateGeomFrame(fid, geomSpec) {
@@ -392,7 +573,15 @@
     var sc = document.getElementById("vf-screen-canvas");
     if (sc) {
       var sz = syncCanvasSize(sc);
-      if (sz) { drawOpList(get2d(sc), sz.w, sz.h, data.screen); }
+      if (sz) {
+        drawOpList(get2d(sc), sz.w, sz.h, data.screen);
+        _setDisplayHitRegions(buildScreenHitRegions(data.screen, sz.w, sz.h));
+        schedulePostGeomLayout();
+      } else {
+        _setDisplayHitRegions([]);
+      }
+    } else {
+      _setDisplayHitRegions([]);
     }
 
     // 2-D per-frame canvases
@@ -518,7 +707,8 @@
     vlog("info", "keyboard listeners attached");
   })();
 
+  installGlobalWheelBridge();
+  installGlobalDragBridge();
   global.VfDisplay = { renderFromJson: renderFromJson, loadAndRender: loadAndRender };
-
   vlog("info", "VfDisplay registered");
 })(typeof window !== "undefined" ? window : this);

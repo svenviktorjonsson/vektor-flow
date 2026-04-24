@@ -22,6 +22,6 @@ v : [1..3]
 
 :: "interp $u.x.0f"
 
-# One-line `?` (default last): disc `2` → arm `1?` no match → default `9`.
-pick: 2? (1? 10; 9)
+# One-line switch `??` (default via `_ =>`).
+pick: 2?? (1 => 10; _ => 9)
 :: pick

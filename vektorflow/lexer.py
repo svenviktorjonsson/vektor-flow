@@ -447,6 +447,7 @@ class Lexer:
     def _lex_string(self, loc: SourceLocation) -> None:
         self._advance()  # opening quote
         out: list[str] = []
+        windows_path_mode = False
         while self.pos < len(self.src):
             ch = self._peek()
             if ch == '"':
@@ -461,6 +462,12 @@ class Lexer:
                 if esc == "":
                     raise LexError("Unterminated string literal", loc)
                 self._advance()
+                if not windows_path_mode and len(out) == 2 and out[0].isalpha() and out[1] == ":":
+                    windows_path_mode = True
+                if windows_path_mode:
+                    out.append("\\")
+                    out.append(esc)
+                    continue
                 out.append(_decode_escape(esc, loc))
                 continue
             out.append(ch)

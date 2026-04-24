@@ -78,7 +78,7 @@ def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Scene objects — returned by add_box / add_camera / add_light
+# Scene objects — returned by add_box / add_ellipsoid / add_torus / add_camera / add_light
 # ---------------------------------------------------------------------------
 
 class SceneBox:
@@ -179,6 +179,11 @@ class SceneCamera:
     rotate_by(angle_deg, around="z")
         One-shot orbit around the target by *angle_deg* degrees.
         Returns self.
+    zoom_log(step, speed=0.16, min_dist=0.2, max_dist=1e6)
+        Logarithmic dolly toward/away from target. Useful for wheel events.
+        Negative *step* zooms in; positive zooms out. Returns self.
+    zoom_by_wheel(step, speed=0.16, min_dist=0.2, max_dist=1e6)
+        Alias for :meth:`zoom_log`.
     rotate(around="z", omega=30.0)
         Start a continuous orbit at *omega* degrees/second around *around*
         axis, pivoting about the target point.  Runs in a background thread
@@ -236,6 +241,62 @@ class SceneCamera:
         self._data["pos"] = [t[0] + r2[0], t[1] + r2[1], t[2] + r2[2]]
         self._display._sync_all()
         return self
+
+    def zoom_log(
+        self,
+        step: float,
+        speed: float = 0.16,
+        min_dist: float = 0.2,
+        max_dist: float = 1e6,
+    ) -> "SceneCamera":
+        """Logarithmic dolly along the target ray.
+
+        Interprets ``step`` like mouse wheel notches:
+        - ``step < 0``: zoom in (camera moves closer to target)
+        - ``step > 0``: zoom out
+
+        The camera-target distance is multiplied by ``exp(step * speed)`` and
+        clamped to ``[min_dist, max_dist]``.
+        """
+        s = float(step)
+        if s == 0.0:
+            return self
+        spd = max(0.0001, float(speed))
+        mn = max(0.0001, float(min_dist))
+        mx = max(mn, float(max_dist))
+
+        p = self._data["pos"]
+        t = self._data["target"]
+        vx = p[0] - t[0]
+        vy = p[1] - t[1]
+        vz = p[2] - t[2]
+        dist = math.sqrt(vx * vx + vy * vy + vz * vz)
+        if dist < 1e-9:
+            # Degenerate: choose a stable default ray direction (+Z from target).
+            vx, vy, vz = 0.0, 0.0, 1.0
+            dist = 1.0
+        inv = 1.0 / dist
+        nx, ny, nz = vx * inv, vy * inv, vz * inv
+
+        nd = dist * math.exp(s * spd)
+        if nd < mn:
+            nd = mn
+        if nd > mx:
+            nd = mx
+
+        self._data["pos"] = [t[0] + nx * nd, t[1] + ny * nd, t[2] + nz * nd]
+        self._display._sync_all()
+        return self
+
+    def zoom_by_wheel(
+        self,
+        step: float,
+        speed: float = 0.16,
+        min_dist: float = 0.2,
+        max_dist: float = 1e6,
+    ) -> "SceneCamera":
+        """Alias for :meth:`zoom_log` for wheel handlers."""
+        return self.zoom_log(step=step, speed=speed, min_dist=min_dist, max_dist=max_dist)
 
     # -- continuous animation -------------------------------------------------
 
@@ -439,6 +500,15 @@ class FrameRef:
             self._display._append_pending_frame_op(self._pending_key, d)
         self._display._sync_all()
 
+    def add_oval(self, rect: Any, *, color: str = "#888888") -> None:
+        z = _rect_from_tuple(rect)
+        d = {"op": "oval", "rect": [z[0], z[1], z[2], z[3]], "color": str(color)}
+        if self._placed and self._frame_id:
+            self._display._append_frame_op(self._frame_id, d)
+        else:
+            self._display._append_pending_frame_op(self._pending_key, d)
+        self._display._sync_all()
+
     # -- 3-D ------------------------------------------------------------------
 
     def add_box(
@@ -455,6 +525,55 @@ class FrameRef:
     # legacy alias
     def draw_box(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
         return self.add_box(center=center, scale=scale, color=color)
+
+    def add_ellipsoid(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+    ) -> SceneBox:
+        fid = self._get_placed_id()
+        return self._display._add_ellipsoid(fid, center=center, scale=scale, color=color)
+
+    def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
+        return self.add_ellipsoid(center=center, scale=scale, color=color)
+
+    def add_torus(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        major_radius: float = 0.65,
+        minor_radius: float = 0.22,
+    ) -> SceneBox:
+        fid = self._get_placed_id()
+        return self._display._add_torus(
+            fid,
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+        )
+
+    def draw_torus(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        major_radius: float = 0.65,
+        minor_radius: float = 0.22,
+    ) -> SceneBox:
+        return self.add_torus(
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+        )
 
     def add_camera(
         self,
@@ -483,6 +602,27 @@ class FrameRef:
         if self._placed and self._frame_id:
             return self._frame_id
         return f"__pending_{self._pending_key}"
+
+
+# ---------------------------------------------------------------------------
+# UIEventQueue
+# ---------------------------------------------------------------------------
+
+@dataclass
+class UIEventQueue:
+    """Explicit event queue API for dispatch-style loops."""
+
+    __vf_py_attrs__ = True
+    _ui: "UIRoot"
+
+    def poll(self) -> bool:
+        """Return ``True`` when at least one event is queued."""
+        self._ui._ensure_poller()
+        return bool(self._ui.mouse._queue or self._ui.keyboard._queue)
+
+    def get(self) -> MouseEvent | KeyEvent | None:
+        """Pop one pending event (mouse first), or ``None``."""
+        return self._ui.next_event()
 
 
 # ---------------------------------------------------------------------------
@@ -515,19 +655,31 @@ class UIRoot:
     """
 
     __vf_py_attrs__ = True
+    # Event constants for explicit dispatch
+    MOUSE_MOVE: str = "move"
+    MOUSE_HOVER: str = "hover"
+    MOUSE_DOWN: str = "down"
+    MOUSE_UP: str = "up"
+    MOUSE_WHEEL: str = "wheel"
+    MOUSE_DRAG: str = "drag"
+    KEY_DOWN: str = "key_down"
+    KEY_UP: str = "key_up"
     mouse:    UIMouse    = field(default_factory=UIMouse)
     keyboard: UIKeyboard = field(default_factory=UIKeyboard)
     display:  "Display"  = field(default_factory=lambda: Display())
+    events: UIEventQueue = field(init=False, repr=False)
     _poller_started: bool = field(default=False, repr=False, init=False)
 
     def __post_init__(self) -> None:
+        q = UIEventQueue(self)
+        object.__setattr__(self, "events", q)
         # Wire the global poller to push events into our mouse/keyboard queues
         def _dispatch(evt: dict) -> None:
             t = evt.get("type")
             if t != "vf_event":
                 return
             ev = evt.get("event", "")
-            if ev in ("hover", "down", "up", "wheel"):
+            if ev in ("move", "hover", "down", "up", "wheel", "drag"):
                 self.mouse._push(evt)
             elif ev in ("key_down", "key_up"):
                 self.keyboard._push(evt)
@@ -539,15 +691,19 @@ class UIRoot:
             object.__setattr__(self, "_poller_started", True)
             start_event_poller()
 
+    def next_event(self) -> MouseEvent | KeyEvent | None:
+        """Return one pending input event, or ``None`` when no event is queued."""
+        self._ensure_poller()
+        me = self.mouse.pop()
+        if me is not None:
+            return me
+        ke = self.keyboard.pop()
+        if ke is not None:
+            return ke
+        return None
+
     def poll(self) -> None:
-        """Drain the event queue and fire all registered mouse/keyboard callbacks.
-
-        Call this once per iteration of your main loop::
-
-            while True:
-                ui.poll()
-                time.sleep(0.016)   # ~60 fps
-        """
+        """Drain queued events and fire registered mouse/keyboard callbacks."""
         self._ensure_poller()
         self.mouse.poll()
         self.keyboard.poll()
@@ -605,13 +761,17 @@ class Display:
     2-D
     ---
     ``d.draw_rect(rect, color)``          filled rect on the stage canvas.
+    ``d.add_oval(rect, color)``           filled oval on the stage canvas.
     ``f.draw_rect(rect, color)``          filled rect inside a frame.
+    ``f.add_oval(rect, color)``           filled oval inside a frame.
 
     3-D — all return a mutable scene object for live updates
     --------------------------------------------------------
-    ``box   = d.add_box(center, scale, color)``   → :class:`SceneBox`
-    ``cam   = d.add_camera(pos, target, fov)``    → :class:`SceneCamera`
-    ``light = d.add_light(pos, model, color)``    → :class:`SceneLight`
+    ``box   = d.add_box(center, scale, color)``         → :class:`SceneBox`
+    ``ell   = d.add_ellipsoid(center, scale, color)``   → :class:`SceneBox`
+    ``tor   = d.add_torus(center, scale, color, ...)``  → :class:`SceneBox`
+    ``cam   = d.add_camera(pos, target, fov)``          → :class:`SceneCamera`
+    ``light = d.add_light(pos, model, color)``          → :class:`SceneLight`
 
     Mutations trigger an immediate refresh::
 
@@ -638,6 +798,8 @@ class Display:
     _scene_objects: dict[tuple, Any] = field(default_factory=dict, repr=False)
     # All FrameRefs ever placed (for get_frame)
     _frame_refs: list[Any] = field(default_factory=list, repr=False)
+    # Scene command file (vkf-scene.json) changes only when command count changes.
+    _last_scene_cmd_count: int = field(default=-1, repr=False)
 
     # ---- properties -------------------------------------------------------
 
@@ -680,6 +842,13 @@ class Display:
         )
         self._sync_all()
 
+    def add_oval(self, rect: Any, *, color: str = "#888888") -> None:
+        z = _rect_from_tuple(rect)
+        self._screen_ops.append(
+            {"op": "oval", "rect": [z[0], z[1], z[2], z[3]], "color": str(color)}
+        )
+        self._sync_all()
+
     # ---- 3-D commands (operate on last placed frame) ----------------------
 
     def add_box(
@@ -697,6 +866,55 @@ class Display:
     def draw_box(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
         """Alias for :meth:`add_box`."""
         return self.add_box(center=center, scale=scale, color=color)
+
+    def add_ellipsoid(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+    ) -> SceneBox:
+        fid = self._last_placed_id("add_ellipsoid")
+        return self._add_ellipsoid(fid, center=center, scale=scale, color=color)
+
+    def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
+        return self.add_ellipsoid(center=center, scale=scale, color=color)
+
+    def add_torus(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        major_radius: float = 0.65,
+        minor_radius: float = 0.22,
+    ) -> SceneBox:
+        fid = self._last_placed_id("add_torus")
+        return self._add_torus(
+            fid,
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+        )
+
+    def draw_torus(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        major_radius: float = 0.65,
+        minor_radius: float = 0.22,
+    ) -> SceneBox:
+        return self.add_torus(
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+        )
 
     def add_camera(
         self,
@@ -737,6 +955,54 @@ class Display:
             "scale":    _vec3(scale  or [1, 1, 1], "scale"),
             "color":    str(color) if color is not None else None,
             "rotation": [0.0, 0.0, 0.0],
+        }
+        self._geom_for(fid)["meshes"].append(data)
+        self._sync_all()
+        obj = SceneBox(data, self, fid)
+        idx = len(self._geom_for(fid)["meshes"]) - 1
+        self._scene_objects[(fid, idx)] = obj
+        return obj
+
+    def _add_ellipsoid(
+        self,
+        fid: str,
+        *,
+        center: Any,
+        scale: Any,
+        color: Any,
+    ) -> SceneBox:
+        data: dict[str, Any] = {
+            "type":     "ellipsoid",
+            "center":   _vec3(center or [0, 0, 0], "center"),
+            "scale":    _vec3(scale  or [1, 1, 1], "scale"),
+            "color":    str(color) if color is not None else None,
+            "rotation": [0.0, 0.0, 0.0],
+        }
+        self._geom_for(fid)["meshes"].append(data)
+        self._sync_all()
+        obj = SceneBox(data, self, fid)
+        idx = len(self._geom_for(fid)["meshes"]) - 1
+        self._scene_objects[(fid, idx)] = obj
+        return obj
+
+    def _add_torus(
+        self,
+        fid: str,
+        *,
+        center: Any,
+        scale: Any,
+        color: Any,
+        major_radius: float,
+        minor_radius: float,
+    ) -> SceneBox:
+        data: dict[str, Any] = {
+            "type":         "torus",
+            "center":       _vec3(center or [0, 0, 0], "center"),
+            "scale":        _vec3(scale  or [1, 1, 1], "scale"),
+            "color":        str(color) if color is not None else None,
+            "major_radius": float(major_radius),
+            "minor_radius": float(minor_radius),
+            "rotation":     [0.0, 0.0, 0.0],
         }
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
@@ -840,7 +1106,7 @@ class Display:
         first: Any,
         second: Any | None = None,
         **kwargs: Any,
-    ) -> None:
+    ) -> FrameRef:
         fr, pending = _unwrap_frame_ref(first)
         if pending is not None:
             if second is not None or bool(kwargs):
@@ -849,22 +1115,30 @@ class Display:
                 if fr is not None:
                     self._mark_frame_ref_placed(fr)
                 self._sync_all()
-                return
+                if fr is not None:
+                    return fr
+                out = FrameRef(self, pending)
+                self._mark_frame_ref_placed(out)
+                return out
             raise TypeError(
                 "add_frame: pass a rect or a layout option, "
                 "or use d.add_frame((x,y,w,h)) for the short form"
             )
         t = _rect_from_tuple(first)
         if self._last_frame is None or self._last_frame._placed:
-            p = self._screen.frame(
-                title="", draggable=True, dockable=True,
-                resizable=True, closable=True, alpha=1.0, dock_loc="bl",
-            )
+            if kwargs:
+                p = self._screen.frame(**kwargs)
+            else:
+                p = self._screen.frame(
+                    title="", draggable=True, dockable=True,
+                    resizable=True, closable=True, alpha=1.0, dock_loc="bl",
+                )
             self._last_frame = FrameRef(self, p)
         f = self._last_frame
         self._screen.add_frame(f._pending, (t[0], t[1], t[2], t[3]))
         self._mark_frame_ref_placed(f)
         self._sync_all()
+        return f
 
     def _mark_frame_ref_placed(self, f: FrameRef) -> None:
         old_key = f._pending_key
@@ -897,7 +1171,10 @@ class Display:
     # ---- sync -------------------------------------------------------------
 
     def _sync_all(self) -> None:
-        _write_vkf_scene_to_vf_ui(self._screen._commands)
+        cmd_count = len(self._screen._commands)
+        if cmd_count != self._last_scene_cmd_count:
+            _write_vkf_scene_to_vf_ui(self._screen._commands)
+            self._last_scene_cmd_count = cmd_count
         placed_geom = {
             fid: g for fid, g in self._geom.items()
             if not fid.startswith("__pending_")
@@ -909,13 +1186,9 @@ class Display:
                 "geom":   placed_geom,
             }
         )
-        if (
-            self._screen._commands
-            or self._screen_ops
-            or self._frame_ops
-            or self._pending_ops
-            or self._geom
-        ):
+        # Launch UI only when there is placed/visible content.
+        # Pending frame ops/geom should not auto-open the host.
+        if self._screen._commands or self._screen_ops or self._frame_ops or placed_geom:
             from vektorflow.ui.launch import maybe_launch_ui
             maybe_launch_ui()
 
@@ -932,7 +1205,11 @@ def _unwrap_frame_ref(a: Any) -> tuple[FrameRef | None, PendingFrame | None]:
     return None, None
 
 
+_display_assets_synced_once = False
+
+
 def _write_vf_display_json(payload: dict[str, Any]) -> None:
+    global _display_assets_synced_once
     try:
         from vektorflow.ui.launch import find_vektorflow_repo_root
         root = find_vektorflow_repo_root()
@@ -943,11 +1220,14 @@ def _write_vf_display_json(payload: dict[str, Any]) -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text, encoding="utf-8")
         _sync_json_to_all_built_webs(root, "vf-display.json", text)
-        # Copy all web assets that may have changed to the built overlay web dir.
-        for f in ("vf-display.js", "vkf-scene.html", "vf-frame.js", "vf-frame.css", "vf-widgets.js"):
-            _copy_vf_ui_file_to_built_web(root, f)
-        for js in ("vf-geom-core.js", "vf-geom-wgpu.js", "vf-geom-math.js", "vf-geom-mount.js"):
-            _copy_geom_file_to_built_web(root, js)
+        # Static JS/CSS assets are large; syncing them every camera tick is costly.
+        # Sync once per process (fresh process after code edits will resync).
+        if not _display_assets_synced_once:
+            for f in ("vf-display.js", "vkf-scene.html", "vf-frame.js", "vf-frame.css", "vf-widgets.js"):
+                _copy_vf_ui_file_to_built_web(root, f)
+            for js in ("vf-geom-core.js", "vf-geom-wgpu.js", "vf-geom-math.js", "vf-geom-mount.js"):
+                _copy_geom_file_to_built_web(root, js)
+            _display_assets_synced_once = True
     except (OSError, TypeError, ValueError):
         pass
 

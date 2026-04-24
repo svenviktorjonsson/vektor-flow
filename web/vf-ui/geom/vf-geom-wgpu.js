@@ -100,7 +100,7 @@ fn fs(i: Vout) -> @location(0) vec4f {
 
 
   // ---------------------------------------------------------------------------
-  // Picking shader — writes object_id + primitive_index to rg32uint texture
+  // Picking shader — writes object_id + primitive placeholder to rg32uint texture
   // ---------------------------------------------------------------------------
   var PICK_SHADER = `
 struct PickScene {
@@ -122,8 +122,8 @@ fn vs_pick(v: PVin) -> @builtin(position) vec4<f32> {
   return pk.mvp * vec4f(wp, 1.0);
 }
 @fragment
-fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
-  return vec2<u32>(pk.object_id, prim);
+fn fs_pick() -> @location(0) vec2<u32> {
+  return vec2<u32>(pk.object_id, 0u);
 }
 `;
 
@@ -210,10 +210,10 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
 
         var pipeTri, pipeLine;
         if (typeof device.createRenderPipelineAsync === "function") {
-          pipeTri  = await device.createRenderPipelineAsync(makeDesc("triangle-list", "back"));
+          pipeTri  = await device.createRenderPipelineAsync(makeDesc("triangle-list"));
           pipeLine = await device.createRenderPipelineAsync(makeDesc("line-list"));
         } else {
-          pipeTri  = device.createRenderPipeline(makeDesc("triangle-list", "back"));
+          pipeTri  = device.createRenderPipeline(makeDesc("triangle-list"));
           pipeLine = device.createRenderPipeline(makeDesc("line-list"));
         }
         // Picking pipeline — writes rg32uint (object_id, prim_index)
@@ -757,7 +757,7 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
             var json = JSON.stringify(allRects);
             if (json !== self._lastHitJson) {
               self._lastHitJson = json;
-              VfFrame.postNativeHostLayout(layer, { stageAlpha: 1, hitRegions: allRects });
+              VfFrame.postNativeHostLayout(layer, { stageAlpha: 0, hitRegions: allRects });
             }
           }
         } catch (e) {

@@ -151,20 +151,76 @@
       const sa = typeof o.stageAlpha === "number" ? Math.max(0, Math.min(1, o.stageAlpha)) : 1;
       const nodes = layer.querySelectorAll(".vf-frame");
       const hitRegions = [];
+      function paintPadDipForElement(el) {
+        if (!(el instanceof HTMLElement)) return 2;
+        let pad = 2;
+        try {
+          const cs = globalThis.getComputedStyle ? globalThis.getComputedStyle(el) : null;
+          const bs = cs && cs.boxShadow ? String(cs.boxShadow) : "";
+          if (bs && bs !== "none") {
+            const nums = bs.match(/-?\d*\.?\d+px/g);
+            if (nums && nums.length) {
+              let mx = 0;
+              for (let i = 0; i < nums.length; i++) {
+                const v = Math.abs(parseFloat(nums[i]));
+                if (Number.isFinite(v) && v > mx) mx = v;
+              }
+              pad = Math.max(pad, Math.ceil(mx));
+            }
+          }
+        } catch (_) {}
+        return pad;
+      }
+      function pushRectWithPad(r, pad) {
+        if (!r) return;
+        if (r.width < 1 || r.height < 1) return;
+        hitRegions.push({
+          left: Math.floor(r.left - pad),
+          top: Math.floor(r.top - pad),
+          right: Math.ceil(r.right + pad),
+          bottom: Math.ceil(r.bottom + pad),
+        });
+      }
       for (let i = 0; i < nodes.length; i++) {
         const el = nodes[i];
         if (!(el instanceof HTMLElement)) continue;
         if (el.classList.contains("vf-frame--pass-through")) continue;
         const r = el.getBoundingClientRect();
-        if (r.width < 1 || r.height < 1) continue;
-        /* Integer DIPs: subpixel getBoundingClientRect() churn produced new JSON every frame and
-         * re-ran SetWindowRgn/EnumWindows in the host (visible jiggle). */
-        hitRegions.push({
-          left: Math.round(r.left),
-          top: Math.round(r.top),
-          right: Math.round(r.right),
-          bottom: Math.round(r.bottom),
-        });
+        pushRectWithPad(r, paintPadDipForElement(el));
+      }
+      const displayRegions = globalThis && Array.isArray(globalThis.__vfDisplayHitRegions)
+        ? globalThis.__vfDisplayHitRegions
+        : null;
+      if (displayRegions && displayRegions.length) {
+        for (let i = 0; i < displayRegions.length; i++) {
+          const rr = displayRegions[i];
+          if (!rr || typeof rr !== "object") continue;
+          const l = Number(rr.left);
+          const t = Number(rr.top);
+          const r = Number(rr.right);
+          const b = Number(rr.bottom);
+          if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(r) || !Number.isFinite(b)) continue;
+          if (r <= l || b <= t) continue;
+          hitRegions.push({
+            left: Math.floor(l),
+            top: Math.floor(t),
+            right: Math.ceil(r),
+            bottom: Math.ceil(b),
+          });
+        }
+      }
+      if (Array.isArray(o.hitRegions)) {
+        for (let i = 0; i < o.hitRegions.length; i++) {
+          const rr = o.hitRegions[i];
+          if (!rr || typeof rr !== "object") continue;
+          const l = Number(rr.left);
+          const t = Number(rr.top);
+          const r = Number(rr.right);
+          const b = Number(rr.bottom);
+          if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(r) || !Number.isFinite(b)) continue;
+          if (r <= l || b <= t) continue;
+          pushRectWithPad({ left: l, top: t, right: r, bottom: b, width: r - l, height: b - t }, 2);
+        }
       }
       wv.postMessage({
         type: "layout",
@@ -355,7 +411,7 @@
      */
     notifyHostMinimizedLayout(layer) {
       if (typeof VfFrame.postNativeHostLayout === "function" && layer) {
-        VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+        VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
       }
     },
 
@@ -365,7 +421,7 @@
      */
     notifyHostRestored(layer) {
       if (typeof VfFrame.postNativeHostLayout === "function" && layer) {
-        VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+        VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
       }
     },
 
@@ -549,6 +605,7 @@
 
       const root = document.createElement("div");
       root.className = "vf-frame";
+      root.classList.toggle("vf-frame--resizable", resizable);
       root.dataset.vfFrameId = id;
       root.dataset.vfMinDock = minDock;
       /* Opacity on whole root would dim title/KaTeX; only shell rgba use --vf-ui-alpha. */
@@ -617,7 +674,7 @@
       root.appendChild(head);
       root.appendChild(minibar);
       root.appendChild(body);
-      if (resizable) root.appendChild(resizeGrip);
+      root.appendChild(resizeGrip);
 
       layer.appendChild(root);
 
@@ -777,10 +834,10 @@
         const wv = typeof window !== "undefined" && window.chrome && window.chrome.webview;
         if (!wv || typeof wv.postMessage !== "function") return;
         if (typeof VfFrame.postNativeHostLayout === "function") {
-          VfFrame.postNativeHostLayout(layer, { stageAlpha: 1 });
+          VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
         }
       }
-      /** At most one layout post per frame while dragging; avoids 100+ webview messages/s and DComp jiggle. */
+      /** At most one layout post per frame while idle updates run; drag/resize paths can call immediate post. */
       function schedulePostHitRegionsToHost() {
         if (hostLayoutRafId) {
           return;
@@ -801,13 +858,13 @@
       if (useHostWindowDrag) {
         VfFrame.attachHostWindowDrag([head, minibar], { onDragStart: bringToFront });
       } else if (draggable) {
-        /* vf-overlay: hit regions follow the frame. Coalesce to 1x/frame; flush on pointerup. */
+        /* vf-overlay: keep region lock-step with pointer movement to avoid visible crop lag. */
         VfFrame.attachHeaderDrag({
           root,
           header: head,
           layer,
           onDragStart: bringToFront,
-          onDragMove: schedulePostHitRegionsToHost,
+          onDragMove: postHitRegionsToHostImpl,
           onDragEnd: flushPostHitRegionsToHost,
         });
       }
@@ -839,7 +896,7 @@
         root.classList.add("vf-frame--user-sized");
         root.style.width = Math.round(nw) + "px";
         root.style.height = Math.round(nh) + "px";
-        schedulePostHitRegionsToHost();
+        postHitRegionsToHostImpl();
       }
       function onResizeEnd(e) {
         if (!resizeState || e.pointerId !== resizeState.pid) return;

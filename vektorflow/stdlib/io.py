@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections import namedtuple
 from pathlib import Path
@@ -13,6 +14,12 @@ import numpy as np
 def _as_path(path: str) -> Path:
     if not isinstance(path, str):
         raise TypeError("path must be a string")
+    # On Windows, vkf source often embeds raw paths with backslashes
+    # (e.g. "C:\Users\name\..."), which can contain control chars
+    # after string unescaping (\t, \n, \r). Re-hydrate those into
+    # literal backslash sequences for robust file I/O.
+    if os.name == "nt":
+        path = path.replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
     return Path(path)
 
 

@@ -2,8 +2,9 @@
 
 Usage
 -----
-    vkf <file>              Run a .vkf file (``a`` → ``a.vkf`` if needed)
-    vkf tokens <file>       Print lexer token stream (diagnostics)
+    vkf <file>               Run a .vkf file (``a`` → ``a.vkf`` if needed)
+    vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
+    vkf tokens <file>        Print lexer token stream (diagnostics)
     vkf -s 'code'           Tokenize an inline snippet
     vkf --help
     vkf --version
@@ -14,6 +15,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -91,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "Vektor Flow — vkf\n\n"
             "  vkf <file>           Run a .vkf file (extension optional)\n"
+            "  vkf --ui-terminal <file>\n"
+            "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
             "  --version            Show version\n",
@@ -124,7 +128,20 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_tokens(source, filename=str(path), compact=compact)
 
     # Default: run
-    path_arg = argv[0]
+    run_args = list(argv)
+    use_ui_terminal = False
+    if "--ui-terminal" in run_args:
+        use_ui_terminal = True
+        run_args = [a for a in run_args if a != "--ui-terminal"]
+    if not run_args:
+        print("error: missing file path", file=sys.stderr)
+        return 1
+    if len(run_args) != 1:
+        extras = ", ".join(repr(a) for a in run_args[1:])
+        print(f"error: unexpected argument(s): {extras}", file=sys.stderr)
+        return 1
+
+    path_arg = run_args[0]
     if path_arg.startswith("-"):
         print(f"error: unknown option {path_arg!r}", file=sys.stderr)
         return 1
@@ -138,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if use_ui_terminal:
+        os.environ["VF_UI_TERMINAL"] = "1"
 
     return cmd_run(path)
 

@@ -1,0 +1,24 @@
+# Combo click-through test:
+# 1) Painted stage shape (display-level add_oval)
+# 2) Interactive frame with 3D torus
+# Expected:
+# - clicks are captured on the painted oval and frame only
+# - outside those painted areas, background apps are reachable
+
+ui:.ui
+d : ui.display
+
+# Stage paint (no frame)
+d.add_oval((0.05, 0.14, 0.16, 0.16), color:"#5ad1ff")
+
+# Frame + 3D content
+f : d.add_frame((0.32, 0.08, 0.62, 0.84))
+f.add_oval((0.04, 0.06, 0.24, 0.14), color:"#2c3e6b")
+
+tor   : f.add_torus(center:[0,0,0], scale:[1.0,1.0,1.0], color:"#ff8844", major_radius:0.95, minor_radius:0.34)
+cam   : f.add_camera(pos:[0,2.0,4.8], target:[0,0,0], fov:40)
+light : f.add_light(pos:[5,7,4], model:"blinn_phong", color:"white")
+
+tor.rotate_by(18, around:"x")
+tor.rotate_by(28, around:"y")
+

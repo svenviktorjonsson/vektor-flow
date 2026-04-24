@@ -198,6 +198,118 @@
 
   function preset3dCubeSolid() { return buildBox([0,0,0],[1,1,1],null,"3d_cube"); }
 
+  /**
+   * Build a UV sphere mesh.
+   * @param {number[]} center [cx,cy,cz]
+   * @param {number} radius
+   * @param {string|number[]} color
+   * @param {string} [id]
+   */
+  function buildSphere(center, radius, color, id) {
+    center = center || [0, 0, 0];
+    radius = (typeof radius === "number" && radius > 0) ? radius : 0.5;
+    var c = color ? parseColor(color) : [0.86, 0.58, 0.18, 1];
+    var latSeg = 24, lonSeg = 32;
+    var verts = [], idx = [];
+    for (var j = 0; j <= latSeg; j++) {
+      var v = j / latSeg;
+      var phi = v * Math.PI;
+      var sp = Math.sin(phi), cp = Math.cos(phi);
+      for (var i = 0; i <= lonSeg; i++) {
+        var u = i / lonSeg;
+        var th = u * Math.PI * 2;
+        var st = Math.sin(th), ct = Math.cos(th);
+        var nx = sp * ct;
+        var ny = cp;
+        var nz = sp * st;
+        verts.push(vtx(
+          center[0] + radius * nx,
+          center[1] + radius * ny,
+          center[2] + radius * nz,
+          nx, ny, nz,
+          c[0], c[1], c[2], c.length >= 4 ? c[3] : 1
+        ));
+      }
+    }
+    var row = lonSeg + 1;
+    for (var y = 0; y < latSeg; y++) {
+      for (var x = 0; x < lonSeg; x++) {
+        var a = y * row + x;
+        var b = a + 1;
+        var c0 = a + row;
+        var d = c0 + 1;
+        idx.push(a, c0, b, b, c0, d);
+      }
+    }
+    return {
+      id: id || "sphere",
+      mode3d: true,
+      label: "sphere",
+      vertices: interleave(verts),
+      indices: new Uint32Array(idx),
+      topology: "triangle-list",
+    };
+  }
+
+  /**
+   * Build a torus mesh.
+   * @param {number[]} center [cx,cy,cz]
+   * @param {number} majorRadius
+   * @param {number} minorRadius
+   * @param {string|number[]} color
+   * @param {string} [id]
+   */
+  function buildTorus(center, majorRadius, minorRadius, color, id) {
+    center = center || [0, 0, 0];
+    majorRadius = (typeof majorRadius === "number" && majorRadius > 0) ? majorRadius : 0.65;
+    minorRadius = (typeof minorRadius === "number" && minorRadius > 0) ? minorRadius : 0.22;
+    var c = color ? parseColor(color) : [0.90, 0.50, 0.18, 1];
+    var majorSeg = 48, minorSeg = 24;
+    var verts = [], idx = [];
+    for (var j = 0; j <= majorSeg; j++) {
+      var u = j / majorSeg;
+      var a = u * Math.PI * 2;
+      var ca = Math.cos(a), sa = Math.sin(a);
+      for (var i = 0; i <= minorSeg; i++) {
+        var v = i / minorSeg;
+        var b = v * Math.PI * 2;
+        var cb = Math.cos(b), sb = Math.sin(b);
+        var ring = majorRadius + minorRadius * cb;
+        var x = ring * ca;
+        var y = minorRadius * sb;
+        var z = ring * sa;
+        var nx = cb * ca;
+        var ny = sb;
+        var nz = cb * sa;
+        verts.push(vtx(
+          center[0] + x,
+          center[1] + y,
+          center[2] + z,
+          nx, ny, nz,
+          c[0], c[1], c[2], c.length >= 4 ? c[3] : 1
+        ));
+      }
+    }
+    var row = minorSeg + 1;
+    for (var y = 0; y < majorSeg; y++) {
+      for (var x = 0; x < minorSeg; x++) {
+        var a0 = y * row + x;
+        var b0 = a0 + 1;
+        var c0 = a0 + row;
+        var d0 = c0 + 1;
+        idx.push(a0, c0, b0, b0, c0, d0);
+      }
+    }
+    return {
+      id: id || "torus",
+      mode3d: true,
+      label: "torus",
+      vertices: interleave(verts),
+      indices: new Uint32Array(idx),
+      topology: "triangle-list",
+    };
+  }
+
   // wireframe cube (order-1: edges)
   var CUBE_EDGES = [
     [0,1],[1,2],[2,3],[3,0], [4,5],[5,6],[6,7],[7,4],
@@ -373,6 +485,8 @@
     getPreset:   getPreset,
     PRESET_IDS:  Object.keys(PRESETS),
     buildBox:    buildBox,
+    buildSphere: buildSphere,
+    buildTorus:  buildTorus,
     buildPoints: buildPoints,
     buildEdges:  buildEdges,
     mergeMeshes: mergeMeshes,

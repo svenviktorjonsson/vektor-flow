@@ -239,7 +239,7 @@
       if (el) {
         requestAnimationFrame(function () {
           try {
-            global.VfFrame.postNativeHostLayout(el, { stageAlpha: 1 });
+            global.VfFrame.postNativeHostLayout(el, { stageAlpha: 0 });
           } catch (_) {}
         });
       }
