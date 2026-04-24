@@ -432,16 +432,27 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
       var px = Math.max(0, Math.min(this._pickW - 1, Math.floor(cx)));
       var py = Math.max(0, Math.min(this._pickH - 1, Math.floor(cy)));
       this._pickPending = true;
+      /* Safety: if mapAsync never resolves (GPU lost, validation error etc.) unlock after 500ms. */
+      var safetyTimer = setTimeout(function () {
+        if (self._pickPending) {
+          wlog("warn", "pickAt: timed out, resetting _pickPending");
+          self._pickPending = false;
+          self._pickCallback = null;
+          self._pendingPickPx = null;
+        }
+      }, 500);
       // Schedule readback on the next rendered frame
       this._pickCallback = function() {
         var buf = self._pickReadBuf;
         buf.mapAsync(GPUMapMode.READ).then(function() {
+          clearTimeout(safetyTimer);
           var u32 = new Uint32Array(buf.getMappedRange(0, 8));
           var oid = u32[0], sid = u32[1];
           buf.unmap();
           self._pickPending = false;
           if (cb) { cb(oid, sid, cx, cy); }
         }).catch(function(e) {
+          clearTimeout(safetyTimer);
           wlog("warn", "pickAt mapAsync failed: " + (e && e.message ? e.message : e));
           self._pickPending = false;
         });
@@ -626,9 +637,11 @@ fn fs_pick(@builtin(primitive_index) prim: u32) -> @location(0) vec2<u32> {
         // Fire the callback after submit (readback is now in flight)
         if (this._pickCallback) { this._pickCallback(); }
 
-        // Hit-map readback for native overlay pass-through (throttled)
+        // Hit-map readback for native overlay pass-through (throttled).
+        // Skip the frame where a pickAt callback just fired to avoid two
+        // simultaneous copyTextureToBuffer submits on the same texture.
         this._hitMapFrame++;
-        if (this._hitMapFrame >= this._hitMapInterval && !this._hitMapPending) {
+        if (this._hitMapFrame >= this._hitMapInterval && !this._hitMapPending && !this._pickCallback) {
           this._hitMapFrame = 0;
           this._ensureHitMapBuf();
           this._scheduleHitMapReadback();
