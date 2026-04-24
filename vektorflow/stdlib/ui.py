@@ -552,6 +552,41 @@ class UIRoot:
         self.mouse.poll()
         self.keyboard.poll()
 
+
+    def set_mode(self, mode: str) -> None:
+        """Set the UI target: ``"overlay"``, ``"browser"``, or ``"headless"``.
+
+        Call this **before** ``d.add_frame(...)`` so the right host is started.
+
+        * ``"overlay"``  — native Windows host (WebView2 + DirectComposition).
+        * ``"browser"``  — built-in HTTP server + open default browser.
+        * ``"headless"`` — write ``vf-display.json`` only; no process spawned.
+
+        You can also set the ``VF_UI_MODE`` environment variable to the same
+        values instead of calling ``set_mode`` in code.
+
+        Example (vkf)::
+
+            :.ui
+            ui.set_mode("browser")
+            d : ui.display
+            d.add_frame((0.05, 0.05, 0.9, 0.9))
+
+        Example (Python)::
+
+            from vektorflow.stdlib.ui import UIRoot
+            ui = UIRoot()
+            ui.set_mode("browser")
+        """
+        from vektorflow.ui.launch import set_ui_mode
+        set_ui_mode(mode)
+
+    @property
+    def mode(self) -> str:
+        """Return the effective UI mode (``"overlay"``, ``"browser"``, or ``"headless"``)."""
+        from vektorflow.ui.launch import get_ui_mode
+        return get_ui_mode()
+
     def __getattr__(self, name: str) -> Any:
         raise AttributeError(
             f"ui has no attribute {name!r} "
@@ -881,8 +916,8 @@ class Display:
             or self._pending_ops
             or self._geom
         ):
-            from vektorflow.ui.launch import maybe_launch_vf_overlay
-            maybe_launch_vf_overlay()
+            from vektorflow.ui.launch import maybe_launch_ui
+            maybe_launch_ui()
 
 
 # ---------------------------------------------------------------------------
