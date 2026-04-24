@@ -71,11 +71,45 @@
     canvas.setAttribute("aria-label", "vf-geom " + (presetId || "") + " view");
     canvas.style.cssText = "display:block;width:100%;height:100%;";
     host.appendChild(canvas);
+
+    /* Sync canvas opacity to the nearest .vf-frame ancestor's alpha so the
+       WebGPU content fades/shows correctly with the frame.  The WebGPU context
+       already clears to a:0 (fully transparent), so canvas.style.opacity is
+       the only multiplier we need. */
+    var alphaObserver = null;
+    function syncCanvasAlpha() {
+      var el = canvas.parentNode;
+      while (el && el !== document) {
+        if (el.classList && el.classList.contains("vf-frame")) {
+          var a = parseFloat(el.dataset && el.dataset.vfAlpha);
+          canvas.style.opacity = isNaN(a) ? "1" : String(Math.max(0, Math.min(1, a)));
+          return;
+        }
+        el = el.parentNode;
+      }
+      canvas.style.opacity = "1";
+    }
+    function attachAlphaObserver() {
+      var el = canvas.parentNode;
+      while (el && el !== document) {
+        if (el.classList && el.classList.contains("vf-frame")) {
+          if (typeof MutationObserver !== "undefined") {
+            alphaObserver = new MutationObserver(syncCanvasAlpha);
+            alphaObserver.observe(el, { attributes: true, attributeFilter: ["data-vf-alpha"] });
+          }
+          syncCanvasAlpha();
+          return;
+        }
+        el = el.parentNode;
+      }
+    }
     if (panel && panel.body) {
       try {
         panel.body.classList.add("vf-geom__body");
       } catch (_) {}
       panel.body.appendChild(host);
+      /* Attach after DOM insertion so we can walk up to .vf-frame */
+      attachAlphaObserver();
     }
 
     var core = global.VfGeomCore;
@@ -224,6 +258,10 @@
         } catch (_) {}
         if (ro) {
           ro.disconnect();
+        }
+        if (alphaObserver) {
+          alphaObserver.disconnect();
+          alphaObserver = null;
         }
         if (host.parentNode) {
           host.parentNode.removeChild(host);
