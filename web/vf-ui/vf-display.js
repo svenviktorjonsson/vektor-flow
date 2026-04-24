@@ -415,13 +415,16 @@
 
   var _lastFetchFailed = false;
   var _lastFetchText   = "";
+  var _fetchInFlight   = false;   // prevent fetch pile-up at 60 fps
 
   function loadAndRender() {
     if (typeof fetch === "undefined") {
       vlog("warn", "loadAndRender: fetch not available");
       return;
     }
-    var url = displayJsonUrl() + "?t=" + Date.now();
+    if (_fetchInFlight) { return; }   // previous frame's fetch not done yet — skip
+    _fetchInFlight = true;
+    var url = displayJsonUrl();        // no cache-buster — cache:"no-store" is enough
     fetch(url, { cache: "no-store" })
       .then(function(r) {
         if (!r.ok) {
@@ -446,7 +449,8 @@
       })
       .catch(function(err) {
         vlog("warn", "loadAndRender: fetch error: " + (err && err.message ? err.message : String(err)));
-      });
+      })
+      .finally(function() { _fetchInFlight = false; });
   }
 
   // ── Dependency check on load ──────────────────────────────────────────────

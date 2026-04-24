@@ -283,7 +283,13 @@
 
       loadScene();
       setInterval(loadScene, 1500);
-      setInterval(displayRefresh, 500);
+      // Display JSON is polled via requestAnimationFrame for smooth ~60 fps rendering.
+      // The overlay WebView2 host drives rAF at vsync rate; the browser does the same.
+      // setInterval(displayRefresh, 500) would cap us at 2 fps — avoid it.
+      (function rafLoop() {
+        displayRefresh();
+        requestAnimationFrame(rafLoop);
+      })();
       window.addEventListener("resize", function () {
         var layer = document.getElementById("layer");
         if (layer && typeof VfFrame !== "undefined" && VfFrame.layoutMinimizedDock) {

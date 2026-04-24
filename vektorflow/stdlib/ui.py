@@ -33,7 +33,7 @@ from .events import (
 LIGHT_MODELS = {"flat", "lambert", "blinn_phong", "phong"}
 
 # Animation tick rate (frames per second written to vf-display.json)
-_ANIM_FPS = 30
+_ANIM_FPS = 60
 
 
 # ---------------------------------------------------------------------------
