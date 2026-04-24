@@ -699,6 +699,11 @@ class Interpreter:
             mod = self._eval_dot_module(node.path)
             if not isinstance(mod, dict):
                 raise EvalError("spill import requires a module namespace")
+            # Also bind the module under its short name so callers can use
+            # both ``sleep(...)`` (spilled) and ``time.sleep(...)`` (qualified).
+            short_name = node.path.segments[-1] if node.path.segments else None
+            if short_name:
+                env[short_name] = mod
             for k, v in _exports(mod).items():
                 env[k] = v
             return None
