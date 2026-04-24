@@ -475,6 +475,17 @@ class Parser:
                 if k_after in (COLON, ARROW):
                     return self.parse_func_def()
 
+        # ``alias:.path`` — import module bound to alias, no spill (e.g. ``time:.time``)
+        if self._peek_raw() == IDENT:
+            if (
+                self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == COLON
+                and self.i + 2 < len(self.toks) and self.toks[self.i + 2].kind == DOT
+            ):
+                alias = str(self._advance().value)  # consume IDENT
+                self._advance()                      # consume COLON
+                path = self._parse_dot_module_path_from_dot()
+                return ast.SpillImport(path, alias=alias)
+
         # Bind: lvalue `:` expr (single colon, not ::); lvalue is postfix (``a``, ``a.b``, ``a.(1)``, …)
         if self._peek_raw() == IDENT:
             if not (

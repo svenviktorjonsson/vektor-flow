@@ -247,9 +247,12 @@ class StdioPrint:
 
 @dataclass
 class SpillImport:
-    """``: .path`` — load module (``.vkf`` / folder / stdlib) and merge exports into current scope."""
+    """``: .path`` — load module (``.vkf`` / folder / stdlib) and merge exports into current scope.
+    If ``alias`` is set (e.g. ``time:.time``) the module is bound under that name only (no spill).
+    If ``alias`` is None (plain ``:.path``) exports are spilled AND the module is bound by its short name."""
 
-    path: Any  # DotModulePath
+    path: Any        # DotModulePath
+    alias: str | None = None  # e.g. "time" from ``time:.time``
 
 
 @dataclass
