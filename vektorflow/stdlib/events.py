@@ -36,6 +36,174 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+# ---------------------------------------------------------------------------
+# Event code system (integers only)
+# ---------------------------------------------------------------------------
+
+# Low 12 bits: base event kind id.
+_BASE_MASK = 0xFFF
+# Next 10 bits: frame index.
+_FRAME_SHIFT = 12
+_FRAME_MASK = 0x3FF
+# Next 8 bits: widget index (derived from widget id).
+_WIDGET_SHIFT = 22
+_WIDGET_MASK = 0xFF
+# Top 2 bits: pattern mode.
+_MODE_SHIFT = 30
+_MODE_MASK = 0x3
+
+_MODE_EXACT = 0
+_MODE_UI = 1
+_MODE_FRAME = 2
+_MODE_WIDGET = 3
+
+
+EVENT_NAME_TO_BASE: dict[str, int] = {
+    "move": 1,
+    "hover": 2,
+    "down": 3,
+    "up": 4,
+    "wheel": 5,
+    "drag": 6,
+    "key_down": 7,
+    "key_up": 8,
+    "frame.closed": 20,
+    "button.pressed": 21,
+    "checkbox.toggled": 22,
+    "slider.value_changed": 23,
+    "input_field.text_changed": 24,
+    "input_field.text_entered": 25,
+    "dropdown.item_changed": 26,
+    "text_area.text_changed": 27,
+}
+
+EVENT_CONST_TO_NAME: dict[str, str] = {
+    "MOUSE_MOVE": "move",
+    "MOUSE_HOVER": "hover",
+    "MOUSE_DOWN": "down",
+    "MOUSE_UP": "up",
+    "MOUSE_WHEEL": "wheel",
+    "MOUSE_DRAG": "drag",
+    "KEY_DOWN": "key_down",
+    "KEY_UP": "key_up",
+    "FRAME_CLOSED": "frame.closed",
+    "BUTTON_PRESSED": "button.pressed",
+    "CHECKBOX_TOGGLED": "checkbox.toggled",
+    "SLIDER_VALUE_CHANGED": "slider.value_changed",
+    "INPUT_FIELD_TEXT_CHANGED": "input_field.text_changed",
+    "INPUT_FIELD_TEXT_ENTERED": "input_field.text_entered",
+    "DROPDOWN_ITEM_CHANGED": "dropdown.item_changed",
+    "TEXT_AREA_TEXT_CHANGED": "text_area.text_changed",
+}
+
+WIDGET_TYPE_EVENT_CONSTS: dict[str, tuple[str, ...]] = {
+    "button": ("BUTTON_PRESSED",),
+    "checkbox": ("CHECKBOX_TOGGLED",),
+    "slider": ("SLIDER_VALUE_CHANGED",),
+    "input": ("INPUT_FIELD_TEXT_CHANGED", "INPUT_FIELD_TEXT_ENTERED"),
+    "dropdown": ("DROPDOWN_ITEM_CHANGED",),
+    "textarea": ("TEXT_AREA_TEXT_CHANGED",),
+}
+
+
+def _frame_index(frame_id: str) -> int:
+    s = str(frame_id or "").strip()
+    if len(s) >= 2 and s[0] == "f" and s[1:].isdigit():
+        i = int(s[1:])
+        if i < 0:
+            return 0
+        return i & _FRAME_MASK
+    return 0
+
+
+def _widget_index(widget_id: str) -> int:
+    s = str(widget_id or "")
+    if not s:
+        return 0
+    acc = 0
+    for i, ch in enumerate(s):
+        acc += (i + 1) * ord(ch)
+    return (acc % _WIDGET_MASK) + 1
+
+
+def _base_code(event_name: str) -> int:
+    return int(EVENT_NAME_TO_BASE.get(str(event_name), 0))
+
+
+def encode_event_code(event_name: str, frame_id: str = "", widget_id: str = "") -> int:
+    """Exact event code: includes kind + frame index + widget index."""
+    b = _base_code(event_name) & _BASE_MASK
+    f = _frame_index(frame_id) & _FRAME_MASK
+    w = _widget_index(widget_id) & _WIDGET_MASK
+    return (_MODE_EXACT << _MODE_SHIFT) | b | (f << _FRAME_SHIFT) | (w << _WIDGET_SHIFT)
+
+
+def encode_ui_pattern(event_name: str) -> int:
+    """Pattern matching any frame/widget for this event kind."""
+    b = _base_code(event_name) & _BASE_MASK
+    return (_MODE_UI << _MODE_SHIFT) | b
+
+
+def encode_frame_pattern(event_name: str, frame_id: str) -> int:
+    """Pattern matching this event kind in one frame (any widget in that frame)."""
+    b = _base_code(event_name) & _BASE_MASK
+    f = _frame_index(frame_id) & _FRAME_MASK
+    return (_MODE_FRAME << _MODE_SHIFT) | b | (f << _FRAME_SHIFT)
+
+
+def encode_widget_pattern(event_name: str, widget_id: str) -> int:
+    """Pattern matching this event kind for one widget id (across frames)."""
+    b = _base_code(event_name) & _BASE_MASK
+    w = _widget_index(widget_id) & _WIDGET_MASK
+    return (_MODE_WIDGET << _MODE_SHIFT) | b | (w << _WIDGET_SHIFT)
+
+
+def matches_event_code(exact_code: int, pattern_code: int) -> bool:
+    """Compare an exact event code against a pattern or exact code (both integers)."""
+    if not isinstance(exact_code, int) or not isinstance(pattern_code, int):
+        return False
+    pmode = (pattern_code >> _MODE_SHIFT) & _MODE_MASK
+    if pmode == _MODE_EXACT:
+        return exact_code == pattern_code
+    if pmode == _MODE_UI:
+        return (exact_code & _BASE_MASK) == (pattern_code & _BASE_MASK)
+    if pmode == _MODE_FRAME:
+        em = exact_code & (_BASE_MASK | (_FRAME_MASK << _FRAME_SHIFT))
+        pm = pattern_code & (_BASE_MASK | (_FRAME_MASK << _FRAME_SHIFT))
+        return em == pm
+    if pmode == _MODE_WIDGET:
+        em = exact_code & (_BASE_MASK | (_WIDGET_MASK << _WIDGET_SHIFT))
+        pm = pattern_code & (_BASE_MASK | (_WIDGET_MASK << _WIDGET_SHIFT))
+        return em == pm
+    return False
+
+
+def event_match_specificity(exact_code: int, pattern_code: int) -> int | None:
+    """Return match specificity (0..3) for event-code matching, or ``None`` if no match.
+
+    Specificity order:
+      3: exact
+      2: widget-pattern
+      1: frame-pattern
+      0: ui-pattern
+    """
+    if not isinstance(exact_code, int) or not isinstance(pattern_code, int):
+        return None
+    pmode = (pattern_code >> _MODE_SHIFT) & _MODE_MASK
+    if pmode == _MODE_EXACT:
+        return 3 if exact_code == pattern_code else None
+    if pmode == _MODE_UI:
+        return 0 if ((exact_code & _BASE_MASK) == (pattern_code & _BASE_MASK)) else None
+    if pmode == _MODE_FRAME:
+        em = exact_code & (_BASE_MASK | (_FRAME_MASK << _FRAME_SHIFT))
+        pm = pattern_code & (_BASE_MASK | (_FRAME_MASK << _FRAME_SHIFT))
+        return 1 if em == pm else None
+    if pmode == _MODE_WIDGET:
+        em = exact_code & (_BASE_MASK | (_WIDGET_MASK << _WIDGET_SHIFT))
+        pm = pattern_code & (_BASE_MASK | (_WIDGET_MASK << _WIDGET_SHIFT))
+        return 2 if em == pm else None
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Port discovery
@@ -197,7 +365,12 @@ class MouseEvent:
     simplex_id: int    = 0      # primitive index (face/edge/vert)
     button:     int    = -1     # 0=left 1=mid 2=right (-1 = N/A)
     buttons:    int    = 0      # bitmask from MouseEvent.buttons (for hover/drag state)
+    ctrl:       bool   = False
+    shift:      bool   = False
+    alt:        bool   = False
+    meta:       bool   = False
     step:       int    = 0      # ±1 for wheel
+    delta:      float  = 0.0    # raw wheel deltaY (platform/browser units)
     dx:         float  = 0.0    # drag delta x (for synthetic "drag" events)
     dy:         float  = 0.0    # drag delta y (for synthetic "drag" events)
 
@@ -213,7 +386,12 @@ class MouseEvent:
             simplex_id = int(d.get("simplex_id", 0)),
             button     = int(d.get("button", -1)),
             buttons    = int(d.get("buttons", 0)),
+            ctrl       = bool(d.get("ctrl", False)),
+            shift      = bool(d.get("shift", False)),
+            alt        = bool(d.get("alt", False)),
+            meta       = bool(d.get("meta", False)),
             step       = int(d.get("step", 0)),
+            delta      = float(d.get("delta", 0.0)),
             dx         = float(d.get("dx", 0.0)),
             dy         = float(d.get("dy", 0.0)),
         )
@@ -300,6 +478,8 @@ class UIMouse:
         self._wheel_cbs: list[Callable]  = []
         self._drag_cbs:  list[Callable]  = []
         self._queue: deque[MouseEvent]   = deque()
+        self._last_x: float = 0.0
+        self._last_y: float = 0.0
 
     # -- registration ---------------------------------------------------------
 
@@ -336,6 +516,8 @@ class UIMouse:
     def _push(self, evt: dict[str, Any]) -> None:
         """Called from the poller thread; thread-safe enqueue."""
         me = MouseEvent.from_dict(evt)
+        self._last_x = me.x
+        self._last_y = me.y
         self._queue.append(me)
 
     def pop(self) -> MouseEvent | None:
@@ -374,11 +556,13 @@ class UIMouse:
 
     @property
     def pos(self) -> tuple[float, float]:
-        """Most recent (x, y) position. Returns (0, 0) until first hover."""
-        if self._queue:
-            last = self._queue[-1]
-            return (last.x, last.y)
-        return (0.0, 0.0)
+        """Most recent (x, y) position. Returns (0, 0) until first mouse event."""
+        return (self._last_x, self._last_y)
+
+    @property
+    def position(self) -> dict[str, float]:
+        """Most recent mouse position as a record ``(x:..., y:...)``."""
+        return {"x": self._last_x, "y": self._last_y}
 
     def __repr__(self) -> str:
         return (f"UIMouse(event={len(self._event_cbs)} cbs, "
@@ -402,10 +586,35 @@ class UIKeyboard:
 
     __vf_py_attrs__ = True
 
+    _KEY_TO_MOD = {
+        "Control": "ctrl",
+        "Shift": "shift",
+        "Alt": "alt",
+        "Meta": "meta",
+    }
+    _CODE_TO_MOD = {
+        "ControlLeft": "ctrl",
+        "ControlRight": "ctrl",
+        "ShiftLeft": "shift",
+        "ShiftRight": "shift",
+        "AltLeft": "alt",
+        "AltRight": "alt",
+        "MetaLeft": "meta",
+        "MetaRight": "meta",
+        "OSLeft": "meta",
+        "OSRight": "meta",
+    }
+
     def __init__(self) -> None:
         self._down_cbs: list[Callable] = []
         self._up_cbs:   list[Callable] = []
         self._queue: deque[KeyEvent]   = deque()
+        self._modifiers: dict[str, bool] = {
+            "ctrl": False,
+            "shift": False,
+            "alt": False,
+            "meta": False,
+        }
 
     def on_down(self, fn: Callable[[KeyEvent], None]) -> None:
         """Register a callback for key down events."""
@@ -415,8 +624,32 @@ class UIKeyboard:
         """Register a callback for key up events."""
         self._up_cbs.append(fn)
 
+    @property
+    def modifiers(self) -> dict[str, bool]:
+        """Current modifier-key state snapshot."""
+        return dict(self._modifiers)
+
+    def _observe_modifiers(self, evt: dict[str, Any]) -> None:
+        """Update modifier snapshot from any incoming event payload."""
+        for k in ("ctrl", "shift", "alt", "meta"):
+            if k in evt:
+                self._modifiers[k] = bool(evt.get(k, False))
+
+    def _modifier_name(self, ke: KeyEvent) -> str | None:
+        m = self._KEY_TO_MOD.get(ke.key)
+        if m is not None:
+            return m
+        return self._CODE_TO_MOD.get(ke.code)
+
     def _push(self, evt: dict[str, Any]) -> None:
-        self._queue.append(KeyEvent.from_dict(evt))
+        self._observe_modifiers(evt)
+        ke = KeyEvent.from_dict(evt)
+        mod = self._modifier_name(ke)
+        if mod is not None:
+            # Keep state up-to-date, but do not emit standalone modifier events.
+            self._modifiers[mod] = (ke.event == "key_down")
+            return
+        self._queue.append(ke)
 
     def pop(self) -> KeyEvent | None:
         """Pop one queued keyboard event, or ``None`` when queue is empty."""
@@ -436,4 +669,9 @@ class UIKeyboard:
                     pass
 
     def __repr__(self) -> str:
-        return f"UIKeyboard(down={len(self._down_cbs)} cbs, up={len(self._up_cbs)} cbs)"
+        return (
+            "UIKeyboard("
+            f"down={len(self._down_cbs)} cbs, "
+            f"up={len(self._up_cbs)} cbs, "
+            f"modifiers={self._modifiers})"
+        )

@@ -112,9 +112,14 @@ class FrameSpec:
     master: bool = False
     # Where to stack the chrome when docked (in view coordinates).
     dock_location: DockLocation = "bl"
+    # Anchor for initial rect placement. Example: ``anchor="bl"`` means rect (x,y,w,h)
+    # uses bottom-left anchoring so (0,0,...) starts at the container's bottom-left.
+    anchor: DockLocation = "tl"
     # Optional widget tree for ``vf-ui`` (``web/vf-ui/vf-widgets.js``).
     # Each node is a JSON dict: at least ``id`` and ``type`` (e.g. ``label``, ``button``).
     body: tuple[dict[str, Any], ...] | None = None
+    # Optional parent frame id. When set, ``rect`` is normalized to the parent frame body.
+    parent_id: str | None = None
 
     def to_json_obj(self) -> dict[str, Any]:
         d = asdict(self)
@@ -127,6 +132,8 @@ class FrameSpec:
             d["body"] = [dict(n) for n in self.body]
         else:
             d["body"] = None
+        d["anchor"] = self.anchor
+        d["parent_id"] = self.parent_id
         return d
 
 

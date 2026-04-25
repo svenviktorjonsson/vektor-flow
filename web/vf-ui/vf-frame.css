@@ -194,6 +194,38 @@
   z-index: 1;
 }
 
+/* Keep nested-frame overlay truly absolute even under generic stack child styling. */
+.vf-frame__body.vf-w-stack > .vf-frame__overlay {
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  box-sizing: border-box;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.vf-frame__body.vf-w-stack > .vf-frame__overlay > .vf-frame {
+  pointer-events: auto;
+}
+
+/* Absolute overlay plane for nested frames inside a frame body.
+ * Keeps child frames out of scroll-layout flow and provides a clipped drag area.
+ */
+.vf-frame__overlay {
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  box-sizing: border-box;
+  overflow: hidden;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.vf-frame__overlay > .vf-frame {
+  pointer-events: auto;
+}
+
 .vf-frame__minibar {
   display: none;
   align-items: center;

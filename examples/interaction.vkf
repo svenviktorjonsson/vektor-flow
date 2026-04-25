@@ -1,41 +1,60 @@
-# Interaction event logger
-# Purpose: print all queued UI events (mouse + key) in a simple dispatch loop.
+# Interaction event logger (explicit dispatch style)
+# - no callback handlers
+# - compact explicit prints
+# - always include cursor position
+# - include active modifiers when present
 
 ui:.ui
 t:.time
 
 events: ui.events
 d: ui.display
+EV_FRAME_CLOSED: "frame.closed"
 
 f: d.add_frame((0.08, 0.08, 0.7, 0.78))
 box: f.add_box(center:[0,0,0], scale:[1.2,1.2,1.2], color:"#4f8dff")
 cam: f.add_camera(pos:[4,3,6], target:[0,0,0], fov:45)
 light: f.add_light(pos:[8,10,8], model:"blinn_phong", color:"white")
 
-log_mouse(e):
-  :: "mouse type=$e.type object_id=$e.object_id"
-  :: e
+modifier_text():
+  m: ""
+  mods: ui.keyboard.modifiers
+  mods.ctrl?  m: m & "C"
+  mods.shift? m: m & "S"
+  mods.alt?   m: m & "A"
+  mods.meta?  m: m & "M"
+  @: m
 
-log_key(e):
-  :: "key type=$e.type key=$e.key code=$e.code"
-  :: e
+log_prefix(e):
+  p: ui.cursor.position
+  mods: modifier_text()
+  mods=""? @: "ev=$e.event x=$p.x y=$p.y"
+  @: "ev=$e.event mods=$mods x=$p.x y=$p.y"
 
 dispatch(e):
-  e.type??
-    ui.MOUSE_MOVE  => log_mouse(e)
-    ui.MOUSE_HOVER => log_mouse(e)
-    ui.MOUSE_DOWN  => log_mouse(e)
-    ui.MOUSE_UP    => log_mouse(e)
-    ui.MOUSE_WHEEL => log_mouse(e)
-    ui.MOUSE_DRAG  => log_mouse(e)
-    ui.KEY_DOWN    => log_key(e)
-    ui.KEY_UP      => log_key(e)
-    _ =>
-      :: "event type=$e.type"
-      :: e
+  e.event??
+    EV_FRAME_CLOSED =>
+      :: "ev=frame.closed"
+      @|
+    ui.KEY_DOWN =>
+      :: log_prefix(e) & " key=$e.key code=$e.code"
+    ui.KEY_UP =>
+      :: log_prefix(e) & " key=$e.key code=$e.code"
+    ui.MOUSE_DOWN =>
+      :: log_prefix(e) & " btn=$e.button obj=$e.object_id"
+    ui.MOUSE_UP =>
+      :: log_prefix(e) & " btn=$e.button obj=$e.object_id"
+    ui.MOUSE_MOVE =>
+      :: log_prefix(e) & " obj=$e.object_id"
+    ui.MOUSE_DRAG =>
+      :: log_prefix(e) & " dx=$e.dx dy=$e.dy"
+    ui.MOUSE_WHEEL =>
+      :: log_prefix(e) & " step=$e.step delta=$e.delta"
+    ui.MOUSE_HOVER =>
+      :: log_prefix(e) & " obj=$e.object_id"
+    :: log_prefix(e)
 
-running: true
-running?
+true?
   events.poll()? dispatch(events.get())
   t.sleep(0.016)
   @>

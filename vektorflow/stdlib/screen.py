@@ -17,6 +17,11 @@ from vektorflow.ui.ir import (
     parse_dock_location,
 )
 from vektorflow.runtime.vflist import VFLinkedList
+from .events import (
+    EVENT_CONST_TO_NAME,
+    WIDGET_TYPE_EVENT_CONSTS,
+    encode_widget_pattern,
+)
 
 
 def _resolve_title_and_align(
@@ -66,6 +71,18 @@ def _as_widget_node(x: Any) -> dict[str, Any]:
     return dict(x)
 
 
+def _attach_widget_event_consts(node: dict[str, Any]) -> dict[str, Any]:
+    """Attach widget-scoped integer constants, e.g. ``btn.BUTTON_PRESSED``."""
+    wid = str(node.get("id", ""))
+    typ = str(node.get("type", ""))
+    for const_name in WIDGET_TYPE_EVENT_CONSTS.get(typ, ()):
+        ev_name = EVENT_CONST_TO_NAME.get(const_name)
+        if ev_name is None:
+            continue
+        node[const_name] = encode_widget_pattern(ev_name, wid)
+    return node
+
+
 def _widget_props(x: Any) -> dict[str, Any]:
     if isinstance(x, dict):
         return dict(x)
@@ -84,13 +101,13 @@ class _Widget:
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"label() got unexpected keyword argument(s): {bad}")
-        return {"id": str(id), "type": "label", "text": str(text)}
+        return _attach_widget_event_consts({"id": str(id), "type": "label", "text": str(text)})
 
     def button(self, id: str, label: str = "", **kwargs: Any) -> dict[str, Any]:
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"button() got unexpected keyword argument(s): {bad}")
-        return {"id": str(id), "type": "button", "label": str(label)}
+        return _attach_widget_event_consts({"id": str(id), "type": "button", "label": str(label)})
 
     def checkbox(
         self, id: str, checked: bool = False, label: str = "", **kwargs: Any
@@ -98,12 +115,12 @@ class _Widget:
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"checkbox() got unexpected keyword argument(s): {bad}")
-        return {
+        return _attach_widget_event_consts({
             "id": str(id),
             "type": "checkbox",
             "checked": bool(checked),
             "label": str(label),
-        }
+        })
 
     def slider(
         self,
@@ -118,31 +135,31 @@ class _Widget:
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"slider() got unexpected keyword argument(s): {bad}")
-        return {
+        return _attach_widget_event_consts({
             "id": str(id),
             "type": "slider",
             "value": float(value),
             "min": float(vmin),
             "max": float(vmax),
             "step": float(step),
-        }
+        })
 
     def input_field(self, id: str, text: str = "", placeholder: str = "", **kwargs: Any) -> dict[str, Any]:
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"input_field() got unexpected keyword argument(s): {bad}")
-        return {
+        return _attach_widget_event_consts({
             "id": str(id),
             "type": "input",
             "text": str(text),
             "placeholder": str(placeholder),
-        }
+        })
 
     def text_area(self, id: str, text: str = "", **kwargs: Any) -> dict[str, Any]:
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"text_area() got unexpected keyword argument(s): {bad}")
-        return {"id": str(id), "type": "textarea", "text": str(text)}
+        return _attach_widget_event_consts({"id": str(id), "type": "textarea", "text": str(text)})
 
     def dropdown(
         self, id: str, options: Any | None = None, *, value: int = 0, **kwargs: Any
@@ -158,7 +175,7 @@ class _Widget:
                 opts = [str(x) for x in options]
             else:
                 raise TypeError("dropdown options must be a list or collections.list")
-        return {"id": str(id), "type": "dropdown", "options": opts, "value": int(value)}
+        return _attach_widget_event_consts({"id": str(id), "type": "dropdown", "options": opts, "value": int(value)})
 
 
 @dataclass
@@ -172,6 +189,7 @@ class PendingFrame:
     alpha: float = 1.0
     master: bool = False
     dock_location: DockLocation = "bl"
+    anchor: DockLocation = "tl"
     flags: FrameFlags = field(default_factory=FrameFlags)
     # Set by :meth:`Screen.add_frame` after a frame is placed (for relative layout).
     _placed_id: str | None = field(default=None, repr=False, compare=False)
@@ -213,6 +231,7 @@ class Screen:
         master: bool = False,
         dock_location: str = "bl",
         dock_loc: str | None = None,
+        anchor: str = "tl",
         **kwargs: Any,
     ) -> PendingFrame:
         """``__title=...`` (right-aligned) is taken from ``**kwargs`` (valid Python keyword at call site). ``dock_loc`` overrides ``dock_location`` when set."""
@@ -233,6 +252,7 @@ class Screen:
             alpha=float(alpha),
             master=bool(master),
             dock_location=parse_dock_location(loc_str),
+            anchor=parse_dock_location(str(anchor)),
             flags=FrameFlags(
                 draggable=bool(draggable),
                 dockable=bool(dockable),
@@ -248,6 +268,7 @@ class Screen:
         rect: Any | None = None,
         *,
         body: Any = None,
+        in_frame: PendingFrame | None = None,
         under: PendingFrame | None = None,
         over: PendingFrame | None = None,
         right_of: PendingFrame | None = None,
@@ -262,6 +283,8 @@ class Screen:
         *body* is an optional list of widget maps (``widget.label``, ``widget.button``,
         …) rendered inside the frame. Live updates: :meth:`widget_set` writes
         ``vf-ui-state.json`` for the WebView to merge.
+        Set ``in_frame`` to place this frame inside another frame's body; then ``rect``
+        is normalized to that parent frame's local coordinates.
 
         When several frames share a dock corner (e.g. ``bl``), minimized strips stack
         on that edge as separate bars — they are not laid out as one horizontal row.
@@ -337,6 +360,13 @@ class Screen:
             xs = _rect_beside(ref, kind, float(gap), pending)
 
         xs.validate()
+        parent_id: str | None = None
+        if in_frame is not None:
+            if not isinstance(in_frame, PendingFrame):
+                raise TypeError("add_frame: in_frame must be a frame returned by s.frame()")
+            if in_frame._placed_id is None:
+                raise RuntimeError("add_frame: in_frame must already be placed via add_frame")
+            parent_id = in_frame._placed_id
         body_list = _coerce_body(body)
         body_tuple = tuple(body_list) if body_list is not None else None
         fid = self._alloc_id()
@@ -349,7 +379,9 @@ class Screen:
             alpha=pending.alpha,
             master=pending.master,
             dock_location=pending.dock_location,
+            anchor=pending.anchor,
             body=body_tuple,
+            parent_id=parent_id,
         )
         self._commands.append(
             UiCommand("frame_upsert", fid, {"spec": spec.to_json_obj()})

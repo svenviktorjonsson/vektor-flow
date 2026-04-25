@@ -1,0 +1,98 @@
+# Interactive widgets + explicit event queue (no callbacks)
+# Run: vkf examples/ui_widgets_events.vkf
+
+ui:.ui
+t:.time
+col:.collections
+
+d: ui.display
+w: ui.widgets
+events: ui.events
+
+save_btn: w.button("save", label: "Save")
+agree_cb: w.checkbox("agree", label: "Enable advanced mode", checked: false)
+theme_dd: w.dropdown("theme", col.list("Ocean", "Forest", "Sunset"), value: 0)
+alpha_sl: w.slider("alpha", value: 0.35, vmin: 0, vmax: 1, step: 0.01)
+name_in: w.input_field("name", text: "", placeholder: "Type and press Enter")
+notes_ta: w.text_area("notes", text: "Write notes here...")
+
+panel: d.frame(
+  title: "Widgets Demo (events)",
+  dock_loc: "bl",
+  resizable: true,
+  closable: true,
+  draggable: true
+)
+
+d.add_frame(
+  panel,
+  (0.08, 0.08, 0.42, 0.78),
+  body: col.list(
+    w.label("title", text: "Interactive widgets"),
+    name_in,
+    agree_cb,
+    theme_dd,
+    alpha_sl,
+    notes_ta,
+    save_btn
+  )
+)
+
+# Inner frame (placed visually inside panel near the bottom)
+inner: d.frame(
+  title: "Inner Frame (Bottom)",
+  alpha: 1,
+  dockable: true,
+  dock_loc: "bc",
+  anchor: "bl",
+  closable: true,
+  draggable: true,
+  resizable: true
+)
+
+d.add_frame(
+  inner,
+  (0.00, 0.00, 0.40, 0.40),
+  in_frame: panel,
+  body: col.list(
+    w.label("inner_title", text: "I am inside the parent area"),
+    w.text_area("inner_notes", text: "Try dragging/closing me.")
+  )
+)
+
+:: "widgets demo started (close frame to exit)"
+
+prefix(e, c):
+  p: ui.cursor.position
+  m: ui.keyboard.modifiers
+  @: "ev=$c wid=$e.widget_id frame=$e.frame_id x=$p.x y=$p.y c=$m.ctrl s=$m.shift a=$m.alt m=$m.meta"
+
+dispatch(e):
+  e.code??
+    ui.FRAME_CLOSED =>
+      :: "ev=frame.closed code=$e.code frame=$e.frame_id"
+      @|
+    panel.BUTTON_PRESSED =>
+      :: prefix(e, e.code) & " panel button"
+    save_btn.BUTTON_PRESSED =>
+      :: prefix(e, e.code) & " save button"
+    agree_cb.CHECKBOX_TOGGLED =>
+      :: prefix(e, e.code) & " checked=$e.data.checked"
+    alpha_sl.SLIDER_VALUE_CHANGED =>
+      :: prefix(e, e.code) & " value=$e.data.value"
+    name_in.INPUT_FIELD_TEXT_CHANGED =>
+      :: prefix(e, e.code) & " text=$e.data.text"
+    name_in.INPUT_FIELD_TEXT_ENTERED =>
+      :: prefix(e, e.code) & " entered=$e.data.text"
+    theme_dd.DROPDOWN_ITEM_CHANGED =>
+      :: prefix(e, e.code) & " index=$e.data.index text=$e.data.text"
+    notes_ta.TEXT_AREA_TEXT_CHANGED =>
+      :: prefix(e, e.code) & " text=$e.data.text"
+    ui.MOUSE_MOVE =>
+      0
+    :: "ev=other code=$e.code ui=$e.ui_code frame=$e.frame_code widget=$e.widget_code idx=$e.index"
+
+true?
+  events.poll()? dispatch(events.get())
+  t.sleep(0.016)
+  @>

@@ -149,7 +149,10 @@
       const wv = typeof globalThis !== "undefined" && globalThis.chrome && globalThis.chrome.webview;
       if (!wv || typeof wv.postMessage !== "function" || !layer) return;
       const sa = typeof o.stageAlpha === "number" ? Math.max(0, Math.min(1, o.stageAlpha)) : 1;
-      const nodes = layer.querySelectorAll(".vf-frame");
+      const scope = (typeof document !== "undefined" && document && document.querySelectorAll)
+        ? document
+        : layer;
+      const nodes = scope ? scope.querySelectorAll(".vf-frame") : [];
       const hitRegions = [];
       function paintPadDipForElement(el) {
         if (!(el instanceof HTMLElement)) return 2;
@@ -240,14 +243,26 @@
       if (!layer) return;
       const g = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : null;
       const gap = 6;
-      const pad = 6;
-      const all = Array.from(layer.querySelectorAll(".vf-frame--minimized"));
+      const lcs = global.getComputedStyle ? global.getComputedStyle(layer) : null;
+      const padL = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingLeft ? lcs.paddingLeft : "0") || 0));
+      const padR = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
+      const padT = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
+      const padB = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
+      const all = Array.from(layer.children).filter(function (n) {
+        return (
+          n instanceof HTMLElement &&
+          n.classList.contains("vf-frame") &&
+          n.classList.contains("vf-frame--minimized")
+        );
+      });
       const by = { bl: [], bc: [], br: [], tl: [], tc: [], tr: [], cl: [], cr: [] };
       for (let i = 0; i < all.length; i++) {
         const fr = all[i];
         if (!(fr instanceof HTMLElement)) continue;
+        // Docking source of truth is min-dock (from spec.dock_location / dock_loc).
+        // Do not read placement/anchor metadata here.
         const k = VfFrame.normalizeDockLocationKey(
-          (fr.dataset.vfDockLocation || fr.dataset.vfMinDock || "bl")
+          (fr.dataset.vfMinDock || "bl")
         );
         if (by[k]) by[k].push(fr);
         else by.bl.push(fr);
@@ -260,110 +275,109 @@
           }
         }
         requestAnimationFrame(function () {
-          const vw = g && g.innerWidth ? g.innerWidth : 800;
-          const vh = g && g.innerHeight ? g.innerHeight : 600;
+          const vw = layer && layer.clientWidth ? layer.clientWidth : (g && g.innerWidth ? g.innerWidth : 800);
+          const vh = layer && layer.clientHeight ? layer.clientHeight : (g && g.innerHeight ? g.innerHeight : 600);
+          const cw = Math.max(0, vw - padL - padR);
+          const ch = Math.max(0, vh - padT - padB);
+          function clampX(x, w) {
+            const maxX = Math.max(padL, padL + cw - w);
+            return Math.min(maxX, Math.max(padL, x));
+          }
+          function clampY(y, h) {
+            const maxY = Math.max(padT, padT + ch - h);
+            return Math.min(maxY, Math.max(padT, y));
+          }
+          function place(fr, l, t) {
+            fr.style.left = Math.round(l) + "px";
+            fr.style.top = Math.round(t) + "px";
+            fr.style.right = "auto";
+            fr.style.bottom = "auto";
+          }
           /** Stack along the bottom edge: each frame gets its own horizontal strip, stacked upward. */
           function stackBottomLeft(nodes) {
             if (!nodes || nodes.length === 0) return;
-            let b = pad;
+            let b = padB;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
               const h = fr.getBoundingClientRect().height;
-              fr.style.top = "auto";
-              fr.style.bottom = b + "px";
-              fr.style.left = pad + "px";
-              fr.style.right = "auto";
+              place(fr, padL, clampY(vh - b - h, h));
               b += h + gap;
             }
           }
           function stackBottomCenter(nodes) {
             if (!nodes || nodes.length === 0) return;
-            let b = pad;
+            let b = padB;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
               const w = fr.getBoundingClientRect().width;
               const h = fr.getBoundingClientRect().height;
-              fr.style.top = "auto";
-              fr.style.bottom = b + "px";
-              fr.style.left = Math.round(Math.max(pad, (vw - w) / 2)) + "px";
-              fr.style.right = "auto";
+              const lx = padL + (cw - w) * 0.5;
+              place(fr, clampX(lx, w), clampY(vh - b - h, h));
               b += h + gap;
             }
           }
           function stackBottomRight(nodes) {
             if (!nodes || nodes.length === 0) return;
-            let b = pad;
+            let b = padB;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
+              const w = fr.getBoundingClientRect().width;
               const h = fr.getBoundingClientRect().height;
-              fr.style.top = "auto";
-              fr.style.bottom = b + "px";
-              fr.style.left = "auto";
-              fr.style.right = pad + "px";
+              place(fr, clampX(vw - padR - w, w), clampY(vh - b - h, h));
               b += h + gap;
             }
           }
           /** Stack along the top edge: strips laid out downward. */
           function stackTopLeft(nodes) {
             if (!nodes || nodes.length === 0) return;
-            let t = pad;
+            let t = padT;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
               const h = fr.getBoundingClientRect().height;
-              fr.style.top = t + "px";
-              fr.style.bottom = "auto";
-              fr.style.left = pad + "px";
-              fr.style.right = "auto";
+              place(fr, padL, clampY(t, h));
               t += h + gap;
             }
           }
           function stackTopCenter(nodes) {
             if (!nodes || nodes.length === 0) return;
-            let t = pad;
+            let t = padT;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
               const w = fr.getBoundingClientRect().width;
               const h = fr.getBoundingClientRect().height;
-              fr.style.top = t + "px";
-              fr.style.bottom = "auto";
-              fr.style.left = Math.round(Math.max(pad, (vw - w) / 2)) + "px";
-              fr.style.right = "auto";
+              const lx = padL + (cw - w) * 0.5;
+              place(fr, clampX(lx, w), clampY(t, h));
               t += h + gap;
             }
           }
           function stackTopRight(nodes) {
             if (!nodes || nodes.length === 0) return;
-            let t = pad;
+            let t = padT;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
+              const w = fr.getBoundingClientRect().width;
               const h = fr.getBoundingClientRect().height;
-              fr.style.top = t + "px";
-              fr.style.bottom = "auto";
-              fr.style.left = "auto";
-              fr.style.right = pad + "px";
+              place(fr, clampX(vw - padR - w, w), clampY(t, h));
               t += h + gap;
             }
           }
           function colLeftSide(nodes) {
-            let y = pad;
+            let y = padT;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
-              fr.style.left = pad + "px";
-              fr.style.right = "auto";
-              fr.style.top = Math.min(y, vh - pad - 4) + "px";
-              fr.style.bottom = "auto";
-              y += fr.getBoundingClientRect().height + gap;
+              const h = fr.getBoundingClientRect().height;
+              place(fr, padL, clampY(y, h));
+              y += h + gap;
             }
           }
           function colRightSide(nodes) {
-            let y = pad;
+            let y = padT;
             for (let j = 0; j < nodes.length; j++) {
               const fr = nodes[j];
-              fr.style.right = pad + "px";
-              fr.style.left = "auto";
-              fr.style.top = Math.min(y, vh - pad - 4) + "px";
-              fr.style.bottom = "auto";
-              y += fr.getBoundingClientRect().height + gap;
+              const w = fr.getBoundingClientRect().width;
+              const h = fr.getBoundingClientRect().height;
+              place(fr, clampX(vw - padR - w, w), clampY(y, h));
+              y += h + gap;
             }
           }
           stackBottomLeft(by.bl);
@@ -384,7 +398,13 @@
      * @returns {{ x: number, y: number, width: number, height: number } | null}
      */
     minimizedClientUnionRect(layer) {
-      const nodes = layer.querySelectorAll(".vf-frame--minimized");
+      const nodes = Array.from(layer.children).filter(function (n) {
+        return (
+          n instanceof HTMLElement &&
+          n.classList.contains("vf-frame") &&
+          n.classList.contains("vf-frame--minimized")
+        );
+      });
       if (!nodes || nodes.length === 0) return null;
       let l0 = Infinity;
       let t0 = Infinity;
@@ -497,11 +517,30 @@
     attachHeaderDrag(o) {
       const { root, header, layer } = o;
       let drag = null;
+      let blockWheel = null;
+      function _parseCssPosPx(v, base) {
+        if (v == null) return NaN;
+        const s = String(v).trim().toLowerCase();
+        if (!s || s === "auto") return NaN;
+        if (s.endsWith("%")) {
+          const p = Number.parseFloat(s.slice(0, -1));
+          if (!Number.isFinite(p)) return NaN;
+          return (base * p) / 100;
+        }
+        const n = Number.parseFloat(s);
+        return Number.isFinite(n) ? n : NaN;
+      }
       function endDrag(e) {
         if (!drag || e.pointerId !== drag.pid) return;
         try {
           header.releasePointerCapture(e.pointerId);
         } catch (_) {}
+        if (blockWheel) {
+          try {
+            layer.removeEventListener("wheel", blockWheel, true);
+          } catch (_) {}
+          blockWheel = null;
+        }
         drag = null;
         if (o.onDragEnd) o.onDragEnd();
       }
@@ -510,25 +549,26 @@
         if (e.target.closest("button")) return;
         if (e.button !== 0) return;
         if (o.onDragStart) o.onDragStart();
-        const lr0 = layer.getBoundingClientRect();
-        const wr = root.getBoundingClientRect();
-        const sLeft = Math.round(wr.left - lr0.left);
-        const sTop = Math.round(wr.top - lr0.top);
-        root.style.left = sLeft + "px";
-        root.style.top = sTop + "px";
-        root.style.right = "auto";
-        root.style.bottom = "auto";
-        /* Delta drag (not absolute using layer rect each move). Re-getting
-         * getBoundingClientRect() on the layer every pointermove returns unstable
-         * subpixel edges in WebView2/Chromium, which made the frame jump even when
-         * the default in-layer path was on. */
+        const cs = global.getComputedStyle ? global.getComputedStyle(root) : null;
+        let left0 = _parseCssPosPx(cs ? cs.left : "", layer.clientWidth);
+        let top0 = _parseCssPosPx(cs ? cs.top : "", layer.clientHeight);
+        if (!Number.isFinite(left0)) left0 = root.offsetLeft;
+        if (!Number.isFinite(top0)) top0 = root.offsetTop;
         drag = {
           pid: e.pointerId,
-          sLeft,
-          sTop,
-          c0x: e.clientX,
-          c0y: e.clientY,
+          left: Math.round(left0),
+          top: Math.round(top0),
+          lastX: e.clientX,
+          lastY: e.clientY,
+          fixedPos: false,
         };
+        blockWheel = function (ev) {
+          if (!drag) return;
+          if (ev && typeof ev.preventDefault === "function") ev.preventDefault();
+        };
+        try {
+          layer.addEventListener("wheel", blockWheel, { passive: false, capture: true });
+        } catch (_) {}
         try {
           header.setPointerCapture(e.pointerId);
         } catch (_) {}
@@ -536,14 +576,36 @@
       });
       header.addEventListener("pointermove", (e) => {
         if (!drag || e.pointerId !== drag.pid) return;
-        const maxL = Math.max(0, layer.clientWidth - root.offsetWidth);
-        const maxT = Math.max(0, layer.clientHeight - root.offsetHeight);
-        let nl = drag.sLeft + (e.clientX - drag.c0x);
-        let nt = drag.sTop + (e.clientY - drag.c0y);
-        nl = Math.min(maxL, Math.max(0, nl));
-        nt = Math.min(maxT, Math.max(0, nt));
+        const dx = e.clientX - drag.lastX;
+        const dy = e.clientY - drag.lastY;
+        if (dx === 0 && dy === 0) return;
+        drag.lastX = e.clientX;
+        drag.lastY = e.clientY;
+        if (!drag.fixedPos) {
+          root.style.left = drag.left + "px";
+          root.style.top = drag.top + "px";
+          root.style.right = "auto";
+          root.style.bottom = "auto";
+          drag.fixedPos = true;
+        }
+        const lcs = global.getComputedStyle ? global.getComputedStyle(layer) : null;
+        const padL = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingLeft ? lcs.paddingLeft : "0") || 0));
+        const padR = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
+        const padT = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
+        const padB = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
+        const minL = padL;
+        const minT = padT;
+        const maxL = Math.max(minL, layer.clientWidth - root.offsetWidth - padR);
+        const maxT = Math.max(minT, layer.clientHeight - root.offsetHeight - padB);
+        let nl = drag.left + dx;
+        let nt = drag.top + dy;
+        nl = Math.min(maxL, Math.max(minL, nl));
+        nt = Math.min(maxT, Math.max(minT, nt));
+        drag.left = nl;
+        drag.top = nt;
         root.style.left = nl + "px";
         root.style.top = nt + "px";
+        e.preventDefault();
         if (o.onDragMove) o.onDragMove();
       });
       header.addEventListener("pointerup", endDrag);
@@ -717,6 +779,7 @@
         if (!dockable) return;
         minimized = !!v;
         root.classList.toggle("vf-frame--minimized", minimized);
+        const isNestedLayer = !!(layer && layer.classList && layer.classList.contains("vf-frame__overlay"));
         body.style.display = minimized ? "none" : "";
         /* Docked mode uses the real header (banner) only; minibar is unused. */
         if (minibar) {
@@ -737,6 +800,9 @@
             layoutBeforeMin = null;
           }
           root.classList.remove("vf-frame--user-sized");
+          // Nested frames must dock in parent-local coordinates and follow parent moves.
+          // Top-level frames keep viewport-fixed docking.
+          root.style.position = isNestedLayer ? "absolute" : "fixed";
           /* Docked strip = same chrome as the normal header (title + actions only). */
           root.style.width = "max-content";
           root.style.height = "auto";
@@ -745,6 +811,7 @@
           if (minibar) minibar.style.display = "none";
           VfFrame.layoutMinimizedDock(layer);
         } else {
+          root.style.position = "";
           if (posBeforeMin) {
             root.style.left = posBeforeMin.left;
             root.style.top = posBeforeMin.top;

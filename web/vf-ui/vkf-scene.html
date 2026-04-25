@@ -100,9 +100,10 @@
 
       let lastSceneText = "";
 
-      /** @param spec frame_upsert payload.spec (includes ``rect``: x,y,w,h in 0..1 relative to #layer). */
+      /** @param spec frame_upsert payload.spec (includes ``rect``: x,y,w,h in 0..1 relative to mount container). */
       function applySpecRectToPanel(panel, spec) {
         var r = spec && spec.rect;
+        var anch = spec && spec.anchor != null ? String(spec.anchor) : "tl";
         var x = r && typeof r.x === "number" ? r.x : 0;
         var y = r && typeof r.y === "number" ? r.y : 0;
         var w = r && typeof r.w === "number" ? r.w : 1;
@@ -114,11 +115,49 @@
         y = clamp01(y);
         w = clamp01(w);
         h = clamp01(h);
+        var k = (typeof VfFrame !== "undefined" && VfFrame.normalizeDockLocationKey)
+          ? VfFrame.normalizeDockLocationKey(anch)
+          : "tl";
+        var cs = window.getComputedStyle ? window.getComputedStyle(panel.root.offsetParent || panel.root.parentElement || panel.root) : null;
+        var padL = Math.max(0, Math.round(parseFloat(cs && cs.paddingLeft ? cs.paddingLeft : "0") || 0));
+        var padR = Math.max(0, Math.round(parseFloat(cs && cs.paddingRight ? cs.paddingRight : "0") || 0));
+        var padT = Math.max(0, Math.round(parseFloat(cs && cs.paddingTop ? cs.paddingTop : "0") || 0));
+        var padB = Math.max(0, Math.round(parseFloat(cs && cs.paddingBottom ? cs.paddingBottom : "0") || 0));
+        var parentEl = panel.root.offsetParent || panel.root.parentElement || panel.root;
+        var parentW = parentEl && parentEl.clientWidth ? parentEl.clientWidth : 1;
+        var parentH = parentEl && parentEl.clientHeight ? parentEl.clientHeight : 1;
+        var availW = Math.max(1, parentW - padL - padR);
+        var availH = Math.max(1, parentH - padT - padB);
+        var fw = Math.max(1, Math.round(w * availW));
+        var fh = Math.max(1, Math.round(h * availH));
+        var v = k.charAt(0);
+        var hz = k.charAt(1);
+        var ax = padL + x * availW;
+        var ay = padT + y * availH;
+        if (hz === "r") {
+          ax = padL + (1 - x) * availW;
+        }
+        if (v === "b") {
+          ay = padT + (1 - y) * availH;
+        }
+        var ox = hz === "r" ? fw : (hz === "c" ? fw * 0.5 : 0);
+        var oy = v === "b" ? fh : (v === "c" ? fh * 0.5 : 0);
+        var leftPx = Math.round(ax - ox);
+        var topPx = Math.round(ay - oy);
+        var minL = padL;
+        var minT = padT;
+        var maxL = Math.max(minL, parentW - padR - fw);
+        var maxT = Math.max(minT, parentH - padB - fh);
+        leftPx = Math.min(maxL, Math.max(minL, leftPx));
+        topPx = Math.min(maxT, Math.max(minT, topPx));
         var root = panel.root;
-        root.style.left = 100 * x + "%";
-        root.style.top = 100 * y + "%";
-        root.style.width = 100 * w + "%";
-        root.style.height = 100 * h + "%";
+        root.dataset.vfAnchor = k;
+        root.style.left = leftPx + "px";
+        root.style.top = topPx + "px";
+        root.style.width = fw + "px";
+        root.style.height = fh + "px";
+        root.style.right = "auto";
+        root.style.bottom = "auto";
         root.classList.add("vf-frame--user-sized");
         if (typeof panel.syncPointerPassThrough === "function") {
           panel.syncPointerPassThrough();
@@ -133,6 +172,24 @@
         if (wv && typeof wv.postMessage === "function") {
           wv.postMessage({ type: "close" });
         }
+      }
+
+      function ensureFrameOverlay(panel) {
+        if (!panel || !panel.body) return null;
+        var body = panel.body;
+        var ov = null;
+        for (var i = 0; i < body.children.length; i++) {
+          var ch = body.children[i];
+          if (ch && ch.classList && ch.classList.contains("vf-frame__overlay")) {
+            ov = ch;
+            break;
+          }
+        }
+        if (ov) return ov;
+        ov = document.createElement("div");
+        ov.className = "vf-frame__overlay";
+        body.appendChild(ov);
+        return ov;
       }
 
       /** Fetches ``vf-display.json`` and draws (Canvas2D on ``vf-screen-canvas`` + frame bodies). */
@@ -188,73 +245,146 @@
         const upserts = data.filter(function (c) {
           return c && c.kind === "frame_upsert" && c.payload && c.payload.spec;
         });
+        var mounted = [];
         function syncNative() {
           if (typeof VfFrame !== "undefined" && VfFrame.postNativeHostLayout) {
             VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
           }
         }
-        for (let i = 0; i < upserts.length; i++) {
-          const spec = upserts[i].payload.spec;
-          const flags = spec.flags || {};
-          const id = spec.id != null ? String(spec.id) : "frame-" + i;
-          const rawTitle = spec.title != null ? String(spec.title).trim() : "";
-          const rawName = spec.name != null ? String(spec.name).trim() : "";
-          const title = rawTitle || rawName;
-          const alpha = VfFrame._coerceAlpha(spec.alpha, 1);
-          const isMaster = spec.master === true;
-          var tAlign = spec.title_align;
-          var titleAlign =
-            tAlign === "center" || tAlign === "right" || tAlign === "left" ? tAlign : "left";
-          const rawDock =
-            spec.dock_loc != null
-              ? spec.dock_loc
-              : spec.dock_location != null
-                ? spec.dock_location
-                : spec.minimized_dock;
-          const dockLocation = VfFrame.normalizeDockLocationKey(
-            rawDock != null ? String(rawDock) : "bl"
-          );
-          const dockable =
-            (flags.dockable !== false) && (flags.minimizable !== false);
-          slog("info", "loadScene: mounting frame id=" + id + " title=" + JSON.stringify(title) + " alpha=" + alpha);
-          const panel = VfFrame.mount(layer, {
-            id: id,
-            title: title,
-            titleAlign: titleAlign,
-            inLayerDrag: true,
-            draggable: flags.draggable !== false,
-            dockable: dockable,
-            resizable: flags.resizable !== false,
-            closable: flags.closable !== false,
-            alpha: alpha,
-            master: isMaster,
-            dockLocation: dockLocation,
-            zIndexBase: 1000 + i * 2,
-            onBeforeDestroy: function () {
-              if (typeof VfWidgets !== "undefined" && VfWidgets.onFrameClose) {
-                VfWidgets.onFrameClose(id);
-              }
-            },
-            onFrameRemoved: function () {
-              if (layer._vfMasterTeardown) return;
-              if (layer.querySelectorAll(".vf-frame").length === 0) {
-                postExitToHost();
-              }
-            },
-          });
-          applySpecRectToPanel(panel, spec);
-          if (spec.body && Array.isArray(spec.body) && spec.body.length) {
-            if (typeof VfWidgets !== "undefined" && VfWidgets.mount) {
-              VfWidgets.startStatePoll();
-              VfWidgets.mount(panel, id, spec.body);
+        var panelById = Object.create(null);
+        var pending = upserts.slice();
+        var pass = 0;
+        while (pending.length > 0) {
+          pass += 1;
+          var advanced = false;
+          var nextPending = [];
+          for (let i = 0; i < pending.length; i++) {
+            const spec = pending[i].payload.spec;
+            const flags = spec.flags || {};
+            const id = spec.id != null ? String(spec.id) : "frame-" + i;
+            const parentId = spec.parent_id != null ? String(spec.parent_id).trim() : "";
+            if (parentId && !panelById[parentId]) {
+              nextPending.push(pending[i]);
+              continue;
             }
+            const parentPanel = parentId ? panelById[parentId] : null;
+            const mountLayer = parentPanel ? (ensureFrameOverlay(parentPanel) || layer) : layer;
+            const rawTitle = spec.title != null ? String(spec.title).trim() : "";
+            const rawName = spec.name != null ? String(spec.name).trim() : "";
+            const title = rawTitle || rawName;
+            const alpha = VfFrame._coerceAlpha(spec.alpha, 1);
+            const isMaster = spec.master === true;
+            var tAlign = spec.title_align;
+            var titleAlign =
+              tAlign === "center" || tAlign === "right" || tAlign === "left" ? tAlign : "left";
+            const rawDock =
+              spec.dock_loc != null
+                ? spec.dock_loc
+                : spec.dock_location != null
+                  ? spec.dock_location
+                  : spec.minimized_dock;
+            const dockLocation = VfFrame.normalizeDockLocationKey(
+              rawDock != null ? String(rawDock) : "bl"
+            );
+            const dockable =
+              (flags.dockable !== false) && (flags.minimizable !== false);
+            slog(
+              "info",
+              "loadScene: mounting frame id=" + id +
+                " parent=" + (parentId || "<root>") +
+                " title=" + JSON.stringify(title) +
+                " alpha=" + alpha
+            );
+            const panel = VfFrame.mount(mountLayer, {
+              id: id,
+              title: title,
+              titleAlign: titleAlign,
+              inLayerDrag: true,
+              draggable: flags.draggable !== false,
+              dockable: dockable,
+              resizable: flags.resizable !== false,
+              closable: flags.closable !== false,
+              alpha: alpha,
+              master: isMaster,
+              dockLocation: dockLocation,
+              zIndexBase: 1000 + i * 2,
+              onBeforeDestroy: function () {
+                if (typeof VfWidgets !== "undefined" && VfWidgets.onFrameClose) {
+                  VfWidgets.onFrameClose(id);
+                }
+              },
+              onFrameRemoved: function () {
+                if (layer._vfMasterTeardown) return;
+                if (layer.querySelectorAll(".vf-frame").length === 0) {
+                  postExitToHost();
+                }
+              },
+            });
+            panelById[id] = panel;
+            applySpecRectToPanel(panel, spec);
+            mounted.push({ panel: panel, spec: spec });
+            if (spec.body && Array.isArray(spec.body) && spec.body.length) {
+              if (typeof VfWidgets !== "undefined" && VfWidgets.mount) {
+                VfWidgets.startStatePoll();
+                VfWidgets.mount(panel, id, spec.body);
+              }
+            }
+            advanced = true;
           }
+          if (!advanced) {
+            for (let j = 0; j < nextPending.length; j++) {
+              const spec = nextPending[j].payload.spec || {};
+              const id = spec.id != null ? String(spec.id) : "frame?";
+              const parentId = spec.parent_id != null ? String(spec.parent_id) : "";
+              slog("warn", "loadScene: unresolved parent_id for frame id=" + id + " parent=" + parentId + " (mounting at root)");
+              const fallback = VfFrame.mount(layer, {
+                id: id,
+                title: spec.title != null ? String(spec.title) : "",
+                titleAlign: "left",
+                inLayerDrag: true,
+                draggable: true,
+                dockable: true,
+                resizable: true,
+                closable: true,
+                alpha: VfFrame._coerceAlpha(spec.alpha, 1),
+                master: spec.master === true,
+                dockLocation: "bl",
+                zIndexBase: 1000 + j * 2,
+              });
+              panelById[id] = fallback;
+              applySpecRectToPanel(fallback, spec);
+              mounted.push({ panel: fallback, spec: spec });
+              if (spec.body && Array.isArray(spec.body) && spec.body.length) {
+                if (typeof VfWidgets !== "undefined" && VfWidgets.mount) {
+                  VfWidgets.startStatePoll();
+                  VfWidgets.mount(fallback, id, spec.body);
+                }
+              }
+            }
+            break;
+          }
+          pending = nextPending;
+          if (pass > upserts.length + 2) break;
         }
         /* Immediate layout so native g_hitRegions is populated (mouse forwarding) without 2+ frames' delay. */
         syncNative();
         displayRefresh();
+        // Re-apply rects after layout settles (important for nested containers whose client size
+        // can be 0 on first mount tick).
+        requestAnimationFrame(function () {
+          for (var m = 0; m < mounted.length; m++) {
+            try {
+              applySpecRectToPanel(mounted[m].panel, mounted[m].spec);
+            } catch (_) {}
+          }
+        });
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
+            for (var m = 0; m < mounted.length; m++) {
+              try {
+                applySpecRectToPanel(mounted[m].panel, mounted[m].spec);
+              } catch (_) {}
+            }
             syncNative();
             displayRefresh();
           });

@@ -8,7 +8,7 @@ io:.io
 col:.collections
 
 d: ui.display
-w: d.widget
+w: ui.widgets
 
 fa: d.frame(
     title: "Frame A (sender)",

@@ -24,6 +24,7 @@ from .runtime.multiset import (
     multiset_union,
 )
 from .stdlib import STDLIB_MODULES, resolve_stdlib
+from .stdlib.events import matches_event_code, event_match_specificity
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
     VF_TYPE_KEY,
@@ -807,11 +808,27 @@ class Interpreter:
         raise EvalError(f"unknown stmt {type(node).__name__}")
 
     def _match_eq(self, a: Any, b: Any) -> bool:
+        if isinstance(a, int) and isinstance(b, int):
+            # Event code matching: exact code vs scoped integer patterns.
+            if matches_event_code(a, b) or matches_event_code(b, a):
+                return True
         if is_type_value(a) and is_type_value(b):
             return types_equal(a, b)
         if bool(is_struct_dict(a) and is_struct_dict(b)):
             return struct_eq(a, b, self.types)
         return bool(_binop("EQ", a, b))
+
+    def _match_specificity(self, a: Any, b: Any) -> int | None:
+        """Return match specificity for ``??`` arm selection, or ``None`` when not matched."""
+        if isinstance(a, int) and isinstance(b, int):
+            s = event_match_specificity(a, b)
+            if s is not None:
+                return s
+            s = event_match_specificity(b, a)
+            if s is not None:
+                return s
+            return None
+        return 0 if self._match_eq(a, b) else None
 
     def _eval_match_body(self, body: Any, env: dict[str, Any]) -> None:
         if isinstance(body, ast.Block):
@@ -845,19 +862,31 @@ class Interpreter:
                 disc = self.eval_expr(node.discriminant, env)
                 env["$"] = disc
                 restart = False
+                best_arm: ast.MatchArm | None = None
+                best_spec = -1
+                default_arm: ast.MatchArm | None = None
                 for arm in node.arms:
-                    if arm.condition is not None:
-                        m = self.eval_expr(arm.condition, env)
-                        if not self._match_eq(disc, m):
-                            continue
+                    if arm.condition is None:
+                        if default_arm is None:
+                            default_arm = arm
+                        continue
+                    m = self.eval_expr(arm.condition, env)
+                    spec = self._match_specificity(disc, m)
+                    if spec is None:
+                        continue
+                    if spec > best_spec:
+                        best_spec = spec
+                        best_arm = arm
+                chosen = best_arm if best_arm is not None else default_arm
+                if chosen is not None:
                     try:
-                        self._eval_match_body(arm.body, env)
+                        self._eval_match_body(chosen.body, env)
                     except ContinueSignal:
-                        if self._arm_ends_with_match_rewind(arm.body):
-                            restart = True
-                            break
-                        raise
-                    return
+                        restart = True
+                    except BreakSignal:
+                        return
+                    if not restart:
+                        return
                 if restart:
                     continue
                 return
@@ -874,18 +903,29 @@ class Interpreter:
                 disc = self.eval_expr(node.discriminant, env)
                 env["$"] = disc
                 restart = False
+                best_arm: ast.MatchArm | None = None
+                best_spec = -1
+                default_arm: ast.MatchArm | None = None
                 for arm in node.arms:
-                    if arm.condition is not None:
-                        m = self.eval_expr(arm.condition, env)
-                        if not self._match_eq(disc, m):
-                            continue
+                    if arm.condition is None:
+                        if default_arm is None:
+                            default_arm = arm
+                        continue
+                    m = self.eval_expr(arm.condition, env)
+                    spec = self._match_specificity(disc, m)
+                    if spec is None:
+                        continue
+                    if spec > best_spec:
+                        best_spec = spec
+                        best_arm = arm
+                chosen = best_arm if best_arm is not None else default_arm
+                if chosen is not None:
                     try:
-                        return self._eval_branch_body_value(arm.body, env)
+                        return self._eval_branch_body_value(chosen.body, env)
                     except ContinueSignal:
-                        if self._arm_ends_with_match_rewind(arm.body):
-                            restart = True
-                            break
-                        raise
+                        restart = True
+                    except BreakSignal:
+                        return None
                 if restart:
                     continue
                 return None
@@ -903,9 +943,11 @@ class Interpreter:
                 try:
                     return self._eval_branch_body_value(node.body, env)
                 except ContinueSignal:
-                    if self._arm_ends_with_match_rewind(node.body):
-                        continue
-                    raise
+                    # ``@>`` inside ``expr?`` / ``true?`` always advances the loop.
+                    continue
+                except BreakSignal:
+                    # ``@|`` inside ``expr?`` / ``true?`` exits this loop.
+                    return None
         if isinstance(node, ast.MatchStmt):
             return self._eval_match_as_value(node, env)
         if isinstance(node, ast.NumberLit):
@@ -937,6 +979,12 @@ class Interpreter:
                                 f"missing field {p!r} in string interpolation"
                             )
                         v = v[p]
+                    elif getattr(type(v), "__vf_py_attrs__", False):
+                        if not hasattr(v, p):
+                            raise EvalError(
+                                f"missing attribute {p!r} in string interpolation"
+                            )
+                        v = getattr(v, p)
                     else:
                         raise EvalError(
                             "string interpolation path requires a struct value"
@@ -1871,6 +1919,18 @@ def _stringify(
             return "{}"
         ordered = sorted(v, key=lambda x: (str(type(x).__name__), str(x)))
         return "{" + ", ".join(_stringify(x, types) for x in ordered) + "}"
+    if getattr(type(v), "__vf_py_attrs__", False):
+        # Host-backed values (e.g. UI events): print their public attributes as a record.
+        try:
+            attrs = vars(v)
+        except TypeError:
+            attrs = None
+        if isinstance(attrs, dict):
+            keys = [k for k in attrs.keys() if not str(k).startswith("_")]
+            keys.sort(key=lambda k: str(k))
+            parts = [f"{k}:{_stringify(attrs[k], types)}" for k in keys]
+            return "(" + ", ".join(parts) + ")"
+        return str(v)
     return "…"
 
 

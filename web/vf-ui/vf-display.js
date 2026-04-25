@@ -103,16 +103,22 @@
 
     function emitWithPick(evtType, e, extra) {
       var p = canvasXYscaled(e);
+      var mods = {
+        ctrl: !!(e && e.ctrlKey),
+        shift: !!(e && e.shiftKey),
+        alt: !!(e && e.altKey),
+        meta: !!(e && e.metaKey)
+      };
       var renderer = resolvePickAt(canvas, p.x, p.y, fid, meshIdx);
       if (!renderer) {
         postEvent(Object.assign({ type: "vf_event", event: evtType,
-          x: p.cx, y: p.cy, frame_id: fid, object_id: 0, simplex_id: 0 }, extra));
+          x: p.cx, y: p.cy, frame_id: fid, object_id: 0, simplex_id: 0 }, mods, extra));
         return;
       }
       renderer.pickAt(p.x, p.y, function(oid, sid) {
         postEvent(Object.assign({ type: "vf_event", event: evtType,
           x: p.cx, y: p.cy, frame_id: fid,
-          object_id: oid, simplex_id: sid }, extra));
+          object_id: oid, simplex_id: sid }, mods, extra));
       });
     }
 
@@ -127,7 +133,11 @@
         frame_id: fid,
         object_id: 0,
         simplex_id: 0,
-        buttons: Number(e.buttons) || 0
+        buttons: Number(e.buttons) || 0,
+        ctrl: !!e.ctrlKey,
+        shift: !!e.shiftKey,
+        alt: !!e.altKey,
+        meta: !!e.metaKey
       });
     }, { passive: true });
 
@@ -281,6 +291,10 @@
           dy: dy,
           button: 0,
           buttons: buttons,
+          ctrl: !!e.ctrlKey,
+          shift: !!e.shiftKey,
+          alt: !!e.altKey,
+          meta: !!e.metaKey,
           frame_id: _dragState.fid,
           object_id: 0,
           simplex_id: 0

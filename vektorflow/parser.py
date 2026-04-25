@@ -233,20 +233,41 @@ class Parser:
         return self._parse_switch_arm_body()
 
     def _parse_one_switch_arm_fat_arrow(self) -> ast.MatchArm:
-        """One ``??`` arm: ``case => body`` (or ``_ => body`` as default)."""
+        """One ``??`` arm: ``case => body``."""
         self._skip_trivia()
         cond: Any | None
         if self._peek_raw() == IDENT and str(self.toks[self.i].value) == "_":
-            self._advance()
-            cond = None
-        else:
-            cond = self.parse_or_expr()
+            raise ParseError(
+                "`_ =>` is not supported",
+                self._loc_here(),
+            )
+        cond = self.parse_or_expr()
         self._skip_trivia()
         if self._peek_raw() != FAT_ARROW:
             raise ParseError("expected `=>` in `??` switch arm", self._loc_here())
         self._advance()
         body = self._parse_switch_arm_body()
         return ast.MatchArm(cond, body)
+
+    def _line_has_fat_arrow(self) -> bool:
+        """True if current arm line contains a top-level ``=>`` before newline/dedent/EOF."""
+        j = self.i
+        depth = 0
+        while j < len(self.toks):
+            k = self.toks[j].kind
+            if k in (NEWLINE, DEDENT, EOF):
+                return False
+            if depth == 0 and k == SEMICOLON:
+                return False
+            if k in (LPAREN, LBRACKET, LBRACE):
+                depth += 1
+            elif k in (RPAREN, RBRACKET, RBRACE):
+                if depth > 0:
+                    depth -= 1
+            elif depth == 0 and k == FAT_ARROW:
+                return True
+            j += 1
+        return False
 
     def _parse_switch_arms_list_fat_arrow(self, end_tokens: set) -> list[ast.MatchArm]:
         arms: list[ast.MatchArm] = []
@@ -262,7 +283,7 @@ class Parser:
         return arms
 
     def _parse_match_arms_after_double_question(self) -> list[ast.MatchArm]:
-        """Parse ``??`` arms (inline or indented; each arm uses ``=>``)."""
+        """Parse ``??`` arms (inline or indented)."""
         self._skip_trivia()
         if self._peek_raw() == LPAREN:
             self._advance()
@@ -275,13 +296,30 @@ class Parser:
         if self._peek_raw() == INDENT:
             self._expect(INDENT)
             arms: list[ast.MatchArm] = []
+            saw_default = False
             while True:
                 self._skip_trivia()
                 while self._peek_raw() == SEMICOLON:
                     self._advance()
                 if self._peek_raw() in (DEDENT, EOF):
                     break
-                arms.append(self._parse_one_switch_arm_fat_arrow())
+                if self._line_has_fat_arrow():
+                    if saw_default:
+                        raise ParseError(
+                            "default arm must be last in `??` switch",
+                            self._loc_here(),
+                        )
+                    arms.append(self._parse_one_switch_arm_fat_arrow())
+                    continue
+                # Default arm: plain body at arm scope (no `_ =>`, no bare `=>`).
+                if saw_default:
+                    raise ParseError(
+                        "only one default arm is allowed in `??` switch",
+                        self._loc_here(),
+                    )
+                saw_default = True
+                body = self._parse_switch_arm_body()
+                arms.append(ast.MatchArm(None, body))
             if not arms:
                 raise ParseError("expected at least one switch arm after `??`", self._loc_here())
             self._expect(DEDENT)

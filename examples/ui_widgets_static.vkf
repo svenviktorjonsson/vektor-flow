@@ -6,7 +6,7 @@ ui:.ui
 col:.collections
 
 d: ui.display
-w: d.widget
+w: ui.widgets
 
 # x large enough for left_of:  need x - w - gap > 0  =>  x >= 0.21 with w=0.2, gap=0.01
 # y chosen so under / over (bl dock) both stay in [0,1] for the chosen w,h.

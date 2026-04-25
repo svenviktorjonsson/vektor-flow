@@ -347,9 +347,9 @@ class ReturnEmitStmt:
 
 @dataclass
 class MatchArm:
-    """One branch in an ``expr??`` switch: ``condition => body`` or ``_ => body``.
+    """One branch in an ``expr??`` switch: ``condition => body`` or bare ``=> body``.
 
-    ``condition`` is ``None`` for the default arm (written as ``_ =>``). Otherwise the
+    ``condition`` is ``None`` for the default arm (written as ``=>``). Otherwise the
     arm runs when ``discriminant = condition`` (equality). The subject is also available
     as ``$`` while choosing and running arms.
     """

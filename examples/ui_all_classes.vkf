@@ -5,7 +5,7 @@ ui:.ui
 col:.collections
 
 d: ui.display
-w: d.widget
+w: ui.widgets
 f: d.frame(
     title: "All UI widget helpers",
     dock_loc: "bl",

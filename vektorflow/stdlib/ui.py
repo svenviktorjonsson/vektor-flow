@@ -10,6 +10,7 @@ import json
 import math
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +25,12 @@ from .screen import _sync_json_to_all_built_webs
 from .events import (
     UIMouse, UIKeyboard,
     MouseEvent, KeyEvent,
+    EVENT_NAME_TO_BASE,
+    EVENT_CONST_TO_NAME,
+    encode_event_code,
+    encode_ui_pattern,
+    encode_frame_pattern,
+    encode_widget_pattern,
     start_event_poller, get_global_poller,
 )
 
@@ -486,6 +493,16 @@ class FrameRef:
     def id(self) -> str:
         return self._pending.id
 
+    def __getattr__(self, name: str) -> Any:
+        """Frame-scoped event constants, e.g. ``frame.BUTTON_PRESSED``."""
+        ev = EVENT_CONST_TO_NAME.get(str(name))
+        if ev is None:
+            raise AttributeError(f"FrameRef has no attribute {name!r}")
+        fid = self.id
+        if not fid:
+            return encode_ui_pattern(ev)
+        return encode_frame_pattern(ev, fid)
+
     # -- 2-D ------------------------------------------------------------------
 
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
@@ -618,7 +635,7 @@ class UIEventQueue:
     def poll(self) -> bool:
         """Return ``True`` when at least one event is queued."""
         self._ui._ensure_poller()
-        return bool(self._ui.mouse._queue or self._ui.keyboard._queue)
+        return bool(self._ui._event_queue)
 
     def get(self) -> MouseEvent | KeyEvent | None:
         """Pop one pending event (mouse first), or ``None``."""
@@ -631,7 +648,7 @@ class UIEventQueue:
 
 @dataclass
 class UIRoot:
-    """``use("ui")`` / ``:.ui`` — use ``ui.mouse``, ``ui.keyboard``, ``ui.display``, ``ui.poll()``.
+    """``use("ui")`` / ``:.ui`` — use ``ui.cursor``, ``ui.keyboard``, ``ui.display``, ``ui.widgets``, ``ui.poll()``.
 
     Events
     ------
@@ -647,42 +664,84 @@ class UIRoot:
         d.add_frame((0.1, 0.1, 0.8, 0.8))
         cam : d.add_camera(pos:[4,3,5])
 
-        ui.mouse.on_wheel(fn(e) => cam.translate([0, 0, e.step * 0.3]))
-        ui.mouse.on_down( fn(e) => print("click", e.object_id))
+        ui.cursor.on_wheel(fn(e) => cam.translate([0, 0, e.step * 0.3]))
+        ui.cursor.on_down( fn(e) => print("click", e.object_id))
 
         loop:
             ui.poll()
     """
 
     __vf_py_attrs__ = True
-    # Event constants for explicit dispatch
-    MOUSE_MOVE: str = "move"
-    MOUSE_HOVER: str = "hover"
-    MOUSE_DOWN: str = "down"
-    MOUSE_UP: str = "up"
-    MOUSE_WHEEL: str = "wheel"
-    MOUSE_DRAG: str = "drag"
-    KEY_DOWN: str = "key_down"
-    KEY_UP: str = "key_up"
-    mouse:    UIMouse    = field(default_factory=UIMouse)
+    # Global event constants (integer patterns)
+    MOUSE_MOVE: int = encode_ui_pattern("move")
+    MOUSE_HOVER: int = encode_ui_pattern("hover")
+    MOUSE_DOWN: int = encode_ui_pattern("down")
+    MOUSE_UP: int = encode_ui_pattern("up")
+    MOUSE_WHEEL: int = encode_ui_pattern("wheel")
+    MOUSE_DRAG: int = encode_ui_pattern("drag")
+    KEY_DOWN: int = encode_ui_pattern("key_down")
+    KEY_UP: int = encode_ui_pattern("key_up")
+    FRAME_CLOSED: int = encode_ui_pattern("frame.closed")
+    BUTTON_PRESSED: int = encode_ui_pattern("button.pressed")
+    CHECKBOX_TOGGLED: int = encode_ui_pattern("checkbox.toggled")
+    SLIDER_VALUE_CHANGED: int = encode_ui_pattern("slider.value_changed")
+    INPUT_FIELD_TEXT_CHANGED: int = encode_ui_pattern("input_field.text_changed")
+    INPUT_FIELD_TEXT_ENTERED: int = encode_ui_pattern("input_field.text_entered")
+    DROPDOWN_ITEM_CHANGED: int = encode_ui_pattern("dropdown.item_changed")
+    TEXT_AREA_TEXT_CHANGED: int = encode_ui_pattern("text_area.text_changed")
+    cursor:   UIMouse    = field(default_factory=UIMouse)
     keyboard: UIKeyboard = field(default_factory=UIKeyboard)
     display:  "Display"  = field(default_factory=lambda: Display())
     events: UIEventQueue = field(init=False, repr=False)
     _poller_started: bool = field(default=False, repr=False, init=False)
+    _event_queue: deque[Any] = field(
+        default_factory=lambda: deque(maxlen=2048), repr=False, init=False
+    )
+    _event_kind_count: dict[int, int] = field(default_factory=dict, repr=False, init=False)
 
     def __post_init__(self) -> None:
         q = UIEventQueue(self)
         object.__setattr__(self, "events", q)
         # Wire the global poller to push events into our mouse/keyboard queues
         def _dispatch(evt: dict) -> None:
+            ev_name = str(evt.get("event", ""))
+            frame_id = str(evt.get("frame_id", evt.get("frameId", "")) or "")
+            widget_id = str(evt.get("widget_id", evt.get("widgetId", "")) or "")
+            base = int(EVENT_NAME_TO_BASE.get(ev_name, 0))
+            code = encode_event_code(ev_name, frame_id=frame_id, widget_id=widget_id)
+            ui_code = encode_ui_pattern(ev_name) if base else 0
+            frame_code = encode_frame_pattern(ev_name, frame_id) if (base and frame_id) else 0
+            widget_code = encode_widget_pattern(ev_name, widget_id) if (base and widget_id) else 0
+            idx = 0
+            if base:
+                idx = int(self._event_kind_count.get(base, 0)) + 1
+                self._event_kind_count[base] = idx
+
+            payload = dict(evt)
+            payload["event"] = ev_name
+            payload["frame_id"] = frame_id
+            payload["widget_id"] = widget_id
+            payload["code"] = code
+            payload["ui_code"] = ui_code
+            payload["frame_code"] = frame_code
+            payload["widget_code"] = widget_code
+            payload["index"] = idx
+
             t = evt.get("type")
             if t != "vf_event":
+                # Non-vf_event UI host events (e.g. frame.closed, widget events)
+                self._event_queue.append(payload)
                 return
-            ev = evt.get("event", "")
-            if ev in ("move", "hover", "down", "up", "wheel", "drag"):
-                self.mouse._push(evt)
-            elif ev in ("key_down", "key_up"):
+            if ev_name in ("move", "hover", "down", "up", "wheel", "drag"):
+                self.keyboard._observe_modifiers(evt)
+                self.cursor._push(evt)
+                self._event_queue.append(payload)
+            elif ev_name in ("key_down", "key_up"):
+                ke = KeyEvent.from_dict(evt)
+                is_modifier = self.keyboard._modifier_name(ke) is not None
                 self.keyboard._push(evt)
+                if not is_modifier:
+                    self._event_queue.append(payload)
         p = get_global_poller()
         p.subscribe(_dispatch)
 
@@ -691,22 +750,23 @@ class UIRoot:
             object.__setattr__(self, "_poller_started", True)
             start_event_poller()
 
-    def next_event(self) -> MouseEvent | KeyEvent | None:
-        """Return one pending input event, or ``None`` when no event is queued."""
+    def next_event(self) -> Any:
+        """Return one pending queued event, or ``None`` when no event is queued."""
         self._ensure_poller()
-        me = self.mouse.pop()
-        if me is not None:
-            return me
-        ke = self.keyboard.pop()
-        if ke is not None:
-            return ke
+        if self._event_queue:
+            return self._event_queue.popleft()
         return None
 
     def poll(self) -> None:
         """Drain queued events and fire registered mouse/keyboard callbacks."""
         self._ensure_poller()
-        self.mouse.poll()
+        self.cursor.poll()
         self.keyboard.poll()
+
+    @property
+    def widgets(self) -> _Widget:
+        """Widget factory namespace (preferred over ``d.widget``): ``ui.widgets.button(...)``."""
+        return self.display.widget
 
 
     def set_mode(self, mode: str) -> None:
@@ -746,7 +806,7 @@ class UIRoot:
     def __getattr__(self, name: str) -> Any:
         raise AttributeError(
             f"ui has no attribute {name!r} "
-            f"(use ui.mouse, ui.keyboard, ui.display, ui.poll())"
+            f"(use ui.cursor, ui.keyboard, ui.display, ui.widgets, ui.poll())"
         )
 
 
