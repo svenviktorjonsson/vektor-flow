@@ -15,6 +15,7 @@ from typing import Callable
 from .cpp_backend import (
     CppEmitError,
     compile_cpp_source,
+    cpp_compile_flags,
     discover_cpp_compiler,
     emit_cpp_module,
     run_cpp_executable,
@@ -255,7 +256,7 @@ def _compile_cached_benchmark(case: BenchmarkCase, cpp_source: str) -> Path:
     compiler = discover_cpp_compiler()
     if compiler is None:
         raise CppEmitError("no C++ compiler found on PATH")
-    compiler_key = f"{compiler.kind}:{compiler.path}"
+    compiler_key = f"{compiler.kind}:{compiler.path}:{' '.join(cpp_compile_flags(compiler))}"
     digest = hashlib.sha256((compiler_key + "\n" + cpp_source).encode("utf-8")).hexdigest()[:16]
     out_dir = benchmark_cache_root() / f"{case.name}-{digest}"
     exe = out_dir / f"vf_{case.name}"

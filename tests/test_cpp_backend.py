@@ -96,6 +96,17 @@ def test_cpp_emits_fixed_vector_program() -> None:
     assert 'std::cout << vf_format_value(([' in cpp
 
 
+def test_cpp_emits_iota_for_large_numeric_progression_vector() -> None:
+    src = """
+[num:16] xs: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+:: xs
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "vf_array_iota<double, 16>(0.0, 1.0)" in cpp
+    assert "std::array<double, 16>{vf_to_num(0.0)" not in cpp
+
+
 def test_cpp_fuses_elementwise_vector_chain() -> None:
     src = """
 [num:2] a: [1,2]
@@ -133,7 +144,7 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
     assert "template <std::size_t m, std::size_t n>" in cpp
-    assert "std::array<double, (n + m)> join(std::array<double, n> x, std::array<double, m> y)" in cpp
+    assert "std::array<double, (n + m)> join(const std::array<double, n>& x, const std::array<double, m>& y)" in cpp
     assert 'std::cout << vf_format_value(join(a, b)) << "\\n";' in cpp
 
 
@@ -383,7 +394,7 @@ sum_vec(x:[num:4]) -> num:
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
-    assert "double sum_vec(std::array<double, 4> x)" in cpp
+    assert "double sum_vec(const std::array<double, 4>& x)" in cpp
     assert "for (std::size_t vf_s1_i = 0; vf_s1_i < static_cast<std::size_t>(4.0); ++vf_s1_i)" in cpp
     assert "vf_s2_acc += x[vf_s1_i];" in cpp
 

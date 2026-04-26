@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import math
 import shutil
 import subprocess
 import tempfile
@@ -39,10 +41,12 @@ class CppCompiler:
 class EmitState:
     struct_defs: dict[str, ast.TypeExpr]
     current_name_map: dict[str, str] | None
+    match_counter: int
 
     def __init__(self) -> None:
         self.struct_defs = {}
         self.current_name_map = None
+        self.match_counter = 0
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,9 @@ class RuntimeFeatures:
     uses_multisets: bool = False
     uses_dynamic: bool = False
     uses_match: bool = False
+
+
+CPP_STD_CONFLICT_NAMES: set[str] = {"advance"}
 
 
 @dataclass(frozen=True)
@@ -344,6 +351,16 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "    }",
                 "    return out;",
                 "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<T, N> vf_array_iota(const T& start, const T& step) {",
+                "    std::array<T, N> out{};",
+                "    T cur = start;",
+                "    for (std::size_t i = 0; i < N; ++i) {",
+                "        out[i] = cur;",
+                "        cur = static_cast<T>(cur + step);",
+                "    }",
+                "    return out;",
+                "}",
                 "template <typename T, std::size_t A, std::size_t B>",
                 "static std::array<T, A + B> vf_array_cat(const std::array<T, A>& left, const std::array<T, B>& right) {",
                 "    std::array<T, A + B> out{};",
@@ -477,6 +494,15 @@ def discover_cpp_compiler() -> CppCompiler | None:
     return None
 
 
+def cpp_compile_flags(compiler: CppCompiler) -> list[str]:
+    if compiler.kind == "cl":
+        raise CppEmitError("cl.exe is not yet supported by the automated compiler runner")
+    flags = ["-std=c++20", "-O3"]
+    if compiler.kind in {"clang++", "g++"}:
+        flags.append("-march=native")
+    return flags
+
+
 def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program") -> Path:
     compiler = discover_cpp_compiler()
     if compiler is None:
@@ -485,9 +511,7 @@ def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program")
     cpp_path = out_dir / f"{exe_name}.cpp"
     exe_path = out_dir / (f"{exe_name}.exe" if compiler.kind == "cl" else exe_name)
     cpp_path.write_text(source, encoding="utf-8")
-    if compiler.kind == "cl":
-        raise CppEmitError("cl.exe is not yet supported by the automated compiler runner")
-    cmd = [compiler.path, "-std=c++20", "-O2", str(cpp_path), "-o", str(exe_path)]
+    cmd = [compiler.path, *cpp_compile_flags(compiler), str(cpp_path), "-o", str(exe_path)]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise CppEmitError(res.stderr.strip() or res.stdout.strip() or "C++ compilation failed")
@@ -539,7 +563,8 @@ def _size_key(size: Any) -> str:
 
 def _struct_name(t: ast.TypeExpr) -> str:
     key = _type_key(t)
-    return f"VfRecord_{abs(hash(key)) & 0xFFFFFFFF:08x}"
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
+    return f"VfRecord_{digest}"
 
 
 def _register_type(t: Any, state: EmitState) -> None:
@@ -646,6 +671,14 @@ def _dynamic_hooks() -> DynamicEmitHooks:
         emit_const=_emit_const,
         cpp_type=_cpp_type,
     )
+
+
+def _cpp_param_decl(name: str, type_expr: Any, state: EmitState) -> str:
+    cpp_t = _cpp_type(type_expr, state)
+    t = _normalize_type(type_expr)
+    if isinstance(t, (ast.FixedVectorType, ast.TypeExpr, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
+        return f"const {cpp_t}& {name}"
+    return f"{cpp_t} {name}"
 
 
 def _cpp_type(t: Any, state: EmitState | None = None) -> str:
@@ -921,6 +954,24 @@ def _emit_linked_list_coercion(node: ir.CoerceExpr, env: dict[str, Any], functio
     )
 
 
+def _detect_numeric_progression(node: ir.ListExpr) -> tuple[float, float] | None:
+    if len(node.elements) < 2:
+        return None
+    values: list[float] = []
+    for elem in node.elements:
+        if not isinstance(elem, ir.Const):
+            return None
+        value = elem.value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        values.append(float(value))
+    step = values[1] - values[0]
+    for idx in range(2, len(values)):
+        if not math.isclose(values[idx] - values[idx - 1], step, rel_tol=0.0, abs_tol=1e-12):
+            return None
+    return values[0], step
+
+
 def _emit_record_coercion(node: ir.CoerceExpr, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
     target = _normalize_type(node.target_type)
     if not isinstance(target, ast.TypeExpr):
@@ -941,6 +992,12 @@ def _emit_list_literal(node: ir.ListExpr, env: dict[str, Any], functions: dict[s
     inferred = _expr_type(node, typed)
     if not isinstance(inferred, ast.FixedVectorType):
         raise CppEmitError("list literal did not infer a fixed-vector type")
+    progression = _detect_numeric_progression(node)
+    if progression is not None and len(node.elements) >= 16:
+        start, step = progression
+        elem_type = _cpp_type(inferred.element_type, state)
+        size_expr = _emit_size_expr(inferred.size)
+        return f"vf_array_iota<{elem_type}, {size_expr}>({_emit_const(start)}, {_emit_const(step)})"
     elems = [_emit_expr(ir.CoerceExpr(elem, inferred.element_type), env, functions, state, typed) for elem in node.elements]
     return f"{_cpp_type(inferred, state)}{{{', '.join(elems)}}}"
 
@@ -1335,6 +1392,8 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             return f"vf_to_bool({args})"
         if fname == "str":
             return f"vf_to_str({args})"
+        if node.func.name in functions and node.func.name in CPP_STD_CONFLICT_NAMES:
+            return f"::{node.func.name}({args})"
         return f"{fname}({args})"
     raise CppEmitError(f"unsupported expression emission for {type(node).__name__}")
 
@@ -1440,7 +1499,8 @@ def _emit_block(block: ir.Block, env: dict[str, Any], functions: dict[str, ir.Fu
 
 def _emit_match_body(node: ir.MatchStmt, env: dict[str, Any], functions: dict[str, ir.FunctionDef], indent: str, state: EmitState, typed: TypedModuleInfo) -> list[str]:
     lines: list[str] = []
-    disc_name = f"vf_match_{abs(hash((id(node), indent))) & 0xFFFFFFFF:08x}"
+    disc_name = f"vf_match_{state.match_counter:04d}"
+    state.match_counter += 1
     lines.append(f"{indent}auto {disc_name} = {_emit_expr(node.discriminant, env, functions, state, typed)};")
     best_name = f"{disc_name}_best"
     chosen_name = f"{disc_name}_chosen"
@@ -1647,8 +1707,7 @@ def emit_cpp_module(module: ir.Module) -> str:
         for name, ptype in zip(fn.params, fn.param_types):
             if ptype is None:
                 raise CppEmitError(f"function {fn.name} parameter {name} needs an explicit type for C++ emission")
-            cpp_t = _cpp_type(ptype, state)
-            param_bits.append(f"{cpp_t} {name}")
+            param_bits.append(_cpp_param_decl(name, ptype, state))
             local_env[name] = _normalize_type(ptype)
         old_name_map = state.current_name_map
         fn_name_map: dict[str, str] = {name: name for name in fn.params}
