@@ -60,6 +60,14 @@ class RuntimeFeatures:
     uses_match: bool = False
 
 
+@dataclass(frozen=True)
+class ArrayReducePattern:
+    vector_name: str
+    index_name: str
+    acc_name: str
+    bound_expr: str
+
+
 def _annotate_or_raise(module: ir.Module) -> TypedModuleInfo:
     try:
         return annotate_module(module)
@@ -371,6 +379,12 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "static std::array<T, N> vf_array_scale(const std::array<T, N>& arr, const S& scalar) {",
                 "    std::array<T, N> out{};",
                 "    for (std::size_t i = 0; i < N; ++i) out[i] = arr[i] * static_cast<T>(scalar);",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static T vf_array_sum(const std::array<T, N>& arr) {",
+                "    T out{};",
+                "    for (std::size_t i = 0; i < N; ++i) out += arr[i];",
                 "    return out;",
                 "}",
             ]
@@ -1124,6 +1138,91 @@ def _emit_collection_binary(
     return None
 
 
+def _match_array_sum_function(fn: ir.FunctionDef, typed: TypedModuleInfo, state: EmitState) -> ArrayReducePattern | None:
+    if len(fn.params) != 1 or len(fn.param_types) != 1:
+        return None
+    param_type = _normalize_type(fn.param_types[0])
+    if not isinstance(param_type, ast.FixedVectorType):
+        return None
+    if not isinstance(_normalize_type(fn.return_type), ast.PrimTypeRef):
+        return None
+    body = fn.body.statements
+    if len(body) != 4:
+        return None
+    init_i, init_acc, loop_stmt, tail = body
+    if not (
+        isinstance(init_i, (ir.StoreName, ir.StoreSlot))
+        and isinstance(init_acc, (ir.StoreName, ir.StoreSlot))
+        and isinstance(loop_stmt, ir.WhileStmt)
+        and isinstance(tail, ir.ExprStmt)
+        and isinstance(tail.expr, (ir.LoadName, ir.LoadSlot))
+    ):
+        return None
+    if not (isinstance(init_i.value, ir.Const) and init_i.value.value == 0.0):
+        return None
+    if not (isinstance(init_acc.value, ir.Const) and init_acc.value.value == 0.0):
+        return None
+    index_name = init_i.name
+    acc_name = init_acc.name
+    if tail.expr.name != acc_name:
+        return None
+    cond = loop_stmt.condition
+    if not (
+        isinstance(cond, ir.BinaryExpr)
+        and cond.op == "LT"
+        and isinstance(cond.left, (ir.LoadName, ir.LoadSlot))
+        and cond.left.name == index_name
+    ):
+        return None
+    loop_body = loop_stmt.body.statements
+    if len(loop_body) != 2:
+        return None
+    acc_update, idx_update = loop_body
+    if not (isinstance(acc_update, (ir.StoreName, ir.StoreSlot)) and isinstance(idx_update, (ir.StoreName, ir.StoreSlot))):
+        return None
+    if acc_update.name != acc_name or idx_update.name != index_name:
+        return None
+    if not (
+        isinstance(acc_update.value, ir.BinaryExpr)
+        and acc_update.value.op == "PLUS"
+        and isinstance(acc_update.value.left, (ir.LoadName, ir.LoadSlot))
+        and acc_update.value.left.name == acc_name
+        and isinstance(acc_update.value.right, ir.IndexExpr)
+        and isinstance(acc_update.value.right.value, (ir.LoadName, ir.LoadSlot))
+        and acc_update.value.right.value.name == fn.params[0]
+        and len(acc_update.value.right.indices) == 1
+        and isinstance(acc_update.value.right.indices[0], (ir.LoadName, ir.LoadSlot))
+        and acc_update.value.right.indices[0].name == index_name
+    ):
+        return None
+    if not (
+        isinstance(idx_update.value, ir.BinaryExpr)
+        and idx_update.value.op == "PLUS"
+        and isinstance(idx_update.value.left, (ir.LoadName, ir.LoadSlot))
+        and idx_update.value.left.name == index_name
+        and isinstance(idx_update.value.right, ir.Const)
+        and idx_update.value.right.value == 1.0
+    ):
+        return None
+    old_name_map = state.current_name_map
+    try:
+        fn_name_map: dict[str, str] = {name: name for name in fn.params}
+        for name, slot in typed.function_slots.get(fn.name, {}).items():
+            if name in fn_name_map:
+                continue
+            fn_name_map[name] = f"vf_s{slot}_{name}"
+        state.current_name_map = fn_name_map
+        bound_expr = _emit_expr(cond.right, {fn.params[0]: param_type}, {fn.name: fn}, state, typed)
+    finally:
+        state.current_name_map = old_name_map
+    return ArrayReducePattern(
+        vector_name=fn.params[0],
+        index_name=index_name,
+        acc_name=acc_name,
+        bound_expr=bound_expr,
+    )
+
+
 def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
     if isinstance(node, ir.Const):
         return _emit_const(node.value)
@@ -1559,8 +1658,24 @@ def emit_cpp_module(module: ir.Module) -> str:
             fn_name_map[name] = f"vf_s{slot}_{name}"
         state.current_name_map = fn_name_map
         fn_lines.append(f"{ret_cpp} {fn.name}({', '.join(param_bits)}) {{")
-        body_lines, _ = _emit_block(fn.body, local_env, functions, "    ", function_mode=True, state=state, typed=typed)
-        fn_lines.extend(body_lines)
+        reduction = _match_array_sum_function(fn, typed, state)
+        if reduction is not None:
+            vec_cpp = _cpp_name(reduction.vector_name, state)
+            fn_lines.append(f"    {ret_cpp} {_cpp_name(reduction.acc_name, state)}{{}};")
+            fn_lines.append(
+                f"    for (std::size_t {_cpp_name(reduction.index_name, state)} = 0; "
+                f"{_cpp_name(reduction.index_name, state)} < static_cast<std::size_t>({reduction.bound_expr}); "
+                f"++{_cpp_name(reduction.index_name, state)}) {{"
+            )
+            fn_lines.append(
+                f"        {_cpp_name(reduction.acc_name, state)} += "
+                f"{vec_cpp}[{_cpp_name(reduction.index_name, state)}];"
+            )
+            fn_lines.append("    }")
+            fn_lines.append(f"    return {_cpp_name(reduction.acc_name, state)};")
+        else:
+            body_lines, _ = _emit_block(fn.body, local_env, functions, "    ", function_mode=True, state=state, typed=typed)
+            fn_lines.extend(body_lines)
         fn_lines.append("}")
         fn_lines.append("")
         state.current_name_map = old_name_map

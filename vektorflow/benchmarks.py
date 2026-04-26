@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
 import math
 import statistics
-import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -214,6 +214,10 @@ def benchmark_root() -> Path:
     return repo_root() / "examples" / "benchmarks"
 
 
+def benchmark_cache_root() -> Path:
+    return repo_root() / ".vf-bench-cache"
+
+
 def list_benchmarks() -> tuple[BenchmarkCase, ...]:
     return BENCHMARK_CASES
 
@@ -245,6 +249,19 @@ def _median_ms(values: list[float]) -> float | None:
     if not values:
         return None
     return round(float(statistics.median(values)), 3)
+
+
+def _compile_cached_benchmark(case: BenchmarkCase, cpp_source: str) -> Path:
+    compiler = discover_cpp_compiler()
+    if compiler is None:
+        raise CppEmitError("no C++ compiler found on PATH")
+    compiler_key = f"{compiler.kind}:{compiler.path}"
+    digest = hashlib.sha256((compiler_key + "\n" + cpp_source).encode("utf-8")).hexdigest()[:16]
+    out_dir = benchmark_cache_root() / f"{case.name}-{digest}"
+    exe = out_dir / f"vf_{case.name}"
+    if exe.is_file():
+        return exe
+    return compile_cpp_source(cpp_source, out_dir, exe_name=f"vf_{case.name}")
 
 
 def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, native_warmups: int) -> BenchmarkResult:
@@ -295,33 +312,31 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         t7 = time.perf_counter()
         result.emit_cpp_ms = _ms(t6, t7)
 
-        compiler = discover_cpp_compiler()
-        if compiler is None:
+        if discover_cpp_compiler() is None:
             result.native_status = "compiler-unavailable"
             return result
 
-        with tempfile.TemporaryDirectory(prefix="vf_bench_") as td:
-            t8 = time.perf_counter()
-            exe = compile_cpp_source(cpp_source, Path(td), exe_name=f"vf_{case.name}")
-            t9 = time.perf_counter()
-            result.compile_ms = _ms(t8, t9)
+        t8 = time.perf_counter()
+        exe = _compile_cached_benchmark(case, cpp_source)
+        t9 = time.perf_counter()
+        result.compile_ms = _ms(t8, t9)
 
-            for _ in range(native_warmups):
-                warmup = run_cpp_executable(exe)
-                if warmup.returncode != 0:
-                    result.native_stdout = warmup.stdout
-                    result.native_status = f"runtime-error:{warmup.returncode}"
-                    result.error = warmup.stderr.strip() or "native program failed"
-                    return result
-            native_run_samples: list[float] = []
-            proc = None
-            for _ in range(native_runs):
-                t10 = time.perf_counter()
-                proc = run_cpp_executable(exe)
-                t11 = time.perf_counter()
-                native_run_samples.append(_ms(t10, t11))
-            result.native_run_samples_ms = native_run_samples
-            result.native_run_ms = _median_ms(native_run_samples)
+        for _ in range(native_warmups):
+            warmup = run_cpp_executable(exe)
+            if warmup.returncode != 0:
+                result.native_stdout = warmup.stdout
+                result.native_status = f"runtime-error:{warmup.returncode}"
+                result.error = warmup.stderr.strip() or "native program failed"
+                return result
+        native_run_samples: list[float] = []
+        proc = None
+        for _ in range(native_runs):
+            t10 = time.perf_counter()
+            proc = run_cpp_executable(exe)
+            t11 = time.perf_counter()
+            native_run_samples.append(_ms(t10, t11))
+        result.native_run_samples_ms = native_run_samples
+        result.native_run_ms = _median_ms(native_run_samples)
 
         assert proc is not None
         result.native_stdout = proc.stdout

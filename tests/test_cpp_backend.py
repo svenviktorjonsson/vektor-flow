@@ -369,6 +369,25 @@ blend(a:[num:4], b:[num:4]) -> [num:4]:
     assert "for (std::size_t vf_i = 0; vf_i < 4; ++vf_i)" in cpp
 
 
+def test_cpp_specializes_array_sum_loop_function() -> None:
+    src = """
+sum_vec(x:[num:4]) -> num:
+    i: 0
+    acc: 0
+    i < 4?>
+        acc: acc + x.(i)
+        i: i + 1
+    acc
+
+:: sum_vec([1,2,3,4])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "double sum_vec(std::array<double, 4> x)" in cpp
+    assert "for (std::size_t vf_s1_i = 0; vf_s1_i < static_cast<std::size_t>(4.0); ++vf_s1_i)" in cpp
+    assert "vf_s2_acc += x[vf_s1_i];" in cpp
+
+
 def test_cpp_emits_struct_function_program() -> None:
     src = """
 sum(p:(x:num, y:num)) -> num:

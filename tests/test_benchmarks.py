@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from vektorflow.benchmarks import (
     build_benchmark_payload,
+    benchmark_cache_root,
     compare_benchmark_payload,
     format_benchmark_json,
     format_benchmark_list_json,
@@ -62,6 +63,20 @@ def test_run_benchmark_collects_multiple_native_runs() -> None:
     assert res.native_warmup_count == 1
     if res.native_status == "ok":
         assert len(res.native_run_samples_ms) == 2
+
+
+def test_run_benchmark_reuses_cached_native_compile() -> None:
+    cache_root = benchmark_cache_root()
+    if cache_root.exists():
+        import shutil
+
+        shutil.rmtree(cache_root)
+    first = run_benchmark(get_benchmark("scalar_control"))
+    second = run_benchmark(get_benchmark("scalar_control"))
+    if first.native_status == "ok" and second.native_status == "ok":
+        assert first.compile_ms is not None
+        assert second.compile_ms is not None
+        assert second.compile_ms <= first.compile_ms
 
 
 def test_run_interpreter_only_benchmark_marks_native_unsupported() -> None:
