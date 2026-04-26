@@ -52,11 +52,13 @@ z: 4
     )
     lowered = lower_module(mod)
     optimized = optimize_module(lowered)
-    assert len(optimized.statements) == 2
+    assert len(optimized.statements) == 3
     assert isinstance(optimized.statements[0], StoreName)
     assert optimized.statements[0].name == "const_x"
     assert isinstance(optimized.statements[1], StoreName)
-    assert optimized.statements[1].name == "z"
+    assert optimized.statements[1].name == "y"
+    assert isinstance(optimized.statements[2], StoreName)
+    assert optimized.statements[2].name == "z"
 
 
 def test_optimize_ir_keeps_dynamic_match_and_loop_shape() -> None:

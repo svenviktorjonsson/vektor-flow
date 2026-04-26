@@ -63,13 +63,18 @@ def emit_dynamic_any(
     hooks: DynamicEmitHooks,
     error_type: type[Exception],
 ) -> str:
-    require_cpp_dynamic_value_supported(
+    expr_type = require_cpp_dynamic_value_supported(
         expr_type,
         hooks.normalize_type,
         error_type,
         "compiled dynamic collections",
     )
-    return f"std::any{{{hooks.emit_expr(expr, env, functions, state, typed)}}}"
+    inner = hooks.emit_expr(expr, env, functions, state, typed)
+    expr_type = hooks.normalize_type(expr_type)
+    if isinstance(expr_type, ast.PrimTypeRef):
+        cpp_t = hooks.cpp_type(expr_type, state)
+        return f"std::any{{{cpp_t}({inner})}}"
+    return f"std::any{{{inner}}}"
 
 
 def emit_map_literal(

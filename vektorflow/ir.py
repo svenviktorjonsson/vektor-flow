@@ -264,6 +264,21 @@ def lower_expr(node: Any) -> IRNode:
             return expr.name
         return None
 
+    def _fixed_vector_type_from_expr(expr: Any) -> Any | None:
+        if not isinstance(expr, ast.ListLit) or expr.axis_tag is not None or len(expr.elements) != 1:
+            return None
+        only = expr.elements[0]
+        if not isinstance(only, ast.VectorRepeat):
+            return None
+        if not isinstance(only.value, ast.Ident):
+            return None
+        if not isinstance(only.count, ast.NumberLit):
+            return None
+        count = only.count.value
+        if not isinstance(count, (int, float)) or int(count) != count:
+            raise NotImplementedError("IR lowering only supports integer fixed-vector cast sizes")
+        return ast.FixedVectorType(ast.PrimTypeRef(only.value.name), ast.TypeSizeConst(int(count)))
+
     if isinstance(node, ast.NumberLit):
         return Const(node.value)
     if isinstance(node, ast.BoolLit):
@@ -280,6 +295,11 @@ def lower_expr(node: Any) -> IRNode:
         return LoadName(node.name)
     if isinstance(node, ast.Call):
         ctor = _ctor_name(node.func)
+        fixed_vector_target = _fixed_vector_type_from_expr(node.func)
+        if fixed_vector_target is not None:
+            if len(node.args) != 1 or isinstance(node.args[0], (ast.NamedCallArg, ast.SpreadArg)):
+                raise NotImplementedError("IR lowering only supports single-argument fixed-vector casts")
+            return CoerceExpr(lower_expr(node.args[0]), fixed_vector_target)
         if ctor == "map":
             fields: list[tuple[str, IRNode]] = []
             for a in node.args:

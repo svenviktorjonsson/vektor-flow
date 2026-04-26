@@ -294,19 +294,25 @@ def optimize_stmt(node: Any) -> list[Any]:
         return [node]
     if isinstance(node, ir.IfStmt):
         cond = fold_expr(node.condition)
-        body = optimize_block(node.body)
+        body = optimize_block(node.body, allow_dead_store_elimination=False)
         if isinstance(cond, ir.Const):
             return body.statements if bool(cond.value) else []
         return [ir.IfStmt(cond, body)]
     if isinstance(node, ir.WhileStmt):
         cond = fold_expr(node.condition)
-        body = optimize_block(node.body)
+        body = optimize_block(node.body, allow_dead_store_elimination=False)
         if isinstance(cond, ir.Const) and not bool(cond.value):
             return []
         return [ir.WhileStmt(cond, body)]
     if isinstance(node, ir.MatchStmt):
         disc = fold_expr(node.discriminant)
-        arms = [ir.MatchArm(None if arm.condition is None else fold_expr(arm.condition), optimize_block(arm.body)) for arm in node.arms]
+        arms = [
+            ir.MatchArm(
+                None if arm.condition is None else fold_expr(arm.condition),
+                optimize_block(arm.body, allow_dead_store_elimination=False),
+            )
+            for arm in node.arms
+        ]
         if isinstance(disc, ir.Const) and not node.loop:
             best_arm: ir.MatchArm | None = None
             best_spec = -1
@@ -331,7 +337,7 @@ def optimize_stmt(node: Any) -> list[Any]:
     raise TypeError(type(node).__name__)
 
 
-def optimize_block(block: ir.Block) -> ir.Block:
+def optimize_block(block: ir.Block, *, allow_dead_store_elimination: bool = True) -> ir.Block:
     out: list[Any] = []
     for stmt in block.statements:
         out.extend(optimize_stmt(stmt))
@@ -348,6 +354,8 @@ def optimize_block(block: ir.Block) -> ir.Block:
                 continue
         forwarded.append(stmt)
         i += 1
+    if not allow_dead_store_elimination:
+        return ir.Block(forwarded)
     kept: list[Any] = []
     live: set[str] = set()
     for stmt in reversed(forwarded):

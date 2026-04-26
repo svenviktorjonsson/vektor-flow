@@ -870,7 +870,8 @@ def _emit_match_body(node: ir.MatchStmt, env: dict[str, Any], functions: dict[st
             continue
         cond_name = f"{disc_name}_arm_{idx}"
         cond_expr = _emit_expr(arm.condition, env, functions, state, typed)
-        lines.append(f"{indent}auto {cond_name} = {cond_expr};")
+        cond_type = _expr_type(arm.condition, typed)
+        lines.append(f"{indent}{_cpp_type(cond_type, state)} {cond_name} = {cond_expr};")
         lines.append(f"{indent}{{")
         lines.append(f"{indent}    int vf_spec = vf_match_specificity({disc_name}, {cond_name});")
         lines.append(f"{indent}    if (vf_spec < 0) vf_spec = vf_match_specificity({cond_name}, {disc_name});")
@@ -979,6 +980,45 @@ def _emit_struct_def(name: str, type_expr: ast.TypeExpr, state: EmitState) -> li
     return lines
 
 
+def _emit_struct_defs_in_order(state: EmitState) -> list[str]:
+    out: list[str] = []
+    emitted: set[str] = set()
+
+    def visit_type(t: Any) -> None:
+        t = _normalize_type(t)
+        if isinstance(t, ast.TypeExpr):
+            name = _struct_name(t)
+            if name in emitted:
+                return
+            for _, inner in t.fields:
+                visit_type(inner)
+            out.extend(_emit_struct_def(name, t, state))
+            emitted.add(name)
+            return
+        if isinstance(t, ast.FixedVectorType):
+            visit_type(t.element_type)
+            return
+        if isinstance(t, ast.MultisetType):
+            visit_type(t.element_type)
+            return
+        if isinstance(t, ast.MapValueType):
+            for _, inner in t.fields:
+                visit_type(inner)
+            return
+        if isinstance(t, ast.LinkedListValueType):
+            for inner in t.elements:
+                visit_type(inner)
+            return
+        if isinstance(t, ast.TupleTypeExpr):
+            for inner in t.elements:
+                visit_type(inner)
+            return
+
+    for name in list(state.struct_defs):
+        visit_type(state.struct_defs[name])
+    return out
+
+
 def emit_cpp_module(module: ir.Module) -> str:
     prepared = _prepare_native_module(module)
     module = prepared.module
@@ -1048,6 +1088,7 @@ def emit_cpp_module(module: ir.Module) -> str:
         "    const long long mode_ui = 1LL;",
         "    const long long mode_frame = 2LL;",
         "    const long long mode_widget = 3LL;",
+        "    if (exact_code == pattern_code) return 3;",
         "    const long long pmode = (pattern_code >> mode_shift) & mode_mask;",
         "    if (pmode == mode_exact) return exact_code == pattern_code ? 3 : -1;",
         "    if (pmode == mode_ui) return ((exact_code & base_mask) == (pattern_code & base_mask)) ? 0 : -1;",
@@ -1238,9 +1279,7 @@ def emit_cpp_module(module: ir.Module) -> str:
         "}",
         "",
     ]
-    struct_lines: list[str] = []
-    for name in sorted(state.struct_defs):
-        struct_lines.extend(_emit_struct_def(name, state.struct_defs[name], state))
+    struct_lines = _emit_struct_defs_in_order(state)
     fn_lines: list[str] = []
     for fn in module.statements:
         if not isinstance(fn, ir.FunctionDef):
