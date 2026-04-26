@@ -89,6 +89,12 @@ class AttrExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class IndexExpr:
+    value: IRNode
+    indices: list[IRNode] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
 class MatchArm:
     condition: IRNode | None
     body: "Block"
@@ -339,6 +345,8 @@ def lower_expr(node: Any) -> IRNode:
         return StructExpr([(name, lower_expr(val)) for name, val in node.fields])
     if isinstance(node, ast.Attribute):
         return AttrExpr(lower_expr(node.value), node.name)
+    if isinstance(node, ast.DottedIndex):
+        return IndexExpr(lower_expr(node.base), [lower_expr(idx) for idx in node.indices])
     if isinstance(node, ast.ConditionalExpr):
         if node.loop:
             raise NotImplementedError("IR lowering does not support loop conditionals as value expressions")

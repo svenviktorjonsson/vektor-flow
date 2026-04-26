@@ -78,6 +78,7 @@ class TestMain:
         out = capsys.readouterr().out
         assert "scalar_control" in out
         assert "custom_overloads" in out
+        assert "vector_large_elementwise" in out
 
     def test_bench_subcommand_single_case(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control"]) == 0
@@ -97,6 +98,7 @@ class TestMain:
         assert '"summary"' in out
         assert '"results"' in out
         assert '"scalar_control"' in out
+        assert '"python_ref_ms"' in out
 
     def test_bench_subcommand_samples(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--samples", "2"]) == 0
@@ -123,3 +125,25 @@ class TestMain:
         assert main(["bench", "scalar_control", "--native-runs", "2", "--native-warmups", "0", "--json"]) == 0
         out = capsys.readouterr().out
         assert '"native_warmup_count": 0' in out
+
+    def test_bench_subcommand_save_baseline(self, tmp_path: Path) -> None:
+        baseline = tmp_path / "baseline.json"
+        assert main(["bench", "scalar_control", "--save-baseline", str(baseline), "--json"]) == 0
+        assert baseline.is_file()
+        assert '"summary"' in baseline.read_text(encoding="utf-8")
+
+    def test_bench_subcommand_compare_baseline(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        baseline = tmp_path / "baseline.json"
+        assert main(["bench", "scalar_control", "--save-baseline", str(baseline), "--json"]) == 0
+        _ = capsys.readouterr()
+        assert main(["bench", "scalar_control", "--compare-baseline", str(baseline)]) == 0
+        out = capsys.readouterr().out
+        assert "baseline deltas:" in out
+
+    def test_bench_subcommand_compare_baseline_json(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        baseline = tmp_path / "baseline.json"
+        assert main(["bench", "scalar_control", "--save-baseline", str(baseline), "--json"]) == 0
+        _ = capsys.readouterr()
+        assert main(["bench", "scalar_control", "--compare-baseline", str(baseline), "--json"]) == 0
+        out = capsys.readouterr().out
+        assert '"baseline_comparison"' in out

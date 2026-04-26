@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from vektorflow.benchmarks import (
+    build_benchmark_payload,
+    compare_benchmark_payload,
     format_benchmark_json,
     format_benchmark_list_json,
     get_benchmark,
     list_benchmarks,
+    load_benchmark_baseline,
     run_benchmark,
+    save_benchmark_baseline,
     select_benchmarks,
 )
 
@@ -18,11 +22,18 @@ def test_benchmark_registry_contains_expected_cases() -> None:
     assert "custom_overloads" in names
     assert "scalar_hotloop" in names
     assert "vector_hotloop" in names
+    assert "vector_large_elementwise" in names
+    assert "vector_large_reduce" in names
 
 
 def test_select_benchmarks_filters_by_name() -> None:
     cases = select_benchmarks(["vector"])
-    assert [case.name for case in cases] == ["vectors_shapes", "vector_hotloop"]
+    assert [case.name for case in cases] == [
+        "vectors_shapes",
+        "vector_hotloop",
+        "vector_large_elementwise",
+        "vector_large_reduce",
+    ]
 
 
 def test_run_native_supported_benchmark_interpreter_and_emit() -> None:
@@ -74,6 +85,36 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"native_warmup_count"' in payload
     assert '"aggregation": "median"' in payload
     assert '"parse_samples_ms"' in payload
+    assert '"python_ref_ms"' in payload
+    assert '"numpy_ref_ms"' in payload
+
+
+def test_vector_hotloop_collects_reference_timings() -> None:
+    res = run_benchmark(get_benchmark("vector_hotloop"))
+    assert res.error is None
+    assert res.python_ref_ms is not None
+    assert res.case.reference_impl == "vector_hotloop"
+
+
+def test_benchmark_baseline_roundtrip_and_compare(tmp_path) -> None:
+    results = [run_benchmark(get_benchmark("scalar_control"))]
+    baseline_path = tmp_path / "baseline.json"
+    save_benchmark_baseline(results, baseline_path)
+    payload = load_benchmark_baseline(baseline_path)
+    assert payload["summary"]["count"] == 1
+    assert payload["results"][0]["name"] == "scalar_control"
+    comparison = compare_benchmark_payload(build_benchmark_payload(results), payload)
+    benchmark = comparison["benchmarks"][0]
+    assert benchmark["name"] == "scalar_control"
+    assert benchmark["time_metrics"]["parse_ms"]["delta"] == 0.0
+
+
+def test_benchmark_json_can_embed_baseline_comparison(tmp_path) -> None:
+    results = [run_benchmark(get_benchmark("scalar_control"))]
+    baseline_path = tmp_path / "baseline.json"
+    save_benchmark_baseline(results, baseline_path)
+    payload = format_benchmark_json(results, baseline=load_benchmark_baseline(baseline_path))
+    assert '"baseline_comparison"' in payload
 
 
 def test_benchmark_list_json_contains_case_metadata() -> None:
@@ -81,3 +122,4 @@ def test_benchmark_list_json_contains_case_metadata() -> None:
     assert '"name"' in payload
     assert '"native_supported"' in payload
     assert '"scalar_hotloop"' in payload
+    assert '"reference_impl"' in payload

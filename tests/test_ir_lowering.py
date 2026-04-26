@@ -6,7 +6,7 @@ import pytest
 
 from vektorflow.interpreter import _stringify
 from vektorflow.interpreter import Interpreter
-from vektorflow.ir import AttrExpr, CoerceExpr, FunctionDef, LinkedListExpr, MapExpr, MatchStmt, MultisetExpr, StoreName, StructExpr, WhileStmt, lower_module
+from vektorflow.ir import AttrExpr, CoerceExpr, FunctionDef, IndexExpr, LinkedListExpr, MapExpr, MatchStmt, MultisetExpr, StoreName, StructExpr, WhileStmt, lower_module
 from vektorflow.ir_executor import IRExecutor
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
@@ -143,6 +143,14 @@ def test_ir_lowers_struct_literal_and_attribute() -> None:
     assert isinstance(st.value.expr, StructExpr)
     pr = lowered.statements[1]
     assert isinstance(pr.value, AttrExpr)
+
+
+def test_ir_lowers_dotted_index() -> None:
+    mod = parse_module("[num:3] xs: [1,2,3]\n:: xs.1\n", filename="<ir-test>")
+    lowered = lower_module(mod)
+    pr = lowered.statements[1]
+    assert isinstance(pr.value, IndexExpr)
+    assert len(pr.value.indices) == 1
 
 
 def test_ir_lowers_conditional_loop() -> None:

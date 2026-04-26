@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import json
 import math
@@ -9,6 +10,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .cpp_backend import (
     CppEmitError,
@@ -29,6 +31,7 @@ class BenchmarkCase:
     rel_path: str
     native_supported: bool
     description: str
+    reference_impl: str | None = None
 
     @property
     def path(self) -> Path:
@@ -44,6 +47,8 @@ class BenchmarkResult:
     emit_cpp_ms: float | None = None
     compile_ms: float | None = None
     native_run_ms: float | None = None
+    python_ref_ms: float | None = None
+    numpy_ref_ms: float | None = None
     interpreter_stdout: str = ""
     native_stdout: str | None = None
     native_status: str = "not-requested"
@@ -58,6 +63,8 @@ class BenchmarkResult:
     emit_cpp_samples_ms: list[float] = field(default_factory=list)
     compile_samples_ms: list[float] = field(default_factory=list)
     native_run_samples_ms: list[float] = field(default_factory=list)
+    python_ref_samples_ms: list[float] = field(default_factory=list)
+    numpy_ref_samples_ms: list[float] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -93,6 +100,39 @@ class BenchmarkResult:
         if self.python_roundtrip_ms is None or self.native_roundtrip_ms is None or self.native_roundtrip_ms == 0:
             return None
         return round(self.python_roundtrip_ms / self.native_roundtrip_ms, 3)
+
+    @property
+    def native_vs_python_ref(self) -> float | None:
+        if self.python_ref_ms is None or self.native_run_ms is None or self.native_run_ms == 0:
+            return None
+        return round(self.python_ref_ms / self.native_run_ms, 3)
+
+    @property
+    def native_vs_numpy_ref(self) -> float | None:
+        if self.numpy_ref_ms is None or self.native_run_ms is None or self.native_run_ms == 0:
+            return None
+        return round(self.numpy_ref_ms / self.native_run_ms, 3)
+
+
+TIME_METRICS: tuple[str, ...] = (
+    "parse_ms",
+    "lower_ms",
+    "interpret_ms",
+    "emit_cpp_ms",
+    "compile_ms",
+    "native_run_ms",
+    "python_ref_ms",
+    "numpy_ref_ms",
+    "python_roundtrip_ms",
+    "native_roundtrip_ms",
+)
+
+SPEEDUP_METRICS: tuple[str, ...] = (
+    "native_steady_speedup",
+    "native_roundtrip_vs_python",
+    "native_vs_python_ref",
+    "native_vs_numpy_ref",
+)
 
 
 BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
@@ -143,8 +183,27 @@ BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
         "vector_hotloop.vkf",
         True,
         "Heavier vector loop workload with fixed-size vector arithmetic.",
+        reference_impl="vector_hotloop",
+    ),
+    BenchmarkCase(
+        "vector_large_elementwise",
+        "vector_large_elementwise.vkf",
+        True,
+        "Large fixed-vector elementwise arithmetic with scalar sentinel checks.",
+        reference_impl="vector_large_elementwise",
+    ),
+    BenchmarkCase(
+        "vector_large_reduce",
+        "vector_large_reduce.vkf",
+        True,
+        "Large fixed-vector reduction using indexed accumulation.",
+        reference_impl="vector_large_reduce",
     ),
 )
+
+_HAS_NUMPY = importlib.util.find_spec("numpy") is not None
+_VECTOR_LARGE_SIZE = 1024
+_VECTOR_LARGE_REPS = 256
 
 
 def repo_root() -> Path:
@@ -206,6 +265,21 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         t5 = time.perf_counter()
         result.interpret_ms = _ms(t4, t5)
         result.interpreter_stdout = buf.getvalue()
+
+        python_ref = _run_reference_impl(case.reference_impl, kind="python")
+        if python_ref is not None:
+            result.python_ref_ms, python_ref_stdout = python_ref
+            if not _outputs_match(result.interpreter_stdout, python_ref_stdout):
+                result.error = "python reference output mismatch"
+                result.native_status = "error"
+                return result
+        numpy_ref = _run_reference_impl(case.reference_impl, kind="numpy")
+        if numpy_ref is not None:
+            result.numpy_ref_ms, numpy_ref_stdout = numpy_ref
+            if not _outputs_match(result.interpreter_stdout, numpy_ref_stdout):
+                result.error = "numpy reference output mismatch"
+                result.native_status = "error"
+                return result
 
         if not case.native_supported:
             result.native_status = "unsupported"
@@ -304,6 +378,8 @@ def run_benchmark(
         emit_cpp_samples_ms=[r.emit_cpp_ms for r in runs if r.emit_cpp_ms is not None],
         compile_samples_ms=[r.compile_ms for r in runs if r.compile_ms is not None],
         native_run_samples_ms=[value for r in runs for value in r.native_run_samples_ms],
+        python_ref_samples_ms=[r.python_ref_ms for r in runs if r.python_ref_ms is not None],
+        numpy_ref_samples_ms=[r.numpy_ref_ms for r in runs if r.numpy_ref_ms is not None],
     )
     aggregated.parse_ms = _median_ms(aggregated.parse_samples_ms)
     aggregated.lower_ms = _median_ms(aggregated.lower_samples_ms)
@@ -311,10 +387,12 @@ def run_benchmark(
     aggregated.emit_cpp_ms = _median_ms(aggregated.emit_cpp_samples_ms)
     aggregated.compile_ms = _median_ms(aggregated.compile_samples_ms)
     aggregated.native_run_ms = _median_ms(aggregated.native_run_samples_ms)
+    aggregated.python_ref_ms = _median_ms(aggregated.python_ref_samples_ms)
+    aggregated.numpy_ref_ms = _median_ms(aggregated.numpy_ref_samples_ms)
     return aggregated
 
 
-def format_benchmark_report(results: list[BenchmarkResult]) -> str:
+def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, object] | None = None) -> str:
     sample_counts = sorted({r.sample_count for r in results})
     sample_label = str(sample_counts[0]) if len(sample_counts) == 1 else ",".join(str(n) for n in sample_counts)
     native_run_counts = sorted({r.native_run_count for r in results})
@@ -357,6 +435,17 @@ def format_benchmark_report(results: list[BenchmarkResult]) -> str:
                 f"steady_speedup={_fmt_ratio(r.native_steady_speedup)}x, "
                 f"roundtrip_vs_python={_fmt_ratio(r.native_roundtrip_vs_python)}x"
             )
+            if r.python_ref_ms is not None or r.numpy_ref_ms is not None:
+                lines.append(
+                    "    "
+                    f"runtime_refs: python={_fmt_ms(r.python_ref_ms)} ms, "
+                    f"numpy={_fmt_ms(r.numpy_ref_ms)} ms, "
+                    f"native_vs_python_ref={_fmt_ratio(r.native_vs_python_ref)}x, "
+                    f"native_vs_numpy_ref={_fmt_ratio(r.native_vs_numpy_ref)}x"
+                )
+    if baseline is not None:
+        comparison = compare_benchmark_payload(build_benchmark_payload(results), baseline)
+        lines.extend(_format_baseline_report_lines(comparison))
     if any(r.output_match is False for r in results):
         bad = ", ".join(r.case.name for r in results if r.output_match is False)
         lines.append(f"output mismatches: {bad}")
@@ -392,10 +481,16 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "compile_samples_ms": result.compile_samples_ms,
         "native_run_ms": result.native_run_ms,
         "native_run_samples_ms": result.native_run_samples_ms,
+        "python_ref_ms": result.python_ref_ms,
+        "python_ref_samples_ms": result.python_ref_samples_ms,
+        "numpy_ref_ms": result.numpy_ref_ms,
+        "numpy_ref_samples_ms": result.numpy_ref_samples_ms,
         "python_roundtrip_ms": result.python_roundtrip_ms,
         "native_roundtrip_ms": result.native_roundtrip_ms,
         "native_steady_speedup": result.native_steady_speedup,
         "native_roundtrip_vs_python": result.native_roundtrip_vs_python,
+        "native_vs_python_ref": result.native_vs_python_ref,
+        "native_vs_numpy_ref": result.native_vs_numpy_ref,
         "native_status": result.native_status,
         "output_match": result.output_match,
         "error": result.error,
@@ -411,18 +506,21 @@ def benchmark_case_to_dict(case: BenchmarkCase) -> dict[str, object]:
         "rel_path": case.rel_path,
         "native_supported": case.native_supported,
         "description": case.description,
+        "reference_impl": case.reference_impl,
     }
 
 
-def format_benchmark_json(results: list[BenchmarkResult]) -> str:
+def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]:
     speedups = [r.native_steady_speedup for r in results if r.native_steady_speedup is not None]
     roundtrip_ratios = [
         r.native_roundtrip_vs_python for r in results if r.native_roundtrip_vs_python is not None
     ]
+    python_ref_ratios = [r.native_vs_python_ref for r in results if r.native_vs_python_ref is not None]
+    numpy_ref_ratios = [r.native_vs_numpy_ref for r in results if r.native_vs_numpy_ref is not None]
     sample_counts = sorted({r.sample_count for r in results})
     native_run_counts = sorted({r.native_run_count for r in results})
     native_warmup_counts = sorted({r.native_warmup_count for r in results})
-    payload = {
+    return {
         "summary": {
             "count": len(results),
             "ok": sum(1 for r in results if r.ok),
@@ -436,14 +534,255 @@ def format_benchmark_json(results: list[BenchmarkResult]) -> str:
             "avg_native_roundtrip_vs_python": (
                 round(sum(roundtrip_ratios) / len(roundtrip_ratios), 3) if roundtrip_ratios else None
             ),
+            "avg_native_vs_python_ref": round(sum(python_ref_ratios) / len(python_ref_ratios), 3) if python_ref_ratios else None,
+            "avg_native_vs_numpy_ref": round(sum(numpy_ref_ratios) / len(numpy_ref_ratios), 3) if numpy_ref_ratios else None,
         },
         "results": [benchmark_result_to_dict(r) for r in results],
     }
+
+
+def format_benchmark_json(results: list[BenchmarkResult], baseline: dict[str, object] | None = None) -> str:
+    payload = build_benchmark_payload(results)
+    if baseline is not None:
+        payload["baseline_comparison"] = compare_benchmark_payload(payload, baseline)
     return json.dumps(payload, indent=2)
+
+
+def save_benchmark_baseline(results: list[BenchmarkResult], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_benchmark_payload(results)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def load_benchmark_baseline(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def compare_benchmark_payload(current: dict[str, object], baseline: dict[str, object]) -> dict[str, object]:
+    current_results = {
+        item["name"]: item
+        for item in current.get("results", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    baseline_results = {
+        item["name"]: item
+        for item in baseline.get("results", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    all_names = sorted(set(current_results) | set(baseline_results))
+    compared: list[dict[str, object]] = []
+    for name in all_names:
+        now = current_results.get(name)
+        before = baseline_results.get(name)
+        compared.append(
+            {
+                "name": name,
+                "present_in_current": now is not None,
+                "present_in_baseline": before is not None,
+                "time_metrics": _compare_metric_group(now, before, TIME_METRICS, prefer_lower=True),
+                "speedup_metrics": _compare_metric_group(now, before, SPEEDUP_METRICS, prefer_lower=False),
+            }
+        )
+    return {
+        "baseline_summary": baseline.get("summary"),
+        "current_summary": current.get("summary"),
+        "benchmarks": compared,
+    }
+
+
+def _vf_number_string(value: float | int) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _vector_hotloop_output_python() -> str:
+    v0 = 0.0
+    v1 = 0.0
+    for _ in range(12000):
+        v0 += 1.0
+        v1 += 2.0
+    return f"[{_vf_number_string(v0)}, {_vf_number_string(v1)}]\n"
+
+
+def _vector_hotloop_output_numpy() -> str:
+    import numpy as np
+
+    step = np.array([1.0, 2.0], dtype=np.float64)
+    out = np.array([0.0, 0.0], dtype=np.float64)
+    for _ in range(12000):
+        out = out + step
+    return f"[{_vf_number_string(float(out[0]))}, {_vf_number_string(float(out[1]))}]\n"
+
+
+def _large_vector_inputs_python() -> tuple[list[float], list[float]]:
+    a = [float(i) for i in range(_VECTOR_LARGE_SIZE)]
+    b = [float(i + 1) for i in range(_VECTOR_LARGE_SIZE)]
+    return a, b
+
+
+def _vector_large_elementwise_output_python() -> str:
+    a, b = _large_vector_inputs_python()
+    out = list(a)
+    for _ in range(_VECTOR_LARGE_REPS):
+        out = [(x + y) * 0.5 for x, y in zip(out, b)]
+    return (
+        f"{_vf_number_string(out[0])}\n"
+        f"{_vf_number_string(out[_VECTOR_LARGE_SIZE // 2])}\n"
+        f"{_vf_number_string(out[-1])}\n"
+    )
+
+
+def _vector_large_elementwise_output_numpy() -> str:
+    import numpy as np
+
+    a = np.arange(_VECTOR_LARGE_SIZE, dtype=np.float64)
+    b = np.arange(1, _VECTOR_LARGE_SIZE + 1, dtype=np.float64)
+    out = a
+    for _ in range(_VECTOR_LARGE_REPS):
+        out = (out + b) * 0.5
+    return (
+        f"{_vf_number_string(float(out[0]))}\n"
+        f"{_vf_number_string(float(out[_VECTOR_LARGE_SIZE // 2]))}\n"
+        f"{_vf_number_string(float(out[-1]))}\n"
+    )
+
+
+def _vector_large_reduce_output_python() -> str:
+    a, b = _large_vector_inputs_python()
+    vec = [(x * y) + y for x, y in zip(a, b)]
+    total = 0.0
+    for _ in range(_VECTOR_LARGE_REPS):
+        subtotal = 0.0
+        for value in vec:
+            subtotal += value
+        total += subtotal
+    return f"{_vf_number_string(total)}\n"
+
+
+def _vector_large_reduce_output_numpy() -> str:
+    import numpy as np
+
+    a = np.arange(_VECTOR_LARGE_SIZE, dtype=np.float64)
+    b = np.arange(1, _VECTOR_LARGE_SIZE + 1, dtype=np.float64)
+    vec = (a * b) + b
+    total = 0.0
+    for _ in range(_VECTOR_LARGE_REPS):
+        total += float(np.sum(vec))
+    return f"{_vf_number_string(total)}\n"
+
+
+_PYTHON_REFERENCE_IMPLS: dict[str, Callable[[], str]] = {
+    "vector_hotloop": _vector_hotloop_output_python,
+    "vector_large_elementwise": _vector_large_elementwise_output_python,
+    "vector_large_reduce": _vector_large_reduce_output_python,
+}
+
+_NUMPY_REFERENCE_IMPLS: dict[str, Callable[[], str]] = {
+    "vector_hotloop": _vector_hotloop_output_numpy,
+    "vector_large_elementwise": _vector_large_elementwise_output_numpy,
+    "vector_large_reduce": _vector_large_reduce_output_numpy,
+}
+
+
+def _run_reference_impl(reference_impl: str | None, kind: str) -> tuple[float, str] | None:
+    if reference_impl is None:
+        return None
+    if kind == "numpy":
+        if not _HAS_NUMPY:
+            return None
+        fn = _NUMPY_REFERENCE_IMPLS.get(reference_impl)
+    else:
+        fn = _PYTHON_REFERENCE_IMPLS.get(reference_impl)
+    if fn is None:
+        return None
+    t0 = time.perf_counter()
+    output = fn()
+    t1 = time.perf_counter()
+    return _ms(t0, t1), output
 
 
 def format_benchmark_list_json(cases: list[BenchmarkCase] | tuple[BenchmarkCase, ...]) -> str:
     return json.dumps([benchmark_case_to_dict(case) for case in cases], indent=2)
+
+
+def _compare_metric_group(
+    current: dict[str, object] | None,
+    baseline: dict[str, object] | None,
+    metrics: tuple[str, ...],
+    *,
+    prefer_lower: bool,
+) -> dict[str, dict[str, float | None] | None]:
+    out: dict[str, dict[str, float | None] | None] = {}
+    for metric in metrics:
+        cur_val = _float_or_none(current.get(metric) if current else None)
+        base_val = _float_or_none(baseline.get(metric) if baseline else None)
+        if cur_val is None or base_val is None:
+            out[metric] = None
+            continue
+        delta = round(cur_val - base_val, 3)
+        pct = round((delta / base_val) * 100.0, 3) if base_val != 0 else None
+        factor = round((base_val / cur_val) if prefer_lower and cur_val != 0 else (cur_val / base_val if base_val != 0 else 0), 3)
+        out[metric] = {
+            "current": cur_val,
+            "baseline": base_val,
+            "delta": delta,
+            "delta_pct": pct,
+            "improvement_factor": factor,
+        }
+    return out
+
+
+def _format_baseline_report_lines(comparison: dict[str, object]) -> list[str]:
+    lines = ["", "baseline deltas:"]
+    for item in comparison.get("benchmarks", []):
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str):
+            continue
+        if not item.get("present_in_current"):
+            lines.append(f"  - {name}: missing from current run")
+            continue
+        if not item.get("present_in_baseline"):
+            lines.append(f"  - {name}: new benchmark (not present in baseline)")
+            continue
+        time_summary = _metric_brief(item.get("time_metrics"), ("native_run_ms", "compile_ms", "python_roundtrip_ms"))
+        speed_summary = _metric_brief(item.get("speedup_metrics"), ("native_steady_speedup", "native_vs_numpy_ref"))
+        parts = [part for part in (time_summary, speed_summary) if part]
+        if parts:
+            lines.append(f"  - {name}: " + "; ".join(parts))
+    return lines
+
+
+def _metric_brief(metrics: object, order: tuple[str, ...]) -> str:
+    if not isinstance(metrics, dict):
+        return ""
+    labels = {
+        "native_run_ms": "native",
+        "compile_ms": "compile",
+        "python_roundtrip_ms": "py_roundtrip",
+        "native_steady_speedup": "steady",
+        "native_vs_numpy_ref": "vs_numpy",
+    }
+    parts: list[str] = []
+    for key in order:
+        payload = metrics.get(key)
+        if not isinstance(payload, dict):
+            continue
+        delta_pct = _float_or_none(payload.get("delta_pct"))
+        factor = _float_or_none(payload.get("improvement_factor"))
+        if delta_pct is None or factor is None:
+            continue
+        direction = "better" if ((factor > 1.0) if key in {"native_steady_speedup", "native_vs_numpy_ref"} else (delta_pct < 0.0)) else "worse"
+        parts.append(f"{labels.get(key, key)} {direction} ({delta_pct:+.1f}%, {factor:.2f}x)")
+    return ", ".join(parts)
+
+
+def _float_or_none(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
 
 
 def _fmt_ms(value: float | None) -> str:

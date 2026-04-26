@@ -216,6 +216,15 @@ class IRExecutor:
                     raise EvalError(f"missing field {node.name!r}")
                 return base.get(node.name)
             raise EvalError("attribute access on non-struct")
+        if isinstance(node, ir.IndexExpr):
+            base = self.eval_expr(node.value, env)
+            for idx in node.indices:
+                key = self.eval_expr(idx, env)
+                if isinstance(base, (list, tuple, str)):
+                    base = base[int(key)]
+                    continue
+                raise EvalError("index access on unsupported IR value")
+            return base
         if isinstance(node, ir.CoerceExpr):
             value = self.eval_expr(node.expr, env)
             value, _ = coerce_typed_value(value, node.target_type, self.types)

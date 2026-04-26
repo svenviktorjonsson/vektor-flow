@@ -82,6 +82,8 @@ def _lower_expr(expr: Any, slots: dict[str, int]) -> Any:
         return ir.StructExpr([(name, _lower_expr(val, slots)) for name, val in expr.fields])
     if isinstance(expr, ir.AttrExpr):
         return ir.AttrExpr(_lower_expr(expr.value, slots), expr.name)
+    if isinstance(expr, ir.IndexExpr):
+        return ir.IndexExpr(_lower_expr(expr.value, slots), [_lower_expr(idx, slots) for idx in expr.indices])
     if isinstance(expr, ir.CoerceExpr):
         return ir.CoerceExpr(_lower_expr(expr.expr, slots), expr.target_type)
     return expr

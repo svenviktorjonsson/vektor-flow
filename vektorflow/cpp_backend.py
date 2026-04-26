@@ -453,6 +453,13 @@ def discover_cpp_compiler() -> CppCompiler | None:
         path = shutil.which(name)
         if path:
             return CppCompiler(name, path)
+    fallback_candidates = (
+        ("clang++", Path(r"C:\Program Files\LLVM\bin\clang++.exe")),
+        ("clang++", Path(r"C:\Program Files (x86)\LLVM\bin\clang++.exe")),
+    )
+    for kind, path in fallback_candidates:
+        if path.is_file():
+            return CppCompiler(kind, str(path))
     return None
 
 
@@ -766,6 +773,17 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
             if name == node.name:
                 return inner
         raise CppEmitError(f"missing field {node.name!r} in struct type")
+    if isinstance(node, ir.IndexExpr):
+        current_t = _normalize_type(_infer_expr_type(node.value, env, functions))
+        for idx in node.indices:
+            idx_t = _normalize_type(_infer_expr_type(idx, env, functions))
+            if not _is_scalar_numeric_type(idx_t):
+                raise CppEmitError("index access requires a numeric index in C++ emission")
+            if isinstance(current_t, ast.FixedVectorType):
+                current_t = _normalize_type(current_t.element_type)
+                continue
+            raise CppEmitError("index access currently requires a fixed-vector type in C++ emission")
+        return current_t
     if isinstance(node, ir.UnaryExpr):
         t = _infer_expr_type(node.operand, env, functions)
         if node.op == "NOT":
@@ -1077,6 +1095,17 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             return _emit_map_attr_access(node, env, functions, state, typed)
         base_expr = _emit_expr(node.value, env, functions, state, typed)
         return f"{base_expr}.{node.name}"
+    if isinstance(node, ir.IndexExpr):
+        base_type = _normalize_type(_expr_type(node.value, typed))
+        if not isinstance(base_type, ast.FixedVectorType):
+            raise CppEmitError("index access currently requires a fixed-vector type in C++ emission")
+        expr = _emit_expr(node.value, env, functions, state, typed)
+        current_t = base_type
+        for idx in node.indices:
+            idx_expr = _emit_expr(idx, env, functions, state, typed)
+            expr = f"{expr}[static_cast<std::size_t>({idx_expr})]"
+            current_t = _normalize_type(current_t.element_type) if isinstance(current_t, ast.FixedVectorType) else current_t
+        return expr
     if isinstance(node, ir.UnaryExpr):
         inner = _emit_expr(node.operand, env, functions, state, typed)
         if node.op == "MINUS":
@@ -1301,6 +1330,10 @@ def _collect_types_from_expr(node: Any, env: dict[str, Any], functions: dict[str
             _collect_types_from_expr(value, env, functions, state)
     elif isinstance(node, ir.AttrExpr):
         _collect_types_from_expr(node.value, env, functions, state)
+    elif isinstance(node, ir.IndexExpr):
+        _collect_types_from_expr(node.value, env, functions, state)
+        for idx in node.indices:
+            _collect_types_from_expr(idx, env, functions, state)
     elif isinstance(node, ir.UnaryExpr):
         _collect_types_from_expr(node.operand, env, functions, state)
     elif isinstance(node, ir.BinaryExpr):

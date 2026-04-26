@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from vektorflow import ast
-from vektorflow.ir import AttrExpr, BinaryExpr, CallExpr, StoreName, lower_module
+from vektorflow.ir import AttrExpr, BinaryExpr, CallExpr, IndexExpr, StoreName, lower_module
 from vektorflow.parser import parse_module
 from vektorflow.typed_ir import annotate_module
 
@@ -79,6 +79,24 @@ px: p.x
     px_type = info.expr_type(bind_px.value)
     assert isinstance(px_type, ast.PrimTypeRef)
     assert px_type.name == "num"
+
+
+def test_typed_ir_tracks_fixed_vector_index_type() -> None:
+    mod = parse_module(
+        """
+[num:3] xs: [1,2,3]
+mid: xs.1
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_mid = lowered.statements[1]
+    assert isinstance(bind_mid, StoreName)
+    assert isinstance(bind_mid.value, IndexExpr)
+    mid_t = info.expr_type(bind_mid.value)
+    assert isinstance(mid_t, ast.PrimTypeRef)
+    assert mid_t.name == "num"
 
 
 def test_typed_ir_tracks_symbolic_template_return_type() -> None:

@@ -50,6 +50,7 @@ from .runtime.type_values import (
     wrap_typed_multiset_result,
     wrap_typed_vector_result,
 )
+from .runtime.typed_vector import TypedVector
 from .runtime.vflist import VFLinkedList
 from .runtime.vmap import VMap
 
@@ -252,6 +253,13 @@ def _local_scope_as_record(env: dict[str, Any]) -> dict[str, Any]:
 def _vf_bool_display(b: bool) -> str:
     """Emit form for booleans: C++/JSON-style ``true``/``false`` (not Python ``True``/``False``)."""
     return "true" if b else "false"
+
+
+def _wrap_vector_result_if_typed(op: str, result: list[Any], left: Any, right: Any) -> list[Any]:
+    """Skip refined-type bookkeeping for ordinary Python lists in hot vector paths."""
+    if not isinstance(left, TypedVector) and not isinstance(right, TypedVector):
+        return result
+    return wrap_typed_vector_result(result, combine_typed_vector_types(op, left, right))
 
 
 def _expr_to_compact_string(expr: Any) -> str:
@@ -2122,7 +2130,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, tuple) and isinstance(b, tuple):
             return a + b
         if isinstance(a, list) and isinstance(b, list):
-            return wrap_typed_vector_result(a + b, combine_typed_vector_types(op, a, b))
+            return _wrap_vector_result_if_typed(op, a + b, a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         if isinstance(a, dict) and isinstance(b, dict) and is_struct_dict(a) and is_struct_dict(b):
@@ -2134,10 +2142,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for +")
-            return wrap_typed_vector_result(
-                [x + y for x, y in zip(a, b)],
-                combine_typed_vector_types(op, a, b),
-            )
+            return _wrap_vector_result_if_typed(op, [x + y for x, y in zip(a, b)], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         return a + b
@@ -2145,10 +2150,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for -")
-            return wrap_typed_vector_result(
-                [x - y for x, y in zip(a, b)],
-                combine_typed_vector_types(op, a, b),
-            )
+            return _wrap_vector_result_if_typed(op, [x - y for x, y in zip(a, b)], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_difference(a, b), combine_typed_multiset_types(a, b))
         return a - b
@@ -2156,20 +2158,11 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for *")
-            return wrap_typed_vector_result(
-                [x * y for x, y in zip(a, b)],
-                combine_typed_vector_types(op, a, b),
-            )
+            return _wrap_vector_result_if_typed(op, [x * y for x, y in zip(a, b)], a, b)
         if isinstance(a, (int, float)) and isinstance(b, list):
-            return wrap_typed_vector_result(
-                [float(a) * x for x in b],
-                combine_typed_vector_types(op, a, b),
-            )
+            return _wrap_vector_result_if_typed(op, [float(a) * x for x in b], a, b)
         if isinstance(a, list) and isinstance(b, (int, float)):
-            return wrap_typed_vector_result(
-                [x * float(b) for x in a],
-                combine_typed_vector_types(op, a, b),
-            )
+            return _wrap_vector_result_if_typed(op, [x * float(b) for x in a], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_intersection(a, b), combine_typed_multiset_types(a, b))
         return a * b
@@ -2177,10 +2170,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for /")
-            return wrap_typed_vector_result(
-                [x / y for x, y in zip(a, b)],
-                combine_typed_vector_types(op, a, b),
-            )
+            return _wrap_vector_result_if_typed(op, [x / y for x, y in zip(a, b)], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(
                 multiset_symmetric_difference(a, b), combine_typed_multiset_types(a, b)

@@ -10,7 +10,7 @@ from vektorflow.cpp_backend import (
     discover_cpp_compiler,
     emit_cpp_module,
 )
-from vektorflow.ir import PrintStmt, lower_module
+from vektorflow.ir import IndexExpr, PrintStmt, lower_module
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
 
@@ -93,6 +93,18 @@ def test_cpp_emits_fixed_vector_program() -> None:
     assert "std::array<double, 2> a = std::array<double, 2>{vf_to_num(1.0), vf_to_num(2.0)};" in cpp
     assert "std::array<double, 2> b = std::array<double, 2>{vf_to_num(3.0), vf_to_num(4.0)};" in cpp
     assert 'std::cout << vf_format_value(vf_array_add(a, b)) << "\\n";' in cpp
+
+
+def test_cpp_emits_fixed_vector_index_program() -> None:
+    src = """
+[num:3] xs: [1,2,3]
+:: xs.1
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    assert isinstance(lowered.statements[1].value, IndexExpr)
+    cpp = emit_cpp_module(lowered)
+    assert "xs[static_cast<std::size_t>(1.0)]" in cpp or "xs[static_cast<std::size_t>(1)]" in cpp
+    assert 'std::cout << vf_format_num(xs[static_cast<std::size_t>(' in cpp
 
 
 def test_cpp_emits_symbolic_vector_template_function() -> None:
@@ -476,6 +488,25 @@ v: make().pts + extra
     assert "make().pts" in cpp
     assert "vf_array_add" in cpp
     assert "make().meta" in cpp
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_compile_and_run_fixed_vector_index_program() -> None:
+    src = """
+sum_vec(x:[num:4]) -> num:
+    i: 0
+    acc: 0
+    i < 4?>
+        acc: acc + x.(i)
+        i: i + 1
+    acc
+
+:: sum_vec([1,2,3,4])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0
+    assert res.stdout.strip() == "10"
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")

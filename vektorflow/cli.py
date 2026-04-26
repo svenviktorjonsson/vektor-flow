@@ -102,11 +102,13 @@ def cmd_cpp(path: Path, out_path: Path | None) -> int:
 
 def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
     from .benchmarks import (
+        load_benchmark_baseline,
         format_benchmark_json,
         format_benchmark_list_json,
         format_benchmark_report,
         list_benchmarks,
         run_benchmark,
+        save_benchmark_baseline,
         select_benchmarks,
     )
 
@@ -114,6 +116,8 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
     samples = 1
     native_runs = 1
     native_warmups: int | None = None
+    save_baseline: Path | None = None
+    compare_baseline: Path | None = None
     filtered: list[str] = []
     i = 0
     while i < len(patterns):
@@ -164,6 +168,20 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
                 return 1
             i += 2
             continue
+        if arg == "--save-baseline":
+            if i + 1 >= len(patterns):
+                print("error: --save-baseline requires a path", file=sys.stderr)
+                return 1
+            save_baseline = Path(patterns[i + 1])
+            i += 2
+            continue
+        if arg == "--compare-baseline":
+            if i + 1 >= len(patterns):
+                print("error: --compare-baseline requires a path", file=sys.stderr)
+                return 1
+            compare_baseline = Path(patterns[i + 1])
+            i += 2
+            continue
         filtered.append(arg)
         i += 1
     patterns = filtered
@@ -182,10 +200,26 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
         print("error: no benchmarks matched", file=sys.stderr)
         return 1
     results = [run_benchmark(case, samples=samples, native_runs=native_runs, native_warmups=native_warmups) for case in cases]
+    baseline_payload = None
+    if compare_baseline is not None:
+        try:
+            baseline_payload = load_benchmark_baseline(compare_baseline)
+        except OSError as exc:
+            print(f"error: cannot read baseline {compare_baseline}: {exc}", file=sys.stderr)
+            return 1
+        except ValueError as exc:
+            print(f"error: invalid baseline {compare_baseline}: {exc}", file=sys.stderr)
+            return 1
+    if save_baseline is not None:
+        try:
+            save_benchmark_baseline(results, save_baseline)
+        except OSError as exc:
+            print(f"error: cannot write baseline {save_baseline}: {exc}", file=sys.stderr)
+            return 1
     if json_output:
-        print(format_benchmark_json(results))
+        print(format_benchmark_json(results, baseline=baseline_payload))
     else:
-        print(format_benchmark_report(results))
+        print(format_benchmark_report(results, baseline=baseline_payload))
     return 0 if all(r.ok for r in results) else 1
 
 
@@ -210,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
             "                       add --samples N for median-of-N timing\n"
             "                       add --native-runs N for compile-once/run-many timing\n"
             "                       add --native-warmups N to discard cold native runs\n"
+            "                       add --save-baseline FILE to save a JSON baseline\n"
+            "                       add --compare-baseline FILE to compare against one\n"
             "  vkf --ui-terminal <file>\n"
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
@@ -274,7 +310,14 @@ def main(argv: list[str] | None = None) -> int:
         if "--list" in args:
             list_only = True
             args = [a for a in args if a != "--list"]
-        known_flags = {"--json", "--samples", "--native-runs", "--native-warmups"}
+        known_flags = {
+            "--json",
+            "--samples",
+            "--native-runs",
+            "--native-warmups",
+            "--save-baseline",
+            "--compare-baseline",
+        }
         if any(a.startswith("-") and a not in known_flags for a in args):
             bad = next(a for a in args if a.startswith("-"))
             print(f"error: unknown option {bad!r}", file=sys.stderr)

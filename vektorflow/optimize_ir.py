@@ -112,6 +112,8 @@ def _expr_is_pure(node: Any) -> bool:
         return all(_expr_is_pure(v) for _, v in node.fields)
     if isinstance(node, ir.AttrExpr):
         return _expr_is_pure(node.value)
+    if isinstance(node, ir.IndexExpr):
+        return _expr_is_pure(node.value) and all(_expr_is_pure(idx) for idx in node.indices)
     if isinstance(node, ir.CoerceExpr):
         return _expr_is_pure(node.expr)
     if isinstance(node, ir.CallExpr):
@@ -168,6 +170,11 @@ def _expr_loads(node: Any) -> set[str]:
         return used
     if isinstance(node, ir.AttrExpr):
         return _expr_loads(node.value)
+    if isinstance(node, ir.IndexExpr):
+        used = _expr_loads(node.value)
+        for idx in node.indices:
+            used |= _expr_loads(idx)
+        return used
     if isinstance(node, ir.CoerceExpr):
         return _expr_loads(node.expr)
     return set()
@@ -264,6 +271,8 @@ def fold_expr(node: Any) -> Any:
                 if name == node.name:
                     return inner
         return ir.AttrExpr(value, node.name)
+    if isinstance(node, ir.IndexExpr):
+        return ir.IndexExpr(fold_expr(node.value), [fold_expr(idx) for idx in node.indices])
     if isinstance(node, ir.CoerceExpr):
         expr = fold_expr(node.expr)
         if isinstance(expr, ir.CoerceExpr) and expr.target_type == node.target_type:
@@ -446,4 +455,6 @@ def _strip_expr(node: Any, typed: TypedModuleInfo) -> Any:
         return ir.StructExpr([(name, _strip_expr(val, typed)) for name, val in node.fields])
     if isinstance(node, ir.AttrExpr):
         return ir.AttrExpr(_strip_expr(node.value, typed), node.name)
+    if isinstance(node, ir.IndexExpr):
+        return ir.IndexExpr(_strip_expr(node.value, typed), [_strip_expr(idx, typed) for idx in node.indices])
     return node

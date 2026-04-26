@@ -245,6 +245,17 @@ class IRTypeAnalyzer:
                 if name == node.name:
                     return self._remember_expr(node, inner)
             raise TypedIRError(f"missing field {node.name!r} in struct type")
+        if isinstance(node, ir.IndexExpr):
+            current_t = _normalize_type(self._infer_expr(node.value, env))
+            for idx in node.indices:
+                idx_t = _normalize_type(self._infer_expr(idx, env))
+                if not _is_scalar_numeric_type(idx_t):
+                    raise TypedIRError("index access requires a numeric index in typed IR analysis")
+                if isinstance(current_t, ast.FixedVectorType):
+                    current_t = _normalize_type(current_t.element_type)
+                    continue
+                raise TypedIRError("index access currently requires a fixed vector type in typed IR analysis")
+            return self._remember_expr(node, current_t)
         if isinstance(node, ir.UnaryExpr):
             op_t = self._infer_expr(node.operand, env)
             if node.op == "NOT":
