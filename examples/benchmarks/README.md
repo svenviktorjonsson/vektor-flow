@@ -6,14 +6,29 @@ They are meant to do two jobs at once:
 
 - prove that a representative slice of the language still runs correctly
 - give us stable timings for parse, lower, interpret, C++ emit, and native compile/run when a compiler is available
+- make the Python/interpreter path and native path directly comparable in `ms`
 
 Run them with:
 
 ```bash
 vkf bench --list
 vkf bench
+vkf bench --json
 vkf bench vectors records
 ```
+
+The benchmark output now reports:
+
+- raw phase timings in `ms`
+- `python_roundtrip_ms` = parse + interpret
+- `native_roundtrip_ms` = parse + lower + emit + compile + native run
+- `native_steady_speedup` = interpreter runtime / native runtime
+- `native_roundtrip_vs_python` = Python roundtrip / native roundtrip
+
+That gives us both:
+
+- a steady-state runtime comparison
+- an end-to-end comparison that includes native compile cost
 
 Current benchmark lanes:
 

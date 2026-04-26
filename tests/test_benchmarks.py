@@ -49,6 +49,9 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"summary"' in payload
     assert '"results"' in payload
     assert '"scalar_control"' in payload
+    assert '"units": "ms"' in payload
+    assert '"python_roundtrip_ms"' in payload
+    assert '"native_steady_speedup"' in payload
 
 
 def test_benchmark_list_json_contains_case_metadata() -> None:

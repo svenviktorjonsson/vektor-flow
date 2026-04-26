@@ -34,6 +34,12 @@ num a: 3
     assert "double twice(double x)" in cpp
     assert "double a = 3.0;" in cpp
     assert 'std::cout << vf_format_num(twice(a)) << "\\n";' in cpp
+    assert "#include <any>" not in cpp
+    assert "#include <list>" not in cpp
+    assert "#include <map>" not in cpp
+    assert "vf_map_make" not in cpp
+    assert "vf_list_make" not in cpp
+    assert "vf_mset_make" not in cpp
 
 
 def test_cpp_emits_slot_named_function_locals() -> None:
@@ -81,6 +87,9 @@ def test_cpp_emits_fixed_vector_program() -> None:
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
+    assert "#include <array>" in cpp
+    assert "#include <any>" not in cpp
+    assert "#include <list>" not in cpp
     assert "std::array<double, 2> a = std::array<double, 2>{vf_to_num(1.0), vf_to_num(2.0)};" in cpp
     assert "std::array<double, 2> b = std::array<double, 2>{vf_to_num(3.0), vf_to_num(4.0)};" in cpp
     assert 'std::cout << vf_format_value(vf_array_add(a, b)) << "\\n";' in cpp

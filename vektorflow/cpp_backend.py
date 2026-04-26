@@ -52,6 +52,14 @@ class PreparedNativeModule:
     functions: dict[str, ir.FunctionDef]
 
 
+@dataclass(frozen=True)
+class RuntimeFeatures:
+    uses_arrays: bool = False
+    uses_multisets: bool = False
+    uses_dynamic: bool = False
+    uses_match: bool = False
+
+
 def _annotate_or_raise(module: ir.Module) -> TypedModuleInfo:
     try:
         return annotate_module(module)
@@ -68,6 +76,376 @@ def _prepare_native_module(module: ir.Module) -> PreparedNativeModule:
     typed = _annotate_or_raise(module)
     functions = {stmt.name: stmt for stmt in module.statements if isinstance(stmt, ir.FunctionDef)}
     return PreparedNativeModule(module=module, typed=typed, functions=functions)
+
+
+def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> RuntimeFeatures:
+    uses_arrays = False
+    uses_multisets = False
+    uses_dynamic = False
+    uses_match = False
+
+    def visit_type(t: Any) -> None:
+        nonlocal uses_arrays, uses_multisets, uses_dynamic
+        t = _normalize_type(t)
+        if isinstance(t, ast.FixedVectorType):
+            uses_arrays = True
+            visit_type(t.element_type)
+            return
+        if isinstance(t, ast.MultisetType):
+            uses_multisets = True
+            visit_type(t.element_type)
+            return
+        if isinstance(t, ast.MapValueType):
+            uses_dynamic = True
+            for _, inner in t.fields:
+                visit_type(inner)
+            return
+        if isinstance(t, ast.LinkedListValueType):
+            uses_dynamic = True
+            for inner in t.elements:
+                visit_type(inner)
+            return
+        if isinstance(t, ast.TypeExpr):
+            for _, inner in t.fields:
+                visit_type(inner)
+            return
+        if isinstance(t, ast.TupleTypeExpr):
+            for inner in t.elements:
+                visit_type(inner)
+            return
+        if isinstance(t, ast.FuncType):
+            visit_type(t.domain)
+            visit_type(t.codomain)
+
+    def visit_stmt(stmt: Any) -> None:
+        nonlocal uses_match
+        if isinstance(stmt, ir.FunctionDef):
+            for ptype in stmt.param_types:
+                if ptype is not None:
+                    visit_type(ptype)
+            if stmt.return_type is not None:
+                visit_type(stmt.return_type)
+            visit_block(stmt.body)
+        elif isinstance(stmt, ir.IfStmt):
+            visit_block(stmt.body)
+        elif isinstance(stmt, ir.WhileStmt):
+            visit_block(stmt.body)
+        elif isinstance(stmt, ir.MatchStmt):
+            uses_match = True
+            for arm in stmt.arms:
+                visit_block(arm.body)
+
+    def visit_block(block: ir.Block) -> None:
+        for inner in block.statements:
+            visit_stmt(inner)
+
+    for expr_type in typed.expr_types.values():
+        visit_type(expr_type)
+    for stmt in module.statements:
+        visit_stmt(stmt)
+    return RuntimeFeatures(
+        uses_arrays=uses_arrays,
+        uses_multisets=uses_multisets,
+        uses_dynamic=uses_dynamic,
+        uses_match=uses_match,
+    )
+
+
+def _emit_runtime_headers(features: RuntimeFeatures) -> list[str]:
+    headers = [
+        "#include <cmath>",
+        "#include <iomanip>",
+        "#include <iostream>",
+        "#include <sstream>",
+        "#include <stdexcept>",
+        "#include <string>",
+    ]
+    if features.uses_arrays:
+        headers.insert(0, "#include <array>")
+    if features.uses_multisets or features.uses_dynamic:
+        headers.insert(0, "#include <map>")
+    if features.uses_dynamic:
+        headers.insert(0, "#include <list>")
+        headers.insert(0, "#include <any>")
+    if features.uses_multisets:
+        headers.insert(0, "#include <algorithm>")
+    headers.append("")
+    return headers
+
+
+def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
+    lines = [
+        "static std::string vf_format_num(double v) {",
+        "    if (std::floor(v) == v) {",
+        "        std::ostringstream oss;",
+        "        oss << static_cast<long long>(v);",
+        "        return oss.str();",
+        "    }",
+        "    std::ostringstream oss;",
+        "    oss << std::setprecision(15) << v;",
+        "    return oss.str();",
+        "}",
+        "template <typename T>",
+        "static std::string vf_format_value(const T& v) {",
+        "    std::ostringstream oss;",
+        "    oss << v;",
+        "    return oss.str();",
+        "}",
+        "template <>",
+        "inline std::string vf_format_value<bool>(const bool& v) {",
+        '    return v ? "true" : "false";',
+        "}",
+        "template <>",
+        "inline std::string vf_format_value<double>(const double& v) {",
+        "    return vf_format_num(v);",
+        "}",
+    ]
+    if features.uses_match:
+        lines.extend(
+            [
+                "template <typename A, typename B>",
+                "static int vf_match_specificity(const A& a, const B& b) {",
+                "    return (a == b) ? 0 : -1;",
+                "}",
+                "static int vf_match_specificity(const long long& exact_code, const long long& pattern_code) {",
+                "    const long long base_mask = 0xFFFLL;",
+                "    const long long frame_shift = 12LL;",
+                "    const long long frame_mask = 0x3FFLL;",
+                "    const long long widget_shift = 22LL;",
+                "    const long long widget_mask = 0xFFLL;",
+                "    const long long mode_shift = 30LL;",
+                "    const long long mode_mask = 0x3LL;",
+                "    const long long mode_exact = 0LL;",
+                "    const long long mode_ui = 1LL;",
+                "    const long long mode_frame = 2LL;",
+                "    const long long mode_widget = 3LL;",
+                "    if (exact_code == pattern_code) return 3;",
+                "    const long long pmode = (pattern_code >> mode_shift) & mode_mask;",
+                "    if (pmode == mode_exact) return exact_code == pattern_code ? 3 : -1;",
+                "    if (pmode == mode_ui) return ((exact_code & base_mask) == (pattern_code & base_mask)) ? 0 : -1;",
+                "    if (pmode == mode_frame) {",
+                "        const long long em = exact_code & (base_mask | (frame_mask << frame_shift));",
+                "        const long long pm = pattern_code & (base_mask | (frame_mask << frame_shift));",
+                "        return em == pm ? 1 : -1;",
+                "    }",
+                "    if (pmode == mode_widget) {",
+                "        const long long em = exact_code & (base_mask | (widget_mask << widget_shift));",
+                "        const long long pm = pattern_code & (base_mask | (widget_mask << widget_shift));",
+                "        return em == pm ? 2 : -1;",
+                "    }",
+                "    return -1;",
+                "}",
+            ]
+        )
+    if features.uses_arrays:
+        lines.extend(
+            [
+                "template <typename T, std::size_t N>",
+                "static std::string vf_format_value(const std::array<T, N>& v) {",
+                "    std::ostringstream oss;",
+                '    oss << "[";',
+                "    for (std::size_t i = 0; i < N; ++i) {",
+                '        if (i) oss << ", ";',
+                "        oss << vf_format_value(v[i]);",
+                "    }",
+                '    oss << "]";',
+                "    return oss.str();",
+                "}",
+            ]
+        )
+    if features.uses_multisets:
+        lines.extend(
+            [
+                "template <typename T>",
+                "static std::string vf_format_value(const std::map<T, long long>& v) {",
+                "    std::ostringstream oss;",
+                '    oss << "{";',
+                "    bool first = true;",
+                "    for (const auto& kv : v) {",
+                '        if (!first) oss << ", ";',
+                "        first = false;",
+                '        oss << vf_format_value(kv.first) << ":" << kv.second;',
+                "    }",
+                '    oss << "}";',
+                "    return oss.str();",
+                "}",
+            ]
+        )
+    if features.uses_dynamic:
+        lines.extend(
+            [
+                "static std::string vf_format_any(const std::any& v);",
+                "static std::string vf_format_value(const std::map<std::string, std::any>& v) {",
+                "    std::ostringstream oss;",
+                '    oss << "{";',
+                "    bool first = true;",
+                "    for (const auto& kv : v) {",
+                '        if (!first) oss << ", ";',
+                "        first = false;",
+                '        oss << kv.first << ":" << vf_format_any(kv.second);',
+                "    }",
+                '    oss << "}";',
+                "    return oss.str();",
+                "}",
+                "static std::string vf_format_value(const std::list<std::any>& v) {",
+                "    std::ostringstream oss;",
+                '    oss << "[";',
+                "    bool first = true;",
+                "    for (const auto& item : v) {",
+                '        if (!first) oss << ", ";',
+                "        first = false;",
+                "        oss << vf_format_any(item);",
+                "    }",
+                '    oss << "]";',
+                "    return oss.str();",
+                "}",
+                "static std::string vf_format_any(const std::any& v) {",
+                "    if (v.type() == typeid(bool)) return vf_format_value(std::any_cast<bool>(v));",
+                "    if (v.type() == typeid(long long)) return vf_format_value(std::any_cast<long long>(v));",
+                "    if (v.type() == typeid(double)) return vf_format_value(std::any_cast<double>(v));",
+                "    if (v.type() == typeid(std::string)) return vf_format_value(std::any_cast<std::string>(v));",
+                "    if (v.type() == typeid(std::map<std::string, std::any>)) return vf_format_value(std::any_cast<const std::map<std::string, std::any>&>(v));",
+                "    if (v.type() == typeid(std::list<std::any>)) return vf_format_value(std::any_cast<const std::list<std::any>&>(v));",
+                "    throw std::runtime_error(\"unsupported dynamic value type\");",
+                "}",
+            ]
+        )
+    lines.extend(
+        [
+            "static double vf_to_num(double v) { return v; }",
+            "static double vf_to_num(long long v) { return static_cast<double>(v); }",
+            "static double vf_to_num(bool v) { return v ? 1.0 : 0.0; }",
+            "static long long vf_to_int(long long v) { return v; }",
+            "static long long vf_to_int(bool v) { return v ? 1LL : 0LL; }",
+            "static long long vf_to_int(double v) {",
+            "    if (std::floor(v) != v) throw std::runtime_error(\"int cast requires integer-valued number\");",
+            "    return static_cast<long long>(v);",
+            "}",
+            "static bool vf_to_bool(bool v) { return v; }",
+            "static std::string vf_to_str(const std::string& v) { return v; }",
+        ]
+    )
+    if features.uses_arrays:
+        lines.extend(
+            [
+                "template <typename T, std::size_t N, typename U>",
+                "static std::array<T, N> vf_array_cast(const std::array<U, N>& src) {",
+                "    std::array<T, N> out{};",
+                "    for (std::size_t i = 0; i < N; ++i) {",
+                "        out[i] = static_cast<T>(src[i]);",
+                "    }",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t A, std::size_t B>",
+                "static std::array<T, A + B> vf_array_cat(const std::array<T, A>& left, const std::array<T, B>& right) {",
+                "    std::array<T, A + B> out{};",
+                "    for (std::size_t i = 0; i < A; ++i) out[i] = left[i];",
+                "    for (std::size_t i = 0; i < B; ++i) out[A + i] = right[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<T, N> vf_array_add(const std::array<T, N>& left, const std::array<T, N>& right) {",
+                "    std::array<T, N> out{};",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] + right[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<T, N> vf_array_sub(const std::array<T, N>& left, const std::array<T, N>& right) {",
+                "    std::array<T, N> out{};",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] - right[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<T, N> vf_array_mul(const std::array<T, N>& left, const std::array<T, N>& right) {",
+                "    std::array<T, N> out{};",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] * right[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<T, N> vf_array_div(const std::array<T, N>& left, const std::array<T, N>& right) {",
+                "    std::array<T, N> out{};",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] / right[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N, typename S>",
+                "static std::array<T, N> vf_array_scale(const std::array<T, N>& arr, const S& scalar) {",
+                "    std::array<T, N> out{};",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = arr[i] * static_cast<T>(scalar);",
+                "    return out;",
+                "}",
+            ]
+        )
+    if features.uses_multisets:
+        lines.extend(
+            [
+                "template <typename T>",
+                "static std::map<T, long long> vf_mset_make(std::initializer_list<std::pair<T, long long>> items) {",
+                "    std::map<T, long long> out;",
+                "    for (const auto& kv : items) {",
+                "        if (kv.second > 0) out[kv.first] += kv.second;",
+                "    }",
+                "    return out;",
+                "}",
+                "template <typename T>",
+                "static std::map<T, long long> vf_mset_union(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
+                "    std::map<T, long long> out = left;",
+                "    for (const auto& kv : right) out[kv.first] += kv.second;",
+                "    return out;",
+                "}",
+                "template <typename T>",
+                "static std::map<T, long long> vf_mset_difference(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
+                "    std::map<T, long long> out = left;",
+                "    for (const auto& kv : right) {",
+                "        auto it = out.find(kv.first);",
+                "        if (it == out.end()) continue;",
+                "        it->second -= kv.second;",
+                "        if (it->second <= 0) out.erase(it);",
+                "    }",
+                "    return out;",
+                "}",
+                "template <typename T>",
+                "static std::map<T, long long> vf_mset_intersection(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
+                "    std::map<T, long long> out;",
+                "    for (const auto& kv : left) {",
+                "        auto it = right.find(kv.first);",
+                "        if (it == right.end()) continue;",
+                "        long long count = std::min(kv.second, it->second);",
+                "        if (count > 0) out[kv.first] = count;",
+                "    }",
+                "    return out;",
+                "}",
+                "template <typename T>",
+                "static std::map<T, long long> vf_mset_symdiff(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
+                "    return vf_mset_union(vf_mset_difference(left, right), vf_mset_difference(right, left));",
+                "}",
+            ]
+        )
+    if features.uses_dynamic:
+        lines.extend(
+            [
+                "static std::map<std::string, std::any> vf_map_make(std::initializer_list<std::pair<std::string, std::any>> items) {",
+                "    std::map<std::string, std::any> out;",
+                "    for (const auto& kv : items) out.emplace(kv.first, kv.second);",
+                "    return out;",
+                "}",
+                "static std::list<std::any> vf_list_make(std::initializer_list<std::any> items) {",
+                "    return std::list<std::any>(items.begin(), items.end());",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::list<std::any> vf_list_from_array(const std::array<T, N>& src) {",
+                "    std::list<std::any> out;",
+                "    for (const auto& item : src) out.emplace_back(item);",
+                "    return out;",
+                "}",
+                "static std::list<std::any> vf_list_cat(const std::list<std::any>& left, const std::list<std::any>& right) {",
+                "    std::list<std::any> out = left;",
+                "    out.insert(out.end(), right.begin(), right.end());",
+                "    return out;",
+                "}",
+            ]
+        )
+    lines.append("")
+    return lines
 
 
 def discover_cpp_compiler() -> CppCompiler | None:
@@ -1023,6 +1401,7 @@ def emit_cpp_module(module: ir.Module) -> str:
     prepared = _prepare_native_module(module)
     module = prepared.module
     typed = prepared.typed
+    features = _collect_runtime_features(module, typed)
     state = EmitState()
     functions = prepared.functions
     for typ in typed.expr_types.values():
@@ -1035,250 +1414,7 @@ def emit_cpp_module(module: ir.Module) -> str:
                 _register_type(ptype, state)
         if fn.return_type is not None:
             _register_type(fn.return_type, state)
-    headers = [
-        "#include <any>",
-        "#include <algorithm>",
-        "#include <array>",
-        "#include <cmath>",
-        "#include <iomanip>",
-        "#include <iostream>",
-        "#include <list>",
-        "#include <map>",
-        "#include <sstream>",
-        "#include <stdexcept>",
-        "#include <string>",
-        "",
-        "static std::string vf_format_num(double v) {",
-        "    if (std::floor(v) == v) {",
-        "        std::ostringstream oss;",
-        "        oss << static_cast<long long>(v);",
-        "        return oss.str();",
-        "    }",
-        "    std::ostringstream oss;",
-        "    oss << std::setprecision(15) << v;",
-        "    return oss.str();",
-        "}",
-        "template <typename T>",
-        "static std::string vf_format_value(const T& v) {",
-        "    std::ostringstream oss;",
-        "    oss << v;",
-        "    return oss.str();",
-        "}",
-        "template <>",
-        "inline std::string vf_format_value<bool>(const bool& v) {",
-        '    return v ? "true" : "false";',
-        "}",
-        "template <>",
-        "inline std::string vf_format_value<double>(const double& v) {",
-        "    return vf_format_num(v);",
-        "}",
-        "template <typename A, typename B>",
-        "static int vf_match_specificity(const A& a, const B& b) {",
-        "    return (a == b) ? 0 : -1;",
-        "}",
-        "static int vf_match_specificity(const long long& exact_code, const long long& pattern_code) {",
-        "    const long long base_mask = 0xFFFLL;",
-        "    const long long frame_shift = 12LL;",
-        "    const long long frame_mask = 0x3FFLL;",
-        "    const long long widget_shift = 22LL;",
-        "    const long long widget_mask = 0xFFLL;",
-        "    const long long mode_shift = 30LL;",
-        "    const long long mode_mask = 0x3LL;",
-        "    const long long mode_exact = 0LL;",
-        "    const long long mode_ui = 1LL;",
-        "    const long long mode_frame = 2LL;",
-        "    const long long mode_widget = 3LL;",
-        "    if (exact_code == pattern_code) return 3;",
-        "    const long long pmode = (pattern_code >> mode_shift) & mode_mask;",
-        "    if (pmode == mode_exact) return exact_code == pattern_code ? 3 : -1;",
-        "    if (pmode == mode_ui) return ((exact_code & base_mask) == (pattern_code & base_mask)) ? 0 : -1;",
-        "    if (pmode == mode_frame) {",
-        "        const long long em = exact_code & (base_mask | (frame_mask << frame_shift));",
-        "        const long long pm = pattern_code & (base_mask | (frame_mask << frame_shift));",
-        "        return em == pm ? 1 : -1;",
-        "    }",
-        "    if (pmode == mode_widget) {",
-        "        const long long em = exact_code & (base_mask | (widget_mask << widget_shift));",
-        "        const long long pm = pattern_code & (base_mask | (widget_mask << widget_shift));",
-        "        return em == pm ? 2 : -1;",
-        "    }",
-        "    return -1;",
-        "}",
-        "template <typename T, std::size_t N>",
-        "static std::string vf_format_value(const std::array<T, N>& v) {",
-        "    std::ostringstream oss;",
-        '    oss << "[";',
-        "    for (std::size_t i = 0; i < N; ++i) {",
-        '        if (i) oss << ", ";',
-        "        oss << vf_format_value(v[i]);",
-        "    }",
-        '    oss << "]";',
-        "    return oss.str();",
-        "}",
-        "template <typename T>",
-        "static std::string vf_format_value(const std::map<T, long long>& v) {",
-        "    std::ostringstream oss;",
-        '    oss << "{";',
-        "    bool first = true;",
-        "    for (const auto& kv : v) {",
-        '        if (!first) oss << ", ";',
-        "        first = false;",
-        '        oss << vf_format_value(kv.first) << ":" << kv.second;',
-        "    }",
-        '    oss << "}";',
-        "    return oss.str();",
-        "}",
-        "static std::string vf_format_any(const std::any& v);",
-        "static std::string vf_format_value(const std::map<std::string, std::any>& v) {",
-        "    std::ostringstream oss;",
-        '    oss << "{";',
-        "    bool first = true;",
-        "    for (const auto& kv : v) {",
-        '        if (!first) oss << ", ";',
-        "        first = false;",
-        '        oss << kv.first << ":" << vf_format_any(kv.second);',
-        "    }",
-        '    oss << "}";',
-        "    return oss.str();",
-        "}",
-        "static std::string vf_format_value(const std::list<std::any>& v) {",
-        "    std::ostringstream oss;",
-        '    oss << "[";',
-        "    bool first = true;",
-        "    for (const auto& item : v) {",
-        '        if (!first) oss << ", ";',
-        "        first = false;",
-        "        oss << vf_format_any(item);",
-        "    }",
-        '    oss << "]";',
-        "    return oss.str();",
-        "}",
-        "static std::string vf_format_any(const std::any& v) {",
-        "    if (v.type() == typeid(bool)) return vf_format_value(std::any_cast<bool>(v));",
-        "    if (v.type() == typeid(long long)) return vf_format_value(std::any_cast<long long>(v));",
-        "    if (v.type() == typeid(double)) return vf_format_value(std::any_cast<double>(v));",
-        "    if (v.type() == typeid(std::string)) return vf_format_value(std::any_cast<std::string>(v));",
-        "    if (v.type() == typeid(std::map<std::string, std::any>)) return vf_format_value(std::any_cast<const std::map<std::string, std::any>&>(v));",
-        "    if (v.type() == typeid(std::list<std::any>)) return vf_format_value(std::any_cast<const std::list<std::any>&>(v));",
-        "    throw std::runtime_error(\"unsupported dynamic value type\");",
-        "}",
-        "static double vf_to_num(double v) { return v; }",
-        "static double vf_to_num(long long v) { return static_cast<double>(v); }",
-        "static double vf_to_num(bool v) { return v ? 1.0 : 0.0; }",
-        "static long long vf_to_int(long long v) { return v; }",
-        "static long long vf_to_int(bool v) { return v ? 1LL : 0LL; }",
-        "static long long vf_to_int(double v) {",
-        "    if (std::floor(v) != v) throw std::runtime_error(\"int cast requires integer-valued number\");",
-        "    return static_cast<long long>(v);",
-        "}",
-        "static bool vf_to_bool(bool v) { return v; }",
-        "static std::string vf_to_str(const std::string& v) { return v; }",
-        "template <typename T, std::size_t N, typename U>",
-        "static std::array<T, N> vf_array_cast(const std::array<U, N>& src) {",
-        "    std::array<T, N> out{};",
-        "    for (std::size_t i = 0; i < N; ++i) {",
-        "        out[i] = static_cast<T>(src[i]);",
-        "    }",
-        "    return out;",
-        "}",
-        "template <typename T, std::size_t A, std::size_t B>",
-        "static std::array<T, A + B> vf_array_cat(const std::array<T, A>& left, const std::array<T, B>& right) {",
-        "    std::array<T, A + B> out{};",
-        "    for (std::size_t i = 0; i < A; ++i) out[i] = left[i];",
-        "    for (std::size_t i = 0; i < B; ++i) out[A + i] = right[i];",
-        "    return out;",
-        "}",
-        "template <typename T, std::size_t N>",
-        "static std::array<T, N> vf_array_add(const std::array<T, N>& left, const std::array<T, N>& right) {",
-        "    std::array<T, N> out{};",
-        "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] + right[i];",
-        "    return out;",
-        "}",
-        "template <typename T, std::size_t N>",
-        "static std::array<T, N> vf_array_sub(const std::array<T, N>& left, const std::array<T, N>& right) {",
-        "    std::array<T, N> out{};",
-        "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] - right[i];",
-        "    return out;",
-        "}",
-        "template <typename T, std::size_t N>",
-        "static std::array<T, N> vf_array_mul(const std::array<T, N>& left, const std::array<T, N>& right) {",
-        "    std::array<T, N> out{};",
-        "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] * right[i];",
-        "    return out;",
-        "}",
-        "template <typename T, std::size_t N>",
-        "static std::array<T, N> vf_array_div(const std::array<T, N>& left, const std::array<T, N>& right) {",
-        "    std::array<T, N> out{};",
-        "    for (std::size_t i = 0; i < N; ++i) out[i] = left[i] / right[i];",
-        "    return out;",
-        "}",
-        "template <typename T, std::size_t N, typename S>",
-        "static std::array<T, N> vf_array_scale(const std::array<T, N>& arr, const S& scalar) {",
-        "    std::array<T, N> out{};",
-        "    for (std::size_t i = 0; i < N; ++i) out[i] = arr[i] * static_cast<T>(scalar);",
-        "    return out;",
-        "}",
-        "template <typename T>",
-        "static std::map<T, long long> vf_mset_make(std::initializer_list<std::pair<T, long long>> items) {",
-        "    std::map<T, long long> out;",
-        "    for (const auto& kv : items) {",
-        "        if (kv.second > 0) out[kv.first] += kv.second;",
-        "    }",
-        "    return out;",
-        "}",
-        "template <typename T>",
-        "static std::map<T, long long> vf_mset_union(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
-        "    std::map<T, long long> out = left;",
-        "    for (const auto& kv : right) out[kv.first] += kv.second;",
-        "    return out;",
-        "}",
-        "template <typename T>",
-        "static std::map<T, long long> vf_mset_difference(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
-        "    std::map<T, long long> out = left;",
-        "    for (const auto& kv : right) {",
-        "        auto it = out.find(kv.first);",
-        "        if (it == out.end()) continue;",
-        "        it->second -= kv.second;",
-        "        if (it->second <= 0) out.erase(it);",
-        "    }",
-        "    return out;",
-        "}",
-        "template <typename T>",
-        "static std::map<T, long long> vf_mset_intersection(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
-        "    std::map<T, long long> out;",
-        "    for (const auto& kv : left) {",
-        "        auto it = right.find(kv.first);",
-        "        if (it == right.end()) continue;",
-        "        long long count = std::min(kv.second, it->second);",
-        "        if (count > 0) out[kv.first] = count;",
-        "    }",
-        "    return out;",
-        "}",
-        "template <typename T>",
-        "static std::map<T, long long> vf_mset_symdiff(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
-        "    return vf_mset_union(vf_mset_difference(left, right), vf_mset_difference(right, left));",
-        "}",
-        "static std::map<std::string, std::any> vf_map_make(std::initializer_list<std::pair<std::string, std::any>> items) {",
-        "    std::map<std::string, std::any> out;",
-        "    for (const auto& kv : items) out.emplace(kv.first, kv.second);",
-        "    return out;",
-        "}",
-        "static std::list<std::any> vf_list_make(std::initializer_list<std::any> items) {",
-        "    return std::list<std::any>(items.begin(), items.end());",
-        "}",
-        "template <typename T, std::size_t N>",
-        "static std::list<std::any> vf_list_from_array(const std::array<T, N>& src) {",
-        "    std::list<std::any> out;",
-        "    for (const auto& item : src) out.emplace_back(item);",
-        "    return out;",
-        "}",
-        "static std::list<std::any> vf_list_cat(const std::list<std::any>& left, const std::list<std::any>& right) {",
-        "    std::list<std::any> out = left;",
-        "    out.insert(out.end(), right.begin(), right.end());",
-        "    return out;",
-        "}",
-        "",
-    ]
+    headers = _emit_runtime_headers(features) + _emit_runtime_support(features)
     struct_lines = _emit_struct_defs_in_order(state)
     fn_lines: list[str] = []
     for fn in module.statements:

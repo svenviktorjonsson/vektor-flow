@@ -53,6 +53,37 @@ class BenchmarkResult:
     def ok(self) -> bool:
         return self.error is None and (self.output_match is not False)
 
+    @property
+    def python_roundtrip_ms(self) -> float | None:
+        if self.parse_ms is None or self.interpret_ms is None:
+            return None
+        return round(self.parse_ms + self.interpret_ms, 3)
+
+    @property
+    def native_roundtrip_ms(self) -> float | None:
+        parts = (
+            self.parse_ms,
+            self.lower_ms,
+            self.emit_cpp_ms,
+            self.compile_ms,
+            self.native_run_ms,
+        )
+        if any(part is None for part in parts):
+            return None
+        return round(sum(part for part in parts if part is not None), 3)
+
+    @property
+    def native_steady_speedup(self) -> float | None:
+        if self.interpret_ms is None or self.native_run_ms is None or self.native_run_ms == 0:
+            return None
+        return round(self.interpret_ms / self.native_run_ms, 3)
+
+    @property
+    def native_roundtrip_vs_python(self) -> float | None:
+        if self.python_roundtrip_ms is None or self.native_roundtrip_ms is None or self.native_roundtrip_ms == 0:
+            return None
+        return round(self.python_roundtrip_ms / self.native_roundtrip_ms, 3)
+
 
 BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
     BenchmarkCase(
@@ -225,6 +256,19 @@ def format_benchmark_report(results: list[BenchmarkResult]) -> str:
     ok = sum(1 for r in results if r.ok)
     lines.append("")
     lines.append(f"summary: {ok}/{len(results)} benchmark(s) OK")
+    comparative = [r for r in results if r.native_status == "ok" and r.output_match]
+    if comparative:
+        lines.append("")
+        lines.append("comparisons (all times in ms, speedup as interpreter/native runtime):")
+        for r in comparative:
+            lines.append(
+                "  - "
+                f"{r.case.name}: "
+                f"python_roundtrip={_fmt_ms(r.python_roundtrip_ms)} ms, "
+                f"native_roundtrip={_fmt_ms(r.native_roundtrip_ms)} ms, "
+                f"steady_speedup={_fmt_ratio(r.native_steady_speedup)}x, "
+                f"roundtrip_vs_python={_fmt_ratio(r.native_roundtrip_vs_python)}x"
+            )
     if any(r.output_match is False for r in results):
         bad = ", ".join(r.case.name for r in results if r.output_match is False)
         lines.append(f"output mismatches: {bad}")
@@ -243,12 +287,17 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "description": result.case.description,
         "native_supported": result.case.native_supported,
         "ok": result.ok,
+        "units": "ms",
         "parse_ms": result.parse_ms,
         "lower_ms": result.lower_ms,
         "interpret_ms": result.interpret_ms,
         "emit_cpp_ms": result.emit_cpp_ms,
         "compile_ms": result.compile_ms,
         "native_run_ms": result.native_run_ms,
+        "python_roundtrip_ms": result.python_roundtrip_ms,
+        "native_roundtrip_ms": result.native_roundtrip_ms,
+        "native_steady_speedup": result.native_steady_speedup,
+        "native_roundtrip_vs_python": result.native_roundtrip_vs_python,
         "native_status": result.native_status,
         "output_match": result.output_match,
         "error": result.error,
@@ -268,11 +317,20 @@ def benchmark_case_to_dict(case: BenchmarkCase) -> dict[str, object]:
 
 
 def format_benchmark_json(results: list[BenchmarkResult]) -> str:
+    speedups = [r.native_steady_speedup for r in results if r.native_steady_speedup is not None]
+    roundtrip_ratios = [
+        r.native_roundtrip_vs_python for r in results if r.native_roundtrip_vs_python is not None
+    ]
     payload = {
         "summary": {
             "count": len(results),
             "ok": sum(1 for r in results if r.ok),
             "all_ok": all(r.ok for r in results),
+            "units": "ms",
+            "avg_native_steady_speedup": round(sum(speedups) / len(speedups), 3) if speedups else None,
+            "avg_native_roundtrip_vs_python": (
+                round(sum(roundtrip_ratios) / len(roundtrip_ratios), 3) if roundtrip_ratios else None
+            ),
         },
         "results": [benchmark_result_to_dict(r) for r in results],
     }
@@ -284,6 +342,12 @@ def format_benchmark_list_json(cases: list[BenchmarkCase] | tuple[BenchmarkCase,
 
 
 def _fmt_ms(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.3f}"
+
+
+def _fmt_ratio(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.3f}"
