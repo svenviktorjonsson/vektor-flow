@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
+import math
 import tempfile
 import time
 from dataclasses import dataclass
@@ -88,6 +90,18 @@ BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
         "custom_overloads.vkf",
         False,
         "Interpreter-only custom casts, reach overloads, and display behavior.",
+    ),
+    BenchmarkCase(
+        "scalar_hotloop",
+        "scalar_hotloop.vkf",
+        True,
+        "Heavier scalar/runtime loop workload for interpreter vs native timing.",
+    ),
+    BenchmarkCase(
+        "vector_hotloop",
+        "vector_hotloop.vkf",
+        True,
+        "Heavier vector loop workload with fixed-size vector arithmetic.",
     ),
 )
 
@@ -181,7 +195,7 @@ def run_benchmark(case: BenchmarkCase) -> BenchmarkResult:
         if proc.returncode != 0:
             result.error = proc.stderr.strip() or "native program failed"
             return result
-        result.output_match = result.native_stdout == result.interpreter_stdout
+        result.output_match = _outputs_match(result.interpreter_stdout, result.native_stdout)
         if result.output_match is False:
             result.error = "native output mismatch"
         return result
@@ -222,6 +236,53 @@ def format_benchmark_report(results: list[BenchmarkResult]) -> str:
     return "\n".join(lines)
 
 
+def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
+    return {
+        "name": result.case.name,
+        "path": str(result.case.path),
+        "description": result.case.description,
+        "native_supported": result.case.native_supported,
+        "ok": result.ok,
+        "parse_ms": result.parse_ms,
+        "lower_ms": result.lower_ms,
+        "interpret_ms": result.interpret_ms,
+        "emit_cpp_ms": result.emit_cpp_ms,
+        "compile_ms": result.compile_ms,
+        "native_run_ms": result.native_run_ms,
+        "native_status": result.native_status,
+        "output_match": result.output_match,
+        "error": result.error,
+        "interpreter_stdout": result.interpreter_stdout,
+        "native_stdout": result.native_stdout,
+    }
+
+
+def benchmark_case_to_dict(case: BenchmarkCase) -> dict[str, object]:
+    return {
+        "name": case.name,
+        "path": str(case.path),
+        "rel_path": case.rel_path,
+        "native_supported": case.native_supported,
+        "description": case.description,
+    }
+
+
+def format_benchmark_json(results: list[BenchmarkResult]) -> str:
+    payload = {
+        "summary": {
+            "count": len(results),
+            "ok": sum(1 for r in results if r.ok),
+            "all_ok": all(r.ok for r in results),
+        },
+        "results": [benchmark_result_to_dict(r) for r in results],
+    }
+    return json.dumps(payload, indent=2)
+
+
+def format_benchmark_list_json(cases: list[BenchmarkCase] | tuple[BenchmarkCase, ...]) -> str:
+    return json.dumps([benchmark_case_to_dict(case) for case in cases], indent=2)
+
+
 def _fmt_ms(value: float | None) -> str:
     if value is None:
         return "-"
@@ -236,3 +297,24 @@ def _status_text(result: BenchmarkResult) -> str:
     if result.native_status == "ok" and result.output_match is False:
         return "mismatch"
     return result.native_status
+
+
+def _outputs_match(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    left_lines = left.splitlines()
+    right_lines = right.splitlines()
+    if len(left_lines) != len(right_lines):
+        return False
+    return all(_line_matches(a, b) for a, b in zip(left_lines, right_lines))
+
+
+def _line_matches(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    try:
+        lv = float(left)
+        rv = float(right)
+    except ValueError:
+        return False
+    return math.isclose(lv, rv, rel_tol=1e-12, abs_tol=1e-12)

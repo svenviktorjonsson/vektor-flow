@@ -1,0 +1,12 @@
+advance(v:[num:2], step:[num:2]) -> [num:2]:
+    v + step
+
+accumulate(n:num, step:[num:2]) -> [num:2]:
+    i: 0
+    v: [0,0]
+    i < n?>
+        v: advance(v, step)
+        i: i + 1
+    v
+
+:: accumulate(12000, [1,2])

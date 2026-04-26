@@ -101,10 +101,25 @@ def cmd_cpp(path: Path, out_path: Path | None) -> int:
 
 
 def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
-    from .benchmarks import format_benchmark_report, list_benchmarks, run_benchmark, select_benchmarks
+    from .benchmarks import (
+        format_benchmark_json,
+        format_benchmark_list_json,
+        format_benchmark_report,
+        list_benchmarks,
+        run_benchmark,
+        select_benchmarks,
+    )
 
+    json_output = False
+    if "--json" in patterns:
+        json_output = True
+        patterns = [p for p in patterns if p != "--json"]
     if list_only:
-        for case in list_benchmarks():
+        cases = list_benchmarks()
+        if json_output:
+            print(format_benchmark_list_json(cases))
+            return 0
+        for case in cases:
             native = "native" if case.native_supported else "interp-only"
             print(f"{case.name}\t{native}\t{case.rel_path}\t{case.description}")
         return 0
@@ -114,7 +129,10 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
         print("error: no benchmarks matched", file=sys.stderr)
         return 1
     results = [run_benchmark(case) for case in cases]
-    print(format_benchmark_report(results))
+    if json_output:
+        print(format_benchmark_json(results))
+    else:
+        print(format_benchmark_report(results))
     return 0 if all(r.ok for r in results) else 1
 
 
@@ -135,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             "  vkf <file>           Run a .vkf file (extension optional)\n"
             "  vkf cpp <file>       Emit C++ for the supported native subset\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
+            "                       add --json for machine-readable output\n"
             "  vkf --ui-terminal <file>\n"
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
@@ -199,7 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         if "--list" in args:
             list_only = True
             args = [a for a in args if a != "--list"]
-        if any(a.startswith("-") for a in args):
+        known_flags = {"--json"}
+        if any(a.startswith("-") and a not in known_flags for a in args):
             bad = next(a for a in args if a.startswith("-"))
             print(f"error: unknown option {bad!r}", file=sys.stderr)
             return 1

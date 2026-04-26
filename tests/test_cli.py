@@ -84,3 +84,16 @@ class TestMain:
         out = capsys.readouterr().out
         assert "scalar_control" in out
         assert "summary:" in out
+
+    def test_bench_subcommand_list_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "--list", "--json"]) == 0
+        out = capsys.readouterr().out
+        assert '"scalar_control"' in out
+        assert '"native_supported"' in out
+
+    def test_bench_subcommand_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control", "--json"]) == 0
+        out = capsys.readouterr().out
+        assert '"summary"' in out
+        assert '"results"' in out
+        assert '"scalar_control"' in out

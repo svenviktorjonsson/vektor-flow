@@ -23,5 +23,7 @@ Current benchmark lanes:
 - `multisets_records.vkf`: multisets inside record transforms
 - `bitmask_match.vkf`: integer match specificity cases
 - `custom_overloads.vkf`: interpreter-only overload coverage that is intentionally outside the current native subset
+- `scalar_hotloop.vkf`: heavier scalar runtime loop workload
+- `vector_hotloop.vkf`: heavier fixed-vector loop workload
 
 The intent is to grow this folder into the practical compiler contract. When we add a new language feature to the native subset, we should usually add or extend a benchmark here too.

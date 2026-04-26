@@ -1,0 +1,15 @@
+step(x:num) -> num:
+    x??
+        0 => @: 1
+        1 => @: 3
+        @: x + 2
+
+work(n:num) -> num:
+    i: 0
+    total: 0
+    i < n?>
+        total: total + step(i / 7)
+        i: i + 1
+    total
+
+:: work(30000)
