@@ -14,16 +14,19 @@ Run them with:
 vkf bench --list
 vkf bench
 vkf bench --json
+vkf bench --samples 5
 vkf bench vectors records
 ```
 
 The benchmark output now reports:
 
 - raw phase timings in `ms`
+- medians when sampling is enabled with `--samples N`
 - `python_roundtrip_ms` = parse + interpret
 - `native_roundtrip_ms` = parse + lower + emit + compile + native run
 - `native_steady_speedup` = interpreter runtime / native runtime
 - `native_roundtrip_vs_python` = Python roundtrip / native roundtrip
+- raw per-sample arrays in JSON output
 
 That gives us both:
 

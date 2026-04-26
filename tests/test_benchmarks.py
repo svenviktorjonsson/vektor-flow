@@ -36,6 +36,15 @@ def test_run_native_supported_benchmark_interpreter_and_emit() -> None:
     assert res.native_status in {"compiler-unavailable", "ok"}
 
 
+def test_run_benchmark_collects_sample_medians() -> None:
+    res = run_benchmark(get_benchmark("scalar_control"), samples=2)
+    assert res.sample_count == 2
+    assert len(res.parse_samples_ms) == 2
+    assert len(res.interpret_samples_ms) == 2
+    assert res.parse_ms is not None
+    assert res.interpret_ms is not None
+
+
 def test_run_interpreter_only_benchmark_marks_native_unsupported() -> None:
     res = run_benchmark(get_benchmark("custom_overloads"))
     assert res.error is None
@@ -52,6 +61,9 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"units": "ms"' in payload
     assert '"python_roundtrip_ms"' in payload
     assert '"native_steady_speedup"' in payload
+    assert '"sample_count"' in payload
+    assert '"aggregation": "median"' in payload
+    assert '"parse_samples_ms"' in payload
 
 
 def test_benchmark_list_json_contains_case_metadata() -> None:

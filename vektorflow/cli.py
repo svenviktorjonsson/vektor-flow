@@ -111,9 +111,32 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
     )
 
     json_output = False
-    if "--json" in patterns:
-        json_output = True
-        patterns = [p for p in patterns if p != "--json"]
+    samples = 1
+    filtered: list[str] = []
+    i = 0
+    while i < len(patterns):
+        arg = patterns[i]
+        if arg == "--json":
+            json_output = True
+            i += 1
+            continue
+        if arg == "--samples":
+            if i + 1 >= len(patterns):
+                print("error: --samples requires an integer value", file=sys.stderr)
+                return 1
+            try:
+                samples = int(patterns[i + 1])
+            except ValueError:
+                print("error: --samples requires an integer value", file=sys.stderr)
+                return 1
+            if samples < 1:
+                print("error: --samples must be >= 1", file=sys.stderr)
+                return 1
+            i += 2
+            continue
+        filtered.append(arg)
+        i += 1
+    patterns = filtered
     if list_only:
         cases = list_benchmarks()
         if json_output:
@@ -128,7 +151,7 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
     if not cases:
         print("error: no benchmarks matched", file=sys.stderr)
         return 1
-    results = [run_benchmark(case) for case in cases]
+    results = [run_benchmark(case, samples=samples) for case in cases]
     if json_output:
         print(format_benchmark_json(results))
     else:
@@ -154,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
             "  vkf cpp <file>       Emit C++ for the supported native subset\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
+            "                       add --samples N for median-of-N timing\n"
             "  vkf --ui-terminal <file>\n"
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
@@ -218,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         if "--list" in args:
             list_only = True
             args = [a for a in args if a != "--list"]
-        known_flags = {"--json"}
+        known_flags = {"--json", "--samples"}
         if any(a.startswith("-") and a not in known_flags for a in args):
             bad = next(a for a in args if a.startswith("-"))
             print(f"error: unknown option {bad!r}", file=sys.stderr)

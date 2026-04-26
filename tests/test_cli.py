@@ -97,3 +97,14 @@ class TestMain:
         assert '"summary"' in out
         assert '"results"' in out
         assert '"scalar_control"' in out
+
+    def test_bench_subcommand_samples(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control", "--samples", "2"]) == 0
+        out = capsys.readouterr().out
+        assert "timings: median of 2 sample(s), units=ms" in out
+
+    def test_bench_subcommand_samples_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control", "--samples", "2", "--json"]) == 0
+        out = capsys.readouterr().out
+        assert '"sample_count": 2' in out
+        assert '"aggregation": "median"' in out

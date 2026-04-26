@@ -4,9 +4,10 @@ import contextlib
 import io
 import json
 import math
+import statistics
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .cpp_backend import (
@@ -48,6 +49,13 @@ class BenchmarkResult:
     native_status: str = "not-requested"
     output_match: bool | None = None
     error: str | None = None
+    sample_count: int = 1
+    parse_samples_ms: list[float] = field(default_factory=list)
+    lower_samples_ms: list[float] = field(default_factory=list)
+    interpret_samples_ms: list[float] = field(default_factory=list)
+    emit_cpp_samples_ms: list[float] = field(default_factory=list)
+    compile_samples_ms: list[float] = field(default_factory=list)
+    native_run_samples_ms: list[float] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -172,11 +180,15 @@ def _ms(start: float, end: float) -> float:
     return round((end - start) * 1000.0, 3)
 
 
-def run_benchmark(case: BenchmarkCase) -> BenchmarkResult:
+def _median_ms(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(float(statistics.median(values)), 3)
+
+
+def _run_benchmark_once(case: BenchmarkCase, source: str) -> BenchmarkResult:
     result = BenchmarkResult(case=case)
     try:
-        source = case.path.read_text(encoding="utf-8")
-
         t0 = time.perf_counter()
         module = parse_module(source, filename=str(case.path))
         t1 = time.perf_counter()
@@ -237,7 +249,44 @@ def run_benchmark(case: BenchmarkCase) -> BenchmarkResult:
         return result
 
 
+def run_benchmark(case: BenchmarkCase, samples: int = 1) -> BenchmarkResult:
+    if samples < 1:
+        raise ValueError("samples must be >= 1")
+    source = case.path.read_text(encoding="utf-8")
+    runs: list[BenchmarkResult] = []
+    for _ in range(samples):
+        run = _run_benchmark_once(case, source)
+        runs.append(run)
+        if not run.ok:
+            break
+    first = runs[0]
+    aggregated = BenchmarkResult(
+        case=case,
+        interpreter_stdout=first.interpreter_stdout,
+        native_stdout=first.native_stdout,
+        native_status=first.native_status,
+        output_match=first.output_match,
+        error=first.error,
+        sample_count=len(runs),
+        parse_samples_ms=[r.parse_ms for r in runs if r.parse_ms is not None],
+        lower_samples_ms=[r.lower_ms for r in runs if r.lower_ms is not None],
+        interpret_samples_ms=[r.interpret_ms for r in runs if r.interpret_ms is not None],
+        emit_cpp_samples_ms=[r.emit_cpp_ms for r in runs if r.emit_cpp_ms is not None],
+        compile_samples_ms=[r.compile_ms for r in runs if r.compile_ms is not None],
+        native_run_samples_ms=[r.native_run_ms for r in runs if r.native_run_ms is not None],
+    )
+    aggregated.parse_ms = _median_ms(aggregated.parse_samples_ms)
+    aggregated.lower_ms = _median_ms(aggregated.lower_samples_ms)
+    aggregated.interpret_ms = _median_ms(aggregated.interpret_samples_ms)
+    aggregated.emit_cpp_ms = _median_ms(aggregated.emit_cpp_samples_ms)
+    aggregated.compile_ms = _median_ms(aggregated.compile_samples_ms)
+    aggregated.native_run_ms = _median_ms(aggregated.native_run_samples_ms)
+    return aggregated
+
+
 def format_benchmark_report(results: list[BenchmarkResult]) -> str:
+    sample_counts = sorted({r.sample_count for r in results})
+    sample_label = str(sample_counts[0]) if len(sample_counts) == 1 else ",".join(str(n) for n in sample_counts)
     lines = [
         "name                 parse   lower   interp   cpp_emit  compile   native    status",
         "--------------------------------------------------------------------------------",
@@ -256,6 +305,7 @@ def format_benchmark_report(results: list[BenchmarkResult]) -> str:
     ok = sum(1 for r in results if r.ok)
     lines.append("")
     lines.append(f"summary: {ok}/{len(results)} benchmark(s) OK")
+    lines.append(f"timings: median of {sample_label} sample(s), units=ms")
     comparative = [r for r in results if r.native_status == "ok" and r.output_match]
     if comparative:
         lines.append("")
@@ -287,13 +337,21 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "description": result.case.description,
         "native_supported": result.case.native_supported,
         "ok": result.ok,
+        "sample_count": result.sample_count,
+        "aggregation": "median",
         "units": "ms",
         "parse_ms": result.parse_ms,
+        "parse_samples_ms": result.parse_samples_ms,
         "lower_ms": result.lower_ms,
+        "lower_samples_ms": result.lower_samples_ms,
         "interpret_ms": result.interpret_ms,
+        "interpret_samples_ms": result.interpret_samples_ms,
         "emit_cpp_ms": result.emit_cpp_ms,
+        "emit_cpp_samples_ms": result.emit_cpp_samples_ms,
         "compile_ms": result.compile_ms,
+        "compile_samples_ms": result.compile_samples_ms,
         "native_run_ms": result.native_run_ms,
+        "native_run_samples_ms": result.native_run_samples_ms,
         "python_roundtrip_ms": result.python_roundtrip_ms,
         "native_roundtrip_ms": result.native_roundtrip_ms,
         "native_steady_speedup": result.native_steady_speedup,
@@ -321,11 +379,14 @@ def format_benchmark_json(results: list[BenchmarkResult]) -> str:
     roundtrip_ratios = [
         r.native_roundtrip_vs_python for r in results if r.native_roundtrip_vs_python is not None
     ]
+    sample_counts = sorted({r.sample_count for r in results})
     payload = {
         "summary": {
             "count": len(results),
             "ok": sum(1 for r in results if r.ok),
             "all_ok": all(r.ok for r in results),
+            "sample_counts": sample_counts,
+            "aggregation": "median",
             "units": "ms",
             "avg_native_steady_speedup": round(sum(speedups) / len(speedups), 3) if speedups else None,
             "avg_native_roundtrip_vs_python": (
