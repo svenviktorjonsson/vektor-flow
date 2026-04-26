@@ -92,7 +92,21 @@ def test_cpp_emits_fixed_vector_program() -> None:
     assert "#include <list>" not in cpp
     assert "std::array<double, 2> a = std::array<double, 2>{vf_to_num(1.0), vf_to_num(2.0)};" in cpp
     assert "std::array<double, 2> b = std::array<double, 2>{vf_to_num(3.0), vf_to_num(4.0)};" in cpp
-    assert 'std::cout << vf_format_value(vf_array_add(a, b)) << "\\n";' in cpp
+    assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in cpp
+    assert 'std::cout << vf_format_value(([' in cpp
+
+
+def test_cpp_fuses_elementwise_vector_chain() -> None:
+    src = """
+[num:2] a: [1,2]
+[num:2] b: [3,4]
+:: (a + b) * 0.5
+    """
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "vf_array_add(a, b)" not in cpp
+    assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in cpp
+    assert "vf_out[vf_i] = static_cast<double>(((a[vf_i] + b[vf_i]) * 0.5));" in cpp
 
 
 def test_cpp_emits_fixed_vector_index_program() -> None:
@@ -340,6 +354,19 @@ update(state:(pts:[num:2], bag:{num}, total:num), extra:[num:2], delta:{num}) ->
     assert "vf_array_add" in cpp
     assert "vf_mset_union" in cpp
     assert 'std::cout << vf_format_value(update(' in cpp
+
+
+def test_cpp_fuses_vector_chain_inside_function() -> None:
+    src = """
+blend(a:[num:4], b:[num:4]) -> [num:4]:
+    (a + b) * 0.5
+
+:: blend([1,2,3,4], [5,6,7,8])
+    """
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "vf_array_add(a, b)" not in cpp
+    assert "for (std::size_t vf_i = 0; vf_i < 4; ++vf_i)" in cpp
 
 
 def test_cpp_emits_struct_function_program() -> None:

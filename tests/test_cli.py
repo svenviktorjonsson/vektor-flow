@@ -71,7 +71,7 @@ class TestMain:
         assert main(["cpp", str(src), "-o", str(out)]) == 0
         emitted = out.read_text(encoding="utf-8")
         assert "std::array<double, 2> a" in emitted
-        assert "vf_array_add(a, b)" in emitted
+        assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in emitted
 
     def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "--list"]) == 0

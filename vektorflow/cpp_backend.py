@@ -1000,6 +1000,71 @@ def _emit_dynamic_collection_binary(node: ir.BinaryExpr, left: str, right: str, 
     return None
 
 
+def _emit_fused_array_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str | None:
+    node_type = _normalize_type(_expr_type(node, typed))
+    if not isinstance(node_type, ast.FixedVectorType):
+        return None
+    scalar_expr = _emit_fused_array_scalar(node, "vf_i", env, functions, state, typed)
+    if scalar_expr is None:
+        return None
+    elem_cpp = _cpp_type(node_type.element_type, state)
+    arr_cpp = _cpp_type(node_type, state)
+    size_cpp = _emit_size_expr(node_type.size)
+    return (
+        "([&]() { "
+        f"{arr_cpp} vf_out{{}}; "
+        f"for (std::size_t vf_i = 0; vf_i < {size_cpp}; ++vf_i) "
+        f"vf_out[vf_i] = static_cast<{elem_cpp}>({scalar_expr}); "
+        "return vf_out; "
+        "}())"
+    )
+
+
+def _emit_fused_array_scalar(node: Any, idx_name: str, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str | None:
+    node_type = _normalize_type(_expr_type(node, typed))
+    if not isinstance(node_type, ast.FixedVectorType):
+        return None
+    if isinstance(node, (ir.LoadName, ir.LoadSlot)):
+        return f"{_emit_expr(node, env, functions, state, typed)}[{idx_name}]"
+    if isinstance(node, ir.AttrExpr):
+        base_type = _normalize_type(_expr_type(node.value, typed))
+        if isinstance(base_type, ast.TypeExpr):
+            return f"{_emit_expr(node, env, functions, state, typed)}[{idx_name}]"
+        return None
+    if isinstance(node, ir.CoerceExpr) and isinstance(_normalize_type(node.target_type), ast.FixedVectorType):
+        return _emit_fused_array_scalar(node.expr, idx_name, env, functions, state, typed)
+    if isinstance(node, ir.BinaryExpr):
+        left_type = _normalize_type(_expr_type(node.left, typed))
+        right_type = _normalize_type(_expr_type(node.right, typed))
+        op_map = {
+            "PLUS": "+",
+            "MINUS": "-",
+            "STAR": "*",
+            "SLASH": "/",
+        }
+        if node.op in op_map:
+            if isinstance(left_type, ast.FixedVectorType) and isinstance(right_type, ast.FixedVectorType):
+                left = _emit_fused_array_scalar(node.left, idx_name, env, functions, state, typed)
+                right = _emit_fused_array_scalar(node.right, idx_name, env, functions, state, typed)
+                if left is None or right is None:
+                    return None
+                return f"({left} {op_map[node.op]} {right})"
+            if node.op == "STAR":
+                if isinstance(left_type, ast.FixedVectorType) and _is_scalar_numeric_type(right_type):
+                    left = _emit_fused_array_scalar(node.left, idx_name, env, functions, state, typed)
+                    if left is None:
+                        return None
+                    right = _emit_expr(node.right, env, functions, state, typed)
+                    return f"({left} * {right})"
+                if isinstance(right_type, ast.FixedVectorType) and _is_scalar_numeric_type(left_type):
+                    right = _emit_fused_array_scalar(node.right, idx_name, env, functions, state, typed)
+                    if right is None:
+                        return None
+                    left = _emit_expr(node.left, env, functions, state, typed)
+                    return f"({left} * {right})"
+    return None
+
+
 def _emit_struct_literal(node: ir.StructExpr, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
     inferred = _expr_type(node, typed)
     if not isinstance(inferred, ast.TypeExpr):
@@ -1007,7 +1072,17 @@ def _emit_struct_literal(node: ir.StructExpr, env: dict[str, Any], functions: di
     return _emit_record_coercion(ir.CoerceExpr(node, inferred), env, functions, state, typed)
 
 
-def _emit_collection_binary(node: ir.BinaryExpr, left: str, right: str, left_type: Any, right_type: Any) -> str | None:
+def _emit_collection_binary(
+    node: ir.BinaryExpr,
+    left: str,
+    right: str,
+    left_type: Any,
+    right_type: Any,
+    env: dict[str, Any],
+    functions: dict[str, ir.FunctionDef],
+    state: EmitState,
+    typed: TypedModuleInfo,
+) -> str | None:
     if isinstance(left_type, ast.MultisetType) or isinstance(right_type, ast.MultisetType):
         if not isinstance(left_type, ast.MultisetType) or not isinstance(right_type, ast.MultisetType):
             raise CppEmitError(f"unsupported mixed multiset expression for C++ emitter: {node.op}")
@@ -1021,6 +1096,9 @@ def _emit_collection_binary(node: ir.BinaryExpr, left: str, right: str, left_typ
             raise CppEmitError(f"unsupported multiset expression for C++ emitter: {node.op}")
         return f"vf_mset_{suffix}({left}, {right})"
     if isinstance(left_type, ast.FixedVectorType) or isinstance(right_type, ast.FixedVectorType):
+        fused = _emit_fused_array_expr(node, env, functions, state, typed)
+        if fused is not None:
+            return fused
         if node.op == "AMPERSAND":
             return f"vf_array_cat({left}, {right})"
         if node.op in ("PLUS", "MINUS", "STAR", "SLASH"):
@@ -1118,7 +1196,7 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         right = _emit_expr(node.right, env, functions, state, typed)
         left_type = _expr_type(node.left, typed)
         right_type = _expr_type(node.right, typed)
-        coll = _emit_collection_binary(node, left, right, left_type, right_type)
+        coll = _emit_collection_binary(node, left, right, left_type, right_type, env, functions, state, typed)
         if coll is not None:
             return coll
         if node.op == "CARET":
