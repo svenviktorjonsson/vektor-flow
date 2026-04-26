@@ -62,8 +62,8 @@ def test_run_benchmark_collects_multiple_native_runs() -> None:
     assert res.native_run_count == 2
     assert res.native_warmup_count == 1
     if res.native_status == "ok":
-        assert len(res.native_run_samples_ms) == 2
-        assert len(res.native_kernel_samples_ms) == 2
+        assert len(res.native_run_samples_ms) == 1
+        assert len(res.native_kernel_samples_ms) == 1
         assert res.native_kernel_ms is not None
 
 

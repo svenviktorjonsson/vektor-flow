@@ -260,13 +260,17 @@ def select_benchmarks(patterns: list[str] | None = None) -> list[BenchmarkCase]:
 
 
 def _ms(start: float, end: float) -> float:
-    return round((end - start) * 1000.0, 3)
+    return _round_ms((end - start) * 1000.0)
 
 
 def _median_ms(values: list[float]) -> float | None:
     if not values:
         return None
-    return round(float(statistics.median(values)), 3)
+    return _round_ms(float(statistics.median(values)))
+
+
+def _round_ms(value: float) -> float:
+    return round(value, 6 if abs(value) < 1.0 else 3)
 
 
 def _compile_cached_benchmark(case: BenchmarkCase, cpp_source: str) -> Path:
@@ -289,19 +293,39 @@ def _instrument_cpp_for_internal_timing(cpp_source: str) -> str:
     source = cpp_source
     if "#include <chrono>" not in source:
         source = source.replace("#include <cmath>\n", "#include <chrono>\n#include <cmath>\n", 1)
-    source = source.replace(
-        "int main() {\n",
-        "int main() {\n    auto vf_bench_start = std::chrono::steady_clock::now();\n",
-        1,
-    )
-    source = source.replace(
-        "    return 0;\n}\n",
-        '    auto vf_bench_end = std::chrono::steady_clock::now();\n'
-        '    auto vf_bench_ms = std::chrono::duration<double, std::milli>(vf_bench_end - vf_bench_start).count();\n'
+    if "#include <cstdlib>" not in source:
+        source = source.replace("#include <chrono>\n", "#include <chrono>\n#include <cstdlib>\n", 1)
+    main_head = "int main() {\n"
+    main_tail = "    return 0;\n}\n"
+    start = source.find(main_head)
+    end = source.rfind(main_tail)
+    if start < 0 or end < 0 or end <= start:
+        return source
+    body = source[start + len(main_head) : end]
+    helper = (
+        "static void vf_program_body() {\n"
+        + body
+        + "\n}\n\n"
+        "int main(int argc, char** argv) {\n"
+        "    int vf_bench_runs = 1;\n"
+        '    if (argc >= 3 && std::string(argv[1]) == "--vf-bench-runs") {\n'
+        "        vf_bench_runs = std::atoi(argv[2]);\n"
+        "        if (vf_bench_runs < 1) vf_bench_runs = 1;\n"
+        "    }\n"
+        "    std::ostringstream vf_bench_sink;\n"
+        "    auto* vf_bench_old_buf = std::cout.rdbuf(vf_bench_sink.rdbuf());\n"
+        "    auto vf_bench_start = std::chrono::steady_clock::now();\n"
+        "    for (int vf_bench_i = 0; vf_bench_i < vf_bench_runs; ++vf_bench_i) {\n"
+        "        vf_program_body();\n"
+        "    }\n"
+        "    auto vf_bench_end = std::chrono::steady_clock::now();\n"
+        "    std::cout.rdbuf(vf_bench_old_buf);\n"
+        "    vf_program_body();\n"
+        "    auto vf_bench_ms = std::chrono::duration<double, std::milli>(vf_bench_end - vf_bench_start).count() / static_cast<double>(vf_bench_runs);\n"
         f'    std::cout << "{marker}" << vf_bench_ms << "\\n";\n'
-        "    return 0;\n}\n",
-        1,
+        "    return 0;\n}\n"
     )
+    source = source[:start] + helper
     return source
 
 
@@ -318,7 +342,7 @@ def _split_native_output_timing(stdout: str) -> tuple[str, float | None]:
             cleaned = "\n".join(lines[:idx])
             if stdout.endswith("\n") and cleaned:
                 cleaned += "\n"
-            return cleaned, round(kernel_ms, 3)
+            return cleaned, _round_ms(kernel_ms)
     return stdout, None
 
 
@@ -379,8 +403,9 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         t9 = time.perf_counter()
         result.compile_ms = _ms(t8, t9)
 
+        bench_args = ["--vf-bench-runs", str(native_runs)]
         for _ in range(native_warmups):
-            warmup = run_cpp_executable(exe)
+            warmup = run_cpp_executable(exe, bench_args)
             if warmup.returncode != 0:
                 result.native_stdout, result.native_kernel_ms = _split_native_output_timing(warmup.stdout)
                 result.native_status = f"runtime-error:{warmup.returncode}"
@@ -389,15 +414,14 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         native_run_samples: list[float] = []
         native_kernel_samples: list[float] = []
         proc = None
-        for _ in range(native_runs):
-            t10 = time.perf_counter()
-            proc = run_cpp_executable(exe)
-            t11 = time.perf_counter()
-            native_run_samples.append(_ms(t10, t11))
-            cleaned_stdout, kernel_ms = _split_native_output_timing(proc.stdout)
-            proc.stdout = cleaned_stdout
-            if kernel_ms is not None:
-                native_kernel_samples.append(kernel_ms)
+        t10 = time.perf_counter()
+        proc = run_cpp_executable(exe, bench_args)
+        t11 = time.perf_counter()
+        native_run_samples.append(round(_ms(t10, t11) / native_runs, 3))
+        cleaned_stdout, kernel_ms = _split_native_output_timing(proc.stdout)
+        proc.stdout = cleaned_stdout
+        if kernel_ms is not None:
+            native_kernel_samples.append(kernel_ms)
         result.native_run_samples_ms = native_run_samples
         result.native_kernel_samples_ms = native_kernel_samples
         result.native_run_ms = _median_ms(native_run_samples)
@@ -502,7 +526,7 @@ def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, 
     lines.append("")
     lines.append(f"summary: {ok}/{len(results)} benchmark(s) OK")
     lines.append(
-        f"timings: median of {sample_label} sample(s), native run median over {native_run_label} execution(s) after {native_warmup_label} warmup run(s), units=ms"
+        f"timings: median of {sample_label} sample(s), native run median over {native_run_label} internal execution(s) after {native_warmup_label} warmup run(s), units=ms"
     )
     comparative = [r for r in results if r.native_status == "ok" and r.output_match]
     if comparative:

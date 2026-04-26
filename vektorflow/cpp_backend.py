@@ -518,8 +518,11 @@ def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program")
     return exe_path
 
 
-def run_cpp_executable(exe_path: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([str(exe_path)], capture_output=True, text=True)
+def run_cpp_executable(exe_path: Path, args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+    cmd = [str(exe_path)]
+    if args:
+        cmd.extend(args)
+    return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def _normalize_type(t: Any) -> Any:

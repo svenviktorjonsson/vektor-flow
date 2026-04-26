@@ -103,7 +103,7 @@ class TestMain:
     def test_bench_subcommand_samples(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--samples", "2"]) == 0
         out = capsys.readouterr().out
-        assert "timings: median of 2 sample(s), native run median over 1 execution(s) after 0 warmup run(s), units=ms" in out
+        assert "timings: median of 2 sample(s), native run median over 1 internal execution(s) after 0 warmup run(s), units=ms" in out
 
     def test_bench_subcommand_samples_json(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--samples", "2", "--json"]) == 0
@@ -114,7 +114,7 @@ class TestMain:
     def test_bench_subcommand_native_runs(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--native-runs", "2"]) == 0
         out = capsys.readouterr().out
-        assert "native run median over 2 execution(s) after 1 warmup run(s)" in out
+        assert "native run median over 2 internal execution(s) after 1 warmup run(s)" in out
 
     def test_bench_subcommand_native_runs_json(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--native-runs", "2", "--json"]) == 0
