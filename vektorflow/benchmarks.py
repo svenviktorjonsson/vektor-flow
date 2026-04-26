@@ -48,6 +48,7 @@ class BenchmarkResult:
     emit_cpp_ms: float | None = None
     compile_ms: float | None = None
     native_run_ms: float | None = None
+    native_kernel_ms: float | None = None
     python_ref_ms: float | None = None
     numpy_ref_ms: float | None = None
     interpreter_stdout: str = ""
@@ -64,6 +65,7 @@ class BenchmarkResult:
     emit_cpp_samples_ms: list[float] = field(default_factory=list)
     compile_samples_ms: list[float] = field(default_factory=list)
     native_run_samples_ms: list[float] = field(default_factory=list)
+    native_kernel_samples_ms: list[float] = field(default_factory=list)
     python_ref_samples_ms: list[float] = field(default_factory=list)
     numpy_ref_samples_ms: list[float] = field(default_factory=list)
 
@@ -114,6 +116,18 @@ class BenchmarkResult:
             return None
         return round(self.numpy_ref_ms / self.native_run_ms, 3)
 
+    @property
+    def native_kernel_vs_python_ref(self) -> float | None:
+        if self.python_ref_ms is None or self.native_kernel_ms is None or self.native_kernel_ms == 0:
+            return None
+        return round(self.python_ref_ms / self.native_kernel_ms, 3)
+
+    @property
+    def native_kernel_vs_numpy_ref(self) -> float | None:
+        if self.numpy_ref_ms is None or self.native_kernel_ms is None or self.native_kernel_ms == 0:
+            return None
+        return round(self.numpy_ref_ms / self.native_kernel_ms, 3)
+
 
 TIME_METRICS: tuple[str, ...] = (
     "parse_ms",
@@ -122,6 +136,7 @@ TIME_METRICS: tuple[str, ...] = (
     "emit_cpp_ms",
     "compile_ms",
     "native_run_ms",
+    "native_kernel_ms",
     "python_ref_ms",
     "numpy_ref_ms",
     "python_roundtrip_ms",
@@ -133,6 +148,8 @@ SPEEDUP_METRICS: tuple[str, ...] = (
     "native_roundtrip_vs_python",
     "native_vs_python_ref",
     "native_vs_numpy_ref",
+    "native_kernel_vs_python_ref",
+    "native_kernel_vs_numpy_ref",
 )
 
 
@@ -265,6 +282,46 @@ def _compile_cached_benchmark(case: BenchmarkCase, cpp_source: str) -> Path:
     return compile_cpp_source(cpp_source, out_dir, exe_name=f"vf_{case.name}")
 
 
+def _instrument_cpp_for_internal_timing(cpp_source: str) -> str:
+    marker = "__VF_BENCH_MS__:"
+    if marker in cpp_source:
+        return cpp_source
+    source = cpp_source
+    if "#include <chrono>" not in source:
+        source = source.replace("#include <cmath>\n", "#include <chrono>\n#include <cmath>\n", 1)
+    source = source.replace(
+        "int main() {\n",
+        "int main() {\n    auto vf_bench_start = std::chrono::steady_clock::now();\n",
+        1,
+    )
+    source = source.replace(
+        "    return 0;\n}\n",
+        '    auto vf_bench_end = std::chrono::steady_clock::now();\n'
+        '    auto vf_bench_ms = std::chrono::duration<double, std::milli>(vf_bench_end - vf_bench_start).count();\n'
+        f'    std::cout << "{marker}" << vf_bench_ms << "\\n";\n'
+        "    return 0;\n}\n",
+        1,
+    )
+    return source
+
+
+def _split_native_output_timing(stdout: str) -> tuple[str, float | None]:
+    marker = "__VF_BENCH_MS__:"
+    lines = stdout.splitlines()
+    for idx in range(len(lines) - 1, -1, -1):
+        line = lines[idx]
+        if line.startswith(marker):
+            try:
+                kernel_ms = float(line[len(marker) :].strip())
+            except ValueError:
+                break
+            cleaned = "\n".join(lines[:idx])
+            if stdout.endswith("\n") and cleaned:
+                cleaned += "\n"
+            return cleaned, round(kernel_ms, 3)
+    return stdout, None
+
+
 def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, native_warmups: int) -> BenchmarkResult:
     result = BenchmarkResult(case=case)
     result.native_run_count = native_runs
@@ -309,7 +366,7 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         result.lower_ms = _ms(t2, t3)
 
         t6 = time.perf_counter()
-        cpp_source = emit_cpp_module(lowered)
+        cpp_source = _instrument_cpp_for_internal_timing(emit_cpp_module(lowered))
         t7 = time.perf_counter()
         result.emit_cpp_ms = _ms(t6, t7)
 
@@ -325,19 +382,26 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         for _ in range(native_warmups):
             warmup = run_cpp_executable(exe)
             if warmup.returncode != 0:
-                result.native_stdout = warmup.stdout
+                result.native_stdout, result.native_kernel_ms = _split_native_output_timing(warmup.stdout)
                 result.native_status = f"runtime-error:{warmup.returncode}"
                 result.error = warmup.stderr.strip() or "native program failed"
                 return result
         native_run_samples: list[float] = []
+        native_kernel_samples: list[float] = []
         proc = None
         for _ in range(native_runs):
             t10 = time.perf_counter()
             proc = run_cpp_executable(exe)
             t11 = time.perf_counter()
             native_run_samples.append(_ms(t10, t11))
+            cleaned_stdout, kernel_ms = _split_native_output_timing(proc.stdout)
+            proc.stdout = cleaned_stdout
+            if kernel_ms is not None:
+                native_kernel_samples.append(kernel_ms)
         result.native_run_samples_ms = native_run_samples
+        result.native_kernel_samples_ms = native_kernel_samples
         result.native_run_ms = _median_ms(native_run_samples)
+        result.native_kernel_ms = _median_ms(native_kernel_samples)
 
         assert proc is not None
         result.native_stdout = proc.stdout
@@ -394,6 +458,7 @@ def run_benchmark(
         emit_cpp_samples_ms=[r.emit_cpp_ms for r in runs if r.emit_cpp_ms is not None],
         compile_samples_ms=[r.compile_ms for r in runs if r.compile_ms is not None],
         native_run_samples_ms=[value for r in runs for value in r.native_run_samples_ms],
+        native_kernel_samples_ms=[value for r in runs for value in r.native_kernel_samples_ms],
         python_ref_samples_ms=[r.python_ref_ms for r in runs if r.python_ref_ms is not None],
         numpy_ref_samples_ms=[r.numpy_ref_ms for r in runs if r.numpy_ref_ms is not None],
     )
@@ -403,6 +468,7 @@ def run_benchmark(
     aggregated.emit_cpp_ms = _median_ms(aggregated.emit_cpp_samples_ms)
     aggregated.compile_ms = _median_ms(aggregated.compile_samples_ms)
     aggregated.native_run_ms = _median_ms(aggregated.native_run_samples_ms)
+    aggregated.native_kernel_ms = _median_ms(aggregated.native_kernel_samples_ms)
     aggregated.python_ref_ms = _median_ms(aggregated.python_ref_samples_ms)
     aggregated.numpy_ref_ms = _median_ms(aggregated.numpy_ref_samples_ms)
     return aggregated
@@ -456,8 +522,11 @@ def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, 
                     "    "
                     f"runtime_refs: python={_fmt_ms(r.python_ref_ms)} ms, "
                     f"numpy={_fmt_ms(r.numpy_ref_ms)} ms, "
+                    f"native_kernel={_fmt_ms(r.native_kernel_ms)} ms, "
                     f"native_vs_python_ref={_fmt_ratio(r.native_vs_python_ref)}x, "
-                    f"native_vs_numpy_ref={_fmt_ratio(r.native_vs_numpy_ref)}x"
+                    f"native_vs_numpy_ref={_fmt_ratio(r.native_vs_numpy_ref)}x, "
+                    f"kernel_vs_python_ref={_fmt_ratio(r.native_kernel_vs_python_ref)}x, "
+                    f"kernel_vs_numpy_ref={_fmt_ratio(r.native_kernel_vs_numpy_ref)}x"
                 )
     if baseline is not None:
         comparison = compare_benchmark_payload(build_benchmark_payload(results), baseline)
@@ -497,6 +566,8 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "compile_samples_ms": result.compile_samples_ms,
         "native_run_ms": result.native_run_ms,
         "native_run_samples_ms": result.native_run_samples_ms,
+        "native_kernel_ms": result.native_kernel_ms,
+        "native_kernel_samples_ms": result.native_kernel_samples_ms,
         "python_ref_ms": result.python_ref_ms,
         "python_ref_samples_ms": result.python_ref_samples_ms,
         "numpy_ref_ms": result.numpy_ref_ms,
@@ -507,6 +578,8 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "native_roundtrip_vs_python": result.native_roundtrip_vs_python,
         "native_vs_python_ref": result.native_vs_python_ref,
         "native_vs_numpy_ref": result.native_vs_numpy_ref,
+        "native_kernel_vs_python_ref": result.native_kernel_vs_python_ref,
+        "native_kernel_vs_numpy_ref": result.native_kernel_vs_numpy_ref,
         "native_status": result.native_status,
         "output_match": result.output_match,
         "error": result.error,
@@ -533,6 +606,8 @@ def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]
     ]
     python_ref_ratios = [r.native_vs_python_ref for r in results if r.native_vs_python_ref is not None]
     numpy_ref_ratios = [r.native_vs_numpy_ref for r in results if r.native_vs_numpy_ref is not None]
+    kernel_python_ref_ratios = [r.native_kernel_vs_python_ref for r in results if r.native_kernel_vs_python_ref is not None]
+    kernel_numpy_ref_ratios = [r.native_kernel_vs_numpy_ref for r in results if r.native_kernel_vs_numpy_ref is not None]
     sample_counts = sorted({r.sample_count for r in results})
     native_run_counts = sorted({r.native_run_count for r in results})
     native_warmup_counts = sorted({r.native_warmup_count for r in results})
@@ -552,6 +627,12 @@ def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]
             ),
             "avg_native_vs_python_ref": round(sum(python_ref_ratios) / len(python_ref_ratios), 3) if python_ref_ratios else None,
             "avg_native_vs_numpy_ref": round(sum(numpy_ref_ratios) / len(numpy_ref_ratios), 3) if numpy_ref_ratios else None,
+            "avg_native_kernel_vs_python_ref": round(sum(kernel_python_ref_ratios) / len(kernel_python_ref_ratios), 3)
+            if kernel_python_ref_ratios
+            else None,
+            "avg_native_kernel_vs_numpy_ref": round(sum(kernel_numpy_ref_ratios) / len(kernel_numpy_ref_ratios), 3)
+            if kernel_numpy_ref_ratios
+            else None,
         },
         "results": [benchmark_result_to_dict(r) for r in results],
     }
@@ -763,8 +844,11 @@ def _format_baseline_report_lines(comparison: dict[str, object]) -> list[str]:
         if not item.get("present_in_baseline"):
             lines.append(f"  - {name}: new benchmark (not present in baseline)")
             continue
-        time_summary = _metric_brief(item.get("time_metrics"), ("native_run_ms", "compile_ms", "python_roundtrip_ms"))
-        speed_summary = _metric_brief(item.get("speedup_metrics"), ("native_steady_speedup", "native_vs_numpy_ref"))
+        time_summary = _metric_brief(item.get("time_metrics"), ("native_run_ms", "native_kernel_ms", "compile_ms", "python_roundtrip_ms"))
+        speed_summary = _metric_brief(
+            item.get("speedup_metrics"),
+            ("native_steady_speedup", "native_vs_numpy_ref", "native_kernel_vs_numpy_ref"),
+        )
         parts = [part for part in (time_summary, speed_summary) if part]
         if parts:
             lines.append(f"  - {name}: " + "; ".join(parts))
@@ -776,10 +860,12 @@ def _metric_brief(metrics: object, order: tuple[str, ...]) -> str:
         return ""
     labels = {
         "native_run_ms": "native",
+        "native_kernel_ms": "kernel",
         "compile_ms": "compile",
         "python_roundtrip_ms": "py_roundtrip",
         "native_steady_speedup": "steady",
         "native_vs_numpy_ref": "vs_numpy",
+        "native_kernel_vs_numpy_ref": "kernel_vs_numpy",
     }
     parts: list[str] = []
     for key in order:

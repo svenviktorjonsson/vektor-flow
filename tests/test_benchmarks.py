@@ -63,6 +63,8 @@ def test_run_benchmark_collects_multiple_native_runs() -> None:
     assert res.native_warmup_count == 1
     if res.native_status == "ok":
         assert len(res.native_run_samples_ms) == 2
+        assert len(res.native_kernel_samples_ms) == 2
+        assert res.native_kernel_ms is not None
 
 
 def test_run_benchmark_reuses_cached_native_compile() -> None:
@@ -102,6 +104,8 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"parse_samples_ms"' in payload
     assert '"python_ref_ms"' in payload
     assert '"numpy_ref_ms"' in payload
+    assert '"native_kernel_ms"' in payload
+    assert '"native_kernel_vs_numpy_ref"' in payload
 
 
 def test_vector_hotloop_collects_reference_timings() -> None:

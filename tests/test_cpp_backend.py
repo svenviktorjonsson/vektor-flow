@@ -120,6 +120,23 @@ def test_cpp_fuses_elementwise_vector_chain() -> None:
     assert "vf_out[vf_i] = static_cast<double>(((a[vf_i] + b[vf_i]) * 0.5));" in cpp
 
 
+def test_cpp_updates_existing_vector_in_place_for_fused_chain() -> None:
+    src = """
+step(v:[num:2], b:[num:2], reps:num) -> [num:2]:
+    i: 0
+    out: v
+    i < reps?>
+        out: (out + b) * 0.5
+        i: i + 1
+    out
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "vf_s4_out = ([&]()" not in cpp
+    assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in cpp
+    assert "vf_s4_out[vf_i] = static_cast<double>(((vf_s4_out[vf_i] + b[vf_i]) * 0.5));" in cpp
+
+
 def test_cpp_emits_fixed_vector_index_program() -> None:
     src = """
 [num:3] xs: [1,2,3]

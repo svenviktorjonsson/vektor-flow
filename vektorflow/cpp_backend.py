@@ -1195,6 +1195,32 @@ def _emit_collection_binary(
     return None
 
 
+def _emit_inplace_fused_array_store(
+    target_name: str,
+    value: Any,
+    final_type: Any,
+    env: dict[str, Any],
+    functions: dict[str, ir.FunctionDef],
+    indent: str,
+    state: EmitState,
+    typed: TypedModuleInfo,
+) -> list[str] | None:
+    final_type = _normalize_type(final_type)
+    if not isinstance(final_type, ast.FixedVectorType):
+        return None
+    scalar_expr = _emit_fused_array_scalar(value, "vf_i", env, functions, state, typed)
+    if scalar_expr is None:
+        return None
+    cpp_name = _cpp_name(target_name, state)
+    elem_cpp = _cpp_type(final_type.element_type, state)
+    size_cpp = _emit_size_expr(final_type.size)
+    return [
+        f"{indent}for (std::size_t vf_i = 0; vf_i < {size_cpp}; ++vf_i) {{",
+        f"{indent}    {cpp_name}[vf_i] = static_cast<{elem_cpp}>({scalar_expr});",
+        f"{indent}}}",
+    ]
+
+
 def _match_array_sum_function(fn: ir.FunctionDef, typed: TypedModuleInfo, state: EmitState) -> ArrayReducePattern | None:
     if len(fn.params) != 1 or len(fn.param_types) != 1:
         return None
@@ -1425,7 +1451,11 @@ def _emit_stmt(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         final_type = declared if declared is not None else expr_type
         cpp_name = _cpp_name(node.name, state)
         if node.name in env:
-            lines.append(f"{indent}{cpp_name} = {_emit_expr(node.value, env, functions, state, typed)};")
+            inplace = _emit_inplace_fused_array_store(node.name, node.value, final_type, env, functions, indent, state, typed)
+            if inplace is not None:
+                lines.extend(inplace)
+            else:
+                lines.append(f"{indent}{cpp_name} = {_emit_expr(node.value, env, functions, state, typed)};")
         else:
             lines.append(f"{indent}{_cpp_type(final_type, state)} {cpp_name} = {_emit_expr(node.value, env, functions, state, typed)};")
         env[node.name] = final_type
@@ -1436,7 +1466,11 @@ def _emit_stmt(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         final_type = declared if declared is not None else expr_type
         cpp_name = _cpp_name(node.name, state)
         if node.name in env:
-            lines.append(f"{indent}{cpp_name} = {_emit_expr(node.value, env, functions, state, typed)};")
+            inplace = _emit_inplace_fused_array_store(node.name, node.value, final_type, env, functions, indent, state, typed)
+            if inplace is not None:
+                lines.extend(inplace)
+            else:
+                lines.append(f"{indent}{cpp_name} = {_emit_expr(node.value, env, functions, state, typed)};")
         else:
             lines.append(f"{indent}{_cpp_type(final_type, state)} {cpp_name} = {_emit_expr(node.value, env, functions, state, typed)};")
         env[node.name] = final_type
