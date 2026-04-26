@@ -45,6 +45,14 @@ def test_run_benchmark_collects_sample_medians() -> None:
     assert res.interpret_ms is not None
 
 
+def test_run_benchmark_collects_multiple_native_runs() -> None:
+    res = run_benchmark(get_benchmark("scalar_control"), samples=1, native_runs=2)
+    assert res.native_run_count == 2
+    assert res.native_warmup_count == 1
+    if res.native_status == "ok":
+        assert len(res.native_run_samples_ms) == 2
+
+
 def test_run_interpreter_only_benchmark_marks_native_unsupported() -> None:
     res = run_benchmark(get_benchmark("custom_overloads"))
     assert res.error is None
@@ -62,6 +70,8 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"python_roundtrip_ms"' in payload
     assert '"native_steady_speedup"' in payload
     assert '"sample_count"' in payload
+    assert '"native_run_count"' in payload
+    assert '"native_warmup_count"' in payload
     assert '"aggregation": "median"' in payload
     assert '"parse_samples_ms"' in payload
 

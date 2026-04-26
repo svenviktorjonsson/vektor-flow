@@ -50,6 +50,8 @@ class BenchmarkResult:
     output_match: bool | None = None
     error: str | None = None
     sample_count: int = 1
+    native_run_count: int = 1
+    native_warmup_count: int = 0
     parse_samples_ms: list[float] = field(default_factory=list)
     lower_samples_ms: list[float] = field(default_factory=list)
     interpret_samples_ms: list[float] = field(default_factory=list)
@@ -186,8 +188,10 @@ def _median_ms(values: list[float]) -> float | None:
     return round(float(statistics.median(values)), 3)
 
 
-def _run_benchmark_once(case: BenchmarkCase, source: str) -> BenchmarkResult:
+def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, native_warmups: int) -> BenchmarkResult:
     result = BenchmarkResult(case=case)
+    result.native_run_count = native_runs
+    result.native_warmup_count = native_warmups
     try:
         t0 = time.perf_counter()
         module = parse_module(source, filename=str(case.path))
@@ -228,11 +232,24 @@ def _run_benchmark_once(case: BenchmarkCase, source: str) -> BenchmarkResult:
             t9 = time.perf_counter()
             result.compile_ms = _ms(t8, t9)
 
-            t10 = time.perf_counter()
-            proc = run_cpp_executable(exe)
-            t11 = time.perf_counter()
-            result.native_run_ms = _ms(t10, t11)
+            for _ in range(native_warmups):
+                warmup = run_cpp_executable(exe)
+                if warmup.returncode != 0:
+                    result.native_stdout = warmup.stdout
+                    result.native_status = f"runtime-error:{warmup.returncode}"
+                    result.error = warmup.stderr.strip() or "native program failed"
+                    return result
+            native_run_samples: list[float] = []
+            proc = None
+            for _ in range(native_runs):
+                t10 = time.perf_counter()
+                proc = run_cpp_executable(exe)
+                t11 = time.perf_counter()
+                native_run_samples.append(_ms(t10, t11))
+            result.native_run_samples_ms = native_run_samples
+            result.native_run_ms = _median_ms(native_run_samples)
 
+        assert proc is not None
         result.native_stdout = proc.stdout
         result.native_status = "ok" if proc.returncode == 0 else f"runtime-error:{proc.returncode}"
         if proc.returncode != 0:
@@ -249,13 +266,24 @@ def _run_benchmark_once(case: BenchmarkCase, source: str) -> BenchmarkResult:
         return result
 
 
-def run_benchmark(case: BenchmarkCase, samples: int = 1) -> BenchmarkResult:
+def run_benchmark(
+    case: BenchmarkCase,
+    samples: int = 1,
+    native_runs: int = 1,
+    native_warmups: int | None = None,
+) -> BenchmarkResult:
     if samples < 1:
         raise ValueError("samples must be >= 1")
+    if native_runs < 1:
+        raise ValueError("native_runs must be >= 1")
+    if native_warmups is None:
+        native_warmups = 1 if native_runs > 1 else 0
+    if native_warmups < 0:
+        raise ValueError("native_warmups must be >= 0")
     source = case.path.read_text(encoding="utf-8")
     runs: list[BenchmarkResult] = []
     for _ in range(samples):
-        run = _run_benchmark_once(case, source)
+        run = _run_benchmark_once(case, source, native_runs=native_runs, native_warmups=native_warmups)
         runs.append(run)
         if not run.ok:
             break
@@ -268,12 +296,14 @@ def run_benchmark(case: BenchmarkCase, samples: int = 1) -> BenchmarkResult:
         output_match=first.output_match,
         error=first.error,
         sample_count=len(runs),
+        native_run_count=native_runs,
+        native_warmup_count=native_warmups,
         parse_samples_ms=[r.parse_ms for r in runs if r.parse_ms is not None],
         lower_samples_ms=[r.lower_ms for r in runs if r.lower_ms is not None],
         interpret_samples_ms=[r.interpret_ms for r in runs if r.interpret_ms is not None],
         emit_cpp_samples_ms=[r.emit_cpp_ms for r in runs if r.emit_cpp_ms is not None],
         compile_samples_ms=[r.compile_ms for r in runs if r.compile_ms is not None],
-        native_run_samples_ms=[r.native_run_ms for r in runs if r.native_run_ms is not None],
+        native_run_samples_ms=[value for r in runs for value in r.native_run_samples_ms],
     )
     aggregated.parse_ms = _median_ms(aggregated.parse_samples_ms)
     aggregated.lower_ms = _median_ms(aggregated.lower_samples_ms)
@@ -287,6 +317,12 @@ def run_benchmark(case: BenchmarkCase, samples: int = 1) -> BenchmarkResult:
 def format_benchmark_report(results: list[BenchmarkResult]) -> str:
     sample_counts = sorted({r.sample_count for r in results})
     sample_label = str(sample_counts[0]) if len(sample_counts) == 1 else ",".join(str(n) for n in sample_counts)
+    native_run_counts = sorted({r.native_run_count for r in results})
+    native_run_label = str(native_run_counts[0]) if len(native_run_counts) == 1 else ",".join(str(n) for n in native_run_counts)
+    native_warmup_counts = sorted({r.native_warmup_count for r in results})
+    native_warmup_label = (
+        str(native_warmup_counts[0]) if len(native_warmup_counts) == 1 else ",".join(str(n) for n in native_warmup_counts)
+    )
     lines = [
         "name                 parse   lower   interp   cpp_emit  compile   native    status",
         "--------------------------------------------------------------------------------",
@@ -305,7 +341,9 @@ def format_benchmark_report(results: list[BenchmarkResult]) -> str:
     ok = sum(1 for r in results if r.ok)
     lines.append("")
     lines.append(f"summary: {ok}/{len(results)} benchmark(s) OK")
-    lines.append(f"timings: median of {sample_label} sample(s), units=ms")
+    lines.append(
+        f"timings: median of {sample_label} sample(s), native run median over {native_run_label} execution(s) after {native_warmup_label} warmup run(s), units=ms"
+    )
     comparative = [r for r in results if r.native_status == "ok" and r.output_match]
     if comparative:
         lines.append("")
@@ -338,6 +376,8 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "native_supported": result.case.native_supported,
         "ok": result.ok,
         "sample_count": result.sample_count,
+        "native_run_count": result.native_run_count,
+        "native_warmup_count": result.native_warmup_count,
         "aggregation": "median",
         "units": "ms",
         "parse_ms": result.parse_ms,
@@ -380,12 +420,16 @@ def format_benchmark_json(results: list[BenchmarkResult]) -> str:
         r.native_roundtrip_vs_python for r in results if r.native_roundtrip_vs_python is not None
     ]
     sample_counts = sorted({r.sample_count for r in results})
+    native_run_counts = sorted({r.native_run_count for r in results})
+    native_warmup_counts = sorted({r.native_warmup_count for r in results})
     payload = {
         "summary": {
             "count": len(results),
             "ok": sum(1 for r in results if r.ok),
             "all_ok": all(r.ok for r in results),
             "sample_counts": sample_counts,
+            "native_run_counts": native_run_counts,
+            "native_warmup_counts": native_warmup_counts,
             "aggregation": "median",
             "units": "ms",
             "avg_native_steady_speedup": round(sum(speedups) / len(speedups), 3) if speedups else None,

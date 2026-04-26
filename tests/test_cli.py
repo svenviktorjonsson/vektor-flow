@@ -101,10 +101,25 @@ class TestMain:
     def test_bench_subcommand_samples(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--samples", "2"]) == 0
         out = capsys.readouterr().out
-        assert "timings: median of 2 sample(s), units=ms" in out
+        assert "timings: median of 2 sample(s), native run median over 1 execution(s) after 0 warmup run(s), units=ms" in out
 
     def test_bench_subcommand_samples_json(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "scalar_control", "--samples", "2", "--json"]) == 0
         out = capsys.readouterr().out
         assert '"sample_count": 2' in out
         assert '"aggregation": "median"' in out
+
+    def test_bench_subcommand_native_runs(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control", "--native-runs", "2"]) == 0
+        out = capsys.readouterr().out
+        assert "native run median over 2 execution(s) after 1 warmup run(s)" in out
+
+    def test_bench_subcommand_native_runs_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control", "--native-runs", "2", "--json"]) == 0
+        out = capsys.readouterr().out
+        assert '"native_run_count": 2' in out
+
+    def test_bench_subcommand_native_warmups_json(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control", "--native-runs", "2", "--native-warmups", "0", "--json"]) == 0
+        out = capsys.readouterr().out
+        assert '"native_warmup_count": 0' in out

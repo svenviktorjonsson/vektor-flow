@@ -112,6 +112,8 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
 
     json_output = False
     samples = 1
+    native_runs = 1
+    native_warmups: int | None = None
     filtered: list[str] = []
     i = 0
     while i < len(patterns):
@@ -134,6 +136,34 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
                 return 1
             i += 2
             continue
+        if arg == "--native-runs":
+            if i + 1 >= len(patterns):
+                print("error: --native-runs requires an integer value", file=sys.stderr)
+                return 1
+            try:
+                native_runs = int(patterns[i + 1])
+            except ValueError:
+                print("error: --native-runs requires an integer value", file=sys.stderr)
+                return 1
+            if native_runs < 1:
+                print("error: --native-runs must be >= 1", file=sys.stderr)
+                return 1
+            i += 2
+            continue
+        if arg == "--native-warmups":
+            if i + 1 >= len(patterns):
+                print("error: --native-warmups requires an integer value", file=sys.stderr)
+                return 1
+            try:
+                native_warmups = int(patterns[i + 1])
+            except ValueError:
+                print("error: --native-warmups requires an integer value", file=sys.stderr)
+                return 1
+            if native_warmups < 0:
+                print("error: --native-warmups must be >= 0", file=sys.stderr)
+                return 1
+            i += 2
+            continue
         filtered.append(arg)
         i += 1
     patterns = filtered
@@ -151,7 +181,7 @@ def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
     if not cases:
         print("error: no benchmarks matched", file=sys.stderr)
         return 1
-    results = [run_benchmark(case, samples=samples) for case in cases]
+    results = [run_benchmark(case, samples=samples, native_runs=native_runs, native_warmups=native_warmups) for case in cases]
     if json_output:
         print(format_benchmark_json(results))
     else:
@@ -178,6 +208,8 @@ def main(argv: list[str] | None = None) -> int:
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
             "                       add --samples N for median-of-N timing\n"
+            "                       add --native-runs N for compile-once/run-many timing\n"
+            "                       add --native-warmups N to discard cold native runs\n"
             "  vkf --ui-terminal <file>\n"
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
@@ -242,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         if "--list" in args:
             list_only = True
             args = [a for a in args if a != "--list"]
-        known_flags = {"--json", "--samples"}
+        known_flags = {"--json", "--samples", "--native-runs", "--native-warmups"}
         if any(a.startswith("-") and a not in known_flags for a in args):
             bad = next(a for a in args if a.startswith("-"))
             print(f"error: unknown option {bad!r}", file=sys.stderr)

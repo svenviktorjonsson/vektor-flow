@@ -15,6 +15,8 @@ vkf bench --list
 vkf bench
 vkf bench --json
 vkf bench --samples 5
+vkf bench --samples 5 --native-runs 7
+vkf bench --samples 5 --native-runs 7 --native-warmups 1
 vkf bench vectors records
 ```
 
@@ -22,6 +24,8 @@ The benchmark output now reports:
 
 - raw phase timings in `ms`
 - medians when sampling is enabled with `--samples N`
+- compile-once/run-many native timing when `--native-runs N` is used
+- optional cold-run discard via `--native-warmups N`
 - `python_roundtrip_ms` = parse + interpret
 - `native_roundtrip_ms` = parse + lower + emit + compile + native run
 - `native_steady_speedup` = interpreter runtime / native runtime
