@@ -174,6 +174,25 @@ def test_add_frame_with_body() -> None:
     assert f.id == data[0]["payload"]["spec"]["id"]
 
 
+def test_add_frame_with_gridlayout_and_widget_grid_slots() -> None:
+    d = build_ui_namespace()["ui"].display
+    w = d.widget
+    f = d.frame(title="Grid", gridlayout=(3, 4))
+    d.add_frame(
+        f,
+        (0.1, 0.1, 0.4, 0.3),
+        body=[
+            w.label("L", text="hi", grid=(0, 0, 1, 2)),
+            w.button("B", label="ok", grid=(1, 2, 2, 2)),
+        ],
+    )
+    data = json.loads(d.dumps())
+    spec = data[0]["payload"]["spec"]
+    assert spec["body_layout"] == {"type": "grid", "rows": 3, "cols": 4}
+    assert spec["body"][0]["grid"] == [0, 0, 1, 2]
+    assert spec["body"][1]["grid"] == [1, 2, 2, 2]
+
+
 def test_display_draw_and_frame_draw_match_draw_rect() -> None:
     d = build_ui_namespace()["ui"].display
     d.draw((0.0, 0.0, 0.2, 0.2), color="#010101")

@@ -14,6 +14,7 @@ import pytest
 from vektorflow.stdlib.ui import (
     Display,
     SceneBox,
+    SceneFieldMesh,
     SceneCamera,
     SceneLight,
     LIGHT_MODELS,
@@ -155,6 +156,63 @@ class TestSceneBox:
         box = d.add_box(center=[0,0,0], scale=[1,1,1], color="red")
         result = box.translate([1,0,0]).rotate_by(45,"y").set_color("blue").set_scale([2,2,2])
         assert result is box
+
+
+class TestFieldMeshTimeSlices:
+    def _mesh(self) -> tuple[SceneFieldMesh, dict, Display, str]:
+        d, fid = _placed()
+        mesh = d.add(
+            x_u=[0, 1, 2],
+            y_v=[0, 1],
+            z_tuv=[
+                [[0, 0], [0, 0], [0, 0]],
+                [[1, 1], [1, 1], [1, 1]],
+                [[2, 2], [2, 2], [2, 2]],
+            ],
+            color="blue",
+            interpolation=True,
+        )
+        data = _geom(d, fid)["meshes"][0]
+        return mesh, data, d, fid
+
+    def test_add_returns_scene_field_mesh(self) -> None:
+        mesh, *_ = self._mesh()
+        assert isinstance(mesh, SceneFieldMesh)
+
+    def test_time_metadata_present(self) -> None:
+        mesh, data, *_ = self._mesh()
+        assert mesh.t == 0
+        assert mesh.t_count == 3
+        assert data["time_index"] == 0
+        assert data["time_count"] == 3
+
+    def test_set_t_rebuilds_visible_slice(self) -> None:
+        mesh, data, *_ = self._mesh()
+        z0 = data["vertices"][2]
+        mesh.set_t(2)
+        assert mesh.t == 2
+        assert data["time_index"] == 2
+        assert data["vertices"][2] == pytest.approx(z0 + 2.0)
+
+    def test_set_t_clamps(self) -> None:
+        mesh, data, *_ = self._mesh()
+        mesh.set_t(99)
+        assert mesh.t == 2
+        assert data["time_index"] == 2
+
+    def test_set_time_alias(self) -> None:
+        mesh, data, *_ = self._mesh()
+        mesh.set_time(1)
+        assert mesh.t == 1
+        assert data["time_index"] == 1
+
+    def test_set_color_rebuilds_vertex_colors(self) -> None:
+        mesh, data, *_ = self._mesh()
+        before = data["vertices"][6:10]
+        mesh.set_color("#ff0000")
+        after = data["vertices"][6:10]
+        assert before != after
+        assert after == pytest.approx([1.0, 0.0, 0.0, 1.0])
 
 
 # ---------------------------------------------------------------------------

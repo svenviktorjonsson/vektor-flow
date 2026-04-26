@@ -10,6 +10,7 @@ from .tokens import (
     AMPERSAND,
     AND,
     ARROW,
+    AT,
     AT_BANG,
     AT_BAR,
     AT_COLON,
@@ -40,6 +41,7 @@ from .tokens import (
     NEQ,
     NEWLINE,
     NOT,
+    NULL,
     NUMBER,
     OR,
     XOR,
@@ -63,6 +65,7 @@ from .tokens import (
 # Statement-level operator definitions: `+(a, b): …`, `/\\(a, b): …`, `~(x): …`, etc.
 OPERATOR_FUNC_KINDS = frozenset(
     {
+        DOT,
         PLUS,
         MINUS,
         STAR,
@@ -86,6 +89,7 @@ OPERATOR_FUNC_KINDS = frozenset(
 
 def _token_kind_to_op_symbol(kind: str) -> str:
     m = {
+        DOT: ".",
         PLUS: "+",
         MINUS: "-",
         STAR: "*",
@@ -114,7 +118,7 @@ _ATOM_CALL_OP_KINDS = frozenset(OPERATOR_FUNC_KINDS - {NOT})
 
 # ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
 # before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
-_PRIMITIVE_TYPE_IDENTS = frozenset({"num", "str", "bool"})
+_PRIMITIVE_TYPE_IDENTS = frozenset({"int", "num", "str", "byte", "bytes", "bool", "any"})
 
 
 class Parser:
@@ -172,10 +176,9 @@ class Parser:
         self.i += 1
 
     def _expect_end_of_simple_control_stmt(self) -> None:
-        """After ``@>``, ``@|``, ``@!``: no expression; end the statement without eating the next line.
+        """After ``@`` / ``@>`` / ``@|`` / ``@!``: no expression; end the statement without eating the next line.
 
-        Only one line break is consumed as statement end, so a sibling line (e.g. the
-        next ``0 =>`` arm) is not lost to ``@>``.
+        Only one line break is consumed as statement end, so sibling lines are not lost.
         """
         k = self._peek_raw()
         if k == NEWLINE:
@@ -186,7 +189,7 @@ class Parser:
                 self.i += 1
             return
         raise ParseError(
-            "expected end of line, `;`, `)`, end of input, or dedent after `@>` / `@|` / `@!`",
+            "expected end of line, `;`, `)`, end of input, or dedent after `@` / `@>` / `@|` / `@!`",
             self._loc_here(),
         )
 
@@ -445,6 +448,11 @@ class Parser:
                 self._loc_here(),
             )
 
+        if self._peek_raw() == AT:
+            self._advance()
+            self._expect_end_of_simple_control_stmt()
+            return ast.ReturnStmt(None)
+
         if self._peek_raw() == AT_GT:
             self._advance()
             self._expect_end_of_simple_control_stmt()
@@ -454,6 +462,10 @@ class Parser:
             self._advance()
             self._expect_end_of_simple_control_stmt()
             return ast.BreakStmt()
+
+        typed_bind = self._try_parse_prefix_typed_bind_stmt()
+        if typed_bind is not None:
+            return typed_bind
 
         if self._peek_raw() == AT_BANG:
             self._advance()
@@ -478,7 +490,7 @@ class Parser:
             if self._peek_raw() in (NEWLINE, SEMICOLON, EOF, RPAREN):
                 if self._peek_raw() == SEMICOLON:
                     self.i += 1
-                return ast.ReturnStmt(None)
+                return ast.ReturnStmt(ast.StructIdentity())
             val = self.parse_expr()
             self._expect_end_of_return_stmt()
             return ast.ReturnStmt(val)
@@ -575,6 +587,29 @@ class Parser:
             return expr
         return ast.ExprStmt(expr)
 
+    def _try_parse_prefix_typed_bind_stmt(self) -> Any | None:
+        self._skip_trivia()
+        if self._peek_raw() not in (IDENT, LPAREN, LBRACKET, LBRACE):
+            return None
+        saved = self.i
+        try:
+            declared_type = self._parse_arrow_type()
+            self._skip_trivia()
+            if self._peek_raw() != IDENT:
+                self.i = saved
+                return None
+            name = str(self._advance().value)
+            self._skip_trivia()
+            if self._peek_raw() != COLON:
+                self.i = saved
+                return None
+            self._advance()
+            value = self.parse_expr()
+            return ast.Bind(ast.Ident(name), value, declared_type=declared_type)
+        except ParseError:
+            self.i = saved
+            return None
+
     def _parse_dot_module_path_from_dot(self) -> ast.DotModulePath:
         self._expect(DOT)
         segments: list[str] = []
@@ -626,6 +661,7 @@ class Parser:
                     "operator function must have a body (indent a block after the colon)",
                     self._loc_here(),
                 )
+            self._expect(INDENT)
             body_stmts: list[Any] = []
             while True:
                 self._skip_trivia()
@@ -669,10 +705,9 @@ class Parser:
                 t = self._parse_arrow_type()
                 if isinstance(t, ast.FuncType):
                     params.append(ast.Param(pname, None, t))
-                elif isinstance(t, ast.PrimTypeRef):
-                    params.append(ast.Param(pname, t.name, None))
                 else:
-                    raise ParseError("expected type after ':'", self._loc_here())
+                    tname = t.name if isinstance(t, ast.PrimTypeRef) else None
+                    params.append(ast.Param(pname, tname, None, t))
             else:
                 params.append(ast.Param(pname, None, None))
             if self._peek_raw() == COMMA:
@@ -681,29 +716,179 @@ class Parser:
             break
         return params
 
-    def _parse_arrow_type(self) -> Any:
-        """Parse ``num``, ``num -> num``, ``num -> num -> num`` (right-associative).
+    def _parse_type_size_atom(self) -> Any:
+        self._skip_trivia()
+        if self._peek_raw() == NUMBER:
+            n = float(self._advance().value)
+            if n != int(n):
+                raise ParseError("type size constants must be integers", self._loc_here())
+            return ast.TypeSizeConst(int(n))
+        if self._peek_raw() == TRUE:
+            self._advance()
+            return ast.TypeSizeConst(1)
+        if self._peek_raw() == FALSE:
+            self._advance()
+            return ast.TypeSizeConst(0)
+        if self._peek_raw() == IDENT:
+            name = str(self._advance().value)
+            if name in _PRIMITIVE_TYPE_IDENTS:
+                raise ParseError(
+                    "type size expressions may only use integer-like compile-time values or symbols, not type names",
+                    self._loc_here(),
+                )
+            return ast.TypeSizeVar(name)
+        if self._peek_raw() == LPAREN:
+            self._advance()
+            inner = self._parse_type_size_expr()
+            self._expect(RPAREN)
+            return inner
+        raise ParseError("expected type size expression", self._loc_here())
 
-        Returns :class:`PrimTypeRef` or :class:`FuncType` (codomain is ``str`` or nested
-        :class:`FuncType`).
-        """
-        left = ast.PrimTypeRef(str(self._expect(IDENT).value))
+    def _parse_type_size_expr(self) -> Any:
+        left = self._parse_type_size_atom()
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() == PLUS:
+                self._advance()
+                left = ast.TypeSizeBinOp("+", left, self._parse_type_size_atom())
+                continue
+            if self._peek_raw() == MINUS:
+                self._advance()
+                left = ast.TypeSizeBinOp("-", left, self._parse_type_size_atom())
+                continue
+            break
+        return left
+
+    def _paren_starts_type_record(self) -> bool:
+        self._skip_trivia()
+        if self._peek_raw() != LPAREN:
+            return False
+        j = self.i + 1
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks):
+            return False
+        if self.toks[j].kind == RPAREN:
+            return False
+        if self.toks[j].kind != IDENT:
+            return False
+        j += 1
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        return j < len(self.toks) and self.toks[j].kind == COLON
+
+    def _parse_fixed_vector_type(self) -> ast.FixedVectorType:
+        self._expect(LBRACKET)
+        elem = self._parse_type_atom()
+        self._expect(COLON)
+        size = self._parse_type_size_expr()
+        self._expect(RBRACKET)
+        return ast.FixedVectorType(elem, size)
+
+    def _parse_multiset_type(self) -> ast.MultisetType:
+        self._expect(LBRACE)
+        elem = self._parse_type_atom()
+        self._expect(RBRACE)
+        return ast.MultisetType(elem)
+
+    def _parse_map_value_type(self) -> ast.MapValueType:
+        name = str(self._expect(IDENT).value)
+        if name != "map":
+            raise ParseError("expected map type", self._loc_here())
+        self._expect(LPAREN)
+        fields: list[tuple[str, Any]] = []
+        if self._peek_raw() != RPAREN:
+            while True:
+                field_name = str(self._expect(IDENT).value)
+                self._expect(COLON)
+                fields.append((field_name, self._parse_arrow_type()))
+                if self._peek_raw() == COMMA:
+                    self._advance()
+                    continue
+                break
+        self._expect(RPAREN)
+        return ast.MapValueType(fields)
+
+    def _parse_linked_list_value_type(self) -> ast.LinkedListValueType:
+        name = str(self._expect(IDENT).value)
+        if name != "list":
+            raise ParseError("expected list type", self._loc_here())
+        self._expect(LPAREN)
+        elements: list[Any] = []
+        if self._peek_raw() != RPAREN:
+            while True:
+                elements.append(self._parse_arrow_type())
+                if self._peek_raw() == COMMA:
+                    self._advance()
+                    continue
+                break
+        self._expect(RPAREN)
+        return ast.LinkedListValueType(elements)
+
+    def _parse_type_atom(self) -> Any:
+        self._skip_trivia()
+        if self._peek_raw() == LPAREN:
+            if self._paren_starts_type_record():
+                return self._parse_type_record()
+            return self._parse_tuple_type()
+        if self._peek_raw() == LBRACKET:
+            return self._parse_fixed_vector_type()
+        if self._peek_raw() == LBRACE:
+            return self._parse_multiset_type()
+        if self._peek_raw() == IDENT:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                ident = str(self.toks[self.i].value)
+                if ident == "map":
+                    return self._parse_map_value_type()
+                if ident == "list":
+                    return self._parse_linked_list_value_type()
+            ident = str(self.toks[self.i].value)
+            if ident in _PRIMITIVE_TYPE_IDENTS or self._name_is_type_bind(ident):
+                return ast.PrimTypeRef(str(self._advance().value))
+        raise ParseError("expected type atom", self._loc_here())
+
+    def _parse_arrow_type(self) -> Any:
+        """Parse type expressions with right-associative ``->``."""
+        left = self._parse_type_atom()
         if self._peek_raw() != ARROW:
             return left
         self._advance()
         rhs = self._parse_arrow_type()
-        if isinstance(rhs, ast.FuncType):
-            return ast.FuncType(left, rhs)
-        if isinstance(rhs, ast.PrimTypeRef):
-            return ast.FuncType(left, rhs.name)
-        raise ParseError("internal: arrow type tail must be PrimTypeRef or FuncType", self._loc_here())
+        return ast.FuncType(left, rhs)
 
     def _normalize_codomain_for_func_type(self, cod: Any) -> Any:
-        if isinstance(cod, ast.PrimTypeRef):
-            return cod.name
-        if isinstance(cod, ast.FuncType):
+        if isinstance(
+            cod,
+                (
+                    ast.PrimTypeRef,
+                    ast.FuncType,
+                    ast.TupleTypeExpr,
+                    ast.TypeExpr,
+                    ast.FixedVectorType,
+                    ast.MultisetType,
+                    ast.MapValueType,
+                    ast.LinkedListValueType,
+                    ast.NamedTypeSpec,
+                ),
+            ):
             return cod
         raise ParseError("internal: invalid function codomain", self._loc_here())
+
+    def _parse_return_type_spec(self) -> Any:
+        self._skip_trivia()
+        if self._peek_raw() == IDENT:
+            saved = self.i
+            try:
+                name = str(self._advance().value)
+                self._expect(COLON)
+                named = ast.NamedTypeSpec(name, self._parse_arrow_type())
+                self._skip_trivia()
+                if self._peek_raw() == COLON:
+                    return named
+            except ParseError:
+                pass
+            self.i = saved
+        return self._parse_arrow_type()
 
     def parse_func_def(self) -> ast.FuncDef:
         name = str(self._expect(IDENT).value)
@@ -713,7 +898,7 @@ class Parser:
         func_type: ast.FuncType | None = None
         if self._peek_raw() == ARROW:
             self._advance()
-            cod = self._parse_arrow_type()
+            cod = self._parse_return_type_spec()
             domain = self._params_to_domain_type(params)
             func_type = ast.FuncType(domain, self._normalize_codomain_for_func_type(cod))
         self._expect(COLON)
@@ -738,59 +923,21 @@ class Parser:
         return len(name) > 0 and name[0].isalpha() and name[0].isupper()
 
     def _is_type_record_shape(self) -> bool:
-        """True if the next ``( … )`` is a flat type record (``ident:ident`` pairs only)."""
-        self._skip_trivia()
-        if self._peek_raw() != LPAREN:
-            return False
-        j = self.i + 1
-        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
-            j += 1
-        if j >= len(self.toks):
-            return False
-        if self.toks[j].kind == RPAREN:
-            return True
-        while True:
-            if self.toks[j].kind != IDENT:
-                return False
-            j += 1
-            if j >= len(self.toks) or self.toks[j].kind != COLON:
-                return False
-            j += 1
-            if j >= len(self.toks):
-                return False
-            rhs_k = self.toks[j].kind
-            if rhs_k == NUMBER:
-                return False
-            if rhs_k != IDENT:
-                return False
-            j += 1
-            while j < len(self.toks) and self.toks[j].kind == NEWLINE:
-                j += 1
-            if j >= len(self.toks):
-                return False
-            if self.toks[j].kind == RPAREN:
-                return True
-            if self.toks[j].kind == COMMA:
-                j += 1
-                while j < len(self.toks) and self.toks[j].kind == NEWLINE:
-                    j += 1
-                continue
-            return False
+        return self._paren_starts_type_record()
 
     def _parse_type_record(self) -> ast.TypeExpr:
         self._expect(LPAREN)
         return self._parse_type_record_after_lparen()
 
     def _parse_type_record_after_lparen(self) -> ast.TypeExpr:
-        fields: list[tuple[str, str]] = []
+        fields: list[tuple[str, Any]] = []
         if self._peek_raw() == RPAREN:
             self._advance()
             return ast.TypeExpr([])
         while True:
             fname = str(self._expect(IDENT).value)
             self._expect(COLON)
-            tname = str(self._expect(IDENT).value)
-            fields.append((fname, tname))
+            fields.append((fname, self._parse_arrow_type()))
             if self._peek_raw() == COMMA:
                 self._advance()
                 continue
@@ -798,72 +945,50 @@ class Parser:
             return ast.TypeExpr(fields)
 
     def _is_type_record_contents_after_lparen(self) -> bool:
-        """True if ``(`` was just consumed and body matches ``ident:ident [, …]``."""
-        j = self.i
+        self._skip_trivia()
+        if self._peek_raw() == RPAREN:
+            return False
+        if self._peek_raw() != IDENT:
+            return False
+        j = self.i + 1
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks) or self.toks[j].kind != COLON:
+            return False
+        j += 1
         while j < len(self.toks) and self.toks[j].kind == NEWLINE:
             j += 1
         if j >= len(self.toks):
             return False
-        if self.toks[j].kind == RPAREN:
-            return False
-        while True:
-            if self.toks[j].kind != IDENT:
-                return False
-            j += 1
-            if j >= len(self.toks) or self.toks[j].kind != COLON:
-                return False
-            j += 1
-            if j >= len(self.toks):
-                return False
-            if self.toks[j].kind != IDENT:
-                return False
-            j += 1
-            while j < len(self.toks) and self.toks[j].kind == NEWLINE:
-                j += 1
-            if j >= len(self.toks):
-                return False
-            if self.toks[j].kind == RPAREN:
-                return True
-            if self.toks[j].kind == COMMA:
-                j += 1
-                while j < len(self.toks) and self.toks[j].kind == NEWLINE:
-                    j += 1
-                continue
-            return False
+        return self.toks[j].kind in (IDENT, LPAREN, LBRACKET)
 
     def _parse_tuple_type(self) -> ast.TupleTypeExpr:
         self._expect(LPAREN)
-        els: list[str] = []
+        els: list[Any] = []
         if self._peek_raw() == RPAREN:
             self._advance()
             return ast.TupleTypeExpr([])
         while True:
-            els.append(str(self._expect(IDENT).value))
+            els.append(self._parse_arrow_type())
             if self._peek_raw() == COMMA:
                 self._advance()
                 continue
             self._expect(RPAREN)
             return ast.TupleTypeExpr(els)
 
-    def _parse_type_domain(self) -> ast.PrimTypeRef | ast.TupleTypeExpr | ast.TypeExpr:
-        self._skip_trivia()
-        if self._peek_raw() == LPAREN:
-            if self._is_type_record_shape():
-                return self._parse_type_record()
-            return self._parse_tuple_type()
-        if self._peek_raw() == IDENT:
-            return ast.PrimTypeRef(str(self._advance().value))
-        raise ParseError("expected type (record, tuple, or name)", self._loc_here())
+    def _parse_type_domain(self) -> Any:
+        return self._parse_type_atom()
 
     def _parse_type_definition(self) -> ast.TypeExpr | ast.FuncType:
         """Parse a type RHS after ``Name :`` when ``Name`` is a type binding (capitalized)."""
         domain = self._parse_type_domain()
-        self._skip_trivia()
+        if isinstance(domain, ast.TupleTypeExpr) and not domain.elements:
+            domain = ast.TypeExpr([])
         if self._peek_raw() == ARROW:
             self._advance()
-            codomain = str(self._expect(IDENT).value)
+            codomain = self._parse_return_type_spec()
             return ast.FuncType(domain, codomain)
-        if isinstance(domain, ast.TypeExpr):
+        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
             return domain
         raise ParseError(
             "tuple or bare type name requires '->' codomain (e.g. num -> num, (num,num) -> num)",
@@ -874,7 +999,18 @@ class Parser:
         if isinstance(target, ast.Ident) and self._name_is_type_bind(target.name):
             saved = self.i
             try:
-                return self._parse_type_definition()
+                out = self._parse_type_definition()
+                if (
+                    isinstance(out, ast.MapValueType) and not out.fields
+                ) or (
+                    isinstance(out, ast.LinkedListValueType) and not out.elements
+                ):
+                    self.i = saved
+                    return self.parse_expr()
+                if self._peek_raw() not in (NEWLINE, SEMICOLON, EOF, DEDENT):
+                    self.i = saved
+                    return self.parse_expr()
+                return out
             except ParseError:
                 self.i = saved
                 return self.parse_expr()
@@ -895,11 +1031,19 @@ class Parser:
             self._advance()
             if self._peek_raw() == QUESTION:
                 self._advance()
+                loop_mode = False
+                if self._peek_raw() == GT:
+                    self._advance()
+                    loop_mode = True
                 arms = self._parse_match_arms_after_double_question()
-                left = ast.MatchStmt(left, arms)
+                left = ast.MatchStmt(left, arms, loop=loop_mode)
             else:
+                loop_mode = False
+                if self._peek_raw() == GT:
+                    self._advance()
+                    loop_mode = True
                 body = self._parse_conditional_body()
-                left = ast.ConditionalExpr(left, body)
+                left = ast.ConditionalExpr(left, body, loop=loop_mode)
         segments: list[Any] = []
         while True:
             k = self._peek_raw()
@@ -1090,7 +1234,7 @@ class Parser:
 
     def _params_to_domain_type(
         self, params: list[ast.Param]
-    ) -> ast.PrimTypeRef | ast.TupleTypeExpr | ast.TypeExpr:
+    ) -> Any:
         if not params:
             return ast.TupleTypeExpr([])
         fields: list[tuple[str, Any]] = []
@@ -1098,7 +1242,7 @@ class Parser:
             if p.param_func_type is not None:
                 fields.append((p.name, p.param_func_type))
             else:
-                fields.append((p.name, p.type_name or "any"))
+                fields.append((p.name, p.type_ref if p.type_ref is not None else (p.type_name or "any")))
         return ast.TypeExpr(fields)
 
     def _dot_adjacency(self) -> tuple[bool, bool]:
@@ -1311,6 +1455,9 @@ class Parser:
         if k == FALSE:
             self._advance()
             return ast.BoolLit(False)
+        if k == NULL:
+            self._advance()
+            return ast.NullLit()
         if k == DOT:
             return self._parse_dot_module_path_from_dot()
         if k == IDENT:
@@ -1324,13 +1471,17 @@ class Parser:
                 self._advance()
                 return ast.StructLit([])
             if self._is_type_record_contents_after_lparen():
-                te = self._parse_type_record_after_lparen()
-                self._skip_trivia()
-                if self._peek_raw() == ARROW:
-                    self._advance()
-                    cod = str(self._expect(IDENT).value)
-                    return ast.FuncType(te, cod)
-                return te
+                saved = self.i
+                try:
+                    te = self._parse_type_record_after_lparen()
+                    self._skip_trivia()
+                    if self._peek_raw() == ARROW:
+                        self._advance()
+                        cod = self._parse_return_type_spec()
+                        return ast.FuncType(te, self._normalize_codomain_for_func_type(cod))
+                    return te
+                except ParseError:
+                    self.i = saved
             if (
                 self._peek_raw() == DOLLAR
                 and self.i + 1 < len(self.toks)

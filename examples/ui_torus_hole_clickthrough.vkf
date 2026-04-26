@@ -49,7 +49,6 @@ dispatch(e):
     ui.MOUSE_MOVE => on_mouse_move(e)
 
 running: true
-running?
+running?>
   events.poll()? dispatch(events.get())
   t.sleep(0.016)
-  @>

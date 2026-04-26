@@ -33,6 +33,7 @@ from .tokens import (
     AMPERSAND,
     AND,
     ARROW,
+    AT,
     AT_BANG,
     AT_BAR,
     AT_COLON,
@@ -303,6 +304,9 @@ class Lexer:
         # ``@`` before ``:`` so ``@::`` becomes ``AT_EMIT`` (not ``@`` + ``::`` emit).
         if ch == "@":
             self._advance()
+            # Allow spaced return channel forms: ``@ :`` / ``@ : expr``.
+            while self._peek() in (" ", "\t"):
+                self._advance()
             n = self._peek()
             if n == ">":
                 self._advance()
@@ -321,10 +325,7 @@ class Lexer:
                 else:
                     self._emit(AT_COLON, None, loc)
             else:
-                raise LexError(
-                    "incomplete `@`; use `@:` / `@::`, `@>`, `@|`, or `@!`",
-                    loc,
-                )
+                self._emit(AT, None, loc)
             return
         # Multi-character operators.
         if ch == ":":

@@ -18,7 +18,6 @@ dispatch(e):
     ui.MOUSE_WHEEL => cam.zoom_by_wheel(e.step)
 
 running: true
-running?
+running?>
   events.poll()? dispatch(events.get())
   t.sleep(0.016)
-  @>

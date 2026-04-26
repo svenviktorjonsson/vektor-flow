@@ -71,6 +71,8 @@ fn vs(v: Vin) -> Vout {
 @fragment
 fn fs(i: Vout) -> @location(0) vec4f {
   let base = i.color.rgb;
+  let a    = i.color.a;
+  let t    = a;
   let N    = normalize(i.normal);
   let L    = normalize(sc.light_pos - i.world_pos);
   let V    = normalize(sc.cam_pos   - i.world_pos);
@@ -78,22 +80,26 @@ fn fs(i: Vout) -> @location(0) vec4f {
 
   if (sc.light_model == 0u) {
     // flat — vertex color only, no lighting
-    return vec4f(base, i.color.a);
+    return vec4f(base * t, a);
   } else if (sc.light_model == 1u) {
     // lambert — ambient + diffuse
-    let ambient  = 0.15 * base;
+    let ambient  = 0.28 * base;
     let diff     = max(dot(N, L), 0.0);
     let diffuse  = diff * lc * base;
-    return vec4f(ambient + diffuse, i.color.a);
+    let lit = ambient + diffuse;
+    return vec4f(lit * t, a);
   } else {
     // blinn_phong — ambient + diffuse + specular
-    let ambient  = 0.15 * base;
+    let ambient  = 0.28 * base;
     let diff     = max(dot(N, L), 0.0);
     let diffuse  = diff * lc * base;
     let H        = normalize(L + V);
     let spec     = pow(max(dot(N, H), 0.0), 64.0);
-    let specular = spec * lc * 0.5;
-    return vec4f(ambient + diffuse + specular, i.color.a);
+    // For translucent surfaces, reduce mirror-like highlights more aggressively.
+    // Without this, stacked alpha layers can look overly bright.
+    let specular = spec * lc * (0.5 * a);
+    let lit = (ambient + diffuse) * t + specular;
+    return vec4f(lit, a);
   }
 }
 `;
@@ -196,25 +202,41 @@ fn fs_pick() -> @location(0) vec2<u32> {
         });
         var plLayout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] });
 
-        var makeDesc = function (topo, cullMode) {
+        var makeDesc = function (topo, cullMode, transparent) {
+          var targets = [{ format: format }];
+          if (transparent) {
+            targets = [{
+              format: format,
+              blend: {
+                color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+                alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+              },
+            }];
+          }
           var d = {
             layout: plLayout,
             vertex:   { module: mod, entryPoint: "vs", buffers: [vbufDesc] },
-            fragment: { module: mod, entryPoint: "fs", targets: [{ format: format }] },
+            fragment: { module: mod, entryPoint: "fs", targets: targets },
             primitive: { topology: topo },
-            depthStencil: { depthWriteEnabled: true, depthCompare: "less", format: "depth24plus" },
+            depthStencil: {
+              depthWriteEnabled: transparent ? false : true,
+              depthCompare: "less",
+              format: "depth24plus",
+            },
           };
           if (cullMode) { d.primitive.cullMode = cullMode; }
           return d;
         };
 
-        var pipeTri, pipeLine;
+        var pipeTri, pipeLine, pipeTriAlpha;
         if (typeof device.createRenderPipelineAsync === "function") {
           pipeTri  = await device.createRenderPipelineAsync(makeDesc("triangle-list"));
           pipeLine = await device.createRenderPipelineAsync(makeDesc("line-list"));
+          pipeTriAlpha = await device.createRenderPipelineAsync(makeDesc("triangle-list", null, true));
         } else {
           pipeTri  = device.createRenderPipeline(makeDesc("triangle-list"));
           pipeLine = device.createRenderPipeline(makeDesc("line-list"));
+          pipeTriAlpha = device.createRenderPipeline(makeDesc("triangle-list", null, true));
         }
         // Picking pipeline — writes rg32uint (object_id, prim_index)
         var pickMod = device.createShaderModule({ code: PICK_SHADER });
@@ -240,7 +262,7 @@ fn fs_pick() -> @location(0) vec2<u32> {
         } else {
           pipePick = device.createRenderPipeline(pickPipeDesc);
         }
-        sharedWgpu = { device, format, bindLayout, pipeTri, pipeLine, pipePick, pickBindLayout };
+        sharedWgpu = { device, format, bindLayout, pipeTri, pipeLine, pipeTriAlpha, pipePick, pickBindLayout };
         wlog("info", "getSharedWgpu: OK");
         return sharedWgpu;
       } catch (err) {
@@ -350,6 +372,7 @@ fn fs_pick() -> @location(0) vec2<u32> {
     this._format     = null;
     this._pipeTri    = null;
     this._pipeLine   = null;
+    this._pipeTriAlpha = null;
     this._bindLayout = null;
     this._depthTex   = null;
     this._uniformBuf = null;
@@ -574,7 +597,10 @@ fn fs_pick() -> @location(0) vec2<u32> {
           depthStoreOp:    "store",
         },
       });
-      var pipe = this._topology === "line-list" ? this._pipeLine : this._pipeTri;
+      var isTransparent = !!mesh.transparent && this._topology === "triangle-list";
+      var pipe = this._topology === "line-list"
+        ? this._pipeLine
+        : (isTransparent && this._pipeTriAlpha ? this._pipeTriAlpha : this._pipeTri);
       pass.setPipeline(pipe);
       pass.setBindGroup(0, this._bindGroup);
       pass.setVertexBuffer(0, this._vb);
@@ -833,6 +859,7 @@ fn fs_pick() -> @location(0) vec2<u32> {
     this._bindLayout = sg.bindLayout;
     this._pipeTri    = sg.pipeTri;
     this._pipeLine   = sg.pipeLine;
+    this._pipeTriAlpha = sg.pipeTriAlpha || null;
     this._ctx = c.getContext("webgpu");
     if (!this._ctx) { wlog("error", "getContext('webgpu') null"); return false; }
     try {

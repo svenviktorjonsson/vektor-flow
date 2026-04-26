@@ -48,7 +48,7 @@ class TestPhase2TypesAndOps:
         ip = Interpreter(Path(__file__))
         ip.run_module(mod)
         assert "Point" in ip.types
-        assert ip.types["Point"].fields == [("x", "num"), ("y", "num")]
+        assert [(n, t.name) for n, t in ip.types["Point"].fields] == [("x", "num"), ("y", "num")]
 
     def test_empty_type_record(self) -> None:
         mod = parse_module("Empty : ()", filename="<test>")
@@ -127,8 +127,57 @@ b : 2
         src = "+(a:num, b:num): 0\n"
         mod = parse_module(src, filename="<test>")
         ip = Interpreter(Path(__file__))
+        with pytest.raises(EvalError, match="at least one parameter"):
+            ip.run_module(mod)
+
+    def test_operator_overload_allows_custom_plus_primitive(self) -> None:
+        src = """
+Point(x:num):
+    :
+
++(a:Point, b:num):
+    Point(a.x + b)
+
+p : Point(2)
+:: (p + 3).x
+"""
+        assert _run_emit(src) in ("5", "5.0")
+
+    def test_cast_overload_on_custom_type(self) -> None:
+        src = """
+Person(name:str, age:num):
+    :
+
+str(p:Person):
+    p.name & ", " & p.age
+
+p : Person("Ada", 42)
+:: str(p)
+"""
+        assert _run_emit(src) in ("Ada, 42", "Ada, 42.0")
+
+    def test_cast_overload_rejects_builtin_only_param(self) -> None:
+        src = 'str(s:str): s\n'
+        mod = parse_module(src, filename="<test>")
+        ip = Interpreter(Path(__file__))
         with pytest.raises(EvalError, match="custom or constructed"):
             ip.run_module(mod)
+
+    def test_dot_reach_overload_on_custom_type(self) -> None:
+        src = """
+Pair(x:num, y:num):
+    :
+
+.(p:Pair, key:str):
+    key = "left"? @: p.x
+    key = "right"? @: p.y
+    @
+
+p : Pair(3, 4)
+:: p.left
+:: p.("right")
+"""
+        assert _run_emit(src) in ("3\n4", "3.0\n4.0")
 
 
 class TestStructElementwiseMultisetFields:

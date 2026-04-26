@@ -1,4 +1,4 @@
-"""Control flow: ``@:`` return, ``@>`` / ``@|`` on ``>>`` pipes, ``@!`` exit, conditionals, and switches."""
+"""Control flow: ``@`` returns, ``@>`` / ``@|`` loop control, ``@!`` exit, conditionals, and switches."""
 
 from __future__ import annotations
 
@@ -43,6 +43,34 @@ f(x):
     assert _run(src) == "11"
 
 
+def test_bare_at_returns_null() -> None:
+    assert _run("f():\n  @\n:: f()") == "null"
+
+
+def test_at_colon_returns_local_scope_object() -> None:
+    out = _run("f():\n  a: 1\n  b: 2\n  @:\n:: f()")
+    assert "a" in out and "b" in out
+    assert "1" in out and "2" in out
+
+
+def test_at_returns_nearest_colon_scope_only() -> None:
+    src = """
+f():
+  g():
+    @: 3
+  g()
+  9
+:: f()
+"""
+    assert _run(src) == "9"
+
+
+def test_module_is_implicit_return_scope() -> None:
+    mod = parse_module("x: 1\n@ : x + 2\n", filename="<test>")
+    ip = Interpreter(Path(__file__))
+    assert ip.run_module(mod) == 3
+
+
 def test_conditional_assign() -> None:
     """``expr? body`` runs body when truthy and otherwise falls through."""
     src = """
@@ -67,15 +95,22 @@ g(i):
     assert _run(src) == "3"
 
 
-def test_switch_rewind_body_then_at_gt() -> None:
-    """Switch re-entry: ``@>`` last in an arm runs prior binds, then re-runs the same ``expr??``."""
+def test_switch_loop_continue_with_at_gt() -> None:
+    """``@>`` continues the nearest explicit ``??>`` loop."""
     src = """
 k : 0
-k < 3??
+k??>
+  0 =>
+    k : k + 1
+    @>
   1 =>
     k : k + 1
     @>
-  0 => :: k
+  2 =>
+    k : k + 1
+    @>
+  3 => @|
+:: k
 """
     assert _run(src) == "3"
 
@@ -105,10 +140,14 @@ def test_conditional_expression_returns_null_on_false() -> None:
     assert _run("x: 1\n:: (x>2? 99)") == "null"
 
 
-def test_conditional_rewind_with_at_gt() -> None:
+def test_conditional_expression_returns_null_on_true_after_effects() -> None:
+    assert _run("x: 0\n:: (true? x: 1)\n:: x") == "null\n1"
+
+
+def test_conditional_loop_continue_with_at_gt() -> None:
     src = """
 k: 0
-k<3?
+k<3?>
   k: k + 1
   @>
 :: k

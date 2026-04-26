@@ -2,7 +2,7 @@
 
 A mathematical visualization and computational language.
 
-**Status:** Reference interpreter in Python (language surface matches this document; not fast). Once the semantics stabilize, the backend will be replaced with a fast VM or native compiler.
+**Status:** Reference interpreter in Python plus an early native compiler pipeline for a growing benchmarked subset. The interpreter is still the language reference; the C++ backend is now used to prove and measure real examples, not yet to cover the full language.
 
 File extension: `.vkf`.
 
@@ -31,6 +31,14 @@ vkf examples/hello.vkf
 vkf examples/hello
 vkf examples/branching.vkf
 
+# Emit C++ for the currently supported native subset
+vkf cpp examples/benchmarks/vectors_shapes.vkf
+
+# Benchmark curated examples through interpreter/native paths
+vkf bench --list
+vkf bench
+vkf bench vectors records
+
 # Lexer diagnostics
 vkf tokens examples/hello.vkf
 
@@ -40,6 +48,25 @@ vkf -s '"hi" ::'
 # Same as `vkf` if the package is installed
 python -m vektorflow --version
 ```
+
+## Benchmarks And Native Compiler Progress
+
+The repo now includes a curated benchmark suite in [`examples/benchmarks`](examples/benchmarks) and a CLI entrypoint:
+
+```bash
+vkf bench --list
+vkf bench
+```
+
+Each benchmark currently records as much of the pipeline as the local machine supports:
+
+- parse time
+- IR lowering time
+- interpreter runtime
+- C++ emit time
+- native compile/run time when `clang++` or `g++` is available on `PATH`
+
+This is the current end-to-end proving ground for the compiler work. The idea is simple: when we extend the native subset, we should also add or expand a benchmark so we can track both correctness and bottlenecks over time.
 
 ### Standard library (`:.math`)
 
@@ -106,7 +133,7 @@ A small expression evaluator (`vektorflow.expr.eval_expression`) parses **`|expr
 
 **Development:** open the `vscode` folder and press **F5** (“Run Extension”) to launch an **Extension Development Host** window.
 
-**Optional CLI install:** in `vscode/` run `npm install -g @vscode/vsce && vsce package` and `code --install-extension .\vektorflow-0.0.2.vsix` (version from `package.json`).
+**Optional CLI install:** in `vscode/` run `npm install -g @vscode/vsce && vsce package`, then install the generated `.vsix` that matches the version in `vscode/package.json`. Avoid checking stale packaged `.vsix` artifacts into the repo.
 
 The repo includes **`.vscode/`** for this workspace:
 

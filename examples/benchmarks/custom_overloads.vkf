@@ -1,0 +1,16 @@
+Point : (x:num, y:num)
+
+str(p:Point):
+    "P($p.x,$p.y)"
+
+display(p:Point):
+    "point[$p.x|$p.y]"
+
+.(p:Point, key:str):
+    key="sum"? @: p.x + p.y
+    0
+
+Point p: (x:2, y:5)
+:: p
+:: str(p)
+:: p.sum

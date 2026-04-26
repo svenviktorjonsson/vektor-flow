@@ -3,6 +3,8 @@
 Usage
 -----
     vkf <file>               Run a .vkf file (``a`` → ``a.vkf`` if needed)
+    vkf cpp <file>           Emit C++ for the currently supported native subset
+    vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
     vkf -s 'code'           Tokenize an inline snippet
@@ -14,7 +16,6 @@ Usage
 
 from __future__ import annotations
 
-import argparse
 import os
 import sys
 from pathlib import Path
@@ -78,12 +79,51 @@ def cmd_run(path: Path) -> int:
     return 0
 
 
+def cmd_cpp(path: Path, out_path: Path | None) -> int:
+    try:
+        from .cpp_backend import emit_cpp_from_source_file
+
+        source = emit_cpp_from_source_file(path)
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if out_path is not None:
+        out_path.write_text(source, encoding="utf-8")
+    else:
+        print(source, end="")
+    return 0
+
+
+def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
+    from .benchmarks import format_benchmark_report, list_benchmarks, run_benchmark, select_benchmarks
+
+    if list_only:
+        for case in list_benchmarks():
+            native = "native" if case.native_supported else "interp-only"
+            print(f"{case.name}\t{native}\t{case.rel_path}\t{case.description}")
+        return 0
+
+    cases = select_benchmarks(patterns)
+    if not cases:
+        print("error: no benchmarks matched", file=sys.stderr)
+        return 1
+    results = [run_benchmark(case) for case in cases]
+    print(format_benchmark_report(results))
+    return 0 if all(r.ok for r in results) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     if not argv:
         print(
-            "usage: vkf <file> | vkf tokens <file> | vkf -s <snippet>\n"
+            "usage: vkf <file> | vkf cpp <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet>\n"
             "       (omit .vkf: `vkf hello` finds `hello.vkf`)",
             file=sys.stderr,
         )
@@ -93,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "Vektor Flow — vkf\n\n"
             "  vkf <file>           Run a .vkf file (extension optional)\n"
+            "  vkf cpp <file>       Emit C++ for the supported native subset\n"
+            "  vkf bench [name ...] Run curated benchmark examples\n"
             "  vkf --ui-terminal <file>\n"
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
@@ -126,6 +168,42 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         source = path.read_text(encoding="utf-8")
         return cmd_tokens(source, filename=str(path), compact=compact)
+
+    if argv[0] == "cpp":
+        out_path: Path | None = None
+        args = argv[1:]
+        if not args:
+            print("error: vkf cpp <file>", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_cpp(path, out_path)
+
+    if argv[0] == "bench":
+        args = argv[1:]
+        list_only = False
+        if "--list" in args:
+            list_only = True
+            args = [a for a in args if a != "--list"]
+        if any(a.startswith("-") for a in args):
+            bad = next(a for a in args if a.startswith("-"))
+            print(f"error: unknown option {bad!r}", file=sys.stderr)
+            return 1
+        return cmd_bench(args, list_only=list_only)
 
     # Default: run
     run_args = list(argv)

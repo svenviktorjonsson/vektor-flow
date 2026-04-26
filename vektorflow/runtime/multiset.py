@@ -20,10 +20,11 @@ from typing import Any, Callable, Iterator
 class Multiset:
     """Immutable multiset: hashable elements → positive integer counts."""
 
-    __slots__ = ("_c",)
+    __slots__ = ("_c", "vf_type_expr")
 
     def __init__(self, counts: dict[Any, int] | Counter | None = None) -> None:
         self._c: Counter[Any] = Counter()
+        self.vf_type_expr = None
         if counts is not None:
             for k, v in counts.items():
                 if v > 0:

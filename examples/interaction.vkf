@@ -54,7 +54,6 @@ dispatch(e):
       :: log_prefix(e) & " obj=$e.object_id"
     :: log_prefix(e)
 
-true?
+true?>
   events.poll()? dispatch(events.get())
   t.sleep(0.016)
-  @>

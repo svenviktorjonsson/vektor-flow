@@ -1,0 +1,6 @@
+make(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))), total:num):
+    (payload:payload, total:3)
+
+state: collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b")))
+:: make(state)
+:: make(state).payload.meta.name

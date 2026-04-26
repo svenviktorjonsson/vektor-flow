@@ -1,0 +1,16 @@
+step(x:num) -> num:
+    x < 0? @: 0
+    x??
+        0 => @: 1
+        1 => @: 3
+        @: x + 2
+
+accumulate(n:num) -> num:
+    k: 0
+    total: 0
+    k < n?>
+        total: total + step(k)
+        k: k + 1
+    total
+
+:: accumulate(5)

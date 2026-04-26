@@ -23,6 +23,7 @@ STRING_RAW = "STRING_RAW"
 IDENT = "IDENT"
 TRUE = "TRUE"
 FALSE = "FALSE"
+NULL = "NULL"
 
 # Logical operators (lexemes: `/\`, `\/`, `><`, `~`)
 AND = "AND"
@@ -62,11 +63,12 @@ QUESTION = "QUESTION"  # ?
 DOLLAR = "DOLLAR"      # $  (sigil, used for lambda/pipe-element/current)
 
 # Control flow (``@`` family)
-# ``@:`` return; ``@::`` return and emit; ``@>`` continue (>> pipe) / switch re-entry in ``?``; ``@|`` break; ``@!`` exit (no bare ``@``).
-AT_COLON = "AT_COLON"  # @:  return
+# ``@`` returns ``null``; ``@:`` returns local scope / value; ``@::`` return+emit.
+AT = "AT"              # @   return null
+AT_COLON = "AT_COLON"  # @:  return local scope / value
 AT_EMIT = "AT_EMIT"  # @::  return and print (single token so ``::`` is not split from ``@:``)
-AT_GT = "AT_GT"        # @>  continue innermost >> pipe, or re-enter expr? switch when last in arm
-AT_BAR = "AT_BAR"      # @|  break innermost >> pipe
+AT_GT = "AT_GT"        # @>  continue innermost loop / pipe iteration
+AT_BAR = "AT_BAR"      # @|  break innermost loop / pipe iteration
 AT_BANG = "AT_BANG"    # @!  exit program
 
 # Brackets
@@ -87,6 +89,7 @@ EOF = "EOF"
 KEYWORDS: dict[str, str] = {
     "true": TRUE,
     "false": FALSE,
+    "null": NULL,
 }
 
 

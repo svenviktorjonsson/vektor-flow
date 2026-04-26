@@ -42,6 +42,13 @@ def test_map_empty() -> None:
     assert len(ip.globals["m"]) == 0
 
 
+def test_uppercase_empty_map_prefers_runtime_ctor() -> None:
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(":.collections\nM : map()", "<t>"))
+    assert isinstance(ip.globals["M"], VMap)
+    assert len(ip.globals["M"]) == 0
+
+
 def test_list_variadic_and_single_and_spread() -> None:
     src = """
 :.collections
@@ -63,6 +70,12 @@ L4 : list(:u)
     assert out[2] == "[[1, 2, 3]]"
     # list(:u) — spread iterable into cells
     assert out[3] == "[1, 2, 3]"
+
+
+def test_uppercase_empty_list_prefers_runtime_ctor() -> None:
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(":.collections\nL : list()", "<t>"))
+    assert list(ip.globals["L"]) == []
 
 
 def test_take_on_linked_list() -> None:

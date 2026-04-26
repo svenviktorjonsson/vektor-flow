@@ -1,4 +1,4 @@
-# Two frames, widgets, and a tight event loop (host event queue + io.sleep_ms + @>) — re-enable the loop when wired.
+# Two frames, widgets, and a tight event loop (host event queue + io.sleep_ms + ?>) — re-enable the loop when wired.
 # Run after vf-overlay is built: scripts/build-vf-overlay.ps1, then: vkf examples/gui_event_loop.vkf
 # The ``bridge`` stdlib is not registered; use vektorflow.stdlib.bridge / vf-overlay HTTP when you hook the queue.
 # Optional: set VEKTORFLOW_VF_API or VEKTORFLOW_VF_PORT if the port file is not found.
@@ -50,7 +50,7 @@ d.add_frame(
 
 # --- Event loop sketch (new syntax): explicit dispatch with `??` + `=>`
 # running: true
-# running?
+# running?>
 #     ev: … pop from host queue (see vektorflow.ui.bridge) …
 #     ev=null? io.sleep_ms(40)
 #     ev!=null?
@@ -66,4 +66,4 @@ d.add_frame(
 #                                 text: "Ping from A. "
 #                             )
 #                         )
-#     @>
+#     io.sleep_ms(16)

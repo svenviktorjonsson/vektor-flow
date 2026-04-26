@@ -8,7 +8,7 @@
  *   }
  *
  * Each mesh in geom.meshes can carry:
- *   { type:"box|ellipsoid|torus", center:[x,y,z], scale:[sx,sy,sz], color:"red", rotation:[rx,ry,rz], ... }
+ *   { type:"box|ellipsoid|torus|field_mesh", center:[x,y,z], scale:[sx,sy,sz], color:"red", rotation:[rx,ry,rz], ... }
  *   rotation = Euler degrees [rx, ry, rz] applied ZYX.
  *
  * Each mesh gets its own VfGeomWgpu renderer so model matrices are independent.
@@ -350,6 +350,129 @@
     return Mm.mat4Mul(T, R);
   }
 
+  function meshAlpha(spec) {
+    if (!spec) { return 1; }
+    if (typeof spec.alpha === "number" && isFinite(spec.alpha)) {
+      return Math.max(0, Math.min(1, spec.alpha));
+    }
+    if (Array.isArray(spec.color) && spec.color.length >= 4) {
+      var a = Number(spec.color[3]);
+      if (isFinite(a)) { return Math.max(0, Math.min(1, a)); }
+    }
+    return 1;
+  }
+
+  function transformPointMat4(m, x, y, z) {
+    return [
+      m[0] * x + m[4] * y + m[8]  * z + m[12],
+      m[1] * x + m[5] * y + m[9]  * z + m[13],
+      m[2] * x + m[6] * y + m[10] * z + m[14],
+    ];
+  }
+
+  function transformNormalMat4(m, x, y, z) {
+    var nx = m[0] * x + m[4] * y + m[8]  * z;
+    var ny = m[1] * x + m[5] * y + m[9]  * z;
+    var nz = m[2] * x + m[6] * y + m[10] * z;
+    var nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (nlen < 1e-9) { return [0, 0, 1]; }
+    return [nx / nlen, ny / nlen, nz / nlen];
+  }
+
+  function cameraForward(camera) {
+    var pos = (camera && Array.isArray(camera.pos)) ? camera.pos : [0, 0, 5];
+    var target = (camera && Array.isArray(camera.target)) ? camera.target : [0, 0, 0];
+    var fx = target[0] - pos[0];
+    var fy = target[1] - pos[1];
+    var fz = target[2] - pos[2];
+    var fl = Math.sqrt(fx * fx + fy * fy + fz * fz);
+    if (fl < 1e-9) { return [0, 0, -1]; }
+    return [fx / fl, fy / fl, fz / fl];
+  }
+
+  // Build one frame-level transparent mesh so all translucent surfaces are blended
+  // in a single pass with back-to-front triangle ordering.
+  function buildCombinedTransparentMesh(specs, camera, lights) {
+    if (!Array.isArray(specs) || specs.length < 2) { return null; }
+    var built = [];
+    for (var i = 0; i < specs.length; i++) {
+      var spec = specs[i];
+      var alpha = meshAlpha(spec);
+      if (!(alpha < 0.999)) { return null; }
+      var m = buildSingleMesh(spec, camera, lights);
+      if (!m || m.topology !== "triangle-list") { return null; }
+      built.push({ spec: spec, mesh: m });
+    }
+
+    var camPos = (camera && Array.isArray(camera.pos)) ? camera.pos : [0, 0, 5];
+    var camFwd = cameraForward(camera);
+    var outVerts = [];
+    var tris = []; // {a,b,c,depth}
+    var vertBase = 0;
+
+    for (var b = 0; b < built.length; b++) {
+      var item = built[b];
+      var spec = item.spec;
+      var mesh = item.mesh;
+      var model = meshModelMatrix(spec);
+      var v = mesh.vertices;
+      var idx = mesh.indices;
+      var stride = 10;
+      var vcount = Math.floor(v.length / stride);
+
+      for (var vi = 0; vi < vcount; vi++) {
+        var o = vi * stride;
+        var tp = transformPointMat4(model, v[o], v[o + 1], v[o + 2]);
+        var tn = transformNormalMat4(model, v[o + 3], v[o + 4], v[o + 5]);
+        outVerts.push(
+          tp[0], tp[1], tp[2],
+          tn[0], tn[1], tn[2],
+          v[o + 6], v[o + 7], v[o + 8], v[o + 9]
+        );
+      }
+
+      for (var ti = 0; ti + 2 < idx.length; ti += 3) {
+        var a = vertBase + idx[ti];
+        var c = vertBase + idx[ti + 1];
+        var d = vertBase + idx[ti + 2];
+        var ao = a * stride, co = c * stride, dof = d * stride;
+        var cx = (outVerts[ao] + outVerts[co] + outVerts[dof]) / 3;
+        var cy = (outVerts[ao + 1] + outVerts[co + 1] + outVerts[dof + 1]) / 3;
+        var cz = (outVerts[ao + 2] + outVerts[co + 2] + outVerts[dof + 2]) / 3;
+        var dx = cx - camPos[0], dy = cy - camPos[1], dz = cz - camPos[2];
+        // Transparent triangles must be ordered in camera depth, not radial distance.
+        // Squared distance misorders off-axis triangles and causes strange overlap.
+        var depth = dx * camFwd[0] + dy * camFwd[1] + dz * camFwd[2];
+        tris.push({ a: a, b: c, c: d, depth: depth });
+      }
+      vertBase += vcount;
+    }
+
+    tris.sort(function (lhs, rhs) { return rhs.depth - lhs.depth; }); // far -> near
+    var outIdx = new Uint32Array(tris.length * 3);
+    for (var t = 0; t < tris.length; t++) {
+      outIdx[t * 3] = tris[t].a;
+      outIdx[t * 3 + 1] = tris[t].b;
+      outIdx[t * 3 + 2] = tris[t].c;
+    }
+
+    return {
+      id: "combined_transparent",
+      mode3d: true,
+      label: "combined_transparent",
+      vertices: new Float32Array(outVerts),
+      indices: outIdx,
+      topology: "triangle-list",
+      camera: camera || null,
+      lights: lights || [],
+      center: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      alpha: 1,
+      transparent: true,
+    };
+  }
+
   // Build a single-mesh object for the renderer from a spec
   function buildSingleMesh(spec, camera, lights) {
     var Core = global.VfGeomCore;
@@ -368,6 +491,17 @@
       if (!(major > 0)) { major = 0.65; }
       if (!(minor > 0)) { minor = 0.22; }
       mesh = Core.buildTorus([0,0,0], major, minor, spec.color || null, spec.id || "torus");
+    } else if (spec.type === "field_mesh") {
+      var verts = spec.vertices || [];
+      var inds = spec.indices || [];
+      mesh = {
+        id: spec.id || "field_mesh",
+        mode3d: true,
+        label: spec.id || "field_mesh",
+        vertices: (verts instanceof Float32Array) ? verts : new Float32Array(verts),
+        indices: (inds instanceof Uint32Array) ? inds : new Uint32Array(inds),
+        topology: spec.topology || "triangle-list",
+      };
     } else if (spec.preset) {
       mesh = Core.getPreset(spec.preset);
     } else {
@@ -386,6 +520,8 @@
     out.center   = spec.center   || [0,0,0];
     out.rotation = spec.rotation || [0,0,0];
     out.scale    = spec.scale    || [1,1,1];
+    out.alpha    = meshAlpha(spec);
+    out.transparent = out.alpha < 0.999;
     out._modelMatrix = meshModelMatrix(spec);  // fallback if VfGeomMath.mat4ModelTRS absent
     return out;
   }
@@ -488,17 +624,22 @@
     var specs   = geomSpec.meshes || [];
     var camera  = geomSpec.camera || null;
     var lights  = geomSpec.lights || [];
+    var combinedTransparent = buildCombinedTransparentMesh(specs, camera, lights);
+    var renderSpecs = combinedTransparent
+      ? [{ __mesh: combinedTransparent, type: "combined_transparent" }]
+      : specs;
 
     vlog("info", "updateGeomFrame [" + fid + "]: meshes=" + specs.length +
+      (combinedTransparent ? " (combined transparent pass)" : "") +
       " camera=" + (camera ? JSON.stringify(camera.pos) : "none") +
       " lights=" + lights.length);
 
     if (!frameRecs[fid]) { frameRecs[fid] = { entries: [] }; }
     var rec = frameRecs[fid];
 
-    for (var i = 0; i < specs.length; i++) {
-      var spec = specs[i];
-      var mesh = buildSingleMesh(spec, camera, lights);
+    for (var i = 0; i < renderSpecs.length; i++) {
+      var spec = renderSpecs[i];
+      var mesh = spec.__mesh || buildSingleMesh(spec, camera, lights);
       if (!mesh) {
         vlog("warn", "updateGeomFrame [" + fid + "]: mesh " + i + " build failed, skipping");
         continue;
@@ -506,6 +647,9 @@
 
       if (i < rec.entries.length) {
         rec.entries[i].ref.mesh = mesh;
+        if (rec.entries[i].canvas) {
+          rec.entries[i].canvas.style.opacity = String(mesh.alpha == null ? 1 : mesh.alpha);
+        }
         // log only on first few updates to avoid spam
         if (rec.entries[i]._logCount == null) { rec.entries[i]._logCount = 0; }
         rec.entries[i]._logCount++;
@@ -525,7 +669,7 @@
         var sz = syncCanvasSize(canvas);
         vlog("info", "updateGeomFrame [" + fid + "]: spawning renderer " + i +
           " canvas=" + (sz ? sz.w + "x" + sz.h : "?") +
-          " mesh.type=" + spec.type +
+          " mesh.type=" + (spec.type || "mesh") +
           " center=" + JSON.stringify(spec.center) +
           " scale=" + JSON.stringify(spec.scale) +
           " cam=" + (camera ? JSON.stringify(camera.pos) : "none"));
@@ -536,6 +680,8 @@
           rec.entries.push(entry);
           var r = new Ctor(canvas, function() { return rh.mesh; });
           entry.renderer = r;
+          entry.canvas = cv;
+          cv.style.opacity = String(mesh.alpha == null ? 1 : mesh.alpha);
           // Assign stable object_id (1-based: 0 means "no object")
           r._objectId = meshIdx + 1;
           r.init().then(function(ok) {
@@ -554,13 +700,19 @@
     }
 
     // Stop renderers for meshes that were removed
-    for (var j = specs.length; j < rec.entries.length; j++) {
+    for (var j = renderSpecs.length; j < rec.entries.length; j++) {
       try {
         vlog("info", "updateGeomFrame [" + fid + "]: stopping renderer " + j + " (mesh removed)");
         rec.entries[j].renderer.stop();
       } catch(_) {}
+      try {
+        if (rec.entries[j].canvas && rec.entries[j].canvas.parentNode) {
+          rec.entries[j].canvas.parentNode.removeChild(rec.entries[j].canvas);
+        }
+      } catch(_) {}
       rec.entries[j].ref.mesh = null;
     }
+    rec.entries.length = renderSpecs.length;
     // Notify native host of updated hit regions (geom canvases)
     schedulePostGeomLayout();
   }

@@ -243,11 +243,12 @@
       if (!layer) return;
       const g = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : null;
       const gap = 6;
+      const isNestedLayer = !!(layer && layer.classList && layer.classList.contains("vf-frame__overlay"));
       const lcs = global.getComputedStyle ? global.getComputedStyle(layer) : null;
-      const padL = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingLeft ? lcs.paddingLeft : "0") || 0));
-      const padR = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
-      const padT = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
-      const padB = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
+      const padL = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingLeft ? lcs.paddingLeft : "0") || 0));
+      const padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
+      const padT = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
+      const padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
       const all = Array.from(layer.children).filter(function (n) {
         return (
           n instanceof HTMLElement &&
@@ -588,11 +589,12 @@
           root.style.bottom = "auto";
           drag.fixedPos = true;
         }
+        const isNestedLayer = !!(layer && layer.classList && layer.classList.contains("vf-frame__overlay"));
         const lcs = global.getComputedStyle ? global.getComputedStyle(layer) : null;
-        const padL = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingLeft ? lcs.paddingLeft : "0") || 0));
-        const padR = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
-        const padT = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
-        const padB = Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
+        const padL = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingLeft ? lcs.paddingLeft : "0") || 0));
+        const padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
+        const padT = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
+        const padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
         const minL = padL;
         const minT = padT;
         const maxL = Math.max(minL, layer.clientWidth - root.offsetWidth - padR);

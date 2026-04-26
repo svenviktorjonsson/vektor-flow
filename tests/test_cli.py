@@ -44,3 +44,43 @@ class TestMain:
 
     def test_tokens_unknown_file(self) -> None:
         assert main(["tokens", "nope_not_a_file"]) == 1
+
+    def test_cpp_subcommand_stdout(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        src = tmp_path / "native_scalar.vkf"
+        src.write_text(
+            "twice(x:num) -> num:\n"
+            "    x * 2\n\n"
+            "num a: 3\n"
+            ":: twice(a)\n",
+            encoding="utf-8",
+        )
+        assert main(["cpp", str(src)]) == 0
+        out = capsys.readouterr().out
+        assert "double twice(double x)" in out
+        assert 'std::cout << vf_format_num(twice(a)) << "\\n";' in out
+
+    def test_cpp_subcommand_output_file(self, tmp_path: Path) -> None:
+        src = tmp_path / "native_vec.vkf"
+        out = tmp_path / "native_vec.cpp"
+        src.write_text(
+            "[num:2] a: [1,2]\n"
+            "[num:2] b: [3,4]\n"
+            ":: a + b\n",
+            encoding="utf-8",
+        )
+        assert main(["cpp", str(src), "-o", str(out)]) == 0
+        emitted = out.read_text(encoding="utf-8")
+        assert "std::array<double, 2> a" in emitted
+        assert "vf_array_add(a, b)" in emitted
+
+    def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "--list"]) == 0
+        out = capsys.readouterr().out
+        assert "scalar_control" in out
+        assert "custom_overloads" in out
+
+    def test_bench_subcommand_single_case(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["bench", "scalar_control"]) == 0
+        out = capsys.readouterr().out
+        assert "scalar_control" in out
+        assert "summary:" in out

@@ -12,6 +12,7 @@ from vektorflow.tokens import (
     AMPERSAND,
     AND,
     ARROW,
+    AT,
     BAR,
     CARET,
     COLON,
@@ -377,6 +378,7 @@ class TestPrograms:
     def test_at_emit_single_token(self) -> None:
         from vektorflow.tokens import AT_COLON, AT_EMIT
 
+        assert values("@\n") == [(AT, None)]
         assert values("@: x\n") == [(AT_COLON, None), (IDENT, "x")]
         assert values("@:: x\n") == [(AT_EMIT, None), (IDENT, "x")]
 

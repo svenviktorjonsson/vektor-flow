@@ -1,0 +1,4 @@
+mix(state:(bag:{num}, pts:[num:2], total:num), delta:{num}, extra:[num:2]) -> (bag:{num}, pts:[num:2], total:num):
+    (bag:state.bag + delta, pts:state.pts + extra, total:state.total + 2)
+
+:: mix((bag:{1:1, 2:1}, pts:[1,2], total:3), {2:1, 4:2}, [10,20])

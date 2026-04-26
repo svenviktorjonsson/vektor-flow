@@ -19,6 +19,11 @@ class BoolLit:
 
 
 @dataclass
+class NullLit:
+    pass
+
+
+@dataclass
 class StringLit:
     value: str
     #: True for ``'...'`` (literal ``$`` / ``\``; no ``$name`` / ``$(...)`` processing).
@@ -74,8 +79,8 @@ class BinOp:
 class PipeChain:
     """``src >> rhs1 >> rhs2`` — **pipe**: one value at a time through each segment (streaming).
 
-    This is the usual way to express “for each” / iteration; use ``@>`` / ``@|`` inside
-    a pipe segment to continue or break that stream. Switches use ``expr?`` instead.
+    This is the usual way to express “for each” / iteration; use ``@|`` inside
+    a pipe segment to break that stream.
     """
 
     source: Any
@@ -185,6 +190,23 @@ class TypeExpr:
 
 
 @dataclass
+class TypeSizeConst:
+    value: int
+
+
+@dataclass
+class TypeSizeVar:
+    name: str
+
+
+@dataclass
+class TypeSizeBinOp:
+    op: str
+    left: Any
+    right: Any
+
+
+@dataclass
 class PrimTypeRef:
     """Single primitive or named type in a function domain, e.g. ``num`` in ``num -> num``."""
 
@@ -195,15 +217,52 @@ class PrimTypeRef:
 class TupleTypeExpr:
     """Positional product in a function domain, e.g. ``(num, num)`` in ``(num,num) -> num``."""
 
-    elements: list[str]
+    elements: list[Any]
+
+
+@dataclass
+class FixedVectorType:
+    """Fixed-size vector type ``[T:n]`` with symbolic or integer size."""
+
+    element_type: Any
+    size: Any
+
+
+@dataclass
+class MultisetType:
+    """Homogeneous multiset type ``{T}``."""
+
+    element_type: Any
+
+
+@dataclass
+class MapValueType:
+    """Inferred dynamic map value type from ``map(...)`` stdlib ctor usage."""
+
+    fields: list[tuple[str, Any]]
+
+
+@dataclass
+class LinkedListValueType:
+    """Inferred dynamic linked-list value type from ``list(...)`` stdlib ctor usage."""
+
+    elements: list[Any]
+
+
+@dataclass
+class NamedTypeSpec:
+    """Named type slot such as ``x:[num:n+1]`` in a return annotation."""
+
+    name: str
+    type_expr: Any
 
 
 @dataclass
 class FuncType:
     """Function type: ``domain -> codomain`` (arrows only in type definitions)."""
 
-    domain: Any  # PrimTypeRef | TupleTypeExpr | TypeExpr
-    codomain: Any  # str (primitive) or nested FuncType for ``num -> num -> num``
+    domain: Any  # PrimTypeRef | TupleTypeExpr | TypeExpr | FixedVectorType
+    codomain: Any  # type node or nested FuncType
 
 
 @dataclass
@@ -211,6 +270,7 @@ class Param:
     name: str
     type_name: str | None = None
     param_func_type: FuncType | None = None  # ``f:num->num`` — function parameter
+    type_ref: Any | None = None
 
 
 Stmt = Any
@@ -220,6 +280,7 @@ Stmt = Any
 class Bind:
     target: Any  # Ident, Attribute, or DottedIndex
     value: Any
+    declared_type: Any | None = None
 
 
 @dataclass
@@ -300,21 +361,14 @@ class ExprStmt:
 
 @dataclass
 class ContinueStmt:
-    """``@>`` — continue the innermost ``>>`` **pipe** iteration.
-
-    In a **switch** (``expr?`` …), a trailing ``@>`` on an arm (``=> @>`` or the last
-    line of the arm) **re-enters** that switch: the discriminant is evaluated again
-    from the top. That is the same switch form used for conditionals and
-    multi-way dispatch; ``@>`` here means “run the switch again”, not a pipe
-    continue (see ``PipeChain`` / ``>>``).
-    """
+    """``@>`` — continue the innermost loop / iteration."""
 
     pass
 
 
 @dataclass
 class BreakStmt:
-    """``@|`` — break out of the innermost ``>>`` **pipe** iteration."""
+    """``@|`` — break out of the innermost loop / iteration."""
 
     pass
 
@@ -328,11 +382,11 @@ class ExitProgramStmt:
 
 @dataclass
 class ReturnStmt:
-    """``@:`` expr or bare ``@:`` — early return from innermost callable.
+    """``@`` / ``@:`` / ``@: expr`` — early return from innermost ``:`` scope.
 
     Compact implicit return: only the last statement at *function body* scope (not the last
     row inside a nested block) may be a plain expression whose value is
-    the result without ``@:``.
+    the result without ``@``.
     """
 
     value: Any | None
@@ -360,26 +414,20 @@ class MatchArm:
 
 @dataclass
 class MatchStmt:
-    """**Switch** — ``discriminant??`` followed by ``case => body`` arms.
-
-    When a :class:`MatchStmt` appears as an expression, the matched arm’s value is
-    returned; as a statement, only effects run.
-    """
+    """**Switch** — ``discriminant??`` followed by ``case => body`` arms."""
 
     discriminant: Any
     arms: list[MatchArm]
+    loop: bool = False
 
 
 @dataclass
 class ConditionalExpr:
-    """Single-branch conditional: ``expr? body``.
-
-    Evaluates ``expr`` with host truthiness. When truthy, evaluates ``body`` and returns
-    its value; otherwise returns ``null``.
-    """
+    """Single-branch conditional: ``expr? body``."""
 
     condition: Any
     body: Any
+    loop: bool = False
 
 
 @dataclass

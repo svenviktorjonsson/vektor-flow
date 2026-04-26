@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from itertools import product
 from typing import Any
 
 from .screen import (
@@ -82,6 +84,327 @@ def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
         else:
             out[k] = v
     return out
+
+
+_DIM_ORDER = "tijkuvw"
+_MESH_CHANNEL_RE = re.compile(r"^([xyz])(?:_([tijkuvw]+))?$")
+_COLOR_NAMES: dict[str, tuple[float, float, float, float]] = {
+    "white": (1.0, 1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0, 1.0),
+    "red": (1.0, 0.1, 0.1, 1.0),
+    "green": (0.15, 0.85, 0.15, 1.0),
+    "blue": (0.15, 0.35, 1.0, 1.0),
+    "yellow": (1.0, 0.9, 0.1, 1.0),
+    "cyan": (0.1, 0.9, 0.9, 1.0),
+    "magenta": (0.9, 0.1, 0.9, 1.0),
+    "orange": (1.0, 0.5, 0.05, 1.0),
+    "gray": (0.5, 0.5, 0.5, 1.0),
+    "grey": (0.5, 0.5, 0.5, 1.0),
+}
+
+
+def _shape_of_nested(value: Any) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    n = len(value)
+    if n == 0:
+        return (0,)
+    first = _shape_of_nested(value[0])
+    for i in range(1, n):
+        if _shape_of_nested(value[i]) != first:
+            raise ValueError("ragged arrays are not supported in ui.add(...)")
+    return (n,) + first
+
+
+def _nested_get(value: Any, idxs: tuple[int, ...]) -> Any:
+    cur = value
+    for idx in idxs:
+        cur = cur[idx]
+    return cur
+
+
+def _iter_multi_index(shape: tuple[int, ...]):
+    if not shape:
+        yield ()
+        return
+    for tup in product(*[range(n) for n in shape]):
+        yield tup
+
+
+def _parse_mesh_channel(
+    axis: str,
+    dims: str,
+    value: Any,
+) -> dict[str, Any]:
+    if len(set(dims)) != len(dims):
+        raise ValueError(f"duplicate dimensions in {axis}_{dims!s}")
+    for d in dims:
+        if d not in _DIM_ORDER:
+            raise ValueError(f"unsupported dimension {d!r}; use only {_DIM_ORDER!r}")
+    shape = _shape_of_nested(value)
+    if len(shape) != len(dims):
+        raise ValueError(
+            f"{axis}_{dims}: rank mismatch; got array rank {len(shape)} for {len(dims)} dims"
+        )
+    return {"axis": axis, "dims": dims, "shape": shape, "data": value}
+
+
+def _parse_color_rgba(color: Any) -> tuple[float, float, float, float]:
+    if color is None:
+        return (0.8, 0.8, 0.8, 1.0)
+    if isinstance(color, (list, tuple)) and len(color) >= 3:
+        r = float(color[0]); g = float(color[1]); b = float(color[2])
+        a = float(color[3]) if len(color) >= 4 else 1.0
+        # Allow either 0..1 or 0..255 input.
+        if max(abs(r), abs(g), abs(b), abs(a)) > 1.0:
+            r /= 255.0; g /= 255.0; b /= 255.0
+            if a > 1.0:
+                a /= 255.0
+        return (r, g, b, a)
+    s = str(color).strip().lower()
+    if s in _COLOR_NAMES:
+        return _COLOR_NAMES[s]
+    if s.startswith("#"):
+        h = s[1:]
+        if len(h) == 3:
+            h = f"{h[0]}{h[0]}{h[1]}{h[1]}{h[2]}{h[2]}"
+        if len(h) == 6:
+            n = int(h, 16)
+            return (((n >> 16) & 255) / 255.0, ((n >> 8) & 255) / 255.0, (n & 255) / 255.0, 1.0)
+    return (0.8, 0.8, 0.8, 1.0)
+
+
+def _normalize3(x: float, y: float, z: float) -> tuple[float, float, float]:
+    m = math.sqrt(x * x + y * y + z * z)
+    if m <= 1e-12:
+        return (0.0, 0.0, 1.0)
+    return (x / m, y / m, z / m)
+
+
+def _face_normal(a: tuple[float, float, float], b: tuple[float, float, float], c: tuple[float, float, float]) -> tuple[float, float, float]:
+    ux, uy, uz = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    vx, vy, vz = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+    nx = uy * vz - uz * vy
+    ny = uz * vx - ux * vz
+    nz = ux * vy - uy * vx
+    return _normalize3(nx, ny, nz)
+
+
+def _build_field_mesh_geometry(
+    channels: dict[str, dict[str, Any]],
+    meta: dict[str, Any],
+    *,
+    time_index: int = 0,
+) -> dict[str, Any]:
+    # Canonical dim order is fixed; channel suffix order can vary.
+    canonical_dims = [d for d in _DIM_ORDER if any(d in channels[a]["dims"] for a in ("x", "y", "z"))]
+    dim_sizes: dict[str, int] = {}
+    for d in canonical_dims:
+        sizes: list[int] = []
+        for a in ("x", "y", "z"):
+            cdims = channels[a]["dims"]
+            if d in cdims:
+                axis_i = cdims.index(d)
+                sizes.append(int(channels[a]["shape"][axis_i]))
+        if not sizes:
+            dim_sizes[d] = 1
+            continue
+        target = max(sizes)
+        for s in sizes:
+            if s not in (1, target):
+                raise ValueError(
+                    f"incompatible broadcast for dim {d!r}: sizes={sizes}"
+                )
+        dim_sizes[d] = target
+
+    time_count = int(dim_sizes.get("t", 1))
+    current_t = max(0, min(int(time_index), max(0, time_count - 1)))
+    sample_dims = [d for d in canonical_dims if d != "t"]
+    cshape = tuple(dim_sizes[d] for d in sample_dims)
+
+    def _sample(axis: str, idx_tuple: tuple[int, ...]) -> float:
+        ch = channels[axis]
+        if not ch["dims"]:
+            return float(ch["data"])
+        idx_map = {d: 0 for d in canonical_dims}
+        idx_map["t"] = current_t
+        for i, d in enumerate(sample_dims):
+            idx_map[d] = idx_tuple[i]
+        use_idxs: list[int] = []
+        for k, d in enumerate(ch["dims"]):
+            sz = int(ch["shape"][k])
+            full_i = idx_map.get(d, 0)
+            use_idxs.append(0 if sz == 1 else full_i)
+        return float(_nested_get(ch["data"], tuple(use_idxs)))
+
+    rgba = _parse_color_rgba(meta.get("color"))
+    interpolation = bool(meta.get("interpolation", False))
+
+    points: list[tuple[float, float, float]] = []
+    vindex: dict[tuple[int, ...], int] = {}
+    for i, idx in enumerate(_iter_multi_index(cshape)):
+        x = _sample("x", idx)
+        y = _sample("y", idx)
+        z = _sample("z", idx)
+        points.append((x, y, z))
+        vindex[idx] = i
+
+    manifold_dims = [d for d in "uvw" if d in dim_sizes and dim_sizes[d] > 1]
+    base_indices: list[int] = []
+    topology = "line-list"
+
+    dim_pos = {d: i for i, d in enumerate(sample_dims)}
+
+    def _idx(base: dict[str, int]) -> int:
+        tup = tuple(base.get(d, 0) for d in sample_dims)
+        return int(vindex[tup])
+
+    if len(manifold_dims) == 1:
+        topology = "line-list"
+        du = manifold_dims[0]
+        loop_dims = [d for d in sample_dims if d != du]
+        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
+            base = {d: 0 for d in sample_dims}
+            for k, d in enumerate(loop_dims):
+                base[d] = int(rest[k])
+            for u in range(dim_sizes[du] - 1):
+                base[du] = u
+                a = _idx(base)
+                base[du] = u + 1
+                b = _idx(base)
+                base_indices.extend([a, b])
+    elif len(manifold_dims) == 2:
+        topology = "triangle-list"
+        du, dv = manifold_dims
+        loop_dims = [d for d in sample_dims if d not in (du, dv)]
+        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
+            base = {d: 0 for d in sample_dims}
+            for k, d in enumerate(loop_dims):
+                base[d] = int(rest[k])
+            for u in range(dim_sizes[du] - 1):
+                for v in range(dim_sizes[dv] - 1):
+                    base[du], base[dv] = u, v
+                    a = _idx(base)
+                    base[du], base[dv] = u + 1, v
+                    b = _idx(base)
+                    base[du], base[dv] = u + 1, v + 1
+                    c = _idx(base)
+                    base[du], base[dv] = u, v + 1
+                    d = _idx(base)
+                    base_indices.extend([a, b, c, a, c, d])
+    elif len(manifold_dims) >= 3:
+        topology = "triangle-list"
+        du, dv, dw = manifold_dims[0], manifold_dims[1], manifold_dims[2]
+        loop_dims = [d for d in sample_dims if d not in (du, dv, dw)]
+        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
+            base = {d: 0 for d in sample_dims}
+            for k, d in enumerate(loop_dims):
+                base[d] = int(rest[k])
+            for u in range(dim_sizes[du] - 1):
+                for v in range(dim_sizes[dv] - 1):
+                    for w in range(dim_sizes[dw] - 1):
+                        base[du], base[dv], base[dw] = u, v, w
+                        c000 = _idx(base)
+                        base[du], base[dv], base[dw] = u + 1, v, w
+                        c100 = _idx(base)
+                        base[du], base[dv], base[dw] = u, v + 1, w
+                        c010 = _idx(base)
+                        base[du], base[dv], base[dw] = u + 1, v + 1, w
+                        c110 = _idx(base)
+                        base[du], base[dv], base[dw] = u, v, w + 1
+                        c001 = _idx(base)
+                        base[du], base[dv], base[dw] = u + 1, v, w + 1
+                        c101 = _idx(base)
+                        base[du], base[dv], base[dw] = u, v + 1, w + 1
+                        c011 = _idx(base)
+                        base[du], base[dv], base[dw] = u + 1, v + 1, w + 1
+                        c111 = _idx(base)
+                        base_indices.extend([c000, c100, c110, c000, c110, c010])
+                        base_indices.extend([c001, c011, c111, c001, c111, c101])
+                        base_indices.extend([c000, c010, c011, c000, c011, c001])
+                        base_indices.extend([c100, c101, c111, c100, c111, c110])
+                        base_indices.extend([c000, c001, c101, c000, c101, c100])
+                        base_indices.extend([c010, c110, c111, c010, c111, c011])
+
+    vertices: list[float] = []
+    indices: list[int] = []
+    if topology == "triangle-list":
+        if interpolation:
+            acc: list[list[float]] = [[0.0, 0.0, 0.0] for _ in range(len(points))]
+            for t in range(0, len(base_indices), 3):
+                ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
+                n = _face_normal(points[ia], points[ib], points[ic])
+                for ii in (ia, ib, ic):
+                    acc[ii][0] += n[0]
+                    acc[ii][1] += n[1]
+                    acc[ii][2] += n[2]
+            for i, p in enumerate(points):
+                nx, ny, nz = _normalize3(acc[i][0], acc[i][1], acc[i][2])
+                vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
+            indices = list(base_indices)
+        else:
+            for t in range(0, len(base_indices), 3):
+                ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
+                a, b, c = points[ia], points[ib], points[ic]
+                nx, ny, nz = _face_normal(a, b, c)
+                base = len(vertices) // 10
+                for p in (a, b, c):
+                    vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
+                indices.extend([base, base + 1, base + 2])
+    else:
+        for p in points:
+            vertices.extend([p[0], p[1], p[2], 0.0, 0.0, 1.0, rgba[0], rgba[1], rgba[2], rgba[3]])
+        indices = list(base_indices)
+
+    return {
+        "vertices": vertices,
+        "indices": indices,
+        "topology": topology,
+        "interpolation": interpolation,
+        "alpha": float(rgba[3]),
+        "time_count": time_count,
+        "time_index": current_t,
+    }
+
+
+def _build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    # Split channels (x_*, y_*, z_*) from style/meta kwargs.
+    channels: dict[str, dict[str, Any]] = {}
+    meta: dict[str, Any] = {}
+    for key, value in kwargs.items():
+        m = _MESH_CHANNEL_RE.match(str(key))
+        if m:
+            axis = m.group(1)
+            dims = str(m.group(2) or "")
+            channels[axis] = _parse_mesh_channel(axis, dims, value)
+        else:
+            meta[key] = value
+
+    missing = [a for a in ("x", "y", "z") if a not in channels]
+    if missing:
+        raise ValueError(f"ui.add(...) missing channels: {', '.join(missing)}")
+
+    geom = _build_field_mesh_geometry(
+        channels,
+        meta,
+        time_index=int(meta.get("t", 0)),
+    )
+
+    return {
+        "type": "field_mesh",
+        "id": str(meta.get("id", "field_mesh")),
+        "vertices": geom["vertices"],
+        "indices": geom["indices"],
+        "topology": geom["topology"],
+        "interpolation": geom["interpolation"],
+        "alpha": geom["alpha"],
+        "center": _vec3(meta.get("center", [0, 0, 0]), "center"),
+        "scale": _vec3(meta.get("scale", [1, 1, 1]), "scale"),
+        "rotation": _vec3(meta.get("rotation", [0, 0, 0]), "rotation"),
+        "color": meta.get("color"),
+        "time_count": geom["time_count"],
+        "time_index": geom["time_index"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +491,87 @@ class SceneBox:
 
     def __repr__(self) -> str:
         return f"SceneBox(center={self._data['center']}, scale={self._data['scale']}, color={self._data['color']!r})"
+
+
+class SceneFieldMesh(SceneBox):
+    """A mutable field mesh in a 3-D scene frame.
+
+    Returned by ``d.add(...)`` / ``f.add(...)``. Supports the same transform/style
+    mutations as :class:`SceneBox`, plus time-slice control when the mesh was built
+    with a ``t`` dimension.
+    """
+
+    __vf_py_attrs__ = True
+
+    def __init__(
+        self,
+        data: dict[str, Any],
+        display: "Display",
+        frame_id: str,
+        source_kwargs: dict[str, Any],
+    ) -> None:
+        super().__init__(data, display, frame_id)
+        self._source_kwargs = dict(source_kwargs)
+
+    @property
+    def t(self) -> int:
+        return int(self._data.get("time_index", 0))
+
+    @property
+    def t_count(self) -> int:
+        return int(self._data.get("time_count", 1))
+
+    @property
+    def interpolation(self) -> bool:
+        return bool(self._data.get("interpolation", False))
+
+    def _rebuild(self, *, time_value: Any | None = None) -> "SceneFieldMesh":
+        count = max(1, self.t_count)
+        raw_t = self._data.get("time_index", 0) if time_value is None else time_value
+        idx = max(0, min(int(round(float(raw_t))), count - 1))
+        channels: dict[str, dict[str, Any]] = {}
+        meta: dict[str, Any] = {}
+        for key, raw in self._source_kwargs.items():
+            m = _MESH_CHANNEL_RE.match(str(key))
+            if m:
+                axis = m.group(1)
+                dims = str(m.group(2) or "")
+                channels[axis] = _parse_mesh_channel(axis, dims, raw)
+            else:
+                meta[str(key)] = raw
+        geom = _build_field_mesh_geometry(channels, meta, time_index=idx)
+        self._data["vertices"] = geom["vertices"]
+        self._data["indices"] = geom["indices"]
+        self._data["topology"] = geom["topology"]
+        self._data["interpolation"] = geom["interpolation"]
+        self._data["alpha"] = geom["alpha"]
+        self._data["time_count"] = geom["time_count"]
+        self._data["time_index"] = geom["time_index"]
+        self._display._sync_all()
+        return self
+
+    def set_t(self, value: Any) -> "SceneFieldMesh":
+        return self._rebuild(time_value=value)
+
+    def set_time(self, value: Any) -> "SceneFieldMesh":
+        return self.set_t(value)
+
+    def set_interpolation(self, value: Any) -> "SceneFieldMesh":
+        self._source_kwargs["interpolation"] = bool(value)
+        return self._rebuild()
+
+    def set_color(self, color: Any) -> "SceneFieldMesh":
+        """Change mesh color and rebuild vertex colors. Returns self."""
+        self._source_kwargs["color"] = color
+        self._data["color"] = color
+        return self._rebuild()
+
+    def __repr__(self) -> str:
+        return (
+            f"SceneFieldMesh(time_index={self._data.get('time_index', 0)}, "
+            f"time_count={self._data.get('time_count', 1)}, "
+            f"color={self._data.get('color')!r})"
+        )
 
 
 class SceneCamera:
@@ -404,6 +808,12 @@ class SceneLight:
         self._display._sync_all()
         return self
 
+    def set_pos(self, pos: Any) -> "SceneLight":
+        """Set the light position to [x, y, z]. Returns self."""
+        self._data["pos"] = _vec3(pos, "pos")
+        self._display._sync_all()
+        return self
+
     def set_color(self, color: Any) -> "SceneLight":
         """Change light color. Returns self."""
         self._data["color"] = str(color)
@@ -591,6 +1001,11 @@ class FrameRef:
             major_radius=major_radius,
             minor_radius=minor_radius,
         )
+
+    def add(self, **kwargs: Any) -> SceneFieldMesh:
+        """Generic field mesh add using x_*/y_*/z_* channels over tijkuvw dims."""
+        fid = self._get_placed_id()
+        return self._display._add_field_mesh(fid, **kwargs)
 
     def add_camera(
         self,
@@ -976,6 +1391,11 @@ class Display:
             minor_radius=minor_radius,
         )
 
+    def add(self, **kwargs: Any) -> SceneFieldMesh:
+        """Generic field mesh add using x_*/y_*/z_* channels over tijkuvw dims."""
+        fid = self._last_placed_id("add")
+        return self._add_field_mesh(fid, **kwargs)
+
     def add_camera(
         self,
         *,
@@ -1067,6 +1487,15 @@ class Display:
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
         obj = SceneBox(data, self, fid)
+        idx = len(self._geom_for(fid)["meshes"]) - 1
+        self._scene_objects[(fid, idx)] = obj
+        return obj
+
+    def _add_field_mesh(self, fid: str, **kwargs: Any) -> SceneFieldMesh:
+        data = _build_field_mesh_from_kwargs(kwargs)
+        self._geom_for(fid)["meshes"].append(data)
+        self._sync_all()
+        obj = SceneFieldMesh(data, self, fid, kwargs)
         idx = len(self._geom_for(fid)["meshes"]) - 1
         self._scene_objects[(fid, idx)] = obj
         return obj

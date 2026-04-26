@@ -92,7 +92,6 @@ dispatch(e):
       0
     :: "ev=other code=$e.code ui=$e.ui_code frame=$e.frame_code widget=$e.widget_code idx=$e.index"
 
-true?
+true?>
   events.poll()? dispatch(events.get())
   t.sleep(0.016)
-  @>

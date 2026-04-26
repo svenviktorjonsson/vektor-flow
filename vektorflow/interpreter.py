@@ -38,11 +38,17 @@ from .runtime.compare import struct_eq, struct_lt
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
 from .runtime.type_values import (
+    combine_typed_multiset_types,
     PrimType,
+    combine_typed_vector_types,
     coerce_value,
+    coerce_typed_value,
     infer_type,
     is_type_value,
+    resolve_return_type,
     types_equal,
+    wrap_typed_multiset_result,
+    wrap_typed_vector_result,
 )
 from .runtime.vflist import VFLinkedList
 from .runtime.vmap import VMap
@@ -52,6 +58,7 @@ _NO_PREVIOUS_DOLLAR = object()
 
 OPERATOR_SYMBOLS = frozenset(
     {
+        ".",
         "+",
         "-",
         "*",
@@ -72,30 +79,45 @@ OPERATOR_SYMBOLS = frozenset(
     }
 )
 
-# Built-in value types: overloads (``display``, ``+``, …) must use custom / constructed names only.
+# Built-in value types: overloads on ordinary values may mention these, but at least
+# one relevant parameter must still be custom / constructed.
 _PRIMITIVE_VALUE_TYPES_FOR_OVERLOAD = frozenset(
-    {"num", "str", "bool", "byte", "any", "vector"}
+    {"int", "num", "str", "bool", "byte", "bytes", "any", "vector"}
 )
 
 
-def _overload_param_rejects_builtin_value_type(p: ast.Param) -> bool:
-    """True if the parameter is untyped, ``any``, or a primitive — not allowed on ``display`` / operator overloads."""
+def _param_is_custom_typed(p: ast.Param) -> bool:
     if p.param_func_type is not None:
         return False
     t = p.type_name
     if t is None or t == "any":
-        return True
-    return t in _PRIMITIVE_VALUE_TYPES_FOR_OVERLOAD
+        return False
+    return t not in _PRIMITIVE_VALUE_TYPES_FOR_OVERLOAD
 
 
-def _validate_overload_params_use_custom_types(params: list[ast.Param], kind: str) -> None:
-    bad = [p.name for p in params if _overload_param_rejects_builtin_value_type(p)]
+def _validate_custom_unary_overload(params: list[ast.Param], kind: str) -> None:
+    if len(params) != 1:
+        raise EvalError(f"{kind}: expected exactly one parameter")
+    p = params[0]
+    if _param_is_custom_typed(p):
+        return
+    raise EvalError(
+        f"{kind}: parameter must name a custom or constructed type (e.g. `Point`)"
+    )
+
+
+def _validate_custom_operator_overload(params: list[ast.Param], kind: str) -> None:
+    bad = [p.name for p in params if p.param_func_type is None and (p.type_name is None or p.type_name == "any")]
     if bad:
         raise EvalError(
-            f"{kind}: each parameter must name a custom or constructed type (e.g. `Point`); "
-            f"built-in value types (num, str, bool, byte, any, vector), `any`, and untyped parameters "
-            f"cannot be overloaded: {', '.join(repr(n) for n in bad)}"
+            f"{kind}: overload parameters must be typed; untyped / `any` parameters are not allowed: "
+            f"{', '.join(repr(n) for n in bad)}"
         )
+    if any(_param_is_custom_typed(p) for p in params):
+        return
+    raise EvalError(
+        f"{kind}: at least one parameter must name a custom or constructed type (e.g. `Point`)"
+    )
 
 
 BINOP_KIND_TO_SYM = {
@@ -245,6 +267,8 @@ def _expr_to_compact_string(expr: Any) -> str:
         return str(v)
     if isinstance(expr, ast.BoolLit):
         return _vf_bool_display(expr.value)
+    if isinstance(expr, ast.NullLit):
+        return "null"
     if isinstance(expr, ast.StringLit):
         return repr(expr.value)
     if isinstance(expr, ast.BinOp):
@@ -377,6 +401,8 @@ def _format_param_list_display(params: list[ast.Param]) -> str:
             parts.append(
                 f"{p.name}:{_format_nested_func_type_for_param(p.param_func_type)}"
             )
+        elif p.type_ref is not None:
+            parts.append(f"{p.name}:{_format_type_ast_for_stringify(p.type_ref)}")
         elif p.type_name:
             parts.append(f"{p.name}:{p.type_name}")
         else:
@@ -394,7 +420,7 @@ def _format_ft_domain_part(dom: Any) -> str:
     if isinstance(dom, ast.TupleTypeExpr):
         if not dom.elements:
             return "()"
-        return "(" + ", ".join(dom.elements) + ")"
+        return "(" + ", ".join(_format_type_ast_for_stringify(e) for e in dom.elements) + ")"
     if isinstance(dom, ast.TypeExpr):
         if not dom.fields:
             return "()"
@@ -403,8 +429,10 @@ def _format_ft_domain_part(dom: Any) -> str:
             if isinstance(t, ast.FuncType):
                 bits.append(f"{n}:{_format_nested_func_type_for_param(t)}")
             else:
-                bits.append(f"{n}:{t}")
+                bits.append(f"{n}:{_format_type_ast_for_stringify(t)}")
         return "(" + ", ".join(bits) + ")"
+    if isinstance(dom, ast.FixedVectorType):
+        return _format_type_ast_for_stringify(dom)
     return "…"
 
 
@@ -415,6 +443,8 @@ def _format_ft_codomain_part(cod: Any) -> str:
         return _format_nested_func_type_for_param(cod)
     if isinstance(cod, ast.PrimTypeRef):
         return cod.name
+    if isinstance(cod, (ast.TupleTypeExpr, ast.TypeExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)):
+        return _format_type_ast_for_stringify(cod)
     return "…"
 
 
@@ -422,10 +452,16 @@ def _format_type_ast_for_stringify(v: Any) -> str:
     """Surface-syntax type printout (no ``PrimTypeRef(...)`` / ``dataclass`` repr)."""
     if isinstance(v, ast.PrimTypeRef):
         return v.name
+    if isinstance(v, ast.TypeSizeConst):
+        return str(v.value)
+    if isinstance(v, ast.TypeSizeVar):
+        return v.name
+    if isinstance(v, ast.TypeSizeBinOp):
+        return f"{_format_type_ast_for_stringify(v.left)}{v.op}{_format_type_ast_for_stringify(v.right)}"
     if isinstance(v, ast.TupleTypeExpr):
         if not v.elements:
             return "()"
-        return "(" + ", ".join(v.elements) + ")"
+        return "(" + ", ".join(_format_type_ast_for_stringify(e) for e in v.elements) + ")"
     if isinstance(v, ast.TypeExpr):
         if not v.fields:
             return "()"
@@ -434,8 +470,20 @@ def _format_type_ast_for_stringify(v: Any) -> str:
             if isinstance(t, ast.FuncType):
                 bits.append(f"{n}:{_format_nested_func_type_for_param(t)}")
             else:
-                bits.append(f"{n}:{t}")
+                bits.append(f"{n}:{_format_type_ast_for_stringify(t)}")
         return "(" + ", ".join(bits) + ")"
+    if isinstance(v, ast.FixedVectorType):
+        return f"[{_format_type_ast_for_stringify(v.element_type)}:{_format_type_ast_for_stringify(v.size)}]"
+    if isinstance(v, ast.MultisetType):
+        return "{" + _format_type_ast_for_stringify(v.element_type) + "}"
+    if isinstance(v, ast.MapValueType):
+        if not v.fields:
+            return "map()"
+        return "map(" + ", ".join(f"{n}:{_format_type_ast_for_stringify(t)}" for n, t in v.fields) + ")"
+    if isinstance(v, ast.LinkedListValueType):
+        return "list(" + ", ".join(_format_type_ast_for_stringify(t) for t in v.elements) + ")"
+    if isinstance(v, ast.NamedTypeSpec):
+        return f"{v.name}:{_format_type_ast_for_stringify(v.type_expr)}"
     if isinstance(v, ast.FuncType):
         return _format_nested_func_type_for_param(v)
     return "…"
@@ -540,11 +588,14 @@ class Interpreter:
         self.types: dict[str, ast.TypeExpr | ast.FuncType] = {}
         self.op_overloads: dict[str, list[VFunction]] = {}
         self.display_overloads: list[VFunction] = []
+        self.cast_overloads: dict[str, list[VFunction]] = {}
+        # `@:` may only return to the nearest callable `:` scope.
+        self._return_scope_depth: int = 0
         self._merge_stdlibs()
         self.builtin["take"] = _builtin_take
         self.builtin["to_list"] = _builtin_to_list
         self.builtin["to_multiset"] = _builtin_to_multiset
-        for _tn in ("num", "str", "byte", "any"):
+        for _tn in ("int", "num", "str", "byte", "bytes", "bool", "any"):
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
@@ -638,19 +689,25 @@ class Interpreter:
             return
         raise EvalError("invalid bind target")
 
-    def run_module(self, module: ast.Module) -> None:
+    def run_module(self, module: ast.Module) -> Any:
         env = self.globals
-        for stmt in module.statements:
-            try:
-                self.eval_stmt(stmt, env)
-            except ReturnSignal:
-                raise EvalError("@: return outside function")
-            except ContinueSignal:
-                raise EvalError("@> continue outside >> pipe")
-            except BreakSignal:
-                raise EvalError("@| break outside >> pipe")
-            except ExitProgramSignal as e:
-                sys.exit(e.code)
+        # A file/module is an outer callable `:` scope: top-level `@:` returns from the file.
+        self._return_scope_depth += 1
+        try:
+            for stmt in module.statements:
+                try:
+                    self.eval_stmt(stmt, env)
+                except ReturnSignal as r:
+                    return r.value
+                except ContinueSignal:
+                    raise EvalError("continue is not valid here (use `?>` / `??>` loops)")
+                except BreakSignal:
+                    raise EvalError("@| break outside >> pipe")
+                except ExitProgramSignal as e:
+                    sys.exit(e.code)
+            return None
+        finally:
+            self._return_scope_depth -= 1
 
     def eval_stmt(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ast.ContinueStmt):
@@ -660,10 +717,14 @@ class Interpreter:
         if isinstance(node, ast.ExitProgramStmt):
             raise ExitProgramSignal(0)
         if isinstance(node, ast.ReturnEmitStmt):
+            if self._return_scope_depth <= 0:
+                raise EvalError("@: return outside `:` scope")
             v = self.eval_expr(node.value, env)
             self._print_value(v, env)
             raise ReturnSignal(v)
         if isinstance(node, ast.ReturnStmt):
+            if self._return_scope_depth <= 0:
+                raise EvalError("@: return outside `:` scope")
             v = None if node.value is None else self.eval_expr(node.value, env)
             raise ReturnSignal(v)
         if isinstance(node, ast.MatchStmt):
@@ -673,8 +734,13 @@ class Interpreter:
             self.eval_expr(node, env)
             return None
         if isinstance(node, ast.Bind):
+            if node.declared_type is not None:
+                value = self.eval_expr(node.value, env)
+                coerced, _ = coerce_typed_value(value, node.declared_type, self.types)
+                self._assign_bind(node.target, coerced, env)
+                return None
             if isinstance(node.target, ast.Ident) and isinstance(
-                node.value, (ast.TypeExpr, ast.FuncType)
+                node.value, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)
             ):
                 self.types[node.target.name] = node.value
                 return None
@@ -790,14 +856,21 @@ class Interpreter:
             vf.ip = self
             closure[node.name] = vf
             if node.name == "display" and len(node.params) == 1:
-                _validate_overload_params_use_custom_types(
-                    node.params, "display(value: T)"
-                )
+                _validate_custom_unary_overload(node.params, "display(value: T)")
                 self.display_overloads.append(vf)
+            elif node.name in ("num", "str", "bool", "byte") and len(node.params) == 1:
+                _validate_custom_unary_overload(node.params, f"{node.name}(value: T)")
+                self.cast_overloads.setdefault(node.name, []).append(vf)
             elif node.name in OPERATOR_SYMBOLS:
-                _validate_overload_params_use_custom_types(
-                    node.params, f"operator {node.name!r}"
-                )
+                if node.name == ".":
+                    if len(node.params) != 2:
+                        raise EvalError("operator '.': expected exactly two parameters")
+                    if not _param_is_custom_typed(node.params[0]):
+                        raise EvalError("operator '.': first parameter must be a custom or constructed type")
+                    if node.params[1].param_func_type is None and node.params[1].type_name is None:
+                        raise EvalError("operator '.': second parameter must be typed")
+                else:
+                    _validate_custom_operator_overload(node.params, f"operator {node.name!r}")
                 self.op_overloads.setdefault(node.name, []).append(vf)
                 env[node.name] = OpCallable(node.name, self)
             else:
@@ -837,31 +910,15 @@ class Interpreter:
             return
         self.eval_expr(body, env)
 
-    def _eval_branch_body_value(self, body: Any, env: dict[str, Any]) -> Any:
-        """Evaluate branch body and return its value without swallowing ``@:`` signals."""
-        if isinstance(body, ast.Block):
-            result: Any = None
-            for stmt in body.statements:
-                result = self.eval_stmt(stmt, env)
-            return result
-        return self.eval_expr(body, env)
-
-    @staticmethod
-    def _arm_ends_with_match_rewind(body: Any) -> bool:
-        """True if the last statement is ``@>`` (switch re-entry), not a ``>>`` pipe’s continue."""
-        if isinstance(body, ast.Block) and body.statements:
-            return isinstance(body.statements[-1], ast.ContinueStmt)
-        return False
-
     def _eval_match(self, node: ast.MatchStmt, env: dict[str, Any]) -> None:
-        # Semantics: nested if/else over discriminant equality; ``$`` is the subject; ``@>`` re-asks from the top.
+        # Semantics: nested if/else over discriminant equality; ``$`` is the subject.
+        # ``??>`` repeats automatically; ``??`` runs once.
         # Bind ``$`` in ``env`` (no copy): arm bodies must update the same dict as the discriminant sees.
         prev_dollar: Any = env.get("$", _NO_PREVIOUS_DOLLAR)
         try:
             while True:
                 disc = self.eval_expr(node.discriminant, env)
                 env["$"] = disc
-                restart = False
                 best_arm: ast.MatchArm | None = None
                 best_spec = -1
                 default_arm: ast.MatchArm | None = None
@@ -879,15 +936,17 @@ class Interpreter:
                         best_arm = arm
                 chosen = best_arm if best_arm is not None else default_arm
                 if chosen is not None:
-                    try:
+                    if node.loop:
+                        try:
+                            self._eval_match_body(chosen.body, env)
+                        except ContinueSignal:
+                            continue
+                        except BreakSignal:
+                            return
+                    else:
                         self._eval_match_body(chosen.body, env)
-                    except ContinueSignal:
-                        restart = True
-                    except BreakSignal:
+                    if not node.loop:
                         return
-                    if not restart:
-                        return
-                if restart:
                     continue
                 return
         finally:
@@ -897,63 +956,32 @@ class Interpreter:
                 env["$"] = prev_dollar
 
     def _eval_match_as_value(self, node: ast.MatchStmt, env: dict[str, Any]) -> Any:
-        prev_dollar: Any = env.get("$", _NO_PREVIOUS_DOLLAR)
-        try:
-            while True:
-                disc = self.eval_expr(node.discriminant, env)
-                env["$"] = disc
-                restart = False
-                best_arm: ast.MatchArm | None = None
-                best_spec = -1
-                default_arm: ast.MatchArm | None = None
-                for arm in node.arms:
-                    if arm.condition is None:
-                        if default_arm is None:
-                            default_arm = arm
-                        continue
-                    m = self.eval_expr(arm.condition, env)
-                    spec = self._match_specificity(disc, m)
-                    if spec is None:
-                        continue
-                    if spec > best_spec:
-                        best_spec = spec
-                        best_arm = arm
-                chosen = best_arm if best_arm is not None else default_arm
-                if chosen is not None:
-                    try:
-                        return self._eval_branch_body_value(chosen.body, env)
-                    except ContinueSignal:
-                        restart = True
-                    except BreakSignal:
-                        return None
-                if restart:
-                    continue
-                return None
-        finally:
-            if prev_dollar is _NO_PREVIOUS_DOLLAR:
-                env.pop("$", None)
-            else:
-                env["$"] = prev_dollar
+        self._eval_match(node, env)
+        return None
 
     def eval_expr(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ast.ConditionalExpr):
-            while True:
-                if not bool(self.eval_expr(node.condition, env)):
-                    return None
-                try:
-                    return self._eval_branch_body_value(node.body, env)
-                except ContinueSignal:
-                    # ``@>`` inside ``expr?`` / ``true?`` always advances the loop.
-                    continue
-                except BreakSignal:
-                    # ``@|`` inside ``expr?`` / ``true?`` exits this loop.
-                    return None
+            if node.loop:
+                while bool(self.eval_expr(node.condition, env)):
+                    try:
+                        self._eval_match_body(node.body, env)
+                    except ContinueSignal:
+                        continue
+                    except BreakSignal:
+                        return None
+                return None
+            if not bool(self.eval_expr(node.condition, env)):
+                return None
+            self._eval_match_body(node.body, env)
+            return None
         if isinstance(node, ast.MatchStmt):
             return self._eval_match_as_value(node, env)
         if isinstance(node, ast.NumberLit):
             return node.value
         if isinstance(node, ast.BoolLit):
             return node.value
+        if isinstance(node, ast.NullLit):
+            return None
         if isinstance(node, ast.StringLit):
             s = node.value
             if getattr(node, "raw", False):
@@ -973,7 +1001,13 @@ class Interpreter:
                     raise EvalError("empty interpolation path")
                 v = self._resolve(parts[0], env)
                 for p in parts[1:]:
-                    if isinstance(v, dict):
+                    if isinstance(v, VMap):
+                        if p not in v._d:
+                            raise EvalError(
+                                f"missing key {p!r} in string interpolation"
+                            )
+                        v = v._d[p]
+                    elif isinstance(v, dict):
                         if p not in v:
                             raise EvalError(
                                 f"missing field {p!r} in string interpolation"
@@ -1134,6 +1168,15 @@ class Interpreter:
                 if kw or spreads:
                     raise EvalError(f"operator calls do not accept keyword or spread arguments")
                 return fn(*pos)
+            if isinstance(fn, PrimType):
+                if kw or spreads:
+                    raise EvalError("type casts do not accept keyword or spread arguments")
+                if len(pos) == 1:
+                    variants = self.cast_overloads.get(fn.name) or []
+                    cast_fn = _pick_best_overload([f for f in variants if len(f.params) == 1], pos, self.types)
+                    if cast_fn is not None:
+                        return self._call(cast_fn, pos, env)
+                return fn(*pos)
             if isinstance(fn, VStructCtor):
                 if spreads:
                     raise EvalError("struct constructor does not support spread arguments")
@@ -1180,9 +1223,14 @@ class Interpreter:
                     raise EvalError(f"missing key {node.name!r}")
                 return o._d[node.name]
             if isinstance(o, dict):
-                if node.name not in o:
-                    raise EvalError(f"missing field {node.name!r}")
-                return o[node.name]
+                if node.name in o:
+                    return o[node.name]
+                if is_struct_dict(o):
+                    variants = self.op_overloads.get(".") or []
+                    fn = _pick_best_overload([f for f in variants if len(f.params) == 2], [o, node.name], self.types)
+                    if fn is not None:
+                        return self._call(fn, [o, node.name], env)
+                raise EvalError(f"missing field {node.name!r}")
             if getattr(type(o), "__vf_py_attrs__", False):
                 if not hasattr(o, node.name):
                     raise EvalError(f"missing attribute {node.name!r}")
@@ -1194,7 +1242,15 @@ class Interpreter:
             if len(keys) == 0:
                 raise EvalError("empty .()")
             if len(keys) == 1:
-                return _dotted_get_one(base, keys[0])
+                try:
+                    return _dotted_get_one(base, keys[0])
+                except Exception:
+                    if isinstance(base, dict) and is_struct_dict(base):
+                        variants = self.op_overloads.get(".") or []
+                        fn = _pick_best_overload([f for f in variants if len(f.params) == 2], [base, keys[0]], self.types)
+                        if fn is not None:
+                            return self._call(fn, [base, keys[0]], env)
+                    raise
             return tuple(_dotted_get_one(base, k) for k in keys)
         if isinstance(node, ast.AbsExpr):
             from .runtime.absnorm import abs_or_norm
@@ -1202,9 +1258,7 @@ class Interpreter:
             return abs_or_norm(self.eval_expr(node.inner, env))
         if isinstance(node, ast.DotModulePath):
             return self._eval_dot_module(node)
-        if isinstance(node, ast.TypeExpr):
-            return node
-        if isinstance(node, ast.FuncType):
+        if isinstance(node, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
             return node
         if isinstance(node, ast.TypeOf):
             v = self.eval_expr(node.value, env)
@@ -1220,6 +1274,9 @@ class Interpreter:
         return self._call(fn, args, self.globals)
 
     def _coerce_param(self, val: Any, p: ast.Param) -> Any:
+        if p.type_ref is not None:
+            coerced, _ = coerce_typed_value(val, p.type_ref, self.types)
+            return coerced
         if p.param_func_type is not None:
             if not isinstance(val, VFunction):
                 raise EvalError(f"expected {p.name} to be a function")
@@ -1240,9 +1297,18 @@ class Interpreter:
     def _call(self, fn: Any, args: list[Any], env: dict[str, Any]) -> Any:
         if isinstance(fn, VFunction):
             loc = dict(fn.closure)
+            size_bindings: dict[str, int] = {}
             for p, a in zip(fn.params, args):
-                loc[p.name] = self._coerce_param(a, p)
-            return self._eval_function_body(fn.body, loc)
+                if p.type_ref is not None:
+                    coerced, size_bindings = coerce_typed_value(a, p.type_ref, self.types, size_bindings)
+                    loc[p.name] = coerced
+                else:
+                    loc[p.name] = self._coerce_param(a, p)
+            result = self._eval_function_body(fn.body, loc)
+            if fn.func_type is not None:
+                resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
+                result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
+            return result
         if isinstance(fn, VStructCtor):
             return self._call_struct_ctor(fn, args, {}, env)
         if callable(fn):
@@ -1285,18 +1351,22 @@ class Interpreter:
         The last line inside a nested block is not the function return;
         use ``@:`` to return from the callable. Early return is always ``@:``.
         """
-        if isinstance(body, ast.Block):
-            result: Any = None
+        self._return_scope_depth += 1
+        try:
+            if isinstance(body, ast.Block):
+                result: Any = None
+                try:
+                    for stmt in body.statements:
+                        result = self.eval_stmt(stmt, env)
+                except ReturnSignal as r:
+                    return r.value
+                return result
             try:
-                for stmt in body.statements:
-                    result = self.eval_stmt(stmt, env)
+                return self.eval_expr(body, env)
             except ReturnSignal as r:
                 return r.value
-            return result
-        try:
-            return self.eval_expr(body, env)
-        except ReturnSignal as r:
-            return r.value
+        finally:
+            self._return_scope_depth -= 1
 
     def _print_value(self, val: Any, env: dict[str, Any]) -> None:
         s = self._stringify_for_display(val, env)
@@ -1306,21 +1376,32 @@ class Interpreter:
         else:
             print(s)
 
+    def _pick_unary_overload(self, variants: list[VFunction], val: Any) -> VFunction | None:
+        best_fn: VFunction | None = None
+        best_s = -1
+        for fn in variants:
+            if len(fn.params) != 1:
+                continue
+            s = _score_params_match(fn, [val], self.types)
+            if s is None:
+                continue
+            if s > best_s:
+                best_s = s
+                best_fn = fn
+        return best_fn
+
     def _stringify_for_display(self, val: Any, env: dict[str, Any]) -> str:
-        if isinstance(val, dict) and is_struct_dict(val) and self.display_overloads:
-            best_fn: VFunction | None = None
-            best_s = -1
-            for fn in self.display_overloads:
-                if len(fn.params) != 1:
-                    continue
-                s = _score_params_match(fn, [val], self.types)
-                if s is None:
-                    continue
-                if s > best_s:
-                    best_s = s
-                    best_fn = fn
+        if self.display_overloads:
+            best_fn = self._pick_unary_overload(self.display_overloads, val)
             if best_fn is not None:
-                return str(self._call(best_fn, [val], env))
+                shown = self._call(best_fn, [val], env)
+                return _stringify(shown, self.types)
+        str_variants = self.cast_overloads.get("str") or []
+        if str_variants:
+            cast_fn = self._pick_unary_overload(str_variants, val)
+            if cast_fn is not None:
+                shown = self._call(cast_fn, [val], env)
+                return _stringify(shown, self.types)
         return _stringify(val, self.types)
 
     def _eval_unary(self, node: ast.UnaryOp, env: dict[str, Any]) -> Any:
@@ -1563,12 +1644,13 @@ class Interpreter:
             return not types_equal(a, b)
         sym = BINOP_KIND_TO_SYM.get(node.op)
         sd = bool(is_struct_dict(a) and is_struct_dict(b))
-        if sym and sd:
+        if sym and (is_struct_dict(a) or is_struct_dict(b)):
             variants = self.op_overloads.get(sym) or []
             f2 = [f for f in variants if len(f.params) == 2]
             fn = _pick_best_overload(f2, [a, b], self.types)
             if fn is not None:
                 return self._call(fn, [a, b], env)
+        if sym and sd:
             if node.op == "AMPERSAND":
                 return _struct_merge_concat(a, b)
             if node.op == "LT":
@@ -1871,7 +1953,7 @@ def _stringify(
         return _stringify_op_callable(v)
     if isinstance(v, PrimType):
         return v.name
-    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef)):
+    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
         return _format_type_ast_for_stringify(v)
     if isinstance(v, dict) and is_struct_dict(v):
         if struct_tagged(v):
@@ -1962,7 +2044,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             if isinstance(ad, list) and isinstance(bd, list):
                 return AxisTaggedValue(ad + bd, a.idx)
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(multiset_union(ad, bd), a.idx)
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    a.idx,
+                )
             raise EvalError(
                 "unsupported types inside axis-tagged values for & "
                 "(use tuple, vector, or multiset)"
@@ -1975,7 +2060,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     tuple(x + y for x, y in zip(ad, bd)), a.idx
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(multiset_union(ad, bd), a.idx)
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    a.idx,
+                )
         if op == "MINUS":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 if len(ad) != len(bd):
@@ -1984,7 +2072,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     tuple(x - y for x, y in zip(ad, bd)), a.idx
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(multiset_difference(ad, bd), a.idx)
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(multiset_difference(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    a.idx,
+                )
         if op == "STAR":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 if len(ad) != len(bd):
@@ -1993,7 +2084,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     tuple(x * y for x, y in zip(ad, bd)), a.idx
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(multiset_intersection(ad, bd), a.idx)
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(multiset_intersection(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    a.idx,
+                )
         if op == "SLASH":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 if len(ad) != len(bd):
@@ -2003,7 +2097,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return AxisTaggedValue(
-                    multiset_symmetric_difference(ad, bd), a.idx
+                    wrap_typed_multiset_result(
+                        multiset_symmetric_difference(ad, bd), combine_typed_multiset_types(ad, bd)
+                    ),
+                    a.idx,
                 )
         raise EvalError(
             f"unsupported operator {op!r} for two axis-tagged values of these types"
@@ -2025,9 +2122,9 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, tuple) and isinstance(b, tuple):
             return a + b
         if isinstance(a, list) and isinstance(b, list):
-            return a + b
+            return wrap_typed_vector_result(a + b, combine_typed_vector_types(op, a, b))
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return multiset_union(a, b)
+            return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         if isinstance(a, dict) and isinstance(b, dict) and is_struct_dict(a) and is_struct_dict(b):
             return _struct_merge_concat(a, b)
         raise EvalError(
@@ -2037,37 +2134,57 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for +")
-            return [x + y for x, y in zip(a, b)]
+            return wrap_typed_vector_result(
+                [x + y for x, y in zip(a, b)],
+                combine_typed_vector_types(op, a, b),
+            )
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return multiset_union(a, b)
+            return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         return a + b
     if op == "MINUS":
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for -")
-            return [x - y for x, y in zip(a, b)]
+            return wrap_typed_vector_result(
+                [x - y for x, y in zip(a, b)],
+                combine_typed_vector_types(op, a, b),
+            )
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return multiset_difference(a, b)
+            return wrap_typed_multiset_result(multiset_difference(a, b), combine_typed_multiset_types(a, b))
         return a - b
     if op == "STAR":
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for *")
-            return [x * y for x, y in zip(a, b)]
+            return wrap_typed_vector_result(
+                [x * y for x, y in zip(a, b)],
+                combine_typed_vector_types(op, a, b),
+            )
         if isinstance(a, (int, float)) and isinstance(b, list):
-            return [float(a) * x for x in b]
+            return wrap_typed_vector_result(
+                [float(a) * x for x in b],
+                combine_typed_vector_types(op, a, b),
+            )
         if isinstance(a, list) and isinstance(b, (int, float)):
-            return [x * float(b) for x in a]
+            return wrap_typed_vector_result(
+                [x * float(b) for x in a],
+                combine_typed_vector_types(op, a, b),
+            )
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return multiset_intersection(a, b)
+            return wrap_typed_multiset_result(multiset_intersection(a, b), combine_typed_multiset_types(a, b))
         return a * b
     if op == "SLASH":
         if isinstance(a, list) and isinstance(b, list):
             if len(a) != len(b):
                 raise EvalError("list length mismatch for /")
-            return [x / y for x, y in zip(a, b)]
+            return wrap_typed_vector_result(
+                [x / y for x, y in zip(a, b)],
+                combine_typed_vector_types(op, a, b),
+            )
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return multiset_symmetric_difference(a, b)
+            return wrap_typed_multiset_result(
+                multiset_symmetric_difference(a, b), combine_typed_multiset_types(a, b)
+            )
         return a / b
     if op == "PERCENT":
         return a % b

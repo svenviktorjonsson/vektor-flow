@@ -43,7 +43,7 @@ class TestPipeElementwise:
 
     def test_lazy_range_pipe_emit_print_until_break(self) -> None:
         """``..`` drives ``>>`` until ``@|``; RHS uses ``$??`` switch arms."""
-        out = _run("..>>::$;$?? (20 => @|; _ => 0)")
+        out = _run("..>>::$;$?? (20 => @|)")
         lines = [x.rstrip() for x in out.splitlines() if x.strip() != ""]
         assert lines == [str(i) for i in range(21)]
 

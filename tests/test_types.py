@@ -48,6 +48,21 @@ f(x:num) -> num: x + 1
     assert "j" in lines[2]
 
 
+def test_prefix_typed_bind_coerces_values() -> None:
+    src = """
+num a: 3
+int b: true
+bytes raw: "hej"
+:: a
+:: b
+:: raw.
+"""
+    lines = _run(src).splitlines()
+    assert lines[0] in ("3", "3.0")
+    assert lines[1] == "1"
+    assert lines[2] == "bytes"
+
+
 def test_imaginary_constants() -> None:
     src = """
 :: i

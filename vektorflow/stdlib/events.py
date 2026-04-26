@@ -341,7 +341,28 @@ def get_global_poller() -> OverlayPoller:
         return _global_poller
 
 
+def drain_overlay_events(max_events: int = 512) -> int:
+    """Discard pending host events from ``/api/pop`` before a fresh UI session starts."""
+    port = get_overlay_port()
+    if not port:
+        return 0
+    url = _POP_URL_TEMPLATE.format(port=port)
+    drained = 0
+    for _ in range(max(0, int(max_events))):
+        try:
+            with urllib.request.urlopen(url, timeout=0.12) as resp:
+                raw = resp.read()
+            outer = json.loads(raw)
+        except Exception:
+            break
+        if not isinstance(outer, dict) or outer.get("line") is None:
+            break
+        drained += 1
+    return drained
+
+
 def start_event_poller() -> OverlayPoller:
+    drain_overlay_events()
     p = get_global_poller()
     p.start()
     return p

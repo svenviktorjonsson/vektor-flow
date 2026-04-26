@@ -24,7 +24,7 @@ p.type : "cool"
 :: p
 
 # Branching: `expr? body` (conditional) and `discriminant??` (switch) — see `examples/branching.vkf`.
-# Example: `n: 1` then `:: n?? (0 => 99; _ => n)` prints `1`.
+# `??` is control flow, so use it for effects rather than as a value expression.
 
 # Block with tab indent, last expression returns.
 f(x, y) :

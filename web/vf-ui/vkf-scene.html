@@ -118,12 +118,13 @@
         var k = (typeof VfFrame !== "undefined" && VfFrame.normalizeDockLocationKey)
           ? VfFrame.normalizeDockLocationKey(anch)
           : "tl";
-        var cs = window.getComputedStyle ? window.getComputedStyle(panel.root.offsetParent || panel.root.parentElement || panel.root) : null;
-        var padL = Math.max(0, Math.round(parseFloat(cs && cs.paddingLeft ? cs.paddingLeft : "0") || 0));
-        var padR = Math.max(0, Math.round(parseFloat(cs && cs.paddingRight ? cs.paddingRight : "0") || 0));
-        var padT = Math.max(0, Math.round(parseFloat(cs && cs.paddingTop ? cs.paddingTop : "0") || 0));
-        var padB = Math.max(0, Math.round(parseFloat(cs && cs.paddingBottom ? cs.paddingBottom : "0") || 0));
         var parentEl = panel.root.offsetParent || panel.root.parentElement || panel.root;
+        var isNestedLayer = !!(parentEl && parentEl.classList && parentEl.classList.contains("vf-frame__overlay"));
+        var cs = window.getComputedStyle ? window.getComputedStyle(parentEl) : null;
+        var padL = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(cs && cs.paddingLeft ? cs.paddingLeft : "0") || 0));
+        var padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(cs && cs.paddingRight ? cs.paddingRight : "0") || 0));
+        var padT = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(cs && cs.paddingTop ? cs.paddingTop : "0") || 0));
+        var padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(cs && cs.paddingBottom ? cs.paddingBottom : "0") || 0));
         var parentW = parentEl && parentEl.clientWidth ? parentEl.clientWidth : 1;
         var parentH = parentEl && parentEl.clientHeight ? parentEl.clientHeight : 1;
         var availW = Math.max(1, parentW - padL - padR);
@@ -326,7 +327,7 @@
             if (spec.body && Array.isArray(spec.body) && spec.body.length) {
               if (typeof VfWidgets !== "undefined" && VfWidgets.mount) {
                 VfWidgets.startStatePoll();
-                VfWidgets.mount(panel, id, spec.body);
+                VfWidgets.mount(panel, id, spec.body, spec.body_layout);
               }
             }
             advanced = true;
@@ -357,7 +358,7 @@
               if (spec.body && Array.isArray(spec.body) && spec.body.length) {
                 if (typeof VfWidgets !== "undefined" && VfWidgets.mount) {
                   VfWidgets.startStatePoll();
-                  VfWidgets.mount(fallback, id, spec.body);
+                  VfWidgets.mount(fallback, id, spec.body, spec.body_layout);
                 }
               }
             }

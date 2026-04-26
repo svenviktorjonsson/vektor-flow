@@ -118,6 +118,8 @@ class FrameSpec:
     # Optional widget tree for ``vf-ui`` (``web/vf-ui/vf-widgets.js``).
     # Each node is a JSON dict: at least ``id`` and ``type`` (e.g. ``label``, ``button``).
     body: tuple[dict[str, Any], ...] | None = None
+    # Optional body layout hint for widgets, e.g. ``{"type":"grid","rows":4,"cols":3}``.
+    body_layout: dict[str, Any] | None = None
     # Optional parent frame id. When set, ``rect`` is normalized to the parent frame body.
     parent_id: str | None = None
 
@@ -132,6 +134,7 @@ class FrameSpec:
             d["body"] = [dict(n) for n in self.body]
         else:
             d["body"] = None
+        d["body_layout"] = dict(self.body_layout) if self.body_layout is not None else None
         d["anchor"] = self.anchor
         d["parent_id"] = self.parent_id
         return d

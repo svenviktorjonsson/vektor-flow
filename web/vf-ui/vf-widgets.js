@@ -307,6 +307,18 @@
     return d;
   }
 
+  function applyGridSlot(node, spec) {
+    if (!node || !spec || !Array.isArray(spec.grid) || spec.grid.length !== 4) return;
+    var row = Number(spec.grid[0]);
+    var col = Number(spec.grid[1]);
+    var rowSpan = Number(spec.grid[2]);
+    var colSpan = Number(spec.grid[3]);
+    if (!Number.isFinite(row) || !Number.isFinite(col) || !Number.isFinite(rowSpan) || !Number.isFinite(colSpan)) return;
+    if (row < 0 || col < 0 || rowSpan <= 0 || colSpan <= 0) return;
+    node.style.gridRow = String(Math.floor(row) + 1) + " / span " + String(Math.floor(rowSpan));
+    node.style.gridColumn = String(Math.floor(col) + 1) + " / span " + String(Math.floor(colSpan));
+  }
+
   function ensureDrawCanvas(body) {
     var c = body.querySelector("canvas.vf-frame__draw-canvas");
     if (c) {
@@ -322,7 +334,7 @@
     return c;
   }
 
-  function mount(panel, frameId, bodyArr) {
+  function mount(panel, frameId, bodyArr, bodyLayout) {
     if (!panel || !panel.body) return;
     clearFrameWidgets(String(frameId));
     var body = panel.body;
@@ -335,7 +347,18 @@
       }
       ch = next;
     }
-    body.classList.add("vf-w-stack");
+    body.classList.remove("vf-w-stack", "vf-w-grid");
+    if (bodyLayout && bodyLayout.type === "grid") {
+      body.classList.add("vf-w-grid");
+      var rows = Number(bodyLayout.rows);
+      var cols = Number(bodyLayout.cols);
+      body.style.setProperty("--vf-grid-rows", String(Number.isFinite(rows) && rows > 0 ? Math.floor(rows) : 1));
+      body.style.setProperty("--vf-grid-cols", String(Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : 1));
+    } else {
+      body.classList.add("vf-w-stack");
+      body.style.removeProperty("--vf-grid-rows");
+      body.style.removeProperty("--vf-grid-cols");
+    }
     if (!Array.isArray(bodyArr) || bodyArr.length === 0) {
       if (typeof panel.expandToFitContent === "function") {
         panel.expandToFitContent();
@@ -345,6 +368,7 @@
     for (var i = 0; i < bodyArr.length; i++) {
       var node = mountOne(panel, String(frameId), bodyArr[i]);
       if (node) {
+        applyGridSlot(node, bodyArr[i]);
         body.appendChild(node);
       }
     }

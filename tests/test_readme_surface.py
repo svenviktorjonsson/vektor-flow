@@ -27,6 +27,14 @@ a : 4.2345
 """
         assert _emit(src) == "printing 4.23"
 
+    def test_dollar_dotted_vmap_path(self) -> None:
+        src = """
+:.collections
+state : map(time_idx: 7, time_max: 47)
+:: "t=$state.time_idx / $state.time_max"
+"""
+        assert _emit(src) == "t=7 / 47"
+
 
 class TestTypeInstanceAndEmit:
     def test_struct_literal_zero_sum(self) -> None:

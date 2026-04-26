@@ -1,0 +1,26 @@
+# Minimal uvw field-mesh example for ui.add(...).
+# Connectivity is driven by manifold dims u/v/w; i/j/k act as grouping-only dims.
+
+ui:.ui
+
+d: ui.display
+f: d.frame(
+    title: "field_mesh uvw",
+    dock_loc: "bl",
+    resizable: true
+)
+
+d.add_frame(f, (0.12, 0.08, 0.72, 0.82))
+
+# Broadcasted channels:
+# x depends on u, y depends on v, z depends on w.
+# Together they produce a 2x2x2 uvw lattice (one volume cell).
+m: f.add(
+    x_u: [-0.65, 0.65],
+    y_v: [-0.45, 0.45],
+    z_w: [-0.55, 0.55],
+    color: "#58d0ff"
+)
+
+cam: f.add_camera(pos:[3.2, 2.4, 4.2], target:[0,0,0], fov:45)
+light: f.add_light(pos:[5,6,5], model:"blinn_phong", color:"white")
