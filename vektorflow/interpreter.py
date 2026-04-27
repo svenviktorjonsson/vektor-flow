@@ -44,6 +44,8 @@ from .runtime import (
     runtime_collection_get,
     runtime_collection_kind,
     runtime_collection_set,
+    make_multiset,
+    make_vmap,
 )
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
@@ -619,7 +621,7 @@ class Interpreter:
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
-        self.builtin["errors"] = VMap(ERROR_NAMESPACE)
+        self.builtin["errors"] = make_vmap(ERROR_NAMESPACE)
 
     def _merge_stdlibs(self) -> None:
         for name in ("math", "capture", "io", "collections", "stat", "ui"):
@@ -1196,7 +1198,7 @@ class Interpreter:
                 if n < 0:
                     raise EvalError("multiset count must be non-negative")
                 c[key] += n
-            m = Multiset(c)
+            m = make_multiset(c.items())
             if node.axis_tag is not None:
                 return AxisTaggedValue(m, node.axis_tag)
             return m
@@ -1936,7 +1938,7 @@ def _builtin_to_multiset(n: Any, seq: Any) -> Multiset:
     c: Counter[Any] = Counter()
     for x in t:
         c[x] += 1
-    return Multiset(c)
+    return make_multiset(c.items())
 
 
 def _dotted_get_one(base: Any, k: Any) -> Any:
