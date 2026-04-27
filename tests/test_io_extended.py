@@ -26,6 +26,7 @@ from vektorflow.stdlib.io import (
     read_text,
     sleep,
     sleep_ms,
+    reset_io_native_host,
     set_io_file_host,
     set_io_native_host,
     set_io_time_host,
@@ -381,6 +382,30 @@ class TestSleepMs:
         finally:
             set_io_file_host(original_file_host)
             set_io_time_host(original_time_host)
+
+    def test_reset_io_native_host_restores_callable_native_surface(self) -> None:
+        class FakeHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        set_io_native_host(FakeHost())
+        reset_io_native_host()
+
+        host = get_io_native_host()
+        for name in ("read_text", "write_text", "read_bytes", "write_bytes", "sleep"):
+            assert callable(getattr(host, name))
 
 
 # ---------------------------------------------------------------------------

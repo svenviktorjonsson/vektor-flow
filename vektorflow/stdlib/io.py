@@ -240,6 +240,11 @@ def reset_io_host() -> None:
     reset_io_time_host()
 
 
+def reset_io_native_host() -> None:
+    """Restore the default preferred native host surface."""
+    reset_io_host()
+
+
 def reset_io_file_host() -> None:
     """Restore the default Python-backed filesystem host adapter."""
     global _file_host

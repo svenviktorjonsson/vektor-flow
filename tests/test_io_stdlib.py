@@ -22,6 +22,7 @@ from vektorflow.stdlib.io import (
     get_io_seconds_host,
     get_io_time_host,
     read_numbers,
+    reset_io_native_host,
     set_io_native_host,
     set_io_seconds_host,
 )
@@ -356,6 +357,35 @@ class TestTextBytes:
             ("sleep", 0.2),
             ("sleep", 0.3),
         ]
+
+    def test_reset_io_native_host_restores_default_native_surface(self) -> None:
+        class FakeHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b"fake"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return "fake"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        set_io_native_host(FakeHost())
+        native_host = get_io_native_host()
+        assert native_host.read_text("any.txt", encoding="utf-8") == "fake"
+
+        reset_io_native_host()
+
+        native_host = get_io_native_host()
+        assert native_host is not get_io_file_host()
+        assert native_host is not get_io_time_host()
+        assert native_host._file_host.__class__.__name__ == "PythonIoFileHost"
+        assert native_host._time_host.__class__.__name__ == "PythonIoTimeHost"
 
     def test_get_io_native_host_round_trips_combined_host_identity(self) -> None:
         class FakeHost:

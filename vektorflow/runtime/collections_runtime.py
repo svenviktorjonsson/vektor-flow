@@ -153,6 +153,14 @@ def runtime_collection_assign(value: Any, key: Any, item: Any) -> bool:
     return False
 
 
+def runtime_collection_assign_path(value: Any, keys: list[Any], item: Any) -> bool:
+    if runtime_collection_kind(value) == "map":
+        if len(keys) != 1:
+            raise EvalError("multi-key map assignment is not supported")
+        return runtime_collection_assign(value, keys[0], item)
+    return False
+
+
 def runtime_collection_index_get(value: Any, key: Any) -> Any:
     if runtime_collection_kind(value) == "map":
         return runtime_collection_require_get(value, key)

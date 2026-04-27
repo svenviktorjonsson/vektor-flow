@@ -40,7 +40,7 @@ from .runtime.struct_value import (
 )
 from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
-    runtime_collection_assign,
+    runtime_collection_assign_path,
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_expanded_values,
@@ -704,10 +704,7 @@ class Interpreter:
                     f"cannot assign struct field: {root_name!r} is not bound in this scope"
                 )
             d = env[root_name]
-            if runtime_collection_kind(d) == "map":
-                if len(keys) != 1:
-                    raise EvalError("multi-key map assignment is not supported")
-                runtime_collection_assign(d, keys[0], val)
+            if runtime_collection_assign_path(d, keys, val):
                 return
             if not isinstance(d, dict):
                 raise EvalError("field bind requires struct")

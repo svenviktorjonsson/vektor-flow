@@ -22,6 +22,7 @@ from vektorflow.runtime import (
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_assign,
+    runtime_collection_assign_path,
     runtime_collection_get,
     runtime_collection_index_get,
     runtime_collection_index_set,
@@ -116,6 +117,12 @@ def test_runtime_collection_map_helpers() -> None:
             make_vmap({"x": 3}), "y", missing_suffix=" in interpolation"
         )
     assert runtime_collection_assign([], 0, "x") is False
+    m3 = make_vmap({"path": 1})
+    assert runtime_collection_assign_path(m3, ["path"], 8) is True
+    assert runtime_collection_index_get(m3, "path") == 8
+    assert runtime_collection_assign_path([], ["path"], 8) is False
+    with pytest.raises(EvalError, match=r"multi-key map assignment is not supported"):
+        runtime_collection_assign_path(make_vmap({"x": 3}), ["x", "y"], 9)
     m2 = make_vmap({"x": 3})
     assert runtime_collection_index_set(m2, "z", 9) is True
     assert runtime_collection_index_get(m2, "z") == 9

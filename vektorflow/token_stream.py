@@ -68,6 +68,8 @@ def _require_string(value: Any, ctx: str, *, allow_empty: bool = True) -> str:
         raise ValueError(f"invalid {ctx}: expected string")
     if not allow_empty and value == "":
         raise ValueError(f"invalid {ctx}: expected non-empty string")
+    if not allow_empty and value.strip() == "":
+        raise ValueError(f"invalid {ctx}: expected non-blank string")
     return value
 
 

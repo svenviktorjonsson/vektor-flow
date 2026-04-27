@@ -86,6 +86,22 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "bundle_sha256": payload["runnable_fixture_set"]["bundle_sha256"],
     }
     assert len(payload["runnable_fixture_set"]["bundle_sha256"]) == 64
+    assert payload["runnable_fixture_set_comparison"] == {
+        "identity_fields": [
+            "fixture_name",
+            "source_rel",
+            "canonical_source_rel",
+            "pairing_status",
+            "source_path",
+            "filename_label",
+            "fixture_path",
+        ],
+        "ordering": "fixture_names sorted ascending",
+        "runnable_fixture_names": sorted(spec.fixture_name for spec in TOKEN_FIXTURE_SPECS),
+        "blocked_fixture_names": [],
+        "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
+    }
+    assert len(payload["runnable_fixture_set_comparison"]["comparison_sha256"]) == 64
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -199,6 +215,26 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "bundle_sha256": payload["runnable_fixture_set"]["bundle_sha256"],
     }
     assert len(payload["runnable_fixture_set"]["bundle_sha256"]) == 64
+    assert payload["runnable_fixture_set_comparison"] == {
+        "identity_fields": [
+            "fixture_name",
+            "source_rel",
+            "canonical_source_rel",
+            "pairing_status",
+            "source_path",
+            "filename_label",
+            "fixture_path",
+        ],
+        "ordering": "fixture_names sorted ascending",
+        "runnable_fixture_names": [],
+        "blocked_fixture_names": [
+            "hello_native_versioned.json",
+            "missing_both_versioned.json",
+            "source_missing_versioned.json",
+        ],
+        "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
+    }
+    assert len(payload["runnable_fixture_set_comparison"]["comparison_sha256"]) == 64
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -277,3 +313,19 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         "bundle_sha256": payload["runnable_fixture_set"]["bundle_sha256"],
     }
     assert len(payload["runnable_fixture_set"]["bundle_sha256"]) == 64
+    assert payload["runnable_fixture_set_comparison"] == {
+        "identity_fields": [
+            "fixture_name",
+            "source_rel",
+            "canonical_source_rel",
+            "pairing_status",
+            "source_path",
+            "filename_label",
+            "fixture_path",
+        ],
+        "ordering": "fixture_names sorted ascending",
+        "runnable_fixture_names": sorted(spec.fixture_name for spec in TOKEN_FIXTURE_SPECS),
+        "blocked_fixture_names": [],
+        "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
+    }
+    assert len(payload["runnable_fixture_set_comparison"]["comparison_sha256"]) == 64

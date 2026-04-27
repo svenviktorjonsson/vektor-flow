@@ -262,6 +262,27 @@ def declared_fixture_manifest_payload(
         "all_runnable": len(blocked_fixture_names) == 0,
         "bundle_sha256": _bundle_sha256(external_harness_view["usable_contracts"]),
     }
+    runnable_fixture_set_comparison = {
+        "identity_fields": [
+            "fixture_name",
+            "source_rel",
+            "canonical_source_rel",
+            "pairing_status",
+            "source_path",
+            "filename_label",
+            "fixture_path",
+        ],
+        "ordering": "fixture_names sorted ascending",
+        "runnable_fixture_names": sorted(runnable_fixture_names),
+        "blocked_fixture_names": sorted(blocked_fixture_names),
+        "comparison_sha256": _bundle_sha256(
+            {
+                "runnable_fixture_names": sorted(runnable_fixture_names),
+                "blocked_fixture_names": sorted(blocked_fixture_names),
+                "usable_contracts": external_harness_view["usable_contracts"],
+            }
+        ),
+    }
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -323,6 +344,7 @@ def declared_fixture_manifest_payload(
         },
         "external_harness_view": external_harness_view,
         "runnable_fixture_set": runnable_fixture_set,
+        "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -343,6 +365,7 @@ def declared_fixture_manifest_payload(
                 {
                     "external_harness_view": external_harness_view,
                     "runnable_fixture_set": runnable_fixture_set,
+                    "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
                 }
             ]
         ),
