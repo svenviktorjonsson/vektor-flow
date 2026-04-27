@@ -8,7 +8,16 @@ from pathlib import Path
 import pytest
 
 from vektorflow.lexer import tokenize
-from vektorflow.native_lexer_proto import lex_to_payload
+from vektorflow.native_lexer_fixtures import (
+    TOKEN_FIXTURE_SPECS,
+    default_fixture_root,
+    regenerate_token_fixtures,
+)
+from vektorflow.native_lexer_proto import (
+    lex_file_to_payload,
+    lex_to_payload,
+    stable_source_label,
+)
 from vektorflow.parser import parse_module, parse_token_stream_json, parse_tokens
 from vektorflow.token_stream import (
     TOKEN_STREAM_SCHEMA,
@@ -19,12 +28,11 @@ from vektorflow.token_stream import (
     tokens_to_json,
     write_versioned_token_stream,
 )
-
-FIXTURE_ROOT = Path(__file__).with_name("fixtures") / "token_stream"
-
-
-def _fixture_text(name: str) -> str:
-    return (FIXTURE_ROOT / name).read_text(encoding="utf-8")
+from tests.token_stream_fixture_helper import (
+    TOKEN_FIXTURE_ROOT,
+    iter_token_fixture_cases,
+    token_fixture_case,
+)
 
 
 def test_token_stream_roundtrip_preserves_dot_adjacency_payload() -> None:
@@ -103,15 +111,15 @@ def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object],
 
 
 def test_versioned_fixture_parses_like_source_golden() -> None:
-    src = "v : [1,2]\nv. value: [3,4]\n:: value.\n"
-    module = parse_token_stream_json(_fixture_text("versioned_loose_dot_bind.json"))
-    assert repr(module) == repr(parse_module(src, filename="<fixture-versioned>"))
+    case = token_fixture_case("versioned_loose_dot_bind.json")
+    module = parse_token_stream_json(case.read_payload_text())
+    assert repr(module) == repr(parse_module(case.read_source_text(), filename=case.source_filename))
 
 
 def test_legacy_fixture_parses_like_source_golden() -> None:
-    src = "(1.,) t: (1,)\n:: t.\n"
-    module = parse_token_stream_json(_fixture_text("legacy_singleton_tuple_type.json"))
-    assert repr(module) == repr(parse_module(src, filename="<fixture-legacy>"))
+    case = token_fixture_case("legacy_singleton_tuple_type.json")
+    module = parse_token_stream_json(case.read_payload_text())
+    assert repr(module) == repr(parse_module(case.read_source_text(), filename=case.source_filename))
 
 
 @pytest.mark.parametrize(
@@ -201,3 +209,60 @@ def test_native_lexer_proto_emits_versioned_payload_from_stdin() -> None:
     assert payload["schema"] == TOKEN_STREAM_SCHEMA
     assert payload["tokens"][0]["kind"] == "NUMBER"
     assert payload["tokens"][0]["value"] == 1.2e4
+
+
+def test_stable_source_label_prefers_repo_relative_path() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    source = repo / "examples" / "native_core" / "hello_native.vkf"
+    assert stable_source_label(source, root=repo) == "examples/native_core/hello_native.vkf"
+
+
+@pytest.mark.parametrize(
+    "source_rel, fixture_name",
+    [(spec.source_rel, spec.fixture_name) for spec in TOKEN_FIXTURE_SPECS],
+)
+def test_native_core_fixture_matches_lex_file_payload(source_rel: str, fixture_name: str) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    source = repo / Path(source_rel)
+    payload = lex_file_to_payload(source, root=repo)
+    fixture_payload = token_stream_payload_from_json(token_fixture_case(fixture_name).read_payload_text())
+    assert payload == fixture_payload
+
+
+@pytest.mark.parametrize(
+    "source_rel, fixture_name",
+    [(spec.source_rel, spec.fixture_name) for spec in TOKEN_FIXTURE_SPECS],
+)
+def test_native_core_fixture_parses_like_source(source_rel: str, fixture_name: str) -> None:
+    case = token_fixture_case(fixture_name)
+    fixture_module = parse_token_stream_json(case.read_payload_text())
+    source_module = parse_module(case.read_source_text(), filename=case.source_filename)
+    assert repr(fixture_module) == repr(source_module)
+
+
+def test_all_token_stream_fixtures_with_sources_parse_like_paired_source() -> None:
+    for case in iter_token_fixture_cases():
+        fixture_module = parse_token_stream_json(case.read_payload_text())
+        source_module = parse_module(case.read_source_text(), filename=case.source_filename)
+        assert repr(fixture_module) == repr(source_module), case.name
+
+
+def test_native_core_fixtures_are_canonical_versioned_payloads() -> None:
+    for spec in TOKEN_FIXTURE_SPECS:
+        raw = json.loads(token_fixture_case(spec.fixture_name).read_payload_text())
+        assert list(raw.keys()) == ["schema", "version", "tokens"]
+        assert raw["schema"] == TOKEN_STREAM_SCHEMA
+        assert raw["version"] == TOKEN_STREAM_VERSION
+        assert isinstance(raw["tokens"], list)
+
+
+def test_regenerate_token_fixtures_matches_checked_in_samples(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    out_root = tmp_path / "token_stream"
+    written = regenerate_token_fixtures(repo_root=repo, fixture_root=out_root)
+    assert {path.name for path in written} == {spec.fixture_name for spec in TOKEN_FIXTURE_SPECS}
+    assert default_fixture_root(repo) == TOKEN_FIXTURE_ROOT
+    for spec in TOKEN_FIXTURE_SPECS:
+        generated = (out_root / spec.fixture_name).read_text(encoding="utf-8")
+        checked_in = token_fixture_case(spec.fixture_name).read_payload_text()
+        assert generated == checked_in

@@ -13,16 +13,12 @@ from vektorflow.cpp_backend import discover_cpp_compiler
 from vektorflow.lexer import tokenize
 from vektorflow.parser import parse_module
 from vektorflow.token_stream import tokens_to_json
+from tests.token_stream_fixture_helper import token_fixture_case
 
 ROOT = Path(__file__).resolve().parent.parent
 HELLO = ROOT / "examples" / "hello.vkf"
 FOLDER_REPO_MAIN = ROOT / "examples" / "folder_repo" / "main.vkf"
 NATIVE_CORE = ROOT / "examples" / "native_core"
-TOKEN_FIXTURES = ROOT / "tests" / "fixtures" / "token_stream"
-
-
-def _token_fixture(name: str) -> Path:
-    return TOKEN_FIXTURES / name
 
 
 class TestResolveVkfPath:
@@ -96,18 +92,20 @@ class TestMain:
     def test_parse_tokens_subcommand_versioned_fixture(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        fixture = _token_fixture("versioned_loose_dot_bind.json")
-        src = "v : [1,2]\nv. value: [3,4]\n:: value.\n"
-        assert main(["parse-tokens", str(fixture)]) == 0
-        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<fixture-versioned>"))
+        case = token_fixture_case("versioned_loose_dot_bind.json")
+        assert main(["parse-tokens", str(case.payload_path)]) == 0
+        assert capsys.readouterr().out.strip() == repr(
+            parse_module(case.read_source_text(), filename=case.source_filename)
+        )
 
     def test_parse_tokens_subcommand_legacy_fixture(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        fixture = _token_fixture("legacy_singleton_tuple_type.json")
-        src = "(1.,) t: (1,)\n:: t.\n"
-        assert main(["parse-tokens", str(fixture)]) == 0
-        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<fixture-legacy>"))
+        case = token_fixture_case("legacy_singleton_tuple_type.json")
+        assert main(["parse-tokens", str(case.payload_path)]) == 0
+        assert capsys.readouterr().out.strip() == repr(
+            parse_module(case.read_source_text(), filename=case.source_filename)
+        )
 
     def test_parse_tokens_subcommand_malformed_token_entry(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path
