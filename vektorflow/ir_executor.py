@@ -8,10 +8,8 @@ from typing import Any
 
 from .errors import EvalError
 from .interpreter import _binop, _stringify
-from .runtime.multiset import Multiset
+from .runtime import make_multiset, make_vflist, make_vmap
 from .runtime.type_values import PrimType, coerce_typed_value, is_type_value, resolve_return_type
-from .runtime.vflist import VFLinkedList
-from .runtime.vmap import VMap
 from .stdlib import STDLIB_MODULES, resolve_stdlib
 from .stdlib.events import event_match_specificity
 from . import ir
@@ -193,16 +191,16 @@ class IRExecutor:
         if isinstance(node, ir.ListExpr):
             return [self.eval_expr(e, env) for e in node.elements]
         if isinstance(node, ir.MapExpr):
-            return VMap({name: self.eval_expr(value, env) for name, value in node.fields})
+            return make_vmap({name: self.eval_expr(value, env) for name, value in node.fields})
         if isinstance(node, ir.LinkedListExpr):
             if node.spread is not None:
-                return VFLinkedList.from_iterable(self.eval_expr(node.spread, env))
-            return VFLinkedList.from_iterable(self.eval_expr(e, env) for e in node.elements)
+                return make_vflist(self.eval_expr(node.spread, env))
+            return make_vflist(self.eval_expr(e, env) for e in node.elements)
         if isinstance(node, ir.MultisetExpr):
             pairs: list[tuple[Any, int]] = []
             for value, count in node.pairs:
                 pairs.append((self.eval_expr(value, env), int(self.eval_expr(count, env))))
-            return Multiset.from_pairs(pairs)
+            return make_multiset(pairs)
         if isinstance(node, ir.StructExpr):
             return {name: self.eval_expr(value, env) for name, value in node.fields}
         if isinstance(node, ir.AttrExpr):
@@ -211,7 +209,7 @@ class IRExecutor:
                 if node.name not in base:
                     raise EvalError(f"missing field {node.name!r}")
                 return base[node.name]
-            if isinstance(base, VMap):
+            if hasattr(base, "items") and hasattr(base, "get") and hasattr(base, "__contains__"):
                 if node.name not in base:
                     raise EvalError(f"missing field {node.name!r}")
                 return base.get(node.name)

@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import ast
 from ..errors import ErrorTypeValue, EvalError, error_type_for_exception
+from .collections_runtime import runtime_collection_kind
 from .struct_value import VF_TYPE_KEY, get_type_name, is_struct_dict
 from .multiset import Multiset
 from .typed_vector import TypedVector
@@ -265,13 +266,14 @@ def infer_type(
         if len(v) == 0:
             return ast.TupleTypeExpr([])
         return ast.TupleTypeExpr([infer_type(x, type_registry) for x in v])
-    if isinstance(v, Multiset):
+    collection_kind = runtime_collection_kind(v)
+    if collection_kind == "multiset":
         if getattr(v, "vf_type_expr", None) is not None:
             return v.vf_type_expr
         return ast.PrimTypeRef("multiset")
-    if isinstance(v, VMap):
+    if collection_kind == "map":
         return ast.MapValueType([(k, infer_type(val, type_registry)) for k, val in v.items()])
-    if isinstance(v, VFLinkedList):
+    if collection_kind == "list":
         return ast.LinkedListValueType([infer_type(item, type_registry) for item in v])
     if isinstance(v, dict) and is_struct_dict(v):
         tname = get_type_name(v)

@@ -4,9 +4,11 @@ from .absnorm import abs_or_norm
 from .axis_tagged import AxisTaggedValue
 from .collections_runtime import (
     is_runtime_collection,
+    make_multiset,
     make_vflist,
     make_vmap,
     make_vfqueue,
+    runtime_collection_kind,
 )
 from .multiset import Multiset, cartesian_binary
 from .vflist import VFLinkedList
@@ -22,7 +24,9 @@ __all__ = [
     "abs_or_norm",
     "cartesian_binary",
     "is_runtime_collection",
+    "make_multiset",
     "make_vflist",
     "make_vmap",
     "make_vfqueue",
+    "runtime_collection_kind",
 ]

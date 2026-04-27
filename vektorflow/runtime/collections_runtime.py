@@ -30,6 +30,23 @@ def make_vfqueue(values: Iterable[Any] | None = None) -> VFQueue:
     return VFQueue.from_iterable(values)
 
 
-def is_runtime_collection(value: Any) -> bool:
-    return isinstance(value, (VMap, VFLinkedList, VFQueue, Multiset))
+def make_multiset(pairs: Iterable[tuple[Any, int]] | None = None) -> Multiset:
+    if pairs is None:
+        return Multiset()
+    return Multiset.from_pairs(list(pairs))
 
+
+def runtime_collection_kind(value: Any) -> str | None:
+    if isinstance(value, VMap):
+        return "map"
+    if isinstance(value, VFLinkedList):
+        return "list"
+    if isinstance(value, VFQueue):
+        return "queue"
+    if isinstance(value, Multiset):
+        return "multiset"
+    return None
+
+
+def is_runtime_collection(value: Any) -> bool:
+    return runtime_collection_kind(value) is not None

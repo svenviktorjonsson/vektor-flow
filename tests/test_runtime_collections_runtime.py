@@ -6,9 +6,11 @@ from vektorflow.runtime import (
     VFQueue,
     VMap,
     is_runtime_collection,
+    make_multiset,
     make_vflist,
     make_vfqueue,
     make_vmap,
+    runtime_collection_kind,
 )
 
 
@@ -48,3 +50,14 @@ def test_runtime_collection_predicate_covers_core_owned_collections() -> None:
     assert is_runtime_collection(make_vfqueue())
     assert is_runtime_collection(Multiset({1: 2}))
     assert not is_runtime_collection({"python": "dict"})
+
+
+def test_runtime_collection_kind_and_make_multiset() -> None:
+    ms = make_multiset([(1, 2), (3, 1)])
+    assert runtime_collection_kind(make_vmap()) == "map"
+    assert runtime_collection_kind(make_vflist()) == "list"
+    assert runtime_collection_kind(make_vfqueue()) == "queue"
+    assert runtime_collection_kind(ms) == "multiset"
+    assert runtime_collection_kind(("not", "a collection")) is None
+    assert isinstance(ms, Multiset)
+    assert ms.count(1) == 2

@@ -6,7 +6,7 @@ import pytest
 
 from vektorflow.interpreter import _stringify
 from vektorflow.interpreter import Interpreter
-from vektorflow.ir import AttrExpr, CoerceExpr, FunctionDef, IndexExpr, LinkedListExpr, MapExpr, MatchStmt, MultisetExpr, StoreName, StructExpr, WhileStmt, lower_module
+from vektorflow.ir import AttrExpr, CoerceExpr, Const, FunctionDef, IndexExpr, LinkedListExpr, MapExpr, MatchStmt, Module, MultisetExpr, StoreName, StructExpr, WhileStmt, lower_module
 from vektorflow.ir_executor import IRExecutor
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
@@ -181,6 +181,23 @@ out: join(base, [3,4,5])
     assert ir_ret == ast_ret
     assert ir_globals["base"] == ast_globals["base"] == [1.0, 1.0]
     assert ir_globals["out"] == ast_globals["out"] == [1.0, 1.0, 3.0, 4.0, 5.0]
+
+
+def test_ir_executor_runtime_collection_constructors_use_runtime_seam() -> None:
+    module = Module(
+        [
+            StoreName("m", MapExpr([("a", Const(1)), ("b", Const(2))])),
+            StoreName("L", LinkedListExpr([], spread=Const([3, 4]))),
+            StoreName("S", MultisetExpr([(Const(1), Const(2)), (Const(3), Const(1))])),
+        ]
+    )
+    ip = IRExecutor(Path(__file__))
+    ret = ip.run_module(module)
+    assert ret is None
+    assert list(ip.globals["m"].items()) == [("a", 1), ("b", 2)]
+    assert list(ip.globals["L"]) == [3, 4]
+    assert ip.globals["S"].count(1) == 2
+    assert ip.globals["S"].count(3) == 1
 
 
 def test_ir_parity_conditional_loop_and_match_loop() -> None:
