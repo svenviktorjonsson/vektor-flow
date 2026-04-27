@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from vektorflow.stdlib import resolve_stdlib
+from vektorflow.stdlib import io as iolib
 from vektorflow.stdlib.io import build_io_namespace, read_numbers
 
 
@@ -125,3 +126,23 @@ class TestReadNumbers:
         out = read_numbers(str(p), header=True)
         np.testing.assert_array_equal(out.a, np.array([1.0, 3.0]))
         np.testing.assert_array_equal(out.b, np.array([2.0, 4.0]))
+
+    def test_no_numpy_matrix_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = tmp_path / "n.txt"
+        p.write_text("1 2\n3 4\n", encoding="utf-8")
+        monkeypatch.setattr(iolib, "np", None)
+        out = read_numbers(str(p), header=False)
+        assert out.shape == (2, 2)
+        assert out.ndim == 2
+        assert out.dtype == "float64"
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
+
+    def test_no_numpy_header_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = tmp_path / "d.csv"
+        p.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
+        monkeypatch.setattr(iolib, "np", None)
+        out = read_numbers(str(p))
+        assert list(out.a) == [1.0, 3.0]
+        assert list(out.b) == [2.0, 4.0]
+        assert out.a.dtype == "float64"
+        assert out.a.shape == (2,)

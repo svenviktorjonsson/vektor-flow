@@ -8,7 +8,76 @@ from collections import namedtuple
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+try:
+    import numpy as np  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised via fallback tests
+    np = None
+
+
+class NumericColumn(list[float]):
+    """Tiny numpy-free 1-D numeric column fallback."""
+
+    @property
+    def dtype(self) -> str:
+        return "float64"
+
+    @property
+    def shape(self) -> tuple[int]:
+        return (len(self),)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+
+class NumericMatrix:
+    """Tiny numpy-free 2-D numeric matrix fallback."""
+
+    def __init__(self, rows: list[list[float]]) -> None:
+        self._rows = rows
+
+    def __iter__(self):
+        return iter(self._rows)
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def __getitem__(self, idx: int) -> list[float]:
+        return self._rows[idx]
+
+    @property
+    def dtype(self) -> str:
+        return "float64"
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        if not self._rows:
+            return (0, 0)
+        return (len(self._rows), len(self._rows[0]))
+
+    @property
+    def ndim(self) -> int:
+        return 2
+
+    def to_list(self) -> list[list[float]]:
+        return [list(row) for row in self._rows]
+
+    def __repr__(self) -> str:
+        return f"NumericMatrix(shape={self.shape}, rows={self._rows!r})"
+
+
+def _make_matrix(rows: list[list[float]]) -> Any:
+    if np is not None:
+        if not rows:
+            return np.zeros((0, 0), dtype=np.float64)
+        return np.asarray(rows, dtype=np.float64)
+    return NumericMatrix(rows)
+
+
+def _make_column(values: list[float]) -> Any:
+    if np is not None:
+        return np.asarray(values, dtype=np.float64)
+    return NumericColumn(values)
 
 
 def _as_path(path: str) -> Path:
@@ -95,8 +164,8 @@ def _classify_first_row(cells: list[str]) -> str:
 
 def _matrix_from_lines(
     lines: list[str], delimiter: str | None
-) -> np.ndarray:
-    """2-D float matrix ``(n_rows, n_cols)`` — row vectors are ``array[i, :]``.
+) -> Any:
+    """2-D float matrix ``(n_rows, n_cols)``.
 
     First row where every cell is numeric sets the column count; other rows must
     match or are skipped.
@@ -115,9 +184,7 @@ def _matrix_from_lines(
         if len(row) == n_cols:
             matrix.append(row)
         # else: wrong width — skip
-    if not matrix:
-        return np.zeros((0, 0), dtype=np.float64)
-    return np.asarray(matrix, dtype=np.float64)
+    return _make_matrix(matrix)
 
 
 def _dict_from_header_lines(
@@ -125,7 +192,7 @@ def _dict_from_header_lines(
     delimiter: str | None,
     names: list[str],
 ) -> Any:
-    """Named tuple of column vectors (each column is ``numpy.ndarray`` 1-D)."""
+    """Named tuple of column vectors."""
     n_cols = len(names)
     if not names or not any(names):
         raise ValueError("read_numbers: empty header row")
@@ -140,7 +207,7 @@ def _dict_from_header_lines(
             continue
         for j in range(n_cols):
             columns[j].append(row[j])
-    col_arrays = tuple(np.asarray(columns[j], dtype=np.float64) for j in range(n_cols))
+    col_arrays = tuple(_make_column(columns[j]) for j in range(n_cols))
     Table = namedtuple("Table", names, rename=True)  # type: ignore[misc]
     return Table(*col_arrays)
 
@@ -159,27 +226,29 @@ def read_numbers(
 
     * **With header** (``header is True``, or auto-detected): returns a
       :func:`collections.namedtuple` whose fields are column names; each field is a
-      **1-D** :class:`numpy.ndarray` ``dtype=float64`` (column vector). Data rows
-      that are not fully numeric or whose width differs from the header are
-      **skipped**.
+      numeric column vector. When NumPy is installed this is a **1-D**
+      :class:`numpy.ndarray` ``dtype=float64``; otherwise it is a built-in
+      ``NumericColumn`` list-like fallback. Data rows that are not fully numeric or
+      whose width differs from the header are **skipped**.
     * **Without header** (``header is False``, or auto-detected numeric first row):
-      returns a **2-D** :class:`numpy.ndarray` ``dtype=float64``, shape
-      ``(n_rows, n_cols)`` (rows × columns). Row ``i`` is ``array[i, :]``. The
-      **first** row where every cell is numeric sets the column count; leading
-      non-numeric lines are skipped; later rows that do not match width or are not
-      all-numeric are skipped.
+      returns a numeric matrix. When NumPy is installed this is a **2-D**
+      :class:`numpy.ndarray` ``dtype=float64`` with shape ``(n_rows, n_cols)``;
+      otherwise it is a built-in ``NumericMatrix`` fallback with the same
+      row/column shape metadata. The **first** row where every cell is numeric sets
+      the column count; leading non-numeric lines are skipped; later rows that do
+      not match width or are not all-numeric are skipped.
     * ``header is None`` (default): auto-detect — if the first row looks like a
       header (no cell parses as a float), use header mode; otherwise matrix mode.
 
     Empty files: ``{}`` when ``header is True`` and there are no lines; a **0×0**
-    float array when no matrix rows are found.
+    numeric matrix when no matrix rows are found.
     """
     text = read_text(path)
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         if header is True:
             return {}
-        return np.zeros((0, 0), dtype=np.float64)
+        return _make_matrix([])
 
     first = _split_row(lines[0], delimiter)
 
