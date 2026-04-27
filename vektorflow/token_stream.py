@@ -114,12 +114,14 @@ def _normalize_payload(payload: Any) -> dict[str, Any]:
         raise ValueError("invalid token stream payload: missing token list")
 
     if "schema" not in payload and "version" not in payload:
+        _reject_unknown_fields(payload, {"tokens"}, "token stream payload")
         return {
             "schema": TOKEN_STREAM_SCHEMA,
             "version": TOKEN_STREAM_VERSION,
             "tokens": payload["tokens"],
         }
 
+    _reject_unknown_fields(payload, {"schema", "version", "tokens"}, "token stream payload")
     schema = payload.get("schema")
     version = payload.get("version")
     if schema != TOKEN_STREAM_SCHEMA:

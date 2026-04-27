@@ -23,6 +23,8 @@ from vektorflow.runtime import (
     runtime_collection_ctor_call,
     runtime_collection_assign,
     runtime_collection_get,
+    runtime_collection_index_get,
+    runtime_collection_index_set,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
     runtime_collection_read_attr,
@@ -100,6 +102,7 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_assign(m, "y", 4) is True
     runtime_collection_set(m, "y", 4)
     assert runtime_collection_get(m, "y") == 4
+    assert runtime_collection_index_get(m, "y") == 4
     m.set(2, 5)
     assert runtime_collection_items_sorted(m) == [(2, 5), ("x", 3), ("y", 4)]
     assert runtime_collection_keys_sorted(m) == [2, "x", "y"]
@@ -112,6 +115,12 @@ def test_runtime_collection_map_helpers() -> None:
             make_vmap({"x": 3}), "y", missing_suffix=" in interpolation"
         )
     assert runtime_collection_assign([], 0, "x") is False
+    m2 = make_vmap({"x": 3})
+    assert runtime_collection_index_set(m2, "z", 9) is True
+    assert runtime_collection_index_get(m2, "z") == 9
+    assert runtime_collection_index_set([], 0, "x") is False
+    with pytest.raises(TypeError):
+        runtime_collection_index_get([], 0)
 
 
 def test_runtime_collection_take_prefix_for_list_and_queue() -> None:

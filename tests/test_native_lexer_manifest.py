@@ -62,6 +62,21 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "blocked": [],
         "usable": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS],
     }
+    assert payload["external_harness_view"] == {
+        "usable_contracts": [
+            {
+                "fixture_name": spec.fixture_name,
+                "source_rel": spec.source_rel,
+                "canonical_source_rel": spec.source_rel,
+                "pairing_status": "paired",
+                "source_path": str(repo / spec.source_rel),
+                "filename_label": spec.source_rel,
+                "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+            }
+            for spec in TOKEN_FIXTURE_SPECS
+        ],
+        "blocked_contracts": [],
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -127,6 +142,41 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         ],
         "usable": [],
     }
+    assert payload["external_harness_view"] == {
+        "usable_contracts": [],
+        "blocked_contracts": [
+            {
+                "fixture_name": "hello_native_versioned.json",
+                "source_rel": "examples/native_core/hello_native.vkf",
+                "canonical_source_rel": "examples/native_core/hello_native.vkf",
+                "pairing_status": "fixture-missing",
+                "source_path": str(repo / "examples/native_core/hello_native.vkf"),
+                "filename_label": "examples/native_core/hello_native.vkf",
+                "fixture_path": str(out_root / "hello_native_versioned.json"),
+                "validation_issues": ["fixture-missing"],
+            },
+            {
+                "fixture_name": "source_missing_versioned.json",
+                "source_rel": "examples/native_core/missing_source.vkf",
+                "canonical_source_rel": "examples/native_core/missing_source.vkf",
+                "pairing_status": "source-missing",
+                "source_path": str(repo / "examples/native_core/missing_source.vkf"),
+                "filename_label": "examples/native_core/missing_source.vkf",
+                "fixture_path": str(out_root / "source_missing_versioned.json"),
+                "validation_issues": ["source-missing"],
+            },
+            {
+                "fixture_name": "missing_both_versioned.json",
+                "source_rel": "examples/native_core/missing_both.vkf",
+                "canonical_source_rel": "examples/native_core/missing_both.vkf",
+                "pairing_status": "unpaired",
+                "source_path": str(repo / "examples/native_core/missing_both.vkf"),
+                "filename_label": "examples/native_core/missing_both.vkf",
+                "fixture_path": str(out_root / "missing_both_versioned.json"),
+                "validation_issues": ["source-missing", "fixture-missing"],
+            },
+        ],
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -180,4 +230,19 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
     assert payload["fixtures_by_contract_usability"] == {
         "blocked": [],
         "usable": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS],
+    }
+    assert payload["external_harness_view"] == {
+        "usable_contracts": [
+            {
+                "fixture_name": spec.fixture_name,
+                "source_rel": spec.source_rel,
+                "canonical_source_rel": spec.source_rel,
+                "pairing_status": "paired",
+                "source_path": str(repo / spec.source_rel),
+                "filename_label": spec.source_rel,
+                "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+            }
+            for spec in TOKEN_FIXTURE_SPECS
+        ],
+        "blocked_contracts": [],
     }

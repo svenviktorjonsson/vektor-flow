@@ -15,6 +15,7 @@ from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.io import (
+    get_io_native_host,
     build_io_native_namespace,
     build_io_namespace,
     build_io_seconds_namespace,
@@ -343,6 +344,11 @@ class TestSleepMs:
             "sleep",
         } == set(io.keys())
         assert "sleep_ms" not in io
+
+    def test_native_host_exposes_preferred_surface(self) -> None:
+        host = get_io_native_host()
+        for name in ("read_text", "write_text", "read_bytes", "write_bytes", "sleep"):
+            assert callable(getattr(host, name))
 
 
 # ---------------------------------------------------------------------------

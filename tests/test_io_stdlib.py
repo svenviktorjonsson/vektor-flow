@@ -18,6 +18,7 @@ from vektorflow.stdlib.io import (
     build_io_time_namespace,
     get_io_clock_host,
     get_io_file_host,
+    get_io_native_host,
     get_io_seconds_host,
     get_io_time_host,
     read_numbers,
@@ -312,6 +313,77 @@ class TestTextBytes:
             ("write_bytes", ("native.bin", b"abc")),
             ("sleep", 0.4),
         ]
+
+    def test_get_io_native_host_round_trips_combined_host_identity(self) -> None:
+        class FakeHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b"combined"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return "combined"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        host = FakeHost()
+        iolib.set_io_host(host)
+
+        assert get_io_native_host() is host
+
+    def test_get_io_native_host_adapts_separate_file_and_time_hosts(self) -> None:
+        class FakeFileHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"split-bytes"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "split-text"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+        class FakeSecondsHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(float(seconds))
+
+        file_host = FakeFileHost()
+        time_host = FakeSecondsHost()
+        iolib.set_io_file_host(file_host)
+        set_io_seconds_host(time_host)
+
+        native_host = get_io_native_host()
+
+        assert native_host.read_text("split.txt", encoding="utf-8") == "split-text"
+        assert native_host.read_bytes("split.bin") == b"split-bytes"
+        native_host.write_text("split.txt", "payload", encoding="utf-8")
+        native_host.write_bytes("split.bin", b"x")
+        native_host.sleep(0.6)
+
+        assert native_host is not file_host
+        assert native_host is not time_host
+        assert file_host.calls == [
+            ("read_text", ("split.txt", "utf-8")),
+            ("read_bytes", "split.bin"),
+            ("write_text", ("split.txt", "payload", "utf-8")),
+            ("write_bytes", ("split.bin", b"x")),
+        ]
+        assert time_host.calls == [0.6]
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:

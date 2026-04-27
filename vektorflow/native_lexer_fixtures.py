@@ -219,6 +219,36 @@ def declared_fixture_manifest_payload(
         for issue in issues:
             validation_issue_counts[issue] = validation_issue_counts.get(issue, 0) + 1
 
+    external_harness_view = {
+        "usable_contracts": [
+            {
+                "fixture_name": item["fixture_name"],
+                "source_rel": item["source_rel"],
+                "canonical_source_rel": item["canonical_source_rel"],
+                "pairing_status": item["pairing_status"],
+                "source_path": item["external_lexer_contract"]["source_path"],
+                "filename_label": item["external_lexer_contract"]["filename_label"],
+                "fixture_path": item["external_lexer_contract"]["fixture_path"],
+            }
+            for item in fixtures
+            if item["external_lexer_contract_usable"]
+        ],
+        "blocked_contracts": [
+            {
+                "fixture_name": item["fixture_name"],
+                "source_rel": item["source_rel"],
+                "canonical_source_rel": item["canonical_source_rel"],
+                "pairing_status": item["pairing_status"],
+                "source_path": item["external_lexer_contract"]["source_path"],
+                "filename_label": item["external_lexer_contract"]["filename_label"],
+                "fixture_path": item["external_lexer_contract"]["fixture_path"],
+                "validation_issues": list(item["validation_issues"]),
+            }
+            for item in fixtures
+            if not item["external_lexer_contract_usable"]
+        ],
+    }
+
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
         "version": TOKEN_FIXTURE_MANIFEST_VERSION,
@@ -277,6 +307,7 @@ def declared_fixture_manifest_payload(
                 if item["external_lexer_contract_usable"]
             ],
         },
+        "external_harness_view": external_harness_view,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -292,6 +323,11 @@ def declared_fixture_manifest_payload(
                     "validation_issues": item["validation_issues"],
                 }
                 for item in fixtures
+            ]
+            + [
+                {
+                    "external_harness_view": external_harness_view,
+                }
             ]
         ),
         "summary": {

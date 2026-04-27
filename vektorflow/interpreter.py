@@ -44,6 +44,8 @@ from .runtime import (
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_expanded_values,
+    runtime_collection_index_get,
+    runtime_collection_index_set,
     runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_read_attr,
@@ -1947,7 +1949,7 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
         return base.get_at(_normalize_index(k))
     if runtime_collection_kind(base) == "map":
         kk = _normalize_index(k)
-        return runtime_collection_require_get(base, kk)
+        return runtime_collection_index_get(base, kk)
     if isinstance(base, list):
         return base[_normalize_index(k)]
     if isinstance(base, dict):
@@ -1964,7 +1966,7 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
 def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
     if isinstance(container, LazyList):
         raise EvalError("cannot assign through index on lazy list")
-    if runtime_collection_assign(container, _normalize_index(k), val):
+    if runtime_collection_index_set(container, _normalize_index(k), val):
         return
     if isinstance(container, list):
         container[_normalize_index(k)] = val

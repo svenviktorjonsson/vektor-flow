@@ -153,6 +153,16 @@ def runtime_collection_assign(value: Any, key: Any, item: Any) -> bool:
     return False
 
 
+def runtime_collection_index_get(value: Any, key: Any) -> Any:
+    if runtime_collection_kind(value) == "map":
+        return runtime_collection_require_get(value, key)
+    raise TypeError("runtime_collection_index_get only supports map-like runtime collections")
+
+
+def runtime_collection_index_set(value: Any, key: Any, item: Any) -> bool:
+    return runtime_collection_assign(value, key, item)
+
+
 def runtime_collection_items_sorted(value: Any) -> list[tuple[Any, Any]]:
     kind = runtime_collection_kind(value)
     if kind == "map":

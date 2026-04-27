@@ -25,6 +25,11 @@ INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] =
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
     ({"schema": TOKEN_STREAM_SCHEMA, "version": 99, "tokens": []}, "unsupported version"),
     ({"schema": TOKEN_STREAM_SCHEMA, "version": True, "tokens": []}, "token stream version: expected integer"),
+    ({"tokens": [], "meta": "extra"}, "unexpected field(s): meta"),
+    (
+        {"schema": TOKEN_STREAM_SCHEMA, "version": TOKEN_STREAM_VERSION, "tokens": [], "meta": "extra"},
+        "unexpected field(s): meta",
+    ),
     ({}, "missing token list"),
 )
 MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (

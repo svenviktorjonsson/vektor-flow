@@ -120,6 +120,29 @@ class _MsToSecondsTimeHostAdapter:
         self._host.sleep_ms(float(seconds) * 1000.0)
 
 
+class _SplitIoNativeHostAdapter:
+    """Preferred combined host view when file and time seams are separate."""
+
+    def __init__(self, file_host: IoFileHost, time_host: IoSecondsTimeHost) -> None:
+        self._file_host = file_host
+        self._time_host = time_host
+
+    def read_bytes(self, path: str) -> bytes:
+        return self._file_host.read_bytes(path)
+
+    def write_bytes(self, path: str, data: bytes) -> None:
+        self._file_host.write_bytes(path, data)
+
+    def read_text(self, path: str, *, encoding: str) -> str:
+        return self._file_host.read_text(path, encoding=encoding)
+
+    def write_text(self, path: str, text: str, *, encoding: str) -> None:
+        self._file_host.write_text(path, text, encoding=encoding)
+
+    def sleep(self, seconds: float) -> None:
+        self._time_host.sleep(float(seconds))
+
+
 _file_host: IoFileHost = PythonIoFileHost()
 _time_host: IoTimeHost = PythonIoTimeHost()
 
@@ -181,6 +204,19 @@ def get_io_seconds_host() -> IoSecondsTimeHost:
     if callable(host_sleep):
         return _time_host
     return _MsToSecondsTimeHostAdapter(_time_host)
+
+
+def get_io_native_host() -> IoSecondsHost:
+    """Return the current preferred native host view.
+
+    When file and time are installed on one combined native host, that object is
+    returned directly. Otherwise a lightweight adapter presents the separate
+    file/time hosts through the preferred combined surface.
+    """
+    seconds_host = get_io_seconds_host()
+    if _file_host is seconds_host:
+        return seconds_host
+    return _SplitIoNativeHostAdapter(_file_host, seconds_host)
 
 
 def set_io_clock_host(host: IoClockHost) -> None:
