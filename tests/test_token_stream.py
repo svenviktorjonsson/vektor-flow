@@ -39,10 +39,13 @@ from vektorflow.token_stream import (
 )
 from tests.token_stream_fixture_helper import (
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+    INVALID_TOKEN_STREAM_ENVELOPE_CASES,
     MALFORMED_TOKEN_ENTRY_CASES,
     TOKEN_FIXTURE_ROOT,
     assert_fixture_boundary_parity,
     assert_fixture_parses_like_source,
+    assert_loader_rejects_token_stream,
+    assert_loader_rejects_token_stream_object,
     assert_parser_rejects_token_stream,
     assert_parser_rejects_token_stream_object,
     iter_token_fixture_cases,
@@ -113,17 +116,14 @@ def test_versioned_token_stream_json_includes_schema_metadata() -> None:
     assert isinstance(payload["tokens"], list)
 
 
-@pytest.mark.parametrize(
-    "payload, expected",
-    [
-        ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
-        ({"schema": TOKEN_STREAM_SCHEMA, "version": 99, "tokens": []}, "unsupported version"),
-        ({}, "missing token list"),
-    ],
-)
+@pytest.mark.parametrize("payload, expected", INVALID_TOKEN_STREAM_ENVELOPE_CASES)
 def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object], expected: str) -> None:
-    with pytest.raises(ValueError, match=expected):
-        tokens_from_json(json.dumps(payload))
+    assert_loader_rejects_token_stream_object(payload, expected)
+
+
+@pytest.mark.parametrize("payload, expected", INVALID_TOKEN_STREAM_ENVELOPE_CASES)
+def test_parse_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object], expected: str) -> None:
+    assert_parser_rejects_token_stream_object(payload, expected)
 
 
 @pytest.mark.parametrize(
@@ -132,6 +132,14 @@ def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object],
 )
 def test_parse_token_stream_json_rejects_bad_top_level_json(payload_text: str, expected: str) -> None:
     assert_parser_rejects_token_stream(payload_text, expected)
+
+
+@pytest.mark.parametrize(
+    "payload_text, expected",
+    BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+)
+def test_tokens_from_json_rejects_bad_top_level_json(payload_text: str, expected: str) -> None:
+    assert_loader_rejects_token_stream(payload_text, expected)
 
 
 def test_versioned_fixture_parses_like_source_golden() -> None:
@@ -149,6 +157,11 @@ def test_parse_token_stream_json_rejects_malformed_token_entries(
     payload: dict[str, object], expected: str
 ) -> None:
     assert_parser_rejects_token_stream_object(payload, expected)
+
+
+@pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
+def test_tokens_from_json_rejects_malformed_token_entries(payload: dict[str, object], expected: str) -> None:
+    assert_loader_rejects_token_stream_object(payload, "invalid token entry")
 
 
 def test_versioned_payload_helper_matches_json_output() -> None:
@@ -291,6 +304,12 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
         "unmanaged": 0,
         "discovered": len(payload["discovered_fixture_names"]),
         "canonical_versioned": 1,
+        "versioned_envelopes": 1,
+        "legacy_envelopes": 0,
+        "other_envelopes": 1,
+        "invalid_json": 0,
+        "invalid_shape": 0,
+        "with_validation_issues": 1,
     }
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
@@ -430,6 +449,12 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         "unmanaged": 2,
         "discovered": len(discovered_fixture_names(TOKEN_FIXTURE_ROOT)),
         "canonical_versioned": len(TOKEN_FIXTURE_SPECS) + 1,
+        "versioned_envelopes": len(TOKEN_FIXTURE_SPECS) + 1,
+        "legacy_envelopes": 1,
+        "other_envelopes": 0,
+        "invalid_json": 0,
+        "invalid_shape": 0,
+        "with_validation_issues": 1,
     }
     assert {item["fixture_name"] for item in payload["fixtures"]} == {
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
@@ -438,10 +463,19 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     assert payload["unmanaged_fixtures"] == unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
     discovered_by_name = {item["fixture_name"]: item for item in payload["discovered_fixtures"]}
     assert discovered_by_name["hello_native_versioned.json"]["managed"] is True
+    assert discovered_by_name["hello_native_versioned.json"]["parseable_json"] is True
+    assert discovered_by_name["hello_native_versioned.json"]["envelope_kind"] == "versioned"
     assert discovered_by_name["hello_native_versioned.json"]["canonical_versioned"] is True
+    assert discovered_by_name["hello_native_versioned.json"]["validation_issues"] == []
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["managed"] is False
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["parseable_json"] is True
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["envelope_kind"] == "legacy"
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["canonical_versioned"] is False
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["paired_source_exists"] is True
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["validation_issues"] == [
+        "legacy-envelope",
+        "not-canonical-versioned",
+    ]
     for item in payload["fixtures"]:
         assert item["expected_source_label"] == item["source_rel"]
         assert item["declared_source_label"] == item["source_rel"]
@@ -494,11 +528,43 @@ def test_discovered_fixture_report_covers_all_checked_in_token_json() -> None:
     assert {item.fixture_name for item in report} == set(discovered_fixture_names(TOKEN_FIXTURE_ROOT))
     by_name = {item.fixture_name: item for item in report}
     assert by_name["hello_native_versioned.json"].managed is True
+    assert by_name["hello_native_versioned.json"].envelope_kind == "versioned"
     assert by_name["hello_native_versioned.json"].canonical_versioned is True
     assert by_name["hello_native_versioned.json"].paired_source_exists is True
+    assert by_name["hello_native_versioned.json"].validation_issues == ()
     assert by_name["legacy_singleton_tuple_type.json"].managed is False
+    assert by_name["legacy_singleton_tuple_type.json"].envelope_kind == "legacy"
     assert by_name["legacy_singleton_tuple_type.json"].canonical_versioned is False
     assert by_name["legacy_singleton_tuple_type.json"].paired_source_exists is True
+    assert by_name["legacy_singleton_tuple_type.json"].validation_issues == (
+        "legacy-envelope",
+        "not-canonical-versioned",
+    )
     for item in report:
         assert item.token_count > 0
         assert len(item.payload_sha256) == 64
+
+
+def test_discovered_fixture_report_handles_invalid_json_without_crashing(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    out_root = tmp_path / "token_stream"
+    out_root.mkdir(parents=True, exist_ok=True)
+    bad = out_root / "broken.json"
+    bad.write_text("{ not json", encoding="utf-8")
+    report = discovered_fixture_report(repo_root=repo, fixture_root=out_root)
+    assert len(report) == 1
+    item = report[0]
+    assert item.fixture_name == "broken.json"
+    assert item.parseable_json is False
+    assert item.envelope_kind == "invalid-json"
+    assert item.canonical_versioned is False
+    assert item.token_count == 0
+    assert item.validation_issues == (
+        "invalid-json",
+        "missing-source-label",
+        "missing-paired-source",
+        "empty-token-list",
+    )
+    payload = fixture_status_payload(repo_root=repo, fixture_root=out_root, specs=())
+    assert payload["summary"]["invalid_json"] == 1
+    assert payload["summary"]["with_validation_issues"] == 1

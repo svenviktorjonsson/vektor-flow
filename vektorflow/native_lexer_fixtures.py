@@ -44,12 +44,15 @@ class DiscoveredFixtureStatus:
     fixture_name: str
     fixture_path: str
     managed: bool
+    parseable_json: bool
+    envelope_kind: str
     canonical_versioned: bool
     declared_source_label: str | None
     paired_source_path: str | None
     paired_source_exists: bool
     token_count: int
     payload_sha256: str
+    validation_issues: tuple[str, ...]
 
 
 TOKEN_FIXTURE_REPORT_SCHEMA = "vektorflow.token_fixture_report"
@@ -122,6 +125,10 @@ def _read_fixture_payload(path: Path) -> dict[str, object] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_fixture_payload_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 def _declared_source_label(payload: dict[str, object]) -> str | None:
     tokens = payload.get("tokens")
     if not isinstance(tokens, list) or not tokens:
@@ -149,6 +156,16 @@ def _is_canonical_versioned_payload(payload: dict[str, object]) -> bool:
     )
 
 
+def _envelope_kind(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return "invalid-shape"
+    if payload.get("schema") == "vektorflow.token_stream" and payload.get("version") == 1:
+        return "versioned" if isinstance(payload.get("tokens"), list) else "invalid-shape"
+    if "schema" not in payload and "version" not in payload and isinstance(payload.get("tokens"), list):
+        return "legacy"
+    return "other"
+
+
 def _paired_source_path_for_label(label: str | None, *, repo_root: Path) -> Path | None:
     if not label:
         return None
@@ -168,6 +185,35 @@ def _paired_source_path_for_fixture(
     return _paired_source_path_for_label(declared_source_label, repo_root=repo_root)
 
 
+def _validation_issues_for_discovered_fixture(
+    *,
+    parseable_json: bool,
+    envelope_kind: str,
+    canonical_versioned: bool,
+    declared_source_label: str | None,
+    paired_source_exists: bool,
+    token_count: int,
+) -> tuple[str, ...]:
+    issues: list[str] = []
+    if not parseable_json:
+        issues.append("invalid-json")
+    elif envelope_kind == "invalid-shape":
+        issues.append("invalid-shape")
+    elif envelope_kind == "other":
+        issues.append("nonstandard-envelope")
+    elif envelope_kind == "legacy":
+        issues.append("legacy-envelope")
+    if declared_source_label is None:
+        issues.append("missing-source-label")
+    if not paired_source_exists:
+        issues.append("missing-paired-source")
+    if token_count == 0:
+        issues.append("empty-token-list")
+    if parseable_json and not canonical_versioned:
+        issues.append("not-canonical-versioned")
+    return tuple(issues)
+
+
 def discovered_fixture_report(
     *,
     repo_root: Path | None = None,
@@ -180,25 +226,49 @@ def discovered_fixture_report(
     items: list[DiscoveredFixtureStatus] = []
     for name in discovered_fixture_names(out_root):
         path = out_root / name
-        text = path.read_text(encoding="utf-8")
-        payload = json.loads(text)
-        declared_source_label = _declared_source_label(payload)
-        paired_source_path = _paired_source_path_for_fixture(
-            path,
-            declared_source_label=declared_source_label,
-            repo_root=root,
+        text = _read_fixture_payload_text(path)
+        try:
+            payload_obj: object = json.loads(text)
+            parseable_json = True
+        except json.JSONDecodeError:
+            payload_obj = None
+            parseable_json = False
+        envelope_kind = _envelope_kind(payload_obj) if parseable_json else "invalid-json"
+        payload = payload_obj if isinstance(payload_obj, dict) else None
+        declared_source_label = _declared_source_label(payload) if payload is not None else None
+        paired_source_path = (
+            _paired_source_path_for_fixture(
+                path,
+                declared_source_label=declared_source_label,
+                repo_root=root,
+            )
+            if declared_source_label is not None or path.with_suffix(".vkf").is_file()
+            else None
         )
+        paired_source_exists = bool(paired_source_path and paired_source_path.is_file())
+        canonical_versioned = _is_canonical_versioned_payload(payload) if payload is not None else False
+        token_count = _payload_token_count(payload) if payload is not None else 0
         items.append(
             DiscoveredFixtureStatus(
                 fixture_name=name,
                 fixture_path=str(path),
                 managed=name in managed,
-                canonical_versioned=_is_canonical_versioned_payload(payload),
+                parseable_json=parseable_json,
+                envelope_kind=envelope_kind,
+                canonical_versioned=canonical_versioned,
                 declared_source_label=declared_source_label,
                 paired_source_path=str(paired_source_path) if paired_source_path is not None else None,
-                paired_source_exists=bool(paired_source_path and paired_source_path.is_file()),
-                token_count=_payload_token_count(payload),
+                paired_source_exists=paired_source_exists,
+                token_count=token_count,
                 payload_sha256=_sha256_text(text),
+                validation_issues=_validation_issues_for_discovered_fixture(
+                    parseable_json=parseable_json,
+                    envelope_kind=envelope_kind,
+                    canonical_versioned=canonical_versioned,
+                    declared_source_label=declared_source_label,
+                    paired_source_exists=paired_source_exists,
+                    token_count=token_count,
+                ),
             )
         )
     return items
@@ -278,6 +348,12 @@ def fixture_status_payload(
         "unmanaged": len(unmanaged),
         "discovered": len(discovered),
         "canonical_versioned": sum(1 for item in discovered if item.canonical_versioned),
+        "versioned_envelopes": sum(1 for item in discovered if item.envelope_kind == "versioned"),
+        "legacy_envelopes": sum(1 for item in discovered if item.envelope_kind == "legacy"),
+        "other_envelopes": sum(1 for item in discovered if item.envelope_kind == "other"),
+        "invalid_json": sum(1 for item in discovered if item.envelope_kind == "invalid-json"),
+        "invalid_shape": sum(1 for item in discovered if item.envelope_kind == "invalid-shape"),
+        "with_validation_issues": sum(1 for item in discovered if item.validation_issues),
     }
     return {
         "schema": TOKEN_FIXTURE_REPORT_SCHEMA,
@@ -296,12 +372,15 @@ def fixture_status_payload(
                 "fixture_name": item.fixture_name,
                 "fixture_path": item.fixture_path,
                 "managed": item.managed,
+                "parseable_json": item.parseable_json,
+                "envelope_kind": item.envelope_kind,
                 "canonical_versioned": item.canonical_versioned,
                 "declared_source_label": item.declared_source_label,
                 "paired_source_path": item.paired_source_path,
                 "paired_source_exists": item.paired_source_exists,
                 "token_count": item.token_count,
                 "payload_sha256": item.payload_sha256,
+                "validation_issues": list(item.validation_issues),
             }
             for item in discovered
         ],

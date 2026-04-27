@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from vektorflow.runtime import (
     Multiset,
     VFLinkedList,
@@ -9,8 +11,12 @@ from vektorflow.runtime import (
     make_multiset,
     make_singleton_vflist,
     make_vflist,
+    make_vflist_from_call,
+    make_vflist_from_values,
     make_vfqueue,
+    make_vfqueue_from_call,
     make_vmap,
+    make_vmap_from_call,
     runtime_collection_contains,
     runtime_collection_get,
     runtime_collection_set,
@@ -50,6 +56,9 @@ def test_make_vflist_and_queue_share_runtime_surface() -> None:
     single = make_singleton_vflist(9)
     assert isinstance(single, VFLinkedList)
     assert list(single) == [9]
+    assert list(make_vflist_from_values([])) == []
+    assert list(make_vflist_from_values([7])) == [7]
+    assert list(make_vflist_from_values([7, 8])) == [7, 8]
 
 
 def test_runtime_collection_predicate_covers_core_owned_collections() -> None:
@@ -78,3 +87,17 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_get(m, "x") == 3
     runtime_collection_set(m, "y", 4)
     assert runtime_collection_get(m, "y") == 4
+
+
+def test_runtime_collection_call_factories() -> None:
+    assert isinstance(make_vmap_from_call([], {"a": 1}, []), VMap)
+    assert list(make_vflist_from_call([1, 2], {}, [])) == [1, 2]
+    assert list(make_vflist_from_call([], {}, [[3, 4]])) == [3, 4]
+    assert isinstance(make_vfqueue_from_call([], {}, []), VFQueue)
+
+    with pytest.raises(Exception):
+        make_vmap_from_call([1], {}, [])
+    with pytest.raises(Exception):
+        make_vflist_from_call([], {"x": 1}, [])
+    with pytest.raises(Exception):
+        make_vfqueue_from_call([1], {}, [])

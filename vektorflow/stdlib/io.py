@@ -6,12 +6,76 @@ import os
 import time
 from collections import namedtuple
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 try:
     import numpy as np  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - exercised via fallback tests
     np = None
+
+
+class IoHost(Protocol):
+    """Minimal host seam for filesystem/time operations used by stdlib ``io``.
+
+    The current default implementation is Python-backed, but the public stdlib
+    functions delegate through this interface so a future native runtime can
+    replace it without rewriting parsing/table logic.
+    """
+
+    def read_bytes(self, path: str) -> bytes: ...
+
+    def write_bytes(self, path: str, data: bytes) -> None: ...
+
+    def read_text(self, path: str, *, encoding: str) -> str: ...
+
+    def write_text(self, path: str, text: str, *, encoding: str) -> None: ...
+
+    def sleep_ms(self, ms: float) -> None: ...
+
+
+class PythonIoHost:
+    """Default host backed by Python's filesystem and sleep primitives."""
+
+    def _as_path(self, path: str) -> Path:
+        if not isinstance(path, str):
+            raise TypeError("path must be a string")
+        # On Windows, vkf source often embeds raw paths with backslashes
+        # (e.g. "C:\Users\name\..."), which can contain control chars
+        # after string unescaping (\t, \n, \r). Re-hydrate those into
+        # literal backslash sequences for robust file I/O.
+        if os.name == "nt":
+            path = path.replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
+        return Path(path)
+
+    def read_bytes(self, path: str) -> bytes:
+        return self._as_path(path).read_bytes()
+
+    def write_bytes(self, path: str, data: bytes) -> None:
+        self._as_path(path).write_bytes(data)
+
+    def read_text(self, path: str, *, encoding: str) -> str:
+        return self._as_path(path).read_text(encoding=encoding)
+
+    def write_text(self, path: str, text: str, *, encoding: str) -> None:
+        self._as_path(path).write_text(text, encoding=encoding)
+
+    def sleep_ms(self, ms: float) -> None:
+        time.sleep(float(ms) * 0.001)
+
+
+_host: IoHost = PythonIoHost()
+
+
+def set_io_host(host: IoHost) -> None:
+    """Install a custom host adapter for stdlib ``io`` operations."""
+    global _host
+    _host = host
+
+
+def reset_io_host() -> None:
+    """Restore the default Python-backed host adapter."""
+    global _host
+    _host = PythonIoHost()
 
 
 class NumericColumn(list[float]):
@@ -80,38 +144,26 @@ def _make_column(values: list[float]) -> Any:
     return NumericColumn(values)
 
 
-def _as_path(path: str) -> Path:
-    if not isinstance(path, str):
-        raise TypeError("path must be a string")
-    # On Windows, vkf source often embeds raw paths with backslashes
-    # (e.g. "C:\Users\name\..."), which can contain control chars
-    # after string unescaping (\t, \n, \r). Re-hydrate those into
-    # literal backslash sequences for robust file I/O.
-    if os.name == "nt":
-        path = path.replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
-    return Path(path)
-
-
 def write_bytes(path: str, data: bytes) -> None:
     """Write raw bytes to ``path`` (overwrites)."""
     if not isinstance(data, (bytes, bytearray)):
         raise TypeError("write_bytes expects bytes")
-    _as_path(path).write_bytes(bytes(data))
+    _host.write_bytes(path, bytes(data))
 
 
 def read_bytes(path: str) -> bytes:
     """Read the entire file as bytes."""
-    return _as_path(path).read_bytes()
+    return _host.read_bytes(path)
 
 
 def write_text(path: str, text: str, encoding: str = "utf-8") -> None:
     """Write ``text`` to ``path`` (overwrites)."""
-    _as_path(path).write_text(str(text), encoding=encoding)
+    _host.write_text(path, str(text), encoding=encoding)
 
 
 def read_text(path: str, encoding: str = "utf-8") -> str:
     """Read the entire file as a decoded string."""
-    return _as_path(path).read_text(encoding=encoding)
+    return _host.read_text(path, encoding=encoding)
 
 
 def _parse_float(cell: str) -> float | None:
@@ -275,7 +327,7 @@ def read_numbers(
 
 def sleep_ms(ms: float) -> None:
     """Cooperative sleep (event-loop friendly). *ms* in milliseconds (fractional allowed)."""
-    time.sleep(float(ms) * 0.001)
+    _host.sleep_ms(ms)
 
 
 def build_io_namespace() -> dict[str, Any]:

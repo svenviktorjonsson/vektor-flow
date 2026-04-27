@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from ..errors import EvalError
 from .multiset import Multiset
 from .vflist import VFLinkedList
 from .vfqueue import VFQueue
@@ -16,6 +17,16 @@ from .vmap import VMap
 
 def make_vmap(initial: dict[Any, Any] | None = None) -> VMap:
     return VMap(initial)
+
+
+def make_vmap_from_call(
+    pos: list[Any],
+    kw: dict[str, Any],
+    spreads: list[Any],
+) -> VMap:
+    if pos or spreads:
+        raise EvalError("map() only accepts keyword-style pairs (x:value, …)")
+    return make_vmap(kw)
 
 
 def make_vflist(values: Iterable[Any] | None = None) -> VFLinkedList:
@@ -28,10 +39,45 @@ def make_singleton_vflist(value: Any) -> VFLinkedList:
     return VFLinkedList.single(value)
 
 
+def make_vflist_from_values(values: list[Any]) -> VFLinkedList:
+    if not values:
+        return make_vflist()
+    if len(values) == 1:
+        return make_singleton_vflist(values[0])
+    return make_vflist(values)
+
+
+def make_vflist_from_call(
+    pos: list[Any],
+    kw: dict[str, Any],
+    spreads: list[Any],
+) -> VFLinkedList:
+    if kw:
+        raise EvalError("list() does not accept keyword arguments")
+    if spreads:
+        if pos or len(spreads) != 1:
+            raise EvalError("list(:…) spread must be the only argument")
+        try:
+            return make_vflist(spreads[0])
+        except TypeError as e:
+            raise EvalError("list(:…) requires an iterable") from e
+    return make_vflist_from_values(pos)
+
+
 def make_vfqueue(values: Iterable[Any] | None = None) -> VFQueue:
     if values is None:
         return VFQueue()
     return VFQueue.from_iterable(values)
+
+
+def make_vfqueue_from_call(
+    pos: list[Any],
+    kw: dict[str, Any],
+    spreads: list[Any],
+) -> VFQueue:
+    if pos or kw or spreads:
+        raise EvalError("queue() takes no arguments")
+    return make_vfqueue()
 
 
 def make_multiset(pairs: Iterable[tuple[Any, int]] | None = None) -> Multiset:

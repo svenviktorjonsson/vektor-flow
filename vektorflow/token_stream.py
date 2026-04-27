@@ -113,18 +113,26 @@ def _require_field(data: dict[str, Any], field: str, ctx: str) -> Any:
 
 
 def token_from_data(data: dict[str, Any]) -> Token:
-    data = _require_mapping(data, "token entry")
-    kind = _require_field(data, "kind", "token entry")
-    loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
-    return Token(
-        str(kind),
-        _dejsonify_value(data.get("value")),
-        SourceLocation(
-            str(_require_field(loc, "file", "token location")),
-            int(_require_field(loc, "line", "token location")),
-            int(_require_field(loc, "column", "token location")),
-        ),
-    )
+    try:
+        data = _require_mapping(data, "token entry")
+        kind = _require_field(data, "kind", "token entry")
+        loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
+        return Token(
+            str(kind),
+            _dejsonify_value(data.get("value")),
+            SourceLocation(
+                str(_require_field(loc, "file", "token location")),
+                int(_require_field(loc, "line", "token location")),
+                int(_require_field(loc, "column", "token location")),
+            ),
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if msg.startswith("invalid token entry:"):
+            raise
+        raise ValueError(f"invalid token entry: {msg}") from exc
+    except (TypeError, KeyError, IndexError) as exc:
+        raise ValueError(f"invalid token entry: {exc}") from exc
 
 
 def tokens_from_data(data: list[dict[str, Any]]) -> list[Token]:

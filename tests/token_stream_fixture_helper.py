@@ -17,6 +17,11 @@ BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
     ("[]", "expected object"),
     ("null", "expected object"),
 )
+INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] = (
+    ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
+    ({"schema": TOKEN_STREAM_SCHEMA, "version": 99, "tokens": []}, "unsupported version"),
+    ({}, "missing token list"),
+)
 MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (
     ({"tokens": ["oops"]}, "malformed token entry"),
     (
@@ -198,6 +203,21 @@ def assert_parser_rejects_token_stream(payload_text: str, expected: str) -> None
 
 def assert_parser_rejects_token_stream_object(payload: dict[str, object], expected: str) -> None:
     assert_parser_rejects_token_stream(json.dumps(payload), expected)
+
+
+def assert_loader_rejects_token_stream(payload_text: str, expected: str) -> None:
+    from vektorflow.token_stream import tokens_from_json
+
+    try:
+        tokens_from_json(payload_text)
+    except ValueError as exc:
+        assert expected in str(exc)
+        return
+    raise AssertionError("expected tokens_from_json to reject payload")
+
+
+def assert_loader_rejects_token_stream_object(payload: dict[str, object], expected: str) -> None:
+    assert_loader_rejects_token_stream(json.dumps(payload), expected)
 
 
 def assert_cli_rejects_token_stream(tmp_path: Path, payload_text: str, expected: str) -> None:

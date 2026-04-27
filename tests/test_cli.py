@@ -15,6 +15,7 @@ from vektorflow.parser import parse_module
 from vektorflow.token_stream import tokens_to_json
 from tests.token_stream_fixture_helper import (
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+    INVALID_TOKEN_STREAM_ENVELOPE_CASES,
     MALFORMED_TOKEN_ENTRY_CASES,
     assert_cli_rejects_token_stream_object,
     assert_cli_rejects_token_stream,
@@ -89,14 +90,12 @@ class TestMain:
         assert main(["parse-tokens", "-"]) == 0
         assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<stdin-tokens>"))
 
+    @pytest.mark.parametrize("payload, expected", INVALID_TOKEN_STREAM_ENVELOPE_CASES)
     def test_parse_tokens_subcommand_invalid_payload(
-        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload: dict[str, object], expected: str
     ) -> None:
-        payload_path = tmp_path / "bad_tokens.json"
-        payload_path.write_text('{"bad": []}', encoding="utf-8")
-
-        assert main(["parse-tokens", str(payload_path)]) == 1
-        assert "invalid token stream payload" in capsys.readouterr().err
+        _ = capsys.readouterr()
+        assert_cli_rejects_token_stream_object(tmp_path, payload, expected)
 
     @pytest.mark.parametrize(
         "payload_text, expected",

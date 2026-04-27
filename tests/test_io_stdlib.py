@@ -12,6 +12,13 @@ from vektorflow.stdlib import io as iolib
 from vektorflow.stdlib.io import build_io_namespace, read_numbers
 
 
+@pytest.fixture(autouse=True)
+def _reset_io_host() -> None:
+    iolib.reset_io_host()
+    yield
+    iolib.reset_io_host()
+
+
 class TestResolve:
     def test_io_in_resolve_stdlib(self) -> None:
         io = resolve_stdlib("io")
@@ -41,6 +48,45 @@ class TestTextBytes:
         io = build_io_namespace()
         with pytest.raises(TypeError):
             io["write_bytes"](str(tmp_path / "x.bin"), "not bytes")  # type: ignore[arg-type]
+
+    def test_io_host_seam_can_override_text_bytes_and_sleep(self) -> None:
+        class FakeHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"host-bytes"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "host-text"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+            def sleep_ms(self, ms: float) -> None:
+                self.calls.append(("sleep_ms", float(ms)))
+
+        host = FakeHost()
+        iolib.set_io_host(host)
+
+        assert iolib.read_text("virtual.txt") == "host-text"
+        assert iolib.read_bytes("virtual.bin") == b"host-bytes"
+        iolib.write_text("virtual.txt", "hello")
+        iolib.write_bytes("virtual.bin", b"abc")
+        iolib.sleep_ms(12.5)
+
+        assert host.calls == [
+            ("read_text", ("virtual.txt", "utf-8")),
+            ("read_bytes", "virtual.bin"),
+            ("write_text", ("virtual.txt", "hello", "utf-8")),
+            ("write_bytes", ("virtual.bin", b"abc")),
+            ("sleep_ms", 12.5),
+        ]
 
 
 class TestReadNumbers:
@@ -146,3 +192,27 @@ class TestReadNumbers:
         assert list(out.b) == [2.0, 4.0]
         assert out.a.dtype == "float64"
         assert out.a.shape == (2,)
+
+    def test_read_numbers_uses_installed_host_text_reader(self) -> None:
+        class FakeHost:
+            def read_bytes(self, path: str) -> bytes:
+                raise AssertionError("unused")
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                raise AssertionError("unused")
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                assert path == "virtual.csv"
+                assert encoding == "utf-8"
+                return "x,y\n1,2\n3,4\n"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                raise AssertionError("unused")
+
+            def sleep_ms(self, ms: float) -> None:
+                raise AssertionError("unused")
+
+        iolib.set_io_host(FakeHost())
+        out = read_numbers("virtual.csv")
+        np.testing.assert_array_equal(out.x, np.array([1.0, 3.0]))
+        np.testing.assert_array_equal(out.y, np.array([2.0, 4.0]))

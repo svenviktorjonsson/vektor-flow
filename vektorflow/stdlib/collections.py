@@ -4,39 +4,22 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ..errors import EvalError
 from ..runtime import (
     VFLinkedList,
     VFQueue,
     VMap,
-    make_singleton_vflist,
-    make_vflist,
-    make_vfqueue,
-    make_vmap,
+    make_vflist_from_call,
+    make_vfqueue_from_call,
+    make_vmap_from_call,
 )
 
 
 def _map_factory(pos: list[Any], kw: dict[str, Any], spreads: list[Any]) -> VMap:
-    if pos or spreads:
-        raise EvalError("map() only accepts keyword-style pairs (x:value, …)")
-    return make_vmap(kw)
+    return make_vmap_from_call(pos, kw, spreads)
 
 
 def _list_factory(pos: list[Any], kw: dict[str, Any], spreads: list[Any]) -> VFLinkedList:
-    if kw:
-        raise EvalError("list() does not accept keyword arguments")
-    if spreads:
-        if pos or len(spreads) != 1:
-            raise EvalError("list(:…) spread must be the only argument")
-        try:
-            return make_vflist(spreads[0])
-        except TypeError as e:
-            raise EvalError("list(:…) requires an iterable") from e
-    if not pos:
-        return make_vflist()
-    if len(pos) == 1:
-        return make_singleton_vflist(pos[0])
-    return make_vflist(pos)
+    return make_vflist_from_call(pos, kw, spreads)
 
 
 class _Ctor:
@@ -54,9 +37,7 @@ class _Ctor:
 
 
 def _queue_factory(pos: list[Any], kw: dict[str, Any], spreads: list[Any]) -> VFQueue:
-    if pos or kw or spreads:
-        raise EvalError("queue() takes no arguments")
-    return make_vfqueue()
+    return make_vfqueue_from_call(pos, kw, spreads)
 
 
 def build_collections_namespace() -> dict[str, Any]:
