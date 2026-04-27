@@ -59,6 +59,10 @@ These keep the core language tied to Python even when the compiler can emit C++.
    - Current blockers: `VMap`, `VFLinkedList`, `deque`-backed queue factories live behind Python factories.
    - Why first: collections sit underneath both stdlib and general runtime semantics.
    - Exit condition: `collections.map`, `collections.list`, `collections.queue` have native runtime implementations and native reflection/printing.
+   - Current progress:
+     - `VMap` and `VFLinkedList` already live under `vektorflow/runtime/`.
+     - `VFQueue` and shared runtime factories now exist in `vektorflow/runtime/collections_runtime.py`.
+     - Remaining step: switch stdlib collection factories and event plumbing over to this runtime seam.
 
 2. **Basic `io`**
    - Current blockers: file reads/writes, path normalization, sleep all call Python directly.

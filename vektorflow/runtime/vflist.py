@@ -64,6 +64,30 @@ class VFLinkedList:
         for x in it:
             self.append(x)
 
+    def empty(self) -> bool:
+        return self._len == 0
+
+    def peek_left(self) -> Any | None:
+        if self._head is None:
+            return None
+        return self._head.value
+
+    def pop_left(self) -> Any | None:
+        head = self._head
+        if head is None:
+            return None
+        nxt = head.next
+        self._head = nxt
+        if nxt is None:
+            self._tail = None
+        else:
+            nxt.prev = None
+        self._len -= 1
+        return head.value
+
+    def to_list(self) -> list[Any]:
+        return list(self)
+
     def insert(self, index: int, x: Any) -> None:
         if index < 0:
             index += self._len

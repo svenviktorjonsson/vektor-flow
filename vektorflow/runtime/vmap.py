@@ -28,6 +28,12 @@ class VMap:
     def get(self, k: Any, default: Any = None) -> Any:
         return self._d.get(k, default)
 
+    def copy(self) -> VMap:
+        return VMap(self._d)
+
+    def set(self, k: Any, value: Any) -> None:
+        self._d[k] = value
+
     def items(self) -> Any:
         return self._d.items()
 
