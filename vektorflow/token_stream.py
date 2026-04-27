@@ -123,13 +123,22 @@ def token_stream_to_json(tokens: list[Token]) -> str:
     return json.dumps(build_token_stream_payload(tokens), indent=2)
 
 
+def token_stream_payload_from_json(text: str) -> dict[str, Any]:
+    """Parse token-stream JSON and return the normalized versioned envelope."""
+    return _normalize_payload(json.loads(text))
+
+
 def tokens_from_json(text: str) -> list[Token]:
-    payload = _normalize_payload(json.loads(text))
+    payload = token_stream_payload_from_json(text)
     return tokens_from_data(payload["tokens"])
 
 
 def write_token_stream(tokens: list[Token], path: Path) -> None:
     path.write_text(tokens_to_json(tokens), encoding="utf-8")
+
+
+def write_versioned_token_stream(tokens: list[Token], path: Path) -> None:
+    path.write_text(token_stream_to_json(tokens), encoding="utf-8")
 
 
 def read_token_stream(path: Path) -> list[Token]:
