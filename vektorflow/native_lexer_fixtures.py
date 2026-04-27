@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Iterable, Sequence
 import sys
 
-from .native_lexer_proto import write_fixture_for_source
+from .native_lexer_proto import lex_file_to_payload, write_fixture_for_source
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,37 @@ def iter_fixture_specs(specs: Sequence[TokenFixtureSpec] | None = None) -> Itera
     return TOKEN_FIXTURE_SPECS if specs is None else specs
 
 
+def canonical_fixture_text(spec: TokenFixtureSpec, *, repo_root: Path | None = None) -> str:
+    root = default_repo_root() if repo_root is None else repo_root
+    payload = lex_file_to_payload(root / spec.source_rel, root=root)
+    return token_stream_to_json_payload(payload)
+
+
+def token_stream_to_json_payload(payload: dict[str, object]) -> str:
+    return json.dumps(payload, indent=2)
+
+
+def fixture_drift_report(
+    *,
+    repo_root: Path | None = None,
+    fixture_root: Path | None = None,
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> list[str]:
+    root = default_repo_root() if repo_root is None else repo_root
+    out_root = default_fixture_root(root) if fixture_root is None else fixture_root
+    drifted: list[str] = []
+    for spec in iter_fixture_specs(specs):
+        actual_path = out_root / spec.fixture_name
+        expected = canonical_fixture_text(spec, repo_root=root)
+        if not actual_path.is_file():
+            drifted.append(f"{spec.fixture_name}: missing")
+            continue
+        actual = actual_path.read_text(encoding="utf-8")
+        if actual != expected:
+            drifted.append(f"{spec.fixture_name}: stale")
+    return drifted
+
+
 def regenerate_token_fixtures(
     *,
     repo_root: Path | None = None,
@@ -73,7 +105,7 @@ def regenerate_token_fixtures(
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m vektorflow.native_lexer_fixtures",
-        description="Regenerate checked-in versioned token-stream fixtures.",
+        description="Regenerate or verify checked-in versioned token-stream fixtures.",
     )
     parser.add_argument(
         "--repo-root",
@@ -87,12 +119,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output directory for generated token fixtures.",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify that checked-in fixtures are current without rewriting them.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    if args.check:
+        drifted = fixture_drift_report(
+            repo_root=args.repo_root,
+            fixture_root=args.fixture_root,
+        )
+        for line in drifted:
+            sys.stdout.write(line)
+            sys.stdout.write("\n")
+        return 1 if drifted else 0
     written = regenerate_token_fixtures(
         repo_root=args.repo_root,
         fixture_root=args.fixture_root,

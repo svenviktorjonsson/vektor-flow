@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,7 +73,21 @@ def iter_token_fixture_cases() -> Iterator[TokenStreamFixtureCase]:
         yield token_fixture_case(payload_path.name)
 
 
+def fixture_cases(names: Iterable[str]) -> list[TokenStreamFixtureCase]:
+    return [token_fixture_case(name) for name in names]
+
+
+def native_core_fixture_cases() -> list[TokenStreamFixtureCase]:
+    from vektorflow.native_lexer_fixtures import TOKEN_FIXTURE_SPECS
+
+    return fixture_cases(spec.fixture_name for spec in TOKEN_FIXTURE_SPECS)
+
+
 def assert_fixture_parses_like_source(case: TokenStreamFixtureCase) -> None:
     from vektorflow.parser import parse_token_stream_json
 
     assert repr(parse_token_stream_json(case.read_payload_text())) == case.expected_module_repr()
+
+
+def assert_cli_parse_tokens_output_matches_source(case: TokenStreamFixtureCase, output: str) -> None:
+    assert output.strip() == case.expected_module_repr()
