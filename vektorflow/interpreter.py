@@ -48,6 +48,7 @@ from .runtime import (
     runtime_collection_index_set,
     runtime_collection_items_sorted,
     runtime_collection_kind,
+    runtime_collection_elementwise_values,
     runtime_collection_mapped_result,
     runtime_collection_path_step,
     runtime_collection_read_attr,
@@ -1550,8 +1551,9 @@ class Interpreter:
                         except ContinueSignal:
                             continue
                     return
-                if runtime_collection_kind(d) == "multiset":
-                    for el in runtime_collection_expanded_values(d):
+                runtime_values = runtime_collection_elementwise_values(d)
+                if runtime_values is not None:
+                    for el in runtime_values:
                         try:
                             fn(el)
                         except BreakSignal:
@@ -1611,8 +1613,9 @@ class Interpreter:
                     except ContinueSignal:
                         continue
                 return
-            if runtime_collection_kind(left_v) == "multiset":
-                for el in runtime_collection_expanded_values(left_v):
+            runtime_values = runtime_collection_elementwise_values(left_v)
+            if runtime_values is not None:
+                for el in runtime_values:
                     try:
                         fn(el)
                     except BreakSignal:

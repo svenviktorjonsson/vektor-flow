@@ -130,6 +130,18 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "blocked_count": 0,
         "blocking_issue_counts": {},
     }
+    assert payload["runnable_contract_readiness_validation"] == {
+        "ready_matches_status": True,
+        "usable_count_matches_identity": True,
+        "blocked_count_matches_identity": True,
+        "blocking_issue_counts_match_blocked_contracts": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_readiness",
+            "runnable_contract_set_identity",
+            "external_harness_view",
+        ],
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -294,6 +306,18 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
             "source-missing": 2,
         },
     }
+    assert payload["runnable_contract_readiness_validation"] == {
+        "ready_matches_status": True,
+        "usable_count_matches_identity": True,
+        "blocked_count_matches_identity": True,
+        "blocking_issue_counts_match_blocked_contracts": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_readiness",
+            "runnable_contract_set_identity",
+            "external_harness_view",
+        ],
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -415,4 +439,16 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         "usable_count": len(TOKEN_FIXTURE_SPECS),
         "blocked_count": 0,
         "blocking_issue_counts": {},
+    }
+    assert payload["runnable_contract_readiness_validation"] == {
+        "ready_matches_status": True,
+        "usable_count_matches_identity": True,
+        "blocked_count_matches_identity": True,
+        "blocking_issue_counts_match_blocked_contracts": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_readiness",
+            "runnable_contract_set_identity",
+            "external_harness_view",
+        ],
     }

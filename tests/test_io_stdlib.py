@@ -27,6 +27,8 @@ from vektorflow.stdlib.io import (
     get_io_time_host,
     read_numbers,
     reset_io_native_host,
+    reset_io_native_file_host,
+    reset_io_native_time_host,
     set_io_native_file_host,
     set_io_native_host,
     set_io_native_time_host,
@@ -111,6 +113,33 @@ class TestResolve:
         assert get_io_native_file_host() is file_host
         assert get_io_native_time_host() is time_host
         assert get_io_seconds_host() is time_host
+
+    def test_native_file_and_time_host_resetters_restore_preferred_surfaces(self) -> None:
+        class FakeFileHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+        class FakeTimeHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        set_io_native_file_host(FakeFileHost())
+        set_io_native_time_host(FakeTimeHost())
+
+        reset_io_native_file_host()
+        reset_io_native_time_host()
+
+        assert get_io_native_file_host().__class__.__name__ == "PythonIoFileHost"
+        assert get_io_native_time_host().__class__.__name__ == "PythonIoTimeHost"
 
 
 class TestTextBytes:
@@ -575,6 +604,33 @@ class TestTextBytes:
             ("write_bytes", ("joined.bin", b"x")),
         ]
         assert time_host.calls == [0.9]
+
+    def test_native_file_and_time_resetters_feed_default_combined_native_host(self) -> None:
+        class FakeFileHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+        class FakeTimeHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        set_io_native_file_host(FakeFileHost())
+        set_io_native_time_host(FakeTimeHost())
+        reset_io_native_file_host()
+        reset_io_native_time_host()
+
+        native_host = get_io_native_host()
+        assert native_host._file_host.__class__.__name__ == "PythonIoFileHost"
+        assert native_host._time_host.__class__.__name__ == "PythonIoTimeHost"
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:

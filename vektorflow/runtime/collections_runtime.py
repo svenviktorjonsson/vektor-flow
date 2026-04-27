@@ -225,6 +225,12 @@ def runtime_collection_mapped_result(
     return None
 
 
+def runtime_collection_elementwise_values(value: Any) -> tuple[Any, ...] | None:
+    if runtime_collection_kind(value) == "multiset":
+        return runtime_collection_expanded_values(value)
+    return None
+
+
 def runtime_collection_attr(value: Any, name: str) -> Any | None:
     if runtime_collection_kind(value) == "queue":
         if name == "put":

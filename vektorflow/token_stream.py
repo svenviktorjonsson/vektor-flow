@@ -183,6 +183,8 @@ def _require_token_kind(value: Any) -> str:
 
 def _normalize_token_value(kind: str, value: Any) -> Any:
     normalized = _dejsonify_value(value)
+    if kind in (token_defs.IDENT, token_defs.STRING, token_defs.STRING_RAW):
+        return _require_string(normalized, f"token value for {kind}", allow_empty=True)
     if kind == token_defs.NUMBER:
         if isinstance(normalized, bool) or not isinstance(normalized, (int, float)):
             raise ValueError("invalid token value for NUMBER: expected JSON number")
