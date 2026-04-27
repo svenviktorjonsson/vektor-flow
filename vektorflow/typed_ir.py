@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import ast, ir
+from .native_intrinsics import infer_intrinsic_return_type, resolve_native_intrinsic
 
 
 class TypedIRError(Exception):
@@ -302,8 +303,7 @@ class IRTypeAnalyzer:
                 return self._remember_expr(node, ast.PrimTypeRef("bool"))
             raise TypedIRError(f"unsupported binary op for typed IR analysis: {node.op}")
         if isinstance(node, ir.CallExpr):
-            for arg in node.args:
-                self._infer_expr(arg, env)
+            arg_types = [self._infer_expr(arg, env) for arg in node.args]
             if isinstance(node.func, ir.LoadName):
                 fname = node.func.name
                 if fname in ("int", "num", "bool", "str"):
@@ -313,6 +313,12 @@ class IRTypeAnalyzer:
                     if ret is None:
                         raise TypedIRError(f"function {fname} missing return type for typed IR analysis")
                     return self._remember_expr(node, ret)
+            intrinsic = resolve_native_intrinsic(node.func)
+            if intrinsic is not None:
+                try:
+                    return self._remember_expr(node, infer_intrinsic_return_type(intrinsic, arg_types))
+                except ValueError as exc:
+                    raise TypedIRError(str(exc)) from exc
             raise TypedIRError("unsupported call target for typed IR analysis")
         raise TypedIRError(f"unsupported typed-IR expr analysis for {type(node).__name__}")
 

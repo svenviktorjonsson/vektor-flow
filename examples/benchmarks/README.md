@@ -52,6 +52,7 @@ Current benchmark lanes:
 - `records_dynamic.vkf`: records mixed with dynamic `map(...)` / `list(...)`
 - `multisets_records.vkf`: multisets inside record transforms
 - `bitmask_match.vkf`: integer match specificity cases
+- `stdlib_numeric.vkf`: portable `math` / `stat` intrinsic coverage in the native subset
 - `custom_overloads.vkf`: interpreter-only overload coverage that is intentionally outside the current native subset
 - `scalar_hotloop.vkf`: heavier scalar runtime loop workload
 - `vector_hotloop.vkf`: heavier fixed-vector loop workload

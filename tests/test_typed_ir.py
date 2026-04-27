@@ -99,6 +99,33 @@ mid: xs.1
     assert mid_t.name == "num"
 
 
+def test_typed_ir_tracks_math_and_stat_intrinsics() -> None:
+    mod = parse_module(
+        """
+angle: math.sin(0)
+mu: stat.mean([1,2,3,4])
+sigma: stat.std([2,4,4,4,5,5,7,9])
+counted: stat.count([1,2,3])
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_angle = lowered.statements[0]
+    bind_mu = lowered.statements[1]
+    bind_sigma = lowered.statements[2]
+    bind_counted = lowered.statements[3]
+    assert isinstance(bind_angle, StoreName)
+    assert isinstance(info.expr_type(bind_angle.value), ast.PrimTypeRef)
+    assert info.expr_type(bind_angle.value).name == "num"
+    assert isinstance(bind_mu, StoreName)
+    assert info.expr_type(bind_mu.value).name == "num"
+    assert isinstance(bind_sigma, StoreName)
+    assert info.expr_type(bind_sigma.value).name == "num"
+    assert isinstance(bind_counted, StoreName)
+    assert info.expr_type(bind_counted.value).name == "int"
+
+
 def test_typed_ir_tracks_symbolic_template_return_type() -> None:
     mod = parse_module(
         """

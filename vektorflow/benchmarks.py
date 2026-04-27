@@ -185,6 +185,12 @@ BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
         "Integer bitmask specificity in ?? matching.",
     ),
     BenchmarkCase(
+        "stdlib_numeric",
+        "stdlib_numeric.vkf",
+        True,
+        "Native math/stat intrinsic coverage over the portable numeric stdlib core.",
+    ),
+    BenchmarkCase(
         "custom_overloads",
         "custom_overloads.vkf",
         False,

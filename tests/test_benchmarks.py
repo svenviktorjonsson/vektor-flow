@@ -20,6 +20,7 @@ def test_benchmark_registry_contains_expected_cases() -> None:
     assert "scalar_control" in names
     assert "vectors_shapes" in names
     assert "records_dynamic" in names
+    assert "stdlib_numeric" in names
     assert "custom_overloads" in names
     assert "scalar_hotloop" in names
     assert "vector_hotloop" in names
@@ -45,6 +46,13 @@ def test_run_native_supported_benchmark_interpreter_and_emit() -> None:
     assert res.interpret_ms is not None
     assert res.emit_cpp_ms is not None
     assert "[2, 4, 6, 8, 10]" in res.interpreter_stdout
+    assert res.native_status in {"compiler-unavailable", "ok"}
+
+
+def test_run_stdlib_numeric_benchmark_interpreter_and_emit() -> None:
+    res = run_benchmark(get_benchmark("stdlib_numeric"))
+    assert res.error is None
+    assert res.interpreter_stdout == "0\n9\n5\n2\n7\n8\n"
     assert res.native_status in {"compiler-unavailable", "ok"}
 
 

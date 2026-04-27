@@ -22,6 +22,7 @@ from .cpp_dynamic import (
     emit_map_literal as _dyn_emit_map_literal,
     require_cpp_dynamic_value_supported,
 )
+from .native_intrinsics import intrinsic_uses_array_stats, intrinsic_uses_array_sum, resolve_native_intrinsic
 from .optimize_ir import eliminate_noop_coercions, optimize_module
 from .slot_ir import lower_slots
 from .typed_ir import TypedIRError, annotate_module, TypedModuleInfo
@@ -62,6 +63,7 @@ class RuntimeFeatures:
     uses_multisets: bool = False
     uses_dynamic: bool = False
     uses_match: bool = False
+    uses_array_stats: bool = False
 
 
 CPP_STD_CONFLICT_NAMES: set[str] = {"advance"}
@@ -98,6 +100,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
     uses_multisets = False
     uses_dynamic = False
     uses_match = False
+    uses_array_stats = False
 
     def visit_type(t: Any) -> None:
         nonlocal uses_arrays, uses_multisets, uses_dynamic
@@ -132,6 +135,62 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             visit_type(t.domain)
             visit_type(t.codomain)
 
+    def visit_expr(expr: Any) -> None:
+        nonlocal uses_arrays, uses_array_stats
+        if isinstance(expr, ir.CallExpr):
+            intrinsic = resolve_native_intrinsic(expr.func)
+            if intrinsic is not None:
+                if intrinsic_uses_array_sum(intrinsic):
+                    uses_arrays = True
+                if intrinsic_uses_array_stats(intrinsic):
+                    uses_arrays = True
+                    uses_array_stats = True
+            visit_expr(expr.func)
+            for arg in expr.args:
+                visit_expr(arg)
+            return
+        if isinstance(expr, ir.CoerceExpr):
+            visit_expr(expr.expr)
+            return
+        if isinstance(expr, ir.AttrExpr):
+            visit_expr(expr.value)
+            return
+        if isinstance(expr, ir.IndexExpr):
+            visit_expr(expr.value)
+            for idx in expr.indices:
+                visit_expr(idx)
+            return
+        if isinstance(expr, ir.UnaryExpr):
+            visit_expr(expr.operand)
+            return
+        if isinstance(expr, ir.BinaryExpr):
+            visit_expr(expr.left)
+            visit_expr(expr.right)
+            return
+        if isinstance(expr, ir.ListExpr):
+            for elem in expr.elements:
+                visit_expr(elem)
+            return
+        if isinstance(expr, ir.MapExpr):
+            for _, value in expr.fields:
+                visit_expr(value)
+            return
+        if isinstance(expr, ir.LinkedListExpr):
+            for elem in expr.elements:
+                visit_expr(elem)
+            if expr.spread is not None:
+                visit_expr(expr.spread)
+            return
+        if isinstance(expr, ir.MultisetExpr):
+            for value, count in expr.pairs:
+                visit_expr(value)
+                visit_expr(count)
+            return
+        if isinstance(expr, ir.StructExpr):
+            for _, value in expr.fields:
+                visit_expr(value)
+            return
+
     def visit_stmt(stmt: Any) -> None:
         nonlocal uses_match
         if isinstance(stmt, ir.FunctionDef):
@@ -141,14 +200,28 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             if stmt.return_type is not None:
                 visit_type(stmt.return_type)
             visit_block(stmt.body)
+        elif isinstance(stmt, (ir.StoreName, ir.StoreSlot)):
+            visit_expr(stmt.value)
         elif isinstance(stmt, ir.IfStmt):
+            visit_expr(stmt.condition)
             visit_block(stmt.body)
         elif isinstance(stmt, ir.WhileStmt):
+            visit_expr(stmt.condition)
             visit_block(stmt.body)
         elif isinstance(stmt, ir.MatchStmt):
             uses_match = True
+            visit_expr(stmt.discriminant)
             for arm in stmt.arms:
+                if arm.condition is not None:
+                    visit_expr(arm.condition)
                 visit_block(arm.body)
+        elif isinstance(stmt, ir.PrintStmt):
+            visit_expr(stmt.value)
+        elif isinstance(stmt, ir.ExprStmt):
+            visit_expr(stmt.expr)
+        elif isinstance(stmt, ir.ReturnStmt):
+            if stmt.value is not None:
+                visit_expr(stmt.value)
 
     def visit_block(block: ir.Block) -> None:
         for inner in block.statements:
@@ -163,6 +236,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
         uses_multisets=uses_multisets,
         uses_dynamic=uses_dynamic,
         uses_match=uses_match,
+        uses_array_stats=uses_array_stats,
     )
 
 
@@ -182,7 +256,7 @@ def _emit_runtime_headers(features: RuntimeFeatures) -> list[str]:
     if features.uses_dynamic:
         headers.insert(0, "#include <list>")
         headers.insert(0, "#include <any>")
-    if features.uses_multisets:
+    if features.uses_multisets or features.uses_array_stats:
         headers.insert(0, "#include <algorithm>")
     headers.append("")
     return headers
@@ -403,6 +477,37 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "    T out{};",
                 "    for (std::size_t i = 0; i < N; ++i) out += arr[i];",
                 "    return out;",
+                "}",
+            ]
+        )
+    if features.uses_array_stats:
+        lines.extend(
+            [
+                "template <typename T, std::size_t N>",
+                "static T vf_array_min(const std::array<T, N>& arr) {",
+                "    T out = arr[0];",
+                "    for (std::size_t i = 1; i < N; ++i) if (arr[i] < out) out = arr[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static T vf_array_max(const std::array<T, N>& arr) {",
+                "    T out = arr[0];",
+                "    for (std::size_t i = 1; i < N; ++i) if (arr[i] > out) out = arr[i];",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static double vf_array_variance(const std::array<T, N>& arr) {",
+                "    double mu = static_cast<double>(vf_array_sum(arr)) / static_cast<double>(N);",
+                "    double out = 0.0;",
+                "    for (std::size_t i = 0; i < N; ++i) {",
+                "        double d = static_cast<double>(arr[i]) - mu;",
+                "        out += d * d;",
+                "    }",
+                "    return out / static_cast<double>(N);",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static double vf_array_std(const std::array<T, N>& arr) {",
+                "    return std::sqrt(vf_array_variance(arr));",
                 "}",
             ]
         )
@@ -1224,6 +1329,72 @@ def _emit_inplace_fused_array_store(
     ]
 
 
+def _emit_intrinsic_call(
+    node: ir.CallExpr,
+    env: dict[str, Any],
+    functions: dict[str, ir.FunctionDef],
+    state: EmitState,
+    typed: TypedModuleInfo,
+) -> str | None:
+    if isinstance(node.func, ir.LoadName) and node.func.name in functions:
+        return None
+    intrinsic = resolve_native_intrinsic(node.func)
+    if intrinsic is None:
+        return None
+    args = [_emit_expr(a, env, functions, state, typed) for a in node.args]
+    if intrinsic.kind == "math":
+        if intrinsic.name == "log":
+            return f"(std::log({args[0]}) / std::log({args[1]}))"
+        name_map = {
+            "sin": "std::sin",
+            "cos": "std::cos",
+            "tan": "std::tan",
+            "sinh": "std::sinh",
+            "cosh": "std::cosh",
+            "asin": "std::asin",
+            "acos": "std::acos",
+            "atan": "std::atan",
+            "atan2": "std::atan2",
+            "asinh": "std::asinh",
+            "acosh": "std::acosh",
+            "atanh": "std::atanh",
+            "exp": "std::exp",
+            "ln": "std::log",
+            "lg": "std::log10",
+            "lg2": "std::log2",
+            "sqrt": "std::sqrt",
+        }
+        return f"{name_map[intrinsic.name]}({', '.join(args)})"
+    if intrinsic.kind == "stat":
+        if intrinsic.name == "sum":
+            return f"vf_array_sum({args[0]})"
+        if intrinsic.name == "mean":
+            vector_t = _normalize_type(_expr_type(node.args[0], typed))
+            if not isinstance(vector_t, ast.FixedVectorType):
+                raise CppEmitError("stat.mean requires a fixed vector argument")
+            return f"(static_cast<double>(vf_array_sum({args[0]})) / static_cast<double>({_emit_size_expr(vector_t.size)}))"
+        if intrinsic.name == "min":
+            return f"static_cast<double>(vf_array_min({args[0]}))"
+        if intrinsic.name == "max":
+            return f"static_cast<double>(vf_array_max({args[0]}))"
+        if intrinsic.name == "range":
+            return f"static_cast<double>(vf_array_max({args[0]}) - vf_array_min({args[0]}))"
+        if intrinsic.name == "count":
+            vector_t = _normalize_type(_expr_type(node.args[0], typed))
+            if not isinstance(vector_t, ast.FixedVectorType):
+                raise CppEmitError("stat.count requires a fixed vector argument")
+            return f"static_cast<long long>({_emit_size_expr(vector_t.size)})"
+        if intrinsic.name == "variance":
+            return f"vf_array_variance({args[0]})"
+        if intrinsic.name == "std":
+            return f"vf_array_std({args[0]})"
+        if intrinsic.name == "clamp":
+            return f"std::max({args[1]}, std::min({args[2]}, {args[0]}))"
+        if intrinsic.name == "sign":
+            return f"(({args[0]} > 0) ? 1LL : (({args[0]} < 0) ? -1LL : 0LL))"
+    raise CppEmitError(f"unsupported intrinsic {intrinsic.kind}.{intrinsic.name}")
+
+
 def _match_array_sum_function(fn: ir.FunctionDef, typed: TypedModuleInfo, state: EmitState) -> ArrayReducePattern | None:
     if len(fn.params) != 1 or len(fn.param_types) != 1:
         return None
@@ -1409,6 +1580,9 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             raise CppEmitError(f"unsupported binary op {node.op}")
         return f"({left} {op_map[node.op]} {right})"
     if isinstance(node, ir.CallExpr):
+        intrinsic = _emit_intrinsic_call(node, env, functions, state, typed)
+        if intrinsic is not None:
+            return intrinsic
         if not isinstance(node.func, ir.LoadName):
             raise CppEmitError("only direct named calls are supported in C++ emission")
         fname = _cpp_name(node.func.name, state) if node.func.name not in functions and node.func.name not in {"int", "num", "bool", "str"} else node.func.name

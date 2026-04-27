@@ -69,6 +69,21 @@ id(x:num) -> num:
     assert "return x;" in cpp
 
 
+def test_cpp_emits_math_and_stat_intrinsics() -> None:
+    src = """
+:: math.sin(0)
+:: stat.mean([1,2,3,4])
+:: stat.std([2,4,4,4,5,5,7,9])
+:: stat.count([1,2,3])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "std::sin(0.0)" in cpp
+    assert "vf_array_sum(" in cpp
+    assert "vf_array_std(" in cpp
+    assert "static_cast<long long>(3)" in cpp
+
+
 def test_cpp_rejects_unsupported_fixed_vector_native_subset() -> None:
     src = """
 box(x:(left:num)):
@@ -613,6 +628,19 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
     res = compile_and_run_module(lowered)
     assert res.returncode == 0
     assert res.stdout.strip().splitlines() == ["[1, 2, 3, 4, 5]", "[6, 8]"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_compile_and_run_math_and_stat_intrinsics() -> None:
+    src = """
+:: math.sin(0)
+:: stat.mean([1,2,3,4])
+:: stat.range([3,1,4,1,5])
+:: stat.count([1,2,3])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.stdout.strip().splitlines() == ["0", "2.5", "4", "3"]
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
