@@ -24,6 +24,7 @@ from pathlib import Path
 from . import __version__
 from .errors import EvalError, LexError, ParseError, VektorFlowError
 from .lexer import tokenize
+from .token_stream import tokens_to_json
 from .tokens import DEDENT, EOF, INDENT, NEWLINE
 
 
@@ -49,12 +50,16 @@ def resolve_vkf_path(arg: str) -> Path:
     raise FileNotFoundError(arg)
 
 
-def cmd_tokens(source: str, filename: str, *, compact: bool) -> int:
+def cmd_tokens(source: str, filename: str, *, compact: bool, json_output: bool = False) -> int:
     try:
         toks = tokenize(source, filename=filename)
     except VektorFlowError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    if json_output:
+        print(tokens_to_json(toks))
+        return 0
 
     for t in toks:
         if compact and t.kind in (NEWLINE, INDENT, DEDENT, EOF):
@@ -275,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             "  vkf --ui-terminal <file>\n"
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
+            "                       add --json for a stable token-stream payload\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
             "  --version            Show version\n",
             end="",
@@ -290,13 +296,14 @@ def main(argv: list[str] | None = None) -> int:
             print("error: -s requires a snippet", file=sys.stderr)
             return 1
         compact = "--compact" in argv
-        return cmd_tokens(argv[1], "<cli>", compact=compact)
+        return cmd_tokens(argv[1], "<cli>", compact=compact, json_output=False)
 
     if argv[0] == "tokens":
         if len(argv) < 2:
             print("error: vkf tokens <file>", file=sys.stderr)
             return 1
         compact = "--compact" in argv
+        json_output = "--json" in argv
         path_arg = next(a for a in argv[1:] if not a.startswith("-"))
         try:
             path = resolve_vkf_path(path_arg)
@@ -304,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: file not found: {path_arg!r}", file=sys.stderr)
             return 1
         source = path.read_text(encoding="utf-8")
-        return cmd_tokens(source, filename=str(path), compact=compact)
+        return cmd_tokens(source, filename=str(path), compact=compact, json_output=json_output)
 
     if argv[0] == "cpp":
         out_path: Path | None = None

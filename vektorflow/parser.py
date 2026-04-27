@@ -1685,6 +1685,16 @@ def parse_module(source: str, filename: str = "<stdin>") -> ast.Module:
     return p.parse_module()
 
 
+def parse_tokens(tokens: list[Token]) -> ast.Module:
+    """Parse a pre-tokenized stream.
+
+    This is the first stable seam for a future native lexer: produce the token
+    stream in the same shape and hand it to the existing parser.
+    """
+    p = Parser(tokens)
+    return p.parse_module()
+
+
 def parse_expression(source: str, filename: str = "<expr>") -> Any:
     """Parse a single expression (used by string ``$(...)`` interpolation)."""
     from .lexer import tokenize

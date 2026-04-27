@@ -1,0 +1,12 @@
+step(state:(pts:[num:2], bag:{num}, total:num), extra:[num:2], delta:{num}) -> (pts:[num:2], bag:{num}, total:num):
+    (
+        pts: state.pts + extra,
+        bag: state.bag + delta,
+        total: state.total + 2
+    )
+
+base: (pts:[1,2], bag:{2:1, 3:2}, total:1)
+extra: [10, 20]
+delta: {3:1, 4:2}
+
+:: step(base, extra, delta)

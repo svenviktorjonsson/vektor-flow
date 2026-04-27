@@ -1,0 +1,4 @@
+twice(x:num) -> num:
+    x * 2
+
+:: twice(21)

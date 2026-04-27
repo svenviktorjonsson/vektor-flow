@@ -4,6 +4,8 @@ A mathematical visualization and computational language.
 
 **Status:** Reference interpreter in Python plus an early native compiler pipeline for a growing benchmarked subset. The interpreter is still the language reference; the C++ backend is now used to prove and measure real examples, not yet to cover the full language.
 
+The current standalone target is tracked explicitly in [NATIVE_CORE.md](/C:/dev/vektor-flow/NATIVE_CORE.md) and exercised through [`examples/native_core`](/C:/dev/vektor-flow/examples/native_core/README.md).
+
 File extension: `.vkf`.
 
 ## Installation
@@ -45,6 +47,7 @@ vkf bench vectors records
 
 # Lexer diagnostics
 vkf tokens examples/hello.vkf
+vkf tokens examples/hello.vkf --json
 
 # Inline snippet
 vkf -s '"hi" ::'
@@ -73,6 +76,37 @@ Each benchmark currently records as much of the pipeline as the local machine su
 This is the current end-to-end proving ground for the compiler work. The idea is simple: when we extend the native subset, we should also add or expand a benchmark so we can track both correctness and bottlenecks over time.
 
 For simple programs in the current native subset, `vkf build` already gives a standalone executable. Python is still required for the front-end compiler today, but the produced binary does not depend on the Python runtime to execute.
+
+## Native Core
+
+The practical standalone contract now lives in:
+
+- [NATIVE_CORE.md](/C:/dev/vektor-flow/NATIVE_CORE.md)
+- [`examples/native_core`](/C:/dev/vektor-flow/examples/native_core/README.md)
+
+Those examples are the ones we expect to keep building cleanly with:
+
+```bash
+vkf build examples/native_core/hello_native.vkf
+vkf build examples/native_core/vectors_native.vkf
+vkf build examples/native_core/records_native.vkf
+vkf build examples/native_core/numeric_native.vkf
+```
+
+They are narrower than the benchmark suite on purpose: this is the current
+"Python-free runtime" promise, while the benchmark suite is the wider proving
+ground for compiler growth and performance work.
+
+## Token Stream Boundary
+
+`vkf tokens --json file.vkf` now emits a stable JSON token payload. This is the
+first frontend extraction seam:
+
+- today: Python lexer -> token JSON / token objects -> Python parser
+- later: native lexer -> same token JSON / token objects -> parser / native frontend
+
+This lets us replace the lexer without changing the language contract at the
+same time.
 
 ### Standard library (`:.math`)
 
