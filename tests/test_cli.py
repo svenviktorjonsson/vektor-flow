@@ -18,6 +18,11 @@ ROOT = Path(__file__).resolve().parent.parent
 HELLO = ROOT / "examples" / "hello.vkf"
 FOLDER_REPO_MAIN = ROOT / "examples" / "folder_repo" / "main.vkf"
 NATIVE_CORE = ROOT / "examples" / "native_core"
+TOKEN_FIXTURES = ROOT / "tests" / "fixtures" / "token_stream"
+
+
+def _token_fixture(name: str) -> Path:
+    return TOKEN_FIXTURES / name
 
 
 class TestResolveVkfPath:
@@ -87,6 +92,44 @@ class TestMain:
 
         assert main(["parse-tokens", str(payload_path)]) == 1
         assert "invalid token stream payload" in capsys.readouterr().err
+
+    def test_parse_tokens_subcommand_versioned_fixture(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fixture = _token_fixture("versioned_loose_dot_bind.json")
+        src = "v : [1,2]\nv. value: [3,4]\n:: value.\n"
+        assert main(["parse-tokens", str(fixture)]) == 0
+        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<fixture-versioned>"))
+
+    def test_parse_tokens_subcommand_legacy_fixture(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        fixture = _token_fixture("legacy_singleton_tuple_type.json")
+        src = "(1.,) t: (1,)\n:: t.\n"
+        assert main(["parse-tokens", str(fixture)]) == 0
+        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<fixture-legacy>"))
+
+    def test_parse_tokens_subcommand_malformed_token_entry(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        payload_path = tmp_path / "bad_token_entry.json"
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "tokens": [
+                        {
+                            "kind": "IDENT",
+                            "value": "x",
+                            "location": {"file": "<bad>", "line": 1},
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert main(["parse-tokens", str(payload_path)]) == 1
+        assert "invalid token stream payload: malformed token entry" in capsys.readouterr().err
 
     def test_cpp_subcommand_stdout(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         src = tmp_path / "native_scalar.vkf"

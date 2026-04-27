@@ -1,0 +1,213 @@
+{
+  "schema": "vektorflow.token_stream",
+  "version": 1,
+  "tokens": [
+    {
+      "kind": "IDENT",
+      "value": "twice",
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 6
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "x",
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 7
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 8
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 9
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 12
+      }
+    },
+    {
+      "kind": "ARROW",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 14
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 17
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 1,
+        "column": 20
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "INDENT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 2,
+        "column": 5
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "x",
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 2,
+        "column": 5
+      }
+    },
+    {
+      "kind": "STAR",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 2,
+        "column": 7
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 2,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 3,
+        "column": 1
+      }
+    },
+    {
+      "kind": "DEDENT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 4,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EMIT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 4,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "twice",
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 4,
+        "column": 4
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 4,
+        "column": 9
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 21,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 4,
+        "column": 10
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 4,
+        "column": 12
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 5,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EOF",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/hello_native.vkf",
+        "line": 5,
+        "column": 1
+      }
+    }
+  ]
+}

@@ -1704,7 +1704,19 @@ def parse_token_stream_json(text: str) -> ast.Module:
     """
     from .token_stream import tokens_from_json
 
-    return parse_tokens(tokens_from_json(text))
+    try:
+        tokens = tokens_from_json(text)
+    except ValueError as exc:
+        msg = str(exc)
+        prefix = "invalid token stream payload: "
+        if msg.startswith(prefix):
+            msg = msg[len(prefix) :]
+        elif msg.startswith("invalid token entry:") or msg.startswith("invalid literal for "):
+            msg = f"malformed token entry: {msg}"
+        raise ValueError(msg) from exc
+    except (TypeError, KeyError, IndexError) as exc:
+        raise ValueError(f"malformed token entry: {exc}") from exc
+    return parse_tokens(tokens)
 
 
 def parse_expression(source: str, filename: str = "<expr>") -> Any:

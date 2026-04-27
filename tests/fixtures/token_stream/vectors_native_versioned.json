@@ -1,0 +1,717 @@
+{
+  "schema": "vektorflow.token_stream",
+  "version": 1,
+  "tokens": [
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 2
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 5
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 4,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 6
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 7
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "a",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 9
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 10
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 12
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 1,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 13
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 14
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 2,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 16
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 17
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 3,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 19
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 20
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 4,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 22
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 23
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 2
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 5
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 4,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 6
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 7
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "b",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 9
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 10
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 12
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 4,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 13
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 14
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 3,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 16
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 17
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 2,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 19
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 20
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 1,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 22
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 23
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "mix",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 1
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 4
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "x",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 5
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 6
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 7
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 8
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 11
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "n",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 12
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 13
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 14
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "y",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 16
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 17
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 18
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 19
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 22
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "n",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 23
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 24
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 25
+      }
+    },
+    {
+      "kind": "ARROW",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 27
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 30
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 31
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 34
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "n",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 35
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 36
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 37
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 1
+      }
+    },
+    {
+      "kind": "INDENT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 5
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 5
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "x",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 6
+      }
+    },
+    {
+      "kind": "PLUS",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 8
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "y",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 10
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 11
+      }
+    },
+    {
+      "kind": "STAR",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 13
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 0.5,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 15
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 6,
+        "column": 1
+      }
+    },
+    {
+      "kind": "DEDENT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EMIT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "mix",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 4
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 7
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "a",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 8
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 9
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "b",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 11
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 7,
+        "column": 12
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 8,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EOF",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 8,
+        "column": 1
+      }
+    }
+  ]
+}

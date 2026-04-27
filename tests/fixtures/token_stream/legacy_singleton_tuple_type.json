@@ -1,0 +1,163 @@
+{
+  "tokens": [
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 1,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 2
+      }
+    },
+    {
+      "kind": "DOT",
+      "value": [
+        true,
+        true
+      ],
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 3
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 4
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 5
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "t",
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 7
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 8
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 10
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 1,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 11
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 12
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 1,
+        "column": 13
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EMIT",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "t",
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 2,
+        "column": 4
+      }
+    },
+    {
+      "kind": "DOT",
+      "value": [
+        true,
+        false
+      ],
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 2,
+        "column": 5
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 3,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EOF",
+      "value": null,
+      "location": {
+        "file": "<fixture-legacy>",
+        "line": 3,
+        "column": 1
+      }
+    }
+  ]
+}

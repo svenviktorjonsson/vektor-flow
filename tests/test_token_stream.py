@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from vektorflow.lexer import tokenize
-from vektorflow.parser import parse_module, parse_tokens
+from vektorflow.native_lexer_proto import lex_to_payload
+from vektorflow.parser import parse_module, parse_token_stream_json, parse_tokens
 from vektorflow.token_stream import (
     TOKEN_STREAM_SCHEMA,
     TOKEN_STREAM_VERSION,
+    token_stream_payload_from_json,
     token_stream_to_json,
     tokens_from_json,
     tokens_to_json,
+    write_versioned_token_stream,
 )
+
+FIXTURE_ROOT = Path(__file__).with_name("fixtures") / "token_stream"
+
+
+def _fixture_text(name: str) -> str:
+    return (FIXTURE_ROOT / name).read_text(encoding="utf-8")
 
 
 def test_token_stream_roundtrip_preserves_dot_adjacency_payload() -> None:
@@ -88,3 +100,104 @@ def test_versioned_token_stream_json_includes_schema_metadata() -> None:
 def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object], expected: str) -> None:
     with pytest.raises(ValueError, match=expected):
         tokens_from_json(json.dumps(payload))
+
+
+def test_versioned_fixture_parses_like_source_golden() -> None:
+    src = "v : [1,2]\nv. value: [3,4]\n:: value.\n"
+    module = parse_token_stream_json(_fixture_text("versioned_loose_dot_bind.json"))
+    assert repr(module) == repr(parse_module(src, filename="<fixture-versioned>"))
+
+
+def test_legacy_fixture_parses_like_source_golden() -> None:
+    src = "(1.,) t: (1,)\n:: t.\n"
+    module = parse_token_stream_json(_fixture_text("legacy_singleton_tuple_type.json"))
+    assert repr(module) == repr(parse_module(src, filename="<fixture-legacy>"))
+
+
+@pytest.mark.parametrize(
+    "payload, expected",
+    [
+        ({"tokens": ["oops"]}, "malformed token entry"),
+        (
+            {
+                "tokens": [
+                    {
+                        "kind": "IDENT",
+                        "value": "x",
+                        "location": {"file": "<bad>", "line": 1},
+                    }
+                ]
+            },
+            "malformed token entry",
+        ),
+        (
+            {
+                "schema": TOKEN_STREAM_SCHEMA,
+                "version": TOKEN_STREAM_VERSION,
+                "tokens": [
+                    {
+                        "kind": "NUMBER",
+                        "value": 1,
+                        "location": {"file": "<bad>", "line": "NaN", "column": 1},
+                    }
+                ],
+            },
+            "malformed token entry",
+        ),
+    ],
+)
+def test_parse_token_stream_json_rejects_malformed_token_entries(
+    payload: dict[str, object], expected: str
+) -> None:
+    with pytest.raises(ValueError, match=expected):
+        parse_token_stream_json(json.dumps(payload))
+
+
+def test_versioned_payload_helper_matches_json_output() -> None:
+    toks = tokenize("v. value: [3,4]\n", filename="<test>")
+    payload = lex_to_payload("v. value: [3,4]\n", filename="<test>")
+    assert payload["schema"] == TOKEN_STREAM_SCHEMA
+    assert payload["version"] == TOKEN_STREAM_VERSION
+    assert payload["tokens"] == token_stream_payload_from_json(token_stream_to_json(toks))["tokens"]
+
+
+def test_write_versioned_token_stream_roundtrips(tmp_path: Path) -> None:
+    toks = tokenize(":: 3\n", filename="<test>")
+    out = tmp_path / "tokens.json"
+    write_versioned_token_stream(toks, out)
+    payload = token_stream_payload_from_json(out.read_text(encoding="utf-8"))
+    assert payload["schema"] == TOKEN_STREAM_SCHEMA
+    assert [(t.kind, t.value) for t in tokens_from_json(out.read_text(encoding="utf-8"))] == [
+        (t.kind, t.value) for t in toks
+    ]
+
+
+def test_native_lexer_proto_emits_versioned_payload_from_file(tmp_path: Path) -> None:
+    source = tmp_path / "sample.vkf"
+    source.write_text("vec.(3+2)\n", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "-m", "vektorflow.native_lexer_proto", str(source)],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = token_stream_payload_from_json(proc.stdout)
+    assert payload["schema"] == TOKEN_STREAM_SCHEMA
+    assert payload["tokens"][0]["kind"] == "IDENT"
+    assert payload["tokens"][1]["kind"] == "DOT"
+
+
+def test_native_lexer_proto_emits_versioned_payload_from_stdin() -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "vektorflow.native_lexer_proto", "-"],
+        cwd=Path(__file__).resolve().parents[1],
+        input="1.2E+4\n",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = token_stream_payload_from_json(proc.stdout)
+    assert payload["schema"] == TOKEN_STREAM_SCHEMA
+    assert payload["tokens"][0]["kind"] == "NUMBER"
+    assert payload["tokens"][0]["value"] == 1.2e4
