@@ -24,6 +24,10 @@ def make_vflist(values: Iterable[Any] | None = None) -> VFLinkedList:
     return VFLinkedList.from_iterable(values)
 
 
+def make_singleton_vflist(value: Any) -> VFLinkedList:
+    return VFLinkedList.single(value)
+
+
 def make_vfqueue(values: Iterable[Any] | None = None) -> VFQueue:
     if values is None:
         return VFQueue()

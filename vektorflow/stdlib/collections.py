@@ -5,7 +5,15 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..errors import EvalError
-from ..runtime import VFLinkedList, VFQueue, VMap, make_vflist, make_vfqueue, make_vmap
+from ..runtime import (
+    VFLinkedList,
+    VFQueue,
+    VMap,
+    make_singleton_vflist,
+    make_vflist,
+    make_vfqueue,
+    make_vmap,
+)
 
 
 def _map_factory(pos: list[Any], kw: dict[str, Any], spreads: list[Any]) -> VMap:
@@ -27,7 +35,7 @@ def _list_factory(pos: list[Any], kw: dict[str, Any], spreads: list[Any]) -> VFL
     if not pos:
         return make_vflist()
     if len(pos) == 1:
-        return VFLinkedList.single(pos[0])
+        return make_singleton_vflist(pos[0])
     return make_vflist(pos)
 
 

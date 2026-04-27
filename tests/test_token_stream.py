@@ -44,6 +44,7 @@ from tests.token_stream_fixture_helper import (
     assert_fixture_boundary_parity,
     assert_fixture_parses_like_source,
     assert_parser_rejects_token_stream,
+    assert_parser_rejects_token_stream_object,
     iter_token_fixture_cases,
     native_core_fixture_cases,
     token_fixture_case,
@@ -147,8 +148,7 @@ def test_legacy_fixture_parses_like_source_golden() -> None:
 def test_parse_token_stream_json_rejects_malformed_token_entries(
     payload: dict[str, object], expected: str
 ) -> None:
-    with pytest.raises(ValueError, match=expected):
-        parse_token_stream_json(json.dumps(payload))
+    assert_parser_rejects_token_stream_object(payload, expected)
 
 
 def test_versioned_payload_helper_matches_json_output() -> None:
@@ -290,6 +290,7 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
         "source_missing": 0,
         "unmanaged": 0,
         "discovered": len(payload["discovered_fixture_names"]),
+        "canonical_versioned": 1,
     }
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
@@ -428,6 +429,7 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         "source_missing": 0,
         "unmanaged": 2,
         "discovered": len(discovered_fixture_names(TOKEN_FIXTURE_ROOT)),
+        "canonical_versioned": len(TOKEN_FIXTURE_SPECS) + 1,
     }
     assert {item["fixture_name"] for item in payload["fixtures"]} == {
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
@@ -436,7 +438,9 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     assert payload["unmanaged_fixtures"] == unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
     discovered_by_name = {item["fixture_name"]: item for item in payload["discovered_fixtures"]}
     assert discovered_by_name["hello_native_versioned.json"]["managed"] is True
+    assert discovered_by_name["hello_native_versioned.json"]["canonical_versioned"] is True
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["managed"] is False
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["canonical_versioned"] is False
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["paired_source_exists"] is True
     for item in payload["fixtures"]:
         assert item["expected_source_label"] == item["source_rel"]
@@ -490,8 +494,10 @@ def test_discovered_fixture_report_covers_all_checked_in_token_json() -> None:
     assert {item.fixture_name for item in report} == set(discovered_fixture_names(TOKEN_FIXTURE_ROOT))
     by_name = {item.fixture_name: item for item in report}
     assert by_name["hello_native_versioned.json"].managed is True
+    assert by_name["hello_native_versioned.json"].canonical_versioned is True
     assert by_name["hello_native_versioned.json"].paired_source_exists is True
     assert by_name["legacy_singleton_tuple_type.json"].managed is False
+    assert by_name["legacy_singleton_tuple_type.json"].canonical_versioned is False
     assert by_name["legacy_singleton_tuple_type.json"].paired_source_exists is True
     for item in report:
         assert item.token_count > 0

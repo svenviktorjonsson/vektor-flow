@@ -44,6 +44,7 @@ class DiscoveredFixtureStatus:
     fixture_name: str
     fixture_path: str
     managed: bool
+    canonical_versioned: bool
     declared_source_label: str | None
     paired_source_path: str | None
     paired_source_exists: bool
@@ -140,6 +141,14 @@ def _payload_token_count(payload: dict[str, object]) -> int:
     return len(tokens) if isinstance(tokens, list) else 0
 
 
+def _is_canonical_versioned_payload(payload: dict[str, object]) -> bool:
+    return (
+        payload.get("schema") == "vektorflow.token_stream"
+        and payload.get("version") == 1
+        and isinstance(payload.get("tokens"), list)
+    )
+
+
 def _paired_source_path_for_label(label: str | None, *, repo_root: Path) -> Path | None:
     if not label:
         return None
@@ -184,6 +193,7 @@ def discovered_fixture_report(
                 fixture_name=name,
                 fixture_path=str(path),
                 managed=name in managed,
+                canonical_versioned=_is_canonical_versioned_payload(payload),
                 declared_source_label=declared_source_label,
                 paired_source_path=str(paired_source_path) if paired_source_path is not None else None,
                 paired_source_exists=bool(paired_source_path and paired_source_path.is_file()),
@@ -267,6 +277,7 @@ def fixture_status_payload(
         "source_missing": sum(1 for item in statuses if item.status == "source-missing"),
         "unmanaged": len(unmanaged),
         "discovered": len(discovered),
+        "canonical_versioned": sum(1 for item in discovered if item.canonical_versioned),
     }
     return {
         "schema": TOKEN_FIXTURE_REPORT_SCHEMA,
@@ -285,6 +296,7 @@ def fixture_status_payload(
                 "fixture_name": item.fixture_name,
                 "fixture_path": item.fixture_path,
                 "managed": item.managed,
+                "canonical_versioned": item.canonical_versioned,
                 "declared_source_label": item.declared_source_label,
                 "paired_source_path": item.paired_source_path,
                 "paired_source_exists": item.paired_source_exists,

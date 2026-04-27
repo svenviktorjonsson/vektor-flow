@@ -196,6 +196,10 @@ def assert_parser_rejects_token_stream(payload_text: str, expected: str) -> None
     raise AssertionError("expected parse_token_stream_json to reject payload")
 
 
+def assert_parser_rejects_token_stream_object(payload: dict[str, object], expected: str) -> None:
+    assert_parser_rejects_token_stream(json.dumps(payload), expected)
+
+
 def assert_cli_rejects_token_stream(tmp_path: Path, payload_text: str, expected: str) -> None:
     from vektorflow.cli import main
 

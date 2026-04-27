@@ -7,6 +7,7 @@ from vektorflow.runtime import (
     VMap,
     is_runtime_collection,
     make_multiset,
+    make_singleton_vflist,
     make_vflist,
     make_vfqueue,
     make_vmap,
@@ -45,6 +46,10 @@ def test_make_vflist_and_queue_share_runtime_surface() -> None:
     assert q.get() == 6
     assert q.get() is None
     assert q.empty() is True
+
+    single = make_singleton_vflist(9)
+    assert isinstance(single, VFLinkedList)
+    assert list(single) == [9]
 
 
 def test_runtime_collection_predicate_covers_core_owned_collections() -> None:
