@@ -1088,12 +1088,12 @@ class Interpreter:
                     raise EvalError("empty interpolation path")
                 v = self._resolve(parts[0], env)
                 for p in parts[1:]:
-                    if isinstance(v, VMap):
-                        if p not in v._d:
+                    if runtime_collection_kind(v) == "map":
+                        if not runtime_collection_contains(v, p):
                             raise EvalError(
                                 f"missing key {p!r} in string interpolation"
                             )
-                        v = v._d[p]
+                        v = runtime_collection_get(v, p)
                     elif isinstance(v, dict):
                         if p not in v:
                             raise EvalError(

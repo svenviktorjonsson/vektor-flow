@@ -17,6 +17,69 @@ BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
     ("[]", "expected object"),
     ("null", "expected object"),
 )
+MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (
+    ({"tokens": ["oops"]}, "malformed token entry"),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "IDENT",
+                    "value": "x",
+                    "location": {"file": "<bad>", "line": 1},
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "schema": TOKEN_STREAM_SCHEMA,
+            "version": TOKEN_STREAM_VERSION,
+            "tokens": [
+                {
+                    "kind": "NUMBER",
+                    "value": 1,
+                    "location": {"file": "<bad>", "line": "NaN", "column": 1},
+                }
+            ],
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "IDENT",
+                    "value": "x",
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "IDENT",
+                    "value": "x",
+                    "location": "<bad>",
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "value": "x",
+                    "location": {"file": "<bad>", "line": 1, "column": 1},
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -144,3 +207,7 @@ def assert_cli_rejects_token_stream(tmp_path: Path, payload_text: str, expected:
         rc = main(["parse-tokens", str(payload_path)])
     assert rc == 1
     assert expected in err.getvalue()
+
+
+def assert_cli_rejects_token_stream_object(tmp_path: Path, payload: dict[str, object], expected: str) -> None:
+    assert_cli_rejects_token_stream(tmp_path, json.dumps(payload), expected)

@@ -39,6 +39,18 @@ class TokenFixtureStatus:
     status: str
 
 
+@dataclass(frozen=True)
+class DiscoveredFixtureStatus:
+    fixture_name: str
+    fixture_path: str
+    managed: bool
+    declared_source_label: str | None
+    paired_source_path: str | None
+    paired_source_exists: bool
+    token_count: int
+    payload_sha256: str
+
+
 TOKEN_FIXTURE_REPORT_SCHEMA = "vektorflow.token_fixture_report"
 TOKEN_FIXTURE_REPORT_VERSION = 1
 
@@ -128,6 +140,60 @@ def _payload_token_count(payload: dict[str, object]) -> int:
     return len(tokens) if isinstance(tokens, list) else 0
 
 
+def _paired_source_path_for_label(label: str | None, *, repo_root: Path) -> Path | None:
+    if not label:
+        return None
+    candidate = repo_root / Path(label)
+    return candidate
+
+
+def _paired_source_path_for_fixture(
+    fixture_path: Path,
+    *,
+    declared_source_label: str | None,
+    repo_root: Path,
+) -> Path | None:
+    sibling = fixture_path.with_suffix(".vkf")
+    if sibling.is_file():
+        return sibling
+    return _paired_source_path_for_label(declared_source_label, repo_root=repo_root)
+
+
+def discovered_fixture_report(
+    *,
+    repo_root: Path | None = None,
+    fixture_root: Path | None = None,
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> list[DiscoveredFixtureStatus]:
+    root = default_repo_root() if repo_root is None else repo_root
+    out_root = default_fixture_root(root) if fixture_root is None else fixture_root
+    managed = declared_fixture_names(specs)
+    items: list[DiscoveredFixtureStatus] = []
+    for name in discovered_fixture_names(out_root):
+        path = out_root / name
+        text = path.read_text(encoding="utf-8")
+        payload = json.loads(text)
+        declared_source_label = _declared_source_label(payload)
+        paired_source_path = _paired_source_path_for_fixture(
+            path,
+            declared_source_label=declared_source_label,
+            repo_root=root,
+        )
+        items.append(
+            DiscoveredFixtureStatus(
+                fixture_name=name,
+                fixture_path=str(path),
+                managed=name in managed,
+                declared_source_label=declared_source_label,
+                paired_source_path=str(paired_source_path) if paired_source_path is not None else None,
+                paired_source_exists=bool(paired_source_path and paired_source_path.is_file()),
+                token_count=_payload_token_count(payload),
+                payload_sha256=_sha256_text(text),
+            )
+        )
+    return items
+
+
 def fixture_status_report(
     *,
     repo_root: Path | None = None,
@@ -187,7 +253,12 @@ def fixture_status_payload(
         fixture_root=out_root,
         specs=specs,
     )
-    unmanaged = unmanaged_fixture_names(fixture_root=out_root, specs=specs)
+    discovered = discovered_fixture_report(
+        repo_root=root,
+        fixture_root=out_root,
+        specs=specs,
+    )
+    unmanaged = [item.fixture_name for item in discovered if not item.managed]
     counts = {
         "total": len(statuses),
         "current": sum(1 for item in statuses if item.status == "current"),
@@ -195,6 +266,7 @@ def fixture_status_payload(
         "stale": sum(1 for item in statuses if item.status == "stale"),
         "source_missing": sum(1 for item in statuses if item.status == "source-missing"),
         "unmanaged": len(unmanaged),
+        "discovered": len(discovered),
     }
     return {
         "schema": TOKEN_FIXTURE_REPORT_SCHEMA,
@@ -208,6 +280,19 @@ def fixture_status_payload(
         ],
         "discovered_fixture_names": discovered_fixture_names(out_root),
         "unmanaged_fixtures": unmanaged,
+        "discovered_fixtures": [
+            {
+                "fixture_name": item.fixture_name,
+                "fixture_path": item.fixture_path,
+                "managed": item.managed,
+                "declared_source_label": item.declared_source_label,
+                "paired_source_path": item.paired_source_path,
+                "paired_source_exists": item.paired_source_exists,
+                "token_count": item.token_count,
+                "payload_sha256": item.payload_sha256,
+            }
+            for item in discovered
+        ],
         "fixtures": [
             {
                 "source_rel": item.source_rel,

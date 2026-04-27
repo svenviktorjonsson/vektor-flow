@@ -15,6 +15,8 @@ from vektorflow.parser import parse_module
 from vektorflow.token_stream import tokens_to_json
 from tests.token_stream_fixture_helper import (
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+    MALFORMED_TOKEN_ENTRY_CASES,
+    assert_cli_rejects_token_stream_object,
     assert_cli_rejects_token_stream,
     assert_cli_parse_tokens_output_matches_source,
     assert_fixture_boundary_parity,
@@ -130,27 +132,12 @@ class TestMain:
         assert main(["parse-tokens", str(case.payload_path)]) == 0
         assert_cli_parse_tokens_output_matches_source(case, capsys.readouterr().out)
 
+    @pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
     def test_parse_tokens_subcommand_malformed_token_entry(
-        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload: dict[str, object], expected: str
     ) -> None:
-        payload_path = tmp_path / "bad_token_entry.json"
-        payload_path.write_text(
-            json.dumps(
-                {
-                    "tokens": [
-                        {
-                            "kind": "IDENT",
-                            "value": "x",
-                            "location": {"file": "<bad>", "line": 1},
-                        }
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        assert main(["parse-tokens", str(payload_path)]) == 1
-        assert "invalid token stream payload: malformed token entry" in capsys.readouterr().err
+        _ = capsys.readouterr()
+        assert_cli_rejects_token_stream_object(tmp_path, payload, expected)
 
     def test_cpp_subcommand_stdout(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         src = tmp_path / "native_scalar.vkf"

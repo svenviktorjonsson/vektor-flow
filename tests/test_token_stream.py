@@ -14,6 +14,7 @@ from vektorflow.native_lexer_fixtures import (
     TOKEN_FIXTURE_REPORT_VERSION,
     declared_fixture_names,
     default_fixture_root,
+    discovered_fixture_report,
     discovered_fixture_names,
     fixture_status_payload,
     fixture_status_report,
@@ -38,6 +39,7 @@ from vektorflow.token_stream import (
 )
 from tests.token_stream_fixture_helper import (
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+    MALFORMED_TOKEN_ENTRY_CASES,
     TOKEN_FIXTURE_ROOT,
     assert_fixture_boundary_parity,
     assert_fixture_parses_like_source,
@@ -141,72 +143,7 @@ def test_legacy_fixture_parses_like_source_golden() -> None:
     assert_fixture_boundary_parity(case)
 
 
-@pytest.mark.parametrize(
-    "payload, expected",
-    [
-        ({"tokens": ["oops"]}, "malformed token entry"),
-        (
-            {
-                "tokens": [
-                    {
-                        "kind": "IDENT",
-                        "value": "x",
-                        "location": {"file": "<bad>", "line": 1},
-                    }
-                ]
-            },
-            "malformed token entry",
-        ),
-        (
-            {
-                "schema": TOKEN_STREAM_SCHEMA,
-                "version": TOKEN_STREAM_VERSION,
-                "tokens": [
-                    {
-                        "kind": "NUMBER",
-                        "value": 1,
-                        "location": {"file": "<bad>", "line": "NaN", "column": 1},
-                    }
-                ],
-            },
-            "malformed token entry",
-        ),
-        (
-            {
-                "tokens": [
-                    {
-                        "kind": "IDENT",
-                        "value": "x",
-                    }
-                ]
-            },
-            "malformed token entry",
-        ),
-        (
-            {
-                "tokens": [
-                    {
-                        "kind": "IDENT",
-                        "value": "x",
-                        "location": "<bad>",
-                    }
-                ]
-            },
-            "malformed token entry",
-        ),
-        (
-            {
-                "tokens": [
-                    {
-                        "value": "x",
-                        "location": {"file": "<bad>", "line": 1, "column": 1},
-                    }
-                ]
-            },
-            "malformed token entry",
-        ),
-    ],
-)
+@pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
 def test_parse_token_stream_json_rejects_malformed_token_entries(
     payload: dict[str, object], expected: str
 ) -> None:
@@ -352,6 +289,7 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
         "stale": 1,
         "source_missing": 0,
         "unmanaged": 0,
+        "discovered": len(payload["discovered_fixture_names"]),
     }
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
@@ -489,12 +427,17 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         "stale": 0,
         "source_missing": 0,
         "unmanaged": 2,
+        "discovered": len(discovered_fixture_names(TOKEN_FIXTURE_ROOT)),
     }
     assert {item["fixture_name"] for item in payload["fixtures"]} == {
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
     }
     assert payload["discovered_fixture_names"] == discovered_fixture_names(TOKEN_FIXTURE_ROOT)
     assert payload["unmanaged_fixtures"] == unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
+    discovered_by_name = {item["fixture_name"]: item for item in payload["discovered_fixtures"]}
+    assert discovered_by_name["hello_native_versioned.json"]["managed"] is True
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["managed"] is False
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["paired_source_exists"] is True
     for item in payload["fixtures"]:
         assert item["expected_source_label"] == item["source_rel"]
         assert item["declared_source_label"] == item["source_rel"]
@@ -540,3 +483,16 @@ def test_fixture_discovery_helpers_surface_unmanaged_checked_in_fixtures() -> No
     assert set(unmanaged).issubset(set(discovered))
     assert "legacy_singleton_tuple_type.json" in unmanaged
     assert "versioned_loose_dot_bind.json" in unmanaged
+
+
+def test_discovered_fixture_report_covers_all_checked_in_token_json() -> None:
+    report = discovered_fixture_report(fixture_root=TOKEN_FIXTURE_ROOT)
+    assert {item.fixture_name for item in report} == set(discovered_fixture_names(TOKEN_FIXTURE_ROOT))
+    by_name = {item.fixture_name: item for item in report}
+    assert by_name["hello_native_versioned.json"].managed is True
+    assert by_name["hello_native_versioned.json"].paired_source_exists is True
+    assert by_name["legacy_singleton_tuple_type.json"].managed is False
+    assert by_name["legacy_singleton_tuple_type.json"].paired_source_exists is True
+    for item in report:
+        assert item.token_count > 0
+        assert len(item.payload_sha256) == 64
