@@ -122,6 +122,14 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "runnable_contract_set_identity",
         ],
     }
+    assert payload["runnable_contract_readiness"] == {
+        "status": "all-runnable",
+        "ready": True,
+        "readiness_rule": "ready iff validation_passed is true and blocked_count is 0",
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "blocking_issue_counts": {},
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -275,6 +283,17 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
             "runnable_contract_set_identity",
         ],
     }
+    assert payload["runnable_contract_readiness"] == {
+        "status": "blocked",
+        "ready": False,
+        "readiness_rule": "ready iff validation_passed is true and blocked_count is 0",
+        "usable_count": 0,
+        "blocked_count": 3,
+        "blocking_issue_counts": {
+            "fixture-missing": 2,
+            "source-missing": 2,
+        },
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -388,4 +407,12 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
             "runnable_fixture_set_comparison",
             "runnable_contract_set_identity",
         ],
+    }
+    assert payload["runnable_contract_readiness"] == {
+        "status": "all-runnable",
+        "ready": True,
+        "readiness_rule": "ready iff validation_passed is true and blocked_count is 0",
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "blocking_issue_counts": {},
     }

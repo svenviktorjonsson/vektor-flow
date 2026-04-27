@@ -167,6 +167,11 @@ def set_io_file_host(host: IoFileHost) -> None:
     _file_host = host
 
 
+def set_io_native_file_host(host: IoFileHost) -> None:
+    """Install the preferred native file host surface."""
+    set_io_file_host(host)
+
+
 def get_io_file_host() -> IoFileHost:
     """Return the currently installed filesystem host adapter."""
     return _file_host
@@ -199,6 +204,11 @@ def set_io_time_host(host: IoTimeHost | IoSecondsTimeHost) -> None:
 def set_io_seconds_host(host: IoSecondsTimeHost) -> None:
     """Install a seconds-oriented time host for the future seam."""
     set_io_time_host(host)
+
+
+def set_io_native_time_host(host: IoSecondsTimeHost) -> None:
+    """Install the preferred native time host surface."""
+    set_io_seconds_host(host)
 
 
 def get_io_time_host() -> IoTimeHost:

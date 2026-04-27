@@ -27,7 +27,9 @@ from vektorflow.stdlib.io import (
     get_io_time_host,
     read_numbers,
     reset_io_native_host,
+    set_io_native_file_host,
     set_io_native_host,
+    set_io_native_time_host,
     set_io_seconds_host,
 )
 
@@ -81,6 +83,34 @@ class TestResolve:
     def test_native_file_and_time_host_getters_match_preferred_surfaces(self) -> None:
         assert get_io_native_file_host() is get_io_file_host()
         assert get_io_native_time_host() is get_io_seconds_host()
+
+    def test_native_file_and_time_host_setters_match_preferred_surfaces(self) -> None:
+        class FakeFileHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+        class FakeTimeHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        file_host = FakeFileHost()
+        time_host = FakeTimeHost()
+        set_io_native_file_host(file_host)
+        set_io_native_time_host(time_host)
+
+        assert get_io_file_host() is file_host
+        assert get_io_native_file_host() is file_host
+        assert get_io_native_time_host() is time_host
+        assert get_io_seconds_host() is time_host
 
 
 class TestTextBytes:
@@ -499,6 +529,52 @@ class TestTextBytes:
         native_host = get_io_native_host()
         assert native_host._file_host is file_host
         assert native_host._time_host is time_host
+
+    def test_native_file_and_time_host_setters_feed_combined_native_host(self) -> None:
+        class FakeFileHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"native"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "native"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+        class FakeTimeHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(float(seconds))
+
+        file_host = FakeFileHost()
+        time_host = FakeTimeHost()
+        set_io_native_file_host(file_host)
+        set_io_native_time_host(time_host)
+
+        native_host = get_io_native_host()
+        assert native_host.read_text("joined.txt", encoding="utf-8") == "native"
+        assert native_host.read_bytes("joined.bin") == b"native"
+        native_host.write_text("joined.txt", "payload", encoding="utf-8")
+        native_host.write_bytes("joined.bin", b"x")
+        native_host.sleep(0.9)
+
+        assert file_host.calls == [
+            ("read_text", ("joined.txt", "utf-8")),
+            ("read_bytes", "joined.bin"),
+            ("write_text", ("joined.txt", "payload", "utf-8")),
+            ("write_bytes", ("joined.bin", b"x")),
+        ]
+        assert time_host.calls == [0.9]
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:

@@ -6,6 +6,7 @@ while Python is being removed from collection ownership.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, Iterable
 
 from ..errors import EvalError
@@ -210,6 +211,18 @@ def runtime_collection_spill_values(value: Any) -> tuple[Any, ...]:
     if runtime_collection_kind(value) != "multiset":
         raise EvalError("[: …] multiset spill requires a multiset value")
     return runtime_collection_expanded_values(value)
+
+
+def runtime_collection_mapped_result(
+    value: Any,
+    mapped_values: Iterable[Any],
+) -> Any | None:
+    if runtime_collection_kind(value) == "multiset":
+        counts: Counter[Any] = Counter()
+        for item in mapped_values:
+            counts[item] += 1
+        return make_multiset(counts.items())
+    return None
 
 
 def runtime_collection_attr(value: Any, name: str) -> Any | None:

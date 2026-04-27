@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import json
+import math
 
 from .errors import SourceLocation
 from . import tokens as token_defs
@@ -182,6 +183,11 @@ def _require_token_kind(value: Any) -> str:
 
 def _normalize_token_value(kind: str, value: Any) -> Any:
     normalized = _dejsonify_value(value)
+    if kind == token_defs.NUMBER:
+        if isinstance(normalized, bool) or not isinstance(normalized, (int, float)):
+            raise ValueError("invalid token value for NUMBER: expected JSON number")
+        if not math.isfinite(float(normalized)):
+            raise ValueError("invalid token value for NUMBER: expected finite number")
     if kind == token_defs.DOT:
         if not isinstance(normalized, tuple) or len(normalized) != 2 or not all(
             isinstance(flag, bool) for flag in normalized

@@ -320,6 +320,27 @@ def declared_fixture_manifest_payload(
             runnable_contract_set_validation["all_runnable_matches"],
         )
     )
+    blocking_issue_counts: dict[str, int] = {}
+    for item in external_harness_view["blocked_contracts"]:
+        for issue in item["validation_issues"]:
+            blocking_issue_counts[issue] = blocking_issue_counts.get(issue, 0) + 1
+    if blocked_fixture_names:
+        readiness_status = "partially-runnable" if runnable_fixture_names else "blocked"
+    else:
+        readiness_status = "all-runnable"
+    runnable_contract_readiness = {
+        "status": readiness_status,
+        "ready": (
+            runnable_contract_set_validation["validation_passed"]
+            and runnable_contract_set_identity["all_runnable"]
+        ),
+        "readiness_rule": "ready iff validation_passed is true and blocked_count is 0",
+        "usable_count": runnable_contract_set_identity["usable_count"],
+        "blocked_count": runnable_contract_set_identity["blocked_count"],
+        "blocking_issue_counts": {
+            key: blocking_issue_counts[key] for key in sorted(blocking_issue_counts)
+        },
+    }
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -384,6 +405,7 @@ def declared_fixture_manifest_payload(
         "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
         "runnable_contract_set_identity": runnable_contract_set_identity,
         "runnable_contract_set_validation": runnable_contract_set_validation,
+        "runnable_contract_readiness": runnable_contract_readiness,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -407,6 +429,7 @@ def declared_fixture_manifest_payload(
                     "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
                     "runnable_contract_set_identity": runnable_contract_set_identity,
                     "runnable_contract_set_validation": runnable_contract_set_validation,
+                    "runnable_contract_readiness": runnable_contract_readiness,
                 }
             ]
         ),

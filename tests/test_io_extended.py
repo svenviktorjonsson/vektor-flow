@@ -30,9 +30,11 @@ from vektorflow.stdlib.io import (
     read_text,
     sleep,
     sleep_ms,
+    set_io_native_file_host,
     reset_io_native_host,
     set_io_file_host,
     set_io_native_host,
+    set_io_native_time_host,
     set_io_time_host,
     write_bytes,
     write_text,
@@ -375,6 +377,30 @@ class TestSleepMs:
 
     def test_native_file_and_time_host_getters_expose_preferred_surfaces(self) -> None:
         assert get_io_native_file_host() is get_io_file_host()
+        assert callable(get_io_native_time_host().sleep)
+
+    def test_native_file_and_time_host_setters_round_trip_through_getters(self) -> None:
+        class FakeFileHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+        class FakeTimeHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        set_io_native_file_host(FakeFileHost())
+        set_io_native_time_host(FakeTimeHost())
+
+        assert callable(get_io_native_file_host().read_text)
         assert callable(get_io_native_time_host().sleep)
 
     def test_set_io_native_host_round_trips_through_native_getter(self) -> None:
