@@ -11,6 +11,7 @@ import pytest
 from vektorflow.cli import main, resolve_vkf_path
 from vektorflow.cpp_backend import discover_cpp_compiler
 from vektorflow.lexer import tokenize
+from vektorflow.native_lexer_fixtures import TOKEN_FIXTURE_SPECS
 from vektorflow.parser import parse_module
 from vektorflow.token_stream import tokens_to_json
 from tests.token_stream_fixture_helper import token_fixture_case
@@ -94,18 +95,22 @@ class TestMain:
     ) -> None:
         case = token_fixture_case("versioned_loose_dot_bind.json")
         assert main(["parse-tokens", str(case.payload_path)]) == 0
-        assert capsys.readouterr().out.strip() == repr(
-            parse_module(case.read_source_text(), filename=case.source_filename)
-        )
+        assert capsys.readouterr().out.strip() == case.expected_module_repr()
 
     def test_parse_tokens_subcommand_legacy_fixture(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         case = token_fixture_case("legacy_singleton_tuple_type.json")
         assert main(["parse-tokens", str(case.payload_path)]) == 0
-        assert capsys.readouterr().out.strip() == repr(
-            parse_module(case.read_source_text(), filename=case.source_filename)
-        )
+        assert capsys.readouterr().out.strip() == case.expected_module_repr()
+
+    @pytest.mark.parametrize("fixture_name", [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS])
+    def test_parse_tokens_subcommand_native_core_fixture_roundtrip(
+        self, capsys: pytest.CaptureFixture[str], fixture_name: str
+    ) -> None:
+        case = token_fixture_case(fixture_name)
+        assert main(["parse-tokens", str(case.payload_path)]) == 0
+        assert capsys.readouterr().out.strip() == case.expected_module_repr()
 
     def test_parse_tokens_subcommand_malformed_token_entry(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path

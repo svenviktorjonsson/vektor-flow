@@ -30,6 +30,7 @@ from vektorflow.token_stream import (
 )
 from tests.token_stream_fixture_helper import (
     TOKEN_FIXTURE_ROOT,
+    assert_fixture_parses_like_source,
     iter_token_fixture_cases,
     token_fixture_case,
 )
@@ -112,14 +113,12 @@ def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object],
 
 def test_versioned_fixture_parses_like_source_golden() -> None:
     case = token_fixture_case("versioned_loose_dot_bind.json")
-    module = parse_token_stream_json(case.read_payload_text())
-    assert repr(module) == repr(parse_module(case.read_source_text(), filename=case.source_filename))
+    assert_fixture_parses_like_source(case)
 
 
 def test_legacy_fixture_parses_like_source_golden() -> None:
     case = token_fixture_case("legacy_singleton_tuple_type.json")
-    module = parse_token_stream_json(case.read_payload_text())
-    assert repr(module) == repr(parse_module(case.read_source_text(), filename=case.source_filename))
+    assert_fixture_parses_like_source(case)
 
 
 @pytest.mark.parametrize(
@@ -235,16 +234,12 @@ def test_native_core_fixture_matches_lex_file_payload(source_rel: str, fixture_n
 )
 def test_native_core_fixture_parses_like_source(source_rel: str, fixture_name: str) -> None:
     case = token_fixture_case(fixture_name)
-    fixture_module = parse_token_stream_json(case.read_payload_text())
-    source_module = parse_module(case.read_source_text(), filename=case.source_filename)
-    assert repr(fixture_module) == repr(source_module)
+    assert_fixture_parses_like_source(case)
 
 
 def test_all_token_stream_fixtures_with_sources_parse_like_paired_source() -> None:
     for case in iter_token_fixture_cases():
-        fixture_module = parse_token_stream_json(case.read_payload_text())
-        source_module = parse_module(case.read_source_text(), filename=case.source_filename)
-        assert repr(fixture_module) == repr(source_module), case.name
+        assert_fixture_parses_like_source(case)
 
 
 def test_native_core_fixtures_are_canonical_versioned_payloads() -> None:
@@ -266,3 +261,54 @@ def test_regenerate_token_fixtures_matches_checked_in_samples(tmp_path: Path) ->
         generated = (out_root / spec.fixture_name).read_text(encoding="utf-8")
         checked_in = token_fixture_case(spec.fixture_name).read_payload_text()
         assert generated == checked_in
+
+
+def test_native_lexer_fixtures_module_regenerates_all_checked_in_samples(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    out_root = tmp_path / "token_stream"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vektorflow.native_lexer_fixtures",
+            "--repo-root",
+            str(repo),
+            "--fixture-root",
+            str(out_root),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    listed = {Path(line).name for line in proc.stdout.splitlines() if line.strip()}
+    assert listed == {spec.fixture_name for spec in TOKEN_FIXTURE_SPECS}
+    for spec in TOKEN_FIXTURE_SPECS:
+        generated = (out_root / spec.fixture_name).read_text(encoding="utf-8")
+        checked_in = token_fixture_case(spec.fixture_name).read_payload_text()
+        assert generated == checked_in
+
+
+def test_native_lexer_fixtures_module_defaults_to_canonical_versioned_form(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    out_root = tmp_path / "token_stream"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vektorflow.native_lexer_fixtures",
+            "--repo-root",
+            str(repo),
+            "--fixture-root",
+            str(out_root),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    for spec in TOKEN_FIXTURE_SPECS:
+        raw = json.loads((out_root / spec.fixture_name).read_text(encoding="utf-8"))
+        assert list(raw.keys()) == ["schema", "version", "tokens"]
+        assert raw["schema"] == TOKEN_STREAM_SCHEMA
+        assert raw["version"] == TOKEN_STREAM_VERSION

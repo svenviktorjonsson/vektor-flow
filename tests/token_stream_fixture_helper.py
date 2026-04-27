@@ -23,6 +23,11 @@ class TokenStreamFixtureCase:
     def read_source_text(self) -> str:
         return self.source_path.read_text(encoding="utf-8")
 
+    def expected_module_repr(self) -> str:
+        from vektorflow.parser import parse_module
+
+        return repr(parse_module(self.read_source_text(), filename=self.source_filename))
+
 
 def token_fixture_path(name: str) -> Path:
     return TOKEN_FIXTURE_ROOT / name
@@ -66,3 +71,9 @@ def token_fixture_case(name: str) -> TokenStreamFixtureCase:
 def iter_token_fixture_cases() -> Iterator[TokenStreamFixtureCase]:
     for payload_path in sorted(TOKEN_FIXTURE_ROOT.glob("*.json")):
         yield token_fixture_case(payload_path.name)
+
+
+def assert_fixture_parses_like_source(case: TokenStreamFixtureCase) -> None:
+    from vektorflow.parser import parse_token_stream_json
+
+    assert repr(parse_token_stream_json(case.read_payload_text())) == case.expected_module_repr()

@@ -7,9 +7,11 @@ examples without needing parser or CLI changes.
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+import sys
 
 from .native_lexer_proto import write_fixture_for_source
 
@@ -67,3 +69,39 @@ def regenerate_token_fixtures(
         written.append(out)
     return written
 
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m vektorflow.native_lexer_fixtures",
+        description="Regenerate checked-in versioned token-stream fixtures.",
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="Repository root. Defaults to the current vektorflow repo root.",
+    )
+    parser.add_argument(
+        "--fixture-root",
+        type=Path,
+        default=None,
+        help="Output directory for generated token fixtures.",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    written = regenerate_token_fixtures(
+        repo_root=args.repo_root,
+        fixture_root=args.fixture_root,
+    )
+    for path in written:
+        sys.stdout.write(str(path))
+        sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
