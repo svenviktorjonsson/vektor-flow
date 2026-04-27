@@ -21,6 +21,7 @@ from vektorflow.runtime import (
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
+    runtime_collection_take_prefix,
     runtime_collection_set,
     runtime_collection_kind,
 )
@@ -94,6 +95,11 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_keys_sorted(m) == [2, "x", "y"]
     ms = make_multiset([(3, 1), (1, 2)])
     assert runtime_collection_items_sorted(ms) == [(1, 2), (3, 1)]
+
+
+def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
+    assert runtime_collection_take_prefix(make_vflist([1, 2, 3]), 2) == (1, 2)
+    assert runtime_collection_take_prefix(make_vfqueue([4, 5, 6]), 2) == (4, 5)
 
 
 def test_runtime_collection_call_factories() -> None:

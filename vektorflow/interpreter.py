@@ -44,6 +44,7 @@ from .runtime import (
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_kind,
+    runtime_collection_take_prefix,
     runtime_collection_set,
     make_multiset,
     make_vmap,
@@ -1912,7 +1913,7 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
     if isinstance(seq, LazyInfiniteIterator):
         return tuple(islice(seq, k))
     if runtime_collection_kind(seq) in {"list", "queue"}:
-        return tuple(islice(iter(seq), k))
+        return runtime_collection_take_prefix(seq, k)
     if isinstance(seq, (list, tuple)):
         return tuple(seq[:k])
     if runtime_collection_kind(seq) == "multiset":

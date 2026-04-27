@@ -510,6 +510,35 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     }
     assert payload["discovered_fixture_names"] == discovered_fixture_names(TOKEN_FIXTURE_ROOT)
     assert payload["unmanaged_fixtures"] == unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
+    assert payload["managed_fixtures_by_status"] == {
+        "current": sorted(spec.fixture_name for spec in TOKEN_FIXTURE_SPECS)
+    }
+    assert payload["discovered_fixtures_by_envelope_kind"] == {
+        "legacy": ["legacy_singleton_tuple_type.json"],
+        "versioned": sorted(
+            [
+                "hello_native_versioned.json",
+                "numeric_native_versioned.json",
+                "vectors_native_versioned.json",
+                "versioned_loose_dot_bind.json",
+            ]
+        ),
+    }
+    assert payload["discovered_fixtures_by_pairing_mode"] == {
+        "declared-label": sorted(
+            [
+                "hello_native_versioned.json",
+                "numeric_native_versioned.json",
+                "vectors_native_versioned.json",
+            ]
+        ),
+        "sibling-vkf": sorted(
+            [
+                "legacy_singleton_tuple_type.json",
+                "versioned_loose_dot_bind.json",
+            ]
+        ),
+    }
     assert payload["validation_issue_counts"] == {
         "legacy-envelope": 1,
         "not-canonical-versioned": 1,
@@ -577,6 +606,10 @@ def test_native_lexer_fixtures_module_report_emits_drifted_statuses(tmp_path: Pa
     payload = json.loads(proc.stdout)
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
+    assert payload["managed_fixtures_by_status"] == {
+        "current": sorted([TOKEN_FIXTURE_SPECS[1].fixture_name, TOKEN_FIXTURE_SPECS[2].fixture_name]),
+        "stale": [TOKEN_FIXTURE_SPECS[0].fixture_name],
+    }
     assert (
         payload["bundle_sha256"]["managed_fixtures"]
         != baseline["bundle_sha256"]["managed_fixtures"]
@@ -652,6 +685,8 @@ def test_discovered_fixture_report_handles_invalid_json_without_crashing(tmp_pat
     payload = fixture_status_payload(repo_root=repo, fixture_root=out_root, specs=())
     assert payload["summary"]["invalid_json"] == 1
     assert payload["summary"]["with_validation_issues"] == 1
+    assert payload["discovered_fixtures_by_envelope_kind"] == {"invalid-json": ["broken.json"]}
+    assert payload["discovered_fixtures_by_pairing_mode"] == {"none": ["broken.json"]}
     assert payload["validation_issue_counts"] == {
         "empty-token-list": 1,
         "invalid-json": 1,

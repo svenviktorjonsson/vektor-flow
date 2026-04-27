@@ -17,6 +17,7 @@ from .collections_runtime import (
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
+    runtime_collection_take_prefix,
     runtime_collection_set,
     runtime_collection_kind,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "runtime_collection_get",
     "runtime_collection_items_sorted",
     "runtime_collection_keys_sorted",
+    "runtime_collection_take_prefix",
     "runtime_collection_set",
     "runtime_collection_kind",
 ]

@@ -31,11 +31,7 @@ def normalize_token_stream_error_message(msg: str, *, parser_surface: bool = Fal
     prefix = "invalid token stream payload: "
     if msg.startswith(prefix):
         msg = msg[len(prefix) :]
-    if parser_surface and (
-        msg.startswith("invalid token entry:")
-        or msg.startswith("invalid token location:")
-        or msg.startswith("invalid literal for ")
-    ):
+    if parser_surface and msg.startswith("invalid token entry:"):
         return f"malformed token entry: {msg}"
     return msg
 

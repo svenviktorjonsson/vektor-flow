@@ -266,6 +266,33 @@ def _fixtures_with_validation_issues(
     return rows
 
 
+def _group_managed_fixtures_by_status(
+    statuses: Sequence[TokenFixtureStatus],
+) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for item in statuses:
+        grouped.setdefault(item.status, []).append(item.fixture_name)
+    return {key: sorted(value) for key, value in sorted(grouped.items())}
+
+
+def _group_discovered_fixtures_by_envelope_kind(
+    discovered: Sequence[DiscoveredFixtureStatus],
+) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for item in discovered:
+        grouped.setdefault(item.envelope_kind, []).append(item.fixture_name)
+    return {key: sorted(value) for key, value in sorted(grouped.items())}
+
+
+def _group_discovered_fixtures_by_pairing_mode(
+    discovered: Sequence[DiscoveredFixtureStatus],
+) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for item in discovered:
+        grouped.setdefault(item.pairing_mode, []).append(item.fixture_name)
+    return {key: sorted(value) for key, value in sorted(grouped.items())}
+
+
 def discovered_fixture_report(
     *,
     repo_root: Path | None = None,
@@ -421,6 +448,9 @@ def fixture_status_payload(
         ],
         "discovered_fixture_names": discovered_fixture_names(out_root),
         "unmanaged_fixtures": unmanaged,
+        "managed_fixtures_by_status": _group_managed_fixtures_by_status(statuses),
+        "discovered_fixtures_by_envelope_kind": _group_discovered_fixtures_by_envelope_kind(discovered),
+        "discovered_fixtures_by_pairing_mode": _group_discovered_fixtures_by_pairing_mode(discovered),
         "validation_issue_counts": _validation_issue_counts(discovered),
         "fixtures_with_validation_issues": _fixtures_with_validation_issues(discovered),
         "discovered_fixtures": [
