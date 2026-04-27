@@ -143,6 +143,10 @@ def _declared_pairing_status(*, source_exists: bool, fixture_exists: bool) -> st
     return "unpaired"
 
 
+def _external_lexer_contract_usable(*, pairing_status: str, validation_issues: Sequence[str]) -> bool:
+    return pairing_status == "paired" and not validation_issues
+
+
 def declared_fixture_manifest_payload(
     *,
     repo_root: Path | None = None,
@@ -174,6 +178,10 @@ def declared_fixture_manifest_payload(
             validation_issues.append("fixture-missing")
         if item["source_rel"] != item["expected_source_label"]:
             validation_issues.append("noncanonical-source-rel")
+        external_lexer_contract_usable = _external_lexer_contract_usable(
+            pairing_status=pairing_status,
+            validation_issues=validation_issues,
+        )
         fixtures.append(
             {
                 "source_rel": item["source_rel"],
@@ -192,6 +200,7 @@ def declared_fixture_manifest_payload(
                     "filename_label": item["expected_source_label"],
                     "fixture_path": item["fixture_path"],
                 },
+                "external_lexer_contract_usable": external_lexer_contract_usable,
                 "validation_issues": validation_issues,
             }
         )
@@ -234,6 +243,27 @@ def declared_fixture_manifest_payload(
             ]
             for key in sorted({item["pairing_status"] for item in fixtures})
         },
+        "contract_invariants": {
+            "usable_requires_pairing_status": "paired",
+            "usable_requires_validation_issues": [],
+            "required_external_lexer_contract_fields": [
+                "source_path",
+                "filename_label",
+                "fixture_path",
+            ],
+        },
+        "fixtures_by_contract_usability": {
+            "blocked": [
+                item["fixture_name"]
+                for item in fixtures
+                if not item["external_lexer_contract_usable"]
+            ],
+            "usable": [
+                item["fixture_name"]
+                for item in fixtures
+                if item["external_lexer_contract_usable"]
+            ],
+        },
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -245,6 +275,7 @@ def declared_fixture_manifest_payload(
                     "fixture_sha256": item["fixture_sha256"],
                     "pairing_status": item["pairing_status"],
                     "external_lexer_contract": item["external_lexer_contract"],
+                    "external_lexer_contract_usable": item["external_lexer_contract_usable"],
                     "validation_issues": item["validation_issues"],
                 }
                 for item in fixtures
@@ -258,6 +289,12 @@ def declared_fixture_manifest_payload(
             "fixture_missing": sum(1 for item in fixtures if item["pairing_status"] == "fixture-missing"),
             "source_missing": sum(1 for item in fixtures if item["pairing_status"] == "source-missing"),
             "unpaired": sum(1 for item in fixtures if item["pairing_status"] == "unpaired"),
+            "external_lexer_contract_usable": sum(
+                1 for item in fixtures if item["external_lexer_contract_usable"]
+            ),
+            "external_lexer_contract_blocked": sum(
+                1 for item in fixtures if not item["external_lexer_contract_usable"]
+            ),
             "with_validation_issues": sum(1 for item in fixtures if item["validation_issues"]),
             "declared_catalog_issues": len(catalog_issues),
         },

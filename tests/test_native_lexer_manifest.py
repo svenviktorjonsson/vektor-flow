@@ -28,14 +28,30 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "fixture_missing": 0,
         "source_missing": 0,
         "unpaired": 0,
+        "external_lexer_contract_usable": len(TOKEN_FIXTURE_SPECS),
+        "external_lexer_contract_blocked": 0,
         "with_validation_issues": 0,
         "declared_catalog_issues": 0,
+    }
+    assert payload["contract_invariants"] == {
+        "usable_requires_pairing_status": "paired",
+        "usable_requires_validation_issues": [],
+        "required_external_lexer_contract_fields": [
+            "source_path",
+            "filename_label",
+            "fixture_path",
+        ],
     }
     assert payload["fixtures_by_pairing_status"] == {
         "paired": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS]
     }
+    assert payload["fixtures_by_contract_usability"] == {
+        "blocked": [],
+        "usable": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS],
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
+        assert item["external_lexer_contract_usable"] is True
         assert item["external_lexer_contract"] == {
             "source_path": str(repo / spec.source_rel),
             "filename_label": spec.source_rel,
@@ -72,6 +88,8 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "fixture_missing": 1,
         "source_missing": 1,
         "unpaired": 1,
+        "external_lexer_contract_usable": 0,
+        "external_lexer_contract_blocked": 3,
         "with_validation_issues": 3,
         "declared_catalog_issues": 0,
     }
@@ -80,13 +98,24 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "source-missing": ["source_missing_versioned.json"],
         "unpaired": ["missing_both_versioned.json"],
     }
+    assert payload["fixtures_by_contract_usability"] == {
+        "blocked": [
+            "hello_native_versioned.json",
+            "source_missing_versioned.json",
+            "missing_both_versioned.json",
+        ],
+        "usable": [],
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
+    assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
     assert by_name["hello_native_versioned.json"]["external_lexer_contract"]["filename_label"] == (
         "examples/native_core/hello_native.vkf"
     )
     assert by_name["source_missing_versioned.json"]["pairing_status"] == "source-missing"
+    assert by_name["source_missing_versioned.json"]["external_lexer_contract_usable"] is False
     assert by_name["missing_both_versioned.json"]["pairing_status"] == "unpaired"
+    assert by_name["missing_both_versioned.json"]["external_lexer_contract_usable"] is False
 
 
 def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> None:
@@ -114,6 +143,12 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
     assert payload["summary"]["fixture_missing"] == 0
     assert payload["summary"]["source_missing"] == 0
     assert payload["summary"]["unpaired"] == 0
+    assert payload["summary"]["external_lexer_contract_usable"] == len(TOKEN_FIXTURE_SPECS)
+    assert payload["summary"]["external_lexer_contract_blocked"] == 0
     assert payload["fixtures_by_pairing_status"] == {
         "paired": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS]
+    }
+    assert payload["fixtures_by_contract_usability"] == {
+        "blocked": [],
+        "usable": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS],
     }

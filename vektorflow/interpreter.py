@@ -42,6 +42,7 @@ from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
     runtime_collection_contains,
     runtime_collection_ctor_call,
+    runtime_collection_expanded_values,
     runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_read_attr,
@@ -1159,9 +1160,9 @@ class Interpreter:
             for e in node.elements:
                 if isinstance(e, ast.MsetSpill):
                     m = self.eval_expr(e.expr, env)
-                    if not isinstance(m, Multiset):
+                    if runtime_collection_kind(m) != "multiset":
                         raise EvalError("[: …] multiset spill requires a multiset value")
-                    out.extend(m.elements())
+                    out.extend(runtime_collection_expanded_values(m))
                     continue
                 if isinstance(e, ast.VectorRepeat):
                     v = self.eval_expr(e.value, env)
@@ -1548,8 +1549,8 @@ class Interpreter:
                         except ContinueSignal:
                             continue
                     return
-                if isinstance(d, Multiset):
-                    for el in d.elements():
+                if runtime_collection_kind(d) == "multiset":
+                    for el in runtime_collection_expanded_values(d):
                         try:
                             fn(el)
                         except BreakSignal:
@@ -1609,8 +1610,8 @@ class Interpreter:
                     except ContinueSignal:
                         continue
                 return
-            if isinstance(left_v, Multiset):
-                for el in left_v.elements():
+            if runtime_collection_kind(left_v) == "multiset":
+                for el in runtime_collection_expanded_values(left_v):
                     try:
                         fn(el)
                     except BreakSignal:
@@ -1646,7 +1647,7 @@ class Interpreter:
 
                 _foreach_element(_collect)
                 return AxisTaggedValue(tuple(out_t), left_v.idx)
-            if isinstance(d, Multiset):
+            if runtime_collection_kind(d) == "multiset":
                 out: Counter[Any] = Counter()
 
                 def _mset(el: Any) -> None:
@@ -1699,7 +1700,7 @@ class Interpreter:
 
             _foreach_element(_st)
             return set(out_s)
-        if isinstance(left_v, Multiset):
+        if runtime_collection_kind(left_v) == "multiset":
             out_ms: Counter[Any] = Counter()
 
             def _ms(el: Any) -> None:

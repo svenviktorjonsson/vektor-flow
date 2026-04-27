@@ -505,6 +505,13 @@ def build_io_time_namespace() -> dict[str, Any]:
     }
 
 
+def build_io_seconds_namespace() -> dict[str, Any]:
+    """Preferred time-oriented stdlib surface for new native hosts."""
+    return {
+        "sleep": sleep,
+    }
+
+
 def build_io_clock_namespace() -> dict[str, Any]:
     """Backward-compatible alias for :func:`build_io_time_namespace`."""
     return build_io_time_namespace()

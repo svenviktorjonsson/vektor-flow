@@ -13,6 +13,7 @@ from vektorflow.stdlib.io import (
     build_io_clock_namespace,
     build_io_file_namespace,
     build_io_namespace,
+    build_io_seconds_namespace,
     build_io_time_namespace,
     get_io_clock_host,
     get_io_file_host,
@@ -44,6 +45,7 @@ class TestResolve:
     def test_file_and_clock_subnamespaces_are_separate(self) -> None:
         file_ns = build_io_file_namespace()
         clock_ns = build_io_clock_namespace()
+        seconds_ns = build_io_seconds_namespace()
         time_ns = build_io_time_namespace()
         full_ns = build_io_namespace()
 
@@ -54,7 +56,9 @@ class TestResolve:
             "write_bytes",
             "read_numbers",
         }
+        assert set(seconds_ns.keys()) == {"sleep"}
         assert set(clock_ns.keys()) == {"sleep", "sleep_ms"}
+        assert seconds_ns["sleep"] is time_ns["sleep"]
         assert time_ns == clock_ns
         assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
 
@@ -249,6 +253,20 @@ class TestTextBytes:
 
         assert host.second_calls == [0.125]
         assert host.ms_calls == []
+
+    def test_seconds_namespace_uses_preferred_sleep_surface(self) -> None:
+        class FakeSecondsHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(float(seconds))
+
+        host = FakeSecondsHost()
+        set_io_seconds_host(host)
+        build_io_seconds_namespace()["sleep"](0.75)
+
+        assert host.calls == [0.75]
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:

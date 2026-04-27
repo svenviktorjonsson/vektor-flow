@@ -31,6 +31,15 @@ def _reject_json_constant(value: str) -> Any:
     raise ValueError(f"non-standard JSON constant {value}")
 
 
+def _reject_duplicate_object_keys(items: list[tuple[str, Any]]) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    for key, value in items:
+        if key in data:
+            raise ValueError(f"duplicate object key {key!r}")
+        data[key] = value
+    return data
+
+
 def normalize_token_stream_error_message(msg: str, *, parser_surface: bool = False) -> str:
     prefix = "invalid token stream payload: "
     if msg.startswith(prefix):
@@ -186,7 +195,11 @@ def token_stream_to_json(tokens: list[Token]) -> str:
 def token_stream_payload_from_json(text: str) -> dict[str, Any]:
     """Parse token-stream JSON and return the normalized versioned envelope."""
     try:
-        payload = json.loads(text, parse_constant=_reject_json_constant)
+        payload = json.loads(
+            text,
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_reject_duplicate_object_keys,
+        )
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid token stream payload: malformed JSON: {exc.msg}") from exc
     except ValueError as exc:

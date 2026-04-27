@@ -16,6 +16,7 @@ from vektorflow.parser import parse_module
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.io import (
     build_io_namespace,
+    build_io_seconds_namespace,
     read_bytes,
     read_numbers,
     read_text,
@@ -324,6 +325,11 @@ class TestSleepMs:
         assert "sleep_ms" in io
         assert callable(io["sleep"])
         assert callable(io["sleep_ms"])
+
+    def test_seconds_namespace_has_only_sleep(self) -> None:
+        io = build_io_seconds_namespace()
+        assert set(io.keys()) == {"sleep"}
+        assert callable(io["sleep"])
 
 
 # ---------------------------------------------------------------------------

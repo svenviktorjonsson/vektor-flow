@@ -18,6 +18,8 @@ BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
     ("null", "expected object"),
     ('{"tokens":[{"kind":"NUMBER","value":NaN,"location":{"file":"<bad>","line":1,"column":1}}]}', "non-standard JSON constant NaN"),
     ('{"tokens":[{"kind":"NUMBER","value":Infinity,"location":{"file":"<bad>","line":1,"column":1}}]}', "non-standard JSON constant Infinity"),
+    ('{"tokens":[],"tokens":[{"kind":"IDENT","value":"x","location":{"file":"<bad>","line":1,"column":1}}]}', "duplicate object key 'tokens'"),
+    ('{"tokens":[{"kind":"IDENT","value":"x","location":{"file":"<bad>","file":"<worse>","line":1,"column":1}}]}', "duplicate object key 'file'"),
 )
 INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] = (
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
