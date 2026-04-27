@@ -138,6 +138,13 @@ def runtime_collection_keys_sorted(value: Any) -> list[Any]:
     raise TypeError("runtime_collection_keys_sorted only supports map-like runtime collections")
 
 
+def runtime_collection_values(value: Any) -> tuple[Any, ...]:
+    kind = runtime_collection_kind(value)
+    if kind in {"list", "queue"}:
+        return tuple(value)
+    raise TypeError("runtime_collection_values only supports list/queue runtime collections")
+
+
 def runtime_collection_take_prefix(value: Any, count: int) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:

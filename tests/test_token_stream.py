@@ -9,9 +9,13 @@ import pytest
 
 from vektorflow.lexer import tokenize
 from vektorflow.native_lexer_fixtures import (
+    DeclaredFixtureCatalogIssue,
     TOKEN_FIXTURE_SPECS,
     TOKEN_FIXTURE_REPORT_SCHEMA,
     TOKEN_FIXTURE_REPORT_VERSION,
+    TokenFixtureSpec,
+    declared_fixture_catalog_issues,
+    declared_fixture_inventory,
     declared_fixture_names,
     default_fixture_root,
     discovered_fixture_report,
@@ -31,6 +35,7 @@ from vektorflow.parser import parse_module, parse_token_stream_json, parse_token
 from vektorflow.token_stream import (
     TOKEN_STREAM_SCHEMA,
     TOKEN_STREAM_VERSION,
+    load_tokens_from_json,
     token_stream_payload_from_json,
     token_stream_to_json,
     tokens_from_json,
@@ -48,6 +53,8 @@ from tests.token_stream_fixture_helper import (
     assert_loader_rejects_token_stream,
     assert_loader_rejects_token_stream_object,
     assert_loader_parser_cli_reject_token_stream_object,
+    loader_rejects_token_stream_object_message,
+    parser_rejects_token_stream_object_message,
     assert_parser_rejects_token_stream,
     assert_parser_rejects_token_stream_object,
     iter_token_fixture_cases,
@@ -193,6 +200,14 @@ def test_tokens_from_json_rejects_malformed_token_entries(payload: dict[str, obj
     assert_loader_rejects_token_stream_object(payload, "invalid token entry")
 
 
+@pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
+def test_load_tokens_from_json_normalizes_parser_surface_malformed_entries(
+    payload: dict[str, object], expected: str
+) -> None:
+    with pytest.raises(ValueError, match=expected):
+        load_tokens_from_json(json.dumps(payload), parser_surface=True)
+
+
 @pytest.mark.parametrize("payload, _expected", MALFORMED_TOKEN_ENTRY_CASES)
 def test_loader_parser_cli_error_surfaces_stay_aligned_for_malformed_entries(
     tmp_path: Path, payload: dict[str, object], _expected: str
@@ -203,6 +218,17 @@ def test_loader_parser_cli_error_surfaces_stay_aligned_for_malformed_entries(
         loader_expected="invalid token entry",
         parser_expected="malformed token entry",
     )
+
+
+@pytest.mark.parametrize("payload, _expected", MALFORMED_TOKEN_ENTRY_CASES)
+def test_parser_surface_strips_loader_prefix_for_malformed_entries(
+    payload: dict[str, object], _expected: str
+) -> None:
+    loader_msg = loader_rejects_token_stream_object_message(payload)
+    parser_msg = parser_rejects_token_stream_object_message(payload)
+    assert loader_msg.startswith("invalid token entry:")
+    assert parser_msg.startswith("malformed token entry:")
+    assert "invalid token entry:" not in parser_msg
 
 
 def test_versioned_payload_helper_matches_json_output() -> None:
@@ -338,6 +364,7 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
     assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
     assert {key for key in payload["bundle_sha256"]} == {
         "declared_specs",
+        "declared_catalog_issues",
         "managed_fixtures",
         "discovered_fixtures",
         "validation_issues",
@@ -357,6 +384,7 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
         "invalid_json": 0,
         "invalid_shape": 0,
         "with_validation_issues": 1,
+        "declared_catalog_issues": 0,
     }
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
@@ -484,9 +512,15 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     assert payload["schema"] == TOKEN_FIXTURE_REPORT_SCHEMA
     assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
     assert payload["declared_specs"] == [
-        {"source_rel": spec.source_rel, "fixture_name": spec.fixture_name}
+        {
+            "source_rel": spec.source_rel,
+            "fixture_name": spec.fixture_name,
+            "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+            "expected_source_label": spec.source_rel,
+        }
         for spec in TOKEN_FIXTURE_SPECS
     ]
+    assert payload["declared_catalog_issues"] == []
     for value in payload["bundle_sha256"].values():
         assert len(value) == 64
     assert payload["summary"] == {
@@ -504,6 +538,7 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         "invalid_json": 0,
         "invalid_shape": 0,
         "with_validation_issues": 1,
+        "declared_catalog_issues": 0,
     }
     assert {item["fixture_name"] for item in payload["fixtures"]} == {
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
@@ -634,6 +669,52 @@ def test_fixture_discovery_helpers_surface_unmanaged_checked_in_fixtures() -> No
     assert "versioned_loose_dot_bind.json" in unmanaged
 
 
+def test_declared_fixture_inventory_lists_canonical_fixture_targets() -> None:
+    inventory = declared_fixture_inventory(fixture_root=TOKEN_FIXTURE_ROOT)
+    assert inventory == [
+        {
+            "source_rel": spec.source_rel,
+            "fixture_name": spec.fixture_name,
+            "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+            "expected_source_label": spec.source_rel,
+        }
+        for spec in TOKEN_FIXTURE_SPECS
+    ]
+
+
+def test_declared_fixture_catalog_issues_detect_duplicate_catalog_entries() -> None:
+    specs = (
+        TOKEN_FIXTURE_SPECS[0],
+        TokenFixtureSpec(
+            source_rel=TOKEN_FIXTURE_SPECS[0].source_rel,
+            fixture_name="hello_native_duplicate_versioned.json",
+        ),
+        TokenFixtureSpec(
+            source_rel="examples/native_core/other_source.vkf",
+            fixture_name=TOKEN_FIXTURE_SPECS[0].fixture_name,
+        ),
+    )
+    issues = declared_fixture_catalog_issues(specs)
+    assert issues == [
+        DeclaredFixtureCatalogIssue(
+            issue="duplicate-source-rel",
+            value=TOKEN_FIXTURE_SPECS[0].source_rel,
+            fixture_names=(
+                "hello_native_duplicate_versioned.json",
+                TOKEN_FIXTURE_SPECS[0].fixture_name,
+            ),
+        ),
+        DeclaredFixtureCatalogIssue(
+            issue="duplicate-fixture-name",
+            value=TOKEN_FIXTURE_SPECS[0].fixture_name,
+            fixture_names=(
+                TOKEN_FIXTURE_SPECS[0].source_rel,
+                "examples/native_core/other_source.vkf",
+            ),
+        ),
+    ]
+
+
 def test_discovered_fixture_report_covers_all_checked_in_token_json() -> None:
     report = discovered_fixture_report(fixture_root=TOKEN_FIXTURE_ROOT)
     assert {item.fixture_name for item in report} == set(discovered_fixture_names(TOKEN_FIXTURE_ROOT))
@@ -704,3 +785,52 @@ def test_discovered_fixture_report_handles_invalid_json_without_crashing(tmp_pat
             ],
         }
     ]
+
+
+def test_fixture_status_payload_surfaces_declared_catalog_issues() -> None:
+    specs = (
+        TokenFixtureSpec(
+            source_rel="examples/native_core/hello_native.vkf",
+            fixture_name="hello_native_versioned.json",
+        ),
+        TokenFixtureSpec(
+            source_rel="examples/native_core/hello_native.vkf",
+            fixture_name="hello_native_shadow.json",
+        ),
+    )
+    payload = fixture_status_payload(
+        repo_root=Path(__file__).resolve().parents[1],
+        fixture_root=TOKEN_FIXTURE_ROOT,
+        specs=specs,
+    )
+    assert payload["summary"]["declared_catalog_issues"] == 1
+    assert payload["declared_catalog_issues"] == [
+        {
+            "issue": "duplicate-source-rel",
+            "value": "examples/native_core/hello_native.vkf",
+            "fixture_names": [
+                "hello_native_shadow.json",
+                "hello_native_versioned.json",
+            ],
+        }
+    ]
+    assert len(payload["bundle_sha256"]["declared_catalog_issues"]) == 64
+
+
+def test_fixture_drift_report_includes_declared_catalog_issues() -> None:
+    specs = (
+        TokenFixtureSpec(
+            source_rel="examples/native_core/hello_native.vkf",
+            fixture_name="hello_native_versioned.json",
+        ),
+        TokenFixtureSpec(
+            source_rel="examples/native_core/other_source.vkf",
+            fixture_name="hello_native_versioned.json",
+        ),
+    )
+    drift = fixture_drift_report(
+        repo_root=Path(__file__).resolve().parents[1],
+        fixture_root=TOKEN_FIXTURE_ROOT,
+        specs=specs,
+    )
+    assert "duplicate-fixture-name: hello_native_versioned.json -> examples/native_core/hello_native.vkf, examples/native_core/other_source.vkf" in drift

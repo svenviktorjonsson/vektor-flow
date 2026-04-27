@@ -205,6 +205,20 @@ def assert_parser_rejects_token_stream_object(payload: dict[str, object], expect
     assert_parser_rejects_token_stream(json.dumps(payload), expected)
 
 
+def parser_rejects_token_stream_message(payload_text: str) -> str:
+    from vektorflow.parser import parse_token_stream_json
+
+    try:
+        parse_token_stream_json(payload_text)
+    except ValueError as exc:
+        return str(exc)
+    raise AssertionError("expected parse_token_stream_json to reject payload")
+
+
+def parser_rejects_token_stream_object_message(payload: dict[str, object]) -> str:
+    return parser_rejects_token_stream_message(json.dumps(payload))
+
+
 def assert_loader_rejects_token_stream(payload_text: str, expected: str) -> None:
     from vektorflow.token_stream import tokens_from_json
 
@@ -218,6 +232,20 @@ def assert_loader_rejects_token_stream(payload_text: str, expected: str) -> None
 
 def assert_loader_rejects_token_stream_object(payload: dict[str, object], expected: str) -> None:
     assert_loader_rejects_token_stream(json.dumps(payload), expected)
+
+
+def loader_rejects_token_stream_message(payload_text: str) -> str:
+    from vektorflow.token_stream import tokens_from_json
+
+    try:
+        tokens_from_json(payload_text)
+    except ValueError as exc:
+        return str(exc)
+    raise AssertionError("expected tokens_from_json to reject payload")
+
+
+def loader_rejects_token_stream_object_message(payload: dict[str, object]) -> str:
+    return loader_rejects_token_stream_message(json.dumps(payload))
 
 
 def assert_loader_parser_cli_reject_token_stream_object(

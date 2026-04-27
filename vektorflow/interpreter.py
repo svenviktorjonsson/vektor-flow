@@ -45,6 +45,7 @@ from .runtime import (
     runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_take_prefix,
+    runtime_collection_values,
     runtime_collection_set,
     make_multiset,
     make_vmap,
@@ -66,7 +67,6 @@ from .runtime.type_values import (
 )
 from .runtime.typed_vector import TypedVector
 from .runtime.vflist import VFLinkedList
-from .runtime.vmap import VMap
 
 # Sentinel: no outer ``$`` in ``env`` before a :class:`ast.MatchStmt` binds it.
 _NO_PREVIOUS_DOLLAR = object()
@@ -536,11 +536,12 @@ def _format_multiset_stringify(
     return "{" + inner + "}"
 
 
-def _format_vmap_stringify(
-    m: VMap,
+def _format_runtime_map_stringify(
+    value: Any,
     types: dict[str, ast.TypeExpr | ast.FuncType] | None,
 ) -> str:
-    items = runtime_collection_items_sorted(m)
+    """Stringify an ordered runtime map view without reaching into its storage."""
+    items = runtime_collection_items_sorted(value)
     inner = ", ".join(
         f"{_stringify(k, types)}:{_stringify(val, types)}" for k, val in items
     )
@@ -2051,9 +2052,9 @@ def _stringify(
         return _stringify(v.data, types)
     collection_kind = runtime_collection_kind(v)
     if collection_kind == "map":
-        return _format_vmap_stringify(v, types)
+        return _format_runtime_map_stringify(v, types)
     if collection_kind in {"list", "queue"}:
-        return "[" + ", ".join(_stringify(x, types) for x in v) + "]"
+        return "[" + ", ".join(_stringify(x, types) for x in runtime_collection_values(v)) + "]"
     if collection_kind == "multiset":
         return _format_multiset_stringify(v, types)
     if isinstance(v, LazyInfiniteIterator):

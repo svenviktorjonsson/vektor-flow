@@ -32,7 +32,8 @@ def normalize_token_stream_error_message(msg: str, *, parser_surface: bool = Fal
     if msg.startswith(prefix):
         msg = msg[len(prefix) :]
     if parser_surface and msg.startswith("invalid token entry:"):
-        return f"malformed token entry: {msg}"
+        entry_msg = msg[len("invalid token entry:") :].lstrip()
+        return f"malformed token entry: {entry_msg}"
     return msg
 
 
@@ -168,6 +169,16 @@ def token_stream_payload_from_json(text: str) -> dict[str, Any]:
 def tokens_from_json(text: str) -> list[Token]:
     payload = token_stream_payload_from_json(text)
     return tokens_from_data(payload["tokens"])
+
+
+def load_tokens_from_json(text: str, *, parser_surface: bool = False) -> list[Token]:
+    """Load tokens from JSON with the requested external error surface."""
+    try:
+        return tokens_from_json(text)
+    except ValueError as exc:
+        raise ValueError(
+            normalize_token_stream_error_message(str(exc), parser_surface=parser_surface)
+        ) from exc
 
 
 def write_token_stream(tokens: list[Token], path: Path) -> None:

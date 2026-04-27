@@ -1702,14 +1702,9 @@ def parse_token_stream_json(text: str) -> ast.Module:
     token JSON payload defined by ``token_stream.py`` and hand it straight to
     the parser without going back through the source lexer.
     """
-    from .token_stream import normalize_token_stream_error_message, tokens_from_json
+    from .token_stream import load_tokens_from_json
 
-    try:
-        tokens = tokens_from_json(text)
-    except ValueError as exc:
-        raise ValueError(normalize_token_stream_error_message(str(exc), parser_surface=True)) from exc
-    except (TypeError, KeyError, IndexError) as exc:
-        raise ValueError(f"malformed token entry: {exc}") from exc
+    tokens = load_tokens_from_json(text, parser_surface=True)
     return parse_tokens(tokens)
 
 

@@ -100,6 +100,11 @@ def set_io_file_host(host: IoFileHost) -> None:
     _file_host = host
 
 
+def get_io_file_host() -> IoFileHost:
+    """Return the currently installed filesystem host adapter."""
+    return _file_host
+
+
 def set_io_time_host(host: IoTimeHost) -> None:
     """Install a custom time-oriented host adapter.
 
@@ -109,9 +114,19 @@ def set_io_time_host(host: IoTimeHost) -> None:
     _time_host = host
 
 
+def get_io_time_host() -> IoTimeHost:
+    """Return the currently installed time-oriented host adapter."""
+    return _time_host
+
+
 def set_io_clock_host(host: IoClockHost) -> None:
     """Backward-compatible alias for :func:`set_io_time_host`."""
     set_io_time_host(host)
+
+
+def get_io_clock_host() -> IoClockHost:
+    """Backward-compatible alias for :func:`get_io_time_host`."""
+    return get_io_time_host()
 
 
 def reset_io_host() -> None:

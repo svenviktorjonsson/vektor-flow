@@ -59,6 +59,13 @@ class DiscoveredFixtureStatus:
     validation_issues: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class DeclaredFixtureCatalogIssue:
+    issue: str
+    value: str
+    fixture_names: tuple[str, ...]
+
+
 TOKEN_FIXTURE_REPORT_SCHEMA = "vektorflow.token_fixture_report"
 TOKEN_FIXTURE_REPORT_VERSION = 1
 
@@ -98,6 +105,56 @@ def discovered_fixture_names(fixture_root: Path) -> list[str]:
 
 def declared_fixture_names(specs: Sequence[TokenFixtureSpec] | None = None) -> set[str]:
     return {spec.fixture_name for spec in iter_fixture_specs(specs)}
+
+
+def declared_fixture_inventory(
+    *,
+    repo_root: Path | None = None,
+    fixture_root: Path | None = None,
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> list[dict[str, str]]:
+    root = default_repo_root() if repo_root is None else repo_root
+    out_root = default_fixture_root(root) if fixture_root is None else fixture_root
+    return [
+        {
+            "source_rel": spec.source_rel,
+            "fixture_name": spec.fixture_name,
+            "fixture_path": str(out_root / spec.fixture_name),
+            "expected_source_label": spec.source_rel.replace("\\", "/"),
+        }
+        for spec in iter_fixture_specs(specs)
+    ]
+
+
+def declared_fixture_catalog_issues(
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> list[DeclaredFixtureCatalogIssue]:
+    by_source_rel: dict[str, list[str]] = {}
+    by_fixture_name: dict[str, list[str]] = {}
+    for spec in iter_fixture_specs(specs):
+        by_source_rel.setdefault(spec.source_rel, []).append(spec.fixture_name)
+        by_fixture_name.setdefault(spec.fixture_name, []).append(spec.source_rel)
+
+    issues: list[DeclaredFixtureCatalogIssue] = []
+    for source_rel, fixture_names in sorted(by_source_rel.items()):
+        if len(fixture_names) > 1:
+            issues.append(
+                DeclaredFixtureCatalogIssue(
+                    issue="duplicate-source-rel",
+                    value=source_rel,
+                    fixture_names=tuple(sorted(fixture_names)),
+                )
+            )
+    for fixture_name, source_rels in sorted(by_fixture_name.items()):
+        if len(source_rels) > 1:
+            issues.append(
+                DeclaredFixtureCatalogIssue(
+                    issue="duplicate-fixture-name",
+                    value=fixture_name,
+                    fixture_names=tuple(sorted(source_rels)),
+                )
+            )
+    return issues
 
 
 def unmanaged_fixture_names(
@@ -419,6 +476,7 @@ def fixture_status_payload(
         fixture_root=out_root,
         specs=specs,
     )
+    catalog_issues = declared_fixture_catalog_issues(specs)
     unmanaged = [item.fixture_name for item in discovered if not item.managed]
     counts = {
         "total": len(statuses),
@@ -435,16 +493,23 @@ def fixture_status_payload(
         "invalid_json": sum(1 for item in discovered if item.envelope_kind == "invalid-json"),
         "invalid_shape": sum(1 for item in discovered if item.envelope_kind == "invalid-shape"),
         "with_validation_issues": sum(1 for item in discovered if item.validation_issues),
+        "declared_catalog_issues": len(catalog_issues),
     }
     return {
         "schema": TOKEN_FIXTURE_REPORT_SCHEMA,
         "version": TOKEN_FIXTURE_REPORT_VERSION,
-        "declared_specs": [
+        "declared_specs": declared_fixture_inventory(
+            repo_root=root,
+            fixture_root=out_root,
+            specs=specs,
+        ),
+        "declared_catalog_issues": [
             {
-                "source_rel": spec.source_rel,
-                "fixture_name": spec.fixture_name,
+                "issue": item.issue,
+                "value": item.value,
+                "fixture_names": list(item.fixture_names),
             }
-            for spec in iter_fixture_specs(specs)
+            for item in catalog_issues
         ],
         "discovered_fixture_names": discovered_fixture_names(out_root),
         "unmanaged_fixtures": unmanaged,
@@ -494,10 +559,15 @@ def fixture_status_payload(
             "declared_specs": _bundle_sha256(
                 [
                     {
-                        "source_rel": spec.source_rel,
-                        "fixture_name": spec.fixture_name,
+                        "source_rel": spec["source_rel"],
+                        "fixture_name": spec["fixture_name"],
+                        "expected_source_label": spec["expected_source_label"],
                     }
-                    for spec in iter_fixture_specs(specs)
+                    for spec in declared_fixture_inventory(
+                        repo_root=root,
+                        fixture_root=out_root,
+                        specs=specs,
+                    )
                 ]
             ),
             "managed_fixtures": _bundle_sha256(
@@ -525,6 +595,16 @@ def fixture_status_payload(
                     for item in discovered
                 ]
             ),
+            "declared_catalog_issues": _bundle_sha256(
+                [
+                    {
+                        "issue": item.issue,
+                        "value": item.value,
+                        "fixture_names": list(item.fixture_names),
+                    }
+                    for item in catalog_issues
+                ]
+            ),
             "validation_issues": _bundle_sha256(_fixtures_with_validation_issues(discovered)),
         },
         "summary": counts,
@@ -537,7 +617,10 @@ def fixture_drift_report(
     fixture_root: Path | None = None,
     specs: Sequence[TokenFixtureSpec] | None = None,
 ) -> list[str]:
-    drifted: list[str] = []
+    drifted = [
+        f"{item.issue}: {item.value} -> {', '.join(item.fixture_names)}"
+        for item in declared_fixture_catalog_issues(specs)
+    ]
     for item in fixture_status_report(
         repo_root=repo_root,
         fixture_root=fixture_root,

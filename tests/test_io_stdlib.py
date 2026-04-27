@@ -14,6 +14,9 @@ from vektorflow.stdlib.io import (
     build_io_file_namespace,
     build_io_namespace,
     build_io_time_namespace,
+    get_io_clock_host,
+    get_io_file_host,
+    get_io_time_host,
     read_numbers,
 )
 
@@ -170,6 +173,42 @@ class TestTextBytes:
         assert host.calls == [3.5]
 
         iolib.reset_io_time_host()
+
+    def test_getters_expose_current_hosts_for_restore(self) -> None:
+        original_file_host = get_io_file_host()
+        original_time_host = get_io_time_host()
+
+        class FakeFileHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b"override"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return "override"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+        class FakeTimeHost:
+            def sleep_ms(self, ms: float) -> None:
+                return None
+
+        file_host = FakeFileHost()
+        time_host = FakeTimeHost()
+        iolib.set_io_file_host(file_host)
+        iolib.set_io_time_host(time_host)
+
+        assert get_io_file_host() is file_host
+        assert get_io_time_host() is time_host
+        assert get_io_clock_host() is time_host
+
+        iolib.set_io_file_host(original_file_host)
+        iolib.set_io_time_host(original_time_host)
+
+        assert get_io_file_host() is original_file_host
+        assert get_io_time_host() is original_time_host
 
 
 class TestReadNumbers:
