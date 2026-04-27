@@ -84,6 +84,31 @@ def test_cpp_emits_math_and_stat_intrinsics() -> None:
     assert "static_cast<long long>(3)" in cpp
 
 
+def test_cpp_emits_math_constants_and_extended_stat_intrinsics() -> None:
+    src = """
+:: math.pi
+:: math.e
+:: stat.median([1,2,3,4])
+:: stat.percentile([1,2,3,4,5], 75)
+:: stat.iqr([1,2,3,4,5])
+:: stat.zscore([1,2,3])
+:: stat.normalize([2,4,6])
+:: stat.covariance([1,2,3], [2,4,6])
+:: stat.correlation([1,2,3], [2,4,6])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "3.14159265358979323846" in cpp
+    assert "2.71828182845904523536" in cpp
+    assert "vf_array_median(" in cpp
+    assert "vf_array_percentile(" in cpp
+    assert "vf_array_iqr(" in cpp
+    assert "vf_array_zscore(" in cpp
+    assert "vf_array_normalize(" in cpp
+    assert "vf_array_covariance(" in cpp
+    assert "vf_array_correlation(" in cpp
+
+
 def test_cpp_rejects_unsupported_fixed_vector_native_subset() -> None:
     src = """
 box(x:(left:num)):
@@ -641,6 +666,34 @@ def test_cpp_compile_and_run_math_and_stat_intrinsics() -> None:
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
     assert res.stdout.strip().splitlines() == ["0", "2.5", "4", "3"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_compile_and_run_math_constants_and_extended_stats() -> None:
+    src = """
+:: math.pi
+:: math.e
+:: stat.median([1,2,3,4])
+:: stat.percentile([1,2,3,4,5], 75)
+:: stat.iqr([1,2,3,4,5])
+:: stat.zscore([1,2,3])
+:: stat.normalize([2,4,6])
+:: stat.covariance([1,2,3], [2,4,6])
+:: stat.correlation([1,2,3], [2,4,6])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.stdout.strip().splitlines() == [
+        "3.14159265358979",
+        "2.71828182845905",
+        "2.5",
+        "4",
+        "2",
+        "[-1.22474487139159, 0, 1.22474487139159]",
+        "[0, 0.5, 1]",
+        "1.33333333333333",
+        "1",
+    ]
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")

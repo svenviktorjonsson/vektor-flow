@@ -35,7 +35,9 @@ _MATH_NAMES = {
 }
 
 _STAT_VECTOR_NAMES = {"sum", "mean", "min", "max", "range", "count", "variance", "std"}
+_STAT_VECTOR_FLOAT_NAMES = {"median", "percentile", "iqr", "zscore", "normalize", "covariance", "correlation"}
 _STAT_SCALAR_NAMES = {"clamp", "sign"}
+_MATH_CONST_NAMES = {"pi", "e", "tau"}
 
 
 def resolve_native_intrinsic(func: Any) -> NativeIntrinsic | None:
@@ -47,12 +49,17 @@ def resolve_native_intrinsic(func: Any) -> NativeIntrinsic | None:
         base = func.value.name
         if base == "math" and func.name in _MATH_NAMES:
             return NativeIntrinsic("math", func.name, "math")
-        if base == "stat" and (func.name in _STAT_VECTOR_NAMES or func.name in _STAT_SCALAR_NAMES):
+        if base == "math" and func.name in _MATH_CONST_NAMES:
+            return NativeIntrinsic("math", func.name, "math_const")
+        if base == "stat" and (func.name in _STAT_VECTOR_NAMES or func.name in _STAT_VECTOR_FLOAT_NAMES or func.name in _STAT_SCALAR_NAMES):
             return NativeIntrinsic("stat", func.name, "stat")
     return None
 
 
 def infer_intrinsic_return_type(intrinsic: NativeIntrinsic, arg_types: list[Any]) -> Any:
+    if intrinsic.kind == "math_const":
+        _require_arity(intrinsic, len(arg_types), 0)
+        return ast.PrimTypeRef("num")
     if intrinsic.kind == "math":
         _require_arity(intrinsic, len(arg_types), 2 if intrinsic.name in {"atan2", "log"} else 1)
         _require_all_numeric(intrinsic, arg_types)
@@ -66,13 +73,25 @@ def infer_intrinsic_return_type(intrinsic: NativeIntrinsic, arg_types: list[Any]
             _require_arity(intrinsic, len(arg_types), 1)
             _require_all_numeric(intrinsic, arg_types)
             return ast.PrimTypeRef("int")
+        if intrinsic.name in {"covariance", "correlation"}:
+            _require_arity(intrinsic, len(arg_types), 2)
+            left_t = _require_numeric_vector(intrinsic, arg_types[0], 0)
+            right_t = _require_numeric_vector(intrinsic, arg_types[1], 1)
+            if left_t.size != right_t.size:
+                raise ValueError(f"{_intrinsic_label(intrinsic)} requires equal fixed-vector sizes")
+            return ast.PrimTypeRef("num")
+        if intrinsic.name == "percentile":
+            _require_arity(intrinsic, len(arg_types), 2)
+            _require_numeric_vector(intrinsic, arg_types[0], 0)
+            if not _is_scalar_numeric_type(arg_types[1]):
+                raise ValueError(f"{_intrinsic_label(intrinsic)} requires a numeric percentile argument")
+            return ast.PrimTypeRef("num")
+        if intrinsic.name in {"zscore", "normalize"}:
+            _require_arity(intrinsic, len(arg_types), 1)
+            vector_t = _require_numeric_vector(intrinsic, arg_types[0], 0)
+            return ast.FixedVectorType(ast.PrimTypeRef("num"), vector_t.size)
         _require_arity(intrinsic, len(arg_types), 1)
-        vector_t = _normalize_type(arg_types[0])
-        if not isinstance(vector_t, ast.FixedVectorType):
-            raise ValueError(f"{_intrinsic_label(intrinsic)} requires a fixed vector argument")
-        elem_t = _normalize_type(vector_t.element_type)
-        if not _is_scalar_numeric_type(elem_t):
-            raise ValueError(f"{_intrinsic_label(intrinsic)} requires a numeric vector argument")
+        _require_numeric_vector(intrinsic, arg_types[0], 0)
         if intrinsic.name == "count":
             return ast.PrimTypeRef("int")
         return ast.PrimTypeRef("num")
@@ -80,7 +99,20 @@ def infer_intrinsic_return_type(intrinsic: NativeIntrinsic, arg_types: list[Any]
 
 
 def intrinsic_uses_array_stats(intrinsic: NativeIntrinsic) -> bool:
-    return intrinsic.kind == "stat" and intrinsic.name in {"min", "max", "range", "variance", "std"}
+    return intrinsic.kind == "stat" and intrinsic.name in {
+        "min",
+        "max",
+        "range",
+        "variance",
+        "std",
+        "median",
+        "percentile",
+        "iqr",
+        "zscore",
+        "normalize",
+        "covariance",
+        "correlation",
+    }
 
 
 def intrinsic_uses_array_sum(intrinsic: NativeIntrinsic) -> bool:
@@ -100,6 +132,16 @@ def _require_all_numeric(intrinsic: NativeIntrinsic, arg_types: list[Any]) -> No
     for arg_t in arg_types:
         if not _is_scalar_numeric_type(arg_t):
             raise ValueError(f"{_intrinsic_label(intrinsic)} requires numeric arguments")
+
+
+def _require_numeric_vector(intrinsic: NativeIntrinsic, arg_type: Any, index: int) -> ast.FixedVectorType:
+    vector_t = _normalize_type(arg_type)
+    if not isinstance(vector_t, ast.FixedVectorType):
+        raise ValueError(f"{_intrinsic_label(intrinsic)} argument {index + 1} requires a fixed vector")
+    elem_t = _normalize_type(vector_t.element_type)
+    if not _is_scalar_numeric_type(elem_t):
+        raise ValueError(f"{_intrinsic_label(intrinsic)} argument {index + 1} requires a numeric vector")
+    return vector_t
 
 
 def _normalize_type(t: Any) -> Any:

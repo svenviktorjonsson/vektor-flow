@@ -126,6 +126,38 @@ counted: stat.count([1,2,3])
     assert info.expr_type(bind_counted.value).name == "int"
 
 
+def test_typed_ir_tracks_math_constants_and_vector_stats() -> None:
+    mod = parse_module(
+        """
+pi_v: math.pi
+tau_v: math.tau
+mid: stat.median([1,2,3,4])
+p75: stat.percentile([1,2,3,4,5], 75)
+spread: stat.iqr([1,2,3,4,5])
+zs: stat.zscore([1,2,3])
+norm: stat.normalize([2,4,6])
+cov: stat.covariance([1,2,3], [2,4,6])
+corr: stat.correlation([1,2,3], [2,4,6])
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    assert info.expr_type(lowered.statements[0].value).name == "num"
+    assert info.expr_type(lowered.statements[1].value).name == "num"
+    assert info.expr_type(lowered.statements[2].value).name == "num"
+    assert info.expr_type(lowered.statements[3].value).name == "num"
+    assert info.expr_type(lowered.statements[4].value).name == "num"
+    zs_t = info.expr_type(lowered.statements[5].value)
+    norm_t = info.expr_type(lowered.statements[6].value)
+    assert isinstance(zs_t, ast.FixedVectorType)
+    assert isinstance(norm_t, ast.FixedVectorType)
+    assert isinstance(zs_t.size, ast.TypeSizeConst) and zs_t.size.value == 3
+    assert isinstance(norm_t.size, ast.TypeSizeConst) and norm_t.size.value == 3
+    assert info.expr_type(lowered.statements[7].value).name == "num"
+    assert info.expr_type(lowered.statements[8].value).name == "num"
+
+
 def test_typed_ir_tracks_symbolic_template_return_type() -> None:
     mod = parse_module(
         """

@@ -509,6 +509,62 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "static double vf_array_std(const std::array<T, N>& arr) {",
                 "    return std::sqrt(vf_array_variance(arr));",
                 "}",
+                "template <typename T, std::size_t N>",
+                "static double vf_array_percentile(const std::array<T, N>& arr, double p) {",
+                "    if (!(0.0 <= p && p <= 100.0)) throw std::runtime_error(\"stat.percentile: p must be in [0, 100]\");",
+                "    std::array<double, N> sorted{};",
+                "    for (std::size_t i = 0; i < N; ++i) sorted[i] = static_cast<double>(arr[i]);",
+                "    std::sort(sorted.begin(), sorted.end());",
+                "    if constexpr (N == 1) return sorted[0];",
+                "    double idx = (p / 100.0) * static_cast<double>(N - 1);",
+                "    std::size_t lo = static_cast<std::size_t>(idx);",
+                "    std::size_t hi = lo + 1;",
+                "    if (hi >= N) return sorted[N - 1];",
+                "    double frac = idx - static_cast<double>(lo);",
+                "    return sorted[lo] + frac * (sorted[hi] - sorted[lo]);",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static double vf_array_median(const std::array<T, N>& arr) {",
+                "    return vf_array_percentile(arr, 50.0);",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static double vf_array_iqr(const std::array<T, N>& arr) {",
+                "    return vf_array_percentile(arr, 75.0) - vf_array_percentile(arr, 25.0);",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<double, N> vf_array_zscore(const std::array<T, N>& arr) {",
+                "    std::array<double, N> out{};",
+                "    double s = vf_array_std(arr);",
+                "    if (s == 0.0) return out;",
+                "    double mu = static_cast<double>(vf_array_sum(arr)) / static_cast<double>(N);",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = (static_cast<double>(arr[i]) - mu) / s;",
+                "    return out;",
+                "}",
+                "template <typename T, std::size_t N>",
+                "static std::array<double, N> vf_array_normalize(const std::array<T, N>& arr) {",
+                "    std::array<double, N> out{};",
+                "    double lo = static_cast<double>(vf_array_min(arr));",
+                "    double hi = static_cast<double>(vf_array_max(arr));",
+                "    if (hi == lo) return out;",
+                "    double span = hi - lo;",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = (static_cast<double>(arr[i]) - lo) / span;",
+                "    return out;",
+                "}",
+                "template <typename TX, typename TY, std::size_t N>",
+                "static double vf_array_covariance(const std::array<TX, N>& xs, const std::array<TY, N>& ys) {",
+                "    double mu_x = static_cast<double>(vf_array_sum(xs)) / static_cast<double>(N);",
+                "    double mu_y = static_cast<double>(vf_array_sum(ys)) / static_cast<double>(N);",
+                "    double out = 0.0;",
+                "    for (std::size_t i = 0; i < N; ++i) out += (static_cast<double>(xs[i]) - mu_x) * (static_cast<double>(ys[i]) - mu_y);",
+                "    return out / static_cast<double>(N);",
+                "}",
+                "template <typename TX, typename TY, std::size_t N>",
+                "static double vf_array_correlation(const std::array<TX, N>& xs, const std::array<TY, N>& ys) {",
+                "    double sx = vf_array_std(xs);",
+                "    double sy = vf_array_std(ys);",
+                "    if (sx == 0.0 || sy == 0.0) return 0.0;",
+                "    return vf_array_covariance(xs, ys) / (sx * sy);",
+                "}",
             ]
         )
     if features.uses_multisets:
@@ -916,6 +972,9 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
     if isinstance(node, ir.StructExpr):
         return ast.TypeExpr([(name, _infer_expr_type(value, env, functions)) for name, value in node.fields])
     if isinstance(node, ir.AttrExpr):
+        intrinsic = resolve_native_intrinsic(node)
+        if intrinsic is not None and intrinsic.kind == "math_const":
+            return ast.PrimTypeRef("num")
         base_t = _normalize_type(_infer_expr_type(node.value, env, functions))
         if not isinstance(base_t, ast.TypeExpr):
             if isinstance(base_t, ast.MapValueType):
@@ -1342,6 +1401,13 @@ def _emit_intrinsic_call(
     if intrinsic is None:
         return None
     args = [_emit_expr(a, env, functions, state, typed) for a in node.args]
+    if intrinsic.kind == "math_const":
+        const_map = {
+            "pi": "3.14159265358979323846",
+            "e": "2.71828182845904523536",
+            "tau": "6.28318530717958647692",
+        }
+        return const_map[intrinsic.name]
     if intrinsic.kind == "math":
         if intrinsic.name == "log":
             return f"(std::log({args[0]}) / std::log({args[1]}))"
@@ -1388,6 +1454,20 @@ def _emit_intrinsic_call(
             return f"vf_array_variance({args[0]})"
         if intrinsic.name == "std":
             return f"vf_array_std({args[0]})"
+        if intrinsic.name == "median":
+            return f"vf_array_median({args[0]})"
+        if intrinsic.name == "percentile":
+            return f"vf_array_percentile({args[0]}, {args[1]})"
+        if intrinsic.name == "iqr":
+            return f"vf_array_iqr({args[0]})"
+        if intrinsic.name == "zscore":
+            return f"vf_array_zscore({args[0]})"
+        if intrinsic.name == "normalize":
+            return f"vf_array_normalize({args[0]})"
+        if intrinsic.name == "covariance":
+            return f"vf_array_covariance({args[0]}, {args[1]})"
+        if intrinsic.name == "correlation":
+            return f"vf_array_correlation({args[0]}, {args[1]})"
         if intrinsic.name == "clamp":
             return f"std::max({args[1]}, std::min({args[2]}, {args[0]}))"
         if intrinsic.name == "sign":
@@ -1524,6 +1604,11 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
     if isinstance(node, ir.StructExpr):
         return _emit_struct_literal(node, env, functions, state, typed)
     if isinstance(node, ir.AttrExpr):
+        intrinsic = resolve_native_intrinsic(node)
+        if intrinsic is not None and intrinsic.kind == "math_const":
+            emitted = _emit_intrinsic_call(ir.CallExpr(node, []), env, functions, state, typed)
+            if emitted is not None:
+                return emitted
         base_type = _normalize_type(_expr_type(node.value, typed))
         if isinstance(base_type, ast.MapValueType):
             return _emit_map_attr_access(node, env, functions, state, typed)

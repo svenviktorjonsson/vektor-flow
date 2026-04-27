@@ -1,8 +1,21 @@
 [num:8] xs: [2,4,4,4,5,5,7,9]
+[num:3] a: [1,2,3]
+[num:3] b: [2,4,6]
+z: stat.zscore(a)
+n: stat.normalize(a)
 
+:: math.pi
 :: math.sin(0)
 :: math.sqrt(81)
 :: stat.mean(xs)
 :: stat.std(xs)
+:: stat.median(xs)
+:: stat.iqr(xs)
+:: z.0
+:: z.2
+:: n.0
+:: n.2
+:: stat.covariance(a, b)
+:: stat.correlation(a, b)
 :: stat.range(xs)
 :: stat.count(xs)

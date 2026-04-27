@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from vektorflow.benchmarks import (
     build_benchmark_payload,
     benchmark_cache_root,
@@ -52,7 +54,26 @@ def test_run_native_supported_benchmark_interpreter_and_emit() -> None:
 def test_run_stdlib_numeric_benchmark_interpreter_and_emit() -> None:
     res = run_benchmark(get_benchmark("stdlib_numeric"))
     assert res.error is None
-    assert res.interpreter_stdout == "0\n9\n5\n2\n7\n8\n"
+    lines = res.interpreter_stdout.strip().splitlines()
+    assert lines[0].startswith("3.14159265358979")
+    exact_lines = {
+        1: "0",
+        2: "9",
+        3: "5",
+        4: "2",
+        5: "4.5",
+        6: "1.5",
+        9: "0",
+        10: "1",
+        12: "1",
+        13: "7",
+        14: "8",
+    }
+    for idx, value in exact_lines.items():
+        assert lines[idx] == value
+    assert math.isclose(float(lines[7]), -1.22474487139159, rel_tol=1e-12, abs_tol=1e-12)
+    assert math.isclose(float(lines[8]), 1.22474487139159, rel_tol=1e-12, abs_tol=1e-12)
+    assert math.isclose(float(lines[11]), 1.33333333333333, rel_tol=1e-12, abs_tol=1e-12)
     assert res.native_status in {"compiler-unavailable", "ok"}
 
 

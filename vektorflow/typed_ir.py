@@ -234,6 +234,12 @@ class IRTypeAnalyzer:
         if isinstance(node, ir.StructExpr):
             return self._remember_expr(node, ast.TypeExpr([(name, self._infer_expr(value, env)) for name, value in node.fields]))
         if isinstance(node, ir.AttrExpr):
+            intrinsic = resolve_native_intrinsic(node)
+            if intrinsic is not None:
+                try:
+                    return self._remember_expr(node, infer_intrinsic_return_type(intrinsic, []))
+                except ValueError as exc:
+                    raise TypedIRError(str(exc)) from exc
             base_t = _normalize_type(self._infer_expr(node.value, env))
             if not isinstance(base_t, ast.TypeExpr):
                 if isinstance(base_t, ast.MapValueType):
