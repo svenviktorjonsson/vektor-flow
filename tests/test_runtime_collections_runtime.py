@@ -17,6 +17,7 @@ from vektorflow.runtime import (
     make_vfqueue_from_call,
     make_vmap,
     make_vmap_from_call,
+    runtime_collection_attr,
     runtime_collection_contains,
     runtime_collection_get,
     runtime_collection_items_sorted,
@@ -103,6 +104,23 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
     assert runtime_collection_take_prefix(make_vfqueue([4, 5, 6]), 2) == (4, 5)
     assert runtime_collection_values(make_vflist([1, 2, 3])) == (1, 2, 3)
     assert runtime_collection_values(make_vfqueue([4, 5, 6])) == (4, 5, 6)
+
+
+def test_runtime_collection_queue_attrs_are_seam_owned_callables() -> None:
+    q = make_vfqueue([4, 5])
+    put = runtime_collection_attr(q, "put")
+    get = runtime_collection_attr(q, "get")
+    empty = runtime_collection_attr(q, "empty")
+    missing = runtime_collection_attr(q, "missing")
+    assert callable(put)
+    assert callable(get)
+    assert callable(empty)
+    assert missing is None
+    assert get() == 4
+    put(6)
+    assert get() == 5
+    assert get() == 6
+    assert empty() is True
 
 
 def test_runtime_collection_call_factories() -> None:

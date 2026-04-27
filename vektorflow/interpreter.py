@@ -40,6 +40,7 @@ from .runtime.struct_value import (
 )
 from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
+    runtime_collection_attr,
     runtime_collection_contains,
     runtime_collection_get,
     runtime_collection_items_sorted,
@@ -1311,6 +1312,9 @@ class Interpreter:
                 if not runtime_collection_contains(o, node.name):
                     raise EvalError(f"missing key {node.name!r}")
                 return runtime_collection_get(o, node.name)
+            collection_attr = runtime_collection_attr(o, node.name)
+            if collection_attr is not None:
+                return collection_attr
             if isinstance(o, dict):
                 if node.name in o:
                     return o[node.name]

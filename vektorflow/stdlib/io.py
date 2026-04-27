@@ -36,6 +36,12 @@ class IoTimeHost(Protocol):
     def sleep_ms(self, ms: float) -> None: ...
 
 
+class IoSecondsTimeHost(Protocol):
+    """Preferred future time host surface using seconds."""
+
+    def sleep(self, seconds: float) -> None: ...
+
+
 class IoClockHost(IoTimeHost, Protocol):
     """Backward-compatible alias for the older clock-oriented name."""
 
@@ -70,10 +76,13 @@ class PythonIoFileHost:
 class PythonIoTimeHost:
     """Default time-oriented host backed by Python ``time.sleep``."""
 
-    def sleep_ms(self, ms: float) -> None:
+    def sleep(self, seconds: float) -> None:
         import time
 
-        time.sleep(float(ms) * 0.001)
+        time.sleep(float(seconds))
+
+    def sleep_ms(self, ms: float) -> None:
+        self.sleep(float(ms) * 0.001)
 
 
 class PythonIoClockHost(PythonIoTimeHost):
@@ -406,6 +415,10 @@ def sleep_ms(ms: float) -> None:
 
 def sleep(seconds: float) -> None:
     """Cooperative sleep using seconds for the future time-oriented surface."""
+    host_sleep = getattr(_time_host, "sleep", None)
+    if callable(host_sleep):
+        host_sleep(float(seconds))
+        return
     sleep_ms(float(seconds) * 1000.0)
 
 

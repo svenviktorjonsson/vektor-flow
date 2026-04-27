@@ -69,6 +69,8 @@ class DeclaredFixtureCatalogIssue:
 
 TOKEN_FIXTURE_REPORT_SCHEMA = "vektorflow.token_fixture_report"
 TOKEN_FIXTURE_REPORT_VERSION = 1
+TOKEN_FIXTURE_MANIFEST_SCHEMA = "vektorflow.token_fixture_manifest"
+TOKEN_FIXTURE_MANIFEST_VERSION = 1
 
 
 TOKEN_FIXTURE_SPECS: tuple[TokenFixtureSpec, ...] = (
@@ -129,6 +131,75 @@ def declared_fixture_inventory(
         }
         for spec in iter_fixture_specs(specs)
     ]
+
+
+def declared_fixture_manifest_payload(
+    *,
+    repo_root: Path | None = None,
+    fixture_root: Path | None = None,
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> dict[str, object]:
+    root = default_repo_root() if repo_root is None else repo_root
+    out_root = default_fixture_root(root) if fixture_root is None else fixture_root
+    inventory = declared_fixture_inventory(
+        repo_root=root,
+        fixture_root=out_root,
+        specs=specs,
+    )
+    catalog_issues = declared_fixture_catalog_issues(specs)
+    fixtures: list[dict[str, object]] = []
+    for item in inventory:
+        source = root / canonical_source_rel(item["source_rel"])
+        fixture = out_root / item["fixture_name"]
+        source_exists = source.is_file()
+        fixture_exists = fixture.is_file()
+        fixtures.append(
+            {
+                "source_rel": item["source_rel"],
+                "canonical_source_rel": canonical_source_rel(item["source_rel"]),
+                "fixture_name": item["fixture_name"],
+                "expected_source_label": item["expected_source_label"],
+                "source_path": str(source),
+                "fixture_path": item["fixture_path"],
+                "source_exists": source_exists,
+                "fixture_exists": fixture_exists,
+                "source_sha256": _sha256_path(source) if source_exists else None,
+                "fixture_sha256": _sha256_path(fixture) if fixture_exists else None,
+            }
+        )
+
+    return {
+        "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
+        "version": TOKEN_FIXTURE_MANIFEST_VERSION,
+        "fixtures": fixtures,
+        "declared_catalog_issues": [
+            {
+                "issue": item.issue,
+                "value": item.value,
+                "fixture_names": list(item.fixture_names),
+            }
+            for item in catalog_issues
+        ],
+        "bundle_sha256": _bundle_sha256(
+            [
+                {
+                    "source_rel": item["source_rel"],
+                    "canonical_source_rel": item["canonical_source_rel"],
+                    "fixture_name": item["fixture_name"],
+                    "expected_source_label": item["expected_source_label"],
+                    "source_sha256": item["source_sha256"],
+                    "fixture_sha256": item["fixture_sha256"],
+                }
+                for item in fixtures
+            ]
+        ),
+        "summary": {
+            "total": len(fixtures),
+            "source_present": sum(1 for item in fixtures if item["source_exists"]),
+            "fixture_present": sum(1 for item in fixtures if item["fixture_exists"]),
+            "declared_catalog_issues": len(catalog_issues),
+        },
+    }
 
 
 def declared_fixture_catalog_issues(
@@ -698,12 +769,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print a JSON fixture coverage/parity report without rewriting files.",
     )
+    parser.add_argument(
+        "--manifest",
+        action="store_true",
+        help="Print the declared fixture manifest JSON without rewriting files.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    if args.manifest:
+        sys.stdout.write(
+            json.dumps(
+                declared_fixture_manifest_payload(
+                    repo_root=args.repo_root,
+                    fixture_root=args.fixture_root,
+                ),
+                indent=2,
+            )
+        )
+        sys.stdout.write("\n")
+        return 0
     if args.report:
         sys.stdout.write(
             json.dumps(

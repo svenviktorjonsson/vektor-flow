@@ -10,11 +10,14 @@ import pytest
 from vektorflow.lexer import tokenize
 from vektorflow.native_lexer_fixtures import (
     DeclaredFixtureCatalogIssue,
+    TOKEN_FIXTURE_MANIFEST_SCHEMA,
+    TOKEN_FIXTURE_MANIFEST_VERSION,
     TOKEN_FIXTURE_SPECS,
     TOKEN_FIXTURE_REPORT_SCHEMA,
     TOKEN_FIXTURE_REPORT_VERSION,
     TokenFixtureSpec,
     canonical_source_rel,
+    declared_fixture_manifest_payload,
     declared_fixture_catalog_issues,
     declared_fixture_inventory,
     declared_fixture_names,
@@ -747,6 +750,95 @@ def test_declared_fixture_inventory_uses_canonical_source_labels_for_noncanonica
     ]
 
 
+def test_declared_fixture_manifest_payload_emits_machine_readable_declared_contract() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    payload = declared_fixture_manifest_payload(repo_root=repo, fixture_root=TOKEN_FIXTURE_ROOT)
+    assert payload["schema"] == TOKEN_FIXTURE_MANIFEST_SCHEMA
+    assert payload["version"] == TOKEN_FIXTURE_MANIFEST_VERSION
+    assert payload["summary"] == {
+        "total": len(TOKEN_FIXTURE_SPECS),
+        "source_present": len(TOKEN_FIXTURE_SPECS),
+        "fixture_present": len(TOKEN_FIXTURE_SPECS),
+        "declared_catalog_issues": 0,
+    }
+    assert len(payload["bundle_sha256"]) == 64
+    assert payload["declared_catalog_issues"] == []
+    assert payload["fixtures"] == [
+        {
+            "source_rel": spec.source_rel,
+            "canonical_source_rel": spec.source_rel,
+            "fixture_name": spec.fixture_name,
+            "expected_source_label": spec.source_rel,
+            "source_path": str(repo / spec.source_rel),
+            "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+            "source_exists": True,
+            "fixture_exists": True,
+            "source_sha256": payload["fixtures"][index]["source_sha256"],
+            "fixture_sha256": payload["fixtures"][index]["fixture_sha256"],
+        }
+        for index, spec in enumerate(TOKEN_FIXTURE_SPECS)
+    ]
+    for item in payload["fixtures"]:
+        assert len(item["source_sha256"]) == 64
+        assert len(item["fixture_sha256"]) == 64
+
+
+def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_entries(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    out_root = tmp_path / "token_stream"
+    specs = (
+        TokenFixtureSpec(
+            source_rel=r".\examples\native_core\hello_native.vkf",
+            fixture_name="hello_native_versioned.json",
+        ),
+        TokenFixtureSpec(
+            source_rel="examples/native_core/missing_fixture_source.vkf",
+            fixture_name="missing_fixture_source_versioned.json",
+        ),
+    )
+    payload = declared_fixture_manifest_payload(repo_root=repo, fixture_root=out_root, specs=specs)
+    assert payload["summary"] == {
+        "total": 2,
+        "source_present": 1,
+        "fixture_present": 0,
+        "declared_catalog_issues": 1,
+    }
+    assert payload["declared_catalog_issues"] == [
+        {
+            "issue": "noncanonical-source-rel",
+            "value": "examples/native_core/hello_native.vkf",
+            "fixture_names": [r".\examples\native_core\hello_native.vkf"],
+        }
+    ]
+    assert payload["fixtures"] == [
+        {
+            "source_rel": r".\examples\native_core\hello_native.vkf",
+            "canonical_source_rel": "examples/native_core/hello_native.vkf",
+            "fixture_name": "hello_native_versioned.json",
+            "expected_source_label": "examples/native_core/hello_native.vkf",
+            "source_path": str(repo / "examples/native_core/hello_native.vkf"),
+            "fixture_path": str(out_root / "hello_native_versioned.json"),
+            "source_exists": True,
+            "fixture_exists": False,
+            "source_sha256": payload["fixtures"][0]["source_sha256"],
+            "fixture_sha256": None,
+        },
+        {
+            "source_rel": "examples/native_core/missing_fixture_source.vkf",
+            "canonical_source_rel": "examples/native_core/missing_fixture_source.vkf",
+            "fixture_name": "missing_fixture_source_versioned.json",
+            "expected_source_label": "examples/native_core/missing_fixture_source.vkf",
+            "source_path": str(repo / "examples/native_core/missing_fixture_source.vkf"),
+            "fixture_path": str(out_root / "missing_fixture_source_versioned.json"),
+            "source_exists": False,
+            "fixture_exists": False,
+            "source_sha256": None,
+            "fixture_sha256": None,
+        },
+    ]
+    assert len(payload["fixtures"][0]["source_sha256"]) == 64
+
+
 def test_discovered_fixture_report_covers_all_checked_in_token_json() -> None:
     report = discovered_fixture_report(fixture_root=TOKEN_FIXTURE_ROOT)
     assert {item.fixture_name for item in report} == set(discovered_fixture_names(TOKEN_FIXTURE_ROOT))
@@ -866,3 +958,40 @@ def test_fixture_drift_report_includes_declared_catalog_issues() -> None:
         specs=specs,
     )
     assert "duplicate-fixture-name: hello_native_versioned.json -> examples/native_core/hello_native.vkf, examples/native_core/other_source.vkf" in drift
+
+
+def test_native_lexer_fixtures_module_manifest_emits_declared_fixture_contract() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vektorflow.native_lexer_fixtures",
+            "--repo-root",
+            str(repo),
+            "--fixture-root",
+            str(TOKEN_FIXTURE_ROOT),
+            "--manifest",
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["schema"] == TOKEN_FIXTURE_MANIFEST_SCHEMA
+    assert payload["version"] == TOKEN_FIXTURE_MANIFEST_VERSION
+    assert payload["summary"] == {
+        "total": len(TOKEN_FIXTURE_SPECS),
+        "source_present": len(TOKEN_FIXTURE_SPECS),
+        "fixture_present": len(TOKEN_FIXTURE_SPECS),
+        "declared_catalog_issues": 0,
+    }
+    assert payload["declared_catalog_issues"] == []
+    assert [item["fixture_name"] for item in payload["fixtures"]] == [
+        spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
+    ]
+    for item in payload["fixtures"]:
+        assert len(item["source_sha256"]) == 64
+        assert len(item["fixture_sha256"]) == 64
+    assert len(payload["bundle_sha256"]) == 64

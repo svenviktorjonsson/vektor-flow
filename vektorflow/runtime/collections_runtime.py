@@ -145,6 +145,17 @@ def runtime_collection_values(value: Any) -> tuple[Any, ...]:
     raise TypeError("runtime_collection_values only supports list/queue runtime collections")
 
 
+def runtime_collection_attr(value: Any, name: str) -> Any | None:
+    if runtime_collection_kind(value) == "queue":
+        if name == "put":
+            return lambda item: value.put(item)
+        if name == "get":
+            return lambda: value.get()
+        if name == "empty":
+            return lambda: value.empty()
+    return None
+
+
 def runtime_collection_take_prefix(value: Any, count: int) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:

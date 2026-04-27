@@ -188,6 +188,25 @@ class TestTextBytes:
 
         assert host.calls == [250.0]
 
+    def test_sleep_prefers_seconds_method_when_host_exposes_it(self) -> None:
+        class FakeTimeHost:
+            def __init__(self) -> None:
+                self.second_calls: list[float] = []
+                self.ms_calls: list[float] = []
+
+            def sleep(self, seconds: float) -> None:
+                self.second_calls.append(float(seconds))
+
+            def sleep_ms(self, ms: float) -> None:
+                self.ms_calls.append(float(ms))
+
+        host = FakeTimeHost()
+        iolib.set_io_time_host(host)
+        build_io_time_namespace()["sleep"](0.125)
+
+        assert host.second_calls == [0.125]
+        assert host.ms_calls == []
+
     def test_getters_expose_current_hosts_for_restore(self) -> None:
         original_file_host = get_io_file_host()
         original_time_host = get_io_time_host()
