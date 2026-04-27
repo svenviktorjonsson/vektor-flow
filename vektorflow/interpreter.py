@@ -49,7 +49,8 @@ from .runtime import (
     runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_elementwise_values,
-    runtime_collection_mapped_result,
+    runtime_collection_pipe_result,
+    runtime_collection_preserves_pipe_result,
     runtime_collection_path_step,
     runtime_collection_read_attr,
     runtime_collection_spill_values,
@@ -1651,14 +1652,16 @@ class Interpreter:
 
                 _foreach_element(_collect)
                 return AxisTaggedValue(tuple(out_t), left_v.idx)
-            if runtime_collection_kind(d) == "multiset":
+            if runtime_collection_preserves_pipe_result(d):
                 out: list[Any] = []
 
                 def _mset(el: Any) -> None:
                     out.append(self._pipe_one_element_through_segments(el, segs, env))
 
                 _foreach_element(_mset)
-                return AxisTaggedValue(runtime_collection_mapped_result(d, out), left_v.idx)
+                handled, mapped = runtime_collection_pipe_result(d, out)
+                if handled:
+                    return AxisTaggedValue(mapped, left_v.idx)
             return self._pipe_one_element_through_segments(left_v, segs, env)
 
         if isinstance(left_v, tuple):
@@ -1703,14 +1706,16 @@ class Interpreter:
 
             _foreach_element(_st)
             return set(out_s)
-        if runtime_collection_kind(left_v) == "multiset":
+        if runtime_collection_preserves_pipe_result(left_v):
             out_ms: list[Any] = []
 
             def _ms(el: Any) -> None:
                 out_ms.append(self._pipe_one_element_through_segments(el, segs, env))
 
             _foreach_element(_ms)
-            return runtime_collection_mapped_result(left_v, out_ms)
+            handled, mapped = runtime_collection_pipe_result(left_v, out_ms)
+            if handled:
+                return mapped
         if isinstance(left_v, LazyInfiniteIterator):
 
             def _lazy(el: Any) -> None:

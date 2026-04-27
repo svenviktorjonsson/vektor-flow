@@ -372,6 +372,25 @@ def declared_fixture_manifest_payload(
             runnable_contract_readiness_validation["blocking_issue_counts_match_blocked_contracts"],
         )
     )
+    runnable_contract_readiness_identity = {
+        "status": runnable_contract_readiness["status"],
+        "ready": runnable_contract_readiness["ready"],
+        "usable_count": runnable_contract_readiness["usable_count"],
+        "blocked_count": runnable_contract_readiness["blocked_count"],
+        "blocking_issue_counts": runnable_contract_readiness["blocking_issue_counts"],
+        "readiness_sha256": _bundle_sha256(
+            {
+                "status": runnable_contract_readiness["status"],
+                "ready": runnable_contract_readiness["ready"],
+                "usable_count": runnable_contract_readiness["usable_count"],
+                "blocked_count": runnable_contract_readiness["blocked_count"],
+                "blocking_issue_counts": runnable_contract_readiness["blocking_issue_counts"],
+                "validation_passed": runnable_contract_readiness_validation["validation_passed"],
+            }
+        ),
+        "equality_rule": "same readiness state iff readiness_sha256 matches",
+        "validation_source": "runnable_contract_readiness_validation",
+    }
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -438,6 +457,7 @@ def declared_fixture_manifest_payload(
         "runnable_contract_set_validation": runnable_contract_set_validation,
         "runnable_contract_readiness": runnable_contract_readiness,
         "runnable_contract_readiness_validation": runnable_contract_readiness_validation,
+        "runnable_contract_readiness_identity": runnable_contract_readiness_identity,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -463,6 +483,7 @@ def declared_fixture_manifest_payload(
                     "runnable_contract_set_validation": runnable_contract_set_validation,
                     "runnable_contract_readiness": runnable_contract_readiness,
                     "runnable_contract_readiness_validation": runnable_contract_readiness_validation,
+                    "runnable_contract_readiness_identity": runnable_contract_readiness_identity,
                 }
             ]
         ),

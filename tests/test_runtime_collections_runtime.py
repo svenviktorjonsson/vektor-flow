@@ -34,6 +34,8 @@ from vektorflow.runtime import (
     runtime_collection_elementwise_values,
     runtime_collection_expanded_values,
     runtime_collection_mapped_result,
+    runtime_collection_preserves_pipe_result,
+    runtime_collection_pipe_result,
     runtime_collection_spill_values,
     runtime_collection_take,
     runtime_collection_take_prefix,
@@ -166,6 +168,19 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
     assert isinstance(mapped, Multiset)
     assert runtime_collection_items_sorted(mapped) == [(2, 2), (4, 1)]
     assert runtime_collection_mapped_result(make_vflist([1, 2, 3]), [2, 4, 6]) is None
+    handled, pipe_mapped = runtime_collection_pipe_result(
+        make_multiset([(1, 2), (2, 1)]),
+        [2, 2, 4],
+    )
+    assert handled is True
+    assert isinstance(pipe_mapped, Multiset)
+    assert runtime_collection_items_sorted(pipe_mapped) == [(2, 2), (4, 1)]
+    assert runtime_collection_pipe_result(make_vflist([1, 2, 3]), [2, 4, 6]) == (
+        False,
+        None,
+    )
+    assert runtime_collection_preserves_pipe_result(make_multiset([(1, 2)])) is True
+    assert runtime_collection_preserves_pipe_result(make_vflist([1, 2, 3])) is False
     assert runtime_collection_elementwise_values(make_multiset([(1, 2), (3, 1)])) == (
         1,
         1,

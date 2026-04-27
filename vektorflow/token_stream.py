@@ -32,6 +32,15 @@ VALID_TOKEN_KINDS = frozenset(
     for name, value in vars(token_defs).items()
     if name.isupper() and isinstance(value, str) and value == name
 )
+TOKENS_WITH_PAYLOADS = frozenset(
+    {
+        token_defs.IDENT,
+        token_defs.STRING,
+        token_defs.STRING_RAW,
+        token_defs.NUMBER,
+        token_defs.DOT,
+    }
+)
 
 
 def _reject_json_constant(value: str) -> Any:
@@ -183,6 +192,10 @@ def _require_token_kind(value: Any) -> str:
 
 def _normalize_token_value(kind: str, value: Any) -> Any:
     normalized = _dejsonify_value(value)
+    if kind not in TOKENS_WITH_PAYLOADS:
+        if normalized is not None:
+            raise ValueError(f"invalid token value for {kind}: expected null")
+        return None
     if kind in (token_defs.IDENT, token_defs.STRING, token_defs.STRING_RAW):
         return _require_string(normalized, f"token value for {kind}", allow_empty=True)
     if kind == token_defs.NUMBER:

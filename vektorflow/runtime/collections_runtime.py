@@ -225,6 +225,20 @@ def runtime_collection_mapped_result(
     return None
 
 
+def runtime_collection_pipe_result(
+    value: Any,
+    mapped_values: Iterable[Any],
+) -> tuple[bool, Any]:
+    mapped = runtime_collection_mapped_result(value, mapped_values)
+    if mapped is not None:
+        return True, mapped
+    return False, None
+
+
+def runtime_collection_preserves_pipe_result(value: Any) -> bool:
+    return runtime_collection_kind(value) == "multiset"
+
+
 def runtime_collection_elementwise_values(value: Any) -> tuple[Any, ...] | None:
     if runtime_collection_kind(value) == "multiset":
         return runtime_collection_expanded_values(value)

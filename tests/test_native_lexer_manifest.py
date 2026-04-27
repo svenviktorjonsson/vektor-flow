@@ -142,6 +142,17 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "external_harness_view",
         ],
     }
+    assert payload["runnable_contract_readiness_identity"] == {
+        "status": "all-runnable",
+        "ready": True,
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "blocking_issue_counts": {},
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "equality_rule": "same readiness state iff readiness_sha256 matches",
+        "validation_source": "runnable_contract_readiness_validation",
+    }
+    assert len(payload["runnable_contract_readiness_identity"]["readiness_sha256"]) == 64
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -318,6 +329,20 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
             "external_harness_view",
         ],
     }
+    assert payload["runnable_contract_readiness_identity"] == {
+        "status": "blocked",
+        "ready": False,
+        "usable_count": 0,
+        "blocked_count": 3,
+        "blocking_issue_counts": {
+            "fixture-missing": 2,
+            "source-missing": 2,
+        },
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "equality_rule": "same readiness state iff readiness_sha256 matches",
+        "validation_source": "runnable_contract_readiness_validation",
+    }
+    assert len(payload["runnable_contract_readiness_identity"]["readiness_sha256"]) == 64
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -452,3 +477,14 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
             "external_harness_view",
         ],
     }
+    assert payload["runnable_contract_readiness_identity"] == {
+        "status": "all-runnable",
+        "ready": True,
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "blocking_issue_counts": {},
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "equality_rule": "same readiness state iff readiness_sha256 matches",
+        "validation_source": "runnable_contract_readiness_validation",
+    }
+    assert len(payload["runnable_contract_readiness_identity"]["readiness_sha256"]) == 64
