@@ -56,6 +56,13 @@ def _require_int(value: Any, ctx: str) -> int:
     return value
 
 
+def _require_positive_int(value: Any, ctx: str) -> int:
+    value = _require_int(value, ctx)
+    if value <= 0:
+        raise ValueError(f"invalid {ctx}: expected positive integer")
+    return value
+
+
 def _require_string(value: Any, ctx: str, *, allow_empty: bool = True) -> str:
     if not isinstance(value, str):
         raise ValueError(f"invalid {ctx}: expected string")
@@ -178,8 +185,14 @@ def token_from_data(data: dict[str, Any]) -> Token:
                     "token location file",
                     allow_empty=False,
                 ),
-                _require_int(_require_field(loc, "line", "token location"), "token location line"),
-                _require_int(_require_field(loc, "column", "token location"), "token location column"),
+                _require_positive_int(
+                    _require_field(loc, "line", "token location"),
+                    "token location line",
+                ),
+                _require_positive_int(
+                    _require_field(loc, "column", "token location"),
+                    "token location column",
+                ),
             ),
         )
     except ValueError as exc:

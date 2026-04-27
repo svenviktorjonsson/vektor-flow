@@ -15,7 +15,9 @@ from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.io import (
+    get_io_file_host,
     get_io_native_host,
+    get_io_time_host,
     build_io_native_namespace,
     build_io_namespace,
     build_io_seconds_namespace,
@@ -24,6 +26,9 @@ from vektorflow.stdlib.io import (
     read_text,
     sleep,
     sleep_ms,
+    set_io_file_host,
+    set_io_native_host,
+    set_io_time_host,
     write_bytes,
     write_text,
 )
@@ -349,6 +354,33 @@ class TestSleepMs:
         host = get_io_native_host()
         for name in ("read_text", "write_text", "read_bytes", "write_bytes", "sleep"):
             assert callable(getattr(host, name))
+
+    def test_set_io_native_host_round_trips_through_native_getter(self) -> None:
+        class FakeHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        original_file_host = get_io_file_host()
+        original_time_host = get_io_time_host()
+        host = FakeHost()
+        try:
+            set_io_native_host(host)
+            assert get_io_native_host() is host
+        finally:
+            set_io_file_host(original_file_host)
+            set_io_time_host(original_time_host)
 
 
 # ---------------------------------------------------------------------------

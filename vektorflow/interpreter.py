@@ -50,7 +50,7 @@ from .runtime import (
     runtime_collection_kind,
     runtime_collection_read_attr,
     runtime_collection_require_get,
-    runtime_collection_take_prefix,
+    runtime_collection_take,
     runtime_collection_values,
     runtime_collection_set,
     make_multiset,
@@ -1912,12 +1912,11 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
         return seq.take_prefix(k)
     if isinstance(seq, LazyInfiniteIterator):
         return tuple(islice(seq, k))
-    if runtime_collection_kind(seq) in {"list", "queue"}:
-        return runtime_collection_take_prefix(seq, k)
+    runtime_taken = runtime_collection_take(seq, k)
+    if runtime_taken is not None:
+        return runtime_taken
     if isinstance(seq, (list, tuple)):
         return tuple(seq[:k])
-    if runtime_collection_kind(seq) == "multiset":
-        raise EvalError("take: use a sequence or iterator, not a multiset")
     if isinstance(seq, (str, bytes)):
         raise EvalError("take: use a sequence or iterator, not str/bytes")
     if isinstance(seq, dict):

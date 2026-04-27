@@ -156,6 +156,11 @@ def set_io_host(host: IoHost | IoSecondsHost) -> None:
     set_io_time_host(host)
 
 
+def set_io_native_host(host: IoSecondsHost) -> None:
+    """Install the preferred combined native host surface."""
+    set_io_host(host)
+
+
 def set_io_file_host(host: IoFileHost) -> None:
     """Install a custom filesystem host adapter for stdlib ``io`` operations."""
     global _file_host

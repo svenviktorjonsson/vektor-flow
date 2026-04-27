@@ -77,6 +77,15 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         ],
         "blocked_contracts": [],
     }
+    assert payload["runnable_fixture_set"] == {
+        "fixture_names": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS],
+        "blocked_fixture_names": [],
+        "count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "all_runnable": True,
+        "bundle_sha256": payload["runnable_fixture_set"]["bundle_sha256"],
+    }
+    assert len(payload["runnable_fixture_set"]["bundle_sha256"]) == 64
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -177,6 +186,19 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
             },
         ],
     }
+    assert payload["runnable_fixture_set"] == {
+        "fixture_names": [],
+        "blocked_fixture_names": [
+            "hello_native_versioned.json",
+            "source_missing_versioned.json",
+            "missing_both_versioned.json",
+        ],
+        "count": 0,
+        "blocked_count": 3,
+        "all_runnable": False,
+        "bundle_sha256": payload["runnable_fixture_set"]["bundle_sha256"],
+    }
+    assert len(payload["runnable_fixture_set"]["bundle_sha256"]) == 64
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -246,3 +268,12 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         ],
         "blocked_contracts": [],
     }
+    assert payload["runnable_fixture_set"] == {
+        "fixture_names": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS],
+        "blocked_fixture_names": [],
+        "count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "all_runnable": True,
+        "bundle_sha256": payload["runnable_fixture_set"]["bundle_sha256"],
+    }
+    assert len(payload["runnable_fixture_set"]["bundle_sha256"]) == 64

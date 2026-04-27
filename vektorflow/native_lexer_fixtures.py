@@ -248,6 +248,20 @@ def declared_fixture_manifest_payload(
             if not item["external_lexer_contract_usable"]
         ],
     }
+    runnable_fixture_names = [
+        item["fixture_name"] for item in fixtures if item["external_lexer_contract_usable"]
+    ]
+    blocked_fixture_names = [
+        item["fixture_name"] for item in fixtures if not item["external_lexer_contract_usable"]
+    ]
+    runnable_fixture_set = {
+        "fixture_names": runnable_fixture_names,
+        "blocked_fixture_names": blocked_fixture_names,
+        "count": len(runnable_fixture_names),
+        "blocked_count": len(blocked_fixture_names),
+        "all_runnable": len(blocked_fixture_names) == 0,
+        "bundle_sha256": _bundle_sha256(external_harness_view["usable_contracts"]),
+    }
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -308,6 +322,7 @@ def declared_fixture_manifest_payload(
             ],
         },
         "external_harness_view": external_harness_view,
+        "runnable_fixture_set": runnable_fixture_set,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -327,6 +342,7 @@ def declared_fixture_manifest_payload(
             + [
                 {
                     "external_harness_view": external_harness_view,
+                    "runnable_fixture_set": runnable_fixture_set,
                 }
             ]
         ),

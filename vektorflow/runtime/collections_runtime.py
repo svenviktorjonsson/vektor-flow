@@ -225,3 +225,12 @@ def runtime_collection_take_prefix(value: Any, count: int) -> tuple[Any, ...]:
             items.append(item)
         return tuple(items)
     raise TypeError("runtime_collection_take_prefix only supports list/queue runtime collections")
+
+
+def runtime_collection_take(value: Any, count: int) -> tuple[Any, ...] | None:
+    kind = runtime_collection_kind(value)
+    if kind in {"list", "queue"}:
+        return runtime_collection_take_prefix(value, count)
+    if kind == "multiset":
+        raise EvalError("take: use a sequence or iterator, not a multiset")
+    return None

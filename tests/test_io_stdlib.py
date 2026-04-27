@@ -22,6 +22,7 @@ from vektorflow.stdlib.io import (
     get_io_seconds_host,
     get_io_time_host,
     read_numbers,
+    set_io_native_host,
     set_io_seconds_host,
 )
 
@@ -312,6 +313,48 @@ class TestTextBytes:
             ("write_text", ("native.txt", "hello", "utf-8")),
             ("write_bytes", ("native.bin", b"abc")),
             ("sleep", 0.4),
+        ]
+
+    def test_set_io_native_host_installs_preferred_combined_surface(self) -> None:
+        class FakeHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"native-host-bytes"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "native-host-text"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(("sleep", float(seconds)))
+
+        host = FakeHost()
+        set_io_native_host(host)
+
+        assert get_io_native_host() is host
+        assert iolib.read_text("native.txt") == "native-host-text"
+        assert iolib.read_bytes("native.bin") == b"native-host-bytes"
+        iolib.write_text("native.txt", "hello")
+        iolib.write_bytes("native.bin", b"abc")
+        iolib.sleep(0.2)
+        iolib.sleep_ms(300)
+
+        assert host.calls == [
+            ("read_text", ("native.txt", "utf-8")),
+            ("read_bytes", "native.bin"),
+            ("write_text", ("native.txt", "hello", "utf-8")),
+            ("write_bytes", ("native.bin", b"abc")),
+            ("sleep", 0.2),
+            ("sleep", 0.3),
         ]
 
     def test_get_io_native_host_round_trips_combined_host_identity(self) -> None:

@@ -29,6 +29,7 @@ from .collections_runtime import (
     runtime_collection_values,
     runtime_collection_set,
     runtime_collection_kind,
+    runtime_collection_take,
 )
 from .multiset import Multiset, cartesian_binary
 from .vflist import VFLinkedList
@@ -69,4 +70,5 @@ __all__ = [
     "runtime_collection_values",
     "runtime_collection_set",
     "runtime_collection_kind",
+    "runtime_collection_take",
 ]
