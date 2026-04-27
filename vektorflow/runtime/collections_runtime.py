@@ -122,8 +122,11 @@ def runtime_collection_set(value: Any, key: Any, item: Any) -> None:
 
 
 def runtime_collection_items_sorted(value: Any) -> list[tuple[Any, Any]]:
-    if runtime_collection_kind(value) == "map":
+    kind = runtime_collection_kind(value)
+    if kind == "map":
         items = list(value.items())
         items.sort(key=lambda kv: (str(type(kv[0]).__name__), str(kv[0])))
         return items
-    raise TypeError("runtime_collection_items_sorted only supports map-like runtime collections")
+    if kind == "multiset":
+        return value.items_sorted()
+    raise TypeError("runtime_collection_items_sorted only supports map/multiset runtime collections")

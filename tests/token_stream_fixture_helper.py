@@ -233,6 +233,19 @@ def assert_loader_parser_cli_reject_token_stream_object(
     assert_cli_rejects_token_stream_object(tmp_path, payload, cli_expected or parser_expected)
 
 
+def assert_loader_parser_cli_reject_token_stream(
+    tmp_path: Path,
+    payload_text: str,
+    *,
+    loader_expected: str,
+    parser_expected: str,
+    cli_expected: str | None = None,
+) -> None:
+    assert_loader_rejects_token_stream(payload_text, loader_expected)
+    assert_parser_rejects_token_stream(payload_text, parser_expected)
+    assert_cli_rejects_token_stream(tmp_path, payload_text, cli_expected or parser_expected)
+
+
 def assert_cli_rejects_token_stream(tmp_path: Path, payload_text: str, expected: str) -> None:
     from vektorflow.cli import main
 

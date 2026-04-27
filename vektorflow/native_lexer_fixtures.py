@@ -237,6 +237,31 @@ def _validation_issues_for_discovered_fixture(
     return tuple(issues)
 
 
+def _validation_issue_counts(
+    discovered: Sequence[DiscoveredFixtureStatus],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in discovered:
+        for issue in item.validation_issues:
+            counts[issue] = counts.get(issue, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
+def _fixtures_with_validation_issues(
+    discovered: Sequence[DiscoveredFixtureStatus],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for item in discovered:
+        if item.validation_issues:
+            rows.append(
+                {
+                    "fixture_name": item.fixture_name,
+                    "issues": list(item.validation_issues),
+                }
+            )
+    return rows
+
+
 def discovered_fixture_report(
     *,
     repo_root: Path | None = None,
@@ -392,6 +417,8 @@ def fixture_status_payload(
         ],
         "discovered_fixture_names": discovered_fixture_names(out_root),
         "unmanaged_fixtures": unmanaged,
+        "validation_issue_counts": _validation_issue_counts(discovered),
+        "fixtures_with_validation_issues": _fixtures_with_validation_issues(discovered),
         "discovered_fixtures": [
             {
                 "fixture_name": item.fixture_name,

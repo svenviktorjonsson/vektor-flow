@@ -44,6 +44,7 @@ from tests.token_stream_fixture_helper import (
     TOKEN_FIXTURE_ROOT,
     assert_fixture_boundary_parity,
     assert_fixture_parses_like_source,
+    assert_loader_parser_cli_reject_token_stream,
     assert_loader_rejects_token_stream,
     assert_loader_rejects_token_stream_object,
     assert_loader_parser_cli_reject_token_stream_object,
@@ -141,6 +142,21 @@ def test_parse_token_stream_json_rejects_bad_top_level_json(payload_text: str, e
 )
 def test_tokens_from_json_rejects_bad_top_level_json(payload_text: str, expected: str) -> None:
     assert_loader_rejects_token_stream(payload_text, expected)
+
+
+@pytest.mark.parametrize(
+    "payload_text, expected",
+    BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+)
+def test_loader_parser_cli_error_surfaces_stay_aligned_for_bad_top_level_json(
+    tmp_path: Path, payload_text: str, expected: str
+) -> None:
+    assert_loader_parser_cli_reject_token_stream(
+        tmp_path,
+        payload_text,
+        loader_expected=expected,
+        parser_expected=expected,
+    )
 
 
 def test_versioned_fixture_parses_like_source_golden() -> None:
@@ -474,6 +490,16 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     }
     assert payload["discovered_fixture_names"] == discovered_fixture_names(TOKEN_FIXTURE_ROOT)
     assert payload["unmanaged_fixtures"] == unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
+    assert payload["validation_issue_counts"] == {
+        "legacy-envelope": 1,
+        "not-canonical-versioned": 1,
+    }
+    assert payload["fixtures_with_validation_issues"] == [
+        {
+            "fixture_name": "legacy_singleton_tuple_type.json",
+            "issues": ["legacy-envelope", "not-canonical-versioned"],
+        }
+    ]
     discovered_by_name = {item["fixture_name"]: item for item in payload["discovered_fixtures"]}
     assert discovered_by_name["hello_native_versioned.json"]["managed"] is True
     assert discovered_by_name["hello_native_versioned.json"]["parseable_json"] is True
@@ -593,3 +619,20 @@ def test_discovered_fixture_report_handles_invalid_json_without_crashing(tmp_pat
     payload = fixture_status_payload(repo_root=repo, fixture_root=out_root, specs=())
     assert payload["summary"]["invalid_json"] == 1
     assert payload["summary"]["with_validation_issues"] == 1
+    assert payload["validation_issue_counts"] == {
+        "empty-token-list": 1,
+        "invalid-json": 1,
+        "missing-paired-source": 1,
+        "missing-source-label": 1,
+    }
+    assert payload["fixtures_with_validation_issues"] == [
+        {
+            "fixture_name": "broken.json",
+            "issues": [
+                "invalid-json",
+                "missing-source-label",
+                "missing-paired-source",
+                "empty-token-list",
+            ],
+        }
+    ]

@@ -526,7 +526,7 @@ def _format_multiset_stringify(
     m: Multiset,
     types: dict[str, ast.TypeExpr | ast.FuncType] | None,
 ) -> str:
-    pairs = m.items_sorted()
+    pairs = runtime_collection_items_sorted(m)
     if not pairs:
         return "{}"
     inner = ", ".join(

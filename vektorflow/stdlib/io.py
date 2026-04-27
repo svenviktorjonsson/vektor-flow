@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from collections import namedtuple
 from pathlib import Path
 from typing import Any, Protocol
@@ -68,6 +67,8 @@ class PythonIoClockHost:
     """Default timing host backed by Python ``time.sleep``."""
 
     def sleep_ms(self, ms: float) -> None:
+        import time
+
         time.sleep(float(ms) * 0.001)
 
 
@@ -367,12 +368,30 @@ def sleep_ms(ms: float) -> None:
     _clock_host.sleep_ms(ms)
 
 
-def build_io_namespace() -> dict[str, Any]:
+def build_io_file_namespace() -> dict[str, Any]:
+    """Portable file-oriented stdlib surface.
+
+    This is the part of ``io`` that should move into the native runtime first.
+    It intentionally excludes timing helpers so file/time replacement can happen
+    on separate tracks.
+    """
     return {
         "read_text": read_text,
         "write_text": write_text,
         "read_bytes": read_bytes,
         "write_bytes": write_bytes,
         "read_numbers": read_numbers,
+    }
+
+
+def build_io_clock_namespace() -> dict[str, Any]:
+    """Timing compatibility helpers exposed from ``io`` today."""
+    return {
         "sleep_ms": sleep_ms,
     }
+
+
+def build_io_namespace() -> dict[str, Any]:
+    ns = build_io_file_namespace()
+    ns.update(build_io_clock_namespace())
+    return ns

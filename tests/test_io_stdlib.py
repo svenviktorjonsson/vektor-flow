@@ -9,7 +9,12 @@ import pytest
 
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib import io as iolib
-from vektorflow.stdlib.io import build_io_namespace, read_numbers
+from vektorflow.stdlib.io import (
+    build_io_clock_namespace,
+    build_io_file_namespace,
+    build_io_namespace,
+    read_numbers,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +34,21 @@ class TestResolve:
             "write_bytes",
             "read_numbers",
         }
+
+    def test_file_and_clock_subnamespaces_are_separate(self) -> None:
+        file_ns = build_io_file_namespace()
+        clock_ns = build_io_clock_namespace()
+        full_ns = build_io_namespace()
+
+        assert set(file_ns.keys()) == {
+            "read_text",
+            "write_text",
+            "read_bytes",
+            "write_bytes",
+            "read_numbers",
+        }
+        assert set(clock_ns.keys()) == {"sleep_ms"}
+        assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
 
 
 class TestTextBytes:
