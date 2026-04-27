@@ -4,6 +4,7 @@ Usage
 -----
     vkf <file>               Run a .vkf file (``a`` → ``a.vkf`` if needed)
     vkf cpp <file>           Emit C++ for the currently supported native subset
+    vkf build <file>         Build a standalone native executable for the supported subset
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
@@ -97,6 +98,30 @@ def cmd_cpp(path: Path, out_path: Path | None) -> int:
         out_path.write_text(source, encoding="utf-8")
     else:
         print(source, end="")
+    return 0
+
+
+def cmd_build(path: Path, out_path: Path | None) -> int:
+    try:
+        from .cpp_backend import compile_cpp_source, emit_cpp_from_source_file
+
+        source = emit_cpp_from_source_file(path)
+        target = out_path.resolve() if out_path is not None else path.with_suffix(".exe").resolve()
+        exe_name = target.stem
+        out_dir = target.parent
+        built = compile_cpp_source(source, out_dir, exe_name=exe_name)
+        if built.resolve() != target:
+            built.replace(target)
+        print(target)
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -239,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             "Vektor Flow — vkf\n\n"
             "  vkf <file>           Run a .vkf file (extension optional)\n"
             "  vkf cpp <file>       Emit C++ for the supported native subset\n"
+            "  vkf build <file>     Build a standalone native executable for the supported subset\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
             "                       add --samples N for median-of-N timing\n"
@@ -303,6 +329,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: file not found: {path_arg!r}", file=sys.stderr)
             return 1
         return cmd_cpp(path, out_path)
+
+    if argv[0] == "build":
+        out_path: Path | None = None
+        args = argv[1:]
+        if not args:
+            print("error: vkf build <file>", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_build(path, out_path)
 
     if argv[0] == "bench":
         args = argv[1:]

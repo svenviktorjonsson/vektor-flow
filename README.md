@@ -34,6 +34,10 @@ vkf examples/branching.vkf
 # Emit C++ for the currently supported native subset
 vkf cpp examples/benchmarks/vectors_shapes.vkf
 
+# Build a standalone native executable for the supported subset
+vkf build examples/benchmarks/scalar_control.vkf
+.\examples\benchmarks\scalar_control.exe
+
 # Benchmark curated examples through interpreter/native paths
 vkf bench --list
 vkf bench
@@ -67,6 +71,8 @@ Each benchmark currently records as much of the pipeline as the local machine su
 - native compile/run time when `clang++` or `g++` is available on `PATH`
 
 This is the current end-to-end proving ground for the compiler work. The idea is simple: when we extend the native subset, we should also add or expand a benchmark so we can track both correctness and bottlenecks over time.
+
+For simple programs in the current native subset, `vkf build` already gives a standalone executable. Python is still required for the front-end compiler today, but the produced binary does not depend on the Python runtime to execute.
 
 ### Standard library (`:.math`)
 

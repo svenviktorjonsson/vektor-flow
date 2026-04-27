@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
 from vektorflow.cli import main, resolve_vkf_path
+from vektorflow.cpp_backend import discover_cpp_compiler
 
 ROOT = Path(__file__).resolve().parent.parent
 HELLO = ROOT / "examples" / "hello.vkf"
@@ -72,6 +74,24 @@ class TestMain:
         emitted = out.read_text(encoding="utf-8")
         assert "std::array<double, 2> a" in emitted
         assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in emitted
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_build_subcommand_creates_executable(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        src = tmp_path / "native_build.vkf"
+        exe = tmp_path / "native_build.exe"
+        src.write_text(
+            "twice(x:num) -> num:\n"
+            "    x * 2\n\n"
+            ":: twice(21)\n",
+            encoding="utf-8",
+        )
+        assert main(["build", str(src), "-o", str(exe)]) == 0
+        reported = capsys.readouterr().out.strip()
+        assert Path(reported) == exe.resolve()
+        assert exe.is_file()
+        proc = subprocess.run([str(exe)], capture_output=True, text=True)
+        assert proc.returncode == 0
+        assert proc.stdout.strip() == "42"
 
     def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "--list"]) == 0
