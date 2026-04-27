@@ -62,3 +62,10 @@ def runtime_collection_get(value: Any, key: Any) -> Any:
     if runtime_collection_kind(value) == "map":
         return value.get(key)
     raise TypeError("runtime_collection_get only supports map-like runtime collections")
+
+
+def runtime_collection_set(value: Any, key: Any, item: Any) -> None:
+    if runtime_collection_kind(value) == "map":
+        value.set(key, item)
+        return
+    raise TypeError("runtime_collection_set only supports map-like runtime collections")

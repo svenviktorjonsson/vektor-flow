@@ -39,7 +39,12 @@ from .runtime.struct_value import (
     with_type,
 )
 from .runtime.compare import struct_eq, struct_lt
-from .runtime import runtime_collection_contains, runtime_collection_get, runtime_collection_kind
+from .runtime import (
+    runtime_collection_contains,
+    runtime_collection_get,
+    runtime_collection_kind,
+    runtime_collection_set,
+)
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
 from .runtime.type_values import (
@@ -689,10 +694,10 @@ class Interpreter:
                     f"cannot assign struct field: {root_name!r} is not bound in this scope"
                 )
             d = env[root_name]
-            if isinstance(d, VMap):
+            if runtime_collection_kind(d) == "map":
                 if len(keys) != 1:
                     raise EvalError("multi-key map assignment is not supported")
-                d._d[keys[0]] = val
+                runtime_collection_set(d, keys[0], val)
                 return
             if not isinstance(d, dict):
                 raise EvalError("field bind requires struct")
@@ -1960,8 +1965,8 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
 def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
     if isinstance(container, LazyList):
         raise EvalError("cannot assign through index on lazy list")
-    if isinstance(container, VMap):
-        container._d[_normalize_index(k)] = val
+    if runtime_collection_kind(container) == "map":
+        runtime_collection_set(container, _normalize_index(k), val)
         return
     if isinstance(container, list):
         container[_normalize_index(k)] = val
