@@ -473,6 +473,8 @@ def _format_type_ast_for_stringify(v: Any) -> str:
     if isinstance(v, ast.TupleTypeExpr):
         if not v.elements:
             return "()"
+        if len(v.elements) == 1:
+            return "(" + _format_type_ast_for_stringify(v.elements[0]) + ",)"
         return "(" + ", ".join(_format_type_ast_for_stringify(e) for e in v.elements) + ")"
     if isinstance(v, ast.TypeExpr):
         if not v.fields:

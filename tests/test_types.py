@@ -92,6 +92,31 @@ f(x:num) -> num: x
     assert _run(src) == "true"
 
 
+def test_parenthesized_typeof_stays_grouping_but_trailing_comma_makes_tuple_type() -> None:
+    src = """
+:: (1.)
+:: (1.,)
+(1.,) t: (1,)
+:: t.
+"""
+    lines = _run(src).splitlines()
+    assert lines[0] == "num"
+    assert lines[1] == "(num,)"
+    assert lines[2] == "(num,)"
+
+
+def test_trailing_dot_type_works_in_multiset_and_fixed_vector_type_positions() -> None:
+    src = """
+{1.34.} bag: {1.34:2}
+[1.:3] xs: [1, 2, 3]
+:: bag.
+:: xs.
+"""
+    lines = _run(src).splitlines()
+    assert lines[0] == "{num}"
+    assert lines[1] == "[num:3]"
+
+
 def test_imaginary_constants() -> None:
     src = """
 :: i

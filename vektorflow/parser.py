@@ -985,6 +985,9 @@ class Parser:
             els.append(self._parse_arrow_type())
             if self._peek_raw() == COMMA:
                 self._advance()
+                if self._peek_raw() == RPAREN:
+                    self._advance()
+                    return ast.TupleTypeExpr(els)
                 continue
             self._expect(RPAREN)
             return ast.TupleTypeExpr(els)
