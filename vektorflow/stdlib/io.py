@@ -539,6 +539,11 @@ def build_io_file_namespace() -> dict[str, Any]:
     }
 
 
+def build_io_native_file_namespace() -> dict[str, Any]:
+    """Preferred native-friendly file-oriented stdlib surface."""
+    return build_io_file_namespace()
+
+
 def build_io_time_namespace() -> dict[str, Any]:
     """Future time-oriented compatibility surface.
 
@@ -558,10 +563,15 @@ def build_io_seconds_namespace() -> dict[str, Any]:
     }
 
 
+def build_io_native_time_namespace() -> dict[str, Any]:
+    """Preferred native-friendly time-oriented stdlib surface."""
+    return build_io_seconds_namespace()
+
+
 def build_io_native_namespace() -> dict[str, Any]:
     """Preferred native-friendly stdlib surface for file IO plus seconds-based time."""
-    ns = build_io_file_namespace()
-    ns.update(build_io_seconds_namespace())
+    ns = build_io_native_file_namespace()
+    ns.update(build_io_native_time_namespace())
     return ns
 
 

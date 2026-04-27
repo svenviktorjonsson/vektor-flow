@@ -18,7 +18,9 @@ from vektorflow.stdlib.io import (
     get_io_file_host,
     get_io_native_host,
     get_io_time_host,
+    build_io_native_file_namespace,
     build_io_native_namespace,
+    build_io_native_time_namespace,
     build_io_namespace,
     build_io_seconds_namespace,
     read_bytes,
@@ -350,6 +352,19 @@ class TestSleepMs:
             "sleep",
         } == set(io.keys())
         assert "sleep_ms" not in io
+
+    def test_native_file_and_time_namespaces_match_preferred_combined_parts(self) -> None:
+        file_io = build_io_native_file_namespace()
+        time_io = build_io_native_time_namespace()
+        io = build_io_native_namespace()
+        assert file_io == {
+            "read_text": io["read_text"],
+            "write_text": io["write_text"],
+            "read_bytes": io["read_bytes"],
+            "write_bytes": io["write_bytes"],
+            "read_numbers": io["read_numbers"],
+        }
+        assert time_io == {"sleep": io["sleep"]}
 
     def test_native_host_exposes_preferred_surface(self) -> None:
         host = get_io_native_host()

@@ -48,8 +48,8 @@ from .runtime import (
     runtime_collection_index_set,
     runtime_collection_items_sorted,
     runtime_collection_kind,
+    runtime_collection_path_step,
     runtime_collection_read_attr,
-    runtime_collection_require_get,
     runtime_collection_take,
     runtime_collection_values,
     runtime_collection_set,
@@ -1093,10 +1093,11 @@ class Interpreter:
                     raise EvalError("empty interpolation path")
                 v = self._resolve(parts[0], env)
                 for p in parts[1:]:
-                    if runtime_collection_kind(v) == "map":
-                        v = runtime_collection_require_get(
-                            v, p, missing_suffix=" in string interpolation"
-                        )
+                    handled, stepped = runtime_collection_path_step(
+                        v, p, missing_suffix=" in string interpolation"
+                    )
+                    if handled:
+                        v = stepped
                     elif isinstance(v, dict):
                         if p not in v:
                             raise EvalError(

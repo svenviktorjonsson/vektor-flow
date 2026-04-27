@@ -28,6 +28,7 @@ from vektorflow.runtime import (
     runtime_collection_index_set,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
+    runtime_collection_path_step,
     runtime_collection_read_attr,
     runtime_collection_require_get,
     runtime_collection_expanded_values,
@@ -176,6 +177,23 @@ def test_runtime_collection_read_attr_unifies_map_and_queue_reads() -> None:
     assert get() == 4
     with pytest.raises(Exception):
         runtime_collection_read_attr(m, "missing")
+
+
+def test_runtime_collection_path_step_handles_runtime_map_reads() -> None:
+    handled, value = runtime_collection_path_step(
+        make_vmap({"name": "alice"}), "name", missing_suffix=" in string interpolation"
+    )
+    assert handled is True
+    assert value == "alice"
+    handled, value = runtime_collection_path_step(("not", "runtime"), "name")
+    assert handled is False
+    assert value is None
+    with pytest.raises(EvalError, match=r"missing key 'missing' in string interpolation"):
+        runtime_collection_path_step(
+            make_vmap({"name": "alice"}),
+            "missing",
+            missing_suffix=" in string interpolation",
+        )
 
 
 def test_runtime_collection_call_factories() -> None:

@@ -20,11 +20,17 @@ from typing import Any
 import json
 
 from .errors import SourceLocation
+from . import tokens as token_defs
 from .tokens import Token
 
 
 TOKEN_STREAM_SCHEMA = "vektorflow.token_stream"
 TOKEN_STREAM_VERSION = 1
+VALID_TOKEN_KINDS = frozenset(
+    value
+    for name, value in vars(token_defs).items()
+    if name.isupper() and isinstance(value, str) and value == name
+)
 
 
 def _reject_json_constant(value: str) -> Any:
@@ -167,15 +173,18 @@ def _reject_unknown_fields(data: dict[str, Any], allowed: set[str], ctx: str) ->
         raise ValueError(f"invalid {ctx}: unexpected field(s): {joined}")
 
 
+def _require_token_kind(value: Any) -> str:
+    kind = _require_string(value, "token kind", allow_empty=False)
+    if kind not in VALID_TOKEN_KINDS:
+        raise ValueError(f"invalid token kind: unsupported token kind {kind!r}")
+    return kind
+
+
 def token_from_data(data: dict[str, Any]) -> Token:
     try:
         data = _require_mapping(data, "token entry")
         _reject_unknown_fields(data, {"kind", "value", "location"}, "token entry")
-        kind = _require_string(
-            _require_field(data, "kind", "token entry"),
-            "token kind",
-            allow_empty=False,
-        )
+        kind = _require_token_kind(_require_field(data, "kind", "token entry"))
         loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
         _reject_unknown_fields(loc, {"file", "line", "column"}, "token location")
         return Token(

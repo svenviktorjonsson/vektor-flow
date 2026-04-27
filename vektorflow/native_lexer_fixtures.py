@@ -283,6 +283,14 @@ def declared_fixture_manifest_payload(
             }
         ),
     }
+    runnable_contract_set_identity = {
+        "comparison_sha256": runnable_fixture_set_comparison["comparison_sha256"],
+        "usable_count": len(runnable_fixture_names),
+        "blocked_count": len(blocked_fixture_names),
+        "all_runnable": len(blocked_fixture_names) == 0,
+        "equality_rule": "same runnable contract set iff comparison_sha256 matches",
+        "comparison_source": "runnable_fixture_set_comparison",
+    }
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -345,6 +353,7 @@ def declared_fixture_manifest_payload(
         "external_harness_view": external_harness_view,
         "runnable_fixture_set": runnable_fixture_set,
         "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
+        "runnable_contract_set_identity": runnable_contract_set_identity,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -366,6 +375,7 @@ def declared_fixture_manifest_payload(
                     "external_harness_view": external_harness_view,
                     "runnable_fixture_set": runnable_fixture_set,
                     "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
+                    "runnable_contract_set_identity": runnable_contract_set_identity,
                 }
             ]
         ),

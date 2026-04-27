@@ -102,6 +102,14 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
     }
     assert len(payload["runnable_fixture_set_comparison"]["comparison_sha256"]) == 64
+    assert payload["runnable_contract_set_identity"] == {
+        "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "all_runnable": True,
+        "equality_rule": "same runnable contract set iff comparison_sha256 matches",
+        "comparison_source": "runnable_fixture_set_comparison",
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -235,6 +243,14 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
     }
     assert len(payload["runnable_fixture_set_comparison"]["comparison_sha256"]) == 64
+    assert payload["runnable_contract_set_identity"] == {
+        "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
+        "usable_count": 0,
+        "blocked_count": 3,
+        "all_runnable": False,
+        "equality_rule": "same runnable contract set iff comparison_sha256 matches",
+        "comparison_source": "runnable_fixture_set_comparison",
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -329,3 +345,11 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
     }
     assert len(payload["runnable_fixture_set_comparison"]["comparison_sha256"]) == 64
+    assert payload["runnable_contract_set_identity"] == {
+        "comparison_sha256": payload["runnable_fixture_set_comparison"]["comparison_sha256"],
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "all_runnable": True,
+        "equality_rule": "same runnable contract set iff comparison_sha256 matches",
+        "comparison_source": "runnable_fixture_set_comparison",
+    }

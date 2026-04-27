@@ -223,6 +223,19 @@ def runtime_collection_read_attr(value: Any, name: str) -> Any | None:
     return runtime_collection_attr(value, name)
 
 
+def runtime_collection_path_step(
+    value: Any,
+    key: Any,
+    *,
+    missing_suffix: str = "",
+) -> tuple[bool, Any]:
+    if runtime_collection_kind(value) == "map":
+        return True, runtime_collection_require_get(
+            value, key, missing_suffix=missing_suffix
+        )
+    return False, None
+
+
 def runtime_collection_take_prefix(value: Any, count: int) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
