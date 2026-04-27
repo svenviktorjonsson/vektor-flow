@@ -1657,7 +1657,7 @@ class Interpreter:
                     out[v] += 1
 
                 _foreach_element(_mset)
-                return AxisTaggedValue(Multiset(out), left_v.idx)
+                return AxisTaggedValue(make_multiset(out.items()), left_v.idx)
             return self._pipe_one_element_through_segments(left_v, segs, env)
 
         if isinstance(left_v, tuple):
@@ -1710,7 +1710,7 @@ class Interpreter:
                 out_ms[v] += 1
 
             _foreach_element(_ms)
-            return Multiset(out_ms)
+            return make_multiset(out_ms.items())
         if isinstance(left_v, LazyInfiniteIterator):
 
             def _lazy(el: Any) -> None:

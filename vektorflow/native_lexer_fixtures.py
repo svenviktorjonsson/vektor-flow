@@ -72,6 +72,23 @@ def iter_fixture_specs(specs: Sequence[TokenFixtureSpec] | None = None) -> Itera
     return TOKEN_FIXTURE_SPECS if specs is None else specs
 
 
+def discovered_fixture_names(fixture_root: Path) -> list[str]:
+    return sorted(path.name for path in fixture_root.glob("*.json"))
+
+
+def declared_fixture_names(specs: Sequence[TokenFixtureSpec] | None = None) -> set[str]:
+    return {spec.fixture_name for spec in iter_fixture_specs(specs)}
+
+
+def unmanaged_fixture_names(
+    *,
+    fixture_root: Path,
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> list[str]:
+    declared = declared_fixture_names(specs)
+    return [name for name in discovered_fixture_names(fixture_root) if name not in declared]
+
+
 def canonical_fixture_text(spec: TokenFixtureSpec, *, repo_root: Path | None = None) -> str:
     root = default_repo_root() if repo_root is None else repo_root
     payload = lex_file_to_payload(root / spec.source_rel, root=root)
@@ -163,21 +180,34 @@ def fixture_status_payload(
     fixture_root: Path | None = None,
     specs: Sequence[TokenFixtureSpec] | None = None,
 ) -> dict[str, object]:
+    root = default_repo_root() if repo_root is None else repo_root
+    out_root = default_fixture_root(root) if fixture_root is None else fixture_root
     statuses = fixture_status_report(
-        repo_root=repo_root,
-        fixture_root=fixture_root,
+        repo_root=root,
+        fixture_root=out_root,
         specs=specs,
     )
+    unmanaged = unmanaged_fixture_names(fixture_root=out_root, specs=specs)
     counts = {
         "total": len(statuses),
         "current": sum(1 for item in statuses if item.status == "current"),
         "missing": sum(1 for item in statuses if item.status == "missing"),
         "stale": sum(1 for item in statuses if item.status == "stale"),
         "source_missing": sum(1 for item in statuses if item.status == "source-missing"),
+        "unmanaged": len(unmanaged),
     }
     return {
         "schema": TOKEN_FIXTURE_REPORT_SCHEMA,
         "version": TOKEN_FIXTURE_REPORT_VERSION,
+        "declared_specs": [
+            {
+                "source_rel": spec.source_rel,
+                "fixture_name": spec.fixture_name,
+            }
+            for spec in iter_fixture_specs(specs)
+        ],
+        "discovered_fixture_names": discovered_fixture_names(out_root),
+        "unmanaged_fixtures": unmanaged,
         "fixtures": [
             {
                 "source_rel": item.source_rel,

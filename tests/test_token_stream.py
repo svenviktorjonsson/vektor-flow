@@ -12,11 +12,14 @@ from vektorflow.native_lexer_fixtures import (
     TOKEN_FIXTURE_SPECS,
     TOKEN_FIXTURE_REPORT_SCHEMA,
     TOKEN_FIXTURE_REPORT_VERSION,
+    declared_fixture_names,
     default_fixture_root,
+    discovered_fixture_names,
     fixture_status_payload,
     fixture_status_report,
     fixture_drift_report,
     regenerate_token_fixtures,
+    unmanaged_fixture_names,
 )
 from vektorflow.native_lexer_proto import (
     lex_file_to_payload,
@@ -34,6 +37,7 @@ from vektorflow.token_stream import (
     write_versioned_token_stream,
 )
 from tests.token_stream_fixture_helper import (
+    BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
     TOKEN_FIXTURE_ROOT,
     assert_fixture_boundary_parity,
     assert_fixture_parses_like_source,
@@ -121,10 +125,7 @@ def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object],
 
 @pytest.mark.parametrize(
     "payload_text, expected",
-    [
-        ('{"tokens":[', "malformed JSON"),
-        ("[]", "expected object"),
-    ],
+    BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
 )
 def test_parse_token_stream_json_rejects_bad_top_level_json(payload_text: str, expected: str) -> None:
     assert_parser_rejects_token_stream(payload_text, expected)
@@ -350,6 +351,7 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
         "missing": 1,
         "stale": 1,
         "source_missing": 0,
+        "unmanaged": 0,
     }
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
@@ -476,16 +478,23 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     payload = json.loads(proc.stdout)
     assert payload["schema"] == TOKEN_FIXTURE_REPORT_SCHEMA
     assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
+    assert payload["declared_specs"] == [
+        {"source_rel": spec.source_rel, "fixture_name": spec.fixture_name}
+        for spec in TOKEN_FIXTURE_SPECS
+    ]
     assert payload["summary"] == {
         "total": len(TOKEN_FIXTURE_SPECS),
         "current": len(TOKEN_FIXTURE_SPECS),
         "missing": 0,
         "stale": 0,
         "source_missing": 0,
+        "unmanaged": 2,
     }
     assert {item["fixture_name"] for item in payload["fixtures"]} == {
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
     }
+    assert payload["discovered_fixture_names"] == discovered_fixture_names(TOKEN_FIXTURE_ROOT)
+    assert payload["unmanaged_fixtures"] == unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
     for item in payload["fixtures"]:
         assert item["expected_source_label"] == item["source_rel"]
         assert item["declared_source_label"] == item["source_rel"]
@@ -521,3 +530,13 @@ def test_native_lexer_fixtures_module_report_emits_drifted_statuses(tmp_path: Pa
     payload = json.loads(proc.stdout)
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
+
+
+def test_fixture_discovery_helpers_surface_unmanaged_checked_in_fixtures() -> None:
+    declared = declared_fixture_names()
+    discovered = discovered_fixture_names(TOKEN_FIXTURE_ROOT)
+    unmanaged = unmanaged_fixture_names(fixture_root=TOKEN_FIXTURE_ROOT)
+    assert {spec.fixture_name for spec in TOKEN_FIXTURE_SPECS} == declared
+    assert set(unmanaged).issubset(set(discovered))
+    assert "legacy_singleton_tuple_type.json" in unmanaged
+    assert "versioned_loose_dot_bind.json" in unmanaged

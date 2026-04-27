@@ -14,6 +14,8 @@ from vektorflow.lexer import tokenize
 from vektorflow.parser import parse_module
 from vektorflow.token_stream import tokens_to_json
 from tests.token_stream_fixture_helper import (
+    BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
+    assert_cli_rejects_token_stream,
     assert_cli_parse_tokens_output_matches_source,
     assert_fixture_boundary_parity,
     native_core_fixture_cases,
@@ -96,19 +98,13 @@ class TestMain:
 
     @pytest.mark.parametrize(
         "payload_text, expected",
-        [
-            ('{"tokens":[', "malformed JSON"),
-            ("[]", "expected object"),
-        ],
+        BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
     )
     def test_parse_tokens_subcommand_bad_top_level_json(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload_text: str, expected: str
     ) -> None:
-        payload_path = tmp_path / "bad_top_level.json"
-        payload_path.write_text(payload_text, encoding="utf-8")
-
-        assert main(["parse-tokens", str(payload_path)]) == 1
-        assert expected in capsys.readouterr().err
+        _ = capsys.readouterr()
+        assert_cli_rejects_token_stream(tmp_path, payload_text, expected)
 
     def test_parse_tokens_subcommand_versioned_fixture(
         self, capsys: pytest.CaptureFixture[str]

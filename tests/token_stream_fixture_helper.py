@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import io
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -10,6 +12,11 @@ from vektorflow.token_stream import TOKEN_STREAM_SCHEMA, TOKEN_STREAM_VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN_FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "token_stream"
+BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
+    ('{"tokens":[', "malformed JSON"),
+    ("[]", "expected object"),
+    ("null", "expected object"),
+)
 
 
 @dataclass(frozen=True)
@@ -124,3 +131,16 @@ def assert_parser_rejects_token_stream(payload_text: str, expected: str) -> None
         assert expected in str(exc)
         return
     raise AssertionError("expected parse_token_stream_json to reject payload")
+
+
+def assert_cli_rejects_token_stream(tmp_path: Path, payload_text: str, expected: str) -> None:
+    from vektorflow.cli import main
+
+    payload_path = tmp_path / "bad_token_stream.json"
+    payload_path.write_text(payload_text, encoding="utf-8")
+    out = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        rc = main(["parse-tokens", str(payload_path)])
+    assert rc == 1
+    assert expected in err.getvalue()
