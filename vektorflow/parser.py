@@ -49,6 +49,7 @@ from .tokens import (
     PIPE,
     PLUS,
     QUESTION,
+    BANG_QUESTION,
     RANGE,
     RBRACE,
     RBRACKET,
@@ -125,6 +126,7 @@ class Parser:
     def __init__(self, tokens: list[Token]) -> None:
         self.toks = tokens
         self.i = 0
+        self._type_expr_relaxed_loose_dot_depth = 0
 
     def _peek(self) -> str:
         self._skip_trivia()
@@ -827,6 +829,17 @@ class Parser:
 
     def _parse_type_atom(self) -> Any:
         self._skip_trivia()
+        saved = self.i
+        self._type_expr_relaxed_loose_dot_depth += 1
+        try:
+            expr = self.parse_postfix()
+            if isinstance(expr, ast.TypeOf):
+                return expr
+        except ParseError:
+            pass
+        finally:
+            self._type_expr_relaxed_loose_dot_depth -= 1
+        self.i = saved
         if self._peek_raw() == LPAREN:
             if self._paren_starts_type_record():
                 return self._parse_type_record()
@@ -988,7 +1001,7 @@ class Parser:
             self._advance()
             codomain = self._parse_return_type_spec()
             return ast.FuncType(domain, codomain)
-        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
+        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
             return domain
         raise ParseError(
             "tuple or bare type name requires '->' codomain (e.g. num -> num, (num,num) -> num)",
@@ -1036,7 +1049,7 @@ class Parser:
                     self._advance()
                     loop_mode = True
                 arms = self._parse_match_arms_after_double_question()
-                left = ast.MatchStmt(left, arms, loop=loop_mode)
+                left = ast.MatchStmt(left, arms, loop=loop_mode, catch=False)
             else:
                 loop_mode = False
                 if self._peek_raw() == GT:
@@ -1044,6 +1057,10 @@ class Parser:
                     loop_mode = True
                 body = self._parse_conditional_body()
                 left = ast.ConditionalExpr(left, body, loop=loop_mode)
+        elif self._peek_raw() == BANG_QUESTION:
+            self._advance()
+            arms = self._parse_match_arms_after_double_question()
+            left = ast.MatchStmt(left, arms, loop=False, catch=True)
         segments: list[Any] = []
         while True:
             k = self._peek_raw()
@@ -1264,6 +1281,8 @@ class Parser:
         if t.location.line != dot_line:
             return
         if t.kind in (RPAREN, RBRACKET, RBRACE, COMMA, SEMICOLON):
+            return
+        if self._type_expr_relaxed_loose_dot_depth > 0 and t.kind == IDENT:
             return
         # Operators and `::` may follow (e.g. `a. = t`, `a. + 1`); field/index starters may not.
         if t.kind in (IDENT, LPAREN, NUMBER, STRING, STRING_RAW, DOLLAR):

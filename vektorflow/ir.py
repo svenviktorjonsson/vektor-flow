@@ -234,6 +234,8 @@ def lower_stmt(node: Any) -> IRNode:
             return WhileStmt(lower_expr(node.condition), lower_body_as_block(node.body))
         return IfStmt(lower_expr(node.condition), lower_body_as_block(node.body))
     if isinstance(node, ast.MatchStmt):
+        if node.catch:
+            raise NotImplementedError("IR lowering does not yet support catch matches `!?`")
         return MatchStmt(
             lower_expr(node.discriminant),
             [MatchArm(None if arm.condition is None else lower_expr(arm.condition), lower_body_as_block(arm.body)) for arm in node.arms],

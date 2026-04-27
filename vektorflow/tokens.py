@@ -60,6 +60,7 @@ FAT_ARROW = "FAT_ARROW"  # =>
 COMMA = "COMMA"        # ,
 SEMICOLON = "SEMICOLON"  # ;  (statement separator in function bodies)
 QUESTION = "QUESTION"  # ?
+BANG_QUESTION = "BANG_QUESTION"  # !?
 DOLLAR = "DOLLAR"      # $  (sigil, used for lambda/pipe-element/current)
 
 # Control flow (``@`` family)

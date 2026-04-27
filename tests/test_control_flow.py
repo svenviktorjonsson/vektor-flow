@@ -163,6 +163,71 @@ def test_switch_statement_no_match_is_noop() -> None:
     assert _run("x: 9\nx?? (1 => :: 10)\n:: 1") == "1"
 
 
+def test_switch_value_arm_beats_type_arm() -> None:
+    src = """
+x: 3
+out: 0
+x??
+  3 => out: 1
+  int => out: 2
+:: out
+"""
+    assert _run(src) == "1"
+
+
+def test_switch_type_arm_matches_runtime_value_type() -> None:
+    src = """
+x: true
+out: 0
+x??
+  bool => out: 2
+:: out
+"""
+    assert _run(src) == "2"
+
+
+def test_catch_match_specific_error_beats_general_error() -> None:
+    src = """
+out: 0
+missing!?
+  errors.ERROR => out: 1
+  errors.EVAL_ERROR => out: 2
+:: out
+"""
+    assert _run(src) == "2"
+
+
+def test_catch_match_binds_subject_in_dollar() -> None:
+    src = """
+out: 0
+missing!?
+  errors.ERROR =>
+    $??
+      errors.EVAL_ERROR => out: 7
+:: out
+"""
+    assert _run(src) == "7"
+
+
+def test_catch_match_no_error_is_noop() -> None:
+    src = """
+out: 0
+1!?
+  errors.ERROR => out: 1
+:: out
+"""
+    assert _run(src) == "0"
+
+
+def test_catch_match_reraises_when_no_arm_matches() -> None:
+    src = """
+missing!?
+  errors.TYPE_ERROR => :: 1
+"""
+    with pytest.raises(EvalError, match="undefined name"):
+        _run(src)
+
+
 def test_break_outside_pipe_errors() -> None:
     with pytest.raises(EvalError, match="break outside >> pipe"):
         _run("@|")

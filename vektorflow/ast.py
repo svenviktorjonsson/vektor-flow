@@ -414,11 +414,12 @@ class MatchArm:
 
 @dataclass
 class MatchStmt:
-    """**Switch** — ``discriminant??`` followed by ``case => body`` arms."""
+    """**Switch/catch** — ``discriminant??`` or ``discriminant!?`` followed by arms."""
 
     discriminant: Any
     arms: list[MatchArm]
     loop: bool = False
+    catch: bool = False
 
 
 @dataclass

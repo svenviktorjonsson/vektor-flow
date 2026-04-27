@@ -12,9 +12,13 @@ from . import ast
 from .errors import (
     BreakSignal,
     ContinueSignal,
+    ControlFlow,
+    ERROR_NAMESPACE,
+    ErrorTypeValue,
     EvalError,
     ExitProgramSignal,
     ReturnSignal,
+    error_type_match_specificity,
 )
 from .runtime.multiset import (
     Multiset,
@@ -607,6 +611,7 @@ class Interpreter:
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
+        self.builtin["errors"] = VMap(ERROR_NAMESPACE)
 
     def _merge_stdlibs(self) -> None:
         for name in ("math", "capture", "io", "collections", "stat", "ui"):
@@ -622,6 +627,30 @@ class Interpreter:
         if name in self.builtin:
             return self.builtin[name]
         raise EvalError(f"undefined name: {name!r}")
+
+    def _resolve_runtime_type_expr(self, type_expr: Any, env: dict[str, Any]) -> Any:
+        if isinstance(type_expr, ast.TypeOf):
+            return self.eval_expr(type_expr, env)
+        if isinstance(type_expr, ast.NamedTypeSpec):
+            return ast.NamedTypeSpec(type_expr.name, self._resolve_runtime_type_expr(type_expr.type_expr, env))
+        if isinstance(type_expr, ast.FixedVectorType):
+            return ast.FixedVectorType(self._resolve_runtime_type_expr(type_expr.element_type, env), type_expr.size)
+        if isinstance(type_expr, ast.MultisetType):
+            return ast.MultisetType(self._resolve_runtime_type_expr(type_expr.element_type, env))
+        if isinstance(type_expr, ast.TypeExpr):
+            return ast.TypeExpr([(name, self._resolve_runtime_type_expr(inner, env)) for name, inner in type_expr.fields])
+        if isinstance(type_expr, ast.TupleTypeExpr):
+            return ast.TupleTypeExpr([self._resolve_runtime_type_expr(inner, env) for inner in type_expr.elements])
+        if isinstance(type_expr, ast.MapValueType):
+            return ast.MapValueType([(name, self._resolve_runtime_type_expr(inner, env)) for name, inner in type_expr.fields])
+        if isinstance(type_expr, ast.LinkedListValueType):
+            return ast.LinkedListValueType([self._resolve_runtime_type_expr(inner, env) for inner in type_expr.elements])
+        if isinstance(type_expr, ast.FuncType):
+            return ast.FuncType(
+                self._resolve_runtime_type_expr(type_expr.domain, env),
+                self._resolve_runtime_type_expr(type_expr.codomain, env),
+            )
+        return type_expr
 
     def _eval_call_args(
         self, raw_args: list[Any], env: dict[str, Any]
@@ -744,7 +773,8 @@ class Interpreter:
         if isinstance(node, ast.Bind):
             if node.declared_type is not None:
                 value = self.eval_expr(node.value, env)
-                coerced, _ = coerce_typed_value(value, node.declared_type, self.types)
+                resolved_type = self._resolve_runtime_type_expr(node.declared_type, env)
+                coerced, _ = coerce_typed_value(value, resolved_type, self.types)
                 self._assign_bind(node.target, coerced, env)
                 return None
             if isinstance(node.target, ast.Ident) and isinstance(
@@ -909,7 +939,17 @@ class Interpreter:
             if s is not None:
                 return s
             return None
-        return 0 if self._match_eq(a, b) else None
+        if self._match_eq(a, b):
+            return 1_000_000
+        if isinstance(b, ErrorTypeValue) and isinstance(a, BaseException):
+            return error_type_match_specificity(a, b)
+        if is_type_value(b):
+            actual = infer_type(a, self.types)
+            if types_equal(actual, b):
+                return 1
+            if isinstance(b, PrimType) and b.name == "any":
+                return 0
+        return None
 
     def _eval_match_body(self, body: Any, env: dict[str, Any]) -> None:
         if isinstance(body, ast.Block):
@@ -924,6 +964,35 @@ class Interpreter:
         # Bind ``$`` in ``env`` (no copy): arm bodies must update the same dict as the discriminant sees.
         prev_dollar: Any = env.get("$", _NO_PREVIOUS_DOLLAR)
         try:
+            if node.catch:
+                try:
+                    self.eval_expr(node.discriminant, env)
+                    return
+                except (ControlFlow, SystemExit):
+                    raise
+                except BaseException as exc:
+                    disc = exc
+                env["$"] = disc
+                best_arm: ast.MatchArm | None = None
+                best_spec = -1
+                default_arm: ast.MatchArm | None = None
+                for arm in node.arms:
+                    if arm.condition is None:
+                        if default_arm is None:
+                            default_arm = arm
+                        continue
+                    m = self.eval_expr(arm.condition, env)
+                    spec = self._match_specificity(disc, m)
+                    if spec is None:
+                        continue
+                    if spec > best_spec:
+                        best_spec = spec
+                        best_arm = arm
+                chosen = best_arm if best_arm is not None else default_arm
+                if chosen is not None:
+                    self._eval_match_body(chosen.body, env)
+                    return
+                raise disc
             while True:
                 disc = self.eval_expr(node.discriminant, env)
                 env["$"] = disc

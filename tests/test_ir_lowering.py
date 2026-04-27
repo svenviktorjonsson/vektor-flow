@@ -70,6 +70,9 @@ def test_ir_lowering_rejects_unsupported_nodes_for_now() -> None:
     mod = parse_module('msg: "x=$y"', filename="<ir-test>")
     with pytest.raises(NotImplementedError):
         lower_module(mod)
+    catch_mod = parse_module("missing!?\n  errors.ERROR => out: 1\n", filename="<ir-test>")
+    with pytest.raises(NotImplementedError):
+        lower_module(catch_mod)
 
 
 def test_ir_parity_function_call_and_implicit_return() -> None:

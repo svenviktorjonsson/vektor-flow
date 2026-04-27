@@ -69,6 +69,7 @@ from .tokens import (
     PIPE,
     PLUS,
     QUESTION,
+    BANG_QUESTION,
     RANGE,
     RBRACE,
     RBRACKET,
@@ -346,11 +347,15 @@ class Lexer:
             return
         if ch == "!":
             self._advance()
+            if self._peek() == "?":
+                self._advance()
+                self._emit(BANG_QUESTION, None, loc)
+                return
             if self._peek() == "=":
                 self._advance()
                 self._emit(NEQ, None, loc)
                 return
-            raise LexError("Unexpected '!'; did you mean '!='?", loc)
+            raise LexError("Unexpected '!'; did you mean '!=', '!?'?", loc)
         if ch == "<":
             self._advance()
             if self._peek() == "=":

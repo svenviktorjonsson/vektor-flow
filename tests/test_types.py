@@ -63,6 +63,35 @@ bytes raw: "hej"
     assert lines[2] == "bytes"
 
 
+def test_trailing_dot_type_can_drive_prefix_typed_bind() -> None:
+    src = """
+v : [1, 2]
+v. value: [3, 4]
+:: value. = v.
+:: value
+"""
+    lines = _run(src).splitlines()
+    assert lines[0] == "true"
+    assert lines[1] == "[3, 4]"
+
+
+def test_trailing_dot_type_can_be_used_inside_fixed_vector_type() -> None:
+    src = """
+v : [1, 2, 3, 4]
+[v.:3] rows: [[1,2,3,4], [5,6,7,8], [9,10,11,12]]
+:: rows.
+"""
+    assert _run(src) == "[[num:4]:3]"
+
+
+def test_trailing_dot_on_call_result_is_typeof_call_result() -> None:
+    src = """
+f(x:num) -> num: x
+:: f(3). = num
+"""
+    assert _run(src) == "true"
+
+
 def test_imaginary_constants() -> None:
     src = """
 :: i

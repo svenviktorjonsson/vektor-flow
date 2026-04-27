@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .. import ast
-from ..errors import EvalError
+from ..errors import ErrorTypeValue, EvalError, error_type_for_exception
 from .struct_value import VF_TYPE_KEY, get_type_name, is_struct_dict
 from .multiset import Multiset
 from .typed_vector import TypedVector
@@ -81,7 +81,7 @@ class PrimType:
 def is_type_value(v: Any) -> bool:
     if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)):
         return True
-    return isinstance(v, PrimType)
+    return isinstance(v, (PrimType, ErrorTypeValue))
 
 
 def _type_field_equal(ta: Any, tb: Any) -> bool:
@@ -125,6 +125,8 @@ def _codomains_equal(a: Any, b: Any) -> bool:
 
 
 def types_equal(a: Any, b: Any) -> bool:
+    if isinstance(a, ErrorTypeValue) and isinstance(b, ErrorTypeValue):
+        return a.name == b.name and a.mask == b.mask
     if isinstance(a, PrimType) and isinstance(b, PrimType):
         return a.name == b.name
     if isinstance(a, PrimType) and isinstance(b, ast.PrimTypeRef):
@@ -209,6 +211,8 @@ def infer_type(
     """Return a type AST or ``PrimType``-compatible value for ``v``."""
     if isinstance(v, PrimType):
         return v
+    if isinstance(v, ErrorTypeValue):
+        return v
     if isinstance(
         v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)
     ):
@@ -242,6 +246,8 @@ def infer_type(
         return ast.PrimTypeRef("num")
     if isinstance(v, complex):
         return ast.PrimTypeRef("num")
+    if isinstance(v, BaseException):
+        return error_type_for_exception(v)
     if isinstance(v, (bytes, bytearray)):
         return ast.PrimTypeRef("bytes")
     if isinstance(v, str):
@@ -249,6 +255,11 @@ def infer_type(
     if isinstance(v, list):
         if isinstance(v, TypedVector) and v.vf_type_expr is not None:
             return v.vf_type_expr
+        if not v:
+            return ast.PrimTypeRef("vector")
+        elem_type = infer_type(v[0], type_registry)
+        if all(types_equal(infer_type(item, type_registry), elem_type) for item in v[1:]):
+            return ast.FixedVectorType(elem_type, ast.TypeSizeConst(len(v)))
         return ast.PrimTypeRef("vector")
     if isinstance(v, tuple):
         if len(v) == 0:
