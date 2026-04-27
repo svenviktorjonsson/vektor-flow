@@ -32,6 +32,7 @@ from vektorflow.runtime import (
     runtime_collection_read_attr,
     runtime_collection_require_get,
     runtime_collection_expanded_values,
+    runtime_collection_spill_values,
     runtime_collection_take,
     runtime_collection_take_prefix,
     runtime_collection_values,
@@ -149,6 +150,13 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
         1,
         3,
     )
+    assert runtime_collection_spill_values(make_multiset([(1, 2), (3, 1)])) == (
+        1,
+        1,
+        3,
+    )
+    with pytest.raises(EvalError, match=r"\[: …\] multiset spill requires a multiset value"):
+        runtime_collection_spill_values(make_vflist([1, 2, 3]))
 
 
 def test_runtime_collection_queue_attrs_are_seam_owned_callables() -> None:

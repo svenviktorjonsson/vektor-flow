@@ -206,6 +206,12 @@ def runtime_collection_expanded_values(value: Any) -> tuple[Any, ...]:
     )
 
 
+def runtime_collection_spill_values(value: Any) -> tuple[Any, ...]:
+    if runtime_collection_kind(value) != "multiset":
+        raise EvalError("[: …] multiset spill requires a multiset value")
+    return runtime_collection_expanded_values(value)
+
+
 def runtime_collection_attr(value: Any, name: str) -> Any | None:
     if runtime_collection_kind(value) == "queue":
         if name == "put":

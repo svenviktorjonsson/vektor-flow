@@ -291,6 +291,35 @@ def declared_fixture_manifest_payload(
         "equality_rule": "same runnable contract set iff comparison_sha256 matches",
         "comparison_source": "runnable_fixture_set_comparison",
     }
+    runnable_contract_set_validation = {
+        "identity_consistent": (
+            runnable_contract_set_identity["comparison_sha256"]
+            == runnable_fixture_set_comparison["comparison_sha256"]
+        ),
+        "usable_count_matches": (
+            runnable_contract_set_identity["usable_count"] == runnable_fixture_set["count"]
+        ),
+        "blocked_count_matches": (
+            runnable_contract_set_identity["blocked_count"] == runnable_fixture_set["blocked_count"]
+        ),
+        "all_runnable_matches": (
+            runnable_contract_set_identity["all_runnable"] == runnable_fixture_set["all_runnable"]
+        ),
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_fixture_set",
+            "runnable_fixture_set_comparison",
+            "runnable_contract_set_identity",
+        ],
+    }
+    runnable_contract_set_validation["validation_passed"] = all(
+        (
+            runnable_contract_set_validation["identity_consistent"],
+            runnable_contract_set_validation["usable_count_matches"],
+            runnable_contract_set_validation["blocked_count_matches"],
+            runnable_contract_set_validation["all_runnable_matches"],
+        )
+    )
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -354,6 +383,7 @@ def declared_fixture_manifest_payload(
         "runnable_fixture_set": runnable_fixture_set,
         "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
         "runnable_contract_set_identity": runnable_contract_set_identity,
+        "runnable_contract_set_validation": runnable_contract_set_validation,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -376,6 +406,7 @@ def declared_fixture_manifest_payload(
                     "runnable_fixture_set": runnable_fixture_set,
                     "runnable_fixture_set_comparison": runnable_fixture_set_comparison,
                     "runnable_contract_set_identity": runnable_contract_set_identity,
+                    "runnable_contract_set_validation": runnable_contract_set_validation,
                 }
             ]
         ),

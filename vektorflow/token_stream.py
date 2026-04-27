@@ -180,6 +180,18 @@ def _require_token_kind(value: Any) -> str:
     return kind
 
 
+def _normalize_token_value(kind: str, value: Any) -> Any:
+    normalized = _dejsonify_value(value)
+    if kind == token_defs.DOT:
+        if not isinstance(normalized, tuple) or len(normalized) != 2 or not all(
+            isinstance(flag, bool) for flag in normalized
+        ):
+            raise ValueError(
+                "invalid token value for DOT: expected [left_tight, right_tight] booleans"
+            )
+    return normalized
+
+
 def token_from_data(data: dict[str, Any]) -> Token:
     try:
         data = _require_mapping(data, "token entry")
@@ -189,7 +201,7 @@ def token_from_data(data: dict[str, Any]) -> Token:
         _reject_unknown_fields(loc, {"file", "line", "column"}, "token location")
         return Token(
             kind,
-            _dejsonify_value(data.get("value")),
+            _normalize_token_value(kind, data.get("value")),
             SourceLocation(
                 _require_string(
                     _require_field(loc, "file", "token location"),

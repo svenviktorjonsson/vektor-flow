@@ -110,6 +110,18 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "equality_rule": "same runnable contract set iff comparison_sha256 matches",
         "comparison_source": "runnable_fixture_set_comparison",
     }
+    assert payload["runnable_contract_set_validation"] == {
+        "identity_consistent": True,
+        "usable_count_matches": True,
+        "blocked_count_matches": True,
+        "all_runnable_matches": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_fixture_set",
+            "runnable_fixture_set_comparison",
+            "runnable_contract_set_identity",
+        ],
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -251,6 +263,18 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "equality_rule": "same runnable contract set iff comparison_sha256 matches",
         "comparison_source": "runnable_fixture_set_comparison",
     }
+    assert payload["runnable_contract_set_validation"] == {
+        "identity_consistent": True,
+        "usable_count_matches": True,
+        "blocked_count_matches": True,
+        "all_runnable_matches": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_fixture_set",
+            "runnable_fixture_set_comparison",
+            "runnable_contract_set_identity",
+        ],
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -352,4 +376,16 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         "all_runnable": True,
         "equality_rule": "same runnable contract set iff comparison_sha256 matches",
         "comparison_source": "runnable_fixture_set_comparison",
+    }
+    assert payload["runnable_contract_set_validation"] == {
+        "identity_consistent": True,
+        "usable_count_matches": True,
+        "blocked_count_matches": True,
+        "all_runnable_matches": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_fixture_set",
+            "runnable_fixture_set_comparison",
+            "runnable_contract_set_identity",
+        ],
     }

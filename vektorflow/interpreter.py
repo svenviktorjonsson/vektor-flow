@@ -50,6 +50,7 @@ from .runtime import (
     runtime_collection_kind,
     runtime_collection_path_step,
     runtime_collection_read_attr,
+    runtime_collection_spill_values,
     runtime_collection_take,
     runtime_collection_values,
     runtime_collection_set,
@@ -1161,9 +1162,7 @@ class Interpreter:
             for e in node.elements:
                 if isinstance(e, ast.MsetSpill):
                     m = self.eval_expr(e.expr, env)
-                    if runtime_collection_kind(m) != "multiset":
-                        raise EvalError("[: …] multiset spill requires a multiset value")
-                    out.extend(runtime_collection_expanded_values(m))
+                    out.extend(runtime_collection_spill_values(m))
                     continue
                 if isinstance(e, ast.VectorRepeat):
                     v = self.eval_expr(e.value, env)

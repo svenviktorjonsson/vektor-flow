@@ -20,7 +20,9 @@ from vektorflow.stdlib.io import (
     build_io_time_namespace,
     get_io_clock_host,
     get_io_file_host,
+    get_io_native_file_host,
     get_io_native_host,
+    get_io_native_time_host,
     get_io_seconds_host,
     get_io_time_host,
     read_numbers,
@@ -75,6 +77,10 @@ class TestResolve:
         assert seconds_ns["sleep"] is time_ns["sleep"]
         assert time_ns == clock_ns
         assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
+
+    def test_native_file_and_time_host_getters_match_preferred_surfaces(self) -> None:
+        assert get_io_native_file_host() is get_io_file_host()
+        assert get_io_native_time_host() is get_io_seconds_host()
 
 
 class TestTextBytes:
@@ -464,6 +470,35 @@ class TestTextBytes:
             ("write_bytes", ("split.bin", b"x")),
         ]
         assert time_host.calls == [0.6]
+
+    def test_native_file_and_time_host_getters_track_separate_native_hosts(self) -> None:
+        class FakeFileHost:
+            def read_bytes(self, path: str) -> bytes:
+                return b""
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                return None
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                return None
+
+        class FakeSecondsHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        file_host = FakeFileHost()
+        time_host = FakeSecondsHost()
+        iolib.set_io_file_host(file_host)
+        set_io_seconds_host(time_host)
+
+        assert get_io_native_file_host() is file_host
+        assert get_io_native_time_host() is time_host
+        native_host = get_io_native_host()
+        assert native_host._file_host is file_host
+        assert native_host._time_host is time_host
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:

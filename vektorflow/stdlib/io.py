@@ -172,6 +172,11 @@ def get_io_file_host() -> IoFileHost:
     return _file_host
 
 
+def get_io_native_file_host() -> IoFileHost:
+    """Return the preferred native file host surface."""
+    return get_io_file_host()
+
+
 def _normalize_time_host(host: IoTimeHost | IoSecondsTimeHost) -> IoTimeHost:
     host_sleep_ms = getattr(host, "sleep_ms", None)
     if callable(host_sleep_ms):
@@ -209,6 +214,11 @@ def get_io_seconds_host() -> IoSecondsTimeHost:
     if callable(host_sleep):
         return _time_host
     return _MsToSecondsTimeHostAdapter(_time_host)
+
+
+def get_io_native_time_host() -> IoSecondsTimeHost:
+    """Return the preferred native time host surface."""
+    return get_io_seconds_host()
 
 
 def get_io_native_host() -> IoSecondsHost:
