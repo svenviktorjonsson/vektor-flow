@@ -9,6 +9,9 @@ with **no Python dependency** required to build or run the core language.
 Today, Python is still the frontend host, but this document defines the slice we
 are actively pushing toward that end state.
 
+For the runtime/UI de-Pythonization inventory and extraction order, see
+[`PYTHON_DEPENDENCY_AUDIT.md`](./PYTHON_DEPENDENCY_AUDIT.md).
+
 ## Contract
 
 A program is in the **native core** when all of the following are true:

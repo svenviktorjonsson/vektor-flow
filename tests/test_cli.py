@@ -10,6 +10,9 @@ import pytest
 
 from vektorflow.cli import main, resolve_vkf_path
 from vektorflow.cpp_backend import discover_cpp_compiler
+from vektorflow.lexer import tokenize
+from vektorflow.parser import parse_module
+from vektorflow.token_stream import tokens_to_json
 
 ROOT = Path(__file__).resolve().parent.parent
 HELLO = ROOT / "examples" / "hello.vkf"
@@ -55,6 +58,35 @@ class TestMain:
 
     def test_tokens_unknown_file(self) -> None:
         assert main(["tokens", "nope_not_a_file"]) == 1
+
+    def test_parse_tokens_subcommand_file(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        src = ":: 3 + 4\n"
+        payload_path = tmp_path / "tokens.json"
+        payload_path.write_text(tokens_to_json(tokenize(src, filename="<test>")), encoding="utf-8")
+
+        assert main(["parse-tokens", str(payload_path)]) == 0
+        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<test>"))
+
+    def test_parse_tokens_subcommand_stdin(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        src = "x: 2\n:: x\n"
+        payload = tokens_to_json(tokenize(src, filename="<stdin-tokens>"))
+        monkeypatch.setattr("sys.stdin.read", lambda: payload)
+
+        assert main(["parse-tokens", "-"]) == 0
+        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<stdin-tokens>"))
+
+    def test_parse_tokens_subcommand_invalid_payload(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        payload_path = tmp_path / "bad_tokens.json"
+        payload_path.write_text('{"bad": []}', encoding="utf-8")
+
+        assert main(["parse-tokens", str(payload_path)]) == 1
+        assert "invalid token stream payload" in capsys.readouterr().err
 
     def test_cpp_subcommand_stdout(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         src = tmp_path / "native_scalar.vkf"

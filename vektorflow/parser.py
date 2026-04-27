@@ -1695,6 +1695,18 @@ def parse_tokens(tokens: list[Token]) -> ast.Module:
     return p.parse_module()
 
 
+def parse_token_stream_json(text: str) -> ast.Module:
+    """Parse a JSON token-stream payload into an AST module.
+
+    This is the CLI-facing ingestion seam for external lexers: emit the stable
+    token JSON payload defined by ``token_stream.py`` and hand it straight to
+    the parser without going back through the source lexer.
+    """
+    from .token_stream import tokens_from_json
+
+    return parse_tokens(tokens_from_json(text))
+
+
 def parse_expression(source: str, filename: str = "<expr>") -> Any:
     """Parse a single expression (used by string ``$(...)`` interpolation)."""
     from .lexer import tokenize

@@ -8,6 +8,7 @@ Usage
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
+    vkf parse-tokens <file>  Parse a stable token JSON payload and print the AST repr
     vkf -s 'code'           Tokenize an inline snippet
     vkf --help
     vkf --version
@@ -24,6 +25,7 @@ from pathlib import Path
 from . import __version__
 from .errors import EvalError, LexError, ParseError, VektorFlowError
 from .lexer import tokenize
+from .parser import parse_token_stream_json
 from .token_stream import tokens_to_json
 from .tokens import DEDENT, EOF, INDENT, NEWLINE
 
@@ -82,6 +84,19 @@ def cmd_run(path: Path) -> int:
     except (LexError, ParseError, EvalError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def cmd_parse_tokens(payload: str) -> int:
+    try:
+        module = parse_token_stream_json(payload)
+    except ValueError as exc:
+        print(f"error: invalid token stream payload: {exc}", file=sys.stderr)
+        return 1
+    except ParseError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(repr(module))
     return 0
 
 
@@ -281,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
             "                       add --json for a stable token-stream payload\n"
+            "  vkf parse-tokens <file>\n"
+            "                       Parse a stable token JSON payload and print the AST repr\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
             "  --version            Show version\n",
             end="",
@@ -312,6 +329,25 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         source = path.read_text(encoding="utf-8")
         return cmd_tokens(source, filename=str(path), compact=compact, json_output=json_output)
+
+    if argv[0] == "parse-tokens":
+        if len(argv) < 2:
+            print("error: vkf parse-tokens <file|->", file=sys.stderr)
+            return 1
+        path_arg = next((a for a in argv[1:] if a == "-" or not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing token payload path", file=sys.stderr)
+            return 1
+        if path_arg == "-":
+            payload = sys.stdin.read()
+            return cmd_parse_tokens(payload)
+        path = Path(path_arg)
+        try:
+            payload = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"error: cannot read {path}: {exc}", file=sys.stderr)
+            return 1
+        return cmd_parse_tokens(payload)
 
     if argv[0] == "cpp":
         out_path: Path | None = None
