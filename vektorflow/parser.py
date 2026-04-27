@@ -1711,7 +1711,11 @@ def parse_token_stream_json(text: str) -> ast.Module:
         prefix = "invalid token stream payload: "
         if msg.startswith(prefix):
             msg = msg[len(prefix) :]
-        elif msg.startswith("invalid token entry:") or msg.startswith("invalid literal for "):
+        elif (
+            msg.startswith("invalid token entry:")
+            or msg.startswith("invalid token location:")
+            or msg.startswith("invalid literal for ")
+        ):
             msg = f"malformed token entry: {msg}"
         raise ValueError(msg) from exc
     except (TypeError, KeyError, IndexError) as exc:

@@ -11,11 +11,11 @@ import pytest
 from vektorflow.cli import main, resolve_vkf_path
 from vektorflow.cpp_backend import discover_cpp_compiler
 from vektorflow.lexer import tokenize
-from vektorflow.native_lexer_fixtures import TOKEN_FIXTURE_SPECS
 from vektorflow.parser import parse_module
 from vektorflow.token_stream import tokens_to_json
 from tests.token_stream_fixture_helper import (
     assert_cli_parse_tokens_output_matches_source,
+    assert_fixture_boundary_parity,
     native_core_fixture_cases,
     token_fixture_case,
 )
@@ -98,6 +98,7 @@ class TestMain:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         case = token_fixture_case("versioned_loose_dot_bind.json")
+        assert_fixture_boundary_parity(case)
         assert main(["parse-tokens", str(case.payload_path)]) == 0
         assert_cli_parse_tokens_output_matches_source(case, capsys.readouterr().out)
 
@@ -105,6 +106,7 @@ class TestMain:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         case = token_fixture_case("legacy_singleton_tuple_type.json")
+        assert_fixture_boundary_parity(case)
         assert main(["parse-tokens", str(case.payload_path)]) == 0
         assert_cli_parse_tokens_output_matches_source(case, capsys.readouterr().out)
 
@@ -112,6 +114,7 @@ class TestMain:
     def test_parse_tokens_subcommand_native_core_fixture_roundtrip(
         self, capsys: pytest.CaptureFixture[str], case
     ) -> None:
+        assert_fixture_boundary_parity(case)
         assert main(["parse-tokens", str(case.payload_path)]) == 0
         assert_cli_parse_tokens_output_matches_source(case, capsys.readouterr().out)
 

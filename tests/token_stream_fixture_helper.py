@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
 
+from vektorflow.token_stream import TOKEN_STREAM_SCHEMA, TOKEN_STREAM_VERSION
+
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN_FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "token_stream"
@@ -27,6 +29,12 @@ class TokenStreamFixtureCase:
         from vektorflow.parser import parse_module
 
         return repr(parse_module(self.read_source_text(), filename=self.source_filename))
+
+    def payload_object(self) -> dict[str, object]:
+        payload = json.loads(self.read_payload_text())
+        if not isinstance(payload, dict):
+            raise AssertionError(f"fixture {self.name} did not decode to an object")
+        return payload
 
 
 def token_fixture_path(name: str) -> Path:
@@ -91,3 +99,17 @@ def assert_fixture_parses_like_source(case: TokenStreamFixtureCase) -> None:
 
 def assert_cli_parse_tokens_output_matches_source(case: TokenStreamFixtureCase, output: str) -> None:
     assert output.strip() == case.expected_module_repr()
+
+
+def assert_fixture_boundary_parity(case: TokenStreamFixtureCase, *, cli_output: str | None = None) -> None:
+    payload = case.payload_object()
+    if "schema" in payload or "version" in payload:
+        assert list(payload.keys()) == ["schema", "version", "tokens"]
+        assert payload["schema"] == TOKEN_STREAM_SCHEMA
+        assert payload["version"] == TOKEN_STREAM_VERSION
+    else:
+        assert list(payload.keys()) == ["tokens"]
+    assert isinstance(payload["tokens"], list)
+    assert_fixture_parses_like_source(case)
+    if cli_output is not None:
+        assert_cli_parse_tokens_output_matches_source(case, cli_output)

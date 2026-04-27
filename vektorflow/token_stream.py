@@ -100,14 +100,30 @@ def _normalize_payload(payload: Any) -> dict[str, Any]:
     }
 
 
+def _require_mapping(value: Any, ctx: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid {ctx}: expected object")
+    return value
+
+
+def _require_field(data: dict[str, Any], field: str, ctx: str) -> Any:
+    if field not in data:
+        raise ValueError(f"invalid {ctx}: missing {field}")
+    return data[field]
+
+
 def token_from_data(data: dict[str, Any]) -> Token:
-    if not isinstance(data, dict):
-        raise ValueError("invalid token entry: expected object")
-    loc = data["location"]
+    data = _require_mapping(data, "token entry")
+    kind = _require_field(data, "kind", "token entry")
+    loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
     return Token(
-        str(data["kind"]),
+        str(kind),
         _dejsonify_value(data.get("value")),
-        SourceLocation(str(loc["file"]), int(loc["line"]), int(loc["column"])),
+        SourceLocation(
+            str(_require_field(loc, "file", "token location")),
+            int(_require_field(loc, "line", "token location")),
+            int(_require_field(loc, "column", "token location")),
+        ),
     )
 
 
