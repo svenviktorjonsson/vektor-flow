@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Iterable, Sequence
 import sys
 
@@ -99,6 +100,10 @@ def iter_fixture_specs(specs: Sequence[TokenFixtureSpec] | None = None) -> Itera
     return TOKEN_FIXTURE_SPECS if specs is None else specs
 
 
+def canonical_source_rel(source_rel: str) -> str:
+    return PurePosixPath(source_rel.replace("\\", "/")).as_posix()
+
+
 def discovered_fixture_names(fixture_root: Path) -> list[str]:
     return sorted(path.name for path in fixture_root.glob("*.json"))
 
@@ -120,7 +125,7 @@ def declared_fixture_inventory(
             "source_rel": spec.source_rel,
             "fixture_name": spec.fixture_name,
             "fixture_path": str(out_root / spec.fixture_name),
-            "expected_source_label": spec.source_rel.replace("\\", "/"),
+            "expected_source_label": canonical_source_rel(spec.source_rel),
         }
         for spec in iter_fixture_specs(specs)
     ]
@@ -131,9 +136,13 @@ def declared_fixture_catalog_issues(
 ) -> list[DeclaredFixtureCatalogIssue]:
     by_source_rel: dict[str, list[str]] = {}
     by_fixture_name: dict[str, list[str]] = {}
+    noncanonical_source_rels: dict[str, list[str]] = {}
     for spec in iter_fixture_specs(specs):
-        by_source_rel.setdefault(spec.source_rel, []).append(spec.fixture_name)
+        canonical_rel = canonical_source_rel(spec.source_rel)
+        by_source_rel.setdefault(canonical_rel, []).append(spec.fixture_name)
         by_fixture_name.setdefault(spec.fixture_name, []).append(spec.source_rel)
+        if spec.source_rel != canonical_rel:
+            noncanonical_source_rels.setdefault(canonical_rel, []).append(spec.source_rel)
 
     issues: list[DeclaredFixtureCatalogIssue] = []
     for source_rel, fixture_names in sorted(by_source_rel.items()):
@@ -154,6 +163,14 @@ def declared_fixture_catalog_issues(
                     fixture_names=tuple(sorted(source_rels)),
                 )
             )
+    for canonical_rel, source_rels in sorted(noncanonical_source_rels.items()):
+        issues.append(
+            DeclaredFixtureCatalogIssue(
+                issue="noncanonical-source-rel",
+                value=canonical_rel,
+                fixture_names=tuple(sorted(source_rels)),
+            )
+        )
     return issues
 
 
@@ -168,7 +185,7 @@ def unmanaged_fixture_names(
 
 def canonical_fixture_text(spec: TokenFixtureSpec, *, repo_root: Path | None = None) -> str:
     root = default_repo_root() if repo_root is None else repo_root
-    payload = lex_file_to_payload(root / spec.source_rel, root=root)
+    payload = lex_file_to_payload(root / canonical_source_rel(spec.source_rel), root=root)
     return token_stream_to_json_payload(payload)
 
 
@@ -420,12 +437,12 @@ def fixture_status_report(
     out_root = default_fixture_root(root) if fixture_root is None else fixture_root
     statuses: list[TokenFixtureStatus] = []
     for spec in iter_fixture_specs(specs):
-        source = root / spec.source_rel
+        source = root / canonical_source_rel(spec.source_rel)
         fixture = out_root / spec.fixture_name
         source_exists = source.is_file()
         fixture_exists = fixture.is_file()
         payload = _read_fixture_payload(fixture)
-        expected_source_label = spec.source_rel.replace("\\", "/")
+        expected_source_label = canonical_source_rel(spec.source_rel)
         declared_source_label = _declared_source_label(payload) if payload is not None else None
         source_label_matches = declared_source_label == expected_source_label
         token_count = _payload_token_count(payload) if payload is not None else 0
@@ -647,7 +664,7 @@ def regenerate_token_fixtures(
 
     written: list[Path] = []
     for spec in iter_fixture_specs(specs):
-        source = root / spec.source_rel
+        source = root / canonical_source_rel(spec.source_rel)
         out = out_root / spec.fixture_name
         write_fixture_for_source(source, out, root=root)
         written.append(out)

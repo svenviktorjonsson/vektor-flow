@@ -20,6 +20,7 @@ BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
 INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] = (
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
     ({"schema": TOKEN_STREAM_SCHEMA, "version": 99, "tokens": []}, "unsupported version"),
+    ({"schema": TOKEN_STREAM_SCHEMA, "version": True, "tokens": []}, "token stream version: expected integer"),
     ({}, "missing token list"),
 )
 MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (
@@ -47,6 +48,18 @@ MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (
                     "location": {"file": "<bad>", "line": "NaN", "column": 1},
                 }
             ],
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "NUMBER",
+                    "value": 1,
+                    "location": {"file": "<bad>", "line": True, "column": 1},
+                }
+            ]
         },
         "malformed token entry",
     ),

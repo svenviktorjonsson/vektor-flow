@@ -19,6 +19,7 @@ from vektorflow.stdlib.io import (
     read_bytes,
     read_numbers,
     read_text,
+    sleep,
     sleep_ms,
     write_bytes,
     write_text,
@@ -311,6 +312,19 @@ class TestSleepMs:
         elapsed = time.monotonic() - start
         assert elapsed < 1.0  # just shouldn't hang
 
+    def test_sleep_seconds_via_public_api(self) -> None:
+        start = time.monotonic()
+        sleep(0.01)
+        elapsed = time.monotonic() - start
+        assert elapsed < 1.0  # just shouldn't hang
+
+    def test_io_namespace_has_sleep_and_sleep_ms(self) -> None:
+        io = build_io_namespace()
+        assert "sleep" in io
+        assert "sleep_ms" in io
+        assert callable(io["sleep"])
+        assert callable(io["sleep_ms"])
+
 
 # ---------------------------------------------------------------------------
 # VKF interpreter integration
@@ -340,5 +354,7 @@ io.write_text("{p}", "bound")
 
     def test_io_namespace_has_sleep_ms(self) -> None:
         io = resolve_stdlib("io")
+        assert "sleep" in io
         assert "sleep_ms" in io
+        assert callable(io["sleep"])
         assert callable(io["sleep_ms"])

@@ -37,6 +37,12 @@ def normalize_token_stream_error_message(msg: str, *, parser_surface: bool = Fal
     return msg
 
 
+def _require_int(value: Any, ctx: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"invalid {ctx}: expected integer")
+    return value
+
+
 def _jsonify_value(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_jsonify_value(v) for v in value]
@@ -99,7 +105,7 @@ def _normalize_payload(payload: Any) -> dict[str, Any]:
         raise ValueError(
             f"invalid token stream payload: unsupported schema {schema!r}"
         )
-    if version != TOKEN_STREAM_VERSION:
+    if _require_int(version, "token stream version") != TOKEN_STREAM_VERSION:
         raise ValueError(
             f"invalid token stream payload: unsupported version {version!r}"
         )
@@ -132,8 +138,8 @@ def token_from_data(data: dict[str, Any]) -> Token:
             _dejsonify_value(data.get("value")),
             SourceLocation(
                 str(_require_field(loc, "file", "token location")),
-                int(_require_field(loc, "line", "token location")),
-                int(_require_field(loc, "column", "token location")),
+                _require_int(_require_field(loc, "line", "token location"), "token location line"),
+                _require_int(_require_field(loc, "column", "token location"), "token location column"),
             ),
         )
     except ValueError as exc:

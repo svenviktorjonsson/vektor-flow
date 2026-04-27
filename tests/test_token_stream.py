@@ -14,6 +14,7 @@ from vektorflow.native_lexer_fixtures import (
     TOKEN_FIXTURE_REPORT_SCHEMA,
     TOKEN_FIXTURE_REPORT_VERSION,
     TokenFixtureSpec,
+    canonical_source_rel,
     declared_fixture_catalog_issues,
     declared_fixture_inventory,
     declared_fixture_names,
@@ -686,7 +687,7 @@ def test_declared_fixture_catalog_issues_detect_duplicate_catalog_entries() -> N
     specs = (
         TOKEN_FIXTURE_SPECS[0],
         TokenFixtureSpec(
-            source_rel=TOKEN_FIXTURE_SPECS[0].source_rel,
+            source_rel=TOKEN_FIXTURE_SPECS[0].source_rel.replace("/", "\\"),
             fixture_name="hello_native_duplicate_versioned.json",
         ),
         TokenFixtureSpec(
@@ -712,6 +713,37 @@ def test_declared_fixture_catalog_issues_detect_duplicate_catalog_entries() -> N
                 "examples/native_core/other_source.vkf",
             ),
         ),
+        DeclaredFixtureCatalogIssue(
+            issue="noncanonical-source-rel",
+            value=TOKEN_FIXTURE_SPECS[0].source_rel,
+            fixture_names=(
+                TOKEN_FIXTURE_SPECS[0].source_rel.replace("/", "\\"),
+            ),
+        ),
+    ]
+
+
+def test_canonical_source_rel_normalizes_manifest_paths() -> None:
+    assert canonical_source_rel(r".\examples\native_core\hello_native.vkf") == "examples/native_core/hello_native.vkf"
+
+
+def test_declared_fixture_inventory_uses_canonical_source_labels_for_noncanonical_specs() -> None:
+    inventory = declared_fixture_inventory(
+        fixture_root=TOKEN_FIXTURE_ROOT,
+        specs=(
+            TokenFixtureSpec(
+                source_rel=r".\examples\native_core\hello_native.vkf",
+                fixture_name="hello_native_versioned.json",
+            ),
+        ),
+    )
+    assert inventory == [
+        {
+            "source_rel": r".\examples\native_core\hello_native.vkf",
+            "fixture_name": "hello_native_versioned.json",
+            "fixture_path": str(TOKEN_FIXTURE_ROOT / "hello_native_versioned.json"),
+            "expected_source_label": "examples/native_core/hello_native.vkf",
+        }
     ]
 
 

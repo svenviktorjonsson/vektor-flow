@@ -404,6 +404,11 @@ def sleep_ms(ms: float) -> None:
     _time_host.sleep_ms(ms)
 
 
+def sleep(seconds: float) -> None:
+    """Cooperative sleep using seconds for the future time-oriented surface."""
+    sleep_ms(float(seconds) * 1000.0)
+
+
 def build_io_file_namespace() -> dict[str, Any]:
     """Portable file-oriented stdlib surface.
 
@@ -423,9 +428,11 @@ def build_io_file_namespace() -> dict[str, Any]:
 def build_io_time_namespace() -> dict[str, Any]:
     """Future time-oriented compatibility surface.
 
-    The current public symbol is still ``sleep_ms`` for compatibility.
+    ``sleep`` is the clearer forward-looking entry point; ``sleep_ms`` remains
+    for compatibility with existing programs.
     """
     return {
+        "sleep": sleep,
         "sleep_ms": sleep_ms,
     }
 

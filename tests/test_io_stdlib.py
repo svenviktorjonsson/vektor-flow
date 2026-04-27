@@ -52,7 +52,7 @@ class TestResolve:
             "write_bytes",
             "read_numbers",
         }
-        assert set(clock_ns.keys()) == {"sleep_ms"}
+        assert set(clock_ns.keys()) == {"sleep", "sleep_ms"}
         assert time_ns == clock_ns
         assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
 
@@ -173,6 +173,20 @@ class TestTextBytes:
         assert host.calls == [3.5]
 
         iolib.reset_io_time_host()
+
+    def test_sleep_uses_time_host_with_seconds_input(self) -> None:
+        class FakeTimeHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep_ms(self, ms: float) -> None:
+                self.calls.append(float(ms))
+
+        host = FakeTimeHost()
+        iolib.set_io_time_host(host)
+        build_io_time_namespace()["sleep"](0.25)
+
+        assert host.calls == [250.0]
 
     def test_getters_expose_current_hosts_for_restore(self) -> None:
         original_file_host = get_io_file_host()
