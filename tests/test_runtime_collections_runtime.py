@@ -19,6 +19,7 @@ from vektorflow.runtime import (
     make_vmap_from_call,
     runtime_collection_contains,
     runtime_collection_get,
+    runtime_collection_items_sorted,
     runtime_collection_set,
     runtime_collection_kind,
 )
@@ -87,6 +88,8 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_get(m, "x") == 3
     runtime_collection_set(m, "y", 4)
     assert runtime_collection_get(m, "y") == 4
+    m.set(2, 5)
+    assert runtime_collection_items_sorted(m) == [(2, 5), ("x", 3), ("y", 4)]
 
 
 def test_runtime_collection_call_factories() -> None:

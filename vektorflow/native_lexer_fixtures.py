@@ -27,6 +27,7 @@ class TokenFixtureSpec:
 @dataclass(frozen=True)
 class TokenFixtureStatus:
     source_rel: str
+    source_path: str
     fixture_name: str
     fixture_path: str
     source_exists: bool
@@ -34,6 +35,7 @@ class TokenFixtureStatus:
     expected_source_label: str
     declared_source_label: str | None
     source_label_matches: bool
+    source_sha256: str | None
     token_count: int
     payload_sha256: str | None
     status: str
@@ -48,8 +50,10 @@ class DiscoveredFixtureStatus:
     envelope_kind: str
     canonical_versioned: bool
     declared_source_label: str | None
+    pairing_mode: str
     paired_source_path: str | None
     paired_source_exists: bool
+    paired_source_sha256: str | None
     token_count: int
     payload_sha256: str
     validation_issues: tuple[str, ...]
@@ -119,6 +123,10 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _sha256_path(path: Path) -> str:
+    return _sha256_text(path.read_text(encoding="utf-8"))
+
+
 def _read_fixture_payload(path: Path) -> dict[str, object] | None:
     if not path.is_file():
         return None
@@ -185,6 +193,21 @@ def _paired_source_path_for_fixture(
     return _paired_source_path_for_label(declared_source_label, repo_root=repo_root)
 
 
+def _paired_source_info_for_fixture(
+    fixture_path: Path,
+    *,
+    declared_source_label: str | None,
+    repo_root: Path,
+) -> tuple[str, Path | None]:
+    sibling = fixture_path.with_suffix(".vkf")
+    if sibling.is_file():
+        return "sibling-vkf", sibling
+    declared = _paired_source_path_for_label(declared_source_label, repo_root=repo_root)
+    if declared is not None:
+        return "declared-label", declared
+    return "none", None
+
+
 def _validation_issues_for_discovered_fixture(
     *,
     parseable_json: bool,
@@ -236,14 +259,10 @@ def discovered_fixture_report(
         envelope_kind = _envelope_kind(payload_obj) if parseable_json else "invalid-json"
         payload = payload_obj if isinstance(payload_obj, dict) else None
         declared_source_label = _declared_source_label(payload) if payload is not None else None
-        paired_source_path = (
-            _paired_source_path_for_fixture(
-                path,
-                declared_source_label=declared_source_label,
-                repo_root=root,
-            )
-            if declared_source_label is not None or path.with_suffix(".vkf").is_file()
-            else None
+        pairing_mode, paired_source_path = _paired_source_info_for_fixture(
+            path,
+            declared_source_label=declared_source_label,
+            repo_root=root,
         )
         paired_source_exists = bool(paired_source_path and paired_source_path.is_file())
         canonical_versioned = _is_canonical_versioned_payload(payload) if payload is not None else False
@@ -257,8 +276,12 @@ def discovered_fixture_report(
                 envelope_kind=envelope_kind,
                 canonical_versioned=canonical_versioned,
                 declared_source_label=declared_source_label,
+                pairing_mode=pairing_mode,
                 paired_source_path=str(paired_source_path) if paired_source_path is not None else None,
                 paired_source_exists=paired_source_exists,
+                paired_source_sha256=_sha256_path(paired_source_path)
+                if paired_source_exists and paired_source_path is not None
+                else None,
                 token_count=token_count,
                 payload_sha256=_sha256_text(text),
                 validation_issues=_validation_issues_for_discovered_fixture(
@@ -305,6 +328,7 @@ def fixture_status_report(
         statuses.append(
             TokenFixtureStatus(
                 source_rel=spec.source_rel,
+                source_path=str(source),
                 fixture_name=spec.fixture_name,
                 fixture_path=str(fixture),
                 source_exists=source_exists,
@@ -312,6 +336,7 @@ def fixture_status_report(
                 expected_source_label=expected_source_label,
                 declared_source_label=declared_source_label,
                 source_label_matches=source_label_matches,
+                source_sha256=_sha256_path(source) if source_exists else None,
                 token_count=token_count,
                 payload_sha256=payload_sha256,
                 status=status,
@@ -376,8 +401,10 @@ def fixture_status_payload(
                 "envelope_kind": item.envelope_kind,
                 "canonical_versioned": item.canonical_versioned,
                 "declared_source_label": item.declared_source_label,
+                "pairing_mode": item.pairing_mode,
                 "paired_source_path": item.paired_source_path,
                 "paired_source_exists": item.paired_source_exists,
+                "paired_source_sha256": item.paired_source_sha256,
                 "token_count": item.token_count,
                 "payload_sha256": item.payload_sha256,
                 "validation_issues": list(item.validation_issues),
@@ -387,6 +414,7 @@ def fixture_status_payload(
         "fixtures": [
             {
                 "source_rel": item.source_rel,
+                "source_path": item.source_path,
                 "fixture_name": item.fixture_name,
                 "fixture_path": item.fixture_path,
                 "source_exists": item.source_exists,
@@ -394,6 +422,7 @@ def fixture_status_payload(
                 "expected_source_label": item.expected_source_label,
                 "declared_source_label": item.declared_source_label,
                 "source_label_matches": item.source_label_matches,
+                "source_sha256": item.source_sha256,
                 "token_count": item.token_count,
                 "payload_sha256": item.payload_sha256,
                 "status": item.status,

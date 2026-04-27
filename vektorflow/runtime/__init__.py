@@ -15,6 +15,7 @@ from .collections_runtime import (
     make_singleton_vflist,
     runtime_collection_contains,
     runtime_collection_get,
+    runtime_collection_items_sorted,
     runtime_collection_set,
     runtime_collection_kind,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "make_vfqueue_from_call",
     "runtime_collection_contains",
     "runtime_collection_get",
+    "runtime_collection_items_sorted",
     "runtime_collection_set",
     "runtime_collection_kind",
 ]

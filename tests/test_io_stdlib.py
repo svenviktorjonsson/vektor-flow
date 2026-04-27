@@ -88,6 +88,51 @@ class TestTextBytes:
             ("sleep_ms", 12.5),
         ]
 
+    def test_file_and_clock_hosts_can_be_overridden_independently(self) -> None:
+        class FakeFileHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"sep-bytes"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "sep-text"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+        class FakeClockHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep_ms(self, ms: float) -> None:
+                self.calls.append(float(ms))
+
+        file_host = FakeFileHost()
+        clock_host = FakeClockHost()
+        iolib.set_io_file_host(file_host)
+        iolib.set_io_clock_host(clock_host)
+
+        assert iolib.read_text("file.txt") == "sep-text"
+        assert iolib.read_bytes("file.bin") == b"sep-bytes"
+        iolib.write_text("file.txt", "payload")
+        iolib.write_bytes("file.bin", b"x")
+        iolib.sleep_ms(7)
+
+        assert file_host.calls == [
+            ("read_text", ("file.txt", "utf-8")),
+            ("read_bytes", "file.bin"),
+            ("write_text", ("file.txt", "payload", "utf-8")),
+            ("write_bytes", ("file.bin", b"x")),
+        ]
+        assert clock_host.calls == [7.0]
+
 
 class TestReadNumbers:
     def test_auto_header_csv_named_tuple_columns(self, tmp_path: Path) -> None:
@@ -194,7 +239,7 @@ class TestReadNumbers:
         assert out.a.shape == (2,)
 
     def test_read_numbers_uses_installed_host_text_reader(self) -> None:
-        class FakeHost:
+        class FakeFileHost:
             def read_bytes(self, path: str) -> bytes:
                 raise AssertionError("unused")
 
@@ -209,10 +254,7 @@ class TestReadNumbers:
             def write_text(self, path: str, text: str, *, encoding: str) -> None:
                 raise AssertionError("unused")
 
-            def sleep_ms(self, ms: float) -> None:
-                raise AssertionError("unused")
-
-        iolib.set_io_host(FakeHost())
+        iolib.set_io_file_host(FakeFileHost())
         out = read_numbers("virtual.csv")
         np.testing.assert_array_equal(out.x, np.array([1.0, 3.0]))
         np.testing.assert_array_equal(out.y, np.array([2.0, 4.0]))

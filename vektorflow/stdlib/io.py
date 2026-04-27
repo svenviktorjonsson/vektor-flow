@@ -14,12 +14,12 @@ except ImportError:  # pragma: no cover - exercised via fallback tests
     np = None
 
 
-class IoHost(Protocol):
-    """Minimal host seam for filesystem/time operations used by stdlib ``io``.
+class IoFileHost(Protocol):
+    """Filesystem host seam for stdlib ``io``.
 
-    The current default implementation is Python-backed, but the public stdlib
-    functions delegate through this interface so a future native runtime can
-    replace it without rewriting parsing/table logic.
+    The table parsing logic in this module is portable; file reads/writes route
+    through this interface so a future native runtime can replace the Python
+    filesystem host without rewriting that logic.
     """
 
     def read_bytes(self, path: str) -> bytes: ...
@@ -30,11 +30,15 @@ class IoHost(Protocol):
 
     def write_text(self, path: str, text: str, *, encoding: str) -> None: ...
 
+
+class IoClockHost(Protocol):
+    """Timing host seam for stdlib ``io`` compatibility helpers."""
+
     def sleep_ms(self, ms: float) -> None: ...
 
 
-class PythonIoHost:
-    """Default host backed by Python's filesystem and sleep primitives."""
+class PythonIoFileHost:
+    """Default filesystem host backed by Python ``pathlib``."""
 
     def _as_path(self, path: str) -> Path:
         if not isinstance(path, str):
@@ -59,23 +63,56 @@ class PythonIoHost:
     def write_text(self, path: str, text: str, *, encoding: str) -> None:
         self._as_path(path).write_text(text, encoding=encoding)
 
+
+class PythonIoClockHost:
+    """Default timing host backed by Python ``time.sleep``."""
+
     def sleep_ms(self, ms: float) -> None:
         time.sleep(float(ms) * 0.001)
 
 
-_host: IoHost = PythonIoHost()
+class IoHost(IoFileHost, IoClockHost, Protocol):
+    """Combined compatibility protocol for callers that install one host object."""
+
+
+_file_host: IoFileHost = PythonIoFileHost()
+_clock_host: IoClockHost = PythonIoClockHost()
 
 
 def set_io_host(host: IoHost) -> None:
-    """Install a custom host adapter for stdlib ``io`` operations."""
-    global _host
-    _host = host
+    """Install one host that satisfies both the file and clock seams."""
+    set_io_file_host(host)
+    set_io_clock_host(host)
+
+
+def set_io_file_host(host: IoFileHost) -> None:
+    """Install a custom filesystem host adapter for stdlib ``io`` operations."""
+    global _file_host
+    _file_host = host
+
+
+def set_io_clock_host(host: IoClockHost) -> None:
+    """Install a custom timing host adapter for stdlib ``io`` compatibility helpers."""
+    global _clock_host
+    _clock_host = host
 
 
 def reset_io_host() -> None:
-    """Restore the default Python-backed host adapter."""
-    global _host
-    _host = PythonIoHost()
+    """Restore the default Python-backed host adapters."""
+    reset_io_file_host()
+    reset_io_clock_host()
+
+
+def reset_io_file_host() -> None:
+    """Restore the default Python-backed filesystem host adapter."""
+    global _file_host
+    _file_host = PythonIoFileHost()
+
+
+def reset_io_clock_host() -> None:
+    """Restore the default Python-backed timing host adapter."""
+    global _clock_host
+    _clock_host = PythonIoClockHost()
 
 
 class NumericColumn(list[float]):
@@ -148,22 +185,22 @@ def write_bytes(path: str, data: bytes) -> None:
     """Write raw bytes to ``path`` (overwrites)."""
     if not isinstance(data, (bytes, bytearray)):
         raise TypeError("write_bytes expects bytes")
-    _host.write_bytes(path, bytes(data))
+    _file_host.write_bytes(path, bytes(data))
 
 
 def read_bytes(path: str) -> bytes:
     """Read the entire file as bytes."""
-    return _host.read_bytes(path)
+    return _file_host.read_bytes(path)
 
 
 def write_text(path: str, text: str, encoding: str = "utf-8") -> None:
     """Write ``text`` to ``path`` (overwrites)."""
-    _host.write_text(path, str(text), encoding=encoding)
+    _file_host.write_text(path, str(text), encoding=encoding)
 
 
 def read_text(path: str, encoding: str = "utf-8") -> str:
     """Read the entire file as a decoded string."""
-    return _host.read_text(path, encoding=encoding)
+    return _file_host.read_text(path, encoding=encoding)
 
 
 def _parse_float(cell: str) -> float | None:
@@ -327,7 +364,7 @@ def read_numbers(
 
 def sleep_ms(ms: float) -> None:
     """Cooperative sleep (event-loop friendly). *ms* in milliseconds (fractional allowed)."""
-    _host.sleep_ms(ms)
+    _clock_host.sleep_ms(ms)
 
 
 def build_io_namespace() -> dict[str, Any]:

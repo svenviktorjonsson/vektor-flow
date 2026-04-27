@@ -42,6 +42,7 @@ from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
     runtime_collection_contains,
     runtime_collection_get,
+    runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_set,
     make_multiset,
@@ -538,8 +539,7 @@ def _format_vmap_stringify(
     m: VMap,
     types: dict[str, ast.TypeExpr | ast.FuncType] | None,
 ) -> str:
-    items = list(m.items())
-    items.sort(key=lambda kv: (str(type(kv[0]).__name__), str(kv[0])))
+    items = runtime_collection_items_sorted(m)
     inner = ", ".join(
         f"{_stringify(k, types)}:{_stringify(val, types)}" for k, val in items
     )

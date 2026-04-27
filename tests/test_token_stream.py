@@ -46,6 +46,7 @@ from tests.token_stream_fixture_helper import (
     assert_fixture_parses_like_source,
     assert_loader_rejects_token_stream,
     assert_loader_rejects_token_stream_object,
+    assert_loader_parser_cli_reject_token_stream_object,
     assert_parser_rejects_token_stream,
     assert_parser_rejects_token_stream_object,
     iter_token_fixture_cases,
@@ -162,6 +163,18 @@ def test_parse_token_stream_json_rejects_malformed_token_entries(
 @pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
 def test_tokens_from_json_rejects_malformed_token_entries(payload: dict[str, object], expected: str) -> None:
     assert_loader_rejects_token_stream_object(payload, "invalid token entry")
+
+
+@pytest.mark.parametrize("payload, _expected", MALFORMED_TOKEN_ENTRY_CASES)
+def test_loader_parser_cli_error_surfaces_stay_aligned_for_malformed_entries(
+    tmp_path: Path, payload: dict[str, object], _expected: str
+) -> None:
+    assert_loader_parser_cli_reject_token_stream_object(
+        tmp_path,
+        payload,
+        loader_expected="invalid token entry",
+        parser_expected="malformed token entry",
+    )
 
 
 def test_versioned_payload_helper_matches_json_output() -> None:
@@ -466,20 +479,26 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     assert discovered_by_name["hello_native_versioned.json"]["parseable_json"] is True
     assert discovered_by_name["hello_native_versioned.json"]["envelope_kind"] == "versioned"
     assert discovered_by_name["hello_native_versioned.json"]["canonical_versioned"] is True
+    assert discovered_by_name["hello_native_versioned.json"]["pairing_mode"] == "declared-label"
+    assert len(discovered_by_name["hello_native_versioned.json"]["paired_source_sha256"]) == 64
     assert discovered_by_name["hello_native_versioned.json"]["validation_issues"] == []
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["managed"] is False
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["parseable_json"] is True
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["envelope_kind"] == "legacy"
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["canonical_versioned"] is False
+    assert discovered_by_name["legacy_singleton_tuple_type.json"]["pairing_mode"] == "sibling-vkf"
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["paired_source_exists"] is True
+    assert len(discovered_by_name["legacy_singleton_tuple_type.json"]["paired_source_sha256"]) == 64
     assert discovered_by_name["legacy_singleton_tuple_type.json"]["validation_issues"] == [
         "legacy-envelope",
         "not-canonical-versioned",
     ]
     for item in payload["fixtures"]:
+        assert item["source_path"].endswith(item["source_rel"].replace("/", "\\"))
         assert item["expected_source_label"] == item["source_rel"]
         assert item["declared_source_label"] == item["source_rel"]
         assert item["source_label_matches"] is True
+        assert len(item["source_sha256"]) == 64
         assert item["token_count"] > 0
         assert len(item["payload_sha256"]) == 64
 
@@ -530,12 +549,16 @@ def test_discovered_fixture_report_covers_all_checked_in_token_json() -> None:
     assert by_name["hello_native_versioned.json"].managed is True
     assert by_name["hello_native_versioned.json"].envelope_kind == "versioned"
     assert by_name["hello_native_versioned.json"].canonical_versioned is True
+    assert by_name["hello_native_versioned.json"].pairing_mode == "declared-label"
     assert by_name["hello_native_versioned.json"].paired_source_exists is True
+    assert by_name["hello_native_versioned.json"].paired_source_sha256 is not None
     assert by_name["hello_native_versioned.json"].validation_issues == ()
     assert by_name["legacy_singleton_tuple_type.json"].managed is False
     assert by_name["legacy_singleton_tuple_type.json"].envelope_kind == "legacy"
     assert by_name["legacy_singleton_tuple_type.json"].canonical_versioned is False
+    assert by_name["legacy_singleton_tuple_type.json"].pairing_mode == "sibling-vkf"
     assert by_name["legacy_singleton_tuple_type.json"].paired_source_exists is True
+    assert by_name["legacy_singleton_tuple_type.json"].paired_source_sha256 is not None
     assert by_name["legacy_singleton_tuple_type.json"].validation_issues == (
         "legacy-envelope",
         "not-canonical-versioned",
@@ -558,7 +581,9 @@ def test_discovered_fixture_report_handles_invalid_json_without_crashing(tmp_pat
     assert item.parseable_json is False
     assert item.envelope_kind == "invalid-json"
     assert item.canonical_versioned is False
+    assert item.pairing_mode == "none"
     assert item.token_count == 0
+    assert item.paired_source_sha256 is None
     assert item.validation_issues == (
         "invalid-json",
         "missing-source-label",

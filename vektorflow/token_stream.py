@@ -27,6 +27,19 @@ TOKEN_STREAM_SCHEMA = "vektorflow.token_stream"
 TOKEN_STREAM_VERSION = 1
 
 
+def normalize_token_stream_error_message(msg: str, *, parser_surface: bool = False) -> str:
+    prefix = "invalid token stream payload: "
+    if msg.startswith(prefix):
+        msg = msg[len(prefix) :]
+    if parser_surface and (
+        msg.startswith("invalid token entry:")
+        or msg.startswith("invalid token location:")
+        or msg.startswith("invalid literal for ")
+    ):
+        return f"malformed token entry: {msg}"
+    return msg
+
+
 def _jsonify_value(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_jsonify_value(v) for v in value]
