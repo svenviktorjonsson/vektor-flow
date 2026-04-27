@@ -93,6 +93,10 @@ class IoHost(IoFileHost, IoTimeHost, Protocol):
     """Combined compatibility protocol for callers that install one host object."""
 
 
+class IoSecondsHost(IoFileHost, IoSecondsTimeHost, Protocol):
+    """Preferred combined host surface for file IO plus seconds-based time."""
+
+
 class _SecondsToMsTimeHostAdapter:
     """Compatibility adapter for seconds-only time hosts."""
 
@@ -120,8 +124,11 @@ _file_host: IoFileHost = PythonIoFileHost()
 _time_host: IoTimeHost = PythonIoTimeHost()
 
 
-def set_io_host(host: IoHost) -> None:
-    """Install one host that satisfies both the file and time seams."""
+def set_io_host(host: IoHost | IoSecondsHost) -> None:
+    """Install one host that satisfies both the file and time seams.
+
+    ``IoSecondsHost`` is the preferred future-oriented combined shape.
+    """
     set_io_file_host(host)
     set_io_time_host(host)
 

@@ -133,6 +133,16 @@ def declared_fixture_inventory(
     ]
 
 
+def _declared_pairing_status(*, source_exists: bool, fixture_exists: bool) -> str:
+    if source_exists and fixture_exists:
+        return "paired"
+    if source_exists:
+        return "fixture-missing"
+    if fixture_exists:
+        return "source-missing"
+    return "unpaired"
+
+
 def declared_fixture_manifest_payload(
     *,
     repo_root: Path | None = None,
@@ -153,6 +163,10 @@ def declared_fixture_manifest_payload(
         fixture = out_root / item["fixture_name"]
         source_exists = source.is_file()
         fixture_exists = fixture.is_file()
+        pairing_status = _declared_pairing_status(
+            source_exists=source_exists,
+            fixture_exists=fixture_exists,
+        )
         validation_issues: list[str] = []
         if not source_exists:
             validation_issues.append("source-missing")
@@ -172,6 +186,12 @@ def declared_fixture_manifest_payload(
                 "fixture_exists": fixture_exists,
                 "source_sha256": _sha256_path(source) if source_exists else None,
                 "fixture_sha256": _sha256_path(fixture) if fixture_exists else None,
+                "pairing_status": pairing_status,
+                "external_lexer_contract": {
+                    "source_path": str(source),
+                    "filename_label": item["expected_source_label"],
+                    "fixture_path": item["fixture_path"],
+                },
                 "validation_issues": validation_issues,
             }
         )
@@ -206,6 +226,14 @@ def declared_fixture_manifest_payload(
             key: validation_issue_counts[key] for key in sorted(validation_issue_counts)
         },
         "fixtures_with_validation_issues": fixtures_with_validation_issues,
+        "fixtures_by_pairing_status": {
+            key: [
+                item["fixture_name"]
+                for item in fixtures
+                if item["pairing_status"] == key
+            ]
+            for key in sorted({item["pairing_status"] for item in fixtures})
+        },
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -215,6 +243,8 @@ def declared_fixture_manifest_payload(
                     "expected_source_label": item["expected_source_label"],
                     "source_sha256": item["source_sha256"],
                     "fixture_sha256": item["fixture_sha256"],
+                    "pairing_status": item["pairing_status"],
+                    "external_lexer_contract": item["external_lexer_contract"],
                     "validation_issues": item["validation_issues"],
                 }
                 for item in fixtures
@@ -224,6 +254,10 @@ def declared_fixture_manifest_payload(
             "total": len(fixtures),
             "source_present": sum(1 for item in fixtures if item["source_exists"]),
             "fixture_present": sum(1 for item in fixtures if item["fixture_exists"]),
+            "paired": sum(1 for item in fixtures if item["pairing_status"] == "paired"),
+            "fixture_missing": sum(1 for item in fixtures if item["pairing_status"] == "fixture-missing"),
+            "source_missing": sum(1 for item in fixtures if item["pairing_status"] == "source-missing"),
+            "unpaired": sum(1 for item in fixtures if item["pairing_status"] == "unpaired"),
             "with_validation_issues": sum(1 for item in fixtures if item["validation_issues"]),
             "declared_catalog_issues": len(catalog_issues),
         },

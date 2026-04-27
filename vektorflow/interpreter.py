@@ -42,10 +42,10 @@ from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
     runtime_collection_contains,
     runtime_collection_ctor_call,
-    runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_read_attr,
+    runtime_collection_require_get,
     runtime_collection_take_prefix,
     runtime_collection_values,
     runtime_collection_set,
@@ -1093,11 +1093,9 @@ class Interpreter:
                 v = self._resolve(parts[0], env)
                 for p in parts[1:]:
                     if runtime_collection_kind(v) == "map":
-                        if not runtime_collection_contains(v, p):
-                            raise EvalError(
-                                f"missing key {p!r} in string interpolation"
-                            )
-                        v = runtime_collection_get(v, p)
+                        v = runtime_collection_require_get(
+                            v, p, missing_suffix=" in string interpolation"
+                        )
                     elif isinstance(v, dict):
                         if p not in v:
                             raise EvalError(
@@ -1947,9 +1945,7 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
         return base.get_at(_normalize_index(k))
     if runtime_collection_kind(base) == "map":
         kk = _normalize_index(k)
-        if not runtime_collection_contains(base, kk):
-            raise EvalError(f"missing key {kk!r}")
-        return runtime_collection_get(base, kk)
+        return runtime_collection_require_get(base, kk)
     if isinstance(base, list):
         return base[_normalize_index(k)]
     if isinstance(base, dict):

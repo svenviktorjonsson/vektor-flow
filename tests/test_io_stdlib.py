@@ -116,6 +116,47 @@ class TestTextBytes:
             ("sleep_ms", 12.5),
         ]
 
+    def test_io_host_accepts_preferred_seconds_based_combined_host(self) -> None:
+        class FakeHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"seconds-host-bytes"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "seconds-host-text"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(("sleep", float(seconds)))
+
+        host = FakeHost()
+        iolib.set_io_host(host)
+
+        assert iolib.read_text("virtual.txt") == "seconds-host-text"
+        assert iolib.read_bytes("virtual.bin") == b"seconds-host-bytes"
+        iolib.write_text("virtual.txt", "hello")
+        iolib.write_bytes("virtual.bin", b"abc")
+        iolib.sleep(0.5)
+        iolib.sleep_ms(250)
+
+        assert host.calls == [
+            ("read_text", ("virtual.txt", "utf-8")),
+            ("read_bytes", "virtual.bin"),
+            ("write_text", ("virtual.txt", "hello", "utf-8")),
+            ("write_bytes", ("virtual.bin", b"abc")),
+            ("sleep", 0.5),
+            ("sleep", 0.25),
+        ]
+
     def test_file_and_clock_hosts_can_be_overridden_independently(self) -> None:
         class FakeFileHost:
             def __init__(self) -> None:

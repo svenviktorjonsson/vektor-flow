@@ -126,6 +126,19 @@ def runtime_collection_get(value: Any, key: Any) -> Any:
     raise TypeError("runtime_collection_get only supports map-like runtime collections")
 
 
+def runtime_collection_require_get(
+    value: Any,
+    key: Any,
+    *,
+    missing_suffix: str = "",
+) -> Any:
+    if runtime_collection_kind(value) == "map":
+        if not runtime_collection_contains(value, key):
+            raise EvalError(f"missing key {key!r}{missing_suffix}")
+        return runtime_collection_get(value, key)
+    raise TypeError("runtime_collection_require_get only supports map-like runtime collections")
+
+
 def runtime_collection_set(value: Any, key: Any, item: Any) -> None:
     if runtime_collection_kind(value) == "map":
         value.set(key, item)
@@ -170,9 +183,7 @@ def runtime_collection_attr(value: Any, name: str) -> Any | None:
 
 def runtime_collection_read_attr(value: Any, name: str) -> Any | None:
     if runtime_collection_kind(value) == "map":
-        if not runtime_collection_contains(value, name):
-            raise EvalError(f"missing key {name!r}")
-        return runtime_collection_get(value, name)
+        return runtime_collection_require_get(value, name)
     return runtime_collection_attr(value, name)
 
 
