@@ -8,6 +8,8 @@ from .collections_runtime import (
     make_vflist,
     make_vmap,
     make_vfqueue,
+    runtime_collection_contains,
+    runtime_collection_get,
     runtime_collection_kind,
 )
 from .multiset import Multiset, cartesian_binary
@@ -28,5 +30,7 @@ __all__ = [
     "make_vflist",
     "make_vmap",
     "make_vfqueue",
+    "runtime_collection_contains",
+    "runtime_collection_get",
     "runtime_collection_kind",
 ]

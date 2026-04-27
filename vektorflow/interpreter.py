@@ -39,6 +39,7 @@ from .runtime.struct_value import (
     with_type,
 )
 from .runtime.compare import struct_eq, struct_lt
+from .runtime import runtime_collection_contains, runtime_collection_get, runtime_collection_kind
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
 from .runtime.type_values import (
@@ -1297,10 +1298,10 @@ class Interpreter:
                 raise EvalError(
                     f"function has no body binding {node.name!r}"
                 )
-            if isinstance(o, VMap):
-                if node.name not in o._d:
+            if runtime_collection_kind(o) == "map":
+                if not runtime_collection_contains(o, node.name):
                     raise EvalError(f"missing key {node.name!r}")
-                return o._d[node.name]
+                return runtime_collection_get(o, node.name)
             if isinstance(o, dict):
                 if node.name in o:
                     return o[node.name]
@@ -1903,11 +1904,11 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
         return seq.take_prefix(k)
     if isinstance(seq, LazyInfiniteIterator):
         return tuple(islice(seq, k))
-    if isinstance(seq, VFLinkedList):
+    if runtime_collection_kind(seq) in {"list", "queue"}:
         return tuple(islice(iter(seq), k))
     if isinstance(seq, (list, tuple)):
         return tuple(seq[:k])
-    if isinstance(seq, Multiset):
+    if runtime_collection_kind(seq) == "multiset":
         raise EvalError("take: use a sequence or iterator, not a multiset")
     if isinstance(seq, (str, bytes)):
         raise EvalError("take: use a sequence or iterator, not str/bytes")
@@ -1938,11 +1939,11 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
         return _dotted_get_one(base.data, k)
     if isinstance(base, LazyList):
         return base.get_at(_normalize_index(k))
-    if isinstance(base, VMap):
+    if runtime_collection_kind(base) == "map":
         kk = _normalize_index(k)
-        if kk not in base._d:
+        if not runtime_collection_contains(base, kk):
             raise EvalError(f"missing key {kk!r}")
-        return base._d[kk]
+        return runtime_collection_get(base, kk)
     if isinstance(base, list):
         return base[_normalize_index(k)]
     if isinstance(base, dict):
@@ -2040,11 +2041,12 @@ def _stringify(
         return _format_untagged_dict_as_record(v, types)
     if isinstance(v, AxisTaggedValue):
         return _stringify(v.data, types)
-    if isinstance(v, VMap):
+    collection_kind = runtime_collection_kind(v)
+    if collection_kind == "map":
         return _format_vmap_stringify(v, types)
-    if isinstance(v, VFLinkedList):
+    if collection_kind in {"list", "queue"}:
         return "[" + ", ".join(_stringify(x, types) for x in v) + "]"
-    if isinstance(v, Multiset):
+    if collection_kind == "multiset":
         return _format_multiset_stringify(v, types)
     if isinstance(v, LazyInfiniteIterator):
         return f"range from {v.start}"

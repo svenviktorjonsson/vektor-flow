@@ -50,3 +50,15 @@ def runtime_collection_kind(value: Any) -> str | None:
 
 def is_runtime_collection(value: Any) -> bool:
     return runtime_collection_kind(value) is not None
+
+
+def runtime_collection_contains(value: Any, key: Any) -> bool:
+    if runtime_collection_kind(value) == "map":
+        return key in value
+    return False
+
+
+def runtime_collection_get(value: Any, key: Any) -> Any:
+    if runtime_collection_kind(value) == "map":
+        return value.get(key)
+    raise TypeError("runtime_collection_get only supports map-like runtime collections")

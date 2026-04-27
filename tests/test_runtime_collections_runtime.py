@@ -10,6 +10,8 @@ from vektorflow.runtime import (
     make_vflist,
     make_vfqueue,
     make_vmap,
+    runtime_collection_contains,
+    runtime_collection_get,
     runtime_collection_kind,
 )
 
@@ -61,3 +63,10 @@ def test_runtime_collection_kind_and_make_multiset() -> None:
     assert runtime_collection_kind(("not", "a collection")) is None
     assert isinstance(ms, Multiset)
     assert ms.count(1) == 2
+
+
+def test_runtime_collection_map_helpers() -> None:
+    m = make_vmap({"x": 3})
+    assert runtime_collection_contains(m, "x") is True
+    assert runtime_collection_contains(m, "y") is False
+    assert runtime_collection_get(m, "x") == 3
