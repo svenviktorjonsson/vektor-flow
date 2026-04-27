@@ -43,9 +43,11 @@ def _require_int(value: Any, ctx: str) -> int:
     return value
 
 
-def _require_string(value: Any, ctx: str) -> str:
+def _require_string(value: Any, ctx: str, *, allow_empty: bool = True) -> str:
     if not isinstance(value, str):
         raise ValueError(f"invalid {ctx}: expected string")
+    if not allow_empty and value == "":
+        raise ValueError(f"invalid {ctx}: expected non-empty string")
     return value
 
 
@@ -137,13 +139,21 @@ def _require_field(data: dict[str, Any], field: str, ctx: str) -> Any:
 def token_from_data(data: dict[str, Any]) -> Token:
     try:
         data = _require_mapping(data, "token entry")
-        kind = _require_string(_require_field(data, "kind", "token entry"), "token kind")
+        kind = _require_string(
+            _require_field(data, "kind", "token entry"),
+            "token kind",
+            allow_empty=False,
+        )
         loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
         return Token(
             kind,
             _dejsonify_value(data.get("value")),
             SourceLocation(
-                _require_string(_require_field(loc, "file", "token location"), "token location file"),
+                _require_string(
+                    _require_field(loc, "file", "token location"),
+                    "token location file",
+                    allow_empty=False,
+                ),
                 _require_int(_require_field(loc, "line", "token location"), "token location line"),
                 _require_int(_require_field(loc, "column", "token location"), "token location column"),
             ),

@@ -40,12 +40,12 @@ from .runtime.struct_value import (
 )
 from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
-    runtime_collection_attr,
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_kind,
+    runtime_collection_read_attr,
     runtime_collection_take_prefix,
     runtime_collection_values,
     runtime_collection_set,
@@ -1305,11 +1305,7 @@ class Interpreter:
                 raise EvalError(
                     f"function has no body binding {node.name!r}"
                 )
-            if runtime_collection_kind(o) == "map":
-                if not runtime_collection_contains(o, node.name):
-                    raise EvalError(f"missing key {node.name!r}")
-                return runtime_collection_get(o, node.name)
-            collection_attr = runtime_collection_attr(o, node.name)
+            collection_attr = runtime_collection_read_attr(o, node.name)
             if collection_attr is not None:
                 return collection_attr
             if isinstance(o, dict):

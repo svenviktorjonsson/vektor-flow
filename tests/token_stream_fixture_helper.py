@@ -29,9 +29,33 @@ MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (
         {
             "tokens": [
                 {
+                    "kind": "",
+                    "value": "x",
+                    "location": {"file": "<bad>", "line": 1, "column": 1},
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
                     "kind": 7,
                     "value": "x",
                     "location": {"file": "<bad>", "line": 1, "column": 1},
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "IDENT",
+                    "value": "x",
+                    "location": {"file": "", "line": 1, "column": 1},
                 }
             ]
         },
@@ -283,6 +307,31 @@ def loader_rejects_token_stream_message(payload_text: str) -> str:
 
 def loader_rejects_token_stream_object_message(payload: dict[str, object]) -> str:
     return loader_rejects_token_stream_message(json.dumps(payload))
+
+
+def assert_parser_surface_rejects_token_stream(payload_text: str, expected: str) -> None:
+    from vektorflow.token_stream import load_tokens_from_json
+
+    try:
+        load_tokens_from_json(payload_text, parser_surface=True)
+    except ValueError as exc:
+        assert expected in str(exc)
+        return
+    raise AssertionError("expected load_tokens_from_json(..., parser_surface=True) to reject payload")
+
+
+def assert_parser_surface_rejects_token_stream_object(payload: dict[str, object], expected: str) -> None:
+    assert_parser_surface_rejects_token_stream(json.dumps(payload), expected)
+
+
+def parser_surface_rejects_token_stream_object_message(payload: dict[str, object]) -> str:
+    from vektorflow.token_stream import load_tokens_from_json
+
+    try:
+        load_tokens_from_json(json.dumps(payload), parser_surface=True)
+    except ValueError as exc:
+        return str(exc)
+    raise AssertionError("expected load_tokens_from_json(..., parser_surface=True) to reject payload")
 
 
 def assert_loader_parser_cli_reject_token_stream_object(

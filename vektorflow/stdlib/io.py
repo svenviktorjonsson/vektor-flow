@@ -106,6 +106,16 @@ class _SecondsToMsTimeHostAdapter:
         self.sleep(float(ms) * 0.001)
 
 
+class _MsToSecondsTimeHostAdapter:
+    """Preferred-view adapter for legacy millisecond-only time hosts."""
+
+    def __init__(self, host: IoTimeHost) -> None:
+        self._host = host
+
+    def sleep(self, seconds: float) -> None:
+        self._host.sleep_ms(float(seconds) * 1000.0)
+
+
 _file_host: IoFileHost = PythonIoFileHost()
 _time_host: IoTimeHost = PythonIoTimeHost()
 
@@ -154,6 +164,16 @@ def set_io_seconds_host(host: IoSecondsTimeHost) -> None:
 def get_io_time_host() -> IoTimeHost:
     """Return the currently installed time-oriented host adapter."""
     return _time_host
+
+
+def get_io_seconds_host() -> IoSecondsTimeHost:
+    """Return the current time host through the preferred seconds interface."""
+    if isinstance(_time_host, _SecondsToMsTimeHostAdapter):
+        return _time_host._host
+    host_sleep = getattr(_time_host, "sleep", None)
+    if callable(host_sleep):
+        return _time_host
+    return _MsToSecondsTimeHostAdapter(_time_host)
 
 
 def set_io_clock_host(host: IoClockHost) -> None:

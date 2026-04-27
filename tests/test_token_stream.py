@@ -39,7 +39,6 @@ from vektorflow.parser import parse_module, parse_token_stream_json, parse_token
 from vektorflow.token_stream import (
     TOKEN_STREAM_SCHEMA,
     TOKEN_STREAM_VERSION,
-    load_tokens_from_json,
     token_stream_payload_from_json,
     token_stream_to_json,
     tokens_from_json,
@@ -58,6 +57,8 @@ from tests.token_stream_fixture_helper import (
     assert_loader_rejects_token_stream_object,
     assert_loader_parser_cli_reject_token_stream_object,
     loader_rejects_token_stream_object_message,
+    parser_surface_rejects_token_stream_object_message,
+    assert_parser_surface_rejects_token_stream_object,
     parser_rejects_token_stream_object_message,
     assert_parser_rejects_token_stream,
     assert_parser_rejects_token_stream_object,
@@ -208,8 +209,7 @@ def test_tokens_from_json_rejects_malformed_token_entries(payload: dict[str, obj
 def test_load_tokens_from_json_normalizes_parser_surface_malformed_entries(
     payload: dict[str, object], expected: str
 ) -> None:
-    with pytest.raises(ValueError, match=expected):
-        load_tokens_from_json(json.dumps(payload), parser_surface=True)
+    assert_parser_surface_rejects_token_stream_object(payload, expected)
 
 
 @pytest.mark.parametrize("payload, _expected", MALFORMED_TOKEN_ENTRY_CASES)
@@ -229,7 +229,7 @@ def test_parser_surface_strips_loader_prefix_for_malformed_entries(
     payload: dict[str, object], _expected: str
 ) -> None:
     loader_msg = loader_rejects_token_stream_object_message(payload)
-    parser_msg = parser_rejects_token_stream_object_message(payload)
+    parser_msg = parser_surface_rejects_token_stream_object_message(payload)
     assert loader_msg.startswith("invalid token entry:")
     assert parser_msg.startswith("malformed token entry:")
     assert "invalid token entry:" not in parser_msg
@@ -283,6 +283,47 @@ def test_native_lexer_proto_emits_versioned_payload_from_stdin() -> None:
     assert payload["schema"] == TOKEN_STREAM_SCHEMA
     assert payload["tokens"][0]["kind"] == "NUMBER"
     assert payload["tokens"][0]["value"] == 1.2e4
+
+
+def test_native_lexer_proto_accepts_filename_label_for_stdin() -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vektorflow.native_lexer_proto",
+            "-",
+            "--filename-label",
+            "examples/native_core/hello_native.vkf",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        input=":: 3\n",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = token_stream_payload_from_json(proc.stdout)
+    assert payload["tokens"][0]["location"]["file"] == "examples/native_core/hello_native.vkf"
+
+
+def test_native_lexer_proto_accepts_filename_label_for_file_input(tmp_path: Path) -> None:
+    source = tmp_path / "sample.vkf"
+    source.write_text("vec.(3+2)\n", encoding="utf-8")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "vektorflow.native_lexer_proto",
+            str(source),
+            "--filename-label",
+            "fixtures/generated/sample.vkf",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = token_stream_payload_from_json(proc.stdout)
+    assert payload["tokens"][0]["location"]["file"] == "fixtures/generated/sample.vkf"
 
 
 def test_stable_source_label_prefers_repo_relative_path() -> None:

@@ -23,6 +23,7 @@ from vektorflow.runtime import (
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
+    runtime_collection_read_attr,
     runtime_collection_take_prefix,
     runtime_collection_values,
     runtime_collection_set,
@@ -122,6 +123,17 @@ def test_runtime_collection_queue_attrs_are_seam_owned_callables() -> None:
     assert get() == 5
     assert get() == 6
     assert empty() is True
+
+
+def test_runtime_collection_read_attr_unifies_map_and_queue_reads() -> None:
+    m = make_vmap({"name": "alice"})
+    q = make_vfqueue([4])
+    assert runtime_collection_read_attr(m, "name") == "alice"
+    get = runtime_collection_read_attr(q, "get")
+    assert callable(get)
+    assert get() == 4
+    with pytest.raises(Exception):
+        runtime_collection_read_attr(m, "missing")
 
 
 def test_runtime_collection_call_factories() -> None:

@@ -73,6 +73,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "source",
         help="VKF source file path, or '-' to read from stdin.",
     )
+    parser.add_argument(
+        "--filename-label",
+        default=None,
+        help="Override the token location file label, primarily for stdin-based automation.",
+    )
     return parser
 
 
@@ -80,12 +85,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
     if args.source == "-":
-        sys.stdout.write(lex_to_json(sys.stdin.read(), filename="<stdin>"))
+        filename = args.filename_label if args.filename_label is not None else "<stdin>"
+        sys.stdout.write(lex_to_json(sys.stdin.read(), filename=filename))
         sys.stdout.write("\n")
         return 0
 
     path = Path(args.source)
-    sys.stdout.write(lex_path_to_json(path))
+    if args.filename_label is None:
+        sys.stdout.write(lex_path_to_json(path))
+    else:
+        sys.stdout.write(lex_to_json(path.read_text(encoding="utf-8"), filename=args.filename_label))
     sys.stdout.write("\n")
     return 0
 

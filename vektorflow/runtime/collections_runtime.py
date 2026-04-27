@@ -168,6 +168,14 @@ def runtime_collection_attr(value: Any, name: str) -> Any | None:
     return None
 
 
+def runtime_collection_read_attr(value: Any, name: str) -> Any | None:
+    if runtime_collection_kind(value) == "map":
+        if not runtime_collection_contains(value, name):
+            raise EvalError(f"missing key {name!r}")
+        return runtime_collection_get(value, name)
+    return runtime_collection_attr(value, name)
+
+
 def runtime_collection_take_prefix(value: Any, count: int) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
