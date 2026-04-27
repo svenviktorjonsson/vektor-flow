@@ -127,6 +127,10 @@ def _sha256_path(path: Path) -> str:
     return _sha256_text(path.read_text(encoding="utf-8"))
 
 
+def _bundle_sha256(value: object) -> str:
+    return _sha256_text(json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+
 def _read_fixture_payload(path: Path) -> dict[str, object] | None:
     if not path.is_file():
         return None
@@ -456,6 +460,43 @@ def fixture_status_payload(
             }
             for item in statuses
         ],
+        "bundle_sha256": {
+            "declared_specs": _bundle_sha256(
+                [
+                    {
+                        "source_rel": spec.source_rel,
+                        "fixture_name": spec.fixture_name,
+                    }
+                    for spec in iter_fixture_specs(specs)
+                ]
+            ),
+            "managed_fixtures": _bundle_sha256(
+                [
+                    {
+                        "source_rel": item.source_rel,
+                        "fixture_name": item.fixture_name,
+                        "status": item.status,
+                        "source_sha256": item.source_sha256,
+                        "payload_sha256": item.payload_sha256,
+                    }
+                    for item in statuses
+                ]
+            ),
+            "discovered_fixtures": _bundle_sha256(
+                [
+                    {
+                        "fixture_name": item.fixture_name,
+                        "managed": item.managed,
+                        "envelope_kind": item.envelope_kind,
+                        "canonical_versioned": item.canonical_versioned,
+                        "payload_sha256": item.payload_sha256,
+                        "validation_issues": list(item.validation_issues),
+                    }
+                    for item in discovered
+                ]
+            ),
+            "validation_issues": _bundle_sha256(_fixtures_with_validation_issues(discovered)),
+        },
         "summary": counts,
     }
 

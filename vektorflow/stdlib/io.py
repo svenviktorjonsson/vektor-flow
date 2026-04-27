@@ -31,7 +31,11 @@ class IoFileHost(Protocol):
 
 
 class IoClockHost(Protocol):
-    """Timing host seam for stdlib ``io`` compatibility helpers."""
+    """Timing host seam for stdlib ``io`` compatibility helpers.
+
+    ``clock`` is kept for backward compatibility inside this module, but the
+    long-term extraction target is a time-oriented host boundary.
+    """
 
     def sleep_ms(self, ms: float) -> None: ...
 
@@ -98,6 +102,15 @@ def set_io_clock_host(host: IoClockHost) -> None:
     _clock_host = host
 
 
+def set_io_time_host(host: IoClockHost) -> None:
+    """Install a custom time-oriented host adapter.
+
+    Alias of :func:`set_io_clock_host`; kept to make the future time-oriented
+    seam explicit without breaking current callers.
+    """
+    set_io_clock_host(host)
+
+
 def reset_io_host() -> None:
     """Restore the default Python-backed host adapters."""
     reset_io_file_host()
@@ -114,6 +127,11 @@ def reset_io_clock_host() -> None:
     """Restore the default Python-backed timing host adapter."""
     global _clock_host
     _clock_host = PythonIoClockHost()
+
+
+def reset_io_time_host() -> None:
+    """Restore the default Python-backed time-oriented host adapter."""
+    reset_io_clock_host()
 
 
 class NumericColumn(list[float]):
@@ -389,6 +407,15 @@ def build_io_clock_namespace() -> dict[str, Any]:
     return {
         "sleep_ms": sleep_ms,
     }
+
+
+def build_io_time_namespace() -> dict[str, Any]:
+    """Future time-oriented compatibility surface.
+
+    Alias of :func:`build_io_clock_namespace`; this keeps the current behavior
+    while making the preferred extraction boundary clearer.
+    """
+    return build_io_clock_namespace()
 
 
 def build_io_namespace() -> dict[str, Any]:

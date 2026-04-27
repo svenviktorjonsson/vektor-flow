@@ -128,6 +128,18 @@ def test_parse_token_stream_json_rejects_invalid_envelopes(payload: dict[str, ob
     assert_parser_rejects_token_stream_object(payload, expected)
 
 
+@pytest.mark.parametrize("payload, expected", INVALID_TOKEN_STREAM_ENVELOPE_CASES)
+def test_loader_parser_cli_error_surfaces_stay_aligned_for_invalid_envelopes(
+    tmp_path: Path, payload: dict[str, object], expected: str
+) -> None:
+    assert_loader_parser_cli_reject_token_stream_object(
+        tmp_path,
+        payload,
+        loader_expected=expected,
+        parser_expected=expected,
+    )
+
+
 @pytest.mark.parametrize(
     "payload_text, expected",
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
@@ -324,6 +336,12 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
     payload = fixture_status_payload(repo_root=repo, fixture_root=out_root)
     assert payload["schema"] == TOKEN_FIXTURE_REPORT_SCHEMA
     assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
+    assert {key for key in payload["bundle_sha256"]} == {
+        "declared_specs",
+        "managed_fixtures",
+        "discovered_fixtures",
+        "validation_issues",
+    }
     assert payload["summary"] == {
         "total": len(TOKEN_FIXTURE_SPECS),
         "current": 1,
@@ -469,6 +487,8 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         {"source_rel": spec.source_rel, "fixture_name": spec.fixture_name}
         for spec in TOKEN_FIXTURE_SPECS
     ]
+    for value in payload["bundle_sha256"].values():
+        assert len(value) == 64
     assert payload["summary"] == {
         "total": len(TOKEN_FIXTURE_SPECS),
         "current": len(TOKEN_FIXTURE_SPECS),
@@ -533,6 +553,7 @@ def test_native_lexer_fixtures_module_report_emits_drifted_statuses(tmp_path: Pa
     repo = Path(__file__).resolve().parents[1]
     out_root = tmp_path / "token_stream"
     regenerate_token_fixtures(repo_root=repo, fixture_root=out_root)
+    baseline = fixture_status_payload(repo_root=repo, fixture_root=out_root)
     (out_root / TOKEN_FIXTURE_SPECS[0].fixture_name).write_text(
         '{"schema":"wrong","version":1,"tokens":[]}\n',
         encoding="utf-8",
@@ -556,6 +577,18 @@ def test_native_lexer_fixtures_module_report_emits_drifted_statuses(tmp_path: Pa
     payload = json.loads(proc.stdout)
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
+    assert (
+        payload["bundle_sha256"]["managed_fixtures"]
+        != baseline["bundle_sha256"]["managed_fixtures"]
+    )
+    assert (
+        payload["bundle_sha256"]["discovered_fixtures"]
+        != baseline["bundle_sha256"]["discovered_fixtures"]
+    )
+    assert (
+        payload["bundle_sha256"]["validation_issues"]
+        != baseline["bundle_sha256"]["validation_issues"]
+    )
 
 
 def test_fixture_discovery_helpers_surface_unmanaged_checked_in_fixtures() -> None:

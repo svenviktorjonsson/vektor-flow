@@ -13,6 +13,7 @@ from vektorflow.stdlib.io import (
     build_io_clock_namespace,
     build_io_file_namespace,
     build_io_namespace,
+    build_io_time_namespace,
     read_numbers,
 )
 
@@ -38,6 +39,7 @@ class TestResolve:
     def test_file_and_clock_subnamespaces_are_separate(self) -> None:
         file_ns = build_io_file_namespace()
         clock_ns = build_io_clock_namespace()
+        time_ns = build_io_time_namespace()
         full_ns = build_io_namespace()
 
         assert set(file_ns.keys()) == {
@@ -48,6 +50,7 @@ class TestResolve:
             "read_numbers",
         }
         assert set(clock_ns.keys()) == {"sleep_ms"}
+        assert time_ns == clock_ns
         assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
 
 
@@ -152,6 +155,21 @@ class TestTextBytes:
             ("write_bytes", ("file.bin", b"x")),
         ]
         assert clock_host.calls == [7.0]
+
+    def test_time_host_alias_matches_clock_host_behavior(self) -> None:
+        class FakeTimeHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep_ms(self, ms: float) -> None:
+                self.calls.append(float(ms))
+
+        host = FakeTimeHost()
+        iolib.set_io_time_host(host)
+        iolib.sleep_ms(3.5)
+        assert host.calls == [3.5]
+
+        iolib.reset_io_time_host()
 
 
 class TestReadNumbers:

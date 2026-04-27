@@ -20,6 +20,7 @@ from vektorflow.runtime import (
     runtime_collection_contains,
     runtime_collection_get,
     runtime_collection_items_sorted,
+    runtime_collection_keys_sorted,
     runtime_collection_set,
     runtime_collection_kind,
 )
@@ -90,6 +91,7 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_get(m, "y") == 4
     m.set(2, 5)
     assert runtime_collection_items_sorted(m) == [(2, 5), ("x", 3), ("y", 4)]
+    assert runtime_collection_keys_sorted(m) == [2, "x", "y"]
     ms = make_multiset([(3, 1), (1, 2)])
     assert runtime_collection_items_sorted(ms) == [(1, 2), (3, 1)]
 
