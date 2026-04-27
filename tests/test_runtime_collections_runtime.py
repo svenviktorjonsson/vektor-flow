@@ -21,6 +21,7 @@ from vektorflow.runtime import (
     runtime_collection_attr,
     runtime_collection_contains,
     runtime_collection_ctor_call,
+    runtime_collection_assign,
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
@@ -96,6 +97,7 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_contains(m, "y") is False
     assert runtime_collection_get(m, "x") == 3
     assert runtime_collection_require_get(m, "x") == 3
+    assert runtime_collection_assign(m, "y", 4) is True
     runtime_collection_set(m, "y", 4)
     assert runtime_collection_get(m, "y") == 4
     m.set(2, 5)
@@ -109,6 +111,7 @@ def test_runtime_collection_map_helpers() -> None:
         runtime_collection_require_get(
             make_vmap({"x": 3}), "y", missing_suffix=" in interpolation"
         )
+    assert runtime_collection_assign([], 0, "x") is False
 
 
 def test_runtime_collection_take_prefix_for_list_and_queue() -> None:

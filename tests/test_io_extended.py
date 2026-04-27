@@ -15,6 +15,7 @@ from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.io import (
+    build_io_native_namespace,
     build_io_namespace,
     build_io_seconds_namespace,
     read_bytes,
@@ -330,6 +331,18 @@ class TestSleepMs:
         io = build_io_seconds_namespace()
         assert set(io.keys()) == {"sleep"}
         assert callable(io["sleep"])
+
+    def test_native_namespace_has_file_io_and_preferred_sleep(self) -> None:
+        io = build_io_native_namespace()
+        assert {
+            "read_text",
+            "write_text",
+            "read_bytes",
+            "write_bytes",
+            "read_numbers",
+            "sleep",
+        } == set(io.keys())
+        assert "sleep_ms" not in io
 
 
 # ---------------------------------------------------------------------------

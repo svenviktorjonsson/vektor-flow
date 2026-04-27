@@ -41,6 +41,19 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "filename_label",
             "fixture_path",
         ],
+        "external_lexer_contract_field_meanings": {
+            "source_path": "Absolute path to the declared VKF source file on disk.",
+            "filename_label": "Canonical repo-relative POSIX label that the external lexer should emit in token locations.",
+            "fixture_path": "Absolute path to the canonical token fixture JSON for this declaration.",
+        },
+    }
+    assert payload["path_anchors"] == {
+        "repo_root": str(repo),
+        "fixture_root": str(TOKEN_FIXTURE_ROOT),
+        "fixture_path_kind": "absolute",
+        "source_path_kind": "absolute",
+        "source_rel_kind": "repo-relative-posix",
+        "filename_label_kind": "repo-relative-posix",
     }
     assert payload["fixtures_by_pairing_status"] == {
         "paired": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS]
@@ -98,6 +111,14 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "source-missing": ["source_missing_versioned.json"],
         "unpaired": ["missing_both_versioned.json"],
     }
+    assert payload["path_anchors"] == {
+        "repo_root": str(repo),
+        "fixture_root": str(out_root),
+        "fixture_path_kind": "absolute",
+        "source_path_kind": "absolute",
+        "source_rel_kind": "repo-relative-posix",
+        "filename_label_kind": "repo-relative-posix",
+    }
     assert payload["fixtures_by_contract_usability"] == {
         "blocked": [
             "hello_native_versioned.json",
@@ -145,6 +166,14 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
     assert payload["summary"]["unpaired"] == 0
     assert payload["summary"]["external_lexer_contract_usable"] == len(TOKEN_FIXTURE_SPECS)
     assert payload["summary"]["external_lexer_contract_blocked"] == 0
+    assert payload["path_anchors"] == {
+        "repo_root": str(repo),
+        "fixture_root": str(TOKEN_FIXTURE_ROOT),
+        "fixture_path_kind": "absolute",
+        "source_path_kind": "absolute",
+        "source_rel_kind": "repo-relative-posix",
+        "filename_label_kind": "repo-relative-posix",
+    }
     assert payload["fixtures_by_pairing_status"] == {
         "paired": [spec.fixture_name for spec in TOKEN_FIXTURE_SPECS]
     }

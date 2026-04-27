@@ -149,15 +149,24 @@ def _require_field(data: dict[str, Any], field: str, ctx: str) -> Any:
     return data[field]
 
 
+def _reject_unknown_fields(data: dict[str, Any], allowed: set[str], ctx: str) -> None:
+    extras = sorted(field for field in data if field not in allowed)
+    if extras:
+        joined = ", ".join(extras)
+        raise ValueError(f"invalid {ctx}: unexpected field(s): {joined}")
+
+
 def token_from_data(data: dict[str, Any]) -> Token:
     try:
         data = _require_mapping(data, "token entry")
+        _reject_unknown_fields(data, {"kind", "value", "location"}, "token entry")
         kind = _require_string(
             _require_field(data, "kind", "token entry"),
             "token kind",
             allow_empty=False,
         )
         loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
+        _reject_unknown_fields(loc, {"file", "line", "column"}, "token location")
         return Token(
             kind,
             _dejsonify_value(data.get("value")),

@@ -512,6 +512,13 @@ def build_io_seconds_namespace() -> dict[str, Any]:
     }
 
 
+def build_io_native_namespace() -> dict[str, Any]:
+    """Preferred native-friendly stdlib surface for file IO plus seconds-based time."""
+    ns = build_io_file_namespace()
+    ns.update(build_io_seconds_namespace())
+    return ns
+
+
 def build_io_clock_namespace() -> dict[str, Any]:
     """Backward-compatible alias for :func:`build_io_time_namespace`."""
     return build_io_time_namespace()

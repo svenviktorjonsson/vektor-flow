@@ -12,6 +12,7 @@ from vektorflow.stdlib import io as iolib
 from vektorflow.stdlib.io import (
     build_io_clock_namespace,
     build_io_file_namespace,
+    build_io_native_namespace,
     build_io_namespace,
     build_io_seconds_namespace,
     build_io_time_namespace,
@@ -44,6 +45,7 @@ class TestResolve:
 
     def test_file_and_clock_subnamespaces_are_separate(self) -> None:
         file_ns = build_io_file_namespace()
+        native_ns = build_io_native_namespace()
         clock_ns = build_io_clock_namespace()
         seconds_ns = build_io_seconds_namespace()
         time_ns = build_io_time_namespace()
@@ -56,8 +58,10 @@ class TestResolve:
             "write_bytes",
             "read_numbers",
         }
+        assert set(native_ns.keys()) == set(file_ns.keys()) | {"sleep"}
         assert set(seconds_ns.keys()) == {"sleep"}
         assert set(clock_ns.keys()) == {"sleep", "sleep_ms"}
+        assert native_ns["sleep"] is seconds_ns["sleep"]
         assert seconds_ns["sleep"] is time_ns["sleep"]
         assert time_ns == clock_ns
         assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
@@ -267,6 +271,47 @@ class TestTextBytes:
         build_io_seconds_namespace()["sleep"](0.75)
 
         assert host.calls == [0.75]
+
+    def test_native_namespace_combines_file_and_preferred_time_surfaces(self) -> None:
+        class FakeHost:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object]] = []
+
+            def read_bytes(self, path: str) -> bytes:
+                self.calls.append(("read_bytes", path))
+                return b"native-bytes"
+
+            def write_bytes(self, path: str, data: bytes) -> None:
+                self.calls.append(("write_bytes", (path, data)))
+
+            def read_text(self, path: str, *, encoding: str) -> str:
+                self.calls.append(("read_text", (path, encoding)))
+                return "native-text"
+
+            def write_text(self, path: str, text: str, *, encoding: str) -> None:
+                self.calls.append(("write_text", (path, text, encoding)))
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(("sleep", float(seconds)))
+
+        host = FakeHost()
+        iolib.set_io_host(host)
+        ns = build_io_native_namespace()
+
+        assert ns["read_text"]("native.txt") == "native-text"
+        assert ns["read_bytes"]("native.bin") == b"native-bytes"
+        ns["write_text"]("native.txt", "hello")
+        ns["write_bytes"]("native.bin", b"abc")
+        ns["sleep"](0.4)
+
+        assert "sleep_ms" not in ns
+        assert host.calls == [
+            ("read_text", ("native.txt", "utf-8")),
+            ("read_bytes", "native.bin"),
+            ("write_text", ("native.txt", "hello", "utf-8")),
+            ("write_bytes", ("native.bin", b"abc")),
+            ("sleep", 0.4),
+        ]
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:

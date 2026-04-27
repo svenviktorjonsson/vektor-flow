@@ -59,7 +59,32 @@ MALFORMED_TOKEN_ENTRY_CASES: tuple[tuple[dict[str, object], str], ...] = (
                 {
                     "kind": "IDENT",
                     "value": "x",
+                    "extra": 1,
+                    "location": {"file": "<bad>", "line": 1, "column": 1},
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "IDENT",
+                    "value": "x",
                     "location": {"file": "", "line": 1, "column": 1},
+                }
+            ]
+        },
+        "malformed token entry",
+    ),
+    (
+        {
+            "tokens": [
+                {
+                    "kind": "IDENT",
+                    "value": "x",
+                    "location": {"file": "<bad>", "line": 1, "column": 1, "offset": 99},
                 }
             ]
         },

@@ -40,6 +40,7 @@ from .runtime.struct_value import (
 )
 from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
+    runtime_collection_assign,
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_expanded_values,
@@ -704,7 +705,7 @@ class Interpreter:
             if runtime_collection_kind(d) == "map":
                 if len(keys) != 1:
                     raise EvalError("multi-key map assignment is not supported")
-                runtime_collection_set(d, keys[0], val)
+                runtime_collection_assign(d, keys[0], val)
                 return
             if not isinstance(d, dict):
                 raise EvalError("field bind requires struct")
@@ -1963,8 +1964,7 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
 def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
     if isinstance(container, LazyList):
         raise EvalError("cannot assign through index on lazy list")
-    if runtime_collection_kind(container) == "map":
-        runtime_collection_set(container, _normalize_index(k), val)
+    if runtime_collection_assign(container, _normalize_index(k), val):
         return
     if isinstance(container, list):
         container[_normalize_index(k)] = val

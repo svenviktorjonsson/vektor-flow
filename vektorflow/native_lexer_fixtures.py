@@ -222,6 +222,14 @@ def declared_fixture_manifest_payload(
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
         "version": TOKEN_FIXTURE_MANIFEST_VERSION,
+        "path_anchors": {
+            "repo_root": str(root),
+            "fixture_root": str(out_root),
+            "fixture_path_kind": "absolute",
+            "source_path_kind": "absolute",
+            "source_rel_kind": "repo-relative-posix",
+            "filename_label_kind": "repo-relative-posix",
+        },
         "fixtures": fixtures,
         "declared_catalog_issues": [
             {
@@ -251,6 +259,11 @@ def declared_fixture_manifest_payload(
                 "filename_label",
                 "fixture_path",
             ],
+            "external_lexer_contract_field_meanings": {
+                "source_path": "Absolute path to the declared VKF source file on disk.",
+                "filename_label": "Canonical repo-relative POSIX label that the external lexer should emit in token locations.",
+                "fixture_path": "Absolute path to the canonical token fixture JSON for this declaration.",
+            },
         },
         "fixtures_by_contract_usability": {
             "blocked": [
