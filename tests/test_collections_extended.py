@@ -12,6 +12,7 @@ import pytest
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.runtime.vflist import VFLinkedList
+from vektorflow.runtime.vfqueue import VFQueue
 from vektorflow.runtime.vmap import VMap
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.collections import build_collections_namespace
@@ -395,6 +396,7 @@ class TestCollectionsNamespace:
     def test_queue_factory_empty_args(self) -> None:
         ns = build_collections_namespace()
         q = ns["queue"]._vkf_impl([], {}, [])
+        assert isinstance(q, VFQueue)
         assert q.empty()
 
     def test_queue_factory_rejects_args(self) -> None:
