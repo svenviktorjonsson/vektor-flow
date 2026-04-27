@@ -153,6 +153,13 @@ def declared_fixture_manifest_payload(
         fixture = out_root / item["fixture_name"]
         source_exists = source.is_file()
         fixture_exists = fixture.is_file()
+        validation_issues: list[str] = []
+        if not source_exists:
+            validation_issues.append("source-missing")
+        if not fixture_exists:
+            validation_issues.append("fixture-missing")
+        if item["source_rel"] != item["expected_source_label"]:
+            validation_issues.append("noncanonical-source-rel")
         fixtures.append(
             {
                 "source_rel": item["source_rel"],
@@ -165,8 +172,23 @@ def declared_fixture_manifest_payload(
                 "fixture_exists": fixture_exists,
                 "source_sha256": _sha256_path(source) if source_exists else None,
                 "fixture_sha256": _sha256_path(fixture) if fixture_exists else None,
+                "validation_issues": validation_issues,
             }
         )
+
+    validation_issue_counts: dict[str, int] = {}
+    fixtures_with_validation_issues: list[dict[str, object]] = []
+    for item in fixtures:
+        issues = item["validation_issues"]
+        if issues:
+            fixtures_with_validation_issues.append(
+                {
+                    "fixture_name": item["fixture_name"],
+                    "issues": list(issues),
+                }
+            )
+        for issue in issues:
+            validation_issue_counts[issue] = validation_issue_counts.get(issue, 0) + 1
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -180,6 +202,10 @@ def declared_fixture_manifest_payload(
             }
             for item in catalog_issues
         ],
+        "validation_issue_counts": {
+            key: validation_issue_counts[key] for key in sorted(validation_issue_counts)
+        },
+        "fixtures_with_validation_issues": fixtures_with_validation_issues,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -189,6 +215,7 @@ def declared_fixture_manifest_payload(
                     "expected_source_label": item["expected_source_label"],
                     "source_sha256": item["source_sha256"],
                     "fixture_sha256": item["fixture_sha256"],
+                    "validation_issues": item["validation_issues"],
                 }
                 for item in fixtures
             ]
@@ -197,6 +224,7 @@ def declared_fixture_manifest_payload(
             "total": len(fixtures),
             "source_present": sum(1 for item in fixtures if item["source_exists"]),
             "fixture_present": sum(1 for item in fixtures if item["fixture_exists"]),
+            "with_validation_issues": sum(1 for item in fixtures if item["validation_issues"]),
             "declared_catalog_issues": len(catalog_issues),
         },
     }

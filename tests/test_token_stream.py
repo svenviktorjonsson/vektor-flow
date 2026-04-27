@@ -759,10 +759,13 @@ def test_declared_fixture_manifest_payload_emits_machine_readable_declared_contr
         "total": len(TOKEN_FIXTURE_SPECS),
         "source_present": len(TOKEN_FIXTURE_SPECS),
         "fixture_present": len(TOKEN_FIXTURE_SPECS),
+        "with_validation_issues": 0,
         "declared_catalog_issues": 0,
     }
     assert len(payload["bundle_sha256"]) == 64
     assert payload["declared_catalog_issues"] == []
+    assert payload["validation_issue_counts"] == {}
+    assert payload["fixtures_with_validation_issues"] == []
     assert payload["fixtures"] == [
         {
             "source_rel": spec.source_rel,
@@ -775,6 +778,7 @@ def test_declared_fixture_manifest_payload_emits_machine_readable_declared_contr
             "fixture_exists": True,
             "source_sha256": payload["fixtures"][index]["source_sha256"],
             "fixture_sha256": payload["fixtures"][index]["fixture_sha256"],
+            "validation_issues": [],
         }
         for index, spec in enumerate(TOKEN_FIXTURE_SPECS)
     ]
@@ -801,6 +805,7 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
         "total": 2,
         "source_present": 1,
         "fixture_present": 0,
+        "with_validation_issues": 2,
         "declared_catalog_issues": 1,
     }
     assert payload["declared_catalog_issues"] == [
@@ -809,6 +814,21 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
             "value": "examples/native_core/hello_native.vkf",
             "fixture_names": [r".\examples\native_core\hello_native.vkf"],
         }
+    ]
+    assert payload["validation_issue_counts"] == {
+        "fixture-missing": 2,
+        "noncanonical-source-rel": 1,
+        "source-missing": 1,
+    }
+    assert payload["fixtures_with_validation_issues"] == [
+        {
+            "fixture_name": "hello_native_versioned.json",
+            "issues": ["fixture-missing", "noncanonical-source-rel"],
+        },
+        {
+            "fixture_name": "missing_fixture_source_versioned.json",
+            "issues": ["source-missing", "fixture-missing"],
+        },
     ]
     assert payload["fixtures"] == [
         {
@@ -822,6 +842,7 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
             "fixture_exists": False,
             "source_sha256": payload["fixtures"][0]["source_sha256"],
             "fixture_sha256": None,
+            "validation_issues": ["fixture-missing", "noncanonical-source-rel"],
         },
         {
             "source_rel": "examples/native_core/missing_fixture_source.vkf",
@@ -834,6 +855,7 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
             "fixture_exists": False,
             "source_sha256": None,
             "fixture_sha256": None,
+            "validation_issues": ["source-missing", "fixture-missing"],
         },
     ]
     assert len(payload["fixtures"][0]["source_sha256"]) == 64
@@ -985,9 +1007,12 @@ def test_native_lexer_fixtures_module_manifest_emits_declared_fixture_contract()
         "total": len(TOKEN_FIXTURE_SPECS),
         "source_present": len(TOKEN_FIXTURE_SPECS),
         "fixture_present": len(TOKEN_FIXTURE_SPECS),
+        "with_validation_issues": 0,
         "declared_catalog_issues": 0,
     }
     assert payload["declared_catalog_issues"] == []
+    assert payload["validation_issue_counts"] == {}
+    assert payload["fixtures_with_validation_issues"] == []
     assert [item["fixture_name"] for item in payload["fixtures"]] == [
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
     ]

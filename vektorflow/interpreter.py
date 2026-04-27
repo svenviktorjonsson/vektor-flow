@@ -42,6 +42,7 @@ from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
     runtime_collection_attr,
     runtime_collection_contains,
+    runtime_collection_ctor_call,
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_kind,
@@ -1247,13 +1248,9 @@ class Interpreter:
         if isinstance(node, ast.Call):
             fn = self.eval_expr(node.func, env)
             pos, kw, spreads = self._eval_call_args(node.args, env)
-            ctor = getattr(fn, "_vkf_ctor", None)
-            if ctor == "map":
-                return fn._vkf_impl(pos, kw, spreads)
-            if ctor == "list":
-                return fn._vkf_impl(pos, kw, spreads)
-            if ctor == "queue":
-                return fn._vkf_impl(pos, kw, spreads)
+            ctor_result = runtime_collection_ctor_call(fn, pos, kw, spreads)
+            if ctor_result is not None:
+                return ctor_result
             if isinstance(fn, OpCallable):
                 if kw or spreads:
                     raise EvalError(f"operator calls do not accept keyword or spread arguments")

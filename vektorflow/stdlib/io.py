@@ -93,6 +93,19 @@ class IoHost(IoFileHost, IoTimeHost, Protocol):
     """Combined compatibility protocol for callers that install one host object."""
 
 
+class _SecondsToMsTimeHostAdapter:
+    """Compatibility adapter for seconds-only time hosts."""
+
+    def __init__(self, host: IoSecondsTimeHost) -> None:
+        self._host = host
+
+    def sleep(self, seconds: float) -> None:
+        self._host.sleep(float(seconds))
+
+    def sleep_ms(self, ms: float) -> None:
+        self.sleep(float(ms) * 0.001)
+
+
 _file_host: IoFileHost = PythonIoFileHost()
 _time_host: IoTimeHost = PythonIoTimeHost()
 
@@ -114,13 +127,28 @@ def get_io_file_host() -> IoFileHost:
     return _file_host
 
 
-def set_io_time_host(host: IoTimeHost) -> None:
+def _normalize_time_host(host: IoTimeHost | IoSecondsTimeHost) -> IoTimeHost:
+    host_sleep_ms = getattr(host, "sleep_ms", None)
+    if callable(host_sleep_ms):
+        return host
+    host_sleep = getattr(host, "sleep", None)
+    if callable(host_sleep):
+        return _SecondsToMsTimeHostAdapter(host)
+    raise TypeError("time host must define sleep_ms(ms) or sleep(seconds)")
+
+
+def set_io_time_host(host: IoTimeHost | IoSecondsTimeHost) -> None:
     """Install a custom time-oriented host adapter.
 
     This is the preferred seam going forward.
     """
     global _time_host
-    _time_host = host
+    _time_host = _normalize_time_host(host)
+
+
+def set_io_seconds_host(host: IoSecondsTimeHost) -> None:
+    """Install a seconds-oriented time host for the future seam."""
+    set_io_time_host(host)
 
 
 def get_io_time_host() -> IoTimeHost:

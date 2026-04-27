@@ -86,6 +86,18 @@ def make_multiset(pairs: Iterable[tuple[Any, int]] | None = None) -> Multiset:
     return Multiset.from_pairs(list(pairs))
 
 
+def runtime_collection_ctor_call(
+    value: Any,
+    pos: list[Any],
+    kw: dict[str, Any],
+    spreads: list[Any],
+) -> Any | None:
+    ctor = getattr(value, "_vkf_ctor", None)
+    if ctor in {"map", "list", "queue"}:
+        return value._vkf_impl(pos, kw, spreads)
+    return None
+
+
 def runtime_collection_kind(value: Any) -> str | None:
     if isinstance(value, VMap):
         return "map"

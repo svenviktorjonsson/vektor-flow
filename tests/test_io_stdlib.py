@@ -18,6 +18,7 @@ from vektorflow.stdlib.io import (
     get_io_file_host,
     get_io_time_host,
     read_numbers,
+    set_io_seconds_host,
 )
 
 
@@ -206,6 +207,30 @@ class TestTextBytes:
 
         assert host.second_calls == [0.125]
         assert host.ms_calls == []
+
+    def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
+        class FakeSecondsHost:
+            def __init__(self) -> None:
+                self.calls: list[float] = []
+
+            def sleep(self, seconds: float) -> None:
+                self.calls.append(float(seconds))
+
+        host = FakeSecondsHost()
+        set_io_seconds_host(host)
+
+        iolib.sleep(0.5)
+        iolib.sleep_ms(250)
+
+        assert host.calls == [0.5, 0.25]
+        assert get_io_time_host() is not host
+
+    def test_time_host_setter_rejects_host_without_sleep_methods(self) -> None:
+        class BadHost:
+            pass
+
+        with pytest.raises(TypeError, match="time host must define"):
+            iolib.set_io_time_host(BadHost())  # type: ignore[arg-type]
 
     def test_getters_expose_current_hosts_for_restore(self) -> None:
         original_file_host = get_io_file_host()

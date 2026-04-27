@@ -43,6 +43,12 @@ def _require_int(value: Any, ctx: str) -> int:
     return value
 
 
+def _require_string(value: Any, ctx: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"invalid {ctx}: expected string")
+    return value
+
+
 def _jsonify_value(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_jsonify_value(v) for v in value]
@@ -131,13 +137,13 @@ def _require_field(data: dict[str, Any], field: str, ctx: str) -> Any:
 def token_from_data(data: dict[str, Any]) -> Token:
     try:
         data = _require_mapping(data, "token entry")
-        kind = _require_field(data, "kind", "token entry")
+        kind = _require_string(_require_field(data, "kind", "token entry"), "token kind")
         loc = _require_mapping(_require_field(data, "location", "token entry"), "token location")
         return Token(
-            str(kind),
+            kind,
             _dejsonify_value(data.get("value")),
             SourceLocation(
-                str(_require_field(loc, "file", "token location")),
+                _require_string(_require_field(loc, "file", "token location"), "token location file"),
                 _require_int(_require_field(loc, "line", "token location"), "token location line"),
                 _require_int(_require_field(loc, "column", "token location"), "token location column"),
             ),

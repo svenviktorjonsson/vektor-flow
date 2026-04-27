@@ -19,6 +19,7 @@ from vektorflow.runtime import (
     make_vmap_from_call,
     runtime_collection_attr,
     runtime_collection_contains,
+    runtime_collection_ctor_call,
     runtime_collection_get,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
@@ -135,3 +136,13 @@ def test_runtime_collection_call_factories() -> None:
         make_vflist_from_call([], {"x": 1}, [])
     with pytest.raises(Exception):
         make_vfqueue_from_call([1], {}, [])
+
+
+def test_runtime_collection_ctor_call_dispatches_stdlib_collection_ctors() -> None:
+    from vektorflow.stdlib.collections import build_collections_namespace
+
+    ns = build_collections_namespace()
+    assert isinstance(runtime_collection_ctor_call(ns["map"], [], {"a": 1}, []), VMap)
+    assert list(runtime_collection_ctor_call(ns["list"], [1, 2], {}, [])) == [1, 2]
+    assert isinstance(runtime_collection_ctor_call(ns["queue"], [], {}, []), VFQueue)
+    assert runtime_collection_ctor_call(object(), [], {}, []) is None
