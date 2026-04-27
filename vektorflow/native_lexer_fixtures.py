@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -30,7 +31,16 @@ class TokenFixtureStatus:
     fixture_path: str
     source_exists: bool
     fixture_exists: bool
+    expected_source_label: str
+    declared_source_label: str | None
+    source_label_matches: bool
+    token_count: int
+    payload_sha256: str | None
     status: str
+
+
+TOKEN_FIXTURE_REPORT_SCHEMA = "vektorflow.token_fixture_report"
+TOKEN_FIXTURE_REPORT_VERSION = 1
 
 
 TOKEN_FIXTURE_SPECS: tuple[TokenFixtureSpec, ...] = (
@@ -72,6 +82,35 @@ def token_stream_to_json_payload(payload: dict[str, object]) -> str:
     return json.dumps(payload, indent=2)
 
 
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _read_fixture_payload(path: Path) -> dict[str, object] | None:
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _declared_source_label(payload: dict[str, object]) -> str | None:
+    tokens = payload.get("tokens")
+    if not isinstance(tokens, list) or not tokens:
+        return None
+    first = tokens[0]
+    if not isinstance(first, dict):
+        return None
+    location = first.get("location")
+    if not isinstance(location, dict):
+        return None
+    label = location.get("file")
+    return label if isinstance(label, str) and label else None
+
+
+def _payload_token_count(payload: dict[str, object]) -> int:
+    tokens = payload.get("tokens")
+    return len(tokens) if isinstance(tokens, list) else 0
+
+
 def fixture_status_report(
     *,
     repo_root: Path | None = None,
@@ -86,6 +125,12 @@ def fixture_status_report(
         fixture = out_root / spec.fixture_name
         source_exists = source.is_file()
         fixture_exists = fixture.is_file()
+        payload = _read_fixture_payload(fixture)
+        expected_source_label = spec.source_rel.replace("\\", "/")
+        declared_source_label = _declared_source_label(payload) if payload is not None else None
+        source_label_matches = declared_source_label == expected_source_label
+        token_count = _payload_token_count(payload) if payload is not None else 0
+        payload_sha256 = _sha256_text(fixture.read_text(encoding="utf-8")) if fixture_exists else None
         if not source_exists:
             status = "source-missing"
         elif not fixture_exists:
@@ -101,6 +146,11 @@ def fixture_status_report(
                 fixture_path=str(fixture),
                 source_exists=source_exists,
                 fixture_exists=fixture_exists,
+                expected_source_label=expected_source_label,
+                declared_source_label=declared_source_label,
+                source_label_matches=source_label_matches,
+                token_count=token_count,
+                payload_sha256=payload_sha256,
                 status=status,
             )
         )
@@ -126,6 +176,8 @@ def fixture_status_payload(
         "source_missing": sum(1 for item in statuses if item.status == "source-missing"),
     }
     return {
+        "schema": TOKEN_FIXTURE_REPORT_SCHEMA,
+        "version": TOKEN_FIXTURE_REPORT_VERSION,
         "fixtures": [
             {
                 "source_rel": item.source_rel,
@@ -133,6 +185,11 @@ def fixture_status_payload(
                 "fixture_path": item.fixture_path,
                 "source_exists": item.source_exists,
                 "fixture_exists": item.fixture_exists,
+                "expected_source_label": item.expected_source_label,
+                "declared_source_label": item.declared_source_label,
+                "source_label_matches": item.source_label_matches,
+                "token_count": item.token_count,
+                "payload_sha256": item.payload_sha256,
                 "status": item.status,
             }
             for item in statuses

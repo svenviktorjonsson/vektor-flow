@@ -113,3 +113,14 @@ def assert_fixture_boundary_parity(case: TokenStreamFixtureCase, *, cli_output: 
     assert_fixture_parses_like_source(case)
     if cli_output is not None:
         assert_cli_parse_tokens_output_matches_source(case, cli_output)
+
+
+def assert_parser_rejects_token_stream(payload_text: str, expected: str) -> None:
+    from vektorflow.parser import parse_token_stream_json
+
+    try:
+        parse_token_stream_json(payload_text)
+    except ValueError as exc:
+        assert expected in str(exc)
+        return
+    raise AssertionError("expected parse_token_stream_json to reject payload")

@@ -94,6 +94,22 @@ class TestMain:
         assert main(["parse-tokens", str(payload_path)]) == 1
         assert "invalid token stream payload" in capsys.readouterr().err
 
+    @pytest.mark.parametrize(
+        "payload_text, expected",
+        [
+            ('{"tokens":[', "malformed JSON"),
+            ("[]", "expected object"),
+        ],
+    )
+    def test_parse_tokens_subcommand_bad_top_level_json(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload_text: str, expected: str
+    ) -> None:
+        payload_path = tmp_path / "bad_top_level.json"
+        payload_path.write_text(payload_text, encoding="utf-8")
+
+        assert main(["parse-tokens", str(payload_path)]) == 1
+        assert expected in capsys.readouterr().err
+
     def test_parse_tokens_subcommand_versioned_fixture(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:

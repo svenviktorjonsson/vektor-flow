@@ -10,6 +10,8 @@ import pytest
 from vektorflow.lexer import tokenize
 from vektorflow.native_lexer_fixtures import (
     TOKEN_FIXTURE_SPECS,
+    TOKEN_FIXTURE_REPORT_SCHEMA,
+    TOKEN_FIXTURE_REPORT_VERSION,
     default_fixture_root,
     fixture_status_payload,
     fixture_status_report,
@@ -35,6 +37,7 @@ from tests.token_stream_fixture_helper import (
     TOKEN_FIXTURE_ROOT,
     assert_fixture_boundary_parity,
     assert_fixture_parses_like_source,
+    assert_parser_rejects_token_stream,
     iter_token_fixture_cases,
     native_core_fixture_cases,
     token_fixture_case,
@@ -114,6 +117,17 @@ def test_versioned_token_stream_json_includes_schema_metadata() -> None:
 def test_token_stream_json_rejects_invalid_envelopes(payload: dict[str, object], expected: str) -> None:
     with pytest.raises(ValueError, match=expected):
         tokens_from_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    "payload_text, expected",
+    [
+        ('{"tokens":[', "malformed JSON"),
+        ("[]", "expected object"),
+    ],
+)
+def test_parse_token_stream_json_rejects_bad_top_level_json(payload_text: str, expected: str) -> None:
+    assert_parser_rejects_token_stream(payload_text, expected)
 
 
 def test_versioned_fixture_parses_like_source_golden() -> None:
@@ -296,6 +310,13 @@ def test_fixture_status_report_marks_checked_in_samples_current() -> None:
     statuses = fixture_status_report(repo_root=repo, fixture_root=TOKEN_FIXTURE_ROOT)
     assert {item.fixture_name for item in statuses} == {spec.fixture_name for spec in TOKEN_FIXTURE_SPECS}
     assert {item.status for item in statuses} == {"current"}
+    for item in statuses:
+        assert item.expected_source_label == item.source_rel
+        assert item.declared_source_label == item.source_rel
+        assert item.source_label_matches is True
+        assert item.token_count > 0
+        assert item.payload_sha256 is not None
+        assert len(item.payload_sha256) == 64
 
 
 def test_fixture_drift_report_detects_stale_and_missing_samples(tmp_path: Path) -> None:
@@ -321,6 +342,8 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
     )
     (out_root / TOKEN_FIXTURE_SPECS[1].fixture_name).unlink()
     payload = fixture_status_payload(repo_root=repo, fixture_root=out_root)
+    assert payload["schema"] == TOKEN_FIXTURE_REPORT_SCHEMA
+    assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
     assert payload["summary"] == {
         "total": len(TOKEN_FIXTURE_SPECS),
         "current": 1,
@@ -451,6 +474,8 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         check=True,
     )
     payload = json.loads(proc.stdout)
+    assert payload["schema"] == TOKEN_FIXTURE_REPORT_SCHEMA
+    assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
     assert payload["summary"] == {
         "total": len(TOKEN_FIXTURE_SPECS),
         "current": len(TOKEN_FIXTURE_SPECS),
@@ -461,6 +486,12 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     assert {item["fixture_name"] for item in payload["fixtures"]} == {
         spec.fixture_name for spec in TOKEN_FIXTURE_SPECS
     }
+    for item in payload["fixtures"]:
+        assert item["expected_source_label"] == item["source_rel"]
+        assert item["declared_source_label"] == item["source_rel"]
+        assert item["source_label_matches"] is True
+        assert item["token_count"] > 0
+        assert len(item["payload_sha256"]) == 64
 
 
 def test_native_lexer_fixtures_module_report_emits_drifted_statuses(tmp_path: Path) -> None:
