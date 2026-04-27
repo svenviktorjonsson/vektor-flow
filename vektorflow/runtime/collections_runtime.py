@@ -245,6 +245,30 @@ def runtime_collection_elementwise_values(value: Any) -> tuple[Any, ...] | None:
     return None
 
 
+def runtime_collection_stringify(
+    value: Any,
+    stringify_item: Any,
+) -> str | None:
+    kind = runtime_collection_kind(value)
+    if kind == "map":
+        items = runtime_collection_items_sorted(value)
+        inner = ", ".join(
+            f"{stringify_item(key)}:{stringify_item(item)}" for key, item in items
+        )
+        return "{" + inner + "}"
+    if kind in {"list", "queue"}:
+        return "[" + ", ".join(stringify_item(item) for item in runtime_collection_values(value)) + "]"
+    if kind == "multiset":
+        pairs = runtime_collection_items_sorted(value)
+        if not pairs:
+            return "{}"
+        inner = ", ".join(
+            f"{stringify_item(key)}:{stringify_item(count)}" for key, count in pairs
+        )
+        return "{" + inner + "}"
+    return None
+
+
 def runtime_collection_attr(value: Any, name: str) -> Any | None:
     if runtime_collection_kind(value) == "queue":
         if name == "put":

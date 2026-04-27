@@ -153,6 +153,23 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         "validation_source": "runnable_contract_readiness_validation",
     }
     assert len(payload["runnable_contract_readiness_identity"]["readiness_sha256"]) == 64
+    assert payload["runnable_contract_state"] == {
+        "status": "all-runnable",
+        "ready": True,
+        "validation_passed": True,
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "comparison_sha256": payload["runnable_contract_set_identity"]["comparison_sha256"],
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "state_sha256": payload["runnable_contract_state"]["state_sha256"],
+        "consumption_rule": "consume readiness from this object; compare manifests by comparison_sha256 and readiness_sha256",
+        "identity_sources": [
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+            "runnable_contract_readiness_validation",
+        ],
+    }
+    assert len(payload["runnable_contract_state"]["state_sha256"]) == 64
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -343,6 +360,23 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         "validation_source": "runnable_contract_readiness_validation",
     }
     assert len(payload["runnable_contract_readiness_identity"]["readiness_sha256"]) == 64
+    assert payload["runnable_contract_state"] == {
+        "status": "blocked",
+        "ready": False,
+        "validation_passed": True,
+        "usable_count": 0,
+        "blocked_count": 3,
+        "comparison_sha256": payload["runnable_contract_set_identity"]["comparison_sha256"],
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "state_sha256": payload["runnable_contract_state"]["state_sha256"],
+        "consumption_rule": "consume readiness from this object; compare manifests by comparison_sha256 and readiness_sha256",
+        "identity_sources": [
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+            "runnable_contract_readiness_validation",
+        ],
+    }
+    assert len(payload["runnable_contract_state"]["state_sha256"]) == 64
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -488,3 +522,20 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         "validation_source": "runnable_contract_readiness_validation",
     }
     assert len(payload["runnable_contract_readiness_identity"]["readiness_sha256"]) == 64
+    assert payload["runnable_contract_state"] == {
+        "status": "all-runnable",
+        "ready": True,
+        "validation_passed": True,
+        "usable_count": len(TOKEN_FIXTURE_SPECS),
+        "blocked_count": 0,
+        "comparison_sha256": payload["runnable_contract_set_identity"]["comparison_sha256"],
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "state_sha256": payload["runnable_contract_state"]["state_sha256"],
+        "consumption_rule": "consume readiness from this object; compare manifests by comparison_sha256 and readiness_sha256",
+        "identity_sources": [
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+            "runnable_contract_readiness_validation",
+        ],
+    }
+    assert len(payload["runnable_contract_state"]["state_sha256"]) == 64

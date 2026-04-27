@@ -46,7 +46,6 @@ from .runtime import (
     runtime_collection_expanded_values,
     runtime_collection_index_get,
     runtime_collection_index_set,
-    runtime_collection_items_sorted,
     runtime_collection_kind,
     runtime_collection_elementwise_values,
     runtime_collection_pipe_result,
@@ -54,8 +53,8 @@ from .runtime import (
     runtime_collection_path_step,
     runtime_collection_read_attr,
     runtime_collection_spill_values,
+    runtime_collection_stringify,
     runtime_collection_take,
-    runtime_collection_values,
     runtime_collection_set,
     make_multiset,
     make_vmap,
@@ -531,31 +530,6 @@ def _format_untagged_dict_as_record(
     keys.sort(key=lambda k: (str(type(k).__name__), str(k)))
     parts = [f"{_stringify(k, types)}:{_stringify(v[k], types)}" for k in keys]
     return f"({', '.join(parts)})"
-
-
-def _format_multiset_stringify(
-    m: Multiset,
-    types: dict[str, ast.TypeExpr | ast.FuncType] | None,
-) -> str:
-    pairs = runtime_collection_items_sorted(m)
-    if not pairs:
-        return "{}"
-    inner = ", ".join(
-        f"{_stringify(k, types)}:{_stringify(c, types)}" for k, c in pairs
-    )
-    return "{" + inner + "}"
-
-
-def _format_runtime_map_stringify(
-    value: Any,
-    types: dict[str, ast.TypeExpr | ast.FuncType] | None,
-) -> str:
-    """Stringify an ordered runtime map view without reaching into its storage."""
-    items = runtime_collection_items_sorted(value)
-    inner = ", ".join(
-        f"{_stringify(k, types)}:{_stringify(val, types)}" for k, val in items
-    )
-    return "{" + inner + "}"
 
 
 def _format_vfunction_display(vf: VFunction) -> str:
@@ -2049,13 +2023,12 @@ def _stringify(
         return _format_untagged_dict_as_record(v, types)
     if isinstance(v, AxisTaggedValue):
         return _stringify(v.data, types)
-    collection_kind = runtime_collection_kind(v)
-    if collection_kind == "map":
-        return _format_runtime_map_stringify(v, types)
-    if collection_kind in {"list", "queue"}:
-        return "[" + ", ".join(_stringify(x, types) for x in runtime_collection_values(v)) + "]"
-    if collection_kind == "multiset":
-        return _format_multiset_stringify(v, types)
+    runtime_string = runtime_collection_stringify(
+        v,
+        lambda item: _stringify(item, types),
+    )
+    if runtime_string is not None:
+        return runtime_string
     if isinstance(v, LazyInfiniteIterator):
         return f"range from {v.start}"
     if isinstance(v, LazyList):

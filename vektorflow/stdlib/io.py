@@ -271,6 +271,12 @@ def reset_io_native_host() -> None:
     reset_io_host()
 
 
+def reset_io_native_hosts() -> None:
+    """Restore the default separate preferred native file/time host surfaces."""
+    reset_io_native_file_host()
+    reset_io_native_time_host()
+
+
 def reset_io_native_file_host() -> None:
     """Restore the default preferred native file host surface."""
     reset_io_file_host()

@@ -196,7 +196,9 @@ def _normalize_token_value(kind: str, value: Any) -> Any:
         if normalized is not None:
             raise ValueError(f"invalid token value for {kind}: expected null")
         return None
-    if kind in (token_defs.IDENT, token_defs.STRING, token_defs.STRING_RAW):
+    if kind == token_defs.IDENT:
+        return _require_string(normalized, "token value for IDENT", allow_empty=False)
+    if kind in (token_defs.STRING, token_defs.STRING_RAW):
         return _require_string(normalized, f"token value for {kind}", allow_empty=True)
     if kind == token_defs.NUMBER:
         if isinstance(normalized, bool) or not isinstance(normalized, (int, float)):
