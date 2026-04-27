@@ -441,6 +441,24 @@ class Lexer:
             while self._peek().isdigit():
                 self._advance()
 
+        # Scientific notation is part of the same numeric token only when the
+        # exponent marker is immediately followed by digits, optionally after a
+        # sign. This preserves expression forms like `2e - 24` and `2e^x`.
+        if self._peek() in ("e", "E"):
+            exp_mark = self.pos
+            exp_pos = self.pos + 1
+            if exp_pos < len(self.src) and self.src[exp_pos] in ("+", "-"):
+                exp_pos += 1
+            if exp_pos < len(self.src) and self.src[exp_pos].isdigit():
+                is_float = True
+                self._advance()  # e / E
+                if self._peek() in ("+", "-"):
+                    self._advance()
+                while self._peek().isdigit():
+                    self._advance()
+            else:
+                self.pos = exp_mark
+
         text = self.src[start : self.pos]
         value: Any = float(text) if is_float else int(text)
         self._emit(NUMBER, value, loc)

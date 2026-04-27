@@ -84,6 +84,20 @@ class TestLiterals:
     def test_float(self) -> None:
         assert values("4.2345") == [(NUMBER, 4.2345)]
 
+    def test_scientific_notation_lower_e(self) -> None:
+        assert values("1.2e+4") == [(NUMBER, 1.2e4)]
+        assert values("1.2e-4") == [(NUMBER, 1.2e-4)]
+        assert values("2e24") == [(NUMBER, 2e24)]
+
+    def test_scientific_notation_upper_e(self) -> None:
+        assert values("1.2E+4") == [(NUMBER, 1.2e4)]
+        assert values("1.2E-4") == [(NUMBER, 1.2e-4)]
+        assert values("2E24") == [(NUMBER, 2e24)]
+
+    def test_scientific_notation_requires_immediate_exponent_digits(self) -> None:
+        assert values("2e - 24") == [(NUMBER, 2), (IDENT, "e"), (MINUS, None), (NUMBER, 24)]
+        assert values("2e^x") == [(NUMBER, 2), (IDENT, "e"), (CARET, None), (IDENT, "x")]
+
     def test_string(self) -> None:
         assert values('"hello"') == [(STRING, "hello")]
 
