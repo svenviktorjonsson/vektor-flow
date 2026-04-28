@@ -33,7 +33,12 @@ from pathlib import Path
 from . import __version__
 from .errors import EvalError, LexError, ParseError, VektorFlowError
 from .lexer import tokenize
-from .native_core_lexer import lex_native_core_file_to_json, lex_native_core_stdin_to_json
+from .native_frontend import (
+    build_native_subset,
+    emit_cpp_from_native_subset,
+    lex_native_subset_payload,
+    parse_native_subset,
+)
 from .parser import parse_token_stream_json
 from .token_stream import tokens_from_json, tokens_to_json
 from .tokens import DEDENT, EOF, INDENT, NEWLINE
@@ -90,13 +95,12 @@ def cmd_tokens_native_core(
     filename_label: str | None = None,
 ) -> int:
     try:
-        if source is None:
-            payload = lex_native_core_file_to_json(Path(filename), filename_label=filename_label)
-        else:
-            payload = lex_native_core_stdin_to_json(
-                source,
-                filename_label=filename_label or filename,
-            )
+        payload = lex_native_subset_payload(
+            source,
+            filename,
+            subset="native_core",
+            filename_label=filename_label,
+        )
     except VektorFlowError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -151,34 +155,20 @@ def cmd_parse_tokens(payload: str) -> int:
 
 def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: str | None = None) -> int:
     try:
-        if source is None:
-            payload = lex_native_core_file_to_json(Path(filename), filename_label=filename_label)
-        else:
-            payload = lex_native_core_stdin_to_json(
-                source,
-                filename_label=filename_label or filename,
-            )
+        module = parse_native_subset(
+            source,
+            filename,
+            subset="native_core",
+            filename_label=filename_label,
+        )
     except VektorFlowError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    return cmd_parse_tokens(payload)
-
-
-def _lex_native_core_payload(
-    source: str | None,
-    filename: str,
-    *,
-    filename_label: str | None = None,
-) -> str:
-    if source is None:
-        return lex_native_core_file_to_json(Path(filename), filename_label=filename_label)
-    return lex_native_core_stdin_to_json(
-        source,
-        filename_label=filename_label or filename,
-    )
+    print(repr(module))
+    return 0
 
 
 def cmd_cpp(path: Path, out_path: Path | None) -> int:
@@ -210,14 +200,12 @@ def cmd_cpp_native_core(
     filename_label: str | None = None,
 ) -> int:
     try:
-        from .cpp_backend import emit_cpp_from_token_stream_json
-
-        payload = _lex_native_core_payload(
+        cpp_source = emit_cpp_from_native_subset(
             source,
             filename,
+            subset="native_core",
             filename_label=filename_label,
         )
-        cpp_source = emit_cpp_from_token_stream_json(payload)
     except OSError as exc:
         print(f"error: cannot read {filename}: {exc}", file=sys.stderr)
         return 1
@@ -266,22 +254,16 @@ def cmd_build_native_core(
     filename_label: str | None = None,
 ) -> int:
     try:
-        from .cpp_backend import compile_cpp_source, emit_cpp_from_token_stream_json
-
-        payload = _lex_native_core_payload(
-            source,
-            filename,
-            filename_label=filename_label,
-        )
-        cpp_source = emit_cpp_from_token_stream_json(payload)
         target_base = Path(filename)
         target = out_path.resolve() if out_path is not None else target_base.with_suffix(".exe").resolve()
-        exe_name = target.stem
-        out_dir = target.parent
-        built = compile_cpp_source(cpp_source, out_dir, exe_name=exe_name)
-        if built.resolve() != target:
-            built.replace(target)
-        print(target)
+        built = build_native_subset(
+            source,
+            filename,
+            out_path=target,
+            subset="native_core",
+            filename_label=filename_label,
+        )
+        print(built)
     except OSError as exc:
         print(f"error: cannot read {filename}: {exc}", file=sys.stderr)
         return 1

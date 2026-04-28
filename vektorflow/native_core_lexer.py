@@ -297,8 +297,14 @@ private:
             advance(); emit_at("PLUS", tok_line, tok_col); return;
         case '*':
             advance(); emit_at("STAR", tok_line, tok_col); return;
+        case '/':
+            advance(); emit_at("SLASH", tok_line, tok_col); return;
+        case '&':
+            advance(); emit_at("AMPERSAND", tok_line, tok_col); return;
         case ',':
             advance(); emit_at("COMMA", tok_line, tok_col); return;
+        case '?':
+            advance(); emit_at("QUESTION", tok_line, tok_col); return;
         case ':':
             advance();
             if (peek() == ':') {
@@ -308,6 +314,30 @@ private:
                 emit_at("COLON", tok_line, tok_col);
             }
             return;
+        case '@':
+            advance();
+            if (peek() == ':') {
+                advance();
+                emit_at("AT_COLON", tok_line, tok_col);
+                return;
+            }
+            throw std::runtime_error("Unsupported '@' form in native-core lexer subset");
+        case '<':
+            advance();
+            emit_at("LT", tok_line, tok_col);
+            return;
+        case '>':
+            advance();
+            emit_at("GT", tok_line, tok_col);
+            return;
+        case '=':
+            advance();
+            if (peek() == '>') {
+                advance();
+                emit_at("FAT_ARROW", tok_line, tok_col);
+                return;
+            }
+            throw std::runtime_error("Unsupported '=' in native-core lexer subset");
         case '-':
             advance();
             if (peek() == '>') {

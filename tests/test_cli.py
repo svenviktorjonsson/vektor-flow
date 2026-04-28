@@ -40,6 +40,20 @@ NATIVE_CORE_EXAMPLES = [
     "records_native.vkf",
     "numeric_native.vkf",
 ]
+EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
+    ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
+    ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
+    ROOT / "examples" / "nested" / "app.vkf",
+    ROOT / "examples" / "folder_repo" / "main.vkf",
+]
+EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
+    ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
+]
+EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
+    ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
+    ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
+]
 
 
 class TestResolveVkfPath:
@@ -218,6 +232,36 @@ class TestMain:
             parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix())
         )
 
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_expanded_examples_match_python(
+        self, capsys: pytest.CaptureFixture[str], path: Path
+    ) -> None:
+        assert main(["tokens-native-core", str(path), "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        expected = json.loads(
+            token_stream_to_json(tokenize(path.read_text(encoding="utf-8"), filename=path.as_posix()))
+        )
+        assert payload == expected
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_parse_native_core_expanded_examples_match_python_parser(
+        self, capsys: pytest.CaptureFixture[str], path: Path
+    ) -> None:
+        assert main(["parse-native-core", str(path)]) == 0
+        assert capsys.readouterr().out.strip() == repr(
+            parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix())
+        )
+
     @pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
     def test_parse_tokens_subcommand_malformed_token_entry(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload: dict[str, object], expected: str
@@ -259,6 +303,21 @@ class TestMain:
         self, tmp_path: Path, example_name: str
     ) -> None:
         src = NATIVE_CORE / example_name
+        out = tmp_path / src.with_suffix(".cpp").name
+
+        assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
+
+        assert out.read_text(encoding="utf-8") == emit_cpp_from_source_file(src)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "src",
+        EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_cpp_native_core_expanded_examples_match_backend_emitter(
+        self, tmp_path: Path, src: Path
+    ) -> None:
         out = tmp_path / src.with_suffix(".cpp").name
 
         assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
@@ -330,6 +389,37 @@ class TestMain:
             emitted,
             tmp_path / f"{src.stem}_manual_cpp",
             exe_name=f"{src.stem}_manual",
+        )
+        manual_proc = run_cpp_executable(manual_exe)
+        assert manual_proc.returncode == 0
+
+        assert main(["build-native-core", str(src), "-o", str(built_exe)]) == 0
+        reported = capsys.readouterr().out.strip()
+        assert Path(reported) == built_exe.resolve()
+
+        built_proc = run_cpp_executable(built_exe)
+        assert built_proc.returncode == 0
+        assert built_proc.stdout == manual_proc.stdout
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "src",
+        EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_build_native_core_expanded_examples_match_directly_compiled_cpp(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, src: Path
+    ) -> None:
+        cpp_out = tmp_path / src.with_suffix(".cpp").name
+        built_exe = tmp_path / src.with_suffix(".exe").name
+
+        assert main(["cpp-native-core", str(src), "-o", str(cpp_out)]) == 0
+        emitted = cpp_out.read_text(encoding="utf-8")
+
+        manual_exe = compile_cpp_source(
+            emitted,
+            tmp_path / f"{src.stem}_expanded_manual_cpp",
+            exe_name=f"{src.stem}_expanded_manual",
         )
         manual_proc = run_cpp_executable(manual_exe)
         assert manual_proc.returncode == 0
