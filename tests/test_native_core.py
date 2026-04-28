@@ -27,6 +27,7 @@ EXPECTED_OUTPUTS = {
     "records_native.vkf": "(pts:[11, 22], bag:{2:1, 3:3, 4:2}, total:3)",
     "numeric_native.vkf": "0\n3.14159265358979\n3\n[0, 0.25, 0.5, 0.75, 1]\n1",
     "named_record_native.vkf": "4\n(x:4, y:6)",
+    "named_record_nested_native.vkf": "4\n(origin:(x:4, y:6), size:(x:10, y:20))",
 }
 
 
@@ -95,6 +96,11 @@ def _assert_interpreter_output(name: str, out: str) -> None:
         lines = out.splitlines()
         assert lines[0] == "4"
         assert lines[1] == "(x:4, y:6)"
+        return
+    if name == "named_record_nested_native.vkf":
+        lines = out.splitlines()
+        assert lines[0] == "4"
+        assert lines[1] == "(origin:(x:4, y:6), size:(x:10, y:20))"
         return
     raise AssertionError(f"missing interpreter validator for {name}")
 
@@ -167,12 +173,16 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
     records_path = NATIVE_CORE / "records_native.vkf"
     numeric_path = NATIVE_CORE / "numeric_native.vkf"
     named_record_path = NATIVE_CORE / "named_record_native.vkf"
+    named_record_nested_path = NATIVE_CORE / "named_record_nested_native.vkf"
+    named_record_collections_path = NATIVE_CORE / "named_record_collections_native.vkf"
 
     hello_source = hello_path.read_text(encoding="utf-8")
     vectors_source = vectors_path.read_text(encoding="utf-8")
     records_source = records_path.read_text(encoding="utf-8")
     numeric_source = numeric_path.read_text(encoding="utf-8")
     named_record_source = named_record_path.read_text(encoding="utf-8")
+    named_record_nested_source = named_record_nested_path.read_text(encoding="utf-8")
+    named_record_collections_source = named_record_collections_path.read_text(encoding="utf-8")
 
     assert native_subset_native_parser_fast_path_available(None, str(hello_path))
     assert native_subset_native_parser_fast_path_available(hello_source, hello_path.name)
@@ -182,6 +192,16 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
     assert native_subset_native_parser_fast_path_available(numeric_source, numeric_path.name)
     assert native_subset_native_parser_fast_path_available(None, str(named_record_path))
     assert native_subset_native_parser_fast_path_available(named_record_source, named_record_path.name)
+    assert native_subset_native_parser_fast_path_available(None, str(named_record_nested_path))
+    assert native_subset_native_parser_fast_path_available(
+        named_record_nested_source, named_record_nested_path.name
+    )
+    assert not native_subset_native_parser_fast_path_available(
+        None, str(named_record_collections_path)
+    )
+    assert not native_subset_native_parser_fast_path_available(
+        named_record_collections_source, named_record_collections_path.name
+    )
     assert not native_subset_native_parser_fast_path_available(None, str(records_path))
     assert not native_subset_native_parser_fast_path_available(records_source, records_path.name)
 
@@ -268,6 +288,22 @@ def test_named_record_native_cpp_native_core_uses_fast_path_and_preserves_output
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_nested_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_nested_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "struct Point" in native_out
+    assert "struct Box" in native_out
+    assert "Box translate(Box box, double dx, double dy)" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "named_record_nested_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_numeric_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
     path = NATIVE_CORE / "numeric_native.vkf"
     standard_exe = tmp_path / "numeric_native_standard.exe"
@@ -289,6 +325,23 @@ def test_named_record_native_build_native_core_matches_standard_build(tmp_path: 
     path = NATIVE_CORE / "named_record_native.vkf"
     standard_exe = tmp_path / "named_record_native_standard.exe"
     native_exe = tmp_path / "named_record_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_nested_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_nested_native.vkf"
+    standard_exe = tmp_path / "named_record_nested_native_standard.exe"
+    native_exe = tmp_path / "named_record_nested_native_native.exe"
 
     assert main(["build", str(path), "-o", str(standard_exe)]) == 0
     assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
@@ -358,3 +411,22 @@ def test_named_record_native_parser_proto_emits_cpp_and_preserves_output(tmp_pat
 
     assert proc.returncode == 0
     assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_nested_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_nested_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "struct Point" in emitted_cpp
+    assert "struct Box" in emitted_cpp
+    assert "Box translate(Box box, double dx, double dy)" in emitted_cpp
+
+    proc = _compile_and_run_cpp(
+        emitted_cpp,
+        tmp_path / "named_record_nested_native_proto",
+        "named_record_nested_native_proto",
+    )
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_nested_native.vkf"]

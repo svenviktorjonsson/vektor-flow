@@ -90,10 +90,32 @@ struct NamedRecordProgram {
     double shift_y_value = 0.0;
 };
 
+struct NestedNamedRecordProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string box_type_name;
+    std::string box_origin_field_name;
+    std::string box_size_field_name;
+    std::string translate_function_name;
+    std::string param_name;
+    std::string delta_x_name;
+    std::string delta_y_name;
+    std::string base_name;
+    double base_origin_first_value = 0.0;
+    double base_origin_second_value = 0.0;
+    double base_size_first_value = 0.0;
+    double base_size_second_value = 0.0;
+    std::string moved_name;
+    double shift_x_value = 0.0;
+    double shift_y_value = 0.0;
+};
+
 static std::string emit_hello_cpp(const HelloProgram& program);
 static std::string emit_vector_cpp(const VectorProgram& program);
 static std::string emit_numeric_cpp(const NumericProgram& program);
 static std::string emit_named_record_cpp(const NamedRecordProgram& program);
+static std::string emit_nested_named_record_cpp(const NestedNamedRecordProgram& program);
 
 static std::string trim(const std::string& s) {
     std::size_t start = 0;
@@ -303,7 +325,20 @@ public:
                 return emit_named_record_cpp(program);
             }
         }
-        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, numeric-native, or named-record-native logical shape");
+        if (token_lines.size() == 8) {
+            NestedNamedRecordProgram program;
+            parse_nested_named_record_point_typedef(token_lines[0], program);
+            parse_nested_named_record_box_typedef(token_lines[1], program);
+            parse_nested_named_record_header(token_lines[2], program);
+            parse_nested_named_record_body(token_lines[3], program);
+            parse_nested_named_record_base_binding(token_lines[4], program);
+            parse_nested_named_record_moved_binding(token_lines[5], program);
+            parse_nested_named_record_emit_origin_field(token_lines[6], program);
+            parse_nested_named_record_emit_record(token_lines[7], program);
+            validate_nested_named_record_program(program);
+            return emit_nested_named_record_cpp(program);
+        }
+        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, numeric-native, named-record-native, or nested-named-record-native logical shape");
     }
 
 private:
@@ -759,6 +794,257 @@ private:
             throw std::runtime_error("native parser prototype expected named-record program identifiers");
         }
     }
+
+    static void parse_nested_named_record_point_typedef(const std::vector<Token>& tokens, NestedNamedRecordProgram& program) {
+        if (tokens.size() != 11) {
+            throw std::runtime_error("native parser prototype expected nested Point typedef shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LPAREN");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "COLON");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "COLON");
+        expect_kind(tokens, 9, "IDENT");
+        expect_kind(tokens, 10, "RPAREN");
+        if (tokens[5].text != "num" || tokens[9].text != "num") {
+            throw std::runtime_error("native parser prototype only supports Point:num,num nested records");
+        }
+        program.point_type_name = tokens[0].text;
+        program.point_first_field_name = tokens[3].text;
+        program.point_second_field_name = tokens[7].text;
+    }
+
+    static void parse_nested_named_record_box_typedef(const std::vector<Token>& tokens, NestedNamedRecordProgram& program) {
+        if (tokens.size() != 11) {
+            throw std::runtime_error("native parser prototype expected nested Box typedef shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LPAREN");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "COLON");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "COLON");
+        expect_kind(tokens, 9, "IDENT");
+        expect_kind(tokens, 10, "RPAREN");
+        if (tokens[5].text != program.point_type_name || tokens[9].text != program.point_type_name) {
+            throw std::runtime_error("native parser prototype only supports Box fields referencing Point");
+        }
+        program.box_type_name = tokens[0].text;
+        program.box_origin_field_name = tokens[3].text;
+        program.box_size_field_name = tokens[7].text;
+    }
+
+    static void parse_nested_named_record_header(const std::vector<Token>& tokens, NestedNamedRecordProgram& program) {
+        if (tokens.size() != 17) {
+            throw std::runtime_error("native parser prototype expected nested named-record header shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "LPAREN");
+        expect_kind(tokens, 2, "IDENT");
+        expect_kind(tokens, 3, "COLON");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "COMMA");
+        expect_kind(tokens, 6, "IDENT");
+        expect_kind(tokens, 7, "COLON");
+        expect_kind(tokens, 8, "IDENT");
+        expect_kind(tokens, 9, "COMMA");
+        expect_kind(tokens, 10, "IDENT");
+        expect_kind(tokens, 11, "COLON");
+        expect_kind(tokens, 12, "IDENT");
+        expect_kind(tokens, 13, "RPAREN");
+        expect_kind(tokens, 14, "ARROW");
+        expect_kind(tokens, 15, "IDENT");
+        expect_kind(tokens, 16, "COLON");
+        if (
+            tokens[4].text != program.box_type_name ||
+            tokens[8].text != "num" ||
+            tokens[12].text != "num" ||
+            tokens[15].text != program.box_type_name
+        ) {
+            throw std::runtime_error("native parser prototype only supports translate(box:Box, dx:num, dy:num)");
+        }
+        program.translate_function_name = tokens[0].text;
+        program.param_name = tokens[2].text;
+        program.delta_x_name = tokens[6].text;
+        program.delta_y_name = tokens[10].text;
+    }
+
+    static void parse_nested_named_record_body(const std::vector<Token>& tokens, NestedNamedRecordProgram& program) {
+        if (tokens.size() != 31) {
+            throw std::runtime_error("native parser prototype expected nested named-record body shape");
+        }
+        expect_kind(tokens, 0, "LPAREN");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "COLON");
+        expect_kind(tokens, 3, "LPAREN");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "COLON");
+        expect_kind(tokens, 6, "IDENT");
+        expect_kind(tokens, 7, "DOT");
+        expect_kind(tokens, 8, "IDENT");
+        expect_kind(tokens, 9, "DOT");
+        expect_kind(tokens, 10, "IDENT");
+        expect_kind(tokens, 11, "PLUS");
+        expect_kind(tokens, 12, "IDENT");
+        expect_kind(tokens, 13, "COMMA");
+        expect_kind(tokens, 14, "IDENT");
+        expect_kind(tokens, 15, "COLON");
+        expect_kind(tokens, 16, "IDENT");
+        expect_kind(tokens, 17, "DOT");
+        expect_kind(tokens, 18, "IDENT");
+        expect_kind(tokens, 19, "DOT");
+        expect_kind(tokens, 20, "IDENT");
+        expect_kind(tokens, 21, "PLUS");
+        expect_kind(tokens, 22, "IDENT");
+        expect_kind(tokens, 23, "RPAREN");
+        expect_kind(tokens, 24, "COMMA");
+        expect_kind(tokens, 25, "IDENT");
+        expect_kind(tokens, 26, "COLON");
+        expect_kind(tokens, 27, "IDENT");
+        expect_kind(tokens, 28, "DOT");
+        expect_kind(tokens, 29, "IDENT");
+        expect_kind(tokens, 30, "RPAREN");
+        if (
+            tokens[1].text != program.box_origin_field_name ||
+            tokens[4].text != program.point_first_field_name ||
+            tokens[8].text != program.box_origin_field_name ||
+            tokens[10].text != program.point_first_field_name ||
+            tokens[12].text != program.delta_x_name ||
+            tokens[14].text != program.point_second_field_name ||
+            tokens[18].text != program.box_origin_field_name ||
+            tokens[20].text != program.point_second_field_name ||
+            tokens[22].text != program.delta_y_name ||
+            tokens[25].text != program.box_size_field_name ||
+            tokens[29].text != program.box_size_field_name ||
+            tokens[6].text != program.param_name ||
+            tokens[16].text != program.param_name ||
+            tokens[27].text != program.param_name
+        ) {
+            throw std::runtime_error("native parser prototype only supports the exact nested named-record body shape");
+        }
+    }
+
+    static void parse_nested_named_record_base_binding(const std::vector<Token>& tokens, NestedNamedRecordProgram& program) {
+        if (tokens.size() != 28) {
+            throw std::runtime_error("native parser prototype expected nested named-record base binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "COLON");
+        expect_kind(tokens, 3, "LPAREN");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "COLON");
+        expect_kind(tokens, 6, "LPAREN");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "COLON");
+        expect_kind(tokens, 9, "NUMBER");
+        expect_kind(tokens, 10, "COMMA");
+        expect_kind(tokens, 11, "IDENT");
+        expect_kind(tokens, 12, "COLON");
+        expect_kind(tokens, 13, "NUMBER");
+        expect_kind(tokens, 14, "RPAREN");
+        expect_kind(tokens, 15, "COMMA");
+        expect_kind(tokens, 16, "IDENT");
+        expect_kind(tokens, 17, "COLON");
+        expect_kind(tokens, 18, "LPAREN");
+        expect_kind(tokens, 19, "IDENT");
+        expect_kind(tokens, 20, "COLON");
+        expect_kind(tokens, 21, "NUMBER");
+        expect_kind(tokens, 22, "COMMA");
+        expect_kind(tokens, 23, "IDENT");
+        expect_kind(tokens, 24, "COLON");
+        expect_kind(tokens, 25, "NUMBER");
+        expect_kind(tokens, 26, "RPAREN");
+        expect_kind(tokens, 27, "RPAREN");
+        if (tokens[0].text != program.box_type_name || tokens[4].text != program.box_origin_field_name || tokens[16].text != program.box_size_field_name) {
+            throw std::runtime_error("native parser prototype only supports typed Box base binding");
+        }
+        if (
+            tokens[7].text != program.point_first_field_name ||
+            tokens[11].text != program.point_second_field_name ||
+            tokens[19].text != program.point_first_field_name ||
+            tokens[23].text != program.point_second_field_name
+        ) {
+            throw std::runtime_error("native parser prototype only supports Point-valued Box fields");
+        }
+        program.base_name = tokens[1].text;
+        program.base_origin_first_value = parse_number(tokens[9].text);
+        program.base_origin_second_value = parse_number(tokens[13].text);
+        program.base_size_first_value = parse_number(tokens[21].text);
+        program.base_size_second_value = parse_number(tokens[25].text);
+    }
+
+    static void parse_nested_named_record_moved_binding(const std::vector<Token>& tokens, NestedNamedRecordProgram& program) {
+        if (tokens.size() != 11) {
+            throw std::runtime_error("native parser prototype expected nested named-record moved binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "COLON");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "NUMBER");
+        expect_kind(tokens, 8, "COMMA");
+        expect_kind(tokens, 9, "NUMBER");
+        expect_kind(tokens, 10, "RPAREN");
+        if (tokens[0].text != program.box_type_name || tokens[3].text != program.translate_function_name || tokens[5].text != program.base_name) {
+            throw std::runtime_error("native parser prototype only supports Box moved: translate(base, 3, 4)");
+        }
+        program.moved_name = tokens[1].text;
+        program.shift_x_value = parse_number(tokens[7].text);
+        program.shift_y_value = parse_number(tokens[9].text);
+    }
+
+    static void parse_nested_named_record_emit_origin_field(const std::vector<Token>& tokens, const NestedNamedRecordProgram& program) {
+        if (tokens.size() != 6) {
+            throw std::runtime_error("native parser prototype expected nested named-record field emit shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "DOT");
+        expect_kind(tokens, 5, "IDENT");
+        if (
+            tokens[1].text != program.moved_name ||
+            tokens[3].text != program.box_origin_field_name ||
+            tokens[5].text != program.point_first_field_name
+        ) {
+            throw std::runtime_error("native parser prototype only supports ':: moved.origin.x'");
+        }
+    }
+
+    static void parse_nested_named_record_emit_record(const std::vector<Token>& tokens, const NestedNamedRecordProgram& program) {
+        if (tokens.size() != 2) {
+            throw std::runtime_error("native parser prototype expected nested named-record emit record shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        if (tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype only supports ':: moved'");
+        }
+    }
+
+    static void validate_nested_named_record_program(const NestedNamedRecordProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.box_type_name.empty() ||
+            program.translate_function_name.empty() ||
+            program.base_name.empty() ||
+            program.moved_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected nested named-record program identifiers");
+        }
+    }
 };
 
 static std::string format_number_literal(double value) {
@@ -1031,6 +1317,65 @@ static std::string emit_named_record_cpp(const NamedRecordProgram& program) {
     return out.str();
 }
 
+static std::string emit_nested_named_record_cpp(const NestedNamedRecordProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.box_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.box_origin_field_name << ";\n"
+        << "    " << program.point_type_name << " " << program.box_size_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.box_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.box_origin_field_name << ":\" << vf_format_value(value." << program.box_origin_field_name << ")\n"
+        << "        << \", " << program.box_size_field_name << ":\" << vf_format_value(value." << program.box_size_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << program.box_type_name << " " << program.translate_function_name << "(" << program.box_type_name << " " << program.param_name
+        << ", double " << program.delta_x_name << ", double " << program.delta_y_name << ") {\n"
+        << "    return " << program.box_type_name << "{"
+        << program.point_type_name << "{"
+        << program.param_name << "." << program.box_origin_field_name << "." << program.point_first_field_name << " + " << program.delta_x_name << ", "
+        << program.param_name << "." << program.box_origin_field_name << "." << program.point_second_field_name << " + " << program.delta_y_name << "}, "
+        << program.param_name << "." << program.box_size_field_name << "};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.box_type_name << " " << program.base_name << "{"
+        << program.point_type_name << "{" << format_number_literal(program.base_origin_first_value) << ", " << format_number_literal(program.base_origin_second_value) << "}, "
+        << program.point_type_name << "{" << format_number_literal(program.base_size_first_value) << ", " << format_number_literal(program.base_size_second_value) << "}};\n"
+        << "    " << program.box_type_name << " " << program.moved_name << " = " << program.translate_function_name << "("
+        << program.base_name << ", " << format_number_literal(program.shift_x_value) << ", " << format_number_literal(program.shift_y_value) << ");\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.box_origin_field_name << "." << program.point_first_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc < 2) {
@@ -1061,23 +1406,42 @@ int main(int argc, char** argv) {
 """
 
 
-def _native_parser_proto_cache_dir() -> Path:
+def _native_parser_proto_cache_dirs() -> list[Path]:
+    dirs: list[Path] = []
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        return Path(local_app_data) / "vektorflow-native-parser-proto"
-    return Path(tempfile.gettempdir()) / "vektorflow-native-parser-proto"
+        dirs.append(Path(local_app_data) / "vektorflow-native-parser-proto")
+    dirs.append(Path.cwd() / ".tmp" / "vektorflow-native-parser-proto")
+    dirs.append(Path(tempfile.gettempdir()) / "vektorflow-native-parser-proto")
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in dirs:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
 
 
 def build_native_parser_proto() -> Path:
     source = _native_parser_proto_cpp_source()
     digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
-    out_dir = _native_parser_proto_cache_dir()
     exe_name = f"vf_native_parser_proto_{digest}"
-    compiler_output = out_dir / f"{exe_name}.cpp"
-    exe_path = out_dir / exe_name
-    if compiler_output.is_file() and exe_path.is_file():
-        return exe_path
-    return compile_cpp_source(source, out_dir, exe_name=exe_name)
+    last_error: OSError | None = None
+    for out_dir in _native_parser_proto_cache_dirs():
+        compiler_output = out_dir / f"{exe_name}.cpp"
+        exe_path = out_dir / exe_name
+        if compiler_output.is_file() and exe_path.is_file():
+            return exe_path
+        try:
+            return compile_cpp_source(source, out_dir, exe_name=exe_name)
+        except OSError as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    raise CppEmitError("native parser prototype cache setup failed")
 
 
 def emit_cpp_for_native_core_file(path: Path) -> str:

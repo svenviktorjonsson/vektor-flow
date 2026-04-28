@@ -41,6 +41,8 @@ NATIVE_CORE_EXAMPLES = [
     "numeric_native.vkf",
     "named_record_native.vkf",
     "named_record_nested_native.vkf",
+    "named_record_collections_native.vkf",
+    "named_record_scene_native.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
@@ -365,6 +367,7 @@ class TestMain:
             "numeric_native.vkf",
             "named_record_native.vkf",
             "named_record_nested_native.vkf",
+            "named_record_collections_native.vkf",
         }:
             stem = Path(example_name).stem
             standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")
@@ -459,6 +462,8 @@ class TestMain:
             ("vectors_native.vkf", "[2.5, 2.5, 2.5, 2.5]"),
             ("numeric_native.vkf", "0"),
             ("named_record_nested_native.vkf", "4"),
+            ("named_record_collections_native.vkf", "[5, 7]"),
+            ("named_record_scene_native.vkf", "4"),
         ],
     )
     def test_build_native_core_examples(self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str) -> None:

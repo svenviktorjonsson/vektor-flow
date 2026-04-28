@@ -20,6 +20,7 @@ Current examples:
 - `named_record_native.vkf` - compiled named record declarations and return flow
 - `named_record_nested_native.vkf` - nested compiled named record resolution
 - `named_record_collections_native.vkf` - named records with compiled vector and multiset fields
+- `named_record_scene_native.vkf` - nested named records carrying compiled collection state
 
 Typical workflow:
 
