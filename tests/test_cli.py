@@ -43,16 +43,21 @@ NATIVE_CORE_EXAMPLES = [
 EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
+    ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
+    ROOT / "examples" / "benchmarks" / "custom_overloads.vkf",
     ROOT / "examples" / "nested" / "app.vkf",
     ROOT / "examples" / "folder_repo" / "main.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
+    ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
+    ROOT / "examples" / "benchmarks" / "custom_overloads.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
+    ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
 ]
 
 
@@ -262,6 +267,29 @@ class TestMain:
             parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix())
         )
 
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_parse_native_core_expanded_examples_stdin_matches_file_output(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        path: Path,
+    ) -> None:
+        src = path.read_text(encoding="utf-8")
+
+        assert main(["parse-native-core", str(path)]) == 0
+        file_output = capsys.readouterr().out.strip()
+
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["parse-native-core", "-"]) == 0
+        stdin_output = capsys.readouterr().out.strip()
+
+        assert stdin_output == file_output
+
     @pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
     def test_parse_tokens_subcommand_malformed_token_entry(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload: dict[str, object], expected: str
@@ -336,6 +364,26 @@ class TestMain:
         assert main(["cpp-native-core", "-", "-o", str(out)]) == 0
 
         assert out.read_text(encoding="utf-8") == emit_cpp_from_source_file(src_path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "src_path",
+        EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_cpp_native_core_expanded_examples_stdin_matches_file_output(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, src_path: Path
+    ) -> None:
+        src = src_path.read_text(encoding="utf-8")
+        file_out = tmp_path / f"{src_path.stem}_file.cpp"
+        stdin_out = tmp_path / f"{src_path.stem}_stdin.cpp"
+
+        assert main(["cpp-native-core", str(src_path), "-o", str(file_out)]) == 0
+
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["cpp-native-core", "-", "-o", str(stdin_out)]) == 0
+
+        assert stdin_out.read_text(encoding="utf-8") == file_out.read_text(encoding="utf-8")
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     def test_build_subcommand_creates_executable(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
@@ -438,6 +486,38 @@ class TestMain:
     ) -> None:
         monkeypatch.setattr("sys.stdin.read", lambda: ":: 6 * 7\n")
         assert main(["build-native-core", "-"]) == 1
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "src_path",
+        EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_build_native_core_expanded_examples_stdin_matches_file_output(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        src_path: Path,
+    ) -> None:
+        src = src_path.read_text(encoding="utf-8")
+        file_exe = tmp_path / f"{src_path.stem}_file.exe"
+        stdin_exe = tmp_path / f"{src_path.stem}_stdin.exe"
+
+        assert main(["build-native-core", str(src_path), "-o", str(file_exe)]) == 0
+        file_reported = capsys.readouterr().out.strip()
+        assert Path(file_reported) == file_exe.resolve()
+        file_proc = run_cpp_executable(file_exe)
+        assert file_proc.returncode == 0
+
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["build-native-core", "-", "-o", str(stdin_exe)]) == 0
+        stdin_reported = capsys.readouterr().out.strip()
+        assert Path(stdin_reported) == stdin_exe.resolve()
+        stdin_proc = run_cpp_executable(stdin_exe)
+        assert stdin_proc.returncode == 0
+
+        assert stdin_proc.stdout == file_proc.stdout
 
     def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "--list"]) == 0

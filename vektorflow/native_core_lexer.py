@@ -279,6 +279,10 @@ private:
             lex_ident(tok_line, tok_col);
             return;
         }
+        if (ch == '"') {
+            lex_string(tok_line, tok_col);
+            return;
+        }
 
         switch (ch) {
         case '(':
@@ -337,7 +341,8 @@ private:
                 emit_at("FAT_ARROW", tok_line, tok_col);
                 return;
             }
-            throw std::runtime_error("Unsupported '=' in native-core lexer subset");
+            emit_at("EQ", tok_line, tok_col);
+            return;
         case '-':
             advance();
             if (peek() == '>') {
@@ -347,7 +352,7 @@ private:
             }
             throw std::runtime_error("Unsupported '-' in native-core lexer subset");
         case '.': {
-            bool left_tight = pos_ > 0 && !std::isspace(static_cast<unsigned char>(src_[pos_ - 1]));
+            bool left_tight = pos_ > 0 && src_[pos_ - 1] != ' ' && src_[pos_ - 1] != '\t' && src_[pos_ - 1] != '\r';
             advance();
             bool right_tight = peek() != '\0' && !std::isspace(static_cast<unsigned char>(peek()));
             emit_dot(left_tight, right_tight, tok_line, tok_col);
@@ -368,7 +373,53 @@ private:
                 break;
             }
         }
+        if (value == "true") {
+            emit_at("TRUE", tok_line, tok_col);
+            return;
+        }
+        if (value == "false") {
+            emit_at("FALSE", tok_line, tok_col);
+            return;
+        }
+        if (value == "null") {
+            emit_at("NULL", tok_line, tok_col);
+            return;
+        }
         emit_string("IDENT", value, tok_line, tok_col);
+    }
+
+    void lex_string(int tok_line, int tok_col) {
+        advance();  // opening quote
+        std::string value;
+        while (pos_ < src_.size()) {
+            char ch = advance();
+            if (ch == '"') {
+                emit_string("STRING", value, tok_line, tok_col);
+                return;
+            }
+            if (ch == '\\') {
+                if (pos_ >= src_.size()) {
+                    throw std::runtime_error("Unterminated string escape in native-core lexer subset");
+                }
+                char esc = advance();
+                switch (esc) {
+                case 'n': value.push_back('\n'); break;
+                case 'r': value.push_back('\r'); break;
+                case 't': value.push_back('\t'); break;
+                case '\\': value.push_back('\\'); break;
+                case '"': value.push_back('"'); break;
+                case '$': value.push_back('$'); break;
+                default:
+                    throw std::runtime_error("Unsupported string escape in native-core lexer subset");
+                }
+                continue;
+            }
+            if (ch == '\n') {
+                throw std::runtime_error("Unterminated string literal in native-core lexer subset");
+            }
+            value.push_back(ch);
+        }
+        throw std::runtime_error("Unterminated string literal in native-core lexer subset");
     }
 
     void lex_number(int tok_line, int tok_col) {
