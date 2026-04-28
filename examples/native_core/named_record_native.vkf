@@ -1,0 +1,10 @@
+Point : (x:num, y:num)
+
+move(p:Point, dx:num, dy:num) -> Point:
+    (x:p.x + dx, y:p.y + dy)
+
+Point base: (x:1, y:2)
+Point shifted: move(base, 3, 4)
+
+:: shifted.x
+:: shifted

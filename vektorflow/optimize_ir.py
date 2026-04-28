@@ -287,6 +287,8 @@ def fold_expr(node: Any) -> Any:
 
 
 def optimize_stmt(node: Any) -> list[Any]:
+    if isinstance(node, ir.TypeDef):
+        return [node]
     if isinstance(node, ir.StoreName):
         return [ir.StoreName(node.name, fold_expr(node.value), node.declared_type)]
     if isinstance(node, ir.StoreSlot):
@@ -394,6 +396,8 @@ def eliminate_noop_coercions(module: ir.Module, typed: TypedModuleInfo) -> ir.Mo
 
 
 def _strip_stmt(stmt: Any, typed: TypedModuleInfo) -> Any:
+    if isinstance(stmt, ir.TypeDef):
+        return stmt
     if isinstance(stmt, ir.FunctionDef):
         return ir.FunctionDef(
             stmt.name,

@@ -46,6 +46,7 @@ EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
     ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
     ROOT / "examples" / "benchmarks" / "custom_overloads.vkf",
+    ROOT / "examples" / "benchmarks" / "scalar_control.vkf",
     ROOT / "examples" / "benchmarks" / "scalar_hotloop.vkf",
     ROOT / "examples" / "benchmarks" / "vector_hotloop.vkf",
     ROOT / "examples" / "benchmarks" / "vector_large_elementwise.vkf",
@@ -60,6 +61,7 @@ EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
     ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
     ROOT / "examples" / "benchmarks" / "custom_overloads.vkf",
+    ROOT / "examples" / "benchmarks" / "scalar_control.vkf",
     ROOT / "examples" / "benchmarks" / "scalar_hotloop.vkf",
     ROOT / "examples" / "benchmarks" / "vector_hotloop.vkf",
     ROOT / "examples" / "benchmarks" / "vector_large_elementwise.vkf",
@@ -71,6 +73,7 @@ EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
     ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
+    ROOT / "examples" / "benchmarks" / "scalar_control.vkf",
     ROOT / "examples" / "benchmarks" / "scalar_hotloop.vkf",
     ROOT / "examples" / "benchmarks" / "vector_hotloop.vkf",
     ROOT / "examples" / "benchmarks" / "vector_large_elementwise.vkf",
@@ -354,7 +357,7 @@ class TestMain:
         assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
         emitted = out.read_text(encoding="utf-8")
         standard = emit_cpp_from_source_file(src)
-        if example_name in {"hello_native.vkf", "vectors_native.vkf"}:
+        if example_name in {"hello_native.vkf", "vectors_native.vkf", "numeric_native.vkf"}:
             stem = Path(example_name).stem
             standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")
             native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name=f"{stem}_native")

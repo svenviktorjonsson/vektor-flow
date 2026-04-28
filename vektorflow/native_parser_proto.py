@@ -63,8 +63,19 @@ struct VectorProgram {
     std::string emit_right_name;
 };
 
+struct NumericBinding {
+    std::string name;
+    std::vector<double> values;
+};
+
+struct NumericProgram {
+    NumericBinding xs_binding;
+    NumericBinding ys_binding;
+};
+
 static std::string emit_hello_cpp(const HelloProgram& program);
 static std::string emit_vector_cpp(const VectorProgram& program);
+static std::string emit_numeric_cpp(const NumericProgram& program);
 
 static std::string trim(const std::string& s) {
     std::size_t start = 0;
@@ -199,6 +210,9 @@ static std::vector<Token> lex_line(const std::string& line) {
         case '+':
             out.push_back({"PLUS", "+"});
             break;
+        case '.':
+            out.push_back({"DOT", "."});
+            break;
         default:
             throw std::runtime_error(std::string("Unsupported character in native parser prototype: ") + ch);
         }
@@ -238,7 +252,26 @@ public:
             validate_vector_program(program);
             return emit_vector_cpp(program);
         }
-        throw std::runtime_error("native parser prototype expects either hello-native or vectors-native logical shape");
+        if (lines_.size() == 7) {
+            NumericProgram program;
+            auto xs = lex_line(lines_[0]);
+            auto ys = lex_line(lines_[1]);
+            auto emit0 = lex_line(lines_[2]);
+            auto emit1 = lex_line(lines_[3]);
+            auto emit2 = lex_line(lines_[4]);
+            auto emit3 = lex_line(lines_[5]);
+            auto emit4 = lex_line(lines_[6]);
+            parse_numeric_binding(xs, program.xs_binding);
+            parse_numeric_binding(ys, program.ys_binding);
+            parse_numeric_emit_sin(emit0);
+            parse_numeric_emit_pi(emit1);
+            parse_numeric_emit_mean(emit2, program);
+            parse_numeric_emit_normalize(emit3, program);
+            parse_numeric_emit_correlation(emit4, program);
+            validate_numeric_program(program);
+            return emit_numeric_cpp(program);
+        }
+        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, or numeric-native logical shape");
     }
 
 private:
@@ -424,6 +457,111 @@ private:
             throw std::runtime_error("native parser prototype emit call must target the declared fixed vectors");
         }
     }
+
+    static void parse_numeric_binding(const std::vector<Token>& tokens, NumericBinding& binding) {
+        if (tokens.size() < 5) {
+            throw std::runtime_error("native parser prototype expected numeric-native binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LBRACKET");
+        expect_kind(tokens, tokens.size() - 1, "RBRACKET");
+        binding.name = tokens[0].text;
+        binding.values = parse_number_list(tokens, 3, tokens.size() - 1);
+        if (binding.values.empty()) {
+            throw std::runtime_error("native parser prototype numeric-native bindings must be non-empty");
+        }
+    }
+
+    static void parse_numeric_emit_sin(const std::vector<Token>& tokens) {
+        if (tokens.size() != 7) {
+            throw std::runtime_error("native parser prototype expected ':: math.sin(0)' shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "NUMBER");
+        expect_kind(tokens, 6, "RPAREN");
+        if (tokens[1].text != "math" || tokens[3].text != "sin" || parse_number(tokens[5].text) != 0.0) {
+            throw std::runtime_error("native parser prototype only supports ':: math.sin(0)' in numeric-native");
+        }
+    }
+
+    static void parse_numeric_emit_pi(const std::vector<Token>& tokens) {
+        if (tokens.size() != 4) {
+            throw std::runtime_error("native parser prototype expected ':: math.pi' shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        if (tokens[1].text != "math" || tokens[3].text != "pi") {
+            throw std::runtime_error("native parser prototype only supports ':: math.pi' in numeric-native");
+        }
+    }
+
+    static void parse_numeric_emit_mean(const std::vector<Token>& tokens, const NumericProgram& program) {
+        if (tokens.size() != 7) {
+            throw std::runtime_error("native parser prototype expected ':: stat.mean(xs)' shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "RPAREN");
+        if (tokens[1].text != "stat" || tokens[3].text != "mean" || tokens[5].text != program.xs_binding.name) {
+            throw std::runtime_error("native parser prototype only supports ':: stat.mean(xs)' in numeric-native");
+        }
+    }
+
+    static void parse_numeric_emit_normalize(const std::vector<Token>& tokens, const NumericProgram& program) {
+        if (tokens.size() != 7) {
+            throw std::runtime_error("native parser prototype expected ':: stat.normalize(xs)' shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "RPAREN");
+        if (tokens[1].text != "stat" || tokens[3].text != "normalize" || tokens[5].text != program.xs_binding.name) {
+            throw std::runtime_error("native parser prototype only supports ':: stat.normalize(xs)' in numeric-native");
+        }
+    }
+
+    static void parse_numeric_emit_correlation(const std::vector<Token>& tokens, const NumericProgram& program) {
+        if (tokens.size() != 9) {
+            throw std::runtime_error("native parser prototype expected ':: stat.correlation(xs, ys)' shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "RPAREN");
+        if (
+            tokens[1].text != "stat" ||
+            tokens[3].text != "correlation" ||
+            tokens[5].text != program.xs_binding.name ||
+            tokens[7].text != program.ys_binding.name
+        ) {
+            throw std::runtime_error("native parser prototype only supports ':: stat.correlation(xs, ys)' in numeric-native");
+        }
+    }
+
+    static void validate_numeric_program(const NumericProgram& program) {
+        if (program.xs_binding.values.size() != program.ys_binding.values.size()) {
+            throw std::runtime_error("native parser prototype numeric-native bindings must have matching extents");
+        }
+    }
 };
 
 static std::string format_number_literal(double value) {
@@ -530,6 +668,119 @@ static std::string emit_vector_cpp(const VectorProgram& program) {
         << " = std::array<double, " << program.extent << ">{" << format_vector_literal(program.right_binding.values) << "};\n"
         << "    std::cout << vf_format_value(" << program.function_name << "("
         << program.emit_left_name << ", " << program.emit_right_name << ")) << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_numeric_cpp(const NumericProgram& program) {
+    const std::size_t extent = program.xs_binding.values.size();
+    std::ostringstream out;
+    out
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double v) {\n"
+        << "    if (std::floor(v) == v) {\n"
+        << "        std::ostringstream oss;\n"
+        << "        oss << static_cast<long long>(v);\n"
+        << "        return oss.str();\n"
+        << "    }\n"
+        << "    std::ostringstream oss;\n"
+        << "    oss << std::setprecision(15) << v;\n"
+        << "    return oss.str();\n"
+        << "}\n"
+        << "template <typename T>\n"
+        << "static std::string vf_format_value(const T& v) {\n"
+        << "    std::ostringstream oss;\n"
+        << "    oss << v;\n"
+        << "    return oss.str();\n"
+        << "}\n"
+        << "template <>\n"
+        << "inline std::string vf_format_value<double>(const double& v) {\n"
+        << "    return vf_format_num(v);\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& v) {\n"
+        << "    std::ostringstream oss;\n"
+        << "    oss << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) oss << \", \";\n"
+        << "        oss << vf_format_value(v[i]);\n"
+        << "    }\n"
+        << "    oss << \"]\";\n"
+        << "    return oss.str();\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static T vf_array_sum(const std::array<T, N>& arr) {\n"
+        << "    T out{};\n"
+        << "    for (std::size_t i = 0; i < N; ++i) out += arr[i];\n"
+        << "    return out;\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static T vf_array_min(const std::array<T, N>& arr) {\n"
+        << "    T out = arr[0];\n"
+        << "    for (std::size_t i = 1; i < N; ++i) if (arr[i] < out) out = arr[i];\n"
+        << "    return out;\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static T vf_array_max(const std::array<T, N>& arr) {\n"
+        << "    T out = arr[0];\n"
+        << "    for (std::size_t i = 1; i < N; ++i) if (arr[i] > out) out = arr[i];\n"
+        << "    return out;\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static double vf_array_variance(const std::array<T, N>& arr) {\n"
+        << "    double mu = static_cast<double>(vf_array_sum(arr)) / static_cast<double>(N);\n"
+        << "    double out = 0.0;\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        double d = static_cast<double>(arr[i]) - mu;\n"
+        << "        out += d * d;\n"
+        << "    }\n"
+        << "    return out / static_cast<double>(N);\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static double vf_array_std(const std::array<T, N>& arr) {\n"
+        << "    return std::sqrt(vf_array_variance(arr));\n"
+        << "}\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::array<double, N> vf_array_normalize(const std::array<T, N>& arr) {\n"
+        << "    std::array<double, N> out{};\n"
+        << "    double lo = static_cast<double>(vf_array_min(arr));\n"
+        << "    double hi = static_cast<double>(vf_array_max(arr));\n"
+        << "    if (hi == lo) return out;\n"
+        << "    double span = hi - lo;\n"
+        << "    for (std::size_t i = 0; i < N; ++i) out[i] = (static_cast<double>(arr[i]) - lo) / span;\n"
+        << "    return out;\n"
+        << "}\n"
+        << "template <typename TX, typename TY, std::size_t N>\n"
+        << "static double vf_array_covariance(const std::array<TX, N>& xs, const std::array<TY, N>& ys) {\n"
+        << "    double mu_x = static_cast<double>(vf_array_sum(xs)) / static_cast<double>(N);\n"
+        << "    double mu_y = static_cast<double>(vf_array_sum(ys)) / static_cast<double>(N);\n"
+        << "    double out = 0.0;\n"
+        << "    for (std::size_t i = 0; i < N; ++i) out += (static_cast<double>(xs[i]) - mu_x) * (static_cast<double>(ys[i]) - mu_y);\n"
+        << "    return out / static_cast<double>(N);\n"
+        << "}\n"
+        << "template <typename TX, typename TY, std::size_t N>\n"
+        << "static double vf_array_correlation(const std::array<TX, N>& xs, const std::array<TY, N>& ys) {\n"
+        << "    double sx = vf_array_std(xs);\n"
+        << "    double sy = vf_array_std(ys);\n"
+        << "    if (sx == 0.0 || sy == 0.0) return 0.0;\n"
+        << "    return vf_array_covariance(xs, ys) / (sx * sy);\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    std::array<double, " << extent << "> " << program.xs_binding.name
+        << " = std::array<double, " << extent << ">{" << format_vector_literal(program.xs_binding.values) << "};\n"
+        << "    std::array<double, " << extent << "> " << program.ys_binding.name
+        << " = std::array<double, " << extent << ">{" << format_vector_literal(program.ys_binding.values) << "};\n"
+        << "    std::cout << vf_format_num(std::sin(0.0)) << \"\\n\";\n"
+        << "    std::cout << vf_format_num(3.14159265358979323846) << \"\\n\";\n"
+        << "    std::cout << vf_format_num((static_cast<double>(vf_array_sum(" << program.xs_binding.name << ")) / static_cast<double>(" << extent << "))) << \"\\n\";\n"
+        << "    std::cout << vf_format_value(vf_array_normalize(" << program.xs_binding.name << ")) << \"\\n\";\n"
+        << "    std::cout << vf_format_num(vf_array_correlation(" << program.xs_binding.name << ", " << program.ys_binding.name << ")) << \"\\n\";\n"
         << "    return 0;\n"
         << "}\n";
     return out.str();

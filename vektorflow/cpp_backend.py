@@ -193,6 +193,9 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
 
     def visit_stmt(stmt: Any) -> None:
         nonlocal uses_match
+        if isinstance(stmt, ir.TypeDef):
+            visit_type(stmt.type_expr)
+            return
         if isinstance(stmt, ir.FunctionDef):
             for ptype in stmt.param_types:
                 if ptype is not None:
@@ -1707,6 +1710,9 @@ def _emit_print(expr: Any, env: dict[str, Any], functions: dict[str, ir.Function
 def _emit_stmt(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], indent: str, state: EmitState, typed: TypedModuleInfo) -> tuple[list[str], dict[str, Any]]:
     lines: list[str] = []
     env = dict(env)
+    if isinstance(node, ir.TypeDef):
+        _register_type(node.type_expr, state)
+        return lines, env
     if isinstance(node, ir.StoreName):
         expr_type = _expr_type(node.value, typed)
         declared = _normalize_type(node.declared_type) if node.declared_type is not None else None
@@ -1878,7 +1884,9 @@ def _collect_types_from_expr(node: Any, env: dict[str, Any], functions: dict[str
 def _collect_types_from_block(block: ir.Block, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState) -> dict[str, Any]:
     cur_env = dict(env)
     for stmt in block.statements:
-        if isinstance(stmt, ir.StoreName):
+        if isinstance(stmt, ir.TypeDef):
+            _register_type(stmt.type_expr, state)
+        elif isinstance(stmt, ir.StoreName):
             expr_t = _collect_types_from_expr(stmt.value, cur_env, functions, state)
             final_t = _normalize_type(stmt.declared_type) if stmt.declared_type is not None else expr_t
             _register_type(final_t, state)
@@ -1972,14 +1980,17 @@ def emit_cpp_module(module: ir.Module) -> str:
     functions = prepared.functions
     for typ in typed.expr_types.values():
         _register_type(typ, state)
-    for fn in module.statements:
-        if not isinstance(fn, ir.FunctionDef):
+    for stmt in module.statements:
+        if isinstance(stmt, ir.TypeDef):
+            _register_type(stmt.type_expr, state)
             continue
-        for ptype in fn.param_types:
+        if not isinstance(stmt, ir.FunctionDef):
+            continue
+        for ptype in stmt.param_types:
             if ptype is not None:
                 _register_type(ptype, state)
-        if fn.return_type is not None:
-            _register_type(fn.return_type, state)
+        if stmt.return_type is not None:
+            _register_type(stmt.return_type, state)
     headers = _emit_runtime_headers(features) + _emit_runtime_support(features)
     struct_lines = _emit_struct_defs_in_order(state)
     fn_lines: list[str] = []
@@ -2037,7 +2048,7 @@ def emit_cpp_module(module: ir.Module) -> str:
     main_lines = ["int main() {"] 
     env: dict[str, Any] = {}
     for stmt in module.statements:
-        if isinstance(stmt, ir.FunctionDef):
+        if isinstance(stmt, (ir.FunctionDef, ir.TypeDef)):
             continue
         emitted, env = _emit_stmt(stmt, env, functions, "    ", state, typed)
         main_lines.extend(emitted)

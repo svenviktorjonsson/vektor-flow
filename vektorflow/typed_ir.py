@@ -110,6 +110,9 @@ class IRTypeAnalyzer:
 
     def _analyze_stmt(self, stmt: Any, env: dict[str, Any], slots: dict[str, int]) -> dict[str, Any]:
         cur = dict(env)
+        if isinstance(stmt, ir.TypeDef):
+            self._record_stmt_env(stmt, env, cur)
+            return cur
         if isinstance(stmt, ir.StoreName):
             expr_t = self._infer_expr(stmt.value, cur)
             final_t = _normalize_type(stmt.declared_type) if stmt.declared_type is not None else expr_t

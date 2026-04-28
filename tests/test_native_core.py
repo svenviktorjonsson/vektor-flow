@@ -58,6 +58,21 @@ def _compile_and_run_cpp(cpp_source: str, out_dir: Path, exe_name: str) -> subpr
     return subprocess.run([str(exe)], capture_output=True, text=True)
 
 
+def _assert_native_cpp_runtime_matches_standard(path: Path, tmp_path: Path, exe_prefix: str) -> None:
+    standard_rc, standard_out = _run_cli_stdout(["cpp", str(path)])
+    native_rc, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+
+    assert standard_rc == 0
+    assert native_rc == 0
+
+    standard_proc = _compile_and_run_cpp(standard_out, tmp_path / f"{exe_prefix}_standard", f"{exe_prefix}_standard")
+    native_proc = _compile_and_run_cpp(native_out, tmp_path / f"{exe_prefix}_native", f"{exe_prefix}_native")
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
 def _assert_interpreter_output(name: str, out: str) -> None:
     if name in ("hello_native.vkf", "vectors_native.vkf"):
         assert out == EXPECTED_OUTPUTS[name]
@@ -117,20 +132,26 @@ def test_hello_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_pa
     assert native_subset_native_parser_fast_path_available(None, str(path))
     assert native_subset_native_parser_fast_path_available(source, path.name)
 
-    standard_rc, standard_out = _run_cli_stdout(["cpp", str(path)])
-    native_rc, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
-
-    assert standard_rc == 0
-    assert native_rc == 0
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
     assert "double twice(double x)" in native_out
     assert "vf_format_num" in native_out
 
-    standard_proc = _compile_and_run_cpp(standard_out, tmp_path / "standard", "hello_native_standard")
-    native_proc = _compile_and_run_cpp(native_out, tmp_path / "native", "hello_native_native_cpp")
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "hello_native_cpp")
 
-    assert standard_proc.returncode == 0
-    assert native_proc.returncode == 0
-    assert native_proc.stdout == standard_proc.stdout
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_vectors_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "vectors_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "std::array<double, 4>" in native_out
+    assert "vf_format_value" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "vectors_native_cpp")
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
@@ -138,10 +159,21 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
     hello_path = NATIVE_CORE / "hello_native.vkf"
     vectors_path = NATIVE_CORE / "vectors_native.vkf"
     records_path = NATIVE_CORE / "records_native.vkf"
+    numeric_path = NATIVE_CORE / "numeric_native.vkf"
+
+    hello_source = hello_path.read_text(encoding="utf-8")
+    vectors_source = vectors_path.read_text(encoding="utf-8")
+    records_source = records_path.read_text(encoding="utf-8")
+    numeric_source = numeric_path.read_text(encoding="utf-8")
 
     assert native_subset_native_parser_fast_path_available(None, str(hello_path))
+    assert native_subset_native_parser_fast_path_available(hello_source, hello_path.name)
     assert native_subset_native_parser_fast_path_available(None, str(vectors_path))
+    assert native_subset_native_parser_fast_path_available(vectors_source, vectors_path.name)
+    assert native_subset_native_parser_fast_path_available(None, str(numeric_path))
+    assert native_subset_native_parser_fast_path_available(numeric_source, numeric_path.name)
     assert not native_subset_native_parser_fast_path_available(None, str(records_path))
+    assert not native_subset_native_parser_fast_path_available(records_source, records_path.name)
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
@@ -164,6 +196,56 @@ def test_hello_native_build_native_core_matches_standard_build(tmp_path: Path) -
     path = NATIVE_CORE / "hello_native.vkf"
     standard_exe = tmp_path / "hello_native_standard.exe"
     native_exe = tmp_path / "hello_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_vectors_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "vectors_native.vkf"
+    standard_exe = tmp_path / "vectors_native_standard.exe"
+    native_exe = tmp_path / "vectors_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_numeric_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "numeric_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "std::sin(0.0)" in native_out
+    assert "vf_array_normalize" in native_out
+    assert "vf_array_correlation" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "numeric_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_numeric_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "numeric_native.vkf"
+    standard_exe = tmp_path / "numeric_native_standard.exe"
+    native_exe = tmp_path / "numeric_native_native.exe"
 
     assert main(["build", str(path), "-o", str(standard_exe)]) == 0
     assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
@@ -203,3 +285,18 @@ def test_vectors_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Pa
 
     assert proc.returncode == 0
     assert proc.stdout.strip() == EXPECTED_OUTPUTS["vectors_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_numeric_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "numeric_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "std::sin(0.0)" in emitted_cpp
+    assert "vf_array_normalize" in emitted_cpp
+    assert "vf_array_correlation" in emitted_cpp
+
+    proc = _compile_and_run_cpp(emitted_cpp, tmp_path / "numeric_native_proto", "numeric_native_proto")
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["numeric_native.vkf"]
