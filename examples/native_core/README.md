@@ -13,10 +13,12 @@ This folder is intentionally narrower than `examples/benchmarks`:
 
 Current examples:
 
-- `hello_native.vkf` — scalar arithmetic and direct printing
-- `vectors_native.vkf` — fixed vectors and symbolic-size-safe vector math
-- `records_native.vkf` — records mixed with vectors and multisets
-- `numeric_native.vkf` — compiled `math` / `stat` intrinsic coverage
+- `hello_native.vkf` - scalar arithmetic and direct printing
+- `vectors_native.vkf` - fixed vectors and symbolic-size-safe vector math
+- `records_native.vkf` - records mixed with vectors and multisets
+- `numeric_native.vkf` - compiled `math` / `stat` intrinsic coverage
+- `named_record_native.vkf` - compiled named record declarations and return flow
+- `named_record_nested_native.vkf` - nested compiled named record resolution
 
 Typical workflow:
 

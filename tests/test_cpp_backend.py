@@ -248,6 +248,17 @@ def test_cpp_builds_named_record_type_example(tmp_path: Path) -> None:
     assert proc.stdout.strip() == "4\n(x:4, y:6)"
 
 
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_nested_named_record_type_example(tmp_path: Path) -> None:
+    path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_nested_native.vkf"
+    cpp = emit_cpp_from_source_file(path)
+    exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_nested_native")
+    proc = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert exe.exists()
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "4\n(origin:(x:4, y:6), size:(x:10, y:20))"
+
+
 def test_cpp_emits_dynamic_map_and_list_program() -> None:
     src = """
 m: collections.map(a:1, b:"hi", c:true)

@@ -39,6 +39,7 @@ NATIVE_CORE_EXAMPLES = [
     "vectors_native.vkf",
     "records_native.vkf",
     "numeric_native.vkf",
+    "named_record_native.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",

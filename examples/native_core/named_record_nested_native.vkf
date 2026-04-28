@@ -1,0 +1,11 @@
+Point : (x:num, y:num)
+Box : (origin:Point, size:Point)
+
+translate(box:Box, dx:num, dy:num) -> Box:
+    (origin:(x:box.origin.x + dx, y:box.origin.y + dy), size:box.size)
+
+Box base: (origin:(x:1, y:2), size:(x:10, y:20))
+Box moved: translate(base, 3, 4)
+
+:: moved.origin.x
+:: moved

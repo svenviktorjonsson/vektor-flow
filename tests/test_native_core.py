@@ -26,6 +26,7 @@ EXPECTED_OUTPUTS = {
     "vectors_native.vkf": "[2.5, 2.5, 2.5, 2.5]",
     "records_native.vkf": "(pts:[11, 22], bag:{2:1, 3:3, 4:2}, total:3)",
     "numeric_native.vkf": "0\n3.14159265358979\n3\n[0, 0.25, 0.5, 0.75, 1]\n1",
+    "named_record_native.vkf": "4\n(x:4, y:6)",
 }
 
 
@@ -89,6 +90,11 @@ def _assert_interpreter_output(name: str, out: str) -> None:
         assert lines[2] == "3"
         assert lines[3] == "[0, 0.25, 0.5, 0.75, 1]"
         assert float(lines[4]) == pytest.approx(1.0)
+        return
+    if name == "named_record_native.vkf":
+        lines = out.splitlines()
+        assert lines[0] == "4"
+        assert lines[1] == "(x:4, y:6)"
         return
     raise AssertionError(f"missing interpreter validator for {name}")
 
@@ -160,11 +166,13 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
     vectors_path = NATIVE_CORE / "vectors_native.vkf"
     records_path = NATIVE_CORE / "records_native.vkf"
     numeric_path = NATIVE_CORE / "numeric_native.vkf"
+    named_record_path = NATIVE_CORE / "named_record_native.vkf"
 
     hello_source = hello_path.read_text(encoding="utf-8")
     vectors_source = vectors_path.read_text(encoding="utf-8")
     records_source = records_path.read_text(encoding="utf-8")
     numeric_source = numeric_path.read_text(encoding="utf-8")
+    named_record_source = named_record_path.read_text(encoding="utf-8")
 
     assert native_subset_native_parser_fast_path_available(None, str(hello_path))
     assert native_subset_native_parser_fast_path_available(hello_source, hello_path.name)
@@ -174,6 +182,8 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
     assert native_subset_native_parser_fast_path_available(numeric_source, numeric_path.name)
     assert not native_subset_native_parser_fast_path_available(None, str(records_path))
     assert not native_subset_native_parser_fast_path_available(records_source, records_path.name)
+    assert not native_subset_native_parser_fast_path_available(None, str(named_record_path))
+    assert not native_subset_native_parser_fast_path_available(named_record_source, named_record_path.name)
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
