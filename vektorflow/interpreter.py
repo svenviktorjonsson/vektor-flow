@@ -54,6 +54,7 @@ from .runtime import (
     runtime_collection_read_attr,
     runtime_collection_spill_values,
     runtime_collection_stringify,
+    runtime_collection_multiset_from_values,
     runtime_collection_take,
     runtime_collection_set,
     make_multiset,
@@ -1912,11 +1913,7 @@ def _builtin_to_list(n: Any, seq: Any) -> list[Any]:
 
 def _builtin_to_multiset(n: Any, seq: Any) -> Multiset:
     """Build a multiset from the first ``n`` elements (count 1 per occurrence)."""
-    t = _builtin_take(n, seq)
-    c: Counter[Any] = Counter()
-    for x in t:
-        c[x] += 1
-    return make_multiset(c.items())
+    return runtime_collection_multiset_from_values(_builtin_take(n, seq))
 
 
 def _dotted_get_one(base: Any, k: Any) -> Any:

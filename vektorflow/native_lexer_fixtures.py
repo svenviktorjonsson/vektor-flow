@@ -417,6 +417,43 @@ def declared_fixture_manifest_payload(
             "runnable_contract_readiness_validation",
         ],
     }
+    runnable_contract_state_validation = {
+        "status_matches_readiness": (
+            runnable_contract_state["status"] == runnable_contract_readiness["status"]
+        ),
+        "ready_matches_readiness": (
+            runnable_contract_state["ready"] == runnable_contract_readiness["ready"]
+        ),
+        "validation_passed_matches_readiness_validation": (
+            runnable_contract_state["validation_passed"]
+            == runnable_contract_readiness_validation["validation_passed"]
+        ),
+        "comparison_sha256_matches_set_identity": (
+            runnable_contract_state["comparison_sha256"]
+            == runnable_contract_set_identity["comparison_sha256"]
+        ),
+        "readiness_sha256_matches_readiness_identity": (
+            runnable_contract_state["readiness_sha256"]
+            == runnable_contract_readiness_identity["readiness_sha256"]
+        ),
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_state",
+            "runnable_contract_readiness",
+            "runnable_contract_readiness_validation",
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+        ],
+    }
+    runnable_contract_state_validation["validation_passed"] = all(
+        (
+            runnable_contract_state_validation["status_matches_readiness"],
+            runnable_contract_state_validation["ready_matches_readiness"],
+            runnable_contract_state_validation["validation_passed_matches_readiness_validation"],
+            runnable_contract_state_validation["comparison_sha256_matches_set_identity"],
+            runnable_contract_state_validation["readiness_sha256_matches_readiness_identity"],
+        )
+    )
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -485,6 +522,7 @@ def declared_fixture_manifest_payload(
         "runnable_contract_readiness_validation": runnable_contract_readiness_validation,
         "runnable_contract_readiness_identity": runnable_contract_readiness_identity,
         "runnable_contract_state": runnable_contract_state,
+        "runnable_contract_state_validation": runnable_contract_state_validation,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -512,6 +550,7 @@ def declared_fixture_manifest_payload(
                     "runnable_contract_readiness_validation": runnable_contract_readiness_validation,
                     "runnable_contract_readiness_identity": runnable_contract_readiness_identity,
                     "runnable_contract_state": runnable_contract_state,
+                    "runnable_contract_state_validation": runnable_contract_state_validation,
                 }
             ]
         ),

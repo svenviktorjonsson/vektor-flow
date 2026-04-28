@@ -38,6 +38,7 @@ from vektorflow.runtime import (
     runtime_collection_pipe_result,
     runtime_collection_spill_values,
     runtime_collection_stringify,
+    runtime_collection_multiset_from_values,
     runtime_collection_take,
     runtime_collection_take_prefix,
     runtime_collection_values,
@@ -193,6 +194,9 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
     assert runtime_collection_stringify(make_vfqueue([4, 5]), str) == "[4, 5]"
     assert runtime_collection_stringify(make_multiset([(1, 2), (3, 1)]), str) == "{1:2, 3:1}"
     assert runtime_collection_stringify(object(), str) is None
+    built_ms = runtime_collection_multiset_from_values([1, 1, 3])
+    assert isinstance(built_ms, Multiset)
+    assert runtime_collection_items_sorted(built_ms) == [(1, 2), (3, 1)]
 
 
 def test_runtime_collection_queue_attrs_are_seam_owned_callables() -> None:

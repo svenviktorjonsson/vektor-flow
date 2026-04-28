@@ -237,6 +237,11 @@ def get_io_native_time_host() -> IoSecondsTimeHost:
     return get_io_seconds_host()
 
 
+def get_io_native_hosts() -> tuple[IoFileHost, IoSecondsTimeHost]:
+    """Return the preferred native file/time host surfaces as a pair."""
+    return get_io_native_file_host(), get_io_native_time_host()
+
+
 def get_io_native_host() -> IoSecondsHost:
     """Return the current preferred native host view.
 

@@ -170,6 +170,21 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
         ],
     }
     assert len(payload["runnable_contract_state"]["state_sha256"]) == 64
+    assert payload["runnable_contract_state_validation"] == {
+        "status_matches_readiness": True,
+        "ready_matches_readiness": True,
+        "validation_passed_matches_readiness_validation": True,
+        "comparison_sha256_matches_set_identity": True,
+        "readiness_sha256_matches_readiness_identity": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_state",
+            "runnable_contract_readiness",
+            "runnable_contract_readiness_validation",
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+        ],
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -377,6 +392,21 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
         ],
     }
     assert len(payload["runnable_contract_state"]["state_sha256"]) == 64
+    assert payload["runnable_contract_state_validation"] == {
+        "status_matches_readiness": True,
+        "ready_matches_readiness": True,
+        "validation_passed_matches_readiness_validation": True,
+        "comparison_sha256_matches_set_identity": True,
+        "readiness_sha256_matches_readiness_identity": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_state",
+            "runnable_contract_readiness",
+            "runnable_contract_readiness_validation",
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+        ],
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -539,3 +569,18 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
         ],
     }
     assert len(payload["runnable_contract_state"]["state_sha256"]) == 64
+    assert payload["runnable_contract_state_validation"] == {
+        "status_matches_readiness": True,
+        "ready_matches_readiness": True,
+        "validation_passed_matches_readiness_validation": True,
+        "comparison_sha256_matches_set_identity": True,
+        "readiness_sha256_matches_readiness_identity": True,
+        "validation_passed": True,
+        "validation_inputs": [
+            "runnable_contract_state",
+            "runnable_contract_readiness",
+            "runnable_contract_readiness_validation",
+            "runnable_contract_set_identity",
+            "runnable_contract_readiness_identity",
+        ],
+    }

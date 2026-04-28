@@ -22,6 +22,7 @@ from vektorflow.stdlib.io import (
     get_io_file_host,
     get_io_native_file_host,
     get_io_native_host,
+    get_io_native_hosts,
     get_io_native_time_host,
     get_io_seconds_host,
     get_io_time_host,
@@ -87,6 +88,10 @@ class TestResolve:
     def test_native_file_and_time_host_getters_match_preferred_surfaces(self) -> None:
         assert get_io_native_file_host() is get_io_file_host()
         assert get_io_native_time_host() is get_io_seconds_host()
+        assert get_io_native_hosts() == (
+            get_io_native_file_host(),
+            get_io_native_time_host(),
+        )
 
     def test_native_file_and_time_host_setters_match_preferred_surfaces(self) -> None:
         class FakeFileHost:
@@ -140,6 +145,7 @@ class TestResolve:
 
         assert get_io_native_file_host() is file_host
         assert get_io_native_time_host() is time_host
+        assert get_io_native_hosts() == (file_host, time_host)
         assert get_io_native_host()._file_host is file_host
         assert get_io_native_host()._time_host is time_host
 
@@ -191,8 +197,9 @@ class TestResolve:
         set_io_native_hosts(FakeFileHost(), FakeTimeHost())
         reset_io_native_hosts()
 
-        assert get_io_native_file_host().__class__.__name__ == "PythonIoFileHost"
-        assert get_io_native_time_host().__class__.__name__ == "PythonIoTimeHost"
+        file_host, time_host = get_io_native_hosts()
+        assert file_host.__class__.__name__ == "PythonIoFileHost"
+        assert time_host.__class__.__name__ == "PythonIoTimeHost"
 
 
 class TestTextBytes:

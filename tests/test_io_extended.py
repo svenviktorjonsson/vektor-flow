@@ -18,6 +18,7 @@ from vektorflow.stdlib.io import (
     get_io_file_host,
     get_io_native_file_host,
     get_io_native_host,
+    get_io_native_hosts,
     get_io_native_time_host,
     get_io_time_host,
     build_io_native_file_namespace,
@@ -382,6 +383,9 @@ class TestSleepMs:
     def test_native_file_and_time_host_getters_expose_preferred_surfaces(self) -> None:
         assert get_io_native_file_host() is get_io_file_host()
         assert callable(get_io_native_time_host().sleep)
+        file_host, time_host = get_io_native_hosts()
+        assert file_host is get_io_native_file_host()
+        assert time_host is get_io_native_time_host()
 
     def test_native_file_and_time_host_setters_round_trip_through_getters(self) -> None:
         class FakeFileHost:

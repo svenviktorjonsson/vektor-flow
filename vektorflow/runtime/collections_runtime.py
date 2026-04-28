@@ -269,6 +269,13 @@ def runtime_collection_stringify(
     return None
 
 
+def runtime_collection_multiset_from_values(values: Iterable[Any]) -> Multiset:
+    counts: Counter[Any] = Counter()
+    for item in values:
+        counts[item] += 1
+    return make_multiset(counts.items())
+
+
 def runtime_collection_attr(value: Any, name: str) -> Any | None:
     if runtime_collection_kind(value) == "queue":
         if name == "put":

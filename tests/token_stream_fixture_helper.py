@@ -22,6 +22,8 @@ BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
     ('{"tokens":[{"kind":"IDENT","value":"x","location":{"file":"<bad>","file":"<worse>","line":1,"column":1}}]}', "duplicate object key 'file'"),
 )
 INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] = (
+    ({"schema": TOKEN_STREAM_SCHEMA, "tokens": []}, "missing version"),
+    ({"version": TOKEN_STREAM_VERSION, "tokens": []}, "missing schema"),
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
     ({"schema": TOKEN_STREAM_SCHEMA, "version": 99, "tokens": []}, "unsupported version"),
     ({"schema": TOKEN_STREAM_SCHEMA, "version": True, "tokens": []}, "token stream version: expected integer"),
