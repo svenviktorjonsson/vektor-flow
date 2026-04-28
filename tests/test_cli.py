@@ -9,7 +9,12 @@ import json
 import pytest
 
 from vektorflow.cli import main, resolve_vkf_path
-from vektorflow.cpp_backend import discover_cpp_compiler
+from vektorflow.cpp_backend import (
+    compile_cpp_source,
+    discover_cpp_compiler,
+    emit_cpp_from_source_file,
+    run_cpp_executable,
+)
 from vektorflow.lexer import tokenize
 from vektorflow.parser import parse_module
 from vektorflow.token_stream import token_stream_to_json, tokens_to_json
@@ -29,6 +34,12 @@ ROOT = Path(__file__).resolve().parent.parent
 HELLO = ROOT / "examples" / "hello.vkf"
 FOLDER_REPO_MAIN = ROOT / "examples" / "folder_repo" / "main.vkf"
 NATIVE_CORE = ROOT / "examples" / "native_core"
+NATIVE_CORE_EXAMPLES = [
+    "hello_native.vkf",
+    "vectors_native.vkf",
+    "records_native.vkf",
+    "numeric_native.vkf",
+]
 
 
 class TestResolveVkfPath:
@@ -89,6 +100,26 @@ class TestMain:
         payload = json.loads(capsys.readouterr().out)
         expected = json.loads(token_stream_to_json(tokenize(src, filename="<stdin>")))
         assert payload == expected
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_tokens_native_core_subcommand_file_and_stdin_match_same_payload(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        path = NATIVE_CORE / "hello_native.vkf"
+        src = path.read_text(encoding="utf-8")
+
+        assert main(["tokens-native-core", str(path), "--json"]) == 0
+        file_payload = json.loads(capsys.readouterr().out)
+
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["tokens-native-core", "-", "--json"]) == 0
+        stdin_payload = json.loads(capsys.readouterr().out)
+
+        for payload in (file_payload, stdin_payload):
+            for token in payload["tokens"]:
+                token["location"]["file"] = "<normalized>"
+
+        assert stdin_payload == file_payload
 
     def test_tokens_unknown_file(self) -> None:
         assert main(["tokens", "nope_not_a_file"]) == 1
@@ -176,12 +207,7 @@ class TestMain:
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(
         "example_name",
-        [
-            "hello_native.vkf",
-            "vectors_native.vkf",
-            "records_native.vkf",
-            "numeric_native.vkf",
-        ],
+        NATIVE_CORE_EXAMPLES,
     )
     def test_parse_native_core_examples_match_python_parser(
         self, capsys: pytest.CaptureFixture[str], example_name: str
@@ -228,6 +254,31 @@ class TestMain:
         assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in emitted
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", NATIVE_CORE_EXAMPLES)
+    def test_cpp_native_core_examples_match_backend_emitter(
+        self, tmp_path: Path, example_name: str
+    ) -> None:
+        src = NATIVE_CORE / example_name
+        out = tmp_path / src.with_suffix(".cpp").name
+
+        assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
+
+        assert out.read_text(encoding="utf-8") == emit_cpp_from_source_file(src)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_cpp_native_core_subcommand_stdin_matches_file_output(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        src_path = NATIVE_CORE / "hello_native.vkf"
+        src = src_path.read_text(encoding="utf-8")
+        out = tmp_path / "stdin_native_core.cpp"
+
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["cpp-native-core", "-", "-o", str(out)]) == 0
+
+        assert out.read_text(encoding="utf-8") == emit_cpp_from_source_file(src_path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     def test_build_subcommand_creates_executable(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
         src = tmp_path / "native_build.vkf"
         exe = tmp_path / "native_build.exe"
@@ -262,6 +313,41 @@ class TestMain:
         proc = subprocess.run([str(exe)], capture_output=True, text=True)
         assert proc.returncode == 0
         assert proc.stdout.splitlines()[0].strip() == expected_line
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", NATIVE_CORE_EXAMPLES)
+    def test_build_native_core_examples_match_directly_compiled_cpp(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
+    ) -> None:
+        src = NATIVE_CORE / example_name
+        cpp_out = tmp_path / src.with_suffix(".cpp").name
+        built_exe = tmp_path / src.with_suffix(".exe").name
+
+        assert main(["cpp-native-core", str(src), "-o", str(cpp_out)]) == 0
+        emitted = cpp_out.read_text(encoding="utf-8")
+
+        manual_exe = compile_cpp_source(
+            emitted,
+            tmp_path / f"{src.stem}_manual_cpp",
+            exe_name=f"{src.stem}_manual",
+        )
+        manual_proc = run_cpp_executable(manual_exe)
+        assert manual_proc.returncode == 0
+
+        assert main(["build-native-core", str(src), "-o", str(built_exe)]) == 0
+        reported = capsys.readouterr().out.strip()
+        assert Path(reported) == built_exe.resolve()
+
+        built_proc = run_cpp_executable(built_exe)
+        assert built_proc.returncode == 0
+        assert built_proc.stdout == manual_proc.stdout
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_build_native_core_subcommand_stdin_requires_output_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("sys.stdin.read", lambda: ":: 6 * 7\n")
+        assert main(["build-native-core", "-"]) == 1
 
     def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "--list"]) == 0

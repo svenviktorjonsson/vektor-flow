@@ -2046,6 +2046,24 @@ def emit_cpp_module(module: ir.Module) -> str:
     return "\n".join(headers + struct_lines + fn_lines + main_lines) + "\n"
 
 
+def emit_cpp_from_tokens(tokens: list[Any]) -> str:
+    from .ir import lower_module
+    from .parser import parse_tokens
+
+    mod = parse_tokens(tokens)
+    lowered = lower_module(mod)
+    return emit_cpp_module(lowered)
+
+
+def emit_cpp_from_token_stream_json(payload: str) -> str:
+    from .ir import lower_module
+    from .parser import parse_token_stream_json
+
+    mod = parse_token_stream_json(payload)
+    lowered = lower_module(mod)
+    return emit_cpp_module(lowered)
+
+
 def emit_cpp_from_source_file(path: Path) -> str:
     from .parser import parse_module
     from .ir import lower_module

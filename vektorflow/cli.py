@@ -4,7 +4,11 @@ Usage
 -----
     vkf <file>               Run a .vkf file (``a`` → ``a.vkf`` if needed)
     vkf cpp <file>           Emit C++ for the currently supported native subset
+    vkf cpp-native-core <file>
+                             Emit C++ through the native-core lexer/token-stream frontend
     vkf build <file>         Build a standalone native executable for the supported subset
+    vkf build-native-core <file>
+                             Build through the native-core lexer/token-stream frontend
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
@@ -163,6 +167,20 @@ def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: 
     return cmd_parse_tokens(payload)
 
 
+def _lex_native_core_payload(
+    source: str | None,
+    filename: str,
+    *,
+    filename_label: str | None = None,
+) -> str:
+    if source is None:
+        return lex_native_core_file_to_json(Path(filename), filename_label=filename_label)
+    return lex_native_core_stdin_to_json(
+        source,
+        filename_label=filename_label or filename,
+    )
+
+
 def cmd_cpp(path: Path, out_path: Path | None) -> int:
     try:
         from .cpp_backend import emit_cpp_from_source_file
@@ -184,6 +202,38 @@ def cmd_cpp(path: Path, out_path: Path | None) -> int:
     return 0
 
 
+def cmd_cpp_native_core(
+    source: str | None,
+    filename: str,
+    *,
+    out_path: Path | None,
+    filename_label: str | None = None,
+) -> int:
+    try:
+        from .cpp_backend import emit_cpp_from_token_stream_json
+
+        payload = _lex_native_core_payload(
+            source,
+            filename,
+            filename_label=filename_label,
+        )
+        cpp_source = emit_cpp_from_token_stream_json(payload)
+    except OSError as exc:
+        print(f"error: cannot read {filename}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if out_path is not None:
+        out_path.write_text(cpp_source, encoding="utf-8")
+    else:
+        print(cpp_source, end="")
+    return 0
+
+
 def cmd_build(path: Path, out_path: Path | None) -> int:
     try:
         from .cpp_backend import compile_cpp_source, emit_cpp_from_source_file
@@ -200,6 +250,42 @@ def cmd_build(path: Path, out_path: Path | None) -> int:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_build_native_core(
+    source: str | None,
+    filename: str,
+    *,
+    out_path: Path | None,
+    filename_label: str | None = None,
+) -> int:
+    try:
+        from .cpp_backend import compile_cpp_source, emit_cpp_from_token_stream_json
+
+        payload = _lex_native_core_payload(
+            source,
+            filename,
+            filename_label=filename_label,
+        )
+        cpp_source = emit_cpp_from_token_stream_json(payload)
+        target_base = Path(filename)
+        target = out_path.resolve() if out_path is not None else target_base.with_suffix(".exe").resolve()
+        exe_name = target.stem
+        out_dir = target.parent
+        built = compile_cpp_source(cpp_source, out_dir, exe_name=exe_name)
+        if built.resolve() != target:
+            built.replace(target)
+        print(target)
+    except OSError as exc:
+        print(f"error: cannot read {filename}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
@@ -347,7 +433,11 @@ def main(argv: list[str] | None = None) -> int:
             "Vektor Flow — vkf\n\n"
             "  vkf <file>           Run a .vkf file (extension optional)\n"
             "  vkf cpp <file>       Emit C++ for the supported native subset\n"
+            "  vkf cpp-native-core <file>\n"
+            "                       Emit C++ through the native-core lexer/token-stream frontend\n"
             "  vkf build <file>     Build a standalone native executable for the supported subset\n"
+            "  vkf build-native-core <file>\n"
+            "                       Build through the native-core lexer/token-stream frontend\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
             "                       add --samples N for median-of-N timing\n"
@@ -497,6 +587,42 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return cmd_cpp(path, out_path)
 
+    if argv[0] == "cpp-native-core":
+        out_path: Path | None = None
+        args = argv[1:]
+        if not args:
+            print("error: vkf cpp-native-core <file|->", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if a == "-" or not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        if path_arg == "-":
+            return cmd_cpp_native_core(
+                sys.stdin.read(),
+                "<stdin>",
+                out_path=out_path,
+                filename_label="<stdin>",
+            )
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_cpp_native_core(
+            None,
+            str(path),
+            out_path=out_path,
+            filename_label=path.as_posix(),
+        )
+
     if argv[0] == "build":
         out_path: Path | None = None
         args = argv[1:]
@@ -520,6 +646,45 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: file not found: {path_arg!r}", file=sys.stderr)
             return 1
         return cmd_build(path, out_path)
+
+    if argv[0] == "build-native-core":
+        out_path: Path | None = None
+        args = argv[1:]
+        if not args:
+            print("error: vkf build-native-core <file|->", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if a == "-" or not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        if path_arg == "-":
+            if out_path is None:
+                print("error: vkf build-native-core - requires -o <path>", file=sys.stderr)
+                return 1
+            return cmd_build_native_core(
+                sys.stdin.read(),
+                str(out_path),
+                out_path=out_path,
+                filename_label="<stdin>",
+            )
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_build_native_core(
+            None,
+            str(path),
+            out_path=out_path,
+            filename_label=path.as_posix(),
+        )
 
     if argv[0] == "bench":
         args = argv[1:]
