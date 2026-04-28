@@ -30,6 +30,11 @@ Current examples:
 - `named_record_scene_overlay_native.vkf` - merge two helper-return Scene values through a final typed Scene overlay
 - `named_record_scene_patch_native.vkf` - patch a helper-return Scene with a separately computed typed State local
 - `named_record_scene_split_native.vkf` - split a staged Scene into typed Point and State locals before final Scene rebuild
+- `named_record_scene_splice_native.vkf` - splice typed Point and State locals from separate helper-return Scene paths
+- `named_record_scene_rebuild_native.vkf` - rebuild typed Scene locals in two successive top-level update steps
+- `named_record_scene_crossfade_native.vkf` - crossfade two rebuilt Scene locals into one final typed Scene
+- `named_record_scene_reverse_native.vkf` - derive final Point and State from a rebuilt Scene in the opposite update order
+- `named_record_scene_checkpoint_native.vkf` - direct typed Scene-to-Scene checkpoint handoff after a helper-return step
 
 Typical workflow:
 
