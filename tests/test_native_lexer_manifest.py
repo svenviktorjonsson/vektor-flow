@@ -492,6 +492,33 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
     assert by_name["missing_both_versioned.json"]["external_lexer_contract_usable"] is False
 
 
+def test_declared_fixture_manifest_payload_blocks_paired_invalid_fixture(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    out_root = tmp_path / "token_stream"
+    out_root.mkdir()
+    (out_root / "hello_native_versioned.json").write_text("{ not json", encoding="utf-8")
+    specs = (
+        TokenFixtureSpec(
+            source_rel="examples/native_core/hello_native.vkf",
+            fixture_name="hello_native_versioned.json",
+        ),
+    )
+    payload = declared_fixture_manifest_payload(repo_root=repo, fixture_root=out_root, specs=specs)
+    assert payload["summary"]["paired"] == 1
+    assert payload["summary"]["external_lexer_contract_usable"] == 0
+    assert payload["summary"]["external_lexer_contract_blocked"] == 1
+    assert payload["fixtures_by_contract_usability"] == {
+        "blocked": ["hello_native_versioned.json"],
+        "usable": [],
+    }
+    item = payload["fixtures"][0]
+    assert item["pairing_status"] == "paired"
+    assert item["external_lexer_contract_usable"] is False
+    assert "invalid-json" in item["validation_issues"]
+    assert payload["external_token_contract_completion"]["done"] is False
+    assert "runnable-contract-not-ready" in payload["external_token_contract_completion"]["blocking_reasons"]
+
+
 def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> None:
     repo = Path(__file__).resolve().parents[1]
     proc = subprocess.run(

@@ -45,6 +45,8 @@ from vektorflow.token_stream import (
     tokens_to_json,
     write_versioned_token_stream,
 )
+from vektorflow.tokens import EOF, NEWLINE, Token
+from vektorflow.errors import SourceLocation
 from tests.token_stream_fixture_helper import (
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
     INVALID_TOKEN_STREAM_ENVELOPE_CASES,
@@ -82,6 +84,35 @@ def test_parse_tokens_matches_parse_module_for_same_source() -> None:
     direct = parse_module(src, filename="<test>")
     via_tokens = parse_tokens(tokenize(src, filename="<test>"))
     assert repr(via_tokens) == repr(direct)
+
+
+@pytest.mark.parametrize(
+    "tokens, expected",
+    [
+        (
+            lambda: [t for t in tokenize(":: 1\n", filename="<bad>") if t.kind != EOF],
+            "missing EOF terminator",
+        ),
+        (
+            lambda: [
+                *tokenize(":: 1\n", filename="<bad>")[:-1],
+                Token(EOF, None, SourceLocation("<bad>", 2, 1)),
+                Token(NEWLINE, None, SourceLocation("<bad>", 2, 2)),
+            ],
+            "EOF must appear exactly once at end of stream",
+        ),
+        (
+            lambda: [
+                *tokenize(":: 1\n", filename="<bad>")[:-1],
+                Token(EOF, None, SourceLocation("<other>", 1, 6)),
+            ],
+            "token locations must all use the same file",
+        ),
+    ],
+)
+def test_parse_tokens_rejects_invalid_token_sequences(tokens, expected: str) -> None:
+    with pytest.raises(ValueError, match=expected):
+        parse_tokens(tokens())
 
 
 def test_token_json_has_stable_top_level_shape() -> None:

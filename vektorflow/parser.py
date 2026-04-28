@@ -1691,6 +1691,9 @@ def parse_tokens(tokens: list[Token]) -> ast.Module:
     This is the first stable seam for a future native lexer: produce the token
     stream in the same shape and hand it to the existing parser.
     """
+    from .token_stream import validate_token_sequence
+
+    validate_token_sequence(tokens)
     p = Parser(tokens)
     return p.parse_module()
 

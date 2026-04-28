@@ -258,11 +258,11 @@ def token_from_data(data: dict[str, Any]) -> Token:
 
 def tokens_from_data(data: list[dict[str, Any]]) -> list[Token]:
     tokens = [token_from_data(item) for item in data]
-    _validate_token_sequence(tokens)
+    validate_token_sequence(tokens)
     return tokens
 
 
-def _validate_token_sequence(tokens: list[Token]) -> None:
+def validate_token_sequence(tokens: list[Token]) -> None:
     if not tokens:
         raise ValueError("invalid token stream payload: empty token list")
     source_files = {token.location.file for token in tokens}

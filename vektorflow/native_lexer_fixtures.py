@@ -147,6 +147,45 @@ def _external_lexer_contract_usable(*, pairing_status: str, validation_issues: S
     return pairing_status == "paired" and not validation_issues
 
 
+def _declared_fixture_content_validation_issues(
+    fixture_path: Path,
+    *,
+    repo_root: Path,
+    expected_source_label: str,
+    source_exists: bool,
+    fixture_exists: bool,
+) -> tuple[str, ...]:
+    if not (source_exists and fixture_exists):
+        return ()
+    text = _read_fixture_payload_text(fixture_path)
+    try:
+        payload_obj: object = json.loads(text)
+        parseable_json = True
+    except json.JSONDecodeError:
+        payload_obj = None
+        parseable_json = False
+    payload = payload_obj if isinstance(payload_obj, dict) else None
+    envelope_kind = _envelope_kind(payload_obj) if parseable_json else "invalid-json"
+    declared_source_label = _declared_source_label(payload) if payload is not None else None
+    paired_source_path = _paired_source_path_for_label(declared_source_label, repo_root=repo_root)
+    paired_source_exists = bool(paired_source_path and paired_source_path.is_file())
+    canonical_versioned = _is_canonical_versioned_payload(payload) if payload is not None else False
+    token_count = _payload_token_count(payload) if payload is not None else 0
+    issues = list(
+        _validation_issues_for_discovered_fixture(
+            parseable_json=parseable_json,
+            envelope_kind=envelope_kind,
+            canonical_versioned=canonical_versioned,
+            declared_source_label=declared_source_label,
+            paired_source_exists=paired_source_exists,
+            token_count=token_count,
+        )
+    )
+    if declared_source_label != expected_source_label:
+        issues.append("source-label-mismatch")
+    return tuple(dict.fromkeys(issues))
+
+
 def declared_fixture_manifest_payload(
     *,
     repo_root: Path | None = None,
@@ -178,6 +217,15 @@ def declared_fixture_manifest_payload(
             validation_issues.append("fixture-missing")
         if item["source_rel"] != item["expected_source_label"]:
             validation_issues.append("noncanonical-source-rel")
+        validation_issues.extend(
+            _declared_fixture_content_validation_issues(
+                fixture,
+                repo_root=root,
+                expected_source_label=item["expected_source_label"],
+                source_exists=source_exists,
+                fixture_exists=fixture_exists,
+            )
+        )
         external_lexer_contract_usable = _external_lexer_contract_usable(
             pairing_status=pairing_status,
             validation_issues=validation_issues,
