@@ -13,6 +13,7 @@ from vektorflow.cli import main
 from vektorflow.cpp_backend import compile_cpp_source, discover_cpp_compiler
 from vektorflow.interpreter import run_file
 from vektorflow.native_frontend import native_subset_native_parser_fast_path_available
+from vektorflow.native_parser_proto import emit_cpp_for_native_core_file
 from vektorflow.parser import parse_module, parse_token_stream_json
 
 
@@ -50,6 +51,11 @@ def _native_core_build_args(path: Path, exe: Path) -> list[str]:
     if _supports_build_native_core():
         return ["build-native-core", str(path), "-o", str(exe)]
     return ["build", str(path), "-o", str(exe)]
+
+
+def _compile_and_run_cpp(cpp_source: str, out_dir: Path, exe_name: str) -> subprocess.CompletedProcess[str]:
+    exe = compile_cpp_source(cpp_source, out_dir, exe_name=exe_name)
+    return subprocess.run([str(exe)], capture_output=True, text=True)
 
 
 def _assert_interpreter_output(name: str, out: str) -> None:
@@ -106,8 +112,10 @@ def test_native_core_examples_native_tokens_round_trip_to_parser(name: str) -> N
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_hello_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
     path = NATIVE_CORE / "hello_native.vkf"
+    source = path.read_text(encoding="utf-8")
 
     assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
 
     standard_rc, standard_out = _run_cli_stdout(["cpp", str(path)])
     native_rc, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
@@ -117,15 +125,23 @@ def test_hello_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_pa
     assert "double twice(double x)" in native_out
     assert "vf_format_num" in native_out
 
-    standard_exe = compile_cpp_source(standard_out, tmp_path / "standard", exe_name="hello_native_standard")
-    native_exe = compile_cpp_source(native_out, tmp_path / "native", exe_name="hello_native_native_cpp")
-
-    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
-    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+    standard_proc = _compile_and_run_cpp(standard_out, tmp_path / "standard", "hello_native_standard")
+    native_proc = _compile_and_run_cpp(native_out, tmp_path / "native", "hello_native_native_cpp")
 
     assert standard_proc.returncode == 0
     assert native_proc.returncode == 0
     assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_native_parser_fast_path_supports_current_shapes_only() -> None:
+    hello_path = NATIVE_CORE / "hello_native.vkf"
+    vectors_path = NATIVE_CORE / "vectors_native.vkf"
+    records_path = NATIVE_CORE / "records_native.vkf"
+
+    assert native_subset_native_parser_fast_path_available(None, str(hello_path))
+    assert native_subset_native_parser_fast_path_available(None, str(vectors_path))
+    assert not native_subset_native_parser_fast_path_available(None, str(records_path))
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
@@ -158,3 +174,32 @@ def test_hello_native_build_native_core_matches_standard_build(tmp_path: Path) -
     assert standard_proc.returncode == 0
     assert native_proc.returncode == 0
     assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_hello_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "hello_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "double twice(double x)" in emitted_cpp
+    assert "vf_format_num" in emitted_cpp
+
+    proc = _compile_and_run_cpp(emitted_cpp, tmp_path / "hello_native_proto", "hello_native_proto")
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["hello_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_vectors_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "vectors_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "std::array<double, 4>" in emitted_cpp
+    assert "mix(const std::array<double, N>& x, const std::array<double, N>& y)" in emitted_cpp
+    assert "vf_format_value" in emitted_cpp
+
+    proc = _compile_and_run_cpp(emitted_cpp, tmp_path / "vectors_native_proto", "vectors_native_proto")
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["vectors_native.vkf"]

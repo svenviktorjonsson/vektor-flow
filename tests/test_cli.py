@@ -41,23 +41,41 @@ NATIVE_CORE_EXAMPLES = [
     "numeric_native.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
+    ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
     ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
     ROOT / "examples" / "benchmarks" / "custom_overloads.vkf",
+    ROOT / "examples" / "benchmarks" / "scalar_hotloop.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_hotloop.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_large_elementwise.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_large_reduce.vkf",
+    ROOT / "examples" / "benchmarks" / "vectors_shapes.vkf",
     ROOT / "examples" / "nested" / "app.vkf",
     ROOT / "examples" / "folder_repo" / "main.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
     ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
     ROOT / "examples" / "benchmarks" / "custom_overloads.vkf",
+    ROOT / "examples" / "benchmarks" / "scalar_hotloop.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_hotloop.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_large_elementwise.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_large_reduce.vkf",
+    ROOT / "examples" / "benchmarks" / "vectors_shapes.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
+    ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
     ROOT / "examples" / "benchmarks" / "stdlib_numeric.vkf",
     ROOT / "examples" / "benchmarks" / "records_dynamic.vkf",
+    ROOT / "examples" / "benchmarks" / "scalar_hotloop.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_hotloop.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_large_elementwise.vkf",
+    ROOT / "examples" / "benchmarks" / "vector_large_reduce.vkf",
+    ROOT / "examples" / "benchmarks" / "vectors_shapes.vkf",
 ]
 
 
@@ -336,9 +354,10 @@ class TestMain:
         assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
         emitted = out.read_text(encoding="utf-8")
         standard = emit_cpp_from_source_file(src)
-        if example_name == "hello_native.vkf":
-            standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name="hello_native_standard")
-            native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name="hello_native_native")
+        if example_name in {"hello_native.vkf", "vectors_native.vkf"}:
+            stem = Path(example_name).stem
+            standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")
+            native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name=f"{stem}_native")
             standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
             native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
             assert standard_proc.returncode == 0
