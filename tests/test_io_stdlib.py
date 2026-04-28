@@ -13,6 +13,7 @@ from vektorflow.stdlib.io import (
     build_io_clock_namespace,
     build_io_file_namespace,
     build_io_native_file_namespace,
+    build_io_native_namespaces,
     build_io_native_namespace,
     build_io_native_time_namespace,
     build_io_namespace,
@@ -60,6 +61,7 @@ class TestResolve:
     def test_file_and_clock_subnamespaces_are_separate(self) -> None:
         file_ns = build_io_file_namespace()
         native_file_ns = build_io_native_file_namespace()
+        native_file_time_ns = build_io_native_namespaces()
         native_ns = build_io_native_namespace()
         clock_ns = build_io_clock_namespace()
         seconds_ns = build_io_seconds_namespace()
@@ -75,6 +77,7 @@ class TestResolve:
             "read_numbers",
         }
         assert native_file_ns == file_ns
+        assert native_file_time_ns == (native_file_ns, native_time_ns)
         assert set(native_ns.keys()) == set(file_ns.keys()) | {"sleep"}
         assert set(seconds_ns.keys()) == {"sleep"}
         assert native_time_ns == seconds_ns

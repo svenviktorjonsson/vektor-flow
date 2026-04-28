@@ -185,6 +185,31 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "runnable_contract_readiness_identity",
         ],
     }
+    assert payload["external_token_contract_completion"] == {
+        "done": True,
+        "completion_rule": (
+            "done iff runnable contract state is ready, top-level state validation passes, "
+            "and declared catalog issues are empty"
+        ),
+        "blocking_reasons": [],
+        "blocking_counts": {
+            "declared_catalog_issues": 0,
+            "blocked_contracts": 0,
+            "state_validation_failures": 0,
+        },
+        "evidence": {
+            "runnable_contract_state": {
+                "status": "all-runnable",
+                "ready": True,
+                "usable_count": len(TOKEN_FIXTURE_SPECS),
+                "blocked_count": 0,
+            },
+            "runnable_contract_state_validation": {
+                "validation_passed": True,
+            },
+            "declared_catalog_issue_count": 0,
+        },
+    }
     for spec, item in zip(TOKEN_FIXTURE_SPECS, payload["fixtures"], strict=True):
         assert item["pairing_status"] == "paired"
         assert item["external_lexer_contract_usable"] is True
@@ -407,6 +432,31 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
             "runnable_contract_readiness_identity",
         ],
     }
+    assert payload["external_token_contract_completion"] == {
+        "done": False,
+        "completion_rule": (
+            "done iff runnable contract state is ready, top-level state validation passes, "
+            "and declared catalog issues are empty"
+        ),
+        "blocking_reasons": ["runnable-contract-not-ready"],
+        "blocking_counts": {
+            "declared_catalog_issues": 0,
+            "blocked_contracts": 3,
+            "state_validation_failures": 0,
+        },
+        "evidence": {
+            "runnable_contract_state": {
+                "status": "blocked",
+                "ready": False,
+                "usable_count": 0,
+                "blocked_count": 3,
+            },
+            "runnable_contract_state_validation": {
+                "validation_passed": True,
+            },
+            "declared_catalog_issue_count": 0,
+        },
+    }
     by_name = {item["fixture_name"]: item for item in payload["fixtures"]}
     assert by_name["hello_native_versioned.json"]["pairing_status"] == "fixture-missing"
     assert by_name["hello_native_versioned.json"]["external_lexer_contract_usable"] is False
@@ -583,4 +633,29 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
             "runnable_contract_set_identity",
             "runnable_contract_readiness_identity",
         ],
+    }
+    assert payload["external_token_contract_completion"] == {
+        "done": True,
+        "completion_rule": (
+            "done iff runnable contract state is ready, top-level state validation passes, "
+            "and declared catalog issues are empty"
+        ),
+        "blocking_reasons": [],
+        "blocking_counts": {
+            "declared_catalog_issues": 0,
+            "blocked_contracts": 0,
+            "state_validation_failures": 0,
+        },
+        "evidence": {
+            "runnable_contract_state": {
+                "status": "all-runnable",
+                "ready": True,
+                "usable_count": len(TOKEN_FIXTURE_SPECS),
+                "blocked_count": 0,
+            },
+            "runnable_contract_state_validation": {
+                "validation_passed": True,
+            },
+            "declared_catalog_issue_count": 0,
+        },
     }

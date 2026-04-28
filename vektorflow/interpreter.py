@@ -54,6 +54,7 @@ from .runtime import (
     runtime_collection_read_attr,
     runtime_collection_spill_values,
     runtime_collection_stringify,
+    runtime_collection_multiset_from_count_pairs,
     runtime_collection_multiset_from_values,
     runtime_collection_take,
     runtime_collection_set,
@@ -1167,19 +1168,11 @@ class Interpreter:
         if isinstance(node, ast.StructIdentity):
             return _local_scope_as_record(env)
         if isinstance(node, ast.MultisetLit):
-            c: Counter[Any] = Counter()
+            pairs: list[tuple[Any, Any]] = []
             for ke, ce in node.pairs:
                 key = self.eval_expr(ke, env)
-                cnt_v = self.eval_expr(ce, env)
-                if isinstance(cnt_v, bool) or not isinstance(cnt_v, (int, float)):
-                    raise EvalError("multiset count must be a number")
-                n = int(cnt_v)
-                if float(cnt_v) != float(n):
-                    raise EvalError("multiset count must be an integer")
-                if n < 0:
-                    raise EvalError("multiset count must be non-negative")
-                c[key] += n
-            m = make_multiset(c.items())
+                pairs.append((key, self.eval_expr(ce, env)))
+            m = runtime_collection_multiset_from_count_pairs(pairs)
             if node.axis_tag is not None:
                 return AxisTaggedValue(m, node.axis_tag)
             return m

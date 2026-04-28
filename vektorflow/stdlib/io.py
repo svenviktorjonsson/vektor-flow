@@ -615,10 +615,16 @@ def build_io_native_time_namespace() -> dict[str, Any]:
     return build_io_seconds_namespace()
 
 
+def build_io_native_namespaces() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the preferred native file/time namespaces as a pair."""
+    return build_io_native_file_namespace(), build_io_native_time_namespace()
+
+
 def build_io_native_namespace() -> dict[str, Any]:
     """Preferred native-friendly stdlib surface for file IO plus seconds-based time."""
-    ns = build_io_native_file_namespace()
-    ns.update(build_io_native_time_namespace())
+    file_ns, time_ns = build_io_native_namespaces()
+    ns = dict(file_ns)
+    ns.update(time_ns)
     return ns
 
 

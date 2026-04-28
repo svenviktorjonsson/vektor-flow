@@ -38,6 +38,7 @@ from vektorflow.runtime import (
     runtime_collection_pipe_result,
     runtime_collection_spill_values,
     runtime_collection_stringify,
+    runtime_collection_multiset_from_count_pairs,
     runtime_collection_multiset_from_values,
     runtime_collection_take,
     runtime_collection_take_prefix,
@@ -197,6 +198,15 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
     built_ms = runtime_collection_multiset_from_values([1, 1, 3])
     assert isinstance(built_ms, Multiset)
     assert runtime_collection_items_sorted(built_ms) == [(1, 2), (3, 1)]
+    built_pairs_ms = runtime_collection_multiset_from_count_pairs([(1, 2), (3, 1.0)])
+    assert isinstance(built_pairs_ms, Multiset)
+    assert runtime_collection_items_sorted(built_pairs_ms) == [(1, 2), (3, 1)]
+    with pytest.raises(EvalError, match=r"multiset count must be a number"):
+        runtime_collection_multiset_from_count_pairs([(1, "x")])
+    with pytest.raises(EvalError, match=r"multiset count must be an integer"):
+        runtime_collection_multiset_from_count_pairs([(1, 1.5)])
+    with pytest.raises(EvalError, match=r"multiset count must be non-negative"):
+        runtime_collection_multiset_from_count_pairs([(1, -1)])
 
 
 def test_runtime_collection_queue_attrs_are_seam_owned_callables() -> None:

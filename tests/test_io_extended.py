@@ -22,6 +22,7 @@ from vektorflow.stdlib.io import (
     get_io_native_time_host,
     get_io_time_host,
     build_io_native_file_namespace,
+    build_io_native_namespaces,
     build_io_native_namespace,
     build_io_native_time_namespace,
     build_io_namespace,
@@ -365,7 +366,9 @@ class TestSleepMs:
     def test_native_file_and_time_namespaces_match_preferred_combined_parts(self) -> None:
         file_io = build_io_native_file_namespace()
         time_io = build_io_native_time_namespace()
+        split_io = build_io_native_namespaces()
         io = build_io_native_namespace()
+        assert split_io == (file_io, time_io)
         assert file_io == {
             "read_text": io["read_text"],
             "write_text": io["write_text"],

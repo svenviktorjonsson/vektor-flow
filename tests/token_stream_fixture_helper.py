@@ -22,6 +22,25 @@ BAD_TOP_LEVEL_TOKEN_STREAM_CASES: tuple[tuple[str, str], ...] = (
     ('{"tokens":[{"kind":"IDENT","value":"x","location":{"file":"<bad>","file":"<worse>","line":1,"column":1}}]}', "duplicate object key 'file'"),
 )
 INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] = (
+    ({"tokens": []}, "empty token list"),
+    (
+        {
+            "tokens": [
+                {"kind": "IDENT", "value": "x", "location": {"file": "<bad>", "line": 1, "column": 1}}
+            ]
+        },
+        "missing EOF terminator",
+    ),
+    (
+        {
+            "tokens": [
+                {"kind": "EOF", "value": None, "location": {"file": "<bad>", "line": 1, "column": 1}},
+                {"kind": "IDENT", "value": "x", "location": {"file": "<bad>", "line": 1, "column": 2}},
+                {"kind": "EOF", "value": None, "location": {"file": "<bad>", "line": 1, "column": 3}},
+            ]
+        },
+        "EOF must appear exactly once at end of stream",
+    ),
     ({"schema": TOKEN_STREAM_SCHEMA, "tokens": []}, "missing version"),
     ({"version": TOKEN_STREAM_VERSION, "tokens": []}, "missing schema"),
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),

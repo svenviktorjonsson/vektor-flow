@@ -257,7 +257,19 @@ def token_from_data(data: dict[str, Any]) -> Token:
 
 
 def tokens_from_data(data: list[dict[str, Any]]) -> list[Token]:
-    return [token_from_data(item) for item in data]
+    tokens = [token_from_data(item) for item in data]
+    _validate_token_sequence(tokens)
+    return tokens
+
+
+def _validate_token_sequence(tokens: list[Token]) -> None:
+    if not tokens:
+        raise ValueError("invalid token stream payload: empty token list")
+    eof_positions = [idx for idx, token in enumerate(tokens) if token.kind == token_defs.EOF]
+    if not eof_positions:
+        raise ValueError("invalid token stream payload: missing EOF terminator")
+    if eof_positions != [len(tokens) - 1]:
+        raise ValueError("invalid token stream payload: EOF must appear exactly once at end of stream")
 
 
 def tokens_to_json(tokens: list[Token]) -> str:

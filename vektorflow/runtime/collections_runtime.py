@@ -276,6 +276,22 @@ def runtime_collection_multiset_from_values(values: Iterable[Any]) -> Multiset:
     return make_multiset(counts.items())
 
 
+def runtime_collection_multiset_from_count_pairs(
+    pairs: Iterable[tuple[Any, Any]],
+) -> Multiset:
+    counts: Counter[Any] = Counter()
+    for key, count_value in pairs:
+        if isinstance(count_value, bool) or not isinstance(count_value, (int, float)):
+            raise EvalError("multiset count must be a number")
+        count = int(count_value)
+        if float(count_value) != float(count):
+            raise EvalError("multiset count must be an integer")
+        if count < 0:
+            raise EvalError("multiset count must be non-negative")
+        counts[key] += count
+    return make_multiset(counts.items())
+
+
 def runtime_collection_attr(value: Any, name: str) -> Any | None:
     if runtime_collection_kind(value) == "queue":
         if name == "put":

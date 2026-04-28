@@ -454,6 +454,50 @@ def declared_fixture_manifest_payload(
             runnable_contract_state_validation["readiness_sha256_matches_readiness_identity"],
         )
     )
+    external_token_contract_completion = {
+        "done": (
+            runnable_contract_state["ready"]
+            and runnable_contract_state_validation["validation_passed"]
+            and not catalog_issues
+        ),
+        "completion_rule": (
+            "done iff runnable contract state is ready, top-level state validation passes, "
+            "and declared catalog issues are empty"
+        ),
+        "blocking_reasons": [],
+        "blocking_counts": {
+            "declared_catalog_issues": len(catalog_issues),
+            "blocked_contracts": runnable_contract_state["blocked_count"],
+            "state_validation_failures": 0,
+        },
+        "evidence": {
+            "runnable_contract_state": {
+                "status": runnable_contract_state["status"],
+                "ready": runnable_contract_state["ready"],
+                "usable_count": runnable_contract_state["usable_count"],
+                "blocked_count": runnable_contract_state["blocked_count"],
+            },
+            "runnable_contract_state_validation": {
+                "validation_passed": runnable_contract_state_validation["validation_passed"],
+            },
+            "declared_catalog_issue_count": len(catalog_issues),
+        },
+    }
+    if not runnable_contract_state["ready"]:
+        external_token_contract_completion["blocking_reasons"].append("runnable-contract-not-ready")
+    if not runnable_contract_state_validation["validation_passed"]:
+        external_token_contract_completion["blocking_reasons"].append("state-validation-failed")
+        external_token_contract_completion["blocking_counts"]["state_validation_failures"] = sum(
+            1
+            for key, value in runnable_contract_state_validation.items()
+            if key.endswith("_matches_readiness")
+            or key.endswith("_matches_readiness_validation")
+            or key.endswith("_matches_set_identity")
+            or key.endswith("_matches_readiness_identity")
+            if value is False
+        )
+    if catalog_issues:
+        external_token_contract_completion["blocking_reasons"].append("declared-catalog-issues")
 
     return {
         "schema": TOKEN_FIXTURE_MANIFEST_SCHEMA,
@@ -523,6 +567,7 @@ def declared_fixture_manifest_payload(
         "runnable_contract_readiness_identity": runnable_contract_readiness_identity,
         "runnable_contract_state": runnable_contract_state,
         "runnable_contract_state_validation": runnable_contract_state_validation,
+        "external_token_contract_completion": external_token_contract_completion,
         "bundle_sha256": _bundle_sha256(
             [
                 {
@@ -551,6 +596,7 @@ def declared_fixture_manifest_payload(
                     "runnable_contract_readiness_identity": runnable_contract_readiness_identity,
                     "runnable_contract_state": runnable_contract_state,
                     "runnable_contract_state_validation": runnable_contract_state_validation,
+                    "external_token_contract_completion": external_token_contract_completion,
                 }
             ]
         ),
