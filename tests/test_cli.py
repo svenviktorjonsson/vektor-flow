@@ -381,6 +381,7 @@ class TestMain:
             "named_record_native.vkf",
             "named_record_nested_native.vkf",
             "named_record_collections_native.vkf",
+            "named_record_scene_native.vkf",
         }:
             stem = Path(example_name).stem
             standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")

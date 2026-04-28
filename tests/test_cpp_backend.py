@@ -18,6 +18,18 @@ from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
 
 
+NATIVE_CORE = Path(__file__).resolve().parent.parent / "examples" / "native_core"
+
+
+def _compile_native_core_example(tmp_path: Path, filename: str) -> subprocess.CompletedProcess[str]:
+    path = NATIVE_CORE / filename
+    cpp = emit_cpp_from_source_file(path)
+    exe = compile_cpp_source(cpp, tmp_path, exe_name=path.stem)
+    proc = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert exe.exists()
+    return proc
+
+
 def test_cpp_lowering_includes_print_stmt() -> None:
     mod = parse_module(":: 3", filename="<cpp-test>")
     lowered = lower_module(mod)
@@ -239,22 +251,14 @@ Point p: (x:1, y:2)
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_builds_named_record_type_example(tmp_path: Path) -> None:
-    path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_native.vkf"
-    cpp = emit_cpp_from_source_file(path)
-    exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_native")
-    proc = subprocess.run([str(exe)], capture_output=True, text=True)
-    assert exe.exists()
+    proc = _compile_native_core_example(tmp_path, "named_record_native.vkf")
     assert proc.returncode == 0
     assert proc.stdout.strip() == "4\n(x:4, y:6)"
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_builds_nested_named_record_type_example(tmp_path: Path) -> None:
-    path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_nested_native.vkf"
-    cpp = emit_cpp_from_source_file(path)
-    exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_nested_native")
-    proc = subprocess.run([str(exe)], capture_output=True, text=True)
-    assert exe.exists()
+    proc = _compile_native_core_example(tmp_path, "named_record_nested_native.vkf")
     assert proc.returncode == 0
     assert proc.stdout.strip() == "4\n(origin:(x:4, y:6), size:(x:10, y:20))"
 
@@ -262,24 +266,23 @@ def test_cpp_builds_nested_named_record_type_example(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_builds_named_record_collections_type_example(tmp_path: Path) -> None:
-    path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_collections_native.vkf"
-    cpp = emit_cpp_from_source_file(path)
-    exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_collections_native")
-    proc = subprocess.run([str(exe)], capture_output=True, text=True)
-    assert exe.exists()
+    proc = _compile_native_core_example(tmp_path, "named_record_collections_native.vkf")
     assert proc.returncode == 0
     assert proc.stdout.strip() == "[5, 7]\n{3:1, 6:2}\n(pts:[5, 7], bag:{3:1, 6:2}, total:2)"
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_builds_named_record_scene_type_example(tmp_path: Path) -> None:
-    path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_scene_native.vkf"
-    cpp = emit_cpp_from_source_file(path)
-    exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_scene_native")
-    proc = subprocess.run([str(exe)], capture_output=True, text=True)
-    assert exe.exists()
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_native.vkf")
     assert proc.returncode == 0
     assert proc.stdout.strip() == "4\n[5, 7]\n{3:1, 6:2}\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_chain_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_chain_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"
 
 def test_cpp_emits_dynamic_map_and_list_program() -> None:
     src = """
