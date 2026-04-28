@@ -284,6 +284,48 @@ def test_cpp_builds_named_record_scene_chain_type_example(tmp_path: Path) -> Non
     assert proc.returncode == 0
     assert proc.stdout.strip() == "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"
 
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_helpers_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_helpers_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "6\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_handoff_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_handoff_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_relay_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_relay_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_fanout_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_fanout_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_compose_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_compose_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_overlay_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_overlay_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"
+
 def test_cpp_emits_dynamic_map_and_list_program() -> None:
     src = """
 m: collections.map(a:1, b:"hi", c:true)

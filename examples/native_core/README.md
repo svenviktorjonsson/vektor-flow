@@ -22,6 +22,12 @@ Current examples:
 - `named_record_collections_native.vkf` - named records with compiled vector and multiset fields
 - `named_record_scene_native.vkf` - nested named records carrying compiled collection state
 - `named_record_scene_chain_native.vkf` - chained scene updates through multiple compiled named-record locals
+- `named_record_scene_helpers_native.vkf` - helper-based scene reconstruction through named-record locals
+- `named_record_scene_handoff_native.vkf` - helper-based chained scene handoff through multiple compiled locals
+- `named_record_scene_relay_native.vkf` - helper-return scene relay through staged compiled named-record locals
+- `named_record_scene_fanout_native.vkf` - helper fanout/merge through typed Point, State, and Scene locals
+- `named_record_scene_compose_native.vkf` - helper-return scene composition through final typed Scene merge
+- `named_record_scene_overlay_native.vkf` - merge two helper-return Scene values through a final typed Scene overlay
 
 Typical workflow:
 

@@ -1,0 +1,26 @@
+Point : (x:num, y:num)
+State : (pts:[num:2], bag:{num}, total:num)
+Scene : (anchor:Point, state:State)
+
+shift_anchor(anchor:Point, shift:Point) -> Point:
+    (x:anchor.x + shift.x, y:anchor.y + shift.y)
+
+bump_state(state:State, extra:[num:2], delta:{num}) -> State:
+    (pts:state.pts + extra, bag:state.bag + delta, total:state.total + 1)
+
+move_anchor(scene:Scene, shift:Point) -> Scene:
+    (anchor:shift_anchor(scene.anchor, shift), state:scene.state)
+
+fill_state(scene:Scene, extra:[num:2], delta:{num}) -> Scene:
+    (anchor:scene.anchor, state:bump_state(scene.state, extra, delta))
+
+Scene base: (anchor:(x:1, y:2), state:(pts:[1,2], bag:{3:1}, total:1))
+Point shift: (x:3, y:4)
+
+Scene shifted: move_anchor(base, shift)
+Scene filled: fill_state(base, [4,5], {6:2})
+Scene moved: (anchor:shifted.anchor, state:filled.state)
+
+:: moved.anchor.x
+:: moved.state.total
+:: moved

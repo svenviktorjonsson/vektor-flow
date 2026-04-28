@@ -1,0 +1,23 @@
+Point : (x:num, y:num)
+State : (pts:[num:2], bag:{num}, total:num)
+Scene : (anchor:Point, state:State)
+
+shift_anchor(anchor:Point, shift:Point) -> Point:
+    (x:anchor.x + shift.x, y:anchor.y + shift.y)
+
+bump_state(state:State, extra:[num:2], delta:{num}) -> State:
+    (pts:state.pts + extra, bag:state.bag + delta, total:state.total + 1)
+
+step(scene:Scene, shift:Point, extra:[num:2], delta:{num}) -> Scene:
+    (anchor:scene.anchor, state:bump_state(scene.state, extra, delta))
+
+Scene base: (anchor:(x:1, y:2), state:(pts:[1,2], bag:{3:1}, total:1))
+Point shift: (x:3, y:4)
+
+Point moved_anchor: shift_anchor(base.anchor, shift)
+Scene staged: step(base, shift, [4,5], {6:2})
+Scene moved: (anchor:moved_anchor, state:staged.state)
+
+:: moved.anchor.x
+:: moved.state.total
+:: moved

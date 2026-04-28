@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from vektorflow.cli import main
-from vektorflow.cpp_backend import compile_cpp_source, discover_cpp_compiler
+from vektorflow.cpp_backend import CppEmitError, compile_cpp_source, discover_cpp_compiler
 from vektorflow.interpreter import run_file
 from vektorflow.native_frontend import native_subset_native_parser_fast_path_available
 from vektorflow.native_parser_proto import emit_cpp_for_native_core_file
@@ -28,6 +28,14 @@ EXPECTED_OUTPUTS = {
     "numeric_native.vkf": "0\n3.14159265358979\n3\n[0, 0.25, 0.5, 0.75, 1]\n1",
     "named_record_native.vkf": "4\n(x:4, y:6)",
     "named_record_nested_native.vkf": "4\n(origin:(x:4, y:6), size:(x:10, y:20))",
+    "named_record_collections_native.vkf": "[5, 7]\n{3:1, 6:2}\n(pts:[5, 7], bag:{3:1, 6:2}, total:2)",
+    "named_record_scene_native.vkf": "4\n[5, 7]\n{3:1, 6:2}\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))",
+    "named_record_scene_chain_native.vkf": "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))",
+    "named_record_scene_helpers_native.vkf": "6\n2\n(anchor:(x:4, y:6), state:(bag:{3:1, 6:2}, pts:[5, 7], total:2))",
+    "named_record_scene_handoff_native.vkf": "10\n3\n(anchor:(x:7, y:10), state:(bag:{3:2, 6:2}, pts:[6, 8], total:3))",
+    "named_record_scene_relay_native.vkf": "10\n3\n(anchor:(x:7, y:10), state:(bag:{3:2, 6:2}, pts:[6, 8], total:3))",
+    "named_record_scene_compose_native.vkf": "4\n2\n(anchor:(x:4, y:6), state:(bag:{3:1, 6:2}, pts:[5, 7], total:2))",
+    "named_record_scene_fanout_native.vkf": "7\n3\n(anchor:(x:7, y:10), state:(bag:{3:2, 6:2}, pts:[6, 8], total:3))",
 }
 
 FAST_PATH_SUPPORTED = {
@@ -36,13 +44,26 @@ FAST_PATH_SUPPORTED = {
     "numeric_native.vkf",
     "named_record_native.vkf",
     "named_record_nested_native.vkf",
+    "named_record_collections_native.vkf",
+    "named_record_scene_native.vkf",
+    "named_record_scene_chain_native.vkf",
+    "named_record_scene_helpers_native.vkf",
 }
 
 FAST_PATH_FALLBACK = {
     "records_native.vkf",
-    "named_record_collections_native.vkf",
-    "named_record_scene_native.vkf",
 }
+
+OPTIONAL_BUILDABLE_FALLBACK = tuple(
+    name
+    for name in (
+        "named_record_scene_handoff_native.vkf",
+        "named_record_scene_relay_native.vkf",
+        "named_record_scene_compose_native.vkf",
+        "named_record_scene_fanout_native.vkf",
+    )
+    if (NATIVE_CORE / name).exists()
+)
 
 
 def _expected_module_repr(path: Path) -> str:
@@ -81,8 +102,9 @@ def _assert_native_cpp_runtime_matches_standard(path: Path, tmp_path: Path, exe_
     assert standard_rc == 0
     assert native_rc == 0
 
-    standard_proc = _compile_and_run_cpp(standard_out, tmp_path / f"{exe_prefix}_standard", f"{exe_prefix}_standard")
-    native_proc = _compile_and_run_cpp(native_out, tmp_path / f"{exe_prefix}_native", f"{exe_prefix}_native")
+    short = exe_prefix[:24]
+    standard_proc = _compile_and_run_cpp(standard_out, tmp_path / f"{short}_standard", f"{short}_standard")
+    native_proc = _compile_and_run_cpp(native_out, tmp_path / f"{short}_native", f"{short}_native")
 
     assert standard_proc.returncode == 0
     assert native_proc.returncode == 0
@@ -131,6 +153,59 @@ def _assert_interpreter_output(name: str, out: str) -> None:
         lines = out.splitlines()
         assert lines[0] == "4"
         assert lines[1] == "(origin:(x:4, y:6), size:(x:10, y:20))"
+        return
+    if name == "named_record_collections_native.vkf":
+        lines = out.splitlines()
+        assert lines[0] == "[5, 7]"
+        assert lines[1] == "{3:1, 6:2}"
+        assert "pts:[5, 7]" in lines[2]
+        assert "bag:{3:1, 6:2}" in lines[2]
+        assert "total:2" in lines[2]
+        return
+    if name == "named_record_scene_native.vkf":
+        lines = out.splitlines()
+        assert lines[0] == "4"
+        assert lines[1] == "[5, 7]"
+        assert lines[2] == "{3:1, 6:2}"
+        assert "anchor:(x:4, y:6)" in lines[3]
+        assert "pts:[5, 7]" in lines[3]
+        assert "bag:{3:1, 6:2}" in lines[3]
+        assert "total:2" in lines[3]
+        return
+    if name == "named_record_scene_chain_native.vkf":
+        lines = out.splitlines()
+        assert lines[0] == "7"
+        assert lines[1] == "3"
+        assert "anchor:(x:7, y:10)" in lines[2]
+        assert "pts:[6, 8]" in lines[2]
+        assert "bag:{3:2, 6:2}" in lines[2]
+        assert "total:3" in lines[2]
+        return
+    if name in {
+        "named_record_scene_helpers_native.vkf",
+        "named_record_scene_handoff_native.vkf",
+        "named_record_scene_relay_native.vkf",
+        "named_record_scene_compose_native.vkf",
+        "named_record_scene_fanout_native.vkf",
+    }:
+        lines = out.splitlines()
+        if name in {
+            "named_record_scene_helpers_native.vkf",
+            "named_record_scene_compose_native.vkf",
+        }:
+            assert lines[0] == ("6" if name == "named_record_scene_helpers_native.vkf" else "4")
+            assert lines[1] == "2"
+            assert "anchor:(x:4, y:6)" in lines[2]
+            assert "pts:[5, 7]" in lines[2]
+            assert "bag:{3:1, 6:2}" in lines[2]
+            assert "total:2" in lines[2]
+        else:
+            assert lines[0] == ("7" if name == "named_record_scene_fanout_native.vkf" else "10")
+            assert lines[1] == "3"
+            assert "anchor:(x:7, y:10)" in lines[2]
+            assert "pts:[6, 8]" in lines[2]
+            assert "bag:{3:2, 6:2}" in lines[2]
+            assert "total:3" in lines[2]
         return
     raise AssertionError(f"missing interpreter validator for {name}")
 
@@ -210,6 +285,57 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
         assert not native_subset_native_parser_fast_path_available(None, str(path))
         assert not native_subset_native_parser_fast_path_available(source, path.name)
 
+    for name in OPTIONAL_BUILDABLE_FALLBACK:
+        path = NATIVE_CORE / name
+        source = path.read_text(encoding="utf-8")
+        assert not native_subset_native_parser_fast_path_available(None, str(path))
+        assert not native_subset_native_parser_fast_path_available(source, path.name)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", OPTIONAL_BUILDABLE_FALLBACK)
+def test_optional_buildable_fallback_shapes_stay_off_fast_path_but_parse(name: str) -> None:
+    path = NATIVE_CORE / name
+
+    parse_rc, parse_out = _run_cli_stdout(["parse-native-core", str(path)])
+    assert parse_rc == 0
+    assert parse_out.strip() == _expected_module_repr(path)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", OPTIONAL_BUILDABLE_FALLBACK)
+def test_optional_buildable_fallback_shapes_preserve_cpp_runtime_parity(name: str, tmp_path: Path) -> None:
+    path = NATIVE_CORE / name
+
+    parse_rc, parse_out = _run_cli_stdout(["parse-native-core", str(path)])
+    assert parse_rc == 0
+    assert parse_out.strip() == _expected_module_repr(path)
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, f"{path.stem[:16]}_opt_fb_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", OPTIONAL_BUILDABLE_FALLBACK)
+def test_optional_buildable_fallback_shapes_preserve_build_runtime_parity(name: str, tmp_path: Path) -> None:
+    path = NATIVE_CORE / name
+    _assert_native_build_runtime_matches_standard(path, tmp_path, f"{path.stem[:16]}_opt_fb_build")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", OPTIONAL_BUILDABLE_FALLBACK)
+def test_optional_buildable_fallback_shapes_build_and_run(name: str, tmp_path: Path) -> None:
+    path = NATIVE_CORE / name
+    exe = tmp_path / path.with_suffix(".exe").name
+
+    parse_rc, parse_out = _run_cli_stdout(["parse-native-core", str(path)])
+    assert parse_rc == 0
+    assert parse_out.strip() == _expected_module_repr(path)
+
+    assert main(_native_core_build_args(path, exe)) == 0
+    proc = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert proc.returncode == 0
+    _assert_interpreter_output(name, proc.stdout.strip())
+
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 @pytest.mark.parametrize("name", sorted(FAST_PATH_FALLBACK))
@@ -231,6 +357,24 @@ def test_native_core_fallback_shapes_preserve_build_runtime_parity(name: str, tm
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", sorted(FAST_PATH_FALLBACK))
+def test_native_parser_proto_rejects_fallback_shapes(name: str) -> None:
+    path = NATIVE_CORE / name
+
+    with pytest.raises(CppEmitError):
+        emit_cpp_for_native_core_file(path)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", OPTIONAL_BUILDABLE_FALLBACK)
+def test_native_parser_proto_rejects_optional_buildable_fallback_shapes(name: str) -> None:
+    path = NATIVE_CORE / name
+
+    with pytest.raises(CppEmitError):
+        emit_cpp_for_native_core_file(path)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 @pytest.mark.parametrize("name, expected", EXPECTED_OUTPUTS.items())
 def test_native_core_examples_build_and_run(name: str, expected: str, tmp_path: Path) -> None:
     path = NATIVE_CORE / name
@@ -242,7 +386,7 @@ def test_native_core_examples_build_and_run(name: str, expected: str, tmp_path: 
     assert main(_native_core_build_args(path, exe)) == 0
     proc = subprocess.run([str(exe)], capture_output=True, text=True)
     assert proc.returncode == 0
-    assert proc.stdout.strip() == expected
+    _assert_interpreter_output(name, proc.stdout.strip())
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
@@ -328,6 +472,73 @@ def test_named_record_nested_native_cpp_native_core_uses_fast_path_and_preserves
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_collections_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_collections_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "struct State" in native_out
+    assert "std::array<double, 2>" in native_out
+    assert "std::map<double, long long>" in native_out
+    assert "State bump(State state, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "named_record_collections_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "struct Point" in native_out
+    assert "struct State" in native_out
+    assert "struct Scene" in native_out
+    assert "Scene bump(Scene scene, Point shift, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "named_record_scene_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_chain_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_chain_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "struct Point" in native_out
+    assert "struct State" in native_out
+    assert "struct Scene" in native_out
+    assert "Scene second = bump(first, shift" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "named_record_scene_chain_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_helpers_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_helpers_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "Point shift_anchor(Point anchor, Point shift)" in native_out
+    assert "State bump_state(State state, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in native_out
+    assert "Scene step(Scene scene, Point shift, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "named_record_scene_helpers_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_numeric_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
     path = NATIVE_CORE / "numeric_native.vkf"
     standard_exe = tmp_path / "numeric_native_standard.exe"
@@ -366,6 +577,74 @@ def test_named_record_nested_native_build_native_core_matches_standard_build(tmp
     path = NATIVE_CORE / "named_record_nested_native.vkf"
     standard_exe = tmp_path / "named_record_nested_native_standard.exe"
     native_exe = tmp_path / "named_record_nested_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_collections_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_collections_native.vkf"
+    standard_exe = tmp_path / "named_record_collections_native_standard.exe"
+    native_exe = tmp_path / "named_record_collections_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_native.vkf"
+    standard_exe = tmp_path / "named_record_scene_native_standard.exe"
+    native_exe = tmp_path / "named_record_scene_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_chain_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_chain_native.vkf"
+    standard_exe = tmp_path / "named_record_scene_chain_native_standard.exe"
+    native_exe = tmp_path / "named_record_scene_chain_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_helpers_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_helpers_native.vkf"
+    standard_exe = tmp_path / "named_record_scene_helpers_native_standard.exe"
+    native_exe = tmp_path / "named_record_scene_helpers_native_native.exe"
 
     assert main(["build", str(path), "-o", str(standard_exe)]) == 0
     assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
@@ -454,3 +733,82 @@ def test_named_record_nested_native_parser_proto_emits_cpp_and_preserves_output(
 
     assert proc.returncode == 0
     assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_nested_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_collections_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_collections_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "struct State" in emitted_cpp
+    assert "std::array<double, 2>" in emitted_cpp
+    assert "std::map<double, long long>" in emitted_cpp
+    assert "State bump(State state, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in emitted_cpp
+
+    proc = _compile_and_run_cpp(
+        emitted_cpp,
+        tmp_path / "named_record_collections_native_proto",
+        "named_record_collections_native_proto",
+    )
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_collections_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "struct Point" in emitted_cpp
+    assert "struct State" in emitted_cpp
+    assert "struct Scene" in emitted_cpp
+    assert "Scene bump(Scene scene, Point shift, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in emitted_cpp
+
+    proc = _compile_and_run_cpp(
+        emitted_cpp,
+        tmp_path / "named_record_scene_native_proto",
+        "named_record_scene_native_proto",
+    )
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_scene_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_chain_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_chain_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "struct Point" in emitted_cpp
+    assert "struct State" in emitted_cpp
+    assert "struct Scene" in emitted_cpp
+    assert "Scene second = bump(first, shift" in emitted_cpp
+
+    proc = _compile_and_run_cpp(
+        emitted_cpp,
+        tmp_path / "named_record_scene_chain_native_proto",
+        "named_record_scene_chain_native_proto",
+    )
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_scene_chain_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_scene_helpers_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_scene_helpers_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "Point shift_anchor(Point anchor, Point shift)" in emitted_cpp
+    assert "State bump_state(State state, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in emitted_cpp
+    assert "Scene step(Scene scene, Point shift, const std::array<double, 2>& extra, const std::map<double, long long>& delta)" in emitted_cpp
+
+    proc = _compile_and_run_cpp(
+        emitted_cpp,
+        tmp_path / "named_record_scene_helpers_native_proto",
+        "named_record_scene_helpers_native_proto",
+    )
+
+    assert proc.returncode == 0
+    _assert_interpreter_output("named_record_scene_helpers_native.vkf", proc.stdout.strip())
