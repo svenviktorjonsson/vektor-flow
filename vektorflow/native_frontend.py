@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Literal
 
 from . import ast
-from .cpp_backend import compile_cpp_source, emit_cpp_from_token_stream_json
+from .cpp_backend import CppEmitError, compile_cpp_source, emit_cpp_from_token_stream_json
 from .native_core_lexer import lex_native_core_file_to_json, lex_native_core_stdin_to_json
+from .native_parser_proto import emit_cpp_for_hello_native_file, emit_cpp_for_hello_native_source
 from .parser import parse_token_stream_json
 
 
@@ -36,6 +37,8 @@ class NativeSubsetCapabilities:
     supports_parse: bool = True
     supports_cpp_emit: bool = True
     supports_build: bool = True
+    supports_native_parser_fast_path: bool = False
+    supports_native_cpp_emit_fast_path: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,13 @@ class NativeTokenPayload:
     payload: str
 
 
+@dataclass(frozen=True)
+class NativeCppEmitResult:
+    request: NativeFrontendInput
+    cpp_source: str
+    used_native_parser_fast_path: bool
+
+
 def _normalize_subset(subset: str) -> NativeSubset:
     if subset != "native_core":
         raise ValueError(f"unsupported native frontend subset: {subset!r}")
@@ -68,7 +78,11 @@ def _normalize_subset(subset: str) -> NativeSubset:
 
 def native_subset_capabilities(subset: str = "native_core") -> NativeSubsetCapabilities:
     normalized = _normalize_subset(subset)
-    return NativeSubsetCapabilities(subset=normalized)
+    return NativeSubsetCapabilities(
+        subset=normalized,
+        supports_native_parser_fast_path=True,
+        supports_native_cpp_emit_fast_path=True,
+    )
 
 
 def native_subset_supported(subset: str = "native_core") -> bool:
@@ -77,6 +91,22 @@ def native_subset_supported(subset: str = "native_core") -> bool:
     except ValueError:
         return False
     return True
+
+
+def native_subset_native_parser_fast_path_available(
+    source: str | None,
+    filename: str,
+    *,
+    subset: str = "native_core",
+    filename_label: str | None = None,
+) -> bool:
+    request = _normalize_native_input(
+        source,
+        filename,
+        subset=subset,
+        filename_label=filename_label,
+    )
+    return _native_parser_fast_path_available(request)
 
 
 def _default_filename_label(source: str | None, filename: str) -> str:
@@ -115,6 +145,47 @@ def _lex_native_payload(request: NativeFrontendInput) -> str:
             return lex_native_core_file_to_json(request.path, filename_label=request.filename_label)
         return lex_native_core_stdin_to_json(request.source or "", filename_label=request.filename_label)
     raise ValueError(f"unsupported native frontend subset: {request.subset!r}")
+
+
+def _native_parser_fast_path_available(request: NativeFrontendInput) -> bool:
+    capabilities = native_subset_capabilities(request.subset)
+    if not (
+        capabilities.supports_native_parser_fast_path
+        and capabilities.supports_native_cpp_emit_fast_path
+    ):
+        return False
+    try:
+        if request.is_file_input:
+            emit_cpp_for_hello_native_file(request.path)
+        else:
+            emit_cpp_for_hello_native_source(request.source or "")
+    except CppEmitError:
+        return False
+    return True
+
+
+def _emit_cpp_from_native_request(request: NativeFrontendInput) -> NativeCppEmitResult:
+    native_cpp = _try_emit_cpp_from_native_parser_fast_path(request)
+    if native_cpp is not None:
+        return NativeCppEmitResult(
+            request=request,
+            cpp_source=native_cpp,
+            used_native_parser_fast_path=True,
+        )
+    payload = _lex_native_payload(request)
+    return NativeCppEmitResult(
+        request=request,
+        cpp_source=emit_cpp_from_token_stream_json(payload),
+        used_native_parser_fast_path=False,
+    )
+
+
+def _try_emit_cpp_from_native_parser_fast_path(request: NativeFrontendInput) -> str | None:
+    if not _native_parser_fast_path_available(request):
+        return None
+    if request.is_file_input:
+        return emit_cpp_for_hello_native_file(request.path)
+    return emit_cpp_for_hello_native_source(request.source or "")
 
 
 def lex_native_subset_result(
@@ -184,13 +255,13 @@ def emit_cpp_from_native_subset(
 ) -> str:
     """Emit C++ using the active native frontend subset as the source frontend."""
 
-    result = lex_native_subset_result(
+    request = _normalize_native_input(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
     )
-    return emit_cpp_from_token_stream_json(result.payload)
+    return _emit_cpp_from_native_request(request).cpp_source
 
 
 def build_native_subset(
@@ -203,18 +274,18 @@ def build_native_subset(
 ) -> Path:
     """Compile the active native frontend subset to an executable path."""
 
-    result = lex_native_subset_result(
+    request = _normalize_native_input(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
     )
     out_path = Path(out_path)
-    cpp_source = emit_cpp_from_token_stream_json(result.payload)
+    emit_result = _emit_cpp_from_native_request(request)
     compiled = compile_cpp_source(
-        cpp_source,
+        emit_result.cpp_source,
         out_path.parent,
-        exe_name=out_path.stem or _default_exe_name(result.request.source, result.request.filename),
+        exe_name=out_path.stem or _default_exe_name(request.source, request.filename),
     )
     if compiled != out_path:
         if out_path.exists():

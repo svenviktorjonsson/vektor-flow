@@ -10,8 +10,9 @@ import subprocess
 import pytest
 
 from vektorflow.cli import main
-from vektorflow.cpp_backend import discover_cpp_compiler
+from vektorflow.cpp_backend import compile_cpp_source, discover_cpp_compiler
 from vektorflow.interpreter import run_file
+from vektorflow.native_frontend import native_subset_native_parser_fast_path_available
 from vektorflow.parser import parse_module, parse_token_stream_json
 
 
@@ -103,6 +104,31 @@ def test_native_core_examples_native_tokens_round_trip_to_parser(name: str) -> N
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_hello_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "hello_native.vkf"
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+
+    standard_rc, standard_out = _run_cli_stdout(["cpp", str(path)])
+    native_rc, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+
+    assert standard_rc == 0
+    assert native_rc == 0
+    assert "double twice(double x)" in native_out
+    assert "vf_format_num" in native_out
+
+    standard_exe = compile_cpp_source(standard_out, tmp_path / "standard", exe_name="hello_native_standard")
+    native_exe = compile_cpp_source(native_out, tmp_path / "native", exe_name="hello_native_native_cpp")
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 @pytest.mark.parametrize("name, expected", EXPECTED_OUTPUTS.items())
 def test_native_core_examples_build_and_run(name: str, expected: str, tmp_path: Path) -> None:
     path = NATIVE_CORE / name
@@ -115,3 +141,20 @@ def test_native_core_examples_build_and_run(name: str, expected: str, tmp_path: 
     proc = subprocess.run([str(exe)], capture_output=True, text=True)
     assert proc.returncode == 0
     assert proc.stdout.strip() == expected
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_hello_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "hello_native.vkf"
+    standard_exe = tmp_path / "hello_native_standard.exe"
+    native_exe = tmp_path / "hello_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout

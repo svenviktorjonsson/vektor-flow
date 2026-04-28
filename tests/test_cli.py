@@ -334,8 +334,18 @@ class TestMain:
         out = tmp_path / src.with_suffix(".cpp").name
 
         assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
-
-        assert out.read_text(encoding="utf-8") == emit_cpp_from_source_file(src)
+        emitted = out.read_text(encoding="utf-8")
+        standard = emit_cpp_from_source_file(src)
+        if example_name == "hello_native.vkf":
+            standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name="hello_native_standard")
+            native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name="hello_native_native")
+            standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+            native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+            assert standard_proc.returncode == 0
+            assert native_proc.returncode == 0
+            assert native_proc.stdout == standard_proc.stdout
+            return
+        assert emitted == standard
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(
@@ -363,7 +373,15 @@ class TestMain:
         monkeypatch.setattr("sys.stdin.read", lambda: src)
         assert main(["cpp-native-core", "-", "-o", str(out)]) == 0
 
-        assert out.read_text(encoding="utf-8") == emit_cpp_from_source_file(src_path)
+        emitted = out.read_text(encoding="utf-8")
+        standard = emit_cpp_from_source_file(src_path)
+        standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name="hello_native_stdin_standard")
+        native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name="hello_native_stdin_native")
+        standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+        native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+        assert standard_proc.returncode == 0
+        assert native_proc.returncode == 0
+        assert native_proc.stdout == standard_proc.stdout
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(
