@@ -40,6 +40,7 @@ NATIVE_CORE_EXAMPLES = [
     "records_native.vkf",
     "numeric_native.vkf",
     "named_record_native.vkf",
+    "named_record_nested_native.vkf",
 ]
 EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
@@ -358,7 +359,13 @@ class TestMain:
         assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
         emitted = out.read_text(encoding="utf-8")
         standard = emit_cpp_from_source_file(src)
-        if example_name in {"hello_native.vkf", "vectors_native.vkf", "numeric_native.vkf"}:
+        if example_name in {
+            "hello_native.vkf",
+            "vectors_native.vkf",
+            "numeric_native.vkf",
+            "named_record_native.vkf",
+            "named_record_nested_native.vkf",
+        }:
             stem = Path(example_name).stem
             standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")
             native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name=f"{stem}_native")
@@ -451,6 +458,7 @@ class TestMain:
             ("hello_native.vkf", "42"),
             ("vectors_native.vkf", "[2.5, 2.5, 2.5, 2.5]"),
             ("numeric_native.vkf", "0"),
+            ("named_record_nested_native.vkf", "4"),
         ],
     )
     def test_build_native_core_examples(self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str) -> None:

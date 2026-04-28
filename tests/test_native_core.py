@@ -180,10 +180,10 @@ def test_native_parser_fast_path_supports_current_shapes_only() -> None:
     assert native_subset_native_parser_fast_path_available(vectors_source, vectors_path.name)
     assert native_subset_native_parser_fast_path_available(None, str(numeric_path))
     assert native_subset_native_parser_fast_path_available(numeric_source, numeric_path.name)
+    assert native_subset_native_parser_fast_path_available(None, str(named_record_path))
+    assert native_subset_native_parser_fast_path_available(named_record_source, named_record_path.name)
     assert not native_subset_native_parser_fast_path_available(None, str(records_path))
     assert not native_subset_native_parser_fast_path_available(records_source, records_path.name)
-    assert not native_subset_native_parser_fast_path_available(None, str(named_record_path))
-    assert not native_subset_native_parser_fast_path_available(named_record_source, named_record_path.name)
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
@@ -252,10 +252,43 @@ def test_numeric_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_native.vkf"
+    source = path.read_text(encoding="utf-8")
+
+    assert native_subset_native_parser_fast_path_available(None, str(path))
+    assert native_subset_native_parser_fast_path_available(source, path.name)
+
+    _, native_out = _run_cli_stdout(["cpp-native-core", str(path)])
+    assert "struct Point" in native_out
+    assert "Point move(Point p, double dx, double dy)" in native_out
+    assert "vf_format_value(const Point& value)" in native_out
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, "named_record_native_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_numeric_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
     path = NATIVE_CORE / "numeric_native.vkf"
     standard_exe = tmp_path / "numeric_native_standard.exe"
     native_exe = tmp_path / "numeric_native_native.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_native_build_native_core_matches_standard_build(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_native.vkf"
+    standard_exe = tmp_path / "named_record_native_standard.exe"
+    native_exe = tmp_path / "named_record_native_native.exe"
 
     assert main(["build", str(path), "-o", str(standard_exe)]) == 0
     assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
@@ -310,3 +343,18 @@ def test_numeric_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Pa
 
     assert proc.returncode == 0
     assert proc.stdout.strip() == EXPECTED_OUTPUTS["numeric_native.vkf"]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_named_record_native_parser_proto_emits_cpp_and_preserves_output(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_native.vkf"
+    emitted_cpp = emit_cpp_for_native_core_file(path)
+
+    assert "struct Point" in emitted_cpp
+    assert "Point move(Point p, double dx, double dy)" in emitted_cpp
+    assert "vf_format_value(const Point& value)" in emitted_cpp
+
+    proc = _compile_and_run_cpp(emitted_cpp, tmp_path / "named_record_native_proto", "named_record_native_proto")
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == EXPECTED_OUTPUTS["named_record_native.vkf"]

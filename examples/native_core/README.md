@@ -19,6 +19,7 @@ Current examples:
 - `numeric_native.vkf` - compiled `math` / `stat` intrinsic coverage
 - `named_record_native.vkf` - compiled named record declarations and return flow
 - `named_record_nested_native.vkf` - nested compiled named record resolution
+- `named_record_collections_native.vkf` - named records with compiled vector and multiset fields
 
 Typical workflow:
 
@@ -29,3 +30,4 @@ vkf build examples/native_core/hello_native.vkf
 
 As the frontend moves out of Python, this folder should stay the same. The goal
 is to keep the contract stable while the implementation underneath changes.
+

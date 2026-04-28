@@ -1,0 +1,11 @@
+State : (pts:[num:2], bag:{num}, total:num)
+
+bump(state:State, extra:[num:2], delta:{num}) -> State:
+    (pts:state.pts + extra, bag:state.bag + delta, total:state.total + 1)
+
+State base: (pts:[1,2], bag:{3:1}, total:1)
+State moved: bump(base, [4,5], {6:2})
+
+:: moved.pts
+:: moved.bag
+:: moved

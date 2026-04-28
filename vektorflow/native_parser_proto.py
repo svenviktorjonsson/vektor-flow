@@ -1,9 +1,10 @@
 """Tiny native parser/codegen prototype for the first native-core slices.
 
 This module is intentionally narrow: it embeds a compiled C++ tool that parses
-the exact grammar shapes used by ``examples/native_core/hello_native.vkf`` and
-``examples/native_core/vectors_native.vkf`` and emits standalone C++ for those
-slices.
+the exact grammar shapes used by ``examples/native_core/hello_native.vkf``,
+``examples/native_core/vectors_native.vkf``, ``examples/native_core/numeric_native.vkf``,
+and ``examples/native_core/named_record_native.vkf`` and emits standalone C++
+for those slices.
 
 The goal is not to pretend we have a full native parser already. The goal is to
 replace one real frontend step with a genuinely native-backed parser/codegen
@@ -73,9 +74,26 @@ struct NumericProgram {
     NumericBinding ys_binding;
 };
 
+struct NamedRecordProgram {
+    std::string type_name;
+    std::string first_field_name;
+    std::string second_field_name;
+    std::string move_function_name;
+    std::string param_name;
+    std::string delta_x_name;
+    std::string delta_y_name;
+    std::string base_name;
+    double base_first_value = 0.0;
+    double base_second_value = 0.0;
+    std::string shifted_name;
+    double shift_x_value = 0.0;
+    double shift_y_value = 0.0;
+};
+
 static std::string emit_hello_cpp(const HelloProgram& program);
 static std::string emit_vector_cpp(const VectorProgram& program);
 static std::string emit_numeric_cpp(const NumericProgram& program);
+static std::string emit_named_record_cpp(const NamedRecordProgram& program);
 
 static std::string trim(const std::string& s) {
     std::size_t start = 0;
@@ -227,51 +245,65 @@ public:
         : lines_(logical_lines(normalize_newlines(source))) {}
 
     std::string emit_cpp() {
-        if (lines_.size() == 3) {
+        std::vector<std::vector<Token>> token_lines;
+        token_lines.reserve(lines_.size());
+        for (const auto& line : lines_) {
+            token_lines.push_back(lex_line(line));
+        }
+        if (token_lines.size() == 3) {
             HelloProgram program;
-            auto header = lex_line(lines_[0]);
-            auto body = lex_line(lines_[1]);
-            auto emit = lex_line(lines_[2]);
-            parse_hello_header(header, program);
-            parse_hello_body(body, program);
-            parse_hello_emit(emit, program);
+            parse_hello_header(token_lines[0], program);
+            parse_hello_body(token_lines[1], program);
+            parse_hello_emit(token_lines[2], program);
             return emit_hello_cpp(program);
         }
-        if (lines_.size() == 5) {
+        if (token_lines.size() == 5) {
             VectorProgram program;
-            auto left = lex_line(lines_[0]);
-            auto right = lex_line(lines_[1]);
-            auto header = lex_line(lines_[2]);
-            auto body = lex_line(lines_[3]);
-            auto emit = lex_line(lines_[4]);
-            parse_vector_binding(left, program.left_binding);
-            parse_vector_binding(right, program.right_binding);
-            parse_vector_header(header, program);
-            parse_vector_body(body, program);
-            parse_vector_emit(emit, program);
+            parse_vector_binding(token_lines[0], program.left_binding);
+            parse_vector_binding(token_lines[1], program.right_binding);
+            parse_vector_header(token_lines[2], program);
+            parse_vector_body(token_lines[3], program);
+            parse_vector_emit(token_lines[4], program);
             validate_vector_program(program);
             return emit_vector_cpp(program);
         }
-        if (lines_.size() == 7) {
-            NumericProgram program;
-            auto xs = lex_line(lines_[0]);
-            auto ys = lex_line(lines_[1]);
-            auto emit0 = lex_line(lines_[2]);
-            auto emit1 = lex_line(lines_[3]);
-            auto emit2 = lex_line(lines_[4]);
-            auto emit3 = lex_line(lines_[5]);
-            auto emit4 = lex_line(lines_[6]);
-            parse_numeric_binding(xs, program.xs_binding);
-            parse_numeric_binding(ys, program.ys_binding);
-            parse_numeric_emit_sin(emit0);
-            parse_numeric_emit_pi(emit1);
-            parse_numeric_emit_mean(emit2, program);
-            parse_numeric_emit_normalize(emit3, program);
-            parse_numeric_emit_correlation(emit4, program);
-            validate_numeric_program(program);
-            return emit_numeric_cpp(program);
+        if (token_lines.size() == 7) {
+            if (
+                token_lines[0].size() >= 3 &&
+                token_lines[0][0].kind == "IDENT" &&
+                token_lines[0][1].kind == "COLON" &&
+                token_lines[0][2].kind == "LBRACKET"
+            ) {
+                NumericProgram program;
+                parse_numeric_binding(token_lines[0], program.xs_binding);
+                parse_numeric_binding(token_lines[1], program.ys_binding);
+                parse_numeric_emit_sin(token_lines[2]);
+                parse_numeric_emit_pi(token_lines[3]);
+                parse_numeric_emit_mean(token_lines[4], program);
+                parse_numeric_emit_normalize(token_lines[5], program);
+                parse_numeric_emit_correlation(token_lines[6], program);
+                validate_numeric_program(program);
+                return emit_numeric_cpp(program);
+            }
+            if (
+                token_lines[0].size() >= 3 &&
+                token_lines[0][0].kind == "IDENT" &&
+                token_lines[0][1].kind == "COLON" &&
+                token_lines[0][2].kind == "LPAREN"
+            ) {
+                NamedRecordProgram program;
+                parse_named_record_typedef(token_lines[0], program);
+                parse_named_record_header(token_lines[1], program);
+                parse_named_record_body(token_lines[2], program);
+                parse_named_record_base_binding(token_lines[3], program);
+                parse_named_record_shifted_binding(token_lines[4], program);
+                parse_named_record_emit_first_field(token_lines[5], program);
+                parse_named_record_emit_record(token_lines[6], program);
+                validate_named_record_program(program);
+                return emit_named_record_cpp(program);
+            }
         }
-        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, or numeric-native logical shape");
+        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, numeric-native, or named-record-native logical shape");
     }
 
 private:
@@ -562,6 +594,171 @@ private:
             throw std::runtime_error("native parser prototype numeric-native bindings must have matching extents");
         }
     }
+
+    static void parse_named_record_typedef(const std::vector<Token>& tokens, NamedRecordProgram& program) {
+        if (tokens.size() != 11) {
+            throw std::runtime_error("native parser prototype expected named-record typedef shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LPAREN");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "COLON");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "COLON");
+        expect_kind(tokens, 9, "IDENT");
+        expect_kind(tokens, 10, "RPAREN");
+        if (tokens[5].text != "num" || tokens[9].text != "num") {
+            throw std::runtime_error("native parser prototype only supports named Point:num,num records");
+        }
+        program.type_name = tokens[0].text;
+        program.first_field_name = tokens[3].text;
+        program.second_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_header(const std::vector<Token>& tokens, NamedRecordProgram& program) {
+        if (tokens.size() != 17) {
+            throw std::runtime_error("native parser prototype expected named-record function header shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "LPAREN");
+        expect_kind(tokens, 2, "IDENT");
+        expect_kind(tokens, 3, "COLON");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "COMMA");
+        expect_kind(tokens, 6, "IDENT");
+        expect_kind(tokens, 7, "COLON");
+        expect_kind(tokens, 8, "IDENT");
+        expect_kind(tokens, 9, "COMMA");
+        expect_kind(tokens, 10, "IDENT");
+        expect_kind(tokens, 11, "COLON");
+        expect_kind(tokens, 12, "IDENT");
+        expect_kind(tokens, 13, "RPAREN");
+        expect_kind(tokens, 14, "ARROW");
+        expect_kind(tokens, 15, "IDENT");
+        expect_kind(tokens, 16, "COLON");
+        if (tokens[4].text != program.type_name || tokens[8].text != "num" || tokens[12].text != "num" || tokens[15].text != program.type_name) {
+            throw std::runtime_error("native parser prototype only supports move(Point, num, num) -> Point");
+        }
+        program.move_function_name = tokens[0].text;
+        program.param_name = tokens[2].text;
+        program.delta_x_name = tokens[6].text;
+        program.delta_y_name = tokens[10].text;
+    }
+
+    static void parse_named_record_body(const std::vector<Token>& tokens, NamedRecordProgram& program) {
+        if (tokens.size() != 17) {
+            throw std::runtime_error("native parser prototype expected named-record body shape");
+        }
+        expect_kind(tokens, 0, "LPAREN");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "COLON");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "DOT");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "PLUS");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "COMMA");
+        expect_kind(tokens, 9, "IDENT");
+        expect_kind(tokens, 10, "COLON");
+        expect_kind(tokens, 11, "IDENT");
+        expect_kind(tokens, 12, "DOT");
+        expect_kind(tokens, 13, "IDENT");
+        expect_kind(tokens, 14, "PLUS");
+        expect_kind(tokens, 15, "IDENT");
+        expect_kind(tokens, 16, "RPAREN");
+        if (
+            tokens[1].text != program.first_field_name ||
+            tokens[3].text != program.param_name ||
+            tokens[5].text != program.first_field_name ||
+            tokens[7].text != program.delta_x_name ||
+            tokens[9].text != program.second_field_name ||
+            tokens[11].text != program.param_name ||
+            tokens[13].text != program.second_field_name ||
+            tokens[15].text != program.delta_y_name
+        ) {
+            throw std::runtime_error("native parser prototype only supports named-record body '(x:p.x + dx, y:p.y + dy)'");
+        }
+    }
+
+    static void parse_named_record_base_binding(const std::vector<Token>& tokens, NamedRecordProgram& program) {
+        if (tokens.size() != 12) {
+            throw std::runtime_error("native parser prototype expected named-record base binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "COLON");
+        expect_kind(tokens, 3, "LPAREN");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "COLON");
+        expect_kind(tokens, 6, "NUMBER");
+        expect_kind(tokens, 7, "COMMA");
+        expect_kind(tokens, 8, "IDENT");
+        expect_kind(tokens, 9, "COLON");
+        expect_kind(tokens, 10, "NUMBER");
+        expect_kind(tokens, 11, "RPAREN");
+        if (tokens[0].text != program.type_name || tokens[4].text != program.first_field_name || tokens[8].text != program.second_field_name) {
+            throw std::runtime_error("native parser prototype only supports typed Point base literal binding");
+        }
+        program.base_name = tokens[1].text;
+        program.base_first_value = parse_number(tokens[6].text);
+        program.base_second_value = parse_number(tokens[10].text);
+    }
+
+    static void parse_named_record_shifted_binding(const std::vector<Token>& tokens, NamedRecordProgram& program) {
+        if (tokens.size() != 11) {
+            throw std::runtime_error("native parser prototype expected named-record shifted binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "COLON");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "NUMBER");
+        expect_kind(tokens, 8, "COMMA");
+        expect_kind(tokens, 9, "NUMBER");
+        expect_kind(tokens, 10, "RPAREN");
+        if (tokens[0].text != program.type_name || tokens[3].text != program.move_function_name || tokens[5].text != program.base_name) {
+            throw std::runtime_error("native parser prototype only supports Point shifted: move(base, 3, 4)");
+        }
+        program.shifted_name = tokens[1].text;
+        program.shift_x_value = parse_number(tokens[7].text);
+        program.shift_y_value = parse_number(tokens[9].text);
+    }
+
+    static void parse_named_record_emit_first_field(const std::vector<Token>& tokens, const NamedRecordProgram& program) {
+        if (tokens.size() != 4) {
+            throw std::runtime_error("native parser prototype expected named-record emit field shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        if (tokens[1].text != program.shifted_name || tokens[3].text != program.first_field_name) {
+            throw std::runtime_error("native parser prototype only supports ':: shifted.x'");
+        }
+    }
+
+    static void parse_named_record_emit_record(const std::vector<Token>& tokens, const NamedRecordProgram& program) {
+        if (tokens.size() != 2) {
+            throw std::runtime_error("native parser prototype expected named-record emit record shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        if (tokens[1].text != program.shifted_name) {
+            throw std::runtime_error("native parser prototype only supports ':: shifted'");
+        }
+    }
+
+    static void validate_named_record_program(const NamedRecordProgram& program) {
+        if (program.type_name.empty() || program.move_function_name.empty() || program.base_name.empty() || program.shifted_name.empty()) {
+            throw std::runtime_error("native parser prototype expected named-record program identifiers");
+        }
+    }
 };
 
 static std::string format_number_literal(double value) {
@@ -781,6 +978,54 @@ static std::string emit_numeric_cpp(const NumericProgram& program) {
         << "    std::cout << vf_format_num((static_cast<double>(vf_array_sum(" << program.xs_binding.name << ")) / static_cast<double>(" << extent << "))) << \"\\n\";\n"
         << "    std::cout << vf_format_value(vf_array_normalize(" << program.xs_binding.name << ")) << \"\\n\";\n"
         << "    std::cout << vf_format_num(vf_array_correlation(" << program.xs_binding.name << ", " << program.ys_binding.name << ")) << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_cpp(const NamedRecordProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.type_name << " {\n"
+        << "    double " << program.first_field_name << ";\n"
+        << "    double " << program.second_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.first_field_name << ":\" << vf_format_num(value." << program.first_field_name << ")\n"
+        << "        << \", " << program.second_field_name << ":\" << vf_format_num(value." << program.second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << program.type_name << " " << program.move_function_name << "(" << program.type_name << " " << program.param_name
+        << ", double " << program.delta_x_name << ", double " << program.delta_y_name << ") {\n"
+        << "    return " << program.type_name << "{"
+        << program.param_name << "." << program.first_field_name << " + " << program.delta_x_name << ", "
+        << program.param_name << "." << program.second_field_name << " + " << program.delta_y_name << "};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.type_name << " " << program.base_name << "{"
+        << format_number_literal(program.base_first_value) << ", "
+        << format_number_literal(program.base_second_value) << "};\n"
+        << "    " << program.type_name << " " << program.shifted_name << " = " << program.move_function_name << "("
+        << program.base_name << ", " << format_number_literal(program.shift_x_value) << ", "
+        << format_number_literal(program.shift_y_value) << ");\n"
+        << "    std::cout << vf_format_num(" << program.shifted_name << "." << program.first_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.shifted_name << ") << \"\\n\";\n"
         << "    return 0;\n"
         << "}\n";
     return out.str();
