@@ -326,6 +326,13 @@ def test_cpp_builds_named_record_scene_overlay_type_example(tmp_path: Path) -> N
     assert proc.returncode == 0
     assert proc.stdout.strip() == "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"
 
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_scene_patch_type_example(tmp_path: Path) -> None:
+    proc = _compile_native_core_example(tmp_path, "named_record_scene_patch_native.vkf")
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"
+
 def test_cpp_emits_dynamic_map_and_list_program() -> None:
     src = """
 m: collections.map(a:1, b:"hi", c:true)

@@ -28,6 +28,7 @@ Current examples:
 - `named_record_scene_fanout_native.vkf` - helper fanout/merge through typed Point, State, and Scene locals
 - `named_record_scene_compose_native.vkf` - helper-return scene composition through final typed Scene merge
 - `named_record_scene_overlay_native.vkf` - merge two helper-return Scene values through a final typed Scene overlay
+- `named_record_scene_patch_native.vkf` - patch a helper-return Scene with a separately computed typed State local
 
 Typical workflow:
 
