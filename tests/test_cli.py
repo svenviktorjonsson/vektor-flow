@@ -86,6 +86,19 @@ EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
 ]
 
 
+def _short_artifact_stem(name: str, prefix: str) -> str:
+    stem = Path(name).stem
+    compact = (
+        stem.replace("named_record", "nr")
+        .replace("vector", "vec")
+        .replace("scalar", "sca")
+        .replace("collections", "cols")
+        .replace("native", "n")
+    )
+    compact = "".join(ch for ch in compact if ch.isalnum() or ch == "_")
+    return f"{prefix}_{compact[:20]}"
+
+
 class TestResolveVkfPath:
     def test_explicit_vkf(self) -> None:
         assert resolve_vkf_path(str(HELLO)) == HELLO.resolve()
@@ -468,7 +481,7 @@ class TestMain:
     )
     def test_build_native_core_examples(self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str) -> None:
         src = NATIVE_CORE / example_name
-        exe = tmp_path / src.with_suffix(".exe").name
+        exe = tmp_path / f"{_short_artifact_stem(example_name, 'bn')}.exe"
         assert main(["build", str(src), "-o", str(exe)]) == 0
         _ = capsys.readouterr()
         proc = subprocess.run([str(exe)], capture_output=True, text=True)
@@ -481,16 +494,16 @@ class TestMain:
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
     ) -> None:
         src = NATIVE_CORE / example_name
-        cpp_out = tmp_path / src.with_suffix(".cpp").name
-        built_exe = tmp_path / src.with_suffix(".exe").name
+        cpp_out = tmp_path / f"{_short_artifact_stem(example_name, 'cpp')}.cpp"
+        built_exe = tmp_path / f"{_short_artifact_stem(example_name, 'be')}.exe"
 
         assert main(["cpp-native-core", str(src), "-o", str(cpp_out)]) == 0
         emitted = cpp_out.read_text(encoding="utf-8")
 
         manual_exe = compile_cpp_source(
             emitted,
-            tmp_path / f"{src.stem}_manual_cpp",
-            exe_name=f"{src.stem}_manual",
+            tmp_path / _short_artifact_stem(example_name, "mcpp"),
+            exe_name=_short_artifact_stem(example_name, "mexe"),
         )
         manual_proc = run_cpp_executable(manual_exe)
         assert manual_proc.returncode == 0
