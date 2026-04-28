@@ -25,6 +25,7 @@ from vektorflow.runtime import (
     runtime_collection_assign_path,
     runtime_collection_get,
     runtime_collection_index_get,
+    runtime_collection_index_read,
     runtime_collection_index_set,
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
@@ -135,6 +136,8 @@ def test_runtime_collection_map_helpers() -> None:
     m2 = make_vmap({"x": 3})
     assert runtime_collection_index_set(m2, "z", 9) is True
     assert runtime_collection_index_get(m2, "z") == 9
+    assert runtime_collection_index_read(m2, "z") == (True, 9)
+    assert runtime_collection_index_read([], 0) == (False, None)
     assert runtime_collection_index_set([], 0, "x") is False
     with pytest.raises(TypeError):
         runtime_collection_index_get([], 0)

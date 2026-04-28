@@ -465,6 +465,18 @@ class TestSleepMs:
         assert get_io_native_file_host() is file_host
         assert get_io_native_time_host() is time_host
 
+    def test_set_io_native_hosts_rejects_invalid_file_host(self) -> None:
+        class BadFileHost:
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+        class FakeTimeHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        with pytest.raises(TypeError, match="file host must define"):
+            set_io_native_hosts(BadFileHost(), FakeTimeHost())  # type: ignore[arg-type]
+
     def test_reset_io_native_hosts_restores_callable_native_getters(self) -> None:
         class FakeFileHost:
             def read_bytes(self, path: str) -> bytes:

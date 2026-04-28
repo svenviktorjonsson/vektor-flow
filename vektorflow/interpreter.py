@@ -44,7 +44,7 @@ from .runtime import (
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_expanded_values,
-    runtime_collection_index_get,
+    runtime_collection_index_read,
     runtime_collection_index_set,
     runtime_collection_kind,
     runtime_collection_elementwise_values,
@@ -1914,9 +1914,9 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
         return _dotted_get_one(base.data, k)
     if isinstance(base, LazyList):
         return base.get_at(_normalize_index(k))
-    if runtime_collection_kind(base) == "map":
-        kk = _normalize_index(k)
-        return runtime_collection_index_get(base, kk)
+    handled, value = runtime_collection_index_read(base, _normalize_index(k))
+    if handled:
+        return value
     if isinstance(base, list):
         return base[_normalize_index(k)]
     if isinstance(base, dict):

@@ -112,6 +112,11 @@ def test_versioned_token_stream_json_roundtrips_foreign_payload() -> None:
                 "value": "x",
                 "location": {"file": "<foreign>", "line": 1, "column": 5},
             },
+            {
+                "kind": "EOF",
+                "value": None,
+                "location": {"file": "<foreign>", "line": 1, "column": 6},
+            },
         ],
     }
     restored = tokens_from_json(json.dumps(payload))
@@ -119,6 +124,7 @@ def test_versioned_token_stream_json_roundtrips_foreign_payload() -> None:
         ("IDENT", "vec", "<foreign>"),
         ("DOT", (True, True), "<foreign>"),
         ("IDENT", "x", "<foreign>"),
+        ("EOF", None, "<foreign>"),
     ]
 
 
@@ -804,6 +810,8 @@ def test_declared_fixture_manifest_payload_emits_machine_readable_declared_contr
         "fixture_missing": 0,
         "source_missing": 0,
         "unpaired": 0,
+        "external_lexer_contract_usable": len(TOKEN_FIXTURE_SPECS),
+        "external_lexer_contract_blocked": 0,
         "with_validation_issues": 0,
         "declared_catalog_issues": 0,
     }
@@ -824,15 +832,16 @@ def test_declared_fixture_manifest_payload_emits_machine_readable_declared_contr
             "source_sha256": payload["fixtures"][index]["source_sha256"],
             "fixture_sha256": payload["fixtures"][index]["fixture_sha256"],
             "pairing_status": "paired",
-            "external_lexer_contract": {
-                "source_path": str(repo / spec.source_rel),
-                "filename_label": spec.source_rel,
-                "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
-            },
-            "validation_issues": [],
-        }
-        for index, spec in enumerate(TOKEN_FIXTURE_SPECS)
-    ]
+                "external_lexer_contract": {
+                    "source_path": str(repo / spec.source_rel),
+                    "filename_label": spec.source_rel,
+                    "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+                },
+                "external_lexer_contract_usable": True,
+                "validation_issues": [],
+            }
+            for index, spec in enumerate(TOKEN_FIXTURE_SPECS)
+        ]
     for item in payload["fixtures"]:
         assert len(item["source_sha256"]) == 64
         assert len(item["fixture_sha256"]) == 64
@@ -860,6 +869,8 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
         "fixture_missing": 1,
         "source_missing": 0,
         "unpaired": 1,
+        "external_lexer_contract_usable": 0,
+        "external_lexer_contract_blocked": 2,
         "with_validation_issues": 2,
         "declared_catalog_issues": 1,
     }
@@ -898,14 +909,15 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
             "source_sha256": payload["fixtures"][0]["source_sha256"],
             "fixture_sha256": None,
             "pairing_status": "fixture-missing",
-            "external_lexer_contract": {
-                "source_path": str(repo / "examples/native_core/hello_native.vkf"),
-                "filename_label": "examples/native_core/hello_native.vkf",
-                "fixture_path": str(out_root / "hello_native_versioned.json"),
+                "external_lexer_contract": {
+                    "source_path": str(repo / "examples/native_core/hello_native.vkf"),
+                    "filename_label": "examples/native_core/hello_native.vkf",
+                    "fixture_path": str(out_root / "hello_native_versioned.json"),
+                },
+                "external_lexer_contract_usable": False,
+                "validation_issues": ["fixture-missing", "noncanonical-source-rel"],
             },
-            "validation_issues": ["fixture-missing", "noncanonical-source-rel"],
-        },
-        {
+            {
             "source_rel": "examples/native_core/missing_fixture_source.vkf",
             "canonical_source_rel": "examples/native_core/missing_fixture_source.vkf",
             "fixture_name": "missing_fixture_source_versioned.json",
@@ -917,14 +929,15 @@ def test_declared_fixture_manifest_payload_surfaces_noncanonical_and_missing_ent
             "source_sha256": None,
             "fixture_sha256": None,
             "pairing_status": "unpaired",
-            "external_lexer_contract": {
-                "source_path": str(repo / "examples/native_core/missing_fixture_source.vkf"),
-                "filename_label": "examples/native_core/missing_fixture_source.vkf",
-                "fixture_path": str(out_root / "missing_fixture_source_versioned.json"),
+                "external_lexer_contract": {
+                    "source_path": str(repo / "examples/native_core/missing_fixture_source.vkf"),
+                    "filename_label": "examples/native_core/missing_fixture_source.vkf",
+                    "fixture_path": str(out_root / "missing_fixture_source_versioned.json"),
+                },
+                "external_lexer_contract_usable": False,
+                "validation_issues": ["source-missing", "fixture-missing"],
             },
-            "validation_issues": ["source-missing", "fixture-missing"],
-        },
-    ]
+        ]
     assert len(payload["fixtures"][0]["source_sha256"]) == 64
 
 
@@ -1078,6 +1091,8 @@ def test_native_lexer_fixtures_module_manifest_emits_declared_fixture_contract()
         "fixture_missing": 0,
         "source_missing": 0,
         "unpaired": 0,
+        "external_lexer_contract_usable": len(TOKEN_FIXTURE_SPECS),
+        "external_lexer_contract_blocked": 0,
         "with_validation_issues": 0,
         "declared_catalog_issues": 0,
     }

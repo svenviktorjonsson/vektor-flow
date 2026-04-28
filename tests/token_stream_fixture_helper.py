@@ -41,6 +41,15 @@ INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] =
         },
         "EOF must appear exactly once at end of stream",
     ),
+    (
+        {
+            "tokens": [
+                {"kind": "IDENT", "value": "x", "location": {"file": "<one>", "line": 1, "column": 1}},
+                {"kind": "EOF", "value": None, "location": {"file": "<two>", "line": 1, "column": 2}},
+            ]
+        },
+        "token locations must all use the same file",
+    ),
     ({"schema": TOKEN_STREAM_SCHEMA, "tokens": []}, "missing version"),
     ({"version": TOKEN_STREAM_VERSION, "tokens": []}, "missing schema"),
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),

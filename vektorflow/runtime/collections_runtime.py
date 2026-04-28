@@ -168,6 +168,12 @@ def runtime_collection_index_get(value: Any, key: Any) -> Any:
     raise TypeError("runtime_collection_index_get only supports map-like runtime collections")
 
 
+def runtime_collection_index_read(value: Any, key: Any) -> tuple[bool, Any]:
+    if runtime_collection_kind(value) == "map":
+        return True, runtime_collection_index_get(value, key)
+    return False, None
+
+
 def runtime_collection_index_set(value: Any, key: Any, item: Any) -> bool:
     return runtime_collection_assign(value, key, item)
 

@@ -167,10 +167,21 @@ def set_io_native_hosts(file_host: IoFileHost, time_host: IoSecondsTimeHost) -> 
     set_io_native_time_host(time_host)
 
 
+def _normalize_file_host(host: IoFileHost) -> IoFileHost:
+    required_methods = ("read_bytes", "write_bytes", "read_text", "write_text")
+    for name in required_methods:
+        if not callable(getattr(host, name, None)):
+            raise TypeError(
+                "file host must define read_bytes(path), write_bytes(path, data), "
+                "read_text(path, *, encoding), and write_text(path, text, *, encoding)"
+            )
+    return host
+
+
 def set_io_file_host(host: IoFileHost) -> None:
     """Install a custom filesystem host adapter for stdlib ``io`` operations."""
     global _file_host
-    _file_host = host
+    _file_host = _normalize_file_host(host)
 
 
 def set_io_native_file_host(host: IoFileHost) -> None:

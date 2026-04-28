@@ -265,6 +265,9 @@ def tokens_from_data(data: list[dict[str, Any]]) -> list[Token]:
 def _validate_token_sequence(tokens: list[Token]) -> None:
     if not tokens:
         raise ValueError("invalid token stream payload: empty token list")
+    source_files = {token.location.file for token in tokens}
+    if len(source_files) != 1:
+        raise ValueError("invalid token stream payload: token locations must all use the same file")
     eof_positions = [idx for idx, token in enumerate(tokens) if token.kind == token_defs.EOF]
     if not eof_positions:
         raise ValueError("invalid token stream payload: missing EOF terminator")

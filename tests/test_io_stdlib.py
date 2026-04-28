@@ -124,6 +124,14 @@ class TestResolve:
         assert get_io_native_time_host() is time_host
         assert get_io_seconds_host() is time_host
 
+    def test_file_host_setter_rejects_host_without_required_methods(self) -> None:
+        class BadFileHost:
+            def read_text(self, path: str, *, encoding: str) -> str:
+                return ""
+
+        with pytest.raises(TypeError, match="file host must define"):
+            iolib.set_io_file_host(BadFileHost())  # type: ignore[arg-type]
+
     def test_set_io_native_hosts_installs_preferred_split_surfaces(self) -> None:
         class FakeFileHost:
             def read_bytes(self, path: str) -> bytes:
