@@ -11,6 +11,8 @@ Usage
     vkf tokens-native-core <file>
                              Print token stream from the native-core C++ lexer subset
     vkf parse-tokens <file>  Parse a stable token JSON payload and print the AST repr
+    vkf parse-native-core <file>
+                             Native-core C++ lexer -> token contract -> AST repr
     vkf -s 'code'           Tokenize an inline snippet
     vkf --help
     vkf --version
@@ -141,6 +143,24 @@ def cmd_parse_tokens(payload: str) -> int:
         return 1
     print(repr(module))
     return 0
+
+
+def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: str | None = None) -> int:
+    try:
+        if source is None:
+            payload = lex_native_core_file_to_json(Path(filename), filename_label=filename_label)
+        else:
+            payload = lex_native_core_stdin_to_json(
+                source,
+                filename_label=filename_label or filename,
+            )
+    except VektorFlowError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return cmd_parse_tokens(payload)
 
 
 def cmd_cpp(path: Path, out_path: Path | None) -> int:
@@ -344,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
             "                       add --json for a stable token-stream payload\n"
             "  vkf parse-tokens <file>\n"
             "                       Parse a stable token JSON payload and print the AST repr\n"
+            "  vkf parse-native-core <file>\n"
+            "                       Native-core C++ lexer -> token contract -> AST repr\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
             "  --version            Show version\n",
             end="",
@@ -425,6 +447,31 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: cannot read {path}: {exc}", file=sys.stderr)
             return 1
         return cmd_parse_tokens(payload)
+
+    if argv[0] == "parse-native-core":
+        if len(argv) < 2:
+            print("error: vkf parse-native-core <file|->", file=sys.stderr)
+            return 1
+        path_arg = next((a for a in argv[1:] if a == "-" or not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        if path_arg == "-":
+            return cmd_parse_native_core(
+                sys.stdin.read(),
+                "<stdin>",
+                filename_label="<stdin>",
+            )
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_parse_native_core(
+            None,
+            str(path),
+            filename_label=path.as_posix(),
+        )
 
     if argv[0] == "cpp":
         out_path: Path | None = None

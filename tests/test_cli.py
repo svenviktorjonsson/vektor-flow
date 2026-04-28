@@ -113,6 +113,25 @@ class TestMain:
         assert main(["parse-tokens", "-"]) == 0
         assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<stdin-tokens>"))
 
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_parse_native_core_subcommand_file(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        path = NATIVE_CORE / "hello_native.vkf"
+        assert main(["parse-native-core", str(path)]) == 0
+        assert capsys.readouterr().out.strip() == repr(
+            parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix())
+        )
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_parse_native_core_subcommand_stdin(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        src = ":: 6 * 7\n"
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["parse-native-core", "-"]) == 0
+        assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<stdin>"))
+
     @pytest.mark.parametrize("payload, expected", INVALID_TOKEN_STREAM_ENVELOPE_CASES)
     def test_parse_tokens_subcommand_invalid_payload(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path, payload: dict[str, object], expected: str
@@ -153,6 +172,25 @@ class TestMain:
         assert_fixture_boundary_parity(case)
         assert main(["parse-tokens", str(case.payload_path)]) == 0
         assert_cli_parse_tokens_output_matches_source(case, capsys.readouterr().out)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "example_name",
+        [
+            "hello_native.vkf",
+            "vectors_native.vkf",
+            "records_native.vkf",
+            "numeric_native.vkf",
+        ],
+    )
+    def test_parse_native_core_examples_match_python_parser(
+        self, capsys: pytest.CaptureFixture[str], example_name: str
+    ) -> None:
+        path = NATIVE_CORE / example_name
+        assert main(["parse-native-core", str(path)]) == 0
+        assert capsys.readouterr().out.strip() == repr(
+            parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix())
+        )
 
     @pytest.mark.parametrize("payload, expected", MALFORMED_TOKEN_ENTRY_CASES)
     def test_parse_tokens_subcommand_malformed_token_entry(
