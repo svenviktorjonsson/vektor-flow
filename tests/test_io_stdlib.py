@@ -31,6 +31,7 @@ from vektorflow.stdlib.io import (
     reset_io_native_host,
     reset_io_native_file_host,
     reset_io_native_hosts,
+    reset_io_seconds_host,
     reset_io_native_time_host,
     set_io_native_file_host,
     set_io_native_host,
@@ -186,6 +187,16 @@ class TestResolve:
 
         assert get_io_native_file_host().__class__.__name__ == "PythonIoFileHost"
         assert get_io_native_time_host().__class__.__name__ == "PythonIoTimeHost"
+
+    def test_reset_io_seconds_host_restores_preferred_seconds_surface(self) -> None:
+        class FakeTimeHost:
+            def sleep(self, seconds: float) -> None:
+                return None
+
+        set_io_seconds_host(FakeTimeHost())
+        reset_io_seconds_host()
+
+        assert get_io_seconds_host().__class__.__name__ == "PythonIoTimeHost"
 
     def test_reset_io_native_hosts_restores_preferred_split_surfaces(self) -> None:
         class FakeFileHost:

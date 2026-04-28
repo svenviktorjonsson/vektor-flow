@@ -309,6 +309,11 @@ def reset_io_native_time_host() -> None:
     reset_io_time_host()
 
 
+def reset_io_seconds_host() -> None:
+    """Restore the preferred seconds-based time host surface."""
+    reset_io_time_host()
+
+
 def reset_io_time_host() -> None:
     """Restore the default Python-backed time-oriented host adapter."""
     global _time_host

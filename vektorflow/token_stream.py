@@ -268,6 +268,13 @@ def _validate_token_sequence(tokens: list[Token]) -> None:
     source_files = {token.location.file for token in tokens}
     if len(source_files) != 1:
         raise ValueError("invalid token stream payload: token locations must all use the same file")
+    for prev, cur in zip(tokens, tokens[1:]):
+        prev_pos = (prev.location.line, prev.location.column)
+        cur_pos = (cur.location.line, cur.location.column)
+        if cur_pos < prev_pos:
+            raise ValueError(
+                "invalid token stream payload: token locations must be in nondecreasing source order"
+            )
     eof_positions = [idx for idx, token in enumerate(tokens) if token.kind == token_defs.EOF]
     if not eof_positions:
         raise ValueError("invalid token stream payload: missing EOF terminator")

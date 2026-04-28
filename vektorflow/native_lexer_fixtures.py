@@ -199,6 +199,8 @@ def declared_fixture_manifest_payload(
                     "source_path": str(source),
                     "filename_label": item["expected_source_label"],
                     "fixture_path": item["fixture_path"],
+                    "source_sha256": _sha256_path(source) if source_exists else None,
+                    "fixture_sha256": _sha256_path(fixture) if fixture_exists else None,
                 },
                 "external_lexer_contract_usable": external_lexer_contract_usable,
                 "validation_issues": validation_issues,
@@ -229,6 +231,8 @@ def declared_fixture_manifest_payload(
                 "source_path": item["external_lexer_contract"]["source_path"],
                 "filename_label": item["external_lexer_contract"]["filename_label"],
                 "fixture_path": item["external_lexer_contract"]["fixture_path"],
+                "source_sha256": item["external_lexer_contract"]["source_sha256"],
+                "fixture_sha256": item["external_lexer_contract"]["fixture_sha256"],
             }
             for item in fixtures
             if item["external_lexer_contract_usable"]
@@ -242,6 +246,8 @@ def declared_fixture_manifest_payload(
                 "source_path": item["external_lexer_contract"]["source_path"],
                 "filename_label": item["external_lexer_contract"]["filename_label"],
                 "fixture_path": item["external_lexer_contract"]["fixture_path"],
+                "source_sha256": item["external_lexer_contract"]["source_sha256"],
+                "fixture_sha256": item["external_lexer_contract"]["fixture_sha256"],
                 "validation_issues": list(item["validation_issues"]),
             }
             for item in fixtures
@@ -271,6 +277,8 @@ def declared_fixture_manifest_payload(
             "source_path",
             "filename_label",
             "fixture_path",
+            "source_sha256",
+            "fixture_sha256",
         ],
         "ordering": "fixture_names sorted ascending",
         "runnable_fixture_names": sorted(runnable_fixture_names),
@@ -538,11 +546,15 @@ def declared_fixture_manifest_payload(
                 "source_path",
                 "filename_label",
                 "fixture_path",
+                "source_sha256",
+                "fixture_sha256",
             ],
             "external_lexer_contract_field_meanings": {
                 "source_path": "Absolute path to the declared VKF source file on disk.",
                 "filename_label": "Canonical repo-relative POSIX label that the external lexer should emit in token locations.",
                 "fixture_path": "Absolute path to the canonical token fixture JSON for this declaration.",
+                "source_sha256": "SHA-256 of the declared VKF source bytes; compare this to detect source drift even if the path is stable.",
+                "fixture_sha256": "SHA-256 of the canonical token fixture JSON bytes; compare this to detect fixture drift even if the path is stable.",
             },
         },
         "fixtures_by_contract_usability": {

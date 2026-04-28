@@ -282,6 +282,10 @@ def runtime_collection_multiset_from_values(values: Iterable[Any]) -> Multiset:
     return make_multiset(counts.items())
 
 
+def runtime_collection_to_multiset(values: Iterable[Any]) -> Multiset:
+    return runtime_collection_multiset_from_values(values)
+
+
 def runtime_collection_multiset_from_count_pairs(
     pairs: Iterable[tuple[Any, Any]],
 ) -> Multiset:

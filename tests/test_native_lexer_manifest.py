@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -13,6 +14,10 @@ from vektorflow.native_lexer_fixtures import (
     declared_fixture_manifest_payload,
 )
 from tests.token_stream_fixture_helper import TOKEN_FIXTURE_ROOT
+
+
+def _sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
 
 
 def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_in_specs() -> None:
@@ -40,11 +45,15 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "source_path",
             "filename_label",
             "fixture_path",
+            "source_sha256",
+            "fixture_sha256",
         ],
         "external_lexer_contract_field_meanings": {
             "source_path": "Absolute path to the declared VKF source file on disk.",
             "filename_label": "Canonical repo-relative POSIX label that the external lexer should emit in token locations.",
             "fixture_path": "Absolute path to the canonical token fixture JSON for this declaration.",
+            "source_sha256": "SHA-256 of the declared VKF source bytes; compare this to detect source drift even if the path is stable.",
+            "fixture_sha256": "SHA-256 of the canonical token fixture JSON bytes; compare this to detect fixture drift even if the path is stable.",
         },
     }
     assert payload["path_anchors"] == {
@@ -72,6 +81,8 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
                 "source_path": str(repo / spec.source_rel),
                 "filename_label": spec.source_rel,
                 "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+                "source_sha256": _sha256_path(repo / spec.source_rel),
+                "fixture_sha256": _sha256_path(TOKEN_FIXTURE_ROOT / spec.fixture_name),
             }
             for spec in TOKEN_FIXTURE_SPECS
         ],
@@ -95,6 +106,8 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "source_path",
             "filename_label",
             "fixture_path",
+            "source_sha256",
+            "fixture_sha256",
         ],
         "ordering": "fixture_names sorted ascending",
         "runnable_fixture_names": sorted(spec.fixture_name for spec in TOKEN_FIXTURE_SPECS),
@@ -217,6 +230,8 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "source_path": str(repo / spec.source_rel),
             "filename_label": spec.source_rel,
             "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+            "source_sha256": _sha256_path(repo / spec.source_rel),
+            "fixture_sha256": _sha256_path(TOKEN_FIXTURE_ROOT / spec.fixture_name),
         }
 
 
@@ -286,6 +301,8 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
                 "source_path": str(repo / "examples/native_core/hello_native.vkf"),
                 "filename_label": "examples/native_core/hello_native.vkf",
                 "fixture_path": str(out_root / "hello_native_versioned.json"),
+                "source_sha256": _sha256_path(repo / "examples/native_core/hello_native.vkf"),
+                "fixture_sha256": None,
                 "validation_issues": ["fixture-missing"],
             },
             {
@@ -296,6 +313,8 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
                 "source_path": str(repo / "examples/native_core/missing_source.vkf"),
                 "filename_label": "examples/native_core/missing_source.vkf",
                 "fixture_path": str(out_root / "source_missing_versioned.json"),
+                "source_sha256": None,
+                "fixture_sha256": _sha256_path(existing_fixture),
                 "validation_issues": ["source-missing"],
             },
             {
@@ -306,6 +325,8 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
                 "source_path": str(repo / "examples/native_core/missing_both.vkf"),
                 "filename_label": "examples/native_core/missing_both.vkf",
                 "fixture_path": str(out_root / "missing_both_versioned.json"),
+                "source_sha256": None,
+                "fixture_sha256": None,
                 "validation_issues": ["source-missing", "fixture-missing"],
             },
         ],
@@ -332,6 +353,8 @@ def test_declared_fixture_manifest_payload_groups_missing_pairings_for_external_
             "source_path",
             "filename_label",
             "fixture_path",
+            "source_sha256",
+            "fixture_sha256",
         ],
         "ordering": "fixture_names sorted ascending",
         "runnable_fixture_names": [],
@@ -521,6 +544,8 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
                 "source_path": str(repo / spec.source_rel),
                 "filename_label": spec.source_rel,
                 "fixture_path": str(TOKEN_FIXTURE_ROOT / spec.fixture_name),
+                "source_sha256": _sha256_path(repo / spec.source_rel),
+                "fixture_sha256": _sha256_path(TOKEN_FIXTURE_ROOT / spec.fixture_name),
             }
             for spec in TOKEN_FIXTURE_SPECS
         ],
@@ -544,6 +569,8 @@ def test_native_lexer_fixtures_manifest_cli_emits_pairing_contract_summary() -> 
             "source_path",
             "filename_label",
             "fixture_path",
+            "source_sha256",
+            "fixture_sha256",
         ],
         "ordering": "fixture_names sorted ascending",
         "runnable_fixture_names": sorted(spec.fixture_name for spec in TOKEN_FIXTURE_SPECS),

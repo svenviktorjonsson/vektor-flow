@@ -39,6 +39,7 @@ from vektorflow.runtime import (
     runtime_collection_pipe_result,
     runtime_collection_spill_values,
     runtime_collection_stringify,
+    runtime_collection_to_multiset,
     runtime_collection_multiset_from_count_pairs,
     runtime_collection_multiset_from_values,
     runtime_collection_take,
@@ -279,3 +280,9 @@ def test_runtime_collection_ctor_call_dispatches_stdlib_collection_ctors() -> No
     assert list(runtime_collection_ctor_call(ns["list"], [1, 2], {}, [])) == [1, 2]
     assert isinstance(runtime_collection_ctor_call(ns["queue"], [], {}, []), VFQueue)
     assert runtime_collection_ctor_call(object(), [], {}, []) is None
+
+
+def test_runtime_collection_to_multiset_reuses_runtime_multiset_surface() -> None:
+    ms = runtime_collection_to_multiset([1, 2, 1, 3])
+    assert isinstance(ms, Multiset)
+    assert runtime_collection_items_sorted(ms) == [(1, 2), (2, 1), (3, 1)]

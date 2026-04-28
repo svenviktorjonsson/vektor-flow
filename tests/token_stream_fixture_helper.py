@@ -50,6 +50,16 @@ INVALID_TOKEN_STREAM_ENVELOPE_CASES: tuple[tuple[dict[str, object], str], ...] =
         },
         "token locations must all use the same file",
     ),
+    (
+        {
+            "tokens": [
+                {"kind": "IDENT", "value": "alpha", "location": {"file": "<bad>", "line": 2, "column": 3}},
+                {"kind": "IDENT", "value": "beta", "location": {"file": "<bad>", "line": 1, "column": 9}},
+                {"kind": "EOF", "value": None, "location": {"file": "<bad>", "line": 2, "column": 4}},
+            ]
+        },
+        "token locations must be in nondecreasing source order",
+    ),
     ({"schema": TOKEN_STREAM_SCHEMA, "tokens": []}, "missing version"),
     ({"version": TOKEN_STREAM_VERSION, "tokens": []}, "missing schema"),
     ({"schema": "wrong.schema", "version": TOKEN_STREAM_VERSION, "tokens": []}, "unsupported schema"),
