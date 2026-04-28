@@ -30,6 +30,20 @@ EXPECTED_OUTPUTS = {
     "named_record_nested_native.vkf": "4\n(origin:(x:4, y:6), size:(x:10, y:20))",
 }
 
+FAST_PATH_SUPPORTED = {
+    "hello_native.vkf",
+    "vectors_native.vkf",
+    "numeric_native.vkf",
+    "named_record_native.vkf",
+    "named_record_nested_native.vkf",
+}
+
+FAST_PATH_FALLBACK = {
+    "records_native.vkf",
+    "named_record_collections_native.vkf",
+    "named_record_scene_native.vkf",
+}
+
 
 def _expected_module_repr(path: Path) -> str:
     return repr(parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix()))
@@ -69,6 +83,22 @@ def _assert_native_cpp_runtime_matches_standard(path: Path, tmp_path: Path, exe_
 
     standard_proc = _compile_and_run_cpp(standard_out, tmp_path / f"{exe_prefix}_standard", f"{exe_prefix}_standard")
     native_proc = _compile_and_run_cpp(native_out, tmp_path / f"{exe_prefix}_native", f"{exe_prefix}_native")
+
+    assert standard_proc.returncode == 0
+    assert native_proc.returncode == 0
+    assert native_proc.stdout == standard_proc.stdout
+
+
+def _assert_native_build_runtime_matches_standard(path: Path, tmp_path: Path, exe_prefix: str) -> None:
+    short = exe_prefix[:24]
+    standard_exe = tmp_path / f"{short}_s.exe"
+    native_exe = tmp_path / f"{short}_n.exe"
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    assert main(["build-native-core", str(path), "-o", str(native_exe)]) == 0
+
+    standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+    native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
 
     assert standard_proc.returncode == 0
     assert native_proc.returncode == 0
@@ -168,42 +198,36 @@ def test_vectors_native_cpp_native_core_uses_fast_path_and_preserves_output(tmp_
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_native_parser_fast_path_supports_current_shapes_only() -> None:
-    hello_path = NATIVE_CORE / "hello_native.vkf"
-    vectors_path = NATIVE_CORE / "vectors_native.vkf"
-    records_path = NATIVE_CORE / "records_native.vkf"
-    numeric_path = NATIVE_CORE / "numeric_native.vkf"
-    named_record_path = NATIVE_CORE / "named_record_native.vkf"
-    named_record_nested_path = NATIVE_CORE / "named_record_nested_native.vkf"
-    named_record_collections_path = NATIVE_CORE / "named_record_collections_native.vkf"
+    for name in sorted(FAST_PATH_SUPPORTED):
+        path = NATIVE_CORE / name
+        source = path.read_text(encoding="utf-8")
+        assert native_subset_native_parser_fast_path_available(None, str(path))
+        assert native_subset_native_parser_fast_path_available(source, path.name)
 
-    hello_source = hello_path.read_text(encoding="utf-8")
-    vectors_source = vectors_path.read_text(encoding="utf-8")
-    records_source = records_path.read_text(encoding="utf-8")
-    numeric_source = numeric_path.read_text(encoding="utf-8")
-    named_record_source = named_record_path.read_text(encoding="utf-8")
-    named_record_nested_source = named_record_nested_path.read_text(encoding="utf-8")
-    named_record_collections_source = named_record_collections_path.read_text(encoding="utf-8")
+    for name in sorted(FAST_PATH_FALLBACK):
+        path = NATIVE_CORE / name
+        source = path.read_text(encoding="utf-8")
+        assert not native_subset_native_parser_fast_path_available(None, str(path))
+        assert not native_subset_native_parser_fast_path_available(source, path.name)
 
-    assert native_subset_native_parser_fast_path_available(None, str(hello_path))
-    assert native_subset_native_parser_fast_path_available(hello_source, hello_path.name)
-    assert native_subset_native_parser_fast_path_available(None, str(vectors_path))
-    assert native_subset_native_parser_fast_path_available(vectors_source, vectors_path.name)
-    assert native_subset_native_parser_fast_path_available(None, str(numeric_path))
-    assert native_subset_native_parser_fast_path_available(numeric_source, numeric_path.name)
-    assert native_subset_native_parser_fast_path_available(None, str(named_record_path))
-    assert native_subset_native_parser_fast_path_available(named_record_source, named_record_path.name)
-    assert native_subset_native_parser_fast_path_available(None, str(named_record_nested_path))
-    assert native_subset_native_parser_fast_path_available(
-        named_record_nested_source, named_record_nested_path.name
-    )
-    assert not native_subset_native_parser_fast_path_available(
-        None, str(named_record_collections_path)
-    )
-    assert not native_subset_native_parser_fast_path_available(
-        named_record_collections_source, named_record_collections_path.name
-    )
-    assert not native_subset_native_parser_fast_path_available(None, str(records_path))
-    assert not native_subset_native_parser_fast_path_available(records_source, records_path.name)
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", sorted(FAST_PATH_FALLBACK))
+def test_native_core_fallback_shapes_preserve_cpp_runtime_parity(name: str, tmp_path: Path) -> None:
+    path = NATIVE_CORE / name
+
+    parse_rc, parse_out = _run_cli_stdout(["parse-native-core", str(path)])
+    assert parse_rc == 0
+    assert parse_out.strip() == _expected_module_repr(path)
+
+    _assert_native_cpp_runtime_matches_standard(path, tmp_path, f"{path.stem[:16]}_fb_cpp")
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize("name", sorted(FAST_PATH_FALLBACK))
+def test_native_core_fallback_shapes_preserve_build_runtime_parity(name: str, tmp_path: Path) -> None:
+    path = NATIVE_CORE / name
+    _assert_native_build_runtime_matches_standard(path, tmp_path, f"{path.stem[:16]}_fb_build")
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
