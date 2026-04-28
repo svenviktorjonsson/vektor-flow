@@ -8,6 +8,8 @@ Usage
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
+    vkf tokens-native-core <file>
+                             Print token stream from the native-core C++ lexer subset
     vkf parse-tokens <file>  Parse a stable token JSON payload and print the AST repr
     vkf -s 'code'           Tokenize an inline snippet
     vkf --help
@@ -25,8 +27,9 @@ from pathlib import Path
 from . import __version__
 from .errors import EvalError, LexError, ParseError, VektorFlowError
 from .lexer import tokenize
+from .native_core_lexer import lex_native_core_file_to_json, lex_native_core_stdin_to_json
 from .parser import parse_token_stream_json
-from .token_stream import tokens_to_json
+from .token_stream import tokens_from_json, tokens_to_json
 from .tokens import DEDENT, EOF, INDENT, NEWLINE
 
 
@@ -69,6 +72,46 @@ def cmd_tokens(source: str, filename: str, *, compact: bool, json_output: bool =
         print(
             _format_token_line(t.kind, t.value, t.location.line, t.location.column)
         )
+    return 0
+
+
+def cmd_tokens_native_core(
+    source: str | None,
+    filename: str,
+    *,
+    compact: bool,
+    json_output: bool = False,
+    filename_label: str | None = None,
+) -> int:
+    try:
+        if source is None:
+            payload = lex_native_core_file_to_json(Path(filename), filename_label=filename_label)
+        else:
+            payload = lex_native_core_stdin_to_json(
+                source,
+                filename_label=filename_label or filename,
+            )
+    except VektorFlowError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if json_output:
+        print(payload, end="" if payload.endswith("\n") else "\n")
+        return 0
+
+    try:
+        toks = tokens_from_json(payload)
+    except ValueError as exc:
+        print(f"error: invalid native token stream payload: {exc}", file=sys.stderr)
+        return 1
+
+    for t in toks:
+        if compact and t.kind in (NEWLINE, INDENT, DEDENT, EOF):
+            continue
+        print(_format_token_line(t.kind, t.value, t.location.line, t.location.column))
     return 0
 
 
@@ -296,6 +339,9 @@ def main(argv: list[str] | None = None) -> int:
             "                       Run with terminal-attached UI launch behavior\n"
             "  vkf tokens <file>    Print lexer tokens\n"
             "                       add --json for a stable token-stream payload\n"
+            "  vkf tokens-native-core <file>\n"
+            "                       Print tokens from the native-core C++ lexer subset\n"
+            "                       add --json for a stable token-stream payload\n"
             "  vkf parse-tokens <file>\n"
             "                       Parse a stable token JSON payload and print the AST repr\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
@@ -329,6 +375,37 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         source = path.read_text(encoding="utf-8")
         return cmd_tokens(source, filename=str(path), compact=compact, json_output=json_output)
+
+    if argv[0] == "tokens-native-core":
+        if len(argv) < 2:
+            print("error: vkf tokens-native-core <file|->", file=sys.stderr)
+            return 1
+        compact = "--compact" in argv
+        json_output = "--json" in argv
+        path_arg = next((a for a in argv[1:] if a == "-" or not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        if path_arg == "-":
+            return cmd_tokens_native_core(
+                sys.stdin.read(),
+                "<stdin>",
+                compact=compact,
+                json_output=json_output,
+                filename_label="<stdin>",
+            )
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_tokens_native_core(
+            None,
+            str(path),
+            compact=compact,
+            json_output=json_output,
+            filename_label=path.as_posix(),
+        )
 
     if argv[0] == "parse-tokens":
         if len(argv) < 2:

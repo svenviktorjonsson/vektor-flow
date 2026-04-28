@@ -12,7 +12,7 @@ from vektorflow.cli import main, resolve_vkf_path
 from vektorflow.cpp_backend import discover_cpp_compiler
 from vektorflow.lexer import tokenize
 from vektorflow.parser import parse_module
-from vektorflow.token_stream import tokens_to_json
+from vektorflow.token_stream import token_stream_to_json, tokens_to_json
 from tests.token_stream_fixture_helper import (
     BAD_TOP_LEVEL_TOKEN_STREAM_CASES,
     INVALID_TOKEN_STREAM_ENVELOPE_CASES,
@@ -66,6 +66,29 @@ class TestMain:
         assert "tokens" in payload
         assert payload["tokens"][0]["kind"] == "EMIT"
         assert payload["tokens"][1]["kind"] == "STRING"
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_tokens_native_core_subcommand_json_matches_python(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        path = NATIVE_CORE / "hello_native.vkf"
+        assert main(["tokens-native-core", str(path), "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        expected = json.loads(
+            token_stream_to_json(tokenize(path.read_text(encoding="utf-8"), filename=path.as_posix()))
+        )
+        assert payload == expected
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_tokens_native_core_subcommand_stdin_matches_python(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        src = ":: 6 * 7\n"
+        monkeypatch.setattr("sys.stdin.read", lambda: src)
+        assert main(["tokens-native-core", "-", "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        expected = json.loads(token_stream_to_json(tokenize(src, filename="<stdin>")))
+        assert payload == expected
 
     def test_tokens_unknown_file(self) -> None:
         assert main(["tokens", "nope_not_a_file"]) == 1
