@@ -1,3 +1,5 @@
+collections: .collections
+
 make(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))), total:num):
     (payload:payload, total:3)
 

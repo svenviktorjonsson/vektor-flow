@@ -388,11 +388,11 @@ def optimize_module(module: ir.Module) -> ir.Module:
     out: list[Any] = []
     for stmt in module.statements:
         out.extend(optimize_stmt(stmt))
-    return ir.Module(out)
+    return ir.Module(out, stdlib_imports=list(module.stdlib_imports))
 
 
 def eliminate_noop_coercions(module: ir.Module, typed: TypedModuleInfo) -> ir.Module:
-    return ir.Module([_strip_stmt(stmt, typed) for stmt in module.statements])
+    return ir.Module([_strip_stmt(stmt, typed) for stmt in module.statements], stdlib_imports=list(module.stdlib_imports))
 
 
 def _strip_stmt(stmt: Any, typed: TypedModuleInfo) -> Any:

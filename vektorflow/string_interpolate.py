@@ -12,6 +12,7 @@ def interpolate_string(
     s: str,
     eval_expr: Callable[[str], Any],
     resolve_chain: Callable[[str], Any],
+    stringify: Callable[[Any], str],
 ) -> str:
     """``eval_expr`` parses and evaluates a ``$(...)`` substring.
 
@@ -53,7 +54,7 @@ def interpolate_string(
                 fmt = fm.group(1)
                 k += len(fmt)
             val = eval_expr(inner.strip())
-            out.append(_format_value(val, fmt))
+            out.append(_format_value(val, fmt, stringify))
             i = k
             continue
         # $ident / $a.b / $a.b.2f — field segments start with a letter; .2f is format, not field "2f"
@@ -80,16 +81,16 @@ def interpolate_string(
             raise EvalError(f"invalid segment after '.' in string interpolation")
         path = ".".join(parts)
         val = resolve_chain(path)
-        out.append(_format_value(val, fmt))
+        out.append(_format_value(val, fmt, stringify))
         i = j
     return "".join(out)
 
 
-def _format_value(val: Any, fmt: str) -> str:
+def _format_value(val: Any, fmt: str, stringify: Callable[[Any], str]) -> str:
     if not fmt:
         if isinstance(val, float) and val == int(val):
             return str(int(val))
-        return str(val)
+        return stringify(val)
     fs = fmt
     if fs[0].isdigit():
         fs = "." + fs

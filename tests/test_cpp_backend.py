@@ -105,7 +105,9 @@ id(x:num) -> num:
 
 
 def test_cpp_emits_math_and_stat_intrinsics() -> None:
-    src = """
+    src = """math: .math
+stat: .stat
+
 :: math.sin(0)
 :: stat.mean([1,2,3,4])
 :: stat.std([2,4,4,4,5,5,7,9])
@@ -120,7 +122,9 @@ def test_cpp_emits_math_and_stat_intrinsics() -> None:
 
 
 def test_cpp_emits_math_constants_and_extended_stat_intrinsics() -> None:
-    src = """
+    src = """math: .math
+stat: .stat
+
 :: math.pi
 :: math.e
 :: stat.median([1,2,3,4])
@@ -370,7 +374,8 @@ def test_named_record_backend_expectations_are_sorted_for_auditability() -> None
     assert scene == sorted(scene)
 
 def test_cpp_emits_dynamic_map_and_list_program() -> None:
-    src = """
+    src = """collections: .collections
+
 m: collections.map(a:1, b:"hi", c:true)
 L: collections.list(:[1,2,3])
 :: m
@@ -390,7 +395,8 @@ L: collections.list(:[1,2,3])
 
 
 def test_cpp_rejects_dynamic_list_with_unsupported_nested_vector_cell() -> None:
-    src = """
+    src = """collections: .collections
+
 v: [1,2,3]
 L: collections.list(v)
 """
@@ -400,7 +406,8 @@ L: collections.list(v)
 
 
 def test_cpp_emits_record_with_map_and_list_fields() -> None:
-    src = """
+    src = """collections: .collections
+
 make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
@@ -422,7 +429,8 @@ make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
 
 
 def test_cpp_emits_transform_for_record_with_map_and_list_fields() -> None:
-    src = """
+    src = """collections: .collections
+
 update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:state.meta, items:state.items & collections.list(9), total:state.total + 1)
 
@@ -436,7 +444,8 @@ update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> 
 
 
 def test_cpp_emits_nested_dynamic_map_and_list_program() -> None:
-    src = """
+    src = """collections: .collections
+
 make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
 
@@ -457,7 +466,8 @@ make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups
 
 
 def test_cpp_emits_transform_for_nested_dynamic_map_and_list_record() -> None:
-    src = """
+    src = """collections: .collections
+
 update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
     (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))))
 
@@ -472,7 +482,8 @@ update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), gro
 
 
 def test_cpp_emits_transform_for_direct_dynamic_map_payload() -> None:
-    src = """
+    src = """collections: .collections
+
 update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
@@ -489,7 +500,8 @@ update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:lis
 
 
 def test_cpp_emits_mixed_static_and_dynamic_collection_record() -> None:
-    src = """
+    src = """collections: .collections
+
 make() -> (pts:[num:2], payload:map(meta:map(name:str), items:list(num, num)), total:num):
     (pts:[1,2], payload:collections.map(meta:collections.map(name:"alice"), items:collections.list(:[3,4])), total:5)
 
@@ -806,7 +818,9 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_math_and_stat_intrinsics() -> None:
-    src = """
+    src = """math: .math
+stat: .stat
+
 :: math.sin(0)
 :: stat.mean([1,2,3,4])
 :: stat.range([3,1,4,1,5])
@@ -819,7 +833,9 @@ def test_cpp_compile_and_run_math_and_stat_intrinsics() -> None:
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_math_constants_and_extended_stats() -> None:
-    src = """
+    src = """math: .math
+stat: .stat
+
 :: math.pi
 :: math.e
 :: stat.median([1,2,3,4])
@@ -863,7 +879,8 @@ sum(p:(x:num, y:num)) -> num:
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_dynamic_map_and_list_program() -> None:
-    src = """
+    src = """collections: .collections
+
 m: collections.map(a:1, b:"hi", c:true)
 L: collections.list(:[1,2,3])
 :: m
@@ -878,7 +895,8 @@ L: collections.list(:[1,2,3])
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_record_with_map_and_list_fields() -> None:
-    src = """
+    src = """collections: .collections
+
 make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
@@ -900,7 +918,8 @@ make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_transform_record_with_map_and_list_fields() -> None:
-    src = """
+    src = """collections: .collections
+
 update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:state.meta, items:state.items & collections.list(9), total:state.total + 1)
 
@@ -914,7 +933,8 @@ update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_nested_dynamic_map_and_list_program() -> None:
-    src = """
+    src = """collections: .collections
+
 make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
 
@@ -938,7 +958,8 @@ make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_transform_nested_dynamic_map_and_list_record() -> None:
-    src = """
+    src = """collections: .collections
+
 update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
     (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))))
 
@@ -952,7 +973,8 @@ update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), gro
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_transform_direct_dynamic_map_payload() -> None:
-    src = """
+    src = """collections: .collections
+
 update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
@@ -970,7 +992,8 @@ update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:lis
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_mixed_static_and_dynamic_collection_record() -> None:
-    src = """
+    src = """collections: .collections
+
 make() -> (pts:[num:2], payload:map(meta:map(name:str), items:list(num, num)), total:num):
     (pts:[1,2], payload:collections.map(meta:collections.map(name:"alice"), items:collections.list(:[3,4])), total:5)
 

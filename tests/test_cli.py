@@ -414,6 +414,20 @@ class TestMain:
     def test_run_short_name(self) -> None:
         assert main([str(ROOT / "examples" / "hello")]) == 0
 
+    def test_run_supports_explicit_math_stdlib_namespace_import(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        src = tmp_path / "explicit_math_import.vkf"
+        src.write_text(
+            "math: .math\n"
+            ":: math.sin(0)\n"
+            ":: math.sqrt(81)\n",
+            encoding="utf-8",
+        )
+
+        assert main([str(src)]) == 0
+        assert capsys.readouterr().out.strip().splitlines() == ["0", "9"]
+
     def test_run_folder_repo_main(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Regression: bind + emit on the next line must not join across newlines."""
         assert main([str(FOLDER_REPO_MAIN)]) == 0
@@ -514,6 +528,17 @@ class TestMain:
         monkeypatch.setattr("sys.stdin.read", lambda: src)
         assert main(["parse-native-core", "-"]) == 0
         assert capsys.readouterr().out.strip() == repr(parse_module(src, filename="<stdin>"))
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_parse_native_core_numeric_example_preserves_stdlib_user_surface(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        path = NATIVE_CORE / "numeric_native.vkf"
+        assert main(["parse-native-core", str(path)]) == 0
+        parsed = capsys.readouterr().out.strip()
+        assert parsed == repr(parse_module(path.read_text(encoding="utf-8"), filename=path.as_posix()))
+        assert "math.sin" in path.read_text(encoding="utf-8")
+        assert "stat.mean" in path.read_text(encoding="utf-8")
 
     @pytest.mark.parametrize("payload, expected", INVALID_TOKEN_STREAM_ENVELOPE_CASES)
     def test_parse_tokens_subcommand_invalid_payload(

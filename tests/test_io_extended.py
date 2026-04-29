@@ -561,7 +561,7 @@ class TestIoVkfIntegration:
     def test_write_read_text_via_vkf(self, tmp_path: Path) -> None:
         p = str(tmp_path / "vkf.txt")
         src = f"""
-:.io
+io: .io
 io.write_text("{p}", "from vkf")
 t : io.read_text("{p}")
 :: t
@@ -570,9 +570,9 @@ t : io.read_text("{p}")
         assert lines[0] == "from vkf"
 
     def test_write_read_text_bound_module(self, tmp_path: Path) -> None:
-        # io is auto-loaded in builtins — use io.write_text / io.read_text directly
         p = str(tmp_path / "vkf2.txt")
         src = f"""
+io: .io
 io.write_text("{p}", "bound")
 :: io.read_text("{p}")
 """

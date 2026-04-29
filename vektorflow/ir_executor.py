@@ -10,7 +10,7 @@ from .errors import EvalError
 from .interpreter import _binop, _stringify
 from .runtime import make_multiset, make_vflist, make_vmap
 from .runtime.type_values import PrimType, coerce_typed_value, is_type_value, resolve_return_type
-from .stdlib import STDLIB_MODULES, resolve_stdlib
+from .stdlib import STDLIB_AUTOLOADED_NAMESPACES, STDLIB_MODULES, resolve_stdlib
 from .stdlib.events import event_match_specificity
 from . import ir
 
@@ -56,12 +56,19 @@ class IRExecutor:
             self.builtin[_tn] = PrimType(_tn)
 
     def _merge_stdlibs(self) -> None:
-        for name in ("math", "capture", "io", "collections", "stat", "ui"):
+        for name in STDLIB_AUTOLOADED_NAMESPACES:
             if name in STDLIB_MODULES:
                 try:
                     self.builtin[name] = resolve_stdlib(name)
                 except KeyError:
                     pass
+
+    def _apply_stdlib_imports(self, module: ir.Module, env: dict[str, Any]) -> None:
+        for imported in module.stdlib_imports:
+            namespace = resolve_stdlib(imported.module_name)
+            if imported.spill_exports:
+                env.update(namespace)
+            env[imported.binding_name] = namespace
 
     def _resolve(self, name: str, env: dict[str, Any]) -> Any:
         if name in env:
@@ -72,6 +79,7 @@ class IRExecutor:
 
     def run_module(self, module: ir.Module) -> Any:
         env = self.globals
+        self._apply_stdlib_imports(module, env)
         try:
             for stmt in module.statements:
                 self.exec_stmt(stmt, env)

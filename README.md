@@ -125,6 +125,16 @@ m["abs"](-3)         # scalar absolute value
 m["abs"]([3.0, 4.0]) # Euclidean norm (1D vector only)
 ```
 
+For examples and teaching material, prefer the explicit namespace form when a stdlib module is used in just a few places:
+
+```vkf
+math : .math
+errors : .errors
+io : .io
+```
+
+That keeps it obvious where names come from and avoids silently pouring a larger namespace into scope. Use **`:.math`**-style spilling when that is the point of the example or when you intentionally want the whole namespace in local scope.
+
 Included names: **sin, cos, tan, sinh, cosh, tanh, asin, acos, atan, atan2, asinh, acosh, atanh**, **exp, ln, lg** (log10), **lg2** (log2), **log(x, y)** (log base *y* of *x*), **sqrt**, **abs** (delegates to scalar `abs` / 1D vector norm), plus **pi, e, tau**.
 
 **`:.capture`** exposes **`capture.regex`**, **`capture.groups`** (see *Capturing data from text* under Modules). **`resolve_stdlib("capture")`** in Python returns the same namespace.
@@ -160,27 +170,59 @@ A small expression evaluator (`vektorflow.expr.eval_expression`) parses **`|expr
 
 ### VS Code (syntax, run button, terminal)
 
-1. **Install the extension** from this repo: **Developer: Install Extension from Location…** and select the **`vscode`** folder (the one that contains `package.json`). **Do not** use `code --install-extension ./vscode` — that only accepts Marketplace IDs.
+The quickest path for the extension MVP now lives in:
 
-2. Open the **vektor-flow** project folder (or any folder where you use `.vkf` files). Open a **`.vkf`** file — the language mode should be **Vektor Flow**.
+- [vscode/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\vscode\README.md)
 
-3. **Run the program** (output goes to the **integrated Terminal**):
-   - **Play** (▶) in the **editor title bar** (top right) — command **Run Vektor Flow File** — or **Command Palette** → **Run Vektor Flow File**. This runs `python -m vektorflow.cli` on the current file in a new terminal named **Vektor Flow**.
-   - Or use **Run and Debug** (**F5**) with the workspace config **vkf: run current file** (needs the **Python** extension and an interpreter where **`vektorflow`** is installed).
-   - Or **Terminal → Run Task…** → **vkf: run current file** (same CLI as above).
+That guide covers:
 
-**Settings:** **Vektor Flow: Python Path** (`vektorflow.pythonPath`) — defaults to `python`; set it to your venv’s interpreter if `vektorflow` is not on the default PATH.
+- prerequisites
+- installing from the `vscode/` folder
+- packaging a `.vsix`
+- compiler path / Python fallback setup
+- an end-to-end smoke test
+- optional native-core terminal verification
 
-**Development:** open the `vscode` folder and press **F5** (“Run Extension”) to launch an **Extension Development Host** window.
+Short version:
 
-**Optional CLI install:** in `vscode/` run `npm install -g @vscode/vsce && vsce package`, then install the generated `.vsix` that matches the version in `vscode/package.json`. Avoid checking stale packaged `.vsix` artifacts into the repo.
+1. Install the repo into a Python environment:
 
-The repo includes **`.vscode/`** for this workspace:
+```bash
+pip install -e .[dev]
+```
 
-- **`launch.json`** — **F5** / **Run and Debug** runs **`python -m vektorflow.cli`** on `${file}` in the **integrated terminal**.
-- **`tasks.json`** — **vkf: run current file** and **vkf: tokens (current file)**.
+2. In VS Code run:
 
-**Is `vkf` “global”?** Only if the Python you used for `pip install -e .` is the one on your PATH and its **Scripts** folder (Windows) is on PATH. Otherwise use **`python -m vektorflow.cli`** from the same environment, or activate your venv first.
+- `Developer: Install Extension from Location...`
+
+3. Select:
+
+- `vscode/`
+
+4. Open:
+
+- `examples/hello.vkf`
+
+5. Run:
+
+- `Run Vektor Flow File`
+
+Expected output:
+
+```text
+hello, world
+```
+
+The repo also includes workspace helpers:
+
+- `.vscode/launch.json` -> `vkf: run current file`
+- `.vscode/tasks.json` -> `vkf: run current file` and `vkf: tokens (current file)`
+
+The current extension surface also includes:
+
+- `Parse Vektor Flow File`
+- `Build Vektor Flow File`
+- compiler-backed diagnostics for `.vkf` files
 
 ### UI host (`web/vf-ui`)
 

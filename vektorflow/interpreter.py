@@ -12,7 +12,6 @@ from .errors import (
     BreakSignal,
     ContinueSignal,
     ControlFlow,
-    ERROR_NAMESPACE,
     ErrorTypeValue,
     EvalError,
     ExitProgramSignal,
@@ -26,7 +25,7 @@ from .runtime.multiset import (
     multiset_symmetric_difference,
     multiset_union,
 )
-from .stdlib import STDLIB_MODULES, resolve_stdlib
+from .stdlib import STDLIB_AUTOLOADED_NAMESPACES, STDLIB_MODULES, resolve_stdlib
 from .stdlib.events import matches_event_code, event_match_specificity
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
@@ -615,10 +614,8 @@ class Interpreter:
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
-        self.builtin["errors"] = make_vmap(ERROR_NAMESPACE)
-
     def _merge_stdlibs(self) -> None:
-        for name in ("math", "capture", "io", "collections", "stat", "ui"):
+        for name in STDLIB_AUTOLOADED_NAMESPACES:
             if name in STDLIB_MODULES:
                 try:
                     self.builtin[name] = resolve_stdlib(name)
@@ -1081,7 +1078,12 @@ class Interpreter:
                         )
                 return v
 
-            return interpolate_string(s, eval_inner, resolve_chain)
+            return interpolate_string(
+                s,
+                eval_inner,
+                resolve_chain,
+                lambda value: self._stringify_for_display(value, env),
+            )
         if isinstance(node, ast.Ident):
             return self._resolve(node.name, env)
         if isinstance(node, ast.TupleLit):

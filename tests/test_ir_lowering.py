@@ -6,7 +6,7 @@ import pytest
 
 from vektorflow.interpreter import _stringify
 from vektorflow.interpreter import Interpreter
-from vektorflow.ir import AttrExpr, CoerceExpr, Const, FunctionDef, IndexExpr, LinkedListExpr, MapExpr, MatchStmt, Module, MultisetExpr, StoreName, StructExpr, WhileStmt, lower_module
+from vektorflow.ir import AttrExpr, CoerceExpr, Const, FunctionDef, IndexExpr, LinkedListExpr, MapExpr, MatchStmt, Module, MultisetExpr, StdlibImport, StoreName, StructExpr, WhileStmt, lower_module
 from vektorflow.ir_executor import IRExecutor
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
@@ -38,6 +38,20 @@ flag: c > 20
     assert ir_globals["b"] == ast_globals["b"] == 6
     assert ir_globals["c"] == ast_globals["c"] == 27
     assert ir_globals["flag"] == ast_globals["flag"] is True
+
+
+def test_ir_collects_top_level_stdlib_imports_as_module_metadata() -> None:
+    lowered = lower_module(
+        parse_module(
+            "math: .math\n:.collections\n:: math.sin(0)\n",
+            filename="<ir-test>",
+        )
+    )
+    assert lowered.stdlib_imports == [
+        StdlibImport(module_name="math", binding_name="math", spill_exports=False),
+        StdlibImport(module_name="collections", binding_name="collections", spill_exports=True),
+    ]
+    assert len(lowered.statements) == 1
 
 
 def test_ir_parity_conditional_effects() -> None:
@@ -341,7 +355,8 @@ def test_ir_lowers_map_and_linked_list_ctors() -> None:
 
 
 def test_ir_parity_map_and_linked_list_runtime_subset() -> None:
-    src = """
+    src = """collections: .collections
+
 m: collections.map(a:1, b:"hi", c:true)
 L: collections.list(1, 2, 3)
 x: m.a

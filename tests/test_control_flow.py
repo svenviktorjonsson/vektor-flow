@@ -188,6 +188,7 @@ x??
 
 def test_catch_match_specific_error_beats_general_error() -> None:
     src = """
+errors: .errors
 out: 0
 missing!?
   errors.ERROR => out: 1
@@ -199,6 +200,7 @@ missing!?
 
 def test_catch_match_binds_subject_in_dollar() -> None:
     src = """
+errors: .errors
 out: 0
 missing!?
   errors.ERROR =>
@@ -211,6 +213,7 @@ missing!?
 
 def test_catch_match_no_error_is_noop() -> None:
     src = """
+errors: .errors
 out: 0
 1!?
   errors.ERROR => out: 1
@@ -221,11 +224,34 @@ out: 0
 
 def test_catch_match_reraises_when_no_arm_matches() -> None:
     src = """
+errors: .errors
 missing!?
   errors.TYPE_ERROR => :: 1
 """
     with pytest.raises(EvalError, match="undefined name"):
         _run(src)
+
+
+def test_errors_namespace_requires_import() -> None:
+    src = """
+out: 0
+missing!?
+  errors.ERROR => out: 1
+:: out
+"""
+    with pytest.raises(EvalError, match="undefined name: 'errors'"):
+        _run(src)
+
+
+def test_errors_namespace_access_succeeds_when_imported() -> None:
+    src = """
+errors: .errors
+out: 0
+missing!?
+  errors.EVAL_ERROR => out: 1
+:: out
+"""
+    assert _run(src) == "1"
 
 
 def test_break_outside_pipe_errors() -> None:

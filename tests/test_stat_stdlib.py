@@ -49,6 +49,13 @@ def _run(src: str) -> list[str]:
     return [ln for ln in buf.getvalue().splitlines() if ln.strip()]
 
 
+def _run_with_stat_import(src: str) -> list[str]:
+    body = src.lstrip()
+    if body.startswith("stat: .stat"):
+        return _run(body)
+    return _run(f"stat: .stat\n{body}")
+
+
 def _approx(a: float, b: float, tol: float = 1e-10) -> bool:
     return abs(a - b) < tol
 
@@ -494,49 +501,50 @@ class TestClampSign:
 # ---------------------------------------------------------------------------
 
 class TestStatVkfIntegration:
-    # stat is auto-loaded into builtins — accessible as stat.fn(...) with no import needed
-
     def test_mean_via_vkf(self) -> None:
-        lines = _run(":: stat.mean([1, 2, 3, 4, 5])")
+        lines = _run_with_stat_import(":: stat.mean([1, 2, 3, 4, 5])")
         assert float(lines[0]) == pytest.approx(3.0)
 
     def test_median_via_vkf(self) -> None:
-        lines = _run(":: stat.median([1, 2, 3])")
+        lines = _run_with_stat_import(":: stat.median([1, 2, 3])")
         assert float(lines[0]) == pytest.approx(2.0)
 
     def test_std_via_vkf(self) -> None:
-        lines = _run(":: stat.std([2, 4, 4, 4, 5, 5, 7, 9])")
+        lines = _run_with_stat_import(":: stat.std([2, 4, 4, 4, 5, 5, 7, 9])")
         assert float(lines[0]) == pytest.approx(2.0)
 
     def test_min_max_via_vkf(self) -> None:
         src = """
+stat: .stat
 :: stat.min([3, 1, 4, 1, 5])
 :: stat.max([3, 1, 4, 1, 5])
 """
-        lines = _run(src)
+        lines = _run_with_stat_import(src)
         assert float(lines[0]) == pytest.approx(1.0)
         assert float(lines[1]) == pytest.approx(5.0)
 
     def test_sum_count_via_vkf(self) -> None:
         src = """
+stat: .stat
 :: stat.sum([1, 2, 3, 4])
 :: stat.count([1, 2, 3, 4])
 """
-        lines = _run(src)
+        lines = _run_with_stat_import(src)
         assert float(lines[0]) == pytest.approx(10.0)
         assert float(lines[1]) == pytest.approx(4.0)
 
     def test_clamp_via_vkf(self) -> None:
-        lines = _run(":: stat.clamp(15.0, 0.0, 10.0)")
+        lines = _run_with_stat_import(":: stat.clamp(15.0, 0.0, 10.0)")
         assert float(lines[0]) == pytest.approx(10.0)
 
     def test_sign_via_vkf(self) -> None:
         src = """
+stat: .stat
 :: stat.sign(-5.0)
 :: stat.sign(0.0)
 :: stat.sign(3.0)
 """
-        lines = _run(src)
+        lines = _run_with_stat_import(src)
         assert float(lines[0]) == pytest.approx(-1.0)
         assert float(lines[1]) == pytest.approx(0.0)
         assert float(lines[2]) == pytest.approx(1.0)
@@ -552,9 +560,10 @@ s : .stat
     def test_stat_pipeline(self) -> None:
         """mean of normalized [1..5] should be exactly 0.5."""
         src = """
+stat: .stat
 data : [1, 2, 3, 4, 5]
 n : stat.normalize(data)
 :: stat.mean(n)
 """
-        lines = _run(src)
+        lines = _run_with_stat_import(src)
         assert float(lines[0]) == pytest.approx(0.5, abs=0.01)

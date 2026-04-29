@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import ast
+from .stdlib import STDLIB_MODULES
 
 
 IRNode = Any
@@ -183,15 +184,34 @@ class Block:
 @dataclass(frozen=True, slots=True)
 class Module:
     statements: list[IRNode] = field(default_factory=list)
+    stdlib_imports: list["StdlibImport"] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class StdlibImport:
+    module_name: str
+    binding_name: str
+    spill_exports: bool = False
 
 
 def lower_module(module: ast.Module) -> Module:
     type_registry: dict[str, Any] = {}
-    return Module([lower_stmt(stmt, type_registry) for stmt in module.statements])
+    lowered: list[IRNode] = []
+    stdlib_imports: list[StdlibImport] = []
+    for stmt in module.statements:
+        lowered_stmt = lower_stmt(stmt, type_registry, stdlib_imports=stdlib_imports, top_level=True)
+        if lowered_stmt is not None:
+            lowered.append(lowered_stmt)
+    return Module(lowered, stdlib_imports=stdlib_imports)
 
 
 def lower_block(block: ast.Block) -> Block:
-    return Block([lower_stmt(stmt, {}) for stmt in block.statements])
+    lowered: list[IRNode] = []
+    for stmt in block.statements:
+        lowered_stmt = lower_stmt(stmt, {}, top_level=False)
+        if lowered_stmt is not None:
+            lowered.append(lowered_stmt)
+    return Block(lowered)
 
 
 def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
@@ -219,9 +239,39 @@ def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
     return type_expr
 
 
-def lower_stmt(node: Any, type_registry: dict[str, Any] | None = None) -> IRNode:
+def _try_record_stdlib_import(
+    node: ast.SpillImport,
+    stdlib_imports: list[StdlibImport] | None,
+    *,
+    top_level: bool,
+) -> bool:
+    if not isinstance(node.path, ast.DotModulePath):
+        return False
+    if len(node.path.segments) != 1:
+        return False
+    module_name = node.path.segments[0]
+    if module_name not in STDLIB_MODULES:
+        return False
+    if stdlib_imports is None:
+        raise NotImplementedError("IR lowering only supports stdlib imports at module top level")
+    binding_name = node.alias or module_name
+    stdlib_imports.append(
+        StdlibImport(module_name=module_name, binding_name=binding_name, spill_exports=node.alias is None)
+    )
+    return True
+
+
+def lower_stmt(
+    node: Any,
+    type_registry: dict[str, Any] | None = None,
+    *,
+    stdlib_imports: list[StdlibImport] | None = None,
+    top_level: bool = False,
+) -> IRNode | None:
     if type_registry is None:
         type_registry = {}
+    if isinstance(node, ast.SpillImport) and _try_record_stdlib_import(node, stdlib_imports, top_level=top_level):
+        return None
     if isinstance(node, ast.Bind):
         if not isinstance(node.target, ast.Ident):
             raise NotImplementedError(

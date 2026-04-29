@@ -117,6 +117,21 @@ def test_trailing_dot_type_works_in_multiset_and_fixed_vector_type_positions() -
     assert lines[1] == "[num:3]"
 
 
+def test_typeof_interpolation_uses_surface_type_format() -> None:
+    src = """
+p : (x:1, y:2)
+xs : [1, 2, 3]
+f(x:num) -> num: x
+:: "p. = $(p.)"
+:: "xs. = $(xs.)"
+:: "f. = $(f.)"
+"""
+    lines = _run(src).splitlines()
+    assert lines[0] == "p. = (x:num, y:num)"
+    assert lines[1] == "xs. = [num:3]"
+    assert lines[2] == "f. = (x:num) -> num"
+
+
 def test_imaginary_constants() -> None:
     src = """
 :: i

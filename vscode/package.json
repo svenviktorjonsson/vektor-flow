@@ -13,7 +13,11 @@
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:vektorflow",
-    "onCommand:vektorflow.runFile"
+    "onCommand:vektorflow.checkFile",
+    "onCommand:vektorflow.showOutput",
+    "onCommand:vektorflow.runFile",
+    "onCommand:vektorflow.parseFile",
+    "onCommand:vektorflow.buildFile"
   ],
   "contributes": {
     "languages": [
@@ -36,29 +40,105 @@
         "command": "vektorflow.runFile",
         "title": "Run Vektor Flow File",
         "icon": "$(play)"
+      },
+      {
+        "command": "vektorflow.checkFile",
+        "title": "Check Vektor Flow File",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vektorflow.showOutput",
+        "title": "Show Vektor Flow Output",
+        "icon": "$(output)"
+      },
+      {
+        "command": "vektorflow.parseFile",
+        "title": "Parse Vektor Flow File",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vektorflow.buildFile",
+        "title": "Build Vektor Flow File",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "vektorflow.runFile",
+          "command": "vektorflow.parseFile",
           "when": "editorLangId == vektorflow",
           "group": "navigation@1"
+        },
+        {
+          "command": "vektorflow.checkFile",
+          "when": "editorLangId == vektorflow",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vektorflow.runFile",
+          "when": "editorLangId == vektorflow",
+          "group": "navigation@3"
+        },
+        {
+          "command": "vektorflow.buildFile",
+          "when": "editorLangId == vektorflow",
+          "group": "navigation@4"
         }
       ],
       "commandPalette": [
         {
+          "command": "vektorflow.parseFile"
+        },
+        {
+          "command": "vektorflow.checkFile"
+        },
+        {
           "command": "vektorflow.runFile"
+        },
+        {
+          "command": "vektorflow.buildFile"
+        },
+        {
+          "command": "vektorflow.showOutput"
         }
       ]
     },
     "configuration": {
       "title": "Vektor Flow",
       "properties": {
+        "vektorflow.compilerPath": {
+          "type": "string",
+          "default": "vkf",
+          "description": "Executable used for Vektor Flow commands. Leave set to vkf when the compiler is on PATH, or point it to a specific binary."
+        },
+        "vektorflow.compilerArgs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Extra arguments inserted before the Vektor Flow subcommand."
+        },
         "vektorflow.pythonPath": {
           "type": "string",
           "default": "python",
-          "description": "Python executable used to run: python -m vektorflow.cli <file>. Use an absolute path or activate a venv and set this to that interpreter."
+          "description": "Legacy fallback used only when vektorflow.compilerPath is blank. It runs python -m vektorflow.cli."
+        },
+        "vektorflow.useNativeCoreCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use native-core compiler subcommands for build flows. Parse always uses parse-native-core in this MVP."
+        },
+        "vektorflow.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run compiler-backed Vektor Flow diagnostics for .vkf files and surface location-bearing parse/check errors in the editor."
+        },
+        "vektorflow.diagnosticsDebounceMs": {
+          "type": "number",
+          "default": 350,
+          "minimum": 0,
+          "description": "Delay before rerunning Vektor Flow diagnostics after edits."
         }
       }
     },
@@ -82,19 +162,25 @@
             { "scope": "entity.name.module.std.vektorflow", "settings": { "foreground": "#5BC0DE", "fontStyle": "bold" } },
             { "scope": "entity.name.namespace.std.vektorflow", "settings": { "foreground": "#6EC9E8" } },
             { "scope": "entity.name.function.call.vektorflow", "settings": { "foreground": "#E3C16F", "fontStyle": "bold" } },
+            { "scope": "entity.name.function.member.vektorflow", "settings": { "foreground": "#E7D58A", "fontStyle": "bold" } },
             { "scope": "entity.name.function.definition.vektorflow", "settings": { "foreground": "#56C9A8", "fontStyle": "bold" } },
             { "scope": "variable.parameter.list.vektorflow", "settings": { "foreground": "#9BC9B0" } },
+            { "scope": "variable.parameter.typehint.vektorflow", "settings": { "foreground": "#A6D7B8", "fontStyle": "italic" } },
             { "scope": "punctuation.block.head.vektorflow", "settings": { "foreground": "#D4A0FF" } },
             { "scope": "variable.name.binding.vektorflow", "settings": { "foreground": "#7AB8E8", "fontStyle": "bold" } },
+            { "scope": "variable.other.property.vektorflow", "settings": { "foreground": "#F0B86B" } },
             { "scope": "keyword.operator.emit.line-sugar.vektorflow", "settings": { "foreground": "#C678DD", "fontStyle": "bold" } },
             { "scope": "constant.language.match-arm.boolean.vektorflow", "settings": { "foreground": "#56B3FF", "fontStyle": "bold" } },
             { "scope": "keyword.wildcard.match.vektorflow", "settings": { "foreground": "#A0A8C0", "fontStyle": "bold" } },
             { "scope": "constant.language.boolean.vektorflow", "settings": { "foreground": "#3FA8FF" } },
+            { "scope": "constant.language.null.vektorflow", "settings": { "foreground": "#3FA8FF", "fontStyle": "italic" } },
             { "scope": "constant.numeric.float.vektorflow", "settings": { "foreground": "#9FD4A8" } },
             { "scope": "constant.numeric.integer.vektorflow", "settings": { "foreground": "#9FD4A8" } },
             { "scope": "keyword.operator.emit.vektorflow", "settings": { "foreground": "#E0B84D", "fontStyle": "bold" } },
             { "scope": "keyword.operator.pipe.vektorflow", "settings": { "foreground": "#E5984D" } },
             { "scope": "keyword.operator.comparison.vektorflow", "settings": { "foreground": "#A8A4FF" } },
+            { "scope": "keyword.control.loop.vektorflow", "settings": { "foreground": "#F2C14E", "fontStyle": "bold" } },
+            { "scope": "keyword.control.switch.vektorflow", "settings": { "foreground": "#D08BFF", "fontStyle": "bold" } },
             { "scope": "keyword.operator.fatarrow.vektorflow", "settings": { "foreground": "#6BB3FF" } },
             { "scope": "keyword.operator.thinarrow.vektorflow", "settings": { "foreground": "#6BB3FF" } },
             { "scope": "keyword.operator.range.vektorflow", "settings": { "foreground": "#D7BA5D" } },
@@ -116,8 +202,13 @@
             { "scope": "keyword.operator.kwargbind.vektorflow", "settings": { "foreground": "#D8969E" } },
             { "scope": "keyword.operator.deref.vektorflow", "settings": { "foreground": "#7A8CA8" } },
             { "scope": "keyword.operator.abs.vektorflow", "settings": { "foreground": "#D0A840" } },
-            { "scope": "keyword.operator.match.vektorflow", "settings": { "foreground": "#C678DD" } },
+            { "scope": "keyword.control.conditional.vektorflow", "settings": { "foreground": "#C678DD" } },
+            { "scope": "variable.other.constant.vektorflow", "settings": { "foreground": "#FF9D7A", "fontStyle": "bold" } },
+            { "scope": "entity.name.type.builtin.vektorflow", "settings": { "foreground": "#65C8E8" } },
+            { "scope": "entity.name.type.annotation.vektorflow", "settings": { "foreground": "#79D4F0", "fontStyle": "italic" } },
             { "scope": "entity.name.type.class.vektorflow", "settings": { "foreground": "#5AC8E8", "fontStyle": "italic" } },
+            { "scope": "punctuation.separator.key-value.vektorflow", "settings": { "foreground": "#C89A6B" } },
+            { "scope": "punctuation.separator.type.vektorflow", "settings": { "foreground": "#89A7D8" } },
             { "scope": "punctuation.parens.begin.vektorflow", "settings": { "foreground": "#B8C850" } },
             { "scope": "punctuation.parens.end.vektorflow", "settings": { "foreground": "#B8C850" } },
             { "scope": "punctuation.brackets.begin.vektorflow", "settings": { "foreground": "#B968E8" } },

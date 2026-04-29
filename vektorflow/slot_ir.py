@@ -23,7 +23,7 @@ def lower_slots(module: ir.Module, typed: TypedModuleInfo) -> ir.Module:
             )
         else:
             out.append(stmt)
-    return ir.Module(out)
+    return ir.Module(out, stdlib_imports=list(module.stdlib_imports))
 
 
 def _lower_block(block: ir.Block, slots: dict[str, int]) -> ir.Block:

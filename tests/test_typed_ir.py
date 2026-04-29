@@ -101,7 +101,9 @@ mid: xs.1
 
 def test_typed_ir_tracks_math_and_stat_intrinsics() -> None:
     mod = parse_module(
-        """
+        """math: .math
+stat: .stat
+
 angle: math.sin(0)
 mu: stat.mean([1,2,3,4])
 sigma: stat.std([2,4,4,4,5,5,7,9])
@@ -128,7 +130,9 @@ counted: stat.count([1,2,3])
 
 def test_typed_ir_tracks_math_constants_and_vector_stats() -> None:
     mod = parse_module(
-        """
+        """math: .math
+stat: .stat
+
 pi_v: math.pi
 tau_v: math.tau
 mid: stat.median([1,2,3,4])
@@ -300,7 +304,8 @@ out: update((pts:[1,2], bag:{3:1}, total:1), [4,5], {6:2})
 
 def test_typed_ir_tracks_map_fields_and_linked_list_elements() -> None:
     mod = parse_module(
-        """
+        """collections: .collections
+
 m: collections.map(a:1, b:"hi", c:true)
 L: collections.list(:[1,2,3])
 x: m.b
@@ -326,7 +331,8 @@ x: m.b
 
 def test_typed_ir_tracks_record_with_map_and_list_fields() -> None:
     mod = parse_module(
-        """
+        """collections: .collections
+
 make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
@@ -352,7 +358,8 @@ name: out.meta.name
 
 def test_typed_ir_tracks_transformed_record_with_map_and_list_fields() -> None:
     mod = parse_module(
-        """
+        """collections: .collections
+
 update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:state.meta, items:state.items & collections.list(9), total:state.total + 1)
 
@@ -374,7 +381,8 @@ out: update((meta:collections.map(name:"alice", ok:true), items:collections.list
 
 def test_typed_ir_tracks_nested_dynamic_map_and_list_fields() -> None:
     mod = parse_module(
-        """
+        """collections: .collections
+
 make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
 
@@ -402,7 +410,8 @@ name: out.payload.meta.name
 
 def test_typed_ir_tracks_transform_for_direct_dynamic_map_payload() -> None:
     mod = parse_module(
-        """
+        """collections: .collections
+
 update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
@@ -430,7 +439,8 @@ name: out.meta.name
 
 def test_typed_ir_tracks_mixed_static_and_dynamic_collection_record() -> None:
     mod = parse_module(
-        """
+        """collections: .collections
+
 make() -> (pts:[num:2], payload:map(meta:map(name:str), items:list(num, num)), total:num):
     (pts:[1,2], payload:collections.map(meta:collections.map(name:"alice"), items:collections.list(:[3,4])), total:5)
 
