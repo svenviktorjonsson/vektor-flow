@@ -21,6 +21,7 @@ from typing import Literal
 from . import ast
 from .cpp_backend import CppEmitError, compile_cpp_source, emit_cpp_from_token_stream_json
 from .native_core_lexer import lex_native_core_file_to_json, lex_native_core_stdin_to_json
+from .native_lexer_fixtures import declared_fixture_contract_summary
 from .native_parser_proto import emit_cpp_for_hello_native_file, emit_cpp_for_hello_native_source
 from .parser import parse_token_stream_json
 
@@ -39,6 +40,50 @@ class NativeSubsetCapabilities:
     supports_build: bool = True
     supports_native_parser_fast_path: bool = False
     supports_native_cpp_emit_fast_path: bool = False
+    declared_token_fixture_status: str = "unknown"
+    declared_token_fixture_ready: bool = False
+    declared_token_fixture_count: int = 0
+    declared_token_fixture_usable_count: int = 0
+    declared_token_fixture_blocked_count: int = 0
+    declared_token_fixture_names: tuple[str, ...] = ()
+    declared_token_fixture_usable_names: tuple[str, ...] = ()
+    declared_token_fixture_blocked_names: tuple[str, ...] = ()
+    declared_token_fixture_covered_token_kinds: tuple[str, ...] = ()
+    declared_token_fixture_covered_token_kind_count: int = 0
+    declared_token_fixture_token_family_coverage: tuple[dict[str, object], ...] = ()
+    declared_token_fixture_covered_token_family_count: int = 0
+    declared_token_fixture_uncovered_token_family_count: int = 0
+    declared_token_fixture_coverage_blockers: tuple[str, ...] = ()
+    declared_token_fixture_next_coverage_blocker: str | None = None
+    declared_token_fixture_partial_coverage_blockers: tuple[str, ...] = ()
+    declared_token_fixture_next_partial_coverage_blocker: str | None = None
+    declared_token_fixture_token_family_status_by_name: dict[str, object] | None = None
+    declared_token_fixture_token_family_frontier: tuple[dict[str, object], ...] = ()
+    declared_token_fixture_textual_token_family_frontier: tuple[dict[str, object], ...] = ()
+    lexer_frontier_overview: dict[str, object] | None = None
+    lexer_operational_status: dict[str, object] | None = None
+    lexer_confidence_signal: dict[str, object] | None = None
+    discovered_token_fixture_covered_token_kinds: tuple[str, ...] = ()
+    discovered_token_fixture_covered_token_kind_count: int = 0
+    discovered_token_fixture_token_family_coverage: tuple[dict[str, object], ...] = ()
+    discovered_token_fixture_covered_token_family_count: int = 0
+    discovered_token_fixture_uncovered_token_family_count: int = 0
+    discovered_token_fixture_coverage_blockers: tuple[str, ...] = ()
+    discovered_token_fixture_next_coverage_blocker: str | None = None
+    discovered_token_fixture_partial_coverage_blockers: tuple[str, ...] = ()
+    discovered_token_fixture_next_partial_coverage_blocker: str | None = None
+    discovered_token_fixture_token_family_status_by_name: dict[str, object] | None = None
+    discovered_token_fixture_token_family_frontier: tuple[dict[str, object], ...] = ()
+    discovered_token_fixture_textual_token_family_frontier: tuple[dict[str, object], ...] = ()
+    declared_token_fixture_validation_passed: bool = False
+    declared_token_fixture_completion_done: bool = False
+    declared_token_fixture_completion_blocking_reasons: tuple[str, ...] = ()
+    declared_token_fixture_completion_blocked_contract_count: int = 0
+    declared_token_fixture_completion_state_validation_failures: int = 0
+    declared_token_fixture_completion_declared_catalog_issue_count: int = 0
+    declared_token_fixture_comparison_sha256: str = ""
+    declared_token_fixture_readiness_sha256: str = ""
+    declared_token_fixture_state_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -78,10 +123,105 @@ def _normalize_subset(subset: str) -> NativeSubset:
 
 def native_subset_capabilities(subset: str = "native_core") -> NativeSubsetCapabilities:
     normalized = _normalize_subset(subset)
+    fixture_contract = declared_fixture_contract_summary()
     return NativeSubsetCapabilities(
         subset=normalized,
         supports_native_parser_fast_path=True,
         supports_native_cpp_emit_fast_path=True,
+        declared_token_fixture_status=fixture_contract["status"],
+        declared_token_fixture_ready=bool(fixture_contract["ready"]),
+        declared_token_fixture_count=int(fixture_contract["total"]),
+        declared_token_fixture_usable_count=int(fixture_contract["usable_count"]),
+        declared_token_fixture_blocked_count=int(fixture_contract["blocked_count"]),
+        declared_token_fixture_names=tuple(fixture_contract["fixture_names"]),
+        declared_token_fixture_usable_names=tuple(fixture_contract["usable_fixture_names"]),
+        declared_token_fixture_blocked_names=tuple(fixture_contract["blocked_fixture_names"]),
+        declared_token_fixture_covered_token_kinds=tuple(fixture_contract["covered_token_kinds"]),
+        declared_token_fixture_covered_token_kind_count=int(
+            fixture_contract["covered_token_kind_count"]
+        ),
+        declared_token_fixture_token_family_coverage=tuple(
+            fixture_contract["token_family_coverage"]
+        ),
+        declared_token_fixture_covered_token_family_count=int(
+            fixture_contract["covered_token_family_count"]
+        ),
+        declared_token_fixture_uncovered_token_family_count=int(
+            fixture_contract["uncovered_token_family_count"]
+        ),
+        declared_token_fixture_coverage_blockers=tuple(fixture_contract["coverage_blockers"]),
+        declared_token_fixture_next_coverage_blocker=fixture_contract["next_coverage_blocker"],
+        declared_token_fixture_partial_coverage_blockers=tuple(
+            fixture_contract["partial_coverage_blockers"]
+        ),
+        declared_token_fixture_next_partial_coverage_blocker=fixture_contract[
+            "next_partial_coverage_blocker"
+        ],
+        declared_token_fixture_token_family_status_by_name=dict(
+            fixture_contract["token_family_status_by_name"]
+        ),
+        declared_token_fixture_token_family_frontier=tuple(
+            fixture_contract["token_family_frontier"]
+        ),
+        declared_token_fixture_textual_token_family_frontier=tuple(
+            fixture_contract["textual_token_family_frontier"]
+        ),
+        lexer_frontier_overview=dict(fixture_contract["lexer_frontier_overview"]),
+        lexer_operational_status=dict(fixture_contract["lexer_operational_status"]),
+        lexer_confidence_signal=dict(fixture_contract["lexer_confidence_signal"]),
+        discovered_token_fixture_covered_token_kinds=tuple(
+            fixture_contract["discovered_covered_token_kinds"]
+        ),
+        discovered_token_fixture_covered_token_kind_count=int(
+            fixture_contract["discovered_covered_token_kind_count"]
+        ),
+        discovered_token_fixture_token_family_coverage=tuple(
+            fixture_contract["discovered_token_family_coverage"]
+        ),
+        discovered_token_fixture_covered_token_family_count=int(
+            fixture_contract["discovered_covered_token_family_count"]
+        ),
+        discovered_token_fixture_uncovered_token_family_count=int(
+            fixture_contract["discovered_uncovered_token_family_count"]
+        ),
+        discovered_token_fixture_coverage_blockers=tuple(
+            fixture_contract["discovered_coverage_blockers"]
+        ),
+        discovered_token_fixture_next_coverage_blocker=fixture_contract[
+            "next_discovered_coverage_blocker"
+        ],
+        discovered_token_fixture_partial_coverage_blockers=tuple(
+            fixture_contract["discovered_partial_coverage_blockers"]
+        ),
+        discovered_token_fixture_next_partial_coverage_blocker=fixture_contract[
+            "next_discovered_partial_coverage_blocker"
+        ],
+        discovered_token_fixture_token_family_status_by_name=dict(
+            fixture_contract["discovered_token_family_status_by_name"]
+        ),
+        discovered_token_fixture_token_family_frontier=tuple(
+            fixture_contract["discovered_token_family_frontier"]
+        ),
+        discovered_token_fixture_textual_token_family_frontier=tuple(
+            fixture_contract["discovered_textual_token_family_frontier"]
+        ),
+        declared_token_fixture_validation_passed=bool(fixture_contract["validation_passed"]),
+        declared_token_fixture_completion_done=bool(fixture_contract["completion_done"]),
+        declared_token_fixture_completion_blocking_reasons=tuple(
+            fixture_contract["completion_blocking_reasons"]
+        ),
+        declared_token_fixture_completion_blocked_contract_count=int(
+            fixture_contract["completion_blocked_contract_count"]
+        ),
+        declared_token_fixture_completion_state_validation_failures=int(
+            fixture_contract["completion_state_validation_failures"]
+        ),
+        declared_token_fixture_completion_declared_catalog_issue_count=int(
+            fixture_contract["completion_declared_catalog_issue_count"]
+        ),
+        declared_token_fixture_comparison_sha256=str(fixture_contract["comparison_sha256"]),
+        declared_token_fixture_readiness_sha256=str(fixture_contract["readiness_sha256"]),
+        declared_token_fixture_state_sha256=str(fixture_contract["state_sha256"]),
     )
 
 

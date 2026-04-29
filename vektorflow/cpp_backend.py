@@ -667,13 +667,25 @@ def cpp_compile_flags(compiler: CppCompiler) -> list[str]:
     return flags
 
 
+def _compile_artifact_stem(exe_name: str, max_length: int = 48) -> str:
+    stem = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in exe_name).strip("._-")
+    if not stem:
+        stem = "vf_program"
+    if len(stem) <= max_length:
+        return stem
+    digest = hashlib.sha1(stem.encode("utf-8")).hexdigest()[:10]
+    keep = max_length - len(digest) - 1
+    return f"{stem[:keep]}-{digest}"
+
+
 def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program") -> Path:
     compiler = discover_cpp_compiler()
     if compiler is None:
         raise CppEmitError("no C++ compiler found on PATH")
     out_dir.mkdir(parents=True, exist_ok=True)
-    cpp_path = out_dir / f"{exe_name}.cpp"
-    exe_path = out_dir / (f"{exe_name}.exe" if compiler.kind == "cl" else exe_name)
+    artifact_stem = _compile_artifact_stem(exe_name)
+    cpp_path = out_dir / f"{artifact_stem}.cpp"
+    exe_path = out_dir / (f"{artifact_stem}.exe" if compiler.kind == "cl" else artifact_stem)
     cpp_path.write_text(source, encoding="utf-8")
     cmd = [compiler.path, *cpp_compile_flags(compiler), str(cpp_path), "-o", str(exe_path)]
     res = subprocess.run(cmd, capture_output=True, text=True)

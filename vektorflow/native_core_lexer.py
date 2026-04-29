@@ -12,11 +12,11 @@ pretending we already have a full native frontend.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import subprocess
-import tempfile
 
-from .cpp_backend import CppEmitError, compile_cpp_source
+from .cpp_backend import CppEmitError, cpp_compile_flags, discover_cpp_compiler
 
 
 def _native_core_lexer_cpp_source() -> str:
@@ -76,6 +76,32 @@ static std::string json_number(double value) {
     return out.str();
 }
 
+static std::string decode_string_escapes(const std::string& raw) {
+    std::string value;
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        char ch = raw[i];
+        if (ch != '\\') {
+            value.push_back(ch);
+            continue;
+        }
+        if (i + 1 >= raw.size()) {
+            throw std::runtime_error("Unterminated string escape in native-core lexer subset");
+        }
+        char esc = raw[++i];
+        switch (esc) {
+        case 'n': value.push_back('\n'); break;
+        case 'r': value.push_back('\r'); break;
+        case 't': value.push_back('\t'); break;
+        case '\\': value.push_back('\\'); break;
+        case '"': value.push_back('"'); break;
+        case '$': value.push_back('$'); break;
+        default:
+            throw std::runtime_error("Unsupported string escape in native-core lexer subset");
+        }
+    }
+    return value;
+}
+
 class Lexer {
 public:
     Lexer(std::string source, std::string filename)
@@ -94,10 +120,11 @@ public:
             if (ch == '\n') {
                 advance();
                 if (bracket_depth_ == 0) {
-                    if (tokens_.empty() || tokens_.back().kind != "NEWLINE") {
+                    if (line_has_code_token_ && (tokens_.empty() || tokens_.back().kind != "NEWLINE")) {
                         emit("NEWLINE");
                     }
                     at_line_start_ = true;
+                    line_has_code_token_ = false;
                 }
                 continue;
             }
@@ -141,6 +168,7 @@ private:
     std::vector<int> indent_stack_ = {0};
     int bracket_depth_ = 0;
     bool at_line_start_ = true;
+    bool line_has_code_token_ = false;
 
     char peek(std::size_t offset = 0) const {
         std::size_t p = pos_ + offset;
@@ -153,7 +181,10 @@ private:
             line_ += 1;
             col_ = 1;
         } else {
-            col_ += 1;
+            unsigned char uch = static_cast<unsigned char>(ch);
+            if ((uch & 0xC0) != 0x80) {
+                col_ += 1;
+            }
         }
         return ch;
     }
@@ -174,6 +205,7 @@ private:
         tok.column = column;
         tok.file = filename_;
         tokens_.push_back(tok);
+        line_has_code_token_ = true;
     }
 
     void emit_string(const std::string& kind, const std::string& value, int line, int column) {
@@ -185,6 +217,7 @@ private:
         tok.column = column;
         tok.file = filename_;
         tokens_.push_back(tok);
+        line_has_code_token_ = true;
     }
 
     void emit_number(double value, int line, int column) {
@@ -196,6 +229,7 @@ private:
         tok.column = column;
         tok.file = filename_;
         tokens_.push_back(tok);
+        line_has_code_token_ = true;
     }
 
     void emit_dot(bool left_tight, bool right_tight, int line, int column) {
@@ -208,6 +242,7 @@ private:
         tok.column = column;
         tok.file = filename_;
         tokens_.push_back(tok);
+        line_has_code_token_ = true;
     }
 
     int leading_indent_column() {
@@ -264,6 +299,7 @@ private:
             }
         }
         at_line_start_ = false;
+        line_has_code_token_ = false;
     }
 
     void lex_token() {
@@ -301,14 +337,22 @@ private:
             advance(); emit_at("PLUS", tok_line, tok_col); return;
         case '*':
             advance(); emit_at("STAR", tok_line, tok_col); return;
+        case '^':
+            advance(); emit_at("CARET", tok_line, tok_col); return;
         case '/':
             advance(); emit_at("SLASH", tok_line, tok_col); return;
         case '&':
             advance(); emit_at("AMPERSAND", tok_line, tok_col); return;
         case ',':
             advance(); emit_at("COMMA", tok_line, tok_col); return;
+        case '%':
+            advance(); emit_at("PERCENT", tok_line, tok_col); return;
         case '?':
             advance(); emit_at("QUESTION", tok_line, tok_col); return;
+        case '$':
+            advance(); emit_at("DOLLAR", tok_line, tok_col); return;
+        case ';':
+            advance(); emit_at("SEMICOLON", tok_line, tok_col); return;
         case ':':
             advance();
             if (peek() == ':') {
@@ -325,13 +369,33 @@ private:
                 emit_at("AT_COLON", tok_line, tok_col);
                 return;
             }
+            if (peek() == '|') {
+                advance();
+                emit_at("AT_BAR", tok_line, tok_col);
+                return;
+            }
             throw std::runtime_error("Unsupported '@' form in native-core lexer subset");
         case '<':
             advance();
+            if (peek() == '=') {
+                advance();
+                emit_at("LE", tok_line, tok_col);
+                return;
+            }
             emit_at("LT", tok_line, tok_col);
             return;
         case '>':
             advance();
+            if (peek() == '>') {
+                advance();
+                emit_at("PIPE", tok_line, tok_col);
+                return;
+            }
+            if (peek() == '=') {
+                advance();
+                emit_at("GE", tok_line, tok_col);
+                return;
+            }
             emit_at("GT", tok_line, tok_col);
             return;
         case '=':
@@ -343,6 +407,14 @@ private:
             }
             emit_at("EQ", tok_line, tok_col);
             return;
+        case '!':
+            advance();
+            if (peek() == '=') {
+                advance();
+                emit_at("NEQ", tok_line, tok_col);
+                return;
+            }
+            throw std::runtime_error(std::string("Unsupported character in native-core lexer subset: ") + ch);
         case '-':
             advance();
             if (peek() == '>') {
@@ -350,10 +422,16 @@ private:
                 emit_at("ARROW", tok_line, tok_col);
                 return;
             }
-            throw std::runtime_error("Unsupported '-' in native-core lexer subset");
+            emit_at("MINUS", tok_line, tok_col);
+            return;
         case '.': {
             bool left_tight = pos_ > 0 && src_[pos_ - 1] != ' ' && src_[pos_ - 1] != '\t' && src_[pos_ - 1] != '\r';
             advance();
+            if (peek() == '.') {
+                advance();
+                emit_at("RANGE", tok_line, tok_col);
+                return;
+            }
             bool right_tight = peek() != '\0' && !std::isspace(static_cast<unsigned char>(peek()));
             emit_dot(left_tight, right_tight, tok_line, tok_col);
             return;
@@ -390,34 +468,23 @@ private:
 
     void lex_string(int tok_line, int tok_col) {
         advance();  // opening quote
-        std::string value;
+        std::string raw;
         while (pos_ < src_.size()) {
             char ch = advance();
             if (ch == '"') {
-                emit_string("STRING", value, tok_line, tok_col);
+                emit_string("STRING", decode_string_escapes(raw), tok_line, tok_col);
                 return;
-            }
-            if (ch == '\\') {
-                if (pos_ >= src_.size()) {
-                    throw std::runtime_error("Unterminated string escape in native-core lexer subset");
-                }
-                char esc = advance();
-                switch (esc) {
-                case 'n': value.push_back('\n'); break;
-                case 'r': value.push_back('\r'); break;
-                case 't': value.push_back('\t'); break;
-                case '\\': value.push_back('\\'); break;
-                case '"': value.push_back('"'); break;
-                case '$': value.push_back('$'); break;
-                default:
-                    throw std::runtime_error("Unsupported string escape in native-core lexer subset");
-                }
-                continue;
             }
             if (ch == '\n') {
                 throw std::runtime_error("Unterminated string literal in native-core lexer subset");
             }
-            value.push_back(ch);
+            raw.push_back(ch);
+            if (ch == '\\') {
+                if (pos_ >= src_.size()) {
+                    throw std::runtime_error("Unterminated string escape in native-core lexer subset");
+                }
+                raw.push_back(advance());
+            }
         }
         throw std::runtime_error("Unterminated string literal in native-core lexer subset");
     }
@@ -538,19 +605,98 @@ int main(int argc, char** argv) {
 
 
 def _native_core_lexer_cache_dir() -> Path:
-    return Path(tempfile.gettempdir()) / "vektorflow-native-core-lexer"
+    return Path("C:/vf_ncl")
 
 
 def build_native_core_lexer() -> Path:
     source = _native_core_lexer_cpp_source()
     digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
     out_dir = _native_core_lexer_cache_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
     exe_name = f"vf_native_core_lexer_{digest}"
     compiler_output = out_dir / f"{exe_name}.cpp"
     exe_path = out_dir / exe_name
     if compiler_output.is_file() and exe_path.is_file():
         return exe_path
-    return compile_cpp_source(source, out_dir, exe_name=exe_name)
+    compiler = discover_cpp_compiler()
+    if compiler is None:
+        raise CppEmitError("no C++ compiler found on PATH")
+    with compiler_output.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(source)
+    cmd = [compiler.path, *cpp_compile_flags(compiler), str(compiler_output), "-o", str(exe_path)]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise CppEmitError(proc.stderr.strip() or proc.stdout.strip() or "native core lexer compilation failed")
+    return exe_path
+
+
+def _decode_native_core_lexer_output(data: bytes) -> str:
+    return data.decode("utf-8")
+
+
+def _decode_python_style_string_escapes(raw: str) -> str:
+    value_chars: list[str] = []
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch != "\\":
+            value_chars.append(ch)
+            i += 1
+            continue
+        if i + 1 >= len(raw):
+            raise CppEmitError("unterminated string escape in native core lexer output repair")
+        esc = raw[i + 1]
+        if esc == "n":
+            value_chars.append("\n")
+        elif esc == "r":
+            value_chars.append("\r")
+        elif esc == "t":
+            value_chars.append("\t")
+        elif esc == "\\":
+            value_chars.append("\\")
+        elif esc == '"':
+            value_chars.append('"')
+        elif esc == "$":
+            value_chars.append("$")
+        else:
+            raise CppEmitError(f"unsupported string escape in native core lexer output repair: \\{esc}")
+        i += 2
+    return "".join(value_chars)
+
+
+def _extract_string_literal_raw(source: str, line: int, column: int) -> str:
+    source_lines = source.splitlines()
+    if line < 1 or line > len(source_lines):
+        raise CppEmitError("string token location out of bounds in native core lexer output repair")
+    text = source_lines[line - 1]
+    idx = column - 1
+    if idx < 0 or idx >= len(text) or text[idx] != '"':
+        raise CppEmitError("string token does not point at opening quote in native core lexer output repair")
+    idx += 1
+    raw_chars: list[str] = []
+    while idx < len(text):
+        ch = text[idx]
+        if ch == '"':
+            return "".join(raw_chars)
+        raw_chars.append(ch)
+        idx += 1
+        if ch == "\\":
+            if idx >= len(text):
+                raise CppEmitError("unterminated string escape in native core lexer output repair")
+            raw_chars.append(text[idx])
+            idx += 1
+    raise CppEmitError("unterminated string literal in native core lexer output repair")
+
+
+def _repair_string_tokens_from_source(json_text: str, source: str) -> str:
+    payload = json.loads(json_text)
+    for token in payload.get("tokens", []):
+        if token.get("kind") != "STRING":
+            continue
+        location = token.get("location", {})
+        raw = _extract_string_literal_raw(source, location["line"], location["column"])
+        token["value"] = _decode_python_style_string_escapes(raw)
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def lex_native_core_file_to_json(path: Path, *, filename_label: str | None = None) -> str:
@@ -558,20 +704,28 @@ def lex_native_core_file_to_json(path: Path, *, filename_label: str | None = Non
     cmd = [str(exe), str(path)]
     if filename_label is not None:
         cmd.append(filename_label)
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True)
     if proc.returncode != 0:
-        raise CppEmitError(proc.stderr.strip() or proc.stdout.strip() or "native core lexer failed")
-    return proc.stdout
+        raise CppEmitError(
+            _decode_native_core_lexer_output(proc.stderr).strip()
+            or _decode_native_core_lexer_output(proc.stdout).strip()
+            or "native core lexer failed"
+        )
+    source = path.read_text(encoding="utf-8")
+    return _repair_string_tokens_from_source(_decode_native_core_lexer_output(proc.stdout), source)
 
 
 def lex_native_core_stdin_to_json(source: str, *, filename_label: str = "<stdin>") -> str:
     exe = build_native_core_lexer()
     proc = subprocess.run(
         [str(exe), "-", filename_label],
-        input=source,
+        input=source.encode("utf-8"),
         capture_output=True,
-        text=True,
     )
     if proc.returncode != 0:
-        raise CppEmitError(proc.stderr.strip() or proc.stdout.strip() or "native core lexer failed")
-    return proc.stdout
+        raise CppEmitError(
+            _decode_native_core_lexer_output(proc.stderr).strip()
+            or _decode_native_core_lexer_output(proc.stdout).strip()
+            or "native core lexer failed"
+        )
+    return _repair_string_tokens_from_source(_decode_native_core_lexer_output(proc.stdout), source)

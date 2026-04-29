@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import json
+import sys
 
 import pytest
 
@@ -16,6 +17,7 @@ from vektorflow.cpp_backend import (
     run_cpp_executable,
 )
 from vektorflow.lexer import tokenize
+from vektorflow.native_core_lexer import lex_native_core_file_to_json, lex_native_core_stdin_to_json
 from vektorflow.parser import parse_module
 from vektorflow.token_stream import token_stream_to_json, tokens_to_json
 from tests.token_stream_fixture_helper import (
@@ -31,6 +33,7 @@ from tests.token_stream_fixture_helper import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
+ALL_EXAMPLE_VKF_FILES = sorted((ROOT / "examples").rglob("*.vkf"))
 HELLO = ROOT / "examples" / "hello.vkf"
 FOLDER_REPO_MAIN = ROOT / "examples" / "folder_repo" / "main.vkf"
 NATIVE_CORE = ROOT / "examples" / "native_core"
@@ -57,6 +60,72 @@ NATIVE_CORE_EXAMPLES = [
     "named_record_scene_crossfade_native.vkf",
     "named_record_scene_reverse_native.vkf",
     "named_record_scene_checkpoint_native.vkf",
+]
+SCENE_NATIVE_CORE_EXAMPLES = [
+    example_name for example_name in NATIVE_CORE_EXAMPLES if example_name.startswith("named_record_scene_")
+]
+NON_SCENE_NATIVE_CORE_EXAMPLES = [
+    example_name for example_name in NATIVE_CORE_EXAMPLES if example_name not in SCENE_NATIVE_CORE_EXAMPLES
+]
+RUNTIME_PARITY_NATIVE_CORE_EXAMPLES = {
+    "hello_native.vkf",
+    "vectors_native.vkf",
+    "numeric_native.vkf",
+    "named_record_native.vkf",
+    "named_record_nested_native.vkf",
+    "named_record_collections_native.vkf",
+    *SCENE_NATIVE_CORE_EXAMPLES,
+}
+NATIVE_CORE_EXPECTED_FIRST_LINES = {
+    "hello_native.vkf": "42",
+    "vectors_native.vkf": "[2.5, 2.5, 2.5, 2.5]",
+    "numeric_native.vkf": "0",
+    "named_record_nested_native.vkf": "4",
+    "named_record_collections_native.vkf": "[5, 7]",
+    "named_record_scene_native.vkf": "4",
+    "named_record_scene_chain_native.vkf": "7",
+    "named_record_scene_helpers_native.vkf": "6",
+    "named_record_scene_handoff_native.vkf": "10",
+    "named_record_scene_relay_native.vkf": "10",
+    "named_record_scene_fanout_native.vkf": "7",
+    "named_record_scene_compose_native.vkf": "4",
+    "named_record_scene_overlay_native.vkf": "4",
+    "named_record_scene_patch_native.vkf": "4",
+    "named_record_scene_split_native.vkf": "10",
+    "named_record_scene_splice_native.vkf": "7",
+    "named_record_scene_rebuild_native.vkf": "7",
+    "named_record_scene_crossfade_native.vkf": "10",
+    "named_record_scene_reverse_native.vkf": "10",
+    "named_record_scene_checkpoint_native.vkf": "4",
+}
+NON_SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES = [
+    (example_name, NATIVE_CORE_EXPECTED_FIRST_LINES[example_name])
+    for example_name in NON_SCENE_NATIVE_CORE_EXAMPLES
+    if example_name in NATIVE_CORE_EXPECTED_FIRST_LINES
+]
+SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES = [
+    (example_name, NATIVE_CORE_EXPECTED_FIRST_LINES[example_name])
+    for example_name in SCENE_NATIVE_CORE_EXAMPLES
+]
+SCENE_NATIVE_CORE_BATCH_A = SCENE_NATIVE_CORE_EXAMPLES[:4]
+SCENE_NATIVE_CORE_BATCH_B = SCENE_NATIVE_CORE_EXAMPLES[4:8]
+SCENE_NATIVE_CORE_BATCH_C = SCENE_NATIVE_CORE_EXAMPLES[8:12]
+SCENE_NATIVE_CORE_BATCH_D = SCENE_NATIVE_CORE_EXAMPLES[12:]
+SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_A = [
+    (example_name, NATIVE_CORE_EXPECTED_FIRST_LINES[example_name])
+    for example_name in SCENE_NATIVE_CORE_BATCH_A
+]
+SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_B = [
+    (example_name, NATIVE_CORE_EXPECTED_FIRST_LINES[example_name])
+    for example_name in SCENE_NATIVE_CORE_BATCH_B
+]
+SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_C = [
+    (example_name, NATIVE_CORE_EXPECTED_FIRST_LINES[example_name])
+    for example_name in SCENE_NATIVE_CORE_BATCH_C
+]
+SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_D = [
+    (example_name, NATIVE_CORE_EXPECTED_FIRST_LINES[example_name])
+    for example_name in SCENE_NATIVE_CORE_BATCH_D
 ]
 EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
@@ -86,6 +155,38 @@ EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "vector_large_reduce.vkf",
     ROOT / "examples" / "benchmarks" / "vectors_shapes.vkf",
 ]
+MINUS_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "ui_field_mesh_uvw.vkf",
+    ROOT / "examples" / "ui_torus_hole_clickthrough.vkf",
+]
+CARET_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "operators.vkf",
+]
+DOLLAR_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "funcs" / "a.vkf",
+    ROOT / "examples" / "piping.vkf",
+]
+SEMICOLON_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "readme_surface.vkf",
+    ROOT / "examples" / "branching.vkf",
+]
+AT_FORM_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "interaction.vkf",
+]
+PERCENT_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "ui_field_mesh_uv_landscape.vkf",
+]
+UTF8_STRING_TOKEN_PARITY_EXAMPLES = [
+    ROOT / "examples" / "gui_event_loop.vkf",
+    ROOT / "examples" / "time_pause_demo.vkf",
+]
+LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES = [
+    ROOT / "examples" / "branching.vkf",
+    ROOT / "examples" / "interaction.vkf",
+    ROOT / "examples" / "ui_field_mesh_uv_landscape.vkf",
+    ROOT / "examples" / "gui_event_loop.vkf",
+    ROOT / "examples" / "time_pause_demo.vkf",
+]
 EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
@@ -111,6 +212,95 @@ def _short_artifact_stem(name: str, prefix: str) -> str:
     )
     compact = "".join(ch for ch in compact if ch.isalnum() or ch == "_")
     return f"{prefix}_{compact[:20]}"
+
+
+def _assert_native_core_cpp_contract(tmp_path: Path, example_name: str) -> None:
+    src = NATIVE_CORE / example_name
+    out = tmp_path / src.with_suffix(".cpp").name
+
+    assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
+    emitted = out.read_text(encoding="utf-8")
+    standard = emit_cpp_from_source_file(src)
+    if example_name in RUNTIME_PARITY_NATIVE_CORE_EXAMPLES:
+        stem = Path(example_name).stem
+        standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")
+        native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name=f"{stem}_native")
+        standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
+        native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
+        assert standard_proc.returncode == 0
+        assert native_proc.returncode == 0
+        assert native_proc.stdout == standard_proc.stdout
+        return
+    assert emitted == standard
+
+
+def _assert_native_core_build_first_line(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str
+) -> None:
+    src = NATIVE_CORE / example_name
+    exe = tmp_path / f"{_short_artifact_stem(example_name, 'bn')}.exe"
+    assert main(["build", str(src), "-o", str(exe)]) == 0
+    _ = capsys.readouterr()
+    proc = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert proc.returncode == 0
+    assert proc.stdout.splitlines()[0].strip() == expected_line
+
+
+def _assert_native_core_build_matches_direct_cpp(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
+) -> None:
+    src = NATIVE_CORE / example_name
+    cpp_out = tmp_path / f"{_short_artifact_stem(example_name, 'cpp')}.cpp"
+    built_exe = tmp_path / f"{_short_artifact_stem(example_name, 'be')}.exe"
+
+    assert main(["cpp-native-core", str(src), "-o", str(cpp_out)]) == 0
+    emitted = cpp_out.read_text(encoding="utf-8")
+
+    manual_exe = compile_cpp_source(
+        emitted,
+        tmp_path / _short_artifact_stem(example_name, "mcpp"),
+        exe_name=_short_artifact_stem(example_name, "mexe"),
+    )
+    manual_proc = run_cpp_executable(manual_exe)
+    assert manual_proc.returncode == 0
+
+    assert main(["build-native-core", str(src), "-o", str(built_exe)]) == 0
+    reported = capsys.readouterr().out.strip()
+    assert Path(reported) == built_exe.resolve()
+
+    built_proc = run_cpp_executable(built_exe)
+    assert built_proc.returncode == 0
+    assert built_proc.stdout == manual_proc.stdout
+
+
+def _assert_tokens_native_core_subprocess_matches_python(path: Path) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "vektorflow.cli", "tokens-native-core", str(path), "--json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    payload = json.loads(proc.stdout)
+    expected = json.loads(
+        token_stream_to_json(tokenize(path.read_text(encoding="utf-8"), filename=path.as_posix()))
+    )
+    assert payload == expected
+
+
+def _assert_tokens_native_core_direct_matches_python(path: Path) -> None:
+    payload = json.loads(lex_native_core_file_to_json(path, filename_label=path.as_posix()))
+    expected = json.loads(
+        token_stream_to_json(tokenize(path.read_text(encoding="utf-8"), filename=path.as_posix()))
+    )
+    assert payload == expected
+
+
+def _assert_tokens_native_core_file_and_stdin_match(path: Path) -> None:
+    source = path.read_text(encoding="utf-8")
+    file_payload = json.loads(lex_native_core_file_to_json(path, filename_label=path.as_posix()))
+    stdin_payload = json.loads(lex_native_core_stdin_to_json(source, filename_label=path.as_posix()))
+    assert stdin_payload == file_payload
 
 
 class TestResolveVkfPath:
@@ -308,6 +498,92 @@ class TestMain:
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(
         "path",
+        MINUS_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_minus_examples_match_python_via_subprocess(self, path: Path) -> None:
+        _assert_tokens_native_core_subprocess_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        CARET_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_caret_examples_match_python_via_subprocess(self, path: Path) -> None:
+        _assert_tokens_native_core_subprocess_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        DOLLAR_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_dollar_examples_match_python_via_subprocess(self, path: Path) -> None:
+        _assert_tokens_native_core_subprocess_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        SEMICOLON_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_semicolon_examples_match_python_via_subprocess(self, path: Path) -> None:
+        _assert_tokens_native_core_subprocess_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        AT_FORM_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_at_form_examples_match_python_via_subprocess(self, path: Path) -> None:
+        _assert_tokens_native_core_subprocess_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        PERCENT_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_percent_examples_match_python_direct(self, path: Path) -> None:
+        _assert_tokens_native_core_direct_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        UTF8_STRING_TOKEN_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_utf8_string_examples_match_python_direct(self, path: Path) -> None:
+        _assert_tokens_native_core_direct_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_last_mile_examples_match_python_direct(self, path: Path) -> None:
+        _assert_tokens_native_core_direct_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_tokens_native_core_all_real_examples_match_python_direct(self) -> None:
+        for path in ALL_EXAMPLE_VKF_FILES:
+            _assert_tokens_native_core_direct_matches_python(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
+        LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES,
+        ids=lambda path: path.relative_to(ROOT).as_posix(),
+    )
+    def test_tokens_native_core_last_mile_examples_file_and_stdin_match(self, path: Path) -> None:
+        _assert_tokens_native_core_file_and_stdin_match(path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "path",
         EXPANDED_NATIVE_FRONTEND_PARSE_EXAMPLES,
         ids=lambda path: path.relative_to(ROOT).as_posix(),
     )
@@ -378,49 +654,39 @@ class TestMain:
         assert "for (std::size_t vf_i = 0; vf_i < 2; ++vf_i)" in emitted
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
-    @pytest.mark.parametrize("example_name", NATIVE_CORE_EXAMPLES)
+    @pytest.mark.parametrize("example_name", NON_SCENE_NATIVE_CORE_EXAMPLES)
     def test_cpp_native_core_examples_match_backend_emitter(
         self, tmp_path: Path, example_name: str
     ) -> None:
-        src = NATIVE_CORE / example_name
-        out = tmp_path / src.with_suffix(".cpp").name
+        _assert_native_core_cpp_contract(tmp_path, example_name)
 
-        assert main(["cpp-native-core", str(src), "-o", str(out)]) == 0
-        emitted = out.read_text(encoding="utf-8")
-        standard = emit_cpp_from_source_file(src)
-        if example_name in {
-            "hello_native.vkf",
-            "vectors_native.vkf",
-            "numeric_native.vkf",
-            "named_record_native.vkf",
-            "named_record_nested_native.vkf",
-            "named_record_collections_native.vkf",
-            "named_record_scene_native.vkf",
-            "named_record_scene_chain_native.vkf",
-            "named_record_scene_helpers_native.vkf",
-            "named_record_scene_handoff_native.vkf",
-            "named_record_scene_relay_native.vkf",
-            "named_record_scene_fanout_native.vkf",
-            "named_record_scene_compose_native.vkf",
-            "named_record_scene_overlay_native.vkf",
-            "named_record_scene_patch_native.vkf",
-            "named_record_scene_split_native.vkf",
-            "named_record_scene_splice_native.vkf",
-            "named_record_scene_rebuild_native.vkf",
-            "named_record_scene_crossfade_native.vkf",
-            "named_record_scene_reverse_native.vkf",
-            "named_record_scene_checkpoint_native.vkf",
-        }:
-            stem = Path(example_name).stem
-            standard_exe = compile_cpp_source(standard, tmp_path / "standard", exe_name=f"{stem}_standard")
-            native_exe = compile_cpp_source(emitted, tmp_path / "native", exe_name=f"{stem}_native")
-            standard_proc = subprocess.run([str(standard_exe)], capture_output=True, text=True)
-            native_proc = subprocess.run([str(native_exe)], capture_output=True, text=True)
-            assert standard_proc.returncode == 0
-            assert native_proc.returncode == 0
-            assert native_proc.stdout == standard_proc.stdout
-            return
-        assert emitted == standard
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_A)
+    def test_cpp_native_core_scene_examples_match_backend_emitter_batch_a(
+        self, tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_cpp_contract(tmp_path, example_name)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_B)
+    def test_cpp_native_core_scene_examples_match_backend_emitter_batch_b(
+        self, tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_cpp_contract(tmp_path, example_name)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_C)
+    def test_cpp_native_core_scene_examples_match_backend_emitter_batch_c(
+        self, tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_cpp_contract(tmp_path, example_name)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_D)
+    def test_cpp_native_core_scene_examples_match_backend_emitter_batch_d(
+        self, tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_cpp_contract(tmp_path, example_name)
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(
@@ -497,67 +763,72 @@ class TestMain:
         assert proc.stdout.strip() == "42"
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
-    @pytest.mark.parametrize(
-        "example_name, expected_line",
-        [
-            ("hello_native.vkf", "42"),
-            ("vectors_native.vkf", "[2.5, 2.5, 2.5, 2.5]"),
-            ("numeric_native.vkf", "0"),
-            ("named_record_nested_native.vkf", "4"),
-            ("named_record_collections_native.vkf", "[5, 7]"),
-            ("named_record_scene_native.vkf", "4"),
-            ("named_record_scene_chain_native.vkf", "7"),
-            ("named_record_scene_helpers_native.vkf", "6"),
-            ("named_record_scene_handoff_native.vkf", "10"),
-            ("named_record_scene_relay_native.vkf", "10"),
-            ("named_record_scene_fanout_native.vkf", "7"),
-            ("named_record_scene_compose_native.vkf", "4"),
-            ("named_record_scene_overlay_native.vkf", "4"),
-            ("named_record_scene_patch_native.vkf", "4"),
-            ("named_record_scene_split_native.vkf", "10"),
-            ("named_record_scene_splice_native.vkf", "7"),
-            ("named_record_scene_rebuild_native.vkf", "7"),
-            ("named_record_scene_crossfade_native.vkf", "10"),
-            ("named_record_scene_reverse_native.vkf", "10"),
-            ("named_record_scene_checkpoint_native.vkf", "4"),
-        ],
-    )
+    @pytest.mark.parametrize("example_name, expected_line", NON_SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES)
     def test_build_native_core_examples(self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str) -> None:
-        src = NATIVE_CORE / example_name
-        exe = tmp_path / f"{_short_artifact_stem(example_name, 'bn')}.exe"
-        assert main(["build", str(src), "-o", str(exe)]) == 0
-        _ = capsys.readouterr()
-        proc = subprocess.run([str(exe)], capture_output=True, text=True)
-        assert proc.returncode == 0
-        assert proc.stdout.splitlines()[0].strip() == expected_line
+        _assert_native_core_build_first_line(capsys, tmp_path, example_name, expected_line)
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
-    @pytest.mark.parametrize("example_name", NATIVE_CORE_EXAMPLES)
+    @pytest.mark.parametrize("example_name, expected_line", SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_A)
+    def test_build_native_core_scene_examples_batch_a(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str
+    ) -> None:
+        _assert_native_core_build_first_line(capsys, tmp_path, example_name, expected_line)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name, expected_line", SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_B)
+    def test_build_native_core_scene_examples_batch_b(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str
+    ) -> None:
+        _assert_native_core_build_first_line(capsys, tmp_path, example_name, expected_line)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name, expected_line", SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_C)
+    def test_build_native_core_scene_examples_batch_c(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str
+    ) -> None:
+        _assert_native_core_build_first_line(capsys, tmp_path, example_name, expected_line)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name, expected_line", SCENE_NATIVE_CORE_EXPECTED_FIRST_LINES_BATCH_D)
+    def test_build_native_core_scene_examples_batch_d(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str, expected_line: str
+    ) -> None:
+        _assert_native_core_build_first_line(capsys, tmp_path, example_name, expected_line)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", NON_SCENE_NATIVE_CORE_EXAMPLES)
     def test_build_native_core_examples_match_directly_compiled_cpp(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
     ) -> None:
-        src = NATIVE_CORE / example_name
-        cpp_out = tmp_path / f"{_short_artifact_stem(example_name, 'cpp')}.cpp"
-        built_exe = tmp_path / f"{_short_artifact_stem(example_name, 'be')}.exe"
+        _assert_native_core_build_matches_direct_cpp(capsys, tmp_path, example_name)
 
-        assert main(["cpp-native-core", str(src), "-o", str(cpp_out)]) == 0
-        emitted = cpp_out.read_text(encoding="utf-8")
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_A)
+    def test_build_native_core_scene_examples_match_directly_compiled_cpp_batch_a(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_build_matches_direct_cpp(capsys, tmp_path, example_name)
 
-        manual_exe = compile_cpp_source(
-            emitted,
-            tmp_path / _short_artifact_stem(example_name, "mcpp"),
-            exe_name=_short_artifact_stem(example_name, "mexe"),
-        )
-        manual_proc = run_cpp_executable(manual_exe)
-        assert manual_proc.returncode == 0
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_B)
+    def test_build_native_core_scene_examples_match_directly_compiled_cpp_batch_b(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_build_matches_direct_cpp(capsys, tmp_path, example_name)
 
-        assert main(["build-native-core", str(src), "-o", str(built_exe)]) == 0
-        reported = capsys.readouterr().out.strip()
-        assert Path(reported) == built_exe.resolve()
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_C)
+    def test_build_native_core_scene_examples_match_directly_compiled_cpp_batch_c(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_build_matches_direct_cpp(capsys, tmp_path, example_name)
 
-        built_proc = run_cpp_executable(built_exe)
-        assert built_proc.returncode == 0
-        assert built_proc.stdout == manual_proc.stdout
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", SCENE_NATIVE_CORE_BATCH_D)
+    def test_build_native_core_scene_examples_match_directly_compiled_cpp_batch_d(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, example_name: str
+    ) -> None:
+        _assert_native_core_build_matches_direct_cpp(capsys, tmp_path, example_name)
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(

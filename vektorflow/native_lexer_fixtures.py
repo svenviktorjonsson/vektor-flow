@@ -88,6 +88,383 @@ TOKEN_FIXTURE_SPECS: tuple[TokenFixtureSpec, ...] = (
     ),
 )
 
+DECLARED_FIXTURE_TOKEN_FAMILY_EXPECTATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("dollar_family", ("DOLLAR",)),
+    ("string_literal_family", ("STRING",)),
+    ("string_raw_family", ("STRING_RAW",)),
+    ("semicolon_family", ("SEMICOLON",)),
+    ("at_family", ("AT", "AT_COLON", "AT_EMIT", "AT_GT", "AT_BAR", "AT_BANG")),
+    ("at_flow_family", ("AT_BAR", "AT_GT", "AT_BANG")),
+    ("comparison_family", ("LT", "GT")),
+    ("remainder_inequality_family", ("PERCENT", "NEQ")),
+    ("question_family", ("QUESTION",)),
+    ("at_colon_family", ("AT_COLON",)),
+    ("fat_arrow_family", ("FAT_ARROW",)),
+    ("ampersand_family", ("AMPERSAND",)),
+)
+
+
+def _declared_fixture_token_kinds_from_usable_contracts(
+    usable_contracts: Sequence[dict[str, object]],
+) -> tuple[str, ...]:
+    covered: set[str] = set()
+    for contract in usable_contracts:
+        fixture_path = Path(str(contract["fixture_path"]))
+        payload = _read_fixture_payload(fixture_path)
+        if payload is None:
+            continue
+        tokens = payload.get("tokens")
+        if not isinstance(tokens, list):
+            continue
+        for token in tokens:
+            if isinstance(token, dict):
+                kind = token.get("kind")
+                if isinstance(kind, str):
+                    covered.add(kind)
+    return tuple(sorted(covered))
+
+
+def _declared_fixture_token_family_coverage(
+    covered_token_kinds: Sequence[str],
+) -> list[dict[str, object]]:
+    covered = set(covered_token_kinds)
+    rows: list[dict[str, object]] = []
+    for family, expected_kinds in DECLARED_FIXTURE_TOKEN_FAMILY_EXPECTATIONS:
+        covered_kinds = [kind for kind in expected_kinds if kind in covered]
+        missing_kinds = [kind for kind in expected_kinds if kind not in covered]
+        rows.append(
+            {
+                "family": family,
+                "expected_kinds": list(expected_kinds),
+                "covered_kinds": covered_kinds,
+                "missing_kinds": missing_kinds,
+                "covered": all(kind in covered for kind in expected_kinds),
+                "partial": bool(covered_kinds) and bool(missing_kinds),
+                "covered_kind_count": len(covered_kinds),
+                "missing_kind_count": len(missing_kinds),
+                "next_missing_kind": missing_kinds[0] if missing_kinds else None,
+            }
+        )
+    return rows
+
+
+def _declared_fixture_coverage_blockers(
+    token_family_coverage: Sequence[dict[str, object]],
+) -> tuple[str, ...]:
+    return tuple(
+        f"{item['family']}:missing={','.join(item['missing_kinds'])}"
+        for item in token_family_coverage
+        if not item["covered"]
+    )
+
+
+def _declared_fixture_partial_coverage_blockers(
+    token_family_coverage: Sequence[dict[str, object]],
+) -> tuple[str, ...]:
+    return tuple(
+        f"{item['family']}:next={item['next_missing_kind']}"
+        for item in token_family_coverage
+        if item["partial"] and item["next_missing_kind"] is not None
+    )
+
+
+def _token_family_status_map(
+    token_family_coverage: Sequence[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    return {
+        str(item["family"]): {
+            "covered": bool(item["covered"]),
+            "partial": bool(item["partial"]),
+            "covered_kind_count": int(item["covered_kind_count"]),
+            "missing_kind_count": int(item["missing_kind_count"]),
+            "next_missing_kind": item["next_missing_kind"],
+        }
+        for item in token_family_coverage
+    }
+
+
+def _token_family_frontier(
+    token_family_coverage: Sequence[dict[str, object]],
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        {
+            "family": str(item["family"]),
+            "partial": bool(item["partial"]),
+            "covered_kind_count": int(item["covered_kind_count"]),
+            "missing_kind_count": int(item["missing_kind_count"]),
+            "next_missing_kind": item["next_missing_kind"],
+            "missing_kinds": tuple(item["missing_kinds"]),
+        }
+        for item in token_family_coverage
+        if not item["covered"]
+    )
+
+
+TEXTUAL_TOKEN_FAMILIES: tuple[str, ...] = (
+    "string_literal_family",
+    "string_raw_family",
+)
+
+
+def _filtered_token_family_frontier(
+    token_family_coverage: Sequence[dict[str, object]],
+    *,
+    families: Sequence[str],
+) -> tuple[dict[str, object], ...]:
+    allowed = set(families)
+    return tuple(item for item in _token_family_frontier(token_family_coverage) if item["family"] in allowed)
+
+
+def _frontier_track_status(frontier: Sequence[dict[str, object]]) -> dict[str, object]:
+    next_item = frontier[0] if frontier else None
+    return {
+        "ready": not frontier,
+        "frontier_count": len(frontier),
+        "next_family": None if next_item is None else next_item["family"],
+        "next_missing_kind": None if next_item is None else next_item["next_missing_kind"],
+        "next_partial": None if next_item is None else next_item["partial"],
+    }
+
+
+def _lexer_operational_status(
+    *,
+    payload: dict[str, object],
+    declared_frontier: Sequence[dict[str, object]],
+    declared_text_frontier: Sequence[dict[str, object]],
+    discovered_frontier: Sequence[dict[str, object]],
+    discovered_text_frontier: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    runnable_state = payload["runnable_contract_state"]
+    declared_ready = bool(runnable_state["ready"])
+    discovered_ahead = len(discovered_frontier) < len(declared_frontier)
+    promotion_candidate = discovered_ahead and not discovered_frontier
+    next_discovered = discovered_frontier[0] if discovered_frontier else None
+    return {
+        "ci_declared_ready": declared_ready,
+        "ci_declared_validation_passed": bool(runnable_state["validation_passed"]),
+        "discovered_ahead_of_declared": discovered_ahead,
+        "declared_text_ready": not declared_text_frontier,
+        "discovered_text_ready": not discovered_text_frontier,
+        "promotion_candidate_ready": promotion_candidate,
+        "declared_frontier_count": len(declared_frontier),
+        "discovered_frontier_count": len(discovered_frontier),
+        "declared_text_frontier_count": len(declared_text_frontier),
+        "discovered_text_frontier_count": len(discovered_text_frontier),
+        "next_action": (
+            "promote-discovered-coverage"
+            if promotion_candidate
+            else ("advance-discovered-frontier" if next_discovered is not None else "hold")
+        ),
+        "next_discovered_family": None if next_discovered is None else next_discovered["family"],
+        "next_discovered_kind": None if next_discovered is None else next_discovered["next_missing_kind"],
+        "next_discovered_partial": None if next_discovered is None else next_discovered["partial"],
+    }
+
+
+def _lexer_confidence_signal(
+    *,
+    operational_status: dict[str, object],
+) -> dict[str, object]:
+    ci_declared_ready = bool(operational_status["ci_declared_ready"])
+    ci_declared_validation_passed = bool(operational_status["ci_declared_validation_passed"])
+    declared_text_ready = bool(operational_status["declared_text_ready"])
+    discovered_text_ready = bool(operational_status["discovered_text_ready"])
+    support_layer_stable = ci_declared_ready and ci_declared_validation_passed
+    support_layer_99_ready = support_layer_stable and (declared_text_ready or discovered_text_ready)
+    implementation_frontier_remaining = int(operational_status["discovered_frontier_count"]) > 0
+    return {
+        "scope": "lexer-support-capability-layer",
+        "support_layer_stable": support_layer_stable,
+        "support_confidence_percent": 99 if support_layer_99_ready else 96,
+        "support_confidence_label": (
+            "confidence-99-ready" if support_layer_99_ready else "high-confidence-not-99"
+        ),
+        "supports_99_confidence_call": support_layer_99_ready,
+        "implementation_frontier_remaining": implementation_frontier_remaining,
+        "discovered_ahead_of_declared": bool(operational_status["discovered_ahead_of_declared"]),
+        "next_remaining_family": operational_status["next_discovered_family"],
+        "next_remaining_kind": operational_status["next_discovered_kind"],
+        "next_remaining_partial": operational_status["next_discovered_partial"],
+    }
+
+
+def _discovered_fixture_token_kinds(
+    discovered: Sequence[DiscoveredFixtureStatus],
+) -> tuple[str, ...]:
+    covered: set[str] = set()
+    for item in discovered:
+        if not (item.parseable_json and item.canonical_versioned and not item.validation_issues):
+            continue
+        payload = _read_fixture_payload(Path(item.fixture_path))
+        if payload is None:
+            continue
+        tokens = payload.get("tokens")
+        if not isinstance(tokens, list):
+            continue
+        for token in tokens:
+            if isinstance(token, dict):
+                kind = token.get("kind")
+                if isinstance(kind, str):
+                    covered.add(kind)
+    return tuple(sorted(covered))
+
+
+def declared_fixture_contract_summary(
+    *,
+    repo_root: Path | None = None,
+    fixture_root: Path | None = None,
+    specs: Sequence[TokenFixtureSpec] | None = None,
+) -> dict[str, object]:
+    payload = declared_fixture_manifest_payload(
+        repo_root=repo_root,
+        fixture_root=fixture_root,
+        specs=specs,
+    )
+    usable_contracts = payload["external_harness_view"]["usable_contracts"]
+    blocked_contracts = payload["external_harness_view"]["blocked_contracts"]
+    completion = payload["external_token_contract_completion"]
+    discovered = discovered_fixture_report(
+        repo_root=repo_root,
+        fixture_root=fixture_root,
+        specs=specs,
+    )
+    covered_token_kinds = _declared_fixture_token_kinds_from_usable_contracts(usable_contracts)
+    token_family_coverage = _declared_fixture_token_family_coverage(covered_token_kinds)
+    coverage_blockers = _declared_fixture_coverage_blockers(token_family_coverage)
+    partial_coverage_blockers = _declared_fixture_partial_coverage_blockers(token_family_coverage)
+    discovered_covered_token_kinds = _discovered_fixture_token_kinds(discovered)
+    discovered_token_family_coverage = _declared_fixture_token_family_coverage(
+        discovered_covered_token_kinds
+    )
+    discovered_coverage_blockers = _declared_fixture_coverage_blockers(
+        discovered_token_family_coverage
+    )
+    discovered_partial_coverage_blockers = _declared_fixture_partial_coverage_blockers(
+        discovered_token_family_coverage
+    )
+    token_family_frontier = _token_family_frontier(token_family_coverage)
+    textual_token_family_frontier = _filtered_token_family_frontier(
+        token_family_coverage,
+        families=TEXTUAL_TOKEN_FAMILIES,
+    )
+    discovered_token_family_frontier = _token_family_frontier(discovered_token_family_coverage)
+    discovered_textual_token_family_frontier = _filtered_token_family_frontier(
+        discovered_token_family_coverage,
+        families=TEXTUAL_TOKEN_FAMILIES,
+    )
+    operational_status = _lexer_operational_status(
+        payload=payload,
+        declared_frontier=token_family_frontier,
+        declared_text_frontier=textual_token_family_frontier,
+        discovered_frontier=discovered_token_family_frontier,
+        discovered_text_frontier=discovered_textual_token_family_frontier,
+    )
+    return {
+        "status": payload["runnable_contract_state"]["status"],
+        "ready": payload["runnable_contract_state"]["ready"],
+        "validation_passed": payload["runnable_contract_state"]["validation_passed"],
+        "total": payload["summary"]["total"],
+        "usable_count": payload["summary"]["external_lexer_contract_usable"],
+        "blocked_count": payload["summary"]["external_lexer_contract_blocked"],
+        "fixture_names": tuple(item["fixture_name"] for item in payload["fixtures"]),
+        "usable_fixture_names": tuple(item["fixture_name"] for item in usable_contracts),
+        "blocked_fixture_names": tuple(item["fixture_name"] for item in blocked_contracts),
+        "covered_token_kinds": covered_token_kinds,
+        "covered_token_kind_count": len(covered_token_kinds),
+        "token_family_coverage": tuple(
+            {
+                "family": item["family"],
+                "expected_kinds": tuple(item["expected_kinds"]),
+                "covered_kinds": tuple(item["covered_kinds"]),
+                "missing_kinds": tuple(item["missing_kinds"]),
+                "covered": item["covered"],
+                "partial": item["partial"],
+                "covered_kind_count": item["covered_kind_count"],
+                "missing_kind_count": item["missing_kind_count"],
+                "next_missing_kind": item["next_missing_kind"],
+            }
+            for item in token_family_coverage
+        ),
+        "covered_token_family_count": sum(1 for item in token_family_coverage if item["covered"]),
+        "uncovered_token_family_count": sum(
+            1 for item in token_family_coverage if not item["covered"]
+        ),
+        "coverage_blockers": coverage_blockers,
+        "next_coverage_blocker": coverage_blockers[0] if coverage_blockers else None,
+        "partial_coverage_blockers": partial_coverage_blockers,
+        "next_partial_coverage_blocker": (
+            partial_coverage_blockers[0] if partial_coverage_blockers else None
+        ),
+        "token_family_status_by_name": _token_family_status_map(token_family_coverage),
+        "token_family_frontier": token_family_frontier,
+        "textual_token_family_frontier": textual_token_family_frontier,
+        "discovered_covered_token_kinds": discovered_covered_token_kinds,
+        "discovered_covered_token_kind_count": len(discovered_covered_token_kinds),
+        "discovered_token_family_coverage": tuple(
+            {
+                "family": item["family"],
+                "expected_kinds": tuple(item["expected_kinds"]),
+                "covered_kinds": tuple(item["covered_kinds"]),
+                "missing_kinds": tuple(item["missing_kinds"]),
+                "covered": item["covered"],
+                "partial": item["partial"],
+                "covered_kind_count": item["covered_kind_count"],
+                "missing_kind_count": item["missing_kind_count"],
+                "next_missing_kind": item["next_missing_kind"],
+            }
+            for item in discovered_token_family_coverage
+        ),
+        "discovered_covered_token_family_count": sum(
+            1 for item in discovered_token_family_coverage if item["covered"]
+        ),
+        "discovered_uncovered_token_family_count": sum(
+            1 for item in discovered_token_family_coverage if not item["covered"]
+        ),
+        "discovered_coverage_blockers": discovered_coverage_blockers,
+        "next_discovered_coverage_blocker": (
+            discovered_coverage_blockers[0] if discovered_coverage_blockers else None
+        ),
+        "discovered_partial_coverage_blockers": discovered_partial_coverage_blockers,
+        "next_discovered_partial_coverage_blocker": (
+            discovered_partial_coverage_blockers[0]
+            if discovered_partial_coverage_blockers
+            else None
+        ),
+        "discovered_token_family_status_by_name": _token_family_status_map(
+            discovered_token_family_coverage
+        ),
+        "discovered_token_family_frontier": discovered_token_family_frontier,
+        "discovered_textual_token_family_frontier": discovered_textual_token_family_frontier,
+        "lexer_frontier_overview": {
+            "declared_contract": {
+                "ready": payload["runnable_contract_state"]["ready"],
+                "usable_count": payload["summary"]["external_lexer_contract_usable"],
+                "blocked_count": payload["summary"]["external_lexer_contract_blocked"],
+                "next_blocker": coverage_blockers[0] if coverage_blockers else None,
+            },
+            "declared_frontier": _frontier_track_status(token_family_frontier),
+            "declared_text_frontier": _frontier_track_status(textual_token_family_frontier),
+            "discovered_frontier": _frontier_track_status(discovered_token_family_frontier),
+            "discovered_text_frontier": _frontier_track_status(discovered_textual_token_family_frontier),
+        },
+        "lexer_operational_status": operational_status,
+        "lexer_confidence_signal": _lexer_confidence_signal(
+            operational_status=operational_status,
+        ),
+        "completion_done": completion["done"],
+        "completion_blocking_reasons": tuple(completion["blocking_reasons"]),
+        "completion_blocked_contract_count": completion["blocking_counts"]["blocked_contracts"],
+        "completion_state_validation_failures": completion["blocking_counts"][
+            "state_validation_failures"
+        ],
+        "completion_declared_catalog_issue_count": completion["blocking_counts"][
+            "declared_catalog_issues"
+        ],
+        "comparison_sha256": payload["runnable_contract_set_identity"]["comparison_sha256"],
+        "readiness_sha256": payload["runnable_contract_readiness_identity"]["readiness_sha256"],
+        "state_sha256": payload["runnable_contract_state"]["state_sha256"],
+    }
+
 
 def default_repo_root() -> Path:
     return Path(__file__).resolve().parents[1]

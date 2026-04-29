@@ -13,6 +13,7 @@ from vektorflow.cpp_backend import (
     discover_cpp_compiler,
     emit_cpp_module,
     emit_cpp_from_source_file,
+    run_cpp_executable,
 )
 from vektorflow.ir import IndexExpr, PrintStmt, TypeDef, lower_module
 from vektorflow.parser import parse_module
@@ -56,6 +57,19 @@ num a: 3
     assert "vf_map_make" not in cpp
     assert "vf_list_make" not in cpp
     assert "vf_mset_make" not in cpp
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compile_cpp_source_shortens_long_artifact_names(tmp_path: Path) -> None:
+    source = '#include <iostream>\nint main() { std::cout << "ok\\n"; }\n'
+    long_name = "named_record_scene_" + "_".join(f"segment{i}" for i in range(24))
+    exe = compile_cpp_source(source, tmp_path, exe_name=long_name)
+    assert exe.exists()
+    assert len(exe.stem) <= 48
+    assert exe.stem != long_name
+    proc = run_cpp_executable(exe)
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "ok"
 
 
 def test_cpp_emits_slot_named_function_locals() -> None:
@@ -251,28 +265,28 @@ Point p: (x:1, y:2)
 
 
 NAMED_RECORD_CORE_EXPECTATIONS = [
+    ("named_record_collections_native.vkf", "[5, 7]\n{3:1, 6:2}\n(pts:[5, 7], bag:{3:1, 6:2}, total:2)"),
     ("named_record_native.vkf", "4\n(x:4, y:6)"),
     ("named_record_nested_native.vkf", "4\n(origin:(x:4, y:6), size:(x:10, y:20))"),
-    ("named_record_collections_native.vkf", "[5, 7]\n{3:1, 6:2}\n(pts:[5, 7], bag:{3:1, 6:2}, total:2)"),
 ]
 
 
 NAMED_RECORD_SCENE_EXPECTATIONS = [
-    ("named_record_scene_native.vkf", "4\n[5, 7]\n{3:1, 6:2}\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
     ("named_record_scene_chain_native.vkf", "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
-    ("named_record_scene_helpers_native.vkf", "6\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
-    ("named_record_scene_handoff_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
-    ("named_record_scene_relay_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
-    ("named_record_scene_fanout_native.vkf", "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
+    ("named_record_scene_checkpoint_native.vkf", "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
     ("named_record_scene_compose_native.vkf", "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
+    ("named_record_scene_crossfade_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
+    ("named_record_scene_fanout_native.vkf", "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
+    ("named_record_scene_handoff_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
+    ("named_record_scene_helpers_native.vkf", "6\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
+    ("named_record_scene_native.vkf", "4\n[5, 7]\n{3:1, 6:2}\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
     ("named_record_scene_overlay_native.vkf", "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
     ("named_record_scene_patch_native.vkf", "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
-    ("named_record_scene_split_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
-    ("named_record_scene_splice_native.vkf", "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
     ("named_record_scene_rebuild_native.vkf", "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
-    ("named_record_scene_crossfade_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
+    ("named_record_scene_relay_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
     ("named_record_scene_reverse_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
-    ("named_record_scene_checkpoint_native.vkf", "4\n2\n(anchor:(x:4, y:6), state:(pts:[5, 7], bag:{3:1, 6:2}, total:2))"),
+    ("named_record_scene_splice_native.vkf", "7\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
+    ("named_record_scene_split_native.vkf", "10\n3\n(anchor:(x:7, y:10), state:(pts:[6, 8], bag:{3:2, 6:2}, total:3))"),
 ]
 
 
@@ -296,6 +310,32 @@ def test_named_record_examples_documented_in_readme_are_backend_covered() -> Non
     }
     covered = {filename for filename, _ in NAMED_RECORD_BACKEND_EXPECTATIONS}
     assert documented == covered
+
+
+def test_named_record_example_files_are_backend_covered() -> None:
+    files_on_disk = {path.name for path in NATIVE_CORE.glob("named_record*.vkf")}
+    covered = {filename for filename, _ in NAMED_RECORD_BACKEND_EXPECTATIONS}
+    assert files_on_disk == covered
+
+
+def test_named_record_backend_expectations_use_unique_filenames() -> None:
+    filenames = [filename for filename, _ in NAMED_RECORD_BACKEND_EXPECTATIONS]
+    assert len(filenames) == len(set(filenames))
+
+
+def test_named_record_backend_expectation_partitions_match_filename_shape() -> None:
+    core = {filename for filename, _ in NAMED_RECORD_CORE_EXPECTATIONS}
+    scene = {filename for filename, _ in NAMED_RECORD_SCENE_EXPECTATIONS}
+    assert all(not filename.startswith("named_record_scene_") for filename in core)
+    assert all(filename.startswith("named_record_scene_") for filename in scene)
+    assert core.isdisjoint(scene)
+
+
+def test_named_record_backend_expectations_are_sorted_for_auditability() -> None:
+    core = [filename for filename, _ in NAMED_RECORD_CORE_EXPECTATIONS]
+    scene = [filename for filename, _ in NAMED_RECORD_SCENE_EXPECTATIONS]
+    assert core == sorted(core)
+    assert scene == sorted(scene)
 
 def test_cpp_emits_dynamic_map_and_list_program() -> None:
     src = """

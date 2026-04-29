@@ -136,6 +136,30 @@ struct NamedRecordCollectionsProgram {
     long long moved_multiset_count = 0;
 };
 
+struct RecordsProgram {
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string function_name;
+    std::string param_name;
+    std::string extra_name;
+    std::string delta_name;
+    std::string base_name;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_first_key = 0.0;
+    long long base_multiset_first_count = 0;
+    double base_multiset_second_key = 0.0;
+    long long base_multiset_second_count = 0;
+    double base_total_value = 0.0;
+    double extra_first_value = 0.0;
+    double extra_second_value = 0.0;
+    double delta_first_key = 0.0;
+    long long delta_first_count = 0;
+    double delta_second_key = 0.0;
+    long long delta_second_count = 0;
+};
+
 struct NamedRecordSceneProgram {
     std::string point_type_name;
     std::string point_first_field_name;
@@ -345,17 +369,341 @@ struct NamedRecordSceneComposeProgram {
     std::string moved_name;
 };
 
+struct NamedRecordScenePatchProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string move_anchor_function_name;
+    std::string move_anchor_scene_name;
+    std::string move_anchor_shift_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string shifted_name;
+    std::string patched_name;
+    double patched_vector_first_value = 0.0;
+    double patched_vector_second_value = 0.0;
+    double patched_multiset_key = 0.0;
+    long long patched_multiset_count = 0;
+    std::string moved_name;
+};
+
+struct NamedRecordSceneSplitProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string step_function_name;
+    std::string scene_param_name;
+    std::string shift_param_name;
+    std::string extra_param_name;
+    std::string delta_param_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string staged_name;
+    double staged_vector_first_value = 0.0;
+    double staged_vector_second_value = 0.0;
+    double staged_multiset_key = 0.0;
+    long long staged_multiset_count = 0;
+    std::string moved_state_name;
+    std::string final_anchor_name;
+    std::string final_state_name;
+    double final_vector_first_value = 0.0;
+    double final_vector_second_value = 0.0;
+    double final_multiset_key = 0.0;
+    long long final_multiset_count = 0;
+    std::string moved_name;
+};
+
+struct NamedRecordSceneRebuildProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string step_function_name;
+    std::string scene_param_name;
+    std::string shift_param_name;
+    std::string extra_param_name;
+    std::string delta_param_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string staged_name;
+    double staged_vector_first_value = 0.0;
+    double staged_vector_second_value = 0.0;
+    double staged_multiset_key = 0.0;
+    long long staged_multiset_count = 0;
+    std::string moved_anchor_name;
+    std::string moved_state_name;
+    std::string moved_name;
+    std::string emit_anchor_field_name;
+    double moved_vector_first_value = 0.0;
+    double moved_vector_second_value = 0.0;
+    double moved_multiset_key = 0.0;
+    long long moved_multiset_count = 0;
+};
+
+struct NamedRecordSceneCheckpointProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string step_function_name;
+    std::string scene_param_name;
+    std::string shift_param_name;
+    std::string extra_param_name;
+    std::string delta_param_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string staged_name;
+    std::string checkpoint_name;
+    std::string moved_name;
+    std::string emit_anchor_field_name;
+};
+
+struct NamedRecordSceneSpliceProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string move_anchor_function_name;
+    std::string move_anchor_scene_name;
+    std::string move_anchor_shift_name;
+    std::string fill_state_function_name;
+    std::string fill_state_scene_name;
+    std::string fill_state_extra_name;
+    std::string fill_state_delta_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string shifted_name;
+    std::string filled_name;
+    std::string final_anchor_name;
+    std::string final_state_name;
+    double final_vector_first_value = 0.0;
+    double final_vector_second_value = 0.0;
+    double final_multiset_key = 0.0;
+    long long final_multiset_count = 0;
+    std::string moved_name;
+};
+
+struct NamedRecordSceneFanoutProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string first_anchor_name;
+    std::string first_state_name;
+    std::string first_name;
+    double first_vector_first_value = 0.0;
+    double first_vector_second_value = 0.0;
+    double first_multiset_key = 0.0;
+    long long first_multiset_count = 0;
+    std::string second_anchor_name;
+    std::string second_state_name;
+    std::string second_name;
+    double second_vector_first_value = 0.0;
+    double second_vector_second_value = 0.0;
+    double second_multiset_key = 0.0;
+    long long second_multiset_count = 0;
+};
+
+struct NamedRecordSceneOverlayProgram {
+    std::string point_type_name;
+    std::string point_first_field_name;
+    std::string point_second_field_name;
+    std::string state_type_name;
+    std::string vector_field_name;
+    std::string multiset_field_name;
+    std::string total_field_name;
+    std::string scene_type_name;
+    std::string anchor_field_name;
+    std::string state_field_name;
+    std::string shift_anchor_function_name;
+    std::string shift_anchor_param_name;
+    std::string shift_anchor_shift_name;
+    std::string bump_state_function_name;
+    std::string bump_state_param_name;
+    std::string bump_state_extra_name;
+    std::string bump_state_delta_name;
+    std::string move_anchor_function_name;
+    std::string move_anchor_scene_name;
+    std::string move_anchor_shift_name;
+    std::string fill_state_function_name;
+    std::string fill_state_scene_name;
+    std::string fill_state_extra_name;
+    std::string fill_state_delta_name;
+    std::string base_name;
+    double base_anchor_first_value = 0.0;
+    double base_anchor_second_value = 0.0;
+    double base_vector_first_value = 0.0;
+    double base_vector_second_value = 0.0;
+    double base_multiset_key = 0.0;
+    long long base_multiset_count = 0;
+    double base_total_value = 0.0;
+    std::string shift_name;
+    double shift_first_value = 0.0;
+    double shift_second_value = 0.0;
+    std::string shifted_name;
+    std::string filled_name;
+    double filled_vector_first_value = 0.0;
+    double filled_vector_second_value = 0.0;
+    double filled_multiset_key = 0.0;
+    long long filled_multiset_count = 0;
+    std::string moved_name;
+};
+
 static std::string emit_hello_cpp(const HelloProgram& program);
 static std::string emit_vector_cpp(const VectorProgram& program);
 static std::string emit_numeric_cpp(const NumericProgram& program);
 static std::string emit_named_record_cpp(const NamedRecordProgram& program);
 static std::string emit_nested_named_record_cpp(const NestedNamedRecordProgram& program);
 static std::string emit_named_record_collections_cpp(const NamedRecordCollectionsProgram& program);
+static std::string emit_records_cpp(const RecordsProgram& program);
 static std::string emit_named_record_scene_cpp(const NamedRecordSceneProgram& program);
 static std::string emit_named_record_scene_chain_cpp(const NamedRecordSceneChainProgram& program);
 static std::string emit_named_record_scene_helpers_cpp(const NamedRecordSceneHelpersProgram& program);
 static std::string emit_named_record_scene_handoff_cpp(const NamedRecordSceneHandoffProgram& program);
 static std::string emit_named_record_scene_compose_cpp(const NamedRecordSceneComposeProgram& program);
+static std::string emit_named_record_scene_patch_cpp(const NamedRecordScenePatchProgram& program);
+static std::string emit_named_record_scene_split_cpp(const NamedRecordSceneSplitProgram& program);
+static std::string emit_named_record_scene_rebuild_cpp(const NamedRecordSceneRebuildProgram& program);
+static std::string emit_named_record_scene_checkpoint_cpp(const NamedRecordSceneCheckpointProgram& program);
+static std::string emit_named_record_scene_splice_cpp(const NamedRecordSceneSpliceProgram& program);
+static std::string emit_named_record_scene_fanout_cpp(const NamedRecordSceneFanoutProgram& program);
+static std::string emit_named_record_scene_overlay_cpp(const NamedRecordSceneOverlayProgram& program);
 
 static std::string trim(const std::string& s) {
     std::size_t start = 0;
@@ -535,6 +883,21 @@ public:
             validate_vector_program(program);
             return emit_vector_cpp(program);
         }
+        if (token_lines.size() == 10) {
+            RecordsProgram program;
+            parse_records_header(token_lines[0], program);
+            parse_records_body_start(token_lines[1]);
+            parse_records_body_pts_line(token_lines[2], program);
+            parse_records_body_bag_line(token_lines[3], program);
+            parse_records_body_total_line(token_lines[4], program);
+            parse_records_body_end(token_lines[5]);
+            parse_records_base_binding(token_lines[6], program);
+            parse_records_extra_binding(token_lines[7], program);
+            parse_records_delta_binding(token_lines[8], program);
+            parse_records_emit(token_lines[9], program);
+            validate_records_program(program);
+            return emit_records_cpp(program);
+        }
         if (token_lines.size() == 7) {
             if (
                 token_lines[0].size() >= 3 &&
@@ -642,7 +1005,149 @@ public:
             validate_named_record_scene_program(program);
             return emit_named_record_scene_cpp(program);
         }
+        if (token_lines.size() == 16) {
+            NamedRecordSceneSplitProgram program;
+            parse_named_record_scene_split_point_typedef(token_lines[0], program);
+            parse_named_record_scene_split_state_typedef(token_lines[1], program);
+            parse_named_record_scene_split_scene_typedef(token_lines[2], program);
+            parse_named_record_scene_split_shift_anchor_header(token_lines[3], program);
+            parse_named_record_scene_split_shift_anchor_body(token_lines[4], program);
+            parse_named_record_scene_split_bump_state_header(token_lines[5], program);
+            parse_named_record_scene_split_bump_state_body(token_lines[6], program);
+            parse_named_record_scene_split_step_header(token_lines[7], program);
+            parse_named_record_scene_split_step_body(token_lines[8], program);
+            parse_named_record_scene_split_base_binding(token_lines[9], program);
+            parse_named_record_scene_split_shift_binding(token_lines[10], program);
+            parse_named_record_scene_split_staged_binding(token_lines[11], program);
+            parse_named_record_scene_relay_moved_binding(token_lines[12], program);
+            parse_named_record_scene_split_emit_anchor_field(token_lines[13], program);
+            parse_named_record_scene_split_emit_total_field(token_lines[14], program);
+            parse_named_record_scene_split_emit_record(token_lines[15], program);
+            validate_named_record_scene_split_program(program);
+            return emit_named_record_scene_split_cpp(program);
+        }
         if (token_lines.size() == 18) {
+            if (
+                token_lines[7].size() > 1 &&
+                token_lines[7][0].text == "Scene" &&
+                token_lines[9].size() > 1 &&
+                token_lines[9][0].text == "Point" &&
+                token_lines[10].size() > 1 &&
+                token_lines[10][0].text == "State" &&
+                token_lines[11].size() > 1 &&
+                token_lines[11][0].text == "Scene"
+            ) {
+                NamedRecordSceneSplitProgram shared;
+                parse_named_record_scene_split_point_typedef(token_lines[0], shared);
+                parse_named_record_scene_split_state_typedef(token_lines[1], shared);
+                parse_named_record_scene_split_scene_typedef(token_lines[2], shared);
+                parse_named_record_scene_split_shift_anchor_header(token_lines[3], shared);
+                parse_named_record_scene_split_shift_anchor_body(token_lines[4], shared);
+                parse_named_record_scene_split_bump_state_header(token_lines[5], shared);
+                parse_named_record_scene_split_bump_state_body(token_lines[6], shared);
+                parse_named_record_scene_split_base_binding(token_lines[7], shared);
+                parse_named_record_scene_split_shift_binding(token_lines[8], shared);
+                NamedRecordSceneFanoutProgram program;
+                program.point_type_name = shared.point_type_name;
+                program.point_first_field_name = shared.point_first_field_name;
+                program.point_second_field_name = shared.point_second_field_name;
+                program.state_type_name = shared.state_type_name;
+                program.vector_field_name = shared.vector_field_name;
+                program.multiset_field_name = shared.multiset_field_name;
+                program.total_field_name = shared.total_field_name;
+                program.scene_type_name = shared.scene_type_name;
+                program.anchor_field_name = shared.anchor_field_name;
+                program.state_field_name = shared.state_field_name;
+                program.shift_anchor_function_name = shared.shift_anchor_function_name;
+                program.shift_anchor_param_name = shared.shift_anchor_param_name;
+                program.shift_anchor_shift_name = shared.shift_anchor_shift_name;
+                program.bump_state_function_name = shared.bump_state_function_name;
+                program.bump_state_param_name = shared.bump_state_param_name;
+                program.bump_state_extra_name = shared.bump_state_extra_name;
+                program.bump_state_delta_name = shared.bump_state_delta_name;
+                program.base_name = shared.base_name;
+                program.base_anchor_first_value = shared.base_anchor_first_value;
+                program.base_anchor_second_value = shared.base_anchor_second_value;
+                program.base_vector_first_value = shared.base_vector_first_value;
+                program.base_vector_second_value = shared.base_vector_second_value;
+                program.base_multiset_key = shared.base_multiset_key;
+                program.base_multiset_count = shared.base_multiset_count;
+                program.base_total_value = shared.base_total_value;
+                program.shift_name = shared.shift_name;
+                program.shift_first_value = shared.shift_first_value;
+                program.shift_second_value = shared.shift_second_value;
+                parse_named_record_scene_fanout_first_anchor_binding(token_lines[9], program);
+                parse_named_record_scene_fanout_first_state_binding(token_lines[10], program);
+                parse_named_record_scene_fanout_first_binding(token_lines[11], program);
+                parse_named_record_scene_fanout_second_anchor_binding(token_lines[12], program);
+                parse_named_record_scene_fanout_second_state_binding(token_lines[13], program);
+                parse_named_record_scene_fanout_second_binding(token_lines[14], program);
+                parse_named_record_scene_fanout_emit_anchor_field(token_lines[15], program);
+                parse_named_record_scene_fanout_emit_total_field(token_lines[16], program);
+                parse_named_record_scene_fanout_emit_record(token_lines[17], program);
+                validate_named_record_scene_fanout_program(program);
+                return emit_named_record_scene_fanout_cpp(program);
+            }
+            if (
+                token_lines[11].size() > 1 &&
+                token_lines[11][0].text == "Scene" &&
+                token_lines[12].size() > 1 &&
+                token_lines[12][0].text == "Scene" &&
+                token_lines[13].size() > 1 &&
+                token_lines[13][0].text == "Scene"
+            ) {
+                NamedRecordSceneRebuildProgram program;
+                parse_named_record_scene_rebuild_point_typedef(token_lines[0], program);
+                parse_named_record_scene_rebuild_state_typedef(token_lines[1], program);
+                parse_named_record_scene_rebuild_scene_typedef(token_lines[2], program);
+                parse_named_record_scene_rebuild_shift_anchor_header(token_lines[3], program);
+                parse_named_record_scene_rebuild_shift_anchor_body(token_lines[4], program);
+                parse_named_record_scene_rebuild_bump_state_header(token_lines[5], program);
+                parse_named_record_scene_rebuild_bump_state_body(token_lines[6], program);
+                parse_named_record_scene_rebuild_step_header(token_lines[7], program);
+                parse_named_record_scene_rebuild_step_body(token_lines[8], program);
+                parse_named_record_scene_rebuild_base_binding(token_lines[9], program);
+                parse_named_record_scene_rebuild_shift_binding(token_lines[10], program);
+                parse_named_record_scene_rebuild_staged_binding(token_lines[11], program);
+                parse_named_record_scene_rebuild_moved_anchor_binding(token_lines[12], program);
+                parse_named_record_scene_crossfade_moved_state_binding(token_lines[13], program);
+                parse_named_record_scene_crossfade_moved_binding(token_lines[14], program);
+                parse_named_record_scene_crossfade_emit_anchor_field(token_lines[15], program);
+                parse_named_record_scene_rebuild_emit_total_field(token_lines[16], program);
+                parse_named_record_scene_rebuild_emit_record(token_lines[17], program);
+                validate_named_record_scene_rebuild_program(program);
+                return emit_named_record_scene_rebuild_cpp(program);
+            }
+            if (
+                token_lines[11].size() > 1 &&
+                token_lines[11][0].text == "Scene" &&
+                token_lines[12].size() > 1 &&
+                token_lines[12][0].text == "Point" &&
+                token_lines[13].size() > 1 &&
+                token_lines[13][0].text == "State"
+            ) {
+                NamedRecordSceneSplitProgram program;
+                parse_named_record_scene_split_point_typedef(token_lines[0], program);
+                parse_named_record_scene_split_state_typedef(token_lines[1], program);
+                parse_named_record_scene_split_scene_typedef(token_lines[2], program);
+                parse_named_record_scene_split_shift_anchor_header(token_lines[3], program);
+                parse_named_record_scene_split_shift_anchor_body(token_lines[4], program);
+                parse_named_record_scene_split_bump_state_header(token_lines[5], program);
+                parse_named_record_scene_split_bump_state_body(token_lines[6], program);
+                parse_named_record_scene_split_step_header(token_lines[7], program);
+                parse_named_record_scene_split_step_body(token_lines[8], program);
+                parse_named_record_scene_split_base_binding(token_lines[9], program);
+                parse_named_record_scene_split_shift_binding(token_lines[10], program);
+                parse_named_record_scene_split_staged_binding(token_lines[11], program);
+                parse_named_record_scene_split_final_anchor_binding(token_lines[12], program);
+                parse_named_record_scene_split_final_state_binding(token_lines[13], program);
+                parse_named_record_scene_split_moved_binding(token_lines[14], program);
+                parse_named_record_scene_split_emit_anchor_field(token_lines[15], program);
+                parse_named_record_scene_split_emit_total_field(token_lines[16], program);
+                parse_named_record_scene_split_emit_record(token_lines[17], program);
+                validate_named_record_scene_split_program(program);
+                return emit_named_record_scene_split_cpp(program);
+            }
             NamedRecordSceneHelpersProgram program;
             parse_named_record_scene_helpers_point_typedef(token_lines[0], program);
             parse_named_record_scene_helpers_state_typedef(token_lines[1], program);
@@ -665,7 +1170,128 @@ public:
             validate_named_record_scene_helpers_program(program);
             return emit_named_record_scene_helpers_cpp(program);
         }
+        if (token_lines.size() == 21) {
+            if (token_lines[7].size() > 0 && token_lines[7][0].text == "move_anchor") {
+                NamedRecordSceneOverlayProgram shared;
+                parse_named_record_scene_overlay_point_typedef(token_lines[0], shared);
+                parse_named_record_scene_overlay_state_typedef(token_lines[1], shared);
+                parse_named_record_scene_overlay_scene_typedef(token_lines[2], shared);
+                parse_named_record_scene_overlay_shift_anchor_header(token_lines[3], shared);
+                parse_named_record_scene_overlay_shift_anchor_body(token_lines[4], shared);
+                parse_named_record_scene_overlay_bump_state_header(token_lines[5], shared);
+                parse_named_record_scene_overlay_bump_state_body(token_lines[6], shared);
+                parse_named_record_scene_overlay_move_anchor_header(token_lines[7], shared);
+                parse_named_record_scene_overlay_move_anchor_body(token_lines[8], shared);
+                parse_named_record_scene_overlay_fill_state_header(token_lines[9], shared);
+                parse_named_record_scene_overlay_fill_state_body(token_lines[10], shared);
+                parse_named_record_scene_overlay_base_binding(token_lines[11], shared);
+                parse_named_record_scene_overlay_shift_binding(token_lines[12], shared);
+                parse_named_record_scene_overlay_shifted_binding(token_lines[13], shared);
+                parse_named_record_scene_overlay_filled_binding(token_lines[14], shared);
+                NamedRecordSceneSpliceProgram program;
+                program.point_type_name = shared.point_type_name;
+                program.point_first_field_name = shared.point_first_field_name;
+                program.point_second_field_name = shared.point_second_field_name;
+                program.state_type_name = shared.state_type_name;
+                program.vector_field_name = shared.vector_field_name;
+                program.multiset_field_name = shared.multiset_field_name;
+                program.total_field_name = shared.total_field_name;
+                program.scene_type_name = shared.scene_type_name;
+                program.anchor_field_name = shared.anchor_field_name;
+                program.state_field_name = shared.state_field_name;
+                program.shift_anchor_function_name = shared.shift_anchor_function_name;
+                program.shift_anchor_param_name = shared.shift_anchor_param_name;
+                program.shift_anchor_shift_name = shared.shift_anchor_shift_name;
+                program.bump_state_function_name = shared.bump_state_function_name;
+                program.bump_state_param_name = shared.bump_state_param_name;
+                program.bump_state_extra_name = shared.bump_state_extra_name;
+                program.bump_state_delta_name = shared.bump_state_delta_name;
+                program.move_anchor_function_name = shared.move_anchor_function_name;
+                program.move_anchor_scene_name = shared.move_anchor_scene_name;
+                program.move_anchor_shift_name = shared.move_anchor_shift_name;
+                program.fill_state_function_name = shared.fill_state_function_name;
+                program.fill_state_scene_name = shared.fill_state_scene_name;
+                program.fill_state_extra_name = shared.fill_state_extra_name;
+                program.fill_state_delta_name = shared.fill_state_delta_name;
+                program.base_name = shared.base_name;
+                program.base_anchor_first_value = shared.base_anchor_first_value;
+                program.base_anchor_second_value = shared.base_anchor_second_value;
+                program.base_vector_first_value = shared.base_vector_first_value;
+                program.base_vector_second_value = shared.base_vector_second_value;
+                program.base_multiset_key = shared.base_multiset_key;
+                program.base_multiset_count = shared.base_multiset_count;
+                program.base_total_value = shared.base_total_value;
+                program.shift_name = shared.shift_name;
+                program.shift_first_value = shared.shift_first_value;
+                program.shift_second_value = shared.shift_second_value;
+                program.shifted_name = shared.shifted_name;
+                program.filled_name = shared.filled_name;
+                parse_named_record_scene_splice_final_anchor_binding(token_lines[15], program);
+                parse_named_record_scene_splice_final_state_binding(token_lines[16], program);
+                parse_named_record_scene_splice_moved_binding(token_lines[17], program);
+                parse_named_record_scene_splice_emit_anchor_field(token_lines[18], program);
+                parse_named_record_scene_splice_emit_total_field(token_lines[19], program);
+                parse_named_record_scene_splice_emit_record(token_lines[20], program);
+                validate_named_record_scene_splice_program(program);
+                return emit_named_record_scene_splice_cpp(program);
+            }
+        }
         if (token_lines.size() == 19) {
+            if (
+                token_lines[11].size() > 1 &&
+                token_lines[11][0].text == "Scene" &&
+                token_lines[12].size() > 1 &&
+                token_lines[12][0].text == "Scene" &&
+                token_lines[13].size() > 1 &&
+                token_lines[13][0].text == "Point"
+            ) {
+                NamedRecordSceneSplitProgram program;
+                parse_named_record_scene_split_point_typedef(token_lines[0], program);
+                parse_named_record_scene_split_state_typedef(token_lines[1], program);
+                parse_named_record_scene_split_scene_typedef(token_lines[2], program);
+                parse_named_record_scene_split_shift_anchor_header(token_lines[3], program);
+                parse_named_record_scene_split_shift_anchor_body(token_lines[4], program);
+                parse_named_record_scene_split_bump_state_header(token_lines[5], program);
+                parse_named_record_scene_split_bump_state_body(token_lines[6], program);
+                parse_named_record_scene_split_step_header(token_lines[7], program);
+                parse_named_record_scene_split_step_body(token_lines[8], program);
+                parse_named_record_scene_split_base_binding(token_lines[9], program);
+                parse_named_record_scene_split_shift_binding(token_lines[10], program);
+                parse_named_record_scene_split_staged_binding(token_lines[11], program);
+                parse_named_record_scene_reverse_moved_state_binding(token_lines[12], program);
+                parse_named_record_scene_reverse_final_anchor_binding(token_lines[13], program);
+                parse_named_record_scene_reverse_final_state_binding(token_lines[14], program);
+                parse_named_record_scene_split_moved_binding(token_lines[15], program);
+                parse_named_record_scene_split_emit_anchor_field(token_lines[16], program);
+                parse_named_record_scene_split_emit_total_field(token_lines[17], program);
+                parse_named_record_scene_split_emit_record(token_lines[18], program);
+                validate_named_record_scene_split_program(program);
+                return emit_named_record_scene_split_cpp(program);
+            }
+            if (token_lines[7].size() > 0 && token_lines[7][0].text == "move_anchor") {
+                NamedRecordSceneOverlayProgram program;
+                parse_named_record_scene_overlay_point_typedef(token_lines[0], program);
+                parse_named_record_scene_overlay_state_typedef(token_lines[1], program);
+                parse_named_record_scene_overlay_scene_typedef(token_lines[2], program);
+                parse_named_record_scene_overlay_shift_anchor_header(token_lines[3], program);
+                parse_named_record_scene_overlay_shift_anchor_body(token_lines[4], program);
+                parse_named_record_scene_overlay_bump_state_header(token_lines[5], program);
+                parse_named_record_scene_overlay_bump_state_body(token_lines[6], program);
+                parse_named_record_scene_overlay_move_anchor_header(token_lines[7], program);
+                parse_named_record_scene_overlay_move_anchor_body(token_lines[8], program);
+                parse_named_record_scene_overlay_fill_state_header(token_lines[9], program);
+                parse_named_record_scene_overlay_fill_state_body(token_lines[10], program);
+                parse_named_record_scene_overlay_base_binding(token_lines[11], program);
+                parse_named_record_scene_overlay_shift_binding(token_lines[12], program);
+                parse_named_record_scene_overlay_shifted_binding(token_lines[13], program);
+                parse_named_record_scene_overlay_filled_binding(token_lines[14], program);
+                parse_named_record_scene_overlay_moved_binding(token_lines[15], program);
+                parse_named_record_scene_overlay_emit_anchor_field(token_lines[16], program);
+                parse_named_record_scene_overlay_emit_total_field(token_lines[17], program);
+                parse_named_record_scene_overlay_emit_record(token_lines[18], program);
+                validate_named_record_scene_overlay_program(program);
+                return emit_named_record_scene_overlay_cpp(program);
+            }
             NamedRecordSceneHandoffProgram program;
             parse_named_record_scene_handoff_point_typedef(token_lines[0], program);
             parse_named_record_scene_handoff_state_typedef(token_lines[1], program);
@@ -690,6 +1316,119 @@ public:
             return emit_named_record_scene_handoff_cpp(program);
         }
         if (token_lines.size() == 17) {
+            if (
+                token_lines[11].size() > 1 &&
+                token_lines[11][0].text == "Scene" &&
+                token_lines[12].size() == 4 &&
+                token_lines[13].size() == 4
+            ) {
+                NamedRecordSceneSplitProgram shared;
+                parse_named_record_scene_split_point_typedef(token_lines[0], shared);
+                parse_named_record_scene_split_state_typedef(token_lines[1], shared);
+                parse_named_record_scene_split_scene_typedef(token_lines[2], shared);
+                parse_named_record_scene_split_shift_anchor_header(token_lines[3], shared);
+                parse_named_record_scene_split_shift_anchor_body(token_lines[4], shared);
+                parse_named_record_scene_split_bump_state_header(token_lines[5], shared);
+                parse_named_record_scene_split_bump_state_body(token_lines[6], shared);
+                parse_named_record_scene_split_step_header(token_lines[7], shared);
+                parse_named_record_scene_split_step_body(token_lines[8], shared);
+                parse_named_record_scene_split_base_binding(token_lines[9], shared);
+                parse_named_record_scene_split_shift_binding(token_lines[10], shared);
+                parse_named_record_scene_split_staged_binding(token_lines[11], shared);
+                NamedRecordSceneCheckpointProgram program;
+                program.point_type_name = shared.point_type_name;
+                program.point_first_field_name = shared.point_first_field_name;
+                program.point_second_field_name = shared.point_second_field_name;
+                program.state_type_name = shared.state_type_name;
+                program.vector_field_name = shared.vector_field_name;
+                program.multiset_field_name = shared.multiset_field_name;
+                program.total_field_name = shared.total_field_name;
+                program.scene_type_name = shared.scene_type_name;
+                program.anchor_field_name = shared.anchor_field_name;
+                program.state_field_name = shared.state_field_name;
+                program.step_function_name = shared.step_function_name;
+                program.scene_param_name = shared.scene_param_name;
+                program.shift_param_name = shared.shift_param_name;
+                program.extra_param_name = shared.extra_param_name;
+                program.delta_param_name = shared.delta_param_name;
+                program.shift_anchor_function_name = shared.shift_anchor_function_name;
+                program.shift_anchor_param_name = shared.shift_anchor_param_name;
+                program.shift_anchor_shift_name = shared.shift_anchor_shift_name;
+                program.bump_state_function_name = shared.bump_state_function_name;
+                program.bump_state_param_name = shared.bump_state_param_name;
+                program.bump_state_extra_name = shared.bump_state_extra_name;
+                program.bump_state_delta_name = shared.bump_state_delta_name;
+                program.base_name = shared.base_name;
+                program.base_anchor_first_value = shared.base_anchor_first_value;
+                program.base_anchor_second_value = shared.base_anchor_second_value;
+                program.base_vector_first_value = shared.base_vector_first_value;
+                program.base_vector_second_value = shared.base_vector_second_value;
+                program.base_multiset_key = shared.base_multiset_key;
+                program.base_multiset_count = shared.base_multiset_count;
+                program.base_total_value = shared.base_total_value;
+                program.shift_name = shared.shift_name;
+                program.shift_first_value = shared.shift_first_value;
+                program.shift_second_value = shared.shift_second_value;
+                program.staged_name = shared.staged_name;
+                parse_named_record_scene_checkpoint_checkpoint_binding(token_lines[12], program);
+                parse_named_record_scene_checkpoint_moved_binding(token_lines[13], program);
+                parse_named_record_scene_checkpoint_emit_anchor_field(token_lines[14], program);
+                parse_named_record_scene_checkpoint_emit_total_field(token_lines[15], program);
+                parse_named_record_scene_checkpoint_emit_record(token_lines[16], program);
+                validate_named_record_scene_checkpoint_program(program);
+                return emit_named_record_scene_checkpoint_cpp(program);
+            }
+            if (
+                token_lines[11].size() > 1 &&
+                token_lines[11][0].text == "Scene" &&
+                token_lines[12].size() > 1 &&
+                token_lines[12][0].text == "Scene" &&
+                token_lines[13].size() > 1 &&
+                token_lines[13][0].text == "Scene"
+            ) {
+                NamedRecordSceneRebuildProgram program;
+                parse_named_record_scene_rebuild_point_typedef(token_lines[0], program);
+                parse_named_record_scene_rebuild_state_typedef(token_lines[1], program);
+                parse_named_record_scene_rebuild_scene_typedef(token_lines[2], program);
+                parse_named_record_scene_rebuild_shift_anchor_header(token_lines[3], program);
+                parse_named_record_scene_rebuild_shift_anchor_body(token_lines[4], program);
+                parse_named_record_scene_rebuild_bump_state_header(token_lines[5], program);
+                parse_named_record_scene_rebuild_bump_state_body(token_lines[6], program);
+                parse_named_record_scene_rebuild_step_header(token_lines[7], program);
+                parse_named_record_scene_rebuild_step_body(token_lines[8], program);
+                parse_named_record_scene_rebuild_base_binding(token_lines[9], program);
+                parse_named_record_scene_rebuild_shift_binding(token_lines[10], program);
+                parse_named_record_scene_rebuild_staged_binding(token_lines[11], program);
+                parse_named_record_scene_rebuild_moved_anchor_binding(token_lines[12], program);
+                parse_named_record_scene_rebuild_moved_binding(token_lines[13], program);
+                parse_named_record_scene_rebuild_emit_anchor_field(token_lines[14], program);
+                parse_named_record_scene_rebuild_emit_total_field(token_lines[15], program);
+                parse_named_record_scene_rebuild_emit_record(token_lines[16], program);
+                validate_named_record_scene_rebuild_program(program);
+                return emit_named_record_scene_rebuild_cpp(program);
+            }
+            if (token_lines[7].size() > 0 && token_lines[7][0].text == "move_anchor") {
+                NamedRecordScenePatchProgram program;
+                parse_named_record_scene_patch_point_typedef(token_lines[0], program);
+                parse_named_record_scene_patch_state_typedef(token_lines[1], program);
+                parse_named_record_scene_patch_scene_typedef(token_lines[2], program);
+                parse_named_record_scene_patch_shift_anchor_header(token_lines[3], program);
+                parse_named_record_scene_patch_shift_anchor_body(token_lines[4], program);
+                parse_named_record_scene_patch_bump_state_header(token_lines[5], program);
+                parse_named_record_scene_patch_bump_state_body(token_lines[6], program);
+                parse_named_record_scene_patch_move_anchor_header(token_lines[7], program);
+                parse_named_record_scene_patch_move_anchor_body(token_lines[8], program);
+                parse_named_record_scene_patch_base_binding(token_lines[9], program);
+                parse_named_record_scene_patch_shift_binding(token_lines[10], program);
+                parse_named_record_scene_patch_shifted_binding(token_lines[11], program);
+                parse_named_record_scene_patch_patched_binding(token_lines[12], program);
+                parse_named_record_scene_patch_moved_binding(token_lines[13], program);
+                parse_named_record_scene_patch_emit_anchor_field(token_lines[14], program);
+                parse_named_record_scene_patch_emit_total_field(token_lines[15], program);
+                parse_named_record_scene_patch_emit_record(token_lines[16], program);
+                validate_named_record_scene_patch_program(program);
+                return emit_named_record_scene_patch_cpp(program);
+            }
             NamedRecordSceneComposeProgram program;
             parse_named_record_scene_compose_point_typedef(token_lines[0], program);
             parse_named_record_scene_compose_state_typedef(token_lines[1], program);
@@ -711,7 +1450,7 @@ public:
             validate_named_record_scene_compose_program(program);
             return emit_named_record_scene_compose_cpp(program);
         }
-        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, numeric-native, named-record-native, named-record-collections-native, named-record-scene-native, named-record-scene-chain-native, named-record-scene-helpers-native, named-record-scene-handoff-native, named-record-scene-compose-native, or nested-named-record-native logical shape");
+        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, records-native, numeric-native, named-record-native, named-record-collections-native, named-record-scene-native, named-record-scene-chain-native, named-record-scene-helpers-native, named-record-scene-handoff-native, named-record-scene-relay-native, named-record-scene-compose-native, named-record-scene-patch-native, named-record-scene-split-native, named-record-scene-rebuild-native, named-record-scene-checkpoint-native, named-record-scene-splice-native, named-record-scene-fanout-native, named-record-scene-overlay-native, named-record-scene-reverse-native, named-record-scene-crossfade-native, or nested-named-record-native logical shape");
     }
 
 private:
@@ -1655,6 +2394,307 @@ private:
         expect_kind(tokens, 1, "IDENT");
         if (tokens[1].text != program.moved_name) {
             throw std::runtime_error("native parser prototype only supports ':: moved' for named-record-collections");
+        }
+    }
+
+    static void parse_records_header(const std::vector<Token>& tokens, RecordsProgram& program) {
+        if (tokens.size() != 59) {
+            throw std::runtime_error("native parser prototype expected records-native function header shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "LPAREN");
+        expect_kind(tokens, 2, "IDENT");
+        expect_kind(tokens, 3, "COLON");
+        expect_kind(tokens, 4, "LPAREN");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COLON");
+        expect_kind(tokens, 7, "LBRACKET");
+        expect_kind(tokens, 8, "IDENT");
+        expect_kind(tokens, 9, "COLON");
+        expect_kind(tokens, 10, "NUMBER");
+        expect_kind(tokens, 11, "RBRACKET");
+        expect_kind(tokens, 12, "COMMA");
+        expect_kind(tokens, 13, "IDENT");
+        expect_kind(tokens, 14, "COLON");
+        expect_kind(tokens, 15, "LBRACE");
+        expect_kind(tokens, 16, "IDENT");
+        expect_kind(tokens, 17, "RBRACE");
+        expect_kind(tokens, 18, "COMMA");
+        expect_kind(tokens, 19, "IDENT");
+        expect_kind(tokens, 20, "COLON");
+        expect_kind(tokens, 21, "IDENT");
+        expect_kind(tokens, 22, "RPAREN");
+        expect_kind(tokens, 23, "COMMA");
+        expect_kind(tokens, 24, "IDENT");
+        expect_kind(tokens, 25, "COLON");
+        expect_kind(tokens, 26, "LBRACKET");
+        expect_kind(tokens, 27, "IDENT");
+        expect_kind(tokens, 28, "COLON");
+        expect_kind(tokens, 29, "NUMBER");
+        expect_kind(tokens, 30, "RBRACKET");
+        expect_kind(tokens, 31, "COMMA");
+        expect_kind(tokens, 32, "IDENT");
+        expect_kind(tokens, 33, "COLON");
+        expect_kind(tokens, 34, "LBRACE");
+        expect_kind(tokens, 35, "IDENT");
+        expect_kind(tokens, 36, "RBRACE");
+        expect_kind(tokens, 37, "RPAREN");
+        expect_kind(tokens, 38, "ARROW");
+        expect_kind(tokens, 39, "LPAREN");
+        expect_kind(tokens, 40, "IDENT");
+        expect_kind(tokens, 41, "COLON");
+        expect_kind(tokens, 42, "LBRACKET");
+        expect_kind(tokens, 43, "IDENT");
+        expect_kind(tokens, 44, "COLON");
+        expect_kind(tokens, 45, "NUMBER");
+        expect_kind(tokens, 46, "RBRACKET");
+        expect_kind(tokens, 47, "COMMA");
+        expect_kind(tokens, 48, "IDENT");
+        expect_kind(tokens, 49, "COLON");
+        expect_kind(tokens, 50, "LBRACE");
+        expect_kind(tokens, 51, "IDENT");
+        expect_kind(tokens, 52, "RBRACE");
+        expect_kind(tokens, 53, "COMMA");
+        expect_kind(tokens, 54, "IDENT");
+        expect_kind(tokens, 55, "COLON");
+        expect_kind(tokens, 56, "IDENT");
+        expect_kind(tokens, 57, "RPAREN");
+        expect_kind(tokens, 58, "COLON");
+        if (
+            tokens[8].text != "num" ||
+            tokens[10].text != "2" ||
+            tokens[16].text != "num" ||
+            tokens[21].text != "num" ||
+            tokens[27].text != "num" ||
+            tokens[29].text != "2" ||
+            tokens[35].text != "num" ||
+            tokens[43].text != "num" ||
+            tokens[45].text != "2" ||
+            tokens[51].text != "num" ||
+            tokens[56].text != "num"
+        ) {
+            throw std::runtime_error("native parser prototype only supports exact records-native [num:2], {num}, total:num shape");
+        }
+        if (
+            tokens[5].text != tokens[40].text ||
+            tokens[13].text != tokens[48].text ||
+            tokens[19].text != tokens[54].text
+        ) {
+            throw std::runtime_error("native parser prototype expected records-native return fields to match parameter fields");
+        }
+        program.function_name = tokens[0].text;
+        program.param_name = tokens[2].text;
+        program.vector_field_name = tokens[5].text;
+        program.multiset_field_name = tokens[13].text;
+        program.total_field_name = tokens[19].text;
+        program.extra_name = tokens[24].text;
+        program.delta_name = tokens[32].text;
+    }
+
+    static void parse_records_body_start(const std::vector<Token>& tokens) {
+        if (tokens.size() != 1) {
+            throw std::runtime_error("native parser prototype expected records-native body start shape");
+        }
+        expect_kind(tokens, 0, "LPAREN");
+    }
+
+    static void parse_records_body_pts_line(const std::vector<Token>& tokens, const RecordsProgram& program) {
+        if (tokens.size() != 8) {
+            throw std::runtime_error("native parser prototype expected records-native pts line shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "IDENT");
+        expect_kind(tokens, 3, "DOT");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "PLUS");
+        expect_kind(tokens, 6, "IDENT");
+        expect_kind(tokens, 7, "COMMA");
+        if (
+            tokens[0].text != program.vector_field_name ||
+            tokens[2].text != program.param_name ||
+            tokens[4].text != program.vector_field_name ||
+            tokens[6].text != program.extra_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact records-native pts update");
+        }
+    }
+
+    static void parse_records_body_bag_line(const std::vector<Token>& tokens, const RecordsProgram& program) {
+        if (tokens.size() != 8) {
+            throw std::runtime_error("native parser prototype expected records-native bag line shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "IDENT");
+        expect_kind(tokens, 3, "DOT");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "PLUS");
+        expect_kind(tokens, 6, "IDENT");
+        expect_kind(tokens, 7, "COMMA");
+        if (
+            tokens[0].text != program.multiset_field_name ||
+            tokens[2].text != program.param_name ||
+            tokens[4].text != program.multiset_field_name ||
+            tokens[6].text != program.delta_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact records-native bag update");
+        }
+    }
+
+    static void parse_records_body_total_line(const std::vector<Token>& tokens, const RecordsProgram& program) {
+        if (tokens.size() != 7) {
+            throw std::runtime_error("native parser prototype expected records-native total line shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "IDENT");
+        expect_kind(tokens, 3, "DOT");
+        expect_kind(tokens, 4, "IDENT");
+        expect_kind(tokens, 5, "PLUS");
+        expect_kind(tokens, 6, "NUMBER");
+        if (
+            tokens[0].text != program.total_field_name ||
+            tokens[2].text != program.param_name ||
+            tokens[4].text != program.total_field_name ||
+            tokens[6].text != "2"
+        ) {
+            throw std::runtime_error("native parser prototype expected exact records-native total update");
+        }
+    }
+
+    static void parse_records_body_end(const std::vector<Token>& tokens) {
+        if (tokens.size() != 1) {
+            throw std::runtime_error("native parser prototype expected records-native body end shape");
+        }
+        expect_kind(tokens, 0, "RPAREN");
+    }
+
+    static void parse_records_base_binding(const std::vector<Token>& tokens, RecordsProgram& program) {
+        if (tokens.size() != 27) {
+            throw std::runtime_error("native parser prototype expected records-native base binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LPAREN");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "COLON");
+        expect_kind(tokens, 5, "LBRACKET");
+        expect_kind(tokens, 6, "NUMBER");
+        expect_kind(tokens, 7, "COMMA");
+        expect_kind(tokens, 8, "NUMBER");
+        expect_kind(tokens, 9, "RBRACKET");
+        expect_kind(tokens, 10, "COMMA");
+        expect_kind(tokens, 11, "IDENT");
+        expect_kind(tokens, 12, "COLON");
+        expect_kind(tokens, 13, "LBRACE");
+        expect_kind(tokens, 14, "NUMBER");
+        expect_kind(tokens, 15, "COLON");
+        expect_kind(tokens, 16, "NUMBER");
+        expect_kind(tokens, 17, "COMMA");
+        expect_kind(tokens, 18, "NUMBER");
+        expect_kind(tokens, 19, "COLON");
+        expect_kind(tokens, 20, "NUMBER");
+        expect_kind(tokens, 21, "RBRACE");
+        expect_kind(tokens, 22, "COMMA");
+        expect_kind(tokens, 23, "IDENT");
+        expect_kind(tokens, 24, "COLON");
+        expect_kind(tokens, 25, "NUMBER");
+        expect_kind(tokens, 26, "RPAREN");
+        if (
+            tokens[3].text != program.vector_field_name ||
+            tokens[11].text != program.multiset_field_name ||
+            tokens[23].text != program.total_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact records-native base binding field order");
+        }
+        program.base_name = tokens[0].text;
+        program.base_vector_first_value = parse_number(tokens[6].text);
+        program.base_vector_second_value = parse_number(tokens[8].text);
+        program.base_multiset_first_key = parse_number(tokens[14].text);
+        program.base_multiset_first_count = static_cast<long long>(parse_number(tokens[16].text));
+        program.base_multiset_second_key = parse_number(tokens[18].text);
+        program.base_multiset_second_count = static_cast<long long>(parse_number(tokens[20].text));
+        program.base_total_value = parse_number(tokens[25].text);
+    }
+
+    static void parse_records_extra_binding(const std::vector<Token>& tokens, RecordsProgram& program) {
+        if (tokens.size() != 7) {
+            throw std::runtime_error("native parser prototype expected records-native extra binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LBRACKET");
+        expect_kind(tokens, 3, "NUMBER");
+        expect_kind(tokens, 4, "COMMA");
+        expect_kind(tokens, 5, "NUMBER");
+        expect_kind(tokens, 6, "RBRACKET");
+        if (tokens[0].text != program.extra_name) {
+            throw std::runtime_error("native parser prototype expected exact records-native extra binding");
+        }
+        program.extra_first_value = parse_number(tokens[3].text);
+        program.extra_second_value = parse_number(tokens[5].text);
+    }
+
+    static void parse_records_delta_binding(const std::vector<Token>& tokens, RecordsProgram& program) {
+        if (tokens.size() != 11) {
+            throw std::runtime_error("native parser prototype expected records-native delta binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "LBRACE");
+        expect_kind(tokens, 3, "NUMBER");
+        expect_kind(tokens, 4, "COLON");
+        expect_kind(tokens, 5, "NUMBER");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "NUMBER");
+        expect_kind(tokens, 8, "COLON");
+        expect_kind(tokens, 9, "NUMBER");
+        expect_kind(tokens, 10, "RBRACE");
+        if (tokens[0].text != program.delta_name) {
+            throw std::runtime_error("native parser prototype expected exact records-native delta binding");
+        }
+        program.delta_first_key = parse_number(tokens[3].text);
+        program.delta_first_count = static_cast<long long>(parse_number(tokens[5].text));
+        program.delta_second_key = parse_number(tokens[7].text);
+        program.delta_second_count = static_cast<long long>(parse_number(tokens[9].text));
+    }
+
+    static void parse_records_emit(const std::vector<Token>& tokens, const RecordsProgram& program) {
+        if (tokens.size() != 9) {
+            throw std::runtime_error("native parser prototype expected records-native emit shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        expect_kind(tokens, 1, "IDENT");
+        expect_kind(tokens, 2, "LPAREN");
+        expect_kind(tokens, 3, "IDENT");
+        expect_kind(tokens, 4, "COMMA");
+        expect_kind(tokens, 5, "IDENT");
+        expect_kind(tokens, 6, "COMMA");
+        expect_kind(tokens, 7, "IDENT");
+        expect_kind(tokens, 8, "RPAREN");
+        if (
+            tokens[1].text != program.function_name ||
+            tokens[3].text != program.base_name ||
+            tokens[5].text != program.extra_name ||
+            tokens[7].text != program.delta_name
+        ) {
+            throw std::runtime_error("native parser prototype only supports ':: step(base, extra, delta)' for records-native");
+        }
+    }
+
+    static void validate_records_program(const RecordsProgram& program) {
+        if (
+            program.function_name.empty() ||
+            program.param_name.empty() ||
+            program.vector_field_name.empty() ||
+            program.multiset_field_name.empty() ||
+            program.total_field_name.empty() ||
+            program.extra_name.empty() ||
+            program.delta_name.empty() ||
+            program.base_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected records-native identifiers");
         }
     }
 
@@ -2857,6 +3897,1355 @@ private:
             throw std::runtime_error("native parser prototype expected named-record-scene-compose identifiers");
         }
     }
+
+    static void parse_named_record_scene_patch_point_typedef(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-patch point typedef shape");
+        if (tokens[5].text != "num" || tokens[9].text != "num") throw std::runtime_error("native parser prototype only supports num point fields in named-record-scene-patch");
+        program.point_type_name = tokens[0].text;
+        program.point_first_field_name = tokens[3].text;
+        program.point_second_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_patch_state_typedef(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected named-record-scene-patch state typedef shape");
+        if (tokens[6].text != "num" || tokens[8].text != "2" || tokens[14].text != "num" || tokens[19].text != "num") {
+            throw std::runtime_error("native parser prototype only supports State : (pts:[num:2], bag:{num}, total:num)");
+        }
+        program.state_type_name = tokens[0].text;
+        program.vector_field_name = tokens[3].text;
+        program.multiset_field_name = tokens[11].text;
+        program.total_field_name = tokens[17].text;
+    }
+
+    static void parse_named_record_scene_patch_scene_typedef(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-patch scene typedef shape");
+        if (tokens[5].text != program.point_type_name || tokens[9].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype scene-patch typedef must reference Point and State");
+        }
+        program.scene_type_name = tokens[0].text;
+        program.anchor_field_name = tokens[3].text;
+        program.state_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_patch_shift_anchor_header(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected shift_anchor header shape");
+        if (tokens[4].text != program.point_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.point_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact shift_anchor shape");
+        }
+        program.shift_anchor_function_name = tokens[0].text;
+        program.shift_anchor_param_name = tokens[2].text;
+        program.shift_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_patch_shift_anchor_body(const std::vector<Token>& tokens, const NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected shift_anchor body shape");
+        if (
+            tokens[1].text != program.point_first_field_name ||
+            tokens[3].text != program.shift_anchor_param_name ||
+            tokens[5].text != program.point_first_field_name ||
+            tokens[7].text != program.shift_anchor_shift_name ||
+            tokens[9].text != program.point_first_field_name ||
+            tokens[11].text != program.point_second_field_name ||
+            tokens[13].text != program.shift_anchor_param_name ||
+            tokens[15].text != program.point_second_field_name ||
+            tokens[17].text != program.shift_anchor_shift_name ||
+            tokens[19].text != program.point_second_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact shift_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_patch_bump_state_header(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 23) throw std::runtime_error("native parser prototype expected bump_state header shape");
+        if (tokens[4].text != program.state_type_name || tokens[9].text != "num" || tokens[11].text != "2" || tokens[17].text != "num" || tokens[21].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact bump_state shape");
+        }
+        program.bump_state_function_name = tokens[0].text;
+        program.bump_state_param_name = tokens[2].text;
+        program.bump_state_extra_name = tokens[6].text;
+        program.bump_state_delta_name = tokens[14].text;
+    }
+
+    static void parse_named_record_scene_patch_bump_state_body(const std::vector<Token>& tokens, const NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected bump_state body shape");
+        if (
+            tokens[1].text != program.vector_field_name ||
+            tokens[3].text != program.bump_state_param_name ||
+            tokens[5].text != program.vector_field_name ||
+            tokens[7].text != program.bump_state_extra_name ||
+            tokens[9].text != program.multiset_field_name ||
+            tokens[11].text != program.bump_state_param_name ||
+            tokens[13].text != program.multiset_field_name ||
+            tokens[15].text != program.bump_state_delta_name ||
+            tokens[17].text != program.total_field_name ||
+            tokens[19].text != program.bump_state_param_name ||
+            tokens[21].text != program.total_field_name ||
+            tokens[23].text != "1"
+        ) {
+            throw std::runtime_error("native parser prototype expected exact bump_state body shape");
+        }
+    }
+
+    static void parse_named_record_scene_patch_move_anchor_header(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected move_anchor header shape");
+        if (tokens[4].text != program.scene_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.scene_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact move_anchor shape");
+        }
+        program.move_anchor_function_name = tokens[0].text;
+        program.move_anchor_scene_name = tokens[2].text;
+        program.move_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_patch_move_anchor_body(const std::vector<Token>& tokens, const NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 18) throw std::runtime_error("native parser prototype expected move_anchor body shape");
+        if (
+            tokens[1].text != program.anchor_field_name ||
+            tokens[3].text != program.shift_anchor_function_name ||
+            tokens[5].text != program.move_anchor_scene_name ||
+            tokens[7].text != program.anchor_field_name ||
+            tokens[9].text != program.move_anchor_shift_name ||
+            tokens[12].text != program.state_field_name ||
+            tokens[14].text != program.move_anchor_scene_name ||
+            tokens[16].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact move_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_patch_base_binding(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 40) throw std::runtime_error("native parser prototype expected scene-patch base binding shape");
+        program.base_name = tokens[1].text;
+        program.base_anchor_first_value = parse_number(tokens[9].text);
+        program.base_anchor_second_value = parse_number(tokens[13].text);
+        program.base_vector_first_value = parse_number(tokens[22].text);
+        program.base_vector_second_value = parse_number(tokens[24].text);
+        program.base_multiset_key = parse_number(tokens[30].text);
+        program.base_multiset_count = static_cast<long long>(parse_number(tokens[32].text));
+        program.base_total_value = parse_number(tokens[37].text);
+    }
+
+    static void parse_named_record_scene_patch_shift_binding(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-patch shift binding shape");
+        program.shift_name = tokens[1].text;
+        program.shift_first_value = parse_number(tokens[6].text);
+        program.shift_second_value = parse_number(tokens[10].text);
+    }
+
+    static void parse_named_record_scene_patch_shifted_binding(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 9) throw std::runtime_error("native parser prototype expected scene-patch shifted binding shape");
+        if (tokens[3].text != program.move_anchor_function_name || tokens[5].text != program.base_name || tokens[7].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-patch shifted binding shape");
+        }
+        program.shifted_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_patch_patched_binding(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-patch patched binding shape");
+        if (tokens[0].text != program.state_type_name || tokens[3].text != program.bump_state_function_name || tokens[5].text != program.shifted_name || tokens[7].text != program.state_field_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-patch patched binding shape");
+        }
+        program.patched_name = tokens[1].text;
+        program.patched_vector_first_value = parse_number(tokens[10].text);
+        program.patched_vector_second_value = parse_number(tokens[12].text);
+        program.patched_multiset_key = parse_number(tokens[16].text);
+        program.patched_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_patch_moved_binding(const std::vector<Token>& tokens, NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 14) throw std::runtime_error("native parser prototype expected scene-patch moved binding shape");
+        if (tokens[4].text != program.anchor_field_name || tokens[6].text != program.shifted_name || tokens[8].text != program.anchor_field_name || tokens[10].text != program.state_field_name || tokens[12].text != program.patched_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-patch moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_patch_emit_anchor_field(const std::vector<Token>& tokens, const NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_first_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.x' for named-record-scene-patch");
+        }
+    }
+
+    static void parse_named_record_scene_patch_emit_total_field(const std::vector<Token>& tokens, const NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.state.total' for named-record-scene-patch");
+        }
+    }
+
+    static void parse_named_record_scene_patch_emit_record(const std::vector<Token>& tokens, const NamedRecordScenePatchProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved' for named-record-scene-patch");
+        }
+    }
+
+    static void validate_named_record_scene_patch_program(const NamedRecordScenePatchProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.move_anchor_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.shifted_name.empty() ||
+            program.patched_name.empty() ||
+            program.moved_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-patch identifiers");
+        }
+    }
+
+    static void parse_named_record_scene_split_point_typedef(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-split point typedef shape");
+        if (tokens[5].text != "num" || tokens[9].text != "num") throw std::runtime_error("native parser prototype only supports num point fields in named-record-scene-split");
+        program.point_type_name = tokens[0].text;
+        program.point_first_field_name = tokens[3].text;
+        program.point_second_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_split_state_typedef(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected named-record-scene-split state typedef shape");
+        if (tokens[6].text != "num" || tokens[8].text != "2" || tokens[14].text != "num" || tokens[19].text != "num") {
+            throw std::runtime_error("native parser prototype only supports State : (pts:[num:2], bag:{num}, total:num)");
+        }
+        program.state_type_name = tokens[0].text;
+        program.vector_field_name = tokens[3].text;
+        program.multiset_field_name = tokens[11].text;
+        program.total_field_name = tokens[17].text;
+    }
+
+    static void parse_named_record_scene_split_scene_typedef(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-split scene typedef shape");
+        if (tokens[5].text != program.point_type_name || tokens[9].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype scene-split typedef must reference Point and State");
+        }
+        program.scene_type_name = tokens[0].text;
+        program.anchor_field_name = tokens[3].text;
+        program.state_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_split_shift_anchor_header(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected shift_anchor header shape");
+        if (tokens[4].text != program.point_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.point_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact shift_anchor shape");
+        }
+        program.shift_anchor_function_name = tokens[0].text;
+        program.shift_anchor_param_name = tokens[2].text;
+        program.shift_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_split_shift_anchor_body(const std::vector<Token>& tokens, const NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected shift_anchor body shape");
+        if (
+            tokens[1].text != program.point_first_field_name ||
+            tokens[3].text != program.shift_anchor_param_name ||
+            tokens[5].text != program.point_first_field_name ||
+            tokens[7].text != program.shift_anchor_shift_name ||
+            tokens[9].text != program.point_first_field_name ||
+            tokens[11].text != program.point_second_field_name ||
+            tokens[13].text != program.shift_anchor_param_name ||
+            tokens[15].text != program.point_second_field_name ||
+            tokens[17].text != program.shift_anchor_shift_name ||
+            tokens[19].text != program.point_second_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact shift_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_split_bump_state_header(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 23) throw std::runtime_error("native parser prototype expected bump_state header shape");
+        if (tokens[4].text != program.state_type_name || tokens[9].text != "num" || tokens[11].text != "2" || tokens[17].text != "num" || tokens[21].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact bump_state shape");
+        }
+        program.bump_state_function_name = tokens[0].text;
+        program.bump_state_param_name = tokens[2].text;
+        program.bump_state_extra_name = tokens[6].text;
+        program.bump_state_delta_name = tokens[14].text;
+    }
+
+    static void parse_named_record_scene_split_bump_state_body(const std::vector<Token>& tokens, const NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected bump_state body shape");
+        if (
+            tokens[1].text != program.vector_field_name ||
+            tokens[3].text != program.bump_state_param_name ||
+            tokens[5].text != program.vector_field_name ||
+            tokens[7].text != program.bump_state_extra_name ||
+            tokens[9].text != program.multiset_field_name ||
+            tokens[11].text != program.bump_state_param_name ||
+            tokens[13].text != program.multiset_field_name ||
+            tokens[15].text != program.bump_state_delta_name ||
+            tokens[17].text != program.total_field_name ||
+            tokens[19].text != program.bump_state_param_name ||
+            tokens[21].text != program.total_field_name ||
+            tokens[23].text != "1"
+        ) {
+            throw std::runtime_error("native parser prototype expected exact bump_state body shape");
+        }
+    }
+
+    static void parse_named_record_scene_split_step_header(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 27) throw std::runtime_error("native parser prototype expected step header shape");
+        if (tokens[4].text != program.scene_type_name || tokens[8].text != program.point_type_name || tokens[13].text != "num" || tokens[15].text != "2" || tokens[21].text != "num" || tokens[25].text != program.scene_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact step shape");
+        }
+        program.step_function_name = tokens[0].text;
+        program.scene_param_name = tokens[2].text;
+        program.shift_param_name = tokens[6].text;
+        program.extra_param_name = tokens[10].text;
+        program.delta_param_name = tokens[18].text;
+    }
+
+    static void parse_named_record_scene_split_step_body(const std::vector<Token>& tokens, const NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected scene-split step body shape");
+        if (
+            tokens[1].text != program.anchor_field_name ||
+            tokens[3].text != program.shift_anchor_function_name ||
+            tokens[5].text != program.scene_param_name ||
+            tokens[7].text != program.anchor_field_name ||
+            tokens[9].text != program.shift_param_name ||
+            tokens[12].text != program.state_field_name ||
+            tokens[14].text != program.bump_state_function_name ||
+            tokens[16].text != program.scene_param_name ||
+            tokens[18].text != program.state_field_name ||
+            tokens[20].text != program.extra_param_name ||
+            tokens[22].text != program.delta_param_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-split step body shape");
+        }
+    }
+
+    static void parse_named_record_scene_split_base_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 40) throw std::runtime_error("native parser prototype expected scene-split base binding shape");
+        program.base_name = tokens[1].text;
+        program.base_anchor_first_value = parse_number(tokens[9].text);
+        program.base_anchor_second_value = parse_number(tokens[13].text);
+        program.base_vector_first_value = parse_number(tokens[22].text);
+        program.base_vector_second_value = parse_number(tokens[24].text);
+        program.base_multiset_key = parse_number(tokens[30].text);
+        program.base_multiset_count = static_cast<long long>(parse_number(tokens[32].text));
+        program.base_total_value = parse_number(tokens[37].text);
+    }
+
+    static void parse_named_record_scene_split_shift_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-split shift binding shape");
+        program.shift_name = tokens[1].text;
+        program.shift_first_value = parse_number(tokens[6].text);
+        program.shift_second_value = parse_number(tokens[10].text);
+    }
+
+    static void parse_named_record_scene_split_staged_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-split staged binding shape");
+        if (tokens[3].text != program.step_function_name || tokens[5].text != program.base_name || tokens[7].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-split staged binding shape");
+        }
+        program.staged_name = tokens[1].text;
+        program.staged_vector_first_value = parse_number(tokens[10].text);
+        program.staged_vector_second_value = parse_number(tokens[12].text);
+        program.staged_multiset_key = parse_number(tokens[16].text);
+        program.staged_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_relay_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 36) throw std::runtime_error("native parser prototype expected scene-relay moved binding shape");
+        if (
+            tokens[0].text != program.scene_type_name ||
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.shift_anchor_function_name ||
+            tokens[8].text != program.staged_name ||
+            tokens[10].text != program.anchor_field_name ||
+            tokens[12].text != program.shift_name ||
+            tokens[15].text != program.state_field_name ||
+            tokens[17].text != program.bump_state_function_name ||
+            tokens[19].text != program.staged_name ||
+            tokens[21].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-relay moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+        program.final_anchor_name = "final_anchor";
+        program.final_state_name = "final_state";
+        program.final_vector_first_value = parse_number(tokens[24].text);
+        program.final_vector_second_value = parse_number(tokens[26].text);
+        program.final_multiset_key = parse_number(tokens[30].text);
+        program.final_multiset_count = static_cast<long long>(parse_number(tokens[32].text));
+    }
+
+    static void parse_named_record_scene_split_final_anchor_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected scene-split final_anchor binding shape");
+        if (tokens[0].text != program.point_type_name || tokens[3].text != program.shift_anchor_function_name || tokens[5].text != program.staged_name || tokens[7].text != program.anchor_field_name || tokens[9].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-split final_anchor binding shape");
+        }
+        program.final_anchor_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_split_final_state_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-split final_state binding shape");
+        if (tokens[0].text != program.state_type_name || tokens[3].text != program.bump_state_function_name || tokens[5].text != program.staged_name || tokens[7].text != program.state_field_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-split final_state binding shape");
+        }
+        program.final_state_name = tokens[1].text;
+        program.final_vector_first_value = parse_number(tokens[10].text);
+        program.final_vector_second_value = parse_number(tokens[12].text);
+        program.final_multiset_key = parse_number(tokens[16].text);
+        program.final_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_split_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-split moved binding shape");
+        if (tokens[4].text != program.anchor_field_name || tokens[6].text != program.final_anchor_name || tokens[8].text != program.state_field_name || tokens[10].text != program.final_state_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-split moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_reverse_moved_state_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 31) throw std::runtime_error("native parser prototype expected scene-reverse moved_state binding shape");
+        if (
+            tokens[0].text != program.scene_type_name ||
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.staged_name ||
+            tokens[8].text != program.anchor_field_name ||
+            tokens[10].text != program.state_field_name ||
+            tokens[12].text != program.bump_state_function_name ||
+            tokens[14].text != program.staged_name ||
+            tokens[16].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-reverse moved_state binding shape");
+        }
+        program.moved_state_name = tokens[1].text;
+        program.final_vector_first_value = parse_number(tokens[19].text);
+        program.final_vector_second_value = parse_number(tokens[21].text);
+        program.final_multiset_key = parse_number(tokens[25].text);
+        program.final_multiset_count = static_cast<long long>(parse_number(tokens[27].text));
+    }
+
+    static void parse_named_record_scene_reverse_final_anchor_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected scene-reverse final_anchor binding shape");
+        if (
+            tokens[0].text != program.point_type_name ||
+            tokens[3].text != program.shift_anchor_function_name ||
+            tokens[5].text != program.moved_state_name ||
+            tokens[7].text != program.anchor_field_name ||
+            tokens[9].text != program.shift_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-reverse final_anchor binding shape");
+        }
+        program.final_anchor_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_reverse_final_state_binding(const std::vector<Token>& tokens, NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 6) throw std::runtime_error("native parser prototype expected scene-reverse final_state binding shape");
+        if (
+            tokens[0].text != program.state_type_name ||
+            tokens[3].text != program.moved_state_name ||
+            tokens[5].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-reverse final_state binding shape");
+        }
+        program.final_state_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_split_emit_anchor_field(const std::vector<Token>& tokens, const NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_second_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.y' for named-record-scene-split");
+        }
+    }
+
+    static void parse_named_record_scene_split_emit_total_field(const std::vector<Token>& tokens, const NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.state.total' for named-record-scene-split");
+        }
+    }
+
+    static void parse_named_record_scene_split_emit_record(const std::vector<Token>& tokens, const NamedRecordSceneSplitProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved' for named-record-scene-split");
+        }
+    }
+
+    static void validate_named_record_scene_split_program(const NamedRecordSceneSplitProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.step_function_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.staged_name.empty() ||
+            program.final_anchor_name.empty() ||
+            program.final_state_name.empty() ||
+            program.moved_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-split identifiers");
+        }
+    }
+
+    static void parse_named_record_scene_rebuild_point_typedef(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-rebuild point typedef shape");
+        if (tokens[5].text != "num" || tokens[9].text != "num") throw std::runtime_error("native parser prototype only supports num point fields in named-record-scene-rebuild");
+        program.point_type_name = tokens[0].text;
+        program.point_first_field_name = tokens[3].text;
+        program.point_second_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_rebuild_state_typedef(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected named-record-scene-rebuild state typedef shape");
+        if (tokens[6].text != "num" || tokens[8].text != "2" || tokens[14].text != "num" || tokens[19].text != "num") {
+            throw std::runtime_error("native parser prototype only supports State : (pts:[num:2], bag:{num}, total:num) in named-record-scene-rebuild");
+        }
+        program.state_type_name = tokens[0].text;
+        program.vector_field_name = tokens[3].text;
+        program.multiset_field_name = tokens[11].text;
+        program.total_field_name = tokens[17].text;
+    }
+
+    static void parse_named_record_scene_rebuild_scene_typedef(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-rebuild scene typedef shape");
+        if (tokens[5].text != program.point_type_name || tokens[9].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype scene-rebuild typedef must reference Point and State");
+        }
+        program.scene_type_name = tokens[0].text;
+        program.anchor_field_name = tokens[3].text;
+        program.state_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_rebuild_shift_anchor_header(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected shift_anchor header shape");
+        if (tokens[4].text != program.point_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.point_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact shift_anchor shape");
+        }
+        program.shift_anchor_function_name = tokens[0].text;
+        program.shift_anchor_param_name = tokens[2].text;
+        program.shift_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_rebuild_shift_anchor_body(const std::vector<Token>& tokens, const NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected shift_anchor body shape");
+        if (
+            tokens[1].text != program.point_first_field_name ||
+            tokens[3].text != program.shift_anchor_param_name ||
+            tokens[5].text != program.point_first_field_name ||
+            tokens[7].text != program.shift_anchor_shift_name ||
+            tokens[9].text != program.point_first_field_name ||
+            tokens[11].text != program.point_second_field_name ||
+            tokens[13].text != program.shift_anchor_param_name ||
+            tokens[15].text != program.point_second_field_name ||
+            tokens[17].text != program.shift_anchor_shift_name ||
+            tokens[19].text != program.point_second_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact shift_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_rebuild_bump_state_header(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 23) throw std::runtime_error("native parser prototype expected bump_state header shape");
+        if (tokens[4].text != program.state_type_name || tokens[9].text != "num" || tokens[11].text != "2" || tokens[17].text != "num" || tokens[21].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact bump_state shape");
+        }
+        program.bump_state_function_name = tokens[0].text;
+        program.bump_state_param_name = tokens[2].text;
+        program.bump_state_extra_name = tokens[6].text;
+        program.bump_state_delta_name = tokens[14].text;
+    }
+
+    static void parse_named_record_scene_rebuild_bump_state_body(const std::vector<Token>& tokens, const NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected bump_state body shape");
+        if (
+            tokens[1].text != program.vector_field_name ||
+            tokens[3].text != program.bump_state_param_name ||
+            tokens[5].text != program.vector_field_name ||
+            tokens[7].text != program.bump_state_extra_name ||
+            tokens[9].text != program.multiset_field_name ||
+            tokens[11].text != program.bump_state_param_name ||
+            tokens[13].text != program.multiset_field_name ||
+            tokens[15].text != program.bump_state_delta_name ||
+            tokens[17].text != program.total_field_name ||
+            tokens[19].text != program.bump_state_param_name ||
+            tokens[21].text != program.total_field_name ||
+            tokens[23].text != "1"
+        ) {
+            throw std::runtime_error("native parser prototype expected exact bump_state body shape");
+        }
+    }
+
+    static void parse_named_record_scene_rebuild_step_header(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 27) throw std::runtime_error("native parser prototype expected step header shape");
+        if (tokens[4].text != program.scene_type_name || tokens[8].text != program.point_type_name || tokens[13].text != "num" || tokens[15].text != "2" || tokens[21].text != "num" || tokens[25].text != program.scene_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact step shape");
+        }
+        program.step_function_name = tokens[0].text;
+        program.scene_param_name = tokens[2].text;
+        program.shift_param_name = tokens[6].text;
+        program.extra_param_name = tokens[10].text;
+        program.delta_param_name = tokens[18].text;
+    }
+
+    static void parse_named_record_scene_rebuild_step_body(const std::vector<Token>& tokens, const NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected scene-rebuild step body shape");
+        if (
+            tokens[1].text != program.anchor_field_name ||
+            tokens[3].text != program.shift_anchor_function_name ||
+            tokens[5].text != program.scene_param_name ||
+            tokens[7].text != program.anchor_field_name ||
+            tokens[9].text != program.shift_param_name ||
+            tokens[12].text != program.state_field_name ||
+            tokens[14].text != program.bump_state_function_name ||
+            tokens[16].text != program.scene_param_name ||
+            tokens[18].text != program.state_field_name ||
+            tokens[20].text != program.extra_param_name ||
+            tokens[22].text != program.delta_param_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-rebuild step body shape");
+        }
+    }
+
+    static void parse_named_record_scene_rebuild_base_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 40) throw std::runtime_error("native parser prototype expected scene-rebuild base binding shape");
+        program.base_name = tokens[1].text;
+        program.base_anchor_first_value = parse_number(tokens[9].text);
+        program.base_anchor_second_value = parse_number(tokens[13].text);
+        program.base_vector_first_value = parse_number(tokens[22].text);
+        program.base_vector_second_value = parse_number(tokens[24].text);
+        program.base_multiset_key = parse_number(tokens[30].text);
+        program.base_multiset_count = static_cast<long long>(parse_number(tokens[32].text));
+        program.base_total_value = parse_number(tokens[37].text);
+    }
+
+    static void parse_named_record_scene_rebuild_shift_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-rebuild shift binding shape");
+        program.shift_name = tokens[1].text;
+        program.shift_first_value = parse_number(tokens[6].text);
+        program.shift_second_value = parse_number(tokens[10].text);
+    }
+
+    static void parse_named_record_scene_rebuild_staged_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-rebuild staged binding shape");
+        if (tokens[3].text != program.step_function_name || tokens[5].text != program.base_name || tokens[7].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-rebuild staged binding shape");
+        }
+        program.staged_name = tokens[1].text;
+        program.staged_vector_first_value = parse_number(tokens[10].text);
+        program.staged_vector_second_value = parse_number(tokens[12].text);
+        program.staged_multiset_key = parse_number(tokens[16].text);
+        program.staged_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_rebuild_moved_anchor_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-rebuild moved_anchor binding shape");
+        if (
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.shift_anchor_function_name ||
+            tokens[8].text != program.staged_name ||
+            tokens[10].text != program.anchor_field_name ||
+            tokens[12].text != program.shift_name ||
+            tokens[15].text != program.state_field_name ||
+            tokens[17].text != program.staged_name ||
+            tokens[19].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-rebuild moved_anchor binding shape");
+        }
+        program.moved_anchor_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_rebuild_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 31) throw std::runtime_error("native parser prototype expected scene-rebuild moved binding shape");
+        if (
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.moved_anchor_name ||
+            tokens[8].text != program.anchor_field_name ||
+            tokens[10].text != program.state_field_name ||
+            tokens[12].text != program.bump_state_function_name ||
+            tokens[14].text != program.moved_anchor_name ||
+            tokens[16].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-rebuild moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+        program.moved_vector_first_value = parse_number(tokens[19].text);
+        program.moved_vector_second_value = parse_number(tokens[21].text);
+        program.moved_multiset_key = parse_number(tokens[25].text);
+        program.moved_multiset_count = static_cast<long long>(parse_number(tokens[27].text));
+    }
+
+    static void parse_named_record_scene_crossfade_moved_state_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 31) throw std::runtime_error("native parser prototype expected scene-crossfade moved_state binding shape");
+        if (
+            tokens[0].text != program.scene_type_name ||
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.staged_name ||
+            tokens[8].text != program.anchor_field_name ||
+            tokens[10].text != program.state_field_name ||
+            tokens[12].text != program.bump_state_function_name ||
+            tokens[14].text != program.staged_name ||
+            tokens[16].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-crossfade moved_state binding shape");
+        }
+        program.moved_state_name = tokens[1].text;
+        program.moved_vector_first_value = parse_number(tokens[19].text);
+        program.moved_vector_second_value = parse_number(tokens[21].text);
+        program.moved_multiset_key = parse_number(tokens[25].text);
+        program.moved_multiset_count = static_cast<long long>(parse_number(tokens[27].text));
+    }
+
+    static void parse_named_record_scene_crossfade_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 16) throw std::runtime_error("native parser prototype expected scene-crossfade moved binding shape");
+        if (
+            tokens[0].text != program.scene_type_name ||
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.moved_anchor_name ||
+            tokens[8].text != program.anchor_field_name ||
+            tokens[10].text != program.state_field_name ||
+            tokens[12].text != program.moved_state_name ||
+            tokens[14].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-crossfade moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_crossfade_emit_anchor_field(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_second_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.y' for named-record-scene-crossfade");
+        }
+        program.emit_anchor_field_name = tokens[5].text;
+    }
+
+    static void parse_named_record_scene_rebuild_emit_anchor_field(const std::vector<Token>& tokens, NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || (tokens[5].text != program.point_first_field_name && tokens[5].text != program.point_second_field_name)) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.x' for named-record-scene-rebuild");
+        }
+        program.emit_anchor_field_name = tokens[5].text;
+    }
+
+    static void parse_named_record_scene_rebuild_emit_total_field(const std::vector<Token>& tokens, const NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.state.total' for named-record-scene-rebuild");
+        }
+    }
+
+    static void parse_named_record_scene_rebuild_emit_record(const std::vector<Token>& tokens, const NamedRecordSceneRebuildProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved' for named-record-scene-rebuild");
+        }
+    }
+
+    static void validate_named_record_scene_rebuild_program(const NamedRecordSceneRebuildProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.step_function_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.staged_name.empty() ||
+            program.moved_anchor_name.empty() ||
+            program.moved_name.empty() ||
+            program.emit_anchor_field_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-rebuild identifiers");
+        }
+    }
+
+    static void parse_named_record_scene_splice_final_anchor_binding(const std::vector<Token>& tokens, NamedRecordSceneSpliceProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected scene-splice final_anchor binding shape");
+        if (tokens[0].text != program.point_type_name || tokens[3].text != program.shift_anchor_function_name || tokens[5].text != program.shifted_name || tokens[7].text != program.anchor_field_name || tokens[9].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-splice final_anchor binding shape");
+        }
+        program.final_anchor_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_splice_final_state_binding(const std::vector<Token>& tokens, NamedRecordSceneSpliceProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-splice final_state binding shape");
+        if (tokens[0].text != program.state_type_name || tokens[3].text != program.bump_state_function_name || tokens[5].text != program.filled_name || tokens[7].text != program.state_field_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-splice final_state binding shape");
+        }
+        program.final_state_name = tokens[1].text;
+        program.final_vector_first_value = parse_number(tokens[10].text);
+        program.final_vector_second_value = parse_number(tokens[12].text);
+        program.final_multiset_key = parse_number(tokens[16].text);
+        program.final_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_splice_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneSpliceProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-splice moved binding shape");
+        if (tokens[4].text != program.anchor_field_name || tokens[6].text != program.final_anchor_name || tokens[8].text != program.state_field_name || tokens[10].text != program.final_state_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-splice moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_splice_emit_anchor_field(const std::vector<Token>& tokens, const NamedRecordSceneSpliceProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_first_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.x' for named-record-scene-splice");
+        }
+    }
+
+    static void parse_named_record_scene_splice_emit_total_field(const std::vector<Token>& tokens, const NamedRecordSceneSpliceProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.state.total' for named-record-scene-splice");
+        }
+    }
+
+    static void parse_named_record_scene_splice_emit_record(const std::vector<Token>& tokens, const NamedRecordSceneSpliceProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved' for named-record-scene-splice");
+        }
+    }
+
+    static void validate_named_record_scene_splice_program(const NamedRecordSceneSpliceProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.move_anchor_function_name.empty() ||
+            program.fill_state_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.shifted_name.empty() ||
+            program.filled_name.empty() ||
+            program.final_anchor_name.empty() ||
+            program.final_state_name.empty() ||
+            program.moved_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-splice identifiers");
+        }
+    }
+
+    static void parse_named_record_scene_fanout_first_anchor_binding(const std::vector<Token>& tokens, NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected scene-fanout first_anchor binding shape");
+        if (tokens[0].text != program.point_type_name || tokens[3].text != program.shift_anchor_function_name || tokens[5].text != program.base_name || tokens[7].text != program.anchor_field_name || tokens[9].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-fanout first_anchor binding shape");
+        }
+        program.first_anchor_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_fanout_first_state_binding(const std::vector<Token>& tokens, NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-fanout first_state binding shape");
+        if (tokens[0].text != program.state_type_name || tokens[3].text != program.bump_state_function_name || tokens[5].text != program.base_name || tokens[7].text != program.state_field_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-fanout first_state binding shape");
+        }
+        program.first_state_name = tokens[1].text;
+        program.first_vector_first_value = parse_number(tokens[10].text);
+        program.first_vector_second_value = parse_number(tokens[12].text);
+        program.first_multiset_key = parse_number(tokens[16].text);
+        program.first_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_fanout_first_binding(const std::vector<Token>& tokens, NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-fanout first binding shape");
+        if (tokens[4].text != program.anchor_field_name || tokens[6].text != program.first_anchor_name || tokens[8].text != program.state_field_name || tokens[10].text != program.first_state_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-fanout first binding shape");
+        }
+        program.first_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_fanout_second_anchor_binding(const std::vector<Token>& tokens, NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected scene-fanout second_anchor binding shape");
+        if (tokens[0].text != program.point_type_name || tokens[3].text != program.shift_anchor_function_name || tokens[5].text != program.first_name || tokens[7].text != program.anchor_field_name || tokens[9].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-fanout second_anchor binding shape");
+        }
+        program.second_anchor_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_fanout_second_state_binding(const std::vector<Token>& tokens, NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected scene-fanout second_state binding shape");
+        if (tokens[0].text != program.state_type_name || tokens[3].text != program.bump_state_function_name || tokens[5].text != program.first_name || tokens[7].text != program.state_field_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-fanout second_state binding shape");
+        }
+        program.second_state_name = tokens[1].text;
+        program.second_vector_first_value = parse_number(tokens[10].text);
+        program.second_vector_second_value = parse_number(tokens[12].text);
+        program.second_multiset_key = parse_number(tokens[16].text);
+        program.second_multiset_count = static_cast<long long>(parse_number(tokens[18].text));
+    }
+
+    static void parse_named_record_scene_fanout_second_binding(const std::vector<Token>& tokens, NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-fanout second binding shape");
+        if (tokens[4].text != program.anchor_field_name || tokens[6].text != program.second_anchor_name || tokens[8].text != program.state_field_name || tokens[10].text != program.second_state_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-fanout second binding shape");
+        }
+        program.second_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_fanout_emit_anchor_field(const std::vector<Token>& tokens, const NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.second_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_first_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: second.anchor.x' for named-record-scene-fanout");
+        }
+    }
+
+    static void parse_named_record_scene_fanout_emit_total_field(const std::vector<Token>& tokens, const NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.second_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: second.state.total' for named-record-scene-fanout");
+        }
+    }
+
+    static void parse_named_record_scene_fanout_emit_record(const std::vector<Token>& tokens, const NamedRecordSceneFanoutProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.second_name) {
+            throw std::runtime_error("native parser prototype expected ':: second' for named-record-scene-fanout");
+        }
+    }
+
+    static void validate_named_record_scene_fanout_program(const NamedRecordSceneFanoutProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.first_anchor_name.empty() ||
+            program.first_state_name.empty() ||
+            program.first_name.empty() ||
+            program.second_anchor_name.empty() ||
+            program.second_state_name.empty() ||
+            program.second_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-fanout identifiers");
+        }
+    }
+
+    static void parse_named_record_scene_checkpoint_point_typedef(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-checkpoint point typedef shape");
+        if (tokens[0].text != "Point" || tokens[5].text != "num" || tokens[9].text != "num") {
+            throw std::runtime_error("native parser prototype only supports exact checkpoint point shape");
+        }
+        program.point_type_name = tokens[0].text;
+        program.point_first_field_name = tokens[3].text;
+        program.point_second_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_state_typedef(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected named-record-scene-checkpoint state typedef shape");
+        if (tokens[0].text != "State" || tokens[6].text != "num" || tokens[8].text != "2" || tokens[14].text != "num" || tokens[19].text != "num") {
+            throw std::runtime_error("native parser prototype only supports exact checkpoint state shape");
+        }
+        program.state_type_name = tokens[0].text;
+        program.vector_field_name = tokens[3].text;
+        program.multiset_field_name = tokens[11].text;
+        program.total_field_name = tokens[17].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_scene_typedef(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-checkpoint scene typedef shape");
+        if (tokens[0].text != "Scene" || tokens[5].text != program.point_type_name || tokens[9].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact checkpoint scene shape");
+        }
+        program.scene_type_name = tokens[0].text;
+        program.anchor_field_name = tokens[3].text;
+        program.state_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_shift_anchor_header(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected checkpoint shift_anchor header shape");
+        if (tokens[4].text != program.point_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.point_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact checkpoint shift_anchor shape");
+        }
+        program.shift_anchor_function_name = tokens[0].text;
+        program.shift_anchor_param_name = tokens[2].text;
+        program.shift_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_shift_anchor_body(const std::vector<Token>& tokens, const NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected checkpoint shift_anchor body shape");
+        if (
+            tokens[2].text != program.point_first_field_name ||
+            tokens[4].text != program.shift_anchor_param_name ||
+            tokens[6].text != program.point_first_field_name ||
+            tokens[8].text != program.shift_anchor_shift_name ||
+            tokens[10].text != program.point_first_field_name ||
+            tokens[12].text != program.point_second_field_name ||
+            tokens[14].text != program.shift_anchor_param_name ||
+            tokens[16].text != program.point_second_field_name ||
+            tokens[18].text != program.shift_anchor_shift_name ||
+            tokens[20].text != program.point_second_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact checkpoint shift_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_checkpoint_bump_state_header(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 23) throw std::runtime_error("native parser prototype expected checkpoint bump_state header shape");
+        if (tokens[4].text != program.state_type_name || tokens[9].text != "num" || tokens[11].text != "2" || tokens[17].text != "num" || tokens[21].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact checkpoint bump_state shape");
+        }
+        program.bump_state_function_name = tokens[0].text;
+        program.bump_state_param_name = tokens[2].text;
+        program.bump_state_extra_name = tokens[6].text;
+        program.bump_state_delta_name = tokens[14].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_bump_state_body(const std::vector<Token>& tokens, const NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected checkpoint bump_state body shape");
+        if (
+            tokens[1].text != program.vector_field_name ||
+            tokens[3].text != program.bump_state_param_name ||
+            tokens[5].text != program.vector_field_name ||
+            tokens[7].text != program.bump_state_extra_name ||
+            tokens[9].text != program.multiset_field_name ||
+            tokens[11].text != program.bump_state_param_name ||
+            tokens[13].text != program.multiset_field_name ||
+            tokens[15].text != program.bump_state_delta_name ||
+            tokens[17].text != program.total_field_name ||
+            tokens[19].text != program.bump_state_param_name ||
+            tokens[21].text != program.total_field_name ||
+            tokens[23].text != "1"
+        ) {
+            throw std::runtime_error("native parser prototype expected exact checkpoint bump_state body shape");
+        }
+    }
+
+    static void parse_named_record_scene_checkpoint_step_header(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 27) throw std::runtime_error("native parser prototype expected checkpoint step header shape");
+        if (tokens[4].text != program.scene_type_name || tokens[8].text != program.point_type_name || tokens[13].text != "num" || tokens[15].text != "2" || tokens[21].text != "num" || tokens[25].text != program.scene_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact checkpoint step shape");
+        }
+        program.step_function_name = tokens[0].text;
+        program.scene_param_name = tokens[2].text;
+        program.shift_param_name = tokens[6].text;
+        program.extra_param_name = tokens[10].text;
+        program.delta_param_name = tokens[18].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_step_body(const std::vector<Token>& tokens, const NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected checkpoint step body shape");
+        if (
+            tokens[1].text != program.anchor_field_name ||
+            tokens[3].text != program.shift_anchor_function_name ||
+            tokens[5].text != program.scene_param_name ||
+            tokens[7].text != program.anchor_field_name ||
+            tokens[9].text != program.shift_param_name ||
+            tokens[12].text != program.state_field_name ||
+            tokens[14].text != program.bump_state_function_name ||
+            tokens[16].text != program.scene_param_name ||
+            tokens[18].text != program.state_field_name ||
+            tokens[20].text != program.extra_param_name ||
+            tokens[22].text != program.delta_param_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact checkpoint step body shape");
+        }
+    }
+
+    static void parse_named_record_scene_checkpoint_base_binding(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 40) throw std::runtime_error("native parser prototype expected checkpoint base binding shape");
+        program.base_name = tokens[1].text;
+        program.base_anchor_first_value = parse_number(tokens[9].text);
+        program.base_anchor_second_value = parse_number(tokens[13].text);
+        program.base_vector_first_value = parse_number(tokens[22].text);
+        program.base_vector_second_value = parse_number(tokens[24].text);
+        program.base_multiset_key = parse_number(tokens[30].text);
+        program.base_multiset_count = static_cast<long long>(parse_number(tokens[32].text));
+        program.base_total_value = parse_number(tokens[37].text);
+    }
+
+    static void parse_named_record_scene_checkpoint_shift_binding(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected checkpoint shift binding shape");
+        program.shift_name = tokens[1].text;
+        program.shift_first_value = parse_number(tokens[6].text);
+        program.shift_second_value = parse_number(tokens[10].text);
+    }
+
+    static void parse_named_record_scene_checkpoint_staged_binding(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected checkpoint staged binding shape");
+        if (tokens[3].text != program.step_function_name || tokens[5].text != program.base_name || tokens[7].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact checkpoint staged binding shape");
+        }
+        program.staged_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_checkpoint_binding(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 4) throw std::runtime_error("native parser prototype expected checkpoint alias shape");
+        if (tokens[0].text != program.scene_type_name || tokens[3].text != program.staged_name) {
+            throw std::runtime_error("native parser prototype expected exact checkpoint alias shape");
+        }
+        program.checkpoint_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 4) throw std::runtime_error("native parser prototype expected checkpoint moved alias shape");
+        if (tokens[0].text != program.scene_type_name || tokens[3].text != program.checkpoint_name) {
+            throw std::runtime_error("native parser prototype expected exact checkpoint moved alias shape");
+        }
+        program.moved_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_emit_anchor_field(const std::vector<Token>& tokens, NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_first_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.x' for named-record-scene-checkpoint");
+        }
+        program.emit_anchor_field_name = tokens[5].text;
+    }
+
+    static void parse_named_record_scene_checkpoint_emit_total_field(const std::vector<Token>& tokens, const NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.state.total' for named-record-scene-checkpoint");
+        }
+    }
+
+    static void parse_named_record_scene_checkpoint_emit_record(const std::vector<Token>& tokens, const NamedRecordSceneCheckpointProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved' for named-record-scene-checkpoint");
+        }
+    }
+
+    static void validate_named_record_scene_checkpoint_program(const NamedRecordSceneCheckpointProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.step_function_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.staged_name.empty() ||
+            program.checkpoint_name.empty() ||
+            program.moved_name.empty() ||
+            program.emit_anchor_field_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-checkpoint identifiers");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_point_typedef(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-overlay point typedef shape");
+        if (tokens[5].text != "num" || tokens[9].text != "num") throw std::runtime_error("native parser prototype only supports num point fields in named-record-scene-overlay");
+        program.point_type_name = tokens[0].text;
+        program.point_first_field_name = tokens[3].text;
+        program.point_second_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_overlay_state_typedef(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected named-record-scene-overlay state typedef shape");
+        if (tokens[6].text != "num" || tokens[8].text != "2" || tokens[14].text != "num" || tokens[19].text != "num") {
+            throw std::runtime_error("native parser prototype only supports State : (pts:[num:2], bag:{num}, total:num) in named-record-scene-overlay");
+        }
+        program.state_type_name = tokens[0].text;
+        program.vector_field_name = tokens[3].text;
+        program.multiset_field_name = tokens[11].text;
+        program.total_field_name = tokens[17].text;
+    }
+
+    static void parse_named_record_scene_overlay_scene_typedef(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 11) throw std::runtime_error("native parser prototype expected named-record-scene-overlay scene typedef shape");
+        if (tokens[5].text != program.point_type_name || tokens[9].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype scene-overlay typedef must reference Point and State");
+        }
+        program.scene_type_name = tokens[0].text;
+        program.anchor_field_name = tokens[3].text;
+        program.state_field_name = tokens[7].text;
+    }
+
+    static void parse_named_record_scene_overlay_shift_anchor_header(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected shift_anchor header shape");
+        if (tokens[4].text != program.point_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.point_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact shift_anchor shape");
+        }
+        program.shift_anchor_function_name = tokens[0].text;
+        program.shift_anchor_param_name = tokens[2].text;
+        program.shift_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_overlay_shift_anchor_body(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 21) throw std::runtime_error("native parser prototype expected shift_anchor body shape");
+        if (
+            tokens[1].text != program.point_first_field_name ||
+            tokens[3].text != program.shift_anchor_param_name ||
+            tokens[5].text != program.point_first_field_name ||
+            tokens[7].text != program.shift_anchor_shift_name ||
+            tokens[9].text != program.point_first_field_name ||
+            tokens[11].text != program.point_second_field_name ||
+            tokens[13].text != program.shift_anchor_param_name ||
+            tokens[15].text != program.point_second_field_name ||
+            tokens[17].text != program.shift_anchor_shift_name ||
+            tokens[19].text != program.point_second_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact shift_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_bump_state_header(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 23) throw std::runtime_error("native parser prototype expected bump_state header shape");
+        if (tokens[4].text != program.state_type_name || tokens[9].text != "num" || tokens[11].text != "2" || tokens[17].text != "num" || tokens[21].text != program.state_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact bump_state shape");
+        }
+        program.bump_state_function_name = tokens[0].text;
+        program.bump_state_param_name = tokens[2].text;
+        program.bump_state_extra_name = tokens[6].text;
+        program.bump_state_delta_name = tokens[14].text;
+    }
+
+    static void parse_named_record_scene_overlay_bump_state_body(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 25) throw std::runtime_error("native parser prototype expected bump_state body shape");
+        if (
+            tokens[1].text != program.vector_field_name ||
+            tokens[3].text != program.bump_state_param_name ||
+            tokens[5].text != program.vector_field_name ||
+            tokens[7].text != program.bump_state_extra_name ||
+            tokens[9].text != program.multiset_field_name ||
+            tokens[11].text != program.bump_state_param_name ||
+            tokens[13].text != program.multiset_field_name ||
+            tokens[15].text != program.bump_state_delta_name ||
+            tokens[17].text != program.total_field_name ||
+            tokens[19].text != program.bump_state_param_name ||
+            tokens[21].text != program.total_field_name ||
+            tokens[23].text != "1"
+        ) {
+            throw std::runtime_error("native parser prototype expected exact bump_state body shape");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_move_anchor_header(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 13) throw std::runtime_error("native parser prototype expected move_anchor header shape");
+        if (tokens[4].text != program.scene_type_name || tokens[8].text != program.point_type_name || tokens[11].text != program.scene_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact move_anchor shape");
+        }
+        program.move_anchor_function_name = tokens[0].text;
+        program.move_anchor_scene_name = tokens[2].text;
+        program.move_anchor_shift_name = tokens[6].text;
+    }
+
+    static void parse_named_record_scene_overlay_move_anchor_body(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 18) throw std::runtime_error("native parser prototype expected move_anchor body shape");
+        if (
+            tokens[1].text != program.anchor_field_name ||
+            tokens[3].text != program.shift_anchor_function_name ||
+            tokens[5].text != program.move_anchor_scene_name ||
+            tokens[7].text != program.anchor_field_name ||
+            tokens[9].text != program.move_anchor_shift_name ||
+            tokens[12].text != program.state_field_name ||
+            tokens[14].text != program.move_anchor_scene_name ||
+            tokens[16].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact move_anchor body shape");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_fill_state_header(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 23) throw std::runtime_error("native parser prototype expected fill_state header shape");
+        if (tokens[4].text != program.scene_type_name || tokens[9].text != "num" || tokens[11].text != "2" || tokens[17].text != "num" || tokens[21].text != program.scene_type_name) {
+            throw std::runtime_error("native parser prototype only supports exact fill_state shape");
+        }
+        program.fill_state_function_name = tokens[0].text;
+        program.fill_state_scene_name = tokens[2].text;
+        program.fill_state_extra_name = tokens[6].text;
+        program.fill_state_delta_name = tokens[14].text;
+    }
+
+    static void parse_named_record_scene_overlay_fill_state_body(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 20) throw std::runtime_error("native parser prototype expected fill_state body shape");
+        if (
+            tokens[1].text != program.anchor_field_name ||
+            tokens[3].text != program.fill_state_scene_name ||
+            tokens[5].text != program.anchor_field_name ||
+            tokens[7].text != program.state_field_name ||
+            tokens[9].text != program.bump_state_function_name ||
+            tokens[11].text != program.fill_state_scene_name ||
+            tokens[13].text != program.state_field_name ||
+            tokens[15].text != program.fill_state_extra_name ||
+            tokens[17].text != program.fill_state_delta_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact fill_state body shape");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_base_binding(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 40) throw std::runtime_error("native parser prototype expected scene-overlay base binding shape");
+        program.base_name = tokens[1].text;
+        program.base_anchor_first_value = parse_number(tokens[9].text);
+        program.base_anchor_second_value = parse_number(tokens[13].text);
+        program.base_vector_first_value = parse_number(tokens[22].text);
+        program.base_vector_second_value = parse_number(tokens[24].text);
+        program.base_multiset_key = parse_number(tokens[30].text);
+        program.base_multiset_count = static_cast<long long>(parse_number(tokens[32].text));
+        program.base_total_value = parse_number(tokens[37].text);
+    }
+
+    static void parse_named_record_scene_overlay_shift_binding(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 12) throw std::runtime_error("native parser prototype expected scene-overlay shift binding shape");
+        program.shift_name = tokens[1].text;
+        program.shift_first_value = parse_number(tokens[6].text);
+        program.shift_second_value = parse_number(tokens[10].text);
+    }
+
+    static void parse_named_record_scene_overlay_shifted_binding(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 9) throw std::runtime_error("native parser prototype expected scene-overlay shifted binding shape");
+        if (tokens[3].text != program.move_anchor_function_name || tokens[5].text != program.base_name || tokens[7].text != program.shift_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-overlay shifted binding shape");
+        }
+        program.shifted_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_overlay_filled_binding(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 19) throw std::runtime_error("native parser prototype expected scene-overlay filled binding shape");
+        if (tokens[3].text != program.fill_state_function_name || tokens[5].text != program.base_name) {
+            throw std::runtime_error("native parser prototype expected exact scene-overlay filled binding shape");
+        }
+        program.filled_name = tokens[1].text;
+        program.filled_vector_first_value = parse_number(tokens[8].text);
+        program.filled_vector_second_value = parse_number(tokens[10].text);
+        program.filled_multiset_key = parse_number(tokens[14].text);
+        program.filled_multiset_count = static_cast<long long>(parse_number(tokens[16].text));
+    }
+
+    static void parse_named_record_scene_overlay_moved_binding(const std::vector<Token>& tokens, NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 16) throw std::runtime_error("native parser prototype expected scene-overlay moved binding shape");
+        if (
+            tokens[4].text != program.anchor_field_name ||
+            tokens[6].text != program.shifted_name ||
+            tokens[8].text != program.anchor_field_name ||
+            tokens[10].text != program.state_field_name ||
+            tokens[12].text != program.filled_name ||
+            tokens[14].text != program.state_field_name
+        ) {
+            throw std::runtime_error("native parser prototype expected exact scene-overlay moved binding shape");
+        }
+        program.moved_name = tokens[1].text;
+    }
+
+    static void parse_named_record_scene_overlay_emit_anchor_field(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.anchor_field_name || tokens[5].text != program.point_first_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.anchor.x' for named-record-scene-overlay");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_emit_total_field(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 6 || tokens[1].text != program.moved_name || tokens[3].text != program.state_field_name || tokens[5].text != program.total_field_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved.state.total' for named-record-scene-overlay");
+        }
+    }
+
+    static void parse_named_record_scene_overlay_emit_record(const std::vector<Token>& tokens, const NamedRecordSceneOverlayProgram& program) {
+        if (tokens.size() != 2 || tokens[1].text != program.moved_name) {
+            throw std::runtime_error("native parser prototype expected ':: moved' for named-record-scene-overlay");
+        }
+    }
+
+    static void validate_named_record_scene_overlay_program(const NamedRecordSceneOverlayProgram& program) {
+        if (
+            program.point_type_name.empty() ||
+            program.state_type_name.empty() ||
+            program.scene_type_name.empty() ||
+            program.shift_anchor_function_name.empty() ||
+            program.bump_state_function_name.empty() ||
+            program.move_anchor_function_name.empty() ||
+            program.fill_state_function_name.empty() ||
+            program.base_name.empty() ||
+            program.shift_name.empty() ||
+            program.shifted_name.empty() ||
+            program.filled_name.empty() ||
+            program.moved_name.empty()
+        ) {
+            throw std::runtime_error("native parser prototype expected named-record-scene-overlay identifiers");
+        }
+    }
 };
 
 static std::string format_number_literal(double value) {
@@ -3275,6 +5664,100 @@ static std::string emit_named_record_collections_cpp(const NamedRecordCollection
         << "    std::cout << vf_format_value(" << program.moved_name << "." << program.vector_field_name << ") << \"\\n\";\n"
         << "    std::cout << vf_format_value(" << program.moved_name << "." << program.multiset_field_name << ") << \"\\n\";\n"
         << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_records_cpp(const RecordsProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct RecordsState {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const RecordsState& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key1, long long count1, double key2, long long count2) {\n"
+        << "    std::map<double, long long> out;\n"
+        << "    if (count1 > 0) out[key1] += count1;\n"
+        << "    if (count2 > 0) out[key2] += count2;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_union(const std::map<double, long long>& left, const std::map<double, long long>& right) {\n"
+        << "    std::map<double, long long> out = left;\n"
+        << "    for (const auto& kv : right) out[kv.first] += kv.second;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << "RecordsState " << program.function_name << "(RecordsState " << program.param_name
+        << ", const std::array<double, 2>& " << program.extra_name << ", const std::map<double, long long>& " << program.delta_name << ") {\n"
+        << "    return RecordsState{"
+        << "vf_array_add(" << program.param_name << "." << program.vector_field_name << ", " << program.extra_name << "), "
+        << "vf_mset_union(" << program.param_name << "." << program.multiset_field_name << ", " << program.delta_name << "), "
+        << program.param_name << "." << program.total_field_name << " + 2.0};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    RecordsState " << program.base_name << "{"
+        << "std::array<double, 2>{" << format_number_literal(program.base_vector_first_value) << ", " << format_number_literal(program.base_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.base_multiset_first_key) << ", " << program.base_multiset_first_count << ", "
+        << format_number_literal(program.base_multiset_second_key) << ", " << program.base_multiset_second_count << "), "
+        << format_number_literal(program.base_total_value) << "};\n"
+        << "    std::array<double, 2> " << program.extra_name << "{"
+        << format_number_literal(program.extra_first_value) << ", " << format_number_literal(program.extra_second_value) << "};\n"
+        << "    std::map<double, long long> " << program.delta_name << " = vf_mset_make("
+        << format_number_literal(program.delta_first_key) << ", " << program.delta_first_count << ", "
+        << format_number_literal(program.delta_second_key) << ", " << program.delta_second_count << ");\n"
+        << "    std::cout << vf_format_value(" << program.function_name << "(" << program.base_name << ", " << program.extra_name << ", " << program.delta_name << ")) << \"\\n\";\n"
         << "    return 0;\n"
         << "}\n";
     return out.str();
@@ -3938,6 +6421,895 @@ static std::string emit_named_record_scene_compose_cpp(const NamedRecordSceneCom
     return out.str();
 }
 
+static std::string emit_named_record_scene_patch_cpp(const NamedRecordScenePatchProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    std::map<double, long long> out;\n"
+        << "    if (count > 0) out[key] = count;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_union(const std::map<double, long long>& left, const std::map<double, long long>& right) {\n"
+        << "    std::map<double, long long> out = left;\n"
+        << "    for (const auto& kv : right) out[kv.first] += kv.second;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name
+        << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{"
+        << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name << ", "
+        << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name
+        << ", const std::array<double, 2>& " << program.bump_state_extra_name
+        << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{"
+        << "vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), "
+        << "vf_mset_union(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), "
+        << program.bump_state_param_name << "." << program.total_field_name << " + 1.0};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.move_anchor_function_name << "(" << program.scene_type_name << " " << program.move_anchor_scene_name
+        << ", " << program.point_type_name << " " << program.move_anchor_shift_name << ") {\n"
+        << "    return " << program.scene_type_name << "{"
+        << program.shift_anchor_function_name << "(" << program.move_anchor_scene_name << "." << program.anchor_field_name << ", " << program.move_anchor_shift_name << "), "
+        << program.move_anchor_scene_name << "." << program.state_field_name << "};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{"
+        << program.point_type_name << "{" << format_number_literal(program.base_anchor_first_value) << ", " << format_number_literal(program.base_anchor_second_value) << "}, "
+        << program.state_type_name << "{std::array<double, 2>{" << format_number_literal(program.base_vector_first_value) << ", " << format_number_literal(program.base_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.base_multiset_key) << ", " << program.base_multiset_count << "), "
+        << format_number_literal(program.base_total_value) << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{"
+        << format_number_literal(program.shift_first_value) << ", " << format_number_literal(program.shift_second_value) << "};\n"
+        << "    " << program.scene_type_name << " " << program.shifted_name << " = " << program.move_anchor_function_name << "("
+        << program.base_name << ", " << program.shift_name << ");\n"
+        << "    " << program.state_type_name << " " << program.patched_name << " = " << program.bump_state_function_name << "("
+        << program.shifted_name << "." << program.state_field_name << ", std::array<double, 2>{"
+        << format_number_literal(program.patched_vector_first_value) << ", " << format_number_literal(program.patched_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.patched_multiset_key) << ", " << program.patched_multiset_count << "));\n"
+        << "    " << program.scene_type_name << " " << program.moved_name << "{"
+        << program.shifted_name << "." << program.anchor_field_name << ", " << program.patched_name << "};\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.anchor_field_name << "." << program.point_first_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_scene_split_cpp(const NamedRecordSceneSplitProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    std::map<double, long long> out;\n"
+        << "    if (count > 0) out[key] = count;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_union(const std::map<double, long long>& left, const std::map<double, long long>& right) {\n"
+        << "    std::map<double, long long> out = left;\n"
+        << "    for (const auto& kv : right) out[kv.first] += kv.second;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name
+        << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{"
+        << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name << ", "
+        << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name
+        << ", const std::array<double, 2>& " << program.bump_state_extra_name
+        << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{"
+        << "vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), "
+        << "vf_mset_union(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), "
+        << program.bump_state_param_name << "." << program.total_field_name << " + 1.0};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.step_function_name << "(" << program.scene_type_name << " " << program.scene_param_name
+        << ", " << program.point_type_name << " " << program.shift_param_name
+        << ", const std::array<double, 2>& " << program.extra_param_name
+        << ", const std::map<double, long long>& " << program.delta_param_name << ") {\n"
+        << "    return " << program.scene_type_name << "{"
+        << program.shift_anchor_function_name << "(" << program.scene_param_name << "." << program.anchor_field_name << ", " << program.shift_param_name << "), "
+        << program.bump_state_function_name << "(" << program.scene_param_name << "." << program.state_field_name << ", " << program.extra_param_name << ", " << program.delta_param_name << ")};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{"
+        << program.point_type_name << "{" << format_number_literal(program.base_anchor_first_value) << ", " << format_number_literal(program.base_anchor_second_value) << "}, "
+        << program.state_type_name << "{std::array<double, 2>{" << format_number_literal(program.base_vector_first_value) << ", " << format_number_literal(program.base_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.base_multiset_key) << ", " << program.base_multiset_count << "), "
+        << format_number_literal(program.base_total_value) << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{"
+        << format_number_literal(program.shift_first_value) << ", " << format_number_literal(program.shift_second_value) << "};\n"
+        << "    " << program.scene_type_name << " " << program.staged_name << " = " << program.step_function_name << "("
+        << program.base_name << ", " << program.shift_name << ", std::array<double, 2>{"
+        << format_number_literal(program.staged_vector_first_value) << ", " << format_number_literal(program.staged_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.staged_multiset_key) << ", " << program.staged_multiset_count << "));\n"
+        << "    " << program.point_type_name << " " << program.final_anchor_name << " = " << program.shift_anchor_function_name << "("
+        << program.staged_name << "." << program.anchor_field_name << ", " << program.shift_name << ");\n"
+        << "    " << program.state_type_name << " " << program.final_state_name << " = " << program.bump_state_function_name << "("
+        << program.staged_name << "." << program.state_field_name << ", std::array<double, 2>{"
+        << format_number_literal(program.final_vector_first_value) << ", " << format_number_literal(program.final_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.final_multiset_key) << ", " << program.final_multiset_count << "));\n"
+        << "    " << program.scene_type_name << " " << program.moved_name << "{"
+        << program.final_anchor_name << ", " << program.final_state_name << "};\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.anchor_field_name << "." << program.point_second_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_scene_rebuild_cpp(const NamedRecordSceneRebuildProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    std::map<double, long long> out;\n"
+        << "    if (count > 0) out[key] = count;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_union(const std::map<double, long long>& left, const std::map<double, long long>& right) {\n"
+        << "    std::map<double, long long> out = left;\n"
+        << "    for (const auto& kv : right) out[kv.first] += kv.second;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name
+        << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{"
+        << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name << ", "
+        << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name
+        << ", const std::array<double, 2>& " << program.bump_state_extra_name
+        << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{"
+        << "vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), "
+        << "vf_mset_union(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), "
+        << program.bump_state_param_name << "." << program.total_field_name << " + 1.0};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.step_function_name << "(" << program.scene_type_name << " " << program.scene_param_name
+        << ", " << program.point_type_name << " " << program.shift_param_name
+        << ", const std::array<double, 2>& " << program.extra_param_name
+        << ", const std::map<double, long long>& " << program.delta_param_name << ") {\n"
+        << "    return " << program.scene_type_name << "{"
+        << program.shift_anchor_function_name << "(" << program.scene_param_name << "." << program.anchor_field_name << ", " << program.shift_param_name << "), "
+        << program.bump_state_function_name << "(" << program.scene_param_name << "." << program.state_field_name << ", " << program.extra_param_name << ", " << program.delta_param_name << ")};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{"
+        << program.point_type_name << "{" << format_number_literal(program.base_anchor_first_value) << ", " << format_number_literal(program.base_anchor_second_value) << "}, "
+        << program.state_type_name << "{std::array<double, 2>{" << format_number_literal(program.base_vector_first_value) << ", " << format_number_literal(program.base_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.base_multiset_key) << ", " << program.base_multiset_count << "), "
+        << format_number_literal(program.base_total_value) << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{"
+        << format_number_literal(program.shift_first_value) << ", " << format_number_literal(program.shift_second_value) << "};\n"
+        << "    " << program.scene_type_name << " " << program.staged_name << " = " << program.step_function_name << "("
+        << program.base_name << ", " << program.shift_name << ", std::array<double, 2>{"
+        << format_number_literal(program.staged_vector_first_value) << ", " << format_number_literal(program.staged_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.staged_multiset_key) << ", " << program.staged_multiset_count << "));\n"
+        << "    " << program.scene_type_name << " " << program.moved_anchor_name << "{"
+        << program.shift_anchor_function_name << "(" << program.staged_name << "." << program.anchor_field_name << ", " << program.shift_name << "), "
+        << program.staged_name << "." << program.state_field_name << "};\n"
+        << "    " << program.scene_type_name << " " << program.moved_name << "{"
+        << program.moved_anchor_name << "." << program.anchor_field_name << ", "
+        << program.bump_state_function_name << "(" << program.moved_anchor_name << "." << program.state_field_name << ", std::array<double, 2>{"
+        << format_number_literal(program.moved_vector_first_value) << ", " << format_number_literal(program.moved_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.moved_multiset_key) << ", " << program.moved_multiset_count << "))};\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.anchor_field_name << "." << program.emit_anchor_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_scene_checkpoint_cpp(const NamedRecordSceneCheckpointProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    return std::map<double, long long>{{key, count}};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_add(std::map<double, long long> left, const std::map<double, long long>& right) {\n"
+        << "    for (const auto& kv : right) left[kv.first] += kv.second;\n"
+        << "    return left;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{" << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name
+        << ", " << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name << ", const std::array<double, 2>& " << program.bump_state_extra_name << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), vf_mset_add(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), " << program.bump_state_param_name << "." << program.total_field_name << " + 1};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.step_function_name << "(" << program.scene_type_name << " " << program.scene_param_name << ", " << program.point_type_name << " " << program.shift_param_name << ", const std::array<double, 2>& " << program.extra_param_name << ", const std::map<double, long long>& " << program.delta_param_name << ") {\n"
+        << "    return " << program.scene_type_name << "{" << program.shift_anchor_function_name << "(" << program.scene_param_name << "." << program.anchor_field_name << ", " << program.shift_param_name << "), " << program.bump_state_function_name << "(" << program.scene_param_name << "." << program.state_field_name << ", " << program.extra_param_name << ", " << program.delta_param_name << ")};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{{" << program.base_anchor_first_value << ", " << program.base_anchor_second_value << "}, {{"
+        << program.base_vector_first_value << ", " << program.base_vector_second_value << "}, vf_mset_make(" << program.base_multiset_key << ", " << program.base_multiset_count << "), " << program.base_total_value << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{" << program.shift_first_value << ", " << program.shift_second_value << "};\n"
+        << "    " << program.scene_type_name << " " << program.staged_name << " = " << program.step_function_name << "(" << program.base_name << ", " << program.shift_name << ", std::array<double, 2>{4, 5}, vf_mset_make(6, 2));\n"
+        << "    " << program.scene_type_name << " " << program.checkpoint_name << " = " << program.staged_name << ";\n"
+        << "    " << program.scene_type_name << " " << program.moved_name << " = " << program.checkpoint_name << ";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.anchor_field_name << "." << program.emit_anchor_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_scene_splice_cpp(const NamedRecordSceneSpliceProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    return std::map<double, long long>{{key, count}};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_add(std::map<double, long long> left, const std::map<double, long long>& right) {\n"
+        << "    for (const auto& kv : right) left[kv.first] += kv.second;\n"
+        << "    return left;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{" << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name
+        << ", " << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name << ", const std::array<double, 2>& " << program.bump_state_extra_name << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), vf_mset_add(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), " << program.bump_state_param_name << "." << program.total_field_name << " + 1};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.move_anchor_function_name << "(" << program.scene_type_name << " " << program.move_anchor_scene_name << ", " << program.point_type_name << " " << program.move_anchor_shift_name << ") {\n"
+        << "    return " << program.scene_type_name << "{" << program.shift_anchor_function_name << "(" << program.move_anchor_scene_name << "." << program.anchor_field_name << ", " << program.move_anchor_shift_name << "), " << program.move_anchor_scene_name << "." << program.state_field_name << "};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.fill_state_function_name << "(" << program.scene_type_name << " " << program.fill_state_scene_name << ", const std::array<double, 2>& " << program.fill_state_extra_name << ", const std::map<double, long long>& " << program.fill_state_delta_name << ") {\n"
+        << "    return " << program.scene_type_name << "{" << program.fill_state_scene_name << "." << program.anchor_field_name << ", " << program.bump_state_function_name << "(" << program.fill_state_scene_name << "." << program.state_field_name << ", " << program.fill_state_extra_name << ", " << program.fill_state_delta_name << ")};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{{" << program.base_anchor_first_value << ", " << program.base_anchor_second_value << "}, {{"
+        << program.base_vector_first_value << ", " << program.base_vector_second_value << "}, vf_mset_make(" << program.base_multiset_key << ", " << program.base_multiset_count << "), " << program.base_total_value << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{" << program.shift_first_value << ", " << program.shift_second_value << "};\n"
+        << "    " << program.scene_type_name << " " << program.shifted_name << " = " << program.move_anchor_function_name << "(" << program.base_name << ", " << program.shift_name << ");\n"
+        << "    " << program.scene_type_name << " " << program.filled_name << " = " << program.fill_state_function_name << "(" << program.base_name << ", std::array<double, 2>{4, 5}, vf_mset_make(6, 2));\n"
+        << "    " << program.point_type_name << " " << program.final_anchor_name << " = " << program.shift_anchor_function_name << "(" << program.shifted_name << "." << program.anchor_field_name << ", " << program.shift_name << ");\n"
+        << "    " << program.state_type_name << " " << program.final_state_name << " = " << program.bump_state_function_name << "(" << program.filled_name << "." << program.state_field_name << ", std::array<double, 2>{1, 1}, vf_mset_make(3, 1));\n"
+        << "    " << program.scene_type_name << " " << program.moved_name << "{" << program.final_anchor_name << ", " << program.final_state_name << "};\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.anchor_field_name << "." << program.point_first_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_scene_fanout_cpp(const NamedRecordSceneFanoutProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    return std::map<double, long long>{{key, count}};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_add(std::map<double, long long> left, const std::map<double, long long>& right) {\n"
+        << "    for (const auto& kv : right) left[kv.first] += kv.second;\n"
+        << "    return left;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{" << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name
+        << ", " << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name << ", const std::array<double, 2>& " << program.bump_state_extra_name << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), vf_mset_add(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), " << program.bump_state_param_name << "." << program.total_field_name << " + 1};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{{" << program.base_anchor_first_value << ", " << program.base_anchor_second_value << "}, {{"
+        << program.base_vector_first_value << ", " << program.base_vector_second_value << "}, vf_mset_make(" << program.base_multiset_key << ", " << program.base_multiset_count << "), " << program.base_total_value << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{" << program.shift_first_value << ", " << program.shift_second_value << "};\n"
+        << "    " << program.point_type_name << " " << program.first_anchor_name << " = " << program.shift_anchor_function_name << "(" << program.base_name << "." << program.anchor_field_name << ", " << program.shift_name << ");\n"
+        << "    " << program.state_type_name << " " << program.first_state_name << " = " << program.bump_state_function_name << "(" << program.base_name << "." << program.state_field_name << ", std::array<double, 2>{4, 5}, vf_mset_make(6, 2));\n"
+        << "    " << program.scene_type_name << " " << program.first_name << "{" << program.first_anchor_name << ", " << program.first_state_name << "};\n"
+        << "    " << program.point_type_name << " " << program.second_anchor_name << " = " << program.shift_anchor_function_name << "(" << program.first_name << "." << program.anchor_field_name << ", " << program.shift_name << ");\n"
+        << "    " << program.state_type_name << " " << program.second_state_name << " = " << program.bump_state_function_name << "(" << program.first_name << "." << program.state_field_name << ", std::array<double, 2>{1, 1}, vf_mset_make(3, 1));\n"
+        << "    " << program.scene_type_name << " " << program.second_name << "{" << program.second_anchor_name << ", " << program.second_state_name << "};\n"
+        << "    std::cout << vf_format_num(" << program.second_name << "." << program.anchor_field_name << "." << program.point_first_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.second_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.second_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_named_record_scene_overlay_cpp(const NamedRecordSceneOverlayProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <algorithm>\n"
+        << "#include <array>\n"
+        << "#include <cmath>\n"
+        << "#include <iomanip>\n"
+        << "#include <iostream>\n"
+        << "#include <map>\n"
+        << "#include <sstream>\n"
+        << "#include <string>\n\n"
+        << "static std::string vf_format_num(double value) {\n"
+        << "    if (std::isfinite(value) && std::floor(value) == value) {\n"
+        << "        std::ostringstream out;\n"
+        << "        out << static_cast<long long>(value);\n"
+        << "        return out.str();\n"
+        << "    }\n"
+        << "    std::ostringstream out;\n"
+        << "    out << std::setprecision(15) << value;\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "template <typename T, std::size_t N>\n"
+        << "static std::string vf_format_value(const std::array<T, N>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"[\";\n"
+        << "    for (std::size_t i = 0; i < N; ++i) {\n"
+        << "        if (i) out << \", \";\n"
+        << "        out << vf_format_num(value[i]);\n"
+        << "    }\n"
+        << "    out << \"]\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const std::map<double, long long>& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"{\";\n"
+        << "    bool first = true;\n"
+        << "    for (const auto& kv : value) {\n"
+        << "        if (!first) out << \", \";\n"
+        << "        first = false;\n"
+        << "        out << vf_format_num(kv.first) << \":\" << kv.second;\n"
+        << "    }\n"
+        << "    out << \"}\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "struct " << program.point_type_name << " {\n"
+        << "    double " << program.point_first_field_name << ";\n"
+        << "    double " << program.point_second_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.state_type_name << " {\n"
+        << "    std::array<double, 2> " << program.vector_field_name << ";\n"
+        << "    std::map<double, long long> " << program.multiset_field_name << ";\n"
+        << "    double " << program.total_field_name << ";\n"
+        << "};\n\n"
+        << "struct " << program.scene_type_name << " {\n"
+        << "    " << program.point_type_name << " " << program.anchor_field_name << ";\n"
+        << "    " << program.state_type_name << " " << program.state_field_name << ";\n"
+        << "};\n\n"
+        << "static std::string vf_format_value(const " << program.point_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.point_first_field_name << ":\" << vf_format_num(value." << program.point_first_field_name << ")\n"
+        << "        << \", " << program.point_second_field_name << ":\" << vf_format_num(value." << program.point_second_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.state_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.vector_field_name << ":\" << vf_format_value(value." << program.vector_field_name << ")\n"
+        << "        << \", " << program.multiset_field_name << ":\" << vf_format_value(value." << program.multiset_field_name << ")\n"
+        << "        << \", " << program.total_field_name << ":\" << vf_format_num(value." << program.total_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::string vf_format_value(const " << program.scene_type_name << "& value) {\n"
+        << "    std::ostringstream out;\n"
+        << "    out << \"(" << program.anchor_field_name << ":\" << vf_format_value(value." << program.anchor_field_name << ")\n"
+        << "        << \", " << program.state_field_name << ":\" << vf_format_value(value." << program.state_field_name << ") << \")\";\n"
+        << "    return out.str();\n"
+        << "}\n\n"
+        << "static std::array<double, 2> vf_array_add(const std::array<double, 2>& left, const std::array<double, 2>& right) {\n"
+        << "    return std::array<double, 2>{left[0] + right[0], left[1] + right[1]};\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_make(double key, long long count) {\n"
+        << "    std::map<double, long long> out;\n"
+        << "    if (count > 0) out[key] = count;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << "static std::map<double, long long> vf_mset_union(const std::map<double, long long>& left, const std::map<double, long long>& right) {\n"
+        << "    std::map<double, long long> out = left;\n"
+        << "    for (const auto& kv : right) out[kv.first] += kv.second;\n"
+        << "    return out;\n"
+        << "}\n\n"
+        << program.point_type_name << " " << program.shift_anchor_function_name << "(" << program.point_type_name << " " << program.shift_anchor_param_name
+        << ", " << program.point_type_name << " " << program.shift_anchor_shift_name << ") {\n"
+        << "    return " << program.point_type_name << "{"
+        << program.shift_anchor_param_name << "." << program.point_first_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_first_field_name << ", "
+        << program.shift_anchor_param_name << "." << program.point_second_field_name << " + " << program.shift_anchor_shift_name << "." << program.point_second_field_name << "};\n"
+        << "}\n\n"
+        << program.state_type_name << " " << program.bump_state_function_name << "(" << program.state_type_name << " " << program.bump_state_param_name
+        << ", const std::array<double, 2>& " << program.bump_state_extra_name
+        << ", const std::map<double, long long>& " << program.bump_state_delta_name << ") {\n"
+        << "    return " << program.state_type_name << "{"
+        << "vf_array_add(" << program.bump_state_param_name << "." << program.vector_field_name << ", " << program.bump_state_extra_name << "), "
+        << "vf_mset_union(" << program.bump_state_param_name << "." << program.multiset_field_name << ", " << program.bump_state_delta_name << "), "
+        << program.bump_state_param_name << "." << program.total_field_name << " + 1.0};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.move_anchor_function_name << "(" << program.scene_type_name << " " << program.move_anchor_scene_name
+        << ", " << program.point_type_name << " " << program.move_anchor_shift_name << ") {\n"
+        << "    return " << program.scene_type_name << "{"
+        << program.shift_anchor_function_name << "(" << program.move_anchor_scene_name << "." << program.anchor_field_name << ", " << program.move_anchor_shift_name << "), "
+        << program.move_anchor_scene_name << "." << program.state_field_name << "};\n"
+        << "}\n\n"
+        << program.scene_type_name << " " << program.fill_state_function_name << "(" << program.scene_type_name << " " << program.fill_state_scene_name
+        << ", const std::array<double, 2>& " << program.fill_state_extra_name
+        << ", const std::map<double, long long>& " << program.fill_state_delta_name << ") {\n"
+        << "    return " << program.scene_type_name << "{"
+        << program.fill_state_scene_name << "." << program.anchor_field_name << ", "
+        << program.bump_state_function_name << "(" << program.fill_state_scene_name << "." << program.state_field_name << ", " << program.fill_state_extra_name << ", " << program.fill_state_delta_name << ")};\n"
+        << "}\n\n"
+        << "int main() {\n"
+        << "    " << program.scene_type_name << " " << program.base_name << "{"
+        << program.point_type_name << "{" << format_number_literal(program.base_anchor_first_value) << ", " << format_number_literal(program.base_anchor_second_value) << "}, "
+        << program.state_type_name << "{std::array<double, 2>{" << format_number_literal(program.base_vector_first_value) << ", " << format_number_literal(program.base_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.base_multiset_key) << ", " << program.base_multiset_count << "), "
+        << format_number_literal(program.base_total_value) << "}};\n"
+        << "    " << program.point_type_name << " " << program.shift_name << "{"
+        << format_number_literal(program.shift_first_value) << ", " << format_number_literal(program.shift_second_value) << "};\n"
+        << "    " << program.scene_type_name << " " << program.shifted_name << " = " << program.move_anchor_function_name << "("
+        << program.base_name << ", " << program.shift_name << ");\n"
+        << "    " << program.scene_type_name << " " << program.filled_name << " = " << program.fill_state_function_name << "("
+        << program.base_name << ", std::array<double, 2>{"
+        << format_number_literal(program.filled_vector_first_value) << ", " << format_number_literal(program.filled_vector_second_value) << "}, "
+        << "vf_mset_make(" << format_number_literal(program.filled_multiset_key) << ", " << program.filled_multiset_count << "));\n"
+        << "    " << program.scene_type_name << " " << program.moved_name << "{"
+        << program.shifted_name << "." << program.anchor_field_name << ", " << program.filled_name << "." << program.state_field_name << "};\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.anchor_field_name << "." << program.point_first_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_num(" << program.moved_name << "." << program.state_field_name << "." << program.total_field_name << ") << \"\\n\";\n"
+        << "    std::cout << vf_format_value(" << program.moved_name << ") << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc < 2) {
@@ -3989,15 +7361,15 @@ def _native_parser_proto_cache_dirs() -> list[Path]:
 def build_native_parser_proto() -> Path:
     source = _native_parser_proto_cpp_source()
     digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
-    exe_name = f"vf_native_parser_proto_{digest}"
+    exe_stem = f"vf_native_parser_proto_{digest}"
     last_error: OSError | None = None
     for out_dir in _native_parser_proto_cache_dirs():
-        compiler_output = out_dir / f"{exe_name}.cpp"
-        exe_path = out_dir / exe_name
+        compiler_output = out_dir / f"{exe_stem}.cpp"
+        exe_path = out_dir / (f"{exe_stem}.exe" if os.name == "nt" else exe_stem)
         if compiler_output.is_file() and exe_path.is_file():
             return exe_path
         try:
-            return compile_cpp_source(source, out_dir, exe_name=exe_name)
+            return compile_cpp_source(source, out_dir, exe_name=exe_stem)
         except OSError as exc:
             last_error = exc
             continue

@@ -40,6 +40,8 @@ from vektorflow.runtime import (
     runtime_collection_spill_values,
     runtime_collection_stringify,
     runtime_collection_to_multiset,
+    runtime_collection_to_list,
+    runtime_collection_rebuild_result,
     runtime_collection_multiset_from_count_pairs,
     runtime_collection_multiset_from_values,
     runtime_collection_take,
@@ -138,8 +140,23 @@ def test_runtime_collection_map_helpers() -> None:
     assert runtime_collection_index_set(m2, "z", 9) is True
     assert runtime_collection_index_get(m2, "z") == 9
     assert runtime_collection_index_read(m2, "z") == (True, 9)
-    assert runtime_collection_index_read([], 0) == (False, None)
-    assert runtime_collection_index_set([], 0, "x") is False
+    plain = {"x": 3}
+    assert runtime_collection_index_set(plain, "z", 9) is True
+    assert plain == {"x": 3, "z": 9}
+    assert runtime_collection_index_read(plain, "z") == (True, 9)
+    with pytest.raises(EvalError, match=r"missing key 'y'"):
+        runtime_collection_index_read(plain, "y")
+    assert runtime_collection_index_read([10, 20, 30], 1) == (True, 20)
+    assert runtime_collection_index_read((10, 20, 30), 1) == (True, 20)
+    assert runtime_collection_index_read("abc", 1) == (True, "b")
+    seq = [1, 2, 3]
+    assert runtime_collection_index_set(seq, 1, 9) is True
+    assert seq == [1, 9, 3]
+    with pytest.raises(IndexError):
+        runtime_collection_index_set([], 0, "x")
+    with pytest.raises(IndexError):
+        runtime_collection_index_read([], 0)
+    assert runtime_collection_index_read(object(), 0) == (False, None)
     with pytest.raises(TypeError):
         runtime_collection_index_get([], 0)
 
@@ -147,15 +164,34 @@ def test_runtime_collection_map_helpers() -> None:
 def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
     assert runtime_collection_take_prefix(make_vflist([1, 2, 3]), 2) == (1, 2)
     assert runtime_collection_take_prefix(make_vfqueue([4, 5, 6]), 2) == (4, 5)
+    assert runtime_collection_take_prefix([7, 8, 9], 2) == (7, 8)
+    assert runtime_collection_take_prefix((10, 11, 12), 2) == (10, 11)
     assert runtime_collection_take(make_vflist([1, 2, 3]), 2) == (1, 2)
     assert runtime_collection_take(make_vfqueue([4, 5, 6]), 2) == (4, 5)
-    assert runtime_collection_take(("not", "runtime"), 2) is None
+    assert runtime_collection_take([7, 8, 9], 2) == (7, 8)
+    assert runtime_collection_take((10, 11, 12), 2) == (10, 11)
+    assert runtime_collection_take(object(), 2) is None
+    assert runtime_collection_to_list(make_vflist([1, 2, 3])) == [1, 2, 3]
+    assert runtime_collection_to_list(make_vfqueue([4, 5, 6])) == [4, 5, 6]
+    assert runtime_collection_to_list([7, 8, 9]) == [7, 8, 9]
+    assert runtime_collection_to_list((10, 11, 12)) == [10, 11, 12]
+    assert runtime_collection_to_list(object()) is None
     with pytest.raises(EvalError, match=r"take: use a sequence or iterator, not a multiset"):
         runtime_collection_take(make_multiset([(1, 2)]), 1)
+    with pytest.raises(EvalError, match=r"to_list: use a sequence or iterator, not a multiset"):
+        runtime_collection_to_list(make_multiset([(1, 2)]))
     assert runtime_collection_expanded_values(make_vflist([1, 2, 3])) == (1, 2, 3)
     assert runtime_collection_values(make_vflist([1, 2, 3])) == (1, 2, 3)
     assert runtime_collection_values(make_vfqueue([4, 5, 6])) == (4, 5, 6)
     assert runtime_collection_expanded_values(make_vfqueue([4, 5, 6])) == (4, 5, 6)
+    assert runtime_collection_values([7, 8, 9]) == (7, 8, 9)
+    assert runtime_collection_values((10, 11, 12)) == (10, 11, 12)
+    assert runtime_collection_values("ab") == ("a", "b")
+    assert runtime_collection_expanded_values([7, 8, 9]) == (7, 8, 9)
+    assert runtime_collection_expanded_values((10, 11, 12)) == (10, 11, 12)
+    assert runtime_collection_expanded_values("ab") == ("a", "b")
+    assert set(runtime_collection_expanded_values(frozenset({13, 14}))) == {13, 14}
+    assert set(runtime_collection_expanded_values({15, 16})) == {15, 16}
     assert runtime_collection_expanded_values(make_multiset([(1, 2), (3, 1)])) == (
         1,
         1,
@@ -193,12 +229,32 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
         1,
         3,
     )
+    assert runtime_collection_elementwise_values([7, 8, 9]) == (7, 8, 9)
+    assert runtime_collection_elementwise_values((10, 11, 12)) == (10, 11, 12)
+    assert runtime_collection_elementwise_values("ab") == ("a", "b")
+    assert set(runtime_collection_elementwise_values(frozenset({13, 14}))) == {13, 14}
+    assert set(runtime_collection_elementwise_values({15, 16})) == {15, 16}
     assert runtime_collection_elementwise_values(make_vflist([1, 2, 3])) is None
     assert runtime_collection_stringify(make_vmap({"b": 2, "a": 1}), str) == "{a:1, b:2}"
     assert runtime_collection_stringify(make_vflist([1, 2, 3]), str) == "[1, 2, 3]"
     assert runtime_collection_stringify(make_vfqueue([4, 5]), str) == "[4, 5]"
+    assert runtime_collection_stringify([7, 8, 9], str) == "[7, 8, 9]"
+    assert runtime_collection_stringify((10, 11, 12), str) == "(10, 11, 12)"
+    assert runtime_collection_stringify((10,), str) == "(10,)"
+    assert runtime_collection_stringify({15, 16}, str) == "{15, 16}"
+    assert runtime_collection_stringify(frozenset({13, 14}), str) == "{13, 14}"
+    assert runtime_collection_stringify(set(), str) == "{}"
     assert runtime_collection_stringify(make_multiset([(1, 2), (3, 1)]), str) == "{1:2, 3:1}"
     assert runtime_collection_stringify(object(), str) is None
+    assert runtime_collection_rebuild_result((1, 2), [3, 4]) == (True, (3, 4))
+    assert runtime_collection_rebuild_result([1, 2], [3, 4]) == (True, [3, 4])
+    assert runtime_collection_rebuild_result("ab", ["a", "a", "b", "b"]) == (True, "aabb")
+    assert runtime_collection_rebuild_result(frozenset({1, 2}), [3, 4]) == (
+        True,
+        frozenset({3, 4}),
+    )
+    assert runtime_collection_rebuild_result({1, 2}, [3, 4]) == (True, {3, 4})
+    assert runtime_collection_rebuild_result(object(), [3, 4]) == (False, None)
     built_ms = runtime_collection_multiset_from_values([1, 1, 3])
     assert isinstance(built_ms, Multiset)
     assert runtime_collection_items_sorted(built_ms) == [(1, 2), (3, 1)]

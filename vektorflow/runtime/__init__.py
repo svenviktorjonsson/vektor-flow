@@ -1,7 +1,25 @@
 """Runtime helpers (multisets, norms, etc.) used by the interpreter."""
 
 from .absnorm import abs_or_norm
-from .axis_tagged import AxisTaggedValue
+from .axis_tagged import (
+    AxisTaggedValue,
+    axis_tagged_binary_op,
+    axis_tagged_data,
+    axis_tagged_idx,
+    axis_tagged_set_idx,
+    axis_tagged_stringify,
+    axis_tagged_wrap,
+    is_axis_tagged_value,
+)
+from .struct_value import (
+    apply_struct_unary_fallback,
+    bind_struct_constructor_fields,
+    combine_struct_values_elementwise,
+    construct_struct_value,
+    read_struct_field,
+    score_struct_type_match,
+    snapshot_scope_record,
+)
 from .collections_runtime import (
     is_runtime_collection,
     make_multiset,
@@ -28,6 +46,8 @@ from .collections_runtime import (
     runtime_collection_items_sorted,
     runtime_collection_keys_sorted,
     runtime_collection_take_prefix,
+    runtime_collection_to_list,
+    runtime_collection_rebuild_result,
     runtime_collection_expanded_values,
     runtime_collection_spill_values,
     runtime_collection_mapped_result,
@@ -44,12 +64,29 @@ from .collections_runtime import (
     runtime_collection_take,
 )
 from .multiset import Multiset, cartesian_binary
+from .value_access import (
+    normalize_runtime_index,
+    runtime_value_index_get,
+    runtime_value_index_set,
+)
 from .vflist import VFLinkedList
 from .vfqueue import VFQueue
 from .vmap import VMap
 
 __all__ = [
     "AxisTaggedValue",
+    "axis_tagged_binary_op",
+    "axis_tagged_data",
+    "axis_tagged_idx",
+    "axis_tagged_set_idx",
+    "axis_tagged_stringify",
+    "axis_tagged_wrap",
+    "apply_struct_unary_fallback",
+    "bind_struct_constructor_fields",
+    "combine_struct_values_elementwise",
+    "construct_struct_value",
+    "read_struct_field",
+    "score_struct_type_match",
     "Multiset",
     "VFLinkedList",
     "VFQueue",
@@ -57,6 +94,7 @@ __all__ = [
     "abs_or_norm",
     "cartesian_binary",
     "is_runtime_collection",
+    "is_axis_tagged_value",
     "make_multiset",
     "make_singleton_vflist",
     "make_vflist",
@@ -66,6 +104,7 @@ __all__ = [
     "make_vmap_from_call",
     "make_vfqueue",
     "make_vfqueue_from_call",
+    "normalize_runtime_index",
     "runtime_collection_ctor_call",
     "runtime_collection_attr",
     "runtime_collection_read_attr",
@@ -81,6 +120,8 @@ __all__ = [
     "runtime_collection_items_sorted",
     "runtime_collection_keys_sorted",
     "runtime_collection_take_prefix",
+    "runtime_collection_to_list",
+    "runtime_collection_rebuild_result",
     "runtime_collection_expanded_values",
     "runtime_collection_spill_values",
     "runtime_collection_mapped_result",
@@ -95,4 +136,7 @@ __all__ = [
     "runtime_collection_set",
     "runtime_collection_kind",
     "runtime_collection_take",
+    "runtime_value_index_get",
+    "runtime_value_index_set",
+    "snapshot_scope_record",
 ]

@@ -11,6 +11,18 @@ import pytest
 from vektorflow.errors import EvalError
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
+from vektorflow.runtime import (
+    AxisTaggedValue,
+    axis_tagged_binary_op,
+    axis_tagged_data,
+    axis_tagged_idx,
+    axis_tagged_set_idx,
+    axis_tagged_stringify,
+    axis_tagged_wrap,
+    is_axis_tagged_value,
+)
+
+
 def _emit(src: str) -> str:
     mod = parse_module(src, filename="<test>")
     ip = Interpreter(Path(__file__))
@@ -64,6 +76,13 @@ v.idx : "ij"
 """
         assert _emit(src) == "ij"
 
+    def test_axis_tagged_display_uses_underlying_value_shape(self) -> None:
+        src = """
+v : [1, 2]_i
+:: v
+"""
+        assert _emit(src) == "(1, 2)"
+
     def test_same_axis_add(self) -> None:
         src = """
 a : [1, 2]_i
@@ -110,3 +129,69 @@ class TestStructNoAxisField:
         v = bind.value
         assert isinstance(v, ast_mod.StructLit)
         assert not hasattr(v, "axis_tag") or getattr(v, "axis_tag", None) is None
+
+
+class TestAxisTaggedRuntimeHelpers:
+    def test_wrap_idx_data_and_predicate_share_runtime_contract(self) -> None:
+        tagged = axis_tagged_wrap((1, 2), "ij")
+        assert isinstance(tagged, AxisTaggedValue)
+        assert is_axis_tagged_value(tagged) is True
+        assert axis_tagged_idx(tagged) == "ij"
+        assert axis_tagged_data(tagged) == (1, 2)
+
+        plain = axis_tagged_wrap((1, 2), None)
+        assert plain == (1, 2)
+        assert is_axis_tagged_value(plain) is False
+        assert axis_tagged_idx(plain) is None
+        assert axis_tagged_data(plain) == (1, 2)
+
+    def test_set_idx_mutates_only_axis_tagged_values(self) -> None:
+        tagged = AxisTaggedValue((1, 2), "i")
+        assert axis_tagged_set_idx(tagged, "ij") is True
+        assert tagged.idx == "ij"
+        assert axis_tagged_set_idx((1, 2), "k") is False
+
+    def test_stringify_delegates_to_runtime_owned_axis_tagged_data(self) -> None:
+        tagged = AxisTaggedValue((1, 2), "i")
+        assert axis_tagged_stringify(tagged, lambda item: repr(item)) == "(1, 2)"
+        assert axis_tagged_stringify((1, 2), lambda item: repr(item)) is None
+
+    def test_axis_tagged_binary_op_adds_matching_tuple_axes(self) -> None:
+        handled, value = axis_tagged_binary_op(
+            "PLUS",
+            AxisTaggedValue((1, 2), "i"),
+            AxisTaggedValue((10, 20), "i"),
+            ValueError,
+        )
+        assert handled is True
+        assert axis_tagged_idx(value) == "i"
+        assert axis_tagged_data(value) == (11, 22)
+
+    def test_axis_tagged_binary_op_scales_tuple_with_scalar(self) -> None:
+        handled, value = axis_tagged_binary_op(
+            "STAR",
+            AxisTaggedValue((1, 2), "i"),
+            3,
+            ValueError,
+        )
+        assert handled is True
+        assert axis_tagged_idx(value) == "i"
+        assert axis_tagged_data(value) == (3.0, 6.0)
+
+    def test_axis_tagged_binary_op_rejects_axis_mismatch(self) -> None:
+        with pytest.raises(ValueError, match="axis mismatch"):
+            axis_tagged_binary_op(
+                "PLUS",
+                AxisTaggedValue((1, 2), "i"),
+                AxisTaggedValue((10, 20), "j"),
+                ValueError,
+            )
+
+    def test_axis_tagged_binary_op_rejects_mixed_tagged_and_untagged(self) -> None:
+        with pytest.raises(ValueError, match="cannot mix axis-tagged and untagged operands"):
+            axis_tagged_binary_op(
+                "PLUS",
+                AxisTaggedValue((1, 2), "i"),
+                (10, 20),
+                ValueError,
+            )

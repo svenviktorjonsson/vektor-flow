@@ -30,15 +30,37 @@ from .stdlib import STDLIB_MODULES, resolve_stdlib
 from .stdlib.events import matches_event_code, event_match_specificity
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
+    apply_struct_unary_fallback,
+    bind_struct_constructor_fields,
+    combine_struct_values_elementwise,
+    construct_struct_value,
     VF_TYPE_KEY,
     default_field_value,
     get_type_name,
     is_struct_dict,
+    merge_struct_values,
+    read_struct_field,
+    score_struct_type_match,
+    snapshot_scope_record,
+    stringify_struct_value,
     struct_tagged,
     with_type,
 )
-from .runtime.compare import struct_eq, struct_lt
+from .runtime.compare import (
+    runtime_match_eq,
+    runtime_match_specificity,
+    struct_compare_binop,
+    struct_eq,
+    struct_lt,
+)
 from .runtime import (
+    axis_tagged_binary_op,
+    axis_tagged_data,
+    axis_tagged_idx,
+    axis_tagged_set_idx,
+    axis_tagged_stringify,
+    axis_tagged_wrap,
+    is_axis_tagged_value,
     runtime_collection_assign_path,
     runtime_collection_contains,
     runtime_collection_ctor_call,
@@ -57,8 +79,13 @@ from .runtime import (
     runtime_collection_multiset_from_count_pairs,
     runtime_collection_multiset_from_values,
     runtime_collection_take,
+    runtime_collection_to_list,
+    runtime_collection_rebuild_result,
     runtime_collection_set,
+    normalize_runtime_index,
     make_vmap,
+    runtime_value_index_get,
+    runtime_value_index_set,
 )
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
@@ -270,8 +297,7 @@ def _is_struct_ctor_body(body: Any) -> bool:
 
 def _local_scope_as_record(env: dict[str, Any]) -> dict[str, Any]:
     """Snapshot of current locals as an untagged record (for ``:`` expression)."""
-    out = {k: v for k, v in env.items() if k != VF_TYPE_KEY}
-    return with_type(None, out)
+    return snapshot_scope_record(env)
 
 
 def _vf_bool_display(b: bool) -> str:
@@ -392,19 +418,10 @@ def _score_params_match(
             score += 2
             continue
         if isinstance(av, dict) and is_struct_dict(av):
-            tag = get_type_name(av)
-            if tag == p.type_name:
-                score += 2
+            struct_score = score_struct_type_match(av, p.type_name, types)
+            if struct_score is not None:
+                score += struct_score
                 continue
-            if tag is None and p.type_name in types:
-                spec = types[p.type_name]
-                if not isinstance(spec, ast.TypeExpr):
-                    continue
-                need = {f[0] for f in spec.fields}
-                have = set(av.keys()) - {VF_TYPE_KEY}
-                if need <= have:
-                    score += 1
-                    continue
         return None
     return score
 
@@ -521,16 +538,6 @@ def _format_type_ast_for_stringify(v: Any) -> str:
     if isinstance(v, ast.FuncType):
         return _format_nested_func_type_for_param(v)
     return "…"
-
-
-def _format_untagged_dict_as_record(
-    v: dict[str, Any],
-    types: dict[str, ast.TypeExpr | ast.FuncType] | None,
-) -> str:
-    keys = [k for k in v if k != VF_TYPE_KEY]
-    keys.sort(key=lambda k: (str(type(k).__name__), str(k)))
-    parts = [f"{_stringify(k, types)}:{_stringify(v[k], types)}" for k in keys]
-    return f"({', '.join(parts)})"
 
 
 def _format_vfunction_display(vf: VFunction) -> str:
@@ -671,11 +678,11 @@ class Interpreter:
         if isinstance(target, ast.Attribute):
             if target.name == "idx":
                 base = self.eval_expr(target.value, env)
-                if not isinstance(base, AxisTaggedValue):
+                if not is_axis_tagged_value(base):
                     raise EvalError(".idx assignment requires an axis-tagged value")
                 if not isinstance(val, str):
                     raise EvalError("idx must be a string")
-                base.idx = val
+                axis_tagged_set_idx(base, val)
                 return
             root_name, keys = _attribute_chain(target)
             if root_name not in env:
@@ -913,37 +920,16 @@ class Interpreter:
         raise EvalError(f"unknown stmt {type(node).__name__}")
 
     def _match_eq(self, a: Any, b: Any) -> bool:
-        if isinstance(a, int) and isinstance(b, int):
-            # Event code matching: exact code vs scoped integer patterns.
-            if matches_event_code(a, b) or matches_event_code(b, a):
-                return True
-        if is_type_value(a) and is_type_value(b):
-            return types_equal(a, b)
-        if bool(is_struct_dict(a) and is_struct_dict(b)):
-            return struct_eq(a, b, self.types)
-        return bool(_binop("EQ", a, b))
+        return runtime_match_eq(a, b, self.types, lambda x, y: bool(_binop("EQ", x, y)))
 
     def _match_specificity(self, a: Any, b: Any) -> int | None:
         """Return match specificity for ``??`` arm selection, or ``None`` when not matched."""
-        if isinstance(a, int) and isinstance(b, int):
-            s = event_match_specificity(a, b)
-            if s is not None:
-                return s
-            s = event_match_specificity(b, a)
-            if s is not None:
-                return s
-            return None
-        if self._match_eq(a, b):
-            return 1_000_000
-        if isinstance(b, ErrorTypeValue) and isinstance(a, BaseException):
-            return error_type_match_specificity(a, b)
-        if is_type_value(b):
-            actual = infer_type(a, self.types)
-            if types_equal(actual, b):
-                return 1
-            if isinstance(b, PrimType) and b.name == "any":
-                return 0
-        return None
+        return runtime_match_specificity(
+            a,
+            b,
+            self.types,
+            lambda x, y: bool(_binop("EQ", x, y)),
+        )
 
     def _eval_match_body(self, body: Any, env: dict[str, Any]) -> None:
         if isinstance(body, ast.Block):
@@ -1103,8 +1089,7 @@ class Interpreter:
             for e in node.elements:
                 if isinstance(e, ast.SpreadArg):
                     v = self.eval_expr(e.expr, env)
-                    if isinstance(v, AxisTaggedValue):
-                        v = v.data
+                    v = axis_tagged_data(v)
                     if isinstance(v, (tuple, list)):
                         out.extend(v)
                     else:
@@ -1114,9 +1099,7 @@ class Interpreter:
                     continue
                 out.append(self.eval_expr(e, env))
             t = tuple(out)
-            if node.axis_tag is not None:
-                return AxisTaggedValue(t, node.axis_tag)
-            return t
+            return axis_tagged_wrap(t, node.axis_tag)
         if isinstance(node, ast.ListLit):
             if len(node.elements) == 1 and isinstance(
                 node.elements[0], ast.RangeExpr
@@ -1134,7 +1117,7 @@ class Interpreter:
                 r = self.eval_expr(re0, env)
                 seq = list(r)
                 if node.axis_tag is not None:
-                    return AxisTaggedValue(tuple(seq), node.axis_tag)
+                    return axis_tagged_wrap(tuple(seq), node.axis_tag)
                 return seq
             out: list[Any] = []
             for e in node.elements:
@@ -1157,7 +1140,7 @@ class Interpreter:
                     continue
                 out.append(self.eval_expr(e, env))
             if node.axis_tag is not None:
-                return AxisTaggedValue(tuple(out), node.axis_tag)
+                return axis_tagged_wrap(tuple(out), node.axis_tag)
             return out
         if isinstance(node, ast.StructLit):
             return {
@@ -1172,9 +1155,7 @@ class Interpreter:
                 key = self.eval_expr(ke, env)
                 pairs.append((key, self.eval_expr(ce, env)))
             m = runtime_collection_multiset_from_count_pairs(pairs)
-            if node.axis_tag is not None:
-                return AxisTaggedValue(m, node.axis_tag)
-            return m
+            return axis_tagged_wrap(m, node.axis_tag)
         if isinstance(node, ast.RangeExpr):
             if node.end is None:
                 if node.start is None:
@@ -1252,8 +1233,10 @@ class Interpreter:
             return self._call(fn, pos, env)
         if isinstance(node, ast.Attribute):
             o = self.eval_expr(node.value, env)
-            if node.name == "idx" and isinstance(o, AxisTaggedValue):
-                return o.idx
+            if node.name == "idx":
+                idx = axis_tagged_idx(o)
+                if idx is not None:
+                    return idx
             if isinstance(o, VStructCtor):
                 raise EvalError(
                     f"{o.name} is a struct constructor; call {o.name}(...) to get a value"
@@ -1278,8 +1261,10 @@ class Interpreter:
             if collection_attr is not None:
                 return collection_attr
             if isinstance(o, dict):
-                if node.name in o:
-                    return o[node.name]
+                try:
+                    return read_struct_field(o, node.name, EvalError)
+                except EvalError:
+                    pass
                 if is_struct_dict(o):
                     variants = self.op_overloads.get(".") or []
                     fn = _pick_best_overload([f for f in variants if len(f.params) == 2], [o, node.name], self.types)
@@ -1378,26 +1363,15 @@ class Interpreter:
         _env: dict[str, Any],
     ) -> Any:
         # _env / fn.closure reserved for future default expressions
-        params = fn.params
-        by_name: dict[str, Any] = {}
-        for i, a in enumerate(pos):
-            if i >= len(params):
-                raise EvalError(f"{fn.name}: too many positional arguments")
-            pname = params[i].name
-            if pname in by_name:
-                raise EvalError(f"{fn.name}: multiple values for field {pname!r}")
-            by_name[pname] = coerce_value(a, params[i].type_name)
-        for k, v in kw.items():
-            if k not in {p.name for p in params}:
-                raise EvalError(f"{fn.name}: unknown field {k!r}")
-            if k in by_name:
-                raise EvalError(f"{fn.name}: multiple values for field {k!r}")
-            pt = next(p.type_name for p in params if p.name == k)
-            by_name[k] = coerce_value(v, pt)
-        for p in params:
-            if p.name not in by_name:
-                raise EvalError(f"{fn.name}: missing field {p.name!r}")
-        return with_type(fn.name, by_name)
+        by_name = bind_struct_constructor_fields(
+            fn.name,
+            fn.params,
+            pos,
+            kw,
+            coerce_value,
+            EvalError,
+        )
+        return construct_struct_value(fn.name, by_name)
 
     def _eval_function_body(self, body: Any, env: dict[str, Any]) -> Any:
         """Implicit return: only the last *function-scope* statement counts.
@@ -1468,13 +1442,12 @@ class Interpreter:
             fn = _pick_best_overload(f1, [v], self.types)
             if fn is not None:
                 return self._call(fn, [v], env)
+        handled, result = apply_struct_unary_fallback(node.op, v, EvalError)
+        if handled:
+            return result
         if node.op == "MINUS":
-            if isinstance(v, dict):
-                raise EvalError("struct negation requires -(a): … overload")
             return -v
         if node.op == "NOT":
-            if isinstance(v, dict) and is_struct_dict(v):
-                raise EvalError("struct ~ requires ~(a): … overload")
             return not bool(v)
         raise EvalError(f"unknown unary {node.op}")
 
@@ -1508,17 +1481,8 @@ class Interpreter:
         def _foreach_element(
             fn: Any,
         ) -> None:
-            if isinstance(left_v, AxisTaggedValue):
-                d = left_v.data
-                if isinstance(d, tuple):
-                    for el in d:
-                        try:
-                            fn(el)
-                        except BreakSignal:
-                            break
-                        except ContinueSignal:
-                            continue
-                    return
+            if is_axis_tagged_value(left_v):
+                d = axis_tagged_data(left_v)
                 runtime_values = runtime_collection_elementwise_values(d)
                 if runtime_values is not None:
                     for el in runtime_values:
@@ -1535,51 +1499,6 @@ class Interpreter:
                     return
                 except ContinueSignal:
                     return
-                return
-            if isinstance(left_v, tuple):
-                for el in left_v:
-                    try:
-                        fn(el)
-                    except BreakSignal:
-                        break
-                    except ContinueSignal:
-                        continue
-                return
-            if isinstance(left_v, list):
-                for el in left_v:
-                    try:
-                        fn(el)
-                    except BreakSignal:
-                        break
-                    except ContinueSignal:
-                        continue
-                return
-            if isinstance(left_v, str):
-                for ch in left_v:
-                    try:
-                        fn(ch)
-                    except BreakSignal:
-                        break
-                    except ContinueSignal:
-                        continue
-                return
-            if isinstance(left_v, frozenset):
-                for el in left_v:
-                    try:
-                        fn(el)
-                    except BreakSignal:
-                        break
-                    except ContinueSignal:
-                        continue
-                return
-            if isinstance(left_v, set):
-                for el in left_v:
-                    try:
-                        fn(el)
-                    except BreakSignal:
-                        break
-                    except ContinueSignal:
-                        continue
                 return
             runtime_values = runtime_collection_elementwise_values(left_v)
             if runtime_values is not None:
@@ -1607,8 +1526,8 @@ class Interpreter:
             except ContinueSignal:
                 return
 
-        if isinstance(left_v, AxisTaggedValue):
-            d = left_v.data
+        if is_axis_tagged_value(left_v):
+            d = axis_tagged_data(left_v)
             if isinstance(d, tuple):
                 out_t: list[Any] = []
 
@@ -1618,7 +1537,9 @@ class Interpreter:
                     )
 
                 _foreach_element(_collect)
-                return AxisTaggedValue(tuple(out_t), left_v.idx)
+                handled, rebuilt = runtime_collection_rebuild_result(d, out_t)
+                if handled:
+                    return axis_tagged_wrap(rebuilt, axis_tagged_idx(left_v))
             if runtime_collection_preserves_pipe_result(d):
                 out: list[Any] = []
 
@@ -1628,7 +1549,7 @@ class Interpreter:
                 _foreach_element(_mset)
                 handled, mapped = runtime_collection_pipe_result(d, out)
                 if handled:
-                    return AxisTaggedValue(mapped, left_v.idx)
+                    return axis_tagged_wrap(mapped, axis_tagged_idx(left_v))
             return self._pipe_one_element_through_segments(left_v, segs, env)
 
         if isinstance(left_v, tuple):
@@ -1638,7 +1559,9 @@ class Interpreter:
                 out.append(self._pipe_one_element_through_segments(el, segs, env))
 
             _foreach_element(_t)
-            return tuple(out)
+            handled, rebuilt = runtime_collection_rebuild_result(left_v, out)
+            if handled:
+                return rebuilt
         if isinstance(left_v, list):
             out_l: list[Any] = []
 
@@ -1646,7 +1569,9 @@ class Interpreter:
                 out_l.append(self._pipe_one_element_through_segments(el, segs, env))
 
             _foreach_element(_l)
-            return out_l
+            handled, rebuilt = runtime_collection_rebuild_result(left_v, out_l)
+            if handled:
+                return rebuilt
         if isinstance(left_v, str):
             parts: list[str] = []
 
@@ -1656,7 +1581,9 @@ class Interpreter:
                 )
 
             _foreach_element(_s)
-            return "".join(parts)
+            handled, rebuilt = runtime_collection_rebuild_result(left_v, parts)
+            if handled:
+                return rebuilt
         if isinstance(left_v, frozenset):
             out_f: list[Any] = []
 
@@ -1664,7 +1591,9 @@ class Interpreter:
                 out_f.append(self._pipe_one_element_through_segments(el, segs, env))
 
             _foreach_element(_f)
-            return frozenset(out_f)
+            handled, rebuilt = runtime_collection_rebuild_result(left_v, out_f)
+            if handled:
+                return rebuilt
         if isinstance(left_v, set):
             out_s: list[Any] = []
 
@@ -1672,7 +1601,9 @@ class Interpreter:
                 out_s.append(self._pipe_one_element_through_segments(el, segs, env))
 
             _foreach_element(_st)
-            return set(out_s)
+            handled, rebuilt = runtime_collection_rebuild_result(left_v, out_s)
+            if handled:
+                return rebuilt
         if runtime_collection_preserves_pipe_result(left_v):
             out_ms: list[Any] = []
 
@@ -1711,21 +1642,10 @@ class Interpreter:
                 return self._call(fn, [a, b], env)
         if sym and sd:
             if node.op == "AMPERSAND":
-                return _struct_merge_concat(a, b)
-            if node.op == "LT":
-                return struct_lt(a, b, self.types)
-            if node.op == "LE":
-                return struct_lt(a, b, self.types) or struct_eq(
-                    a, b, self.types
-                )
-            if node.op == "GT":
-                return struct_lt(b, a, self.types)
-            if node.op == "GE":
-                return not struct_lt(a, b, self.types)
-            if node.op == "EQ":
-                return struct_eq(a, b, self.types)
-            if node.op == "NEQ":
-                return not struct_eq(a, b, self.types)
+                return merge_struct_values(a, b)
+            comparison = struct_compare_binop(node.op, a, b, self.types)
+            if comparison is not None:
+                return comparison
             if node.op in (
                 "PLUS",
                 "MINUS",
@@ -1877,8 +1797,8 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
     k = int(n)
     if k < 0:
         raise EvalError("take: count must be non-negative")
-    if isinstance(seq, AxisTaggedValue):
-        return _builtin_take(k, seq.data)
+    if is_axis_tagged_value(seq):
+        return _builtin_take(k, axis_tagged_data(seq))
     if isinstance(seq, LazyList):
         return seq.take_prefix(k)
     if isinstance(seq, LazyInfiniteIterator):
@@ -1886,8 +1806,6 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
     runtime_taken = runtime_collection_take(seq, k)
     if runtime_taken is not None:
         return runtime_taken
-    if isinstance(seq, (list, tuple)):
-        return tuple(seq[:k])
     if isinstance(seq, (str, bytes)):
         raise EvalError("take: use a sequence or iterator, not str/bytes")
     if isinstance(seq, dict):
@@ -1900,7 +1818,11 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
 
 def _builtin_to_list(n: Any, seq: Any) -> list[Any]:
     """Materialize the first ``n`` elements of a generator or sequence into a Python list."""
-    return list(_builtin_take(n, seq))
+    taken = _builtin_take(n, seq)
+    runtime_list = runtime_collection_to_list(taken)
+    if runtime_list is not None:
+        return runtime_list
+    return list(taken)
 
 
 def _builtin_to_multiset(n: Any, seq: Any) -> Multiset:
@@ -1909,80 +1831,37 @@ def _builtin_to_multiset(n: Any, seq: Any) -> Multiset:
 
 
 def _dotted_get_one(base: Any, k: Any) -> Any:
-    if isinstance(base, AxisTaggedValue):
-        return _dotted_get_one(base.data, k)
-    if isinstance(base, LazyList):
-        return base.get_at(_normalize_index(k))
-    handled, value = runtime_collection_index_read(base, _normalize_index(k))
+    handled, value = runtime_value_index_get(
+        base,
+        k,
+        EvalError,
+        runtime_collection_index_read,
+    )
     if handled:
         return value
-    if isinstance(base, list):
-        return base[_normalize_index(k)]
-    if isinstance(base, dict):
-        if k not in base:
-            raise EvalError(f"missing key {k!r}")
-        return base[k]
-    if isinstance(base, tuple):
-        return base[_normalize_index(k)]
-    if isinstance(base, str):
-        return base[_normalize_index(k)]
     raise EvalError(".(...) on unsupported value")
 
 
 def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
-    if isinstance(container, LazyList):
-        raise EvalError("cannot assign through index on lazy list")
-    if runtime_collection_index_set(container, _normalize_index(k), val):
+    if runtime_value_index_set(
+        container,
+        k,
+        val,
+        EvalError,
+        runtime_collection_index_set,
+    ):
         return
-    if isinstance(container, list):
-        container[_normalize_index(k)] = val
-    elif isinstance(container, dict):
-        container[k] = val
-    else:
-        raise EvalError("cannot assign through .() on this value")
+    raise EvalError("cannot assign through .() on this value")
 
 
 def _normalize_index(idx: Any) -> Any:
-    if isinstance(idx, bool):
-        raise EvalError("index must be int or str")
-    if isinstance(idx, float) and idx == int(idx):
-        return int(idx)
-    if isinstance(idx, int):
-        return idx
-    if isinstance(idx, str):
-        return idx
-    raise EvalError("index must be int or str")
+    return normalize_runtime_index(idx, EvalError)
 
 
 def _materialize_inclusive_range(lo: int, hi: int) -> tuple:
     if lo <= hi:
         return tuple(range(lo, hi + 1))
     return tuple(range(lo, hi - 1, -1))
-
-
-def _format_tagged_struct_record(
-    v: dict[str, Any],
-    types: dict[str, ast.TypeExpr | ast.FuncType] | None,
-) -> str:
-    """Print tagged values as ``Point(x:1, y:2)`` (constructor-style; field order from the type when known)."""
-    tname = get_type_name(v)
-    if not tname:
-        keys = [k for k in v if k != VF_TYPE_KEY]
-        parts = [f"{k}:{_stringify(v[k], types)}" for k in keys]
-        return f"({', '.join(parts)})"
-    keys: list[str]
-    if types is not None and tname in types:
-        spec = types[tname]
-        if isinstance(spec, ast.TypeExpr):
-            keys = [f[0] for f in spec.fields if f[0] in v and f[0] != VF_TYPE_KEY]
-        else:
-            keys = [k for k in v if k != VF_TYPE_KEY]
-    else:
-        keys = [k for k in v if k != VF_TYPE_KEY]
-    parts: list[str] = []
-    for k in keys:
-        parts.append(f"{k}:{_stringify(v[k], types)}")
-    return f"{tname}({', '.join(parts)})"
 
 
 def _stringify_op_callable(o: OpCallable) -> str:
@@ -2007,11 +1886,17 @@ def _stringify(
     if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
         return _format_type_ast_for_stringify(v)
     if isinstance(v, dict) and is_struct_dict(v):
-        if struct_tagged(v):
-            return _format_tagged_struct_record(v, types)
-        return _format_untagged_dict_as_record(v, types)
-    if isinstance(v, AxisTaggedValue):
-        return _stringify(v.data, types)
+        return stringify_struct_value(
+            v,
+            types,
+            lambda item: _stringify(item, types),
+        )
+    axis_tagged_string = axis_tagged_stringify(
+        v,
+        lambda item: _stringify(item, types),
+    )
+    if axis_tagged_string is not None:
+        return axis_tagged_string
     runtime_string = runtime_collection_stringify(
         v,
         lambda item: _stringify(item, types),
@@ -2041,17 +1926,6 @@ def _stringify(
         if len(hx) > 64:
             return f"byte(len {len(v)})"
         return f"byte[{hx}]"
-    if isinstance(v, list):
-        return "[" + ", ".join(_stringify(x, types) for x in v) + "]"
-    if isinstance(v, tuple):
-        if len(v) == 1:
-            return f"({_stringify(v[0], types)},)"
-        return "(" + ", ".join(_stringify(x, types) for x in v) + ")"
-    if isinstance(v, (set, frozenset)):
-        if not v:
-            return "{}"
-        ordered = sorted(v, key=lambda x: (str(type(x).__name__), str(x)))
-        return "{" + ", ".join(_stringify(x, types) for x in ordered) + "}"
     if getattr(type(v), "__vf_py_attrs__", False):
         # Host-backed values (e.g. UI events): print their public attributes as a record.
         try:
@@ -2067,106 +1941,10 @@ def _stringify(
     return "…"
 
 
-def _struct_merge_concat(a: dict, b: dict) -> dict:
-    """``a & b`` for structs: fields from ``a`` then ``b``; duplicate keys take ``b``."""
-    ta, tb = get_type_name(a), get_type_name(b)
-    out: dict[str, Any] = {}
-    for k, v in a.items():
-        if k == VF_TYPE_KEY:
-            continue
-        out[k] = v
-    for k, v in b.items():
-        if k == VF_TYPE_KEY:
-            continue
-        out[k] = v
-    if ta and ta == tb:
-        return with_type(ta, out)
-    return with_type(None, out)
-
-
 def _binop(op: str, a: Any, b: Any) -> Any:
-    if isinstance(a, AxisTaggedValue) and isinstance(b, AxisTaggedValue):
-        if a.idx != b.idx:
-            raise EvalError(f"axis mismatch: {a.idx!r} vs {b.idx!r}")
-        ad, bd = a.data, b.data
-        if op == "AMPERSAND":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                return AxisTaggedValue(ad + bd, a.idx)
-            if isinstance(ad, list) and isinstance(bd, list):
-                return AxisTaggedValue(ad + bd, a.idx)
-            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a.idx,
-                )
-            raise EvalError(
-                "unsupported types inside axis-tagged values for & "
-                "(use tuple, vector, or multiset)"
-            )
-        if op == "PLUS":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for +")
-                return AxisTaggedValue(
-                    tuple(x + y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a.idx,
-                )
-        if op == "MINUS":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for -")
-                return AxisTaggedValue(
-                    tuple(x - y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(multiset_difference(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a.idx,
-                )
-        if op == "STAR":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for *")
-                return AxisTaggedValue(
-                    tuple(x * y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(multiset_intersection(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a.idx,
-                )
-        if op == "SLASH":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for /")
-                return AxisTaggedValue(
-                    tuple(x / y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(
-                        multiset_symmetric_difference(ad, bd), combine_typed_multiset_types(ad, bd)
-                    ),
-                    a.idx,
-                )
-        raise EvalError(
-            f"unsupported operator {op!r} for two axis-tagged values of these types"
-        )
-    if op == "STAR":
-        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
-            if isinstance(a.data, tuple):
-                bf = float(b)
-                return AxisTaggedValue(tuple(bf * x for x in a.data), a.idx)
-        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
-            if isinstance(b.data, tuple):
-                af = float(a)
-                return AxisTaggedValue(tuple(af * x for x in b.data), b.idx)
-    if isinstance(a, AxisTaggedValue) or isinstance(b, AxisTaggedValue):
-        raise EvalError("cannot mix axis-tagged and untagged operands")
+    axis_handled, axis_result = axis_tagged_binary_op(op, a, b, EvalError)
+    if axis_handled:
+        return axis_result
     if op == "AMPERSAND":
         if isinstance(a, str) and isinstance(b, str):
             return a + b
@@ -2177,7 +1955,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         if isinstance(a, dict) and isinstance(b, dict) and is_struct_dict(a) and is_struct_dict(b):
-            return _struct_merge_concat(a, b)
+            return merge_struct_values(a, b)
         raise EvalError(
             f"unsupported operand types for &: {type(a).__name__!r} and {type(b).__name__!r}"
         )
@@ -2277,32 +2055,12 @@ def _default_struct_elementwise_binop(
     types: dict[str, ast.TypeExpr | ast.FuncType],
 ) -> dict | None:
     """Element-wise ``+ - * / % ^`` on two struct dicts with the same shape; ``None`` if not applicable."""
-    ta, tb = get_type_name(a), get_type_name(b)
-    if (ta is None) != (tb is None):
-        return None
-    if ta is not None and tb is not None and ta != tb:
-        return None
-    keys_a = {k for k in a if k != VF_TYPE_KEY}
-    keys_b = {k for k in b if k != VF_TYPE_KEY}
-    if keys_a != keys_b:
-        return None
-    if not keys_a:
-        return with_type(ta, {}) if ta else {}
-
-    if ta and ta in types and isinstance(types[ta], ast.TypeExpr):
-        order = [f[0] for f in types[ta].fields if f[0] in keys_a]
-        for k in sorted(keys_a):
-            if k not in order:
-                order.append(k)
-    else:
-        order = sorted(keys_a)
-
-    out: dict[str, Any] = {}
-    for k in order:
-        if k not in keys_a:
-            continue
-        out[k] = _combine_field_values_for_struct(op, a[k], b[k], types)
-    return with_type(ta, out) if ta else out
+    return combine_struct_values_elementwise(
+        a,
+        b,
+        types,
+        lambda av, bv: _combine_field_values_for_struct(op, av, bv, types),
+    )
 
 
 def run_file(path: Path) -> None:

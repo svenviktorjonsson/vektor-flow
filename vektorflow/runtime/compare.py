@@ -2,10 +2,80 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from .. import ast
+from ..errors import ErrorTypeValue, error_type_match_specificity
+from ..stdlib.events import event_match_specificity, matches_event_code
 from .struct_value import VF_TYPE_KEY, field_order_for_compare, get_type_name
+from .type_values import PrimType, infer_type, is_type_value, types_equal
+
+
+def struct_compare_binop(
+    op: str,
+    a: dict,
+    b: dict,
+    types: dict[str, ast.TypeExpr | ast.FuncType],
+) -> bool | None:
+    """Apply a comparison operator to two struct-like records, or ``None`` if unsupported."""
+    if op == "LT":
+        return struct_lt(a, b, types)
+    if op == "LE":
+        return struct_lt(a, b, types) or struct_eq(a, b, types)
+    if op == "GT":
+        return struct_lt(b, a, types)
+    if op == "GE":
+        return not struct_lt(a, b, types)
+    if op == "EQ":
+        return struct_eq(a, b, types)
+    if op == "NEQ":
+        return not struct_eq(a, b, types)
+    return None
+
+
+def runtime_match_eq(
+    a: Any,
+    b: Any,
+    types: dict[str, ast.TypeExpr | ast.FuncType],
+    generic_eq: Callable[[Any, Any], bool],
+) -> bool:
+    if isinstance(a, int) and isinstance(b, int):
+        if matches_event_code(a, b) or matches_event_code(b, a):
+            return True
+    if is_type_value(a) and is_type_value(b):
+        return types_equal(a, b)
+    if isinstance(a, dict) and isinstance(b, dict):
+        return struct_eq(a, b, types)
+    return generic_eq(a, b)
+
+
+def runtime_match_specificity(
+    a: Any,
+    b: Any,
+    types: dict[str, ast.TypeExpr | ast.FuncType],
+    generic_eq: Callable[[Any, Any], bool],
+) -> int | None:
+    """Runtime specificity for ``??`` matching, excluding interpreter control-flow mechanics."""
+    if isinstance(a, int) and isinstance(b, int):
+        s = event_match_specificity(a, b)
+        if s is not None:
+            return s
+        s = event_match_specificity(b, a)
+        if s is not None:
+            return s
+        return None
+    if runtime_match_eq(a, b, types, generic_eq):
+        return 1_000_000
+    if isinstance(b, ErrorTypeValue) and isinstance(a, BaseException):
+        return error_type_match_specificity(a, b)
+    if is_type_value(b):
+        actual = infer_type(a, types)
+        if types_equal(actual, b):
+            return 1
+        if isinstance(b, PrimType) and b.name == "any":
+            return 0
+    return None
 
 
 def struct_eq(a: Any, b: Any, types: dict[str, ast.TypeExpr | ast.FuncType]) -> bool:

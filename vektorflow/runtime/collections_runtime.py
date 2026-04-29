@@ -171,10 +171,22 @@ def runtime_collection_index_get(value: Any, key: Any) -> Any:
 def runtime_collection_index_read(value: Any, key: Any) -> tuple[bool, Any]:
     if runtime_collection_kind(value) == "map":
         return True, runtime_collection_index_get(value, key)
+    if isinstance(value, dict):
+        if key not in value:
+            raise EvalError(f"missing key {key!r}")
+        return True, value[key]
+    if isinstance(value, (list, tuple, str)):
+        return True, value[key]
     return False, None
 
 
 def runtime_collection_index_set(value: Any, key: Any, item: Any) -> bool:
+    if isinstance(value, dict):
+        value[key] = item
+        return True
+    if isinstance(value, list):
+        value[key] = item
+        return True
     return runtime_collection_assign(value, key, item)
 
 
@@ -199,17 +211,23 @@ def runtime_collection_values(value: Any) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
         return tuple(value)
-    raise TypeError("runtime_collection_values only supports list/queue runtime collections")
+    if isinstance(value, (list, tuple, str, frozenset, set)):
+        return tuple(value)
+    raise TypeError(
+        "runtime_collection_values only supports list/queue runtime collections and plain sequences"
+    )
 
 
 def runtime_collection_expanded_values(value: Any) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
         return runtime_collection_values(value)
+    if isinstance(value, (list, tuple, str, frozenset, set)):
+        return runtime_collection_values(value)
     if kind == "multiset":
         return tuple(value.elements())
     raise TypeError(
-        "runtime_collection_expanded_values only supports list/queue/multiset runtime collections"
+        "runtime_collection_expanded_values only supports list/queue/multiset runtime collections and plain sequences"
     )
 
 
@@ -248,6 +266,8 @@ def runtime_collection_preserves_pipe_result(value: Any) -> bool:
 def runtime_collection_elementwise_values(value: Any) -> tuple[Any, ...] | None:
     if runtime_collection_kind(value) == "multiset":
         return runtime_collection_expanded_values(value)
+    if isinstance(value, (list, tuple, str, frozenset, set)):
+        return runtime_collection_expanded_values(value)
     return None
 
 
@@ -262,7 +282,12 @@ def runtime_collection_stringify(
             f"{stringify_item(key)}:{stringify_item(item)}" for key, item in items
         )
         return "{" + inner + "}"
-    if kind in {"list", "queue"}:
+    if isinstance(value, tuple):
+        items = runtime_collection_values(value)
+        if len(items) == 1:
+            return f"({stringify_item(items[0])},)"
+        return "(" + ", ".join(stringify_item(item) for item in items) + ")"
+    if kind in {"list", "queue"} or isinstance(value, list):
         return "[" + ", ".join(stringify_item(item) for item in runtime_collection_values(value)) + "]"
     if kind == "multiset":
         pairs = runtime_collection_items_sorted(value)
@@ -272,6 +297,11 @@ def runtime_collection_stringify(
             f"{stringify_item(key)}:{stringify_item(count)}" for key, count in pairs
         )
         return "{" + inner + "}"
+    if isinstance(value, (set, frozenset)):
+        if not value:
+            return "{}"
+        items = sorted(value, key=lambda item: (str(type(item).__name__), str(item)))
+        return "{" + ", ".join(stringify_item(item) for item in items) + "}"
     return None
 
 
@@ -341,13 +371,42 @@ def runtime_collection_take_prefix(value: Any, count: int) -> tuple[Any, ...]:
                 break
             items.append(item)
         return tuple(items)
+    if isinstance(value, (list, tuple)):
+        return tuple(value[:count])
     raise TypeError("runtime_collection_take_prefix only supports list/queue runtime collections")
 
 
 def runtime_collection_take(value: Any, count: int) -> tuple[Any, ...] | None:
     kind = runtime_collection_kind(value)
-    if kind in {"list", "queue"}:
+    if kind in {"list", "queue"} or isinstance(value, (list, tuple)):
         return runtime_collection_take_prefix(value, count)
     if kind == "multiset":
         raise EvalError("take: use a sequence or iterator, not a multiset")
     return None
+
+
+def runtime_collection_to_list(value: Any) -> list[Any] | None:
+    kind = runtime_collection_kind(value)
+    if kind in {"list", "queue"} or isinstance(value, (list, tuple)):
+        return list(runtime_collection_values(value))
+    if kind == "multiset":
+        raise EvalError("to_list: use a sequence or iterator, not a multiset")
+    return None
+
+
+def runtime_collection_rebuild_result(
+    value: Any,
+    mapped_values: Iterable[Any],
+) -> tuple[bool, Any]:
+    items = list(mapped_values)
+    if isinstance(value, tuple):
+        return True, tuple(items)
+    if isinstance(value, list):
+        return True, items
+    if isinstance(value, str):
+        return True, "".join(str(item) for item in items)
+    if isinstance(value, frozenset):
+        return True, frozenset(items)
+    if isinstance(value, set):
+        return True, set(items)
+    return False, None
