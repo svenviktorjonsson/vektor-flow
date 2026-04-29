@@ -91,14 +91,51 @@ b : [10, 20]_i
 """
         assert _emit(src) == "11"
 
-    def test_mismatch_axis_errors(self) -> None:
+    def test_shared_axis_length_mismatch_errors(self) -> None:
         src = """
-a : [1, 2]_i
-b : [3, 4]_j
+a : [[1, 2], [3, 4]]_ij
+b : [10, 20, 30]_j
 :: a + b
 """
-        with pytest.raises(EvalError, match="axis mismatch"):
+        with pytest.raises(EvalError, match="axis length mismatch"):
             _emit(src)
+
+    def test_different_axes_broadcast_to_outer_result(self) -> None:
+        src = """
+a : [1, 2]_i
+b : [10, 20]_j
+out : a * b
+:: out.idx
+:: out.(0).(0)
+:: out.(0).(1)
+:: out.(1).(0)
+:: out.(1).(1)
+"""
+        assert _emit(src).splitlines() == ["ij", "10", "20", "20", "40"]
+
+    def test_shared_axis_broadcasts_across_missing_axis(self) -> None:
+        src = """
+a : [[1, 2], [3, 4]]_ij
+b : [10, 20]_j
+out : a * b
+:: out.idx
+:: out.(0).(0)
+:: out.(0).(1)
+:: out.(1).(0)
+:: out.(1).(1)
+"""
+        assert _emit(src).splitlines() == ["ij", "10", "40", "30", "80"]
+
+    def test_named_axes_align_even_when_operand_order_differs(self) -> None:
+        src = """
+a : [[1, 2], [3, 4]]_ij
+b : [[10, 20], [100, 200]]_ki
+out : a * b
+:: out.idx
+:: out.(0).(1).(1)
+:: out.(1).(0).(0)
+"""
+        assert _emit(src).splitlines() == ["ijk", "200", "60"]
 
     def test_struct_literal_has_no_axis_suffix_in_parser(self) -> None:
         """Named record ``(x:1)`` does not consume ``_i`` as axis — suffix is not attached to StructLit."""
@@ -178,14 +215,16 @@ class TestAxisTaggedRuntimeHelpers:
         assert axis_tagged_idx(value) == "i"
         assert axis_tagged_data(value) == (3.0, 6.0)
 
-    def test_axis_tagged_binary_op_rejects_axis_mismatch(self) -> None:
-        with pytest.raises(ValueError, match="axis mismatch"):
-            axis_tagged_binary_op(
-                "PLUS",
-                AxisTaggedValue((1, 2), "i"),
-                AxisTaggedValue((10, 20), "j"),
-                ValueError,
-            )
+    def test_axis_tagged_binary_op_broadcasts_disjoint_axes(self) -> None:
+        handled, value = axis_tagged_binary_op(
+            "PLUS",
+            AxisTaggedValue((1, 2), "i"),
+            AxisTaggedValue((10, 20), "j"),
+            ValueError,
+        )
+        assert handled is True
+        assert axis_tagged_idx(value) == "ij"
+        assert axis_tagged_data(value) == ((11, 21), (12, 22))
 
     def test_axis_tagged_binary_op_rejects_mixed_tagged_and_untagged(self) -> None:
         with pytest.raises(ValueError, match="cannot mix axis-tagged and untagged operands"):

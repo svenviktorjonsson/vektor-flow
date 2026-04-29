@@ -101,6 +101,12 @@ v : [1..3]
 """
         assert _emit(src) == "25"
 
+    def test_zero_arg_lambda_call(self) -> None:
+        src = """
+:: ((): 3)()
+"""
+        assert _emit(src) == "3"
+
 
 class TestKeywordOperatorDef:
     def test_and_def(self) -> None:

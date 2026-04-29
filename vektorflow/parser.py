@@ -431,6 +431,8 @@ class Parser:
             if k == NEWLINE:
                 j += 1
                 continue
+            if expect_ident and k == RPAREN:
+                return True
             if expect_ident:
                 if k != IDENT:
                     return False
@@ -443,7 +445,7 @@ class Parser:
                 j += 1
                 continue
             return False
-        return saw_value and depth == 0
+        return depth == 0 and (saw_value or expect_ident)
 
     def parse_module(self) -> ast.Module:
         stmts: list[Any] = []

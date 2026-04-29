@@ -406,7 +406,9 @@ These are **not interchangeable** — the shape you choose fixes **how values ar
 
 **Tuple vs vector vs multiset for ranges:** finite `a..b` materializes to a **tuple** of ints; `[]` flattens a single finite range into a **vector**. **`a..` with no end** is a lazy iterator (not allowed inside `[ ]`). `()` is tuple-shaped, `[]` is vector-shaped, `{}` is multiset-shaped. Multisets are **sorted**; order uses `<` / `=` on elements (see below).
 
-**Vectors:** The **only** surface syntax for homogeneous sequences is **`[ … ]`**. A trailing **`_`**, **`_i`**, **`_ij`**, … is **not** part of the core language story — use **`[]`** for vectors; the interpreter may still attach optional axis metadata for advanced tensor-style ops.
+**Vectors:** The **only** surface syntax for homogeneous sequences is **`[ … ]`**. A trailing **`_`**, **`_i`**, **`_ij`**, … attaches **named axes** to literal tuples, vectors, or multisets.
+
+**Named-axis behavior:** when two axis-tagged sequence values use the **same** indices, binary math is **elementwise** over those axes. When they use **different** indices, Vektor Flow broadcasts over the missing axes and returns a result whose axis order is the left operand's indices followed by any new right-operand indices. Shared axis names must still agree in extent.
 
 **Inside `[ ]`:** **`expr : count`** repeats **`expr`** **`count`** times; **`[a:]`** unpacks **`a`**; **`[:m]`** expands a **multiset** **`m`** into a flat vector with **multiplicity preserved** (each copy is its own element).
 

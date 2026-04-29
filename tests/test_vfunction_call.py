@@ -112,6 +112,10 @@ class TestLambdaCall:
         ip = _run('fn: (s): s + "!"\n')
         assert _vfunc(ip, "fn")("hello") == "hello!"
 
+    def test_zero_arg_lambda(self) -> None:
+        ip = _run("fn: (): 3\n")
+        assert _vfunc(ip, "fn")() == pytest.approx(3)
+
 
 # ---------------------------------------------------------------------------
 # Closure capture
