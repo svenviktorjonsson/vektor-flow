@@ -542,7 +542,7 @@ A future sugar form could map `"capture $a and $b from this"` to a regex templat
 :: (1..5) >> $^2           # tuple:  (1, 4, 9, 16, 25)
 :: 4 >> $^2                # 16 — one step, $ is 4
 
-:: ($(x): x^2)(3)          # 9 — anonymous lambda applied
+:: ((x): x^2)(3)          # 9 — anonymous lambda applied
 ```
 
 **Console input** (**`>> expr`**): a **leading** **`>>`** (nothing on the left) reads **one line** from standard input into **`$`**, then evaluates **`expr`** — same **`$`** binding as **`value >> expr`**, but the value comes from stdin (terminal or redirect). See *Reading from stdin* for how this fits next to **`name ::`** / **`name :::`**.
@@ -603,7 +603,7 @@ The language uses the same **`:`** for **binding a name to a type shape** and **
 +(a:Point, b:Point): (x:a.x+b.x, y:a.y+b.y)
 ```
 
-Dispatch is by the declared parameter types (`Point`, …), with **structural** matching when a value is untagged (struct literal with the right fields). The reference interpreter supports **named type shapes**, **struct literals**, **typed parameters**, **operator definitions** (`+`, `<`, `/\`, …), **unary** `-(a):` / `~(a):`, **`display` overloads** `display(value: T): …` for **`::`** output, **string** `$a.2f` **interpolation**, **default struct ordering** for `<` / `<=` / `==`, **`[1..5]`** vector range expansion, **lambdas** `($(x): x^2)`, and **`operator(...)`** calls (e.g. `+(2, 3)`).
+Dispatch is by the declared parameter types (`Point`, …), with **structural** matching when a value is untagged (struct literal with the right fields). The reference interpreter supports **named type shapes**, **struct literals**, **typed parameters**, **operator definitions** (`+`, `<`, `/\`, …), **unary** `-(a):` / `~(a):`, **`display` overloads** `display(value: T): …` for **`::`** output, **string** `$a.2f` **interpolation**, **default struct ordering** for `<` / `<=` / `==`, **`[1..5]`** vector range expansion, **lambdas** `((x): x^2)`, and **`operator(...)`** calls (e.g. `+(2, 3)`).
 
 There is **no** C-style ternary **`cond ? a : b`** — the second **`:`** would fight **`:`** as **bind / pour / `header : body`**. Use **`?`** for if-style conditionals and **`??` + `=>`** for switch-style dispatch.
 
@@ -643,7 +643,7 @@ Square brackets `[]` are only for **vector** literals (not indexing). Comments u
 
 - [x] Typed interfaces (`Point : (x:num, y:num)`), struct literals `(x:1, y:2)` with the same `:` shape
 - [x] Operator overloads (`+(a:Point, b:Point): …`, `and(a, b): …`, `not(x): …`, `display(value: Point): …`) with dispatch by type tags and structural fallback; `+(2, 3)`-style calls
-- [x] String interpolation, `display` formatting for `::`, default struct comparison, vector `[a..b]` range, `$(x):` lambdas
+- [x] String interpolation, `display` formatting for `::`, default struct comparison, vector `[a..b]` range, `(x):` lambdas
 - Stabilize spec + full test suite
 - Replace tree-walking evaluator with bytecode VM or native compile (LLVM / Rust backend)
 - Visualization and plotting

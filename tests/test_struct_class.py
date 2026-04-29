@@ -81,10 +81,10 @@ Point(x:num, y:num):
 
 def test_lambda_prints_dollar_signature() -> None:
     src = """
-h : ($(x): x^2)
+h : (x): x^2
 :: h
 """
-    assert _run(src).strip() == "$(x)"
+    assert _run(src).strip() == "(x)"
 
 
 def test_colon_expr_returns_local_scope_in_function() -> None:

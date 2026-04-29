@@ -540,12 +540,12 @@ def _format_type_ast_for_stringify(v: Any) -> str:
 
 
 def _format_vfunction_display(vf: VFunction) -> str:
-    label = vf.name if vf.name is not None else "$"
+    label = vf.name if vf.name is not None else ""
     pl = _format_param_list_display(vf.params)
     if vf.func_type is not None:
         tail = _format_ft_codomain_part(vf.func_type.codomain)
-        return f"{label}({pl}) -> {tail}"
-    return f"{label}({pl})"
+        return f"{label}({pl}) -> {tail}" if label else f"({pl}) -> {tail}"
+    return f"{label}({pl})" if label else f"({pl})"
 
 
 def _format_vstruct_ctor_display(c: VStructCtor) -> str:
@@ -554,7 +554,7 @@ def _format_vstruct_ctor_display(c: VStructCtor) -> str:
 
 @dataclass
 class VFunction:
-    """User function; ``name`` is ``None`` for lambdas ``$(…)``."""
+    """User function; ``name`` is ``None`` for anonymous lambdas."""
 
     name: str | None
     params: list[ast.Param]

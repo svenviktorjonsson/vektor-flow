@@ -370,9 +370,8 @@ class TestPrograms:
         ]
 
     def test_lambda_application(self) -> None:
-        assert values("($(x): x^2)(3)") == [
+        assert values("((x): x^2)(3)") == [
             (LPAREN, None),
-            (DOLLAR, None),
             (LPAREN, None),
             (IDENT, "x"),
             (RPAREN, None),

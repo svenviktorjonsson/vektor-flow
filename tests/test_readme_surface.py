@@ -97,7 +97,7 @@ v : [1..3]
 
     def test_lambda_call(self) -> None:
         src = """
-:: ($(x): x^2)(5)
+:: ((x): x^2)(5)
 """
         assert _emit(src) == "25"
 

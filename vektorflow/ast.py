@@ -97,7 +97,7 @@ class MultisetLit:
 
 @dataclass
 class Lambda:
-    """Anonymous function ``($(x, y): expr)`` — parameters are names only."""
+    """Anonymous function ``(x, y): expr`` — parameters are names only."""
 
     params: list[str]
     body: Any

@@ -406,6 +406,45 @@ class Parser:
             return self.toks[j].kind
         return EOF
 
+    def _paren_is_only_lambda_param_list(self, lparen_idx: int) -> bool:
+        """True if ``(`` … ``)`` at ``lparen_idx`` is only ``name``, commas, newlines."""
+        if lparen_idx >= len(self.toks) or self.toks[lparen_idx].kind != LPAREN:
+            return False
+        depth = 1
+        j = lparen_idx + 1
+        saw_value = False
+        expect_ident = True
+        while j < len(self.toks) and depth > 0:
+            k = self.toks[j].kind
+            if k == LPAREN:
+                depth += 1
+                j += 1
+                continue
+            if k == RPAREN:
+                depth -= 1
+                j += 1
+                if depth == 0:
+                    return True
+                continue
+            if depth != 1:
+                return False
+            if k == NEWLINE:
+                j += 1
+                continue
+            if expect_ident:
+                if k != IDENT:
+                    return False
+                saw_value = True
+                expect_ident = False
+                j += 1
+                continue
+            if k == COMMA:
+                expect_ident = True
+                j += 1
+                continue
+            return False
+        return saw_value and depth == 0
+
     def parse_module(self) -> ast.Module:
         stmts: list[Any] = []
         while True:
@@ -1488,6 +1527,22 @@ class Parser:
             self._advance()
             return ast.Ident("$")
         if k == LPAREN:
+            if self._paren_is_only_lambda_param_list(self.i):
+                k_after = self._kind_after_balanced_call_from_lparen(self.i)
+                if k_after == COLON:
+                    self._advance()
+                    pnames: list[str] = []
+                    if self._peek_raw() != RPAREN:
+                        while True:
+                            pnames.append(str(self._expect(IDENT).value))
+                            if self._peek_raw() == COMMA:
+                                self._advance()
+                                continue
+                            break
+                    self._expect(RPAREN)
+                    self._expect(COLON)
+                    body = self.parse_expr()
+                    return ast.Lambda(pnames, body)
             self._advance()
             if self._peek_raw() == RPAREN:
                 self._advance()

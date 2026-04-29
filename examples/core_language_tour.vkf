@@ -34,7 +34,7 @@ hyp2(x:num, y:num) -> num:
 
 # --- Step 5: lambdas and piping with $ ---
 :: "STEP 5: lambdas and piping"
-sq: ($(x): x^2)
+sq: (x): x^2
 mapped_vec: [1..5] >> sq($)
 mapped_tuple: (1..5) >> $^2
 :: "vector mapped through sq = $mapped_vec"

@@ -96,20 +96,20 @@ class TestNamedFunctionCall:
 
 class TestLambdaCall:
     def test_lambda_stored_and_called(self) -> None:
-        ip = _run("fn: ($(x): x + 1)\n")
+        ip = _run("fn: (x): x + 1\n")
         fn = _vfunc(ip, "fn")
         assert fn(10) == pytest.approx(11)
 
     def test_lambda_ip_is_set(self) -> None:
-        ip = _run("fn: ($(x): x)\n")
+        ip = _run("fn: (x): x\n")
         assert _vfunc(ip, "fn").ip is ip
 
     def test_lambda_multi_arg(self) -> None:
-        ip = _run("fn: ($(a, b): a * b)\n")
+        ip = _run("fn: (a, b): a * b\n")
         assert _vfunc(ip, "fn")(3, 7) == pytest.approx(21)
 
     def test_lambda_string_op(self) -> None:
-        ip = _run('fn: ($(s): s + "!")\n')
+        ip = _run('fn: (s): s + "!"\n')
         assert _vfunc(ip, "fn")("hello") == "hello!"
 
 
@@ -123,7 +123,7 @@ class TestClosureCapture:
         assert _vfunc(ip, "scale")(4) == pytest.approx(12)
 
     def test_lambda_closes_over_outer_binding(self) -> None:
-        ip = _run("offset: 100\nfn: ($(x): x + offset)\n")
+        ip = _run("offset: 100\nfn: (x): x + offset\n")
         assert _vfunc(ip, "fn")(5) == pytest.approx(105)
 
 
@@ -172,7 +172,7 @@ class TestCallbackPattern:
         """Simulate: vkf passes a lambda to a Python function via injection."""
         captured: list[VFunction] = []
 
-        ip = _run("fn: ($(x): x + 1)\n")
+        ip = _run("fn: (x): x + 1\n")
         # Python code "receives" the lambda
         captured.append(_vfunc(ip, "fn"))
 
@@ -185,7 +185,7 @@ class TestCallbackPattern:
 
         with tempfile.NamedTemporaryFile(suffix=".vkf", mode="w",
                                          delete=False, encoding="utf-8") as f:
-            f.write("register_cb(($(x): x * 3))\n")
+            f.write("register_cb(((x): x * 3))\n")
             fname = f.name
 
         try:
