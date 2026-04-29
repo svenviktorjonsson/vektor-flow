@@ -7,6 +7,8 @@ import re
 import pytest
 
 from vektorflow.cpp_backend import (
+    build_cpp_from_source_file,
+    build_cpp_from_token_stream_json,
     CppEmitError,
     compile_and_run_module,
     compile_cpp_source,
@@ -16,8 +18,11 @@ from vektorflow.cpp_backend import (
     run_cpp_executable,
 )
 from vektorflow.ir import IndexExpr, PrintStmt, TypeDef, lower_module
+from vektorflow.lexer import tokenize
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
+from vektorflow.token_stream import build_token_stream_payload
+import json
 
 
 NATIVE_CORE = Path(__file__).resolve().parent.parent / "examples" / "native_core"
@@ -299,6 +304,33 @@ def test_cpp_builds_named_record_native_core_examples(tmp_path: Path, filename: 
     proc = _compile_native_core_example(tmp_path, filename)
     assert proc.returncode == 0
     assert proc.stdout.strip() == expected
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_build_cpp_from_source_file_uses_source_stem_by_default(tmp_path: Path) -> None:
+    path = NATIVE_CORE / "named_record_native.vkf"
+    exe = build_cpp_from_source_file(path, tmp_path)
+    assert exe.exists()
+    assert exe.stem == path.stem
+    proc = run_cpp_executable(exe)
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "4\n(x:4, y:6)"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_build_cpp_from_token_stream_json_runs_program(tmp_path: Path) -> None:
+    source = """
+twice(x:num) -> num:
+    x * 2
+
+:: twice(21)
+"""
+    payload = json.dumps(build_token_stream_payload(tokenize(source, filename="<cpp-token-stream-test>")))
+    exe = build_cpp_from_token_stream_json(payload, tmp_path, exe_name="token_stream_build")
+    assert exe.exists()
+    proc = run_cpp_executable(exe)
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "42"
 
 
 def test_named_record_examples_documented_in_readme_are_backend_covered() -> None:

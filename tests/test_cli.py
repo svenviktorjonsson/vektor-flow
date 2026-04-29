@@ -187,6 +187,14 @@ LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES = [
     ROOT / "examples" / "gui_event_loop.vkf",
     ROOT / "examples" / "time_pause_demo.vkf",
 ]
+NATIVE_CORE_EXECUTION_CONTRACT_EXAMPLES = [
+    "hello_native.vkf",
+    "records_native.vkf",
+    "numeric_native.vkf",
+    "named_record_scene_helpers_native.vkf",
+    "named_record_scene_splice_native.vkf",
+    "named_record_scene_reverse_native.vkf",
+]
 EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "bitmask_match.vkf",
     ROOT / "examples" / "benchmarks" / "multisets_records.vkf",
@@ -301,6 +309,89 @@ def _assert_tokens_native_core_file_and_stdin_match(path: Path) -> None:
     file_payload = json.loads(lex_native_core_file_to_json(path, filename_label=path.as_posix()))
     stdin_payload = json.loads(lex_native_core_stdin_to_json(source, filename_label=path.as_posix()))
     assert stdin_payload == file_payload
+
+
+def _assert_parse_and_build_native_core_execution_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    example_name: str,
+) -> None:
+    path = NATIVE_CORE / example_name
+    src = path.read_text(encoding="utf-8")
+    expected_repr = repr(parse_module(src, filename=path.as_posix()))
+    standard_exe = tmp_path / f"{_short_artifact_stem(example_name, 'std')}.exe"
+    file_exe = tmp_path / f"{_short_artifact_stem(example_name, 'bnf')}.exe"
+    stdin_exe = tmp_path / f"{_short_artifact_stem(example_name, 'bns')}.exe"
+
+    assert main(["parse-native-core", str(path)]) == 0
+    assert capsys.readouterr().out.strip() == expected_repr
+
+    monkeypatch.setattr("sys.stdin.read", lambda: src)
+    assert main(["parse-native-core", "-"]) == 0
+    assert capsys.readouterr().out.strip() == expected_repr
+
+    assert main(["build", str(path), "-o", str(standard_exe)]) == 0
+    _ = capsys.readouterr()
+    standard_proc = run_cpp_executable(standard_exe)
+    assert standard_proc.returncode == 0
+
+    assert main(["build-native-core", str(path), "-o", str(file_exe)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == file_exe.resolve()
+    file_proc = run_cpp_executable(file_exe)
+    assert file_proc.returncode == 0
+
+    monkeypatch.setattr("sys.stdin.read", lambda: src)
+    assert main(["build-native-core", "-", "-o", str(stdin_exe)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == stdin_exe.resolve()
+    stdin_proc = run_cpp_executable(stdin_exe)
+    assert stdin_proc.returncode == 0
+
+    assert file_proc.stdout == standard_proc.stdout
+    assert stdin_proc.stdout == standard_proc.stdout
+
+
+def _assert_cpp_native_core_execution_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    example_name: str,
+) -> None:
+    path = NATIVE_CORE / example_name
+    src = path.read_text(encoding="utf-8")
+    standard_cpp = emit_cpp_from_source_file(path)
+    standard_exe = compile_cpp_source(
+        standard_cpp,
+        tmp_path / f"{_short_artifact_stem(example_name, 'cstd')}",
+        exe_name=_short_artifact_stem(example_name, "estd"),
+    )
+    file_cpp = tmp_path / f"{_short_artifact_stem(example_name, 'cf')}.cpp"
+    stdin_cpp = tmp_path / f"{_short_artifact_stem(example_name, 'cs')}.cpp"
+
+    assert main(["cpp-native-core", str(path), "-o", str(file_cpp)]) == 0
+
+    monkeypatch.setattr("sys.stdin.read", lambda: src)
+    assert main(["cpp-native-core", "-", "-o", str(stdin_cpp)]) == 0
+
+    file_exe = compile_cpp_source(
+        file_cpp.read_text(encoding="utf-8"),
+        tmp_path / f"{_short_artifact_stem(example_name, 'cfx')}",
+        exe_name=_short_artifact_stem(example_name, "ef"),
+    )
+    stdin_exe = compile_cpp_source(
+        stdin_cpp.read_text(encoding="utf-8"),
+        tmp_path / f"{_short_artifact_stem(example_name, 'csx')}",
+        exe_name=_short_artifact_stem(example_name, "es"),
+    )
+
+    standard_proc = run_cpp_executable(standard_exe)
+    file_proc = run_cpp_executable(file_exe)
+    stdin_proc = run_cpp_executable(stdin_exe)
+
+    assert standard_proc.returncode == 0
+    assert file_proc.returncode == 0
+    assert stdin_proc.returncode == 0
+    assert file_proc.stdout == standard_proc.stdout
+    assert stdin_proc.stdout == standard_proc.stdout
 
 
 class TestResolveVkfPath:
@@ -899,6 +990,32 @@ class TestMain:
         assert stdin_proc.returncode == 0
 
         assert stdin_proc.stdout == file_proc.stdout
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", NATIVE_CORE_EXECUTION_CONTRACT_EXAMPLES)
+    def test_native_core_execution_contract_examples_preserve_parse_and_build_runtime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        example_name: str,
+    ) -> None:
+        _assert_parse_and_build_native_core_execution_contract(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            example_name,
+        )
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize("example_name", NATIVE_CORE_EXECUTION_CONTRACT_EXAMPLES)
+    def test_native_core_execution_contract_examples_preserve_cpp_runtime_for_file_and_stdin(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        example_name: str,
+    ) -> None:
+        _assert_cpp_native_core_execution_contract(monkeypatch, tmp_path, example_name)
 
     def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "--list"]) == 0

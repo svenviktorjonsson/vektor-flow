@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 import subprocess
 import tempfile
@@ -7378,20 +7380,104 @@ def build_native_parser_proto() -> Path:
     raise CppEmitError("native parser prototype cache setup failed")
 
 
-def emit_cpp_for_native_core_file(path: Path) -> str:
+@dataclass(frozen=True)
+class NativeParserProtoInput:
+    source: str | None
+    filename: str
+
+    @property
+    def is_file_input(self) -> bool:
+        return self.source is None
+
+    @property
+    def path(self) -> Path:
+        return Path(self.filename)
+
+
+@dataclass(frozen=True)
+class NativeParserProtoExecution:
+    """Drive the current native parser prototype as one execution unit."""
+
+    request: NativeParserProtoInput
+
+    @cached_property
+    def cpp_source(self) -> str:
+        return _emit_cpp_from_native_parser_proto(self.request)
+
+    def build(self, out_path: str | Path) -> Path:
+        out_path = Path(out_path)
+        compiled = compile_cpp_source(
+            self.cpp_source,
+            out_path.parent,
+            exe_name=out_path.stem or _default_native_parser_proto_exe_name(self.request),
+        )
+        if compiled != out_path:
+            if out_path.exists():
+                out_path.unlink()
+            compiled.replace(out_path)
+        return out_path
+
+    def run(self, out_dir: str | Path | None = None) -> subprocess.CompletedProcess[str]:
+        exe_path = self.build(_default_native_parser_proto_run_path(self.request, out_dir))
+        return subprocess.run([str(exe_path)], capture_output=True, text=True)
+
+
+def _emit_cpp_from_native_parser_proto(request: NativeParserProtoInput) -> str:
     exe = build_native_parser_proto()
-    proc = subprocess.run([str(exe), str(path)], capture_output=True, text=True)
+    if request.is_file_input:
+        proc = subprocess.run([str(exe), request.filename], capture_output=True, text=True)
+    else:
+        proc = subprocess.run(
+            [str(exe), "-"],
+            input=request.source,
+            capture_output=True,
+            text=True,
+        )
     if proc.returncode != 0:
         raise CppEmitError(proc.stderr.strip() or proc.stdout.strip() or "native parser prototype failed")
     return proc.stdout
+
+
+def _default_native_parser_proto_exe_name(request: NativeParserProtoInput) -> str:
+    label = request.path.stem if request.is_file_input else request.filename
+    digest_source = request.filename if request.is_file_input else request.source or ""
+    digest = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()[:10]
+    safe_label = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in label).strip("._-")
+    if not safe_label:
+        safe_label = "native_core_proto"
+    return f"vf_np_{safe_label}_{digest}"
+
+
+def _default_native_parser_proto_run_path(
+    request: NativeParserProtoInput,
+    out_dir: str | Path | None,
+) -> Path:
+    if out_dir is None:
+        base_dir = Path(tempfile.gettempdir()) / "vektorflow-native-parser-runs"
+    else:
+        base_dir = Path(out_dir)
+    exe_name = _default_native_parser_proto_exe_name(request)
+    suffix = ".exe" if os.name == "nt" else ""
+    return base_dir / f"{exe_name}{suffix}"
+
+
+def native_parser_proto_file_execution(path: Path) -> NativeParserProtoExecution:
+    return NativeParserProtoExecution(NativeParserProtoInput(source=None, filename=str(path)))
+
+
+def native_parser_proto_source_execution(
+    source: str,
+    filename: str = "stdin.vkf",
+) -> NativeParserProtoExecution:
+    return NativeParserProtoExecution(NativeParserProtoInput(source=source, filename=filename))
+
+
+def emit_cpp_for_native_core_file(path: Path) -> str:
+    return native_parser_proto_file_execution(path).cpp_source
 
 
 def emit_cpp_for_native_core_source(source: str) -> str:
-    exe = build_native_parser_proto()
-    proc = subprocess.run([str(exe), "-"], input=source, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise CppEmitError(proc.stderr.strip() or proc.stdout.strip() or "native parser prototype failed")
-    return proc.stdout
+    return native_parser_proto_source_execution(source).cpp_source
 
 
 def emit_cpp_for_hello_native_file(path: Path) -> str:

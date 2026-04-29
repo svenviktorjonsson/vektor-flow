@@ -2096,8 +2096,24 @@ def emit_cpp_from_source_file(path: Path) -> str:
     return emit_cpp_module(lowered)
 
 
+def build_cpp_module(module: ir.Module, out_dir: Path, exe_name: str = "vf_program") -> Path:
+    return compile_cpp_source(emit_cpp_module(module), out_dir, exe_name=exe_name)
+
+
+def build_cpp_from_tokens(tokens: list[Any], out_dir: Path, exe_name: str = "vf_program") -> Path:
+    return compile_cpp_source(emit_cpp_from_tokens(tokens), out_dir, exe_name=exe_name)
+
+
+def build_cpp_from_token_stream_json(payload: str, out_dir: Path, exe_name: str = "vf_program") -> Path:
+    return compile_cpp_source(emit_cpp_from_token_stream_json(payload), out_dir, exe_name=exe_name)
+
+
+def build_cpp_from_source_file(path: Path, out_dir: Path, exe_name: str | None = None) -> Path:
+    artifact_name = path.stem if exe_name is None else exe_name
+    return compile_cpp_source(emit_cpp_from_source_file(path), out_dir, exe_name=artifact_name)
+
+
 def compile_and_run_module(module: ir.Module) -> subprocess.CompletedProcess[str]:
-    source = emit_cpp_module(module)
     with tempfile.TemporaryDirectory(prefix="vf_cpp_") as td:
-        exe = compile_cpp_source(source, Path(td))
+        exe = build_cpp_module(module, Path(td))
         return run_cpp_executable(exe)

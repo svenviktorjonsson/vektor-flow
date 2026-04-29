@@ -15,6 +15,7 @@ without duplicating file/stdin glue.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
@@ -113,6 +114,57 @@ class NativeCppEmitResult:
     request: NativeFrontendInput
     cpp_source: str
     used_native_parser_fast_path: bool
+
+
+@dataclass(frozen=True)
+class NativeFrontendExecution:
+    """Centralized execution flow for the current native frontend subset."""
+
+    request: NativeFrontendInput
+
+    @cached_property
+    def token_payload(self) -> str:
+        return _lex_native_payload(self.request)
+
+    @cached_property
+    def parsed_module(self) -> ast.Module:
+        return parse_token_stream_json(self.token_payload)
+
+    @cached_property
+    def native_parser_fast_path_cpp_source(self) -> str | None:
+        return _try_emit_cpp_from_native_parser_fast_path(self.request)
+
+    @property
+    def native_parser_fast_path_available(self) -> bool:
+        return self.native_parser_fast_path_cpp_source is not None
+
+    @cached_property
+    def cpp_emit_result(self) -> NativeCppEmitResult:
+        native_cpp = self.native_parser_fast_path_cpp_source
+        if native_cpp is not None:
+            return NativeCppEmitResult(
+                request=self.request,
+                cpp_source=native_cpp,
+                used_native_parser_fast_path=True,
+            )
+        return NativeCppEmitResult(
+            request=self.request,
+            cpp_source=emit_cpp_from_token_stream_json(self.token_payload),
+            used_native_parser_fast_path=False,
+        )
+
+    def build(self, out_path: str | Path) -> Path:
+        out_path = Path(out_path)
+        compiled = compile_cpp_source(
+            self.cpp_emit_result.cpp_source,
+            out_path.parent,
+            exe_name=out_path.stem or _default_exe_name(self.request.source, self.request.filename),
+        )
+        if compiled != out_path:
+            if out_path.exists():
+                out_path.unlink()
+            compiled.replace(out_path)
+        return out_path
 
 
 def _normalize_subset(subset: str) -> NativeSubset:
@@ -240,13 +292,12 @@ def native_subset_native_parser_fast_path_available(
     subset: str = "native_core",
     filename_label: str | None = None,
 ) -> bool:
-    request = _normalize_native_input(
+    return native_frontend_execution(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
-    )
-    return _native_parser_fast_path_available(request)
+    ).native_parser_fast_path_available
 
 
 def _default_filename_label(source: str | None, filename: str) -> str:
@@ -304,19 +355,20 @@ def _native_parser_fast_path_available(request: NativeFrontendInput) -> bool:
     return True
 
 
-def _emit_cpp_from_native_request(request: NativeFrontendInput) -> NativeCppEmitResult:
-    native_cpp = _try_emit_cpp_from_native_parser_fast_path(request)
-    if native_cpp is not None:
-        return NativeCppEmitResult(
-            request=request,
-            cpp_source=native_cpp,
-            used_native_parser_fast_path=True,
+def native_frontend_execution(
+    source: str | None,
+    filename: str,
+    *,
+    subset: str = "native_core",
+    filename_label: str | None = None,
+) -> NativeFrontendExecution:
+    return NativeFrontendExecution(
+        request=_normalize_native_input(
+            source,
+            filename,
+            subset=subset,
+            filename_label=filename_label,
         )
-    payload = _lex_native_payload(request)
-    return NativeCppEmitResult(
-        request=request,
-        cpp_source=emit_cpp_from_token_stream_json(payload),
-        used_native_parser_fast_path=False,
     )
 
 
@@ -337,13 +389,13 @@ def lex_native_subset_result(
 ) -> NativeTokenPayload:
     """Return the normalized native frontend request and token payload."""
 
-    request = _normalize_native_input(
+    execution = native_frontend_execution(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
     )
-    return NativeTokenPayload(request=request, payload=_lex_native_payload(request))
+    return NativeTokenPayload(request=execution.request, payload=execution.token_payload)
 
 
 def lex_native_subset_payload(
@@ -377,13 +429,12 @@ def parse_native_subset(
 ) -> ast.Module:
     """Parse the active native frontend subset through the token-stream seam."""
 
-    result = lex_native_subset_result(
+    return native_frontend_execution(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
-    )
-    return parse_token_stream_json(result.payload)
+    ).parsed_module
 
 
 def emit_cpp_from_native_subset(
@@ -395,13 +446,12 @@ def emit_cpp_from_native_subset(
 ) -> str:
     """Emit C++ using the active native frontend subset as the source frontend."""
 
-    request = _normalize_native_input(
+    return native_frontend_execution(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
-    )
-    return _emit_cpp_from_native_request(request).cpp_source
+    ).cpp_emit_result.cpp_source
 
 
 def build_native_subset(
@@ -414,21 +464,9 @@ def build_native_subset(
 ) -> Path:
     """Compile the active native frontend subset to an executable path."""
 
-    request = _normalize_native_input(
+    return native_frontend_execution(
         source,
         filename,
         subset=subset,
         filename_label=filename_label,
-    )
-    out_path = Path(out_path)
-    emit_result = _emit_cpp_from_native_request(request)
-    compiled = compile_cpp_source(
-        emit_result.cpp_source,
-        out_path.parent,
-        exe_name=out_path.stem or _default_exe_name(request.source, request.filename),
-    )
-    if compiled != out_path:
-        if out_path.exists():
-            out_path.unlink()
-        compiled.replace(out_path)
-    return out_path
+    ).build(out_path)
