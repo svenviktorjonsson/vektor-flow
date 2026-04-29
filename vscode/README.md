@@ -113,6 +113,34 @@ If `code` is not on `PATH`, open VS Code and use:
 
 or install the `.vsix` through the Extensions view menu.
 
+## Marketplace Prep
+
+This extension is now packaged so it can be published cleanly later, but it is
+not published yet.
+
+Before publishing:
+
+1. Create or choose your actual VS Code Marketplace publisher id.
+2. Replace the placeholder publisher value in:
+   - `vscode/package.json`
+3. Log in with `vsce`:
+
+```bash
+vsce login <your-publisher-id>
+```
+
+4. Publish from the `vscode/` folder:
+
+```bash
+vsce publish
+```
+
+The extension package now includes:
+
+- a bundled `LICENSE`
+- a constrained `files` whitelist in `package.json`
+- repository, homepage, and issue tracker metadata
+
 ## Configure The Extension
 
 ### Preferred settings
