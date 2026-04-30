@@ -197,3 +197,24 @@ Use wording close to this:
 3. `linux-browser`
 
 These should become the named release outputs referenced by the top-level README and VS Code setup docs.
+
+## Current Builder Entry Points
+
+For maintainers producing tester bundles from source:
+
+- Windows:
+  - `.\scripts\build-release-bundle.ps1`
+- macOS / Linux:
+  - `./scripts/build-release-bundle.sh`
+
+Both wrappers delegate to:
+
+- `scripts/build_release_bundle.py`
+
+That builder currently does the host-native assembly work:
+
+- builds a `vkf` tester executable with PyInstaller
+- copies sample `.vkf` files
+- copies `vf-ui` web assets unless explicitly skipped
+- packages the VS Code extension into a `.vsix` unless explicitly skipped
+- writes a release manifest and bundle README

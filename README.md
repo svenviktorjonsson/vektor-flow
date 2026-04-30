@@ -67,6 +67,16 @@ Use the repo bootstrap path:
 
 That path is still appropriate for contributors, but it should not be the main onboarding story for community testers.
 
+If you are preparing tester bundles from source, use the release-bundle builder:
+
+- Windows:
+  - `.\scripts\build-release-bundle.ps1`
+- macOS / Linux:
+  - `./scripts/build-release-bundle.sh`
+
+Those scripts build a host-native tester bundle, include sample `.vkf` files,
+and package the VS Code extension `.vsix` when the build environment can do so.
+
 ## Platform Matrix
 
 | Platform | UI modes | Recommended beta story |
@@ -88,7 +98,7 @@ When a packaged Windows release is available:
 3. Run:
 
 ```powershell
-.\vkf.exe -s ':: "hello, world"'
+.\vkf.exe -e ':: "hello, world"'
 ```
 
 4. For a packaged native program, use the generated launcher:
@@ -117,7 +127,7 @@ When a packaged macOS release is available:
 3. Run:
 
 ```bash
-./vkf -s ':: "hello, world"'
+./vkf -e ':: "hello, world"'
 ```
 
 4. For packaged native programs, use the generated shell launcher:
@@ -145,7 +155,7 @@ When a packaged Linux release is available:
 3. Run:
 
 ```bash
-./vkf -s ':: "hello, world"'
+./vkf -e ':: "hello, world"'
 ```
 
 4. For packaged native programs, use the generated shell launcher:

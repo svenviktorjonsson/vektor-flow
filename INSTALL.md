@@ -39,7 +39,7 @@ C:\Tools\vektorflow
 4. Verify the compiler works:
 
 ```powershell
-.\vkf.exe -s ':: "hello, world"'
+.\vkf.exe -e ':: "hello, world"'
 ```
 
 Expected output:
@@ -88,7 +88,7 @@ Current UI modes:
 4. Verify the compiler works:
 
 ```bash
-./vkf -s ':: "hello, world"'
+./vkf -e ':: "hello, world"'
 ```
 
 Expected output:
@@ -135,7 +135,7 @@ Current UI modes:
 4. Verify the compiler works:
 
 ```bash
-./vkf -s ':: "hello, world"'
+./vkf -e ':: "hello, world"'
 ```
 
 Expected output:

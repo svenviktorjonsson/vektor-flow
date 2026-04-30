@@ -18,6 +18,7 @@ Usage
     vkf parse-native-core <file>
                              Native-core C++ lexer -> token contract -> AST repr
     vkf -s 'code'           Tokenize an inline snippet
+    vkf -e 'code'           Execute an inline snippet
     vkf --help
     vkf --version
 
@@ -134,6 +135,19 @@ def cmd_run(path: Path) -> int:
     except OSError as exc:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
+    except (LexError, ParseError, EvalError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
+    try:
+        from .interpreter import Interpreter
+        from .parser import parse_module
+
+        module = parse_module(source, filename=filename)
+        Interpreter(Path(filename)).run_module(module)
     except (LexError, ParseError, EvalError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -404,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv:
         print(
-            "usage: vkf <file> | vkf cpp <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet>\n"
+            "usage: vkf <file> | vkf cpp <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet> | vkf -e <snippet>\n"
             "       (omit .vkf: `vkf hello` finds `hello.vkf`)",
             file=sys.stderr,
         )
@@ -439,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
             "  vkf parse-native-core <file>\n"
             "                       Native-core C++ lexer -> token contract -> AST repr\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
+            "  vkf -e/--eval STR    Execute a snippet\n"
             "  --version            Show version\n",
             end="",
         )
@@ -454,6 +469,12 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         compact = "--compact" in argv
         return cmd_tokens(argv[1], "<cli>", compact=compact, json_output=False)
+
+    if argv[0] in ("-e", "--eval"):
+        if len(argv) < 2:
+            print("error: -e requires a snippet", file=sys.stderr)
+            return 1
+        return cmd_eval(argv[1], filename="<cli>")
 
     if argv[0] == "tokens":
         if len(argv) < 2:

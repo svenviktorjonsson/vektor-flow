@@ -50,7 +50,7 @@ The extension itself is cross-platform. The current host limitation is the runti
 Recommended check in a terminal:
 
 ```bash
-vkf -s ':: "hello, world"'
+vkf -e ':: "hello, world"'
 ```
 
 If that works, the extension path is usually easy.
@@ -175,7 +175,7 @@ Diagnostics currently use:
 2. Confirm in a terminal:
 
 ```powershell
-vkf -s ':: "hello, world"'
+vkf -e ':: "hello, world"'
 ```
 
 3. Install the extension.
@@ -207,7 +207,7 @@ hello, world
 2. Confirm in a terminal:
 
 ```bash
-vkf -s ':: "hello, world"'
+vkf -e ':: "hello, world"'
 ```
 
 3. Install the extension.
