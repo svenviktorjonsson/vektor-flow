@@ -6,7 +6,18 @@ Use `vkf` to run `.vkf` programs.
 
 File extension: `.vkf`
 
-## Start Here
+## Try Out Vektor Flow
+
+Vektor Flow is a compact, keyword-light language for math, data, geometry, UI,
+and computational experiments.
+
+The feel is roughly:
+
+- more compact than Python
+- more expression-oriented than C++
+- designed so values, shapes, and structure are easy to reach into directly
+
+## Do This To Get Started
 
 Choose the package for your OS, extract it, run `vkf`, then optionally install
 the VS Code extension.
@@ -21,7 +32,7 @@ the VS Code extension.
 
 Windows is the only platform with the native transparent overlay host today.
 
-## Quick Start
+## Hello World
 
 ### Windows
 
@@ -57,7 +68,115 @@ Expected first output:
 hello, world
 ```
 
+## Core Ideas
+
+### Compact, keyword-free style
+
+Vektor Flow tries to stay small and dense.
+
+- expressions do more of the work
+- punctuation carries more structure
+- many operations are direct instead of wrapped in long keyword forms
+
+Example:
+
+```vkf
+a: 7
+b: 5
+:: "a + b = $(a + b)"
+:: "a * b = $(a * b)"
+```
+
+### Reaching in
+
+It should feel easy to reach into values:
+
+```vkf
+pair.0
+person.name
+grid.2.4
+```
+
+You can work directly with fields, tuple positions, vector entries, and nested
+structure without a lot of ceremony.
+
+Example:
+
+```vkf
+person: ()
+person.name: "Ada"
+person.score: 42
+person.tags: ["math", "logic", "code"]
+
+:: person.name
+:: person.tags.0
+```
+
+### Spilling
+
+Vektor Flow supports “spilling” ideas where structured values can be expanded
+or unpacked naturally into the surrounding expression flow instead of always
+needing verbose temporary setup.
+
+That is part of why the language can stay compact while still working well for
+mathy and structured data code.
+
+Example:
+
+```vkf
+pair: ("left", "right")
+:: pair.0
+:: pair.1
+```
+
+### Shapes and structure matter
+
+The language does not treat vectors, tuples, records, multisets, and typed
+shapes as afterthoughts.
+
+Examples:
+
+```vkf
+[num:n]
+(x:num, y:num)
+{1:1, 2:3}
+value.
+```
+
+The goal is to make structure visible and usable, not hidden behind a lot of
+library glue.
+
+Example:
+
+```vkf
+join_scale(x:[num:n], y:[num:m], s:num) -> [num:n+m]:
+  (x & y) * s
+
+a2: [1,2]
+b3: [3,4,5]
+joined: join_scale(a2, b3, 2)
+:: joined
+:: joined.
+```
+
+### A blend of C++ and Python, but not a copy of either
+
+The project borrows useful instincts from both:
+
+- from Python:
+  - interactive workflow
+  - readable data access
+  - quick iteration
+- from C++:
+  - explicit shapes and lowerable/native execution paths
+  - tighter control over runtime/package output
+
+But the surface language is its own thing: more symbolic, more structural, and
+more compact than either.
+
 ## VS Code
+
+To get Vektor Flow syntax highlighting, commands, and diagnostics in VS Code:
 
 1. Install the bundled `.vsix` from the package, or install the extension from
    `vscode/`.
@@ -81,6 +200,27 @@ hello, world
 
 3. Open `samples/hello.vkf`.
 4. Run `Run Vektor Flow File`.
+
+You should now get:
+
+- `.vkf` syntax highlighting
+- run / parse / build commands
+- compiler-backed diagnostics
+
+Example file to open once the extension is installed:
+
+```vkf
+math: .math
+
+hyp2(x:num, y:num) -> num:
+  x^2 + y^2
+
+point: (x:3, y:4)
+
+:: "hyp2 = $(hyp2(point.x, point.y))"
+:: point.
+:: math.sqrt(81)
+```
 
 Extension guide:
 
