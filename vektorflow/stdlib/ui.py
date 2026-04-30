@@ -7,13 +7,10 @@ The ``bridge`` stdlib is also unregistered; see :mod:`vektorflow.stdlib.bridge` 
 from __future__ import annotations
 
 import json
-import math
-import re
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from itertools import product
 from typing import Any
 
 from .screen import (
@@ -27,7 +24,6 @@ from .screen import _sync_json_to_all_built_webs
 from .events import (
     UIMouse, UIKeyboard,
     MouseEvent, KeyEvent,
-    EVENT_NAME_TO_BASE,
     EVENT_CONST_TO_NAME,
     encode_event_code,
     encode_ui_pattern,
@@ -35,6 +31,59 @@ from .events import (
     encode_widget_pattern,
     start_event_poller, get_global_poller,
 )
+from vektorflow.ui_display_ir import (
+    apply_field_mesh_geometry_update,
+    append_frame_paint_op,
+    append_pending_frame_paint_op,
+    append_screen_paint_op,
+    dispatch_host_event,
+    build_display_sync_plan,
+    build_display_write_plan,
+    build_frame_add_plan,
+    build_scene_camera_payload,
+    build_scene_light_payload,
+    build_scene_mesh_payload,
+    default_display_frame_kwargs,
+    ensure_runtime_frame_scene,
+    field_mesh_payload_from_geometry,
+    has_queued_host_events,
+    install_scene_camera_payload,
+    install_scene_light_payload,
+    install_scene_mesh_object,
+    migrate_pending_display_state,
+    normalize_scene_light_model,
+    orbit_camera_payload,
+    orbit_light_payload,
+    place_frame_ref,
+    pop_queued_host_event,
+    register_frame_ref,
+    resolve_frame_ref,
+    resolve_active_frame_target,
+    resolve_scene_object_for_pick,
+    route_frame_paint_op,
+    UiDisplayPayload,
+    UiPaintOp,
+    dumps_vf_display,
+    rotate_scene_mesh_payload,
+    set_light_model,
+    set_scene_color,
+    set_scene_fov,
+    set_scene_vec3,
+    translate_scene_payload,
+    ensure_host_event_poller_started,
+    zoom_camera_payload,
+)
+from vektorflow.ui_field_geometry import (
+    build_field_mesh_geometry,
+    parse_field_channels_and_meta,
+)
+from vektorflow.ui_scene_graph_math import (
+    IDENTITY_AFFINE_2D,
+    IDENTITY_MATRIX_4X4,
+    resolve_affine_2d_from_scene_fields,
+    resolve_model_matrix_3d_from_scene_fields,
+)
+from vektorflow.ui_scene_model import DisplaySceneState
 
 # ---------------------------------------------------------------------------
 # Lighting models supported by vf-geom-wgpu.js
@@ -44,10 +93,6 @@ LIGHT_MODELS = {"flat", "lambert", "blinn_phong", "phong"}
 # Animation tick rate (frames per second written to vf-display.json)
 _ANIM_FPS = 60
 
-
-# ---------------------------------------------------------------------------
-# Low-level math helpers
-# ---------------------------------------------------------------------------
 
 def _vec3(v: Any, name: str = "vec") -> list[float]:
     if isinstance(v, (list, tuple)) and len(v) >= 3:
@@ -61,21 +106,6 @@ def _rect_from_tuple(t: Any) -> tuple[float, float, float, float]:
     raise TypeError("rect must be a 4-tuple (x, y, w, h) in normalized 0..1 coordinates")
 
 
-def _rotate_vec3_around_axis(v: list[float], axis: str, angle_deg: float) -> list[float]:
-    """Rotate vector v by angle_deg degrees around the named world axis (x/y/z)."""
-    a = math.radians(angle_deg)
-    c, s = math.cos(a), math.sin(a)
-    x, y, z = v[0], v[1], v[2]
-    if axis == "z":
-        return [x * c - y * s, x * s + y * c, z]
-    elif axis == "x":
-        return [x, y * c - z * s, y * s + z * c]
-    elif axis == "y":
-        return [x * c + z * s, y, -x * s + z * c]
-    else:
-        raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
-
-
 def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k, v in kwargs.items():
@@ -86,325 +116,82 @@ def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-_DIM_ORDER = "tijkuvw"
-_MESH_CHANNEL_RE = re.compile(r"^([xyz])(?:_([tijkuvw]+))?$")
-_COLOR_NAMES: dict[str, tuple[float, float, float, float]] = {
-    "white": (1.0, 1.0, 1.0, 1.0),
-    "black": (0.0, 0.0, 0.0, 1.0),
-    "red": (1.0, 0.1, 0.1, 1.0),
-    "green": (0.15, 0.85, 0.15, 1.0),
-    "blue": (0.15, 0.35, 1.0, 1.0),
-    "yellow": (1.0, 0.9, 0.1, 1.0),
-    "cyan": (0.1, 0.9, 0.9, 1.0),
-    "magenta": (0.9, 0.1, 0.9, 1.0),
-    "orange": (1.0, 0.5, 0.05, 1.0),
-    "gray": (0.5, 0.5, 0.5, 1.0),
-    "grey": (0.5, 0.5, 0.5, 1.0),
-}
+def _make_paint_op(kind: str, rect: tuple[float, float, float, float], color: Any) -> UiPaintOp:
+    return UiPaintOp(
+        op=kind,  # type: ignore[arg-type]
+        rect=(float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])),
+        color=str(color),
+    )
 
 
-def _shape_of_nested(value: Any) -> tuple[int, ...]:
-    if not isinstance(value, (list, tuple)):
-        return ()
-    n = len(value)
-    if n == 0:
-        return (0,)
-    first = _shape_of_nested(value[0])
-    for i in range(1, n):
-        if _shape_of_nested(value[i]) != first:
-            raise ValueError("ragged arrays are not supported in ui.add(...)")
-    return (n,) + first
+def _make_transformed_paint_op(
+    kind: str,
+    rect: tuple[float, float, float, float],
+    color: Any,
+    transform: tuple[float, float, float, float, float, float],
+) -> UiPaintOp:
+    return UiPaintOp(
+        op=kind,  # type: ignore[arg-type]
+        rect=(float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])),
+        color=str(color),
+        transform=transform,
+    )
 
 
-def _nested_get(value: Any, idxs: tuple[int, ...]) -> Any:
-    cur = value
-    for idx in idxs:
-        cur = cur[idx]
-    return cur
-
-
-def _iter_multi_index(shape: tuple[int, ...]):
-    if not shape:
-        yield ()
-        return
-    for tup in product(*[range(n) for n in shape]):
-        yield tup
-
-
-def _parse_mesh_channel(
-    axis: str,
-    dims: str,
-    value: Any,
-) -> dict[str, Any]:
-    if len(set(dims)) != len(dims):
-        raise ValueError(f"duplicate dimensions in {axis}_{dims!s}")
-    for d in dims:
-        if d not in _DIM_ORDER:
-            raise ValueError(f"unsupported dimension {d!r}; use only {_DIM_ORDER!r}")
-    shape = _shape_of_nested(value)
-    if len(shape) != len(dims):
-        raise ValueError(
-            f"{axis}_{dims}: rank mismatch; got array rank {len(shape)} for {len(dims)} dims"
-        )
-    return {"axis": axis, "dims": dims, "shape": shape, "data": value}
-
-
-def _parse_color_rgba(color: Any) -> tuple[float, float, float, float]:
-    if color is None:
-        return (0.8, 0.8, 0.8, 1.0)
-    if isinstance(color, (list, tuple)) and len(color) >= 3:
-        r = float(color[0]); g = float(color[1]); b = float(color[2])
-        a = float(color[3]) if len(color) >= 4 else 1.0
-        # Allow either 0..1 or 0..255 input.
-        if max(abs(r), abs(g), abs(b), abs(a)) > 1.0:
-            r /= 255.0; g /= 255.0; b /= 255.0
-            if a > 1.0:
-                a /= 255.0
-        return (r, g, b, a)
-    s = str(color).strip().lower()
-    if s in _COLOR_NAMES:
-        return _COLOR_NAMES[s]
-    if s.startswith("#"):
-        h = s[1:]
-        if len(h) == 3:
-            h = f"{h[0]}{h[0]}{h[1]}{h[1]}{h[2]}{h[2]}"
-        if len(h) == 6:
-            n = int(h, 16)
-            return (((n >> 16) & 255) / 255.0, ((n >> 8) & 255) / 255.0, (n & 255) / 255.0, 1.0)
-    return (0.8, 0.8, 0.8, 1.0)
-
-
-def _normalize3(x: float, y: float, z: float) -> tuple[float, float, float]:
-    m = math.sqrt(x * x + y * y + z * z)
-    if m <= 1e-12:
-        return (0.0, 0.0, 1.0)
-    return (x / m, y / m, z / m)
-
-
-def _face_normal(a: tuple[float, float, float], b: tuple[float, float, float], c: tuple[float, float, float]) -> tuple[float, float, float]:
-    ux, uy, uz = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
-    vx, vy, vz = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
-    nx = uy * vz - uz * vy
-    ny = uz * vx - ux * vz
-    nz = ux * vy - uy * vx
-    return _normalize3(nx, ny, nz)
-
-
-def _build_field_mesh_geometry(
-    channels: dict[str, dict[str, Any]],
-    meta: dict[str, Any],
+def _make_scene_mesh(
+    kind: str,
     *,
-    time_index: int = 0,
+    center: Any,
+    scale: Any,
+    color: Any,
+    rotation: Any = None,
+    major_radius: float | None = None,
+    minor_radius: float | None = None,
 ) -> dict[str, Any]:
-    # Canonical dim order is fixed; channel suffix order can vary.
-    canonical_dims = [d for d in _DIM_ORDER if any(d in channels[a]["dims"] for a in ("x", "y", "z"))]
-    dim_sizes: dict[str, int] = {}
-    for d in canonical_dims:
-        sizes: list[int] = []
-        for a in ("x", "y", "z"):
-            cdims = channels[a]["dims"]
-            if d in cdims:
-                axis_i = cdims.index(d)
-                sizes.append(int(channels[a]["shape"][axis_i]))
-        if not sizes:
-            dim_sizes[d] = 1
-            continue
-        target = max(sizes)
-        for s in sizes:
-            if s not in (1, target):
-                raise ValueError(
-                    f"incompatible broadcast for dim {d!r}: sizes={sizes}"
-                )
-        dim_sizes[d] = target
+    return build_scene_mesh_payload(
+        kind,
+        center=tuple(_vec3(center or [0, 0, 0], "center")),
+        scale=tuple(_vec3(scale or [1, 1, 1], "scale")),
+        color=str(color) if color is not None else None,
+        rotation=tuple(_vec3(rotation or [0.0, 0.0, 0.0], "rotation")),
+        major_radius=float(major_radius) if major_radius is not None else None,
+        minor_radius=float(minor_radius) if minor_radius is not None else None,
+    )
 
-    time_count = int(dim_sizes.get("t", 1))
-    current_t = max(0, min(int(time_index), max(0, time_count - 1)))
-    sample_dims = [d for d in canonical_dims if d != "t"]
-    cshape = tuple(dim_sizes[d] for d in sample_dims)
 
-    def _sample(axis: str, idx_tuple: tuple[int, ...]) -> float:
-        ch = channels[axis]
-        if not ch["dims"]:
-            return float(ch["data"])
-        idx_map = {d: 0 for d in canonical_dims}
-        idx_map["t"] = current_t
-        for i, d in enumerate(sample_dims):
-            idx_map[d] = idx_tuple[i]
-        use_idxs: list[int] = []
-        for k, d in enumerate(ch["dims"]):
-            sz = int(ch["shape"][k])
-            full_i = idx_map.get(d, 0)
-            use_idxs.append(0 if sz == 1 else full_i)
-        return float(_nested_get(ch["data"], tuple(use_idxs)))
+def _make_scene_camera(*, pos: Any, target: Any, fov: float, up: Any) -> dict[str, Any]:
+    return build_scene_camera_payload(
+        pos=tuple(_vec3(pos, "pos")),
+        target=tuple(_vec3(target or [0, 0, 0], "target")),
+        fov=float(fov),
+        up=tuple(_vec3(up or [0, 1, 0], "up")),
+    )
 
-    rgba = _parse_color_rgba(meta.get("color"))
-    interpolation = bool(meta.get("interpolation", False))
 
-    points: list[tuple[float, float, float]] = []
-    vindex: dict[tuple[int, ...], int] = {}
-    for i, idx in enumerate(_iter_multi_index(cshape)):
-        x = _sample("x", idx)
-        y = _sample("y", idx)
-        z = _sample("z", idx)
-        points.append((x, y, z))
-        vindex[idx] = i
-
-    manifold_dims = [d for d in "uvw" if d in dim_sizes and dim_sizes[d] > 1]
-    base_indices: list[int] = []
-    topology = "line-list"
-
-    dim_pos = {d: i for i, d in enumerate(sample_dims)}
-
-    def _idx(base: dict[str, int]) -> int:
-        tup = tuple(base.get(d, 0) for d in sample_dims)
-        return int(vindex[tup])
-
-    if len(manifold_dims) == 1:
-        topology = "line-list"
-        du = manifold_dims[0]
-        loop_dims = [d for d in sample_dims if d != du]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                base[du] = u
-                a = _idx(base)
-                base[du] = u + 1
-                b = _idx(base)
-                base_indices.extend([a, b])
-    elif len(manifold_dims) == 2:
-        topology = "triangle-list"
-        du, dv = manifold_dims
-        loop_dims = [d for d in sample_dims if d not in (du, dv)]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                for v in range(dim_sizes[dv] - 1):
-                    base[du], base[dv] = u, v
-                    a = _idx(base)
-                    base[du], base[dv] = u + 1, v
-                    b = _idx(base)
-                    base[du], base[dv] = u + 1, v + 1
-                    c = _idx(base)
-                    base[du], base[dv] = u, v + 1
-                    d = _idx(base)
-                    base_indices.extend([a, b, c, a, c, d])
-    elif len(manifold_dims) >= 3:
-        topology = "triangle-list"
-        du, dv, dw = manifold_dims[0], manifold_dims[1], manifold_dims[2]
-        loop_dims = [d for d in sample_dims if d not in (du, dv, dw)]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                for v in range(dim_sizes[dv] - 1):
-                    for w in range(dim_sizes[dw] - 1):
-                        base[du], base[dv], base[dw] = u, v, w
-                        c000 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v, w
-                        c100 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v + 1, w
-                        c010 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v + 1, w
-                        c110 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v, w + 1
-                        c001 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v, w + 1
-                        c101 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v + 1, w + 1
-                        c011 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v + 1, w + 1
-                        c111 = _idx(base)
-                        base_indices.extend([c000, c100, c110, c000, c110, c010])
-                        base_indices.extend([c001, c011, c111, c001, c111, c101])
-                        base_indices.extend([c000, c010, c011, c000, c011, c001])
-                        base_indices.extend([c100, c101, c111, c100, c111, c110])
-                        base_indices.extend([c000, c001, c101, c000, c101, c100])
-                        base_indices.extend([c010, c110, c111, c010, c111, c011])
-
-    vertices: list[float] = []
-    indices: list[int] = []
-    if topology == "triangle-list":
-        if interpolation:
-            acc: list[list[float]] = [[0.0, 0.0, 0.0] for _ in range(len(points))]
-            for t in range(0, len(base_indices), 3):
-                ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
-                n = _face_normal(points[ia], points[ib], points[ic])
-                for ii in (ia, ib, ic):
-                    acc[ii][0] += n[0]
-                    acc[ii][1] += n[1]
-                    acc[ii][2] += n[2]
-            for i, p in enumerate(points):
-                nx, ny, nz = _normalize3(acc[i][0], acc[i][1], acc[i][2])
-                vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
-            indices = list(base_indices)
-        else:
-            for t in range(0, len(base_indices), 3):
-                ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
-                a, b, c = points[ia], points[ib], points[ic]
-                nx, ny, nz = _face_normal(a, b, c)
-                base = len(vertices) // 10
-                for p in (a, b, c):
-                    vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
-                indices.extend([base, base + 1, base + 2])
-    else:
-        for p in points:
-            vertices.extend([p[0], p[1], p[2], 0.0, 0.0, 1.0, rgba[0], rgba[1], rgba[2], rgba[3]])
-        indices = list(base_indices)
-
-    return {
-        "vertices": vertices,
-        "indices": indices,
-        "topology": topology,
-        "interpolation": interpolation,
-        "alpha": float(rgba[3]),
-        "time_count": time_count,
-        "time_index": current_t,
-    }
+def _make_scene_light(*, pos: Any, model: str, color: Any) -> dict[str, Any]:
+    return build_scene_light_payload(
+        pos=tuple(_vec3(pos, "pos")),
+        model=str(model),
+        color=str(color),
+    )
 
 
 def _build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
-    # Split channels (x_*, y_*, z_*) from style/meta kwargs.
-    channels: dict[str, dict[str, Any]] = {}
-    meta: dict[str, Any] = {}
-    for key, value in kwargs.items():
-        m = _MESH_CHANNEL_RE.match(str(key))
-        if m:
-            axis = m.group(1)
-            dims = str(m.group(2) or "")
-            channels[axis] = _parse_mesh_channel(axis, dims, value)
-        else:
-            meta[key] = value
-
-    missing = [a for a in ("x", "y", "z") if a not in channels]
-    if missing:
-        raise ValueError(f"ui.add(...) missing channels: {', '.join(missing)}")
-
-    geom = _build_field_mesh_geometry(
+    channels, meta = parse_field_channels_and_meta(kwargs)
+    geom = build_field_mesh_geometry(
         channels,
         meta,
         time_index=int(meta.get("t", 0)),
     )
 
-    return {
-        "type": "field_mesh",
-        "id": str(meta.get("id", "field_mesh")),
-        "vertices": geom["vertices"],
-        "indices": geom["indices"],
-        "topology": geom["topology"],
-        "interpolation": geom["interpolation"],
-        "alpha": geom["alpha"],
-        "center": _vec3(meta.get("center", [0, 0, 0]), "center"),
-        "scale": _vec3(meta.get("scale", [1, 1, 1]), "scale"),
-        "rotation": _vec3(meta.get("rotation", [0, 0, 0]), "rotation"),
-        "color": meta.get("color"),
-        "time_count": geom["time_count"],
-        "time_index": geom["time_index"],
-    }
+    return field_mesh_payload_from_geometry(
+        geom=geom,
+        mesh_id=str(meta.get("id", "field_mesh")),
+        center=tuple(_vec3(meta.get("center", [0, 0, 0]), "center")),
+        scale=tuple(_vec3(meta.get("scale", [1, 1, 1]), "scale")),
+        rotation=tuple(_vec3(meta.get("rotation", [0, 0, 0]), "rotation")),
+        color=meta.get("color"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -433,20 +220,37 @@ class SceneBox:
 
     __vf_py_attrs__ = True
 
-    def __init__(self, data: dict[str, Any], display: "Display", frame_id: str) -> None:
+    def __init__(
+        self,
+        data: dict[str, Any],
+        display: "Display",
+        frame_id: str,
+        parent: "SceneBox | None" = None,
+    ) -> None:
         self._data = data          # live dict inside display._geom[fid]["meshes"][i]
         self._display = display
         self._frame_id = frame_id
-        # local rotation accumulator (axis-angle in degrees, stored as euler ZYX)
-        self._rot: list[float] = [0.0, 0.0, 0.0]  # [rx, ry, rz] degrees
+        self._parent = parent
+        self._children: list[SceneBox] = []
+        if parent is not None:
+            parent._children.append(self)
+        self._local_center = tuple(float(v) for v in self._data.get("center", [0.0, 0.0, 0.0]))
+        self._local_scale = tuple(float(v) for v in self._data.get("scale", [1.0, 1.0, 1.0]))
+        self._local_rotation = tuple(float(v) for v in self._data.get("rotation", [0.0, 0.0, 0.0]))
+        self._apply_world_model_recursive()
 
     # -- mutations ------------------------------------------------------------
 
     def translate(self, delta: Any) -> "SceneBox":
         """Shift center by [dx, dy, dz]. Returns self."""
-        d = _vec3(delta, "delta")
-        c = self._data["center"]
-        self._data["center"] = [c[0] + d[0], c[1] + d[1], c[2] + d[2]]
+        raw = _vec3(delta, "delta")
+        self._local_center = (
+            self._local_center[0] + raw[0],
+            self._local_center[1] + raw[1],
+            self._local_center[2] + raw[2],
+        )
+        set_scene_vec3(self._data, key="center", value=self._local_center)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
@@ -458,39 +262,137 @@ class SceneBox:
         renderer which will apply it to the model matrix.
         Returns self.
         """
-        ax = str(around).lower()
-        if ax not in ("x", "y", "z"):
-            raise ValueError(f"around must be 'x', 'y', or 'z', got {around!r}")
-        idx = {"x": 0, "y": 1, "z": 2}[ax]
-        self._rot[idx] = (self._rot[idx] + angle_deg) % 360.0
-        self._data["rotation"] = list(self._rot)
+        self._local_rotation = tuple(rotate_scene_mesh_payload(self._data, angle_deg=angle_deg, around=around))
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
     def set_color(self, color: Any) -> "SceneBox":
         """Change the box color. Returns self."""
-        self._data["color"] = str(color)
+        set_scene_color(self._data, color)
         self._display._sync_all()
         return self
 
     def set_scale(self, scale: Any) -> "SceneBox":
         """Resize the box. Returns self."""
-        self._data["scale"] = _vec3(scale, "scale")
+        self._local_scale = tuple(_vec3(scale, "scale"))
+        set_scene_vec3(self._data, key="scale", value=self._local_scale)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
+
+    def add_box(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+    ) -> "SceneBox":
+        return self._display._add_box(
+            self._frame_id,
+            center=center,
+            scale=scale,
+            color=color,
+            parent=self,
+        )
+
+    def add_ellipsoid(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+    ) -> "SceneBox":
+        return self._display._add_ellipsoid(
+            self._frame_id,
+            center=center,
+            scale=scale,
+            color=color,
+            parent=self,
+        )
+
+    def add_torus(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        major_radius: float = 0.65,
+        minor_radius: float = 0.22,
+    ) -> "SceneBox":
+        return self._display._add_torus(
+            self._frame_id,
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+            parent=self,
+        )
+
+    def add_rect(self, rect: Any, *, color: str = "#888888") -> Any:
+        raise TypeError("3-D nodes cannot parent 2-D nodes.")
+
+    def add_oval(self, rect: Any, *, color: str = "#888888") -> Any:
+        raise TypeError("3-D nodes cannot parent 2-D nodes.")
+
+    def add(self, **kwargs: Any) -> "SceneFieldMesh":
+        return self._display._add_field_mesh(
+            self._frame_id,
+            parent=self,
+            **kwargs,
+        )
+
+    @property
+    def world_center(self) -> list[float]:
+        parent_matrix = self._parent._world_model_matrix() if self._parent is not None else None
+        return list(
+            resolve_model_matrix_3d_from_scene_fields(
+                center=self._local_center,
+                rotation=self._local_rotation,
+                scale=self._local_scale,
+                parent_world=parent_matrix,
+            ).world_translation
+        )
+
+    @property
+    def world_matrix(self) -> list[float]:
+        return list(self._world_model_matrix())
 
     # -- convenience ----------------------------------------------------------
 
     @property
     def center(self) -> list[float]:
-        return list(self._data["center"])
+        return [self._local_center[0], self._local_center[1], self._local_center[2]]
 
     @property
     def scale(self) -> list[float]:
-        return list(self._data["scale"])
+        return [self._local_scale[0], self._local_scale[1], self._local_scale[2]]
 
     def __repr__(self) -> str:
         return f"SceneBox(center={self._data['center']}, scale={self._data['scale']}, color={self._data['color']!r})"
+
+    def _local_model_matrix(self) -> tuple[float, ...]:
+        return resolve_model_matrix_3d_from_scene_fields(
+            center=self._local_center,
+            rotation=self._local_rotation,
+            scale=self._local_scale,
+        ).local
+
+    def _world_model_matrix(self) -> tuple[float, ...]:
+        return tuple(float(v) for v in self._data.get("model_matrix", IDENTITY_MATRIX_4X4))
+
+    def _apply_world_model_recursive(self) -> None:
+        parent_matrix = self._parent._world_model_matrix() if self._parent is not None else None
+        resolved = resolve_model_matrix_3d_from_scene_fields(
+            center=self._local_center,
+            rotation=self._local_rotation,
+            scale=self._local_scale,
+            parent_world=parent_matrix,
+        )
+        self._data["model_matrix"] = [float(v) for v in resolved.world]
+        for child in self._children:
+            child._apply_world_model_recursive()
 
 
 class SceneFieldMesh(SceneBox):
@@ -509,8 +411,9 @@ class SceneFieldMesh(SceneBox):
         display: "Display",
         frame_id: str,
         source_kwargs: dict[str, Any],
+        parent: SceneBox | None = None,
     ) -> None:
-        super().__init__(data, display, frame_id)
+        super().__init__(data, display, frame_id, parent=parent)
         self._source_kwargs = dict(source_kwargs)
 
     @property
@@ -529,24 +432,10 @@ class SceneFieldMesh(SceneBox):
         count = max(1, self.t_count)
         raw_t = self._data.get("time_index", 0) if time_value is None else time_value
         idx = max(0, min(int(round(float(raw_t))), count - 1))
-        channels: dict[str, dict[str, Any]] = {}
-        meta: dict[str, Any] = {}
-        for key, raw in self._source_kwargs.items():
-            m = _MESH_CHANNEL_RE.match(str(key))
-            if m:
-                axis = m.group(1)
-                dims = str(m.group(2) or "")
-                channels[axis] = _parse_mesh_channel(axis, dims, raw)
-            else:
-                meta[str(key)] = raw
-        geom = _build_field_mesh_geometry(channels, meta, time_index=idx)
-        self._data["vertices"] = geom["vertices"]
-        self._data["indices"] = geom["indices"]
-        self._data["topology"] = geom["topology"]
-        self._data["interpolation"] = geom["interpolation"]
-        self._data["alpha"] = geom["alpha"]
-        self._data["time_count"] = geom["time_count"]
-        self._data["time_index"] = geom["time_index"]
+        channels, meta = parse_field_channels_and_meta(self._source_kwargs)
+        geom = build_field_mesh_geometry(channels, meta, time_index=idx)
+        apply_field_mesh_geometry_update(self._data, geom)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
@@ -616,21 +505,19 @@ class SceneCamera:
 
     def translate(self, delta: Any) -> "SceneCamera":
         """Move the camera position by [dx, dy, dz] (target stays fixed). Returns self."""
-        d = _vec3(delta, "delta")
-        p = self._data["pos"]
-        self._data["pos"] = [p[0] + d[0], p[1] + d[1], p[2] + d[2]]
+        translate_scene_payload(self._data, key="pos", delta=tuple(_vec3(delta, "delta")))
         self._display._sync_all()
         return self
 
     def look_at(self, target: Any) -> "SceneCamera":
         """Change the look-at target point. Returns self."""
-        self._data["target"] = _vec3(target, "target")
+        set_scene_vec3(self._data, key="target", value=tuple(_vec3(target, "target")))
         self._display._sync_all()
         return self
 
     def set_fov(self, degrees: float) -> "SceneCamera":
         """Change the field of view (degrees). Returns self."""
-        self._data["fov"] = float(degrees)
+        set_scene_fov(self._data, degrees)
         self._display._sync_all()
         return self
 
@@ -641,15 +528,7 @@ class SceneCamera:
         *around* = 'x' or 'y' tilts the orbit plane accordingly.
         Returns self.
         """
-        ax = str(around).lower()
-        if ax not in ("x", "y", "z"):
-            raise ValueError(f"around must be 'x', 'y', or 'z', got {around!r}")
-        p = self._data["pos"]
-        t = self._data["target"]
-        # offset from target
-        r = [p[0] - t[0], p[1] - t[1], p[2] - t[2]]
-        r2 = _rotate_vec3_around_axis(r, ax, angle_deg)
-        self._data["pos"] = [t[0] + r2[0], t[1] + r2[1], t[2] + r2[2]]
+        orbit_camera_payload(self._data, angle_deg=angle_deg, around=around)
         self._display._sync_all()
         return self
 
@@ -669,33 +548,13 @@ class SceneCamera:
         The camera-target distance is multiplied by ``exp(step * speed)`` and
         clamped to ``[min_dist, max_dist]``.
         """
-        s = float(step)
-        if s == 0.0:
-            return self
-        spd = max(0.0001, float(speed))
-        mn = max(0.0001, float(min_dist))
-        mx = max(mn, float(max_dist))
-
-        p = self._data["pos"]
-        t = self._data["target"]
-        vx = p[0] - t[0]
-        vy = p[1] - t[1]
-        vz = p[2] - t[2]
-        dist = math.sqrt(vx * vx + vy * vy + vz * vz)
-        if dist < 1e-9:
-            # Degenerate: choose a stable default ray direction (+Z from target).
-            vx, vy, vz = 0.0, 0.0, 1.0
-            dist = 1.0
-        inv = 1.0 / dist
-        nx, ny, nz = vx * inv, vy * inv, vz * inv
-
-        nd = dist * math.exp(s * spd)
-        if nd < mn:
-            nd = mn
-        if nd > mx:
-            nd = mx
-
-        self._data["pos"] = [t[0] + nx * nd, t[1] + ny * nd, t[2] + nz * nd]
+        zoom_camera_payload(
+            self._data,
+            step=step,
+            speed=speed,
+            min_dist=min_dist,
+            max_dist=max_dist,
+        )
         self._display._sync_all()
         return self
 
@@ -734,7 +593,8 @@ class SceneCamera:
         def _run() -> None:
             while not self._anim_stop.is_set():
                 t0 = time.monotonic()
-                self.rotate_by(omega * dt, ax)
+                orbit_camera_payload(self._data, angle_deg=omega * dt, around=ax)
+                self._display._sync_all()
                 elapsed = time.monotonic() - t0
                 sleep = max(0.0, dt - elapsed)
                 self._anim_stop.wait(timeout=sleep)
@@ -802,30 +662,25 @@ class SceneLight:
 
     def translate(self, delta: Any) -> "SceneLight":
         """Move the light by [dx, dy, dz]. Returns self."""
-        d = _vec3(delta, "delta")
-        p = self._data["pos"]
-        self._data["pos"] = [p[0] + d[0], p[1] + d[1], p[2] + d[2]]
+        translate_scene_payload(self._data, key="pos", delta=tuple(_vec3(delta, "delta")))
         self._display._sync_all()
         return self
 
     def set_pos(self, pos: Any) -> "SceneLight":
         """Set the light position to [x, y, z]. Returns self."""
-        self._data["pos"] = _vec3(pos, "pos")
+        set_scene_vec3(self._data, key="pos", value=tuple(_vec3(pos, "pos")))
         self._display._sync_all()
         return self
 
     def set_color(self, color: Any) -> "SceneLight":
         """Change light color. Returns self."""
-        self._data["color"] = str(color)
+        set_scene_color(self._data, color)
         self._display._sync_all()
         return self
 
     def set_model(self, model: str) -> "SceneLight":
         """Change lighting model. Returns self."""
-        m = str(model).lower().replace("-", "_")
-        if m not in LIGHT_MODELS:
-            raise ValueError(f"model {model!r} unknown; use one of: {sorted(LIGHT_MODELS)}")
-        self._data["model"] = m
+        set_light_model(self._data, model, allowed_models=LIGHT_MODELS)
         self._display._sync_all()
         return self
 
@@ -843,9 +698,7 @@ class SceneLight:
         def _run() -> None:
             while not self._anim_stop.is_set():
                 t0 = time.monotonic()
-                p = self._data["pos"]
-                p2 = _rotate_vec3_around_axis(p, ax, omega * dt)
-                self._data["pos"] = p2
+                orbit_light_payload(self._data, angle_deg=omega * dt, around=ax)
                 self._display._sync_all()
                 elapsed = time.monotonic() - t0
                 self._anim_stop.wait(timeout=max(0.0, dt - elapsed))
@@ -885,6 +738,114 @@ class SceneLight:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class RectRef:
+    """A 2-D rect or oval with parent-relative transforms."""
+
+    __vf_py_attrs__ = True
+
+    _display: "Display"
+    _kind: str
+    _rect: tuple[float, float, float, float]
+    _color: str
+    _children: list["RectRef"] = field(default_factory=list, repr=False)
+    _tx: float = 0.0
+    _ty: float = 0.0
+    _sx: float = 1.0
+    _sy: float = 1.0
+    _rotation_deg: float = 0.0
+
+    def add_rect(self, rect: Any, *, color: str = "#888888") -> "RectRef":
+        child = RectRef(
+            self._display,
+            "rect",
+            _rect_from_tuple(rect),
+            str(color),
+        )
+        self._children.append(child)
+        self._display._sync_all()
+        return child
+
+    def add_oval(self, rect: Any, *, color: str = "#888888") -> "RectRef":
+        child = RectRef(
+            self._display,
+            "oval",
+            _rect_from_tuple(rect),
+            str(color),
+        )
+        self._children.append(child)
+        self._display._sync_all()
+        return child
+
+    def add_box(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes.")
+
+    def add_ellipsoid(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes.")
+
+    def add_torus(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes.")
+
+    def add(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes.")
+
+    def translate(self, *, dx: float = 0.0, dy: float = 0.0) -> "RectRef":
+        self._tx += float(dx)
+        self._ty += float(dy)
+        self._display._sync_all()
+        return self
+
+    def set_scale(self, *, sx: float | None = None, sy: float | None = None) -> "RectRef":
+        if sx is not None:
+            self._sx = float(sx)
+        if sy is not None:
+            self._sy = float(sy)
+        self._display._sync_all()
+        return self
+
+    def scale_by(self, *, sx: float = 1.0, sy: float = 1.0) -> "RectRef":
+        self._sx *= float(sx)
+        self._sy *= float(sy)
+        self._display._sync_all()
+        return self
+
+    def rotate_by(self, *, angle_deg: float) -> "RectRef":
+        self._rotation_deg += float(angle_deg)
+        self._display._sync_all()
+        return self
+
+    def _local_transform(self) -> tuple[float, float, float, float, float, float]:
+        x, y, w, h = self._rect
+        return resolve_affine_2d_from_scene_fields(
+            translation=(x + self._tx, y + self._ty),
+            rotation_degrees=self._rotation_deg,
+            scale=(w * self._sx, h * self._sy),
+        ).local
+
+    def _collect_paint_ops(
+        self,
+        parent_transform: tuple[float, float, float, float, float, float],
+        out: list[UiPaintOp],
+    ) -> None:
+        x, y, w, h = self._rect
+        world_transform = resolve_affine_2d_from_scene_fields(
+            translation=(x + self._tx, y + self._ty),
+            rotation_degrees=self._rotation_deg,
+            scale=(w * self._sx, h * self._sy),
+            parent_world=parent_transform,
+        ).world
+        out.append(
+            _make_transformed_paint_op(
+                self._kind,
+                (0.0, 0.0, 1.0, 1.0),
+                self._color,
+                world_transform,
+            )
+        )
+        for child in self._children:
+            child._collect_paint_ops(world_transform, out)
+
+
+@dataclass
 class FrameRef:
     """A panel from ``d.frame`` / :meth:`Display.Frame`; use :meth:`add_frame`, then draw commands."""
 
@@ -895,6 +856,7 @@ class FrameRef:
     _placed: bool = field(default=False, repr=False)
     _frame_id: str = field(default="", repr=False)
     _pending_key: int = field(default=0, repr=False)
+    _shape_roots: list[RectRef] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_pending_key", id(self))
@@ -918,23 +880,43 @@ class FrameRef:
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
 
+    def add_rect(self, rect: Any, *, color: str = "#888888") -> RectRef:
+        ref = RectRef(self._display, "rect", _rect_from_tuple(rect), str(color))
+        self._shape_roots.append(ref)
+        self._display._sync_all()
+        return ref
+
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
-        d = {"op": "rect", "rect": [z[0], z[1], z[2], z[3]], "color": str(color)}
-        if self._placed and self._frame_id:
-            self._display._append_frame_op(self._frame_id, d)
-        else:
-            self._display._append_pending_frame_op(self._pending_key, d)
+        d = _make_paint_op("rect", z, color)
+        route_frame_paint_op(
+            frame_ops=self._display._frame_ops,
+            pending_ops=self._display._pending_ops,
+            frame_id=self._frame_id,
+            placed=self._placed,
+            pending_key=self._pending_key,
+            op=d,
+        )
         self._display._sync_all()
 
     def add_oval(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
-        d = {"op": "oval", "rect": [z[0], z[1], z[2], z[3]], "color": str(color)}
-        if self._placed and self._frame_id:
-            self._display._append_frame_op(self._frame_id, d)
-        else:
-            self._display._append_pending_frame_op(self._pending_key, d)
+        d = _make_paint_op("oval", z, color)
+        route_frame_paint_op(
+            frame_ops=self._display._frame_ops,
+            pending_ops=self._display._pending_ops,
+            frame_id=self._frame_id,
+            placed=self._placed,
+            pending_key=self._pending_key,
+            op=d,
+        )
         self._display._sync_all()
+
+    def _collect_shape_ops(self) -> list[UiPaintOp]:
+        out: list[UiPaintOp] = []
+        for shape in self._shape_roots:
+            shape._collect_paint_ops(IDENTITY_AFFINE_2D, out)
+        return out
 
     # -- 3-D ------------------------------------------------------------------
 
@@ -1050,7 +1032,7 @@ class UIEventQueue:
     def poll(self) -> bool:
         """Return ``True`` when at least one event is queued."""
         self._ui._ensure_poller()
-        return bool(self._ui._event_queue)
+        return has_queued_host_events(self._ui._event_queue)
 
     def get(self) -> MouseEvent | KeyEvent | None:
         """Pop one pending event (mouse first), or ``None``."""
@@ -1119,58 +1101,27 @@ class UIRoot:
         object.__setattr__(self, "events", q)
         # Wire the global poller to push events into our mouse/keyboard queues
         def _dispatch(evt: dict) -> None:
-            ev_name = str(evt.get("event", ""))
-            frame_id = str(evt.get("frame_id", evt.get("frameId", "")) or "")
-            widget_id = str(evt.get("widget_id", evt.get("widgetId", "")) or "")
-            base = int(EVENT_NAME_TO_BASE.get(ev_name, 0))
-            code = encode_event_code(ev_name, frame_id=frame_id, widget_id=widget_id)
-            ui_code = encode_ui_pattern(ev_name) if base else 0
-            frame_code = encode_frame_pattern(ev_name, frame_id) if (base and frame_id) else 0
-            widget_code = encode_widget_pattern(ev_name, widget_id) if (base and widget_id) else 0
-            idx = 0
-            if base:
-                idx = int(self._event_kind_count.get(base, 0)) + 1
-                self._event_kind_count[base] = idx
-
-            payload = dict(evt)
-            payload["event"] = ev_name
-            payload["frame_id"] = frame_id
-            payload["widget_id"] = widget_id
-            payload["code"] = code
-            payload["ui_code"] = ui_code
-            payload["frame_code"] = frame_code
-            payload["widget_code"] = widget_code
-            payload["index"] = idx
-
-            t = evt.get("type")
-            if t != "vf_event":
-                # Non-vf_event UI host events (e.g. frame.closed, widget events)
-                self._event_queue.append(payload)
-                return
-            if ev_name in ("move", "hover", "down", "up", "wheel", "drag"):
-                self.keyboard._observe_modifiers(evt)
-                self.cursor._push(evt)
-                self._event_queue.append(payload)
-            elif ev_name in ("key_down", "key_up"):
-                ke = KeyEvent.from_dict(evt)
-                is_modifier = self.keyboard._modifier_name(ke) is not None
-                self.keyboard._push(evt)
-                if not is_modifier:
-                    self._event_queue.append(payload)
+            dispatch_host_event(
+                evt,
+                cursor=self.cursor,
+                keyboard=self.keyboard,
+                event_queue=self._event_queue,
+                event_kind_count=self._event_kind_count,
+            )
         p = get_global_poller()
         p.subscribe(_dispatch)
 
     def _ensure_poller(self) -> None:
-        if not self._poller_started:
+        if ensure_host_event_poller_started(
+            self._poller_started,
+            start_poller=start_event_poller,
+        ):
             object.__setattr__(self, "_poller_started", True)
-            start_event_poller()
 
     def next_event(self) -> Any:
         """Return one pending queued event, or ``None`` when no event is queued."""
         self._ensure_poller()
-        if self._event_queue:
-            return self._event_queue.popleft()
-        return None
+        return pop_queued_host_event(self._event_queue)
 
     def poll(self) -> None:
         """Drain queued events and fire registered mouse/keyboard callbacks."""
@@ -1182,6 +1133,11 @@ class UIRoot:
     def widgets(self) -> _Widget:
         """Widget factory namespace (preferred over ``d.widget``): ``ui.widgets.button(...)``."""
         return self.display.widget
+
+    @property
+    def mouse(self) -> UIMouse:
+        """Backward-compatible alias for ``ui.cursor``."""
+        return self.cursor
 
 
     def set_mode(self, mode: str) -> None:
@@ -1263,18 +1219,7 @@ class Display:
 
     _screen: Screen = field(default_factory=Screen, repr=False)
     _w: _Widget = field(default_factory=_Widget, repr=False)
-    _screen_ops: list[dict[str, Any]] = field(default_factory=list, repr=False)
-    _frame_ops: dict[str, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
-    _pending_ops: dict[int, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
-    _last_frame: FrameRef | None = field(default=None, repr=False)
-    # geom: frame_id -> { meshes: [...], camera: {...}|None, lights: [...] }
-    _geom: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
-    # (fid, mesh_index) -> SceneBox/SceneCamera/SceneLight (for get_object)
-    _scene_objects: dict[tuple, Any] = field(default_factory=dict, repr=False)
-    # All FrameRefs ever placed (for get_frame)
-    _frame_refs: list[Any] = field(default_factory=list, repr=False)
-    # Scene command file (vkf-scene.json) changes only when command count changes.
-    _last_scene_cmd_count: int = field(default=-1, repr=False)
+    _scene_state: DisplaySceneState = field(default_factory=DisplaySceneState, repr=False)
 
     # ---- properties -------------------------------------------------------
 
@@ -1282,8 +1227,64 @@ class Display:
     def widget(self) -> _Widget:
         return self._w
 
+    @property
+    def _screen_ops(self) -> list[UiPaintOp]:
+        return self._scene_state.screen_ops
+
+    @property
+    def _frame_ops(self) -> dict[str, list[UiPaintOp]]:
+        return self._scene_state.frame_ops
+
+    @property
+    def _pending_ops(self) -> dict[int, list[UiPaintOp]]:
+        return self._scene_state.pending_ops
+
+    @property
+    def _geom(self) -> dict[str, dict[str, Any]]:
+        return self._scene_state.runtime_geom
+
+    @property
+    def _scene_objects(self) -> dict[tuple, Any]:
+        return self._scene_state.scene_objects
+
+    @property
+    def _frame_refs(self) -> list[Any]:
+        return self._scene_state.frame_refs
+
+    @property
+    def _screen_shape_roots(self) -> list[RectRef]:
+        return self._scene_state.screen_shape_roots
+
+    @property
+    def _last_scene_cmd_count(self) -> int:
+        return self._scene_state.last_scene_cmd_count
+
+    @_last_scene_cmd_count.setter
+    def _last_scene_cmd_count(self, value: int) -> None:
+        self._scene_state.last_scene_cmd_count = int(value)
+
+    @property
+    def _last_frame(self) -> FrameRef | None:
+        return self._scene_state.last_frame
+
+    @_last_frame.setter
+    def _last_frame(self, value: FrameRef | None) -> None:
+        self._scene_state.last_frame = value
+
     def dumps(self) -> str:
         return self._screen.dumps()
+
+    def display_payload(self) -> UiDisplayPayload:
+        """Return the current browser/native display payload for this display."""
+        plan = self._scene_state.build_sync_plan(
+            command_count=len(self._screen._commands),
+            has_scene_commands=bool(self._screen._commands),
+        )
+        return plan.payload
+
+    def display_json(self) -> str:
+        """Return the current ``vf-display.json`` body for this display."""
+        return dumps_vf_display(self.display_payload())
 
     def widget_set(self, frame_id: str, widget_id: str, props: Any) -> None:
         self._screen.widget_set(frame_id, widget_id, props)
@@ -1310,19 +1311,27 @@ class Display:
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
 
+    def add_rect(self, rect: Any, *, color: str = "#888888") -> RectRef:
+        ref = RectRef(self, "rect", _rect_from_tuple(rect), str(color))
+        self._scene_state.add_screen_shape_root(ref)
+        self._sync_all()
+        return ref
+
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
-        self._screen_ops.append(
-            {"op": "rect", "rect": [z[0], z[1], z[2], z[3]], "color": str(color)}
-        )
+        append_screen_paint_op(self._screen_ops, _make_paint_op("rect", z, color))
         self._sync_all()
 
     def add_oval(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
-        self._screen_ops.append(
-            {"op": "oval", "rect": [z[0], z[1], z[2], z[3]], "color": str(color)}
-        )
+        append_screen_paint_op(self._screen_ops, _make_paint_op("oval", z, color))
         self._sync_all()
+
+    def add_oval_ref(self, rect: Any, *, color: str = "#888888") -> RectRef:
+        ref = RectRef(self, "oval", _rect_from_tuple(rect), str(color))
+        self._scene_state.add_screen_shape_root(ref)
+        self._sync_all()
+        return ref
 
     # ---- 3-D commands (operate on last placed frame) ----------------------
 
@@ -1428,19 +1437,18 @@ class Display:
         center: Any,
         scale: Any,
         color: Any,
+        parent: SceneBox | None = None,
     ) -> SceneBox:
-        data: dict[str, Any] = {
-            "type":     "box",
-            "center":   _vec3(center or [0, 0, 0], "center"),
-            "scale":    _vec3(scale  or [1, 1, 1], "scale"),
-            "color":    str(color) if color is not None else None,
-            "rotation": [0.0, 0.0, 0.0],
-        }
-        self._geom_for(fid)["meshes"].append(data)
+        data = _make_scene_mesh("box", center=center, scale=scale, color=color)
+        obj = SceneBox(data, self, fid, parent=parent)
+        install_scene_mesh_object(
+            self._geom,
+            self._scene_objects,
+            frame_id=fid,
+            mesh_payload=data,
+            obj=obj,
+        )
         self._sync_all()
-        obj = SceneBox(data, self, fid)
-        idx = len(self._geom_for(fid)["meshes"]) - 1
-        self._scene_objects[(fid, idx)] = obj
         return obj
 
     def _add_ellipsoid(
@@ -1450,19 +1458,18 @@ class Display:
         center: Any,
         scale: Any,
         color: Any,
+        parent: SceneBox | None = None,
     ) -> SceneBox:
-        data: dict[str, Any] = {
-            "type":     "ellipsoid",
-            "center":   _vec3(center or [0, 0, 0], "center"),
-            "scale":    _vec3(scale  or [1, 1, 1], "scale"),
-            "color":    str(color) if color is not None else None,
-            "rotation": [0.0, 0.0, 0.0],
-        }
-        self._geom_for(fid)["meshes"].append(data)
+        data = _make_scene_mesh("ellipsoid", center=center, scale=scale, color=color)
+        obj = SceneBox(data, self, fid, parent=parent)
+        install_scene_mesh_object(
+            self._geom,
+            self._scene_objects,
+            frame_id=fid,
+            mesh_payload=data,
+            obj=obj,
+        )
         self._sync_all()
-        obj = SceneBox(data, self, fid)
-        idx = len(self._geom_for(fid)["meshes"]) - 1
-        self._scene_objects[(fid, idx)] = obj
         return obj
 
     def _add_torus(
@@ -1474,30 +1481,38 @@ class Display:
         color: Any,
         major_radius: float,
         minor_radius: float,
+        parent: SceneBox | None = None,
     ) -> SceneBox:
-        data: dict[str, Any] = {
-            "type":         "torus",
-            "center":       _vec3(center or [0, 0, 0], "center"),
-            "scale":        _vec3(scale  or [1, 1, 1], "scale"),
-            "color":        str(color) if color is not None else None,
-            "major_radius": float(major_radius),
-            "minor_radius": float(minor_radius),
-            "rotation":     [0.0, 0.0, 0.0],
-        }
-        self._geom_for(fid)["meshes"].append(data)
+        data = _make_scene_mesh(
+            "torus",
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+        )
+        obj = SceneBox(data, self, fid, parent=parent)
+        install_scene_mesh_object(
+            self._geom,
+            self._scene_objects,
+            frame_id=fid,
+            mesh_payload=data,
+            obj=obj,
+        )
         self._sync_all()
-        obj = SceneBox(data, self, fid)
-        idx = len(self._geom_for(fid)["meshes"]) - 1
-        self._scene_objects[(fid, idx)] = obj
         return obj
 
-    def _add_field_mesh(self, fid: str, **kwargs: Any) -> SceneFieldMesh:
+    def _add_field_mesh(self, fid: str, *, parent: SceneBox | None = None, **kwargs: Any) -> SceneFieldMesh:
         data = _build_field_mesh_from_kwargs(kwargs)
-        self._geom_for(fid)["meshes"].append(data)
+        obj = SceneFieldMesh(data, self, fid, kwargs, parent=parent)
+        install_scene_mesh_object(
+            self._geom,
+            self._scene_objects,
+            frame_id=fid,
+            mesh_payload=data,
+            obj=obj,
+        )
         self._sync_all()
-        obj = SceneFieldMesh(data, self, fid, kwargs)
-        idx = len(self._geom_for(fid)["meshes"]) - 1
-        self._scene_objects[(fid, idx)] = obj
         return obj
 
     def _add_camera(
@@ -1509,13 +1524,8 @@ class Display:
         fov: float,
         up: Any,
     ) -> SceneCamera:
-        data: dict[str, Any] = {
-            "pos":    _vec3(pos, "pos"),
-            "target": _vec3(target or [0, 0, 0], "target"),
-            "fov":    float(fov),
-            "up":     _vec3(up or [0, 1, 0], "up"),
-        }
-        self._geom_for(fid)["camera"] = data
+        data = _make_scene_camera(pos=pos, target=target, fov=fov, up=up)
+        install_scene_camera_payload(self._geom, frame_id=fid, camera_payload=data)
         self._sync_all()
         return SceneCamera(data, self, fid)
 
@@ -1527,15 +1537,9 @@ class Display:
         model: str,
         color: Any,
     ) -> SceneLight:
-        m = str(model).lower().replace("-", "_")
-        if m not in LIGHT_MODELS:
-            raise ValueError(f"model {model!r} unknown; use one of: {sorted(LIGHT_MODELS)}")
-        data: dict[str, Any] = {
-            "pos":   _vec3(pos, "pos"),
-            "model": m,
-            "color": str(color),
-        }
-        self._geom_for(fid)["lights"].append(data)
+        m = normalize_scene_light_model(model, allowed_models=LIGHT_MODELS)
+        data = _make_scene_light(pos=pos, model=m, color=color)
+        install_scene_light_payload(self._geom, frame_id=fid, light_payload=data)
         self._sync_all()
         return SceneLight(data, self, fid)
 
@@ -1552,41 +1556,20 @@ class Display:
 
         Returns ``None`` if not found.
         """
-        if object_id <= 0:
-            return None
-        # Walk all frames, look at stored SceneBox references
-        idx = object_id - 1  # 0-based index
-        for fid, entries in self._geom.items():
-            if fid.startswith("__pending_"):
-                continue
-            meshes = entries.get("meshes", [])
-            if idx < len(meshes):
-                return self._scene_objects.get((fid, idx))
-        return None
+        return self._scene_state.resolve_scene_object(object_id)
 
     def get_frame(self, frame_id: str) -> Any:
         """Return the :class:`FrameRef` for a given ``frame_id``.
 
         Returns ``None`` if not found.
         """
-        for fr in self._frame_refs:
-            if fr._frame_id == frame_id:
-                return fr
-        return None
+        return self._scene_state.resolve_frame(frame_id)
 
     def _geom_for(self, fid: str) -> dict[str, Any]:
-        if fid not in self._geom:
-            self._geom[fid] = {"meshes": [], "camera": None, "lights": []}
-        return self._geom[fid]
+        return self._scene_state.ensure_runtime_scene(fid)
 
     def _last_placed_id(self, op: str) -> str:
-        if self._last_frame is not None and self._last_frame._placed:
-            return self._last_frame._frame_id
-        if self._last_frame is not None:
-            return f"__pending_{self._last_frame._pending_key}"
-        raise RuntimeError(
-            f"d.{op}(): no frame has been placed yet — call d.add_frame(…) first"
-        )
+        return self._scene_state.resolve_active_frame(op)
 
     # ---- add_frame --------------------------------------------------------
 
@@ -1597,87 +1580,61 @@ class Display:
         **kwargs: Any,
     ) -> FrameRef:
         fr, pending = _unwrap_frame_ref(first)
-        if pending is not None:
-            if second is not None or bool(kwargs):
-                skw = _coerce_frame_kw_for_screen(dict(kwargs))
-                self._screen.add_frame(pending, second, **skw)
-                if fr is not None:
-                    self._mark_frame_ref_placed(fr)
+        rect = None if pending is not None else _rect_from_tuple(first)
+        plan = build_frame_add_plan(
+            has_pending_ref=pending is not None,
+            second=second,
+            screen_kwargs=_coerce_frame_kw_for_screen(dict(kwargs)),
+            rect=rect,
+            has_last_frame=self._last_frame is not None,
+            last_frame_placed=bool(self._last_frame is not None and self._last_frame._placed),
+        )
+        if plan.route == "pending_existing":
+            assert pending is not None
+            self._screen.add_frame(pending, plan.rect, **plan.screen_kwargs)
+            if fr is not None:
+                self._mark_frame_ref_placed(fr)
                 self._sync_all()
-                if fr is not None:
-                    return fr
-                out = FrameRef(self, pending)
-                self._mark_frame_ref_placed(out)
-                return out
-            raise TypeError(
-                "add_frame: pass a rect or a layout option, "
-                "or use d.add_frame((x,y,w,h)) for the short form"
-            )
-        t = _rect_from_tuple(first)
-        if self._last_frame is None or self._last_frame._placed:
-            if kwargs:
-                p = self._screen.frame(**kwargs)
-            else:
-                p = self._screen.frame(
-                    title="", draggable=True, dockable=True,
-                    resizable=True, closable=True, alpha=1.0, dock_loc="bl",
-                )
+                return fr
+            out = FrameRef(self, pending)
+            self._mark_frame_ref_placed(out)
+            self._sync_all()
+            return out
+
+        if plan.should_create_pending_frame:
+            frame_kwargs = plan.screen_kwargs or default_display_frame_kwargs()
+            p = self._screen.frame(**frame_kwargs)
             self._last_frame = FrameRef(self, p)
         f = self._last_frame
-        self._screen.add_frame(f._pending, (t[0], t[1], t[2], t[3]))
+        assert f is not None
+        self._screen.add_frame(f._pending, plan.rect)
         self._mark_frame_ref_placed(f)
         self._sync_all()
         return f
 
     def _mark_frame_ref_placed(self, f: FrameRef) -> None:
-        old_key = f._pending_key
-        f._placed = True
-        f._frame_id = str(f._pending.id)
-        # migrate pending 2-D ops
-        if old_key in self._pending_ops:
-            ops = self._pending_ops.pop(old_key)
-            self._frame_ops[f._frame_id] = self._frame_ops.get(f._frame_id, []) + ops
-        # migrate pending geom ops
-        pending_geom_key = f"__pending_{old_key}"
-        if pending_geom_key in self._geom:
-            geom_data = self._geom.pop(pending_geom_key)
-            existing = self._geom.get(f._frame_id, {"meshes": [], "camera": None, "lights": []})
-            existing["meshes"].extend(geom_data["meshes"])
-            if geom_data["camera"] is not None:
-                existing["camera"] = geom_data["camera"]
-            existing["lights"].extend(geom_data["lights"])
-            self._geom[f._frame_id] = existing
-        self._last_frame = f
-        if f not in self._frame_refs:
-            self._frame_refs.append(f)
+        self._scene_state.mark_frame_ref_placed(f)
 
-    def _append_frame_op(self, frame_id: str, op: dict[str, Any]) -> None:
-        self._frame_ops.setdefault(frame_id, []).append(op)
+    def _append_frame_op(self, frame_id: str, op: UiPaintOp) -> None:
+        self._scene_state.append_frame_op(frame_id, op)
 
-    def _append_pending_frame_op(self, key: int, op: dict[str, Any]) -> None:
-        self._pending_ops.setdefault(key, []).append(op)
+    def _append_pending_frame_op(self, key: int, op: UiPaintOp) -> None:
+        self._scene_state.append_pending_frame_op(key, op)
 
     # ---- sync -------------------------------------------------------------
 
     def _sync_all(self) -> None:
         cmd_count = len(self._screen._commands)
-        if cmd_count != self._last_scene_cmd_count:
-            _write_vkf_scene_to_vf_ui(self._screen._commands)
-            self._last_scene_cmd_count = cmd_count
-        placed_geom = {
-            fid: g for fid, g in self._geom.items()
-            if not fid.startswith("__pending_")
-        }
-        _write_vf_display_json(
-            {
-                "screen": list(self._screen_ops),
-                "frames": {k: list(v) for k, v in self._frame_ops.items()},
-                "geom":   placed_geom,
-            }
+        plan = self._scene_state.build_sync_plan(
+            command_count=cmd_count,
+            has_scene_commands=bool(self._screen._commands),
+            identity_transform=IDENTITY_AFFINE_2D,
         )
-        # Launch UI only when there is placed/visible content.
-        # Pending frame ops/geom should not auto-open the host.
-        if self._screen._commands or self._screen_ops or self._frame_ops or placed_geom:
+        if plan.should_write_scene_commands:
+            _write_vkf_scene_to_vf_ui(self._screen._commands)
+            self._scene_state.record_scene_command_sync(plan.next_scene_cmd_count)
+        _write_vf_display_json(plan.payload)
+        if plan.should_launch:
             from vektorflow.ui.launch import maybe_launch_ui
             maybe_launch_ui()
 
@@ -1697,44 +1654,40 @@ def _unwrap_frame_ref(a: Any) -> tuple[FrameRef | None, PendingFrame | None]:
 _display_assets_synced_once = False
 
 
-def _write_vf_display_json(payload: dict[str, Any]) -> None:
+class UISyncError(RuntimeError):
+    """Raised when UI payload sync fails."""
+
+
+def _write_vf_display_json(payload: UiDisplayPayload) -> None:
     global _display_assets_synced_once
     try:
         from vektorflow.ui.launch import find_vektorflow_repo_root
         root = find_vektorflow_repo_root()
         if root is None:
-            return
-        text = json.dumps(payload, indent=2) + "\n"
-        out = root / "web" / "vf-ui" / "vf-display.json"
+            raise UISyncError("Unable to locate the Vektor Flow repo root for UI sync.")
+        plan = build_display_write_plan(
+            payload,
+            root=root,
+            assets_synced_once=_display_assets_synced_once,
+        )
+        out = plan.display_output_path
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
-        _sync_json_to_all_built_webs(root, "vf-display.json", text)
+        out.write_text(plan.display_text, encoding="utf-8")
+        _sync_json_to_all_built_webs(root, plan.sync_filename, plan.display_text)
         # Static JS/CSS assets are large; syncing them every camera tick is costly.
         # Sync once per process (fresh process after code edits will resync).
-        if not _display_assets_synced_once:
-            for f in ("vf-display.js", "vkf-scene.html", "vf-frame.js", "vf-frame.css", "vf-widgets.js"):
+        if plan.should_sync_assets:
+            for f in plan.ui_asset_files:
                 _copy_vf_ui_file_to_built_web(root, f)
-            for js in ("vf-geom-core.js", "vf-geom-wgpu.js", "vf-geom-math.js", "vf-geom-mount.js"):
-                _copy_geom_file_to_built_web(root, js)
+            for geom_plan in plan.geom_asset_copy_plans:
+                for dst in geom_plan.destination_paths:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(geom_plan.source_path.read_bytes())
             _display_assets_synced_once = True
-    except (OSError, TypeError, ValueError):
-        pass
-
-
-def _copy_geom_file_to_built_web(root: Any, filename: str) -> None:
-    try:
-        src = root / "web" / "vf-ui" / "geom" / filename
-        if not src.is_file():
-            return
-        for built in (root / "native" / "VfOverlay").rglob("vf-ui"):
-            dst = built / "geom" / filename
-            try:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_bytes(src.read_bytes())
-            except OSError:
-                pass
-    except Exception:
-        pass
+    except UISyncError:
+        raise
+    except (OSError, TypeError, ValueError) as exc:
+        raise UISyncError(f"UI sync failed: {exc}") from exc
 
 
 def build_ui_namespace() -> dict[str, Any]:

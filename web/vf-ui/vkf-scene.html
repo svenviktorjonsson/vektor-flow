@@ -58,6 +58,7 @@
     <script src="geom/vf-geom-core.js?v=1777002226"></script>
     <script src="geom/vf-geom-wgpu.js?v=1777002226"></script>
     <script src="vf-display.js?v=1777002226"></script>
+    <script src="vf-browser-transport.js?v=1777002226"></script>
     <script>
       // Scene: transparent. Frame chrome: --vf-ui-alpha (see vf-frame.css).
       // ── Diagnostic logger (writes to C:\temp\vektor-flow-log.txt via vf-log.js channel) ──
@@ -77,6 +78,9 @@
         } catch (_) {}
       }
       slog("info", "inline script start — VfFrame=" + (typeof VfFrame) + " VfDisplay=" + (typeof VfDisplay));
+      var vfDisplayRuntime = null;
+      var vfSceneRuntime = null;
+      var vfBrowserSession = null;
 
       (function () {
         var layer0 = document.getElementById("layer");
@@ -97,9 +101,6 @@
           true
         );
       })();
-
-      let lastSceneText = "";
-
       /** @param spec frame_upsert payload.spec (includes ``rect``: x,y,w,h in 0..1 relative to mount container). */
       function applySpecRectToPanel(panel, spec) {
         var r = spec && spec.rect;
@@ -195,50 +196,21 @@
 
       /** Fetches ``vf-display.json`` and draws (Canvas2D on ``vf-screen-canvas`` + frame bodies). */
       function displayRefresh() {
-        if (typeof VfDisplay !== "undefined" && VfDisplay.loadAndRender) {
-          VfDisplay.loadAndRender();
+        if (vfDisplayRuntime && vfDisplayRuntime.refresh) {
+          vfDisplayRuntime.refresh();
         } else {
-          slog("warn", "displayRefresh: VfDisplay.loadAndRender not available");
+          slog("warn", "displayRefresh: display transport not available");
         }
       }
 
-      async function loadScene() {
-        let raw;
-        try {
-          const r = await fetch("vkf-scene.json?t=" + Date.now(), { cache: "no-store" });
-          if (!r.ok) {
-            slog("warn", "loadScene: vkf-scene.json fetch " + r.status + " — no scene yet, will retry");
-            displayRefresh();
-            return;
-          }
-          raw = await r.text();
-          slog("info", "loadScene: vkf-scene.json fetched (" + raw.length + " bytes)");
-        } catch (fetchErr) {
-          slog("warn", "loadScene: fetch threw: " + (fetchErr && fetchErr.message ? fetchErr.message : String(fetchErr)));
-          return;
-        }
-        /* Scene can be unchanged while ``d.draw_rect`` still updates — always re-fetch display JSON. */
-        if (raw === lastSceneText) {
-          displayRefresh();
-          return;
-        }
-        lastSceneText = raw;
-
-        let data;
-        try {
-          data = JSON.parse(raw);
-        } catch (parseErr) {
-          slog("error", "loadScene: JSON.parse failed: " + parseErr.message);
-          displayRefresh();
-          return;
-        }
+      function applySceneCommands(data) {
         if (!Array.isArray(data)) {
-          slog("warn", "loadScene: vkf-scene.json is not an array (got " + typeof data + ")");
+          slog("warn", "applySceneCommands: vkf-scene.json is not an array (got " + typeof data + ")");
           displayRefresh();
           return;
         }
         const upsertCount = data.filter(c => c && c.kind === "frame_upsert").length;
-        slog("info", "loadScene: " + data.length + " commands, " + upsertCount + " frame_upserts");
+        slog("info", "applySceneCommands: " + data.length + " commands, " + upsertCount + " frame_upserts");
 
         const layer = document.getElementById("layer");
         layer.innerHTML = "";
@@ -291,7 +263,7 @@
               (flags.dockable !== false) && (flags.minimizable !== false);
             slog(
               "info",
-              "loadScene: mounting frame id=" + id +
+              "applySceneCommands: mounting frame id=" + id +
                 " parent=" + (parentId || "<root>") +
                 " title=" + JSON.stringify(title) +
                 " alpha=" + alpha
@@ -337,7 +309,7 @@
               const spec = nextPending[j].payload.spec || {};
               const id = spec.id != null ? String(spec.id) : "frame?";
               const parentId = spec.parent_id != null ? String(spec.parent_id) : "";
-              slog("warn", "loadScene: unresolved parent_id for frame id=" + id + " parent=" + parentId + " (mounting at root)");
+              slog("warn", "applySceneCommands: unresolved parent_id for frame id=" + id + " parent=" + parentId + " (mounting at root)");
               const fallback = VfFrame.mount(layer, {
                 id: id,
                 title: spec.title != null ? String(spec.title) : "",
@@ -392,6 +364,34 @@
         });
       }
 
+      if (typeof VfBrowserTransport !== "undefined" && typeof VfDisplay !== "undefined") {
+        try {
+          vfBrowserSession = VfBrowserTransport.createBrowserSessionRuntime({
+            display: VfDisplay,
+            applyScene: applySceneCommands,
+            onSceneStale: function () {
+              displayRefresh();
+            }
+          });
+          vfSceneRuntime = vfBrowserSession.scene;
+          vfDisplayRuntime = vfBrowserSession.display;
+          window.__vfBrowserSession = vfBrowserSession;
+          window.__vfSceneRuntime = vfSceneRuntime;
+          window.__vfDisplayRuntime = vfDisplayRuntime;
+          window.__vfBrowserHooks = vfBrowserSession.hooks;
+          window.__vfSceneHooks = {
+            refresh: vfBrowserSession.hooks.refreshScene,
+            update: vfBrowserSession.hooks.updateScene
+          };
+          window.__vfDisplayHooks = {
+            refresh: vfBrowserSession.hooks.refreshDisplay,
+            update: vfBrowserSession.hooks.updateDisplay
+          };
+        } catch (transportErr) {
+          slog("error", "browser session attach failed: " + (transportErr && transportErr.message ? transportErr.message : String(transportErr)));
+        }
+      }
+
       (function watchScreenCanvas() {
         var c = document.getElementById("vf-screen-canvas");
         if (!c || typeof ResizeObserver === "undefined") return;
@@ -407,13 +407,22 @@
           " VfGeomMath=" + (typeof VfGeomMath !== "undefined") +
           " VfGeomWgpu=" + (typeof VfGeomWgpu !== "undefined") +
           " VfDisplay=" + (typeof VfDisplay !== "undefined") +
+          " VfBrowserTransport=" + (typeof VfBrowserTransport !== "undefined") +
           " VfFrame=" + (typeof VfFrame !== "undefined"));
         slog("info", "navigator.gpu=" + (navigator && navigator.gpu ? "present" : "MISSING") +
           " webview=" + (typeof chrome !== "undefined" && chrome.webview ? "present" : "missing"));
       }, 300);
 
-      loadScene();
-      setInterval(loadScene, 1500);
+      if (vfSceneRuntime && vfSceneRuntime.refresh) {
+        vfSceneRuntime.refresh(function () {
+          displayRefresh();
+        });
+        setInterval(function () {
+          vfSceneRuntime.refresh(function () {
+            displayRefresh();
+          });
+        }, 1500);
+      }
       // Display JSON is polled via requestAnimationFrame for smooth ~60 fps rendering.
       // The overlay WebView2 host drives rAF at vsync rate; the browser does the same.
       // setInterval(displayRefresh, 500) would cap us at 2 fps — avoid it.
@@ -431,8 +440,8 @@
             VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
           });
         }
-        if (typeof VfDisplay !== "undefined" && VfDisplay.loadAndRender) {
-          VfDisplay.loadAndRender();
+        if (vfDisplayRuntime && vfDisplayRuntime.refresh) {
+          vfDisplayRuntime.refresh();
         }
       });
       (function observeLayout() {

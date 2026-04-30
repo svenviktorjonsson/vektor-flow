@@ -17,13 +17,15 @@ import socketserver
 import tempfile
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Callable, Generator
 
 import pytest
 
 pytest.importorskip("playwright")
 from playwright.sync_api import Page, expect, sync_playwright
+from vektorflow.ui_display_ir import build_browser_host_event_dispatch
 
 REPO = Path(__file__).resolve().parents[1]
 VF_UI = REPO / "web" / "vf-ui"
@@ -45,6 +47,68 @@ def _scene_from_vkf(vkf: Path) -> str:
     if d is None or not hasattr(d, "dumps"):
         raise RuntimeError(f"{vkf.name} must define display as `d` (ui.display)")
     return d.dumps()
+
+
+def _scene_and_display_from_vkf(vkf: Path) -> tuple[str, str]:
+    """Run a .vkf that leaves global ``d`` = ``ui.display`` and return scene/display JSON."""
+    from vektorflow.interpreter import Interpreter
+    from vektorflow.parser import parse_module
+
+    if not vkf.is_file():
+        raise FileNotFoundError(vkf)
+    ip = Interpreter(vkf)
+    ip.run_module(parse_module(vkf.read_text(encoding="utf-8"), str(vkf)))
+    d = ip.globals.get("d")
+    if d is None or not hasattr(d, "dumps") or not hasattr(d, "display_json"):
+        raise RuntimeError(f"{vkf.name} must define display as `d` (ui.display)")
+    return d.dumps(), d.display_json()
+
+
+def _scene_and_display_from_public_ui(build_scene: Any) -> tuple[str, str]:
+    """Build a display through the public ``ui`` surface and return scene/display JSON."""
+    from vektorflow.stdlib.ui import build_ui_namespace
+
+    d = build_ui_namespace()["ui"].display
+    build_scene(d)
+    return d.dumps(), d.display_json()
+
+
+def _scene_display_and_meta_from_public_ui(
+    build_scene: Callable[[Any], dict[str, Any] | None],
+) -> tuple[str, str, dict[str, Any]]:
+    """Build public ``ui`` scene payloads and keep caller-defined metadata alongside them."""
+    from vektorflow.stdlib.ui import build_ui_namespace
+
+    d = build_ui_namespace()["ui"].display
+    meta = build_scene(d) or {}
+    return d.dumps(), d.display_json(), dict(meta)
+
+
+@dataclass
+class _PublicUiBrowserHarness:
+    base: str
+    posted: list[dict[str, Any]]
+    root: Path
+    meta: dict[str, Any]
+
+    @property
+    def url(self) -> str:
+        return f"{self.base}/{INDEX_DOC}"
+
+    def write_state_patch(self, patch: dict[str, Any]) -> None:
+        (self.root / "vf-ui-state.json").write_text(
+            json.dumps(patch, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def posted_count(self) -> int:
+        return len(self.posted)
+
+    def latest_dispatch(self, *, event_kind_count: dict[int, int] | None = None):
+        return build_browser_host_event_dispatch(
+            self.posted[-1],
+            event_kind_count={} if event_kind_count is None else event_kind_count,
+        )
 
 
 def _scene_from_examples_ui_widgets_static() -> str:
@@ -83,16 +147,29 @@ MINIMAL_SCENE: list[dict[str, Any]] = [
 
 def _http_server_for_directory(
     root: Path,
-) -> tuple[str, socketserver.TCPServer, threading.Thread]:
+) -> tuple[str, socketserver.TCPServer, threading.Thread, list[dict[str, Any]]]:
     root_s = str(root)
+    posted: list[dict[str, Any]] = []
 
     class H(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *a: object, **k: object) -> None:
             super().__init__(*a, directory=root_s, **k)
 
         def do_POST(self) -> None:  # noqa: N802
-            # vf-widgets.js POSTs host events; static file server has no API otherwise (501 -> console errors).
+            # vf-widgets.js POSTs host events; keep the payload for assertions.
             if self.path.split("?", 1)[0] == "/api/enqueue":
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    length = 0
+                body = self.rfile.read(length).decode("utf-8") if length > 0 else ""
+                payload: dict[str, Any] = {"raw": body}
+                if body:
+                    try:
+                        payload = json.loads(body)
+                    except json.JSONDecodeError:
+                        payload = {"raw": body}
+                posted.append(payload)
                 self.send_response(204)
                 self.end_headers()
                 return
@@ -102,7 +179,72 @@ def _http_server_for_directory(
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
-    return f"http://127.0.0.1:{port}/", httpd, thread
+    return f"http://127.0.0.1:{port}/", httpd, thread, posted
+
+
+@contextmanager
+def _serve_vf_ui_payloads(
+    *,
+    scene_json: str,
+    display_json: str = '{"screen":[],"frames":{},"geom":{}}',
+    ui_state_json: str = "{}",
+) -> Generator[tuple[str, list[dict[str, Any]]], None, None]:
+    if not (VF_UI / "vkf-scene.html").is_file() or not (VF_UI / "vf-frame.js").is_file():
+        pytest.skip("web/vf-ui not found")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "vf"
+        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        (root / "vkf-scene.json").write_text(scene_json, encoding="utf-8")
+        (root / "vf-display.json").write_text(display_json, encoding="utf-8")
+        (root / "vf-ui-state.json").write_text(ui_state_json, encoding="utf-8")
+        base, httpd, _thr, posted = _http_server_for_directory(root)
+        try:
+            yield base.rstrip("/"), posted
+        finally:
+            with contextlib.suppress(Exception):
+                httpd.shutdown()
+            with contextlib.suppress(Exception):
+                httpd.server_close()
+
+
+@contextmanager
+def _serve_vf_ui_payloads_with_root(
+    *,
+    scene_json: str,
+    display_json: str = '{"screen":[],"frames":{},"geom":{}}',
+    ui_state_json: str = "{}",
+) -> Generator[tuple[str, list[dict[str, Any]], Path], None, None]:
+    if not (VF_UI / "vkf-scene.html").is_file() or not (VF_UI / "vf-frame.js").is_file():
+        pytest.skip("web/vf-ui not found")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "vf"
+        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        (root / "vkf-scene.json").write_text(scene_json, encoding="utf-8")
+        (root / "vf-display.json").write_text(display_json, encoding="utf-8")
+        (root / "vf-ui-state.json").write_text(ui_state_json, encoding="utf-8")
+        base, httpd, _thr, posted = _http_server_for_directory(root)
+        try:
+            yield base.rstrip("/"), posted, root
+        finally:
+            with contextlib.suppress(Exception):
+                httpd.shutdown()
+            with contextlib.suppress(Exception):
+                httpd.server_close()
+
+
+@contextmanager
+def _serve_public_ui_browser(
+    build_scene: Callable[[Any], dict[str, Any] | None],
+    *,
+    ui_state_json: str = "{}",
+) -> Generator[_PublicUiBrowserHarness, None, None]:
+    scene_json, display_json, meta = _scene_display_and_meta_from_public_ui(build_scene)
+    with _serve_vf_ui_payloads_with_root(
+        scene_json=scene_json,
+        display_json=display_json,
+        ui_state_json=ui_state_json,
+    ) as (base, posted, root):
+        yield _PublicUiBrowserHarness(base=base, posted=posted, root=root, meta=meta)
 
 
 @pytest.fixture
@@ -120,7 +262,7 @@ def vf_ui_static_widgets_http_base() -> Generator[str, None, None]:
             encoding="utf-8",
         )
         (root / "vf-ui-state.json").write_text("{}", encoding="utf-8")
-        base, httpd, _thr = _http_server_for_directory(root)
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
         try:
             yield base.rstrip("/")
         finally:
@@ -148,7 +290,7 @@ def vf_ui_all_classes_http_base() -> Generator[str, None, None]:
             encoding="utf-8",
         )
         (root / "vf-ui-state.json").write_text("{}", encoding="utf-8")
-        base, httpd, _thr = _http_server_for_directory(root)
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
         try:
             yield base.rstrip("/")
         finally:
@@ -170,7 +312,7 @@ def vf_ui_http_base() -> Generator[str, None, None]:
             json.dumps(MINIMAL_SCENE, indent=2),
             encoding="utf-8",
         )
-        base, httpd, _thr = _http_server_for_directory(root)
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
         try:
             yield base.rstrip("/")
         finally:
@@ -454,3 +596,726 @@ def test_vf_scene_title_visible_in_minibar(vf_ui_http_base: str) -> None:
         page.wait_for_selector(".vf-frame--minimized", state="visible", timeout=5_000)
         t = page.locator(".vf-frame--minimized .vf-frame__title").first.inner_text()
         assert "E2E" in t
+
+
+@pytest.mark.network
+def test_scene_runtime_update_hook_updates_frame_title_without_reload() -> None:
+    updated_scene = json.loads(json.dumps(MINIMAL_SCENE))
+    updated_scene[0]["payload"]["spec"]["title"] = "Updated E2E"
+    with _serve_vf_ui_payloads(
+        scene_json=json.dumps(MINIMAL_SCENE, indent=2),
+    ) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            expect(page.locator(".vf-frame__title").first).to_contain_text("E2E")
+
+            page.evaluate(
+                """(commands) => {
+                  if (!window.__vfSceneHooks || typeof window.__vfSceneHooks.update !== "function") {
+                    throw new Error("scene runtime update hook unavailable");
+                  }
+                  window.__vfSceneHooks.update(commands);
+                }""",
+                updated_scene,
+            )
+            expect(page.locator(".vf-frame__title").first).to_contain_text("Updated E2E")
+
+
+@pytest.mark.network
+def test_display_runtime_update_hook_draws_frame_canvas_without_reload() -> None:
+    with _serve_vf_ui_payloads(
+        scene_json=json.dumps(MINIMAL_SCENE, indent=2),
+        display_json='{"screen":[],"frames":{},"geom":{}}',
+    ) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
+
+            before = page.locator(".vf-frame__draw-canvas").first.evaluate(
+                """(canvas) => {
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return -1;
+                  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                  let nonTransparent = 0;
+                  for (let i = 3; i < data.length; i += 4) {
+                    if (data[i] !== 0) nonTransparent += 1;
+                  }
+                  return nonTransparent;
+                }"""
+            )
+            assert isinstance(before, int)
+
+            payload = {
+                "screen": [],
+                "frames": {
+                    "e2e1": [
+                        {
+                            "op": "rect",
+                            "rect": [0.1, 0.1, 0.5, 0.35],
+                            "color": "#ff5500",
+                        }
+                    ]
+                },
+                "geom": {},
+            }
+            page.evaluate(
+                """(nextPayload) => {
+                  if (!window.__vfBrowserHooks || typeof window.__vfBrowserHooks.updateDisplay !== "function") {
+                    throw new Error("display runtime update hook unavailable");
+                  }
+                  window.__vfBrowserHooks.updateDisplay(nextPayload);
+                }""",
+                payload,
+            )
+
+            after = page.locator(".vf-frame__draw-canvas").first.evaluate(
+                """(canvas) => {
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return -1;
+                  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                  let nonTransparent = 0;
+                  for (let i = 3; i < data.length; i += 4) {
+                    if (data[i] !== 0) nonTransparent += 1;
+                  }
+                  return nonTransparent;
+                }"""
+            )
+            assert isinstance(after, int)
+            assert after > before, f"expected direct display update hook to add painted pixels, before={before} after={after}"
+
+
+@pytest.mark.network
+def test_browser_session_update_hook_updates_scene_and_display_without_reload() -> None:
+    updated_scene = json.loads(json.dumps(MINIMAL_SCENE))
+    updated_scene[0]["payload"]["spec"]["title"] = "Session Updated"
+    payload = {
+        "screen": [],
+        "frames": {
+            "e2e1": [
+                {
+                    "op": "rect",
+                    "rect": [0.2, 0.15, 0.45, 0.3],
+                    "color": "#0088ff",
+                }
+            ]
+        },
+        "geom": {},
+    }
+    with _serve_vf_ui_payloads(
+        scene_json=json.dumps(MINIMAL_SCENE, indent=2),
+        display_json='{"screen":[],"frames":{},"geom":{}}',
+    ) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
+            expect(page.locator(".vf-frame__title").first).to_contain_text("E2E")
+
+            before = page.locator(".vf-frame__draw-canvas").first.evaluate(
+                """(canvas) => {
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return -1;
+                  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                  let nonTransparent = 0;
+                  for (let i = 3; i < data.length; i += 4) {
+                    if (data[i] !== 0) nonTransparent += 1;
+                  }
+                  return nonTransparent;
+                }"""
+            )
+
+            page.evaluate(
+                """(session) => {
+                  if (!window.__vfBrowserSession || !window.__vfBrowserSession.hooks || typeof window.__vfBrowserSession.hooks.updateSession !== "function") {
+                    throw new Error("browser session runtime hook unavailable");
+                  }
+                  window.__vfBrowserSession.hooks.updateSession(session);
+                }""",
+                {"scene": updated_scene, "display": payload},
+            )
+
+            expect(page.locator(".vf-frame__title").first).to_contain_text("Session Updated")
+            after = page.locator(".vf-frame__draw-canvas").first.evaluate(
+                """(canvas) => {
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return -1;
+                  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                  let nonTransparent = 0;
+                  for (let i = 3; i < data.length; i += 4) {
+                    if (data[i] !== 0) nonTransparent += 1;
+                  }
+                  return nonTransparent;
+                }"""
+            )
+            assert isinstance(before, int) and isinstance(after, int)
+            assert after > before, f"expected combined session update hook to add painted pixels, before={before} after={after}"
+
+
+@pytest.mark.network
+def test_ui_draggable_rect_example_renders_pixels_in_browser() -> None:
+    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_draggable_rect.vkf")
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
+            alpha_pixels = page.locator(".vf-frame__draw-canvas").first.evaluate(
+                """(canvas) => {
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return 0;
+                  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                  let nonTransparent = 0;
+                  for (let i = 3; i < data.length; i += 4) {
+                    if (data[i] !== 0) nonTransparent += 1;
+                  }
+                  return nonTransparent;
+                }"""
+            )
+            assert isinstance(alpha_pixels, int)
+            assert alpha_pixels > 0, "expected draggable rect example to draw visible pixels"
+
+
+@pytest.mark.network
+def test_ui_parented_3d_example_mounts_geom_canvas_in_browser() -> None:
+    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_parented_3d_local_coords.vkf")
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_selector(".vf-geom-canvas", state="visible", timeout=30_000)
+            box = page.locator(".vf-geom-canvas").first.bounding_box()
+            assert box is not None
+            assert box["width"] > 16 and box["height"] > 16
+
+
+@pytest.mark.network
+def test_public_ui_parented_2d_transform_contract_renders_at_expected_canvas_point() -> None:
+    from vektorflow.ui_scene_graph_math import Transform2D, transform_point_2d, world_affine_2d
+
+    def _build_scene(d: Any) -> None:
+        f = d.Frame()
+        d.add_frame((0.1, 0.1, 0.6, 0.6))
+        parent = f.add_rect((0.1, 0.2, 0.5, 0.25), color="red")
+        child = parent.add_rect((0.2, 0.1, 0.5, 0.5), color="blue")
+        parent.translate(dx=0.05, dy=-0.1).set_scale(sx=2.0, sy=3.0).rotate_by(angle_deg=90)
+        child.translate(dx=0.1, dy=0.2).scale_by(sx=2.0, sy=0.5)
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
+
+            expected_parent = world_affine_2d(
+                Transform2D(
+                    translation=(0.15, 0.1),
+                    rotation_degrees=90.0,
+                    scale=(1.0, 0.75),
+                )
+            )
+            expected_child = world_affine_2d(
+                Transform2D(
+                    translation=(0.3, 0.3),
+                    rotation_degrees=0.0,
+                    scale=(1.0, 0.25),
+                ),
+                parent_world=expected_parent,
+            )
+            sample_u, sample_v = transform_point_2d(expected_child, (0.5, 0.5))
+
+            sample = page.locator(".vf-frame__draw-canvas").first.evaluate(
+                """(canvas, point) => {
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return null;
+                  const x = Math.max(0, Math.min(canvas.width - 1, Math.floor(canvas.width * point[0])));
+                  const y = Math.max(0, Math.min(canvas.height - 1, Math.floor(canvas.height * point[1])));
+                  const at = (u, v) => {
+                    const sx = Math.max(0, Math.min(canvas.width - 1, Math.floor(canvas.width * u)));
+                    const sy = Math.max(0, Math.min(canvas.height - 1, Math.floor(canvas.height * v)));
+                    return Array.from(ctx.getImageData(sx, sy, 1, 1).data);
+                  };
+                  return {
+                    childCenter: at(point[0], point[1]),
+                    untransformedChildCenter: at(0.45, 0.35),
+                    corner: at(0.02, 0.02),
+                    x,
+                    y
+                  };
+                }""",
+                [sample_u, sample_v],
+            )
+            assert isinstance(sample, dict)
+            child_center = sample["childCenter"]
+            untransformed_child_center = sample["untransformedChildCenter"]
+            corner = sample["corner"]
+            assert child_center[3] > 0, f"expected transformed child rect to render at sampled point, got {child_center!r}"
+            assert untransformed_child_center[3] == 0, (
+                "expected child local-space center to stay empty without the flattened world transform, "
+                f"got {untransformed_child_center!r}"
+            )
+            assert corner[3] == 0, f"expected untouched corner to remain transparent, got {corner!r}"
+
+
+@pytest.mark.network
+def test_public_ui_parented_3d_display_payload_exposes_world_model_matrix_authority() -> None:
+    from vektorflow.ui_scene_graph_math import (
+        local_model_matrix_from_scene_fields,
+        world_model_matrix_from_scene_fields,
+    )
+
+    def _build_scene(d: Any) -> None:
+        f = d.Frame()
+        d.add_frame((0.1, 0.1, 0.6, 0.6))
+        parent = d.add_box(center=[1, 2, 0], scale=[2, 1, 1], color="red")
+        parent.rotate_by(35, around="z")
+        child = parent.add_box(center=[0.6, 0.0, 0.0], scale=[0.5, 1.2, 0.8], color="blue")
+        child.rotate_by(20, around="y")
+        d.add_camera(pos=[4, 3, 6], target=[0, 0, 0], fov=45)
+        d.add_light(pos=[3, 4, 5], color="white")
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            payload = page.evaluate(
+                """async () => {
+                  const response = await fetch('vf-display.json');
+                  return await response.json();
+                }"""
+            )
+            assert isinstance(payload, dict)
+            frame_id = next(iter(payload["geom"]))
+            meshes = payload["geom"][frame_id]["meshes"]
+            assert len(meshes) == 2
+
+            parent_mesh = meshes[0]
+            child_mesh = meshes[1]
+
+            expected_parent_world = world_model_matrix_from_scene_fields(
+                center=(1.0, 2.0, 0.0),
+                rotation=(0.0, 0.0, 35.0),
+                scale=(2.0, 1.0, 1.0),
+            )
+            expected_child_world = world_model_matrix_from_scene_fields(
+                center=(0.6, 0.0, 0.0),
+                rotation=(0.0, 20.0, 0.0),
+                scale=(0.5, 1.2, 0.8),
+                parent_world=expected_parent_world,
+            )
+            expected_child_local = local_model_matrix_from_scene_fields(
+                center=(0.6, 0.0, 0.0),
+                rotation=(0.0, 20.0, 0.0),
+                scale=(0.5, 1.2, 0.8),
+            )
+
+            assert parent_mesh["model_matrix"] == pytest.approx(expected_parent_world)
+            assert child_mesh["model_matrix"] == pytest.approx(expected_child_world)
+            assert child_mesh["model_matrix"] != pytest.approx(expected_child_local)
+            assert child_mesh["center"] == pytest.approx([0.6, 0.0, 0.0])
+            assert child_mesh["rotation"] == pytest.approx([0.0, 20.0, 0.0])
+            assert child_mesh["scale"] == pytest.approx([0.5, 1.2, 0.8])
+
+
+@pytest.mark.network
+def test_public_ui_parented_3d_model_matrix_matches_browser_math_parity() -> None:
+    def _build_scene(d: Any) -> None:
+        f = d.Frame()
+        d.add_frame((0.1, 0.1, 0.6, 0.6))
+        parent = d.add_box(center=[1, 2, 0], scale=[2, 1, 1], color="red")
+        parent.rotate_by(35, around="z")
+        child = parent.add_box(center=[0.6, 0.0, 0.0], scale=[0.5, 1.2, 0.8], color="blue")
+        child.rotate_by(20, around="y")
+        d.add_camera(pos=[4, 3, 6], target=[0, 0, 0], fov=45)
+        d.add_light(pos=[3, 4, 5], color="white")
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_function("() => !!(window.VfGeomMath && window.VfGeomMath.mat4ModelTRS && window.VfGeomMath.mat4Mul)")
+            parity = page.evaluate(
+                """async () => {
+                  const response = await fetch('vf-display.json');
+                  const payload = await response.json();
+                  const frameId = Object.keys(payload.geom)[0];
+                  const meshes = payload.geom[frameId].meshes;
+                  const parent = meshes[0];
+                  const child = meshes[1];
+                  const M = window.VfGeomMath;
+                  const parentLocal = Array.from(M.mat4ModelTRS(parent.center, parent.rotation, parent.scale));
+                  const childLocal = Array.from(M.mat4ModelTRS(child.center, child.rotation, child.scale));
+                  const childWorld = Array.from(M.mat4Mul(new Float32Array(parent.model_matrix), new Float32Array(childLocal)));
+                  const maxDiff = (a, b) => {
+                    let diff = 0;
+                    for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+                      diff = Math.max(diff, Math.abs(Number(a[i]) - Number(b[i])));
+                    }
+                    return diff;
+                  };
+                  return {
+                    parentLocalDiff: maxDiff(parent.model_matrix, parentLocal),
+                    childWorldDiff: maxDiff(child.model_matrix, childWorld),
+                    childLocalDiff: maxDiff(child.model_matrix, childLocal)
+                  };
+                }"""
+            )
+            assert isinstance(parity, dict)
+            assert parity["parentLocalDiff"] < 1e-5, parity
+            assert parity["childWorldDiff"] < 1e-5, parity
+            assert parity["childLocalDiff"] > 1e-3, parity
+
+
+@pytest.mark.network
+def test_public_ui_three_level_3d_model_matrix_matches_browser_chain_parity() -> None:
+    def _build_scene(d: Any) -> None:
+        f = d.Frame()
+        d.add_frame((0.1, 0.1, 0.6, 0.6))
+        parent = d.add_box(center=[1, 0, 0], scale=[1.5, 1.0, 1.0], color="red")
+        parent.rotate_by(25, around="z")
+        child = parent.add_box(center=[0.5, 0.2, 0.0], scale=[0.8, 1.1, 0.9], color="blue")
+        child.rotate_by(15, around="y")
+        grandchild = child.add_box(center=[0.2, 0.1, 0.3], scale=[0.4, 0.5, 0.6], color="green")
+        grandchild.rotate_by(40, around="x")
+        d.add_camera(pos=[4, 3, 6], target=[0, 0, 0], fov=45)
+        d.add_light(pos=[3, 4, 5], color="white")
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_function("() => !!(window.VfGeomMath && window.VfGeomMath.mat4ModelTRS && window.VfGeomMath.mat4Mul)")
+            parity = page.evaluate(
+                """async () => {
+                  const response = await fetch('vf-display.json');
+                  const payload = await response.json();
+                  const frameId = Object.keys(payload.geom)[0];
+                  const meshes = payload.geom[frameId].meshes;
+                  const M = window.VfGeomMath;
+                  const local = (mesh) => Array.from(M.mat4ModelTRS(mesh.center, mesh.rotation, mesh.scale));
+                  const maxDiff = (a, b) => {
+                    let diff = 0;
+                    for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+                      diff = Math.max(diff, Math.abs(Number(a[i]) - Number(b[i])));
+                    }
+                    return diff;
+                  };
+                  const parentLocal = local(meshes[0]);
+                  const childLocal = local(meshes[1]);
+                  const grandchildLocal = local(meshes[2]);
+                  const childWorld = Array.from(M.mat4Mul(new Float32Array(meshes[0].model_matrix), new Float32Array(childLocal)));
+                  const grandchildWorld = Array.from(
+                    M.mat4Mul(new Float32Array(meshes[1].model_matrix), new Float32Array(grandchildLocal))
+                  );
+                  return {
+                    parentLocalDiff: maxDiff(meshes[0].model_matrix, parentLocal),
+                    childWorldDiff: maxDiff(meshes[1].model_matrix, childWorld),
+                    grandchildWorldDiff: maxDiff(meshes[2].model_matrix, grandchildWorld),
+                    grandchildLocalDiff: maxDiff(meshes[2].model_matrix, grandchildLocal)
+                  };
+                }"""
+            )
+            assert isinstance(parity, dict)
+            assert parity["parentLocalDiff"] < 1e-5, parity
+            assert parity["childWorldDiff"] < 1e-5, parity
+            assert parity["grandchildWorldDiff"] < 1e-5, parity
+            assert parity["grandchildLocalDiff"] > 1e-3, parity
+
+
+@pytest.mark.network
+def test_ui_all_classes_button_click_posts_widget_event() -> None:
+    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_all_classes.vkf")
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            page.locator("button.vf-w-btn").click()
+            page.wait_for_function("() => true", timeout=100)
+            assert posted, "expected widget interaction to POST an event to /api/enqueue"
+            body = posted[-1]
+            assert body.get("line")
+            event = json.loads(body["line"])
+            assert event["event"] == "button.pressed"
+            assert event["widgetId"] == "b1"
+
+
+@pytest.mark.network
+def test_public_ui_widget_button_click_posts_event() -> None:
+    def _build_scene(d: Any) -> None:
+        w = d.widget
+        f = d.frame(title="Widget Event")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.35, 0.2),
+            body=[w.button("btn.save", label="Save")],
+        )
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            page.locator("button.vf-w-btn").click()
+            page.wait_for_function("() => true", timeout=100)
+            assert posted, "expected public ui widget click to POST an event"
+            dispatch = build_browser_host_event_dispatch(posted[-1], event_kind_count={})
+            assert dispatch.payload["type"] == "vf_event"
+            assert dispatch.payload["event"] == "button.pressed"
+            assert dispatch.payload["widget_id"] == "btn.save"
+            assert dispatch.route == "host"
+            assert dispatch.should_queue is True
+            assert dispatch.payload["index"] == 1
+
+
+@pytest.mark.network
+def test_public_ui_input_field_posts_changed_and_entered_events() -> None:
+    def _build_scene(d: Any) -> None:
+        w = d.widget
+        f = d.frame(title="Input Event")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.38, 0.22),
+            body=[w.input_field("name", text="", placeholder="Type here")],
+        )
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            field = page.locator("input.vf-w-input").first
+            field.fill("Ada")
+            field.press("Enter")
+            page.wait_for_function("() => true", timeout=100)
+            assert len(posted) >= 2, "expected changed and entered events from the input field"
+            changed = build_browser_host_event_dispatch(posted[-2], event_kind_count={})
+            entered = build_browser_host_event_dispatch(posted[-1], event_kind_count={})
+            assert changed.payload["type"] == "vf_event"
+            assert entered.payload["type"] == "vf_event"
+            assert changed.payload["event"] == "input_field.text_changed"
+            assert entered.payload["event"] == "input_field.text_entered"
+            assert changed.payload["widget_id"] == "name"
+            assert entered.payload["widget_id"] == "name"
+            assert changed.payload["data"] == {"text": "Ada"}
+            assert entered.payload["data"] == {"text": "Ada"}
+            assert changed.payload["frame_id"]
+            assert entered.payload["frame_id"] == changed.payload["frame_id"]
+
+
+@pytest.mark.network
+def test_public_ui_slider_posts_value_changed_event() -> None:
+    def _build_scene(d: Any) -> None:
+        w = d.widget
+        f = d.frame(title="Slider Event")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.38, 0.22),
+            body=[w.slider("alpha", value=0.5, vmin=0, vmax=1, step=0.1)],
+        )
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            slider = page.locator("input.vf-w-range").first
+            slider.fill("0.3")
+            page.wait_for_function("() => true", timeout=100)
+            assert posted, "expected slider change to POST an event"
+            dispatch = build_browser_host_event_dispatch(posted[-1], event_kind_count={})
+            assert dispatch.payload["type"] == "vf_event"
+            assert dispatch.payload["event"] == "slider.value_changed"
+            assert dispatch.payload["widget_id"] == "alpha"
+            assert dispatch.payload["data"] == {"value": 0.3}
+            assert dispatch.payload["frame_id"]
+            assert dispatch.route == "host"
+            assert dispatch.should_queue is True
+            assert dispatch.payload["index"] == 1
+
+
+@pytest.mark.network
+def test_public_ui_dropdown_posts_item_changed_event() -> None:
+    def _build_scene(d: Any) -> None:
+        w = d.widget
+        f = d.frame(title="Dropdown Event")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.38, 0.22),
+            body=[w.dropdown("mode", options=["Alpha", "Beta", "Gamma"], value=0)],
+        )
+
+    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            dropdown = page.locator("select.vf-w-select").first
+            dropdown.select_option(index=1)
+            page.wait_for_function("() => true", timeout=100)
+            assert posted, "expected dropdown change to POST an event"
+            dispatch = build_browser_host_event_dispatch(posted[-1], event_kind_count={})
+            assert dispatch.payload["type"] == "vf_event"
+            assert dispatch.payload["event"] == "dropdown.item_changed"
+            assert dispatch.payload["widget_id"] == "mode"
+            assert dispatch.payload["data"] == {"index": 1, "text": "Beta"}
+            assert dispatch.payload["frame_id"]
+            assert dispatch.route == "host"
+            assert dispatch.should_queue is True
+            assert dispatch.payload["index"] == 1
+
+
+@pytest.mark.network
+def test_public_ui_widget_set_updates_input_field_after_mount() -> None:
+    def _build_scene(d: Any) -> dict[str, Any]:
+        w = d.widget
+        f = d.frame(title="Input State")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.38, 0.22),
+            body=[w.input_field("name", text="", placeholder="Type here")],
+        )
+        return {"frame_id": f.id}
+
+    with _serve_public_ui_browser(_build_scene) as harness:
+        with _chromium_page() as page:
+            page.goto(harness.url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            field = page.locator("input.vf-w-input").first
+            expect(field).to_have_value("")
+            harness.write_state_patch({harness.meta["frame_id"]: {"name": {"text": "Grace"}}})
+            expect(field).to_have_value("Grace", timeout=5_000)
+
+
+@pytest.mark.network
+def test_public_ui_slider_widget_set_updates_value_and_emits_change() -> None:
+    def _build_scene(d: Any) -> dict[str, Any]:
+        w = d.widget
+        f = d.frame(title="Slider State")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.4, 0.24),
+            body=[w.slider("zoom", value=0.2, vmin=0.0, vmax=1.0, step=0.05)],
+        )
+        return {"frame_id": f.id}
+
+    with _serve_public_ui_browser(_build_scene) as harness:
+        with _chromium_page() as page:
+            page.goto(harness.url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            slider = page.locator("input.vf-w-range").first
+            value_label = page.locator(".vf-w-slider-val").first
+            expect(slider).to_have_value("0.2")
+            expect(value_label).to_have_text("0.2")
+
+            harness.write_state_patch({harness.meta["frame_id"]: {"zoom": {"value": 0.75}}})
+            expect(slider).to_have_value("0.75", timeout=5_000)
+            expect(value_label).to_have_text("0.75", timeout=5_000)
+
+            before = harness.posted_count()
+            slider.fill("0.4")
+            expect(slider).to_have_value("0.4")
+            expect(value_label).to_have_text("0.4")
+            page.wait_for_timeout(150)
+            assert harness.posted_count() > before, "expected slider interaction to POST an event"
+            changed = harness.latest_dispatch()
+            assert changed.payload["type"] == "vf_event"
+            assert changed.payload["event"] == "slider.value_changed"
+            assert changed.payload["widget_id"] == "zoom"
+            assert changed.payload["frame_id"] == harness.meta["frame_id"]
+            assert changed.payload["data"] == {"value": 0.4}
+
+
+@pytest.mark.network
+def test_public_ui_checkbox_widget_set_updates_and_emits_toggle() -> None:
+    def _build_scene(d: Any) -> dict[str, Any]:
+        w = d.widget
+        f = d.frame(title="Checkbox State")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.4, 0.24),
+            body=[w.checkbox("confirm", checked=False, label="Pending")],
+        )
+        return {"frame_id": f.id}
+
+    with _serve_public_ui_browser(_build_scene) as harness:
+        with _chromium_page() as page:
+            page.goto(harness.url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            checkbox = page.locator("label.vf-w-check input").first
+            caption = page.locator(".vf-w-check-cap").first
+            expect(checkbox).not_to_be_checked()
+            expect(caption).to_have_text("Pending")
+
+            harness.write_state_patch(
+                {harness.meta["frame_id"]: {"confirm": {"checked": True, "label": "Confirmed"}}}
+            )
+            expect(checkbox).to_be_checked(timeout=5_000)
+            expect(caption).to_have_text("Confirmed", timeout=5_000)
+
+            before = harness.posted_count()
+            checkbox.uncheck()
+            expect(checkbox).not_to_be_checked()
+            page.wait_for_timeout(150)
+            assert harness.posted_count() > before, "expected checkbox toggle to POST an event"
+            toggled = harness.latest_dispatch()
+            assert toggled.payload["type"] == "vf_event"
+            assert toggled.payload["event"] == "checkbox.toggled"
+            assert toggled.payload["widget_id"] == "confirm"
+            assert toggled.payload["frame_id"] == harness.meta["frame_id"]
+            assert toggled.payload["data"] == {"checked": False}
+            assert toggled.route == "host"
+            assert toggled.should_queue is True
+            assert toggled.payload["index"] == 1
+
+
+@pytest.mark.network
+def test_public_ui_text_area_widget_set_updates_and_emits_change() -> None:
+    def _build_scene(d: Any) -> dict[str, Any]:
+        w = d.widget
+        f = d.frame(title="Text Area State")
+        d.add_frame(
+            f,
+            (0.1, 0.1, 0.42, 0.26),
+            body=[w.text_area("notes", text="")],
+        )
+        return {"frame_id": f.id}
+
+    with _serve_public_ui_browser(_build_scene) as harness:
+        with _chromium_page() as page:
+            page.goto(harness.url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
+            text_area = page.locator("textarea.vf-w-textarea").first
+            expect(text_area).to_have_value("")
+
+            harness.write_state_patch({harness.meta["frame_id"]: {"notes": {"text": "Seed text"}}})
+            expect(text_area).to_have_value("Seed text", timeout=5_000)
+
+            before = harness.posted_count()
+            text_area.fill("line\n2")
+            expect(text_area).to_have_value("line\n2")
+            page.wait_for_timeout(150)
+            assert harness.posted_count() > before, "expected text area edit to POST an event"
+            changed = harness.latest_dispatch()
+            assert changed.payload["type"] == "vf_event"
+            assert changed.payload["event"] == "text_area.text_changed"
+            assert changed.payload["widget_id"] == "notes"
+            assert changed.payload["frame_id"] == harness.meta["frame_id"]
+            assert changed.payload["data"] == {"text": "line\n2"}
