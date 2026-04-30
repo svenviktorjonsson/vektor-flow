@@ -11,6 +11,10 @@ If you are preparing a bundle for someone else to test, verify it first with:
 python scripts/verify_release_bundle.py dist/releases/<channel>
 ```
 
+For first macOS/Linux bundle bring-up from source, use:
+
+- [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)
+
 ## Before You Start
 
 You need:

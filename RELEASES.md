@@ -226,3 +226,7 @@ Before handing a bundle to testers, verify it with:
 For tester-facing smoke steps and bug-report expectations, see:
 
 - [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
+
+For first macOS/Linux host execution of those channels, use:
+
+- [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)

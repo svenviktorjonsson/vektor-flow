@@ -81,6 +81,10 @@ To verify a built bundle before sharing it:
 
 - `python scripts/verify_release_bundle.py dist/releases/windows-overlay`
 
+For first macOS/Linux host bring-up, use:
+
+- [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)
+
 ## Platform Matrix
 
 | Platform | UI modes | Recommended beta story |
