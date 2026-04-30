@@ -1,0 +1,26 @@
+# Minimal draggable rectangle panel.
+# Run: vkf examples/ui_draggable_rect.vkf
+# Drag the panel around the screen to verify that the UI is controlled directly from Vektor Flow.
+
+ui:.ui
+
+d: ui.display
+
+panel: d.frame(
+  title: "Drag me",
+  draggable: true,
+  closable: true,
+  resizable: false,
+  dockable: true,
+  dock_loc: "bl",
+  alpha: 0.92,
+  master: true
+)
+
+d.add_frame(panel, (0.18, 0.18, 0.42, 0.34))
+
+panel.draw((0.08, 0.12, 0.84, 0.62), color: "#ff7a59")
+panel.draw((0.16, 0.22, 0.24, 0.18), color: "#ffd166")
+panel.draw((0.60, 0.22, 0.16, 0.42), color: "#5ec8ff")
+
+:: "ui draggable rect ready"
