@@ -88,6 +88,13 @@ def build_release_manifest(
     include_ui_assets: bool,
     samples: tuple[str, ...],
 ) -> dict[str, Any]:
+    smoke_command = (
+        f".\\{channel.executable_name} -e ':: \"hello, world\"'"
+        if channel.host_platform == "win32"
+        else f"./{channel.executable_name} -e ':: \"hello, world\"'"
+    )
+    extension_path = "extensions" if include_extension else None
+    testing_guide = "TESTING.md"
     return {
         "kind": "vektorflow-release-bundle",
         "channel": channel.name,
@@ -102,12 +109,24 @@ def build_release_manifest(
             "overlay_binary_included": include_overlay,
             "ui_assets_included": include_ui_assets,
             "samples": list(samples),
+            "extension_path": extension_path,
+            "testing_guide": testing_guide,
+        },
+        "tester_onboarding": {
+            "smoke_command": smoke_command,
+            "sample_smoke_paths": list(samples),
+            "vscode_supported": include_extension,
         },
     }
 
 
 def release_readme_text(channel: ReleaseChannelSpec, version: str, manifest_name: str) -> str:
     ui_modes = ", ".join(channel.ui_modes)
+    smoke_command = (
+        f".\\{channel.executable_name} -e ':: \"hello, world\"'"
+        if channel.host_platform == "win32"
+        else f"./{channel.executable_name} -e ':: \"hello, world\"'"
+    )
     overlay_note = (
         "The native transparent overlay host is bundled in this channel."
         if channel.overlay_required
@@ -119,9 +138,11 @@ def release_readme_text(channel: ReleaseChannelSpec, version: str, manifest_name
         f"Entrypoint: {channel.executable_name}\n"
         f"UI modes: {ui_modes}\n\n"
         "Quick start:\n"
-        f"- Run {channel.executable_name} with an inline smoke check.\n"
-        "- Open samples/hello.vkf or samples/core_language_tour.vkf.\n"
+        f"- Run: {smoke_command}\n"
+        "- Run samples/hello.vkf.\n"
+        "- Run samples/core_language_tour.vkf.\n"
         "- Install the VS Code extension from the extensions/ folder if included.\n\n"
         f"{overlay_note}\n"
         f"Bundle manifest: {manifest_name}\n"
+        "Tester guide: TESTING.md\n"
     )

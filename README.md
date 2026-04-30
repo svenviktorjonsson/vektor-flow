@@ -54,6 +54,7 @@ build path below for now.
 The concrete step-by-step install guide lives in:
 
 - [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
+- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
 
 ### 2. I want to build or contribute from source
 
@@ -223,6 +224,7 @@ The package manifest now carries the runnable contract, launcher information, in
 The extension guide lives in:
 
 - [vscode/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\vscode\README.md)
+- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
 
 Recommended user story:
 
@@ -298,6 +300,10 @@ When reporting a bug, include:
 - whether you used a packaged build or a source build
 - the `.vkf` file or minimal snippet
 - package manifest if the bug is package/runtime related
+
+For a fuller tester checklist, use:
+
+- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
 
 ## Contributor Path
 

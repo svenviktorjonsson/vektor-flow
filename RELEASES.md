@@ -218,3 +218,7 @@ That builder currently does the host-native assembly work:
 - copies `vf-ui` web assets unless explicitly skipped
 - packages the VS Code extension into a `.vsix` unless explicitly skipped
 - writes a release manifest and bundle README
+
+For tester-facing smoke steps and bug-report expectations, see:
+
+- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)

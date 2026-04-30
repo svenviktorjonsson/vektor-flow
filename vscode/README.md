@@ -40,6 +40,10 @@ That is better than the repo/Python path for most users.
 
 The extension itself is cross-platform. The current host limitation is the runtime UI mode, not the editor integration.
 
+For the full tester checklist after installation, see:
+
+- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
+
 ## Prerequisites
 
 ### Required
