@@ -2,185 +2,100 @@
 
 A mathematical visualization and computational language.
 
-Vektor Flow is moving toward a no-Python end-user release model:
-
-- `vkf` as the user-facing compiler/runtime command
-- packaged native artifacts for supported programs
-- Windows native transparent overlay UI
-- macOS and Linux browser/headless UI for the same language/runtime surface
+Use `vkf` to run `.vkf` programs.
 
 File extension: `.vkf`
 
-## Current Beta Status
+## Start Here
 
-What is already true:
+Choose the package for your OS, extract it, run `vkf`, then optionally install
+the VS Code extension.
 
-- the language, interpreter, compiler pipeline, package contract, and VS Code extension are usable now
-- Windows is the current full UI beta target:
-  - `overlay`
-  - `browser`
-  - `headless`
-- macOS and Linux are the current portable UI beta targets:
-  - `browser`
-  - `headless`
-- the produced native executables from the supported subset do not require Python at runtime
+### Platform support
 
-What is not fully finished yet:
-
-- the Python-free end-user distribution story is still being finalized for all release channels
-- the transparent overlay host is currently Windows-only
-- the full language is still broader than the currently packaged native subset
-
-So the honest platform target story today is:
-
-- Windows: full beta experience
-- macOS: browser-mode beta
-- Linux: browser-mode beta
-
-## Choose Your Path
-
-### 1. I want to try Vektor Flow as a user
-
-This is the preferred path when release artifacts are available:
-
-- download the package for your platform
-- unzip or extract it
-- run `vkf`
-- optionally point the VS Code extension at that packaged `vkf`
-
-If a packaged release is not yet published for your platform, use the source
-build path below for now.
-
-The concrete step-by-step install guide lives in:
-
-- [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
-- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
-
-### 2. I want to build or contribute from source
-
-Use the repo bootstrap path:
-
-- Windows:
-  - `./build.ps1`
-- macOS / Linux:
-  - install Python 3.11+
-  - `pip install -e .[dev]`
-
-That path is still appropriate for contributors, but it should not be the main onboarding story for community testers.
-
-If you are preparing tester bundles from source, use the release-bundle builder:
-
-- Windows:
-  - `.\scripts\build-release-bundle.ps1`
-- macOS / Linux:
-  - `./scripts/build-release-bundle.sh`
-
-Those scripts build a host-native tester bundle, include sample `.vkf` files,
-and package the VS Code extension `.vsix` when the build environment can do so.
-To verify a built bundle before sharing it:
-
-- `python scripts/verify_release_bundle.py dist/releases/windows-overlay`
-
-For first macOS/Linux host bring-up, use:
-
-- [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)
-
-## Platform Matrix
-
-| Platform | UI modes | Recommended beta story |
+| Platform | UI modes today | Recommended path |
 | --- | --- | --- |
-| Windows | `overlay`, `browser`, `headless` | Full beta target |
-| macOS | `browser`, `headless` | Portable beta target |
-| Linux | `browser`, `headless` | Portable beta target |
+| Windows | `overlay`, `browser`, `headless` | Full beta |
+| macOS | `browser`, `headless` | Portable beta |
+| Linux | `browser`, `headless` | Portable beta |
 
-Windows is the only current platform with the native transparent overlay host.
+Windows is the only platform with the native transparent overlay host today.
 
 ## Quick Start
 
-### Windows beta
+### Windows
 
-When a packaged Windows release is available:
-
-1. Download the Windows package.
-2. Extract it to a folder such as `C:\Tools\vektorflow`.
-3. Run:
+1. Download and extract the Windows package.
+2. In PowerShell inside the extracted folder, run:
 
 ```powershell
 .\vkf.exe -e ':: "hello, world"'
+.\vkf.exe .\samples\hello.vkf
+.\vkf.exe .\samples\core_language_tour.vkf
 ```
 
-4. For a packaged native program, use the generated launcher:
+Expected first output:
 
-```powershell
-.\my-packaged-program\run.bat
-.\my-packaged-program\smoke-test.bat
+```text
+hello, world
 ```
 
-If the release bundle includes sample `.vkf` files, you can also run those
-directly. The inline snippet above is the safest first check because it depends
-only on the packaged `vkf.exe`.
+### macOS / Linux
 
-UI modes:
-
-- `overlay` for the Windows transparent overlay host
-- `browser` for the browser host
-- `headless` for file-only display output
-
-### macOS beta
-
-When a packaged macOS release is available:
-
-1. Download the macOS archive.
-2. Extract it.
-3. Run:
+1. Download and extract the package for your OS.
+2. In a shell inside the extracted folder, run:
 
 ```bash
 ./vkf -e ':: "hello, world"'
+./vkf ./samples/hello.vkf
+./vkf ./samples/core_language_tour.vkf
 ```
 
-4. For packaged native programs, use the generated shell launcher:
+Expected first output:
 
-```bash
-./my-packaged-program/run.sh
-./my-packaged-program/smoke-test.sh
+```text
+hello, world
 ```
 
-If the release bundle includes sample `.vkf` files, you can also run those
-directly. The inline snippet above is the safest first check because it depends
-only on the packaged `vkf`.
+## VS Code
 
-UI modes:
+1. Install the bundled `.vsix` from the package, or install the extension from
+   `vscode/`.
+2. Point the extension at your packaged `vkf`.
 
-- `browser`
-- `headless`
+### Windows setting
 
-### Linux beta
-
-When a packaged Linux release is available:
-
-1. Download the Linux archive.
-2. Extract it.
-3. Run:
-
-```bash
-./vkf -e ':: "hello, world"'
+```json
+{
+  "vektorflow.compilerPath": "C:\\path\\to\\vkf.exe"
+}
 ```
 
-4. For packaged native programs, use the generated shell launcher:
+### macOS / Linux setting
 
-```bash
-./my-packaged-program/run.sh
-./my-packaged-program/smoke-test.sh
+```json
+{
+  "vektorflow.compilerPath": "/path/to/vkf"
+}
 ```
 
-If the release bundle includes sample `.vkf` files, you can also run those
-directly. The inline snippet above is the safest first check because it depends
-only on the packaged `vkf`.
+3. Open `samples/hello.vkf`.
+4. Run `Run Vektor Flow File`.
 
-UI modes:
+Extension guide:
 
-- `browser`
-- `headless`
+- [vscode/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\vscode\README.md)
+
+## Need More Detail?
+
+- install guide:
+  - [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
+- tester guide:
+  - [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
+- release layout:
+  - [RELEASES.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\RELEASES.md)
+- macOS/Linux maintainer bring-up:
+  - [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)
 
 ## Try These First
 
@@ -225,38 +140,6 @@ Current package shape includes:
 - `smoke-test.sh`
 
 The package manifest now carries the runnable contract, launcher information, install hints, and codegen/build lineage so callers do not have to guess how to execute the package.
-
-## VS Code Quick Start
-
-The extension guide lives in:
-
-- [vscode/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\vscode\README.md)
-- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
-
-Recommended user story:
-
-1. Install the Vektor Flow extension.
-   Current expected path:
-   - install from a local `.vsix`
-   - or install directly from the `vscode/` folder while it is still pre-Marketplace
-2. Point it at your packaged `vkf` binary:
-
-```json
-{
-  "vektorflow.compilerPath": "C:\\path\\to\\vkf.exe"
-}
-```
-
-On macOS or Linux:
-
-```json
-{
-  "vektorflow.compilerPath": "/path/to/vkf"
-}
-```
-
-3. Open `examples/hello.vkf`.
-4. Run `Run Vektor Flow File`.
 
 ## UI Host Status
 
@@ -334,6 +217,17 @@ That script:
 pip install -e .[dev]
 python -m vektorflow --version
 ```
+
+If you are building tester bundles from source:
+
+- Windows:
+  - `.\scripts\build-release-bundle.ps1`
+- macOS / Linux:
+  - `./scripts/build-release-bundle.sh`
+
+Verify before sharing:
+
+- `python scripts/verify_release_bundle.py dist/releases/<channel>`
 
 ### Useful developer commands
 
