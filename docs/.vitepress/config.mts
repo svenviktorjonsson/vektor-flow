@@ -14,6 +14,7 @@ export default defineConfig({
   title: "Vektor Flow",
   description: "A compact structural language for math, data, geometry, and UI.",
   cleanUrls: true,
+  lastUpdated: true,
   markdown: {
     languages: [vfGrammar],
     langAlias: {
@@ -21,6 +22,7 @@ export default defineConfig({
     }
   },
   themeConfig: {
+    logo: "/images/ui-frame-transparency-box.png",
     nav: [
       { text: "Welcome", link: "/" },
       { text: "Install", link: "/install" },
@@ -28,8 +30,15 @@ export default defineConfig({
       { text: "Try Live", link: "/try-live" },
       { text: "Testing", link: "/testing" }
     ],
+    search: {
+      provider: "local"
+    },
     socialLinks: [
       { icon: "github", link: "https://github.com/svenviktorjonsson/vektor-flow" }
-    ]
+    ],
+    footer: {
+      message: "Compact structural language for math, data, geometry, and UI.",
+      copyright: "Vektor Flow"
+    }
   }
 });

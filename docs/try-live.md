@@ -1,21 +1,27 @@
-# Try Live
+# Try live
 
-A full freeform browser playground is the direction.
+This is the first browser-first draft of the interactive Vektor Flow docs.
 
-Current honest state:
+<CuratedPlayground />
 
-- GitHub Pages can host an interactive client-side playground
-- the current repo is ready to support curated live examples first
-- broader live execution should come after that, using the same runtime/display contract
+## What this proves already
 
-Planned phases:
+- the docs site can carry the Vektor Flow grammar and highlight `vkf` blocks directly
+- the visual examples are generated through the browser UI path, not the Windows overlay host
+- we can pair real code with real rendered output in one place
 
-1. curated live examples
-2. editable snippets with client-side render
-3. broader browser execution subset
+## What comes next
 
-For now, the strongest live path is:
+1. freeform editing that rerenders in-page
+2. more examples pulled from the actual sample catalog
+3. a broader browser execution subset so the page can run more than curated demos
 
-- install the packaged `vkf`
-- run the included samples
-- use the VS Code extension for fast iteration
+Until that lands, the strongest real path is still:
+
+```bash
+vkf -e ':: "hello, world"'
+vkf samples/hello.vkf
+vkf samples/core_language_tour.vkf
+```
+
+Then install the VS Code extension and point it at your packaged `vkf`.

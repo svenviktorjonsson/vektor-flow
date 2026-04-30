@@ -1,33 +1,67 @@
-# Try out Vektor Flow
+<div class="vf-hero">
+  <div class="vf-hero__grid">
+    <div>
+      <p class="vf-kicker">Try out Vektor Flow</p>
+      <h1>Compact code that reaches into structure and turns into visible output fast.</h1>
+      <p>
+        Vektor Flow blends some of the terseness people like in C++ with some of the speed and
+        directness people like in Python, then adds structural operations, spilling, typed shapes,
+        and UI as first-class ideas.
+      </p>
+      <div class="vf-button-row">
+        <a class="vf-button" href="./install">Do this to get started</a>
+        <a class="vf-button--ghost" href="./try-live">See the browser draft</a>
+      </div>
+    </div>
 
-Vektor Flow is a compact structural language for math, geometry, data, and UI.
+    <figure class="vf-hero__card">
+      <img src="/images/ui-frame-transparency-box.png" alt="Vektor Flow 3D frame example" />
+      <figcaption>
+        A framed 3D scene generated from compact Vektor Flow code and rendered through the browser UI path.
+      </figcaption>
+    </figure>
+  </div>
+</div>
 
-It is built to feel:
-
-- more compact than Python
-- more expression-oriented than C++
-- good at reaching into structure directly
-- good at turning code into visible output fast
-
-## Start in 30 seconds
-
-Install a package for your OS, then run:
-
-```bash
-vkf -e ':: "hello, world"'
-```
-
-Then try:
-
-```bash
+<div class="vf-install-strip">
+  <p><strong>Do this to get started.</strong></p>
+  <pre><code>vkf -e ':: "hello, world"'
 vkf samples/hello.vkf
-vkf samples/core_language_tour.vkf
+vkf samples/core_language_tour.vkf</code></pre>
+</div>
+
+## Hello world
+
+```vkf
+:: "hello, world"
 ```
 
-For the packaged flow, install the VS Code extension from the included `.vsix`
-and point it at your packaged `vkf`.
+```text
+hello, world
+```
 
-## A compact language
+## Core ideas
+
+<div class="vf-principles">
+  <div class="vf-principle">
+    <h3>Keyword-light</h3>
+    <p>Expressions stay compact, structural, and readable without a lot of ceremony.</p>
+  </div>
+  <div class="vf-principle">
+    <h3>Reaching in</h3>
+    <p>Dot access, updates, and reflection make nested structures easy to inspect and reshape.</p>
+  </div>
+  <div class="vf-principle">
+    <h3>Spilling</h3>
+    <p>Collections and structure can be expanded directly instead of hidden behind verbose helper code.</p>
+  </div>
+  <div class="vf-principle">
+    <h3>Shapes matter</h3>
+    <p>Typed vectors, shape parameters, and reflected types are part of the language, not bolted on.</p>
+  </div>
+</div>
+
+## The language in small pieces
 
 ```vkf
 a: 7
@@ -35,13 +69,6 @@ b: 5
 :: "a + b = $(a + b)"
 :: "a * b = $(a * b)"
 ```
-
-```text
-a + b = 12
-a * b = 35
-```
-
-## Reaching in
 
 ```vkf
 person: ()
@@ -54,70 +81,24 @@ person.tags: ["math", "logic", "code"]
 :: person.
 ```
 
-Values are meant to be easy to inspect, update, and navigate without a lot of
-ceremony.
-
-## Typed shapes
-
 ```vkf
 join_scale(x:[num:n], y:[num:m], s:num) -> [num:n+m]:
   (x & y) * s
-
-a2: [1,2]
-b3: [3,4,5]
-joined: join_scale(a2, b3, 2)
-:: joined
-:: joined.
 ```
 
-Vectors, records, tuples, multisets, and reflected types are first-class ideas,
-not library afterthoughts.
+## Code and result, side by side
 
-## UI example: static widgets
+<DemoPair variant="widgets"></DemoPair>
 
-```vkf
-ui:.ui
-col:.collections
+<DemoPair variant="box"></DemoPair>
 
-d: ui.display
-w: ui.widgets
+## Get the good syntax highlighting
 
-a: d.frame(title: "Anchor", dock_loc: "bl", resizable: true)
-d.add_frame(
-  a,
-  (0.28, 0.32, 0.2, 0.15),
-  body: col.list(
-    w.label("l0", text: "Label + dropdown + button + slider"),
-    w.dropdown("dd", col.list("one", "two", "three"), value: 0),
-    w.button("go", label: "Button"),
-    w.slider("sl", value: 0.5, vmin: 0, vmax: 1, step: 0.02)
-  )
-)
-```
-
-![Static widgets](/images/ui-widgets-static.png)
-
-## UI example: transparent framed 3D box
-
-```vkf
-ui:.ui
-
-d : ui.display
-f : d.add_frame((0.32, 0.08, 0.62, 0.84))
-
-box   : f.add_box(center:[0,0,0], scale:[1.4,1.4,1.4], color:"#ff8844")
-cam   : f.add_camera(pos:[4,3,5], target:[0,0,0], fov:45)
-light : f.add_light(pos:[7,8,6], model:"blinn_phong", color:"white")
-
-box.rotate_by(25, around:"y")
-```
-
-![Transparent 3D box frame](/images/ui-frame-transparency-box.png)
-
-## Get syntax highlighting in VS Code
+The GitHub README cannot use the full Vektor Flow grammar directly. The docs site and the VS Code extension can.
 
 1. Install the bundled `.vsix`
-2. Set:
+2. Point it at your packaged `vkf`
+3. Open a `.vkf` file and use the Vektor Flow commands directly from VS Code
 
 ```json
 {
@@ -133,10 +114,9 @@ On Windows:
 }
 ```
 
-Then open a `.vkf` file and use the Vektor Flow commands directly from VS Code.
-
 ## Next
 
 - [Install](./install)
 - [VS Code](./vscode)
 - [Try live](./try-live)
+- [Testing](./testing)
