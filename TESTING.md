@@ -16,6 +16,12 @@ If you are looking for platform-specific install steps, start with:
 
 - [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
 
+If you are the maintainer preparing a tester bundle, verify it before sharing:
+
+```bash
+python scripts/verify_release_bundle.py dist/releases/<channel>
+```
+
 ## Terminal Smoke Tests
 
 ### Windows

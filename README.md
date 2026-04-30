@@ -77,6 +77,9 @@ If you are preparing tester bundles from source, use the release-bundle builder:
 
 Those scripts build a host-native tester bundle, include sample `.vkf` files,
 and package the VS Code extension `.vsix` when the build environment can do so.
+To verify a built bundle before sharing it:
+
+- `python scripts/verify_release_bundle.py dist/releases/windows-overlay`
 
 ## Platform Matrix
 

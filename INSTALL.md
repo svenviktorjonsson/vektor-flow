@@ -5,6 +5,12 @@ This guide is the practical install path for community testers.
 If you are trying Vektor Flow as a user, start here instead of the contributor
 bootstrap flow.
 
+If you are preparing a bundle for someone else to test, verify it first with:
+
+```bash
+python scripts/verify_release_bundle.py dist/releases/<channel>
+```
+
 ## Before You Start
 
 You need:
