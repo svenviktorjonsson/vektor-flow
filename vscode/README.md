@@ -1,87 +1,70 @@
-# Vektor Flow VS Code Extension MVP
+# Vektor Flow VS Code Extension
 
-This folder contains the current VS Code extension MVP for Vektor Flow.
+This extension is the fastest editor path for trying Vektor Flow once you have a working `vkf` command.
 
 What it gives you today:
 
 - `.vkf` language association
 - syntax highlighting
-- editor title-bar commands for:
+- title-bar commands for:
   - parse
   - run
   - build
-- compatibility with the workspace `Run and Debug` and `Task` entries already checked into this repo
 - compiler-backed diagnostics for `.vkf` files when enabled
+- compatibility with the checked-in workspace run/debug helpers for contributors
 
-What it does not try to be yet:
+What it is not yet:
 
-- a packaged language server
-- full debugger integration
-- an all-in-one native build UI
+- a full language server
+- a debugger for compiled/native execution
+- a full visual build UI
+
+## Best User Path
+
+For normal users and community testers, the preferred setup is:
+
+1. install a packaged Vektor Flow release for your OS
+2. confirm that `vkf` runs in a terminal
+3. install this VS Code extension
+4. point the extension at your packaged `vkf`
+
+That is better than the repo/Python path for most users.
+
+## Platform Notes
+
+| Platform | Recommended UI mode today |
+| --- | --- |
+| Windows | `overlay`, `browser`, or `headless` |
+| macOS | `browser` or `headless` |
+| Linux | `browser` or `headless` |
+
+The extension itself is cross-platform. The current host limitation is the runtime UI mode, not the editor integration.
 
 ## Prerequisites
 
-### Required to try the extension
+### Required
 
 1. VS Code
-2. Python 3 on `PATH`
-3. A Vektor Flow command path that VS Code can execute
+2. A working `vkf` executable or command path
 
-The extension prefers running a compiler command directly:
-
-```text
-vkf
-```
-
-That means the lowest-friction setup is:
-
-- install this repo so `vkf` is on `PATH`, or
-- point `vektorflow.compilerPath` at the exact executable you want to use
-
-From the repo root:
+Recommended check in a terminal:
 
 ```bash
-pip install -e .[dev]
+vkf -s ':: "hello, world"'
 ```
 
-If you do not have `vkf` on `PATH`, the extension can still fall back to Python, but only when:
+If that works, the extension path is usually easy.
 
-- `vektorflow.compilerPath` is blank, and
-- `vektorflow.pythonPath` points to an interpreter that can import `vektorflow`
+### Optional for native builds
 
-The legacy fallback command is:
+If you want the build command to succeed for native subsets, you still need a C++ compiler on `PATH`, for example:
 
-```bash
-python -m vektorflow.cli <subcommand> <file>
-```
-
-### Optional for native build experimentation
-
-If you want the build button and native-core terminal flows to succeed, install a C++ compiler on `PATH`:
-
-- `clang++`, or
+- `clang++`
 - `g++`
 
-That is not required for syntax highlighting or the run command itself, but it is required for commands like:
+## Install The Extension
 
-```bash
-vkf build-native-core examples/native_core/hello_native.vkf
-```
-
-## Install Options
-
-### Fastest: install directly from the folder in VS Code
-
-1. Open VS Code.
-2. Run `Developer: Install Extension from Location...`
-3. Select the `vscode/` folder from this repo.
-
-Important:
-
-- do not run `code --install-extension ./vscode`
-- that command expects a `.vsix` file or a published extension id, not a source folder
-
-### Pack and install a `.vsix`
+### Preferred for users: package/install a VSIX
 
 From the repo root in PowerShell:
 
@@ -89,101 +72,92 @@ From the repo root in PowerShell:
 .\install_extension.ps1
 ```
 
-What that script does:
-
-- packages `vscode/` into a `.vsix`
-- installs it with `code` or `cursor` if either CLI is on `PATH`
-
-Manual alternative:
+Manual packaging:
 
 ```bash
 cd vscode
 npx --yes @vscode/vsce package --allow-missing-repository
 ```
 
-Then install the generated `.vsix` with:
+Then install the generated `.vsix` from VS Code or with:
 
 ```bash
 code --install-extension .\vektorflow-<version>.vsix
 ```
 
-If `code` is not on `PATH`, open VS Code and use:
+### Source-folder install for contributors
 
-- `Shell Command: Install 'code' command in PATH`
-
-or install the `.vsix` through the Extensions view menu.
-
-## Marketplace Prep
-
-This extension is now packaged so it can be published cleanly later, but it is
-not published yet.
-
-Before publishing:
-
-1. Create or choose your actual VS Code Marketplace publisher id.
-2. Replace the placeholder publisher value in:
-   - `vscode/package.json`
-3. Log in with `vsce`:
-
-```bash
-vsce login <your-publisher-id>
-```
-
-4. Publish from the `vscode/` folder:
-
-```bash
-vsce publish
-```
-
-The extension package now includes:
-
-- a bundled `LICENSE`
-- a constrained `files` whitelist in `package.json`
-- repository, homepage, and issue tracker metadata
+1. Open VS Code.
+2. Run `Developer: Install Extension from Location...`
+3. Select the `vscode/` folder from your source checkout.
 
 ## Configure The Extension
 
-### Preferred settings
+### Preferred setting
 
-The extension now prefers these settings:
+Point the extension at the packaged `vkf` binary you want to use.
 
-- `vektorflow.compilerPath`
-- `vektorflow.compilerArgs`
-- `vektorflow.useNativeCoreCommands`
-- `vektorflow.enableDiagnostics`
-- `vektorflow.diagnosticsDebounceMs`
-
-Recommended default if `vkf` already works in your terminal:
+#### Windows
 
 ```json
 {
-  "vektorflow.compilerPath": "vkf",
-  "vektorflow.compilerArgs": [],
-  "vektorflow.useNativeCoreCommands": true
+  "vektorflow.compilerPath": "C:\\path\\to\\vkf.exe"
 }
 ```
 
-### Python fallback setting
+#### macOS / Linux
 
-Legacy fallback setting:
-
-- `Vektor Flow: Python Path`
-- setting key: `vektorflow.pythonPath`
-
-Default:
-
-```text
-python
+```json
+{
+  "vektorflow.compilerPath": "/path/to/vkf"
+}
 ```
 
-Set it to the full path of your venv interpreter only if you are using the Python fallback path.
+If `vkf` is already on `PATH`, the simplest setup is:
 
-### What the commands actually do
+```json
+{
+  "vektorflow.compilerPath": "vkf"
+}
+```
+
+### Other useful settings
+
+```json
+{
+  "vektorflow.compilerArgs": [],
+  "vektorflow.useNativeCoreCommands": true,
+  "vektorflow.enableDiagnostics": true,
+  "vektorflow.diagnosticsDebounceMs": 250
+}
+```
+
+### Legacy contributor path
+
+The extension can still work against a repo/Python install, but that should be treated as the contributor path, not the main user path.
+
+If you need it:
+
+```bash
+pip install -e .[dev]
+```
+
+Then either make sure `vkf` is on `PATH` or configure a Python fallback environment.
+
+Python fallback setting:
+
+```json
+{
+  "vektorflow.pythonPath": "python"
+}
+```
+
+## What The Commands Do
 
 - `Run Vektor Flow File`
   - launches the configured compiler command in a terminal against the current file
 - `Parse Vektor Flow File`
-  - runs `parse-native-core <file>` and captures output in the `Vektor Flow` output channel
+  - runs `parse-native-core <file>` and writes output to the `Vektor Flow` output channel
 - `Build Vektor Flow File`
   - runs `build-native-core <file>` when `vektorflow.useNativeCoreCommands` is `true`
   - otherwise runs `build <file>`
@@ -193,44 +167,89 @@ Diagnostics currently use:
 - `cpp-native-core <file>` when `vektorflow.useNativeCoreCommands` is `true`
 - `cpp <file>` otherwise
 
-## Smoke Test
+## Quick Start
 
-This is the shortest end-to-end path to prove the MVP is working.
+### Windows
 
-### 1. Open the repo in VS Code
+1. Install the packaged Windows release.
+2. Confirm in a terminal:
 
-Open:
+```powershell
+vkf -s ':: "hello, world"'
+```
 
-- `C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh`
+3. Install the extension.
+4. Set:
 
-### 2. Confirm the extension is active
+```json
+{
+  "vektorflow.compilerPath": "C:\\path\\to\\vkf.exe"
+}
+```
 
-Open:
+5. Create or open a simple `hello.vkf` with:
 
-- `examples/hello.vkf`
+```vkf
+:: "hello, world"
+```
 
-You should see:
+6. Run `Run Vektor Flow File`.
 
-- language mode: `Vektor Flow`
-- syntax highlighting
-- title-bar buttons for parse, run, and build
-
-### 3. Run the basic command path
-
-Use one of these:
-
-1. Click the run button in the editor title bar
-2. Command Palette -> `Run Vektor Flow File`
-3. `Run and Debug` -> `vkf: run current file`
-4. `Terminal -> Run Task...` -> `vkf: run current file`
-
-Expected terminal output:
+Expected output:
 
 ```text
 hello, world
 ```
 
-### 4. Verify parse output
+### macOS / Linux
+
+1. Install the packaged release.
+2. Confirm in a terminal:
+
+```bash
+vkf -s ':: "hello, world"'
+```
+
+3. Install the extension.
+4. Set:
+
+```json
+{
+  "vektorflow.compilerPath": "/path/to/vkf"
+}
+```
+
+5. Create or open a simple `hello.vkf` with:
+
+```vkf
+:: "hello, world"
+```
+
+6. Run `Run Vektor Flow File`.
+
+## Good Smoke Tests
+
+### Basic run
+
+Open:
+
+- a simple `.vkf` file such as:
+
+```vkf
+:: "hello, world"
+```
+
+Run:
+
+- `Run Vektor Flow File`
+
+Expected output:
+
+```text
+hello, world
+```
+
+### Parse path
 
 Open:
 
@@ -243,11 +262,11 @@ Run:
 Expected result:
 
 - the `Vektor Flow` output channel opens
-- you see a parsed module representation rather than a terminal launch failure
+- parse output appears there
 
-### 5. Verify explicit stdlib import syntax from the user surface
+### Explicit stdlib import surface
 
-Create a scratch `.vkf` file with:
+Create a scratch `.vkf` file:
 
 ```vkf
 math: .math
@@ -266,11 +285,9 @@ Expected output:
 9
 ```
 
-This proves the extension is not only launching the CLI, but preserving the explicit stdlib namespace import contract users see in the language surface.
+### Native build path
 
-### 6. Verify build for the current native-core subset
-
-With a C++ compiler on `PATH`, open:
+If a C++ compiler is installed, open:
 
 - `examples/native_core/hello_native.vkf`
 
@@ -280,49 +297,27 @@ Run:
 
 Expected result:
 
-- the `Vektor Flow` output channel reports a built executable path
+- a built executable path is reported
 
-Then run in the integrated terminal:
-
-```powershell
-.\hello_native.exe
-```
-
-Expected output:
-
-```text
-42
-```
-
-### 7. Terminal-only fallback smoke test
-
-```bash
-python -m vektorflow.cli build-native-core examples/native_core/hello_native.vkf -o hello_native.exe
-.\hello_native.exe
-```
-
-Expected output:
-
-```text
-42
-```
-
-If this step fails with a compiler error, the extension is still fine; it usually means `clang++` or `g++` is not on `PATH`.
-
-## Known MVP Boundaries
+## Known Boundaries
 
 - The extension is command-driven, not language-server-driven.
-- The checked-in workspace `Run and Debug` config uses the Python extension.
-- The checked-in tasks use `python -m vektorflow.cli ...`, so they depend on the same interpreter setup as the extension command.
-- Parse/build commands capture output in the `Vektor Flow` output channel; run launches an integrated terminal.
-- Native build is only guaranteed for the current native-core subset.
+- Native build is only guaranteed for the current native/native-core subsets.
+- Windows currently has the best full UI story because overlay support exists there.
+- macOS and Linux are still expected to use browser/headless runtime UI modes.
 
-## Extension Development
+## Contributor / Dev Path
 
-If you want to work on the extension itself:
+If you are working on the extension or compiler from source:
 
-1. Open this repo in VS Code.
-2. Open the `vscode/` folder in the workspace.
-3. Press `F5`.
-4. A new Extension Development Host window should open.
-5. In that host window, open a `.vkf` file and repeat the smoke test above.
+1. Open the repo in VS Code.
+2. Install the package in a Python environment:
+
+```bash
+pip install -e .[dev]
+```
+
+3. Press `F5` in the `vscode/` folder to open an Extension Development Host.
+4. Repeat the smoke tests above.
+
+If you are packaging the extension for distribution later, see the Marketplace prep section in `vscode/package.json` and the repo docs.
