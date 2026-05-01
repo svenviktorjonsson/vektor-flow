@@ -1,13 +1,29 @@
 # 2-D polygon hierarchy interaction test.
-# Drag inside a polygon to translate it.
-# Drag near an edge to rotate and scale it.
-# Drag empty background to pan. Wheel zooms around the cursor.
+# Plain drag:
+#   vertex -> move that vertex
+#   edge   -> move the edge endpoints to reshape the polygon
+#   face   -> move the object and its children through the parent transform
+# Ctrl drag:
+#   vertex -> rotate/scale around the polygon center
+#   edge   -> scale orthogonal to that edge
+# Background drag pans. Wheel zooms around the cursor in data coordinates.
 
 ui: .ui
+t: .time
+events: ui.events
 d: ui.display
 
+frame_rect: [0.08, 0.08, 0.72, 0.72]
+root_color: [1.0, 0.48, 0.35, 0.72]
+child_color: [0.25, 0.86, 0.55, 0.78]
+leaf_color: [0.37, 0.78, 1.0, 0.88]
+
+root_points: [[0.08,0.14], [0.32,0.08], [0.78,0.10], [0.94,0.46], [0.64,0.84], [0.18,0.72]]
+child_points: [[0.22,0.30], [0.42,0.20], [0.66,0.34], [0.62,0.58], [0.40,0.70], [0.24,0.56]]
+leaf_points: [[0.36,0.38], [0.50,0.32], [0.62,0.44], [0.56,0.62], [0.40,0.60]]
+
 panel: d.frame(
-  title: "Polygon hierarchy: red parent -> green child -> blue leaf",
+  title: "Polygon edit: red parent -> green child -> blue leaf",
   draggable: true,
   closable: true,
   resizable: true,
@@ -17,27 +33,43 @@ panel: d.frame(
   master: true
 )
 
-d.add_frame(panel, (0.08, 0.08, 0.72, 0.72))
+d.add_frame(panel, frame_rect)
 
-root_poly: panel.add_polygon(
-  [(0.08,0.12), (0.78,0.10), (0.92,0.48), (0.62,0.84), (0.16,0.72)],
-  color: "rgba(255,122,89,0.72)"
-)
-child_poly: root_poly.add_polygon(
-  [(0.10,0.18), (0.48,0.10), (0.70,0.42), (0.38,0.72), (0.12,0.56)],
-  color: "rgba(64,220,140,0.78)"
-)
-leaf_poly: child_poly.add_polygon(
-  [(0.14,0.12), (0.76,0.22), (0.64,0.76), (0.22,0.66)],
-  color: "rgba(94,200,255,0.88)"
-)
+root_poly: panel.add_polygon(root_points, color: root_color)
+child_poly: root_poly.add_polygon(child_points, color: child_color)
+leaf_poly: child_poly.add_polygon(leaf_points, color: leaf_color)
 
-root_poly.translate(dx: 0.02, dy: 0.03)
-child_poly.translate(dx: 0.18, dy: 0.10).scale_by(sx: 0.56, sy: 0.54).rotate_by(angle_deg: 12)
-leaf_poly.translate(dx: 0.14, dy: 0.20).scale_by(sx: 0.48, sy: 0.48).rotate_by(angle_deg: -18)
+describe_action(e):
+  e.ctrl?
+    e.hover.kind = "vertex"? @: "ctrl vertex: rotate/scale object"
+    e.hover.kind = "edge"? @: "ctrl edge: orthogonal scale"
+    @: "ctrl face: move object"
+  e.hover.kind = "vertex"? @: "move vertex"
+  e.hover.kind = "edge"? @: "move edge endpoints"
+  e.hover.kind = "face"? @: "move object subtree"
+  @: "pan frame"
 
-root_poly.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.035)
-child_poly.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.035)
-leaf_poly.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.035)
+print_event(e):
+  action: describe_action(e)
+  :: "event=$e.event action=$action object=$e.hover.object_id kind=$e.hover.kind vertex=$e.hover.vertex_id edge=$e.hover.edge_id face=$e.hover.face_id"
+
+dispatch(e):
+  e.event??
+    ui.MOUSE_DOWN =>
+      ui.cursor.set_mode("closed_hand")
+      print_event(e)
+    ui.MOUSE_MOVE =>
+      ui.cursor.set_mode("open_hand")
+    ui.MOUSE_UP =>
+      ui.cursor.set_mode("open_hand")
+      print_event(e)
+    ui.WHEEL =>
+      print_event(e)
+
+main_loop():
+  true?>
+    events.poll()? dispatch(events.get())
+    t.sleep(0.016)
 
 :: "interactive polygon hierarchy ready"
+main_loop()

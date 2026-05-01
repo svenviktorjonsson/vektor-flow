@@ -17,7 +17,7 @@ UiFrameAddRoute = Literal["pending_existing", "rect_short_form"]
 class UiPaintOp:
     op: UiPaintOpKind
     rect: tuple[float, float, float, float]
-    color: str
+    color: Any
     transform: tuple[float, float, float, float, float, float] | None = None
     points: tuple[tuple[float, float], ...] | None = None
     interaction: dict[str, Any] | None = None
@@ -26,7 +26,7 @@ class UiPaintOp:
         payload = {
             "op": self.op,
             "rect": [self.rect[0], self.rect[1], self.rect[2], self.rect[3]],
-            "color": self.color,
+            "color": list(self.color) if isinstance(self.color, tuple) else self.color,
         }
         if self.transform is not None:
             payload["transform"] = [

@@ -486,6 +486,20 @@
     ctx.fill();
   }
 
+  function canvasColor(color) {
+    if (Array.isArray(color) && color.length >= 3) {
+      var maxRgb = Math.max(Math.abs(Number(color[0]) || 0), Math.abs(Number(color[1]) || 0), Math.abs(Number(color[2]) || 0));
+      var scale = maxRgb <= 1 ? 255 : 1;
+      var r = Math.max(0, Math.min(255, Math.round((Number(color[0]) || 0) * scale)));
+      var g = Math.max(0, Math.min(255, Math.round((Number(color[1]) || 0) * scale)));
+      var b = Math.max(0, Math.min(255, Math.round((Number(color[2]) || 0) * scale)));
+      var a = color.length >= 4 ? Math.max(0, Math.min(1, Number(color[3]))) : 1;
+      if (!isFinite(a)) { a = 1; }
+      return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+    }
+    return color != null ? String(color) : "#888";
+  }
+
   function redrawInteractiveCanvas(canvas) {
     if (!canvas || !canvas.__vf2dFrameId) { return; }
     var sz = syncCanvasSize(canvas);
@@ -655,7 +669,7 @@
       var o = ops[i];
       if (!o) { continue; }
       if (isInteractiveOp(o)) { st.cursor = o.interaction.cursor || st.cursor || "open_hand"; }
-      ctx.fillStyle = o.color != null ? String(o.color) : "#888";
+      ctx.fillStyle = canvasColor(o.color);
       if (Array.isArray(o.transform) && o.transform.length >= 6) {
         var tr = o.transform;
         ctx.save();

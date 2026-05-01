@@ -973,7 +973,32 @@ def test_browser_hover_context_exposes_typed_ids_and_mask(vf_ui_http_base: str) 
 
 @pytest.mark.network
 def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_shape_ids() -> None:
-    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_polygon_hierarchy_interactive.vkf")
+    def build_scene(d: Any) -> None:
+        panel = d.frame(
+            title="Polygon edit: red parent -> green child -> blue leaf",
+            draggable=True,
+            closable=True,
+            resizable=True,
+            dockable=True,
+            dock_loc="bl",
+            alpha=0.96,
+            master=True,
+        )
+        d.add_frame(panel, [0.08, 0.08, 0.72, 0.72])
+        root = panel.add_polygon(
+            [[0.08, 0.14], [0.32, 0.08], [0.78, 0.10], [0.94, 0.46], [0.64, 0.84], [0.18, 0.72]],
+            color=[1.0, 0.48, 0.35, 0.72],
+        )
+        child = root.add_polygon(
+            [[0.22, 0.30], [0.42, 0.20], [0.66, 0.34], [0.62, 0.58], [0.40, 0.70], [0.24, 0.56]],
+            color=[0.25, 0.86, 0.55, 0.78],
+        )
+        child.add_polygon(
+            [[0.36, 0.38], [0.50, 0.32], [0.62, 0.44], [0.56, 0.62], [0.40, 0.60]],
+            color=[0.37, 0.78, 1.0, 0.88],
+        )
+
+    scene_json, display_json = _scene_and_display_from_public_ui(build_scene)
     with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
         url = f"{base}/{INDEX_DOC}"
         with _chromium_page() as page:

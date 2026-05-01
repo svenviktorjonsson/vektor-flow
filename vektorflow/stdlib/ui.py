@@ -136,7 +136,7 @@ def _make_paint_op(kind: str, rect: tuple[float, float, float, float], color: An
     return UiPaintOp(
         op=kind,  # type: ignore[arg-type]
         rect=(float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])),
-        color=str(color),
+        color=color,
     )
 
 
@@ -151,11 +151,22 @@ def _make_transformed_paint_op(
     return UiPaintOp(
         op=kind,  # type: ignore[arg-type]
         rect=(float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])),
-        color=str(color),
+        color=color,
         transform=transform,
         points=points,
         interaction=interaction,
     )
+
+
+def _default_polygon_interaction(display: "Display", *, shape_id: str | None = None) -> dict[str, Any]:
+    sid = shape_id or display._next_shape_id("poly")
+    return {
+        "mode": "transform_2d",
+        "shape_id": sid,
+        "cursor": "open_hand",
+        "pressed_cursor": "closed_hand",
+        "border": 0.035,
+    }
 
 
 def _make_scene_mesh(
@@ -784,7 +795,7 @@ class RectRef:
     _display: "Display"
     _kind: str
     _rect: tuple[float, float, float, float]
-    _color: str
+    _color: Any
     _points: tuple[tuple[float, float], ...] | None = None
     _interaction: dict[str, Any] | None = None
     _shape_id: str = ""
@@ -795,35 +806,38 @@ class RectRef:
     _sy: float = 1.0
     _rotation_deg: float = 0.0
 
-    def add_rect(self, rect: Any, *, color: str = "#888888") -> "RectRef":
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> "RectRef":
         child = RectRef(
             self._display,
             "rect",
             _rect_from_tuple(rect),
-            str(color),
+            color,
         )
         self._children.append(child)
         self._display._sync_all()
         return child
 
-    def add_polygon(self, points: Any, *, color: str = "#888888") -> "RectRef":
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> "RectRef":
+        interaction = _default_polygon_interaction(self._display)
         child = RectRef(
             self._display,
             "polygon",
             (0.0, 0.0, 1.0, 1.0),
-            str(color),
+            color,
             _points_from_seq(points),
+            interaction,
+            str(interaction["shape_id"]),
         )
         self._children.append(child)
         self._display._sync_all()
         return child
 
-    def add_oval(self, rect: Any, *, color: str = "#888888") -> "RectRef":
+    def add_oval(self, rect: Any, *, color: Any = "#888888") -> "RectRef":
         child = RectRef(
             self._display,
             "oval",
             _rect_from_tuple(rect),
-            str(color),
+            color,
         )
         self._children.append(child)
         self._display._sync_all()
@@ -954,19 +968,22 @@ class FrameRef:
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
 
-    def add_rect(self, rect: Any, *, color: str = "#888888") -> RectRef:
-        ref = RectRef(self._display, "rect", _rect_from_tuple(rect), str(color))
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> RectRef:
+        ref = RectRef(self._display, "rect", _rect_from_tuple(rect), color)
         self._shape_roots.append(ref)
         self._display._sync_all()
         return ref
 
-    def add_polygon(self, points: Any, *, color: str = "#888888") -> RectRef:
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> RectRef:
+        interaction = _default_polygon_interaction(self._display)
         ref = RectRef(
             self._display,
             "polygon",
             (0.0, 0.0, 1.0, 1.0),
-            str(color),
+            color,
             _points_from_seq(points),
+            interaction,
+            str(interaction["shape_id"]),
         )
         self._shape_roots.append(ref)
         self._display._sync_all()
@@ -1402,19 +1419,22 @@ class Display:
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
 
-    def add_rect(self, rect: Any, *, color: str = "#888888") -> RectRef:
-        ref = RectRef(self, "rect", _rect_from_tuple(rect), str(color))
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> RectRef:
+        ref = RectRef(self, "rect", _rect_from_tuple(rect), color)
         self._scene_state.add_screen_shape_root(ref)
         self._sync_all()
         return ref
 
-    def add_polygon(self, points: Any, *, color: str = "#888888") -> RectRef:
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> RectRef:
+        interaction = _default_polygon_interaction(self)
         ref = RectRef(
             self,
             "polygon",
             (0.0, 0.0, 1.0, 1.0),
-            str(color),
+            color,
             _points_from_seq(points),
+            interaction,
+            str(interaction["shape_id"]),
         )
         self._scene_state.add_screen_shape_root(ref)
         self._sync_all()
