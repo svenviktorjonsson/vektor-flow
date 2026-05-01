@@ -2,5 +2,6 @@
   "python.terminal.activateEnvironment": true,
   "files.associations": {
     "*.vkf": "vektorflow"
-  }
+  },
+  "cmake.ignoreCMakeListsMissing": true
 }

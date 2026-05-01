@@ -72,14 +72,18 @@ class UiSceneCamera:
     target: tuple[float, float, float]
     fov: float
     up: tuple[float, float, float]
+    controls: Mapping[str, Any] | None = None
 
     def to_json_obj(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "pos": [self.pos[0], self.pos[1], self.pos[2]],
             "target": [self.target[0], self.target[1], self.target[2]],
             "fov": self.fov,
             "up": [self.up[0], self.up[1], self.up[2]],
         }
+        if self.controls is not None:
+            payload["controls"] = dict(self.controls)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,10 @@ class UiFieldMesh:
     topology: str
     interpolation: bool
     alpha: float
+    manifold_dim_count: int
+    solid_volume: bool
+    vertex_size: float
+    edge_width: float
     center: tuple[float, float, float]
     scale: tuple[float, float, float]
     rotation: tuple[float, float, float]
@@ -122,6 +130,10 @@ class UiFieldMesh:
             "topology": self.topology,
             "interpolation": self.interpolation,
             "alpha": self.alpha,
+            "manifold_dim_count": self.manifold_dim_count,
+            "solid_volume": self.solid_volume,
+            "vertex_size": self.vertex_size,
+            "edge_width": self.edge_width,
             "center": [self.center[0], self.center[1], self.center[2]],
             "scale": [self.scale[0], self.scale[1], self.scale[2]],
             "rotation": [self.rotation[0], self.rotation[1], self.rotation[2]],
@@ -153,6 +165,7 @@ class UiDisplayPayload:
     screen: tuple[UiPaintOp, ...] = ()
     frames: dict[str, tuple[UiPaintOp, ...]] = field(default_factory=dict)
     geom: dict[str, UiFrameScene] = field(default_factory=dict)
+    cursor: str = "default"
 
     def to_json_obj(self) -> dict[str, Any]:
         return {
@@ -165,6 +178,7 @@ class UiDisplayPayload:
                 frame_id: scene.to_json_obj()
                 for frame_id, scene in self.geom.items()
             },
+            "cursor": self.cursor,
         }
 
 
@@ -311,11 +325,13 @@ def build_display_payload(
     screen_ops: list[UiPaintOp] | tuple[UiPaintOp, ...],
     frame_ops: dict[str, list[UiPaintOp] | tuple[UiPaintOp, ...]],
     runtime_geom: dict[str, dict[str, Any]],
+    cursor: str = "default",
 ) -> UiDisplayPayload:
     return UiDisplayPayload(
         screen=tuple(screen_ops),
         frames={frame_id: tuple(ops) for frame_id, ops in frame_ops.items()},
         geom=normalize_runtime_geom_map(runtime_geom),
+        cursor=str(cursor or "default"),
     )
 
 
@@ -340,11 +356,13 @@ def build_display_sync_plan(
     command_count: int,
     last_scene_cmd_count: int,
     has_scene_commands: bool,
+    cursor: str = "default",
 ) -> UiDisplaySyncPlan:
     payload = build_display_payload(
         screen_ops=screen_ops,
         frame_ops=frame_ops,
         runtime_geom=runtime_geom,
+        cursor=cursor,
     )
     return UiDisplaySyncPlan(
         payload=payload,
@@ -704,6 +722,10 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
                     topology=str(mesh["topology"]),
                     interpolation=bool(mesh["interpolation"]),
                     alpha=float(mesh["alpha"]),
+                    manifold_dim_count=int(mesh.get("manifold_dim_count", 0)),
+                    solid_volume=bool(mesh.get("solid_volume", False)),
+                    vertex_size=float(mesh.get("vertex_size", 0.0)),
+                    edge_width=float(mesh.get("edge_width", 0.0)),
                     center=tuple(mesh["center"]),
                     scale=tuple(mesh["scale"]),
                     rotation=tuple(mesh["rotation"]),
@@ -737,6 +759,7 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
             target=tuple(raw_camera["target"]),
             fov=float(raw_camera["fov"]),
             up=tuple(raw_camera["up"]),
+            controls=raw_camera.get("controls"),
         )
     lights = tuple(
         UiSceneLight(
@@ -765,6 +788,10 @@ def field_mesh_payload_from_geometry(
         topology=str(geom["topology"]),
         interpolation=bool(geom["interpolation"]),
         alpha=float(geom["alpha"]),
+        manifold_dim_count=int(geom["manifold_dim_count"]),
+        solid_volume=bool(geom["solid_volume"]),
+        vertex_size=float(geom["vertex_size"]),
+        edge_width=float(geom["edge_width"]),
         center=center,
         scale=scale,
         rotation=rotation,
@@ -790,6 +817,10 @@ def apply_field_mesh_geometry_update(
     payload["alpha"] = geom["alpha"]
     payload["time_count"] = geom["time_count"]
     payload["time_index"] = geom["time_index"]
+    payload["manifold_dim_count"] = geom["manifold_dim_count"]
+    payload["solid_volume"] = geom["solid_volume"]
+    payload["vertex_size"] = geom["vertex_size"]
+    payload["edge_width"] = geom["edge_width"]
 
 
 def build_scene_mesh_payload(

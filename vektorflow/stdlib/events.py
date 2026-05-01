@@ -319,6 +319,11 @@ class OverlayPoller:
                     evt = line
                 else:
                     continue
+                try:
+                    from vektorflow.ui_display_ir import normalize_host_transport_event
+                    evt = normalize_host_transport_event(evt).payload
+                except Exception:
+                    pass
                 for sub in self._subs:
                     try:
                         sub(evt)
@@ -501,8 +506,20 @@ class UIMouse:
         self._queue: deque[MouseEvent]   = deque()
         self._last_x: float = 0.0
         self._last_y: float = 0.0
+        self._mode: str = "default"
+        self._mode_cb: Callable[[str], None] | None = None
 
     # -- registration ---------------------------------------------------------
+
+    def set_mode(self, mode: str) -> "UIMouse":
+        """Set the browser/native cursor mode, e.g. ``"none"`` to hide it."""
+        self._mode = str(mode)
+        if self._mode_cb is not None:
+            self._mode_cb(self._mode)
+        return self
+
+    def _set_mode_callback(self, fn: Callable[[str], None]) -> None:
+        self._mode_cb = fn
 
     def on_hover(self, fn: Callable[[MouseEvent], None]) -> None:
         """Register a callback for mouse move / hover events."""

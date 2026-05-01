@@ -521,6 +521,24 @@ class SceneCamera:
         self._display._sync_all()
         return self
 
+    def set_mode(
+        self,
+        mode: str,
+        *,
+        cursor: str = "default",
+        speed: float = 3.0,
+        sensitivity: float = 0.0025,
+    ) -> "SceneCamera":
+        """Set browser-side camera controls. ``mode='game'`` enables WASD + mouse-look."""
+        self._data["controls"] = {
+            "mode": str(mode),
+            "cursor": str(cursor),
+            "speed": float(speed),
+            "sensitivity": float(sensitivity),
+        }
+        self._display._sync_all()
+        return self
+
     def rotate_by(self, angle_deg: float, around: str = "z") -> "SceneCamera":
         """Orbit the camera around the target point by *angle_deg* degrees (one-shot).
 

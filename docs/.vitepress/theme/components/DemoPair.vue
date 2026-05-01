@@ -5,7 +5,7 @@
       <h3 class="demo-pair__title">{{ active.title }}</h3>
       <p class="demo-pair__description">{{ active.description }}</p>
       <div class="demo-pair__code">
-        <pre><code>{{ active.code }}</code></pre>
+        <pre class="vf-code" v-html="active.codeHtml"></pre>
       </div>
     </div>
     <figure class="demo-pair__visual">
@@ -29,23 +29,7 @@ const demos = {
     description: 'Frames, widgets, and layout can stay declarative and compact.',
     image: '/images/ui-widgets-static.png',
     caption: 'Rendered through the browser UI path and captured offscreen with Playwright.',
-    code: `ui:.ui
-col:.collections
-
-d: ui.display
-w: ui.widgets
-
-a: d.frame(title: "Anchor", dock_loc: "bl", resizable: true)
-d.add_frame(
-  a,
-  (0.28, 0.32, 0.2, 0.15),
-  body: col.list(
-    w.label("l0", text: "Label + dropdown + button + slider"),
-    w.dropdown("dd", col.list("one", "two", "three"), value: 0),
-    w.button("go", label: "Button"),
-    w.slider("sl", value: 0.5, vmin: 0, vmax: 1, step: 0.02)
-  )
-)`
+    codeHtml: `<code><span class="vf-namespace">ui</span><span class="vf-punc">:.ui</span>\n<span class="vf-namespace">col</span><span class="vf-punc">:.collections</span>\n\n<span class="vf-name">d</span><span class="vf-punc">:</span> <span class="vf-name">ui</span><span class="vf-dot">.</span><span class="vf-field">display</span>\n<span class="vf-name">w</span><span class="vf-punc">:</span> <span class="vf-name">ui</span><span class="vf-dot">.</span><span class="vf-field">widgets</span>\n\n<span class="vf-name">a</span><span class="vf-punc">:</span> <span class="vf-name">d</span><span class="vf-dot">.</span><span class="vf-fn">frame</span><span class="vf-punc">(</span><span class="vf-field">title</span><span class="vf-punc">:</span> <span class="vf-str">"Anchor"</span><span class="vf-punc">,</span> <span class="vf-field">dock_loc</span><span class="vf-punc">:</span> <span class="vf-str">"bl"</span><span class="vf-punc">,</span> <span class="vf-field">resizable</span><span class="vf-punc">:</span> <span class="vf-bool">true</span><span class="vf-punc">)</span>\n<span class="vf-name">d</span><span class="vf-dot">.</span><span class="vf-fn">add_frame</span><span class="vf-punc">(</span>\n  <span class="vf-name">a</span><span class="vf-punc">,</span>\n  <span class="vf-punc">(</span><span class="vf-num">0.28</span><span class="vf-punc">,</span> <span class="vf-num">0.32</span><span class="vf-punc">,</span> <span class="vf-num">0.2</span><span class="vf-punc">,</span> <span class="vf-num">0.15</span><span class="vf-punc">)</span><span class="vf-punc">,</span>\n  <span class="vf-field">body</span><span class="vf-punc">:</span> <span class="vf-name">col</span><span class="vf-dot">.</span><span class="vf-fn">list</span><span class="vf-punc">(</span>…<span class="vf-punc">)</span>\n<span class="vf-punc">)</span></code>`
   },
   box: {
     eyebrow: 'UI example',
@@ -53,16 +37,7 @@ d.add_frame(
     description: 'Geometry, camera, and lighting can be expressed directly in the same language.',
     image: '/images/ui-frame-transparency-box.png',
     caption: 'This same browser-oriented render path is what the docs and future playground are built around.',
-    code: `ui:.ui
-
-d : ui.display
-f : d.add_frame((0.32, 0.08, 0.62, 0.84))
-
-box   : f.add_box(center:[0,0,0], scale:[1.4,1.4,1.4], color:"#ff8844")
-cam   : f.add_camera(pos:[4,3,5], target:[0,0,0], fov:45)
-light : f.add_light(pos:[7,8,6], model:"blinn_phong", color:"white")
-
-box.rotate_by(25, around:"y")`
+    codeHtml: `<code><span class="vf-namespace">ui</span><span class="vf-punc">:.ui</span>\n\n<span class="vf-name">d</span> <span class="vf-punc">:</span> <span class="vf-name">ui</span><span class="vf-dot">.</span><span class="vf-field">display</span>\n<span class="vf-name">f</span> <span class="vf-punc">:</span> <span class="vf-name">d</span><span class="vf-dot">.</span><span class="vf-fn">add_frame</span><span class="vf-punc">((</span><span class="vf-num">0.32</span><span class="vf-punc">,</span> <span class="vf-num">0.08</span><span class="vf-punc">,</span> <span class="vf-num">0.62</span><span class="vf-punc">,</span> <span class="vf-num">0.84</span><span class="vf-punc">))</span>\n\n<span class="vf-name">box</span>   <span class="vf-punc">:</span> <span class="vf-name">f</span><span class="vf-dot">.</span><span class="vf-fn">add_box</span><span class="vf-punc">(</span><span class="vf-field">center</span><span class="vf-punc">:</span><span class="vf-punc">[</span><span class="vf-num">0</span><span class="vf-punc">,</span><span class="vf-num">0</span><span class="vf-punc">,</span><span class="vf-num">0</span><span class="vf-punc">]</span><span class="vf-punc">,</span> …<span class="vf-punc">)</span>\n<span class="vf-name">cam</span>   <span class="vf-punc">:</span> <span class="vf-name">f</span><span class="vf-dot">.</span><span class="vf-fn">add_camera</span><span class="vf-punc">(</span>…<span class="vf-punc">)</span>\n<span class="vf-name">light</span> <span class="vf-punc">:</span> <span class="vf-name">f</span><span class="vf-dot">.</span><span class="vf-fn">add_light</span><span class="vf-punc">(</span>…<span class="vf-punc">)</span>\n\n<span class="vf-name">box</span><span class="vf-dot">.</span><span class="vf-fn">rotate_by</span><span class="vf-punc">(</span><span class="vf-num">25</span><span class="vf-punc">,</span> <span class="vf-field">around</span><span class="vf-punc">:</span><span class="vf-str">"y"</span><span class="vf-punc">)</span></code>`
   }
 } as const
 

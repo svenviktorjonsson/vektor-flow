@@ -30,6 +30,7 @@ from .cpp_backend import CppEmitError, compile_cpp_source
 def _native_parser_proto_cpp_source() -> str:
     return r"""
 #include <cctype>
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -43,6 +44,25 @@ def _native_parser_proto_cpp_source() -> str:
 struct Token {
     std::string kind;
     std::string text;
+};
+
+struct EmitExpressionProgram {
+    std::vector<Token> expression_tokens;
+    std::string cpp_expression;
+};
+
+struct InlineFunctionDefinition {
+    std::string function_name;
+    std::vector<std::string> param_names;
+    std::vector<std::pair<std::string, std::string>> local_bindings;
+    std::string return_cpp_expression;
+    bool has_inline_signature_body = false;
+};
+
+struct InlineFunctionProgram {
+    std::vector<InlineFunctionDefinition> functions;
+    std::vector<std::pair<std::string, std::string>> top_level_bindings;
+    std::string emit_cpp_expression;
 };
 
 struct HelloProgram {
@@ -706,6 +726,8 @@ static std::string emit_named_record_scene_checkpoint_cpp(const NamedRecordScene
 static std::string emit_named_record_scene_splice_cpp(const NamedRecordSceneSpliceProgram& program);
 static std::string emit_named_record_scene_fanout_cpp(const NamedRecordSceneFanoutProgram& program);
 static std::string emit_named_record_scene_overlay_cpp(const NamedRecordSceneOverlayProgram& program);
+static std::string emit_expression_cpp(const EmitExpressionProgram& program);
+static std::string emit_inline_function_cpp(const InlineFunctionProgram& program);
 
 static std::string trim(const std::string& s) {
     std::size_t start = 0;
@@ -761,6 +783,13 @@ static bool is_ident_continue(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
 }
 
+static std::string normalize_number_text(const std::string& text) {
+    if (text.find_first_of(".eE") != std::string::npos) {
+        return text;
+    }
+    return text + ".0";
+}
+
 static std::vector<Token> lex_line(const std::string& line) {
     std::vector<Token> out;
     std::size_t pos = 0;
@@ -796,6 +825,34 @@ static std::vector<Token> lex_line(const std::string& line) {
             out.push_back({"NUMBER", line.substr(start, pos - start)});
             continue;
         }
+        if (ch == '"') {
+            std::size_t start = pos;
+            pos += 1;
+            bool escaped = false;
+            while (pos < line.size()) {
+                char current = line[pos];
+                if (escaped) {
+                    escaped = false;
+                    pos += 1;
+                    continue;
+                }
+                if (current == '\\') {
+                    escaped = true;
+                    pos += 1;
+                    continue;
+                }
+                if (current == '"') {
+                    pos += 1;
+                    out.push_back({"STRING", line.substr(start, pos - start)});
+                    break;
+                }
+                pos += 1;
+            }
+            if (out.empty() || out.back().kind != "STRING") {
+                throw std::runtime_error("native parser prototype encountered unterminated string literal");
+            }
+            continue;
+        }
         if (is_ident_start(ch)) {
             std::size_t start = pos;
             pos += 1;
@@ -827,6 +884,12 @@ static std::vector<Token> lex_line(const std::string& line) {
             break;
         case '*':
             out.push_back({"STAR", "*"});
+            break;
+        case '-':
+            out.push_back({"MINUS", "-"});
+            break;
+        case '/':
+            out.push_back({"SLASH", "/"});
             break;
         case '[':
             out.push_back({"LBRACKET", "["});
@@ -867,6 +930,23 @@ public:
         token_lines.reserve(lines_.size());
         for (const auto& line : lines_) {
             token_lines.push_back(lex_line(line));
+        }
+        if (token_lines.size() == 1) {
+            EmitExpressionProgram program;
+            parse_emit_expression(token_lines[0], program);
+            return emit_expression_cpp(program);
+        }
+        if (
+            token_lines.size() >= 2 &&
+            token_lines[0].size() >= 2 &&
+            token_lines[0][0].kind == "IDENT" &&
+            token_lines[0][1].kind == "LPAREN" &&
+            !token_lines.back().empty() &&
+            token_lines.back()[0].kind == "EMIT"
+        ) {
+            InlineFunctionProgram program;
+            parse_inline_function_program(token_lines, program);
+            return emit_inline_function_cpp(program);
         }
         if (token_lines.size() == 3) {
             HelloProgram program;
@@ -1452,11 +1532,653 @@ public:
             validate_named_record_scene_compose_program(program);
             return emit_named_record_scene_compose_cpp(program);
         }
-        throw std::runtime_error("native parser prototype expects hello-native, vectors-native, records-native, numeric-native, named-record-native, named-record-collections-native, named-record-scene-native, named-record-scene-chain-native, named-record-scene-helpers-native, named-record-scene-handoff-native, named-record-scene-relay-native, named-record-scene-compose-native, named-record-scene-patch-native, named-record-scene-split-native, named-record-scene-rebuild-native, named-record-scene-checkpoint-native, named-record-scene-splice-native, named-record-scene-fanout-native, named-record-scene-overlay-native, named-record-scene-reverse-native, named-record-scene-crossfade-native, or nested-named-record-native logical shape");
+        throw std::runtime_error("native parser prototype expects hello-native, one-line emit-expression, inline arithmetic helper, vectors-native, records-native, numeric-native, named-record-native, named-record-collections-native, named-record-scene-native, named-record-scene-chain-native, named-record-scene-helpers-native, named-record-scene-handoff-native, named-record-scene-relay-native, named-record-scene-compose-native, named-record-scene-patch-native, named-record-scene-split-native, named-record-scene-rebuild-native, named-record-scene-checkpoint-native, named-record-scene-splice-native, named-record-scene-fanout-native, named-record-scene-overlay-native, named-record-scene-reverse-native, named-record-scene-crossfade-native, or nested-named-record-native logical shape");
     }
 
 private:
     std::vector<std::string> lines_;
+
+    static void parse_emit_expression(const std::vector<Token>& tokens, EmitExpressionProgram& program) {
+        if (tokens.empty() || tokens[0].kind != "EMIT") {
+            throw std::runtime_error("native parser prototype expected emit-expression logical shape");
+        }
+        if (tokens.size() < 2) {
+            throw std::runtime_error("native parser prototype expected expression after ::");
+        }
+        program.expression_tokens.assign(tokens.begin() + 1, tokens.end());
+        std::size_t position = 0;
+        program.cpp_expression = parse_emit_expression_text(program.expression_tokens, position);
+        if (position != program.expression_tokens.size()) {
+            throw std::runtime_error("native parser prototype only supports simple literal/arithmetic emit expressions");
+        }
+    }
+
+    static bool try_find_inline_function_arity(
+        const std::vector<InlineFunctionDefinition>& functions,
+        const std::string& function_name,
+        std::size_t& out_arity
+    ) {
+        for (const auto& function : functions) {
+            if (function.function_name == function_name) {
+                out_arity = function.param_names.size();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static std::string parse_inline_body_expression_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        std::string left = parse_inline_body_term_text(tokens, position, allowed_identifiers, functions);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "PLUS" && kind != "MINUS") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_inline_body_term_text(tokens, position, allowed_identifiers, functions);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_inline_body_term_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        std::string left = parse_inline_body_unary_text(tokens, position, allowed_identifiers, functions);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "STAR" && kind != "SLASH") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_inline_body_unary_text(tokens, position, allowed_identifiers, functions);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_inline_body_unary_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        if (position < tokens.size() && tokens[position].kind == "MINUS") {
+            position += 1;
+            return "(-" + parse_inline_body_unary_text(tokens, position, allowed_identifiers, functions) + ")";
+        }
+        return parse_inline_body_primary_text(tokens, position, allowed_identifiers, functions);
+    }
+
+    static std::string parse_inline_body_primary_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        if (position >= tokens.size()) {
+            throw std::runtime_error("native parser prototype expected inline helper body primary");
+        }
+        const Token& token = tokens[position];
+        std::size_t function_arity = 0;
+        if (
+            token.kind == "IDENT" &&
+            try_find_inline_function_arity(functions, token.text, function_arity) &&
+            position + 1 < tokens.size() &&
+            tokens[position + 1].kind == "LPAREN"
+        ) {
+            const std::string function_name = token.text;
+            position += 2;
+            std::vector<std::string> args;
+            bool expect_arg = true;
+            while (position < tokens.size()) {
+                if (tokens[position].kind == "RPAREN") {
+                    position += 1;
+                    break;
+                }
+                if (!expect_arg) {
+                    expect_kind(tokens, position, "COMMA");
+                    position += 1;
+                }
+                args.push_back(
+                    parse_inline_body_expression_text(
+                        tokens,
+                        position,
+                        allowed_identifiers,
+                        functions
+                    )
+                );
+                expect_arg = false;
+            }
+            if (args.size() != function_arity) {
+                throw std::runtime_error("native parser prototype inline helper body call arity must match declared parameters");
+            }
+            std::ostringstream out;
+            out << function_name << "(";
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                if (i > 0) {
+                    out << ", ";
+                }
+                out << args[i];
+            }
+            out << ")";
+            return out.str();
+        }
+        if (token.kind == "LPAREN") {
+            position += 1;
+            std::string inner = parse_inline_body_expression_text(
+                tokens,
+                position,
+                allowed_identifiers,
+                functions
+            );
+            if (position >= tokens.size() || tokens[position].kind != "RPAREN") {
+                throw std::runtime_error("native parser prototype expected closing ) in inline helper body expression");
+            }
+            position += 1;
+            return "(" + inner + ")";
+        }
+        return parse_numeric_primary_text(tokens, position, allowed_identifiers);
+    }
+
+    static void parse_inline_function_signature(
+        const std::vector<Token>& function_tokens,
+        InlineFunctionDefinition& function,
+        const std::vector<InlineFunctionDefinition>& prior_functions
+    ) {
+        if (function_tokens.size() < 6) {
+            throw std::runtime_error("native parser prototype expected inline function logical shape");
+        }
+        expect_kind(function_tokens, 0, "IDENT");
+        expect_kind(function_tokens, 1, "LPAREN");
+        function.function_name = function_tokens[0].text;
+        std::size_t position = 2;
+        bool expect_param = true;
+        while (position < function_tokens.size()) {
+            if (function_tokens[position].kind == "RPAREN") {
+                position += 1;
+                break;
+            }
+            if (!expect_param) {
+                expect_kind(function_tokens, position, "COMMA");
+                position += 1;
+            }
+            expect_kind(function_tokens, position, "IDENT");
+            function.param_names.push_back(function_tokens[position].text);
+            position += 1;
+            if (position < function_tokens.size() && function_tokens[position].kind == "COLON") {
+                position += 1;
+                expect_kind(function_tokens, position, "IDENT");
+                if (function_tokens[position].text != "num") {
+                    throw std::runtime_error("native parser prototype only supports num-typed inline helper parameters");
+                }
+                position += 1;
+            }
+            expect_param = false;
+        }
+        if (position < function_tokens.size() && function_tokens[position].kind == "ARROW") {
+            position += 1;
+            expect_kind(function_tokens, position, "IDENT");
+            if (function_tokens[position].text != "num") {
+                throw std::runtime_error("native parser prototype only supports num return type for typed inline helpers");
+            }
+            position += 1;
+        }
+        if (position >= function_tokens.size() || function_tokens[position].kind != "COLON") {
+            throw std::runtime_error("native parser prototype expected ':' after inline function parameters");
+        }
+        position += 1;
+        if (position >= function_tokens.size()) {
+            function.return_cpp_expression.clear();
+            return;
+        }
+        function.has_inline_signature_body = true;
+        std::vector<Token> body_tokens(
+            function_tokens.begin() + static_cast<std::ptrdiff_t>(position),
+            function_tokens.end()
+        );
+        std::vector<std::string> allowed_identifiers = function.param_names;
+        std::size_t body_position = 0;
+        function.return_cpp_expression = parse_inline_body_expression_text(
+            body_tokens,
+            body_position,
+            allowed_identifiers,
+            prior_functions
+        );
+        if (body_position != body_tokens.size()) {
+            throw std::runtime_error("native parser prototype only supports simple arithmetic inline function bodies");
+        }
+    }
+
+    static bool is_inline_function_signature_line(const std::vector<Token>& tokens) {
+        return tokens.size() >= 2 && tokens[0].kind == "IDENT" && tokens[1].kind == "LPAREN";
+    }
+
+    static bool inline_signature_line_has_inline_body(const std::vector<Token>& tokens) {
+        return !tokens.empty() && tokens.back().kind != "COLON";
+    }
+
+    static void parse_inline_function_block_lines(
+        const std::vector<std::vector<Token>>& token_lines,
+        std::size_t start_index,
+        std::size_t end_index,
+        InlineFunctionDefinition& function,
+        const std::vector<InlineFunctionDefinition>& prior_functions
+    ) {
+        if (start_index >= end_index) {
+            throw std::runtime_error("native parser prototype expected inline function program shape");
+        }
+        parse_inline_function_signature(token_lines[start_index], function, prior_functions);
+        std::vector<std::string> allowed_identifiers = function.param_names;
+        bool saw_block_return = false;
+        for (std::size_t line_index = start_index + 1; line_index < end_index; ++line_index) {
+            const auto& line_tokens = token_lines[line_index];
+            if (line_tokens.size() >= 3 && line_tokens[0].kind == "IDENT" && line_tokens[1].kind == "COLON") {
+                std::vector<Token> expr_tokens(line_tokens.begin() + 2, line_tokens.end());
+                std::size_t expr_position = 0;
+                std::string expr = parse_inline_body_expression_text(
+                    expr_tokens,
+                    expr_position,
+                    allowed_identifiers,
+                    prior_functions
+                );
+                if (expr_position != expr_tokens.size()) {
+                    throw std::runtime_error("native parser prototype only supports arithmetic local bindings in helper blocks");
+                }
+                function.local_bindings.push_back({line_tokens[0].text, expr});
+                allowed_identifiers.push_back(line_tokens[0].text);
+                continue;
+            }
+            std::size_t return_position = 0;
+            function.return_cpp_expression = parse_inline_body_expression_text(
+                line_tokens,
+                return_position,
+                allowed_identifiers,
+                prior_functions
+            );
+            if (return_position != line_tokens.size()) {
+                throw std::runtime_error("native parser prototype only supports arithmetic final return expressions in helper blocks");
+            }
+            if (line_index + 1 != end_index) {
+                throw std::runtime_error("native parser prototype expects final return expression immediately before the next helper or emit call");
+            }
+            saw_block_return = true;
+        }
+        if (function.return_cpp_expression.empty() && !saw_block_return) {
+            throw std::runtime_error("native parser prototype expected inline helper body expression");
+        }
+    }
+
+    static void parse_inline_function_program(
+        const std::vector<std::vector<Token>>& token_lines,
+        InlineFunctionProgram& program
+    ) {
+        if (token_lines.size() < 2) {
+            throw std::runtime_error("native parser prototype expected inline function program shape");
+        }
+        std::size_t emit_index = token_lines.size() - 1;
+        std::size_t line_index = 0;
+        bool parsing_top_level_bindings = false;
+        std::vector<std::string> top_level_identifiers;
+        while (line_index < emit_index) {
+            if (parsing_top_level_bindings) {
+                const auto& line_tokens = token_lines[line_index];
+                if (!(line_tokens.size() >= 3 && line_tokens[0].kind == "IDENT" && line_tokens[1].kind == "COLON")) {
+                    throw std::runtime_error("native parser prototype only supports arithmetic top-level bindings before emit");
+                }
+                std::vector<Token> expr_tokens(line_tokens.begin() + 2, line_tokens.end());
+                std::size_t expr_position = 0;
+                std::string expr = parse_inline_body_expression_text(
+                    expr_tokens,
+                    expr_position,
+                    top_level_identifiers,
+                    program.functions
+                );
+                if (expr_position != expr_tokens.size()) {
+                    throw std::runtime_error("native parser prototype only supports arithmetic top-level bindings before emit");
+                }
+                program.top_level_bindings.push_back({line_tokens[0].text, expr});
+                top_level_identifiers.push_back(line_tokens[0].text);
+                line_index += 1;
+                continue;
+            }
+            if (!is_inline_function_signature_line(token_lines[line_index])) {
+                throw std::runtime_error("native parser prototype expected helper declaration before emit call");
+            }
+            std::size_t next_index = line_index + 1;
+            if (!inline_signature_line_has_inline_body(token_lines[line_index])) {
+                while (
+                    next_index < emit_index &&
+                    !is_inline_function_signature_line(token_lines[next_index])
+                ) {
+                    next_index += 1;
+                }
+            }
+            InlineFunctionDefinition function;
+            parse_inline_function_block_lines(token_lines, line_index, next_index, function, program.functions);
+            program.functions.push_back(function);
+            if (
+                function.has_inline_signature_body &&
+                next_index < emit_index &&
+                !is_inline_function_signature_line(token_lines[next_index])
+            ) {
+                parsing_top_level_bindings = true;
+            }
+            line_index = next_index;
+        }
+        if (program.functions.empty()) {
+            throw std::runtime_error("native parser prototype expected at least one inline helper declaration");
+        }
+        parse_inline_function_emit(token_lines.back(), program);
+    }
+
+    static void parse_inline_function_emit(
+        const std::vector<Token>& tokens,
+        InlineFunctionProgram& program
+    ) {
+        if (tokens.size() < 2) {
+            throw std::runtime_error("native parser prototype expected inline function emit-expression shape");
+        }
+        expect_kind(tokens, 0, "EMIT");
+        std::vector<Token> expr_tokens(tokens.begin() + 1, tokens.end());
+        std::size_t position = 0;
+        std::vector<std::string> allowed_identifiers;
+        for (const auto& binding : program.top_level_bindings) {
+            allowed_identifiers.push_back(binding.first);
+        }
+        program.emit_cpp_expression = parse_inline_emit_expression_text(
+            expr_tokens,
+            position,
+            allowed_identifiers,
+            program.functions
+        );
+        if (position != expr_tokens.size()) {
+            throw std::runtime_error("native parser prototype expected inline emit expression to consume the full line");
+        }
+    }
+
+    static std::string parse_inline_emit_expression_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        std::string left = parse_inline_emit_term_text(tokens, position, allowed_identifiers, functions);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "PLUS" && kind != "MINUS") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_inline_emit_term_text(tokens, position, allowed_identifiers, functions);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_inline_emit_term_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        std::string left = parse_inline_emit_unary_text(tokens, position, allowed_identifiers, functions);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "STAR" && kind != "SLASH") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_inline_emit_unary_text(tokens, position, allowed_identifiers, functions);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_inline_emit_unary_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        if (position < tokens.size() && tokens[position].kind == "MINUS") {
+            position += 1;
+            return "(-" + parse_inline_emit_unary_text(tokens, position, allowed_identifiers, functions) + ")";
+        }
+        return parse_inline_emit_primary_text(tokens, position, allowed_identifiers, functions);
+    }
+
+    static std::string parse_inline_emit_primary_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers,
+        const std::vector<InlineFunctionDefinition>& functions
+    ) {
+        if (position >= tokens.size()) {
+            throw std::runtime_error("native parser prototype expected inline emit-expression primary");
+        }
+        const Token& token = tokens[position];
+        std::size_t function_arity = 0;
+        if (
+            token.kind == "IDENT" &&
+            try_find_inline_function_arity(functions, token.text, function_arity) &&
+            position + 1 < tokens.size() &&
+            tokens[position + 1].kind == "LPAREN"
+        ) {
+            const std::string function_name = token.text;
+            position += 2;
+            std::vector<std::string> args;
+            bool expect_arg = true;
+            while (position < tokens.size()) {
+                if (tokens[position].kind == "RPAREN") {
+                    position += 1;
+                    break;
+                }
+                if (!expect_arg) {
+                    expect_kind(tokens, position, "COMMA");
+                    position += 1;
+                }
+                args.push_back(
+                    parse_inline_emit_expression_text(
+                        tokens,
+                        position,
+                        allowed_identifiers,
+                        functions
+                    )
+                );
+                expect_arg = false;
+            }
+            if (args.size() != function_arity) {
+                throw std::runtime_error("native parser prototype inline helper call arity must match declared parameters");
+            }
+            std::ostringstream out;
+            out << function_name << "(";
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                if (i > 0) {
+                    out << ", ";
+                }
+                out << args[i];
+            }
+            out << ")";
+            return out.str();
+        }
+        if (token.kind == "LPAREN") {
+            position += 1;
+            std::string inner = parse_inline_emit_expression_text(
+                tokens,
+                position,
+                allowed_identifiers,
+                functions
+            );
+            if (position >= tokens.size() || tokens[position].kind != "RPAREN") {
+                throw std::runtime_error("native parser prototype expected closing ) in inline emit expression");
+            }
+            position += 1;
+            return "(" + inner + ")";
+        }
+        return parse_numeric_primary_text(tokens, position, allowed_identifiers);
+    }
+
+    static std::string parse_emit_expression_text(const std::vector<Token>& tokens, std::size_t& position) {
+        std::string left = parse_emit_term_text(tokens, position);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "PLUS" && kind != "MINUS") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_emit_term_text(tokens, position);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_emit_term_text(const std::vector<Token>& tokens, std::size_t& position) {
+        std::string left = parse_emit_unary_text(tokens, position);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "STAR" && kind != "SLASH") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_emit_unary_text(tokens, position);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_emit_unary_text(const std::vector<Token>& tokens, std::size_t& position) {
+        if (position < tokens.size() && tokens[position].kind == "MINUS") {
+            position += 1;
+            return "(-" + parse_emit_unary_text(tokens, position) + ")";
+        }
+        return parse_emit_primary_text(tokens, position);
+    }
+
+    static std::string parse_emit_primary_text(const std::vector<Token>& tokens, std::size_t& position) {
+        if (position >= tokens.size()) {
+            throw std::runtime_error("native parser prototype expected emit-expression primary");
+        }
+        const Token& token = tokens[position];
+        if (token.kind == "NUMBER") {
+            position += 1;
+            return normalize_number_text(token.text);
+        }
+        if (token.kind == "STRING") {
+            position += 1;
+            return token.text;
+        }
+        if (token.kind == "LPAREN") {
+            position += 1;
+            std::string inner = parse_emit_expression_text(tokens, position);
+            if (position >= tokens.size() || tokens[position].kind != "RPAREN") {
+                throw std::runtime_error("native parser prototype expected closing ) in emit-expression");
+            }
+            position += 1;
+            return "(" + inner + ")";
+        }
+        throw std::runtime_error("native parser prototype only supports number/string/parenthesized emit-expression primaries");
+    }
+
+    static bool is_allowed_ident(const std::string& text, const std::vector<std::string>& allowed_identifiers) {
+        return std::find(allowed_identifiers.begin(), allowed_identifiers.end(), text) != allowed_identifiers.end();
+    }
+
+    static std::string parse_numeric_expression_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers
+    ) {
+        std::string left = parse_numeric_term_text(tokens, position, allowed_identifiers);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "PLUS" && kind != "MINUS") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_numeric_term_text(tokens, position, allowed_identifiers);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_numeric_term_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers
+    ) {
+        std::string left = parse_numeric_unary_text(tokens, position, allowed_identifiers);
+        while (position < tokens.size()) {
+            const std::string& kind = tokens[position].kind;
+            if (kind != "STAR" && kind != "SLASH") {
+                break;
+            }
+            const std::string op = tokens[position].text;
+            position += 1;
+            std::string right = parse_numeric_unary_text(tokens, position, allowed_identifiers);
+            left = "(" + left + " " + op + " " + right + ")";
+        }
+        return left;
+    }
+
+    static std::string parse_numeric_unary_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers
+    ) {
+        if (position < tokens.size() && tokens[position].kind == "MINUS") {
+            position += 1;
+            return "(-" + parse_numeric_unary_text(tokens, position, allowed_identifiers) + ")";
+        }
+        return parse_numeric_primary_text(tokens, position, allowed_identifiers);
+    }
+
+    static std::string parse_numeric_primary_text(
+        const std::vector<Token>& tokens,
+        std::size_t& position,
+        const std::vector<std::string>& allowed_identifiers
+    ) {
+        if (position >= tokens.size()) {
+            throw std::runtime_error("native parser prototype expected arithmetic primary");
+        }
+        const Token& token = tokens[position];
+        if (token.kind == "NUMBER") {
+            position += 1;
+            return normalize_number_text(token.text);
+        }
+        if (token.kind == "IDENT") {
+            if (!is_allowed_ident(token.text, allowed_identifiers)) {
+                throw std::runtime_error("native parser prototype inline body used an undeclared identifier");
+            }
+            position += 1;
+            return token.text;
+        }
+        if (token.kind == "LPAREN") {
+            position += 1;
+            std::string inner = parse_numeric_expression_text(tokens, position, allowed_identifiers);
+            if (position >= tokens.size() || tokens[position].kind != "RPAREN") {
+                throw std::runtime_error("native parser prototype expected closing ) in arithmetic expression");
+            }
+            position += 1;
+            return "(" + inner + ")";
+        }
+        throw std::runtime_error("native parser prototype only supports arithmetic primaries from numbers, identifiers, and parentheses");
+    }
 
     static void expect_kind(const std::vector<Token>& tokens, std::size_t index, const char* kind) {
         if (index >= tokens.size() || tokens[index].kind != kind) {
@@ -5253,6 +5975,49 @@ private:
 static std::string format_number_literal(double value) {
     std::ostringstream out;
     out << std::setprecision(15) << value;
+    return out.str();
+}
+
+static std::string emit_expression_cpp(const EmitExpressionProgram& program) {
+    std::ostringstream out;
+    out
+        << "#include <iostream>\n\n"
+        << "int main() {\n"
+        << "    std::cout << " << program.cpp_expression << " << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
+    return out.str();
+}
+
+static std::string emit_inline_function_cpp(const InlineFunctionProgram& program) {
+    std::ostringstream out;
+    out << "#include <iostream>\n\n";
+        for (const auto& function : program.functions) {
+            out << "static double " << function.function_name << "(";
+            for (std::size_t i = 0; i < function.param_names.size(); ++i) {
+                if (i > 0) {
+                    out << ", ";
+            }
+            out << "double " << function.param_names[i];
+        }
+        out << ") {\n";
+        for (const auto& binding : function.local_bindings) {
+            out << "    double " << binding.first << " = " << binding.second << ";\n";
+        }
+        out
+            << "    return " << function.return_cpp_expression << ";\n"
+            << "}\n\n";
+    }
+    out << "int main() {\n";
+    for (const auto& binding : program.top_level_bindings) {
+        out << "    double " << binding.first << " = " << binding.second << ";\n";
+    }
+    out
+        << "    std::cout << ";
+    out
+        << program.emit_cpp_expression << " << \"\\n\";\n"
+        << "    return 0;\n"
+        << "}\n";
     return out.str();
 }
 

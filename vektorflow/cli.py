@@ -4,11 +4,14 @@ Usage
 -----
     vkf <file>               Run a .vkf file (``a`` → ``a.vkf`` if needed)
     vkf cpp <file>           Emit C++ for the currently supported native subset
+    vkf package <file>       Build a package directory for the supported native subset
     vkf cpp-native-core <file>
                              Emit C++ through the native-core lexer/token-stream frontend
     vkf build <file>         Build a standalone native executable for the supported subset
     vkf build-native-core <file>
                              Build through the native-core lexer/token-stream frontend
+    vkf package-native-core <file>
+                             Build a native-core package directory (.cpp + executable + manifest)
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
@@ -141,19 +144,6 @@ def cmd_run(path: Path) -> int:
     return 0
 
 
-def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
-    try:
-        from .interpreter import Interpreter
-        from .parser import parse_module
-
-        module = parse_module(source, filename=filename)
-        Interpreter(Path(filename)).run_module(module)
-    except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
 def cmd_parse_tokens(payload: str) -> int:
     try:
         module = parse_token_stream_json(payload)
@@ -164,6 +154,19 @@ def cmd_parse_tokens(payload: str) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(repr(module))
+    return 0
+
+
+def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
+    try:
+        from .interpreter import Interpreter
+        from .parser import parse_module
+
+        module = parse_module(source, filename=filename)
+        Interpreter(Path(filename)).run_module(module)
+    except (LexError, ParseError, EvalError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -288,6 +291,76 @@ def cmd_build_native_core(
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def cmd_package(
+    source: str | None,
+    path_arg: str,
+    *,
+    out_dir: Path,
+    command_name: str,
+    resolved_path: Path | None = None,
+) -> int:
+    try:
+        from .cpp_backend import package_program, resolve_package_source
+
+        result = package_program(
+            command_name,
+            source,
+            resolve_package_source(path_arg, resolved_path=resolved_path),
+            out_dir=out_dir,
+        )
+        print(result.package_dir)
+    except OSError as exc:
+        print(f"error: cannot read {path_arg}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _dispatch_package_subcommand(args: list[str], command_name: str) -> int:
+    out_dir: Path | None = None
+    if not args:
+        print(f"error: vkf {command_name} <file|->", file=sys.stderr)
+        return 1
+    if "-o" in args:
+        oi = args.index("-o")
+        if oi + 1 >= len(args):
+            print("error: -o requires a path", file=sys.stderr)
+            return 1
+        out_dir = Path(args[oi + 1])
+        del args[oi : oi + 2]
+    path_arg = next((a for a in args if a == "-" or not a.startswith("-")), None)
+    if path_arg is None:
+        print("error: missing file path", file=sys.stderr)
+        return 1
+    if out_dir is None:
+        print(f"error: vkf {command_name} requires -o <directory>", file=sys.stderr)
+        return 1
+    if path_arg == "-":
+        return cmd_package(
+            sys.stdin.read(),
+            "-",
+            out_dir=out_dir,
+            command_name=command_name,
+        )
+    try:
+        path = resolve_vkf_path(path_arg)
+    except FileNotFoundError:
+        print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+        return 1
+    return cmd_package(
+        None,
+        path_arg,
+        out_dir=out_dir,
+        command_name=command_name,
+        resolved_path=path,
+    )
 
 
 def cmd_bench(patterns: list[str], list_only: bool = False) -> int:
@@ -418,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv:
         print(
-            "usage: vkf <file> | vkf cpp <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet> | vkf -e <snippet>\n"
+            "usage: vkf <file> | vkf cpp <file> | vkf package <file> | vkf package-native-core <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet> | vkf -e <snippet>\n"
             "       (omit .vkf: `vkf hello` finds `hello.vkf`)",
             file=sys.stderr,
         )
@@ -429,11 +502,15 @@ def main(argv: list[str] | None = None) -> int:
             "Vektor Flow — vkf\n\n"
             "  vkf <file>           Run a .vkf file (extension optional)\n"
             "  vkf cpp <file>       Emit C++ for the supported native subset\n"
+            "  vkf package <file>\n"
+            "                       Build a package directory for the supported native subset\n"
             "  vkf cpp-native-core <file>\n"
             "                       Emit C++ through the native-core lexer/token-stream frontend\n"
             "  vkf build <file>     Build a standalone native executable for the supported subset\n"
             "  vkf build-native-core <file>\n"
             "                       Build through the native-core lexer/token-stream frontend\n"
+            "  vkf package-native-core <file>\n"
+            "                       Build a native-core package directory (.cpp + executable + manifest)\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
             "                       add --samples N for median-of-N timing\n"
@@ -688,6 +765,12 @@ def main(argv: list[str] | None = None) -> int:
             out_path=out_path,
             filename_label=path.as_posix(),
         )
+
+    if argv[0] == "package":
+        return _dispatch_package_subcommand(argv[1:], "package")
+
+    if argv[0] == "package-native-core":
+        return _dispatch_package_subcommand(argv[1:], "package-native-core")
 
     if argv[0] == "bench":
         args = argv[1:]

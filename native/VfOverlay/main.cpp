@@ -123,6 +123,8 @@ HCURSOR g_webviewCursorCached = nullptr;
 bool g_webviewCursorCachedOwned = false;
 bool g_cursorChangedHandlerRegistered = false;
 EventRegistrationToken g_cursorChangedToken{};
+bool g_forceHideCursor = false;
+bool g_showCursorSuppressed = false;
 
 std::mutex g_queueMutex;
 std::mutex g_enqueueLogMutex;
@@ -663,6 +665,43 @@ static cJSON* ParseWebViewPostMessageObject(const std::string& u8) {
     return root;
 }
 
+static void ApplyNativeCursorMode(bool hide) {
+    g_forceHideCursor = hide;
+    if (hide) {
+        SetCursor(nullptr);
+        if (!g_showCursorSuppressed) {
+            while (ShowCursor(FALSE) >= 0) {}
+            g_showCursorSuppressed = true;
+        }
+    } else {
+        if (g_showCursorSuppressed) {
+            while (ShowCursor(TRUE) < 0) {}
+            g_showCursorSuppressed = false;
+        }
+        HCURSOR use = g_webviewCursorCached ? g_webviewCursorCached : LoadCursor(nullptr, IDC_ARROW);
+        SetCursor(use);
+    }
+}
+
+static bool TryHandleVfCursorMessage(const std::string& u8) {
+    if (u8.find("vf-cursor") == std::string::npos)
+        return false;
+    cJSON* root = ParseWebViewPostMessageObject(u8);
+    if (!root)
+        return false;
+    cJSON* type = cJSON_GetObjectItem(root, "type");
+    if (!cJSON_IsString(type) || _stricmp(type->valuestring, "vf-cursor") != 0) {
+        cJSON_Delete(root);
+        return false;
+    }
+    cJSON* mode = cJSON_GetObjectItem(root, "mode");
+    const bool hide = cJSON_IsString(mode) && _stricmp(mode->valuestring, "none") == 0;
+    cJSON_Delete(root);
+    ApplyNativeCursorMode(hide);
+    ViewerDiagLogPrintf("WebMessageReceived: vf-cursor mode=%s", hide ? "none" : "default");
+    return true;
+}
+
 static bool TryHandleVfUserLogMessage(const std::string& u8) {
     /* Skip huge layout payloads. Do not match on "\"type\":\"vf_log\"" — postMessage(string) JSON is
      * escaped (\"…\") so that substring never appears; use "vf_log" or parse. */
@@ -1146,6 +1185,12 @@ static LRESULT CALLBACK WebViewChildSubclass(HWND hwnd, UINT msg, WPARAM wParam,
             return MA_NOACTIVATE;
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
+    case WM_SETCURSOR:
+        if (g_forceHideCursor) {
+            SetCursor(nullptr);
+            return (LRESULT)TRUE;
+        }
+        break;
     case WM_NCDESTROY:
         RemoveWindowSubclass(hwnd, WebViewChildSubclass, uIdSubclass);
         break;
@@ -2061,6 +2106,10 @@ static void ReplaceWebViewCursorCache(HCURSOR cursor, bool owned) {
 static HRESULT OnCompositionCursorChanged(ICoreWebView2CompositionController* sender) {
     if (!sender)
         return E_POINTER;
+    if (g_forceHideCursor) {
+        SetCursor(nullptr);
+        return S_OK;
+    }
 
     HCURSOR cur = nullptr;
     if (SUCCEEDED(sender->get_Cursor(&cur)) && cur != nullptr) {
@@ -2112,6 +2161,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     case WM_ERASEBKGND:
         return 1;
     case WM_SETCURSOR:
+        if (g_forceHideCursor) {
+            SetCursor(nullptr);
+            return (LRESULT)TRUE;
+        }
         if (g_compController && LOWORD(l) == HTCLIENT) {
             HCURSOR use = g_webviewCursorCached ? g_webviewCursorCached : LoadCursor(nullptr, IDC_ARROW);
             SetCursor(use);
@@ -2200,6 +2253,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
 #endif
     case WM_DESTROY:
         VfTraceLogA("WM_DESTROY: teardown (http stop, PostQuit)");
+        ApplyNativeCursorMode(false);
         KillTimer(h, kWebViewSubclassRetryTimer);
         if (g_compController && g_cursorChangedHandlerRegistered) {
             g_compController->remove_CursorChanged(g_cursorChangedToken);
@@ -2338,6 +2392,9 @@ void InitWebView(HWND h) {
                                            }
                                            if (MessageJsonIndicatesYieldFocus(u8)) {
                                                PostMessageW(h, WM_APP_YIELD_FOCUS, 0, 0);
+                                               return S_OK;
+                                           }
+                                           if (TryHandleVfCursorMessage(u8)) {
                                                return S_OK;
                                            }
                                            if (TryHandleCaptureScreenRectMessage(u8)) {

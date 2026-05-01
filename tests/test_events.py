@@ -402,6 +402,21 @@ class TestUIRoot:
         root.poll()
         assert len(received) == 1 and received[0].key == "Enter"
 
+    def test_dispatch_queues_normalized_host_event_payload(self) -> None:
+        from vektorflow.stdlib.ui import UIRoot
+        root = UIRoot()
+        sub = get_global_poller()._subs[-1]
+        sub(dict(type="vf_event", event="hover", x=5, y=6, frameId="f1", widgetId="btn.save"))
+        payload = root.next_event()
+        assert payload is not None
+        assert payload["event"] == "hover"
+        assert payload["frame_id"] == "f1"
+        assert payload["widget_id"] == "btn.save"
+        assert payload["ui_code"] != 0
+        assert payload["frame_code"] != 0
+        assert payload["widget_code"] != 0
+        assert payload["index"] == 1
+
     def test_non_vf_event_ignored(self) -> None:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()

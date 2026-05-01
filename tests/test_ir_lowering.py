@@ -4,11 +4,15 @@ from pathlib import Path
 
 import pytest
 
+from vektorflow import ast
+from vektorflow.errors import EvalError
 from vektorflow.interpreter import _stringify
 from vektorflow.interpreter import Interpreter
-from vektorflow.ir import AttrExpr, CoerceExpr, Const, FunctionDef, IndexExpr, LinkedListExpr, MapExpr, MatchStmt, Module, MultisetExpr, StdlibImport, StoreName, StructExpr, WhileStmt, lower_module
+from vektorflow.ir import AttrExpr, BinaryExpr, Block, CallExpr, CoerceExpr, Const, FunctionDef, IfStmt, IndexExpr, LinkedListExpr, ListExpr, LoadName, MapExpr, MatchArm, MatchStmt, Module, MultisetExpr, StdlibImport, StoreName, StructExpr, UnaryExpr, WhileStmt, lower_module
 from vektorflow.ir_executor import IRExecutor
+from vektorflow.optimize_ir import optimize_module
 from vektorflow.parser import parse_module
+from vektorflow.runtime.type_values import PrimType
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
 
 
@@ -38,6 +42,159 @@ flag: c > 20
     assert ir_globals["b"] == ast_globals["b"] == 6
     assert ir_globals["c"] == ast_globals["c"] == 27
     assert ir_globals["flag"] == ast_globals["flag"] is True
+
+
+def test_ir_parity_mixed_string_operator_fallbacks() -> None:
+    src = """
+a: "x=" + 3
+b: "y=" & 4
+c: 5 + "z"
+d: 6 & "w"
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["a"] == ast_globals["a"] == "x=3"
+    assert ir_globals["b"] == ast_globals["b"] == "y=4"
+    assert ir_globals["c"] == ast_globals["c"] == "5z"
+    assert ir_globals["d"] == ast_globals["d"] == "6w"
+
+
+def test_ir_parity_type_value_binary_fallbacks() -> None:
+    src = """
+eq1: int = num
+eq2: int = int
+neq1: int != num
+neq2: int != int
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["eq1"] == ast_globals["eq1"] is False
+    assert ir_globals["eq2"] == ast_globals["eq2"] is True
+    assert ir_globals["neq1"] == ast_globals["neq1"] is True
+    assert ir_globals["neq2"] == ast_globals["neq2"] is False
+
+
+def test_ir_parity_truthiness_control_and_not_fallbacks() -> None:
+    src = """
+empty: []
+full: [1]
+a: ~empty
+b: ~full
+out: 0
+empty? out: 1
+full? out: 2
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["a"] == ast_globals["a"] is True
+    assert ir_globals["b"] == ast_globals["b"] is False
+    assert ir_globals["out"] == ast_globals["out"] == 2
+
+
+def test_ir_parity_typed_coercion_surface() -> None:
+    src = """
+f(x:int) -> num:
+    x
+
+out: f(true)
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["out"] == ast_globals["out"] == 1.0
+
+
+def test_optimize_ir_uses_shared_primitive_cast_runtime_semantics() -> None:
+    lowered = Module(
+        [
+            StoreName("a", CallExpr(LoadName("int"), [Const(3.0)], [], [])),
+            StoreName("b", CallExpr(LoadName("num"), [Const(True)], [], [])),
+            StoreName("bad", CallExpr(LoadName("int"), [Const(3.5)], [], [])),
+        ]
+    )
+    optimized = optimize_module(lowered)
+
+    assert isinstance(optimized.statements[0], StoreName)
+    assert optimized.statements[0].value == Const(3)
+    assert isinstance(optimized.statements[1], StoreName)
+    assert optimized.statements[1].value == Const(1.0)
+    assert isinstance(optimized.statements[2], StoreName)
+    assert isinstance(optimized.statements[2].value, CallExpr)
+
+
+def test_optimize_ir_uses_shared_typed_coercion_runtime_semantics() -> None:
+    lowered = Module(
+        [
+            StoreName("a", CoerceExpr(Const(True), ast.PrimTypeRef("num")), None),
+            StoreName("b", CoerceExpr(Const(3.5), ast.PrimTypeRef("int")), None),
+        ]
+    )
+    optimized = optimize_module(lowered)
+
+    assert isinstance(optimized.statements[0], StoreName)
+    assert optimized.statements[0].value == Const(1.0)
+    assert isinstance(optimized.statements[1], StoreName)
+    assert isinstance(optimized.statements[1].value, CoerceExpr)
+
+
+def test_optimize_ir_uses_shared_const_operator_runtime_semantics() -> None:
+    lowered = Module(
+        [
+            StoreName("a", BinaryExpr("PLUS", Const("x="), Const(3)), None),
+            StoreName("b", BinaryExpr("OR", Const([]), Const([1])), None),
+            StoreName("c", UnaryExpr("NOT", Const([])), None),
+            StoreName("d", BinaryExpr("EQ", Const(PrimType("int")), Const(PrimType("num"))), None),
+        ]
+    )
+    optimized = optimize_module(lowered)
+
+    assert isinstance(optimized.statements[0], StoreName)
+    assert optimized.statements[0].value == Const("x=3")
+    assert isinstance(optimized.statements[1], StoreName)
+    assert optimized.statements[1].value == Const(True)
+    assert isinstance(optimized.statements[2], StoreName)
+    assert optimized.statements[2].value == Const(True)
+    assert isinstance(optimized.statements[3], StoreName)
+    assert optimized.statements[3].value == Const(False)
+
+
+def test_optimize_ir_uses_shared_const_dot_runtime_semantics() -> None:
+    lowered = Module(
+        [
+            StoreName("a", AttrExpr(StructExpr([("x", Const(7)), ("y", Const(8))]), "x"), None),
+            StoreName("b", IndexExpr(MapExpr([("a", Const(1)), ("b", Const(2))]), [Const("a"), Const("b")]), None),
+            StoreName("c", IndexExpr(ListExpr([Const(10), Const(20)]), [Const(1)]), None),
+        ]
+    )
+    optimized = optimize_module(lowered)
+
+    assert isinstance(optimized.statements[0], StoreName)
+    assert optimized.statements[0].value == Const(7)
+    assert isinstance(optimized.statements[1], StoreName)
+    assert optimized.statements[1].value == Const((1, 2))
+    assert isinstance(optimized.statements[2], StoreName)
+    assert optimized.statements[2].value == Const(20)
+
+
+def test_optimize_ir_uses_shared_truthiness_control_semantics() -> None:
+    lowered = Module(
+        [
+            StoreName("not_empty", UnaryExpr("NOT", Const([])), None),
+            StoreName("either", BinaryExpr("OR", Const([]), Const([1])), None),
+            IfStmt(Const([]), Block([StoreName("dead", Const(1), None)])),
+            IfStmt(Const([1]), Block([StoreName("live", Const(2), None)])),
+            WhileStmt(Const([]), Block([StoreName("loop_dead", Const(3), None)])),
+        ]
+    )
+    optimized = optimize_module(lowered)
+
+    assert len(optimized.statements) == 3
+    assert isinstance(optimized.statements[0], StoreName)
+    assert optimized.statements[0].value == Const(True)
+    assert isinstance(optimized.statements[1], StoreName)
+    assert optimized.statements[1].value == Const(True)
+    assert isinstance(optimized.statements[2], StoreName)
+    assert optimized.statements[2].name == "live"
+    assert optimized.statements[2].value == Const(2)
 
 
 def test_ir_collects_top_level_stdlib_imports_as_module_metadata() -> None:
@@ -300,6 +457,36 @@ x??>
     assert ir_globals["out"] == ast_globals["out"] == 3
 
 
+def test_optimize_ir_uses_shared_const_match_selection_specificity() -> None:
+    exact = encode_event_code("button.pressed", "f1", "save")
+    frame = encode_frame_pattern("button.pressed", "f1")
+    widget = encode_widget_pattern("button.pressed", "save")
+    ui = encode_ui_pattern("button.pressed")
+    lowered = Module(
+        [
+            StoreName("out", Const(0), None),
+            MatchStmt(
+                Const(exact),
+                [
+                    MatchArm(Const(ui), Block([StoreName("out", Const(1), None)])),
+                    MatchArm(Const(frame), Block([StoreName("out", Const(2), None)])),
+                    MatchArm(Const(widget), Block([StoreName("out", Const(3), None)])),
+                    MatchArm(Const(exact), Block([StoreName("out", Const(4), None)])),
+                ],
+                loop=False,
+            ),
+        ]
+    )
+    optimized = optimize_module(lowered)
+    assert not any(isinstance(stmt, MatchStmt) for stmt in optimized.statements)
+
+    ir_ip = IRExecutor(Path(__file__))
+    ir_ret = ir_ip.run_module(optimized)
+
+    assert ir_ret is None
+    assert ir_ip.globals["out"] == 4
+
+
 def test_ir_preserves_structured_symbolic_type_metadata() -> None:
     mod = parse_module(
         "push_right(p:(left:[num:n], right:[num:m]), extra:[num:k]) -> (left:[num:n], right:[num:m+k]): 0",
@@ -344,14 +531,35 @@ out: merge({1:1}, {2:2})
     assert _stringify(ir_globals["out"], {}) == _stringify(ast_globals["out"], {})
 
 
-def test_ir_lowers_map_and_linked_list_ctors() -> None:
+def test_ir_lowers_collection_constructor_calls_as_call_exprs() -> None:
     mod = parse_module("m: collections.map(a:1, b:true)\nL: collections.list(:[1,2,3])\n", filename="<ir-test>")
     lowered = lower_module(mod)
     assert isinstance(lowered.statements[0], StoreName)
-    assert isinstance(lowered.statements[0].value, MapExpr)
+    assert isinstance(lowered.statements[0].value, CallExpr)
+    assert lowered.statements[0].value.kwargs and not lowered.statements[0].value.spreads
     assert isinstance(lowered.statements[1], StoreName)
-    assert isinstance(lowered.statements[1].value, LinkedListExpr)
-    assert lowered.statements[1].value.spread is not None
+    assert isinstance(lowered.statements[1].value, CallExpr)
+    assert not lowered.statements[1].value.kwargs and lowered.statements[1].value.spreads
+
+
+def test_ir_lowers_operator_callable_refs_as_call_exprs() -> None:
+    mod = parse_module(
+        """
+Point : (x:num)
+
++(a:Point, b:num):
+    a.x + b
+
+Point p: (x:3)
+out: +(p, 4)
+""",
+        filename="<ir-test>",
+    )
+    lowered = lower_module(mod)
+    assert isinstance(lowered.statements[-1], StoreName)
+    assert isinstance(lowered.statements[-1].value, CallExpr)
+    assert isinstance(lowered.statements[-1].value.func, LoadName)
+    assert lowered.statements[-1].value.func.name == "+"
 
 
 def test_ir_parity_map_and_linked_list_runtime_subset() -> None:
@@ -366,3 +574,524 @@ x: m.a
     assert _stringify(ir_globals["m"], {}) == _stringify(ast_globals["m"], {})
     assert _stringify(ir_globals["L"], {}) == _stringify(ast_globals["L"], {})
     assert ir_globals["x"] == ast_globals["x"] == 1
+
+
+def test_interpreter_run_module_uses_ir_for_supported_subset() -> None:
+    mod = parse_module(
+        """
+seed: 4
+twice(x):
+    x * 2
+
+out: twice(seed + 3)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["seed"] == 4
+    assert ip.globals["out"] == 14
+
+
+def test_interpreter_ir_execution_preserves_existing_globals() -> None:
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module("base: 10\n", filename="<ir-test>"))
+    ret = ip.run_module(parse_module("next: base + 5\n", filename="<ir-test>"))
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["base"] == 10
+    assert ip.globals["next"] == 15
+
+
+def test_interpreter_falls_back_to_ast_for_non_lowerable_module() -> None:
+    mod = parse_module('value: 4\nmsg: "x=$value"\n', filename="<ir-test>")
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["msg"] == "x=4"
+
+
+def test_interpreter_uses_ir_for_lowerable_function_inside_ast_module() -> None:
+    mod = parse_module(
+        """
+value: 4
+msg: "x=$value"
+twice(x):
+    x * 2
+
+out: twice(value + 3)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_function_execution_engine == "ir"
+    assert ip.globals["msg"] == "x=4"
+    assert ip.globals["out"] == 14
+
+
+def test_interpreter_uses_ir_for_recursive_lowerable_function_calls_inside_ast_module() -> None:
+    mod = parse_module(
+        """
+seed: 3
+label: "seed=$seed"
+count_down(n):
+    n = 0? @: 0
+    count_down(n - 1)
+
+out: count_down(3)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_function_execution_engine == "ir"
+    assert ip.globals["out"] == 0
+
+
+def test_interpreter_falls_back_to_ast_for_non_lowerable_function_body() -> None:
+    mod = parse_module(
+        """
+label(x):
+    "x=$x"
+
+out: label(4)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_function_execution_engine == "ast"
+    assert ip.globals["out"] == "x=4"
+
+
+def test_interpreter_routes_struct_constructor_calls_through_execution_seam() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+Point(x:num, y:num):
+
+p: Point(3, 4)
+out: p.x + p.y
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_callable_execution_engine == "runtime"
+    assert ip.globals["out"] == 7
+
+
+def test_interpreter_routes_custom_cast_calls_through_execution_seam() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+Point(x:num):
+
+num(p:Point):
+    p.x + 1
+
+out: num(Point(3))
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_callable_execution_engine == "ir"
+    assert ip.globals["out"] == 4
+
+
+def test_interpreter_routes_builtin_cast_fallback_through_callable_seam() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+out: num(true)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_callable_execution_engine == "runtime"
+    assert ip.globals["out"] == 1.0
+
+
+def test_interpreter_routes_operator_callable_overloads_through_execution_seam() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+Point(x:num):
+
++(a:Point, b:num):
+    a.x + b
+
+out: +(Point(3), 4)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_callable_execution_engine == "ir"
+    assert ip.globals["out"] == 7
+
+
+def test_interpreter_routes_collection_constructor_calls_through_execution_seam() -> None:
+    mod = parse_module(
+        """
+collections: .collections
+seed: 2
+label: "seed=$seed"
+m: collections.map(a:1, b:true)
+L: collections.list(:[1,2,3])
+out: m.a
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.last_callable_execution_engine == "runtime"
+    assert ip.globals["out"] == 1
+
+
+def test_interpreter_run_module_uses_ir_for_collection_constructor_alias_calls() -> None:
+    mod = parse_module(
+        """
+collections: .collections
+mk: collections.list
+out: mk(1, 2, 3)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert _stringify(ip.globals["out"], {}) == "[1, 2, 3]"
+
+
+def test_interpreter_run_module_uses_ir_for_collection_constructor_alias_calls_with_named_and_spread_args() -> None:
+    mod = parse_module(
+        """
+collections: .collections
+mkmap: collections.map
+mklist: collections.list
+m: mkmap(a:1, b:true)
+L: mklist(:[1,2,3])
+out: m.a
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["out"] == 1
+    assert _stringify(ip.globals["L"], {}) == "[1, 2, 3]"
+
+
+def test_interpreter_run_module_uses_ir_for_operator_callable_overload_family() -> None:
+    mod = parse_module(
+        """
+Point : (x:num)
+
++(a:Point, b:num):
+    a.x + b
+
++(a:Point, b:Point):
+    a.x + b.x
+
+Point p: (x:3)
+Point q: (x:5)
+left: +(p, 4)
+right: +(p, q)
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["left"] == 7
+    assert ip.globals["right"] == 8
+
+
+def test_interpreter_run_module_uses_ir_for_infix_operator_overload_family() -> None:
+    mod = parse_module(
+        """
+Point : (x:num)
+
++(a:Point, b:num):
+    a.x + b
+
+Point p: (x:3)
+out: p + 4
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["out"] == 7
+
+
+def test_interpreter_run_module_uses_ir_for_unary_operator_overload_family() -> None:
+    mod = parse_module(
+        """
+Point : (x:num)
+
+-(a:Point):
+    a.x
+
+Point p: (x:3)
+out: -p
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["out"] == 3
+
+
+def test_interpreter_run_module_uses_ir_for_dot_overload_read_family() -> None:
+    mod = parse_module(
+        """
+Pair : (x:num, y:num)
+
+.(p:Pair, key:str):
+    key = "left"? @: p.x
+    key = "right"? @: p.y
+    @
+
+Pair p: (x:3, y:4)
+left: p.left
+right: p.("right")
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ir"
+    assert ip.globals["left"] == 3
+    assert ip.globals["right"] == 4
+
+
+def test_interpreter_ast_fallback_keeps_dot_attr_write_family_working() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+Point : (x:num, y:num)
+Point p: (x:1, y:2)
+p.x: 7
+out: p.x
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == 7
+
+
+def test_interpreter_ast_fallback_keeps_dot_index_write_family_working() -> None:
+    mod = parse_module(
+        """
+collections: .collections
+seed: 2
+label: "seed=$seed"
+m: collections.map(a:1, b:2)
+m.("a"): 7
+out: m.a
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == 7
+
+
+def test_interpreter_ast_fallback_uses_execution_seam_for_string_interpolation_paths() -> None:
+    mod = parse_module(
+        """
+Point : (x:num, y:num)
+Point p: (x:3, y:4)
+msg: "x=$p.x y=$p.y"
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["msg"] == "x=3 y=4"
+
+
+def test_interpreter_ast_fallback_uses_dot_overload_path_for_string_interpolation() -> None:
+    mod = parse_module(
+        """
+Pair : (x:num, y:num)
+
+.(p:Pair, key:str):
+    key = "left"? @: p.x
+    key = "right"? @: p.y
+    @
+
+Pair p: (x:3, y:4)
+msg: "left=$p.left right=$p.right"
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["msg"] == "left=3 right=4"
+
+
+def test_interpreter_ast_fallback_uses_execution_seam_for_function_binding_attr_reads() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+f(x):
+    scale: 2
+out: f.scale
+expr: f.scale
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == 2.0
+    assert ip.globals["expr"] == 2.0
+
+
+def test_interpreter_ast_fallback_uses_execution_seam_for_param_referencing_function_binding_attr_reads() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+f(x):
+    expr: x + 1
+out: f.expr
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == "x+1"
+
+
+def test_interpreter_ast_fallback_uses_execution_seam_for_idx_attr_reads() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+v : [1, 2]_ij
+out: v.idx
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == "ij"
+
+
+def test_interpreter_ast_fallback_uses_execution_seam_for_idx_attr_writes() -> None:
+    mod = parse_module(
+        """
+seed: 2
+label: "seed=$seed"
+v : [1, 2]_i
+v.idx : "ij"
+out: v.idx
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == "ij"
+
+
+def test_interpreter_ast_fallback_uses_execution_seam_for_multi_key_dot_index_reads() -> None:
+    mod = parse_module(
+        """
+collections: .collections
+seed: 2
+label: "seed=$seed"
+m: collections.map(a:1, b:2)
+out: m.("a", "b")
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == (1, 2)
+
+
+def test_interpreter_ast_catch_match_uses_shared_match_selection() -> None:
+    mod = parse_module(
+        """
+errors: .errors
+missing!?
+  errors.ERROR => out: 1
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    ret = ip.run_module(mod)
+    assert ret is None
+    assert ip.last_execution_engine == "ast"
+    assert ip.globals["out"] == 1
+
+
+def test_interpreter_ast_catch_match_rethrows_when_no_arm_matches() -> None:
+    mod = parse_module(
+        """
+missing!?
+  0 => out: 1
+""",
+        filename="<ir-test>",
+    )
+    ip = Interpreter(Path(__file__))
+    with pytest.raises(EvalError, match="undefined name"):
+        ip.run_module(mod)

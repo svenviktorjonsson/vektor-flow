@@ -14,6 +14,7 @@ from vektorflow.cpp_backend import (
     compile_cpp_source,
     discover_cpp_compiler,
     emit_cpp_from_source_file,
+    load_native_package,
     run_cpp_executable,
 )
 from vektorflow.lexer import tokenize
@@ -222,6 +223,151 @@ def _short_artifact_stem(name: str, prefix: str) -> str:
     return f"{prefix}_{compact[:20]}"
 
 
+def _run_package_command(package_dir: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(argv, cwd=package_dir, capture_output=True, text=True)
+
+
+def _windows_runnable_command(package_dir: Path, kind: str, preferred: bool = True) -> list[str]:
+    surface = load_native_package(package_dir)
+    family = surface.smoke_test_family("windows") if kind == "smoke_test" else surface.launch_family("windows")
+    if preferred:
+        return list(family.preferred.argv)
+    return list(family.fallbacks[1].argv)
+
+
+def _assert_windows_runnable_projection(surface, manifest: dict[str, object], kind: str) -> None:
+    entry = surface.smoke_test_entry_surface("windows") if kind == "smoke_test" else surface.launch_entry_surface("windows")
+    execution = entry.execution
+    runnable = surface.smoke_test_family("windows") if kind == "smoke_test" else surface.launch_family("windows")
+    install = execution.install
+    assert manifest["install"]["preferred"][kind]["windows"] == list(install.preferred_artifacts)
+    assert manifest["install"]["preferred_commands"][kind]["windows"] == list(install.preferred_commands[0])
+    assert manifest["install"]["commands"][kind]["windows"] == [list(command) for command in install.commands]
+    assert manifest["install"][kind]["windows"] == list(install.artifacts)
+    assert execution.preferred == runnable.preferred
+    assert execution.fallbacks == runnable.fallbacks
+    assert install.preferred_artifacts == (execution.preferred.artifact,)
+    assert install.preferred_commands == (execution.preferred.argv,)
+    assert install.artifacts == tuple(spec.artifact for spec in execution.fallbacks)
+    assert install.commands == tuple(spec.argv for spec in execution.fallbacks)
+
+
+def _assert_codegen_projection(surface, manifest: dict[str, object]) -> None:
+    build = surface.build
+    generated = build.generated
+    compile = build.compile_command
+    assert manifest["codegen_contract"]["backend"] == "cpp_backend"
+    assert manifest["codegen_contract"]["emitted_cpp"] == generated.emitted_cpp.artifact
+    assert manifest["codegen_contract"]["entry_executable"] == generated.entry_executable.artifact
+    assert manifest["codegen_contract"]["compiler"]["kind"] == build.compiler.kind
+    assert manifest["codegen_contract"]["compiler"]["path"] == build.compiler.path
+    assert manifest["codegen_contract"]["compile"]["executable"] == compile.executable
+    assert tuple(manifest["codegen_contract"]["compile"]["flags"]) == compile.flags
+    assert tuple(manifest["codegen_contract"]["compile"]["inputs"]) == tuple(spec.artifact for spec in compile.inputs)
+    assert tuple(manifest["codegen_contract"]["compile"]["outputs"]) == tuple(spec.artifact for spec in compile.outputs)
+    assert manifest["codegen_contract"]["compile_argv"] == list(compile.argv)
+    assert compile.executable == build.compiler.path
+    assert compile.cwd == surface.package_dir
+    assert compile.inputs == (generated.emitted_cpp,)
+    assert compile.outputs == (generated.entry_executable,)
+    assert manifest["codegen_contract"]["launch_executables"]["windows"] == generated.launch_target_for("windows").artifact
+    assert manifest["codegen_contract"]["launch_executables"]["posix"] == generated.launch_target_for("posix").artifact
+    assert generated.emitted_cpp.path == surface.cpp_path
+    assert generated.entry_executable.path == surface.executable_path
+    assert build.compiler.kind == surface.compiler_kind
+    assert build.compiler.path == surface.compiler_path
+
+
+def _assert_artifact_surface_projection(surface, manifest: dict[str, object]) -> None:
+    artifacts = surface.artifacts
+    assert artifacts.manifest_path == surface.manifest_path
+    assert artifacts.readme_path == surface.readme_path
+    assert artifacts.launchers.artifact_for("windows").artifact == manifest["artifacts"]["launchers"]["windows"]
+    assert artifacts.launchers.artifact_for("windows_powershell").artifact == manifest["artifacts"]["launchers"]["windows_powershell"]
+    assert artifacts.launchers.artifact_for("posix").artifact == manifest["artifacts"]["launchers"]["posix"]
+    assert artifacts.smoke_tests.artifact_for("windows").artifact == manifest["artifacts"]["smoke_tests"]["windows"]
+    assert artifacts.smoke_tests.artifact_for("windows_powershell").artifact == manifest["artifacts"]["smoke_tests"]["windows_powershell"]
+    assert artifacts.smoke_tests.artifact_for("posix").artifact == manifest["artifacts"]["smoke_tests"]["posix"]
+
+
+def _assert_entry_surface_projection(surface, manifest: dict[str, object], kind: str, platform: str) -> None:
+    entry = surface.entry_surface(kind, platform)
+    execution = entry.execution
+    preferred_manifest = manifest["runnable_contract"][kind]["preferred"][platform]
+    assert entry.kind == kind
+    assert entry.platform == platform
+    assert entry.support_artifact.artifact == manifest["artifacts"]["launchers" if kind == "launch" else "smoke_tests"][platform]
+    assert execution.preferred.artifact == preferred_manifest["artifact"]
+    assert execution.preferred.argv == tuple(preferred_manifest["argv"])
+
+
+def _assert_typed_package_surface_contract(
+    surface,
+    *,
+    subset: str,
+    entrypoint: str,
+    source_input: str,
+    source_label: str,
+) -> None:
+    view = surface.manifest
+    build = surface.build
+    artifacts = surface.artifacts
+    launch_windows = surface.launch_entry_surface("windows")
+    launch_windows_ps1 = surface.launch_entry_surface("windows_powershell")
+    launch_posix = surface.launch_entry_surface("posix")
+    smoke_windows = surface.smoke_test_entry_surface("windows")
+    smoke_windows_ps1 = surface.smoke_test_entry_surface("windows_powershell")
+    smoke_posix = surface.smoke_test_entry_surface("posix")
+
+    assert view.subset == subset
+    assert view.entrypoint == entrypoint
+    assert view.source_input == source_input
+    assert view.source_label == source_label
+    assert view.python_required_to_build is True
+    assert view.python_required_to_run is False
+
+    assert surface.manifest_path == artifacts.manifest_path
+    assert surface.readme_path == artifacts.readme_path
+    assert surface.cpp_path == build.generated.emitted_cpp.path
+    assert surface.executable_path == build.generated.entry_executable.path
+    assert surface.compiler_kind == build.compiler.kind
+    assert surface.compiler_path == build.compiler.path
+    assert view.entry_executable_name == build.generated.entry_executable.artifact
+
+    assert build.compile_command.executable == build.compiler.path
+    assert build.compile_command.cwd == surface.package_dir
+    assert build.compile_command.inputs == (build.generated.emitted_cpp,)
+    assert build.compile_command.outputs == (build.generated.entry_executable,)
+    assert build.compile_command.argv[0] == build.compile_command.executable
+    assert build.compile_command.argv[-2:] == ("-o", build.generated.entry_executable.artifact)
+
+    assert launch_windows.execution.target_executable is not None
+    assert launch_windows.execution.target_executable == build.generated.launch_target_for("windows")
+    assert launch_windows_ps1.execution.target_executable is not None
+    assert launch_windows_ps1.execution.target_executable == build.generated.launch_target_for("windows")
+    assert launch_posix.execution.target_executable is not None
+    assert launch_posix.execution.target_executable == build.generated.launch_target_for("posix")
+
+    assert launch_windows.support_artifact == artifacts.launchers.artifact_for("windows")
+    assert launch_windows_ps1.support_artifact == artifacts.launchers.artifact_for("windows_powershell")
+    assert launch_posix.support_artifact == artifacts.launchers.artifact_for("posix")
+    assert smoke_windows.support_artifact == artifacts.smoke_tests.artifact_for("windows")
+    assert smoke_windows_ps1.support_artifact == artifacts.smoke_tests.artifact_for("windows_powershell")
+    assert smoke_posix.support_artifact == artifacts.smoke_tests.artifact_for("posix")
+
+    assert launch_windows.execution.preferred.artifact == "run.ps1"
+    assert launch_windows.execution.fallbacks[1].artifact == "run.bat"
+    assert launch_windows_ps1.execution.preferred.artifact == "run.ps1"
+    assert smoke_windows.execution.preferred.artifact == "smoke-test.ps1"
+    assert smoke_windows.execution.fallbacks[1].artifact == "smoke-test.bat"
+    assert smoke_windows_ps1.execution.preferred.artifact == "smoke-test.ps1"
+
+    assert launch_windows.execution.install.preferred_artifacts == ("run.ps1",)
+    assert smoke_windows.execution.install.preferred_artifacts == ("smoke-test.ps1",)
+    assert launch_posix.execution.install.preferred_artifacts == ("./run.sh",)
+    assert smoke_posix.execution.install.preferred_artifacts == ("./smoke-test.sh",)
+
+
 def _assert_native_core_cpp_contract(tmp_path: Path, example_name: str) -> None:
     src = NATIVE_CORE / example_name
     out = tmp_path / src.with_suffix(".cpp").name
@@ -391,6 +537,288 @@ def _assert_cpp_native_core_execution_contract(
     assert file_proc.returncode == 0
     assert stdin_proc.returncode == 0
     assert file_proc.stdout == standard_proc.stdout
+    assert stdin_proc.stdout == standard_proc.stdout
+
+
+def _assert_package_native_core_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    example_name: str,
+) -> None:
+    path = NATIVE_CORE / example_name
+    src = path.read_text(encoding="utf-8")
+    package_dir = tmp_path / _short_artifact_stem(example_name, "pkg")
+
+    assert main(["package-native-core", str(path), "-o", str(package_dir)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == package_dir.resolve()
+
+    manifest_path = package_dir / "vektorflow-package.json"
+    readme_path = package_dir / "README.txt"
+    assert manifest_path.is_file()
+    assert readme_path.is_file()
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    surface = load_native_package(package_dir)
+    artifacts = surface.artifacts
+    view = surface.manifest
+    assert manifest["kind"] == "vektorflow-native-package"
+    assert manifest["runtime_contract"]["python_required_to_build"] is True
+    assert manifest["runtime_contract"]["python_required_to_run"] is False
+    _assert_typed_package_surface_contract(
+        surface,
+        subset="native_core",
+        entrypoint="package-native-core",
+        source_input=path.as_posix(),
+        source_label=path.as_posix(),
+    )
+    _assert_codegen_projection(surface, manifest)
+    _assert_artifact_surface_projection(surface, manifest)
+    assert manifest["runtime_contract"]["preferred_launchers"]["windows"] == "run.ps1"
+    assert manifest["runtime_contract"]["preferred_smoke_tests"]["windows"] == "smoke-test.ps1"
+    assert manifest["runtime_contract"]["launchers"]["windows"] == "run.bat"
+    assert manifest["runtime_contract"]["launchers"]["windows_powershell"] == "run.ps1"
+    assert manifest["runtime_contract"]["launchers"]["posix"] == "run.sh"
+    assert manifest["runtime_contract"]["smoke_tests"]["windows"] == "smoke-test.bat"
+    assert manifest["runtime_contract"]["smoke_tests"]["windows_powershell"] == "smoke-test.ps1"
+    assert manifest["runtime_contract"]["smoke_tests"]["posix"] == "smoke-test.sh"
+    assert manifest["runtime_contract"]["preferred_launchers"]["windows"] == manifest["runnable_contract"]["launch"]["preferred"]["windows"]["artifact"]
+    assert manifest["runtime_contract"]["preferred_smoke_tests"]["windows"] == manifest["runnable_contract"]["smoke_test"]["preferred"]["windows"]["artifact"]
+    launch_entry = surface.launch_entry_surface("windows")
+    smoke_entry = surface.smoke_test_entry_surface("windows")
+    launch_execution = launch_entry.execution
+    smoke_execution = smoke_entry.execution
+    assert launch_execution.target_executable is not None
+    assert launch_execution.target_executable.artifact == surface.build.generated.launch_target_for("windows").artifact
+    assert launch_execution.preferred.artifact == "run.ps1"
+    assert launch_execution.fallbacks[1].artifact == "run.bat"
+    assert smoke_execution.preferred.artifact == "smoke-test.ps1"
+    assert smoke_execution.fallbacks[1].artifact == "smoke-test.bat"
+    _assert_entry_surface_projection(surface, manifest, "launch", "windows")
+    _assert_entry_surface_projection(surface, manifest, "smoke_test", "windows")
+    windows_launch_target = manifest["runtime_contract"]["launch_executables"]["windows"]
+    posix_launch_target = manifest["runtime_contract"]["launch_executables"]["posix"]
+
+    exe_path = surface.build.generated.entry_executable.path
+    cpp_path = surface.build.generated.emitted_cpp.path
+    windows_target_path = launch_execution.target_executable.path
+    posix_target_path = surface.build.generated.launch_target_for("posix").path
+    run_bat_path = launch_entry.support_artifact.path
+    run_ps1_path = surface.launch_entry_surface("windows_powershell").support_artifact.path
+    run_sh_path = artifacts.launchers.artifact_for("posix").path
+    smoke_bat_path = smoke_entry.support_artifact.path
+    smoke_ps1_path = surface.smoke_test_entry_surface("windows_powershell").support_artifact.path
+    smoke_sh_path = artifacts.smoke_tests.artifact_for("posix").path
+    assert exe_path.is_file()
+    assert cpp_path.is_file()
+    assert windows_target_path.is_file()
+    assert posix_target_path.is_file()
+    assert run_bat_path.is_file()
+    assert run_ps1_path.is_file()
+    assert run_sh_path.is_file()
+    assert smoke_bat_path.is_file()
+    assert smoke_ps1_path.is_file()
+    assert smoke_sh_path.is_file()
+    assert windows_launch_target in run_bat_path.read_text(encoding="utf-8")
+    assert windows_launch_target in run_ps1_path.read_text(encoding="utf-8")
+    assert posix_launch_target in run_sh_path.read_text(encoding="utf-8")
+    assert manifest["artifacts"]["launchers"]["windows"] in smoke_bat_path.read_text(encoding="utf-8")
+    assert manifest["artifacts"]["launchers"]["windows_powershell"] in smoke_ps1_path.read_text(encoding="utf-8")
+    assert manifest["artifacts"]["launchers"]["posix"] in smoke_sh_path.read_text(encoding="utf-8")
+    assert manifest["install"]["preferred"]["launch"]["windows"] == ["run.ps1"]
+    assert manifest["install"]["preferred"]["smoke_test"]["windows"] == ["smoke-test.ps1"]
+    assert manifest["install"]["launch"]["windows"] == ["run.ps1", "run.bat"]
+    assert manifest["install"]["launch"]["posix"] == ["./run.sh"]
+    assert manifest["install"]["smoke_test"]["windows"] == ["smoke-test.ps1", "smoke-test.bat"]
+    assert manifest["install"]["smoke_test"]["posix"] == ["./smoke-test.sh"]
+    _assert_windows_runnable_projection(surface, manifest, "launch")
+    _assert_windows_runnable_projection(surface, manifest, "smoke_test")
+
+    proc = run_cpp_executable(exe_path)
+    assert proc.returncode == 0
+    expected_line = NATIVE_CORE_EXPECTED_FIRST_LINES.get(example_name)
+    if expected_line is not None:
+        assert proc.stdout.splitlines()[0].strip() == expected_line
+    smoke_proc = _run_package_command(package_dir, _windows_runnable_command(package_dir, "smoke_test", preferred=False))
+    assert smoke_proc.returncode == 0
+    assert smoke_proc.stdout == proc.stdout
+    smoke_ps1_proc = _run_package_command(package_dir, _windows_runnable_command(package_dir, "smoke_test"))
+    assert smoke_ps1_proc.returncode == 0
+    assert smoke_ps1_proc.stdout == proc.stdout
+
+    stdin_package_dir = tmp_path / _short_artifact_stem(example_name, "pgs")
+    monkeypatch.setattr("sys.stdin.read", lambda: src)
+    assert main(["package-native-core", "-", "-o", str(stdin_package_dir)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == stdin_package_dir.resolve()
+    stdin_manifest = json.loads((stdin_package_dir / "vektorflow-package.json").read_text(encoding="utf-8"))
+    assert stdin_manifest["source"]["input"] == "<stdin>"
+    assert stdin_manifest["source"]["label"] == "<stdin>"
+    stdin_exe = load_native_package(stdin_package_dir).build.generated.entry_executable.path
+    stdin_proc = run_cpp_executable(stdin_exe)
+    assert stdin_proc.returncode == 0
+    assert stdin_proc.stdout == proc.stdout
+
+
+def _assert_package_supported_native_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    src_path = tmp_path / "supported_native_package.vkf"
+    src_path.write_text(
+        "twice(x:num) -> num:\n"
+        "    x * 2\n\n"
+        ":: twice(21)\n",
+        encoding="utf-8",
+    )
+    source = src_path.read_text(encoding="utf-8")
+    package_dir = tmp_path / "pkg_supported_native"
+
+    assert main(["package", str(src_path), "-o", str(package_dir)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == package_dir.resolve()
+
+    manifest_path = package_dir / "vektorflow-package.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    surface = load_native_package(package_dir)
+    artifacts = surface.artifacts
+    view = surface.manifest
+    assert manifest["kind"] == "vektorflow-native-package"
+    assert manifest["runtime_contract"]["python_required_to_build"] is True
+    assert manifest["runtime_contract"]["python_required_to_run"] is False
+    _assert_typed_package_surface_contract(
+        surface,
+        subset="supported_native",
+        entrypoint="package",
+        source_input=src_path.as_posix(),
+        source_label=src_path.as_posix(),
+    )
+    _assert_codegen_projection(surface, manifest)
+    _assert_artifact_surface_projection(surface, manifest)
+    assert manifest["runtime_contract"]["preferred_launchers"]["windows"] == "run.ps1"
+    assert manifest["runtime_contract"]["smoke_tests"]["windows"] == "smoke-test.bat"
+    launch_entry = surface.launch_entry_surface("windows")
+    smoke_entry = surface.smoke_test_entry_surface("windows")
+    launch_execution = launch_entry.execution
+    smoke_execution = smoke_entry.execution
+    assert launch_execution.preferred.artifact == "run.ps1"
+    assert smoke_execution.preferred.artifact == "smoke-test.ps1"
+    _assert_entry_surface_projection(surface, manifest, "launch", "windows")
+    _assert_entry_surface_projection(surface, manifest, "smoke_test", "windows")
+    _assert_windows_runnable_projection(surface, manifest, "launch")
+    _assert_windows_runnable_projection(surface, manifest, "smoke_test")
+
+    exe_path = surface.build.generated.entry_executable.path
+    readme_path = artifacts.readme_path
+    windows_target_path = launch_execution.target_executable.path
+    run_bat_path = launch_entry.support_artifact.path
+    run_ps1_path = surface.launch_entry_surface("windows_powershell").support_artifact.path
+    run_sh_path = artifacts.launchers.artifact_for("posix").path
+    smoke_bat_path = smoke_entry.support_artifact.path
+    smoke_ps1_path = surface.smoke_test_entry_surface("windows_powershell").support_artifact.path
+    smoke_sh_path = artifacts.smoke_tests.artifact_for("posix").path
+    assert exe_path.is_file()
+    assert readme_path.is_file()
+    assert windows_target_path.is_file()
+    assert run_bat_path.is_file()
+    assert run_ps1_path.is_file()
+    assert run_sh_path.is_file()
+    assert smoke_bat_path.is_file()
+    assert smoke_ps1_path.is_file()
+    assert smoke_sh_path.is_file()
+    proc = run_cpp_executable(exe_path)
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "42"
+    smoke_proc = _run_package_command(package_dir, _windows_runnable_command(package_dir, "smoke_test", preferred=False))
+    assert smoke_proc.returncode == 0
+    assert smoke_proc.stdout == proc.stdout
+    smoke_ps1_proc = _run_package_command(package_dir, _windows_runnable_command(package_dir, "smoke_test"))
+    assert smoke_ps1_proc.returncode == 0
+    assert smoke_ps1_proc.stdout == proc.stdout
+
+    stdin_package_dir = tmp_path / "pkg_supported_stdin"
+    monkeypatch.setattr("sys.stdin.read", lambda: source)
+    assert main(["package", "-", "-o", str(stdin_package_dir)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == stdin_package_dir.resolve()
+    stdin_manifest = json.loads((stdin_package_dir / "vektorflow-package.json").read_text(encoding="utf-8"))
+    assert stdin_manifest["source"]["input"] == "<stdin>"
+    assert stdin_manifest["source"]["label"] == "<stdin>"
+    stdin_exe = load_native_package(stdin_package_dir).build.generated.entry_executable.path
+    stdin_proc = run_cpp_executable(stdin_exe)
+    assert stdin_proc.returncode == 0
+    assert stdin_proc.stdout == proc.stdout
+
+
+def _assert_package_supported_native_example_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    src_path: Path,
+) -> None:
+    source = src_path.read_text(encoding="utf-8")
+    package_dir = tmp_path / _short_artifact_stem(src_path.name, "spkg")
+    standard_exe = tmp_path / f"{_short_artifact_stem(src_path.name, 'sstd')}.exe"
+
+    assert main(["build", str(src_path), "-o", str(standard_exe)]) == 0
+    _ = capsys.readouterr()
+    standard_proc = run_cpp_executable(standard_exe)
+    assert standard_proc.returncode == 0
+
+    assert main(["package", str(src_path), "-o", str(package_dir)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == package_dir.resolve()
+    manifest_path = package_dir / "vektorflow-package.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    surface = load_native_package(package_dir)
+    artifacts = surface.artifacts
+    view = surface.manifest
+    _assert_typed_package_surface_contract(
+        surface,
+        subset="supported_native",
+        entrypoint="package",
+        source_input=src_path.as_posix(),
+        source_label=src_path.as_posix(),
+    )
+    _assert_codegen_projection(surface, manifest)
+    _assert_artifact_surface_projection(surface, manifest)
+    assert manifest["runtime_contract"]["entry_executable"] == surface.build.generated.entry_executable.artifact
+    assert manifest["runtime_contract"]["launch_executables"]["windows"] == surface.build.generated.launch_target_for("windows").artifact
+    assert view.entry_executable_name == surface.build.generated.entry_executable.artifact
+    launch_entry = surface.launch_entry_surface("windows")
+    smoke_entry = surface.smoke_test_entry_surface("windows")
+    launch_execution = launch_entry.execution
+    smoke_execution = smoke_entry.execution
+    assert launch_execution.target_executable is not None
+    assert launch_execution.target_executable.artifact == surface.build.generated.launch_target_for("windows").artifact
+    assert smoke_execution.preferred.artifact == "smoke-test.ps1"
+    assert smoke_execution.fallbacks[1].artifact == "smoke-test.bat"
+    _assert_entry_surface_projection(surface, manifest, "launch", "windows")
+    _assert_entry_surface_projection(surface, manifest, "smoke_test", "windows")
+    _assert_windows_runnable_projection(surface, manifest, "launch")
+    _assert_windows_runnable_projection(surface, manifest, "smoke_test")
+    assert manifest["install"]["preferred"]["smoke_test"]["windows"] == ["smoke-test.ps1"]
+    assert manifest["install"]["smoke_test"]["windows"] == ["smoke-test.ps1", "smoke-test.bat"]
+    package_exe = surface.build.generated.entry_executable.path
+    smoke_bat_path = smoke_entry.support_artifact.path
+    smoke_ps1_path = surface.smoke_test_entry_surface("windows_powershell").support_artifact.path
+    package_proc = run_cpp_executable(package_exe)
+    assert package_proc.returncode == 0
+    assert package_proc.stdout == standard_proc.stdout
+    smoke_proc = _run_package_command(package_dir, _windows_runnable_command(package_dir, "smoke_test", preferred=False))
+    assert smoke_proc.returncode == 0
+    assert smoke_proc.stdout == standard_proc.stdout
+    smoke_ps1_proc = _run_package_command(package_dir, _windows_runnable_command(package_dir, "smoke_test"))
+    assert smoke_ps1_proc.returncode == 0
+    assert smoke_ps1_proc.stdout == standard_proc.stdout
+
+    stdin_package_dir = tmp_path / _short_artifact_stem(src_path.name, "sps")
+    monkeypatch.setattr("sys.stdin.read", lambda: source)
+    assert main(["package", "-", "-o", str(stdin_package_dir)]) == 0
+    assert Path(capsys.readouterr().out.strip()) == stdin_package_dir.resolve()
+    stdin_manifest = json.loads((stdin_package_dir / "vektorflow-package.json").read_text(encoding="utf-8"))
+    assert stdin_manifest["source"]["input"] == "<stdin>"
+    assert stdin_manifest["source"]["label"] == "<stdin>"
+    stdin_exe = load_native_package(stdin_package_dir).build.generated.entry_executable.path
+    stdin_proc = run_cpp_executable(stdin_exe)
+    assert stdin_proc.returncode == 0
     assert stdin_proc.stdout == standard_proc.stdout
 
 
@@ -985,6 +1413,20 @@ class TestMain:
         assert main(["build-native-core", "-"]) == 1
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_package_native_core_subcommand_requires_output_directory(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("sys.stdin.read", lambda: ":: 6 * 7\n")
+        assert main(["package-native-core", "-"]) == 1
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_package_subcommand_requires_output_directory(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("sys.stdin.read", lambda: ":: 6 * 7\n")
+        assert main(["package", "-"]) == 1
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     @pytest.mark.parametrize(
         "src_path",
         EXPANDED_NATIVE_FRONTEND_BUILD_EXAMPLES,
@@ -1041,6 +1483,47 @@ class TestMain:
         example_name: str,
     ) -> None:
         _assert_cpp_native_core_execution_contract(monkeypatch, tmp_path, example_name)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    @pytest.mark.parametrize(
+        "example_name",
+        [
+            "numeric_native.vkf",
+            "named_record_scene_splice_native.vkf",
+            "named_record_scene_reverse_native.vkf",
+        ],
+    )
+    def test_package_native_core_examples_create_runnable_native_package(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        example_name: str,
+    ) -> None:
+        _assert_package_native_core_contract(monkeypatch, capsys, tmp_path, example_name)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_package_supported_native_subcommand_creates_runnable_native_package(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        _assert_package_supported_native_contract(monkeypatch, capsys, tmp_path)
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_package_supported_native_benchmark_example_matches_build_runtime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        _assert_package_supported_native_example_contract(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            ROOT / "examples" / "benchmarks" / "scalar_control.vkf",
+        )
 
     def test_bench_subcommand_list(self, capsys: pytest.CaptureFixture[str]) -> None:
         assert main(["bench", "--list"]) == 0

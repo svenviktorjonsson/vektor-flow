@@ -55,6 +55,8 @@ class ExprStmt:
 class CallExpr:
     func: IRNode
     args: list[IRNode] = field(default_factory=list)
+    kwargs: list[tuple[str, IRNode]] = field(default_factory=list)
+    spreads: list[IRNode] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +136,7 @@ class FunctionDef:
     body: "Block"
     param_types: list[Any] = field(default_factory=list)
     return_type: Any | None = None
+    param_specs: list[ast.Param] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +217,30 @@ def lower_block(block: ast.Block) -> Block:
     return Block(lowered)
 
 
+def lower_function_parts(
+    params: list[ast.Param],
+    body: Any,
+    func_type: ast.FuncType | None = None,
+    type_registry: dict[str, Any] | None = None,
+) -> tuple[Block, list[Any], Any | None]:
+    if type_registry is None:
+        type_registry = {}
+    param_types: list[Any] = []
+    for p in params:
+        if p.param_func_type is not None:
+            param_types.append(_resolve_type_refs(p.param_func_type, type_registry))
+        elif p.type_ref is not None:
+            param_types.append(_resolve_type_refs(p.type_ref, type_registry))
+        else:
+            param_types.append(None)
+    return_type = (
+        _resolve_type_refs(func_type.codomain, type_registry)
+        if func_type is not None
+        else None
+    )
+    return lower_body_as_block(body), param_types, return_type
+
+
 def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
     if isinstance(type_expr, ast.NamedTypeSpec):
         return ast.NamedTypeSpec(type_expr.name, _resolve_type_refs(type_expr.type_expr, type_registry))
@@ -287,24 +314,19 @@ def lower_stmt(
             value = CoerceExpr(value, declared_type)
         return StoreName(node.target.name, value, declared_type)
     if isinstance(node, ast.FuncDef):
-        param_types: list[Any] = []
-        for p in node.params:
-            if p.param_func_type is not None:
-                param_types.append(_resolve_type_refs(p.param_func_type, type_registry))
-            elif p.type_ref is not None:
-                param_types.append(_resolve_type_refs(p.type_ref, type_registry))
-            else:
-                param_types.append(None)
+        body, param_types, return_type = lower_function_parts(
+            node.params,
+            node.body,
+            node.func_type,
+            type_registry,
+        )
         return FunctionDef(
             node.name,
             [p.name for p in node.params],
-            lower_body_as_block(node.body),
+            body,
+            param_specs=list(node.params),
             param_types=param_types,
-            return_type=(
-                _resolve_type_refs(node.func_type.codomain, type_registry)
-                if node.func_type is not None
-                else None
-            ),
+            return_type=return_type,
         )
     if isinstance(node, ast.ExprStmt):
         if isinstance(node.expr, ast.ConditionalExpr):
@@ -358,13 +380,6 @@ def lower_body_as_block(node: Any) -> Block:
 
 
 def lower_expr(node: Any) -> IRNode:
-    def _ctor_name(expr: Any) -> str | None:
-        if isinstance(expr, ast.Ident):
-            return expr.name
-        if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Ident) and expr.value.name == "collections":
-            return expr.name
-        return None
-
     def _fixed_vector_type_from_expr(expr: Any) -> Any | None:
         if not isinstance(expr, ast.ListLit) or expr.axis_tag is not None or len(expr.elements) != 1:
             return None
@@ -394,39 +409,26 @@ def lower_expr(node: Any) -> IRNode:
         return Const(node.value)
     if isinstance(node, ast.Ident):
         return LoadName(node.name)
+    if isinstance(node, ast.OpRef):
+        return LoadName(node.symbol)
     if isinstance(node, ast.Call):
-        ctor = _ctor_name(node.func)
         fixed_vector_target = _fixed_vector_type_from_expr(node.func)
         if fixed_vector_target is not None:
             if len(node.args) != 1 or isinstance(node.args[0], (ast.NamedCallArg, ast.SpreadArg)):
                 raise NotImplementedError("IR lowering only supports single-argument fixed-vector casts")
             return CoerceExpr(lower_expr(node.args[0]), fixed_vector_target)
-        if ctor == "map":
-            fields: list[tuple[str, IRNode]] = []
-            for a in node.args:
-                if not isinstance(a, ast.NamedCallArg):
-                    raise NotImplementedError("IR lowering only supports keyword-style map(...) arguments")
-                fields.append((a.name, lower_expr(a.value)))
-            return MapExpr(fields)
-        if ctor == "list":
-            elems: list[IRNode] = []
-            spread: IRNode | None = None
-            for a in node.args:
-                if isinstance(a, ast.NamedCallArg):
-                    raise NotImplementedError("IR lowering does not support keyword args in list(...)")
-                if isinstance(a, ast.SpreadArg):
-                    if spread is not None or elems:
-                        raise NotImplementedError("IR lowering only supports list(:expr) when it is the only argument")
-                    spread = lower_expr(a.expr)
-                    continue
-                elems.append(lower_expr(a))
-            return LinkedListExpr(elems, spread)
         args: list[IRNode] = []
+        kwargs: list[tuple[str, IRNode]] = []
+        spreads: list[IRNode] = []
         for a in node.args:
-            if isinstance(a, (ast.NamedCallArg, ast.SpreadArg)):
-                raise NotImplementedError("IR lowering does not yet support named or spread call args")
+            if isinstance(a, ast.NamedCallArg):
+                kwargs.append((a.name, lower_expr(a.value)))
+                continue
+            if isinstance(a, ast.SpreadArg):
+                spreads.append(lower_expr(a.expr))
+                continue
             args.append(lower_expr(a))
-        return CallExpr(lower_expr(node.func), args)
+        return CallExpr(lower_expr(node.func), args, kwargs, spreads)
     if isinstance(node, ast.ListLit):
         elements: list[IRNode] = []
         for e in node.elements:

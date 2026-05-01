@@ -26,13 +26,11 @@ from .runtime.multiset import (
     multiset_union,
 )
 from .stdlib import STDLIB_AUTOLOADED_NAMESPACES, STDLIB_MODULES, resolve_stdlib
-from .stdlib.events import matches_event_code, event_match_specificity
+from .stdlib.events import matches_event_code
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
     apply_struct_unary_fallback,
-    bind_struct_constructor_fields,
     combine_struct_values_elementwise,
-    construct_struct_value,
     VF_TYPE_KEY,
     default_field_value,
     get_type_name,
@@ -45,33 +43,21 @@ from .runtime.struct_value import (
     struct_tagged,
     with_type,
 )
-from .runtime.compare import (
-    runtime_match_eq,
-    runtime_match_specificity,
-    struct_compare_binop,
-    struct_eq,
-    struct_lt,
-)
+from .runtime.compare import struct_compare_binop, struct_eq, struct_lt
 from .runtime import (
     axis_tagged_binary_op,
     axis_tagged_data,
     axis_tagged_idx,
-    axis_tagged_set_idx,
     axis_tagged_stringify,
     axis_tagged_wrap,
     is_axis_tagged_value,
-    runtime_collection_assign_path,
     runtime_collection_contains,
     runtime_collection_ctor_call,
     runtime_collection_expanded_values,
-    runtime_collection_index_read,
-    runtime_collection_index_set,
     runtime_collection_kind,
     runtime_collection_elementwise_values,
     runtime_collection_pipe_result,
     runtime_collection_preserves_pipe_result,
-    runtime_collection_path_step,
-    runtime_collection_read_attr,
     runtime_collection_spill_values,
     runtime_collection_stringify,
     runtime_collection_to_multiset,
@@ -83,8 +69,6 @@ from .runtime import (
     runtime_collection_set,
     normalize_runtime_index,
     make_vmap,
-    runtime_value_index_get,
-    runtime_value_index_set,
 )
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
@@ -106,6 +90,7 @@ from .runtime.vflist import VFLinkedList
 
 # Sentinel: no outer ``$`` in ``env`` before a :class:`ast.MatchStmt` binds it.
 _NO_PREVIOUS_DOLLAR = object()
+_IR_FALLBACK = object()
 
 OPERATOR_SYMBOLS = frozenset(
     {
@@ -579,7 +564,7 @@ class OpCallable:
     ip: Any  # Interpreter
 
     def __call__(self, *args: Any) -> Any:
-        return self.ip._dispatch_op_call(self.symbol, list(args))
+        return self.ip._call(self, list(args), self.ip.globals)
 
 
 @dataclass
@@ -606,6 +591,9 @@ class Interpreter:
         self.cast_overloads: dict[str, list[VFunction]] = {}
         # `@:` may only return to the nearest callable `:` scope.
         self._return_scope_depth: int = 0
+        self.last_execution_engine: str | None = None
+        self.last_function_execution_engine: str | None = None
+        self.last_callable_execution_engine: str | None = None
         self._merge_stdlibs()
         self.builtin["take"] = _builtin_take
         self.builtin["to_list"] = _builtin_to_list
@@ -673,25 +661,22 @@ class Interpreter:
             env[target.name] = val
             return
         if isinstance(target, ast.Attribute):
-            if target.name == "idx":
-                base = self.eval_expr(target.value, env)
-                if not is_axis_tagged_value(base):
-                    raise EvalError(".idx assignment requires an axis-tagged value")
-                if not isinstance(val, str):
-                    raise EvalError("idx must be a string")
-                axis_tagged_set_idx(base, val)
-                return
             root_name, keys = _attribute_chain(target)
             if root_name not in env:
                 raise EvalError(
                     f"cannot assign struct field: {root_name!r} is not bound in this scope"
                 )
-            d = env[root_name]
-            if runtime_collection_assign_path(d, keys, val):
+            from .ir_executor import execute_dot_attr_assign_via_runtime
+
+            handled, updated = execute_dot_attr_assign_via_runtime(
+                env[root_name],
+                keys,
+                val,
+            )
+            if handled:
+                env[root_name] = updated
                 return
-            if not isinstance(d, dict):
-                raise EvalError("field bind requires struct")
-            env[root_name] = _dict_set_path(d, keys, val)
+            raise EvalError("field bind requires struct")
             return
         if isinstance(target, ast.DottedIndex):
             if all(isinstance(ix, ast.Ident) for ix in target.indices):
@@ -708,23 +693,19 @@ class Interpreter:
                 return
             container = self.eval_expr(target.base, env)
             idxs = [self.eval_expr(i, env) for i in target.indices]
-            n = len(idxs)
-            if n == 0:
-                raise EvalError("empty .() bind")
-            if n == 1:
-                _dotted_set_one(container, idxs[0], val)
+            from .ir_executor import execute_dot_index_assign_via_runtime
+
+            handled, _ = execute_dot_index_assign_via_runtime(container, idxs, val)
+            if handled:
                 return
-            if not isinstance(val, (list, tuple)):
-                raise EvalError("multi-index bind requires a tuple or list value")
-            vals = list(val)
-            if len(vals) != n:
-                raise EvalError("index count and value count must match")
-            for i, v in zip(idxs, vals):
-                _dotted_set_one(container, i, v)
-            return
+            raise EvalError("cannot assign through .() on this value")
         raise EvalError("invalid bind target")
 
     def run_module(self, module: ast.Module) -> Any:
+        ir_result = self._run_module_via_ir_if_supported(module)
+        if ir_result is not _IR_FALLBACK:
+            self.last_execution_engine = "ir"
+            return ir_result
         env = self.globals
         # A file/module is an outer callable `:` scope: top-level `@:` returns from the file.
         self._return_scope_depth += 1
@@ -742,7 +723,26 @@ class Interpreter:
                     sys.exit(e.code)
             return None
         finally:
+            self.last_execution_engine = "ast"
             self._return_scope_depth -= 1
+
+    def _run_module_via_ir_if_supported(self, module: ast.Module) -> Any:
+        from .ir_executor import execute_ast_module_via_ir
+
+        try:
+            outcome = execute_ast_module_via_ir(
+                self.file_path,
+                module,
+                globals_env=self.globals,
+                types_env=self.types,
+            )
+        except NotImplementedError:
+            return _IR_FALLBACK
+        self.globals.clear()
+        self.globals.update(outcome.globals)
+        self.types.clear()
+        self.types.update(outcome.types)
+        return outcome.result
 
     def eval_stmt(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ast.ContinueStmt):
@@ -772,7 +772,9 @@ class Interpreter:
             if node.declared_type is not None:
                 value = self.eval_expr(node.value, env)
                 resolved_type = self._resolve_runtime_type_expr(node.declared_type, env)
-                coerced, _ = coerce_typed_value(value, resolved_type, self.types)
+                from .ir_executor import execute_typed_coercion_via_runtime
+
+                coerced, _ = execute_typed_coercion_via_runtime(value, resolved_type, self.types)
                 self._assign_bind(node.target, coerced, env)
                 return None
             if isinstance(node.target, ast.Ident) and isinstance(
@@ -917,16 +919,15 @@ class Interpreter:
         raise EvalError(f"unknown stmt {type(node).__name__}")
 
     def _match_eq(self, a: Any, b: Any) -> bool:
-        return runtime_match_eq(a, b, self.types, lambda x, y: bool(_binop("EQ", x, y)))
+        from .ir_executor import execute_match_eq_via_runtime
+
+        return execute_match_eq_via_runtime(a, b, self.types)
 
     def _match_specificity(self, a: Any, b: Any) -> int | None:
         """Return match specificity for ``??`` arm selection, or ``None`` when not matched."""
-        return runtime_match_specificity(
-            a,
-            b,
-            self.types,
-            lambda x, y: bool(_binop("EQ", x, y)),
-        )
+        from .ir_executor import execute_match_specificity_via_runtime
+
+        return execute_match_specificity_via_runtime(a, b, self.types)
 
     def _eval_match_body(self, body: Any, env: dict[str, Any]) -> None:
         if isinstance(body, ast.Block):
@@ -939,70 +940,31 @@ class Interpreter:
         # Semantics: nested if/else over discriminant equality; ``$`` is the subject.
         # ``??>`` repeats automatically; ``??`` runs once.
         # Bind ``$`` in ``env`` (no copy): arm bodies must update the same dict as the discriminant sees.
+        from .ir_executor import execute_catch_match_via_runtime, execute_match_stmt_via_runtime
+
         prev_dollar: Any = env.get("$", _NO_PREVIOUS_DOLLAR)
         try:
             if node.catch:
-                try:
-                    self.eval_expr(node.discriminant, env)
-                    return
-                except (ControlFlow, SystemExit):
-                    raise
-                except BaseException as exc:
-                    disc = exc
-                env["$"] = disc
-                best_arm: ast.MatchArm | None = None
-                best_spec = -1
-                default_arm: ast.MatchArm | None = None
-                for arm in node.arms:
-                    if arm.condition is None:
-                        if default_arm is None:
-                            default_arm = arm
-                        continue
-                    m = self.eval_expr(arm.condition, env)
-                    spec = self._match_specificity(disc, m)
-                    if spec is None:
-                        continue
-                    if spec > best_spec:
-                        best_spec = spec
-                        best_arm = arm
-                chosen = best_arm if best_arm is not None else default_arm
-                if chosen is not None:
-                    self._eval_match_body(chosen.body, env)
-                    return
-                raise disc
-            while True:
-                disc = self.eval_expr(node.discriminant, env)
-                env["$"] = disc
-                best_arm: ast.MatchArm | None = None
-                best_spec = -1
-                default_arm: ast.MatchArm | None = None
-                for arm in node.arms:
-                    if arm.condition is None:
-                        if default_arm is None:
-                            default_arm = arm
-                        continue
-                    m = self.eval_expr(arm.condition, env)
-                    spec = self._match_specificity(disc, m)
-                    if spec is None:
-                        continue
-                    if spec > best_spec:
-                        best_spec = spec
-                        best_arm = arm
-                chosen = best_arm if best_arm is not None else default_arm
-                if chosen is not None:
-                    if node.loop:
-                        try:
-                            self._eval_match_body(chosen.body, env)
-                        except ContinueSignal:
-                            continue
-                        except BreakSignal:
-                            return
-                    else:
-                        self._eval_match_body(chosen.body, env)
-                    if not node.loop:
-                        return
-                    continue
-                return
+                return execute_catch_match_via_runtime(
+                    eval_discriminant=lambda: self.eval_expr(node.discriminant, env),
+                    arms=node.arms,
+                    eval_condition=lambda condition: self.eval_expr(condition, env),
+                    match_specificity=self._match_specificity,
+                    run_body=lambda arm, _disc: self._eval_match_body(arm.body, env),
+                    set_subject=lambda disc: env.__setitem__("$", disc),
+                    rethrow=lambda disc: (_ for _ in ()).throw(disc),
+                    passthrough=(ControlFlow, SystemExit),
+                )
+            return execute_match_stmt_via_runtime(
+                loop=node.loop,
+                arms=node.arms,
+                eval_discriminant=lambda: self.eval_expr(node.discriminant, env),
+                eval_condition=lambda condition: self.eval_expr(condition, env),
+                match_specificity=self._match_specificity,
+                run_body=lambda arm, disc: (env.__setitem__("$", disc), self._eval_match_body(arm.body, env))[1],
+                continue_signal=ContinueSignal,
+                break_signal=BreakSignal,
+            )
         finally:
             if prev_dollar is _NO_PREVIOUS_DOLLAR:
                 env.pop("$", None)
@@ -1013,21 +975,20 @@ class Interpreter:
         self._eval_match(node, env)
         return None
 
+    def _eval_conditional_expr(self, node: ast.ConditionalExpr, env: dict[str, Any]) -> Any:
+        from .ir_executor import execute_conditional_control_via_runtime
+
+        return execute_conditional_control_via_runtime(
+            loop=node.loop,
+            eval_condition=lambda: self.eval_expr(node.condition, env),
+            run_body=lambda: self._eval_match_body(node.body, env),
+            continue_signal=ContinueSignal,
+            break_signal=BreakSignal,
+        )
+
     def eval_expr(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ast.ConditionalExpr):
-            if node.loop:
-                while bool(self.eval_expr(node.condition, env)):
-                    try:
-                        self._eval_match_body(node.body, env)
-                    except ContinueSignal:
-                        continue
-                    except BreakSignal:
-                        return None
-                return None
-            if not bool(self.eval_expr(node.condition, env)):
-                return None
-            self._eval_match_body(node.body, env)
-            return None
+            return self._eval_conditional_expr(node, env)
         if isinstance(node, ast.MatchStmt):
             return self._eval_match_as_value(node, env)
         if isinstance(node, ast.NumberLit):
@@ -1053,30 +1014,16 @@ class Interpreter:
                 parts = path.split(".")
                 if not parts:
                     raise EvalError("empty interpolation path")
-                v = self._resolve(parts[0], env)
-                for p in parts[1:]:
-                    handled, stepped = runtime_collection_path_step(
-                        v, p, missing_suffix=" in string interpolation"
-                    )
-                    if handled:
-                        v = stepped
-                    elif isinstance(v, dict):
-                        if p not in v:
-                            raise EvalError(
-                                f"missing field {p!r} in string interpolation"
-                            )
-                        v = v[p]
-                    elif getattr(type(v), "__vf_py_attrs__", False):
-                        if not hasattr(v, p):
-                            raise EvalError(
-                                f"missing attribute {p!r} in string interpolation"
-                            )
-                        v = getattr(v, p)
-                    else:
-                        raise EvalError(
-                            "string interpolation path requires a struct value"
-                        )
-                return v
+                from .ir_executor import execute_named_path_chain_via_runtime
+
+                return execute_named_path_chain_via_runtime(
+                    self._build_ir_operator_overload_env(),
+                    self._resolve(parts[0], env),
+                    parts[1:],
+                    self.types,
+                    missing_suffix=" in string interpolation",
+                    resolve_dispatch_result=self._resolve_ir_runtime_dispatch_result,
+                )
 
             return interpolate_string(
                 s,
@@ -1200,100 +1147,30 @@ class Interpreter:
         if isinstance(node, ast.Call):
             fn = self.eval_expr(node.func, env)
             pos, kw, spreads = self._eval_call_args(node.args, env)
-            ctor_result = runtime_collection_ctor_call(fn, pos, kw, spreads)
-            if ctor_result is not None:
-                return ctor_result
-            if isinstance(fn, OpCallable):
-                if kw or spreads:
-                    raise EvalError(f"operator calls do not accept keyword or spread arguments")
-                return fn(*pos)
-            if isinstance(fn, PrimType):
-                if kw or spreads:
-                    raise EvalError("type casts do not accept keyword or spread arguments")
-                if len(pos) == 1:
-                    variants = self.cast_overloads.get(fn.name) or []
-                    cast_fn = _pick_best_overload([f for f in variants if len(f.params) == 1], pos, self.types)
-                    if cast_fn is not None:
-                        return self._call(cast_fn, pos, env)
-                return fn(*pos)
-            if isinstance(fn, VStructCtor):
-                if spreads:
-                    raise EvalError("struct constructor does not support spread arguments")
-                return self._call_struct_ctor(fn, pos, kw, env)
-            if kw or spreads:
-                if isinstance(fn, VFunction):
-                    raise EvalError(
-                        "this call does not accept keyword or spread arguments"
-                    )
-                if spreads:
-                    raise EvalError("this call does not support spread arguments")
-                if callable(fn):
-                    return fn(*pos, **kw)
-                raise EvalError(
-                    "this call does not accept keyword or spread arguments"
-                )
-            return self._call(fn, pos, env)
+            return self._call(fn, pos, env, kw, spreads)
         if isinstance(node, ast.Attribute):
             o = self.eval_expr(node.value, env)
-            if node.name == "idx":
-                idx = axis_tagged_idx(o)
-                if idx is not None:
-                    return idx
-            if isinstance(o, VStructCtor):
-                raise EvalError(
-                    f"{o.name} is a struct constructor; call {o.name}(...) to get a value"
-                )
-            if isinstance(o, VFunction):
-                param_names = {p.name for p in o.params}
-                if node.name in param_names:
-                    raise EvalError(
-                        f"cannot read parameter {node.name!r} on function; "
-                        "it is only bound when the function is called"
-                    )
-                if node.name in o.field_sources:
-                    rhs = o.field_sources[node.name]
-                    if _expr_refs_param(rhs, param_names):
-                        return _expr_to_compact_string(rhs)
-                    e2 = dict(o.closure)
-                    return self.eval_expr(rhs, e2)
-                raise EvalError(
-                    f"function has no body binding {node.name!r}"
-                )
-            collection_attr = runtime_collection_read_attr(o, node.name)
-            if collection_attr is not None:
-                return collection_attr
-            if isinstance(o, dict):
-                try:
-                    return read_struct_field(o, node.name, EvalError)
-                except EvalError:
-                    pass
-                if is_struct_dict(o):
-                    variants = self.op_overloads.get(".") or []
-                    fn = _pick_best_overload([f for f in variants if len(f.params) == 2], [o, node.name], self.types)
-                    if fn is not None:
-                        return self._call(fn, [o, node.name], env)
-                raise EvalError(f"missing field {node.name!r}")
-            if getattr(type(o), "__vf_py_attrs__", False):
-                if not hasattr(o, node.name):
-                    raise EvalError(f"missing attribute {node.name!r}")
-                return getattr(o, node.name)
-            raise EvalError("attribute access on non-struct")
+            from .ir_executor import execute_dot_attr_expr_via_runtime
+
+            return execute_dot_attr_expr_via_runtime(
+                self._build_ir_operator_overload_env(),
+                o,
+                node.name,
+                self.types,
+                resolve_dispatch_result=self._resolve_ir_runtime_dispatch_result,
+            )
         if isinstance(node, ast.DottedIndex):
             base = self.eval_expr(node.base, env)
             keys = [self.eval_expr(i, env) for i in node.indices]
-            if len(keys) == 0:
-                raise EvalError("empty .()")
-            if len(keys) == 1:
-                try:
-                    return _dotted_get_one(base, keys[0])
-                except Exception:
-                    if isinstance(base, dict) and is_struct_dict(base):
-                        variants = self.op_overloads.get(".") or []
-                        fn = _pick_best_overload([f for f in variants if len(f.params) == 2], [base, keys[0]], self.types)
-                        if fn is not None:
-                            return self._call(fn, [base, keys[0]], env)
-                    raise
-            return tuple(_dotted_get_one(base, k) for k in keys)
+            from .ir_executor import execute_dot_index_expr_via_runtime
+
+            return execute_dot_index_expr_via_runtime(
+                self._build_ir_operator_overload_env(),
+                base,
+                keys,
+                self.types,
+                resolve_dispatch_result=self._resolve_ir_runtime_dispatch_result,
+            )
         if isinstance(node, ast.AbsExpr):
             from .runtime.absnorm import abs_or_norm
 
@@ -1307,17 +1184,11 @@ class Interpreter:
             return infer_type(v, self.types)
         raise EvalError(f"unknown expr {type(node).__name__}")
 
-    def _dispatch_op_call(self, sym: str, args: list[Any]) -> Any:
-        variants = self.op_overloads.get(sym) or []
-        fns = [f for f in variants if len(f.params) == len(args)]
-        fn = _pick_best_overload(fns, args, self.types)
-        if fn is None:
-            raise EvalError(f"no matching overload for {sym!r} with {len(args)} argument(s)")
-        return self._call(fn, args, self.globals)
-
     def _coerce_param(self, val: Any, p: ast.Param) -> Any:
         if p.type_ref is not None:
-            coerced, _ = coerce_typed_value(val, p.type_ref, self.types)
+            from .ir_executor import execute_typed_coercion_via_runtime
+
+            coerced, _ = execute_typed_coercion_via_runtime(val, p.type_ref, self.types)
             return coerced
         if p.param_func_type is not None:
             if not isinstance(val, VFunction):
@@ -1336,26 +1207,190 @@ class Interpreter:
             return val
         return coerce_value(val, p.type_name)
 
-    def _call(self, fn: Any, args: list[Any], env: dict[str, Any]) -> Any:
+    def _call(
+        self,
+        fn: Any,
+        args: list[Any],
+        env: dict[str, Any],
+        kw: dict[str, Any] | None = None,
+        spreads: list[Any] | None = None,
+    ) -> Any:
+        user_callable_result = self._call_user_callable_via_execution_seam(
+            fn,
+            args,
+            env,
+            kw or {},
+            spreads or [],
+        )
+        if user_callable_result is not _IR_FALLBACK:
+            return user_callable_result
+        if spreads:
+            raise EvalError("this call does not support spread arguments")
+        if callable(fn):
+            return fn(*args, **(kw or {}))
+        if kw:
+            raise EvalError(
+                "this call does not accept keyword or spread arguments"
+            )
+        raise EvalError(f"not callable: {type(fn).__name__}")
+
+    def _call_user_callable_via_execution_seam(
+        self,
+        fn: Any,
+        args: list[Any],
+        env: dict[str, Any],
+        kw: dict[str, Any],
+        spreads: list[Any],
+    ) -> Any:
+        from .ir_executor import execute_runtime_callable_via_runtime
+
+        handled, runtime_result = execute_runtime_callable_via_runtime(fn, args, kw, spreads)
+        if handled:
+            self.last_callable_execution_engine = "runtime"
+            return runtime_result
         if isinstance(fn, VFunction):
-            loc = dict(fn.closure)
+            if kw or spreads:
+                raise EvalError(
+                    "this call does not accept keyword or spread arguments"
+                )
             size_bindings: dict[str, int] = {}
+            prepared_args: list[Any] = []
             for p, a in zip(fn.params, args):
                 if p.type_ref is not None:
-                    coerced, size_bindings = coerce_typed_value(a, p.type_ref, self.types, size_bindings)
-                    loc[p.name] = coerced
+                    from .ir_executor import execute_typed_coercion_via_runtime
+
+                    coerced, size_bindings = execute_typed_coercion_via_runtime(
+                        a,
+                        p.type_ref,
+                        self.types,
+                        size_bindings,
+                    )
+                    prepared_args.append(coerced)
                 else:
-                    loc[p.name] = self._coerce_param(a, p)
-            result = self._eval_function_body(fn.body, loc)
+                    prepared_args.append(self._coerce_param(a, p))
+            ir_result = self._call_function_via_ir_if_supported(fn, prepared_args)
+            if ir_result is not _IR_FALLBACK:
+                self.last_function_execution_engine = "ir"
+                self.last_callable_execution_engine = "ir"
+                result = ir_result
+            else:
+                loc = dict(fn.closure)
+                for p, a in zip(fn.params, prepared_args):
+                    loc[p.name] = a
+                self.last_function_execution_engine = "ast"
+                self.last_callable_execution_engine = "ast"
+                result = self._eval_function_body(fn.body, loc)
             if fn.func_type is not None:
                 resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
-                result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
+                from .ir_executor import execute_typed_coercion_via_runtime
+
+                result, _ = execute_typed_coercion_via_runtime(
+                    result,
+                    resolved_return,
+                    self.types,
+                    size_bindings,
+                )
             return result
-        if isinstance(fn, VStructCtor):
-            return self._call_struct_ctor(fn, args, {}, env)
-        if callable(fn):
-            return fn(*args)
-        raise EvalError(f"not callable: {type(fn).__name__}")
+        if isinstance(fn, OpCallable):
+            if kw or spreads:
+                raise EvalError(
+                    "operator calls do not accept keyword or spread arguments"
+                )
+            variants = self.op_overloads.get(fn.symbol) or []
+            overload = _pick_best_overload(
+                [candidate for candidate in variants if len(candidate.params) == len(args)],
+                args,
+                self.types,
+            )
+            if overload is None:
+                raise EvalError(
+                    f"no matching overload for {fn.symbol!r} with {len(args)} argument(s)"
+                )
+            return self._call(overload, args, self.globals)
+        if isinstance(fn, PrimType):
+            self.last_callable_execution_engine = "runtime"
+            from .ir_executor import execute_primitive_cast_call_via_runtime
+
+            return execute_primitive_cast_call_via_runtime(
+                fn,
+                args,
+                kw,
+                spreads,
+                pick_overload=lambda name, call_args: _pick_best_overload(
+                    [f for f in (self.cast_overloads.get(name) or []) if len(f.params) == 1],
+                    call_args,
+                    self.types,
+                ),
+                dispatch_overload=lambda overload, overload_args: self._call(overload, overload_args, env),
+            )
+        return _IR_FALLBACK
+
+    def _call_function_via_ir_if_supported(self, fn: VFunction, args: list[Any]) -> Any:
+        from .ir_executor import execute_function_via_ir
+
+        try:
+            return execute_function_via_ir(
+                self.file_path,
+                name=fn.name,
+                params=fn.params,
+                body=fn.body,
+                closure=fn.closure,
+                args=args,
+                func_type=fn.func_type,
+                types_env=self.types,
+            )
+        except NotImplementedError:
+            return _IR_FALLBACK
+
+    def _lower_vfunction_to_ir_function(self, fn: VFunction) -> Any:
+        from .ir import lower_function_parts
+        from .ir_executor import IRFunctionValue
+
+        types_copy = dict(self.types)
+        lowered_body, param_types, return_type = lower_function_parts(
+            fn.params,
+            fn.body,
+            fn.func_type,
+            types_copy,
+        )
+        ir_fn = IRFunctionValue(
+            name=fn.name or "",
+            params=[p.name for p in fn.params],
+            body=lowered_body,
+            closure=dict(fn.closure),
+            param_specs=list(fn.params),
+            param_types=param_types,
+            return_type=return_type,
+        )
+        if fn.name:
+            ir_fn.closure[fn.name] = ir_fn
+        return ir_fn
+
+    def _call_ir_function_value(self, fn: Any, args: list[Any]) -> Any:
+        from .ir_executor import IRExecutor
+
+        executor = IRExecutor(self.file_path)
+        executor.types.update(dict(self.types))
+        return executor._call(fn, args)
+
+    def _build_ir_operator_overload_env(self) -> dict[str, Any]:
+        from .ir_executor import IROverloadedCallable
+
+        return {
+            symbol: IROverloadedCallable(
+                symbol,
+                [self._lower_vfunction_to_ir_function(fn) for fn in variants],
+            )
+            for symbol, variants in self.op_overloads.items()
+        }
+
+    def _resolve_ir_runtime_dispatch_result(self, result: Any) -> Any:
+        from .ir_executor import resolve_runtime_dispatch_result
+
+        return resolve_runtime_dispatch_result(
+            result,
+            dispatch_callable=self._call_ir_function_value,
+        )
 
     def _call_struct_ctor(
         self,
@@ -1365,15 +1400,14 @@ class Interpreter:
         _env: dict[str, Any],
     ) -> Any:
         # _env / fn.closure reserved for future default expressions
-        by_name = bind_struct_constructor_fields(
-            fn.name,
-            fn.params,
-            pos,
-            kw,
-            coerce_value,
-            EvalError,
+        from .ir_executor import execute_struct_constructor_via_runtime
+
+        return execute_struct_constructor_via_runtime(
+            name=fn.name,
+            params=fn.params,
+            pos=pos,
+            kw=kw,
         )
-        return construct_struct_value(fn.name, by_name)
 
     def _eval_function_body(self, body: Any, env: dict[str, Any]) -> Any:
         """Implicit return: only the last *function-scope* statement counts.
@@ -1437,21 +1471,16 @@ class Interpreter:
 
     def _eval_unary(self, node: ast.UnaryOp, env: dict[str, Any]) -> Any:
         v = self.eval_expr(node.operand, env)
-        sym = UNARY_KIND_TO_SYM.get(node.op)
-        if sym and isinstance(v, dict) and is_struct_dict(v):
-            variants = self.op_overloads.get(sym) or []
-            f1 = [f for f in variants if len(f.params) == 1]
-            fn = _pick_best_overload(f1, [v], self.types)
-            if fn is not None:
-                return self._call(fn, [v], env)
-        handled, result = apply_struct_unary_fallback(node.op, v, EvalError)
-        if handled:
-            return result
-        if node.op == "MINUS":
-            return -v
-        if node.op == "NOT":
-            return not bool(v)
-        raise EvalError(f"unknown unary {node.op}")
+        from .ir_executor import execute_unary_expr_via_runtime
+
+        overload_env = self._build_ir_operator_overload_env()
+        return execute_unary_expr_via_runtime(
+            overload_env,
+            node.op,
+            v,
+            self.types,
+            dispatch_callable=self._call_ir_function_value,
+        )
 
     def _pipe_bind_dollar(self, rhs: Any, env: dict[str, Any], dollar: Any) -> Any:
         """Pipe RHS is an expression or ``;``-separated stmts (``Block``): ``::$``, ``$? …``, etc."""
@@ -1630,56 +1659,17 @@ class Interpreter:
             raise EvalError("internal: use PipeChain for `>>`, not BinOp(PIPE)")
         a = self.eval_expr(node.left, env)
         b = self.eval_expr(node.right, env)
-        if node.op == "EQ" and is_type_value(a) and is_type_value(b):
-            return types_equal(a, b)
-        if node.op == "NEQ" and is_type_value(a) and is_type_value(b):
-            return not types_equal(a, b)
-        sym = BINOP_KIND_TO_SYM.get(node.op)
-        sd = bool(is_struct_dict(a) and is_struct_dict(b))
-        if sym and (is_struct_dict(a) or is_struct_dict(b)):
-            variants = self.op_overloads.get(sym) or []
-            f2 = [f for f in variants if len(f.params) == 2]
-            fn = _pick_best_overload(f2, [a, b], self.types)
-            if fn is not None:
-                return self._call(fn, [a, b], env)
-        if sym and sd:
-            if node.op == "AMPERSAND":
-                return merge_struct_values(a, b)
-            comparison = struct_compare_binop(node.op, a, b, self.types)
-            if comparison is not None:
-                return comparison
-            if node.op in (
-                "PLUS",
-                "MINUS",
-                "STAR",
-                "SLASH",
-                "PERCENT",
-                "CARET",
-            ):
-                defaulted = _default_struct_elementwise_binop(
-                    node.op, a, b, self.types
-                )
-                if defaulted is not None:
-                    return defaulted
-            if node.op == "PLUS":
-                raise EvalError(
-                    "struct + struct requires a +(a, b): … overload "
-                    "(same field names and types, or define + with two parameters)"
-                )
-            raise EvalError(
-                f"no overload for {sym} on two structs; define {sym}(a, b): …"
-            )
-        if node.op == "PLUS":
-            if isinstance(a, str) and not isinstance(b, str):
-                return a + _stringify(b, self.types)
-            if isinstance(b, str) and not isinstance(a, str):
-                return _stringify(a, self.types) + b
-        if node.op == "AMPERSAND":
-            if isinstance(a, str) and not isinstance(b, str):
-                return a + _stringify(b, self.types)
-            if isinstance(b, str) and not isinstance(a, str):
-                return _stringify(a, self.types) + b
-        return _binop(node.op, a, b)
+        from .ir_executor import execute_binary_expr_via_runtime
+
+        overload_env = self._build_ir_operator_overload_env()
+        return execute_binary_expr_via_runtime(
+            overload_env,
+            node.op,
+            a,
+            b,
+            self.types,
+            dispatch_callable=self._call_ir_function_value,
+        )
 
     def _eval_dot_module(self, path: ast.DotModulePath) -> Any:
         segs = path.segments
@@ -1772,21 +1762,6 @@ def _attribute_chain(target: ast.Attribute) -> tuple[str, list[str]]:
     return cur.name, keys
 
 
-def _dict_set_path(d: dict, keys: list[str], val: Any) -> dict:
-    """Immutable struct update: new dict tree with ``keys`` set to ``val``."""
-    if len(keys) == 1:
-        out = dict(d)
-        out[keys[0]] = val
-        return out
-    k0 = keys[0]
-    child = d.get(k0)
-    if not isinstance(child, dict):
-        child = {}
-    out = dict(d)
-    out[k0] = _dict_set_path(dict(child), keys[1:], val)
-    return out
-
-
 def _exports(env: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in env.items() if not k.startswith("_")}
 
@@ -1830,30 +1805,6 @@ def _builtin_to_list(n: Any, seq: Any) -> list[Any]:
 def _builtin_to_multiset(n: Any, seq: Any) -> Multiset:
     """Build a multiset from the first ``n`` elements (count 1 per occurrence)."""
     return runtime_collection_to_multiset(_builtin_take(n, seq))
-
-
-def _dotted_get_one(base: Any, k: Any) -> Any:
-    handled, value = runtime_value_index_get(
-        base,
-        k,
-        EvalError,
-        runtime_collection_index_read,
-    )
-    if handled:
-        return value
-    raise EvalError(".(...) on unsupported value")
-
-
-def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
-    if runtime_value_index_set(
-        container,
-        k,
-        val,
-        EvalError,
-        runtime_collection_index_set,
-    ):
-        return
-    raise EvalError("cannot assign through .() on this value")
 
 
 def _normalize_index(idx: Any) -> Any:

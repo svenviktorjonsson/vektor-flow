@@ -781,6 +781,284 @@ def test_ui_draggable_rect_example_renders_pixels_in_browser() -> None:
             assert alpha_pixels > 0, "expected draggable rect example to draw visible pixels"
 
 
+def _public_ui_geom_meshes(build_scene: Any) -> list[dict[str, Any]]:
+    _scene_json, display_json = _scene_and_display_from_public_ui(build_scene)
+    payload = json.loads(display_json)
+    frame_id = next(iter(payload["geom"]))
+    return list(payload["geom"][frame_id]["meshes"])
+
+
+def test_public_ui_add_0d_defaults_to_point_only_vertices() -> None:
+    def _build_scene(d: Any) -> None:
+        d.add_frame((0.1, 0.1, 0.4, 0.4))
+        d.add(x=0.0, y=0.0, z=0.0, color="red")
+
+    mesh = _public_ui_geom_meshes(_build_scene)[0]
+    assert mesh["manifold_dim_count"] == 0
+    assert mesh["topology"] == "point-list"
+    assert mesh["indices"] == [0]
+    assert mesh["vertex_size"] == 4
+    assert mesh["edge_width"] == 0
+
+
+def test_public_ui_add_1d_defaults_to_line_only_edges() -> None:
+    def _build_scene(d: Any) -> None:
+        d.add_frame((0.1, 0.1, 0.4, 0.4))
+        d.add(x_u=[0.0, 1.0], y_u=[0.0, 0.0], z_u=[0.0, 0.0], color="green")
+
+    mesh = _public_ui_geom_meshes(_build_scene)[0]
+    assert mesh["manifold_dim_count"] == 1
+    assert mesh["topology"] == "line-list"
+    assert mesh["indices"] == [0, 1]
+    assert mesh["vertex_size"] == 0
+    assert mesh["edge_width"] == 4
+
+
+def test_public_ui_add_2d_defaults_to_face_only_mesh() -> None:
+    def _build_scene(d: Any) -> None:
+        d.add_frame((0.1, 0.1, 0.4, 0.4))
+        d.add(
+            x_uv=[[0.0, 1.0], [0.0, 1.0]],
+            y_uv=[[0.0, 0.0], [1.0, 1.0]],
+            z_uv=[[0.0, 0.0], [0.0, 0.0]],
+            color="blue",
+        )
+
+    mesh = _public_ui_geom_meshes(_build_scene)[0]
+    assert mesh["manifold_dim_count"] == 2
+    assert mesh["topology"] == "triangle-list"
+    assert mesh["indices"] == [0, 1, 2, 3, 4, 5]
+    assert mesh["vertex_size"] == 0
+    assert mesh["edge_width"] == 0
+
+
+def test_public_ui_add_explicit_overlay_size_overrides_defaults() -> None:
+    def _build_scene(d: Any) -> None:
+        d.add_frame((0.1, 0.1, 0.4, 0.4))
+        d.add(
+            x_uv=[[0.0, 1.0], [0.0, 1.0]],
+            y_uv=[[0.0, 0.0], [1.0, 1.0]],
+            z_uv=[[0.0, 0.0], [0.0, 0.0]],
+            vertex_size=6,
+            edge_width=3,
+            color="yellow",
+        )
+
+    mesh = _public_ui_geom_meshes(_build_scene)[0]
+    assert mesh["manifold_dim_count"] == 2
+    assert mesh["topology"] == "triangle-list"
+    assert mesh["vertex_size"] == 6
+    assert mesh["edge_width"] == 3
+
+
+def test_public_ui_add_overlay_sizes_are_per_mesh_isolated() -> None:
+    def _build_scene(d: Any) -> None:
+        d.add_frame((0.1, 0.1, 0.4, 0.4))
+        d.add(x=0.0, y=0.0, z=0.0, vertex_size=9, color="red")
+        d.add(x_u=[0.0, 1.0], y_u=[0.0, 0.0], z_u=[0.0, 0.0], edge_width=2, color="green")
+        d.add(x=1.0, y=0.0, z=0.0, color="blue")
+
+    first, second, third = _public_ui_geom_meshes(_build_scene)
+    assert (first["vertex_size"], first["edge_width"]) == (9, 0)
+    assert (second["vertex_size"], second["edge_width"]) == (0, 2)
+    assert (third["vertex_size"], third["edge_width"]) == (4, 0)
+
+
+@pytest.mark.network
+def test_browser_field_overlays_expand_to_rounded_scale_independent_triangle_impostors(vf_ui_http_base: str) -> None:
+    url = f"{vf_ui_http_base}/{INDEX_DOC}"
+    with _chromium_page() as page:
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_function("() => !!(window.VfDisplay && window.VfDisplay.__test && window.VfGeomCore)")
+        result = page.evaluate(
+            """() => {
+              const camera = { pos: [0, 0, 5], target: [0, 0, 0], fov: 45, up: [0, 1, 0] };
+              const pointSpec = (scale) => ({
+                type: "field_mesh",
+                id: "p" + scale,
+                vertices: [0, 0, 0, 0, 0, 1, 1, 0, 0, 1],
+                indices: [0],
+                topology: "point-list",
+                manifold_dim_count: 0,
+                vertex_size: 8,
+                edge_width: 0,
+                center: [0, 0, 0],
+                rotation: [0, 0, 0],
+                scale: [scale, scale, scale],
+                color: [1, 0, 0, 1],
+              });
+              const lineSpec = {
+                type: "field_mesh",
+                id: "line",
+                vertices: [
+                  -0.5, 0, 0, 0, 0, 1, 0, 1, 0, 1,
+                   0.5, 0, 0, 0, 0, 1, 0, 1, 0, 1,
+                ],
+                indices: [0, 1],
+                topology: "line-list",
+                manifold_dim_count: 1,
+                vertex_size: 0,
+                edge_width: 6,
+                center: [0, 0, 0],
+                rotation: [0, 0, 0],
+                scale: [20, 20, 20],
+                color: [0, 1, 0, 1],
+              };
+              const bounds = (mesh) => {
+                let minX = Infinity;
+                let maxX = -Infinity;
+                for (let i = 0; i < mesh.vertices.length; i += 10) {
+                  minX = Math.min(minX, mesh.vertices[i]);
+                  maxX = Math.max(maxX, mesh.vertices[i]);
+                }
+                return { width: maxX - minX };
+              };
+              const p1 = window.VfDisplay.__test.buildCombinedTriangleMesh([pointSpec(1)], camera, []);
+              const p2 = window.VfDisplay.__test.buildCombinedTriangleMesh([pointSpec(100)], camera, []);
+              const line = window.VfDisplay.__test.buildCombinedTriangleMesh([lineSpec], camera, []);
+              return {
+                pointTopology: p1.topology,
+                pointTriangles: p1.indices.length / 3,
+                pointSpheres: p1.overlay_counts.spheres,
+                pointWidth1: bounds(p1).width,
+                pointWidth2: bounds(p2).width,
+                lineTopology: line.topology,
+                lineCylinders: line.overlay_counts.cylinders,
+                lineSpheres: line.overlay_counts.spheres,
+              };
+            }"""
+        )
+        assert result["pointTopology"] == "triangle-list"
+        assert result["pointTriangles"] > 12, "0D overlays should be rounded, not cube impostors"
+        assert result["pointSpheres"] == 1
+        assert result["pointWidth1"] == pytest.approx(result["pointWidth2"], rel=0.01)
+        assert result["lineTopology"] == "triangle-list"
+        assert result["lineCylinders"] == 1
+        assert result["lineSpheres"] == 2
+
+
+@pytest.mark.network
+def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_shape_ids() -> None:
+    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_polygon_hierarchy_interactive.vkf")
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            canvas = page.locator(".vf-frame__draw-canvas").first
+            canvas.wait_for(state="visible", timeout=30_000)
+            page.evaluate(
+                """() => {
+                  window.__vfCapturedEvents = [];
+                  window.VfDisplay.setEventSink({ postEvent: (evt) => window.__vfCapturedEvents.push(evt) });
+                }"""
+            )
+            assert canvas.evaluate("c => getComputedStyle(c).cursor") == "grab"
+
+            before = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  const pts = op.points.map((p) => [
+                    op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4],
+                    op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5],
+                  ]);
+                  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+                  const cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+                  const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
+                  return { transform: op.transform.slice(), x: r.left + cx * r.width, y: r.top + cy * r.height };
+                }"""
+            )
+            page.mouse.move(before["x"], before["y"])
+            page.mouse.down()
+            page.mouse.move(before["x"] + 54, before["y"] + 18)
+            page.mouse.up()
+
+            after_translate = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  return { transform: op.transform.slice(), cursor: getComputedStyle(document.querySelector(".vf-frame__draw-canvas")).cursor };
+                }"""
+            )
+            assert after_translate["transform"][4] != before["transform"][4]
+            assert after_translate["cursor"] == "grab"
+            captured = page.evaluate("() => window.__vfCapturedEvents")
+            assert captured, "expected browser interaction to post events"
+            assert any(evt.get("shape_id") == "poly3" for evt in captured), "events should carry the hovered/dragged polygon id"
+            page.evaluate("() => window.__vfDisplayHooks.refresh()")
+            page.wait_for_timeout(80)
+            after_refresh = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  return op.transform.slice();
+                }"""
+            )
+            assert after_refresh == after_translate["transform"], "display refresh should not overwrite local polygon interaction state"
+
+            edge = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  const pts = op.points.map((p) => [
+                    op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4],
+                    op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5],
+                  ]);
+                  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+                  const cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+                  const x = pts[0][0] * 0.88 + cx * 0.12;
+                  const y = pts[0][1] * 0.88 + cy * 0.12;
+                  const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
+                  return { transform: op.transform.slice(), x: r.left + x * r.width, y: r.top + y * r.height };
+                }"""
+            )
+            page.mouse.move(edge["x"], edge["y"])
+            page.mouse.down()
+            page.mouse.move(edge["x"] + 70, edge["y"] - 45)
+            page.mouse.up()
+            after_edge = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  return op.transform.slice();
+                }"""
+            )
+            assert after_edge[:4] != edge["transform"][:4], "edge drag should rotate/scale the polygon"
+
+            state_before = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  return { zoom: st.zoom, panX: st.panX, panY: st.panY };
+                }"""
+            )
+            box = canvas.bounding_box()
+            assert box is not None
+            page.mouse.move(box["x"] + box["width"] - 12, box["y"] + box["height"] - 12)
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] - 80, box["y"] + box["height"] - 50)
+            page.mouse.up()
+            canvas.evaluate(
+                """(canvas) => {
+                  canvas.dispatchEvent(new WheelEvent("wheel", {
+                    deltaY: -240,
+                    clientX: canvas.getBoundingClientRect().left + canvas.width * 0.5,
+                    clientY: canvas.getBoundingClientRect().top + canvas.height * 0.5,
+                    bubbles: true,
+                    cancelable: true,
+                  }));
+                }"""
+            )
+            state_after = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  return { zoom: st.zoom, panX: st.panX, panY: st.panY };
+                }"""
+            )
+            assert state_after["zoom"] != state_before["zoom"]
+            assert state_after["panX"] != state_before["panX"] or state_after["panY"] != state_before["panY"]
+
+
 @pytest.mark.network
 def test_ui_parented_3d_example_mounts_geom_canvas_in_browser() -> None:
     scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_parented_3d_local_coords.vkf")
@@ -793,6 +1071,57 @@ def test_ui_parented_3d_example_mounts_geom_canvas_in_browser() -> None:
             box = page.locator(".vf-geom-canvas").first.bounding_box()
             assert box is not None
             assert box["width"] > 16 and box["height"] > 16
+
+
+@pytest.mark.network
+def test_ui_3d_volume_surface_demo_supports_game_camera_controls() -> None:
+    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_3d_volume_surface_camera.vkf")
+    payload = json.loads(display_json)
+    frame_id = next(iter(payload["geom"]))
+    geom = payload["geom"][frame_id]
+    assert len(geom["meshes"]) == 9
+    assert [m["topology"] for m in geom["meshes"][:3]] == ["point-list", "line-list", "triangle-list"]
+    assert geom["meshes"][-1]["solid_volume"] is True
+    assert geom["camera"]["controls"] == {
+        "mode": "game",
+        "cursor": "none",
+        "speed": 2.4,
+        "sensitivity": 0.0022,
+    }
+
+    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
+        url = f"{base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
+            page.wait_for_selector(".vf-geom-canvas", state="visible", timeout=30_000)
+            page.wait_for_timeout(500)
+            assert page.locator(".vf-geom-canvas").count() == 1
+            cursor_before = page.locator(".vf-geom-canvas").first.evaluate("el => getComputedStyle(el).cursor")
+            before = page.evaluate("(fid) => window.VfDisplay.getGameCameraState(fid)", frame_id)
+            box = page.locator(".vf-geom-canvas").last.bounding_box()
+            assert box is not None
+            page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+            page.mouse.down()
+            cursor_active = page.locator(".vf-geom-canvas").first.evaluate("el => getComputedStyle(el).cursor")
+            body_cursor_active = page.evaluate("() => getComputedStyle(document.body).cursor")
+            page.mouse.move(box["x"] + box["width"] * 0.5 + 80, box["y"] + box["height"] * 0.5 - 20)
+            after_mouse = page.evaluate("(fid) => window.VfDisplay.getGameCameraState(fid)", frame_id)
+            page.keyboard.down("w")
+            page.wait_for_timeout(250)
+            page.keyboard.up("w")
+            after = page.evaluate("(fid) => window.VfDisplay.getGameCameraState(fid)", frame_id)
+            page.keyboard.press("Escape")
+            cursor_after_escape = page.locator(".vf-geom-canvas").first.evaluate("el => getComputedStyle(el).cursor")
+
+            assert cursor_before == "default"
+            assert cursor_active == "none"
+            assert body_cursor_active == "none"
+            assert cursor_after_escape == "default"
+            assert before is not None and after_mouse is not None and after is not None
+            assert before["target"] != after_mouse["target"]
+            assert before["pos"] != after["pos"]
+            assert after["pos"][0] != pytest.approx(before["pos"][0])
 
 
 @pytest.mark.network

@@ -364,6 +364,104 @@ fn fs_pick() -> @location(0) vec2<u32> {
   // ---------------------------------------------------------------------------
   // VfGeomWgpu — one renderer per canvas
   // ---------------------------------------------------------------------------
+  function vec3Sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+  function vec3Add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+  function vec3Scale(a, s) { return [a[0] * s, a[1] * s, a[2] * s]; }
+  function vec3Dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+  function vec3Cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  }
+  function vec3Norm(a) {
+    var l = Math.sqrt(vec3Dot(a, a));
+    return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0];
+  }
+  function clipPlaneIntersection(a, da, b, db) {
+    var t = da / (da - db);
+    return [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+      a[2] + (b[2] - a[2]) * t,
+    ];
+  }
+  function pushUniquePoint(points, p) {
+    for (var i = 0; i < points.length; i++) {
+      var q = points[i];
+      var dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+      if (dx * dx + dy * dy + dz * dz < 1e-8) { return; }
+    }
+    points.push(p);
+  }
+  function appendNearPlaneVolumeCaps(mesh, camPos, camTarget, camUp, near) {
+    if (!mesh || mesh.topology !== "triangle-list") { return mesh; }
+    var ranges = Array.isArray(mesh.solid_volume_ranges) ? mesh.solid_volume_ranges.slice() : [];
+    if (mesh.solid_volume) { ranges.push({ start: 0, count: mesh.indices.length }); }
+    if (!ranges.length) { return mesh; }
+
+    var fwd = vec3Norm(vec3Sub(camTarget, camPos));
+    if (vec3Dot(fwd, fwd) < 1e-12) { return mesh; }
+    var capNear = (near || 0.05) + 0.0004;
+    var planePoint = vec3Add(camPos, vec3Scale(fwd, capNear));
+    var right = vec3Norm(vec3Cross(fwd, camUp || [0, 1, 0]));
+    if (vec3Dot(right, right) < 1e-12) { right = [1, 0, 0]; }
+    var up = vec3Norm(vec3Cross(right, fwd));
+    var verts = mesh.vertices;
+    var inds = mesh.indices;
+    var stride = 10;
+    var capVerts = [];
+    var capIdx = [];
+
+    for (var ri = 0; ri < ranges.length; ri++) {
+      var r = ranges[ri];
+      var start = Math.max(0, Number(r.start) || 0);
+      var end = Math.min(inds.length, start + (Number(r.count) || 0));
+      var points = [];
+      for (var ii = start; ii + 2 < end; ii += 3) {
+        var ia = inds[ii] * stride, ib = inds[ii + 1] * stride, ic = inds[ii + 2] * stride;
+        var a = [verts[ia], verts[ia + 1], verts[ia + 2]];
+        var b = [verts[ib], verts[ib + 1], verts[ib + 2]];
+        var c = [verts[ic], verts[ic + 1], verts[ic + 2]];
+        var da = vec3Dot(vec3Sub(a, planePoint), fwd);
+        var db = vec3Dot(vec3Sub(b, planePoint), fwd);
+        var dc = vec3Dot(vec3Sub(c, planePoint), fwd);
+        if ((da < 0 && db >= 0) || (da >= 0 && db < 0)) { pushUniquePoint(points, clipPlaneIntersection(a, da, b, db)); }
+        if ((db < 0 && dc >= 0) || (db >= 0 && dc < 0)) { pushUniquePoint(points, clipPlaneIntersection(b, db, c, dc)); }
+        if ((dc < 0 && da >= 0) || (dc >= 0 && da < 0)) { pushUniquePoint(points, clipPlaneIntersection(c, dc, a, da)); }
+      }
+      if (points.length < 3) { continue; }
+      var center = [0, 0, 0];
+      for (var pi = 0; pi < points.length; pi++) { center = vec3Add(center, points[pi]); }
+      center = vec3Scale(center, 1 / points.length);
+      points.sort(function (p, q) {
+        var px = vec3Dot(vec3Sub(p, center), right), py = vec3Dot(vec3Sub(p, center), up);
+        var qx = vec3Dot(vec3Sub(q, center), right), qy = vec3Dot(vec3Sub(q, center), up);
+        return Math.atan2(py, px) - Math.atan2(qy, qx);
+      });
+      var base = (verts.length + capVerts.length) / stride;
+      var rgbaOff = (inds[start] || 0) * stride + 6;
+      var cr = verts[rgbaOff] || 1, cg = verts[rgbaOff + 1] || 0, cb = verts[rgbaOff + 2] || 0, ca = verts[rgbaOff + 3] || 1;
+      capVerts.push(center[0], center[1], center[2], -fwd[0], -fwd[1], -fwd[2], cr, cg, cb, ca);
+      for (var pj = 0; pj < points.length; pj++) {
+        var p = points[pj];
+        capVerts.push(p[0], p[1], p[2], -fwd[0], -fwd[1], -fwd[2], cr, cg, cb, ca);
+      }
+      for (var tj = 0; tj < points.length; tj++) {
+        capIdx.push(base, base + 1 + ((tj + 1) % points.length), base + 1 + tj);
+      }
+    }
+    if (!capIdx.length) { return mesh; }
+    var outVerts = new Float32Array(verts.length + capVerts.length);
+    outVerts.set(verts, 0);
+    outVerts.set(capVerts, verts.length);
+    var outIdx = new Uint32Array(inds.length + capIdx.length);
+    outIdx.set(inds, 0);
+    outIdx.set(capIdx, inds.length);
+    var out = {};
+    for (var k in mesh) { out[k] = mesh[k]; }
+    out.vertices = outVerts;
+    out.indices = outIdx;
+    return out;
+  }
+
   function VfGeomWgpu(canvas, getMeshFn) {
     this._canvas     = canvas;
     this._getMesh    = getMeshFn;
@@ -515,6 +613,11 @@ fn fs_pick() -> @location(0) vec2<u32> {
       if (!this._device) { return; }
       var mesh = this._getMesh(t * 0.001);
       if (!mesh) { return; }
+      var camEarly = mesh.camera || {};
+      var posEarly = camEarly.pos || [0, 0, 5];
+      var targetEarly = camEarly.target || [0, 0, 0];
+      var upEarly = camEarly.up || [0, 1, 0];
+      mesh = appendNearPlaneVolumeCaps(mesh, posEarly, targetEarly, upEarly, 0.05);
       if (mesh !== this._lastMesh) { this._lastMesh = mesh; this._uploadMesh(mesh); }
       if (!this._vb || !this._ib) { return; }
 
@@ -525,10 +628,10 @@ fn fs_pick() -> @location(0) vec2<u32> {
 
       // --- Camera ---
       var cam   = mesh.camera || {};
-      var pos   = cam.pos    || [0, 0, 5];
-      var target= cam.target || [0, 0, 0];
+      var pos   = cam.pos    || posEarly;
+      var target= cam.target || targetEarly;
       var fov   = cam.fov    !== undefined ? cam.fov : 45;
-      var up    = cam.up     || [0, 1, 0];
+      var up    = cam.up     || upEarly;
 
       var projMat, viewMat, mvp, modelMat;
       // Compute model matrix live from mesh data so rotation/center/scale
@@ -548,13 +651,11 @@ fn fs_pick() -> @location(0) vec2<u32> {
       } else {
         var fovRad = fov * Math.PI / 180;
         projMat  = Mm.mat4PerspectiveZ01(fovRad, asp, 0.05, 500);
-        // auto-spin if no camera is set on mesh
         if (!mesh.camera) {
-          var ang  = t * 0.0008;
-          var tr   = Mm.mat4Translation(0, 0, -5);
-          var rot  = Mm.mat4RotationY(ang);
-          viewMat  = Mm.mat4Mul(tr, rot);
           pos      = [0, 0, 5];
+          target   = [0, 0, 0];
+          up       = [0, 1, 0];
+          viewMat  = mat4LookAt(pos, target, up);
         } else {
           viewMat = mat4LookAt(pos, target, up);
         }

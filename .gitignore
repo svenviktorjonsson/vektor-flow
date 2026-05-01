@@ -2,12 +2,17 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest-tmp-*/
 .venv/
 venv/
 build/
 **/bin/
 **/obj/
 dist/
+.pt-pkg*/
+.tmp/
+docs/.vitepress-preview*.log
+vscode/*.vsix
 .coverage
 .mypy_cache/
 .ruff_cache/
@@ -15,3 +20,4 @@ dist/
 .DS_Store
 web/vf-ui/vkf-scene.json
 web/vf-ui/vf-display.json
+.vf-bench-cache/

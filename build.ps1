@@ -209,6 +209,9 @@ Write-Host ""
 Write-Host "      vkf examples\lit_box.vkf" -ForegroundColor White
 Write-Host "      vkf examples\hello.vkf" -ForegroundColor White
 Write-Host "      vkf examples\screen_demo.vkf" -ForegroundColor White
+Write-Host "      vkf package examples\\benchmarks\\scalar_control.vkf -o dist\\scalar-control" -ForegroundColor White
+Write-Host "      .\\dist\\scalar-control\\run.bat" -ForegroundColor White
+Write-Host "      .\\dist\\scalar-control\\smoke-test.bat" -ForegroundColor White
 Write-Host ""
 Write-Host "  Or via Python module (works without venv activation):"
 Write-Host ""

@@ -11,7 +11,7 @@ from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.stdlib import STDLIB_MODULES, resolve_stdlib
 from vektorflow.stdlib.screen import PendingFrame, Screen, build_screen_namespace
-from vektorflow.stdlib.ui import Display, build_ui_namespace
+from vektorflow.stdlib.ui import Display, UISyncError, build_ui_namespace
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -193,6 +193,20 @@ def test_add_frame_with_gridlayout_and_widget_grid_slots() -> None:
     assert spec["body"][1]["grid"] == [1, 2, 2, 2]
 
 
+def test_widget_set_merges_state_without_touching_frame_command_log() -> None:
+    s = build_screen_namespace()["screen"]()
+    f = s.frame(title="Tools")
+    s.add_frame(f, (0.1, 0.1, 0.3, 0.2))
+    before = json.loads(s.dumps())
+
+    s.widget_set(f.id, "btn.save", {"label": "Save"})
+    s.widget_set(f.id, "btn.save", {"disabled": True})
+
+    after = json.loads(s.dumps())
+    assert after == before
+    assert s._ui_state == {"f1": {"btn.save": {"label": "Save", "disabled": True}}}
+
+
 def test_display_draw_and_frame_draw_match_draw_rect() -> None:
     d = build_ui_namespace()["ui"].display
     d.draw((0.0, 0.0, 0.2, 0.2), color="#010101")
@@ -208,6 +222,19 @@ def test_display_draw_and_frame_draw_match_draw_rect() -> None:
     assert len(data.get("screen", [])) == 2
     fid = f.id
     assert len((data.get("frames") or {}).get(fid, [])) == 2
+
+
+def test_display_json_exposes_browser_payload_through_public_ui_surface() -> None:
+    d = build_ui_namespace()["ui"].display
+    f = d.frame(title="Public payload")
+    d.add_frame(f, (0.1, 0.1, 0.3, 0.2))
+    f.draw_rect((0.1, 0.1, 0.5, 0.4), color="#ff0000")
+
+    raw = json.loads(d.display_json())
+
+    assert "screen" in raw and "frames" in raw and "geom" in raw
+    assert f.id in raw["frames"]
+    assert raw["frames"][f.id][0]["op"] == "rect"
 
 
 def test_ui_display_two_frames_draw_rect_produces_vf_display_payload() -> None:
@@ -231,6 +258,63 @@ def test_ui_display_two_frames_draw_rect_produces_vf_display_payload() -> None:
     assert len(frames[id2]) >= 1 and frames[id2][0].get("op") == "rect"
 
 
+def test_display_add_rect_returns_root_rect_ref() -> None:
+    d = build_ui_namespace()["ui"].display
+    root_rect = d.add_rect((0.1, 0.1, 0.4, 0.3), color="#ff0000")
+    child_rect = root_rect.add_rect((0.5, 0.0, 0.25, 0.5), color="#00aa00")
+    root_rect.translate(dx=0.1, dy=0.05)
+
+    out = _REPO / "web" / "vf-ui" / "vf-display.json"
+    if not out.is_file():
+        pytest.skip("vf-display.json not written (repo root resolution)")
+    data = json.loads(out.read_text(encoding="utf-8"))
+    screen_ops = data.get("screen") or []
+    assert len(screen_ops) == 2
+    assert screen_ops[0]["transform"] == [0.4, 0.0, 0.0, 0.3, 0.2, 0.15000000000000002]
+    assert screen_ops[1]["transform"] is not None
+
+
+def test_frame_add_rect_returns_hierarchical_rect_refs() -> None:
+    d = build_ui_namespace()["ui"].display
+    f = d.frame(title="A", dock_loc="bl")
+    d.add_frame(f, (0.1, 0.5, 0.3, 0.2))
+    rect = f.add_rect((0.1, 0.1, 0.5, 0.5), color="#ff0000")
+    child = rect.add_rect((0.5, 0.25, 0.25, 0.25), color="#00aa00")
+    rect.translate(dx=0.2, dy=0.1)
+    rect.scale_by(sx=2.0, sy=1.5)
+    child.rotate_by(angle_deg=30.0)
+
+    out = _REPO / "web" / "vf-ui" / "vf-display.json"
+    if not out.is_file():
+        pytest.skip("vf-display.json not written (repo root resolution)")
+    data = json.loads(out.read_text(encoding="utf-8"))
+    ops = (data.get("frames") or {}).get(f.id, [])
+    assert len(ops) == 2
+
+    parent_transform = ops[0].get("transform")
+    child_transform = ops[1].get("transform")
+    assert parent_transform == [1.0, 0.0, 0.0, 0.75, 0.30000000000000004, 0.2]
+    assert child_transform is not None
+    assert pytest.approx(child_transform[4], rel=0.0, abs=1e-9) == 0.8
+    assert pytest.approx(child_transform[5], rel=0.0, abs=1e-9) == 0.3875
+    assert child_transform[0] != 0.0
+    assert child_transform[1] != 0.0
+
+
+def test_scene_family_separation_raises_explicit_errors() -> None:
+    d = build_ui_namespace()["ui"].display
+    root_rect = d.add_rect((0.1, 0.1, 0.4, 0.3), color="#ff0000")
+    frame = d.frame(title="A", dock_loc="bl")
+    d.add_frame(frame, (0.1, 0.5, 0.3, 0.2))
+    box = frame.add_box(center=[0, 0, 0], scale=[1, 1, 1], color="red")
+
+    with pytest.raises(TypeError, match="2-D nodes cannot parent 3-D nodes"):
+        root_rect.add_box(center=[0, 0, 0], scale=[1, 1, 1], color="blue")
+
+    with pytest.raises(TypeError, match="3-D nodes cannot parent 2-D nodes"):
+        box.add_rect((0.0, 0.0, 0.2, 0.2), color="#00aa00")
+
+
 def test_vkf_screen_spill_and_add_frame() -> None:
     src = """
 :.ui
@@ -246,3 +330,15 @@ d.add_frame(f, (0.2, 0.2, 0.4, 0.4))
     data = json.loads(d.dumps())
     assert data[0]["kind"] == "frame_upsert"
     assert data[0]["payload"]["spec"]["alpha"] == 0.7
+
+
+def test_ui_sync_failures_raise_instead_of_silent_blank_screen(monkeypatch: pytest.MonkeyPatch) -> None:
+    d = build_ui_namespace()["ui"].display
+
+    def _boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("vektorflow.stdlib.ui._sync_json_to_all_built_webs", _boom)
+
+    with pytest.raises(UISyncError, match="disk full"):
+        d.draw_rect((0.0, 0.0, 0.2, 0.2), color="#010101")

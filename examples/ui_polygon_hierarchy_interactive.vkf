@@ -1,0 +1,43 @@
+# 2-D polygon hierarchy interaction test.
+# Drag inside a polygon to translate it.
+# Drag near an edge to rotate and scale it.
+# Drag empty background to pan. Wheel zooms around the cursor.
+
+ui: .ui
+d: ui.display
+
+panel: d.frame(
+  title: "Polygon hierarchy: red parent -> green child -> blue leaf",
+  draggable: true,
+  closable: true,
+  resizable: true,
+  dockable: true,
+  dock_loc: "bl",
+  alpha: 0.96,
+  master: true
+)
+
+d.add_frame(panel, (0.08, 0.08, 0.72, 0.72))
+
+root_poly: panel.add_polygon(
+  [(0.08,0.12), (0.78,0.10), (0.92,0.48), (0.62,0.84), (0.16,0.72)],
+  color: "rgba(255,122,89,0.72)"
+)
+child_poly: root_poly.add_polygon(
+  [(0.10,0.18), (0.48,0.10), (0.70,0.42), (0.38,0.72), (0.12,0.56)],
+  color: "rgba(64,220,140,0.78)"
+)
+leaf_poly: child_poly.add_polygon(
+  [(0.14,0.12), (0.76,0.22), (0.64,0.76), (0.22,0.66)],
+  color: "rgba(94,200,255,0.88)"
+)
+
+root_poly.translate(dx: 0.02, dy: 0.03)
+child_poly.translate(dx: 0.18, dy: 0.10).scale_by(sx: 0.56, sy: 0.54).rotate_by(angle_deg: 12)
+leaf_poly.translate(dx: 0.14, dy: 0.20).scale_by(sx: 0.48, sy: 0.48).rotate_by(angle_deg: -18)
+
+root_poly.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.035)
+child_poly.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.035)
+leaf_poly.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.035)
+
+:: "interactive polygon hierarchy ready"

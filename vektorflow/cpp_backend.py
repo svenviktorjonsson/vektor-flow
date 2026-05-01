@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import shutil
 import subprocess
@@ -36,6 +37,604 @@ class CppEmitError(Exception):
 class CppCompiler:
     kind: str
     path: str
+
+
+@dataclass(frozen=True)
+class CppGeneratedArtifactSpec:
+    artifact: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class CppGeneratedArtifactFamilyView:
+    emitted_cpp: CppGeneratedArtifactSpec
+    entry_executable: CppGeneratedArtifactSpec
+
+
+@dataclass(frozen=True)
+class CppBuildCommandSpec:
+    executable: str
+    flags: tuple[str, ...]
+    inputs: tuple[CppGeneratedArtifactSpec, ...]
+    outputs: tuple[CppGeneratedArtifactSpec, ...]
+    cwd: Path
+
+    @property
+    def argv(self) -> tuple[str, ...]:
+        return (
+            self.executable,
+            *self.flags,
+            *(str(spec.path) for spec in self.inputs),
+            "-o",
+            *(str(spec.path) for spec in self.outputs),
+        )
+
+    @property
+    def args(self) -> tuple[str, ...]:
+        return self.argv[1:]
+
+
+@dataclass(frozen=True)
+class CppEmissionSurfaceView:
+    source_text: str
+
+
+@dataclass(frozen=True)
+class CppBuildSurfaceView:
+    compiler: CppCompiler
+    emission: CppEmissionSurfaceView
+    generated: CppGeneratedArtifactFamilyView
+    compile_command: CppBuildCommandSpec
+
+    @property
+    def cpp_path(self) -> Path:
+        return self.generated.emitted_cpp.path
+
+    @property
+    def executable_path(self) -> Path:
+        return self.generated.entry_executable.path
+
+    @property
+    def compile_argv(self) -> tuple[str, ...]:
+        return self.compile_command.argv
+
+
+@dataclass(frozen=True)
+class NativePackageSpec:
+    package_dir: Path
+    package_name: str
+    entrypoint: str
+    subset: str
+    source_input: str
+    source_label: str
+    kind: str = "vektorflow-native-package"
+    manifest_name: str = "vektorflow-package.json"
+    readme_name: str = "README.txt"
+    build_host_python_required: bool = True
+    runtime_python_required: bool = False
+
+
+@dataclass(frozen=True)
+class NativePackageResult:
+    package_dir: Path
+    cpp_path: Path
+    executable_path: Path
+    manifest_path: Path
+    readme_path: Path
+    run_bat_path: Path
+    run_ps1_path: Path
+    run_sh_path: Path
+    smoke_bat_path: Path
+    smoke_ps1_path: Path
+    smoke_sh_path: Path
+    compiler: CppCompiler
+    manifest: dict[str, Any]
+
+    def package_view(self) -> NativePackageSurfaceView:
+        return load_native_package(self.package_dir)
+
+    def manifest_view(self) -> NativePackageManifestView:
+        return NativePackageManifestView(
+            package_dir=self.package_dir,
+            manifest_path=self.manifest_path,
+            data=self.manifest,
+        )
+
+    @property
+    def codegen(self) -> NativePackageCodegenView:
+        return self.manifest_view().codegen_view()
+
+    @property
+    def artifacts(self) -> NativePackageArtifactSurfaceView:
+        return self.manifest_view().artifact_surface_view()
+
+    @property
+    def contracts(self) -> NativePackageContractSurfaceView:
+        return self.manifest_view().contract_surface_view()
+
+
+@dataclass(frozen=True)
+class NativePackageMode:
+    name: str
+    subset: str
+    entrypoint: str
+
+
+@dataclass(frozen=True)
+class NativePackageSource:
+    filename: str
+    source_input: str
+    source_label: str
+    package_name: str
+
+
+@dataclass(frozen=True)
+class NativePackageLayout:
+    manifest_name: str = "vektorflow-package.json"
+    readme_name: str = "README.txt"
+    run_bat_name: str = "run.bat"
+    run_ps1_name: str = "run.ps1"
+    run_sh_name: str = "run.sh"
+    smoke_bat_name: str = "smoke-test.bat"
+    smoke_ps1_name: str = "smoke-test.ps1"
+    smoke_sh_name: str = "smoke-test.sh"
+
+
+@dataclass(frozen=True)
+class NativePackageRunnableSpec:
+    artifact: str
+    argv: tuple[str, ...]
+    path: Path
+
+
+@dataclass(frozen=True)
+class NativePackageRunnableFamilyView:
+    preferred: NativePackageRunnableSpec
+    fallbacks: tuple[NativePackageRunnableSpec, ...]
+    executable_name: str | None = None
+    executable_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class NativePackageInstallFamilyView:
+    preferred_artifacts: tuple[str, ...]
+    preferred_commands: tuple[tuple[str, ...], ...]
+    artifacts: tuple[str, ...]
+    commands: tuple[tuple[str, ...], ...]
+
+
+@dataclass(frozen=True)
+class NativePackageExecutionFamilyView:
+    preferred: NativePackageRunnableSpec
+    fallbacks: tuple[NativePackageRunnableSpec, ...]
+    install: NativePackageInstallFamilyView
+    target_executable: NativePackageGeneratedArtifactSpec | None = None
+
+
+@dataclass(frozen=True)
+class NativePackageEntrySurfaceView:
+    kind: str
+    platform: str
+    execution: NativePackageExecutionFamilyView
+    support_artifact: NativePackageSupportArtifactSpec
+
+
+@dataclass(frozen=True)
+class NativePackageGeneratedArtifactSpec:
+    artifact: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class NativePackageGeneratedArtifactFamilyView:
+    emitted_cpp: NativePackageGeneratedArtifactSpec
+    entry_executable: NativePackageGeneratedArtifactSpec
+    launch_targets: dict[str, NativePackageGeneratedArtifactSpec]
+
+    def launch_target_for(self, platform: str) -> NativePackageGeneratedArtifactSpec:
+        return self.launch_targets[platform]
+
+
+@dataclass(frozen=True)
+class NativePackageBuildCommandSpec:
+    executable: str
+    flags: tuple[str, ...]
+    inputs: tuple[NativePackageGeneratedArtifactSpec, ...]
+    outputs: tuple[NativePackageGeneratedArtifactSpec, ...]
+    cwd: Path
+
+    @property
+    def argv(self) -> tuple[str, ...]:
+        return (
+            self.executable,
+            *self.flags,
+            *(str(spec.path.name) for spec in self.inputs),
+            "-o",
+            *(str(spec.path.name) for spec in self.outputs),
+        )
+
+    @property
+    def args(self) -> tuple[str, ...]:
+        return self.argv[1:]
+
+
+@dataclass(frozen=True)
+class NativePackageCodegenView:
+    compiler: CppCompiler
+    generated: NativePackageGeneratedArtifactFamilyView
+    compile_command: NativePackageBuildCommandSpec
+
+    @property
+    def emitted_cpp_path(self) -> Path:
+        return self.generated.emitted_cpp.path
+
+    @property
+    def entry_executable_path(self) -> Path:
+        return self.generated.entry_executable.path
+
+    @property
+    def compile_argv(self) -> tuple[str, ...]:
+        return self.compile_command.argv
+
+    def launch_executable_path(self, platform: str) -> Path:
+        return self.generated.launch_target_for(platform).path
+
+
+@dataclass(frozen=True)
+class NativePackageSupportArtifactSpec:
+    artifact: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class NativePackageSupportArtifactFamilyView:
+    artifacts: dict[str, NativePackageSupportArtifactSpec]
+
+    def artifact_for(self, platform: str) -> NativePackageSupportArtifactSpec:
+        return self.artifacts[platform]
+
+
+@dataclass(frozen=True)
+class NativePackageArtifactSurfaceView:
+    manifest_path: Path
+    readme_path: Path
+    launchers: NativePackageSupportArtifactFamilyView
+    smoke_tests: NativePackageSupportArtifactFamilyView
+
+
+@dataclass(frozen=True)
+class NativePackageContractSurfaceView:
+    subset: str
+    entrypoint: str
+    source_input: str
+    source_label: str
+    python_required_to_build: bool
+    python_required_to_run: bool
+    codegen: NativePackageCodegenView
+    artifacts: NativePackageArtifactSurfaceView
+    launch_entries: dict[str, NativePackageEntrySurfaceView]
+    smoke_test_entries: dict[str, NativePackageEntrySurfaceView]
+
+    def launch_entry(self, platform: str) -> NativePackageEntrySurfaceView:
+        return self.launch_entries[platform]
+
+    def smoke_test_entry(self, platform: str) -> NativePackageEntrySurfaceView:
+        return self.smoke_test_entries[platform]
+
+
+@dataclass(frozen=True)
+class NativePackageSurfaceView:
+    package_dir: Path
+    manifest: NativePackageManifestView
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def readme_path(self) -> Path:
+        return self.package_dir / "README.txt"
+
+    @property
+    def cpp_path(self) -> Path:
+        return self.codegen.emitted_cpp_path
+
+    @property
+    def executable_path(self) -> Path:
+        return self.codegen.entry_executable_path
+
+    @property
+    def compiler_kind(self) -> str:
+        return self.codegen.compiler.kind
+
+    @property
+    def compiler_path(self) -> str:
+        return self.codegen.compiler.path
+
+    @property
+    def codegen(self) -> NativePackageCodegenView:
+        return self.manifest.codegen_view()
+
+    @property
+    def build(self) -> NativePackageCodegenView:
+        return self.codegen
+
+    def launch_family(self, platform: str) -> NativePackageRunnableFamilyView:
+        return self.manifest.runnable_family("launch", platform)
+
+    def smoke_test_family(self, platform: str) -> NativePackageRunnableFamilyView:
+        return self.manifest.runnable_family("smoke_test", platform)
+
+    def launch_install_family(self, platform: str) -> NativePackageInstallFamilyView:
+        return self.manifest.install_family("launch", platform)
+
+    def smoke_test_install_family(self, platform: str) -> NativePackageInstallFamilyView:
+        return self.manifest.install_family("smoke_test", platform)
+
+    def execution_family(self, kind: str, platform: str) -> NativePackageExecutionFamilyView:
+        return self.manifest.execution_family(kind, platform)
+
+    def launch_execution_family(self, platform: str) -> NativePackageExecutionFamilyView:
+        return self.execution_family("launch", platform)
+
+    def smoke_test_execution_family(self, platform: str) -> NativePackageExecutionFamilyView:
+        return self.execution_family("smoke_test", platform)
+
+    def entry_surface(self, kind: str, platform: str) -> NativePackageEntrySurfaceView:
+        return self.manifest.entry_surface(kind, platform)
+
+    def launch_entry_surface(self, platform: str) -> NativePackageEntrySurfaceView:
+        return self.entry_surface("launch", platform)
+
+    def smoke_test_entry_surface(self, platform: str) -> NativePackageEntrySurfaceView:
+        return self.entry_surface("smoke_test", platform)
+
+    @property
+    def artifacts(self) -> NativePackageArtifactSurfaceView:
+        return self.manifest.artifact_surface_view()
+
+    @property
+    def contracts(self) -> NativePackageContractSurfaceView:
+        return self.manifest.contract_surface_view()
+
+
+@dataclass(frozen=True)
+class NativePackageManifestView:
+    package_dir: Path
+    manifest_path: Path
+    data: dict[str, Any]
+
+    @property
+    def subset(self) -> str:
+        return str(self.data["subset"])
+
+    @property
+    def entrypoint(self) -> str:
+        return str(self.data["entrypoint"])
+
+    @property
+    def source_input(self) -> str:
+        return str(self.data["source"]["input"])
+
+    @property
+    def source_label(self) -> str:
+        return str(self.data["source"]["label"])
+
+    @property
+    def executable_name(self) -> str:
+        return str(self.data["artifacts"]["executable"])
+
+    @property
+    def python_required_to_build(self) -> bool:
+        return bool(self.data["runnable_contract"]["python_required_to_build"])
+
+    @property
+    def python_required_to_run(self) -> bool:
+        return bool(self.data["runnable_contract"]["python_required_to_run"])
+
+    @property
+    def entry_executable_name(self) -> str:
+        return str(self.data["runnable_contract"]["entry_executable"])
+
+    def executable_path(self) -> Path:
+        return self.package_dir / self.executable_name
+
+    def _runtime_platform(self, platform: str) -> str:
+        if platform == "windows_powershell":
+            return "windows"
+        return platform
+
+    def support_artifact_family(self, kind: str) -> NativePackageSupportArtifactFamilyView:
+        return NativePackageSupportArtifactFamilyView(
+            artifacts={
+                str(platform): NativePackageSupportArtifactSpec(
+                    artifact=str(name),
+                    path=self.package_dir / str(name),
+                )
+                for platform, name in self.data["artifacts"][kind].items()
+            }
+        )
+
+    def artifact_surface_view(self) -> NativePackageArtifactSurfaceView:
+        return NativePackageArtifactSurfaceView(
+            manifest_path=self.manifest_path,
+            readme_path=self.package_dir / "README.txt",
+            launchers=self.support_artifact_family("launchers"),
+            smoke_tests=self.support_artifact_family("smoke_tests"),
+        )
+
+    def contract_surface_view(self) -> NativePackageContractSurfaceView:
+        artifacts = self.artifact_surface_view()
+        launch_entries = {
+            platform: self.entry_surface("launch", platform)
+            for platform in artifacts.launchers.artifacts
+        }
+        smoke_test_entries = {
+            platform: self.entry_surface("smoke_test", platform)
+            for platform in artifacts.smoke_tests.artifacts
+        }
+        return NativePackageContractSurfaceView(
+            subset=self.subset,
+            entrypoint=self.entrypoint,
+            source_input=self.source_input,
+            source_label=self.source_label,
+            python_required_to_build=self.python_required_to_build,
+            python_required_to_run=self.python_required_to_run,
+            codegen=self.codegen_view(),
+            artifacts=artifacts,
+            launch_entries=launch_entries,
+            smoke_test_entries=smoke_test_entries,
+        )
+
+    def codegen_view(self) -> NativePackageCodegenView:
+        codegen = self.data["codegen_contract"]
+        compiler = CppCompiler(
+            kind=str(codegen["compiler"]["kind"]),
+            path=str(codegen["compiler"]["path"]),
+        )
+        generated = NativePackageGeneratedArtifactFamilyView(
+            emitted_cpp=NativePackageGeneratedArtifactSpec(
+                artifact=str(codegen["emitted_cpp"]),
+                path=self.package_dir / str(codegen["emitted_cpp"]),
+            ),
+            entry_executable=NativePackageGeneratedArtifactSpec(
+                artifact=str(codegen["entry_executable"]),
+                path=self.package_dir / str(codegen["entry_executable"]),
+            ),
+            launch_targets={
+                str(platform): NativePackageGeneratedArtifactSpec(
+                    artifact=str(path),
+                    path=self.package_dir / str(path),
+                )
+                for platform, path in codegen["launch_executables"].items()
+            },
+        )
+        compile = codegen["compile"]
+        return NativePackageCodegenView(
+            compiler=compiler,
+            generated=generated,
+            compile_command=NativePackageBuildCommandSpec(
+                executable=str(compile["executable"]),
+                flags=tuple(str(flag) for flag in compile["flags"]),
+                inputs=tuple(
+                    NativePackageGeneratedArtifactSpec(
+                        artifact=str(artifact),
+                        path=self.package_dir / str(artifact),
+                    )
+                    for artifact in compile["inputs"]
+                ),
+                outputs=tuple(
+                    NativePackageGeneratedArtifactSpec(
+                        artifact=str(artifact),
+                        path=self.package_dir / str(artifact),
+                    )
+                    for artifact in compile["outputs"]
+                ),
+                cwd=self.package_dir,
+            ),
+        )
+
+    def artifact_path(self, family: str, platform: str) -> Path:
+        return self.package_dir / str(self.data["artifacts"][family][platform])
+
+    def launch_executable_name(self, platform: str) -> str:
+        return str(self.data["runnable_contract"]["launch"]["executables"][self._runtime_platform(platform)])
+
+    def launch_executable_path(self, platform: str) -> Path:
+        return self.package_dir / self.launch_executable_name(platform)
+
+    def preferred_runnable(self, kind: str, platform: str) -> tuple[str, list[str]]:
+        entry = self.data["runnable_contract"][kind]["preferred"][self._runtime_platform(platform)]
+        return str(entry["artifact"]), list(entry["argv"])
+
+    def fallback_runnables(self, kind: str, platform: str) -> list[tuple[str, list[str]]]:
+        entries = self.data["runnable_contract"][kind]["fallbacks"][self._runtime_platform(platform)]
+        return [(str(entry["artifact"]), list(entry["argv"])) for entry in entries]
+
+    def preferred_runnable_spec(self, kind: str, platform: str) -> NativePackageRunnableSpec:
+        artifact, argv = self.preferred_runnable(kind, platform)
+        return NativePackageRunnableSpec(
+            artifact=artifact,
+            argv=tuple(argv),
+            path=self.package_dir / artifact,
+        )
+
+    def fallback_runnable_specs(self, kind: str, platform: str) -> list[NativePackageRunnableSpec]:
+        return [
+            NativePackageRunnableSpec(
+                artifact=artifact,
+                argv=tuple(argv),
+                path=self.package_dir / artifact,
+            )
+            for artifact, argv in self.fallback_runnables(kind, platform)
+        ]
+
+    def runnable_family(self, kind: str, platform: str) -> NativePackageRunnableFamilyView:
+        executable_name: str | None = None
+        executable_path: Path | None = None
+        if kind == "launch":
+            executable_name = self.launch_executable_name(platform)
+            executable_path = self.launch_executable_path(platform)
+        return NativePackageRunnableFamilyView(
+            preferred=self.preferred_runnable_spec(kind, platform),
+            fallbacks=tuple(self.fallback_runnable_specs(kind, platform)),
+            executable_name=executable_name,
+            executable_path=executable_path,
+        )
+
+    def execution_family(self, kind: str, platform: str) -> NativePackageExecutionFamilyView:
+        runtime_platform = self._runtime_platform(platform)
+        runnable = self.runnable_family(kind, platform)
+        target_executable: NativePackageGeneratedArtifactSpec | None = None
+        if kind == "launch":
+            target_executable = self.codegen_view().generated.launch_target_for(runtime_platform)
+        return NativePackageExecutionFamilyView(
+            preferred=runnable.preferred,
+            fallbacks=runnable.fallbacks,
+            install=self.install_family(kind, platform),
+            target_executable=target_executable,
+        )
+
+    def entry_surface(self, kind: str, platform: str) -> NativePackageEntrySurfaceView:
+        support_family_name = "launchers" if kind == "launch" else "smoke_tests"
+        return NativePackageEntrySurfaceView(
+            kind=kind,
+            platform=platform,
+            execution=self.execution_family(kind, platform),
+            support_artifact=self.support_artifact_family(support_family_name).artifact_for(platform),
+        )
+
+    def install_family(self, kind: str, platform: str) -> NativePackageInstallFamilyView:
+        runtime_platform = self._runtime_platform(platform)
+        install = self.data["install"]
+        preferred_artifacts = tuple(str(value) for value in install["preferred"][kind][runtime_platform])
+        preferred_commands = tuple(
+            tuple(str(part) for part in command)
+            for command in [install["preferred_commands"][kind][runtime_platform]]
+        )
+        artifacts = tuple(str(value) for value in install[kind][runtime_platform])
+        commands = tuple(
+            tuple(str(part) for part in command)
+            for command in install["commands"][kind][runtime_platform]
+        )
+        return NativePackageInstallFamilyView(
+            preferred_artifacts=preferred_artifacts,
+            preferred_commands=preferred_commands,
+            artifacts=artifacts,
+            commands=commands,
+        )
+
+    def preferred_command(self, kind: str, platform: str) -> list[str]:
+        return list(self.preferred_runnable_spec(kind, platform).argv)
+
+    def fallback_commands(self, kind: str, platform: str) -> list[list[str]]:
+        return [list(spec.argv) for spec in self.fallback_runnable_specs(kind, platform)]
+
+    def preferred_artifact(self, kind: str, platform: str) -> str:
+        return self.preferred_runnable_spec(kind, platform).artifact
+
+    def fallback_artifacts(self, kind: str, platform: str) -> list[str]:
+        return [spec.artifact for spec in self.fallback_runnable_specs(kind, platform)]
 
 
 @dataclass
@@ -678,7 +1277,7 @@ def _compile_artifact_stem(exe_name: str, max_length: int = 48) -> str:
     return f"{stem[:keep]}-{digest}"
 
 
-def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program") -> Path:
+def planned_cpp_artifacts(out_dir: Path, exe_name: str = "vf_program") -> tuple[CppCompiler, Path, Path]:
     compiler = discover_cpp_compiler()
     if compiler is None:
         raise CppEmitError("no C++ compiler found on PATH")
@@ -686,12 +1285,546 @@ def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program")
     artifact_stem = _compile_artifact_stem(exe_name)
     cpp_path = out_dir / f"{artifact_stem}.cpp"
     exe_path = out_dir / (f"{artifact_stem}.exe" if compiler.kind == "cl" else artifact_stem)
-    cpp_path.write_text(source, encoding="utf-8")
-    cmd = [compiler.path, *cpp_compile_flags(compiler), str(cpp_path), "-o", str(exe_path)]
+    return compiler, cpp_path, exe_path
+
+
+def planned_cpp_build_view(out_dir: Path, exe_name: str = "vf_program") -> CppBuildSurfaceView:
+    compiler, cpp_path, exe_path = planned_cpp_artifacts(out_dir, exe_name=exe_name)
+    emitted_cpp = CppGeneratedArtifactSpec(artifact=cpp_path.name, path=cpp_path)
+    entry_executable = CppGeneratedArtifactSpec(artifact=exe_path.name, path=exe_path)
+    return CppBuildSurfaceView(
+        compiler=compiler,
+        emission=CppEmissionSurfaceView(source_text=""),
+        generated=CppGeneratedArtifactFamilyView(
+            emitted_cpp=emitted_cpp,
+            entry_executable=entry_executable,
+        ),
+        compile_command=CppBuildCommandSpec(
+            executable=compiler.path,
+            flags=tuple(cpp_compile_flags(compiler)),
+            inputs=(emitted_cpp,),
+            outputs=(entry_executable,),
+            cwd=out_dir,
+        ),
+    )
+
+
+def native_package_compile_argv(compiler: CppCompiler, cpp_path: Path, exe_path: Path) -> tuple[str, ...]:
+    return (
+        compiler.path,
+        *cpp_compile_flags(compiler),
+        str(cpp_path),
+        "-o",
+        str(exe_path),
+    )
+
+
+def default_package_name(filename: str) -> str:
+    path = Path(filename)
+    stem = path.stem if path.suffix else path.name
+    return stem or "vf_program"
+
+
+def package_mode(name: str) -> NativePackageMode:
+    if name in {"native_core", "package-native-core"}:
+        return NativePackageMode(
+            name="native_core",
+            subset="native_core",
+            entrypoint="package-native-core",
+        )
+    if name in {"supported_native", "package"}:
+        return NativePackageMode(
+            name="supported_native",
+            subset="supported_native",
+            entrypoint="package",
+        )
+    raise CppEmitError(f"unknown package mode: {name}")
+
+
+def resolve_package_source(path_arg: str, *, resolved_path: Path | None = None) -> NativePackageSource:
+    if path_arg == "-":
+        return NativePackageSource(
+            filename="<stdin>",
+            source_input="<stdin>",
+            source_label="<stdin>",
+            package_name="stdin",
+        )
+    if resolved_path is None:
+        resolved_path = Path(path_arg)
+    canonical = resolved_path.as_posix()
+    return NativePackageSource(
+        filename=str(resolved_path),
+        source_input=canonical,
+        source_label=canonical,
+        package_name=default_package_name(str(resolved_path)),
+    )
+
+
+def package_layout() -> NativePackageLayout:
+    return NativePackageLayout()
+
+
+def _native_package_readme_text(
+    spec: NativePackageSpec,
+    executable_name: str,
+    cpp_name: str,
+    layout: NativePackageLayout,
+) -> str:
+    return (
+        f"Vektor Flow native package: {spec.package_name}\n\n"
+        "Contents:\n"
+        f"- {executable_name}: standalone executable\n"
+        f"- {cpp_name}: emitted C++ used to build the executable\n"
+        f"- {layout.manifest_name}: package metadata\n"
+        f"- {layout.run_bat_name}: Windows launcher\n"
+        f"- {layout.run_ps1_name}: Windows PowerShell launcher\n"
+        f"- {layout.run_sh_name}: POSIX launcher\n"
+        f"- {layout.smoke_bat_name}: Windows smoke test\n"
+        f"- {layout.smoke_ps1_name}: Windows PowerShell smoke test\n"
+        f"- {layout.smoke_sh_name}: POSIX smoke test\n\n"
+        "Launchers:\n"
+        f"- {layout.run_bat_name}: Windows launcher for the packaged executable\n"
+        f"- {layout.run_ps1_name}: preferred Windows PowerShell launcher\n"
+        f"- {layout.run_sh_name}: POSIX launcher for the packaged executable\n\n"
+        "Smoke tests:\n"
+        f"- {layout.smoke_bat_name}: runs the packaged program and checks it exits cleanly\n"
+        f"- {layout.smoke_ps1_name}: preferred Windows PowerShell smoke test\n"
+        f"- {layout.smoke_sh_name}: runs the packaged program and checks it exits cleanly\n\n"
+        "Runtime contract:\n"
+        "- Python is not required to execute the built program.\n"
+        "- Python is still required to produce this package today.\n"
+    )
+
+
+def _native_package_run_bat_text(executable_name: str) -> str:
+    return (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        "set SCRIPT_DIR=%~dp0\r\n"
+        f"\"%SCRIPT_DIR%{executable_name}\" %*\r\n"
+    )
+
+
+def _native_package_run_sh_text(executable_name: str) -> str:
+    return (
+        "#!/usr/bin/env sh\n"
+        "set -eu\n"
+        "SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+        f"\"$SCRIPT_DIR/{executable_name}\" \"$@\"\n"
+    )
+
+
+def _native_package_run_ps1_text(executable_name: str) -> str:
+    return (
+        "$ErrorActionPreference = 'Stop'\n"
+        "$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path\n"
+        f"& (Join-Path $scriptDir '{executable_name}') @args\n"
+        "exit $LASTEXITCODE\n"
+    )
+
+
+def _native_package_launch_targets(package_dir: Path, built_path: Path, package_name: str) -> tuple[str, str]:
+    posix_target = built_path.name
+    windows_target = built_path.name if built_path.suffix.lower() == ".exe" else f"{package_name}.exe"
+    if windows_target != built_path.name:
+        shutil.copyfile(built_path, package_dir / windows_target)
+    return windows_target, posix_target
+
+
+def _native_package_smoke_bat_text(layout: NativePackageLayout) -> str:
+    return (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        "call \"%~dp0"
+        f"{layout.run_bat_name}"
+        "\" %*\r\n"
+        "if errorlevel 1 exit /b %errorlevel%\r\n"
+    )
+
+
+def _native_package_smoke_sh_text(layout: NativePackageLayout) -> str:
+    return (
+        "#!/usr/bin/env sh\n"
+        "set -eu\n"
+        "SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+        f"\"$SCRIPT_DIR/{layout.run_sh_name}\" \"$@\"\n"
+    )
+
+
+def _native_package_smoke_ps1_text(layout: NativePackageLayout) -> str:
+    return (
+        "$ErrorActionPreference = 'Stop'\n"
+        "$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path\n"
+        f"& (Join-Path $scriptDir '{layout.run_ps1_name}') @args\n"
+        "exit $LASTEXITCODE\n"
+    )
+
+
+def _native_package_runnable_contract(
+    executable_name: str,
+    windows_target: str,
+    posix_target: str,
+    layout: NativePackageLayout,
+) -> dict[str, Any]:
+    launch_windows_ps1 = ["powershell", "-ExecutionPolicy", "Bypass", "-File", layout.run_ps1_name]
+    launch_windows_bat = ["cmd", "/c", layout.run_bat_name]
+    launch_posix = ["sh", f"./{layout.run_sh_name}"]
+    smoke_windows_ps1 = ["powershell", "-ExecutionPolicy", "Bypass", "-File", layout.smoke_ps1_name]
+    smoke_windows_bat = ["cmd", "/c", layout.smoke_bat_name]
+    smoke_posix = ["sh", f"./{layout.smoke_sh_name}"]
+    return {
+        "python_required_to_build": True,
+        "python_required_to_run": False,
+        "entry_executable": executable_name,
+        "launch": {
+            "executables": {
+                "windows": windows_target,
+                "posix": posix_target,
+            },
+            "preferred": {
+                "windows": {
+                    "artifact": layout.run_ps1_name,
+                    "argv": launch_windows_ps1,
+                },
+                "posix": {
+                    "artifact": layout.run_sh_name,
+                    "argv": launch_posix,
+                },
+            },
+            "fallbacks": {
+                "windows": [
+                    {
+                        "artifact": layout.run_ps1_name,
+                        "argv": launch_windows_ps1,
+                    },
+                    {
+                        "artifact": layout.run_bat_name,
+                        "argv": launch_windows_bat,
+                    },
+                ],
+                "posix": [
+                    {
+                        "artifact": layout.run_sh_name,
+                        "argv": launch_posix,
+                    }
+                ],
+            },
+        },
+        "smoke_test": {
+            "preferred": {
+                "windows": {
+                    "artifact": layout.smoke_ps1_name,
+                    "argv": smoke_windows_ps1,
+                },
+                "posix": {
+                    "artifact": layout.smoke_sh_name,
+                    "argv": smoke_posix,
+                },
+            },
+            "fallbacks": {
+                "windows": [
+                    {
+                        "artifact": layout.smoke_ps1_name,
+                        "argv": smoke_windows_ps1,
+                    },
+                    {
+                        "artifact": layout.smoke_bat_name,
+                        "argv": smoke_windows_bat,
+                    },
+                ],
+                "posix": [
+                    {
+                        "artifact": layout.smoke_sh_name,
+                        "argv": smoke_posix,
+                    }
+                ],
+            },
+        },
+    }
+
+
+def _native_package_runtime_contract_from_runnable(runnable_contract: dict[str, Any]) -> dict[str, Any]:
+    launch_windows_fallbacks = runnable_contract["launch"]["fallbacks"]["windows"]
+    smoke_windows_fallbacks = runnable_contract["smoke_test"]["fallbacks"]["windows"]
+    launch_posix_fallbacks = runnable_contract["launch"]["fallbacks"]["posix"]
+    smoke_posix_fallbacks = runnable_contract["smoke_test"]["fallbacks"]["posix"]
+    return {
+        "python_required_to_build": runnable_contract["python_required_to_build"],
+        "python_required_to_run": runnable_contract["python_required_to_run"],
+        "entry_executable": runnable_contract["entry_executable"],
+        "launch_executables": runnable_contract["launch"]["executables"],
+        "preferred_launchers": {
+            "windows": runnable_contract["launch"]["preferred"]["windows"]["artifact"],
+            "posix": runnable_contract["launch"]["preferred"]["posix"]["artifact"],
+        },
+        "launchers": {
+            "windows": launch_windows_fallbacks[1]["artifact"],
+            "windows_powershell": launch_windows_fallbacks[0]["artifact"],
+            "posix": launch_posix_fallbacks[0]["artifact"],
+        },
+        "preferred_smoke_tests": {
+            "windows": runnable_contract["smoke_test"]["preferred"]["windows"]["artifact"],
+            "posix": runnable_contract["smoke_test"]["preferred"]["posix"]["artifact"],
+        },
+        "smoke_tests": {
+            "windows": smoke_windows_fallbacks[1]["artifact"],
+            "windows_powershell": smoke_windows_fallbacks[0]["artifact"],
+            "posix": smoke_posix_fallbacks[0]["artifact"],
+        },
+    }
+
+
+def _native_package_install_contract_from_runnable(runnable_contract: dict[str, Any]) -> dict[str, Any]:
+    launch_windows_fallbacks = runnable_contract["launch"]["fallbacks"]["windows"]
+    smoke_windows_fallbacks = runnable_contract["smoke_test"]["fallbacks"]["windows"]
+    launch_posix_fallbacks = runnable_contract["launch"]["fallbacks"]["posix"]
+    smoke_posix_fallbacks = runnable_contract["smoke_test"]["fallbacks"]["posix"]
+    return {
+        "preferred": {
+            "launch": {
+                "windows": [runnable_contract["launch"]["preferred"]["windows"]["artifact"]],
+                "posix": [f"./{runnable_contract['launch']['preferred']['posix']['artifact']}"],
+            },
+            "smoke_test": {
+                "windows": [runnable_contract["smoke_test"]["preferred"]["windows"]["artifact"]],
+                "posix": [f"./{runnable_contract['smoke_test']['preferred']['posix']['artifact']}"],
+            },
+        },
+        "preferred_commands": {
+            "launch": {
+                "windows": runnable_contract["launch"]["preferred"]["windows"]["argv"],
+                "posix": runnable_contract["launch"]["preferred"]["posix"]["argv"],
+            },
+            "smoke_test": {
+                "windows": runnable_contract["smoke_test"]["preferred"]["windows"]["argv"],
+                "posix": runnable_contract["smoke_test"]["preferred"]["posix"]["argv"],
+            },
+        },
+        "commands": {
+            "launch": {
+                "windows": [entry["argv"] for entry in launch_windows_fallbacks],
+                "posix": [entry["argv"] for entry in launch_posix_fallbacks],
+            },
+            "smoke_test": {
+                "windows": [entry["argv"] for entry in smoke_windows_fallbacks],
+                "posix": [entry["argv"] for entry in smoke_posix_fallbacks],
+            },
+        },
+        "launch": {
+            "windows": [entry["artifact"] for entry in launch_windows_fallbacks],
+            "posix": [f"./{entry['artifact']}" for entry in launch_posix_fallbacks],
+        },
+        "smoke_test": {
+            "windows": [entry["artifact"] for entry in smoke_windows_fallbacks],
+            "posix": [f"./{entry['artifact']}" for entry in smoke_posix_fallbacks],
+        },
+    }
+
+
+def _native_package_codegen_contract(
+    compiler: CppCompiler,
+    cpp_name: str,
+    executable_name: str,
+    windows_target: str,
+    posix_target: str,
+) -> dict[str, Any]:
+    flags = cpp_compile_flags(compiler)
+    return {
+        "backend": "cpp_backend",
+        "emitted_cpp": cpp_name,
+        "entry_executable": executable_name,
+        "compiler": {
+            "kind": compiler.kind,
+            "path": compiler.path,
+        },
+        "compile": {
+            "executable": compiler.path,
+            "flags": flags,
+            "inputs": [cpp_name],
+            "outputs": [executable_name],
+        },
+        "compile_argv": list(
+            native_package_compile_argv(
+                compiler,
+                Path(cpp_name),
+                Path(executable_name),
+            )
+        ),
+        "launch_executables": {
+            "windows": windows_target,
+            "posix": posix_target,
+        },
+    }
+
+
+def _write_native_package_support_files(
+    package_dir: Path,
+    windows_executable_name: str,
+    posix_executable_name: str,
+    layout: NativePackageLayout,
+) -> tuple[Path, Path, Path, Path, Path, Path]:
+    run_bat_path = package_dir / layout.run_bat_name
+    run_ps1_path = package_dir / layout.run_ps1_name
+    run_sh_path = package_dir / layout.run_sh_name
+    smoke_bat_path = package_dir / layout.smoke_bat_name
+    smoke_ps1_path = package_dir / layout.smoke_ps1_name
+    smoke_sh_path = package_dir / layout.smoke_sh_name
+    run_bat_path.write_text(_native_package_run_bat_text(windows_executable_name), encoding="utf-8", newline="")
+    run_ps1_path.write_text(_native_package_run_ps1_text(windows_executable_name), encoding="utf-8")
+    run_sh_path.write_text(_native_package_run_sh_text(posix_executable_name), encoding="utf-8")
+    smoke_bat_path.write_text(_native_package_smoke_bat_text(layout), encoding="utf-8", newline="")
+    smoke_ps1_path.write_text(_native_package_smoke_ps1_text(layout), encoding="utf-8")
+    smoke_sh_path.write_text(_native_package_smoke_sh_text(layout), encoding="utf-8")
+    return run_bat_path, run_ps1_path, run_sh_path, smoke_bat_path, smoke_ps1_path, smoke_sh_path
+
+
+def _native_package_manifest(
+    spec: NativePackageSpec,
+    compiler: CppCompiler,
+    package_dir: Path,
+    cpp_name: str,
+    executable_name: str,
+    windows_target: str,
+    posix_target: str,
+    layout: NativePackageLayout,
+) -> dict[str, Any]:
+    runnable_contract = _native_package_runnable_contract(
+        executable_name,
+        windows_target,
+        posix_target,
+        layout,
+    )
+    runtime_contract = _native_package_runtime_contract_from_runnable(runnable_contract)
+    install_contract = _native_package_install_contract_from_runnable(runnable_contract)
+    codegen_contract = _native_package_codegen_contract(
+        compiler,
+        cpp_name,
+        executable_name,
+        windows_target,
+        posix_target,
+    )
+    return {
+        "format_version": 1,
+        "kind": spec.kind,
+        "subset": spec.subset,
+        "package_name": spec.package_name,
+        "entrypoint": spec.entrypoint,
+        "source": {
+            "input": spec.source_input,
+            "label": spec.source_label,
+        },
+        "compiler": {
+            "kind": compiler.kind,
+            "path": compiler.path,
+        },
+        "artifacts": {
+            "directory": str(package_dir),
+            "cpp": cpp_name,
+            "executable": executable_name,
+            "launch_executables": {
+                "windows": windows_target,
+                "posix": posix_target,
+            },
+            "launchers": {
+                "windows": layout.run_bat_name,
+                "windows_powershell": layout.run_ps1_name,
+                "posix": layout.run_sh_name,
+            },
+            "smoke_tests": {
+                "windows": layout.smoke_bat_name,
+                "windows_powershell": layout.smoke_ps1_name,
+                "posix": layout.smoke_sh_name,
+            },
+        },
+        "runtime_contract": runtime_contract,
+        "runnable_contract": runnable_contract,
+        "install": install_contract,
+        "codegen_contract": codegen_contract,
+    }
+
+
+def load_native_package_manifest(manifest_path: Path) -> NativePackageManifestView:
+    manifest_path = manifest_path.resolve()
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    package_dir = manifest_path.parent
+    return NativePackageManifestView(
+        package_dir=package_dir,
+        manifest_path=manifest_path,
+        data=data,
+    )
+
+
+def load_native_package(package_dir: Path) -> NativePackageSurfaceView:
+    package_dir = package_dir.resolve()
+    manifest = load_native_package_manifest(package_dir / "vektorflow-package.json")
+    return NativePackageSurfaceView(package_dir=package_dir, manifest=manifest)
+
+
+def build_native_package(cpp_source: str, spec: NativePackageSpec) -> NativePackageResult:
+    package_dir = spec.package_dir.resolve()
+    package_dir.mkdir(parents=True, exist_ok=True)
+    layout = package_layout()
+    compiler, cpp_path, _ = planned_cpp_artifacts(package_dir, exe_name=spec.package_name)
+    built = compile_cpp_source(cpp_source, package_dir, exe_name=spec.package_name)
+    windows_target, posix_target = _native_package_launch_targets(package_dir, built, spec.package_name)
+    manifest_path = package_dir / layout.manifest_name
+    readme_path = package_dir / layout.readme_name
+    run_bat_path, run_ps1_path, run_sh_path, smoke_bat_path, smoke_ps1_path, smoke_sh_path = _write_native_package_support_files(
+        package_dir,
+        windows_target,
+        posix_target,
+        layout,
+    )
+    manifest = _native_package_manifest(
+        spec,
+        compiler,
+        package_dir,
+        cpp_path.name,
+        built.name,
+        windows_target,
+        posix_target,
+        layout,
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    readme_path.write_text(
+        _native_package_readme_text(spec, built.name, cpp_path.name, layout),
+        encoding="utf-8",
+    )
+    return NativePackageResult(
+        package_dir=package_dir,
+        cpp_path=cpp_path,
+        executable_path=built,
+        manifest_path=manifest_path,
+        readme_path=readme_path,
+        run_bat_path=run_bat_path,
+        run_ps1_path=run_ps1_path,
+        run_sh_path=run_sh_path,
+        smoke_bat_path=smoke_bat_path,
+        smoke_ps1_path=smoke_ps1_path,
+        smoke_sh_path=smoke_sh_path,
+        compiler=compiler,
+        manifest=manifest,
+    )
+
+
+def compile_cpp_source(source: str, out_dir: Path, exe_name: str = "vf_program") -> Path:
+    build = compile_cpp_source_view(source, out_dir, exe_name=exe_name)
+    return build.executable_path
+
+
+def compile_cpp_source_view(source: str, out_dir: Path, exe_name: str = "vf_program") -> CppBuildSurfaceView:
+    build = planned_cpp_build_view(out_dir, exe_name=exe_name)
+    build.cpp_path.write_text(source, encoding="utf-8")
+    cmd = list(build.compile_argv)
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise CppEmitError(res.stderr.strip() or res.stdout.strip() or "C++ compilation failed")
-    return exe_path
+    return CppBuildSurfaceView(
+        compiler=build.compiler,
+        emission=CppEmissionSurfaceView(source_text=source),
+        generated=build.generated,
+        compile_command=build.compile_command,
+    )
 
 
 def run_cpp_executable(exe_path: Path, args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -2088,32 +3221,110 @@ def emit_cpp_from_token_stream_json(payload: str) -> str:
 
 
 def emit_cpp_from_source_file(path: Path) -> str:
+    return emit_cpp_from_source_text(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def emit_cpp_from_source_text(source: str, filename: str) -> str:
     from .parser import parse_module
     from .ir import lower_module
 
-    mod = parse_module(path.read_text(encoding="utf-8"), filename=str(path))
+    mod = parse_module(source, filename=filename)
     lowered = lower_module(mod)
     return emit_cpp_module(lowered)
 
 
+def emit_cpp_for_package_mode(
+    mode: str,
+    source: str | None,
+    filename: str,
+    *,
+    filename_label: str | None = None,
+) -> str:
+    resolved_mode = package_mode(mode)
+    if resolved_mode.name == "native_core":
+        from .native_frontend import emit_cpp_from_native_subset
+
+        return emit_cpp_from_native_subset(
+            source,
+            filename,
+            subset="native_core",
+            filename_label=filename_label,
+        )
+
+    if source is None:
+        source = Path(filename).read_text(encoding="utf-8")
+    return emit_cpp_from_source_text(source, filename)
+
+
+def package_program(
+    mode: str,
+    source: str | None,
+    package_source: NativePackageSource,
+    *,
+    out_dir: Path,
+) -> NativePackageResult:
+    resolved_mode = package_mode(mode)
+    cpp_source = emit_cpp_for_package_mode(
+        resolved_mode.name,
+        source,
+        package_source.filename,
+        filename_label=package_source.source_label,
+    )
+    return build_native_package(
+        cpp_source,
+        NativePackageSpec(
+            package_dir=out_dir,
+            package_name=package_source.package_name,
+            entrypoint=resolved_mode.entrypoint,
+            subset=resolved_mode.subset,
+            source_input=package_source.source_input,
+            source_label=package_source.source_label,
+        ),
+    )
+
+
 def build_cpp_module(module: ir.Module, out_dir: Path, exe_name: str = "vf_program") -> Path:
-    return compile_cpp_source(emit_cpp_module(module), out_dir, exe_name=exe_name)
+    return build_cpp_module_view(module, out_dir, exe_name=exe_name).executable_path
+
+
+def build_cpp_module_view(module: ir.Module, out_dir: Path, exe_name: str = "vf_program") -> CppBuildSurfaceView:
+    return compile_cpp_source_view(emit_cpp_module(module), out_dir, exe_name=exe_name)
 
 
 def build_cpp_from_tokens(tokens: list[Any], out_dir: Path, exe_name: str = "vf_program") -> Path:
-    return compile_cpp_source(emit_cpp_from_tokens(tokens), out_dir, exe_name=exe_name)
+    return build_cpp_from_tokens_view(tokens, out_dir, exe_name=exe_name).executable_path
+
+
+def build_cpp_from_tokens_view(tokens: list[Any], out_dir: Path, exe_name: str = "vf_program") -> CppBuildSurfaceView:
+    return compile_cpp_source_view(emit_cpp_from_tokens(tokens), out_dir, exe_name=exe_name)
 
 
 def build_cpp_from_token_stream_json(payload: str, out_dir: Path, exe_name: str = "vf_program") -> Path:
-    return compile_cpp_source(emit_cpp_from_token_stream_json(payload), out_dir, exe_name=exe_name)
+    return build_cpp_from_token_stream_json_view(payload, out_dir, exe_name=exe_name).executable_path
+
+
+def build_cpp_from_token_stream_json_view(
+    payload: str,
+    out_dir: Path,
+    exe_name: str = "vf_program",
+) -> CppBuildSurfaceView:
+    return compile_cpp_source_view(emit_cpp_from_token_stream_json(payload), out_dir, exe_name=exe_name)
 
 
 def build_cpp_from_source_file(path: Path, out_dir: Path, exe_name: str | None = None) -> Path:
+    return build_cpp_from_source_file_view(path, out_dir, exe_name=exe_name).executable_path
+
+
+def build_cpp_from_source_file_view(
+    path: Path,
+    out_dir: Path,
+    exe_name: str | None = None,
+) -> CppBuildSurfaceView:
     artifact_name = path.stem if exe_name is None else exe_name
-    return compile_cpp_source(emit_cpp_from_source_file(path), out_dir, exe_name=artifact_name)
+    return compile_cpp_source_view(emit_cpp_from_source_file(path), out_dir, exe_name=artifact_name)
 
 
 def compile_and_run_module(module: ir.Module) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory(prefix="vf_cpp_") as td:
-        exe = build_cpp_module(module, Path(td))
-        return run_cpp_executable(exe)
+        build = build_cpp_module_view(module, Path(td))
+        return run_cpp_executable(build.executable_path)
