@@ -25,6 +25,12 @@ from .events import (
     UIMouse, UIKeyboard,
     MouseEvent, KeyEvent,
     EVENT_CONST_TO_NAME,
+    HIT_EDGE,
+    HIT_FACE,
+    HIT_FRAME,
+    HIT_MASK,
+    HIT_OBJECT,
+    HIT_VERTEX,
     encode_event_code,
     encode_ui_pattern,
     encode_frame_pattern,
@@ -179,6 +185,12 @@ def _hover_value(hover: Any, key: str, default: Any = None) -> Any:
     if isinstance(hover, dict):
         return hover.get(key, default)
     return getattr(hover, key, default)
+
+
+def _hover_object_id(hover_or_id: Any) -> Any:
+    if isinstance(hover_or_id, dict) or hasattr(hover_or_id, "object_id") or hasattr(hover_or_id, "shape_id"):
+        return _hover_value(hover_or_id, "object_id", _hover_value(hover_or_id, "shape_id", ""))
+    return hover_or_id
 
 
 def _vec2_delta(trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> tuple[float, float]:
@@ -1019,7 +1031,7 @@ class RectRef:
         return EdgeRef(self, int(edge_id))
 
     def get_rect(self, shape_id: Any) -> "RectRef | None":
-        wanted = str(shape_id)
+        wanted = str(_hover_object_id(shape_id))
         if self._shape_id == wanted:
             return self
         for child in self._children:
@@ -1029,7 +1041,7 @@ class RectRef:
         return None
 
     def get_vertex(self, hover: Any) -> VertexRef | None:
-        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        shape = self.get_rect(hover)
         if shape is None:
             return None
         vertex_id = _hover_value(hover, "vertex_id", -1)
@@ -1038,13 +1050,22 @@ class RectRef:
         return shape.vertex(int(vertex_id))
 
     def get_edge(self, hover: Any) -> EdgeRef | None:
-        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        shape = self.get_rect(hover)
         if shape is None:
             return None
         edge_id = _hover_value(hover, "edge_id", -1)
         if edge_id is None or int(edge_id) < 0:
             return None
         return shape.edge(int(edge_id))
+
+    def get(self, hover: Any) -> Any:
+        vertex = self.get_vertex(hover)
+        if vertex is not None:
+            return vertex
+        edge = self.get_edge(hover)
+        if edge is not None:
+            return edge
+        return self.get_rect(hover)
 
     def set_interaction(
         self,
@@ -1156,7 +1177,7 @@ class FrameRef:
         return ref
 
     def get_rect(self, shape_id: Any) -> RectRef | None:
-        wanted = str(shape_id)
+        wanted = str(_hover_object_id(shape_id))
         for shape in self._shape_roots:
             hit = shape.get_rect(wanted)
             if hit is not None:
@@ -1164,7 +1185,7 @@ class FrameRef:
         return None
 
     def get_vertex(self, hover: Any) -> VertexRef | None:
-        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        shape = self.get_rect(hover)
         if shape is None:
             return None
         vertex_id = _hover_value(hover, "vertex_id", -1)
@@ -1173,13 +1194,22 @@ class FrameRef:
         return shape.vertex(int(vertex_id))
 
     def get_edge(self, hover: Any) -> EdgeRef | None:
-        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        shape = self.get_rect(hover)
         if shape is None:
             return None
         edge_id = _hover_value(hover, "edge_id", -1)
         if edge_id is None or int(edge_id) < 0:
             return None
         return shape.edge(int(edge_id))
+
+    def get(self, hover: Any) -> Any:
+        vertex = self.get_vertex(hover)
+        if vertex is not None:
+            return vertex
+        edge = self.get_edge(hover)
+        if edge is not None:
+            return edge
+        return self.get_rect(hover)
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
@@ -1381,6 +1411,12 @@ class UIRoot:
     INPUT_FIELD_TEXT_ENTERED: int = encode_ui_pattern("input_field.text_entered")
     DROPDOWN_ITEM_CHANGED: int = encode_ui_pattern("dropdown.item_changed")
     TEXT_AREA_TEXT_CHANGED: int = encode_ui_pattern("text_area.text_changed")
+    FRAME: int = HIT_FRAME
+    OBJECT: int = HIT_OBJECT
+    FACE: int = HIT_FACE
+    EDGE: int = HIT_EDGE
+    VERTEX: int = HIT_VERTEX
+    HIT_MASK: dict[str, int] = field(default_factory=lambda: dict(HIT_MASK))
     cursor:   UIMouse    = field(default_factory=UIMouse)
     keyboard: UIKeyboard = field(default_factory=UIKeyboard)
     display:  "Display"  = field(default_factory=lambda: Display())
@@ -1633,7 +1669,7 @@ class Display:
         return ref
 
     def get_rect(self, shape_id: Any) -> RectRef | None:
-        wanted = str(shape_id)
+        wanted = str(_hover_object_id(shape_id))
         for shape in self._scene_state.screen_shape_roots:
             hit = shape.get_rect(wanted)
             if hit is not None:
@@ -1647,7 +1683,7 @@ class Display:
         frame = self._last_frame
         if frame is not None:
             return frame.get_vertex(hover)
-        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        shape = self.get_rect(hover)
         if shape is None:
             return None
         vertex_id = _hover_value(hover, "vertex_id", -1)
@@ -1659,13 +1695,25 @@ class Display:
         frame = self._last_frame
         if frame is not None:
             return frame.get_edge(hover)
-        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        shape = self.get_rect(hover)
         if shape is None:
             return None
         edge_id = _hover_value(hover, "edge_id", -1)
         if edge_id is None or int(edge_id) < 0:
             return None
         return shape.edge(int(edge_id))
+
+    def get(self, hover: Any) -> Any:
+        frame = self._last_frame
+        if frame is not None:
+            return frame.get(hover)
+        vertex = self.get_vertex(hover)
+        if vertex is not None:
+            return vertex
+        edge = self.get_edge(hover)
+        if edge is not None:
+            return edge
+        return self.get_rect(hover)
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)

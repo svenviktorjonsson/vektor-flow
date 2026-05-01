@@ -49,19 +49,12 @@ describe_action(e):
 
 print_event(e):
   action: describe_action(e)
-  :: "event=$e.event action=$action object=$e.hover.object_id kind=$e.hover.kind vertex=$e.hover.vertex_id edge=$e.hover.edge_id face=$e.hover.face_id"
+  :: "event=$e.event action=$action mask=$e.hover.mask object=$e.hover.object_id kind=$e.hover.kind vertex=$e.hover.vertex_id edge=$e.hover.edge_id face=$e.hover.face_id"
 
 edit_polygon(e):
-  vertex: panel.get_vertex(e.hover)
-  edge: panel.get_edge(e.hover)
-  poly: panel.get_rect(e.hover.object_id)
-  vertex?
-    vertex +: e.trans
-  edge?
-    edge +: e.trans
-  poly?
-    e.hover.kind = "face"?
-      poly +: e.trans
+  target: panel.get(e.hover)
+  target?
+    target +: e.trans
 
 dispatch(e):
   e.event??

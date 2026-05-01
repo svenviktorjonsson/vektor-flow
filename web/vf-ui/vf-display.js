@@ -65,9 +65,9 @@
   var HOVER_MASK = {
     FRAME: 1,
     OBJECT: 2,
-    VERTEX: 4,
+    FACE: 4,
     EDGE: 8,
-    FACE: 16
+    VERTEX: 16
   };
 
   function hoverContext(opts) {
@@ -77,11 +77,14 @@
     var vertexId = opts.vertex_id != null ? opts.vertex_id : null;
     var edgeId = opts.edge_id != null ? opts.edge_id : null;
     var faceId = opts.face_id != null ? opts.face_id : null;
+    if ((vertexId != null || edgeId != null) && faceId == null && objectId !== 0 && objectId !== "" && objectId != null) {
+      faceId = 0;
+    }
     var mask = frameId ? HOVER_MASK.FRAME : 0;
     if (objectId !== 0 && objectId !== "" && objectId != null) { mask |= HOVER_MASK.OBJECT; }
-    if (vertexId != null) { mask |= HOVER_MASK.VERTEX; }
-    if (edgeId != null) { mask |= HOVER_MASK.EDGE; }
     if (faceId != null) { mask |= HOVER_MASK.FACE; }
+    if (edgeId != null) { mask |= HOVER_MASK.EDGE; }
+    if (vertexId != null) { mask |= HOVER_MASK.VERTEX; }
     return {
       kind: opts.kind || (vertexId != null ? "vertex" : edgeId != null ? "edge" : faceId != null ? "face" : objectId ? "object" : frameId ? "frame" : "none"),
       mask: mask,

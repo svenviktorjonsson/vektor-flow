@@ -105,6 +105,20 @@ WIDGET_TYPE_EVENT_CONSTS: dict[str, tuple[str, ...]] = {
     "textarea": ("TEXT_AREA_TEXT_CHANGED",),
 }
 
+HIT_FRAME = 1
+HIT_OBJECT = 2
+HIT_FACE = 4
+HIT_EDGE = 8
+HIT_VERTEX = 16
+
+HIT_MASK: dict[str, int] = {
+    "FRAME": HIT_FRAME,
+    "OBJECT": HIT_OBJECT,
+    "FACE": HIT_FACE,
+    "EDGE": HIT_EDGE,
+    "VERTEX": HIT_VERTEX,
+}
+
 
 def _frame_index(frame_id: str) -> int:
     s = str(frame_id or "").strip()
@@ -377,6 +391,93 @@ def start_event_poller() -> OverlayPoller:
 # Event descriptors
 # ---------------------------------------------------------------------------
 
+def _optional_int(value: Any, default: int = -1) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _present_id(value: Any) -> bool:
+    return value is not None and value != "" and value != 0
+
+
+def _hit_kind(mask: int) -> str:
+    if mask & HIT_VERTEX:
+        return "vertex"
+    if mask & HIT_EDGE:
+        return "edge"
+    if mask & HIT_FACE:
+        return "face"
+    if mask & HIT_OBJECT:
+        return "object"
+    if mask & HIT_FRAME:
+        return "frame"
+    return "none"
+
+
+@dataclass
+class HitContext:
+    """Inherited pick context: frame -> object -> face -> edge -> vertex."""
+
+    __vf_py_attrs__ = True
+
+    kind: str = "none"
+    mask: int = 0
+    frame_id: str = ""
+    object_id: Any = 0
+    shape_id: str = ""
+    face_id: int = -1
+    edge_id: int = -1
+    vertex_id: int = -1
+    simplex_id: int = 0
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> "HitContext":
+        raw = d if isinstance(d, dict) else {}
+        frame_id = str(raw.get("frame_id", "") or "")
+        object_id = raw.get("object_id", raw.get("shape_id", 0))
+        shape_id = str(raw.get("shape_id", object_id if _present_id(object_id) else "") or "")
+        face_id = _optional_int(raw.get("face_id"), -1)
+        edge_id = _optional_int(raw.get("edge_id"), -1)
+        vertex_id = _optional_int(raw.get("vertex_id"), -1)
+        if face_id < 0 and (edge_id >= 0 or vertex_id >= 0) and _present_id(object_id):
+            face_id = 0
+        mask = int(raw.get("mask", raw.get("hover_mask", 0)) or 0)
+        if frame_id:
+            mask |= HIT_FRAME
+        if _present_id(object_id):
+            mask |= HIT_OBJECT
+        if face_id >= 0:
+            mask |= HIT_FACE
+        if edge_id >= 0:
+            mask |= HIT_EDGE
+        if vertex_id >= 0:
+            mask |= HIT_VERTEX
+        kind = str(raw.get("kind", "") or "") or _hit_kind(mask)
+        simplex = raw.get("simplex_id", face_id if face_id >= 0 else edge_id if edge_id >= 0 else vertex_id if vertex_id >= 0 else 0)
+        return cls(
+            kind=kind,
+            mask=mask,
+            frame_id=frame_id,
+            object_id=object_id,
+            shape_id=shape_id,
+            face_id=face_id,
+            edge_id=edge_id,
+            vertex_id=vertex_id,
+            simplex_id=_optional_int(simplex, 0),
+        )
+
+    def has(self, bits: int) -> bool:
+        return (self.mask & int(bits)) == int(bits)
+
+    @property
+    def object(self) -> Any:
+        return self.object_id
+
+
 @dataclass
 class MouseEvent:
     """A mouse event received from the overlay."""
@@ -395,7 +496,7 @@ class MouseEvent:
     face_id:    int    = -1
     action:     str    = ""
     hover_mask: int    = 0
-    hover:      dict[str, Any] = field(default_factory=dict)
+    hover:      HitContext = field(default_factory=HitContext)
     button:     int    = -1     # 0=left 1=mid 2=right (-1 = N/A)
     buttons:    int    = 0      # bitmask from MouseEvent.buttons (for hover/drag state)
     ctrl:       bool   = False
@@ -410,20 +511,33 @@ class MouseEvent:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "MouseEvent":
         ev = str(d.get("event", ""))
+        raw_hover = dict(d.get("hover", {})) if isinstance(d.get("hover", {}), dict) else {}
+        if "frame_id" not in raw_hover:
+            raw_hover["frame_id"] = d.get("frame_id", "")
+        if "object_id" not in raw_hover:
+            raw_hover["object_id"] = d.get("object_id", d.get("shape_id", 0))
+        if "shape_id" not in raw_hover:
+            raw_hover["shape_id"] = d.get("shape_id", d.get("object_id", ""))
+        for key in ("vertex_id", "edge_id", "face_id", "simplex_id"):
+            if key not in raw_hover and key in d:
+                raw_hover[key] = d.get(key)
+        if "mask" not in raw_hover and "hover_mask" in d:
+            raw_hover["mask"] = d.get("hover_mask")
+        hover = HitContext.from_dict(raw_hover)
         return cls(
             event      = ev,
             x          = float(d.get("x", 0)),
             y          = float(d.get("y", 0)),
-            frame_id   = str(d.get("frame_id", "")),
-            object_id  = d.get("object_id", 0),
-            simplex_id = int(d.get("simplex_id", 0)),
-            shape_id   = str(d.get("shape_id", d.get("object_id", "")) or ""),
-            vertex_id  = int(d.get("vertex_id", -1) if d.get("vertex_id") is not None else -1),
-            edge_id    = int(d.get("edge_id", -1) if d.get("edge_id") is not None else -1),
-            face_id    = int(d.get("face_id", -1) if d.get("face_id") is not None else -1),
+            frame_id   = hover.frame_id,
+            object_id  = hover.object_id,
+            simplex_id = hover.simplex_id,
+            shape_id   = hover.shape_id,
+            vertex_id  = hover.vertex_id,
+            edge_id    = hover.edge_id,
+            face_id    = hover.face_id,
             action     = str(d.get("action", "")),
-            hover_mask = int(d.get("hover_mask", 0)),
-            hover      = dict(d.get("hover", {})) if isinstance(d.get("hover", {}), dict) else {},
+            hover_mask = hover.mask,
+            hover      = hover,
             button     = int(d.get("button", -1)),
             buttons    = int(d.get("buttons", 0)),
             ctrl       = bool(d.get("ctrl", False)),
