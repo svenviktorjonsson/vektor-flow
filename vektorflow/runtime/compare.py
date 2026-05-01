@@ -12,6 +12,21 @@ from .struct_value import VF_TYPE_KEY, field_order_for_compare, get_type_name
 from .type_values import PrimType, infer_type, is_type_value, types_equal
 
 
+def _event_code_of(value: Any) -> int | None:
+    """Return a host event's exact integer code without exposing transport shape."""
+    if isinstance(value, dict):
+        event_code = value.get("event_code", value.get("code"))
+        if isinstance(event_code, int) and event_code:
+            return event_code
+    event_code = getattr(value, "event_code", None)
+    if isinstance(event_code, int) and event_code:
+        return event_code
+    code = getattr(value, "code", None)
+    if isinstance(code, int) and code:
+        return code
+    return None
+
+
 def struct_compare_binop(
     op: str,
     a: dict,
@@ -40,6 +55,12 @@ def runtime_match_eq(
     types: dict[str, ast.TypeExpr | ast.FuncType],
     generic_eq: Callable[[Any, Any], bool],
 ) -> bool:
+    a_event = _event_code_of(a)
+    b_event = _event_code_of(b)
+    if a_event is not None and isinstance(b, int):
+        return matches_event_code(a_event, b)
+    if b_event is not None and isinstance(a, int):
+        return matches_event_code(b_event, a)
     if isinstance(a, int) and isinstance(b, int):
         if matches_event_code(a, b) or matches_event_code(b, a):
             return True
@@ -57,6 +78,12 @@ def runtime_match_specificity(
     generic_eq: Callable[[Any, Any], bool],
 ) -> int | None:
     """Runtime specificity for ``??`` matching, excluding interpreter control-flow mechanics."""
+    a_event = _event_code_of(a)
+    b_event = _event_code_of(b)
+    if a_event is not None and isinstance(b, int):
+        return event_match_specificity(a_event, b)
+    if b_event is not None and isinstance(a, int):
+        return event_match_specificity(b_event, a)
     if isinstance(a, int) and isinstance(b, int):
         s = event_match_specificity(a, b)
         if s is not None:

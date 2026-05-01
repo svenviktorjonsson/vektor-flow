@@ -540,6 +540,14 @@ def normalize_host_event(
     payload["frame_code"] = encode_frame_pattern(ev_name, frame_id) if (base and frame_id) else 0
     payload["widget_code"] = encode_widget_pattern(ev_name, widget_id) if (base and widget_id) else 0
     payload["index"] = int(next_index) if base else 0
+    if ev_name in ("move", "hover", "down", "up", "wheel", "drag"):
+        x = float(payload.get("x", 0) or 0)
+        y = float(payload.get("y", 0) or 0)
+        dx = float(payload.get("dx", 0) or 0)
+        dy = float(payload.get("dy", 0) or 0)
+        payload.setdefault("pos", [x, y])
+        payload.setdefault("pixel", [x, y])
+        payload.setdefault("trans", [dx, dy])
     return UiHostEvent(payload=payload, base=base)
 
 

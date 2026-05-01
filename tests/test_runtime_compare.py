@@ -9,6 +9,7 @@ from vektorflow.runtime.compare import (
 )
 from vektorflow.runtime.struct_value import with_type
 from vektorflow.runtime.type_values import PrimType
+from vektorflow.stdlib.events import MouseEvent, encode_event_code, encode_ui_pattern
 
 
 def test_struct_compare_binop_handles_ordering_and_equality() -> None:
@@ -74,3 +75,39 @@ def test_runtime_match_specificity_matches_specific_error_type() -> None:
     )
 
     assert specificity is not None
+
+
+def test_runtime_match_specificity_matches_host_event_object_to_ui_pattern() -> None:
+    event = MouseEvent.from_dict({
+        "event": "drag",
+        "x": 0,
+        "y": 0,
+        "code": encode_event_code("drag", "f1"),
+        "ui_code": encode_ui_pattern("drag"),
+    })
+
+    specificity = runtime_match_specificity(
+        event,
+        encode_ui_pattern("drag"),
+        {},
+        lambda a, b: a == b,
+    )
+
+    assert specificity == 0
+
+
+def test_runtime_match_specificity_matches_host_event_payload_to_ui_pattern() -> None:
+    event = {
+        "event": "drag",
+        "code": encode_event_code("drag", "f1"),
+        "ui_code": encode_ui_pattern("drag"),
+    }
+
+    specificity = runtime_match_specificity(
+        event,
+        encode_ui_pattern("drag"),
+        {},
+        lambda a, b: a == b,
+    )
+
+    assert specificity == 0

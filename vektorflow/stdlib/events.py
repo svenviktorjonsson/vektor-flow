@@ -400,6 +400,10 @@ def _optional_int(value: Any, default: int = -1) -> int:
         return default
 
 
+def _optional_code(value: Any) -> int:
+    return max(0, _optional_int(value, 0))
+
+
 def _present_id(value: Any) -> bool:
     return value is not None and value != "" and value != 0
 
@@ -497,6 +501,10 @@ class MouseEvent:
     action:     str    = ""
     hover_mask: int    = 0
     hover:      HitContext = field(default_factory=HitContext)
+    event_code: int    = 0      # exact integer event code for ?? matching
+    ui_code:    int    = 0      # event-kind pattern, independent of frame/widget
+    frame_code: int    = 0      # frame-scoped pattern
+    widget_code:int    = 0      # widget-scoped pattern
     button:     int    = -1     # 0=left 1=mid 2=right (-1 = N/A)
     buttons:    int    = 0      # bitmask from MouseEvent.buttons (for hover/drag state)
     ctrl:       bool   = False
@@ -538,6 +546,10 @@ class MouseEvent:
             action     = str(d.get("action", "")),
             hover_mask = hover.mask,
             hover      = hover,
+            event_code = _optional_code(d.get("event_code", d.get("code", 0))),
+            ui_code    = _optional_code(d.get("ui_code", 0)),
+            frame_code = _optional_code(d.get("frame_code", 0)),
+            widget_code= _optional_code(d.get("widget_code", 0)),
             button     = int(d.get("button", -1)),
             buttons    = int(d.get("buttons", 0)),
             ctrl       = bool(d.get("ctrl", False)),
@@ -564,6 +576,11 @@ class MouseEvent:
         return self.event
 
     @property
+    def code(self) -> int:
+        """Exact integer event code used by ``??`` event-pattern matching."""
+        return self.event_code
+
+    @property
     def pos(self) -> list[float]:
         """Cursor position as a vector in the event's coordinate space."""
         return [self.x, self.y]
@@ -588,6 +605,10 @@ class KeyEvent:
     event:    str   # "key_down" | "key_up"
     key:      str   # key name (e.g. "ArrowLeft", "a", "Enter")
     code:     str = ""
+    event_code: int = 0
+    ui_code:    int = 0
+    frame_code: int = 0
+    widget_code:int = 0
     ctrl:     bool = False
     shift:    bool = False
     alt:      bool = False
@@ -600,6 +621,10 @@ class KeyEvent:
             event    = ev,
             key      = str(d.get("key", "")),
             code     = str(d.get("code", "")),
+            event_code = _optional_code(d.get("event_code", 0)),
+            ui_code    = _optional_code(d.get("ui_code", 0)),
+            frame_code = _optional_code(d.get("frame_code", 0)),
+            widget_code= _optional_code(d.get("widget_code", 0)),
             ctrl     = bool(d.get("ctrl", False)),
             shift    = bool(d.get("shift", False)),
             alt      = bool(d.get("alt", False)),

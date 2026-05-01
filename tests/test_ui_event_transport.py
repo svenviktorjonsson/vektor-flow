@@ -70,6 +70,10 @@ def test_build_host_event_dispatch_accepts_transport_events() -> None:
             "event": "hover",
             "frameId": "f1",
             "widgetId": "btn.save",
+            "x": 11,
+            "y": 22,
+            "dx": 3,
+            "dy": 4,
             "data": {"hovered": True},
         }
     )
@@ -80,6 +84,9 @@ def test_build_host_event_dispatch_accepts_transport_events() -> None:
     assert dispatch.payload["widget_id"] == "btn.save"
     assert dispatch.payload["data"] == {"hovered": True}
     assert dispatch.payload["index"] == 2
+    assert dispatch.payload["pos"] == [11.0, 22.0]
+    assert dispatch.payload["pixel"] == [11.0, 22.0]
+    assert dispatch.payload["trans"] == [3.0, 4.0]
 
 
 def test_dispatch_host_event_queues_canonical_payload_from_transport_event() -> None:
