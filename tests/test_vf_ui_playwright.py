@@ -1046,12 +1046,10 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
                     op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4],
                     op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5],
                   ]);
-                  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
-                  const cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
-                  const x = pts[0][0] * 0.88 + cx * 0.12;
-                  const y = pts[0][1] * 0.88 + cy * 0.12;
+                  const x = (pts[0][0] + pts[1][0]) * 0.5;
+                  const y = (pts[0][1] + pts[1][1]) * 0.5;
                   const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
-                  return { transform: op.transform.slice(), x: r.left + x * r.width, y: r.top + y * r.height };
+                  return { transform: op.transform.slice(), points: op.points.map(p => p.slice()), x: r.left + x * r.width, y: r.top + y * r.height };
                 }"""
             )
             page.mouse.move(edge["x"], edge["y"])
@@ -1062,10 +1060,41 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
                 """() => {
                   const st = window.VfDisplay.getInteractiveState("f1");
                   const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  return { transform: op.transform.slice(), points: op.points.map(p => p.slice()) };
+                }"""
+            )
+            assert after_edge["points"] != edge["points"], "plain edge drag should reshape polygon points"
+            assert after_edge["transform"] == pytest.approx(edge["transform"]), "plain edge drag should reshape, not transform"
+            captured = page.evaluate("() => window.__vfCapturedEvents")
+            assert any(evt.get("action") == "move_edge" and evt["hover"]["kind"] == "edge" for evt in captured)
+
+            ctrl_vertex = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
+                  const p = op.points[0];
+                  const x = op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4];
+                  const y = op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5];
+                  const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
+                  return { transform: op.transform.slice(), x: r.left + x * r.width, y: r.top + y * r.height };
+                }"""
+            )
+            page.keyboard.down("Control")
+            page.mouse.move(ctrl_vertex["x"], ctrl_vertex["y"])
+            page.mouse.down()
+            page.mouse.move(ctrl_vertex["x"] + 60, ctrl_vertex["y"] - 35)
+            page.mouse.up()
+            page.keyboard.up("Control")
+            after_ctrl_vertex = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
                   return op.transform.slice();
                 }"""
             )
-            assert after_edge[:4] != edge["transform"][:4], "edge drag should rotate/scale the polygon"
+            assert after_ctrl_vertex[:4] != ctrl_vertex["transform"][:4], "Ctrl vertex drag should rotate/scale"
+            captured = page.evaluate("() => window.__vfCapturedEvents")
+            assert any(evt.get("action") == "vertex_rotate_scale" and evt["hover"]["kind"] == "vertex" for evt in captured)
 
             state_before = page.evaluate(
                 """() => {

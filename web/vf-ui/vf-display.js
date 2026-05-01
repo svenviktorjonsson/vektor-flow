@@ -340,23 +340,76 @@
     return Math.sqrt(dx * dx + dy * dy);
   }
 
+  function inverseLinearDelta(o, dx, dy) {
+    var tr = Array.isArray(o.transform) && o.transform.length >= 6 ? o.transform : [1,0,0,1,0,0];
+    var det = tr[0] * tr[3] - tr[1] * tr[2];
+    if (Math.abs(det) < 1e-9) { return [dx, dy]; }
+    return [
+      ( tr[3] * dx - tr[2] * dy) / det,
+      (-tr[1] * dx + tr[0] * dy) / det
+    ];
+  }
+
+  function movePolygonVertex(o, vertexId, dx, dy) {
+    if (!o || !Array.isArray(o.points) || vertexId == null || vertexId < 0 || vertexId >= o.points.length) { return; }
+    var d = inverseLinearDelta(o, dx, dy);
+    var p = o.points[vertexId];
+    o.points[vertexId] = [Number(p[0]) + d[0], Number(p[1]) + d[1]];
+  }
+
+  function movePolygonEdge(o, edgeId, dx, dy) {
+    if (!o || !Array.isArray(o.points) || edgeId == null || edgeId < 0 || edgeId >= o.points.length) { return; }
+    var next = (edgeId + 1) % o.points.length;
+    movePolygonVertex(o, edgeId, dx, dy);
+    movePolygonVertex(o, next, dx, dy);
+  }
+
+  function orthogonalScaleEdge(o, edgeId, fromPt, toPt) {
+    if (!o || !Array.isArray(o.points) || edgeId == null || edgeId < 0 || edgeId >= o.points.length) { return null; }
+    var poly = transformedPoints(o);
+    var a = poly[edgeId];
+    var b = poly[(edgeId + 1) % poly.length];
+    var ex = b[0] - a[0], ey = b[1] - a[1];
+    var len = Math.hypot(ex, ey) || 1e-9;
+    var nx = -ey / len, ny = ex / len;
+    var c = polygonCenter(o);
+    var base = (fromPt[0] - c[0]) * nx + (fromPt[1] - c[1]) * ny;
+    var next = (toPt[0] - c[0]) * nx + (toPt[1] - c[1]) * ny;
+    if (Math.abs(base) < 1e-6) { return null; }
+    var k = Math.max(0.05, Math.min(20, next / base));
+    var m = [
+      1 + (k - 1) * nx * nx,
+      (k - 1) * nx * ny,
+      (k - 1) * nx * ny,
+      1 + (k - 1) * ny * ny,
+      0,
+      0
+    ];
+    m[4] = c[0] - (m[0] * c[0] + m[2] * c[1]);
+    m[5] = c[1] - (m[1] * c[0] + m[3] * c[1]);
+    return m;
+  }
+
   function hitInteractiveOp(st, pt) {
     for (var i = st.ops.length - 1; i >= 0; i--) {
       var o = st.ops[i];
       if (!isInteractiveOp(o)) { continue; }
       var poly = transformedPoints(o);
-      if (!pointInPolygon(pt, poly)) { continue; }
       var border = Number(o.interaction.border || 0.08);
-      var near = false;
-      var edgeId = null;
-      for (var j = 0; j < poly.length; j++) {
-        if (distToSegment(pt, poly[j], poly[(j + 1) % poly.length]) <= border) {
-          near = true;
-          edgeId = j;
-          break;
+      var vertexBorder = Number(o.interaction.vertex_border || border * 1.35);
+      for (var v = 0; v < poly.length; v++) {
+        if (Math.hypot(pt[0] - poly[v][0], pt[1] - poly[v][1]) <= vertexBorder) {
+          return { index: i, op: o, vertex: true, vertex_id: v, edge: false, edge_id: null, face_id: null };
         }
       }
-      return { index: i, op: o, edge: near, edge_id: edgeId, face_id: near ? null : 0 };
+      for (var j = 0; j < poly.length; j++) {
+        if (distToSegment(pt, poly[j], poly[(j + 1) % poly.length]) <= border) {
+          return { index: i, op: o, edge: true, edge_id: j, vertex: false, vertex_id: null, face_id: null };
+        }
+      }
+      if (pointInPolygon(pt, poly)) {
+        return { index: i, op: o, edge: false, edge_id: null, vertex: false, vertex_id: null, face_id: 0 };
+      }
     }
     return null;
   }
@@ -455,10 +508,19 @@
       var downHover = hoverContext({
         frame_id: canvas.__vf2dFrameId,
         object_id: shapeId,
+        vertex_id: hit ? hit.vertex_id : null,
         edge_id: hit ? hit.edge_id : null,
         face_id: hit ? hit.face_id : null,
-        kind: hit ? (hit.edge ? "edge" : "face") : "frame"
+        kind: hit ? (hit.vertex ? "vertex" : hit.edge ? "edge" : "face") : "frame"
       });
+      var action = "pan";
+      if (hit) {
+        if (e.ctrlKey && hit.vertex) { action = "vertex_rotate_scale"; }
+        else if (e.ctrlKey && hit.edge) { action = "edge_orthogonal_scale"; }
+        else if (hit.vertex) { action = "move_vertex"; }
+        else if (hit.edge) { action = "move_edge"; }
+        else { action = "translate"; }
+      }
       postEvent(withHoverContext({
         type: "vf_event",
         event: "down",
@@ -466,11 +528,13 @@
         y: e.clientY - r.top,
         frame_id: canvas.__vf2dFrameId,
         shape_id: shapeId,
-        action: hit ? (hit.edge ? "transform" : "translate") : "pan",
+        ctrl: !!e.ctrlKey,
+        action: action,
       }, downHover));
       st.drag = {
-        action: hit ? (hit.edge ? "transform" : "translate") : "pan",
+        action: action,
         op: hit ? hit.op : null,
+        hit: hit,
         last: pt,
         lastClient: [e.clientX, e.clientY],
         center: hit ? polygonCenter(hit.op) : null,
@@ -496,9 +560,10 @@
         var hoverCtx = hoverContext({
           frame_id: canvas.__vf2dFrameId,
           object_id: hoverId,
+          vertex_id: hover ? hover.vertex_id : null,
           edge_id: hover ? hover.edge_id : null,
           face_id: hover ? hover.face_id : null,
-          kind: hover ? (hover.edge ? "edge" : "face") : "frame"
+          kind: hover ? (hover.vertex ? "vertex" : hover.edge ? "edge" : "face") : "frame"
         });
         postEvent(withHoverContext({
           type: "vf_event",
@@ -516,7 +581,14 @@
         st.panY += (e.clientY - d.lastClient[1]) / (r.height || 1);
       } else if (d.op) {
         var tr = Array.isArray(d.op.transform) && d.op.transform.length >= 6 ? d.op.transform : [1,0,0,1,0,0];
-        if (d.action === "translate") {
+        if (d.action === "move_vertex") {
+          movePolygonVertex(d.op, d.hit && d.hit.vertex_id, pt[0] - d.last[0], pt[1] - d.last[1]);
+        } else if (d.action === "move_edge") {
+          movePolygonEdge(d.op, d.hit && d.hit.edge_id, pt[0] - d.last[0], pt[1] - d.last[1]);
+        } else if (d.action === "edge_orthogonal_scale") {
+          var sm = orthogonalScaleEdge(d.op, d.hit && d.hit.edge_id, d.last, pt);
+          if (sm) { applyAffineToSubtree(st, d.op, sm); }
+        } else if (d.action === "translate") {
           applyAffineToSubtree(st, d.op, [1, 0, 0, 1, pt[0] - d.last[0], pt[1] - d.last[1]]);
         } else {
           var c = d.center || polygonCenter(d.op);
@@ -537,9 +609,14 @@
       var dragHover = hoverContext({
         frame_id: canvas.__vf2dFrameId,
         object_id: dragShapeId,
-        edge_id: d.action === "transform" && d.op ? 0 : null,
+        vertex_id: (d.action === "move_vertex" || d.action === "vertex_rotate_scale") && d.hit ? d.hit.vertex_id : null,
+        edge_id: (d.action === "move_edge" || d.action === "edge_orthogonal_scale") && d.hit ? d.hit.edge_id : null,
         face_id: d.action === "translate" && d.op ? 0 : null,
-        kind: d.op ? (d.action === "transform" ? "edge" : "face") : "frame"
+        kind: d.op ? (
+          d.action === "move_vertex" || d.action === "vertex_rotate_scale" ? "vertex" :
+          d.action === "move_edge" || d.action === "edge_orthogonal_scale" ? "edge" :
+          "face"
+        ) : "frame"
       });
       postEvent(withHoverContext({
         type: "vf_event",
@@ -550,6 +627,7 @@
         dy: e.movementY || 0,
         frame_id: canvas.__vf2dFrameId,
         shape_id: dragShapeId,
+        ctrl: !!e.ctrlKey,
         action: d.action,
       }, dragHover));
       redrawInteractiveCanvas(canvas);
