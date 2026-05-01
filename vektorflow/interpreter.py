@@ -701,6 +701,28 @@ class Interpreter:
             raise EvalError("cannot assign through .() on this value")
         raise EvalError("invalid bind target")
 
+    def _read_bind_target(self, target: Any, env: dict[str, Any]) -> Any:
+        if isinstance(target, ast.Ident):
+            if target.name in env:
+                return env[target.name]
+            raise EvalError(f"undefined name: {target.name!r}")
+        if isinstance(target, (ast.Attribute, ast.DottedIndex)):
+            return self.eval_expr(target, env)
+        raise EvalError("invalid update target")
+
+    def _update_bind(self, target: Any, op: str, rhs: Any, env: dict[str, Any]) -> None:
+        current = self._read_bind_target(target, env)
+        updater = getattr(current, "__vf_update__", None)
+        if callable(updater):
+            updater(op, rhs)
+            return
+        updated = _binop(op, current, rhs)
+        if isinstance(target, ast.Ident) and isinstance(current, list) and isinstance(updated, list):
+            current[:] = updated
+            env[target.name] = current
+            return
+        self._assign_bind(target, updated, env)
+
     def run_module(self, module: ast.Module) -> Any:
         ir_result = self._run_module_via_ir_if_supported(module)
         if ir_result is not _IR_FALLBACK:
@@ -767,6 +789,9 @@ class Interpreter:
             return None
         if isinstance(node, ast.ConditionalExpr):
             self.eval_expr(node, env)
+            return None
+        if isinstance(node, ast.UpdateBind):
+            self._update_bind(node.target, node.op, self.eval_expr(node.value, env), env)
             return None
         if isinstance(node, ast.Bind):
             if node.declared_type is not None:
@@ -1945,6 +1970,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             if len(a) != len(b):
                 raise EvalError("list length mismatch for /")
             return _wrap_vector_result_if_typed(op, [x / y for x, y in zip(a, b)], a, b)
+        if isinstance(a, (int, float)) and isinstance(b, list):
+            return _wrap_vector_result_if_typed(op, [float(a) / x for x in b], a, b)
+        if isinstance(a, list) and isinstance(b, (int, float)):
+            return _wrap_vector_result_if_typed(op, [x / float(b) for x in a], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(
                 multiset_symmetric_difference(a, b), combine_typed_multiset_types(a, b)

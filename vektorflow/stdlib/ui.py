@@ -190,6 +190,23 @@ def _vec2_delta(trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> tuple
         raise TypeError("trans must be a vector with at least two numeric entries") from exc
 
 
+def _vec2_apply(op: str, point: Any, value: Any) -> tuple[float, float]:
+    x, y = float(point[0]), float(point[1])
+    if isinstance(value, (int, float)):
+        vx = vy = float(value)
+    else:
+        vx, vy = _vec2_delta(value)
+    if op == "PLUS":
+        return x + vx, y + vy
+    if op == "MINUS":
+        return x - vx, y - vy
+    if op == "STAR":
+        return x * vx, y * vy
+    if op == "SLASH":
+        return x / vx, y / vy
+    raise TypeError(f"unsupported geometry update operator {op!r}")
+
+
 def _make_scene_mesh(
     kind: str,
     *,
@@ -259,15 +276,25 @@ class VertexRef:
     def id(self) -> int:
         return self._index
 
-    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "VertexRef":
+    def _checked_points(self) -> list[list[float]]:
         if self._shape._points is None:
             raise TypeError("vertex refs require a polygon parent.")
         if self._index < 0 or self._index >= len(self._shape._points):
             raise IndexError(f"vertex index {self._index} is outside polygon with {len(self._shape._points)} vertices")
+        return [list(p) for p in self._shape._points]
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "VertexRef":
         tx, ty = _vec2_delta(trans, dx=dx, dy=dy)
-        pts = [list(p) for p in self._shape._points]
+        pts = self._checked_points()
         pts[self._index][0] += tx
         pts[self._index][1] += ty
+        self._shape._points = tuple((float(x), float(y)) for x, y in pts)
+        self._shape._display._sync_all()
+        return self
+
+    def __vf_update__(self, op: str, value: Any) -> "VertexRef":
+        pts = self._checked_points()
+        pts[self._index][0], pts[self._index][1] = _vec2_apply(op, pts[self._index], value)
         self._shape._points = tuple((float(x), float(y)) for x, y in pts)
         self._shape._display._sync_all()
         return self
@@ -286,14 +313,26 @@ class EdgeRef:
     def id(self) -> int:
         return self._index
 
-    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "EdgeRef":
+    def _checked_points(self) -> list[list[float]]:
         if self._shape._points is None:
             raise TypeError("edge refs require a polygon parent.")
         if self._index < 0 or self._index >= len(self._shape._points):
             raise IndexError(f"edge index {self._index} is outside polygon with {len(self._shape._points)} edges")
+        return [list(p) for p in self._shape._points]
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "EdgeRef":
         delta = _vec2_delta(trans, dx=dx, dy=dy)
         VertexRef(self._shape, self._index).translate(delta)
         VertexRef(self._shape, (self._index + 1) % len(self._shape._points)).translate(delta)
+        return self
+
+    def __vf_update__(self, op: str, value: Any) -> "EdgeRef":
+        pts = self._checked_points()
+        next_index = (self._index + 1) % len(pts)
+        pts[self._index][0], pts[self._index][1] = _vec2_apply(op, pts[self._index], value)
+        pts[next_index][0], pts[next_index][1] = _vec2_apply(op, pts[next_index], value)
+        self._shape._points = tuple((float(x), float(y)) for x, y in pts)
+        self._shape._display._sync_all()
         return self
 
 
@@ -937,6 +976,22 @@ class RectRef:
         self._ty += ty
         self._display._sync_all()
         return self
+
+    def __vf_update__(self, op: str, value: Any) -> "RectRef":
+        if op == "PLUS":
+            return self.translate(value)
+        if op == "MINUS":
+            tx, ty = _vec2_delta(value)
+            return self.translate([-tx, -ty])
+        if isinstance(value, (int, float)):
+            vx = vy = float(value)
+        else:
+            vx, vy = _vec2_delta(value)
+        if op == "STAR":
+            return self.scale_by(sx=vx, sy=vy)
+        if op == "SLASH":
+            return self.scale_by(sx=1.0 / vx, sy=1.0 / vy)
+        raise TypeError(f"unsupported geometry update operator {op!r}")
 
     def set_scale(self, *, sx: float | None = None, sy: float | None = None) -> "RectRef":
         if sx is not None:

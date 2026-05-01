@@ -55,10 +55,13 @@ edit_polygon(e):
   vertex: panel.get_vertex(e.hover)
   edge: panel.get_edge(e.hover)
   poly: panel.get_rect(e.hover.object_id)
-  vertex? vertex.translate(e.trans)
-  edge? edge.translate(e.trans)
+  vertex?
+    vertex +: e.trans
+  edge?
+    edge +: e.trans
   poly?
-    e.hover.kind = "face"? poly.translate(e.trans)
+    e.hover.kind = "face"?
+      poly +: e.trans
 
 dispatch(e):
   e.event??

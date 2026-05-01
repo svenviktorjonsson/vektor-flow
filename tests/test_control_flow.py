@@ -22,6 +22,19 @@ def _run(src: str) -> str:
     return buf.getvalue().strip()
 
 
+def test_update_operators_mutate_vector_memory() -> None:
+    src = """
+v: [1,2]
+alias: v
+v +: [3,4]
+v *: 2
+v -: [2,4]
+v /: 2
+:: alias
+"""
+    assert _run(src) == "[3, 4]"
+
+
 def test_implicit_return_last_line_compact() -> None:
     """Last row as a plain expression is the function result (no ``@:`` on that line)."""
     src = """

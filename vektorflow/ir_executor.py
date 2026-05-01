@@ -827,6 +827,10 @@ class IRExecutor:
                 self.exec_stmt(stmt, env)
         except IRReturnSignal as r:
             return r.value
+        except IRContinueSignal:
+            raise EvalError("continue is not valid here (use `?>` / `??>` loops)") from None
+        except IRBreakSignal:
+            raise EvalError("@| break outside >> pipe") from None
         return None
 
     def exec_block(self, block: ir.Block, env: dict[str, Any]) -> None:

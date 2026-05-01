@@ -572,6 +572,24 @@ class Parser:
                 path = self._parse_dot_module_path_from_dot()
                 return ast.SpillImport(path, alias=alias)
 
+        # Update bind: lvalue `+:` / `-:` / `*:` / `/:` expr.
+        if self._peek_raw() == IDENT:
+            if not (
+                self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN
+            ):
+                mark = self.i
+                target = self.parse_postfix()
+                self._skip_trivia()
+                if self._peek_raw() in (PLUS, MINUS, STAR, SLASH):
+                    op = self._advance().kind
+                    self._skip_trivia()
+                    if self._peek_raw() == COLON and (
+                        self.i + 1 >= len(self.toks) or self.toks[self.i + 1].kind != COLON
+                    ):
+                        self._advance()
+                        return ast.UpdateBind(target, op, self.parse_expr())
+                self.i = mark
+
         # Bind: lvalue `:` expr (single colon, not ::); lvalue is postfix (``a``, ``a.b``, ``a.(1)``, …)
         if self._peek_raw() == IDENT:
             if not (

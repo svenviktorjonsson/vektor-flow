@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from vektorflow.ui_display_ir import UiPaintOp
 from vektorflow.ui_scene_graph_math import IDENTITY_AFFINE_2D
 from vektorflow.ui_scene_model import DisplaySceneState, collect_screen_paint_ops
+from vektorflow.interpreter import Interpreter
+from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import MouseEvent
 from vektorflow.stdlib.ui import build_ui_namespace
 
@@ -76,6 +80,44 @@ def test_polygon_hover_context_resolves_vertex_and_edge_refs() -> None:
     frame.get_edge({"object_id": poly.id, "edge_id": 1}).translate([-0.1, 0.1])
     assert poly._points[1] == (0.4, 0.30000000000000004)
     assert poly._points[2] == (0.30000000000000004, 0.5)
+
+
+def test_geometry_refs_support_vector_update_protocol() -> None:
+    d = build_ui_namespace()["ui"].display
+    frame = d.frame(title="updates", draggable=True, closable=True, resizable=True, dockable=True, dock_loc="bl")
+    d.add_frame(frame, [0.1, 0.1, 0.8, 0.8])
+    poly = frame.add_polygon([[0.0, 0.0], [0.4, 0.0], [0.4, 0.4], [0.0, 0.4]], color=[1, 0, 0, 1])
+
+    frame.get_vertex({"object_id": poly.id, "vertex_id": 0}).__vf_update__("PLUS", [0.2, 0.3])
+    assert poly._points[0] == (0.2, 0.3)
+
+    frame.get_edge({"object_id": poly.id, "edge_id": 1}).__vf_update__("MINUS", [0.1, 0.1])
+    assert poly._points[1] == (0.30000000000000004, -0.1)
+    assert poly._points[2] == (0.30000000000000004, 0.30000000000000004)
+
+    poly.__vf_update__("PLUS", [0.1, -0.1])
+    assert poly._tx == 0.1
+    assert poly._ty == -0.1
+
+
+def test_vkf_update_operator_mutates_geometry_refs() -> None:
+    src = """
+ui: .ui
+d: ui.display
+frame: d.frame(title:"updates", draggable:true, closable:true, resizable:true, dockable:true, dock_loc:"bl")
+d.add_frame(frame, [0.1, 0.1, 0.8, 0.8])
+poly: frame.add_polygon([[0.0,0.0], [0.4,0.0], [0.4,0.4]], color:[1,0,0,1])
+vertex: frame.get_vertex((object_id:poly.id, vertex_id:1))
+vertex +: [0.1, 0.2]
+poly +: [0.3, 0.4]
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<ui-update>"))
+
+    poly = ip.globals["poly"]
+    assert poly._points[1] == (0.5, 0.2)
+    assert poly._tx == 0.3
+    assert poly._ty == 0.4
 
 
 def test_mouse_events_expose_vector_positions_and_translation() -> None:

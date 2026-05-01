@@ -284,6 +284,13 @@ class Bind:
 
 
 @dataclass
+class UpdateBind:
+    target: Any  # Ident, Attribute, or DottedIndex
+    op: str
+    value: Any
+
+
+@dataclass
 class Emit:
     """Legacy stdout emit; prefer :class:`StdioPrint`."""
 
