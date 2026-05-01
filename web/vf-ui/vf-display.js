@@ -42,30 +42,24 @@
   var frameRecs = {};
   var _lastPayloadSummary = "";   // cheap change-detect for log spam suppression
 
-  // ── Event forwarding ──────────────────────────────────────────────────────
-  // frame_id -> { fid, canvases: [...] } for hit-testing
-  var _frameEventMap = {};  // fid -> { fid, el }
-  var _apiPort = 0;         // discovered from window.__agentPort
+  // ── Event forwarding seam ─────────────────────────────────────────────────
+  // Rendering owns event semantics; transport owns delivery.
+  var _eventSink = {
+    postEvent: function () {}
+  };
 
-  function getApiPort() {
-    if (_apiPort) { return _apiPort; }
-    if (typeof global !== "undefined" && global.__agentPort) {
-      _apiPort = parseInt(global.__agentPort, 10) || 0;
+  function setEventSink(sink) {
+    if (sink && typeof sink.postEvent === "function") {
+      _eventSink = sink;
+      return;
     }
-    return _apiPort;
+    _eventSink = { postEvent: function () {} };
   }
 
   function postEvent(evt) {
-    var port = getApiPort();
-    if (!port) { return; }  // no port yet — events queued until next hover/click
-    var body = JSON.stringify({ line: JSON.stringify(evt) });
     try {
-      fetch("http://127.0.0.1:" + port + "/api/enqueue", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    body,
-      }).catch(function(){});
-    } catch(_) {}
+      _eventSink.postEvent(evt);
+    } catch (_) {}
   }
 
   /** Convert a canvas-relative MouseEvent to the { frame_id, object_id, simplex_id }
@@ -162,6 +156,31 @@
     vlog("info", "attachCanvasEvents: frame=" + fid + " meshIdx=" + meshIdx);
   }
 
+  function vec3Add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+  function vec3Sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+  function vec3Scale(a, s) { return [a[0] * s, a[1] * s, a[2] * s]; }
+  function vec3Cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  }
+  function vec3Len(a) { return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); }
+  function vec3Norm(a) {
+    var l = vec3Len(a);
+    if (l < 1e-9) { return [0, 0, -1]; }
+    return [a[0] / l, a[1] / l, a[2] / l];
+  }
+
+  function syncGameCamera(fid, camera) {
+    if (global.VfGameCamera && typeof global.VfGameCamera.sync === "function") {
+      return global.VfGameCamera.sync(fid, camera);
+    }
+    return null;
+  }
+
+  function ensureGameCameraControls(canvas, fid, camera) {
+    if (global.VfGameCamera && typeof global.VfGameCamera.attach === "function") {
+      global.VfGameCamera.attach(canvas, fid, camera, { findFrameEl: findFrameEl, log: vlog });
+    }
+  }
   // ── 2-D canvas helpers ────────────────────────────────────────────────────
   function get2d(canvas) {
     if (!canvas) { return null; }
@@ -177,16 +196,359 @@
     return { x: rect[0]*w, y: rect[1]*h, rw: rect[2]*w, rh: rect[3]*h };
   }
 
-  function drawOpList(ctx, w, h, ops) {
+  var _interactive2d = Object.create(null);
+
+  function cursorCss(mode) {
+    var m = String(mode || "default");
+    if (m === "open_hand") { return "grab"; }
+    if (m === "closed_hand") { return "grabbing"; }
+    if (m === "finger_up" || m === "finger_down") { return "pointer"; }
+    if (m === "cross_hair") { return "crosshair"; }
+    if (m === "arrow") { return "default"; }
+    return m;
+  }
+
+  function applyGlobalCursorMode(mode) {
+    if (global.VfGameCamera && typeof global.VfGameCamera.applyGlobalCursorMode === "function") {
+      global.VfGameCamera.applyGlobalCursorMode(mode || "default", cursorCss);
+      return;
+    }
+    var css = cursorCss(mode || "default");
+    document.documentElement.style.cursor = css;
+    document.body.style.cursor = css;
+  }
+  function isInteractiveOp(o) {
+    return !!(o && o.interaction && o.interaction.mode === "transform_2d");
+  }
+
+  function frameInteractionState(fid, ops) {
+    var key = String(fid || "__screen__");
+    var st = _interactive2d[key];
+    if (!st) {
+      st = { zoom: 1, panX: 0, panY: 0, drag: null, ops: [] };
+      _interactive2d[key] = st;
+    }
+    st.ops = reconcileInteractionOps(st.ops, ops || []);
+    return st;
+  }
+
+  function reconcileInteractionOps(previous, incoming) {
+    if (!previous || !previous.length) { return incoming; }
+    var byId = Object.create(null);
+    for (var i = 0; i < previous.length; i++) {
+      var prev = previous[i];
+      var id = opShapeId(prev);
+      if (id) { byId[id] = prev; }
+    }
+    for (var j = 0; j < incoming.length; j++) {
+      var next = incoming[j];
+      var nextId = opShapeId(next);
+      var old = nextId ? byId[nextId] : null;
+      if (old && Array.isArray(old.transform)) {
+        next.transform = old.transform.slice();
+      }
+    }
+    return incoming;
+  }
+
+  function applyViewToPoint(st, x, y) {
+    return [x * st.zoom + st.panX, y * st.zoom + st.panY];
+  }
+
+  function screenToData(st, x, y, w, h) {
+    return [((x / (w || 1)) - st.panX) / st.zoom, ((y / (h || 1)) - st.panY) / st.zoom];
+  }
+
+  function transformedPoints(o) {
+    var pts = Array.isArray(o.points) && o.points.length ? o.points : [[0,0],[1,0],[1,1],[0,1]];
+    var tr = Array.isArray(o.transform) && o.transform.length >= 6 ? o.transform : [1,0,0,1,0,0];
+    return pts.map(function(p) {
+      var x = Number(p[0]) || 0;
+      var y = Number(p[1]) || 0;
+      return [tr[0] * x + tr[2] * y + tr[4], tr[1] * x + tr[3] * y + tr[5]];
+    });
+  }
+
+  function pointInPolygon(pt, poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i][0], yi = poly[i][1];
+      var xj = poly[j][0], yj = poly[j][1];
+      var crosses = ((yi > pt[1]) !== (yj > pt[1])) &&
+        (pt[0] < (xj - xi) * (pt[1] - yi) / ((yj - yi) || 1e-9) + xi);
+      if (crosses) { inside = !inside; }
+    }
+    return inside;
+  }
+
+  function distToSegment(p, a, b) {
+    var vx = b[0] - a[0], vy = b[1] - a[1];
+    var wx = p[0] - a[0], wy = p[1] - a[1];
+    var c1 = vx * wx + vy * wy;
+    var c2 = vx * vx + vy * vy || 1e-9;
+    var t = Math.max(0, Math.min(1, c1 / c2));
+    var dx = p[0] - (a[0] + t * vx);
+    var dy = p[1] - (a[1] + t * vy);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function hitInteractiveOp(st, pt) {
+    for (var i = st.ops.length - 1; i >= 0; i--) {
+      var o = st.ops[i];
+      if (!isInteractiveOp(o)) { continue; }
+      var poly = transformedPoints(o);
+      if (!pointInPolygon(pt, poly)) { continue; }
+      var border = Number(o.interaction.border || 0.08);
+      var near = false;
+      for (var j = 0; j < poly.length; j++) {
+        if (distToSegment(pt, poly[j], poly[(j + 1) % poly.length]) <= border) {
+          near = true;
+          break;
+        }
+      }
+      return { index: i, op: o, edge: near };
+    }
+    return null;
+  }
+
+  function opShapeId(o) {
+    return o && o.interaction ? String(o.interaction.shape_id || "") : "";
+  }
+
+  function isDescendantOf(st, op, ancestorId) {
+    var parentId = op && op.interaction ? String(op.interaction.parent_shape_id || "") : "";
+    while (parentId) {
+      if (parentId === ancestorId) { return true; }
+      var parent = null;
+      for (var i = 0; i < st.ops.length; i++) {
+        if (opShapeId(st.ops[i]) === parentId) {
+          parent = st.ops[i];
+          break;
+        }
+      }
+      parentId = parent && parent.interaction ? String(parent.interaction.parent_shape_id || "") : "";
+    }
+    return false;
+  }
+
+  function polygonCenter(o) {
+    var poly = transformedPoints(o);
+    var sx = 0, sy = 0;
+    for (var i = 0; i < poly.length; i++) { sx += poly[i][0]; sy += poly[i][1]; }
+    return [sx / poly.length, sy / poly.length];
+  }
+
+  function leftMultiplyAffine(m, tr) {
+    return [
+      m[0] * tr[0] + m[2] * tr[1],
+      m[1] * tr[0] + m[3] * tr[1],
+      m[0] * tr[2] + m[2] * tr[3],
+      m[1] * tr[2] + m[3] * tr[3],
+      m[0] * tr[4] + m[2] * tr[5] + m[4],
+      m[1] * tr[4] + m[3] * tr[5] + m[5],
+    ];
+  }
+
+  function rotateScaleAround(tr, center, angle, scale) {
+    var c = Math.cos(angle), s = Math.sin(angle), k = scale;
+    var m = [
+      c * k,
+      s * k,
+      -s * k,
+      c * k,
+      center[0] - (c * k * center[0] - s * k * center[1]),
+      center[1] - (s * k * center[0] + c * k * center[1]),
+    ];
+    return leftMultiplyAffine(m, tr);
+  }
+
+  function applyAffineToSubtree(st, rootOp, m) {
+    var rootId = opShapeId(rootOp);
+    for (var i = 0; i < st.ops.length; i++) {
+      var op = st.ops[i];
+      if (op !== rootOp && !isDescendantOf(st, op, rootId)) { continue; }
+      var tr = Array.isArray(op.transform) && op.transform.length >= 6 ? op.transform : [1,0,0,1,0,0];
+      op.transform = leftMultiplyAffine(m, tr);
+    }
+  }
+
+  function drawPolygon(ctx, points) {
+    if (!points || points.length < 3) { return; }
+    ctx.beginPath();
+    ctx.moveTo(Number(points[0][0]) || 0, Number(points[0][1]) || 0);
+    for (var i = 1; i < points.length; i++) {
+      ctx.lineTo(Number(points[i][0]) || 0, Number(points[i][1]) || 0);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function redrawInteractiveCanvas(canvas) {
+    if (!canvas || !canvas.__vf2dFrameId) { return; }
+    var sz = syncCanvasSize(canvas);
+    if (!sz) { return; }
+    drawOpList(get2d(canvas), sz.w, sz.h, _interactive2d[canvas.__vf2dFrameId].ops, canvas.__vf2dFrameId);
+  }
+
+  function attach2dInteractions(canvas, fid) {
+    if (!canvas || canvas.__vf2dInteractionsAttached) { return; }
+    canvas.__vf2dInteractionsAttached = true;
+    canvas.__vf2dFrameId = String(fid || "__screen__");
+    canvas.style.pointerEvents = "auto";
+    canvas.addEventListener("mousedown", function(e) {
+      var st = _interactive2d[canvas.__vf2dFrameId];
+      if (!st) { return; }
+      var r = canvas.getBoundingClientRect();
+      var pt = screenToData(st, e.clientX - r.left, e.clientY - r.top, r.width, r.height);
+      var hit = hitInteractiveOp(st, pt);
+      var shapeId = hit && hit.op && hit.op.interaction ? hit.op.interaction.shape_id || "" : "";
+      postEvent({
+        type: "vf_event",
+        event: "down",
+        x: e.clientX - r.left,
+        y: e.clientY - r.top,
+        frame_id: canvas.__vf2dFrameId,
+        shape_id: shapeId,
+        object_id: shapeId,
+        action: hit ? (hit.edge ? "transform" : "translate") : "pan",
+      });
+      st.drag = {
+        action: hit ? (hit.edge ? "transform" : "translate") : "pan",
+        op: hit ? hit.op : null,
+        last: pt,
+        lastClient: [e.clientX, e.clientY],
+        center: hit ? polygonCenter(hit.op) : null,
+      };
+      canvas.style.cursor = cursorCss(hit && hit.op.interaction.pressed_cursor || "closed_hand");
+      e.preventDefault();
+    }, { passive: false });
+    document.addEventListener("mouseup", function() {
+      var st = _interactive2d[canvas.__vf2dFrameId];
+      if (!st || !st.drag) { return; }
+      st.drag = null;
+      canvas.style.cursor = cursorCss(st.cursor || "open_hand");
+    }, true);
+    document.addEventListener("mousemove", function(e) {
+      var st = _interactive2d[canvas.__vf2dFrameId];
+      if (!st) { return; }
+      var r = canvas.getBoundingClientRect();
+      var pt = screenToData(st, e.clientX - r.left, e.clientY - r.top, r.width, r.height);
+      if (!st.drag) {
+        var hover = hitInteractiveOp(st, pt);
+        var hoverId = hover && hover.op && hover.op.interaction ? hover.op.interaction.shape_id || "" : "";
+        canvas.style.cursor = cursorCss(hoverId ? hover.op.interaction.cursor : (st.cursor || "open_hand"));
+        postEvent({
+          type: "vf_event",
+          event: "hover",
+          x: e.clientX - r.left,
+          y: e.clientY - r.top,
+          frame_id: canvas.__vf2dFrameId,
+          shape_id: hoverId,
+          object_id: hoverId,
+        });
+        return;
+      }
+      var d = st.drag;
+      if (d.action === "pan") {
+        st.panX += (e.clientX - d.lastClient[0]) / (r.width || 1);
+        st.panY += (e.clientY - d.lastClient[1]) / (r.height || 1);
+      } else if (d.op) {
+        var tr = Array.isArray(d.op.transform) && d.op.transform.length >= 6 ? d.op.transform : [1,0,0,1,0,0];
+        if (d.action === "translate") {
+          applyAffineToSubtree(st, d.op, [1, 0, 0, 1, pt[0] - d.last[0], pt[1] - d.last[1]]);
+        } else {
+          var c = d.center || polygonCenter(d.op);
+          var a0 = Math.atan2(d.last[1] - c[1], d.last[0] - c[0]);
+          var a1 = Math.atan2(pt[1] - c[1], pt[0] - c[0]);
+          var r0 = Math.hypot(d.last[0] - c[0], d.last[1] - c[1]) || 1e-9;
+          var r1 = Math.hypot(pt[0] - c[0], pt[1] - c[1]);
+          applyAffineToSubtree(
+            st,
+            d.op,
+            rotateScaleAround([1, 0, 0, 1, 0, 0], c, a1 - a0, Math.max(0.05, r1 / r0))
+          );
+        }
+      }
+      d.last = pt;
+      d.lastClient = [e.clientX, e.clientY];
+      postEvent({
+        type: "vf_event",
+        event: "drag",
+        x: e.clientX - r.left,
+        y: e.clientY - r.top,
+        dx: e.movementX || 0,
+        dy: e.movementY || 0,
+        frame_id: canvas.__vf2dFrameId,
+        shape_id: d.op && d.op.interaction ? d.op.interaction.shape_id || "" : "",
+        object_id: d.op && d.op.interaction ? d.op.interaction.shape_id || "" : "",
+        action: d.action,
+      });
+      redrawInteractiveCanvas(canvas);
+    }, true);
+    canvas.addEventListener("wheel", function(e) {
+      var st = _interactive2d[canvas.__vf2dFrameId];
+      if (!st) { return; }
+      var r = canvas.getBoundingClientRect();
+      var before = screenToData(st, e.clientX - r.left, e.clientY - r.top, r.width, r.height);
+      var factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      st.zoom = Math.max(0.1, Math.min(20, st.zoom * factor));
+      st.panX = (e.clientX - r.left) / (r.width || 1) - before[0] * st.zoom;
+      st.panY = (e.clientY - r.top) / (r.height || 1) - before[1] * st.zoom;
+      redrawInteractiveCanvas(canvas);
+      e.preventDefault();
+    }, { passive: false });
+  }
+
+  function drawOpList(ctx, w, h, ops, frameId) {
     if (!w || !h || !ctx) { return; }
     ctx.clearRect(0, 0, w, h);
     if (!ops || !ops.length) { return; }
+    var st = frameInteractionState(frameId, ops);
     for (var i = 0; i < ops.length; i++) {
       var o = ops[i];
       if (!o) { continue; }
+      if (isInteractiveOp(o)) { st.cursor = o.interaction.cursor || st.cursor || "open_hand"; }
+      ctx.fillStyle = o.color != null ? String(o.color) : "#888";
+      if (Array.isArray(o.transform) && o.transform.length >= 6) {
+        var tr = o.transform;
+        ctx.save();
+        ctx.setTransform(
+          w * st.zoom * Number(tr[0] || 0),
+          h * st.zoom * Number(tr[1] || 0),
+          w * st.zoom * Number(tr[2] || 0),
+          h * st.zoom * Number(tr[3] || 0),
+          w * (st.zoom * Number(tr[4] || 0) + st.panX),
+          h * (st.zoom * Number(tr[5] || 0) + st.panY)
+        );
+        if (o.op === "rect") {
+          ctx.fillRect(0, 0, 1, 1);
+          ctx.restore();
+          continue;
+        }
+        if (o.op === "polygon") {
+          drawPolygon(ctx, o.points);
+          ctx.restore();
+          continue;
+        }
+        if (o.op === "oval") {
+          ctx.beginPath();
+          if (typeof ctx.ellipse === "function") {
+            ctx.ellipse(0.5, 0.5, 0.5, 0.5, 0, 0, Math.PI * 2);
+          } else {
+            ctx.save();
+            ctx.translate(0.5, 0.5);
+            ctx.scale(0.5, 0.5);
+            ctx.arc(0, 0, 1, 0, Math.PI * 2);
+            ctx.restore();
+          }
+          ctx.fill();
+          ctx.restore();
+          continue;
+        }
+        ctx.restore();
+      }
       var p = normToPx(o.rect, w, h);
       if (!p) { continue; }
-      ctx.fillStyle = o.color != null ? String(o.color) : "#888";
       if (o.op === "rect") {
         ctx.fillRect(p.x, p.y, p.rw, p.rh);
         continue;
@@ -379,6 +741,121 @@
     return [nx / nlen, ny / nlen, nz / nlen];
   }
 
+  function parseSpecRgba(spec) {
+    var c = spec && spec.color;
+    if (global.VfGeomWgpuUtil && typeof global.VfGeomWgpuUtil.parseColor === "function") {
+      return global.VfGeomWgpuUtil.parseColor(c);
+    }
+    if (Array.isArray(c) && c.length >= 3) {
+      return [Number(c[0]) || 0.8, Number(c[1]) || 0.8, Number(c[2]) || 0.8, c.length >= 4 ? Number(c[3]) || 1 : 1];
+    }
+    return [0.8, 0.8, 0.8, 1];
+  }
+
+  function vertexRgba(v, offset, fallback) {
+    if (!v || offset + 9 >= v.length) { return fallback || [0.8, 0.8, 0.8, 1]; }
+    return [v[offset + 6], v[offset + 7], v[offset + 8], v[offset + 9]];
+  }
+
+  function pushVertex(outVerts, p, n, rgba) {
+    outVerts.push(p[0], p[1], p[2], n[0], n[1], n[2], rgba[0], rgba[1], rgba[2], rgba[3]);
+  }
+
+  function overlaySize(spec, mesh, key) {
+    var raw = spec && spec[key];
+    if (raw !== undefined && raw !== null) {
+      return Math.max(0, Number(raw) || 0);
+    }
+    var d = Number((spec && spec.manifold_dim_count) || (mesh && mesh.manifold_dim_count) || 0);
+    if (key === "vertex_size") { return d === 0 ? 4 : 0; }
+    if (key === "edge_width") { return d === 1 ? 4 : 0; }
+    return 0;
+  }
+
+  function impostorRadiusForPixels(px, p, camera) {
+    px = Math.max(0, Number(px) || 0);
+    if (px <= 0) { return 0; }
+    var camPos = (camera && Array.isArray(camera.pos)) ? camera.pos : [0, 0, 5];
+    var fov = Number(camera && camera.fov) || 45;
+    var dist = Math.max(0.05, vec3Len(vec3Sub(p, camPos)));
+    // Approximate screen-space sizing without coupling radius to mesh scale.
+    // TODO: move this to the renderer with the actual canvas height so impostors
+    // stay exact under every viewport and clip cleanly against nearby D-1 planes.
+    var nominalViewportPx = 600;
+    return Math.max(0.0005, (2 * dist * Math.tan((fov * Math.PI / 180) * 0.5)) * (px * 0.5 / nominalViewportPx));
+  }
+
+  function appendSphereGeom(outVerts, outIdx, center, radius, rgba, counts) {
+    if (!(radius > 0)) { return; }
+    var seg = 12;
+    var rings = 6;
+    var base = outVerts.length / 10;
+    for (var r = 0; r <= rings; r++) {
+      var phi = Math.PI * r / rings;
+      var sp = Math.sin(phi);
+      var cp = Math.cos(phi);
+      for (var s = 0; s <= seg; s++) {
+        var th = Math.PI * 2 * s / seg;
+        var nx = Math.cos(th) * sp;
+        var ny = Math.sin(th) * sp;
+        var nz = cp;
+        pushVertex(
+          outVerts,
+          [center[0] + nx * radius, center[1] + ny * radius, center[2] + nz * radius],
+          [nx, ny, nz],
+          rgba
+        );
+      }
+    }
+    var row = seg + 1;
+    for (var rr = 0; rr < rings; rr++) {
+      for (var ss = 0; ss < seg; ss++) {
+        var a = base + rr * row + ss;
+        var b = a + 1;
+        var c = a + row;
+        var d = c + 1;
+        outIdx.push(a, c, b, b, c, d);
+      }
+    }
+    if (counts) { counts.spheres++; }
+  }
+
+  function appendCylinderSideGeom(outVerts, outIdx, a, b, radius, rgba, counts) {
+    var axis = vec3Sub(b, a);
+    var len = vec3Len(axis);
+    if (!(radius > 0) || len < 1e-6) { return; }
+    var dir = vec3Scale(axis, 1 / len);
+    var ref = Math.abs(dir[1]) < 0.92 ? [0, 1, 0] : [1, 0, 0];
+    var u = vec3Norm(vec3Cross(ref, dir));
+    var v = vec3Norm(vec3Cross(dir, u));
+    var seg = 14;
+    var base = outVerts.length / 10;
+    for (var s = 0; s <= seg; s++) {
+      var th = Math.PI * 2 * s / seg;
+      var n = vec3Norm(vec3Add(vec3Scale(u, Math.cos(th)), vec3Scale(v, Math.sin(th))));
+      pushVertex(outVerts, vec3Add(a, vec3Scale(n, radius)), n, rgba);
+      pushVertex(outVerts, vec3Add(b, vec3Scale(n, radius)), n, rgba);
+    }
+    for (var i = 0; i < seg; i++) {
+      var p0 = base + i * 2;
+      var p1 = p0 + 1;
+      var p2 = p0 + 2;
+      var p3 = p0 + 3;
+      outIdx.push(p0, p1, p2, p2, p1, p3);
+    }
+    if (counts) { counts.cylinders++; }
+  }
+
+  function appendSegmentImpostor(outVerts, outIdx, a, b, radius, rgba, counts) {
+    appendCylinderSideGeom(outVerts, outIdx, a, b, radius, rgba, counts);
+    appendSphereGeom(outVerts, outIdx, a, radius, rgba, counts);
+    appendSphereGeom(outVerts, outIdx, b, radius, rgba, counts);
+  }
+
+  function pointKey(p) {
+    return p[0].toFixed(6) + "," + p[1].toFixed(6) + "," + p[2].toFixed(6);
+  }
+
   function cameraForward(camera) {
     var pos = (camera && Array.isArray(camera.pos)) ? camera.pos : [0, 0, 5];
     var target = (camera && Array.isArray(camera.target)) ? camera.target : [0, 0, 0];
@@ -473,6 +950,156 @@
     };
   }
 
+  function buildCombinedTriangleMesh(specs, camera, lights) {
+    if (!Array.isArray(specs) || specs.length < 1) { return null; }
+    var built = [];
+    var needsCombined = specs.length > 1;
+    for (var bi = 0; bi < specs.length; bi++) {
+      var builtSpec = specs[bi];
+      var builtMesh = buildSingleMesh(builtSpec, camera, lights);
+      if (!builtMesh) { return null; }
+      if (
+        builtMesh.topology !== "triangle-list" ||
+        builtMesh.solid_volume ||
+        overlaySize(builtSpec, builtMesh, "vertex_size") > 0 ||
+        overlaySize(builtSpec, builtMesh, "edge_width") > 0
+      ) {
+        needsCombined = true;
+      }
+      built.push({ spec: builtSpec, mesh: builtMesh });
+    }
+    if (!needsCombined) { return null; }
+
+    var outVerts = [];
+    var outIdx = [];
+    var solidRanges = [];
+    var overlayCounts = { spheres: 0, cylinders: 0 };
+    var vertBase = 0;
+    var stride = 10;
+
+    for (var i = 0; i < built.length; i++) {
+      var spec = built[i].spec;
+      var m = built[i].mesh;
+      var model = meshModelMatrix(spec);
+      var v = m.vertices;
+      var idx = m.indices;
+      var vcount = Math.floor(v.length / stride);
+      var vertexSize = overlaySize(spec, m, "vertex_size");
+      var edgeWidth = overlaySize(spec, m, "edge_width");
+      var seenPoints = Object.create(null);
+
+      function appendPointOverlay(localOffset) {
+        var pp = transformPointMat4(model, v[localOffset], v[localOffset + 1], v[localOffset + 2]);
+        var key = pointKey(pp);
+        if (seenPoints[key]) { return; }
+        seenPoints[key] = true;
+        appendSphereGeom(
+          outVerts,
+          outIdx,
+          pp,
+          impostorRadiusForPixels(vertexSize, pp, camera),
+          vertexRgba(v, localOffset, parseSpecRgba(spec)),
+          overlayCounts
+        );
+      }
+
+      function appendEdgeOverlay(aOffset, bOffset) {
+        var ap = transformPointMat4(model, v[aOffset], v[aOffset + 1], v[aOffset + 2]);
+        var bp = transformPointMat4(model, v[bOffset], v[bOffset + 1], v[bOffset + 2]);
+        var mid = [(ap[0] + bp[0]) * 0.5, (ap[1] + bp[1]) * 0.5, (ap[2] + bp[2]) * 0.5];
+        appendSegmentImpostor(
+          outVerts,
+          outIdx,
+          ap,
+          bp,
+          impostorRadiusForPixels(edgeWidth, mid, camera),
+          vertexRgba(v, aOffset, parseSpecRgba(spec)),
+          overlayCounts
+        );
+      }
+
+      if (m.topology === "triangle-list") {
+        var triStart = outIdx.length;
+        for (var vi = 0; vi < vcount; vi++) {
+          var o = vi * stride;
+          var tp = transformPointMat4(model, v[o], v[o + 1], v[o + 2]);
+          var tn = transformNormalMat4(model, v[o + 3], v[o + 4], v[o + 5]);
+          outVerts.push(
+            tp[0], tp[1], tp[2],
+            tn[0], tn[1], tn[2],
+            v[o + 6], v[o + 7], v[o + 8], v[o + 9]
+          );
+        }
+        for (var ii = 0; ii < idx.length; ii++) {
+          outIdx.push(vertBase + idx[ii]);
+        }
+        if (m.solid_volume) {
+          solidRanges.push({ start: triStart, count: idx.length });
+        }
+        vertBase += vcount;
+        if (vertexSize > 0) {
+          for (var pvi = 0; pvi < vcount; pvi++) {
+            appendPointOverlay(pvi * stride);
+          }
+          vertBase = outVerts.length / stride;
+        }
+        if (edgeWidth > 0) {
+          var seenEdges = Object.create(null);
+          for (var ti = 0; ti + 2 < idx.length; ti += 3) {
+            var tri = [idx[ti], idx[ti + 1], idx[ti + 2]];
+            for (var ei = 0; ei < 3; ei++) {
+              var ea = tri[ei];
+              var eb = tri[(ei + 1) % 3];
+              var edgeKey = ea < eb ? ea + ":" + eb : eb + ":" + ea;
+              if (seenEdges[edgeKey]) { continue; }
+              seenEdges[edgeKey] = true;
+              appendEdgeOverlay(ea * stride, eb * stride);
+            }
+          }
+          vertBase = outVerts.length / stride;
+        }
+      } else if (m.topology === "line-list") {
+        if (edgeWidth > 0) {
+          for (var li = 0; li + 1 < idx.length; li += 2) {
+            appendEdgeOverlay(idx[li] * stride, idx[li + 1] * stride);
+          }
+        }
+        if (vertexSize > 0) {
+          for (var lpi = 0; lpi < idx.length; lpi++) {
+            appendPointOverlay(idx[lpi] * stride);
+          }
+        }
+        vertBase = outVerts.length / stride;
+      } else if (m.topology === "point-list") {
+        if (vertexSize > 0) {
+          for (var pi = 0; pi < idx.length; pi++) {
+            appendPointOverlay(idx[pi] * stride);
+          }
+        }
+        vertBase = outVerts.length / stride;
+      } else {
+        return null;
+      }
+    }
+
+    return {
+      id: "combined_scene",
+      mode3d: true,
+      label: "combined_scene",
+      vertices: new Float32Array(outVerts),
+      indices: new Uint32Array(outIdx),
+      topology: "triangle-list",
+      solid_volume_ranges: solidRanges,
+      overlay_counts: overlayCounts,
+      camera: camera || null,
+      lights: lights || [],
+      center: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      alpha: 1,
+    };
+  }
+
   // Build a single-mesh object for the renderer from a spec
   function buildSingleMesh(spec, camera, lights) {
     var Core = global.VfGeomCore;
@@ -501,6 +1128,10 @@
         vertices: (verts instanceof Float32Array) ? verts : new Float32Array(verts),
         indices: (inds instanceof Uint32Array) ? inds : new Uint32Array(inds),
         topology: spec.topology || "triangle-list",
+        solid_volume: !!spec.solid_volume,
+        manifold_dim_count: Number(spec.manifold_dim_count) || 0,
+        vertex_size: Number(spec.vertex_size) || 0,
+        edge_width: Number(spec.edge_width) || 0,
       };
     } else if (spec.preset) {
       mesh = Core.getPreset(spec.preset);
@@ -623,14 +1254,19 @@
 
     var specs   = geomSpec.meshes || [];
     var camera  = geomSpec.camera || null;
+    syncGameCamera(fid, camera);
     var lights  = geomSpec.lights || [];
     var combinedTransparent = buildCombinedTransparentMesh(specs, camera, lights);
+    var combinedTriangles = combinedTransparent ? null : buildCombinedTriangleMesh(specs, camera, lights);
     var renderSpecs = combinedTransparent
       ? [{ __mesh: combinedTransparent, type: "combined_transparent" }]
+      : combinedTriangles
+      ? [{ __mesh: combinedTriangles, type: "combined_scene" }]
       : specs;
 
     vlog("info", "updateGeomFrame [" + fid + "]: meshes=" + specs.length +
       (combinedTransparent ? " (combined transparent pass)" : "") +
+      (combinedTriangles ? " (combined scene pass)" : "") +
       " camera=" + (camera ? JSON.stringify(camera.pos) : "none") +
       " lights=" + lights.length);
 
@@ -682,6 +1318,7 @@
           entry.renderer = r;
           entry.canvas = cv;
           cv.style.opacity = String(mesh.alpha == null ? 1 : mesh.alpha);
+          ensureGameCameraControls(cv, fidInner, mesh.camera || camera);
           // Assign stable object_id (1-based: 0 means "no object")
           r._objectId = meshIdx + 1;
           r.init().then(function(ok) {
@@ -691,6 +1328,7 @@
               vlog("info", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init OK, starting render loop");
               r.start();
               attachCanvasEvents(cv, fidInner, meshIdx);
+              ensureGameCameraControls(cv, fidInner, rh.mesh && rh.mesh.camera);
             }
           }).catch(function(err) {
             vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init threw: " + (err && err.message ? err.message : String(err)));
@@ -724,6 +1362,7 @@
       vlog("warn", "renderFromJson: data is null or not an object");
       return;
     }
+    applyGlobalCursorMode(data.cursor || "default");
 
     // Log a summary of what arrived (suppress repeat spam)
     var geomKeys = data.geom ? Object.keys(data.geom) : [];
@@ -740,7 +1379,11 @@
     if (sc) {
       var sz = syncCanvasSize(sc);
       if (sz) {
-        drawOpList(get2d(sc), sz.w, sz.h, data.screen);
+        drawOpList(get2d(sc), sz.w, sz.h, data.screen, "__screen__");
+        attach2dInteractions(sc, "__screen__");
+        if (_interactive2d.__screen__ && _interactive2d.__screen__.cursor) {
+          sc.style.cursor = cursorCss(_interactive2d.__screen__.cursor);
+        }
         _setDisplayHitRegions(buildScreenHitRegions(data.screen, sz.w, sz.h));
         schedulePostGeomLayout();
       } else {
@@ -764,7 +1407,11 @@
         if (!cv) { continue; }
         var fsz = syncCanvasSize(cv);
         if (!fsz) { continue; }
-        drawOpList(get2d(cv), fsz.w, fsz.h, frames[fid]);
+        drawOpList(get2d(cv), fsz.w, fsz.h, frames[fid], fid);
+        attach2dInteractions(cv, fid);
+        if (_interactive2d[String(fid)] && _interactive2d[String(fid)].cursor) {
+          cv.style.cursor = cursorCss(_interactive2d[String(fid)].cursor);
+        }
       }
     }
 
@@ -776,56 +1423,6 @@
         updateGeomFrame(gid, geom[gid]);
       }
     }
-  }
-
-  // ── Fetch + render cycle ──────────────────────────────────────────────────
-
-  function displayJsonUrl() {
-    if (typeof location === "undefined" || !location.href) { return "vf-display.json"; }
-    var path = location.pathname || "/";
-    var i = path.lastIndexOf("/");
-    var base = i >= 0 ? path.substring(0, i+1) : "/";
-    return base + "vf-display.json";
-  }
-
-  var _lastFetchFailed = false;
-  var _lastFetchText   = "";
-  var _fetchInFlight   = false;   // prevent fetch pile-up at 60 fps
-
-  function loadAndRender() {
-    if (typeof fetch === "undefined") {
-      vlog("warn", "loadAndRender: fetch not available");
-      return;
-    }
-    if (_fetchInFlight) { return; }   // previous frame's fetch not done yet — skip
-    _fetchInFlight = true;
-    var url = displayJsonUrl();        // no cache-buster — cache:"no-store" is enough
-    fetch(url, { cache: "no-store" })
-      .then(function(r) {
-        if (!r.ok) {
-          if (!_lastFetchFailed) {
-            vlog("warn", "loadAndRender: vf-display.json fetch " + r.status + " (file may not exist yet)");
-            _lastFetchFailed = true;
-          }
-          return null;
-        }
-        _lastFetchFailed = false;
-        return r.text();
-      })
-      .then(function(t) {
-        if (t == null) { return; }
-        if (t === _lastFetchText) { return; }  // no change, skip parse
-        _lastFetchText = t;
-        var o; try { o = JSON.parse(t); } catch(e) {
-          vlog("error", "loadAndRender: JSON.parse failed: " + e.message + " (first 200 chars: " + t.slice(0,200) + ")");
-          return;
-        }
-        renderFromJson(o);
-      })
-      .catch(function(err) {
-        vlog("warn", "loadAndRender: fetch error: " + (err && err.message ? err.message : String(err)));
-      })
-      .finally(function() { _fetchInFlight = false; });
   }
 
   // ── Dependency check on load ──────────────────────────────────────────────
@@ -875,6 +1472,23 @@
 
   installGlobalWheelBridge();
   installGlobalDragBridge();
-  global.VfDisplay = { renderFromJson: renderFromJson, loadAndRender: loadAndRender };
+  global.VfDisplay = {
+    renderFromJson: renderFromJson,
+    setEventSink: setEventSink,
+    getInteractiveState: function(frameId) {
+      return _interactive2d[String(frameId || "__screen__")] || null;
+    },
+    getGameCameraState: function(frameId) {
+      if (global.VfGameCamera && typeof global.VfGameCamera.getState === "function") {
+        return global.VfGameCamera.getState(frameId);
+      }
+      return null;
+    },
+    __test: {
+      buildCombinedTriangleMesh: buildCombinedTriangleMesh
+    }
+  };
   vlog("info", "VfDisplay registered");
 })(typeof window !== "undefined" ? window : this);
+
+
