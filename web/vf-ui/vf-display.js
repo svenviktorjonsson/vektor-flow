@@ -62,6 +62,50 @@
     } catch (_) {}
   }
 
+  var HOVER_MASK = {
+    FRAME: 1,
+    OBJECT: 2,
+    VERTEX: 4,
+    EDGE: 8,
+    FACE: 16
+  };
+
+  function hoverContext(opts) {
+    opts = opts || {};
+    var frameId = opts.frame_id != null ? String(opts.frame_id) : "";
+    var objectId = opts.object_id != null ? opts.object_id : 0;
+    var vertexId = opts.vertex_id != null ? opts.vertex_id : null;
+    var edgeId = opts.edge_id != null ? opts.edge_id : null;
+    var faceId = opts.face_id != null ? opts.face_id : null;
+    var mask = frameId ? HOVER_MASK.FRAME : 0;
+    if (objectId !== 0 && objectId !== "" && objectId != null) { mask |= HOVER_MASK.OBJECT; }
+    if (vertexId != null) { mask |= HOVER_MASK.VERTEX; }
+    if (edgeId != null) { mask |= HOVER_MASK.EDGE; }
+    if (faceId != null) { mask |= HOVER_MASK.FACE; }
+    return {
+      kind: opts.kind || (vertexId != null ? "vertex" : edgeId != null ? "edge" : faceId != null ? "face" : objectId ? "object" : frameId ? "frame" : "none"),
+      mask: mask,
+      frame_id: frameId,
+      object_id: objectId,
+      vertex_id: vertexId,
+      edge_id: edgeId,
+      face_id: faceId,
+      simplex_id: opts.simplex_id != null ? opts.simplex_id : (faceId != null ? faceId : edgeId != null ? edgeId : vertexId != null ? vertexId : 0)
+    };
+  }
+
+  function withHoverContext(evt, hover) {
+    evt.hover = hover || hoverContext({ frame_id: evt.frame_id });
+    evt.hover_mask = evt.hover.mask;
+    evt.frame_id = evt.hover.frame_id;
+    evt.object_id = evt.hover.object_id;
+    evt.simplex_id = evt.hover.simplex_id;
+    if (evt.hover.vertex_id != null) { evt.vertex_id = evt.hover.vertex_id; }
+    if (evt.hover.edge_id != null) { evt.edge_id = evt.hover.edge_id; }
+    if (evt.hover.face_id != null) { evt.face_id = evt.hover.face_id; }
+    return evt;
+  }
+
   /** Convert a canvas-relative MouseEvent to the { frame_id, object_id, simplex_id }
    *  by firing a pickAt on the renderer that owns that canvas. */
   function resolvePickAt(canvas, cx, cy, fid, rendererIdx) {
@@ -105,34 +149,38 @@
       };
       var renderer = resolvePickAt(canvas, p.x, p.y, fid, meshIdx);
       if (!renderer) {
-        postEvent(Object.assign({ type: "vf_event", event: evtType,
-          x: p.cx, y: p.cy, frame_id: fid, object_id: 0, simplex_id: 0 }, mods, extra));
+        postEvent(withHoverContext(Object.assign({ type: "vf_event", event: evtType,
+          x: p.cx, y: p.cy, frame_id: fid }, mods, extra), hoverContext({ frame_id: fid })));
         return;
       }
       renderer.pickAt(p.x, p.y, function(oid, sid) {
-        postEvent(Object.assign({ type: "vf_event", event: evtType,
-          x: p.cx, y: p.cy, frame_id: fid,
-          object_id: oid, simplex_id: sid }, mods, extra));
+        var hover = hoverContext({
+          frame_id: fid,
+          object_id: oid,
+          face_id: oid ? sid : null,
+          simplex_id: sid,
+          kind: oid ? "face" : "frame"
+        });
+        postEvent(withHoverContext(Object.assign({ type: "vf_event", event: evtType,
+          x: p.cx, y: p.cy, frame_id: fid }, mods, extra), hover));
       });
     }
 
     canvas.addEventListener("mousemove", function(e) {
       // Move must be low-latency; do not gate it on async GPU picking.
       var p = canvasXY(e);
-      postEvent({
+      postEvent(withHoverContext({
         type: "vf_event",
         event: "move",
         x: p.x,
         y: p.y,
         frame_id: fid,
-        object_id: 0,
-        simplex_id: 0,
         buttons: Number(e.buttons) || 0,
         ctrl: !!e.ctrlKey,
         shift: !!e.shiftKey,
         alt: !!e.altKey,
         meta: !!e.metaKey
-      });
+      }, hoverContext({ frame_id: fid })));
     }, { passive: true });
 
     canvas.addEventListener("mousedown", function(e) {
@@ -148,9 +196,9 @@
       var p = canvasXY(e);
       var step = e.deltaY > 0 ? 1 : -1;
       if (e && typeof e.preventDefault === "function") { e.preventDefault(); }
-      postEvent({ type: "vf_event", event: "wheel",
+      postEvent(withHoverContext({ type: "vf_event", event: "wheel",
         x: p.x, y: p.y, step: step, delta: Number(e.deltaY) || 0,
-        ctrl: !!e.ctrlKey, frame_id: fid, object_id: 0, simplex_id: 0 });
+        ctrl: !!e.ctrlKey, frame_id: fid }, hoverContext({ frame_id: fid })));
     }, { passive: false });
 
     vlog("info", "attachCanvasEvents: frame=" + fid + " meshIdx=" + meshIdx);
@@ -300,13 +348,15 @@
       if (!pointInPolygon(pt, poly)) { continue; }
       var border = Number(o.interaction.border || 0.08);
       var near = false;
+      var edgeId = null;
       for (var j = 0; j < poly.length; j++) {
         if (distToSegment(pt, poly[j], poly[(j + 1) % poly.length]) <= border) {
           near = true;
+          edgeId = j;
           break;
         }
       }
-      return { index: i, op: o, edge: near };
+      return { index: i, op: o, edge: near, edge_id: edgeId, face_id: near ? null : 0 };
     }
     return null;
   }
@@ -402,16 +452,22 @@
       var pt = screenToData(st, e.clientX - r.left, e.clientY - r.top, r.width, r.height);
       var hit = hitInteractiveOp(st, pt);
       var shapeId = hit && hit.op && hit.op.interaction ? hit.op.interaction.shape_id || "" : "";
-      postEvent({
+      var downHover = hoverContext({
+        frame_id: canvas.__vf2dFrameId,
+        object_id: shapeId,
+        edge_id: hit ? hit.edge_id : null,
+        face_id: hit ? hit.face_id : null,
+        kind: hit ? (hit.edge ? "edge" : "face") : "frame"
+      });
+      postEvent(withHoverContext({
         type: "vf_event",
         event: "down",
         x: e.clientX - r.left,
         y: e.clientY - r.top,
         frame_id: canvas.__vf2dFrameId,
         shape_id: shapeId,
-        object_id: shapeId,
         action: hit ? (hit.edge ? "transform" : "translate") : "pan",
-      });
+      }, downHover));
       st.drag = {
         action: hit ? (hit.edge ? "transform" : "translate") : "pan",
         op: hit ? hit.op : null,
@@ -437,15 +493,21 @@
         var hover = hitInteractiveOp(st, pt);
         var hoverId = hover && hover.op && hover.op.interaction ? hover.op.interaction.shape_id || "" : "";
         canvas.style.cursor = cursorCss(hoverId ? hover.op.interaction.cursor : (st.cursor || "open_hand"));
-        postEvent({
+        var hoverCtx = hoverContext({
+          frame_id: canvas.__vf2dFrameId,
+          object_id: hoverId,
+          edge_id: hover ? hover.edge_id : null,
+          face_id: hover ? hover.face_id : null,
+          kind: hover ? (hover.edge ? "edge" : "face") : "frame"
+        });
+        postEvent(withHoverContext({
           type: "vf_event",
           event: "hover",
           x: e.clientX - r.left,
           y: e.clientY - r.top,
           frame_id: canvas.__vf2dFrameId,
           shape_id: hoverId,
-          object_id: hoverId,
-        });
+        }, hoverCtx));
         return;
       }
       var d = st.drag;
@@ -471,7 +533,15 @@
       }
       d.last = pt;
       d.lastClient = [e.clientX, e.clientY];
-      postEvent({
+      var dragShapeId = d.op && d.op.interaction ? d.op.interaction.shape_id || "" : "";
+      var dragHover = hoverContext({
+        frame_id: canvas.__vf2dFrameId,
+        object_id: dragShapeId,
+        edge_id: d.action === "transform" && d.op ? 0 : null,
+        face_id: d.action === "translate" && d.op ? 0 : null,
+        kind: d.op ? (d.action === "transform" ? "edge" : "face") : "frame"
+      });
+      postEvent(withHoverContext({
         type: "vf_event",
         event: "drag",
         x: e.clientX - r.left,
@@ -479,10 +549,9 @@
         dx: e.movementX || 0,
         dy: e.movementY || 0,
         frame_id: canvas.__vf2dFrameId,
-        shape_id: d.op && d.op.interaction ? d.op.interaction.shape_id || "" : "",
-        object_id: d.op && d.op.interaction ? d.op.interaction.shape_id || "" : "",
+        shape_id: dragShapeId,
         action: d.action,
-      });
+      }, dragHover));
       redrawInteractiveCanvas(canvas);
     }, true);
     canvas.addEventListener("wheel", function(e) {
@@ -594,7 +663,7 @@
         if (!dy) { return; }
         var step = dy > 0 ? 1 : -1;
         if (typeof e.preventDefault === "function") { e.preventDefault(); }
-        postEvent({
+        postEvent(withHoverContext({
           type: "vf_event",
           event: "wheel",
           x: x, y: y,
@@ -602,9 +671,7 @@
           delta: dy,
           ctrl: !!e.ctrlKey,
           frame_id: fid,
-          object_id: 0,
-          simplex_id: 0
-        });
+        }, hoverContext({ frame_id: fid })));
       } catch (_) {}
     }, { capture: true, passive: false });
   }
@@ -644,7 +711,7 @@
         if (!dx && !dy) { return; }
         _dragState.lastX = e.clientX;
         _dragState.lastY = e.clientY;
-        postEvent({
+        postEvent(withHoverContext({
           type: "vf_event",
           event: "drag",
           x: e.clientX,
@@ -658,9 +725,7 @@
           alt: !!e.altKey,
           meta: !!e.metaKey,
           frame_id: _dragState.fid,
-          object_id: 0,
-          simplex_id: 0
-        });
+        }, hoverContext({ frame_id: _dragState.fid })));
       } catch (_) {}
     }, true);
   }
@@ -1485,7 +1550,9 @@
       return null;
     },
     __test: {
-      buildCombinedTriangleMesh: buildCombinedTriangleMesh
+      buildCombinedTriangleMesh: buildCombinedTriangleMesh,
+      hoverContext: hoverContext,
+      HOVER_MASK: HOVER_MASK
     }
   };
   vlog("info", "VfDisplay registered");

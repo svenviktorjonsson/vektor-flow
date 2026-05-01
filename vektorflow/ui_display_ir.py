@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, Mapping
 import json
 import math
 
-UiPaintOpKind = Literal["rect", "oval"]
+UiPaintOpKind = Literal["rect", "oval", "polygon"]
 UiMeshKind = Literal["box", "ellipsoid", "torus"]
 UiFrameAddRoute = Literal["pending_existing", "rect_short_form"]
 
@@ -19,6 +19,8 @@ class UiPaintOp:
     rect: tuple[float, float, float, float]
     color: str
     transform: tuple[float, float, float, float, float, float] | None = None
+    points: tuple[tuple[float, float], ...] | None = None
+    interaction: dict[str, Any] | None = None
 
     def to_json_obj(self) -> dict[str, Any]:
         payload = {
@@ -35,6 +37,10 @@ class UiPaintOp:
                 self.transform[4],
                 self.transform[5],
             ]
+        if self.points is not None:
+            payload["points"] = [[float(x), float(y)] for x, y in self.points]
+        if self.interaction is not None:
+            payload["interaction"] = dict(self.interaction)
         return payload
 
 

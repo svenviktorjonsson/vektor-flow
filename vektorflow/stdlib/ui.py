@@ -106,6 +106,22 @@ def _rect_from_tuple(t: Any) -> tuple[float, float, float, float]:
     raise TypeError("rect must be a 4-tuple (x, y, w, h) in normalized 0..1 coordinates")
 
 
+def _points_from_seq(points: Any) -> tuple[tuple[float, float], ...]:
+    try:
+        seq = list(points)
+    except TypeError as exc:
+        raise TypeError("points must be a sequence of (x, y) pairs") from exc
+    if len(seq) < 3:
+        raise ValueError("polygon requires at least 3 points")
+    out: list[tuple[float, float]] = []
+    for p in seq:
+        pair = list(p)
+        if len(pair) != 2:
+            raise ValueError("polygon points must be (x, y) pairs")
+        out.append((float(pair[0]), float(pair[1])))
+    return tuple(out)
+
+
 def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k, v in kwargs.items():
@@ -129,12 +145,16 @@ def _make_transformed_paint_op(
     rect: tuple[float, float, float, float],
     color: Any,
     transform: tuple[float, float, float, float, float, float],
+    points: tuple[tuple[float, float], ...] | None = None,
+    interaction: dict[str, Any] | None = None,
 ) -> UiPaintOp:
     return UiPaintOp(
         op=kind,  # type: ignore[arg-type]
         rect=(float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])),
         color=str(color),
         transform=transform,
+        points=points,
+        interaction=interaction,
     )
 
 
@@ -765,6 +785,9 @@ class RectRef:
     _kind: str
     _rect: tuple[float, float, float, float]
     _color: str
+    _points: tuple[tuple[float, float], ...] | None = None
+    _interaction: dict[str, Any] | None = None
+    _shape_id: str = ""
     _children: list["RectRef"] = field(default_factory=list, repr=False)
     _tx: float = 0.0
     _ty: float = 0.0
@@ -778,6 +801,18 @@ class RectRef:
             "rect",
             _rect_from_tuple(rect),
             str(color),
+        )
+        self._children.append(child)
+        self._display._sync_all()
+        return child
+
+    def add_polygon(self, points: Any, *, color: str = "#888888") -> "RectRef":
+        child = RectRef(
+            self._display,
+            "polygon",
+            (0.0, 0.0, 1.0, 1.0),
+            str(color),
+            _points_from_seq(points),
         )
         self._children.append(child)
         self._display._sync_all()
@@ -831,6 +866,25 @@ class RectRef:
         self._display._sync_all()
         return self
 
+    def set_interaction(
+        self,
+        *,
+        cursor: str = "open_hand",
+        pressed_cursor: str = "closed_hand",
+        border: float = 0.08,
+        shape_id: str | None = None,
+    ) -> "RectRef":
+        self._interaction = {
+            "mode": "transform_2d",
+            "shape_id": shape_id or self._shape_id or self._display._next_shape_id("poly"),
+            "cursor": str(cursor),
+            "pressed_cursor": str(pressed_cursor),
+            "border": float(border),
+        }
+        self._shape_id = str(self._interaction["shape_id"])
+        self._display._sync_all()
+        return self
+
     def _local_transform(self) -> tuple[float, float, float, float, float, float]:
         x, y, w, h = self._rect
         return resolve_affine_2d_from_scene_fields(
@@ -857,6 +911,8 @@ class RectRef:
                 (0.0, 0.0, 1.0, 1.0),
                 self._color,
                 world_transform,
+                self._points,
+                self._interaction,
             )
         )
         for child in self._children:
@@ -900,6 +956,18 @@ class FrameRef:
 
     def add_rect(self, rect: Any, *, color: str = "#888888") -> RectRef:
         ref = RectRef(self._display, "rect", _rect_from_tuple(rect), str(color))
+        self._shape_roots.append(ref)
+        self._display._sync_all()
+        return ref
+
+    def add_polygon(self, points: Any, *, color: str = "#888888") -> RectRef:
+        ref = RectRef(
+            self._display,
+            "polygon",
+            (0.0, 0.0, 1.0, 1.0),
+            str(color),
+            _points_from_seq(points),
+        )
         self._shape_roots.append(ref)
         self._display._sync_all()
         return ref
@@ -1238,12 +1306,17 @@ class Display:
     _screen: Screen = field(default_factory=Screen, repr=False)
     _w: _Widget = field(default_factory=_Widget, repr=False)
     _scene_state: DisplaySceneState = field(default_factory=DisplaySceneState, repr=False)
+    _shape_id_counter: int = field(default=0, repr=False)
 
     # ---- properties -------------------------------------------------------
 
     @property
     def widget(self) -> _Widget:
         return self._w
+
+    def _next_shape_id(self, prefix: str = "shape") -> str:
+        self._shape_id_counter += 1
+        return f"{prefix}{self._shape_id_counter}"
 
     @property
     def _screen_ops(self) -> list[UiPaintOp]:
@@ -1331,6 +1404,18 @@ class Display:
 
     def add_rect(self, rect: Any, *, color: str = "#888888") -> RectRef:
         ref = RectRef(self, "rect", _rect_from_tuple(rect), str(color))
+        self._scene_state.add_screen_shape_root(ref)
+        self._sync_all()
+        return ref
+
+    def add_polygon(self, points: Any, *, color: str = "#888888") -> RectRef:
+        ref = RectRef(
+            self,
+            "polygon",
+            (0.0, 0.0, 1.0, 1.0),
+            str(color),
+            _points_from_seq(points),
+        )
         self._scene_state.add_screen_shape_root(ref)
         self._sync_all()
         return ref

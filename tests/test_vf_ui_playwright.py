@@ -938,6 +938,40 @@ def test_browser_field_overlays_expand_to_rounded_scale_independent_triangle_imp
 
 
 @pytest.mark.network
+def test_browser_hover_context_exposes_typed_ids_and_mask(vf_ui_http_base: str) -> None:
+    url = f"{vf_ui_http_base}/{INDEX_DOC}"
+    with _chromium_page() as page:
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_function("() => !!(window.VfDisplay && window.VfDisplay.__test)")
+        result = page.evaluate(
+            """() => {
+              const mask = window.VfDisplay.__test.HOVER_MASK;
+              const hover = window.VfDisplay.__test.hoverContext({
+                frame_id: "f1",
+                object_id: "poly3",
+                vertex_id: 7,
+                edge_id: 2,
+                face_id: 0,
+              });
+              return { hover, mask };
+            }"""
+        )
+        hover = result["hover"]
+        mask = result["mask"]
+        assert hover["kind"] == "vertex"
+        assert hover["frame_id"] == "f1"
+        assert hover["object_id"] == "poly3"
+        assert hover["vertex_id"] == 7
+        assert hover["edge_id"] == 2
+        assert hover["face_id"] == 0
+        assert hover["mask"] & mask["FRAME"]
+        assert hover["mask"] & mask["OBJECT"]
+        assert hover["mask"] & mask["VERTEX"]
+        assert hover["mask"] & mask["EDGE"]
+        assert hover["mask"] & mask["FACE"]
+
+
+@pytest.mark.network
 def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_shape_ids() -> None:
     scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_polygon_hierarchy_interactive.vkf")
     with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
@@ -986,6 +1020,13 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
             captured = page.evaluate("() => window.__vfCapturedEvents")
             assert captured, "expected browser interaction to post events"
             assert any(evt.get("shape_id") == "poly3" for evt in captured), "events should carry the hovered/dragged polygon id"
+            poly_events = [evt for evt in captured if evt.get("shape_id") == "poly3"]
+            assert any(evt["hover"]["kind"] == "face" for evt in poly_events)
+            assert all(evt["hover"]["frame_id"] == "f1" for evt in poly_events)
+            assert all(evt["hover"]["object_id"] == "poly3" for evt in poly_events)
+            assert any(evt["hover"].get("face_id") == 0 for evt in poly_events)
+            assert all(evt.get("hover_mask", 0) & 1 for evt in poly_events), "hover mask should include frame"
+            assert all(evt.get("hover_mask", 0) & 2 for evt in poly_events), "hover mask should include object"
             page.evaluate("() => window.__vfDisplayHooks.refresh()")
             page.wait_for_timeout(80)
             after_refresh = page.evaluate(

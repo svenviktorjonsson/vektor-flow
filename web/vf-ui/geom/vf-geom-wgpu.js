@@ -106,7 +106,7 @@ fn fs(i: Vout) -> @location(0) vec4f {
 
 
   // ---------------------------------------------------------------------------
-  // Picking shader — writes object_id + primitive placeholder to rg32uint texture
+  // Picking shader — writes object_id + primitive index to rg32uint texture
   // ---------------------------------------------------------------------------
   var PICK_SHADER = `
 struct PickScene {
@@ -128,8 +128,8 @@ fn vs_pick(v: PVin) -> @builtin(position) vec4<f32> {
   return pk.mvp * vec4f(wp, 1.0);
 }
 @fragment
-fn fs_pick() -> @location(0) vec2<u32> {
-  return vec2<u32>(pk.object_id, 0u);
+fn fs_pick(@builtin(primitive_index) prim_index: u32) -> @location(0) vec2<u32> {
+  return vec2<u32>(pk.object_id, prim_index);
 }
 `;
 
