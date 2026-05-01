@@ -243,7 +243,7 @@ class Parser:
         cond: Any | None
         if self._peek_raw() == IDENT and str(self.toks[self.i].value) == "_":
             raise ParseError(
-                "`_ =>` is not supported",
+                "switch default is written as a plain body in the current arm context",
                 self._loc_here(),
             )
         cond = self.parse_or_expr()
@@ -316,7 +316,7 @@ class Parser:
                         )
                     arms.append(self._parse_one_switch_arm_fat_arrow())
                     continue
-                # Default arm: plain body at arm scope (no `_ =>`, no bare `=>`).
+                # Default arm: plain body at arm scope.
                 if saw_default:
                     raise ParseError(
                         "only one default arm is allowed in `??` switch",

@@ -25,6 +25,18 @@ def test_bind_outer_sets_dollar_in_paren_arms() -> None:
     assert _run_prints("a : 0\nb: 0\na??\n  2 => b: $ + 1\n  b: 9\n:: b") == "9"
 
 
+def test_switch_default_is_plain_body_in_arm_context() -> None:
+    src = """
+x: 9
+out: 0
+x??
+  1 => out: 1
+  out: 7
+:: out
+"""
+    assert _run_prints(src) == "7"
+
+
 def test_bind_indented_single_arm_value() -> None:
     """Indented ``??`` switch arm body may still perform effects."""
     src = """
