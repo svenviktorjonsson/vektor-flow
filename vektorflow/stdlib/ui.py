@@ -158,15 +158,36 @@ def _make_transformed_paint_op(
     )
 
 
-def _default_polygon_interaction(display: "Display", *, shape_id: str | None = None) -> dict[str, Any]:
+def _default_polygon_interaction(
+    display: "Display",
+    *,
+    shape_id: str | None = None,
+    parent_shape_id: str = "",
+) -> dict[str, Any]:
     sid = shape_id or display._next_shape_id("poly")
     return {
-        "mode": "transform_2d",
+        "mode": "pick_2d",
         "shape_id": sid,
+        "parent_shape_id": str(parent_shape_id),
         "cursor": "open_hand",
         "pressed_cursor": "closed_hand",
         "border": 0.035,
     }
+
+
+def _hover_value(hover: Any, key: str, default: Any = None) -> Any:
+    if isinstance(hover, dict):
+        return hover.get(key, default)
+    return getattr(hover, key, default)
+
+
+def _vec2_delta(trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> tuple[float, float]:
+    if trans is None:
+        return float(dx), float(dy)
+    try:
+        return float(trans[0]), float(trans[1])
+    except Exception as exc:
+        raise TypeError("trans must be a vector with at least two numeric entries") from exc
 
 
 def _make_scene_mesh(
@@ -223,6 +244,57 @@ def _build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         rotation=tuple(_vec3(meta.get("rotation", [0, 0, 0]), "rotation")),
         color=meta.get("color"),
     )
+
+
+@dataclass
+class VertexRef:
+    """A single polygon vertex, addressed from hover context or explicit ids."""
+
+    __vf_py_attrs__ = True
+
+    _shape: "RectRef"
+    _index: int
+
+    @property
+    def id(self) -> int:
+        return self._index
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "VertexRef":
+        if self._shape._points is None:
+            raise TypeError("vertex refs require a polygon parent.")
+        if self._index < 0 or self._index >= len(self._shape._points):
+            raise IndexError(f"vertex index {self._index} is outside polygon with {len(self._shape._points)} vertices")
+        tx, ty = _vec2_delta(trans, dx=dx, dy=dy)
+        pts = [list(p) for p in self._shape._points]
+        pts[self._index][0] += tx
+        pts[self._index][1] += ty
+        self._shape._points = tuple((float(x), float(y)) for x, y in pts)
+        self._shape._display._sync_all()
+        return self
+
+
+@dataclass
+class EdgeRef:
+    """A polygon edge between vertex ``id`` and ``id + 1`` modulo vertex count."""
+
+    __vf_py_attrs__ = True
+
+    _shape: "RectRef"
+    _index: int
+
+    @property
+    def id(self) -> int:
+        return self._index
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "EdgeRef":
+        if self._shape._points is None:
+            raise TypeError("edge refs require a polygon parent.")
+        if self._index < 0 or self._index >= len(self._shape._points):
+            raise IndexError(f"edge index {self._index} is outside polygon with {len(self._shape._points)} edges")
+        delta = _vec2_delta(trans, dx=dx, dy=dy)
+        VertexRef(self._shape, self._index).translate(delta)
+        VertexRef(self._shape, (self._index + 1) % len(self._shape._points)).translate(delta)
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -806,6 +878,10 @@ class RectRef:
     _sy: float = 1.0
     _rotation_deg: float = 0.0
 
+    @property
+    def id(self) -> str:
+        return self._shape_id
+
     def add_rect(self, rect: Any, *, color: Any = "#888888") -> "RectRef":
         child = RectRef(
             self._display,
@@ -818,7 +894,7 @@ class RectRef:
         return child
 
     def add_polygon(self, points: Any, *, color: Any = "#888888") -> "RectRef":
-        interaction = _default_polygon_interaction(self._display)
+        interaction = _default_polygon_interaction(self._display, parent_shape_id=self._shape_id)
         child = RectRef(
             self._display,
             "polygon",
@@ -855,9 +931,10 @@ class RectRef:
     def add(self, **kwargs: Any) -> Any:
         raise TypeError("2-D nodes cannot parent 3-D nodes.")
 
-    def translate(self, *, dx: float = 0.0, dy: float = 0.0) -> "RectRef":
-        self._tx += float(dx)
-        self._ty += float(dy)
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "RectRef":
+        tx, ty = _vec2_delta(trans, dx=dx, dy=dy)
+        self._tx += tx
+        self._ty += ty
         self._display._sync_all()
         return self
 
@@ -879,6 +956,40 @@ class RectRef:
         self._rotation_deg += float(angle_deg)
         self._display._sync_all()
         return self
+
+    def vertex(self, vertex_id: int) -> VertexRef:
+        return VertexRef(self, int(vertex_id))
+
+    def edge(self, edge_id: int) -> EdgeRef:
+        return EdgeRef(self, int(edge_id))
+
+    def get_rect(self, shape_id: Any) -> "RectRef | None":
+        wanted = str(shape_id)
+        if self._shape_id == wanted:
+            return self
+        for child in self._children:
+            hit = child.get_rect(wanted)
+            if hit is not None:
+                return hit
+        return None
+
+    def get_vertex(self, hover: Any) -> VertexRef | None:
+        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        if shape is None:
+            return None
+        vertex_id = _hover_value(hover, "vertex_id", -1)
+        if vertex_id is None or int(vertex_id) < 0:
+            return None
+        return shape.vertex(int(vertex_id))
+
+    def get_edge(self, hover: Any) -> EdgeRef | None:
+        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        if shape is None:
+            return None
+        edge_id = _hover_value(hover, "edge_id", -1)
+        if edge_id is None or int(edge_id) < 0:
+            return None
+        return shape.edge(int(edge_id))
 
     def set_interaction(
         self,
@@ -988,6 +1099,32 @@ class FrameRef:
         self._shape_roots.append(ref)
         self._display._sync_all()
         return ref
+
+    def get_rect(self, shape_id: Any) -> RectRef | None:
+        wanted = str(shape_id)
+        for shape in self._shape_roots:
+            hit = shape.get_rect(wanted)
+            if hit is not None:
+                return hit
+        return None
+
+    def get_vertex(self, hover: Any) -> VertexRef | None:
+        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        if shape is None:
+            return None
+        vertex_id = _hover_value(hover, "vertex_id", -1)
+        if vertex_id is None or int(vertex_id) < 0:
+            return None
+        return shape.vertex(int(vertex_id))
+
+    def get_edge(self, hover: Any) -> EdgeRef | None:
+        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        if shape is None:
+            return None
+        edge_id = _hover_value(hover, "edge_id", -1)
+        if edge_id is None or int(edge_id) < 0:
+            return None
+        return shape.edge(int(edge_id))
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
@@ -1439,6 +1576,41 @@ class Display:
         self._scene_state.add_screen_shape_root(ref)
         self._sync_all()
         return ref
+
+    def get_rect(self, shape_id: Any) -> RectRef | None:
+        wanted = str(shape_id)
+        for shape in self._scene_state.screen_shape_roots:
+            hit = shape.get_rect(wanted)
+            if hit is not None:
+                return hit
+        frame = self._last_frame
+        if frame is not None:
+            return frame.get_rect(wanted)
+        return None
+
+    def get_vertex(self, hover: Any) -> VertexRef | None:
+        frame = self._last_frame
+        if frame is not None:
+            return frame.get_vertex(hover)
+        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        if shape is None:
+            return None
+        vertex_id = _hover_value(hover, "vertex_id", -1)
+        if vertex_id is None or int(vertex_id) < 0:
+            return None
+        return shape.vertex(int(vertex_id))
+
+    def get_edge(self, hover: Any) -> EdgeRef | None:
+        frame = self._last_frame
+        if frame is not None:
+            return frame.get_edge(hover)
+        shape = self.get_rect(_hover_value(hover, "object_id", _hover_value(hover, "shape_id", "")))
+        if shape is None:
+            return None
+        edge_id = _hover_value(hover, "edge_id", -1)
+        if edge_id is None or int(edge_id) < 0:
+            return None
+        return shape.edge(int(edge_id))
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)

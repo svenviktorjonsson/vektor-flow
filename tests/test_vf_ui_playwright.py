@@ -1040,7 +1040,7 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
                   return { transform: op.transform.slice(), cursor: getComputedStyle(document.querySelector(".vf-frame__draw-canvas")).cursor };
                 }"""
             )
-            assert after_translate["transform"][4] != before["transform"][4]
+            assert after_translate["transform"] == pytest.approx(before["transform"]), "host should report picks, not mutate geometry"
             assert after_translate["cursor"] == "grab"
             captured = page.evaluate("() => window.__vfCapturedEvents")
             assert captured, "expected browser interaction to post events"
@@ -1061,7 +1061,7 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
                   return op.transform.slice();
                 }"""
             )
-            assert after_refresh == after_translate["transform"], "display refresh should not overwrite local polygon interaction state"
+            assert after_refresh == after_translate["transform"], "display refresh should preserve host-side pick state"
 
             edge = page.evaluate(
                 """() => {
@@ -1088,10 +1088,10 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
                   return { transform: op.transform.slice(), points: op.points.map(p => p.slice()) };
                 }"""
             )
-            assert after_edge["points"] != edge["points"], "plain edge drag should reshape polygon points"
-            assert after_edge["transform"] == pytest.approx(edge["transform"]), "plain edge drag should reshape, not transform"
+            assert after_edge["points"] == edge["points"], "host should not reshape polygon points; VKF code moves the edge ref"
+            assert after_edge["transform"] == pytest.approx(edge["transform"]), "host should not transform geometry for edge drags"
             captured = page.evaluate("() => window.__vfCapturedEvents")
-            assert any(evt.get("action") == "move_edge" and evt["hover"]["kind"] == "edge" for evt in captured)
+            assert any(evt.get("action") == "pick" and evt["hover"]["kind"] == "edge" for evt in captured)
 
             ctrl_vertex = page.evaluate(
                 """() => {
@@ -1117,9 +1117,9 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
                   return op.transform.slice();
                 }"""
             )
-            assert after_ctrl_vertex[:4] != ctrl_vertex["transform"][:4], "Ctrl vertex drag should rotate/scale"
+            assert after_ctrl_vertex == pytest.approx(ctrl_vertex["transform"]), "Ctrl is user code policy; host should not rotate/scale"
             captured = page.evaluate("() => window.__vfCapturedEvents")
-            assert any(evt.get("action") == "vertex_rotate_scale" and evt["hover"]["kind"] == "vertex" for evt in captured)
+            assert any(evt.get("action") == "pick" and evt["hover"]["kind"] == "vertex" and evt.get("ctrl") for evt in captured)
 
             state_before = page.evaluate(
                 """() => {

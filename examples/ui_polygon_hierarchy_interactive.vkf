@@ -3,9 +3,7 @@
 #   vertex -> move that vertex
 #   edge   -> move the edge endpoints to reshape the polygon
 #   face   -> move the object and its children through the parent transform
-# Ctrl drag:
-#   vertex -> rotate/scale around the polygon center
-#   edge   -> scale orthogonal to that edge
+# Ctrl drag is intentionally free for this demo loop to reinterpret.
 # Background drag pans. Wheel zooms around the cursor in data coordinates.
 
 ui: .ui
@@ -41,9 +39,9 @@ leaf_poly: child_poly.add_polygon(leaf_points, color: leaf_color)
 
 describe_action(e):
   e.ctrl?
-    e.hover.kind = "vertex"? @: "ctrl vertex: rotate/scale object"
-    e.hover.kind = "edge"? @: "ctrl edge: orthogonal scale"
-    @: "ctrl face: move object"
+    e.hover.kind = "vertex"? @: "ctrl vertex: custom branch"
+    e.hover.kind = "edge"? @: "ctrl edge: custom branch"
+    @: "ctrl face: custom branch"
   e.hover.kind = "vertex"? @: "move vertex"
   e.hover.kind = "edge"? @: "move edge endpoints"
   e.hover.kind = "face"? @: "move object subtree"
@@ -53,6 +51,15 @@ print_event(e):
   action: describe_action(e)
   :: "event=$e.event action=$action object=$e.hover.object_id kind=$e.hover.kind vertex=$e.hover.vertex_id edge=$e.hover.edge_id face=$e.hover.face_id"
 
+edit_polygon(e):
+  vertex: panel.get_vertex(e.hover)
+  edge: panel.get_edge(e.hover)
+  poly: panel.get_rect(e.hover.object_id)
+  vertex? vertex.translate(e.trans)
+  edge? edge.translate(e.trans)
+  poly?
+    e.hover.kind = "face"? poly.translate(e.trans)
+
 dispatch(e):
   e.event??
     ui.MOUSE_DOWN =>
@@ -60,6 +67,8 @@ dispatch(e):
       print_event(e)
     ui.MOUSE_MOVE =>
       ui.cursor.set_mode("open_hand")
+    ui.MOUSE_DRAG =>
+      edit_polygon(e)
     ui.MOUSE_UP =>
       ui.cursor.set_mode("open_hand")
       print_event(e)

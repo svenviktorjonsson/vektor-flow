@@ -266,7 +266,7 @@
     document.body.style.cursor = css;
   }
   function isInteractiveOp(o) {
-    return !!(o && o.interaction && o.interaction.mode === "transform_2d");
+    return !!(o && o.interaction && (o.interaction.mode === "transform_2d" || o.interaction.mode === "pick_2d"));
   }
 
   function frameInteractionState(fid, ops) {
@@ -527,14 +527,7 @@
         face_id: hit ? hit.face_id : null,
         kind: hit ? (hit.vertex ? "vertex" : hit.edge ? "edge" : "face") : "frame"
       });
-      var action = "pan";
-      if (hit) {
-        if (e.ctrlKey && hit.vertex) { action = "vertex_rotate_scale"; }
-        else if (e.ctrlKey && hit.edge) { action = "edge_orthogonal_scale"; }
-        else if (hit.vertex) { action = "move_vertex"; }
-        else if (hit.edge) { action = "move_edge"; }
-        else { action = "translate"; }
-      }
+      var action = hit ? "pick" : "pan";
       postEvent(withHoverContext({
         type: "vf_event",
         event: "down",
@@ -593,52 +586,31 @@
       if (d.action === "pan") {
         st.panX += (e.clientX - d.lastClient[0]) / (r.width || 1);
         st.panY += (e.clientY - d.lastClient[1]) / (r.height || 1);
-      } else if (d.op) {
-        var tr = Array.isArray(d.op.transform) && d.op.transform.length >= 6 ? d.op.transform : [1,0,0,1,0,0];
-        if (d.action === "move_vertex") {
-          movePolygonVertex(d.op, d.hit && d.hit.vertex_id, pt[0] - d.last[0], pt[1] - d.last[1]);
-        } else if (d.action === "move_edge") {
-          movePolygonEdge(d.op, d.hit && d.hit.edge_id, pt[0] - d.last[0], pt[1] - d.last[1]);
-        } else if (d.action === "edge_orthogonal_scale") {
-          var sm = orthogonalScaleEdge(d.op, d.hit && d.hit.edge_id, d.last, pt);
-          if (sm) { applyAffineToSubtree(st, d.op, sm); }
-        } else if (d.action === "translate") {
-          applyAffineToSubtree(st, d.op, [1, 0, 0, 1, pt[0] - d.last[0], pt[1] - d.last[1]]);
-        } else {
-          var c = d.center || polygonCenter(d.op);
-          var a0 = Math.atan2(d.last[1] - c[1], d.last[0] - c[0]);
-          var a1 = Math.atan2(pt[1] - c[1], pt[0] - c[0]);
-          var r0 = Math.hypot(d.last[0] - c[0], d.last[1] - c[1]) || 1e-9;
-          var r1 = Math.hypot(pt[0] - c[0], pt[1] - c[1]);
-          applyAffineToSubtree(
-            st,
-            d.op,
-            rotateScaleAround([1, 0, 0, 1, 0, 0], c, a1 - a0, Math.max(0.05, r1 / r0))
-          );
-        }
       }
+      var dataDx = pt[0] - d.last[0];
+      var dataDy = pt[1] - d.last[1];
+      var clientDx = e.clientX - d.lastClient[0];
+      var clientDy = e.clientY - d.lastClient[1];
       d.last = pt;
       d.lastClient = [e.clientX, e.clientY];
       var dragShapeId = d.op && d.op.interaction ? d.op.interaction.shape_id || "" : "";
       var dragHover = hoverContext({
         frame_id: canvas.__vf2dFrameId,
         object_id: dragShapeId,
-        vertex_id: (d.action === "move_vertex" || d.action === "vertex_rotate_scale") && d.hit ? d.hit.vertex_id : null,
-        edge_id: (d.action === "move_edge" || d.action === "edge_orthogonal_scale") && d.hit ? d.hit.edge_id : null,
-        face_id: d.action === "translate" && d.op ? 0 : null,
-        kind: d.op ? (
-          d.action === "move_vertex" || d.action === "vertex_rotate_scale" ? "vertex" :
-          d.action === "move_edge" || d.action === "edge_orthogonal_scale" ? "edge" :
-          "face"
-        ) : "frame"
+        vertex_id: d.hit ? d.hit.vertex_id : null,
+        edge_id: d.hit ? d.hit.edge_id : null,
+        face_id: d.hit ? d.hit.face_id : null,
+        kind: d.hit ? (d.hit.vertex ? "vertex" : d.hit.edge ? "edge" : "face") : "frame"
       });
       postEvent(withHoverContext({
         type: "vf_event",
         event: "drag",
         x: e.clientX - r.left,
         y: e.clientY - r.top,
-        dx: e.movementX || 0,
-        dy: e.movementY || 0,
+        dx: dataDx,
+        dy: dataDy,
+        client_dx: clientDx,
+        client_dy: clientDy,
         frame_id: canvas.__vf2dFrameId,
         shape_id: dragShapeId,
         ctrl: !!e.ctrlKey,

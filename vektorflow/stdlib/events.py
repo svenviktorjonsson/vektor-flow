@@ -387,8 +387,15 @@ class MouseEvent:
     x:          float           # canvas CSS pixels, left=0
     y:          float           # canvas CSS pixels, top=0
     frame_id:   str    = ""
-    object_id:  int    = 0      # 0 = no object
+    object_id:  Any    = 0      # 0/"" = no object; strings are valid UI object refs
     simplex_id: int    = 0      # primitive index (face/edge/vert)
+    shape_id:   str    = ""
+    vertex_id:  int    = -1
+    edge_id:    int    = -1
+    face_id:    int    = -1
+    action:     str    = ""
+    hover_mask: int    = 0
+    hover:      dict[str, Any] = field(default_factory=dict)
     button:     int    = -1     # 0=left 1=mid 2=right (-1 = N/A)
     buttons:    int    = 0      # bitmask from MouseEvent.buttons (for hover/drag state)
     ctrl:       bool   = False
@@ -408,8 +415,15 @@ class MouseEvent:
             x          = float(d.get("x", 0)),
             y          = float(d.get("y", 0)),
             frame_id   = str(d.get("frame_id", "")),
-            object_id  = int(d.get("object_id", 0)),
+            object_id  = d.get("object_id", 0),
             simplex_id = int(d.get("simplex_id", 0)),
+            shape_id   = str(d.get("shape_id", d.get("object_id", "")) or ""),
+            vertex_id  = int(d.get("vertex_id", -1) if d.get("vertex_id") is not None else -1),
+            edge_id    = int(d.get("edge_id", -1) if d.get("edge_id") is not None else -1),
+            face_id    = int(d.get("face_id", -1) if d.get("face_id") is not None else -1),
+            action     = str(d.get("action", "")),
+            hover_mask = int(d.get("hover_mask", 0)),
+            hover      = dict(d.get("hover", {})) if isinstance(d.get("hover", {}), dict) else {},
             button     = int(d.get("button", -1)),
             buttons    = int(d.get("buttons", 0)),
             ctrl       = bool(d.get("ctrl", False)),
@@ -434,6 +448,21 @@ class MouseEvent:
     def type(self) -> str:
         """Alias for event kind (dispatch-friendly)."""
         return self.event
+
+    @property
+    def pos(self) -> list[float]:
+        """Cursor position as a vector in the event's coordinate space."""
+        return [self.x, self.y]
+
+    @property
+    def pixel(self) -> list[float]:
+        """Alias for :attr:`pos`; explicit when the host reports CSS pixels."""
+        return self.pos
+
+    @property
+    def trans(self) -> list[float]:
+        """Drag translation vector in data coordinates for 2-D pick events."""
+        return [self.dx, self.dy]
 
 
 @dataclass
@@ -546,7 +575,7 @@ class UIMouse:
         self._wheel_cbs.append(fn)
 
     def on_drag(self, fn: Callable[[MouseEvent], None]) -> None:
-        """Register a callback for drag events (event='drag', with dx/dy)."""
+        """Register a callback for drag events (event='drag', with trans vector)."""
         self._drag_cbs.append(fn)
 
     # -- dispatch (called by OverlayPoller background thread) ----------------
@@ -596,6 +625,11 @@ class UIMouse:
     def pos(self) -> tuple[float, float]:
         """Most recent (x, y) position. Returns (0, 0) until first mouse event."""
         return (self._last_x, self._last_y)
+
+    @property
+    def pixel(self) -> list[float]:
+        """Most recent cursor position as a pixel vector."""
+        return [self._last_x, self._last_y]
 
     @property
     def position(self) -> dict[str, float]:
