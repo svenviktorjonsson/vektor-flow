@@ -39,25 +39,12 @@
     var rect = rectFromMat4(mat4);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    var g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    g.addColorStop(0, "#111827");
-    g.addColorStop(1, "#18202f");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.translate(rect.x, rect.y);
-    ctx.fillStyle = dragging ? "#ffdc4a" : "#3df2a3";
-    ctx.strokeStyle = "#f8f4dc";
-    ctx.lineWidth = 4;
-    ctx.shadowColor = "rgba(61, 242, 163, 0.45)";
-    ctx.shadowBlur = 24;
-    ctx.beginPath();
-    ctx.roundRect(0, 0, rect.w, rect.h, 16);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.stroke();
-    ctx.restore();
+    var x = Math.round(rect.x);
+    var y = Math.round(rect.y);
+    var w = Math.round(rect.w);
+    var h = Math.round(rect.h);
+    ctx.fillStyle = dragging ? "#ffd84d" : "#32d17d";
+    ctx.fillRect(x, y, w, h);
   }
 
   function resizeCanvasToPanel(canvas) {
