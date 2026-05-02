@@ -1,0 +1,41 @@
+# Minimal backend-driven draggable rectangle.
+# The browser only reports events. VKF owns the movement.
+
+ui: .ui
+t: .time
+events: ui.events
+d: ui.display
+
+panel: d.frame(
+  title: "Single VKF draggable rect",
+  draggable: true,
+  closable: true,
+  resizable: true,
+  dockable: true,
+  dock_loc: "bl",
+  alpha: 0.96,
+  master: true
+)
+
+d.add_frame(panel, [0.16, 0.16, 0.58, 0.58])
+
+box: panel.add_rect([0.24, 0.24, 0.28, 0.22], color:[0.10, 0.72, 0.95, 0.92])
+box.set_interaction(cursor:"open_hand", pressed_cursor:"closed_hand", border:0.03)
+
+drag(e):
+  target: panel.get(e.hover)
+  target?
+    target.translate(trans:e.trans)
+
+:: "minimal draggable rect ready"
+
+(e: events.get())??>
+  ui.MOUSE_DOWN =>
+    ui.cursor.set_mode("closed_hand")
+  ui.MOUSE_DRAG =>
+    drag(e)
+  ui.MOUSE_UP =>
+    ui.cursor.set_mode("open_hand")
+  ui.MOUSE_MOVE =>
+    ui.cursor.set_mode("open_hand")
+  t.sleep(0.016)

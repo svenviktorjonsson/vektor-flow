@@ -284,21 +284,6 @@
   }
 
   function reconcileInteractionOps(previous, incoming) {
-    if (!previous || !previous.length) { return incoming; }
-    var byId = Object.create(null);
-    for (var i = 0; i < previous.length; i++) {
-      var prev = previous[i];
-      var id = opShapeId(prev);
-      if (id) { byId[id] = prev; }
-    }
-    for (var j = 0; j < incoming.length; j++) {
-      var next = incoming[j];
-      var nextId = opShapeId(next);
-      var old = nextId ? byId[nextId] : null;
-      if (old && Array.isArray(old.transform)) {
-        next.transform = old.transform.slice();
-      }
-    }
     return incoming;
   }
 

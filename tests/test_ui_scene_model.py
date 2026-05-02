@@ -169,6 +169,39 @@ edit_polygon(e):
     assert poly._ty == -0.125
 
 
+def test_vkf_minimal_rect_drag_translates_coordinate_frame() -> None:
+    src = """
+ui: .ui
+d: ui.display
+panel: d.frame(title:"rect", draggable:true, closable:true, resizable:true, dockable:true, dock_loc:"bl")
+d.add_frame(panel, [0.16, 0.16, 0.58, 0.58])
+box: panel.add_rect([0.24, 0.24, 0.28, 0.22], color:[0.10, 0.72, 0.95, 0.92])
+box.set_interaction(cursor:"open_hand", pressed_cursor:"closed_hand", border:0.03)
+drag(e):
+  target: panel.get(e.hover)
+  target?
+    target.translate(trans:e.trans)
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<ui-rect-drag-demo>"))
+    panel = ip.globals["panel"]
+    box = ip.globals["box"]
+    e = MouseEvent.from_dict({
+        "event": "drag",
+        "trans": [0.12, 0.08],
+        "hover": {"frame_id": panel.id, "object_id": box.id, "face_id": 0, "kind": "face"},
+    })
+
+    fn = ip.globals["drag"]
+    if type(fn).__name__ == "IRFunctionValue":
+        ip._call_ir_function_value(fn, [e])
+    else:
+        ip._call(fn, [e], ip.globals)
+
+    assert box._tx == 0.12
+    assert box._ty == 0.08
+
+
 def test_mouse_events_expose_vector_positions_and_translation() -> None:
     e = MouseEvent.from_dict({"event": "drag", "x": 12, "y": 34, "dx": 0.2, "dy": -0.1})
     assert e.pos == [12.0, 34.0]

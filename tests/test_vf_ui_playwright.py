@@ -972,6 +972,56 @@ def test_browser_hover_context_exposes_typed_ids_and_mask(vf_ui_http_base: str) 
 
 
 @pytest.mark.network
+def test_interactive_2d_refresh_uses_backend_transform_updates() -> None:
+    def build_scene(d: Any) -> None:
+        panel = d.frame(
+            title="Single VKF draggable rect",
+            draggable=True,
+            closable=True,
+            resizable=True,
+            dockable=True,
+            dock_loc="bl",
+            alpha=0.96,
+            master=True,
+        )
+        d.add_frame(panel, [0.16, 0.16, 0.58, 0.58])
+        box = panel.add_rect([0.24, 0.24, 0.28, 0.22], color=[0.10, 0.72, 0.95, 0.92])
+        box.set_interaction(cursor="open_hand", pressed_cursor="closed_hand", border=0.03)
+
+    with _serve_public_ui_browser(build_scene) as harness:
+        url = f"{harness.base}/{INDEX_DOC}"
+        with _chromium_page() as page:
+            page.goto(url, wait_until="domcontentloaded")
+            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
+            before = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id);
+                  return op.transform.slice();
+                }"""
+            )
+            payload = json.loads((harness.root / "vf-display.json").read_text(encoding="utf-8"))
+            op = payload["frames"]["f1"][0]
+            op["transform"][4] = 0.36
+            op["transform"][5] = 0.32
+            (harness.root / "vf-display.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            page.evaluate("() => window.__vfDisplayHooks.refresh()")
+            page.wait_for_timeout(80)
+            after = page.evaluate(
+                """() => {
+                  const st = window.VfDisplay.getInteractiveState("f1");
+                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id);
+                  return op.transform.slice();
+                }"""
+            )
+
+            assert before[4] != pytest.approx(0.36)
+            assert after[4] == pytest.approx(0.36)
+            assert after[5] == pytest.approx(0.32)
+
+
+@pytest.mark.network
 def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_shape_ids() -> None:
     def build_scene(d: Any) -> None:
         panel = d.frame(
