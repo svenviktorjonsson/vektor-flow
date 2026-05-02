@@ -59,6 +59,8 @@ const eventReader = events.readerView();
 events.writeInputSample({
   cursorPx: [120.5, 80.25],
   pointerAnchorPx: [12.5, 8.25],
+  localCursor: [0.5, -0.25],
+  localAnchor: [0.25, -0.5],
   pointerDown: true,
   buttons: 1,
   keyMask: 5,
@@ -80,6 +82,8 @@ assert.ok(eventReader.i32 instanceof Int32Array);
 assert.deepEqual(eventReader.latestSample(), {
   cursorPx: [120.5, 80.25],
   pointerAnchorPx: [12.5, 8.25],
+  localCursor: [0.5, -0.25],
+  localAnchor: [0.25, -0.5],
   pointerDown: true,
   buttons: 1,
   keyMask: 5,

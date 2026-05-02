@@ -175,6 +175,24 @@
       return picked.hover ? picked.hover.object_id : picked.id;
     }
 
+    function targetFromObjectId(objectId) {
+      var frame = uiRuntime.ui.display.last_frame;
+      if (!frame || objectId < 0) {
+        return null;
+      }
+      return frame.get({ object_id: objectId });
+    }
+
+    function localPointForTarget(target, point) {
+      var space = target && target.parent && typeof target.parent.inner_from_world === "function"
+        ? target.parent
+        : null;
+      if (space) {
+        return space.inner_from_world([point.x, point.y, 0]).slice(0, 2);
+      }
+      return [point.x, point.y];
+    }
+
     function updateFromPointer(point, down) {
       var picked = pickElement(point);
       var hover = hoverFromPick(picked);
@@ -183,11 +201,16 @@
         hover = activeHover;
         objectId = activeObjectId;
       }
+      var target = targetFromObjectId(objectId);
+      var localCursor = localPointForTarget(target, point);
+      var localAnchor = localPointForTarget(target, anchor);
       eventArena.writeInputSample({
         sequence: ++sequence,
         timeMs: performance.now(),
         cursorPx: [point.x, point.y],
         pointerAnchorPx: [anchor.x, anchor.y],
+        localCursor: localCursor,
+        localAnchor: localAnchor,
         pointerDown: down,
         buttons: down ? 1 : 0,
         hover: hover || (activeObjectId >= 0 ? { object: activeObjectId } : null)

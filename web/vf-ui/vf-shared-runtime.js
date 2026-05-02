@@ -5,7 +5,7 @@
   var MAT4_F32 = 16;
   var HEADER_BYTES = HEADER_I32 * Int32Array.BYTES_PER_ELEMENT;
   var EVENT_HEADER_I32 = 8;
-  var EVENT_F64 = 5;
+  var EVENT_F64 = 9;
   var EVENT_I32 = 9;
 
   var H_CAPACITY = 0;
@@ -23,6 +23,10 @@
   var EF_TIME_MS = 2;
   var EF_POINTER_ANCHOR_X = 3;
   var EF_POINTER_ANCHOR_Y = 4;
+  var EF_LOCAL_CURSOR_X = 5;
+  var EF_LOCAL_CURSOR_Y = 6;
+  var EF_LOCAL_ANCHOR_X = 7;
+  var EF_LOCAL_ANCHOR_Y = 8;
 
   var EI_SEQUENCE = 0;
   var EI_POINTER_DOWN = 1;
@@ -157,6 +161,14 @@
         arena.f64[f64Offset + EF_POINTER_ANCHOR_X],
         arena.f64[f64Offset + EF_POINTER_ANCHOR_Y]
       ],
+      localCursor: [
+        arena.f64[f64Offset + EF_LOCAL_CURSOR_X],
+        arena.f64[f64Offset + EF_LOCAL_CURSOR_Y]
+      ],
+      localAnchor: [
+        arena.f64[f64Offset + EF_LOCAL_ANCHOR_X],
+        arena.f64[f64Offset + EF_LOCAL_ANCHOR_Y]
+      ],
       pointerDown: arena.i32[i32Offset + EI_POINTER_DOWN] !== 0,
       buttons: arena.i32[i32Offset + EI_BUTTONS],
       keyMask: arena.i32[i32Offset + EI_KEY_MASK],
@@ -262,6 +274,8 @@
     var slot = writeIndex % cap;
     var cursorPx = sample.cursorPx || [0, 0];
     var pointerAnchorPx = sample.pointerAnchorPx || cursorPx;
+    var localCursor = sample.localCursor || cursorPx;
+    var localAnchor = sample.localAnchor || pointerAnchorPx;
     var f64Offset = eventF64Offset(slot);
     var i32Offset = eventI32Offset(slot);
 
@@ -270,6 +284,10 @@
     this.f64[f64Offset + EF_TIME_MS] = Number(sample.timeMs) || 0;
     this.f64[f64Offset + EF_POINTER_ANCHOR_X] = Number(pointerAnchorPx[0]) || 0;
     this.f64[f64Offset + EF_POINTER_ANCHOR_Y] = Number(pointerAnchorPx[1]) || 0;
+    this.f64[f64Offset + EF_LOCAL_CURSOR_X] = Number(localCursor[0]) || 0;
+    this.f64[f64Offset + EF_LOCAL_CURSOR_Y] = Number(localCursor[1]) || 0;
+    this.f64[f64Offset + EF_LOCAL_ANCHOR_X] = Number(localAnchor[0]) || 0;
+    this.f64[f64Offset + EF_LOCAL_ANCHOR_Y] = Number(localAnchor[1]) || 0;
     this.i32[i32Offset + EI_SEQUENCE] = intOrDefault(sample.sequence, 0);
     this.i32[i32Offset + EI_POINTER_DOWN] = sample.pointerDown ? 1 : 0;
     this.i32[i32Offset + EI_BUTTONS] = intOrDefault(sample.buttons, 0);

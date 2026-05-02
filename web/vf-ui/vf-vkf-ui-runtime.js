@@ -66,12 +66,19 @@
     sample = sample || {};
     var cursor = sample.cursorPx || [0, 0];
     var anchor = sample.pointerAnchorPx || cursor;
+    var localCursor = sample.localCursor || cursor;
+    var localAnchor = sample.localAnchor || anchor;
     return Object.freeze({
       event: eventKind(sample),
       cursor: Object.freeze([numberOrZero(cursor[0]), numberOrZero(cursor[1])]),
+      local_cursor: Object.freeze([numberOrZero(localCursor[0]), numberOrZero(localCursor[1])]),
       trans: Object.freeze([
         numberOrZero(cursor[0]) - numberOrZero(anchor[0]),
         numberOrZero(cursor[1]) - numberOrZero(anchor[1])
+      ]),
+      local_trans: Object.freeze([
+        numberOrZero(localCursor[0]) - numberOrZero(localAnchor[0]),
+        numberOrZero(localCursor[1]) - numberOrZero(localAnchor[1])
       ]),
       hover: normalizedHover(sample),
       buttons: intOrDefault(sample.buttons, 0),
@@ -251,6 +258,27 @@
     return { x: x, y: y, z: z };
   }
 
+  function initialBoundsFrom(coords) {
+    var minX = Infinity;
+    var minY = Infinity;
+    var maxX = -Infinity;
+    var maxY = -Infinity;
+    for (var i = 0; i < coords.x.length; i++) {
+      var x = numberOrZero(coords.x[i]);
+      var y = numberOrZero(coords.y[i]);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    return {
+      x: Number.isFinite(minX) ? minX : 0,
+      y: Number.isFinite(minY) ? minY : 0,
+      w: Number.isFinite(maxX - minX) ? maxX - minX : 0,
+      h: Number.isFinite(maxY - minY) ? maxY - minY : 0
+    };
+  }
+
   function meshOptionsFrom(spec, options) {
     spec = spec || {};
     options = options || {};
@@ -268,6 +296,9 @@
       vertex_pick_radius: options.vertex_pick_radius != null ? options.vertex_pick_radius : spec.vertex_pick_radius,
       edge_pick_radius: options.edge_pick_radius != null ? options.edge_pick_radius : spec.edge_pick_radius,
       edge_scale: options.edge_scale != null ? options.edge_scale : spec.edge_scale,
+      bounds: options.bounds || options.box || spec.bounds || spec.box,
+      aspect: options.aspect || spec.aspect || "stretch",
+      normalized: options.normalized != null ? options.normalized : spec.normalized,
       origin: options.origin || spec.origin
     };
   }
@@ -283,6 +314,10 @@
     this.coords = coords;
     this.offset = [0, 0, 0];
     this.origin = options.origin || [0, 0, 0];
+    this.normalized = options.normalized !== false;
+    this.aspect = options.aspect || "stretch";
+    this.initial_bounds = initialBoundsFrom(coords);
+    this.bounds = options.bounds ? rectFromArray(options.bounds) : null;
     this.basis = [1, 0, 0, 1];
     this.vertices = [];
     this.edges = [];
@@ -330,24 +365,82 @@
   };
 
   MeshRef.prototype.local_bounds = function () {
-    var minX = Infinity;
-    var minY = Infinity;
-    var maxX = -Infinity;
-    var maxY = -Infinity;
-    for (var i = 0; i < this.coords.x.length; i++) {
-      var x = numberOrZero(this.coords.x[i]);
-      var y = numberOrZero(this.coords.y[i]);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
+    if (this.normalized) {
+      return { x: -1, y: -1, w: 2, h: 2 };
     }
     return {
-      x: Number.isFinite(minX) ? minX : 0,
-      y: Number.isFinite(minY) ? minY : 0,
-      w: Number.isFinite(maxX - minX) ? maxX - minX : 0,
-      h: Number.isFinite(maxY - minY) ? maxY - minY : 0
+      x: this.initial_bounds.x,
+      y: this.initial_bounds.y,
+      w: this.initial_bounds.w,
+      h: this.initial_bounds.h
     };
+  };
+
+  MeshRef.prototype._base_rect = function () {
+    if (this.bounds) {
+      return this.bounds;
+    }
+    if (this.normalized) {
+      return { x: -1, y: -1, w: 2, h: 2 };
+    }
+    return this.local_bounds();
+  };
+
+  MeshRef.prototype._base_point = function (inner) {
+    var t = this._base_transform();
+    return [
+      t.cx + numberOrZero(inner[0]) * t.sx,
+      t.cy + numberOrZero(inner[1]) * t.sy,
+      numberOrZero(inner[2])
+    ];
+  };
+
+  MeshRef.prototype._base_transform = function () {
+    if (!this.normalized) {
+      return { cx: 0, cy: 0, sx: 1, sy: 1 };
+    }
+    var r = this._base_rect();
+    var sx = r.w / 2;
+    var sy = r.h / 2;
+    if (this.aspect === "equal") {
+      var s = Math.max(Math.abs(sx), Math.abs(sy));
+      sx = sx < 0 ? -s : s;
+      sy = sy < 0 ? -s : s;
+    }
+    return {
+      cx: r.x + r.w / 2,
+      cy: r.y + r.h / 2,
+      sx: sx,
+      sy: this.parent ? sy : -sy
+    };
+  };
+
+  MeshRef.prototype._inner_from_base_point = function (point) {
+    if (!this.normalized) {
+      return [
+        numberOrZero(point[0]),
+        numberOrZero(point[1]),
+        numberOrZero(point[2])
+      ];
+    }
+    var r = this._base_rect();
+    var sx = r.w / 2;
+    var sy = r.h / 2;
+    if (this.aspect === "equal") {
+      var s = Math.max(Math.abs(sx), Math.abs(sy));
+      sx = sx < 0 ? -s : s;
+      sy = sy < 0 ? -s : s;
+    }
+    if (Math.abs(sx) < 1e-9 || Math.abs(sy) < 1e-9) {
+      return [0, 0, numberOrZero(point[2])];
+    }
+    return [
+      (numberOrZero(point[0]) - (r.x + r.w / 2)) / sx,
+      this.parent
+        ? (numberOrZero(point[1]) - (r.y + r.h / 2)) / sy
+        : ((r.y + r.h / 2) - numberOrZero(point[1])) / sy,
+      numberOrZero(point[2])
+    ];
   };
 
   MeshRef.prototype.world_point = function (index) {
@@ -359,12 +452,14 @@
   };
 
   MeshRef.prototype.world_inner_point = function (inner) {
-    var lx = numberOrZero(inner[0]) - numberOrZero(this.origin[0]);
-    var ly = numberOrZero(inner[1]) - numberOrZero(this.origin[1]);
+    var base = this._base_point(inner);
+    var originBase = this._base_point(this.origin);
+    var lx = base[0] - originBase[0];
+    var ly = base[1] - originBase[1];
     var local = [
-      numberOrZero(this.origin[0]) + this.offset[0] + this.basis[0] * lx + this.basis[2] * ly,
-      numberOrZero(this.origin[1]) + this.offset[1] + this.basis[1] * lx + this.basis[3] * ly,
-      numberOrZero(inner[2]) + this.offset[2]
+      originBase[0] + this.offset[0] + this.basis[0] * lx + this.basis[2] * ly,
+      originBase[1] + this.offset[1] + this.basis[1] * lx + this.basis[3] * ly,
+      base[2] + this.offset[2]
     ];
     return this.parent && typeof this.parent.world_inner_point === "function"
       ? this.parent.world_inner_point(local)
@@ -375,19 +470,24 @@
     var parentPoint = this.parent && typeof this.parent.inner_from_world === "function"
       ? this.parent.inner_from_world(point)
       : point;
-    var x = numberOrZero(parentPoint[0]) - numberOrZero(this.origin[0]) - this.offset[0];
-    var y = numberOrZero(parentPoint[1]) - numberOrZero(this.origin[1]) - this.offset[1];
+    var originBase = this._base_point(this.origin);
+    var x = numberOrZero(parentPoint[0]) - originBase[0] - this.offset[0];
+    var y = numberOrZero(parentPoint[1]) - originBase[1] - this.offset[1];
     var det = this.basis[0] * this.basis[3] - this.basis[2] * this.basis[1];
     if (Math.abs(det) < 1e-9) {
-      return [numberOrZero(this.origin[0]), numberOrZero(this.origin[1]), 0];
+      return [
+        numberOrZero(this.origin[0]),
+        numberOrZero(this.origin[1]),
+        0
+      ];
     }
     var lx = (this.basis[3] * x - this.basis[2] * y) / det;
     var ly = (-this.basis[1] * x + this.basis[0] * y) / det;
-    return [
-      lx + numberOrZero(this.origin[0]),
-      ly + numberOrZero(this.origin[1]),
+    return this._inner_from_base_point([
+      lx + originBase[0],
+      ly + originBase[1],
       0
-    ];
+    ]);
   };
 
   MeshRef.prototype.world_points = function () {
@@ -401,23 +501,27 @@
   MeshRef.prototype.translate = function (args) {
     args = args || {};
     var trans = args.trans || [numberOrZero(args.dx), numberOrZero(args.dy), numberOrZero(args.dz)];
-    this.offset[0] += numberOrZero(trans[0]);
-    this.offset[1] += numberOrZero(trans[1]);
+    var dx = numberOrZero(trans[0]);
+    var dy = numberOrZero(trans[1]);
+    this.offset[0] += dx;
+    this.offset[1] += dy;
     this.offset[2] += numberOrZero(trans[2]);
     this._sync_transform();
     return this;
   };
 
   MeshRef.prototype._local_matrix2d = function () {
-    var ox = numberOrZero(this.origin[0]);
-    var oy = numberOrZero(this.origin[1]);
+    var t = this._base_transform();
+    var originBase = this._base_point(this.origin);
+    var cx = t.cx - originBase[0];
+    var cy = t.cy - originBase[1];
     return {
-      a: this.basis[0],
-      b: this.basis[1],
-      c: this.basis[2],
-      d: this.basis[3],
-      tx: ox + this.offset[0] - this.basis[0] * ox - this.basis[2] * oy,
-      ty: oy + this.offset[1] - this.basis[1] * ox - this.basis[3] * oy,
+      a: this.basis[0] * t.sx,
+      b: this.basis[1] * t.sx,
+      c: this.basis[2] * t.sy,
+      d: this.basis[3] * t.sy,
+      tx: originBase[0] + this.offset[0] + this.basis[0] * cx + this.basis[2] * cy,
+      ty: originBase[1] + this.offset[1] + this.basis[1] * cx + this.basis[3] * cy,
       tz: this.offset[2]
     };
   };
@@ -634,11 +738,6 @@
     );
     if (parent) {
       parent.children.push(ref);
-      if (!options || options.relative !== false) {
-        var bounds = parent.local_bounds();
-        ref.offset[0] += bounds.x;
-        ref.offset[1] += bounds.y;
-      }
     }
     this.objects[ref.id] = ref;
     this.runtime.meshes.push(ref);

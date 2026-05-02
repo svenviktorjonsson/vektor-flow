@@ -23,6 +23,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     sequence: 1,
     cursorPx: [150, 116],
     pointerAnchorPx: [120, 96],
+    localCursor: [0.5, 0.25],
+    localAnchor: [0.1, -0.25],
     pointerDown: true,
     buttons: 1,
     hover: { object: rect.id }
@@ -45,6 +47,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   assert.equal(e.hover.mask, vkfUi.HOVER_OBJECT);
   assert.equal(e.hover.kind, vkfUi.HOVER_OBJECT);
     assert.deepEqual(e.trans, [30, 20]);
+    assert.deepEqual(e.local_cursor, [0.5, 0.25]);
+    assert.deepEqual(e.local_trans, [0.4, 0.5]);
     assert.equal(target, rect);
     target.translate({ trans: e.trans });
   } finally {
@@ -130,8 +134,9 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 
   const mesh = panel.add(
     {
-      x: [100, 180, 140],
-      y: [120, 120, 190]
+      x: [-1, 1, 0],
+      y: [-1, -1, 1],
+      bounds: [100, 120, 80, 70]
     },
     {
       face_color: [0.8, 0.5, 0.2, 1],
@@ -158,7 +163,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     policy: "filled",
     surfaces: "first_last_per_dimension"
   });
-  const defaultOverlay = panel.add({ x: [240, 260], y: [220, 240] });
+  assert.deepEqual(mesh.initial_bounds, { x: -1, y: -1, w: 2, h: 2 });
+  const defaultOverlay = panel.add({ x: [240, 260], y: [220, 240], normalized: false });
   assert.equal(defaultOverlay.vertex_radius, 4);
   assert.equal(defaultOverlay.edge_radius, 2);
   assert.equal(defaultOverlay.vertex_pick_radius, 5);
@@ -174,8 +180,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   defaultOverlay.add_edges([[0, 1]]);
   assert.equal(panel.pick([240, 224]).hover.vertex_id, 0);
   assert.equal(panel.pick([250, 225]).hover.edge_id, 0);
-  assert.deepEqual(mesh.world_point(1), [180, 120, 0]);
-  assert.deepEqual(panel.pick([100, 120]).hover, {
+  assert.deepEqual(mesh.world_point(1), [180, 190, 0]);
+  assert.deepEqual(panel.pick([100, 190]).hover, {
     object_id: mesh.id,
     vertex_id: 0,
     edge_id: -1,
@@ -183,7 +189,7 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     mask: 9,
     kind: vkfUi.HOVER_VERTEX
   });
-  assert.deepEqual(panel.pick([140, 120]).hover, {
+  assert.deepEqual(panel.pick([140, 190]).hover, {
     object_id: mesh.id,
     vertex_id: -1,
     edge_id: 0,
@@ -191,7 +197,7 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     mask: 5,
     kind: vkfUi.HOVER_EDGE
   });
-  assert.deepEqual(panel.pick([140, 145]).hover, {
+  assert.deepEqual(panel.pick([140, 160]).hover, {
     object_id: mesh.id,
     vertex_id: -1,
     edge_id: -1,
@@ -235,8 +241,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 
   const childMesh = mesh.add({
-    x: [10, 30, 25],
-    y: [10, 12, 30],
+    x: [-0.5, 0.5, 0],
+    y: [-0.5, -0.4, 0.5],
     face_color: [1, 1, 1, 1],
     edge_color: [1, 1, 1, 1],
     vertex_color: [1, 1, 1, 1],
@@ -246,13 +252,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   childMesh.add_vertices([0, 1, 2]);
   childMesh.add_edges([[0, 1], [1, 2], [2, 0]]);
   childMesh.add_faces([[0, 1, 2]]);
-  const parentBounds = mesh.local_bounds();
-  assert.deepEqual(childMesh.offset.slice(0, 2), [parentBounds.x, parentBounds.y]);
-  const expectedChildPoint = mesh.world_inner_point([
-    parentBounds.x + 10,
-    parentBounds.y + 10,
-    0
-  ]).slice(0, 2);
+  assert.deepEqual(childMesh.offset.slice(0, 2), [0, 0]);
+  const expectedChildPoint = mesh.world_inner_point([-0.5, -0.5, 0]).slice(0, 2);
   assert.deepEqual(childMesh.world_point(0).slice(0, 2).map(Math.round), expectedChildPoint.map(Math.round));
   const childBefore = childMesh.world_point(0).slice(0, 2);
   mesh.translate({ trans: [11, 13] });
