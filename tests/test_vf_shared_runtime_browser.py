@@ -92,10 +92,20 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
         assert page.evaluate("() => crossOriginIsolated") is True
         initial = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
         assert initial == {"x": 120, "y": 96, "w": 180, "h": 118}
+        assert page.locator(".vf-frame__title", has_text="Shared runtime demo").count() == 1
+        assert page.locator(".vf-min-btn").count() == 1
+        assert page.locator(".vf-close-btn").count() == 1
 
-        page.mouse.move(160, 140)
+        canvas_box = page.locator(".vf-shared-demo-canvas").bounding_box()
+        assert canvas_box is not None
+        start_x = canvas_box["x"] + 160
+        start_y = canvas_box["y"] + 140
+        end_x = canvas_box["x"] + 250
+        end_y = canvas_box["y"] + 210
+
+        page.mouse.move(start_x, start_y)
         page.mouse.down()
-        page.mouse.move(250, 210, steps=5)
+        page.mouse.move(end_x, end_y, steps=5)
         page.mouse.up()
 
         moved = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
@@ -109,8 +119,8 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
         assert latest_input["pointerDown"] is False
         assert latest_input["sequence"] >= 2
         assert layout_messages
-        assert layout_messages[0]["stageAlpha"] == 1
-        assert layout_messages[0]["contentHidden"] is False
+        assert layout_messages[0]["stageAlpha"] == 0
+        assert layout_messages[0]["hitRegions"]
         assert layout_messages[0]["hitRegions"][0]["right"] > layout_messages[0]["hitRegions"][0]["left"]
         assert len(writes) >= 2
         assert all("/api/enqueue" not in request for request in requests)

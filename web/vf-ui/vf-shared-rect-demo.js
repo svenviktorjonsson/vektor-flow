@@ -66,24 +66,16 @@
     ctx.restore();
   }
 
-  function postOverlayLayout(canvas) {
-    var wv = global.chrome && global.chrome.webview;
-    if (!wv || typeof wv.postMessage !== "function") {
-      return;
-    }
+  function resizeCanvasToPanel(canvas) {
     var r = canvas.getBoundingClientRect();
-    wv.postMessage({
-      type: "layout",
-      stageAlpha: 1,
-      contentHidden: false,
-      toolbarPx: 160,
-      hitRegions: [{
-        left: Math.floor(r.left),
-        top: Math.floor(r.top),
-        right: Math.ceil(r.right),
-        bottom: Math.ceil(r.bottom)
-      }]
-    });
+    var dpr = global.devicePixelRatio || 1;
+    var w = Math.max(1, Math.round(r.width * dpr));
+    var h = Math.max(1, Math.round(r.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    return { w: w, h: h, dpr: dpr };
   }
 
   function createDemo(canvas) {
@@ -190,12 +182,12 @@
 
     contract.init();
     renderer.flushDirtyTransforms();
-    postOverlayLayout(canvas);
     global.addEventListener("resize", function () {
-      postOverlayLayout(canvas);
+      resizeCanvasToPanel(canvas);
     });
 
     function frame() {
+      resizeCanvasToPanel(canvas);
       draw(ctx, canvas, arena.mat4, dragging);
       global.requestAnimationFrame(frame);
     }
@@ -227,9 +219,49 @@
   };
 
   global.addEventListener("DOMContentLoaded", function () {
-    var canvas = document.getElementById("demo");
-    if (canvas) {
-      global.__vfSharedRectDemo = createDemo(canvas);
+    var layer = document.getElementById("layer");
+    if (!layer) {
+      throw new Error("vf-shared-rect-demo requires #layer");
+    }
+    var frameApi = global.VfFrame.mount(layer, {
+      id: "shared-runtime-demo",
+      title: "Shared runtime demo",
+      titleAlign: "left",
+      draggable: true,
+      dockable: true,
+      resizable: true,
+      closable: true,
+      alpha: 0.96,
+      master: true,
+      dockLocation: "bl",
+      exitWhenLastFrameClosed: true
+    });
+    frameApi.root.style.left = "80px";
+    frameApi.root.style.top = "72px";
+    frameApi.root.style.width = "760px";
+    frameApi.root.style.height = "460px";
+    frameApi.root.classList.add("vf-frame--user-sized");
+
+    var shell = document.createElement("div");
+    shell.className = "vf-shared-demo-shell";
+    var canvas = document.createElement("canvas");
+    canvas.className = "vf-shared-demo-canvas";
+    canvas.setAttribute("aria-label", "Shared runtime draggable rectangle demo");
+    var hud = document.createElement("div");
+    hud.className = "hud";
+    hud.innerHTML = "Shared arena -> renderer adapter -> canvas<br>No Python/JSON on pointer hot path";
+    shell.appendChild(canvas);
+    shell.appendChild(hud);
+    frameApi.body.replaceChildren(shell);
+
+    global.__vfSharedFrame = frameApi;
+    global.__vfSharedRectDemo = createDemo(canvas);
+
+    if (global.VfFrame && typeof global.VfFrame.postNativeHostLayout === "function") {
+      global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+      global.requestAnimationFrame(function () {
+        global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+      });
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);
