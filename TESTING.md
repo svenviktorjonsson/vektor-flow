@@ -68,8 +68,10 @@ The best beta signal right now is whether:
 
 ### Python-Free Shared Runtime Demo
 
-This is the fastest UI path to test right now. It runs from static browser files:
+This is the fastest UI path to test right now. On Windows it runs inside the
+native overlay using static UI assets:
 
+- no Chrome dependency on Windows
 - no Python server
 - no `vf-display.json` polling during pointer movement
 - typed event and transform arenas on the hot path

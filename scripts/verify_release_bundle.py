@@ -55,6 +55,10 @@ def main() -> int:
         _expect(bundle / "vf-ui", errors, "vf-ui assets")
         _expect(bundle / "vf-ui" / "vf-shared-rect-demo.html", errors, "shared-runtime demo HTML")
         _expect(bundle / "vf-ui" / "vf-shared-rect-demo.js", errors, "shared-runtime demo JS")
+        if manifest.get("host_platform") == "win32" or (bundle / "vf-overlay.exe").exists():
+            _expect(bundle / "web", errors, "overlay web assets")
+            _expect(bundle / "web" / "index.html", errors, "overlay web index")
+            _expect(bundle / "web" / "vf-shared-rect-demo.html", errors, "overlay shared-runtime demo HTML")
         for launcher in manifest.get("artifacts", {}).get("demo_launchers", []):
             _expect(bundle / launcher, errors, f"demo launcher {launcher}")
 

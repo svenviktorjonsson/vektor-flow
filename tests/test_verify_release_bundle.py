@@ -17,6 +17,7 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
     )
     manifest = {
         "entrypoint": "vkf.cmd",
+        "host_platform": "win32",
         "artifacts": {
             "samples": ["samples/hello.vkf"],
             "extension_vsix_included": True,
@@ -42,6 +43,9 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
     (bundle / "vf-ui").mkdir()
     (bundle / "vf-ui" / "vf-shared-rect-demo.html").write_text("ok", encoding="utf-8")
     (bundle / "vf-ui" / "vf-shared-rect-demo.js").write_text("ok", encoding="utf-8")
+    (bundle / "web").mkdir()
+    (bundle / "web" / "index.html").write_text("ok", encoding="utf-8")
+    (bundle / "web" / "vf-shared-rect-demo.html").write_text("ok", encoding="utf-8")
     (bundle / "run-shared-runtime-demo.ps1").write_text("ok", encoding="utf-8")
     (bundle / "vf-overlay.exe").write_text("ok", encoding="utf-8")
 

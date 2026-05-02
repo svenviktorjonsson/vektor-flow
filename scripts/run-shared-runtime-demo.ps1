@@ -1,89 +1,68 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Launch the Python-free shared-runtime browser demo.
+    Launch the Python-free shared-runtime demo in the native Windows overlay.
 
 .DESCRIPTION
-    Opens web/vf-ui/vf-shared-rect-demo.html directly from disk with browser
-    flags that keep SharedArrayBuffer available. The hot path is browser-local:
-    EventArena -> compiled-core contract seam -> TransformArena -> renderer
-    adapter. No Python HTTP server or JSON polling is used.
+    Starts vf-overlay.exe on vf-shared-rect-demo.html. The overlay hosts the
+    static UI assets from its adjacent web\ folder and does not require Chrome,
+    Python, or JSON polling for pointer movement.
 #>
 param(
-    [string]$Browser,
     [switch]$PrintOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Resolve-Path (Join-Path $scriptDir '..')
-$demo = Join-Path $repo 'web\vf-ui\vf-shared-rect-demo.html'
 
-if (-not (Test-Path $demo)) {
-    $bundleDemo = Join-Path $repo 'vf-ui\vf-shared-rect-demo.html'
-    if (Test-Path $bundleDemo) {
-        $demo = $bundleDemo
-    } else {
-        throw "Cannot find vf-shared-rect-demo.html under source web/vf-ui or bundled vf-ui."
-    }
-}
-
-function Find-Browser {
-    param([string]$Requested)
-    if ($Requested) {
-        $cmd = Get-Command $Requested -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-        if (Test-Path $Requested) { return (Resolve-Path $Requested).Path }
-        throw "Browser not found: $Requested"
-    }
-
+function Find-Overlay {
     $candidates = @(
-        "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-        "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
-        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-        "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe",
-        'msedge',
-        'chrome',
-        'chromium'
+        (Join-Path $repo 'native\VfOverlay\build\Release\vf-overlay.exe'),
+        (Join-Path $repo 'native\VfOverlay\build\Debug\vf-overlay.exe'),
+        (Join-Path $repo 'native\VfOverlay\build\vf-overlay.exe'),
+        (Join-Path $repo 'vf-overlay.exe')
     )
     foreach ($candidate in $candidates) {
-        if ($candidate -and (Test-Path $candidate)) { return (Resolve-Path $candidate).Path }
-        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-    }
-
-    $playwrightRoot = Join-Path $env:LOCALAPPDATA 'ms-playwright'
-    if (Test-Path $playwrightRoot) {
-        $playwrightChrome = Get-ChildItem -Path $playwrightRoot -Recurse -Filter 'chrome.exe' -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1
-        if ($playwrightChrome) {
-            return $playwrightChrome.FullName
+        if (Test-Path $candidate) {
+            return (Resolve-Path $candidate).Path
         }
     }
-
-    throw "No Chromium-family browser found. Install Edge, Chrome, or Chromium, or pass -Browser <path>."
+    throw "vf-overlay.exe not found. Build native\VfOverlay first or run from a windows-overlay bundle."
 }
 
-$browserExe = Find-Browser $Browser
-$url = ([Uri](Resolve-Path $demo).Path).AbsoluteUri
-$userDataDir = Join-Path ([System.IO.Path]::GetTempPath()) 'vektor-flow-shared-runtime-demo'
+function Sync-WebAssets {
+    param([string]$OverlayExe)
+    $exeDir = Split-Path $OverlayExe
+    $webDir = Join-Path $exeDir 'web'
+    $sourceWeb = Join-Path $repo 'web\vf-ui'
 
-$arguments = @(
-    '--new-window',
-    '--enable-features=SharedArrayBuffer',
-    '--allow-file-access-from-files',
-    "--user-data-dir=$userDataDir",
-    $url
-)
+    if (-not (Test-Path $sourceWeb)) {
+        return
+    }
+    if (-not (Test-Path (Join-Path $webDir 'vf-shared-rect-demo.html'))) {
+        if (Test-Path $webDir) {
+            Remove-Item -Recurse -Force $webDir
+        }
+        Copy-Item -Recurse $sourceWeb $webDir
+    }
+}
+
+$overlayExe = Find-Overlay
+Sync-WebAssets $overlayExe
+$overlayDir = Split-Path $overlayExe
+$page = 'vf-shared-rect-demo.html'
+
+if (-not (Test-Path (Join-Path $overlayDir "web\$page"))) {
+    throw "Cannot find web\$page next to vf-overlay.exe."
+}
 
 if ($PrintOnly) {
-    Write-Host $browserExe
-    Write-Host ($arguments -join ' ')
+    Write-Host $overlayExe
+    Write-Host $page
     exit 0
 }
 
-Start-Process -FilePath $browserExe -ArgumentList $arguments
-
-Write-Host "Launched Python-free shared-runtime demo:"
-Write-Host "  $url"
+Start-Process -FilePath $overlayExe -ArgumentList $page -WorkingDirectory $overlayDir
+Write-Host "Launched Python-free shared-runtime overlay demo:"
+Write-Host "  $overlayExe $page"

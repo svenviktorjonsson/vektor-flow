@@ -150,10 +150,10 @@ def _copy_demo_launchers(bundle_dir: Path) -> tuple[str, ...]:
 
 def _copy_ui_assets(bundle_dir: Path) -> None:
     source = ROOT / "web" / "vf-ui"
-    target = bundle_dir / "vf-ui"
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(source, target)
+    for target in (bundle_dir / "vf-ui", bundle_dir / "web"):
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
 
 
 def _copy_overlay_if_present(bundle_dir: Path) -> Path | None:

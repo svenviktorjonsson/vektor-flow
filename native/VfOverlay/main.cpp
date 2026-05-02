@@ -282,6 +282,8 @@ void HttpRespondStatic(SOCKET s, int status, const char* statusText, const char*
     snprintf(hdr, sizeof(hdr),
         "HTTP/1.1 %d %s\r\n"
         "Access-Control-Allow-Origin: *\r\n"
+        "Cross-Origin-Opener-Policy: same-origin\r\n"
+        "Cross-Origin-Embedder-Policy: require-corp\r\n"
         "Cache-Control: no-store, no-cache, must-revalidate\r\n"
         "Pragma: no-cache\r\n"
         "Content-Type: %s\r\n"

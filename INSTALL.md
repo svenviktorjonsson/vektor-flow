@@ -85,8 +85,9 @@ If a UI program uses the default Windows UI path, it can use:
 
 ### Run The Python-Free Fast UI Demo
 
-This demo opens the shared-memory browser runtime directly from disk. It does
-not start a Python server and does not use JSON polling for pointer movement.
+This demo opens the shared-memory runtime in the native Windows overlay. It does
+not require Chrome, does not start a Python server, and does not use JSON polling
+for pointer movement.
 
 ```powershell
 .\run-shared-runtime-demo.ps1
