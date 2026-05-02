@@ -154,75 +154,18 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   });
   mesh.add_vertices([0, 1, 2]);
   mesh.add_edges([[0, 1], [1, 2]]);
-
-  const vertex0 = { object_id: mesh.id, vertex_id: 0, edge_id: -1, face_id: -1 };
-  const vertex1 = { object_id: mesh.id, vertex_id: 1, edge_id: -1, face_id: -1 };
-  const edge0 = { object_id: mesh.id, vertex_id: -1, edge_id: 0, face_id: -1 };
-
-  ui.selection.select(vertex0);
-  assert.equal(ui.selection.size, 1);
-  assert.equal(ui.selection.has(vertex0), true);
-
-  ui.selection.select(vertex0, { ctrl: true });
-  assert.equal(ui.selection.size, 0);
-  assert.equal(ui.selection.has(vertex0), false);
-
-  ui.selection.select(vertex0);
-  ui.selection.select(edge0, { shift: true });
-  assert.equal(ui.selection.size, 2);
-  assert.deepEqual(ui.selection.targets().map((target) => target.kind), [
-    vkfUi.HOVER_VERTEX,
-    vkfUi.HOVER_EDGE
-  ]);
-
-  ui.selection.select(vertex1);
-  assert.equal(ui.selection.size, 1);
-  assert.equal(ui.selection.has(vertex0), false);
-  assert.equal(ui.selection.has(vertex1), true);
-
-  ui.selection.clear();
-  assert.equal(ui.selection.size, 0);
-  assert.deepEqual(ui.selection.items_or([vertex0]), [vertex0]);
-
-  ui.selection.select(vertex0);
-  ui.selection.select(edge0, { shift: true });
-  assert.deepEqual(ui.selection.items_or([vertex1]).map((target) => target.kind), [
-    vkfUi.HOVER_VERTEX,
-    vkfUi.HOVER_EDGE
-  ]);
-  const visited = [];
-  ui.selection.for_each((target) => {
-    visited.push(`${target.object_id}:${target.kind}:${target.vertex_id}:${target.edge_id}`);
-  });
-  assert.deepEqual(visited, [
-    `${mesh.id}:${vkfUi.HOVER_VERTEX}:0:-1`,
-    `${mesh.id}:${vkfUi.HOVER_EDGE}:-1:0`
-  ]);
-
-  const applied = ui.selection.apply((target) => {
-    const ref = panel.get(target);
-    if (target.kind === vkfUi.HOVER_VERTEX) {
-      ref.move_vertex({ vertex: target.vertex_id, local_trans: [2, 3] });
-      return `vertex:${target.vertex_id}`;
-    }
-    if (target.kind === vkfUi.HOVER_EDGE) {
-      ref.translate_edge({ edge: target.edge_id, local_trans: [5, 0] });
-      return `edge:${target.edge_id}`;
-    }
-    return "ignored";
-  });
-  assert.deepEqual(applied, ["vertex:0", "edge:0"]);
-  assert.deepEqual(mesh.coords.x, [7, 15, 20]);
-  assert.deepEqual(mesh.coords.y, [3, 0, 0]);
-
+  assert.equal(ui.selection, undefined);
   eventArena.writeInputSample({
-    keyMask: 1,
     hover: { object: mesh.id, vertex: 1 }
   });
-  ui.selection.select_event(ui.events.get());
-  assert.equal(ui.selection.has(vertex1), true);
-  ui.selection.select_event(ui.events.get());
-  assert.equal(ui.selection.has(vertex1), false);
+  const e = ui.events.get();
+  assert.equal(e.hover.object_id, mesh.id);
+  assert.equal(e.hover.vertex_id, 1);
+  assert.equal(e.hover.kind, vkfUi.HOVER_VERTEX);
+  const target = panel.get(e.hover);
+  target.move_vertex({ vertex: e.hover.vertex_id, local_trans: [2, 3] });
+  assert.deepEqual(mesh.coords.x, [0, 12, 20]);
+  assert.deepEqual(mesh.coords.y, [0, 3, 0]);
 }
 
 {

@@ -96,37 +96,6 @@
     return Object.freeze(out);
   }
 
-  function normalizedSelectionTarget(target) {
-    var hover = target && target.hover ? target.hover : target;
-    if (!hover) {
-      return null;
-    }
-    var out = {
-      frame_id: intOrDefault(hover.frame_id != null ? hover.frame_id : hover.frame, -1),
-      object_id: intOrDefault(hover.object_id != null ? hover.object_id : hover.object, -1),
-      face_id: intOrDefault(hover.face_id != null ? hover.face_id : hover.face, -1),
-      edge_id: intOrDefault(hover.edge_id != null ? hover.edge_id : hover.edge, -1),
-      vertex_id: intOrDefault(hover.vertex_id != null ? hover.vertex_id : hover.vertex, -1)
-    };
-    out.mask = intOrDefault(hover.mask, hoverMask(out));
-    out.kind = intOrDefault(hover.kind_id != null ? hover.kind_id : hover.kind, hoverKind(out));
-    if (out.object_id < 0 || out.kind === 0) {
-      return null;
-    }
-    return Object.freeze(out);
-  }
-
-  function selectionKey(target) {
-    return [
-      target.frame_id,
-      target.object_id,
-      target.kind,
-      target.face_id,
-      target.edge_id,
-      target.vertex_id
-    ].join(":");
-  }
-
   function eventKind(sample) {
     if (!sample) {
       return MOUSE_MOVE;
@@ -1147,126 +1116,6 @@
     });
   };
 
-  function Selection() {
-    this._items = Object.create(null);
-    this._order = [];
-    this.size = 0;
-  }
-
-  Selection.prototype._store = function (target) {
-    var key = selectionKey(target);
-    if (!this._items[key]) {
-      this._order.push(key);
-      this.size++;
-    }
-    this._items[key] = target;
-    return target;
-  };
-
-  Selection.prototype.clear = function () {
-    this._items = Object.create(null);
-    this._order = [];
-    this.size = 0;
-    return this;
-  };
-
-  Selection.prototype.has = function (target) {
-    var normalized = normalizedSelectionTarget(target);
-    return !!(normalized && this._items[selectionKey(normalized)]);
-  };
-
-  Selection.prototype.add = function (target) {
-    var normalized = normalizedSelectionTarget(target);
-    if (normalized) {
-      this._store(normalized);
-    }
-    return this;
-  };
-
-  Selection.prototype.remove = function (target) {
-    var normalized = normalizedSelectionTarget(target);
-    if (!normalized) {
-      return this;
-    }
-    var key = selectionKey(normalized);
-    if (!this._items[key]) {
-      return this;
-    }
-    delete this._items[key];
-    this._order = this._order.filter(function (entry) {
-      return entry !== key;
-    });
-    this.size--;
-    return this;
-  };
-
-  Selection.prototype.toggle = function (target) {
-    return this.has(target) ? this.remove(target) : this.add(target);
-  };
-
-  Selection.prototype.set = function (target) {
-    this.clear();
-    return this.add(target);
-  };
-
-  Selection.prototype.select = function (target, modifiers) {
-    modifiers = modifiers || {};
-    if (modifiers.ctrl || modifiers.toggle) {
-      return this.toggle(target);
-    }
-    if (modifiers.shift || modifiers.add) {
-      return this.add(target);
-    }
-    return this.set(target);
-  };
-
-  Selection.prototype.select_event = function (event) {
-    event = event || {};
-    var mask = intOrDefault(event.key_mask, 0);
-    return this.select(event.hover, {
-      ctrl: (mask & 1) !== 0,
-      shift: (mask & 2) !== 0
-    });
-  };
-
-  Selection.prototype.targets = function () {
-    var out = [];
-    for (var i = 0; i < this._order.length; i++) {
-      out.push(this._items[this._order[i]]);
-    }
-    return out;
-  };
-
-  Selection.prototype.items_or = function (fallback) {
-    var targets = this.targets();
-    if (targets.length > 0) {
-      return targets;
-    }
-    return Array.isArray(fallback) ? fallback : [];
-  };
-
-  Selection.prototype.for_each = function (callback, thisArg) {
-    if (typeof callback !== "function") {
-      throw new TypeError("selection.for_each expects a callback");
-    }
-    var targets = this.targets();
-    for (var i = 0; i < targets.length; i++) {
-      callback.call(thisArg, targets[i], i, this);
-    }
-    return this;
-  };
-
-  Selection.prototype.apply = function (callback, thisArg) {
-    if (typeof callback !== "function") {
-      throw new TypeError("selection.apply expects a callback");
-    }
-    var out = [];
-    this.for_each(function (target, index, selection) {
-      out.push(callback.call(thisArg, target, index, selection));
-    }, this);
-    return out;
-  };
-
   function createVkfUiRuntime(options) {
     var opts = options || {};
     if (!opts.arena || typeof opts.arena.setTranslate2D !== "function") {
@@ -1298,8 +1147,7 @@
       display: new Display(runtime),
       events: new EventQueue(opts.eventArena),
       cursor: new Cursor(),
-      keyboard: new Keyboard(),
-      selection: new Selection()
+      keyboard: new Keyboard()
     });
     return runtime;
   }

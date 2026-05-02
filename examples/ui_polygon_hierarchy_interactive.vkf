@@ -38,13 +38,19 @@ child_poly: root_poly.add_polygon(child_points, color: child_color)
 leaf_poly: child_poly.add_polygon(leaf_points, color: leaf_color)
 
 describe_action(e):
-  e.ctrl?
-    e.hover.kind = "vertex"? @: "ctrl vertex: custom branch"
-    e.hover.kind = "edge"? @: "ctrl edge: custom branch"
+  mods: ui.keyboard.modifiers
+  mods.ctrl?
+    (e.hover.mask & ui.HOVER_VERTEX)?
+      @: "ctrl vertex: custom branch"
+    (e.hover.mask & ui.HOVER_EDGE)?
+      @: "ctrl edge: custom branch"
     @: "ctrl face: custom branch"
-  e.hover.kind = "vertex"? @: "move vertex"
-  e.hover.kind = "edge"? @: "move edge endpoints"
-  e.hover.kind = "face"? @: "move object subtree"
+  (e.hover.mask & ui.HOVER_VERTEX)?
+    @: "move vertex"
+  (e.hover.mask & ui.HOVER_EDGE)?
+    @: "move edge endpoints"
+  (e.hover.mask & ui.HOVER_FACE)?
+    @: "move object subtree"
   @: "pan frame"
 
 print_event(e):
@@ -53,12 +59,7 @@ print_event(e):
 
 edit_polygon(e):
   target: panel.get(e.hover)
-  target?
-    e.hover.kind = "vertex"?
-      @: target.translate(trans:e.trans)
-    e.hover.kind = "edge"?
-      @: target.translate(trans:e.trans)
-    target.translate(trans:e.trans)
+  target? target.translate(trans:e.trans)
 
 :: "interactive polygon hierarchy ready"
 

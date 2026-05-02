@@ -190,41 +190,32 @@ root_c_vertex_hidden_edge_hidden.add_vertices([0, 1, 2, 3])
 root_c_vertex_hidden_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
 root_c_vertex_hidden_edge_hidden.add_faces([[0, 1, 2, 3]])
 
-selection: ui.selection
-
-select_for_press(e, mods):
-  selection.select(e.hover, mods)
-
-drag_target(selected, e, mods):
-  target: panel.get(selected)
+drag_target(target_hover, e, mods):
+  target: panel.get(target_hover)
   target?
     mods.ctrl?
-      selected.kind?>
+      target_hover.kind?>
         ui.HOVER_VERTEX =>
-          target.move_vertex(vertex: selected.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)
+          target.move_vertex(vertex: target_hover.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)
         ui.HOVER_EDGE =>
-          target.translate_edge(edge: selected.edge_id, local_trans: e.local_trans)
+          target.translate_edge(edge: target_hover.edge_id, local_trans: e.local_trans)
       @|
-    selected.kind?>
+    target_hover.kind?>
       ui.HOVER_VERTEX =>
-        target.rotate_scale_at_vertex(vertex: selected.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)
+        target.rotate_scale_at_vertex(vertex: target_hover.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)
       ui.HOVER_EDGE =>
-        target.scale_edge(edge: selected.edge_id, local_cursor: e.local_cursor, local_anchor: e.local_anchor, local_trans: e.local_trans)
+        target.scale_edge(edge: target_hover.edge_id, local_cursor: e.local_cursor, local_anchor: e.local_anchor, local_trans: e.local_trans)
       ui.HOVER_FACE =>
         target.translate(trans: e.local_trans)
 
 drag(e):
   mods: ui.keyboard.modifiers
-  targets: selection.items_or([e.hover])
-  targets.each((selected) =>
-    drag_target(selected, e, mods)
-  )
+  drag_target(e.hover, e, mods)
 
 :: "vkf topology ready"
 
 (e: events.get())??>
   ui.MOUSE_DOWN =>
-    select_for_press(e, ui.keyboard.modifiers)
     ui.cursor.set_mode("closed_hand")
   ui.MOUSE_MOVE =>
     ui.cursor.set_mode("open_hand")
