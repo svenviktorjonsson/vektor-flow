@@ -90,6 +90,12 @@ from vektorflow.ui_scene_graph_math import (
     resolve_model_matrix_3d_from_scene_fields,
 )
 from vektorflow.ui_scene_model import DisplaySceneState
+from vektorflow.ui.host_bootstrap import (
+    HOST_MANIFEST_FILENAME,
+    build_host_bootstrap_manifest,
+    write_host_bootstrap_manifest,
+    write_host_manifest_text,
+)
 
 # ---------------------------------------------------------------------------
 # Lighting models supported by vf-geom-wgpu.js
@@ -2060,6 +2066,7 @@ def _write_vf_display_json(payload: UiDisplayPayload) -> None:
     global _display_assets_synced_once
     try:
         from vektorflow.ui.launch import find_vektorflow_repo_root
+        from vektorflow.ui.launch import get_ui_mode
         root = find_vektorflow_repo_root()
         if root is None:
             raise UISyncError("Unable to locate the Vektor Flow repo root for UI sync.")
@@ -2082,6 +2089,11 @@ def _write_vf_display_json(payload: UiDisplayPayload) -> None:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     dst.write_bytes(geom_plan.source_path.read_bytes())
             _display_assets_synced_once = True
+
+        manifest = build_host_bootstrap_manifest(launch_mode=get_ui_mode())
+        manifest_text = write_host_manifest_text(manifest)
+        write_host_bootstrap_manifest(root, manifest)
+        _sync_json_to_all_built_webs(root, HOST_MANIFEST_FILENAME, manifest_text)
     except UISyncError:
         raise
     except (OSError, TypeError, ValueError) as exc:

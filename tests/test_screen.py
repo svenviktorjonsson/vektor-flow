@@ -12,6 +12,12 @@ from vektorflow.parser import parse_module
 from vektorflow.stdlib import STDLIB_MODULES, resolve_stdlib
 from vektorflow.stdlib.screen import PendingFrame, Screen, build_screen_namespace
 from vektorflow.stdlib.ui import Display, UISyncError, build_ui_namespace
+from vektorflow.ui.host_bootstrap import (
+    HOST_MANIFEST_FILENAME,
+    HOST_MANIFEST_SCHEMA,
+    HOST_MANIFEST_VERSION,
+)
+from vektorflow.ui_display_ir import build_display_payload
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -235,6 +241,32 @@ def test_display_json_exposes_browser_payload_through_public_ui_surface() -> Non
     assert "screen" in raw and "frames" in raw and "geom" in raw
     assert f.id in raw["frames"]
     assert raw["frames"][f.id][0]["op"] == "rect"
+
+
+def test_host_bootstrap_manifest_is_written_with_display_sync(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    ui_root = repo / "web" / "vf-ui"
+    ui_root.mkdir(parents=True, exist_ok=True)
+    (ui_root / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.setattr("vektorflow.ui.launch.find_vektorflow_repo_root", lambda: repo)
+
+    # Keep _write_vf_display_json in this test isolated from CI checkout state.
+    from vektorflow.stdlib.ui import _write_vf_display_json
+
+    _write_vf_display_json(build_display_payload(screen_ops=(), frame_ops={}, runtime_geom={}))
+
+    out = ui_root / HOST_MANIFEST_FILENAME
+    assert out.is_file(), f"expected manifest output {out}"
+    manifest = json.loads(out.read_text(encoding="utf-8"))
+    assert manifest["schema"] == HOST_MANIFEST_SCHEMA
+    assert manifest["version"] == HOST_MANIFEST_VERSION
+    assert manifest["files"]["display"]["filename"] == "vf-display.json"
+    assert manifest["files"]["display"]["url"] == "/vf-display.json"
+    assert manifest["files"]["scene"]["filename"] == "vkf-scene.json"
+    assert manifest["files"]["ui_state"]["filename"] == "vf-ui-state.json"
 
 
 def test_ui_display_two_frames_draw_rect_produces_vf_display_payload() -> None:

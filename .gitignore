@@ -20,4 +20,5 @@ vscode/*.vsix
 .DS_Store
 web/vf-ui/vkf-scene.json
 web/vf-ui/vf-display.json
+web/vf-ui/vf-host-bootstrap.json
 .vf-bench-cache/
