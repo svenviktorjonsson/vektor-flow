@@ -2,6 +2,11 @@ const assert = require("node:assert/strict");
 const shared = require("../../web/vf-ui/vf-shared-runtime.js");
 const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 
+function assertApproxPoint(actual, expected, epsilon = 1e-6) {
+  assert.ok(Math.abs(actual[0] - expected[0]) <= epsilon, `${actual[0]} ~= ${expected[0]}`);
+  assert.ok(Math.abs(actual[1] - expected[1]) <= epsilon, `${actual[1]} ~= ${expected[1]}`);
+}
+
 {
   const arena = shared.createTransformArena(2);
   const eventArena = shared.createEventArena(4);
@@ -48,6 +53,7 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   assert.equal(e.hover.kind, vkfUi.HOVER_OBJECT);
     assert.deepEqual(e.trans, [30, 20]);
     assert.deepEqual(e.local_cursor, [0.5, 0.25]);
+    assert.deepEqual(e.local_anchor, [0.1, -0.25]);
     assert.deepEqual(e.local_trans, [0.4, 0.5]);
     assert.equal(target, rect);
     target.translate({ trans: e.trans });
@@ -226,10 +232,19 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   const beforeEdge = mesh.world_points().map((p) => p.slice());
   const originBeforeEdge = mesh.world_inner_point(mesh.origin).slice(0, 2);
   const offsetBeforeEdge = mesh.offset.slice();
-  mesh.scale_edge({ edge: 0, trans: [0, 18] });
+  const edgeA = mesh._parent_point_from_inner([-1, -1, 0]).slice(0, 2);
+  const edgeB = mesh._parent_point_from_inner([1, -1, 0]).slice(0, 2);
+  const edgeEx = edgeB[0] - edgeA[0];
+  const edgeEy = edgeB[1] - edgeA[1];
+  const edgeLen = Math.sqrt(edgeEx * edgeEx + edgeEy * edgeEy);
+  const edgeNormal = [-edgeEy / edgeLen, edgeEx / edgeLen];
+  const edgeAnchor = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
+  const edgeCursor = [edgeAnchor[0] + edgeNormal[0] * 18, edgeAnchor[1] + edgeNormal[1] * 18];
+  mesh.scale_edge({ edge: 0, local_anchor: edgeAnchor, local_cursor: edgeCursor, local_trans: [edgeNormal[0] * 18, edgeNormal[1] * 18] });
   assert.notDeepEqual(mesh.world_points(), beforeEdge);
   assert.deepEqual(mesh.offset, offsetBeforeEdge);
   assert.deepEqual(mesh.world_inner_point(mesh.origin).slice(0, 2).map(Math.round), originBeforeEdge.map(Math.round));
+  assertApproxPoint(mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2), edgeCursor);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 
   const originBeforeTranslate = mesh.world_inner_point(mesh.origin).slice(0, 2);
@@ -267,6 +282,61 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     Math.round(arena.mat4[childMatOffset + 12]),
     Math.round(arena.mat4[childMatOffset + 13])
   ], childOriginWorld.map(Math.round));
+}
+
+{
+  const arena = shared.createTransformArena(8);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const root = panel.add({
+    x: [-1, 1, 1, -1],
+    y: [-1, -1, 1, 1],
+    bounds: [100, 80, 200, 160],
+    origin: [0, 0, 0]
+  });
+  root.add_vertices([0, 1, 2, 3]);
+  root.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+  root.add_faces([[0, 1, 2, 3]]);
+  root.rotate_scale_at_vertex({ vertex: 1, local_cursor: [320, 250], local_trans: [20, 10] });
+
+  const child = root.add({
+    x: [-0.5, 0.5, 0.5, -0.5],
+    y: [-0.5, -0.5, 0.5, 0.5],
+    origin: [0, 0, 0]
+  });
+  child.add_vertices([0, 1, 2, 3]);
+  child.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+  child.add_faces([[0, 1, 2, 3]]);
+
+  const vertexBefore = child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2);
+  const vertexCursor = [vertexBefore[0] + 0.2, vertexBefore[1] - 0.35];
+  child.rotate_scale_at_vertex({ vertex: 1, local_cursor: vertexCursor, local_trans: [0.2, -0.35] });
+  assertApproxPoint(child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2), vertexCursor);
+
+  const rightEdgeA = child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2);
+  const rightEdgeB = child._parent_point_from_inner([0.5, 0.5, 0]).slice(0, 2);
+  const rightEx = rightEdgeB[0] - rightEdgeA[0];
+  const rightEy = rightEdgeB[1] - rightEdgeA[1];
+  const rightLen = Math.sqrt(rightEx * rightEx + rightEy * rightEy);
+  const rightNormal = [rightEy / rightLen, -rightEx / rightLen];
+  const rightEdgeAnchor = child._parent_point_from_inner([0.5, 0, 0]).slice(0, 2);
+  const rightEdgeCursor = [rightEdgeAnchor[0] + rightNormal[0] * 0.22, rightEdgeAnchor[1] + rightNormal[1] * 0.22];
+  child.scale_edge({ edge: 1, local_anchor: rightEdgeAnchor, local_cursor: rightEdgeCursor, local_trans: [rightNormal[0] * 0.22, rightNormal[1] * 0.22] });
+  assertApproxPoint(child._parent_point_from_inner([0.5, 0, 0]).slice(0, 2), rightEdgeCursor);
+
+  const bottomEdgeA = child._parent_point_from_inner([-0.5, -0.5, 0]).slice(0, 2);
+  const bottomEdgeB = child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2);
+  const bottomEx = bottomEdgeB[0] - bottomEdgeA[0];
+  const bottomEy = bottomEdgeB[1] - bottomEdgeA[1];
+  const bottomLen = Math.sqrt(bottomEx * bottomEx + bottomEy * bottomEy);
+  const bottomNormal = [-bottomEy / bottomLen, bottomEx / bottomLen];
+  const bottomEdgeAnchor = child._parent_point_from_inner([0, -0.5, 0]).slice(0, 2);
+  const bottomEdgeCursor = [bottomEdgeAnchor[0] + bottomNormal[0] * 0.18, bottomEdgeAnchor[1] + bottomNormal[1] * 0.18];
+  child.scale_edge({ edge: 0, local_anchor: bottomEdgeAnchor, local_cursor: bottomEdgeCursor, local_trans: [bottomNormal[0] * 0.18, bottomNormal[1] * 0.18] });
+  assertApproxPoint(child._parent_point_from_inner([0, -0.5, 0]).slice(0, 2), bottomEdgeCursor);
 }
 
 console.log("vf-vkf-ui-runtime tests passed");

@@ -72,6 +72,7 @@
       event: eventKind(sample),
       cursor: Object.freeze([numberOrZero(cursor[0]), numberOrZero(cursor[1])]),
       local_cursor: Object.freeze([numberOrZero(localCursor[0]), numberOrZero(localCursor[1])]),
+      local_anchor: Object.freeze([numberOrZero(localAnchor[0]), numberOrZero(localAnchor[1])]),
       trans: Object.freeze([
         numberOrZero(cursor[0]) - numberOrZero(anchor[0]),
         numberOrZero(cursor[1]) - numberOrZero(anchor[1])
@@ -154,6 +155,20 @@
     var len2 = vx * vx + vy * vy;
     var t = len2 > 0 ? Math.max(0, Math.min(1, dot2(px - ax, py - ay, vx, vy) / len2)) : 0;
     return Math.sqrt(dist2(px, py, ax + vx * t, ay + vy * t));
+  }
+
+  function closestPointOnSegment(point, a, b) {
+    var px = point[0];
+    var py = point[1];
+    var ax = a[0];
+    var ay = a[1];
+    var bx = b[0];
+    var by = b[1];
+    var vx = bx - ax;
+    var vy = by - ay;
+    var len2 = vx * vx + vy * vy;
+    var t = len2 > 0 ? Math.max(0, Math.min(1, dot2(px - ax, py - ay, vx, vy) / len2)) : 0;
+    return [ax + vx * t, ay + vy * t];
   }
 
   function pointInPolygon(point, polygon) {
@@ -466,6 +481,24 @@
       : local;
   };
 
+  MeshRef.prototype._parent_point_from_world = function (point) {
+    return this.parent && typeof this.parent.inner_from_world === "function"
+      ? this.parent.inner_from_world(point)
+      : point;
+  };
+
+  MeshRef.prototype._parent_point_from_inner = function (inner) {
+    var base = this._base_point(inner);
+    var originBase = this._base_point(this.origin);
+    var lx = base[0] - originBase[0];
+    var ly = base[1] - originBase[1];
+    return [
+      originBase[0] + this.offset[0] + this.basis[0] * lx + this.basis[2] * ly,
+      originBase[1] + this.offset[1] + this.basis[1] * lx + this.basis[3] * ly,
+      base[2] + this.offset[2]
+    ];
+  };
+
   MeshRef.prototype.inner_from_world = function (point) {
     var parentPoint = this.parent && typeof this.parent.inner_from_world === "function"
       ? this.parent.inner_from_world(point)
@@ -562,14 +595,26 @@
     if (vertex < 0 || vertex >= this.coords.x.length) {
       return this;
     }
-    var p = this.world_point(vertex);
-    var originWorld = this.world_inner_point(this.origin);
-    var trans = args.trans || [0, 0];
-    var cursor = args.cursor || [p[0] + numberOrZero(trans[0]), p[1] + numberOrZero(trans[1])];
-    var vx = p[0] - originWorld[0];
-    var vy = p[1] - originWorld[1];
-    var wx = numberOrZero(cursor[0]) - originWorld[0];
-    var wy = numberOrZero(cursor[1]) - originWorld[1];
+    var p = this._parent_point_from_inner([
+      numberOrZero(this.coords.x[vertex]),
+      numberOrZero(this.coords.y[vertex]),
+      numberOrZero(this.coords.z[vertex])
+    ]);
+    var originBase = this._base_point(this.origin);
+    var originParent = [
+      originBase[0] + this.offset[0],
+      originBase[1] + this.offset[1]
+    ];
+    var trans = args.local_trans || args.trans || [0, 0];
+    var cursor = args.local_cursor || (
+      args.cursor
+        ? this._parent_point_from_world(args.cursor)
+        : [p[0] + numberOrZero(trans[0]), p[1] + numberOrZero(trans[1])]
+    );
+    var vx = p[0] - originParent[0];
+    var vy = p[1] - originParent[1];
+    var wx = numberOrZero(cursor[0]) - originParent[0];
+    var wy = numberOrZero(cursor[1]) - originParent[1];
     var vLen = Math.sqrt(vx * vx + vy * vy);
     var wLen = Math.sqrt(wx * wx + wy * wy);
     if (vLen < 1e-9 || wLen < 1e-9) {
@@ -598,17 +643,56 @@
       return this;
     }
     var pair = this.edges[edge];
-    var a = this.world_point(pair[0]);
-    var b = this.world_point(pair[1]);
+    var a = this._parent_point_from_inner([
+      numberOrZero(this.coords.x[pair[0]]),
+      numberOrZero(this.coords.y[pair[0]]),
+      numberOrZero(this.coords.z[pair[0]])
+    ]);
+    var b = this._parent_point_from_inner([
+      numberOrZero(this.coords.x[pair[1]]),
+      numberOrZero(this.coords.y[pair[1]]),
+      numberOrZero(this.coords.z[pair[1]])
+    ]);
     var ex = b[0] - a[0];
     var ey = b[1] - a[1];
     var len = Math.sqrt(ex * ex + ey * ey) || 1;
     var nx = -ey / len;
     var ny = ex / len;
-    var trans = args.trans || [0, 0];
-    var factor = Math.max(0.15, 1 + dot2(numberOrZero(trans[0]), numberOrZero(trans[1]), nx, ny) * 0.01);
-    this.basis[2] *= factor;
-    this.basis[3] *= factor;
+    var trans = args.local_trans || args.trans || [0, 0];
+    var cursor = args.local_cursor || (
+      args.cursor
+        ? this._parent_point_from_world(args.cursor)
+        : [a[0] + numberOrZero(trans[0]), a[1] + numberOrZero(trans[1])]
+    );
+    var anchor = args.local_anchor || [
+      numberOrZero(cursor[0]) - numberOrZero(trans[0]),
+      numberOrZero(cursor[1]) - numberOrZero(trans[1])
+    ];
+    var grabbed = closestPointOnSegment(anchor, a, b);
+    var originBase = this._base_point(this.origin);
+    var originParent = [
+      originBase[0] + this.offset[0],
+      originBase[1] + this.offset[1]
+    ];
+    var normalCoord = dot2(grabbed[0] - originParent[0], grabbed[1] - originParent[1], nx, ny);
+    if (Math.abs(normalCoord) < 1e-9) {
+      return this;
+    }
+    var targetCoord = dot2(numberOrZero(cursor[0]) - originParent[0], numberOrZero(cursor[1]) - originParent[1], nx, ny);
+    var factor = Math.max(0.15, targetCoord / normalCoord);
+    var k = factor - 1;
+    var s00 = 1 + k * nx * nx;
+    var s01 = k * nx * ny;
+    var s10 = k * ny * nx;
+    var s11 = 1 + k * ny * ny;
+    var oldA = this.basis[0];
+    var oldB = this.basis[1];
+    var oldC = this.basis[2];
+    var oldD = this.basis[3];
+    this.basis[0] = s00 * oldA + s01 * oldB;
+    this.basis[1] = s10 * oldA + s11 * oldB;
+    this.basis[2] = s00 * oldC + s01 * oldD;
+    this.basis[3] = s10 * oldC + s11 * oldD;
     this._sync_transform();
     return this;
   };

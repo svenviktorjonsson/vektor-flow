@@ -195,9 +195,9 @@ drag(e):
   target?
     e.hover.kind?>
       ui.HOVER_VERTEX =>
-        target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, cursor: e.cursor, trans: e.trans)
+        target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)
       ui.HOVER_EDGE =>
-        target.scale_edge(edge: e.hover.edge_id, cursor: e.cursor, trans: e.trans)
+        target.scale_edge(edge: e.hover.edge_id, local_cursor: e.local_cursor, local_anchor: e.local_anchor, local_trans: e.local_trans)
       ui.HOVER_FACE =>
         target.translate(trans: e.local_trans)
 
