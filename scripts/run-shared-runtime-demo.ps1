@@ -40,12 +40,10 @@ function Sync-WebAssets {
     if (-not (Test-Path $sourceWeb)) {
         return
     }
-    if (-not (Test-Path (Join-Path $webDir 'vf-shared-rect-demo.html'))) {
-        if (Test-Path $webDir) {
-            Remove-Item -Recurse -Force $webDir
-        }
-        Copy-Item -Recurse $sourceWeb $webDir
+    if (Test-Path $webDir) {
+        Remove-Item -Recurse -Force $webDir
     }
+    Copy-Item -Recurse $sourceWeb $webDir
 }
 
 $overlayExe = Find-Overlay
