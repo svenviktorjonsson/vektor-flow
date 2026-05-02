@@ -679,7 +679,10 @@
       return this;
     }
     var targetCoord = dot2(numberOrZero(cursor[0]) - originParent[0], numberOrZero(cursor[1]) - originParent[1], nx, ny);
-    var factor = Math.max(0.15, targetCoord / normalCoord);
+    var factor = targetCoord / normalCoord;
+    if (Math.abs(factor) < 0.05) {
+      factor = factor < 0 ? -0.05 : 0.05;
+    }
     var k = factor - 1;
     var s00 = 1 + k * nx * nx;
     var s01 = k * nx * ny;

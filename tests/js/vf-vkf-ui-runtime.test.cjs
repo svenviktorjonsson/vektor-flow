@@ -339,5 +339,40 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   assertApproxPoint(child._parent_point_from_inner([0, -0.5, 0]).slice(0, 2), bottomEdgeCursor);
 }
 
+{
+  const arena = shared.createTransformArena(4);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add({
+    x: [-1, 1, 1, -1],
+    y: [-1, -1, 1, 1],
+    bounds: [100, 100, 100, 100],
+    origin: [0, 0, 0]
+  });
+  mesh.add_vertices([0, 1, 2, 3]);
+  mesh.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+  mesh.add_faces([[0, 1, 2, 3]]);
+
+  const bottomBefore = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
+  const origin = mesh._parent_point_from_inner([0, 0, 0]).slice(0, 2);
+  const bottomDist = [bottomBefore[0] - origin[0], bottomBefore[1] - origin[1]];
+  const flippedCursor = [origin[0] - bottomDist[0] * 0.6, origin[1] - bottomDist[1] * 0.6];
+  mesh.scale_edge({
+    edge: 0,
+    local_anchor: bottomBefore,
+    local_cursor: flippedCursor,
+    local_trans: [flippedCursor[0] - bottomBefore[0], flippedCursor[1] - bottomBefore[1]]
+  });
+  const bottomAfter = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
+  assertApproxPoint(bottomAfter, flippedCursor);
+  assert.ok(
+    (bottomBefore[1] - origin[1]) * (bottomAfter[1] - origin[1]) < 0,
+    "edge crossed to the opposite side of the origin"
+  );
+}
+
 console.log("vf-vkf-ui-runtime tests passed");
 
