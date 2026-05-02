@@ -58,17 +58,17 @@ edit_polygon(e):
 
 :: "interactive polygon hierarchy ready"
 
-events.get()??>
+(e: events.get())??>
   ui.MOUSE_DOWN =>
     ui.cursor.set_mode("closed_hand")
-    print_event($)
+    print_event(e)
   ui.MOUSE_MOVE =>
     ui.cursor.set_mode("open_hand")
   ui.MOUSE_DRAG =>
-    edit_polygon($)
+    edit_polygon(e)
   ui.MOUSE_UP =>
     ui.cursor.set_mode("open_hand")
-    print_event($)
+    print_event(e)
   ui.MOUSE_WHEEL =>
-    print_event($)
+    print_event(e)
   t.sleep(0.016)

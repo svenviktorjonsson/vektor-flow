@@ -196,6 +196,12 @@ class IRTypeAnalyzer:
         if isinstance(node, ir.CoerceExpr):
             self._infer_expr(node.expr, env)
             return self._remember_expr(node, _normalize_type(node.target_type))
+        if isinstance(node, ir.BindExpr):
+            if not isinstance(node.target, ir.LoadName):
+                raise TypedIRError(f"unsupported bind expression target {type(node.target).__name__}")
+            value_t = self._infer_expr(node.value, env)
+            env[node.target.name] = value_t
+            return self._remember_expr(node, value_t)
         if isinstance(node, ir.ListExpr):
             if not node.elements:
                 raise TypedIRError("empty list literals are not yet supported in typed IR analysis")

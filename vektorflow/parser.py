@@ -1092,6 +1092,24 @@ class Parser:
         return self.parse_expr()
 
     def parse_expr(self) -> Any:
+        return self.parse_bind_expr()
+
+    def _is_bind_expr_target(self, node: Any) -> bool:
+        return isinstance(node, (ast.Ident, ast.Attribute, ast.DottedIndex))
+
+    def parse_bind_expr(self) -> Any:
+        left = self.parse_pipe()
+        if self._peek_raw() == COLON and (
+            self.i + 1 >= len(self.toks) or self.toks[self.i + 1].kind != COLON
+        ):
+            if not self._is_bind_expr_target(left):
+                raise ParseError("left side of `:` expression must be a bind target", self._loc_here())
+            self._advance()
+            return ast.BindExpr(left, self.parse_expr())
+        return left
+
+    def parse_non_bind_expr(self) -> Any:
+        """Parse an expression where a following ``:`` belongs to the surrounding literal."""
         return self.parse_pipe()
 
     def parse_pipe(self) -> Any:
@@ -1599,7 +1617,7 @@ class Parser:
                 body = self.parse_expr()
                 self._expect(RPAREN)
                 return ast.Lambda(pnames, body)
-            if self._peek_raw() == IDENT:
+            if self._peek_raw() == IDENT and self._paren_named_fields_have_comma():
                 saved = self.i
                 self._expect(IDENT)
                 self._skip_trivia()
@@ -1657,7 +1675,7 @@ class Parser:
                 return node
             pairs: list[tuple[Any, Any]] = []
             while True:
-                ke = self.parse_expr()
+                ke = self.parse_non_bind_expr()
                 if self._peek_raw() != COLON:
                     raise ParseError(
                         "multiset literal must use {value:count, …}; use collections.map for a hash map",
@@ -1687,7 +1705,7 @@ class Parser:
             self._advance()
             inner = self.parse_expr()
             return ast.MsetSpill(inner)
-        e = self.parse_expr()
+        e = self.parse_non_bind_expr()
         self._skip_trivia()
         if self._peek_raw() == COLON:
             self._advance()
@@ -1730,10 +1748,37 @@ class Parser:
             fields.append((name, fe))
             if self._peek_raw() == COMMA:
                 self._advance()
+                self._skip_trivia()
+                if self._peek_raw() == RPAREN:
+                    break
                 continue
             break
         self._expect(RPAREN)
         return ast.StructLit(fields)
+
+    def _paren_named_fields_have_comma(self) -> bool:
+        """Inside ``(``, decide if ``name: ...`` is record-shaped instead of bind-shaped."""
+        if self._peek_raw() != IDENT:
+            return False
+        j = self.i + 1
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks) or self.toks[j].kind != COLON:
+            return False
+        depth = 1
+        j += 1
+        while j < len(self.toks) and depth > 0:
+            k = self.toks[j].kind
+            if k in (LPAREN, LBRACKET, LBRACE):
+                depth += 1
+            elif k in (RPAREN, RBRACKET, RBRACE):
+                depth -= 1
+                if depth == 0:
+                    return False
+            elif depth == 1 and k == COMMA:
+                return True
+            j += 1
+        return False
 
     def _implicit_mul_follows(self) -> bool:
         k = self._peek_raw()

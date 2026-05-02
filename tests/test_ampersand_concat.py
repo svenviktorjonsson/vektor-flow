@@ -45,7 +45,7 @@ def test_mset_union_same_as_plus() -> None:
 def test_struct_merge() -> None:
     src = """
 a : (x:1, y:2)
-b : (z:3)
+b : (z:3,)
 :: a & b
 """
     out = _emit(src)

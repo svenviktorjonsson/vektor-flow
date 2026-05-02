@@ -979,6 +979,12 @@ class IRExecutor:
             value = self.eval_expr(node.expr, env)
             value, _ = execute_typed_coercion_via_runtime(value, node.target_type, self.types)
             return value
+        if isinstance(node, ir.BindExpr):
+            if not isinstance(node.target, ir.LoadName):
+                raise EvalError(f"unsupported IR bind expr target {type(node.target).__name__}")
+            value = self.eval_expr(node.value, env)
+            env[node.target.name] = value
+            return value
         if isinstance(node, ir.UnaryExpr):
             operand = self.eval_expr(node.operand, env)
             return execute_unary_expr_via_runtime(

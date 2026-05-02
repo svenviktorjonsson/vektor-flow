@@ -447,7 +447,7 @@ def test_cpp_emits_nested_dynamic_map_and_list_program() -> None:
     src = """collections: .collections
 
 make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
-    (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
+    (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),)
 
 :: make()
 :: make().payload
@@ -469,9 +469,9 @@ def test_cpp_emits_transform_for_nested_dynamic_map_and_list_record() -> None:
     src = """collections: .collections
 
 update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
-    (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))))
+    (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))),)
 
-:: update((payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b")))))
+:: update((payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),))
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
@@ -634,7 +634,7 @@ sum(p:(x:num, y:num)) -> num:
 
 def test_cpp_rejects_multiset_with_non_primitive_orderless_keys() -> None:
     src = """
-{(x:num)} bag: {(x:1):1}
+{(x:num)} bag: {(x:1,):1}
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     with pytest.raises(CppEmitError):
@@ -936,7 +936,7 @@ def test_cpp_compile_and_run_nested_dynamic_map_and_list_program() -> None:
     src = """collections: .collections
 
 make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
-    (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
+    (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),)
 
 :: make()
 :: make().payload
@@ -961,9 +961,9 @@ def test_cpp_compile_and_run_transform_nested_dynamic_map_and_list_record() -> N
     src = """collections: .collections
 
 update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
-    (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))))
+    (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))),)
 
-:: update((payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b")))))
+:: update((payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),))
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -1157,4 +1157,5 @@ update(state:(pts:[num:2], bag:{num}, total:num), extra:[num:2], delta:{num}) ->
     res = compile_and_run_module(lowered)
     assert res.returncode == 0
     assert res.stdout.strip() == "(pts:[5, 7], bag:{3:1, 6:2}, total:3)"
+
 

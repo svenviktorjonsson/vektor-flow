@@ -138,12 +138,12 @@ out : a * b
         assert _emit(src).splitlines() == ["ijk", "200", "60"]
 
     def test_struct_literal_has_no_axis_suffix_in_parser(self) -> None:
-        """Named record ``(x:1)`` does not consume ``_i`` as axis — suffix is not attached to StructLit."""
+        """Named record ``(x:1,)`` does not consume ``_i`` as axis — suffix is not attached to StructLit."""
         from vektorflow import ast as ast_mod
         from vektorflow.lexer import tokenize
         from vektorflow.parser import Parser
 
-        toks = tokenize("p : (x:1)\n", filename="<t>")
+        toks = tokenize("p : (x:1,)\n", filename="<t>")
         p = Parser(toks)
         mod = p.parse_module()
         bind = mod.statements[0]

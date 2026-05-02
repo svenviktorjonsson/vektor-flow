@@ -89,15 +89,15 @@ r : p + q
 
     def test_struct_plus_default_elementwise_without_explicit_overload(self) -> None:
         src = """
-p : (x:1)
-q : (x:2)
+p : (x:1,)
+q : (x:2,)
 :: (p + q).x
 """
         assert _run_emit(src) in ("3", "3.0")
 
     def test_struct_plus_mismatched_fields_requires_overload_or_fails(self) -> None:
         src = """
-p : (x:1)
+p : (x:1,)
 q : (x:1, y:2)
 :: (p + q).x
 """
@@ -197,8 +197,8 @@ class TestStructElementwiseMultisetFields:
             expected = multiset_symmetric_difference(s, t)
 
         src = f"""
-a : (m: {{1:1, 2:2}})
-b : (m: {{2:1, 3:1}})
+a : (m: {{1:1, 2:2}},)
+b : (m: {{2:1, 3:1}},)
 r : a {ch} b
 :: r.m
 """
@@ -284,8 +284,8 @@ q : B(2)
     def test_nested_untyped_struct_field_shape_mismatch_raises(self) -> None:
         """Inner records under the same field name must match keys for default ``+``."""
         src = """
-p : (i: (x:1))
-q : (i: (x:1, y:2))
+p : (i: (x:1,),)
+q : (i: (x:1, y:2),)
 :: (p + q).i.x
 """
         mod = parse_module(src, filename="<test>")

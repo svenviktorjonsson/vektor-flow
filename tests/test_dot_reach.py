@@ -40,14 +40,14 @@ p : (x:1, y:2)
 
 def test_space_after_dot_same_line_ident_errors() -> None:
     with pytest.raises(ParseError, match="space after"):
-        parse_module("p : (x:1)\n:: p. x", "<t>")
+        parse_module("p : (x:1,)\n:: p. x", "<t>")
 
 
 def test_space_before_dot_errors() -> None:
     with pytest.raises(ParseError, match="adjacent"):
-        parse_module("p : (x:1)\n:: p .x", "<t>")
+        parse_module("p : (x:1,)\n:: p .x", "<t>")
 
 
 def test_space_both_sides_errors() -> None:
     with pytest.raises(ParseError, match="adjacent"):
-        parse_module("p : (x:1)\n:: p . x", "<t>")
+        parse_module("p : (x:1,)\n:: p . x", "<t>")

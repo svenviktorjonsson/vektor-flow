@@ -183,6 +183,14 @@ class StructLit:
 
 
 @dataclass
+class BindExpr:
+    """Expression-level bind ``target: expr``; evaluates to the bound value."""
+
+    target: Any
+    value: Any
+
+
+@dataclass
 class TypeExpr:
     """Record type shape ``(x:num, y:num)`` for interfaces."""
 

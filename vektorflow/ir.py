@@ -110,6 +110,12 @@ class CoerceExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class BindExpr:
+    target: IRNode
+    value: IRNode
+
+
+@dataclass(frozen=True, slots=True)
 class StoreName:
     name: str
     value: IRNode
@@ -395,6 +401,17 @@ def lower_expr(node: Any) -> IRNode:
             raise NotImplementedError("IR lowering only supports integer fixed-vector cast sizes")
         return ast.FixedVectorType(ast.PrimTypeRef(only.value.name), ast.TypeSizeConst(int(count)))
 
+    def _collection_ctor_from_expr(expr: Any) -> str | None:
+        if not isinstance(expr, ast.Attribute):
+            return None
+        if expr.name not in {"map", "list"}:
+            return None
+        if not isinstance(expr.value, ast.Ident):
+            return None
+        if expr.value.name not in {"collections", "col"}:
+            return None
+        return expr.name
+
     if isinstance(node, ast.NumberLit):
         return Const(node.value)
     if isinstance(node, ast.BoolLit):
@@ -417,6 +434,27 @@ def lower_expr(node: Any) -> IRNode:
             if len(node.args) != 1 or isinstance(node.args[0], (ast.NamedCallArg, ast.SpreadArg)):
                 raise NotImplementedError("IR lowering only supports single-argument fixed-vector casts")
             return CoerceExpr(lower_expr(node.args[0]), fixed_vector_target)
+        collection_ctor = _collection_ctor_from_expr(node.func)
+        if collection_ctor == "map":
+            fields: list[tuple[str, IRNode]] = []
+            for a in node.args:
+                if not isinstance(a, ast.NamedCallArg):
+                    raise NotImplementedError("IR lowering only supports named fields in collections.map")
+                fields.append((a.name, lower_expr(a.value)))
+            return MapExpr(fields)
+        if collection_ctor == "list":
+            elements: list[IRNode] = []
+            spread: IRNode | None = None
+            for a in node.args:
+                if isinstance(a, ast.NamedCallArg):
+                    raise NotImplementedError("IR lowering does not support named fields in collections.list")
+                if isinstance(a, ast.SpreadArg):
+                    if spread is not None:
+                        raise NotImplementedError("IR lowering only supports one spread in collections.list")
+                    spread = lower_expr(a.expr)
+                    continue
+                elements.append(lower_expr(a))
+            return LinkedListExpr(elements, spread)
         args: list[IRNode] = []
         kwargs: list[tuple[str, IRNode]] = []
         spreads: list[IRNode] = []
@@ -430,6 +468,8 @@ def lower_expr(node: Any) -> IRNode:
             args.append(lower_expr(a))
         return CallExpr(lower_expr(node.func), args, kwargs, spreads)
     if isinstance(node, ast.ListLit):
+        if node.axis_tag is not None:
+            raise NotImplementedError("IR lowering does not yet support axis-tagged list literals")
         elements: list[IRNode] = []
         for e in node.elements:
             if isinstance(e, (ast.MsetSpill, ast.SpreadArg)):
@@ -437,9 +477,17 @@ def lower_expr(node: Any) -> IRNode:
             elements.append(lower_expr(e))
         return ListExpr(elements)
     if isinstance(node, ast.MultisetLit):
+        if node.axis_tag is not None:
+            raise NotImplementedError("IR lowering does not yet support axis-tagged multiset literals")
         return MultisetExpr([(lower_expr(val), lower_expr(count)) for val, count in node.pairs])
     if isinstance(node, ast.StructLit):
         return StructExpr([(name, lower_expr(val)) for name, val in node.fields])
+    if isinstance(node, ast.BindExpr):
+        if not isinstance(node.target, ast.Ident):
+            raise NotImplementedError(
+                f"IR lowering does not yet support bind expression target {type(node.target).__name__}"
+            )
+        return BindExpr(LoadName(node.target.name), lower_expr(node.value))
     if isinstance(node, ast.Attribute):
         return AttrExpr(lower_expr(node.value), node.name)
     if isinstance(node, ast.DottedIndex):

@@ -1058,6 +1058,10 @@ class Interpreter:
             )
         if isinstance(node, ast.Ident):
             return self._resolve(node.name, env)
+        if isinstance(node, ast.BindExpr):
+            val = self.eval_expr(node.value, env)
+            self._assign_bind(node.target, val, env)
+            return val
         if isinstance(node, ast.TupleLit):
             out: list[Any] = []
             for e in node.elements:

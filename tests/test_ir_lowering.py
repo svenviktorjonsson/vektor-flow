@@ -531,15 +531,15 @@ out: merge({1:1}, {2:2})
     assert _stringify(ir_globals["out"], {}) == _stringify(ast_globals["out"], {})
 
 
-def test_ir_lowers_collection_constructor_calls_as_call_exprs() -> None:
+def test_ir_lowers_collection_constructor_calls_as_collection_exprs() -> None:
     mod = parse_module("m: collections.map(a:1, b:true)\nL: collections.list(:[1,2,3])\n", filename="<ir-test>")
     lowered = lower_module(mod)
     assert isinstance(lowered.statements[0], StoreName)
-    assert isinstance(lowered.statements[0].value, CallExpr)
-    assert lowered.statements[0].value.kwargs and not lowered.statements[0].value.spreads
+    assert isinstance(lowered.statements[0].value, MapExpr)
+    assert [name for name, _ in lowered.statements[0].value.fields] == ["a", "b"]
     assert isinstance(lowered.statements[1], StoreName)
-    assert isinstance(lowered.statements[1].value, CallExpr)
-    assert not lowered.statements[1].value.kwargs and lowered.statements[1].value.spreads
+    assert isinstance(lowered.statements[1].value, LinkedListExpr)
+    assert lowered.statements[1].value.spread is not None
 
 
 def test_ir_lowers_operator_callable_refs_as_call_exprs() -> None:
@@ -550,7 +550,7 @@ Point : (x:num)
 +(a:Point, b:num):
     a.x + b
 
-Point p: (x:3)
+Point p: (x:3,)
 out: +(p, 4)
 """,
         filename="<ir-test>",
@@ -822,8 +822,8 @@ Point : (x:num)
 +(a:Point, b:Point):
     a.x + b.x
 
-Point p: (x:3)
-Point q: (x:5)
+Point p: (x:3,)
+Point q: (x:5,)
 left: +(p, 4)
 right: +(p, q)
 """,
@@ -845,7 +845,7 @@ Point : (x:num)
 +(a:Point, b:num):
     a.x + b
 
-Point p: (x:3)
+Point p: (x:3,)
 out: p + 4
 """,
         filename="<ir-test>",
@@ -865,7 +865,7 @@ Point : (x:num)
 -(a:Point):
     a.x
 
-Point p: (x:3)
+Point p: (x:3,)
 out: -p
 """,
         filename="<ir-test>",
