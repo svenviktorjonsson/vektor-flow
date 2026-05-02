@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import time
 import urllib.request
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -36,7 +37,6 @@ from vektorflow.ui.launch import (
 _REPO = Path(__file__).resolve().parents[1]
 _HAS_MARKERS = (
     (_REPO / "web" / "vf-ui" / "index.html").is_file()
-    and (_REPO / "native" / "VfOverlay" / "CMakeLists.txt").is_file()
 )
 
 
@@ -285,6 +285,18 @@ class TestOverlayMode:
         err = capsys.readouterr().err
         assert "vf-overlay.exe not found" in err or "UI not started" in err
 
+    def test_exec_root_fallback(self, monkeypatch, tmp_path) -> None:
+        bundle_root = tmp_path / "bundle"
+        web_root = bundle_root / "web" / "vf-ui"
+        (web_root / "index.html").parent.mkdir(parents=True, exist_ok=True)
+        (web_root / "index.html").write_text("<!doctype html>", encoding="utf-8")
+        exe = bundle_root / "vf-overlay.exe"
+        exe.write_bytes(b"")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "executable", str(exe))
+        monkeypatch.setattr(L, "__file__", str((tmp_path / "fake_launch.py").resolve()))
+        root = L.find_vektorflow_repo_root()
+        assert root == bundle_root
 
 # ---------------------------------------------------------------------------
 # Integration: add_frame triggers maybe_launch_ui via Display._sync_all

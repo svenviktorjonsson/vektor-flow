@@ -136,42 +136,92 @@ def _log_launch_line(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 def find_vektorflow_repo_root() -> Path | None:
-    """Locate the vektor-flow repo (``web/vf-ui/index.html`` + ``native/VfOverlay``)."""
-    cur = Path.cwd().resolve()
-    for _ in range(40):
+    """Locate the vektor-flow root for UI assets and host launch."""
+    candidates = _candidate_repo_roots()
+    for cur in candidates:
         if _is_vektorflow_repo(cur):
             return cur
-        if cur.parent == cur:
-            break
-        cur = cur.parent
-    for base in Path(__file__).resolve().parents:
-        if _is_vektorflow_repo(base):
-            return base
+
+    # Fallback mirrors legacy behavior for callers passing an importable ``vektorflow``
+    # module path (usually running from a virtualenv / installation layout).
     try:
         import vektorflow as _vf
 
-        p = Path(_vf.__file__).resolve().parent
-        for _ in range(24):
+        package_root = Path(_vf.__file__).resolve().parent
+        for p in (package_root, *package_root.parents):
             if _is_vektorflow_repo(p):
                 return p
             if p.parent == p:
                 break
-            p = p.parent
     except Exception:
         pass
     return None
 
 
+def _candidate_repo_roots() -> tuple[Path, ...]:
+    roots: list[Path] = []
+
+    cur = Path.cwd().resolve()
+    roots.append(cur)
+
+    for _ in range(40):
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+        roots.append(cur)
+
+    for p in Path(__file__).resolve().parents:
+        if p not in roots:
+            roots.append(p)
+
+    exe_path = _candidate_executable_roots()
+    for p in exe_path:
+        if p not in roots:
+            roots.append(p)
+
+    return tuple(roots)
+
+
+def _candidate_executable_roots() -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    try:
+        candidates.append(Path(sys.executable).resolve())
+        candidates.append(Path(sys.executable).resolve().parent)
+    except Exception:
+        pass
+
+    try:
+        meipass = Path(getattr(sys, "_MEIPASS")).resolve()
+        candidates.append(meipass)
+        candidates.append(meipass.parent)
+    except Exception:
+        pass
+
+    try:
+        argv0 = Path(sys.argv[0]).resolve()
+        if argv0.is_file():
+            candidates.append(argv0)
+            candidates.append(argv0.parent)
+    except Exception:
+        pass
+
+    # Deduplicate while preserving order.
+    deduped: list[Path] = []
+    for p in candidates:
+        if p not in deduped:
+            deduped.append(p)
+    return tuple(deduped)
 def _is_vektorflow_repo(p: Path) -> bool:
-    return (
-        (p / "web" / "vf-ui" / "index.html").is_file()
-        and (p / "native" / "VfOverlay" / "CMakeLists.txt").is_file()
-    )
+    # Presence of the UI asset index is the stable host boundary marker for both source
+    # and released bundles. Overlay packaging can add its own optional exe paths.
+    return (p / "web" / "vf-ui" / "index.html").is_file()
 
 
 def find_vf_overlay_exe(root: Path) -> Path | None:
     """Resolve ``vf-overlay.exe`` (built under ``native/VfOverlay/build/...``)."""
     for rel in (
+        Path("vf-overlay.exe"),
         Path("native") / "VfOverlay" / "build" / "Release" / "vf-overlay.exe",
         Path("native") / "VfOverlay" / "build" / "Debug" / "vf-overlay.exe",
         Path("native") / "VfOverlay" / "build" / "x64" / "Release" / "vf-overlay.exe",
@@ -279,7 +329,7 @@ def maybe_launch_vf_overlay() -> None:
         _log_launch_line("maybe_launch: repo root not found (cwd and package walk failed)")
         _vf_warn(
             "vektorflow: UI not started: could not find vektor-flow repo "
-            "(expect web/vf-ui/index.html and native/VfOverlay/CMakeLists.txt)."
+            "(expect web/vf-ui/index.html)."
         )
         return
     _log_launch_line(f"maybe_launch: repo root {root}")
