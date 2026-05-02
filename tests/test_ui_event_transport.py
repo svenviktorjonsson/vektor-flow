@@ -10,6 +10,7 @@ from vektorflow.ui_display_ir import (
     build_browser_host_event_dispatch,
     classify_browser_widget_dispatch,
     build_host_event_dispatch,
+    coalesce_host_event_queue,
     decode_browser_enqueue_body,
     dispatch_browser_host_event,
     dispatch_host_event,
@@ -122,6 +123,67 @@ def test_dispatch_host_event_queues_canonical_payload_from_transport_event() -> 
     assert cursor.pushed == [transport.payload]
     assert keyboard.observed == [transport.payload]
     assert keyboard.pushed == []
+
+
+def test_drag_events_coalesce_by_target_and_accumulate_delta() -> None:
+    queue: deque[object] = deque()
+    first = {
+        "type": "vf_event",
+        "event": "drag",
+        "frame_id": "f1",
+        "dx": 0.1,
+        "dy": 0.2,
+        "client_dx": 10,
+        "client_dy": 20,
+        "hover": {"frame_id": "f1", "object_id": "rect1", "kind": "face", "face_id": 0},
+    }
+    second = {
+        "type": "vf_event",
+        "event": "drag",
+        "frame_id": "f1",
+        "x": 40,
+        "y": 50,
+        "dx": 0.3,
+        "dy": -0.05,
+        "client_dx": 30,
+        "client_dy": -5,
+        "hover": {"frame_id": "f1", "object_id": "rect1", "kind": "face", "face_id": 0},
+    }
+
+    queue.append(first)
+    assert coalesce_host_event_queue(queue, second) is True
+
+    assert len(queue) == 1
+    merged = queue[0]
+    assert isinstance(merged, dict)
+    assert merged["x"] == 40
+    assert merged["y"] == 50
+    assert merged["dx"] == 0.4
+    assert merged["dy"] == 0.15000000000000002
+    assert merged["trans"] == [0.4, 0.15000000000000002]
+    assert merged["client_dx"] == 40.0
+    assert merged["client_dy"] == 15.0
+
+
+def test_drag_events_do_not_coalesce_across_targets() -> None:
+    queue: deque[object] = deque([
+        {
+            "event": "drag",
+            "frame_id": "f1",
+            "dx": 0.1,
+            "dy": 0.2,
+            "hover": {"frame_id": "f1", "object_id": "rect1", "kind": "face", "face_id": 0},
+        }
+    ])
+    payload = {
+        "event": "drag",
+        "frame_id": "f1",
+        "dx": 0.3,
+        "dy": 0.4,
+        "hover": {"frame_id": "f1", "object_id": "rect2", "kind": "face", "face_id": 0},
+    }
+
+    assert coalesce_host_event_queue(queue, payload) is False
 
 
 def test_overlay_poller_emits_canonical_transport_payloads(monkeypatch) -> None:

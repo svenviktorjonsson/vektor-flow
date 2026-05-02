@@ -607,7 +607,53 @@ def apply_host_event_dispatch_state(
     if dispatch.base:
         event_kind_count[dispatch.base] = int(dispatch.next_kind_count)
     if dispatch.should_queue and not suppress_queue:
+        if coalesce_host_event_queue(event_queue, dispatch.payload):
+            return True
         event_queue.append(dispatch.payload)
+        return True
+    return False
+
+
+def _hover_key(payload: Mapping[str, Any]) -> tuple[Any, ...]:
+    hover = payload.get("hover")
+    if not isinstance(hover, Mapping):
+        hover = {}
+    return (
+        payload.get("event", ""),
+        payload.get("frame_id", hover.get("frame_id", "")),
+        hover.get("object_id", payload.get("object_id", payload.get("shape_id", ""))),
+        hover.get("kind", ""),
+        hover.get("vertex_id", -1),
+        hover.get("edge_id", -1),
+        hover.get("face_id", -1),
+    )
+
+
+def coalesce_host_event_queue(event_queue: Any, payload: Mapping[str, Any]) -> bool:
+    """Merge high-rate pointer samples so VKF consumes intent, not backlog."""
+    ev = str(payload.get("event", ""))
+    if ev not in {"move", "hover", "drag"}:
+        return False
+    if not hasattr(event_queue, "__len__") or not hasattr(event_queue, "__getitem__"):
+        return False
+    key = _hover_key(payload)
+    for i in range(len(event_queue) - 1, -1, -1):
+        queued = event_queue[i]
+        if not isinstance(queued, Mapping):
+            continue
+        if _hover_key(queued) != key:
+            continue
+        merged = dict(queued)
+        merged.update(payload)
+        if ev == "drag":
+            merged["dx"] = float(queued.get("dx", 0.0) or 0.0) + float(payload.get("dx", 0.0) or 0.0)
+            merged["dy"] = float(queued.get("dy", 0.0) or 0.0) + float(payload.get("dy", 0.0) or 0.0)
+            merged["trans"] = [merged["dx"], merged["dy"]]
+            if "client_dx" in queued or "client_dx" in payload:
+                merged["client_dx"] = float(queued.get("client_dx", 0.0) or 0.0) + float(payload.get("client_dx", 0.0) or 0.0)
+            if "client_dy" in queued or "client_dy" in payload:
+                merged["client_dy"] = float(queued.get("client_dy", 0.0) or 0.0) + float(payload.get("client_dy", 0.0) or 0.0)
+        event_queue[i] = merged
         return True
     return False
 
