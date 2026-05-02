@@ -12,13 +12,22 @@ events: ui.events
 d: ui.display
 
 frame_rect: [0.08, 0.08, 0.72, 0.72]
-root_color: [1.0, 0.48, 0.35, 0.72]
-child_color: [0.25, 0.86, 0.55, 0.78]
-leaf_color: [0.37, 0.78, 1.0, 0.88]
+root_face_color: [1.0, 0.48, 0.35, 0.72]
+root_edge_color: [1.0, 0.72, 0.58, 1.0]
+root_vertex_color: [1.0, 0.97, 0.85, 1.0]
+child_face_color: [0.25, 0.86, 0.55, 0.78]
+child_edge_color: [0.45, 1.0, 0.68, 1.0]
+child_vertex_color: [0.95, 1.0, 0.95, 1.0]
+leaf_face_color: [0.37, 0.78, 1.0, 0.88]
+leaf_edge_color: [0.72, 0.92, 1.0, 1.0]
+leaf_vertex_color: [1.0, 0.96, 0.75, 1.0]
 
-root_points: [[0.08,0.14], [0.32,0.08], [0.78,0.10], [0.94,0.46], [0.64,0.84], [0.18,0.72]]
-child_points: [[0.22,0.30], [0.42,0.20], [0.66,0.34], [0.62,0.58], [0.40,0.70], [0.24,0.56]]
-leaf_points: [[0.36,0.38], [0.50,0.32], [0.62,0.44], [0.56,0.62], [0.40,0.60]]
+root_x: [-1.0, 1.0, 1.0, -1.0]
+root_y: [-1.0, -1.0, 1.0, 1.0]
+child_x: [-0.45, 0.35, 0.70, -0.10]
+child_y: [-0.55, -0.65, 0.10, 0.25]
+leaf_x: [-0.40, 0.20, 0.30, -0.25]
+leaf_y: [0.20, 0.10, 0.60, 0.65]
 
 panel: d.frame(
   title: "Polygon edit: red parent -> green child -> blue leaf",
@@ -33,9 +42,53 @@ panel: d.frame(
 
 d.add_frame(panel, frame_rect)
 
-root_poly: panel.add_polygon(root_points, color: root_color)
-child_poly: root_poly.add_polygon(child_points, color: child_color)
-leaf_poly: child_poly.add_polygon(leaf_points, color: leaf_color)
+root_poly: panel.add(
+  x: root_x,
+  y: root_y,
+  face_color: root_face_color,
+  edge_color: root_edge_color,
+  vertex_color: root_vertex_color,
+  origin: [0.0, 0.0, 0.0],
+  vertex_radius: 4,
+  edge_radius: 2
+)
+root_poly.add_simplices(
+  vertices: [0, 1, 2, 3],
+  edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
+  faces: [[0, 1, 2, 3]]
+)
+
+child_poly: root_poly.add(
+  x: child_x,
+  y: child_y,
+  face_color: child_face_color,
+  edge_color: child_edge_color,
+  vertex_color: child_vertex_color,
+  origin: [0.0, 0.0, 0.0],
+  vertex_radius: 4,
+  edge_radius: 2
+)
+child_poly.add_simplices(
+  vertices: [0, 1, 2, 3],
+  edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
+  faces: [[0, 1, 2, 3]]
+)
+
+leaf_poly: child_poly.add(
+  x: leaf_x,
+  y: leaf_y,
+  face_color: leaf_face_color,
+  edge_color: leaf_edge_color,
+  vertex_color: leaf_vertex_color,
+  origin: [0.0, 0.0, 0.0],
+  vertex_radius: 4,
+  edge_radius: 2
+)
+leaf_poly.add_simplices(
+  vertices: [0, 1, 2, 3],
+  edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
+  faces: [[0, 1, 2, 3]]
+)
 
 describe_action(e):
   mods: ui.keyboard.modifiers

@@ -83,8 +83,13 @@ def test_release_sample_sources_point_at_user_facing_examples(tmp_path: Path) ->
     examples.mkdir()
     (examples / "hello.vkf").write_text(':: "hello"', encoding="utf-8")
     (examples / "core_language_tour.vkf").write_text(':: "tour"', encoding="utf-8")
+    (examples / "ui_polygon_hierarchy_interactive.vkf").write_text(':: "hierarchy"', encoding="utf-8")
     sample_names = [path.name for path in release_sample_sources(root)]
-    assert sample_names == ["hello.vkf", "core_language_tour.vkf"]
+    assert sample_names == [
+        "hello.vkf",
+        "core_language_tour.vkf",
+        "ui_polygon_hierarchy_interactive.vkf",
+    ]
 
 
 def test_default_release_output_dir_is_under_dist_releases(tmp_path: Path) -> None:
