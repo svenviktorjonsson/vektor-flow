@@ -26,8 +26,8 @@ root_a: panel.add(
   edge_color: [0.98, 0.72, 0.2, 1],
   vertex_color: [1, 0.2, 0.72, 1],
   origin: [190, 170, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_a.add_vertices([0, 1, 2, 3])
 root_a.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -40,8 +40,8 @@ root_a_face_hidden: root_a.add(
   edge_color: [0.98, 0.72, 0.2, 1],
   vertex_color: [1, 0.2, 0.72, 1],
   origin: [190, 170, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_a_face_hidden.add_vertices([0, 1, 2, 3])
 root_a_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -54,8 +54,8 @@ root_a_face_hidden_edge_hidden: root_a_face_hidden.add(
   edge_color: [0.98, 0.72, 0.2, 0],
   vertex_color: [1, 0.2, 0.72, 1],
   origin: [169, 150, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_a_face_hidden_edge_hidden.add_vertices([0, 1, 2, 3])
 root_a_face_hidden_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -68,8 +68,8 @@ root_a_face_hidden_vertex_hidden: root_a_face_hidden.add(
   edge_color: [0.98, 0.72, 0.2, 1],
   vertex_color: [1, 0.2, 0.72, 0],
   origin: [208, 181, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_a_face_hidden_vertex_hidden.add_vertices([0, 1, 2, 3])
 root_a_face_hidden_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -82,8 +82,8 @@ root_b: panel.add(
   edge_color: [0.2, 1, 0.7, 1],
   vertex_color: [1, 0.25, 0.78, 1],
   origin: [490, 170, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_b.add_vertices([0, 1, 2, 3])
 root_b.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -96,8 +96,8 @@ root_b_edge_hidden: root_b.add(
   edge_color: [0.2, 1, 0.7, 0],
   vertex_color: [1, 0.25, 0.78, 1],
   origin: [490, 170, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_b_edge_hidden.add_vertices([0, 1, 2, 3])
 root_b_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -110,8 +110,8 @@ root_b_edge_hidden_face_hidden: root_b_edge_hidden.add(
   edge_color: [0.2, 1, 0.7, 1],
   vertex_color: [1, 0.25, 0.78, 1],
   origin: [469, 150, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_b_edge_hidden_face_hidden.add_vertices([0, 1, 2, 3])
 root_b_edge_hidden_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -124,8 +124,8 @@ root_b_edge_hidden_vertex_hidden: root_b_edge_hidden.add(
   edge_color: [0.2, 1, 0.7, 1],
   vertex_color: [1, 0.25, 0.78, 0],
   origin: [508, 181, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_b_edge_hidden_vertex_hidden.add_vertices([0, 1, 2, 3])
 root_b_edge_hidden_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -138,8 +138,8 @@ root_c: panel.add(
   edge_color: [0.12, 0.95, 0.95, 1],
   vertex_color: [1, 0.82, 0.2, 1],
   origin: [790, 170, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_c.add_vertices([0, 1, 2, 3])
 root_c.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -152,8 +152,8 @@ root_c_vertex_hidden: root_c.add(
   edge_color: [0.12, 0.95, 0.95, 1],
   vertex_color: [1, 0.82, 0.2, 0],
   origin: [790, 170, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_c_vertex_hidden.add_vertices([0, 1, 2, 3])
 root_c_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -166,8 +166,8 @@ root_c_vertex_hidden_face_hidden: root_c_vertex_hidden.add(
   edge_color: [0.12, 0.95, 0.95, 1],
   vertex_color: [1, 0.82, 0.2, 1],
   origin: [769, 150, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_c_vertex_hidden_face_hidden.add_vertices([0, 1, 2, 3])
 root_c_vertex_hidden_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
@@ -180,8 +180,8 @@ root_c_vertex_hidden_edge_hidden: root_c_vertex_hidden.add(
   edge_color: [0.12, 0.95, 0.95, 0],
   vertex_color: [1, 0.82, 0.2, 1],
   origin: [808, 181, 0],
-  vertex_radius: 2,
-  edge_radius: 1
+  vertex_radius: 4,
+  edge_radius: 2
 )
 root_c_vertex_hidden_edge_hidden.add_vertices([0, 1, 2, 3])
 root_c_vertex_hidden_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])

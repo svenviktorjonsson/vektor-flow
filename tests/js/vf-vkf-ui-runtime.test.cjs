@@ -148,6 +148,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 
   assert.equal(mesh.vertex_radius, 10);
   assert.equal(mesh.edge_radius, 6);
+  assert.equal(mesh.vertex_pick_radius, 10);
+  assert.equal(mesh.edge_pick_radius, 6);
   assert.deepEqual(mesh.face_color, [0.8, 0.5, 0.2, 1]);
   assert.deepEqual(mesh.edge_color, [0.1, 0.9, 0.9, 1]);
   assert.deepEqual(mesh.vertex_color, [1, 0.2, 0.7, 1]);
@@ -157,11 +159,21 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     surfaces: "first_last_per_dimension"
   });
   const defaultOverlay = panel.add({ x: [240, 260], y: [220, 240] });
-  assert.equal(defaultOverlay.vertex_radius, 2);
-  assert.equal(defaultOverlay.edge_radius, 1);
+  assert.equal(defaultOverlay.vertex_radius, 4);
+  assert.equal(defaultOverlay.edge_radius, 2);
+  assert.equal(defaultOverlay.vertex_pick_radius, 5);
+  assert.equal(defaultOverlay.edge_pick_radius, 5);
   defaultOverlay.set_overlay({ vertex_width: 7, edge_width: 3 });
   assert.equal(defaultOverlay.vertex_radius, 7);
   assert.equal(defaultOverlay.edge_radius, 3);
+  assert.equal(defaultOverlay.vertex_pick_radius, 7);
+  assert.equal(defaultOverlay.edge_pick_radius, 5);
+  defaultOverlay.set_overlay({ edge_pick_radius: 9 });
+  assert.equal(defaultOverlay.edge_pick_radius, 9);
+  defaultOverlay.add_vertices([0, 1]);
+  defaultOverlay.add_edges([[0, 1]]);
+  assert.equal(panel.pick([240, 224]).hover.vertex_id, 0);
+  assert.equal(panel.pick([250, 225]).hover.edge_id, 0);
   assert.deepEqual(mesh.world_point(1), [180, 120, 0]);
   assert.deepEqual(panel.pick([100, 120]).hover, {
     object_id: mesh.id,

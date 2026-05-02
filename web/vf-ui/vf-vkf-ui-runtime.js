@@ -265,6 +265,8 @@
       edge_radius: options.edge_radius != null ? options.edge_radius :
         options.edge_width != null ? options.edge_width :
         spec.edge_radius != null ? spec.edge_radius : spec.edge_width,
+      vertex_pick_radius: options.vertex_pick_radius != null ? options.vertex_pick_radius : spec.vertex_pick_radius,
+      edge_pick_radius: options.edge_pick_radius != null ? options.edge_pick_radius : spec.edge_pick_radius,
       edge_scale: options.edge_scale != null ? options.edge_scale : spec.edge_scale,
       origin: options.origin || spec.origin
     };
@@ -291,11 +293,13 @@
     this.edge_color = options.edge_color || [1, 1, 1, 1];
     this.vertex_color = options.vertex_color || [1, 1, 1, 1];
     this.volume_color = options.volume_color || [1, 1, 1, 1];
-    this.vertex_radius = finiteOrDefault(options.vertex_radius, 2);
+    this.vertex_radius = finiteOrDefault(options.vertex_radius, 4);
     this.edge_radius = finiteOrDefault(
       options.edge_radius != null ? options.edge_radius : options.edge_scale,
-      1
+      2
     );
+    this.vertex_pick_radius = Math.max(this.vertex_radius, finiteOrDefault(options.vertex_pick_radius, 5));
+    this.edge_pick_radius = Math.max(this.edge_radius, finiteOrDefault(options.edge_pick_radius, 5));
   }
 
   MeshRef.prototype.add_vertices = function (indices) {
@@ -489,13 +493,13 @@
     for (i = this.vertices.length - 1; i >= 0; i--) {
       var vertexId = this.vertices[i];
       var p = this.world_point(vertexId);
-      if (Math.sqrt(dist2(point[0], point[1], p[0], p[1])) <= this.vertex_radius) {
+      if (Math.sqrt(dist2(point[0], point[1], p[0], p[1])) <= this.vertex_pick_radius) {
         return { ref: this, hover: makeHover(this.id, vertexId, -1, -1) };
       }
     }
     for (i = this.edges.length - 1; i >= 0; i--) {
       var edge = this.edges[i];
-      if (pointSegmentDistance(point, this.world_point(edge[0]), this.world_point(edge[1])) <= this.edge_radius) {
+      if (pointSegmentDistance(point, this.world_point(edge[0]), this.world_point(edge[1])) <= this.edge_pick_radius) {
         return { ref: this, hover: makeHover(this.id, -1, i, -1) };
       }
     }
@@ -522,6 +526,7 @@
         options.vertex_radius != null ? options.vertex_radius : options.vertex_width,
         this.vertex_radius
       );
+      this.vertex_pick_radius = Math.max(this.vertex_radius, this.vertex_pick_radius);
     }
     if (options.edge_radius != null || options.edge_width != null || options.edge_scale != null) {
       this.edge_radius = finiteOrDefault(
@@ -529,6 +534,13 @@
           options.edge_width != null ? options.edge_width : options.edge_scale,
         this.edge_radius
       );
+      this.edge_pick_radius = Math.max(this.edge_radius, this.edge_pick_radius);
+    }
+    if (options.vertex_pick_radius != null) {
+      this.vertex_pick_radius = Math.max(this.vertex_radius, finiteOrDefault(options.vertex_pick_radius, this.vertex_pick_radius));
+    }
+    if (options.edge_pick_radius != null) {
+      this.edge_pick_radius = Math.max(this.edge_radius, finiteOrDefault(options.edge_pick_radius, this.edge_pick_radius));
     }
     if (options.face_color) {
       this.face_color = options.face_color;
