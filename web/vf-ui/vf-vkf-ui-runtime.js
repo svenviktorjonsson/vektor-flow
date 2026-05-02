@@ -329,6 +329,27 @@
     return this.panel._add_mesh(spec, options, this);
   };
 
+  MeshRef.prototype.local_bounds = function () {
+    var minX = Infinity;
+    var minY = Infinity;
+    var maxX = -Infinity;
+    var maxY = -Infinity;
+    for (var i = 0; i < this.coords.x.length; i++) {
+      var x = numberOrZero(this.coords.x[i]);
+      var y = numberOrZero(this.coords.y[i]);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    return {
+      x: Number.isFinite(minX) ? minX : 0,
+      y: Number.isFinite(minY) ? minY : 0,
+      w: Number.isFinite(maxX - minX) ? maxX - minX : 0,
+      h: Number.isFinite(maxY - minY) ? maxY - minY : 0
+    };
+  };
+
   MeshRef.prototype.world_point = function (index) {
     return this.world_inner_point([
       numberOrZero(this.coords.x[index]),
@@ -613,6 +634,11 @@
     );
     if (parent) {
       parent.children.push(ref);
+      if (!options || options.relative !== false) {
+        var bounds = parent.local_bounds();
+        ref.offset[0] += bounds.x;
+        ref.offset[1] += bounds.y;
+      }
     }
     this.objects[ref.id] = ref;
     this.runtime.meshes.push(ref);

@@ -235,8 +235,8 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 
   const childMesh = mesh.add({
-    x: [110, 130, 125],
-    y: [130, 132, 150],
+    x: [10, 30, 25],
+    y: [10, 12, 30],
     face_color: [1, 1, 1, 1],
     edge_color: [1, 1, 1, 1],
     vertex_color: [1, 1, 1, 1],
@@ -246,6 +246,14 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   childMesh.add_vertices([0, 1, 2]);
   childMesh.add_edges([[0, 1], [1, 2], [2, 0]]);
   childMesh.add_faces([[0, 1, 2]]);
+  const parentBounds = mesh.local_bounds();
+  assert.deepEqual(childMesh.offset.slice(0, 2), [parentBounds.x, parentBounds.y]);
+  const expectedChildPoint = mesh.world_inner_point([
+    parentBounds.x + 10,
+    parentBounds.y + 10,
+    0
+  ]).slice(0, 2);
+  assert.deepEqual(childMesh.world_point(0).slice(0, 2).map(Math.round), expectedChildPoint.map(Math.round));
   const childBefore = childMesh.world_point(0).slice(0, 2);
   mesh.translate({ trans: [11, 13] });
   assert.deepEqual(childMesh.world_point(0).slice(0, 2).map(Math.round), [
