@@ -51,6 +51,17 @@ function Find-Browser {
         $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
         if ($cmd) { return $cmd.Source }
     }
+
+    $playwrightRoot = Join-Path $env:LOCALAPPDATA 'ms-playwright'
+    if (Test-Path $playwrightRoot) {
+        $playwrightChrome = Get-ChildItem -Path $playwrightRoot -Recurse -Filter 'chrome.exe' -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($playwrightChrome) {
+            return $playwrightChrome.FullName
+        }
+    }
+
     throw "No Chromium-family browser found. Install Edge, Chrome, or Chromium, or pass -Browser <path>."
 }
 
