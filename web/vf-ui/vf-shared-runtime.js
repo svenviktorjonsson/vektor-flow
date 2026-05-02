@@ -38,6 +38,13 @@
     Atomics.add(header, H_DIRTY_VERSION, 1);
   }
 
+  function assertSlot(arena, slot) {
+    var cap = arena.capacity();
+    if (slot < 0 || slot >= cap) {
+      throw new RangeError("transform slot out of range: " + slot);
+    }
+  }
+
   function createTransformArena(capacity) {
     requireSharedArrayBuffer();
     var cap = Math.max(1, capacity | 0);
@@ -66,10 +73,7 @@
   };
 
   TransformArena.prototype.setMat4 = function (slot, values) {
-    var cap = this.capacity();
-    if (slot < 0 || slot >= cap) {
-      throw new RangeError("transform slot out of range: " + slot);
-    }
+    assertSlot(this, slot);
     if (!values || values.length < MAT4_F32) {
       throw new TypeError("setMat4 expects 16 numeric values");
     }
@@ -81,11 +85,20 @@
   };
 
   TransformArena.prototype.setTranslate2D = function (slot, x, y) {
+    assertSlot(this, slot);
     var offset = slot * MAT4_F32;
     identityMat4(this.mat4, offset);
     this.mat4[offset + 12] = Number(x) || 0;
     this.mat4[offset + 13] = Number(y) || 0;
     markDirty(this.header, slot);
+  };
+
+  TransformArena.prototype.setAnchoredTranslate2D = function (slot, cursorX, cursorY, anchorX, anchorY) {
+    this.setTranslate2D(
+      slot,
+      (Number(cursorX) || 0) - (Number(anchorX) || 0),
+      (Number(cursorY) || 0) - (Number(anchorY) || 0)
+    );
   };
 
   TransformArena.prototype.dirtyRange = function () {
@@ -116,6 +129,24 @@
     };
   };
 
+  TransformArena.prototype.rendererView = function () {
+    var arena = this;
+    return {
+      buffer: arena.buffer,
+      mat4: arena.mat4,
+      capacity: arena.capacity(),
+      dirtyRange: function () {
+        return arena.dirtyRange();
+      },
+      consumeDirtyRange: function () {
+        return arena.consumeDirtyRange();
+      },
+      copyDirtyMat4: function () {
+        return arena.copyDirtyMat4();
+      }
+    };
+  };
+
   global.VfSharedRuntime = {
     HEADER_I32: HEADER_I32,
     MAT4_F32: MAT4_F32,
@@ -126,4 +157,3 @@
     module.exports = global.VfSharedRuntime;
   }
 })(typeof globalThis !== "undefined" ? globalThis : this);
-

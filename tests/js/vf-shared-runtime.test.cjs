@@ -34,4 +34,23 @@ dirty = arena.dirtyRange();
 assert.equal(dirty.min, 1);
 assert.equal(dirty.max, 3);
 
+const dragArena = runtime.createTransformArena(1);
+const rendererView = dragArena.rendererView();
+
+dragArena.setAnchoredTranslate2D(0, 30, 40, 4, 7);
+
+assert.equal(rendererView.capacity, 1);
+assert.equal(rendererView.buffer, dragArena.buffer);
+const dragCopy = rendererView.copyDirtyMat4();
+assert.equal(dragCopy.range.min, 0);
+assert.equal(dragCopy.range.max, 0);
+assert.equal(dragCopy.data.length, runtime.MAT4_F32);
+assert.equal(dragCopy.data[12], 26);
+assert.equal(dragCopy.data[13], 33);
+assert.deepEqual(rendererView.consumeDirtyRange(), {
+  version: dragCopy.range.version,
+  min: -1,
+  max: -1
+});
+
 console.log("vf-shared-runtime tests passed");

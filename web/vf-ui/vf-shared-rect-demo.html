@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vektor Flow Shared Runtime Rect Demo</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #10131d;
+      color: #f8f4dc;
+      font: 14px/1.4 Consolas, "Cascadia Mono", monospace;
+    }
+
+    #demo {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: grab;
+    }
+
+    #demo.dragging {
+      cursor: grabbing;
+    }
+
+    .hud {
+      position: fixed;
+      left: 18px;
+      top: 16px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 222, 86, 0.35);
+      border-radius: 12px;
+      background: rgba(11, 14, 22, 0.72);
+      pointer-events: none;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="demo" width="960" height="540" aria-label="Shared runtime draggable rectangle demo"></canvas>
+  <div class="hud">
+    Shared arena -> renderer adapter -> canvas<br>
+    No Python/JSON on pointer hot path
+  </div>
+  <script src="./vf-shared-runtime.js"></script>
+  <script src="./vf-gpu-runtime.js"></script>
+  <script src="./vf-wasm-demo-contract.js"></script>
+  <script src="./vf-shared-rect-demo.js"></script>
+</body>
+</html>
