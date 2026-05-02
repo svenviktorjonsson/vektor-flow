@@ -44,6 +44,7 @@ from .runtime.struct_value import (
     with_type,
 )
 from .runtime.compare import struct_compare_binop, struct_eq, struct_lt
+from .runtime.call_args import bind_function_call_args
 from .runtime import (
     axis_tagged_binary_op,
     axis_tagged_data,
@@ -1278,10 +1279,7 @@ class Interpreter:
             self.last_callable_execution_engine = "runtime"
             return runtime_result
         if isinstance(fn, VFunction):
-            if kw or spreads:
-                raise EvalError(
-                    "this call does not accept keyword or spread arguments"
-                )
+            args = bind_function_call_args([p.name for p in fn.params], args, kw, spreads)
             size_bindings: dict[str, int] = {}
             prepared_args: list[Any] = []
             for p, a in zip(fn.params, args):

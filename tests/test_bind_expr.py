@@ -5,6 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from vektorflow import ast as ast_mod
+from vektorflow.ir import CallExpr, lower_module
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 
@@ -40,3 +41,36 @@ def test_multi_field_record_stays_record() -> None:
     assert isinstance(value, ast_mod.StructLit)
     assert _emit("r: (x:1, y:2)\n:: r.y\n") == "2"
 
+
+def test_call_named_argument_stays_distinct_from_bind_expression() -> None:
+    mod = parse_module("f(x): x\n:: f(x: 4)\n", "<test>")
+    call = mod.statements[1].value
+
+    assert isinstance(call.args[0], ast_mod.NamedCallArg)
+    assert _emit("f(x): x\n:: f(x: 4)\n") == "4"
+
+
+def test_function_call_spills_vector_positionally() -> None:
+    src = """
+f(x,y,z): x*y*z
+:: f(:[1,2,3])
+"""
+    assert _emit(src) == "6"
+
+
+def test_function_call_spills_record_by_parameter_name() -> None:
+    src = """
+f(x,y,z): x*y*z
+:: f(:(x:2,z:3,y:4))
+"""
+    assert _emit(src) == "24"
+
+
+def test_ir_keeps_named_args_and_spills_distinct() -> None:
+    mod = parse_module("f(x,y): x+y\n:: f(x:1, :[2])\n", "<test>")
+    lowered = lower_module(mod)
+    call = lowered.statements[1].value
+
+    assert isinstance(call, CallExpr)
+    assert len(call.kwargs) == 1
+    assert len(call.spreads) == 1

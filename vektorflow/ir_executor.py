@@ -31,6 +31,7 @@ from .runtime.struct_value import (
     score_struct_type_match,
 )
 from .runtime.compare import runtime_match_eq, runtime_match_specificity, struct_compare_binop
+from .runtime.call_args import bind_function_call_args
 from .runtime import (
     runtime_collection_assign_path,
     runtime_collection_index_read,
@@ -1034,8 +1035,7 @@ class IRExecutor:
                 )
             return self._call(overload, args)
         if isinstance(fn, IRFunctionValue):
-            if kw or spreads:
-                raise EvalError("this call does not accept keyword or spread arguments")
+            args = bind_function_call_args(fn.params, args, kw, spreads)
             loc = dict(fn.closure)
             size_bindings: dict[str, int] = {}
             for name, arg, declared_type in zip(fn.params, args, fn.param_types):
