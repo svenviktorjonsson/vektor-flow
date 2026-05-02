@@ -79,6 +79,13 @@ def release_sample_sources(root: Path) -> tuple[Path, ...]:
     )
 
 
+def release_demo_launchers(root: Path) -> tuple[Path, ...]:
+    return (
+        root / "scripts" / "run-shared-runtime-demo.ps1",
+        root / "scripts" / "run-shared-runtime-demo.sh",
+    )
+
+
 def build_release_manifest(
     *,
     channel: ReleaseChannelSpec,
@@ -95,6 +102,11 @@ def build_release_manifest(
     )
     extension_path = "extensions" if include_extension else None
     testing_guide = "TESTING.md"
+    demo_launchers = (
+        ["run-shared-runtime-demo.ps1", "run-shared-runtime-demo.sh"]
+        if include_ui_assets
+        else []
+    )
     return {
         "kind": "vektorflow-release-bundle",
         "channel": channel.name,
@@ -111,6 +123,7 @@ def build_release_manifest(
             "samples": list(samples),
             "extension_path": extension_path,
             "testing_guide": testing_guide,
+            "demo_launchers": demo_launchers,
         },
         "tester_onboarding": {
             "smoke_command": smoke_command,
@@ -141,6 +154,7 @@ def release_readme_text(channel: ReleaseChannelSpec, version: str, manifest_name
         f"- Run: {smoke_command}\n"
         "- Run samples/hello.vkf.\n"
         "- Run samples/core_language_tour.vkf.\n"
+        "- Run the Python-free shared-runtime UI demo with run-shared-runtime-demo.\n"
         "- Install the VS Code extension from the extensions/ folder if included.\n\n"
         f"{overlay_note}\n"
         f"Bundle manifest: {manifest_name}\n"

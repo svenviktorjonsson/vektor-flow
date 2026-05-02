@@ -19,6 +19,7 @@ from vektorflow.release_bundle import (
     build_release_manifest,
     default_release_channel_for_platform,
     default_release_output_dir,
+    release_demo_launchers,
     release_channel,
     release_readme_text,
     release_sample_sources,
@@ -137,6 +138,16 @@ def _copy_tester_docs(bundle_dir: Path) -> None:
             shutil.copy2(source, bundle_dir / name)
 
 
+def _copy_demo_launchers(bundle_dir: Path) -> tuple[str, ...]:
+    copied: list[str] = []
+    for source in release_demo_launchers(ROOT):
+        if source.exists():
+            target = bundle_dir / source.name
+            shutil.copy2(source, target)
+            copied.append(source.name)
+    return tuple(copied)
+
+
 def _copy_ui_assets(bundle_dir: Path) -> None:
     source = ROOT / "web" / "vf-ui"
     target = bundle_dir / "vf-ui"
@@ -176,6 +187,7 @@ def main() -> int:
     executable = _build_vkf_executable(channel.name, channel.executable_name, bundle_dir)
     samples = _copy_samples(bundle_dir)
     _copy_tester_docs(bundle_dir)
+    _copy_demo_launchers(bundle_dir)
 
     include_extension = False
     if not args.skip_extension:

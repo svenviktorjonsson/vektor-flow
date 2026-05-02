@@ -83,6 +83,21 @@ If a UI program uses the default Windows UI path, it can use:
 - `browser`
 - `headless`
 
+### Run The Python-Free Fast UI Demo
+
+This demo opens the shared-memory browser runtime directly from disk. It does
+not start a Python server and does not use JSON polling for pointer movement.
+
+```powershell
+.\run-shared-runtime-demo.ps1
+```
+
+If you are running from source instead of a release bundle:
+
+```powershell
+.\scripts\run-shared-runtime-demo.ps1
+```
+
 ## macOS
 
 Current UI modes:
@@ -130,6 +145,18 @@ macOS currently uses:
 
 There is not yet a macOS native transparent overlay host.
 
+### Run The Python-Free Fast UI Demo
+
+```bash
+./run-shared-runtime-demo.sh
+```
+
+From source:
+
+```bash
+./scripts/run-shared-runtime-demo.sh
+```
+
 ## Linux
 
 Current UI modes:
@@ -176,6 +203,18 @@ Linux currently uses:
 - `headless`
 
 There is not yet a Linux native transparent overlay host.
+
+### Run The Python-Free Fast UI Demo
+
+```bash
+./run-shared-runtime-demo.sh
+```
+
+From source:
+
+```bash
+./scripts/run-shared-runtime-demo.sh
+```
 
 ## VS Code
 

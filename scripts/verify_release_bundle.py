@@ -53,6 +53,10 @@ def main() -> int:
 
     if manifest.get("artifacts", {}).get("ui_assets_included"):
         _expect(bundle / "vf-ui", errors, "vf-ui assets")
+        _expect(bundle / "vf-ui" / "vf-shared-rect-demo.html", errors, "shared-runtime demo HTML")
+        _expect(bundle / "vf-ui" / "vf-shared-rect-demo.js", errors, "shared-runtime demo JS")
+        for launcher in manifest.get("artifacts", {}).get("demo_launchers", []):
+            _expect(bundle / launcher, errors, f"demo launcher {launcher}")
 
     if manifest.get("artifacts", {}).get("overlay_binary_included"):
         _expect(bundle / "vf-overlay.exe", errors, "overlay binary")

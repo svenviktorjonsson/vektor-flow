@@ -22,6 +22,7 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
             "extension_vsix_included": True,
             "ui_assets_included": True,
             "overlay_binary_included": True,
+            "demo_launchers": ["run-shared-runtime-demo.ps1"],
         },
         "tester_onboarding": {
             "smoke_command": '.\\vkf.cmd -e \':: "hello, world"\'',
@@ -39,6 +40,9 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
     ext.mkdir()
     (ext / "vektorflow-0.0.8.vsix").write_text("ok", encoding="utf-8")
     (bundle / "vf-ui").mkdir()
+    (bundle / "vf-ui" / "vf-shared-rect-demo.html").write_text("ok", encoding="utf-8")
+    (bundle / "vf-ui" / "vf-shared-rect-demo.js").write_text("ok", encoding="utf-8")
+    (bundle / "run-shared-runtime-demo.ps1").write_text("ok", encoding="utf-8")
     (bundle / "vf-overlay.exe").write_text("ok", encoding="utf-8")
 
     result = subprocess.run(

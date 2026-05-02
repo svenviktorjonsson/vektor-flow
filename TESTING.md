@@ -66,6 +66,29 @@ The best beta signal right now is whether:
 - the UI output matches the sample program
 - the host closes cleanly and can be relaunched
 
+### Python-Free Shared Runtime Demo
+
+This is the fastest UI path to test right now. It runs from static browser files:
+
+- no Python server
+- no `vf-display.json` polling during pointer movement
+- typed event and transform arenas on the hot path
+
+Windows:
+
+```powershell
+.\run-shared-runtime-demo.ps1
+```
+
+macOS / Linux:
+
+```bash
+./run-shared-runtime-demo.sh
+```
+
+Expected result: a browser window opens with one draggable rectangle. Dragging
+the rectangle should feel immediate.
+
 ## VS Code Extension Smoke Test
 
 If your bundle includes an `extensions/` folder:

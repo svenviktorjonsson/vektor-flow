@@ -10,6 +10,7 @@ from vektorflow.release_bundle import (
     default_release_output_dir,
     release_channel,
     release_channels,
+    release_demo_launchers,
     release_readme_text,
     release_sample_sources,
 )
@@ -56,6 +57,10 @@ def test_release_manifest_tracks_channel_contract() -> None:
     assert manifest["artifacts"]["overlay_binary_included"] is True
     assert manifest["artifacts"]["extension_vsix_included"] is True
     assert manifest["artifacts"]["testing_guide"] == "TESTING.md"
+    assert manifest["artifacts"]["demo_launchers"] == [
+        "run-shared-runtime-demo.ps1",
+        "run-shared-runtime-demo.sh",
+    ]
     assert manifest["tester_onboarding"]["vscode_supported"] is True
     assert "hello, world" in manifest["tester_onboarding"]["smoke_command"]
 
@@ -67,6 +72,7 @@ def test_release_readme_text_mentions_bundle_manifest_and_ui_modes() -> None:
     assert "browser, headless" in text
     assert "vektorflow-release.json" in text
     assert "no native transparent overlay host is bundled" in text
+    assert "Python-free shared-runtime UI demo" in text
     assert "TESTING.md" in text
     assert "./vkf -e ':: \"hello, world\"'" in text
 
@@ -83,3 +89,12 @@ def test_release_sample_sources_point_at_user_facing_examples(tmp_path: Path) ->
 
 def test_default_release_output_dir_is_under_dist_releases(tmp_path: Path) -> None:
     assert default_release_output_dir(tmp_path) == tmp_path / "dist" / "releases"
+
+
+def test_release_demo_launchers_point_at_python_free_demo_scripts(tmp_path: Path) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "run-shared-runtime-demo.ps1").write_text("ok", encoding="utf-8")
+    (scripts / "run-shared-runtime-demo.sh").write_text("ok", encoding="utf-8")
+    launcher_names = [path.name for path in release_demo_launchers(tmp_path)]
+    assert launcher_names == ["run-shared-runtime-demo.ps1", "run-shared-runtime-demo.sh"]
