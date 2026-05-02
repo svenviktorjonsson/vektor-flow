@@ -140,6 +140,29 @@ def test_mouse_events_expose_vector_positions_and_translation() -> None:
     assert e.trans == [0.2, -0.1]
 
 
+def test_mouse_events_preserve_transport_translation_vector() -> None:
+    e = MouseEvent.from_dict({"event": "drag", "x": 12, "y": 34, "trans": [0.2, -0.1]})
+    assert e.trans == [0.2, -0.1]
+
+
+def test_drag_event_hover_context_updates_picked_geometry_ref() -> None:
+    d = build_ui_namespace()["ui"].display
+    frame = d.frame(title="drag", draggable=True, closable=True, resizable=True, dockable=True, dock_loc="bl")
+    d.add_frame(frame, [0.1, 0.1, 0.8, 0.8])
+    poly = frame.add_polygon([[0.0, 0.0], [0.4, 0.0], [0.4, 0.4]], color=[1, 0, 0, 1])
+    e = MouseEvent.from_dict({
+        "event": "drag",
+        "trans": [0.25, -0.125],
+        "hover": {"frame_id": frame.id, "object_id": poly.id, "face_id": 0},
+    })
+
+    target = frame.get(e.hover)
+    target.__vf_update__("PLUS", e.trans)
+
+    assert poly._tx == 0.25
+    assert poly._ty == -0.125
+
+
 def test_mouse_events_expose_first_class_hit_context() -> None:
     e = MouseEvent.from_dict({
         "event": "drag",

@@ -519,6 +519,12 @@ class MouseEvent:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "MouseEvent":
         ev = str(d.get("event", ""))
+        raw_trans = d.get("trans")
+        trans_dx = 0.0
+        trans_dy = 0.0
+        if isinstance(raw_trans, (list, tuple)) and len(raw_trans) >= 2:
+            trans_dx = float(raw_trans[0] or 0.0)
+            trans_dy = float(raw_trans[1] or 0.0)
         raw_hover = dict(d.get("hover", {})) if isinstance(d.get("hover", {}), dict) else {}
         if "frame_id" not in raw_hover:
             raw_hover["frame_id"] = d.get("frame_id", "")
@@ -558,8 +564,8 @@ class MouseEvent:
             meta       = bool(d.get("meta", False)),
             step       = int(d.get("step", 0)),
             delta      = float(d.get("delta", 0.0)),
-            dx         = float(d.get("dx", 0.0)),
-            dy         = float(d.get("dy", 0.0)),
+            dx         = float(d.get("dx", trans_dx)),
+            dy         = float(d.get("dy", trans_dy)),
         )
 
     def __repr__(self) -> str:

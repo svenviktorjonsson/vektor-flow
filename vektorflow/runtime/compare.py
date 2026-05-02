@@ -15,15 +15,14 @@ from .type_values import PrimType, infer_type, is_type_value, types_equal
 def _event_code_of(value: Any) -> int | None:
     """Return a host event's exact integer code without exposing transport shape."""
     if isinstance(value, dict):
-        event_code = value.get("event_code", value.get("code"))
+        for key in ("event_code", "code", "ui_code", "frame_code", "widget_code"):
+            event_code = value.get(key)
+            if isinstance(event_code, int) and event_code:
+                return event_code
+    for key in ("event_code", "code", "ui_code", "frame_code", "widget_code"):
+        event_code = getattr(value, key, None)
         if isinstance(event_code, int) and event_code:
             return event_code
-    event_code = getattr(value, "event_code", None)
-    if isinstance(event_code, int) and event_code:
-        return event_code
-    code = getattr(value, "code", None)
-    if isinstance(code, int) and code:
-        return code
     return None
 
 

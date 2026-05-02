@@ -96,10 +96,44 @@ def test_runtime_match_specificity_matches_host_event_object_to_ui_pattern() -> 
     assert specificity == 0
 
 
+def test_runtime_match_specificity_uses_ui_code_fallback_for_host_event_object() -> None:
+    event = MouseEvent.from_dict({
+        "event": "drag",
+        "x": 0,
+        "y": 0,
+        "ui_code": encode_ui_pattern("drag"),
+    })
+
+    specificity = runtime_match_specificity(
+        event,
+        encode_ui_pattern("drag"),
+        {},
+        lambda a, b: a == b,
+    )
+
+    assert specificity == 0
+
+
 def test_runtime_match_specificity_matches_host_event_payload_to_ui_pattern() -> None:
     event = {
         "event": "drag",
         "code": encode_event_code("drag", "f1"),
+        "ui_code": encode_ui_pattern("drag"),
+    }
+
+    specificity = runtime_match_specificity(
+        event,
+        encode_ui_pattern("drag"),
+        {},
+        lambda a, b: a == b,
+    )
+
+    assert specificity == 0
+
+
+def test_runtime_match_specificity_uses_ui_code_fallback_for_host_event_payload() -> None:
+    event = {
+        "event": "drag",
         "ui_code": encode_ui_pattern("drag"),
     }
 
