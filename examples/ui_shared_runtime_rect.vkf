@@ -1,4 +1,4 @@
-# Minimal VKF-driven hierarchy transform interaction.
+# VKF-driven topology hierarchy transform interaction.
 # Run: vkf examples/ui_shared_runtime_rect.vkf
 
 ui: .ui
@@ -7,7 +7,7 @@ events: ui.events
 d: ui.display
 
 panel: d.frame(
-  title: "VKF rect",
+  title: "VKF topology transforms",
   draggable: true,
   closable: true,
   resizable: true,
@@ -17,63 +17,188 @@ panel: d.frame(
   master: true
 )
 
-d.add_frame(panel, [0.18, 0.18, 0.42, 0.34])
+d.add_frame(panel, [0.16, 0.16, 0.50, 0.40])
 
-parent: panel.add_rect([88, 72, 260, 172], face_color: [0.92, 0.28, 0.18, 1.0])
-child: parent.add_rect([46, 38, 142, 94], face_color: [0.16, 0.74, 0.34, 1.0])
-leaf: child.add_rect([34, 24, 54, 38], face_color: [0.22, 0.54, 0.96, 1.0])
-
-poly: panel.add(
-  x: [430, 560, 520, 410],
-  y: [108, 132, 250, 226],
-  face_color: [1.0, 0.72, 0.18, 0.42],
-  edge_color: [0.15, 0.95, 0.95, 1.0],
-  vertex_color: [1.0, 0.22, 0.72, 1.0],
-  volume_color: [1.0, 0.72, 0.18, 1.0],
-  origin: [500, 180, 0],
-  vertex_width: 11,
+root_a: panel.add(
+  x: [82, 252, 242, 92],
+  y: [78, 92, 214, 226],
+  face_color: [0.90, 0.24, 0.16, 0.46],
+  edge_color: [0.98, 0.72, 0.20, 1.0],
+  vertex_color: [1.0, 0.20, 0.72, 1.0],
+  origin: [167, 152, 0],
+  vertex_width: 10,
   edge_width: 7
 )
-poly.add_vertices([0, 1, 2, 3])
-poly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-poly.add_faces([[0, 1, 2, 3]])
+root_a.add_vertices([0, 1, 2, 3])
+root_a.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_a.add_faces([[0, 1, 2, 3]])
 
-edge_only: panel.add(
-  x: [430, 558, 548, 438],
-  y: [306, 318, 388, 376],
+hide_face: root_a.add(
+  x: [32, 112, 104, 40],
+  y: [34, 40, 96, 104],
   face_color: [0.20, 0.55, 1.0, 0.0],
-  edge_color: [0.20, 1.0, 0.50, 1.0],
-  vertex_color: [1.0, 0.20, 0.20, 0.0],
-  vertex_width: 13,
-  edge_width: 8
+  edge_color: [0.20, 1.0, 0.55, 1.0],
+  vertex_color: [1.0, 0.86, 0.24, 1.0],
+  origin: [72, 70, 0],
+  vertex_width: 9,
+  edge_width: 6
 )
-edge_only.add_vertices([0, 1, 2, 3])
-edge_only.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-edge_only.add_faces([[0, 1, 2, 3]])
+hide_face.add_vertices([0, 1, 2, 3])
+hide_face.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_face.add_faces([[0, 1, 2, 3]])
 
-vertex_only: panel.add(
-  x: [620, 700, 760, 650],
-  y: [300, 320, 390, 410],
-  face_color: [1.0, 0.72, 0.20, 0.0],
-  edge_color: [0.20, 1.0, 1.0, 0.0],
-  vertex_color: [1.0, 0.20, 0.72, 1.0],
-  vertex_width: 13,
-  edge_width: 8
+hide_face_edge_hidden: hide_face.add(
+  x: [10, 44, 40, 14],
+  y: [12, 16, 40, 44],
+  face_color: [0.20, 0.70, 1.0, 0.45],
+  edge_color: [0.20, 1.0, 0.55, 0.0],
+  vertex_color: [1.0, 0.86, 0.24, 1.0],
+  origin: [27, 28, 0],
+  vertex_width: 8,
+  edge_width: 6
 )
-vertex_only.add_vertices([0, 1, 2, 3])
-vertex_only.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-vertex_only.add_faces([[0, 1, 2, 3]])
+hide_face_edge_hidden.add_vertices([0, 1, 2, 3])
+hide_face_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_face_edge_hidden.add_faces([[0, 1, 2, 3]])
+
+hide_face_vertex_hidden: hide_face.add(
+  x: [50, 88, 84, 54],
+  y: [26, 30, 58, 62],
+  face_color: [0.20, 0.70, 1.0, 0.45],
+  edge_color: [0.20, 1.0, 0.55, 1.0],
+  vertex_color: [1.0, 0.86, 0.24, 0.0],
+  origin: [69, 44, 0],
+  vertex_width: 8,
+  edge_width: 6
+)
+hide_face_vertex_hidden.add_vertices([0, 1, 2, 3])
+hide_face_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_face_vertex_hidden.add_faces([[0, 1, 2, 3]])
+
+root_b: panel.add(
+  x: [318, 488, 476, 330],
+  y: [74, 92, 214, 226],
+  face_color: [0.16, 0.74, 0.34, 0.46],
+  edge_color: [0.20, 1.0, 0.70, 1.0],
+  vertex_color: [1.0, 0.25, 0.78, 1.0],
+  origin: [403, 152, 0],
+  vertex_width: 10,
+  edge_width: 7
+)
+root_b.add_vertices([0, 1, 2, 3])
+root_b.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_b.add_faces([[0, 1, 2, 3]])
+
+hide_edge: root_b.add(
+  x: [32, 112, 104, 40],
+  y: [34, 40, 96, 104],
+  face_color: [0.95, 0.75, 0.18, 0.46],
+  edge_color: [0.20, 1.0, 0.70, 0.0],
+  vertex_color: [1.0, 0.25, 0.78, 1.0],
+  origin: [72, 70, 0],
+  vertex_width: 9,
+  edge_width: 6
+)
+hide_edge.add_vertices([0, 1, 2, 3])
+hide_edge.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_edge.add_faces([[0, 1, 2, 3]])
+
+hide_edge_face_hidden: hide_edge.add(
+  x: [10, 44, 40, 14],
+  y: [12, 16, 40, 44],
+  face_color: [0.95, 0.75, 0.18, 0.0],
+  edge_color: [0.20, 1.0, 0.70, 1.0],
+  vertex_color: [1.0, 0.25, 0.78, 1.0],
+  origin: [27, 28, 0],
+  vertex_width: 8,
+  edge_width: 6
+)
+hide_edge_face_hidden.add_vertices([0, 1, 2, 3])
+hide_edge_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_edge_face_hidden.add_faces([[0, 1, 2, 3]])
+
+hide_edge_vertex_hidden: hide_edge.add(
+  x: [50, 88, 84, 54],
+  y: [26, 30, 58, 62],
+  face_color: [0.95, 0.75, 0.18, 0.46],
+  edge_color: [0.20, 1.0, 0.70, 1.0],
+  vertex_color: [1.0, 0.25, 0.78, 0.0],
+  origin: [69, 44, 0],
+  vertex_width: 8,
+  edge_width: 6
+)
+hide_edge_vertex_hidden.add_vertices([0, 1, 2, 3])
+hide_edge_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_edge_vertex_hidden.add_faces([[0, 1, 2, 3]])
+
+root_c: panel.add(
+  x: [554, 724, 710, 566],
+  y: [78, 96, 214, 226],
+  face_color: [0.22, 0.54, 0.96, 0.46],
+  edge_color: [0.12, 0.95, 0.95, 1.0],
+  vertex_color: [1.0, 0.82, 0.20, 1.0],
+  origin: [639, 152, 0],
+  vertex_width: 10,
+  edge_width: 7
+)
+root_c.add_vertices([0, 1, 2, 3])
+root_c.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_c.add_faces([[0, 1, 2, 3]])
+
+hide_vertex: root_c.add(
+  x: [32, 112, 104, 40],
+  y: [34, 40, 96, 104],
+  face_color: [1.0, 0.34, 0.22, 0.46],
+  edge_color: [0.12, 0.95, 0.95, 1.0],
+  vertex_color: [1.0, 0.82, 0.20, 0.0],
+  origin: [72, 70, 0],
+  vertex_width: 9,
+  edge_width: 6
+)
+hide_vertex.add_vertices([0, 1, 2, 3])
+hide_vertex.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_vertex.add_faces([[0, 1, 2, 3]])
+
+hide_vertex_face_hidden: hide_vertex.add(
+  x: [10, 44, 40, 14],
+  y: [12, 16, 40, 44],
+  face_color: [1.0, 0.34, 0.22, 0.0],
+  edge_color: [0.12, 0.95, 0.95, 1.0],
+  vertex_color: [1.0, 0.82, 0.20, 1.0],
+  origin: [27, 28, 0],
+  vertex_width: 8,
+  edge_width: 6
+)
+hide_vertex_face_hidden.add_vertices([0, 1, 2, 3])
+hide_vertex_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_vertex_face_hidden.add_faces([[0, 1, 2, 3]])
+
+hide_vertex_edge_hidden: hide_vertex.add(
+  x: [50, 88, 84, 54],
+  y: [26, 30, 58, 62],
+  face_color: [1.0, 0.34, 0.22, 0.46],
+  edge_color: [0.12, 0.95, 0.95, 0.0],
+  vertex_color: [1.0, 0.82, 0.20, 1.0],
+  origin: [69, 44, 0],
+  vertex_width: 8,
+  edge_width: 6
+)
+hide_vertex_edge_hidden.add_vertices([0, 1, 2, 3])
+hide_vertex_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+hide_vertex_edge_hidden.add_faces([[0, 1, 2, 3]])
 
 drag(e):
   target: panel.get(e.hover)
   target?
-    e.hover.vertex_id >= 0?
-      @: target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, cursor: e.cursor, trans: e.trans)
-    e.hover.edge_id >= 0?
-      @: target.scale_edge(edge: e.hover.edge_id, cursor: e.cursor, trans: e.trans)
-    target.translate(trans: e.trans)
+    e.hover.kind?>
+      ui.HOVER_VERTEX =>
+        target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, cursor: e.cursor, trans: e.trans)
+      ui.HOVER_EDGE =>
+        target.scale_edge(edge: e.hover.edge_id, cursor: e.cursor, trans: e.trans)
+      ui.HOVER_FACE =>
+        target.translate(trans: e.trans)
 
-:: "vkf rect ready"
+:: "vkf topology ready"
 
 (e: events.get())??>
   ui.MOUSE_DOWN =>

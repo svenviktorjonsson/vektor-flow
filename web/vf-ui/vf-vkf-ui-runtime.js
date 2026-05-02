@@ -6,6 +6,10 @@
   var MOUSE_DOWN = 2;
   var MOUSE_UP = 3;
   var MOUSE_DRAG = 4;
+  var HOVER_OBJECT = 1;
+  var HOVER_FACE = 2;
+  var HOVER_EDGE = 4;
+  var HOVER_VERTEX = 8;
 
   function numberOrZero(value) {
     var n = Number(value);
@@ -36,18 +40,16 @@
 
   function normalizedHover(sample) {
     var hover = sample && sample.hover ? sample.hover : {};
-    var objectId = intOrDefault(
-      hover.object_id != null ? hover.object_id : hover.object,
-      -1
-    );
-    return Object.freeze({
+    var out = {
       frame_id: intOrDefault(hover.frame_id != null ? hover.frame_id : hover.frame, -1),
-      object_id: objectId,
+      object_id: intOrDefault(hover.object_id != null ? hover.object_id : hover.object, -1),
       face_id: intOrDefault(hover.face_id != null ? hover.face_id : hover.face, -1),
       edge_id: intOrDefault(hover.edge_id != null ? hover.edge_id : hover.edge, -1),
-      vertex_id: intOrDefault(hover.vertex_id != null ? hover.vertex_id : hover.vertex, -1),
-      mask: objectId >= 0 ? 1 : 0
-    });
+      vertex_id: intOrDefault(hover.vertex_id != null ? hover.vertex_id : hover.vertex, -1)
+    };
+    out.mask = intOrDefault(hover.mask, hoverMask(out));
+    out.kind = intOrDefault(hover.kind_id != null ? hover.kind_id : hover.kind, hoverKind(out));
+    return Object.freeze(out);
   }
 
   function eventKind(sample) {
@@ -79,12 +81,48 @@
   }
 
   function makeHover(objectId, vertexId, edgeId, faceId) {
-    return Object.freeze({
+    var hover = {
       object_id: objectId,
       vertex_id: vertexId == null ? -1 : vertexId,
       edge_id: edgeId == null ? -1 : edgeId,
       face_id: faceId == null ? -1 : faceId
-    });
+    };
+    hover.mask = hoverMask(hover);
+    hover.kind = hoverKind(hover);
+    return Object.freeze(hover);
+  }
+
+  function hoverMask(hover) {
+    var mask = 0;
+    if (hover.object_id >= 0) {
+      mask |= HOVER_OBJECT;
+    }
+    if (hover.face_id >= 0) {
+      mask |= HOVER_FACE;
+    }
+    if (hover.edge_id >= 0) {
+      mask |= HOVER_EDGE;
+    }
+    if (hover.vertex_id >= 0) {
+      mask |= HOVER_VERTEX;
+    }
+    return mask;
+  }
+
+  function hoverKind(hover) {
+    if (hover.vertex_id >= 0) {
+      return HOVER_VERTEX;
+    }
+    if (hover.edge_id >= 0) {
+      return HOVER_EDGE;
+    }
+    if (hover.face_id >= 0) {
+      return HOVER_FACE;
+    }
+    if (hover.object_id >= 0) {
+      return HOVER_OBJECT;
+    }
+    return 0;
   }
 
   function dot2(ax, ay, bx, by) {
@@ -228,12 +266,14 @@
     };
   }
 
-  function MeshRef(runtime, panel, slot, id, coords, options) {
+  function MeshRef(runtime, panel, slot, id, coords, options, parent) {
     options = options || {};
     this.runtime = runtime;
     this.panel = panel;
     this.slot = slot;
     this.id = id;
+    this.parent = parent || null;
+    this.children = [];
     this.coords = coords;
     this.offset = [0, 0, 0];
     this.origin = options.origin || [0, 0, 0];
@@ -277,6 +317,10 @@
     return this;
   };
 
+  MeshRef.prototype.add = function (spec, options) {
+    return this.panel._add_mesh(spec, options, this);
+  };
+
   MeshRef.prototype.world_point = function (index) {
     return this.world_inner_point([
       numberOrZero(this.coords.x[index]),
@@ -288,16 +332,22 @@
   MeshRef.prototype.world_inner_point = function (inner) {
     var lx = numberOrZero(inner[0]) - numberOrZero(this.origin[0]);
     var ly = numberOrZero(inner[1]) - numberOrZero(this.origin[1]);
-    return [
+    var local = [
       numberOrZero(this.origin[0]) + this.offset[0] + this.basis[0] * lx + this.basis[2] * ly,
       numberOrZero(this.origin[1]) + this.offset[1] + this.basis[1] * lx + this.basis[3] * ly,
       numberOrZero(inner[2]) + this.offset[2]
     ];
+    return this.parent && typeof this.parent.world_inner_point === "function"
+      ? this.parent.world_inner_point(local)
+      : local;
   };
 
   MeshRef.prototype.inner_from_world = function (point) {
-    var x = numberOrZero(point[0]) - numberOrZero(this.origin[0]) - this.offset[0];
-    var y = numberOrZero(point[1]) - numberOrZero(this.origin[1]) - this.offset[1];
+    var parentPoint = this.parent && typeof this.parent.inner_from_world === "function"
+      ? this.parent.inner_from_world(point)
+      : point;
+    var x = numberOrZero(parentPoint[0]) - numberOrZero(this.origin[0]) - this.offset[0];
+    var y = numberOrZero(parentPoint[1]) - numberOrZero(this.origin[1]) - this.offset[1];
     var det = this.basis[0] * this.basis[3] - this.basis[2] * this.basis[1];
     if (Math.abs(det) < 1e-9) {
       return [numberOrZero(this.origin[0]), numberOrZero(this.origin[1]), 0];
@@ -329,17 +379,48 @@
     return this;
   };
 
-  MeshRef.prototype._sync_transform = function () {
+  MeshRef.prototype._local_matrix2d = function () {
     var ox = numberOrZero(this.origin[0]);
     var oy = numberOrZero(this.origin[1]);
-    var tx = ox + this.offset[0] - this.basis[0] * ox - this.basis[2] * oy;
-    var ty = oy + this.offset[1] - this.basis[1] * ox - this.basis[3] * oy;
+    return {
+      a: this.basis[0],
+      b: this.basis[1],
+      c: this.basis[2],
+      d: this.basis[3],
+      tx: ox + this.offset[0] - this.basis[0] * ox - this.basis[2] * oy,
+      ty: oy + this.offset[1] - this.basis[1] * ox - this.basis[3] * oy,
+      tz: this.offset[2]
+    };
+  };
+
+  MeshRef.prototype._world_matrix2d = function () {
+    var local = this._local_matrix2d();
+    if (!this.parent || typeof this.parent._world_matrix2d !== "function") {
+      return local;
+    }
+    var parent = this.parent._world_matrix2d();
+    return {
+      a: parent.a * local.a + parent.c * local.b,
+      b: parent.b * local.a + parent.d * local.b,
+      c: parent.a * local.c + parent.c * local.d,
+      d: parent.b * local.c + parent.d * local.d,
+      tx: parent.a * local.tx + parent.c * local.ty + parent.tx,
+      ty: parent.b * local.tx + parent.d * local.ty + parent.ty,
+      tz: parent.tz + local.tz
+    };
+  };
+
+  MeshRef.prototype._sync_transform = function () {
+    var m = this._world_matrix2d();
     this.runtime.arena.setMat4(this.slot, [
-      this.basis[0], this.basis[1], 0, 0,
-      this.basis[2], this.basis[3], 0, 0,
+      m.a, m.b, 0, 0,
+      m.c, m.d, 0, 0,
       0, 0, 1, 0,
-      tx, ty, this.offset[2], 1
+      m.tx, m.ty, m.tz, 1
     ]);
+    for (var i = 0; i < this.children.length; i++) {
+      this.children[i]._sync_transform();
+    }
   };
 
   MeshRef.prototype.rotate_scale_at_vertex = function (args) {
@@ -493,6 +574,10 @@
   };
 
   PanelRef.prototype.add = function (spec, options) {
+    return this._add_mesh(spec, options, null);
+  };
+
+  PanelRef.prototype._add_mesh = function (spec, options, parent) {
     var slot = this.runtime.nextSlot++;
     if (slot >= this.runtime.arena.capacity()) {
       throw new RangeError("transform arena does not have capacity for another object");
@@ -503,8 +588,12 @@
       slot,
       slot,
       coordsFromSpec(spec),
-      meshOptionsFrom(spec, options)
+      meshOptionsFrom(spec, options),
+      parent || null
     );
+    if (parent) {
+      parent.children.push(ref);
+    }
     this.objects[ref.id] = ref;
     this.runtime.meshes.push(ref);
     ref._sync_transform();
@@ -597,6 +686,10 @@
       MOUSE_DOWN: MOUSE_DOWN,
       MOUSE_UP: MOUSE_UP,
       MOUSE_DRAG: MOUSE_DRAG,
+      HOVER_OBJECT: HOVER_OBJECT,
+      HOVER_FACE: HOVER_FACE,
+      HOVER_EDGE: HOVER_EDGE,
+      HOVER_VERTEX: HOVER_VERTEX,
       display: new Display(runtime),
       events: new EventQueue(opts.eventArena),
       cursor: new Cursor()
@@ -606,6 +699,10 @@
 
   global.VfVkfUiRuntime = {
     MAT4_F32: MAT4_F32,
+    HOVER_OBJECT: HOVER_OBJECT,
+    HOVER_FACE: HOVER_FACE,
+    HOVER_EDGE: HOVER_EDGE,
+    HOVER_VERTEX: HOVER_VERTEX,
     createVkfUiRuntime: createVkfUiRuntime
   };
 

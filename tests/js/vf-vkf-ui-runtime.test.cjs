@@ -35,8 +35,10 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   try {
     const e = ui.events.get();
     const target = panel.get(e.hover);
-    assert.equal(e.event, ui.MOUSE_DRAG);
-    assert.equal(e.hover.object_id, rect.id);
+  assert.equal(e.event, ui.MOUSE_DRAG);
+  assert.equal(e.hover.object_id, rect.id);
+  assert.equal(e.hover.mask, vkfUi.HOVER_OBJECT);
+  assert.equal(e.hover.kind, vkfUi.HOVER_OBJECT);
     assert.deepEqual(e.trans, [30, 20]);
     assert.equal(target, rect);
     target.translate({ trans: e.trans });
@@ -154,19 +156,25 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     object_id: mesh.id,
     vertex_id: 0,
     edge_id: -1,
-    face_id: -1
+    face_id: -1,
+    mask: 9,
+    kind: vkfUi.HOVER_VERTEX
   });
   assert.deepEqual(panel.pick([140, 120]).hover, {
     object_id: mesh.id,
     vertex_id: -1,
     edge_id: 0,
-    face_id: -1
+    face_id: -1,
+    mask: 5,
+    kind: vkfUi.HOVER_EDGE
   });
   assert.deepEqual(panel.pick([140, 145]).hover, {
     object_id: mesh.id,
     vertex_id: -1,
     edge_id: -1,
-    face_id: 0
+    face_id: 0,
+    mask: 3,
+    kind: vkfUi.HOVER_FACE
   });
 
   const dataBeforeTransform = {
@@ -202,6 +210,31 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     Math.round(originBeforeTranslate[1] - 4)
   ]);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
+
+  const childMesh = mesh.add({
+    x: [110, 130, 125],
+    y: [130, 132, 150],
+    face_color: [1, 1, 1, 1],
+    edge_color: [1, 1, 1, 1],
+    vertex_color: [1, 1, 1, 1],
+    vertex_width: 4,
+    edge_width: 4
+  });
+  childMesh.add_vertices([0, 1, 2]);
+  childMesh.add_edges([[0, 1], [1, 2], [2, 0]]);
+  childMesh.add_faces([[0, 1, 2]]);
+  const childBefore = childMesh.world_point(0).slice(0, 2);
+  mesh.translate({ trans: [11, 13] });
+  assert.deepEqual(childMesh.world_point(0).slice(0, 2).map(Math.round), [
+    Math.round(childBefore[0] + 11),
+    Math.round(childBefore[1] + 13)
+  ]);
+  const childMatOffset = childMesh.slot * shared.MAT4_F32;
+  const childOriginWorld = childMesh.world_inner_point([0, 0, 0]).slice(0, 2);
+  assert.deepEqual([
+    Math.round(arena.mat4[childMatOffset + 12]),
+    Math.round(arena.mat4[childMatOffset + 13])
+  ], childOriginWorld.map(Math.round));
 }
 
 console.log("vf-vkf-ui-runtime tests passed");

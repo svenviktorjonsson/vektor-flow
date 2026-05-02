@@ -113,7 +113,7 @@
       throw new Error("2D canvas context unavailable");
     }
 
-    var arena = shared.createTransformArena(8);
+    var arena = shared.createTransformArena(64);
     var eventArena = shared.createEventArena(32);
     var uiRuntime = vkfUi.createVkfUiRuntime({ arena: arena, eventArena: eventArena });
     var adapter = makeTrackedAdapter();
@@ -154,7 +154,9 @@
           object: picked.hover.object_id,
           vertex: picked.hover.vertex_id,
           edge: picked.hover.edge_id,
-          face: picked.hover.face_id
+          face: picked.hover.face_id,
+          mask: picked.hover.mask,
+          kind: picked.hover.kind
         };
       }
       return { object: picked.id };
