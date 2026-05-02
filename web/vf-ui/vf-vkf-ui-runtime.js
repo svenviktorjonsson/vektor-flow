@@ -636,7 +636,16 @@
     this.runtime = runtime;
     this.nextFrameId = 0;
     this.last_frame = null;
+    this.width = runtime.width;
+    this.height = runtime.height;
   }
+
+  Display.prototype.set_size = function (size) {
+    size = size || {};
+    this.width = numberOrZero(size.width != null ? size.width : this.width);
+    this.height = numberOrZero(size.height != null ? size.height : this.height);
+    return this;
+  };
 
   Display.prototype.frame = function (options) {
     var panel = new PanelRef(this.runtime, this.nextFrameId++, options || {});
@@ -677,6 +686,8 @@
     var runtime = {
       arena: opts.arena,
       eventArena: opts.eventArena,
+      width: numberOrZero(opts.width),
+      height: numberOrZero(opts.height),
       nextSlot: 0,
       rects: [],
       meshes: []

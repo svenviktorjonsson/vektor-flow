@@ -17,175 +17,175 @@ panel: d.frame(
   master: true
 )
 
-d.add_frame(panel, [0.16, 0.16, 0.50, 0.40])
+d.add_frame(panel, [0, 0, d.width, d.height])
 
 root_a: panel.add(
-  x: [82, 252, 242, 92],
-  y: [78, 92, 214, 226],
-  face_color: [0.90, 0.24, 0.16, 0.46],
-  edge_color: [0.98, 0.72, 0.20, 1.0],
-  vertex_color: [1.0, 0.20, 0.72, 1.0],
-  origin: [167, 152, 0],
+  x: [80, 300, 292, 88],
+  y: [70, 92, 250, 270],
+  face_color: [0.9, 0.24, 0.16, 0.46],
+  edge_color: [0.98, 0.72, 0.2, 1],
+  vertex_color: [1, 0.2, 0.72, 1],
+  origin: [190, 170, 0],
   vertex_width: 10,
-  edge_width: 7
+  edge_width: 8
 )
 root_a.add_vertices([0, 1, 2, 3])
 root_a.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
 root_a.add_faces([[0, 1, 2, 3]])
 
-hide_face: root_a.add(
-  x: [32, 112, 104, 40],
-  y: [34, 40, 96, 104],
-  face_color: [0.20, 0.55, 1.0, 0.0],
-  edge_color: [0.20, 1.0, 0.55, 1.0],
-  vertex_color: [1.0, 0.86, 0.24, 1.0],
-  origin: [72, 70, 0],
-  vertex_width: 9,
-  edge_width: 6
+root_a_face_hidden: root_a.add(
+  x: [132, 248, 240, 140],
+  y: [114, 124, 226, 234],
+  face_color: [0.9, 0.24, 0.16, 0],
+  edge_color: [0.98, 0.72, 0.2, 1],
+  vertex_color: [1, 0.2, 0.72, 1],
+  origin: [190, 170, 0],
+  vertex_width: 5,
+  edge_width: 4
 )
-hide_face.add_vertices([0, 1, 2, 3])
-hide_face.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_face.add_faces([[0, 1, 2, 3]])
+root_a_face_hidden.add_vertices([0, 1, 2, 3])
+root_a_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_a_face_hidden.add_faces([[0, 1, 2, 3]])
 
-hide_face_edge_hidden: hide_face.add(
-  x: [10, 44, 40, 14],
-  y: [12, 16, 40, 44],
-  face_color: [0.20, 0.70, 1.0, 0.45],
-  edge_color: [0.20, 1.0, 0.55, 0.0],
-  vertex_color: [1.0, 0.86, 0.24, 1.0],
-  origin: [27, 28, 0],
-  vertex_width: 8,
-  edge_width: 6
+root_a_face_hidden_edge_hidden: root_a_face_hidden.add(
+  x: [148, 190, 185, 153],
+  y: [132, 136, 168, 173],
+  face_color: [0.9, 0.24, 0.16, 0.46],
+  edge_color: [0.98, 0.72, 0.2, 0],
+  vertex_color: [1, 0.2, 0.72, 1],
+  origin: [169, 150, 0],
+  vertex_width: 2.5,
+  edge_width: 2
 )
-hide_face_edge_hidden.add_vertices([0, 1, 2, 3])
-hide_face_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_face_edge_hidden.add_faces([[0, 1, 2, 3]])
+root_a_face_hidden_edge_hidden.add_vertices([0, 1, 2, 3])
+root_a_face_hidden_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_a_face_hidden_edge_hidden.add_faces([[0, 1, 2, 3]])
 
-hide_face_vertex_hidden: hide_face.add(
-  x: [50, 88, 84, 54],
-  y: [26, 30, 58, 62],
-  face_color: [0.20, 0.70, 1.0, 0.45],
-  edge_color: [0.20, 1.0, 0.55, 1.0],
-  vertex_color: [1.0, 0.86, 0.24, 0.0],
-  origin: [69, 44, 0],
-  vertex_width: 8,
-  edge_width: 6
+root_a_face_hidden_vertex_hidden: root_a_face_hidden.add(
+  x: [186, 230, 225, 191],
+  y: [162, 167, 200, 204],
+  face_color: [0.9, 0.24, 0.16, 0.46],
+  edge_color: [0.98, 0.72, 0.2, 1],
+  vertex_color: [1, 0.2, 0.72, 0],
+  origin: [208, 181, 0],
+  vertex_width: 2.5,
+  edge_width: 2
 )
-hide_face_vertex_hidden.add_vertices([0, 1, 2, 3])
-hide_face_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_face_vertex_hidden.add_faces([[0, 1, 2, 3]])
+root_a_face_hidden_vertex_hidden.add_vertices([0, 1, 2, 3])
+root_a_face_hidden_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_a_face_hidden_vertex_hidden.add_faces([[0, 1, 2, 3]])
 
 root_b: panel.add(
-  x: [318, 488, 476, 330],
-  y: [74, 92, 214, 226],
+  x: [380, 600, 592, 388],
+  y: [70, 92, 250, 270],
   face_color: [0.16, 0.74, 0.34, 0.46],
-  edge_color: [0.20, 1.0, 0.70, 1.0],
-  vertex_color: [1.0, 0.25, 0.78, 1.0],
-  origin: [403, 152, 0],
+  edge_color: [0.2, 1, 0.7, 1],
+  vertex_color: [1, 0.25, 0.78, 1],
+  origin: [490, 170, 0],
   vertex_width: 10,
-  edge_width: 7
+  edge_width: 8
 )
 root_b.add_vertices([0, 1, 2, 3])
 root_b.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
 root_b.add_faces([[0, 1, 2, 3]])
 
-hide_edge: root_b.add(
-  x: [32, 112, 104, 40],
-  y: [34, 40, 96, 104],
-  face_color: [0.95, 0.75, 0.18, 0.46],
-  edge_color: [0.20, 1.0, 0.70, 0.0],
-  vertex_color: [1.0, 0.25, 0.78, 1.0],
-  origin: [72, 70, 0],
-  vertex_width: 9,
-  edge_width: 6
+root_b_edge_hidden: root_b.add(
+  x: [432, 548, 540, 440],
+  y: [114, 124, 226, 234],
+  face_color: [0.16, 0.74, 0.34, 0.46],
+  edge_color: [0.2, 1, 0.7, 0],
+  vertex_color: [1, 0.25, 0.78, 1],
+  origin: [490, 170, 0],
+  vertex_width: 5,
+  edge_width: 4
 )
-hide_edge.add_vertices([0, 1, 2, 3])
-hide_edge.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_edge.add_faces([[0, 1, 2, 3]])
+root_b_edge_hidden.add_vertices([0, 1, 2, 3])
+root_b_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_b_edge_hidden.add_faces([[0, 1, 2, 3]])
 
-hide_edge_face_hidden: hide_edge.add(
-  x: [10, 44, 40, 14],
-  y: [12, 16, 40, 44],
-  face_color: [0.95, 0.75, 0.18, 0.0],
-  edge_color: [0.20, 1.0, 0.70, 1.0],
-  vertex_color: [1.0, 0.25, 0.78, 1.0],
-  origin: [27, 28, 0],
-  vertex_width: 8,
-  edge_width: 6
+root_b_edge_hidden_face_hidden: root_b_edge_hidden.add(
+  x: [448, 490, 485, 453],
+  y: [132, 136, 168, 173],
+  face_color: [0.16, 0.74, 0.34, 0],
+  edge_color: [0.2, 1, 0.7, 1],
+  vertex_color: [1, 0.25, 0.78, 1],
+  origin: [469, 150, 0],
+  vertex_width: 2.5,
+  edge_width: 2
 )
-hide_edge_face_hidden.add_vertices([0, 1, 2, 3])
-hide_edge_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_edge_face_hidden.add_faces([[0, 1, 2, 3]])
+root_b_edge_hidden_face_hidden.add_vertices([0, 1, 2, 3])
+root_b_edge_hidden_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_b_edge_hidden_face_hidden.add_faces([[0, 1, 2, 3]])
 
-hide_edge_vertex_hidden: hide_edge.add(
-  x: [50, 88, 84, 54],
-  y: [26, 30, 58, 62],
-  face_color: [0.95, 0.75, 0.18, 0.46],
-  edge_color: [0.20, 1.0, 0.70, 1.0],
-  vertex_color: [1.0, 0.25, 0.78, 0.0],
-  origin: [69, 44, 0],
-  vertex_width: 8,
-  edge_width: 6
+root_b_edge_hidden_vertex_hidden: root_b_edge_hidden.add(
+  x: [486, 530, 525, 491],
+  y: [162, 167, 200, 204],
+  face_color: [0.16, 0.74, 0.34, 0.46],
+  edge_color: [0.2, 1, 0.7, 1],
+  vertex_color: [1, 0.25, 0.78, 0],
+  origin: [508, 181, 0],
+  vertex_width: 2.5,
+  edge_width: 2
 )
-hide_edge_vertex_hidden.add_vertices([0, 1, 2, 3])
-hide_edge_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_edge_vertex_hidden.add_faces([[0, 1, 2, 3]])
+root_b_edge_hidden_vertex_hidden.add_vertices([0, 1, 2, 3])
+root_b_edge_hidden_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_b_edge_hidden_vertex_hidden.add_faces([[0, 1, 2, 3]])
 
 root_c: panel.add(
-  x: [554, 724, 710, 566],
-  y: [78, 96, 214, 226],
+  x: [680, 900, 892, 688],
+  y: [70, 92, 250, 270],
   face_color: [0.22, 0.54, 0.96, 0.46],
-  edge_color: [0.12, 0.95, 0.95, 1.0],
-  vertex_color: [1.0, 0.82, 0.20, 1.0],
-  origin: [639, 152, 0],
+  edge_color: [0.12, 0.95, 0.95, 1],
+  vertex_color: [1, 0.82, 0.2, 1],
+  origin: [790, 170, 0],
   vertex_width: 10,
-  edge_width: 7
+  edge_width: 8
 )
 root_c.add_vertices([0, 1, 2, 3])
 root_c.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
 root_c.add_faces([[0, 1, 2, 3]])
 
-hide_vertex: root_c.add(
-  x: [32, 112, 104, 40],
-  y: [34, 40, 96, 104],
-  face_color: [1.0, 0.34, 0.22, 0.46],
-  edge_color: [0.12, 0.95, 0.95, 1.0],
-  vertex_color: [1.0, 0.82, 0.20, 0.0],
-  origin: [72, 70, 0],
-  vertex_width: 9,
-  edge_width: 6
+root_c_vertex_hidden: root_c.add(
+  x: [732, 848, 840, 740],
+  y: [114, 124, 226, 234],
+  face_color: [0.22, 0.54, 0.96, 0.46],
+  edge_color: [0.12, 0.95, 0.95, 1],
+  vertex_color: [1, 0.82, 0.2, 0],
+  origin: [790, 170, 0],
+  vertex_width: 5,
+  edge_width: 4
 )
-hide_vertex.add_vertices([0, 1, 2, 3])
-hide_vertex.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_vertex.add_faces([[0, 1, 2, 3]])
+root_c_vertex_hidden.add_vertices([0, 1, 2, 3])
+root_c_vertex_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_c_vertex_hidden.add_faces([[0, 1, 2, 3]])
 
-hide_vertex_face_hidden: hide_vertex.add(
-  x: [10, 44, 40, 14],
-  y: [12, 16, 40, 44],
-  face_color: [1.0, 0.34, 0.22, 0.0],
-  edge_color: [0.12, 0.95, 0.95, 1.0],
-  vertex_color: [1.0, 0.82, 0.20, 1.0],
-  origin: [27, 28, 0],
-  vertex_width: 8,
-  edge_width: 6
+root_c_vertex_hidden_face_hidden: root_c_vertex_hidden.add(
+  x: [748, 790, 785, 753],
+  y: [132, 136, 168, 173],
+  face_color: [0.22, 0.54, 0.96, 0],
+  edge_color: [0.12, 0.95, 0.95, 1],
+  vertex_color: [1, 0.82, 0.2, 1],
+  origin: [769, 150, 0],
+  vertex_width: 2.5,
+  edge_width: 2
 )
-hide_vertex_face_hidden.add_vertices([0, 1, 2, 3])
-hide_vertex_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_vertex_face_hidden.add_faces([[0, 1, 2, 3]])
+root_c_vertex_hidden_face_hidden.add_vertices([0, 1, 2, 3])
+root_c_vertex_hidden_face_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_c_vertex_hidden_face_hidden.add_faces([[0, 1, 2, 3]])
 
-hide_vertex_edge_hidden: hide_vertex.add(
-  x: [50, 88, 84, 54],
-  y: [26, 30, 58, 62],
-  face_color: [1.0, 0.34, 0.22, 0.46],
-  edge_color: [0.12, 0.95, 0.95, 0.0],
-  vertex_color: [1.0, 0.82, 0.20, 1.0],
-  origin: [69, 44, 0],
-  vertex_width: 8,
-  edge_width: 6
+root_c_vertex_hidden_edge_hidden: root_c_vertex_hidden.add(
+  x: [786, 830, 825, 791],
+  y: [162, 167, 200, 204],
+  face_color: [0.22, 0.54, 0.96, 0.46],
+  edge_color: [0.12, 0.95, 0.95, 0],
+  vertex_color: [1, 0.82, 0.2, 1],
+  origin: [808, 181, 0],
+  vertex_width: 2.5,
+  edge_width: 2
 )
-hide_vertex_edge_hidden.add_vertices([0, 1, 2, 3])
-hide_vertex_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
-hide_vertex_edge_hidden.add_faces([[0, 1, 2, 3]])
+root_c_vertex_hidden_edge_hidden.add_vertices([0, 1, 2, 3])
+root_c_vertex_hidden_edge_hidden.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])
+root_c_vertex_hidden_edge_hidden.add_faces([[0, 1, 2, 3]])
 
 drag(e):
   target: panel.get(e.hover)

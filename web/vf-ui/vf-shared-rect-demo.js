@@ -113,9 +113,15 @@
       throw new Error("2D canvas context unavailable");
     }
 
+    var initialSize = resizeCanvasToPanel(canvas);
     var arena = shared.createTransformArena(64);
     var eventArena = shared.createEventArena(32);
-    var uiRuntime = vkfUi.createVkfUiRuntime({ arena: arena, eventArena: eventArena });
+    var uiRuntime = vkfUi.createVkfUiRuntime({
+      arena: arena,
+      eventArena: eventArena,
+      width: initialSize.w,
+      height: initialSize.h
+    });
     var adapter = makeTrackedAdapter();
     var renderer = gpu.createTransformRenderer({ arena: arena, adapter: adapter });
     var sequence = 0;
@@ -239,11 +245,13 @@
     contract.init();
     renderer.flushDirtyTransforms();
     global.addEventListener("resize", function () {
-      resizeCanvasToPanel(canvas);
+      var size = resizeCanvasToPanel(canvas);
+      uiRuntime.ui.display.set_size({ width: size.w, height: size.h });
     });
 
     function frame() {
-      resizeCanvasToPanel(canvas);
+      var size = resizeCanvasToPanel(canvas);
+      uiRuntime.ui.display.set_size({ width: size.w, height: size.h });
       draw(ctx, canvas, uiRuntime.rects, uiRuntime.meshes);
       global.requestAnimationFrame(frame);
     }
@@ -308,8 +316,8 @@
     });
     frameApi.root.style.left = "80px";
     frameApi.root.style.top = "72px";
-    frameApi.root.style.width = "760px";
-    frameApi.root.style.height = "460px";
+    frameApi.root.style.width = "1060px";
+    frameApi.root.style.height = "620px";
     frameApi.root.classList.add("vf-frame--user-sized");
 
     var shell = document.createElement("div");

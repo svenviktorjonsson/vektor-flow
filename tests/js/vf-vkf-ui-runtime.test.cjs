@@ -5,8 +5,13 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 {
   const arena = shared.createTransformArena(2);
   const eventArena = shared.createEventArena(4);
-  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena, width: 1280, height: 720 });
   const ui = runtime.ui;
+  assert.equal(ui.display.width, 1280);
+  assert.equal(ui.display.height, 720);
+  ui.display.set_size({ width: 960, height: 540 });
+  assert.equal(ui.display.width, 960);
+  assert.equal(ui.display.height, 540);
 
   const panel = ui.display.frame({ title: "VKF rect" });
   ui.display.add_frame(panel, [0.18, 0.18, 0.42, 0.34]);
