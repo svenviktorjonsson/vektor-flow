@@ -31,6 +31,7 @@
     "  edge_color: [0.15, 0.95, 0.95, 1.0],",
     "  vertex_color: [1.0, 0.22, 0.72, 1.0],",
     "  volume_color: [1.0, 0.72, 0.18, 1.0],",
+    "  origin: [500, 180, 0],",
     "  vertex_width: 11,",
     "  edge_width: 7",
     ")",
@@ -70,7 +71,7 @@
     "    e.hover.vertex_id >= 0?",
     "      @: target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, trans: e.trans)",
     "    e.hover.edge_id >= 0?",
-    "      @: target.scale_edge(edge: e.hover.edge_id, trans: e.trans)",
+    "      @: target.scale_edge(edge: e.hover.edge_id, cursor: e.cursor, trans: e.trans)",
     "    target.translate(trans: e.trans)",
     "",
     "(e: events.get())??>",
@@ -120,6 +121,7 @@
           edge_color: [0.15, 0.95, 0.95, 1.0],
           vertex_color: [1.0, 0.22, 0.72, 1.0],
           volume_color: [1.0, 0.72, 0.18, 1.0],
+          origin: [500, 180, 0],
           vertex_width: 11,
           edge_width: 7
         });
@@ -160,9 +162,9 @@
         activeTarget = activeTarget || panel.get(e.hover);
         if (activeTarget) {
           if (e.hover.vertex_id >= 0 && typeof activeTarget.rotate_scale_at_vertex === "function") {
-            activeTarget.rotate_scale_at_vertex({ vertex: e.hover.vertex_id, trans: e.trans });
+            activeTarget.rotate_scale_at_vertex({ vertex: e.hover.vertex_id, cursor: e.cursor, trans: e.trans });
           } else if (e.hover.edge_id >= 0 && typeof activeTarget.scale_edge === "function") {
-            activeTarget.scale_edge({ edge: e.hover.edge_id, trans: e.trans });
+            activeTarget.scale_edge({ edge: e.hover.edge_id, cursor: e.cursor, trans: e.trans });
           } else {
             activeTarget.translate({ trans: e.trans });
           }

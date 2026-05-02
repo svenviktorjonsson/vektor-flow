@@ -223,7 +223,8 @@
       volume_color: options.volume_color || spec.volume_color || [1, 1, 1, 1],
       vertex_width: options.vertex_width != null ? options.vertex_width : spec.vertex_width,
       edge_width: options.edge_width != null ? options.edge_width : spec.edge_width,
-      edge_scale: options.edge_scale != null ? options.edge_scale : spec.edge_scale
+      edge_scale: options.edge_scale != null ? options.edge_scale : spec.edge_scale,
+      origin: options.origin || spec.origin
     };
   }
 
@@ -235,6 +236,8 @@
     this.id = id;
     this.coords = coords;
     this.offset = [0, 0, 0];
+    this.origin = options.origin || [0, 0, 0];
+    this.basis = [1, 0, 0, 1];
     this.vertices = [];
     this.edges = [];
     this.faces = [];
@@ -275,10 +278,36 @@
   };
 
   MeshRef.prototype.world_point = function (index) {
+    return this.world_inner_point([
+      numberOrZero(this.coords.x[index]),
+      numberOrZero(this.coords.y[index]),
+      numberOrZero(this.coords.z[index])
+    ]);
+  };
+
+  MeshRef.prototype.world_inner_point = function (inner) {
+    var lx = numberOrZero(inner[0]) - numberOrZero(this.origin[0]);
+    var ly = numberOrZero(inner[1]) - numberOrZero(this.origin[1]);
     return [
-      numberOrZero(this.coords.x[index]) + this.offset[0],
-      numberOrZero(this.coords.y[index]) + this.offset[1],
-      numberOrZero(this.coords.z[index]) + this.offset[2]
+      numberOrZero(this.origin[0]) + this.offset[0] + this.basis[0] * lx + this.basis[2] * ly,
+      numberOrZero(this.origin[1]) + this.offset[1] + this.basis[1] * lx + this.basis[3] * ly,
+      numberOrZero(inner[2]) + this.offset[2]
+    ];
+  };
+
+  MeshRef.prototype.inner_from_world = function (point) {
+    var x = numberOrZero(point[0]) - numberOrZero(this.origin[0]) - this.offset[0];
+    var y = numberOrZero(point[1]) - numberOrZero(this.origin[1]) - this.offset[1];
+    var det = this.basis[0] * this.basis[3] - this.basis[2] * this.basis[1];
+    if (Math.abs(det) < 1e-9) {
+      return [numberOrZero(this.origin[0]), numberOrZero(this.origin[1]), 0];
+    }
+    var lx = (this.basis[3] * x - this.basis[2] * y) / det;
+    var ly = (-this.basis[1] * x + this.basis[0] * y) / det;
+    return [
+      lx + numberOrZero(this.origin[0]),
+      ly + numberOrZero(this.origin[1]),
+      0
     ];
   };
 
@@ -296,8 +325,24 @@
     this.offset[0] += numberOrZero(trans[0]);
     this.offset[1] += numberOrZero(trans[1]);
     this.offset[2] += numberOrZero(trans[2]);
-    this.runtime.arena.setTranslate2D(this.slot, this.offset[0], this.offset[1]);
+    this._sync_transform();
     return this;
+  };
+
+  MeshRef.prototype._sync_transform = function () {
+    this.runtime.arena.setMat4(this.slot, [
+      this.basis[0], this.basis[1], 0, 0,
+      this.basis[2], this.basis[3], 0, 0,
+      0, 0, 1, 0,
+      this.offset[0], this.offset[1], this.offset[2], 1
+    ]);
+  };
+
+  MeshRef.prototype._anchor_inner_coord = function (inner, cursor) {
+    var p = this.world_inner_point(inner);
+    this.offset[0] += numberOrZero(cursor[0]) - p[0];
+    this.offset[1] += numberOrZero(cursor[1]) - p[1];
+    this._sync_transform();
   };
 
   MeshRef.prototype.rotate_scale_at_vertex = function (args) {
@@ -307,21 +352,27 @@
       return this;
     }
     var trans = args.trans || [0, 0];
-    var pivot = this.world_point(vertex);
+    var cursor = args.cursor || [
+      this.world_point(vertex)[0] + numberOrZero(trans[0]),
+      this.world_point(vertex)[1] + numberOrZero(trans[1])
+    ];
     var angle = numberOrZero(trans[0]) * 0.015;
     var scale = Math.max(0.15, 1 + numberOrZero(trans[1]) * -0.01);
     var cos = Math.cos(angle);
     var sin = Math.sin(angle);
-    for (var i = 0; i < this.coords.x.length; i++) {
-      if (i === vertex) {
-        continue;
-      }
-      var p = this.world_point(i);
-      var dx = (p[0] - pivot[0]) * scale;
-      var dy = (p[1] - pivot[1]) * scale;
-      this.coords.x[i] = pivot[0] + dx * cos - dy * sin - this.offset[0];
-      this.coords.y[i] = pivot[1] + dx * sin + dy * cos - this.offset[1];
-    }
+    var a = this.basis[0];
+    var b = this.basis[1];
+    var c = this.basis[2];
+    var d = this.basis[3];
+    this.basis[0] = scale * (cos * a - sin * b);
+    this.basis[1] = scale * (sin * a + cos * b);
+    this.basis[2] = scale * (cos * c - sin * d);
+    this.basis[3] = scale * (sin * c + cos * d);
+    this._anchor_inner_coord([
+      numberOrZero(this.coords.x[vertex]),
+      numberOrZero(this.coords.y[vertex]),
+      numberOrZero(this.coords.z[vertex])
+    ], cursor);
     return this;
   };
 
@@ -332,6 +383,12 @@
       return this;
     }
     var pair = this.edges[edge];
+    var cursor = args.cursor || null;
+    var innerAnchor = cursor ? this.inner_from_world(cursor) : [
+      (numberOrZero(this.coords.x[pair[0]]) + numberOrZero(this.coords.x[pair[1]])) * 0.5,
+      (numberOrZero(this.coords.y[pair[0]]) + numberOrZero(this.coords.y[pair[1]])) * 0.5,
+      0
+    ];
     var a = this.world_point(pair[0]);
     var b = this.world_point(pair[1]);
     var ex = b[0] - a[0];
@@ -341,14 +398,12 @@
     var ny = ex / len;
     var trans = args.trans || [0, 0];
     var factor = Math.max(0.15, 1 + dot2(numberOrZero(trans[0]), numberOrZero(trans[1]), nx, ny) * 0.01);
-    var cx = (a[0] + b[0]) * 0.5;
-    var cy = (a[1] + b[1]) * 0.5;
-    for (var i = 0; i < this.coords.x.length; i++) {
-      var p = this.world_point(i);
-      var normalDistance = dot2(p[0] - cx, p[1] - cy, nx, ny);
-      var delta = normalDistance * (factor - 1);
-      this.coords.x[i] = p[0] + nx * delta - this.offset[0];
-      this.coords.y[i] = p[1] + ny * delta - this.offset[1];
+    this.basis[2] *= factor;
+    this.basis[3] *= factor;
+    if (cursor) {
+      this._anchor_inner_coord(innerAnchor, cursor);
+    } else {
+      this._sync_transform();
     }
     return this;
   };
@@ -461,7 +516,7 @@
     );
     this.objects[ref.id] = ref;
     this.runtime.meshes.push(ref);
-    this.runtime.arena.setTranslate2D(slot, 0, 0);
+    ref._sync_transform();
     return ref;
   };
 
