@@ -54,7 +54,11 @@ print_event(e):
 edit_polygon(e):
   target: panel.get(e.hover)
   target?
-    target +: e.trans
+    e.hover.kind = "vertex"?
+      @: target.translate(trans:e.trans)
+    e.hover.kind = "edge"?
+      @: target.translate(trans:e.trans)
+    target.translate(trans:e.trans)
 
 :: "interactive polygon hierarchy ready"
 

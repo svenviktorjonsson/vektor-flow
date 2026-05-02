@@ -133,6 +133,42 @@ poly +: [0.3, 0.4]
     assert poly._ty == 0.4
 
 
+def test_vkf_drag_demo_function_translates_coordinate_frame_for_faces() -> None:
+    src = """
+ui: .ui
+d: ui.display
+frame: d.frame(title:"drag", draggable:true, closable:true, resizable:true, dockable:true, dock_loc:"bl")
+d.add_frame(frame, [0.1, 0.1, 0.8, 0.8])
+poly: frame.add_polygon([[0.0,0.0], [0.4,0.0], [0.4,0.4]], color:[1,0,0,1])
+edit_polygon(e):
+  target: frame.get(e.hover)
+  target?
+    e.hover.kind = "vertex"?
+      @: target.translate(trans:e.trans)
+    e.hover.kind = "edge"?
+      @: target.translate(trans:e.trans)
+    target.translate(trans:e.trans)
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<ui-drag-demo>"))
+    frame = ip.globals["frame"]
+    poly = ip.globals["poly"]
+    e = MouseEvent.from_dict({
+        "event": "drag",
+        "trans": [0.25, -0.125],
+        "hover": {"frame_id": frame.id, "object_id": poly.id, "face_id": 0, "kind": "face"},
+    })
+
+    fn = ip.globals["edit_polygon"]
+    if type(fn).__name__ == "IRFunctionValue":
+        ip._call_ir_function_value(fn, [e])
+    else:
+        ip._call(fn, [e], ip.globals)
+
+    assert poly._tx == 0.25
+    assert poly._ty == -0.125
+
+
 def test_mouse_events_expose_vector_positions_and_translation() -> None:
     e = MouseEvent.from_dict({"event": "drag", "x": 12, "y": 34, "dx": 0.2, "dy": -0.1})
     assert e.pos == [12.0, 34.0]

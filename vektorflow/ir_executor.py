@@ -811,6 +811,9 @@ class IRExecutor:
             namespace = resolve_stdlib(imported.module_name)
             if imported.spill_exports:
                 env.update(namespace)
+            elif list(namespace.keys()) == [imported.module_name]:
+                env[imported.binding_name] = namespace[imported.module_name]
+                continue
             env[imported.binding_name] = namespace
 
     def _resolve(self, name: str, env: dict[str, Any]) -> Any:
