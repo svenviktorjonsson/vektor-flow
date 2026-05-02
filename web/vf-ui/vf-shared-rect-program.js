@@ -25,7 +25,6 @@
     "d.add_frame(panel, [0.18, 0.18, 0.42, 0.34])",
     "",
     "rect: panel.add_rect([120, 96, 180, 118], color: [0.20, 0.82, 0.49, 1.0])",
-    "rect.set_interaction(cursor: \"open_hand\", pressed_cursor: \"closed_hand\", border: 0.03)",
     "",
     "drag(e):",
     "  target: panel.get(e.hover)",
