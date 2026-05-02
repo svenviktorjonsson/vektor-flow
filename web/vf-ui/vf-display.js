@@ -248,6 +248,36 @@
   }
 
   var _interactive2d = Object.create(null);
+  var _pendingDragPosts = Object.create(null);
+
+  function postDragEventCoalesced(frameId, evt) {
+    var key = String(frameId || "__screen__");
+    var pending = _pendingDragPosts[key];
+    if (pending && pending.evt) {
+      var dx = (Number(pending.evt.dx) || 0) + (Number(evt.dx) || 0);
+      var dy = (Number(pending.evt.dy) || 0) + (Number(evt.dy) || 0);
+      var clientDx = (Number(pending.evt.client_dx) || 0) + (Number(evt.client_dx) || 0);
+      var clientDy = (Number(pending.evt.client_dy) || 0) + (Number(evt.client_dy) || 0);
+      pending.evt = Object.assign({}, pending.evt, evt);
+      pending.evt.dx = dx;
+      pending.evt.dy = dy;
+      pending.evt.trans = [pending.evt.dx, pending.evt.dy];
+      pending.evt.client_dx = clientDx;
+      pending.evt.client_dy = clientDy;
+      return;
+    }
+    _pendingDragPosts[key] = { evt: evt };
+    var flush = function() {
+      var item = _pendingDragPosts[key];
+      delete _pendingDragPosts[key];
+      if (item && item.evt) { postEvent(item.evt); }
+    };
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(flush);
+    } else {
+      setTimeout(flush, 16);
+    }
+  }
 
   function cursorCss(mode) {
     var m = String(mode || "default");
@@ -590,13 +620,14 @@
         face_id: d.hit ? d.hit.face_id : null,
         kind: d.hit ? (d.hit.vertex ? "vertex" : d.hit.edge ? "edge" : "face") : "frame"
       });
-      postEvent(withHoverContext({
+      postDragEventCoalesced(canvas.__vf2dFrameId, withHoverContext({
         type: "vf_event",
         event: "drag",
         x: e.clientX - r.left,
         y: e.clientY - r.top,
         dx: dataDx,
         dy: dataDy,
+        trans: [dataDx, dataDy],
         client_dx: clientDx,
         client_dy: clientDy,
         frame_id: canvas.__vf2dFrameId,
