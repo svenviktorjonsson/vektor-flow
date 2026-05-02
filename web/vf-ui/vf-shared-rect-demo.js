@@ -66,6 +66,26 @@
     ctx.restore();
   }
 
+  function postOverlayLayout(canvas) {
+    var wv = global.chrome && global.chrome.webview;
+    if (!wv || typeof wv.postMessage !== "function") {
+      return;
+    }
+    var r = canvas.getBoundingClientRect();
+    wv.postMessage({
+      type: "layout",
+      stageAlpha: 1,
+      contentHidden: false,
+      toolbarPx: 160,
+      hitRegions: [{
+        left: Math.floor(r.left),
+        top: Math.floor(r.top),
+        right: Math.ceil(r.right),
+        bottom: Math.ceil(r.bottom)
+      }]
+    });
+  }
+
   function createDemo(canvas) {
     var shared = assertRuntime("VfSharedRuntime");
     var gpu = assertRuntime("VfGpuRuntime");
@@ -170,6 +190,10 @@
 
     contract.init();
     renderer.flushDirtyTransforms();
+    postOverlayLayout(canvas);
+    global.addEventListener("resize", function () {
+      postOverlayLayout(canvas);
+    });
 
     function frame() {
       draw(ctx, canvas, arena.mat4, dragging);

@@ -79,6 +79,12 @@ def _chromium_page() -> Generator[Page, None, None]:
 def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
     with _shared_runtime_page() as url, _chromium_page() as page:
         requests: list[str] = []
+        page.add_init_script(
+            """
+            window.__vfOverlayMessages = [];
+            window.chrome = { webview: { postMessage: (msg) => window.__vfOverlayMessages.push(msg) } };
+            """
+        )
         page.on("request", lambda request: requests.append(request.url))
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_function("() => window.__vfSharedRectDemo")
@@ -95,12 +101,17 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
         moved = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
         writes = page.evaluate("() => window.__vfSharedRectDemo.getWrites()")
         latest_input = page.evaluate("() => window.__vfSharedRectDemo.getLatestInput()")
+        layout_messages = page.evaluate("() => window.__vfOverlayMessages.filter(m => m.type === 'layout')")
 
         assert moved["x"] == 210
         assert moved["y"] == 166
         assert latest_input["cursorPx"] == [250, 210]
         assert latest_input["pointerDown"] is False
         assert latest_input["sequence"] >= 2
+        assert layout_messages
+        assert layout_messages[0]["stageAlpha"] == 1
+        assert layout_messages[0]["contentHidden"] is False
+        assert layout_messages[0]["hitRegions"][0]["right"] > layout_messages[0]["hitRegions"][0]["left"]
         assert len(writes) >= 2
         assert all("/api/enqueue" not in request for request in requests)
         assert all("vf-display.json" not in request for request in requests)
