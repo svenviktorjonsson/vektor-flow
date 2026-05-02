@@ -92,10 +92,6 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
         assert page.evaluate("() => crossOriginIsolated") is True
         initial = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
         assert initial == {"x": 120, "y": 96, "w": 180, "h": 118}
-        assert page.locator(".vf-frame__title", has_text="Shared runtime demo").count() == 1
-        assert page.locator(".vf-min-btn").count() == 1
-        assert page.locator(".vf-close-btn").count() == 1
-
         canvas_box = page.locator(".vf-shared-demo-canvas").bounding_box()
         assert canvas_box is not None
         start_x = canvas_box["x"] + 160

@@ -91,6 +91,83 @@
     return this;
   };
 
+  function copyIndexList(values, arity, name) {
+    if (!Array.isArray(values)) {
+      throw new TypeError(name + " expects an array of indices");
+    }
+    return values.map(function (entry) {
+      var tuple = Array.isArray(entry) ? entry : [entry];
+      if (arity != null && tuple.length !== arity) {
+        throw new TypeError(name + " expects index tuples of length " + arity);
+      }
+      return tuple.map(function (value) {
+        var index = Number(value);
+        if (!Number.isInteger(index) || index < 0) {
+          throw new TypeError(name + " indices must be non-negative integers");
+        }
+        return index;
+      });
+    });
+  }
+
+  function coordsFromSpec(spec) {
+    spec = spec || {};
+    var x = Array.isArray(spec.x) ? spec.x.map(numberOrZero) : [];
+    var y = Array.isArray(spec.y) ? spec.y.map(numberOrZero) : [];
+    var z = Array.isArray(spec.z) ? spec.z.map(numberOrZero) : [];
+    var n = Math.max(x.length, y.length, z.length);
+    if (n <= 0) {
+      throw new TypeError("add expects at least one coordinate vector");
+    }
+    while (x.length < n) { x.push(0); }
+    while (y.length < n) { y.push(0); }
+    while (z.length < n) { z.push(0); }
+    return { x: x, y: y, z: z };
+  }
+
+  function MeshRef(runtime, panel, slot, id, coords) {
+    this.runtime = runtime;
+    this.panel = panel;
+    this.slot = slot;
+    this.id = id;
+    this.coords = coords;
+    this.vertices = [];
+    this.edges = [];
+    this.faces = [];
+    this.volumes = [];
+    this.volume_policy = "filled";
+  }
+
+  MeshRef.prototype.add_vertices = function (indices) {
+    this.vertices = copyIndexList(indices, 1, "add_vertices").map(function (tuple) {
+      return tuple[0];
+    });
+    return this;
+  };
+
+  MeshRef.prototype.add_edges = function (indices) {
+    this.edges = copyIndexList(indices, 2, "add_edges");
+    return this;
+  };
+
+  MeshRef.prototype.add_faces = function (indices) {
+    this.faces = copyIndexList(indices, null, "add_faces");
+    return this;
+  };
+
+  MeshRef.prototype.add_volumes = function (indices) {
+    this.volumes = copyIndexList(indices, null, "add_volumes");
+    this.volume_policy = "filled";
+    return this;
+  };
+
+  MeshRef.prototype.translate = function (args) {
+    args = args || {};
+    var trans = args.trans || [numberOrZero(args.dx), numberOrZero(args.dy), numberOrZero(args.dz)];
+    this.runtime.arena.setTranslate2D(this.slot, numberOrZero(trans[0]), numberOrZero(trans[1]));
+    return this;
+  };
+
   function PanelRef(runtime, id, options) {
     this.runtime = runtime;
     this.id = id;
@@ -115,6 +192,23 @@
     );
     this.objects[ref.id] = ref;
     this.runtime.arena.setTranslate2D(slot, rect.x, rect.y);
+    return ref;
+  };
+
+  PanelRef.prototype.add = function (spec) {
+    var slot = this.runtime.nextSlot++;
+    if (slot >= this.runtime.arena.capacity()) {
+      throw new RangeError("transform arena does not have capacity for another object");
+    }
+    var ref = new MeshRef(
+      this.runtime,
+      this,
+      slot,
+      slot,
+      coordsFromSpec(spec)
+    );
+    this.objects[ref.id] = ref;
+    this.runtime.arena.setTranslate2D(slot, 0, 0);
     return ref;
   };
 

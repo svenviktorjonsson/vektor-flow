@@ -58,4 +58,31 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   assert.equal(runtime.ui.cursor.mode, "open_hand");
 }
 
+{
+  const arena = shared.createTransformArena(3);
+  const eventArena = shared.createEventArena(1);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add({
+    x: [0, 1, 0, 0],
+    y: [0, 0, 1, 0],
+    z: [0, 0, 0, 1]
+  });
+
+  mesh.add_vertices([0, 1, 2, 3]);
+  mesh.add_edges([[0, 1], [1, 2], [2, 0]]);
+  mesh.add_faces([[0, 1, 2]]);
+  mesh.add_volumes([[0, 1, 2, 3]]);
+
+  assert.deepEqual(mesh.coords.x, [0, 1, 0, 0]);
+  assert.deepEqual(mesh.vertices, [0, 1, 2, 3]);
+  assert.deepEqual(mesh.edges, [[0, 1], [1, 2], [2, 0]]);
+  assert.deepEqual(mesh.faces, [[0, 1, 2]]);
+  assert.deepEqual(mesh.volumes, [[0, 1, 2, 3]]);
+  assert.equal(mesh.volume_policy, "filled");
+  assert.equal(panel.get({ object_id: mesh.id }), mesh);
+}
+
 console.log("vf-vkf-ui-runtime tests passed");

@@ -35,7 +35,7 @@
     };
   }
 
-  function draw(ctx, canvas, mat4, dragging) {
+  function draw(ctx, canvas, mat4) {
     var rect = rectFromMat4(mat4);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -43,7 +43,7 @@
     var y = Math.round(rect.y);
     var w = Math.round(rect.w);
     var h = Math.round(rect.h);
-    ctx.fillStyle = dragging ? "#ffd84d" : "#32d17d";
+    ctx.fillStyle = "#32d17d";
     ctx.fillRect(x, y, w, h);
   }
 
@@ -123,7 +123,6 @@
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
       dragging = true;
-      canvas.classList.add("dragging");
       anchor = point;
       updateFromPointer(point, true);
     });
@@ -141,13 +140,11 @@
         return;
       }
       dragging = false;
-      canvas.classList.remove("dragging");
       updateFromPointer(canvasPoint(event), false);
     });
 
     canvas.addEventListener("pointercancel", function () {
       dragging = false;
-      canvas.classList.remove("dragging");
     });
 
     contract.init();
@@ -158,7 +155,7 @@
 
     function frame() {
       resizeCanvasToPanel(canvas);
-      draw(ctx, canvas, arena.mat4, dragging);
+      draw(ctx, canvas, arena.mat4);
       global.requestAnimationFrame(frame);
     }
     global.requestAnimationFrame(frame);
