@@ -10,6 +10,15 @@
   var HOVER_FACE = 2;
   var HOVER_EDGE = 4;
   var HOVER_VERTEX = 8;
+  var CANONICAL_RENDER_ATTRS = Object.freeze({
+    pos: true,
+    color: true,
+    normal: true,
+    uv: true,
+    radius: true,
+    width: true,
+    visible: true
+  });
 
   function numberOrZero(value) {
     var n = Number(value);
@@ -318,6 +327,45 @@
     return { x: x, y: y, z: z };
   }
 
+  function isSystemControlProp(key) {
+    return [
+      "bounds",
+      "box",
+      "aspect",
+      "normalized",
+      "origin",
+      "topology"
+    ].indexOf(key) >= 0;
+  }
+
+  function copySystemProps(spec, options) {
+    var props = Object.create(null);
+    [spec || {}, options || {}].forEach(function (source) {
+      Object.keys(source).forEach(function (key) {
+        if (!isSystemControlProp(key)) {
+          props[key] = source[key];
+        }
+      });
+    });
+    return props;
+  }
+
+  function copyProjectionMap(map) {
+    var out = {};
+    Object.keys(map || {}).forEach(function (key) {
+      out[key] = map[key];
+    });
+    return out;
+  }
+
+  function validateEmbeddingMap(map) {
+    Object.keys(map || {}).forEach(function (key) {
+      if (!CANONICAL_RENDER_ATTRS[key]) {
+        throw new TypeError("embedding output '" + key + "' is not a canonical render attr");
+      }
+    });
+  }
+
   function initialBoundsFrom(coords) {
     var minX = Infinity;
     var minY = Infinity;
@@ -368,7 +416,7 @@
     };
   }
 
-  function MeshRef(runtime, panel, slot, id, coords, options, parent) {
+  function MeshRef(runtime, panel, slot, id, coords, options, parent, spec) {
     options = options || {};
     this.runtime = runtime;
     this.panel = panel;
@@ -377,6 +425,9 @@
     this.parent = parent || null;
     this.children = [];
     this.coords = coords;
+    this.props = copySystemProps(spec || {}, options);
+    this.projections = [];
+    this.embeddings = [];
     this.offset = [0, 0, 0];
     this.origin = options.origin || [0, 0, 0];
     this.normalized = options.normalized !== false;
@@ -457,8 +508,66 @@
     return this;
   };
 
+  MeshRef.prototype.add_simplices = function (simplices) {
+    simplices = simplices || {};
+    if (simplices.vertices) {
+      this.add_vertices(simplices.vertices);
+    }
+    if (simplices.edges) {
+      this.add_edges(simplices.edges);
+    }
+    if (simplices.faces) {
+      this.add_faces(simplices.faces);
+    }
+    if (simplices.volumes) {
+      this.add_volumes(simplices.volumes);
+    }
+    if (!simplices.vertices) {
+      this._derive_vertices_from_topology();
+    }
+    return this;
+  };
+
+  MeshRef.prototype._derive_vertices_from_topology = function () {
+    var seen = Object.create(null);
+    var out = [];
+    function mark(index) {
+      if (!seen[index]) {
+        seen[index] = true;
+        out.push(index);
+      }
+    }
+    [this.edges, this.faces, this.volumes].forEach(function (cells) {
+      cells.forEach(function (cell) {
+        cell.forEach(mark);
+      });
+    });
+    out.sort(function (a, b) { return a - b; });
+    this.vertices = out;
+  };
+
   MeshRef.prototype.add = function (spec, options) {
     return this.panel._add_mesh(spec, options, this);
+  };
+
+  MeshRef.prototype.prop = function (name) {
+    return this.props[String(name)];
+  };
+
+  MeshRef.prototype.set_prop = function (name, value) {
+    this.props[String(name)] = value;
+    return this;
+  };
+
+  MeshRef.prototype.add_projection = function (projection) {
+    this.projections.push(copyProjectionMap(projection || {}));
+    return this;
+  };
+
+  MeshRef.prototype.add_embedding = function (embedding) {
+    validateEmbeddingMap(embedding || {});
+    this.embeddings.push(copyProjectionMap(embedding || {}));
+    return this;
   };
 
   MeshRef.prototype.local_bounds = function () {
@@ -1002,7 +1111,8 @@
       slot,
       coordsFromSpec(spec),
       meshOptionsFrom(spec, options),
-      parent || null
+      parent || null,
+      spec
     );
     if (parent) {
       parent.children.push(ref);

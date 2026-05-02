@@ -446,6 +446,65 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
 }
 
 {
+  const arena = shared.createTransformArena(6);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const system = panel.add({
+    x: [1, 2, 3],
+    y: [4, 5, 6],
+    z: [7, 8, 9],
+    pos_i: [[1, 4, 7], [2, 5, 8], [3, 6, 9]],
+    temp_i: [0.1, 0.2, 0.3],
+    base_color_i: [[0, 0, 1, 1], [0, 1, 0, 1], [1, 0, 0, 1]],
+    hit_i: [false, true, false],
+    normalized: false
+  });
+
+  system.add_simplices({
+    edges: [[0, 1], [1, 2]],
+    faces: [[0, 1, 2]]
+  });
+  assert.deepEqual(system.vertices, [0, 1, 2]);
+  assert.deepEqual(system.edges, [[0, 1], [1, 2]]);
+  assert.deepEqual(system.faces, [[0, 1, 2]]);
+  assert.deepEqual(system.prop("pos_i"), [[1, 4, 7], [2, 5, 8], [3, 6, 9]]);
+  assert.deepEqual(system.prop("temp_i"), [0.1, 0.2, 0.3]);
+  assert.deepEqual(system.prop("hit_i"), [false, true, false]);
+
+  system.set_prop("hit_phase_i", [0, 0.5, 0]);
+  assert.deepEqual(system.prop("hit_phase_i"), [0, 0.5, 0]);
+
+  system.add_projection({
+    pos: "pos_i",
+    color: "base_color_i",
+    temp: "temp_i"
+  });
+  assert.deepEqual(system.projections[0], {
+    pos: "pos_i",
+    color: "base_color_i",
+    temp: "temp_i"
+  });
+
+  system.add_embedding({
+    pos: "pos",
+    color: "color",
+    visible: "hit_i"
+  });
+  assert.deepEqual(system.embeddings[0], {
+    pos: "pos",
+    color: "color",
+    visible: "hit_i"
+  });
+  assert.throws(
+    () => system.add_embedding({ temperature: "temp_i" }),
+    /canonical render attr/
+  );
+}
+
+{
   const arena = shared.createTransformArena(8);
   const eventArena = shared.createEventArena(4);
   const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
