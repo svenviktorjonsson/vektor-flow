@@ -20,20 +20,49 @@
     "",
     "d.add_frame(panel, [0.18, 0.18, 0.42, 0.34])",
     "",
-    "parent: panel.add_rect([88, 72, 260, 172], color: [0.92, 0.28, 0.18, 1.0])",
-    "child: parent.add_rect([46, 38, 142, 94], color: [0.16, 0.74, 0.34, 1.0])",
-    "leaf: child.add_rect([34, 24, 54, 38], color: [0.22, 0.54, 0.96, 1.0])",
+    "parent: panel.add_rect([88, 72, 260, 172], face_color: [0.92, 0.28, 0.18, 1.0])",
+    "child: parent.add_rect([46, 38, 142, 94], face_color: [0.16, 0.74, 0.34, 1.0])",
+    "leaf: child.add_rect([34, 24, 54, 38], face_color: [0.22, 0.54, 0.96, 1.0])",
     "",
     "poly: panel.add(",
     "  x: [430, 560, 520, 410],",
     "  y: [108, 132, 250, 226],",
-    "  color: [1.0, 0.72, 0.18, 0.42],",
+    "  face_color: [1.0, 0.72, 0.18, 0.42],",
+    "  edge_color: [0.15, 0.95, 0.95, 1.0],",
+    "  vertex_color: [1.0, 0.22, 0.72, 1.0],",
+    "  volume_color: [1.0, 0.72, 0.18, 1.0],",
     "  vertex_width: 11,",
     "  edge_width: 7",
     ")",
     "poly.add_vertices([0, 1, 2, 3])",
     "poly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])",
     "poly.add_faces([[0, 1, 2, 3]])",
+    "",
+    "edge_only: panel.add(",
+    "  x: [430, 558, 548, 438],",
+    "  y: [306, 318, 388, 376],",
+    "  face_color: [0.20, 0.55, 1.0, 0.0],",
+    "  edge_color: [0.20, 1.0, 0.50, 1.0],",
+    "  vertex_color: [1.0, 0.20, 0.20, 0.0],",
+    "  vertex_width: 13,",
+    "  edge_width: 8",
+    ")",
+    "edge_only.add_vertices([0, 1, 2, 3])",
+    "edge_only.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])",
+    "edge_only.add_faces([[0, 1, 2, 3]])",
+    "",
+    "vertex_only: panel.add(",
+    "  x: [620, 700, 760, 650],",
+    "  y: [300, 320, 390, 410],",
+    "  face_color: [1.0, 0.72, 0.20, 0.0],",
+    "  edge_color: [0.20, 1.0, 1.0, 0.0],",
+    "  vertex_color: [1.0, 0.20, 0.72, 1.0],",
+    "  vertex_width: 13,",
+    "  edge_width: 8",
+    ")",
+    "vertex_only.add_vertices([0, 1, 2, 3])",
+    "vertex_only.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])",
+    "vertex_only.add_faces([[0, 1, 2, 3]])",
     "",
     "drag(e):",
     "  target: panel.get(e.hover)",
@@ -76,28 +105,51 @@
         });
         ui.display.add_frame(panel, [0.18, 0.18, 0.42, 0.34]);
         var parent = panel.add_rect([88, 72, 260, 172], {
-          color: [0.92, 0.28, 0.18, 1.0]
+          face_color: [0.92, 0.28, 0.18, 1.0]
         });
         var child = parent.add_rect([46, 38, 142, 94], {
-          color: [0.16, 0.74, 0.34, 1.0]
+          face_color: [0.16, 0.74, 0.34, 1.0]
         });
         child.add_rect([34, 24, 54, 38], {
-          color: [0.22, 0.54, 0.96, 1.0]
+          face_color: [0.22, 0.54, 0.96, 1.0]
         });
         var poly = panel.add({
           x: [430, 560, 520, 410],
           y: [108, 132, 250, 226],
-          color: [1.0, 0.72, 0.18, 0.42],
-          vertex_width: 11,
-          edge_width: 7
-        }, {
-          color: [1.0, 0.72, 0.18, 0.42],
+          face_color: [1.0, 0.72, 0.18, 0.42],
+          edge_color: [0.15, 0.95, 0.95, 1.0],
+          vertex_color: [1.0, 0.22, 0.72, 1.0],
+          volume_color: [1.0, 0.72, 0.18, 1.0],
           vertex_width: 11,
           edge_width: 7
         });
         poly.add_vertices([0, 1, 2, 3]);
         poly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
         poly.add_faces([[0, 1, 2, 3]]);
+        var edgeOnly = panel.add({
+          x: [430, 558, 548, 438],
+          y: [306, 318, 388, 376],
+          face_color: [0.20, 0.55, 1.0, 0.0],
+          edge_color: [0.20, 1.0, 0.50, 1.0],
+          vertex_color: [1.0, 0.20, 0.20, 0.0],
+          vertex_width: 13,
+          edge_width: 8
+        });
+        edgeOnly.add_vertices([0, 1, 2, 3]);
+        edgeOnly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+        edgeOnly.add_faces([[0, 1, 2, 3]]);
+        var vertexOnly = panel.add({
+          x: [620, 700, 760, 650],
+          y: [300, 320, 390, 410],
+          face_color: [1.0, 0.72, 0.20, 0.0],
+          edge_color: [0.20, 1.0, 1.0, 0.0],
+          vertex_color: [1.0, 0.20, 0.72, 1.0],
+          vertex_width: 13,
+          edge_width: 8
+        });
+        vertexOnly.add_vertices([0, 1, 2, 3]);
+        vertexOnly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+        vertexOnly.add_faces([[0, 1, 2, 3]]);
       },
       update: function (input, api) {
         var e = api.ui.events.get();

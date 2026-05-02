@@ -213,6 +213,20 @@
     return { x: x, y: y, z: z };
   }
 
+  function meshOptionsFrom(spec, options) {
+    spec = spec || {};
+    options = options || {};
+    return {
+      face_color: options.face_color || spec.face_color || options.color || spec.color || [1, 1, 1, 1],
+      edge_color: options.edge_color || spec.edge_color || [1, 1, 1, 1],
+      vertex_color: options.vertex_color || spec.vertex_color || [1, 1, 1, 1],
+      volume_color: options.volume_color || spec.volume_color || [1, 1, 1, 1],
+      vertex_width: options.vertex_width != null ? options.vertex_width : spec.vertex_width,
+      edge_width: options.edge_width != null ? options.edge_width : spec.edge_width,
+      edge_scale: options.edge_scale != null ? options.edge_scale : spec.edge_scale
+    };
+  }
+
   function MeshRef(runtime, panel, slot, id, coords, options) {
     options = options || {};
     this.runtime = runtime;
@@ -226,7 +240,10 @@
     this.faces = [];
     this.volumes = [];
     this.volume_policy = "filled";
-    this.color = options.color || [1, 1, 1, 1];
+    this.face_color = options.face_color || [1, 1, 1, 1];
+    this.edge_color = options.edge_color || [1, 1, 1, 1];
+    this.vertex_color = options.vertex_color || [1, 1, 1, 1];
+    this.volume_color = options.volume_color || [1, 1, 1, 1];
     this.vertex_width = finiteOrDefault(options.vertex_width, 0);
     this.edge_width = finiteOrDefault(
       options.edge_width != null ? options.edge_width : options.edge_scale,
@@ -378,6 +395,18 @@
         this.edge_width
       );
     }
+    if (options.face_color) {
+      this.face_color = options.face_color;
+    }
+    if (options.edge_color) {
+      this.edge_color = options.edge_color;
+    }
+    if (options.vertex_color) {
+      this.vertex_color = options.vertex_color;
+    }
+    if (options.volume_color) {
+      this.volume_color = options.volume_color;
+    }
     return this;
   };
 
@@ -401,7 +430,7 @@
       slot,
       slot,
       rect,
-      options && options.color,
+      options && (options.face_color || options.color),
       parent || null
     );
     if (parent) {
@@ -428,7 +457,7 @@
       slot,
       slot,
       coordsFromSpec(spec),
-      options || {}
+      meshOptionsFrom(spec, options)
     );
     this.objects[ref.id] = ref;
     this.runtime.meshes.push(ref);

@@ -40,7 +40,7 @@
 
   function drawMesh(ctx, mesh) {
     var i;
-    ctx.fillStyle = rgba(mesh.color);
+    ctx.fillStyle = rgba(mesh.face_color);
     for (i = 0; i < mesh.faces.length; i++) {
       var face = mesh.faces[i];
       if (face.length < 3) {
@@ -57,7 +57,7 @@
       ctx.fill();
     }
     if (mesh.edge_width > 0) {
-      ctx.strokeStyle = rgba([0.15, 0.95, 0.95, 1.0]);
+      ctx.strokeStyle = rgba(mesh.edge_color);
       ctx.lineWidth = mesh.edge_width;
       ctx.lineCap = "round";
       for (i = 0; i < mesh.edges.length; i++) {
@@ -71,7 +71,7 @@
       }
     }
     if (mesh.vertex_width > 0) {
-      ctx.fillStyle = rgba([1.0, 0.22, 0.72, 1.0]);
+      ctx.fillStyle = rgba(mesh.vertex_color);
       for (i = 0; i < mesh.vertices.length; i++) {
         var v = mesh.world_point(mesh.vertices[i]);
         ctx.beginPath();
@@ -172,7 +172,8 @@
       var hover = hoverFromPick(picked);
       var objectId = idFromPick(picked);
       if (dragging && activeHover) {
-        hover = hover || activeHover;
+        hover = activeHover;
+        objectId = activeObjectId;
       }
       eventArena.writeInputSample({
         sequence: ++sequence,
@@ -189,7 +190,7 @@
       if (objectId >= 0) {
         activeObjectId = objectId;
       }
-      if (hover) {
+      if (hover && !dragging) {
         activeHover = hover;
       }
     }

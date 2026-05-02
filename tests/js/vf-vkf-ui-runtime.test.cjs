@@ -102,6 +102,7 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   mesh.add_vertices([0, 1, 2, 3]);
   mesh.add_edges([[0, 1], [1, 2], [2, 0]]);
   mesh.add_faces([[0, 1, 2]]);
+  mesh.add_volumes([[0, 1, 2]]);
   mesh.add_volumes([[0, 1, 2, 3]]);
 
   assert.deepEqual(mesh.coords.x, [0, 1, 0, 0]);
@@ -126,7 +127,10 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
       y: [120, 120, 190]
     },
     {
-      color: [0.8, 0.5, 0.2, 1],
+      face_color: [0.8, 0.5, 0.2, 1],
+      edge_color: [0.1, 0.9, 0.9, 1],
+      vertex_color: [1, 0.2, 0.7, 1],
+      volume_color: [0.4, 0.4, 1, 1],
       vertex_width: 10,
       edge_width: 6
     }
@@ -137,6 +141,14 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 
   assert.equal(mesh.vertex_width, 10);
   assert.equal(mesh.edge_width, 6);
+  assert.deepEqual(mesh.face_color, [0.8, 0.5, 0.2, 1]);
+  assert.deepEqual(mesh.edge_color, [0.1, 0.9, 0.9, 1]);
+  assert.deepEqual(mesh.vertex_color, [1, 0.2, 0.7, 1]);
+  assert.deepEqual(mesh.volume_color, [0.4, 0.4, 1, 1]);
+  assert.deepEqual(mesh.visible_volume_surfaces(), {
+    policy: "filled",
+    surfaces: "first_last_per_dimension"
+  });
   assert.deepEqual(mesh.world_point(1), [180, 120, 0]);
   assert.deepEqual(panel.pick([100, 120]).hover, {
     object_id: mesh.id,
