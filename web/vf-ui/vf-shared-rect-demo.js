@@ -56,9 +56,9 @@
       ctx.closePath();
       ctx.fill();
     }
-    if (mesh.edge_width > 0) {
+    if (mesh.edge_radius > 0) {
       ctx.strokeStyle = rgba(mesh.edge_color);
-      ctx.lineWidth = mesh.edge_width;
+      ctx.lineWidth = mesh.edge_radius * 2;
       ctx.lineCap = "round";
       for (i = 0; i < mesh.edges.length; i++) {
         var edge = mesh.edges[i];
@@ -70,12 +70,12 @@
         ctx.stroke();
       }
     }
-    if (mesh.vertex_width > 0) {
+    if (mesh.vertex_radius > 0) {
       ctx.fillStyle = rgba(mesh.vertex_color);
       for (i = 0; i < mesh.vertices.length; i++) {
         var v = mesh.world_point(mesh.vertices[i]);
         ctx.beginPath();
-        ctx.arc(v[0], v[1], mesh.vertex_width, 0, Math.PI * 2);
+        ctx.arc(v[0], v[1], mesh.vertex_radius, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -275,8 +275,8 @@
         return uiRuntime.meshes.map(function (mesh) {
           return {
             points: mesh.world_points(),
-            vertexWidth: mesh.vertex_width,
-            edgeWidth: mesh.edge_width
+            vertexRadius: mesh.vertex_radius,
+            edgeRadius: mesh.edge_radius
           };
         });
       },
@@ -316,8 +316,8 @@
     });
     frameApi.root.style.left = "80px";
     frameApi.root.style.top = "72px";
-    frameApi.root.style.width = "1060px";
-    frameApi.root.style.height = "620px";
+    frameApi.root.style.width = "1280px";
+    frameApi.root.style.height = "760px";
     frameApi.root.classList.add("vf-frame--user-sized");
 
     var shell = document.createElement("div");
@@ -339,3 +339,4 @@
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);
+
