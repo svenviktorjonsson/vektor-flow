@@ -175,21 +175,32 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
     z: mesh.coords.z.slice()
   };
   const beforeVertex = mesh.world_points().map((p) => p.slice());
+  const originBeforeVertex = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const offsetBeforeVertex = mesh.offset.slice();
   const anchor = mesh.world_point(0);
   const cursor = [anchor[0] + 18, anchor[1] - 12];
   mesh.rotate_scale_at_vertex({ vertex: 0, cursor, trans: [18, -12] });
   assert.notDeepEqual(mesh.world_points(), beforeVertex);
+  assert.deepEqual(mesh.offset, offsetBeforeVertex);
+  assert.deepEqual(mesh.world_inner_point(mesh.origin).slice(0, 2).map(Math.round), originBeforeVertex.map(Math.round));
   assert.deepEqual(mesh.world_point(0).slice(0, 2).map(Math.round), cursor);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 
   const beforeEdge = mesh.world_points().map((p) => p.slice());
-  const edgeCursor = mesh.world_inner_point([140, 120, 0]).slice(0, 2);
-  mesh.scale_edge({ edge: 0, cursor: edgeCursor, trans: [0, 18] });
+  const originBeforeEdge = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const offsetBeforeEdge = mesh.offset.slice();
+  mesh.scale_edge({ edge: 0, trans: [0, 18] });
   assert.notDeepEqual(mesh.world_points(), beforeEdge);
-  assert.deepEqual(mesh.world_inner_point([140, 120, 0]).slice(0, 2).map(Math.round), edgeCursor.map(Math.round));
+  assert.deepEqual(mesh.offset, offsetBeforeEdge);
+  assert.deepEqual(mesh.world_inner_point(mesh.origin).slice(0, 2).map(Math.round), originBeforeEdge.map(Math.round));
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 
+  const originBeforeTranslate = mesh.world_inner_point(mesh.origin).slice(0, 2);
   mesh.translate({ trans: [7, -4] });
+  assert.deepEqual(mesh.world_inner_point(mesh.origin).slice(0, 2).map(Math.round), [
+    Math.round(originBeforeTranslate[0] + 7),
+    Math.round(originBeforeTranslate[1] - 4)
+  ]);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 }
 

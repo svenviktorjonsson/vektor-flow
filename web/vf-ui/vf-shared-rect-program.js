@@ -69,7 +69,7 @@
     "  target: panel.get(e.hover)",
     "  target?",
     "    e.hover.vertex_id >= 0?",
-    "      @: target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, trans: e.trans)",
+    "      @: target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, cursor: e.cursor, trans: e.trans)",
     "    e.hover.edge_id >= 0?",
     "      @: target.scale_edge(edge: e.hover.edge_id, cursor: e.cursor, trans: e.trans)",
     "    target.translate(trans: e.trans)",
