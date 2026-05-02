@@ -1,0 +1,15 @@
+# Shared-runtime draggable rectangle demo.
+# Target shape: compiled VKF exports init(api) and update(input, api).
+# Runtime path: EventArena -> VKF update -> TransformArena -> renderer.
+
+rect_slot: 0
+rect_start: [120, 96]
+
+init(api):
+  api.transforms.set_translate_2d(rect_slot, rect_start)
+
+update(input, api):
+  dragging: input.pointer_down
+  dragging?
+    trans: input.cursor_px - input.pointer_anchor_px
+    api.transforms.set_translate_2d(rect_slot, rect_start + trans)

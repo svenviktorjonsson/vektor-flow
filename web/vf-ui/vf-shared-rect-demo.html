@@ -35,6 +35,12 @@
       pointer-events: auto;
     }
 
+    .vf-shared-runtime-frame .vf-frame__body {
+      padding: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+
     .vf-shared-demo-canvas {
       display: block;
       width: 100%;
@@ -46,17 +52,6 @@
       cursor: grabbing;
     }
 
-    .hud {
-      position: fixed;
-      left: 18px;
-      top: 16px;
-      padding: 10px 12px;
-      border: 1px solid rgba(255, 222, 86, 0.35);
-      border-radius: 12px;
-      background: rgba(11, 14, 22, 0.72);
-      pointer-events: none;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-    }
   </style>
 </head>
 <body>
@@ -65,6 +60,7 @@
   <script src="./vf-shared-runtime.js"></script>
   <script src="./vf-gpu-runtime.js"></script>
   <script src="./vf-wasm-demo-contract.js"></script>
+  <script src="./vf-shared-rect-program.js"></script>
   <script src="./vf-shared-rect-demo.js"></script>
 </body>
 </html>

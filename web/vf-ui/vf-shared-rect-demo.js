@@ -57,12 +57,6 @@
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.stroke();
-
-    ctx.fillStyle = "#11131d";
-    ctx.font = "700 18px Consolas, monospace";
-    ctx.fillText("VKF core seam", 18, 36);
-    ctx.font = "13px Consolas, monospace";
-    ctx.fillText("arena mat4[" + RECT_SLOT + "]", 18, 62);
     ctx.restore();
   }
 
@@ -94,22 +88,8 @@
     var sequence = 0;
     var dragging = false;
     var anchor = { x: 0, y: 0 };
-    var start = { x: START_X, y: START_Y };
 
-    var compiledCoreStandIn = {
-      init: function (api) {
-        api.transforms.setTranslate2D(RECT_SLOT, START_X, START_Y);
-      },
-      update: function (input, api) {
-        if (input.pointerDown) {
-          api.transforms.setTranslate2D(
-            RECT_SLOT,
-            start.x + input.pointerX - input.pointerAnchorX,
-            start.y + input.pointerY - input.pointerAnchorY
-          );
-        }
-      }
-    };
+    var compiledCoreStandIn = assertRuntime("VfSharedRectProgram").create();
     var contract = wasmContract.createWasmDemoContract({
       demo: compiledCoreStandIn,
       arena: arena,
@@ -153,8 +133,6 @@
       dragging = true;
       canvas.classList.add("dragging");
       anchor = point;
-      var rect = rectFromMat4(arena.mat4);
-      start = { x: rect.x, y: rect.y };
       updateFromPointer(point, true);
     });
 
@@ -247,11 +225,7 @@
     var canvas = document.createElement("canvas");
     canvas.className = "vf-shared-demo-canvas";
     canvas.setAttribute("aria-label", "Shared runtime draggable rectangle demo");
-    var hud = document.createElement("div");
-    hud.className = "hud";
-    hud.innerHTML = "Shared arena -> renderer adapter -> canvas<br>No Python/JSON on pointer hot path";
     shell.appendChild(canvas);
-    shell.appendChild(hud);
     frameApi.body.replaceChildren(shell);
 
     global.__vfSharedFrame = frameApi;
