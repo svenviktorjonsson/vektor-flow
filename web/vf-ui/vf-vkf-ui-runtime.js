@@ -352,7 +352,32 @@
     this.vertex_pick_radius = Math.max(this.vertex_radius, finiteOrDefault(options.vertex_pick_radius, 5));
     this.edge_pick_radius = Math.max(this.edge_radius, finiteOrDefault(options.edge_pick_radius, 5));
     this.geometry_version = 0;
+    this.geometry_offset = -1;
+    if (runtime.geometryArena && typeof runtime.geometryArena.setVertex === "function") {
+      var start = runtime.nextGeometryVertex;
+      var count = this.coords.x.length;
+      if (start + count > runtime.geometryArena.capacity()) {
+        throw new RangeError("geometry arena does not have capacity for mesh vertices");
+      }
+      this.geometry_offset = start;
+      runtime.nextGeometryVertex += count;
+      for (var i = 0; i < count; i++) {
+        this._write_geometry_vertex(i);
+      }
+    }
   }
+
+  MeshRef.prototype._write_geometry_vertex = function (index) {
+    if (this.geometry_offset < 0 || !this.runtime.geometryArena) {
+      return;
+    }
+    this.runtime.geometryArena.setVertex(
+      this.geometry_offset + index,
+      numberOrZero(this.coords.x[index]),
+      numberOrZero(this.coords.y[index]),
+      numberOrZero(this.coords.z[index])
+    );
+  };
 
   MeshRef.prototype.add_vertices = function (indices) {
     this.vertices = copyIndexList(indices, 1, "add_vertices").map(function (tuple) {
@@ -571,6 +596,7 @@
     this.coords.y[vertex] = inner[1];
     this.coords.z[vertex] = inner[2];
     this.geometry_version++;
+    this._write_geometry_vertex(vertex);
     return this;
   };
 
@@ -597,6 +623,7 @@
       this.coords.x[vertex] = inner[0];
       this.coords.y[vertex] = inner[1];
       this.coords.z[vertex] = inner[2];
+      this._write_geometry_vertex(vertex);
     }
     this.geometry_version++;
     return this;
@@ -1005,9 +1032,11 @@
     var runtime = {
       arena: opts.arena,
       eventArena: opts.eventArena,
+      geometryArena: opts.geometryArena || null,
       width: numberOrZero(opts.width),
       height: numberOrZero(opts.height),
       nextSlot: 0,
+      nextGeometryVertex: 0,
       rects: [],
       meshes: []
     };

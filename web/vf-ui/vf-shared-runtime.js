@@ -3,6 +3,7 @@
 
   var HEADER_I32 = 16;
   var MAT4_F32 = 16;
+  var GEOMETRY_F64 = 3;
   var HEADER_BYTES = HEADER_I32 * Int32Array.BYTES_PER_ELEMENT;
   var EVENT_HEADER_I32 = 8;
   var EVENT_F64 = 9;
@@ -90,6 +91,20 @@
     return new TransformArena(buffer, header, mat4);
   }
 
+  function createGeometryArena(capacity) {
+    requireSharedArrayBuffer();
+    var cap = Math.max(1, capacity | 0);
+    var bytes = HEADER_BYTES + cap * GEOMETRY_F64 * Float64Array.BYTES_PER_ELEMENT;
+    var buffer = new SharedArrayBuffer(bytes);
+    var header = new Int32Array(buffer, 0, HEADER_I32);
+    var vertices = new Float64Array(buffer, HEADER_BYTES, cap * GEOMETRY_F64);
+    Atomics.store(header, H_CAPACITY, cap);
+    Atomics.store(header, H_DIRTY_VERSION, 0);
+    Atomics.store(header, H_DIRTY_MIN, -1);
+    Atomics.store(header, H_DIRTY_MAX, -1);
+    return new GeometryArena(buffer, header, vertices);
+  }
+
   function createEventArena(capacity) {
     requireSharedArrayBuffer();
     var cap = Math.max(1, capacity | 0);
@@ -114,6 +129,12 @@
     this.buffer = buffer;
     this.header = header;
     this.mat4 = mat4;
+  }
+
+  function GeometryArena(buffer, header, vertices) {
+    this.buffer = buffer;
+    this.header = header;
+    this.vertices = vertices;
   }
 
   function EventArena(buffer, header, f64, i32) {
@@ -263,6 +284,81 @@
     };
   };
 
+  GeometryArena.prototype.capacity = function () {
+    return Atomics.load(this.header, H_CAPACITY);
+  };
+
+  GeometryArena.prototype.setVertex = function (index, x, y, z) {
+    var cap = this.capacity();
+    if (index < 0 || index >= cap) {
+      throw new RangeError("geometry vertex out of range: " + index);
+    }
+    var offset = index * GEOMETRY_F64;
+    this.vertices[offset + 0] = Number(x) || 0;
+    this.vertices[offset + 1] = Number(y) || 0;
+    this.vertices[offset + 2] = Number(z) || 0;
+    markDirty(this.header, index);
+  };
+
+  GeometryArena.prototype.vertex = function (index) {
+    var cap = this.capacity();
+    if (index < 0 || index >= cap) {
+      throw new RangeError("geometry vertex out of range: " + index);
+    }
+    var offset = index * GEOMETRY_F64;
+    return [
+      this.vertices[offset + 0],
+      this.vertices[offset + 1],
+      this.vertices[offset + 2]
+    ];
+  };
+
+  GeometryArena.prototype.dirtyRange = function () {
+    return {
+      version: Atomics.load(this.header, H_DIRTY_VERSION),
+      min: Atomics.load(this.header, H_DIRTY_MIN),
+      max: Atomics.load(this.header, H_DIRTY_MAX)
+    };
+  };
+
+  GeometryArena.prototype.consumeDirtyRange = function () {
+    var range = this.dirtyRange();
+    Atomics.store(this.header, H_DIRTY_MIN, -1);
+    Atomics.store(this.header, H_DIRTY_MAX, -1);
+    return range;
+  };
+
+  GeometryArena.prototype.copyDirtyVertices = function () {
+    var range = this.consumeDirtyRange();
+    if (range.min < 0 || range.max < range.min) {
+      return { range: range, data: new Float64Array(0) };
+    }
+    var start = range.min * GEOMETRY_F64;
+    var end = (range.max + 1) * GEOMETRY_F64;
+    return {
+      range: range,
+      data: this.vertices.slice(start, end)
+    };
+  };
+
+  GeometryArena.prototype.rendererView = function () {
+    var arena = this;
+    return {
+      buffer: arena.buffer,
+      vertices: arena.vertices,
+      capacity: arena.capacity(),
+      dirtyRange: function () {
+        return arena.dirtyRange();
+      },
+      consumeDirtyRange: function () {
+        return arena.consumeDirtyRange();
+      },
+      copyDirtyVertices: function () {
+        return arena.copyDirtyVertices();
+      }
+    };
+  };
+
   EventArena.prototype.capacity = function () {
     return Atomics.load(this.header, EH_CAPACITY);
   };
@@ -323,9 +419,11 @@
   global.VfSharedRuntime = {
     HEADER_I32: HEADER_I32,
     MAT4_F32: MAT4_F32,
+    GEOMETRY_F64: GEOMETRY_F64,
     EVENT_F64: EVENT_F64,
     EVENT_I32: EVENT_I32,
     createTransformArena: createTransformArena,
+    createGeometryArena: createGeometryArena,
     createEventArena: createEventArena
   };
 

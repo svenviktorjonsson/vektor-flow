@@ -53,6 +53,29 @@ assert.deepEqual(rendererView.consumeDirtyRange(), {
   max: -1
 });
 
+const geometry = runtime.createGeometryArena(4);
+const geometryView = geometry.rendererView();
+
+geometry.setVertex(1, 1.25, -2.5, 3.75);
+geometry.setVertex(3, 4, 5, 6);
+
+assert.equal(geometry.capacity(), 4);
+assert.equal(geometryView.capacity, 4);
+assert.equal(geometryView.buffer, geometry.buffer);
+assert.deepEqual(geometry.vertex(1), [1.25, -2.5, 3.75]);
+assert.deepEqual(geometry.dirtyRange(), { version: 2, min: 1, max: 3 });
+const geometryCopy = geometryView.copyDirtyVertices();
+assert.equal(geometryCopy.range.min, 1);
+assert.equal(geometryCopy.range.max, 3);
+assert.equal(geometryCopy.data.length, runtime.GEOMETRY_F64 * 3);
+assert.deepEqual(Array.from(geometryCopy.data.slice(0, 3)), [1.25, -2.5, 3.75]);
+assert.deepEqual(Array.from(geometryCopy.data.slice(6, 9)), [4, 5, 6]);
+assert.deepEqual(geometryView.consumeDirtyRange(), {
+  version: geometryCopy.range.version,
+  min: -1,
+  max: -1
+});
+
 const events = runtime.createEventArena(2);
 const eventReader = events.readerView();
 

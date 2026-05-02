@@ -115,9 +115,11 @@
 
     var initialSize = resizeCanvasToPanel(canvas);
     var arena = shared.createTransformArena(64);
+    var geometryArena = shared.createGeometryArena(256);
     var eventArena = shared.createEventArena(32);
     var uiRuntime = vkfUi.createVkfUiRuntime({
       arena: arena,
+      geometryArena: geometryArena,
       eventArena: eventArena,
       width: initialSize.w,
       height: initialSize.h

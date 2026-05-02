@@ -141,8 +141,9 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
 
 {
   const arena = shared.createTransformArena(4);
+  const geometryArena = shared.createGeometryArena(16);
   const eventArena = shared.createEventArena(4);
-  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena, geometryArena });
   const panel = runtime.ui.display.frame();
   runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
 
@@ -164,6 +165,10 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   mesh.add_vertices([0, 1, 2]);
   mesh.add_edges([[0, 1], [1, 2], [2, 0]]);
   mesh.add_faces([[0, 1, 2]]);
+  assert.equal(mesh.geometry_offset, 0);
+  assert.deepEqual(geometryArena.vertex(mesh.geometry_offset + 0), [-1, -1, 0]);
+  assert.deepEqual(geometryArena.vertex(mesh.geometry_offset + 1), [1, -1, 0]);
+  geometryArena.consumeDirtyRange();
 
   assert.equal(mesh.vertex_radius, 10);
   assert.equal(mesh.edge_radius, 6);
@@ -262,6 +267,7 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
     Math.round(originBeforeTranslate[1] - 4)
   ]);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
+  geometryArena.consumeDirtyRange();
 
   const coordsBeforeVertexEdit = {
     x: mesh.coords.x.slice(),
@@ -279,6 +285,10 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   assertApproxPoint(mesh._parent_point_from_inner([mesh.coords.x[0], mesh.coords.y[0], mesh.coords.z[0]]).slice(0, 2), editCursor);
   assert.deepEqual(mesh.edges, [[0, 1], [1, 2], [2, 0]]);
   assert.deepEqual(mesh.faces, [[0, 1, 2]]);
+  let geometryDirty = geometryArena.copyDirtyVertices();
+  assert.equal(geometryDirty.range.min, mesh.geometry_offset + 0);
+  assert.equal(geometryDirty.range.max, mesh.geometry_offset + 0);
+  assert.deepEqual(Array.from(geometryDirty.data), [mesh.coords.x[0], mesh.coords.y[0], mesh.coords.z[0]]);
 
   const edgeCoordsBefore = {
     x0: mesh.coords.x[0],
@@ -305,6 +315,13 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   assert.equal(mesh.coords.y[2], edgeCoordsBefore.y2);
   assert.deepEqual(mesh.edges, [[0, 1], [1, 2], [2, 0]]);
   assert.deepEqual(mesh.faces, [[0, 1, 2]]);
+  geometryDirty = geometryArena.copyDirtyVertices();
+  assert.equal(geometryDirty.range.min, mesh.geometry_offset + 0);
+  assert.equal(geometryDirty.range.max, mesh.geometry_offset + 1);
+  assert.deepEqual(Array.from(geometryDirty.data), [
+    mesh.coords.x[0], mesh.coords.y[0], mesh.coords.z[0],
+    mesh.coords.x[1], mesh.coords.y[1], mesh.coords.z[1]
+  ]);
 
   const childMesh = mesh.add({
     x: [-0.5, 0.5, 0],
