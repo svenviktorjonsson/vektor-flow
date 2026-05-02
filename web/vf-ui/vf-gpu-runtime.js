@@ -72,10 +72,33 @@
     };
   }
 
+  function createWebGlTransformAdapter(options) {
+    var opts = options || {};
+    var gl = opts.gl;
+    var buffer = opts.buffer;
+    var target = opts.target || (gl && gl.ARRAY_BUFFER);
+    if (!gl || typeof gl.bindBuffer !== "function" || typeof gl.bufferSubData !== "function") {
+      throw new TypeError("WebGL transform adapter expects bindBuffer and bufferSubData");
+    }
+    if (!buffer) {
+      throw new TypeError("WebGL transform adapter expects a WebGLBuffer");
+    }
+    if (typeof target === "undefined") {
+      throw new TypeError("WebGL transform adapter expects a buffer target");
+    }
+    return {
+      writeBuffer: function (offset, bytes) {
+        gl.bindBuffer(target, buffer);
+        gl.bufferSubData(target, offset, bytes);
+      }
+    };
+  }
+
   global.VfGpuRuntime = {
     MAT4_BYTES: MAT4_BYTES,
     createTransformRenderer: createTransformRenderer,
-    createWebGpuTransformAdapter: createWebGpuTransformAdapter
+    createWebGpuTransformAdapter: createWebGpuTransformAdapter,
+    createWebGlTransformAdapter: createWebGlTransformAdapter
   };
 
   if (typeof module !== "undefined" && module.exports) {

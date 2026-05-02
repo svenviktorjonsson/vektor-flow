@@ -94,9 +94,13 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
 
         moved = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
         writes = page.evaluate("() => window.__vfSharedRectDemo.getWrites()")
+        latest_input = page.evaluate("() => window.__vfSharedRectDemo.getLatestInput()")
 
         assert moved["x"] == 210
         assert moved["y"] == 166
+        assert latest_input["cursorPx"] == [250, 210]
+        assert latest_input["pointerDown"] is False
+        assert latest_input["sequence"] >= 2
         assert len(writes) >= 2
         assert all("/api/enqueue" not in request for request in requests)
         assert all("vf-display.json" not in request for request in requests)

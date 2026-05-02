@@ -81,4 +81,34 @@ function createFakeAdapter() {
   assert.equal(calls[0].byteLength, 2 * Float32Array.BYTES_PER_ELEMENT);
 }
 
+{
+  const glBuffer = { label: "transform-buffer" };
+  const calls = [];
+  const gl = {
+    ARRAY_BUFFER: 0x8892,
+    bindBuffer(target, buffer) {
+      calls.push({ op: "bindBuffer", target, buffer });
+    },
+    bufferSubData(target, offset, bytes) {
+      calls.push({ op: "bufferSubData", target, offset, bytes: new Float32Array(bytes) });
+    }
+  };
+  const adapter = gpu.createWebGlTransformAdapter({ gl, buffer: glBuffer });
+  const arena = shared.createTransformArena(3);
+  const renderer = gpu.createTransformRenderer({ arena, adapter });
+
+  arena.setTranslate2D(1, 7, 8);
+  const flush = renderer.flushDirtyTransforms();
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], { op: "bindBuffer", target: gl.ARRAY_BUFFER, buffer: glBuffer });
+  assert.equal(calls[1].op, "bufferSubData");
+  assert.equal(calls[1].target, gl.ARRAY_BUFFER);
+  assert.equal(calls[1].offset, shared.MAT4_F32 * Float32Array.BYTES_PER_ELEMENT);
+  assert.equal(calls[1].bytes.length, shared.MAT4_F32);
+  assert.equal(calls[1].bytes[12], 7);
+  assert.equal(calls[1].bytes[13], 8);
+  assert.equal(flush.bytesWritten, shared.MAT4_F32 * Float32Array.BYTES_PER_ELEMENT);
+}
+
 console.log("vf-gpu-runtime tests passed");

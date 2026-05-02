@@ -76,6 +76,7 @@
     }
 
     var arena = shared.createTransformArena(1);
+    var eventArena = shared.createEventArena(32);
     var adapter = makeTrackedAdapter();
     var renderer = gpu.createTransformRenderer({ arena: arena, adapter: adapter });
     var sequence = 0;
@@ -99,7 +100,8 @@
     };
     var contract = wasmContract.createWasmDemoContract({
       demo: compiledCoreStandIn,
-      arena: arena
+      arena: arena,
+      eventArena: eventArena
     });
 
     function canvasPoint(event) {
@@ -117,16 +119,15 @@
     }
 
     function updateFromPointer(point, down) {
-      contract.update({
+      eventArena.writeInputSample({
         sequence: ++sequence,
         timeMs: performance.now(),
-        pointerX: point.x,
-        pointerY: point.y,
-        pointerAnchorX: anchor.x,
-        pointerAnchorY: anchor.y,
+        cursorPx: [point.x, point.y],
+        pointerAnchorPx: [anchor.x, anchor.y],
         pointerDown: down,
         buttons: down ? 1 : 0
       });
+      contract.update();
       renderer.flushDirtyTransforms();
     }
 
@@ -178,6 +179,7 @@
 
     return {
       arena: arena,
+      eventArena: eventArena,
       adapter: adapter,
       renderer: renderer,
       contract: contract,
@@ -186,6 +188,9 @@
       },
       getWrites: function () {
         return adapter.writes.slice();
+      },
+      getLatestInput: function () {
+        return eventArena.latestSample();
       },
       isDragging: function () {
         return dragging;

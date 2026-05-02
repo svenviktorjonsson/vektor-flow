@@ -53,4 +53,45 @@ assert.deepEqual(rendererView.consumeDirtyRange(), {
   max: -1
 });
 
+const events = runtime.createEventArena(2);
+const eventReader = events.readerView();
+
+events.writeInputSample({
+  cursorPx: [120.5, 80.25],
+  pointerAnchorPx: [12.5, 8.25],
+  pointerDown: true,
+  buttons: 1,
+  keyMask: 5,
+  sequence: 42,
+  timeMs: 1234.5,
+  hover: {
+    frame: 7,
+    object: 8,
+    face: 9,
+    edge: 10,
+    vertex: 11
+  }
+});
+
+assert.equal(events.capacity(), 2);
+assert.equal(eventReader.buffer, events.buffer);
+assert.ok(eventReader.f64 instanceof Float64Array);
+assert.ok(eventReader.i32 instanceof Int32Array);
+assert.deepEqual(eventReader.latestSample(), {
+  cursorPx: [120.5, 80.25],
+  pointerAnchorPx: [12.5, 8.25],
+  pointerDown: true,
+  buttons: 1,
+  keyMask: 5,
+  sequence: 42,
+  timeMs: 1234.5,
+  hover: {
+    frame: 7,
+    object: 8,
+    face: 9,
+    edge: 10,
+    vertex: 11
+  }
+});
+
 console.log("vf-shared-runtime tests passed");

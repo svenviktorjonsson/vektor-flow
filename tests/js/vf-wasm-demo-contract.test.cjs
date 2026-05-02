@@ -99,6 +99,78 @@ const wasmDemo = require("../../web/vf-ui/vf-wasm-demo-contract.js");
   assert.deepEqual(Object.keys(snapshots[0]), wasmDemo.INPUT_SNAPSHOT_FIELDS);
 }
 
+{
+  const arena = shared.createTransformArena(1);
+  const eventBuffer = new SharedArrayBuffer(128);
+  const eventReader = {
+    buffer: eventBuffer,
+    f64: new Float64Array(eventBuffer, 0, 8),
+    i32: new Int32Array(eventBuffer, 64, 8),
+    latestSample() {
+      return {
+        cursorPx: [44.5, 55.25],
+        pointerDown: true,
+        buttons: 3,
+        keyMask: 9,
+        sequence: 77,
+        timeMs: 123.5,
+        pointerAnchorPx: [4, 5]
+      };
+    }
+  };
+  const eventArena = {
+    readerViewCalls: 0,
+    readerView() {
+      this.readerViewCalls += 1;
+      return eventReader;
+    }
+  };
+  const calls = [];
+  const demo = {
+    exports: {
+      init(api) {
+        calls.push({ name: "init", api });
+        assert.equal(api.events.buffer, eventBuffer);
+        assert.equal(api.events.f64, eventReader.f64);
+        assert.equal(api.events.i32, eventReader.i32);
+      },
+      update(input, api) {
+        calls.push({ name: "update", input, api });
+        assert.equal(api.events, eventReader);
+      }
+    }
+  };
+
+  const originalStringify = JSON.stringify;
+  const originalParse = JSON.parse;
+  JSON.stringify = function () {
+    throw new Error("JSON.stringify must not be used on the UI hot path");
+  };
+  JSON.parse = function () {
+    throw new Error("JSON.parse must not be used on the UI hot path");
+  };
+
+  try {
+    const contract = wasmDemo.createWasmDemoContract({ demo, arena, eventArena });
+    contract.init();
+    contract.update();
+  } finally {
+    JSON.stringify = originalStringify;
+    JSON.parse = originalParse;
+  }
+
+  assert.equal(eventArena.readerViewCalls, 1);
+  assert.equal(calls[1].input.sequence, 77);
+  assert.equal(calls[1].input.timeMs, 123.5);
+  assert.equal(calls[1].input.pointerX, 44.5);
+  assert.equal(calls[1].input.pointerY, 55.25);
+  assert.equal(calls[1].input.pointerAnchorX, 4);
+  assert.equal(calls[1].input.pointerAnchorY, 5);
+  assert.equal(calls[1].input.pointerDown, 1);
+  assert.equal(calls[1].input.buttons, 3);
+  assert.equal(calls[1].input.keyMask, 9);
+}
+
 assert.throws(
   () => wasmDemo.createWasmDemoContract({ demo: { init() {} }, arena: shared.createTransformArena(1) }),
   /update/

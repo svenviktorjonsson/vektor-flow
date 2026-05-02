@@ -57,6 +57,69 @@ This tracer uses a JS `CompiledCore` stand-in behind
 the stable part being tested. Replacing the stand-in with a real VKF/WASM export
 should not require renderer changes.
 
+## Truthful Native/Core Path
+
+The current packaged native/core path is:
+
+1. `dist/releases/windows-overlay/vkf.exe` is a packaged Python CLI entrypoint.
+2. `vkf.exe cpp-native-core <file>` emits standalone C++ for the supported
+   `examples/native_core/` subset.
+3. `vkf.exe package-native-core <file> -o <dir>` produces C++, an executable,
+   launchers, smoke tests, and `vektorflow-package.json`.
+4. The package metadata says `python_required_to_build: true` and
+   `python_required_to_run: false`.
+
+That is a useful `CompiledCore` module, but it does not yet satisfy the UI
+runtime interface. Its generated implementation has a process `main()` and
+prints program output; it does not export `init(api)` / `update(input, api)` or
+write the `RuntimeArenas` layout expected by `VfWasmDemoContract`.
+
+`examples/ui_draggable_rect_minimal.vkf` is also not in the native-core subset
+today: `vkf.exe cpp-native-core examples/ui_draggable_rect_minimal.vkf` fails
+with `unknown name in typed IR analysis: ui`.
+
+The release bundle also trails the source tracer. `web/vf-ui/` contains
+`vf-shared-runtime.js`, `vf-gpu-runtime.js`, `vf-wasm-demo-contract.js`, and the
+shared rectangle demo; `dist/releases/windows-overlay/vf-ui/` currently contains
+the older JSON/browser display assets instead.
+
+## Exact Gap List
+
+- `NativeCorePackage` seam exists for standalone executables, not UI exports.
+- `VfWasmDemoContract` seam exists for JS/WASM-style demos, not native-core C++
+  packages.
+- `RuntimeArenas` currently expose only a JS `SharedArrayBuffer` transform arena;
+  there is no generated native header or ABI for compiled C++ to write.
+- The `ui` language surface is outside `native_core`, so the draggable UI example
+  cannot be the first native-core input.
+- The Windows overlay release bundle includes UI modes and overlay assets, but
+  not the shared-runtime tracer files needed to demonstrate this seam from the
+  bundle.
+- The renderer adapter is deep enough for WebGPU/WebGL-style buffer writes, but
+  native-core cannot reach that interface yet.
+
+## Next Vertical Slice
+
+Build the next slice around a tiny adapter instead of broad compiler work:
+
+1. Define one C ABI/header for the transform arena: header fields, mat4 slots,
+   dirty version, dirty min, and dirty max.
+2. Add a native-core output mode that emits `vkf_init(VfDemoApi*)` and
+   `vkf_update(VfInputSnapshot, VfDemoApi*)` for a one-rectangle demo, not
+   `main()`.
+3. Keep the first VKF source free of `ui`; use plain numbers/functions that map
+   pointer input to `setTranslate2D(slot, x, y)`.
+4. Add one JS/WASM adapter that makes those exports satisfy
+   `VfWasmDemoContract.createWasmDemoContract(...)`.
+5. Package the shared-runtime tracer files into `windows-overlay` so the release
+   bundle can run the same seam as source.
+
+This creates a real seam with two adapters: the current JS stand-in and the new
+native/WASM compiled-core adapter. The leverage is that renderer tests remain at
+the arena interface. The locality is that native-core export shape, arena ABI,
+and bundle packaging each change in one module instead of leaking into the
+renderer.
+
 ## Not In This Slice
 
 - General widget library.

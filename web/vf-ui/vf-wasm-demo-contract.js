@@ -27,14 +27,35 @@
     return Object.freeze({
       sequence: integerOrZero(src.sequence),
       timeMs: numberOrZero(src.timeMs),
-      pointerX: numberOrZero(src.pointerX),
-      pointerY: numberOrZero(src.pointerY),
-      pointerAnchorX: numberOrZero(src.pointerAnchorX),
-      pointerAnchorY: numberOrZero(src.pointerAnchorY),
+      pointerX: numberOrZero(src.pointerX != null ? src.pointerX : src.cursorPx && src.cursorPx[0]),
+      pointerY: numberOrZero(src.pointerY != null ? src.pointerY : src.cursorPx && src.cursorPx[1]),
+      pointerAnchorX: numberOrZero(
+        src.pointerAnchorX != null ? src.pointerAnchorX : src.pointerAnchorPx && src.pointerAnchorPx[0]
+      ),
+      pointerAnchorY: numberOrZero(
+        src.pointerAnchorY != null ? src.pointerAnchorY : src.pointerAnchorPx && src.pointerAnchorPx[1]
+      ),
       pointerDown: src.pointerDown ? 1 : 0,
       buttons: integerOrZero(src.buttons),
       keyMask: integerOrZero(src.keyMask)
     });
+  }
+
+  function createEventReader(eventArena) {
+    if (!eventArena) {
+      return null;
+    }
+    if (typeof eventArena.readerView === "function") {
+      return eventArena.readerView();
+    }
+    return eventArena;
+  }
+
+  function latestInputFromEvents(events) {
+    if (events && typeof events.latestSample === "function") {
+      return events.latestSample();
+    }
+    return null;
   }
 
   function resolveDemoExports(demo) {
@@ -57,6 +78,7 @@
     var init = requireFunction(exports, "init");
     var update = requireFunction(exports, "update");
     var arena = opts.arena;
+    var events = createEventReader(opts.eventArena || opts.events);
 
     if (!arena || typeof arena.rendererView !== "function") {
       throw new TypeError("createWasmDemoContract requires a shared runtime transform arena");
@@ -80,9 +102,13 @@
       }
     });
 
-    var api = Object.freeze({
+    var apiShape = {
       transforms: transforms
-    });
+    };
+    if (events) {
+      apiShape.events = events;
+    }
+    var api = Object.freeze(apiShape);
 
     return {
       api: api,
@@ -90,7 +116,7 @@
         return init(api);
       },
       update: function (input) {
-        return update(createInputSnapshot(input), api);
+        return update(createInputSnapshot(input || latestInputFromEvents(events)), api);
       }
     };
   }
