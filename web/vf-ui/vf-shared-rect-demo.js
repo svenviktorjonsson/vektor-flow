@@ -129,6 +129,7 @@
     var activeObjectId = -1;
     var activeHover = null;
     var anchor = { x: 0, y: 0 };
+    var keyMask = 0;
 
     var compiledCoreStandIn = assertRuntime("VfSharedRectProgram").create();
     var contract = wasmContract.createWasmDemoContract({
@@ -193,7 +194,24 @@
       return [point.x, point.y];
     }
 
-    function updateFromPointer(point, down) {
+    function maskFromEvent(event) {
+      var mask = 0;
+      if (event && event.ctrlKey) { mask |= 1; }
+      if (event && event.shiftKey) { mask |= 2; }
+      if (event && event.altKey) { mask |= 4; }
+      if (event && event.metaKey) { mask |= 8; }
+      return mask;
+    }
+
+    function setKeyboardMask(mask) {
+      keyMask = mask | 0;
+      uiRuntime.ui.keyboard.set_mask(keyMask);
+    }
+
+    function updateFromPointer(point, down, event) {
+      if (event) {
+        setKeyboardMask(maskFromEvent(event));
+      }
       var picked = pickElement(point);
       var hover = hoverFromPick(picked);
       var objectId = idFromPick(picked);
@@ -213,6 +231,7 @@
         localAnchor: localAnchor,
         pointerDown: down,
         buttons: down ? 1 : 0,
+        keyMask: keyMask,
         hover: hover || (activeObjectId >= 0 ? { object: activeObjectId } : null)
       });
       contract.update();
@@ -238,7 +257,7 @@
       activeObjectId = idFromPick(picked);
       activeHover = hoverFromPick(picked);
       anchor = point;
-      updateFromPointer(point, true);
+      updateFromPointer(point, true, event);
     });
 
     canvas.addEventListener("pointermove", function (event) {
@@ -246,7 +265,7 @@
         return;
       }
       event.preventDefault();
-      updateFromPointer(canvasPoint(event), true);
+      updateFromPointer(canvasPoint(event), true, event);
     });
 
     canvas.addEventListener("pointerup", function (event) {
@@ -254,7 +273,7 @@
         return;
       }
       dragging = false;
-      updateFromPointer(canvasPoint(event), false);
+      updateFromPointer(canvasPoint(event), false, event);
       activeObjectId = -1;
       activeHover = null;
     });
@@ -263,6 +282,14 @@
       dragging = false;
       activeObjectId = -1;
       activeHover = null;
+    });
+
+    global.addEventListener("keydown", function (event) {
+      setKeyboardMask(maskFromEvent(event));
+    });
+
+    global.addEventListener("keyup", function (event) {
+      setKeyboardMask(maskFromEvent(event));
     });
 
     contract.init();

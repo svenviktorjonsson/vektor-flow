@@ -14,6 +14,13 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   const ui = runtime.ui;
   assert.equal(ui.display.width, 1280);
   assert.equal(ui.display.height, 720);
+  ui.keyboard.set_mask(5);
+  assert.deepEqual(ui.keyboard.modifiers, {
+    ctrl: true,
+    shift: false,
+    alt: true,
+    meta: false
+  });
   ui.display.set_size({ width: 960, height: 540 });
   assert.equal(ui.display.width, 960);
   assert.equal(ui.display.height, 540);
@@ -50,11 +57,12 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   assert.equal(e.event, ui.MOUSE_DRAG);
   assert.equal(e.hover.object_id, rect.id);
   assert.equal(e.hover.mask, vkfUi.HOVER_OBJECT);
-  assert.equal(e.hover.kind, vkfUi.HOVER_OBJECT);
+    assert.equal(e.hover.kind, vkfUi.HOVER_OBJECT);
     assert.deepEqual(e.trans, [30, 20]);
     assert.deepEqual(e.local_cursor, [0.5, 0.25]);
     assert.deepEqual(e.local_anchor, [0.1, -0.25]);
     assert.deepEqual(e.local_trans, [0.4, 0.5]);
+    assert.equal(e.key_mask, 0);
     assert.equal(target, rect);
     target.translate({ trans: e.trans });
   } finally {
@@ -254,6 +262,49 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
     Math.round(originBeforeTranslate[1] - 4)
   ]);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
+
+  const coordsBeforeVertexEdit = {
+    x: mesh.coords.x.slice(),
+    y: mesh.coords.y.slice(),
+    z: mesh.coords.z.slice()
+  };
+  const transformOffsetBeforeVertexEdit = mesh.offset.slice();
+  const geometryVersionBeforeVertexEdit = mesh.geometry_version;
+  const editCursor = [mesh._parent_point_from_inner([-1, -1, 0])[0] + 12, mesh._parent_point_from_inner([-1, -1, 0])[1] + 6];
+  mesh.move_vertex({ vertex: 0, local_cursor: editCursor });
+  assert.equal(mesh.geometry_version, geometryVersionBeforeVertexEdit + 1);
+  assert.deepEqual(mesh.offset, transformOffsetBeforeVertexEdit);
+  assert.notDeepEqual(mesh.coords.x, coordsBeforeVertexEdit.x);
+  assert.notDeepEqual(mesh.coords.y, coordsBeforeVertexEdit.y);
+  assertApproxPoint(mesh._parent_point_from_inner([mesh.coords.x[0], mesh.coords.y[0], mesh.coords.z[0]]).slice(0, 2), editCursor);
+  assert.deepEqual(mesh.edges, [[0, 1], [1, 2], [2, 0]]);
+  assert.deepEqual(mesh.faces, [[0, 1, 2]]);
+
+  const edgeCoordsBefore = {
+    x0: mesh.coords.x[0],
+    y0: mesh.coords.y[0],
+    x1: mesh.coords.x[1],
+    y1: mesh.coords.y[1],
+    x2: mesh.coords.x[2],
+    y2: mesh.coords.y[2]
+  };
+  const geometryVersionBeforeEdgeEdit = mesh.geometry_version;
+  const edgeMove = [9, -7];
+  const edge0Before = mesh._parent_point_from_inner([mesh.coords.x[0], mesh.coords.y[0], mesh.coords.z[0]]).slice(0, 2);
+  const edge1Before = mesh._parent_point_from_inner([mesh.coords.x[1], mesh.coords.y[1], mesh.coords.z[1]]).slice(0, 2);
+  mesh.translate_edge({ edge: 0, local_trans: edgeMove });
+  assert.equal(mesh.geometry_version, geometryVersionBeforeEdgeEdit + 1);
+  assert.deepEqual(mesh.offset, transformOffsetBeforeVertexEdit);
+  assertApproxPoint(mesh._parent_point_from_inner([mesh.coords.x[0], mesh.coords.y[0], mesh.coords.z[0]]).slice(0, 2), [edge0Before[0] + edgeMove[0], edge0Before[1] + edgeMove[1]]);
+  assertApproxPoint(mesh._parent_point_from_inner([mesh.coords.x[1], mesh.coords.y[1], mesh.coords.z[1]]).slice(0, 2), [edge1Before[0] + edgeMove[0], edge1Before[1] + edgeMove[1]]);
+  assert.notEqual(mesh.coords.x[0], edgeCoordsBefore.x0);
+  assert.notEqual(mesh.coords.y[0], edgeCoordsBefore.y0);
+  assert.notEqual(mesh.coords.x[1], edgeCoordsBefore.x1);
+  assert.notEqual(mesh.coords.y[1], edgeCoordsBefore.y1);
+  assert.equal(mesh.coords.x[2], edgeCoordsBefore.x2);
+  assert.equal(mesh.coords.y[2], edgeCoordsBefore.y2);
+  assert.deepEqual(mesh.edges, [[0, 1], [1, 2], [2, 0]]);
+  assert.deepEqual(mesh.faces, [[0, 1, 2]]);
 
   const childMesh = mesh.add({
     x: [-0.5, 0.5, 0],

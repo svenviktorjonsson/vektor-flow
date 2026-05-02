@@ -192,7 +192,15 @@ root_c_vertex_hidden_edge_hidden.add_faces([[0, 1, 2, 3]])
 
 drag(e):
   target: panel.get(e.hover)
+  mods: ui.keyboard.modifiers
   target?
+    mods.ctrl?
+      e.hover.kind?>
+        ui.HOVER_VERTEX =>
+          target.move_vertex(vertex: e.hover.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)
+        ui.HOVER_EDGE =>
+          target.translate_edge(edge: e.hover.edge_id, local_trans: e.local_trans)
+      @|
     e.hover.kind?>
       ui.HOVER_VERTEX =>
         target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, local_cursor: e.local_cursor, local_trans: e.local_trans)

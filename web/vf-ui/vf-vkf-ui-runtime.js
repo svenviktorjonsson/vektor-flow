@@ -83,6 +83,7 @@
       ]),
       hover: normalizedHover(sample),
       buttons: intOrDefault(sample.buttons, 0),
+      key_mask: intOrDefault(sample.keyMask, 0),
       sequence: intOrDefault(sample.sequence, 0),
       time_ms: numberOrZero(sample.timeMs)
     });
@@ -350,6 +351,7 @@
     );
     this.vertex_pick_radius = Math.max(this.vertex_radius, finiteOrDefault(options.vertex_pick_radius, 5));
     this.edge_pick_radius = Math.max(this.edge_radius, finiteOrDefault(options.edge_pick_radius, 5));
+    this.geometry_version = 0;
   }
 
   MeshRef.prototype.add_vertices = function (indices) {
@@ -503,6 +505,10 @@
     var parentPoint = this.parent && typeof this.parent.inner_from_world === "function"
       ? this.parent.inner_from_world(point)
       : point;
+    return this._inner_from_parent_point(parentPoint);
+  };
+
+  MeshRef.prototype._inner_from_parent_point = function (parentPoint) {
     var originBase = this._base_point(this.origin);
     var x = numberOrZero(parentPoint[0]) - originBase[0] - this.offset[0];
     var y = numberOrZero(parentPoint[1]) - originBase[1] - this.offset[1];
@@ -540,6 +546,59 @@
     this.offset[1] += dy;
     this.offset[2] += numberOrZero(trans[2]);
     this._sync_transform();
+    return this;
+  };
+
+  MeshRef.prototype.move_vertex = function (args) {
+    args = args || {};
+    var vertex = intOrDefault(args.vertex, -1);
+    if (vertex < 0 || vertex >= this.coords.x.length) {
+      return this;
+    }
+    var trans = args.local_trans || args.trans || [0, 0, 0];
+    var current = this._parent_point_from_inner([
+      numberOrZero(this.coords.x[vertex]),
+      numberOrZero(this.coords.y[vertex]),
+      numberOrZero(this.coords.z[vertex])
+    ]);
+    var target = args.local_cursor || [
+      current[0] + numberOrZero(trans[0]),
+      current[1] + numberOrZero(trans[1]),
+      current[2] + numberOrZero(trans[2])
+    ];
+    var inner = this._inner_from_parent_point(target);
+    this.coords.x[vertex] = inner[0];
+    this.coords.y[vertex] = inner[1];
+    this.coords.z[vertex] = inner[2];
+    this.geometry_version++;
+    return this;
+  };
+
+  MeshRef.prototype.translate_edge = function (args) {
+    args = args || {};
+    var edge = intOrDefault(args.edge, -1);
+    if (edge < 0 || edge >= this.edges.length) {
+      return this;
+    }
+    var pair = this.edges[edge];
+    var trans = args.local_trans || args.trans || [0, 0, 0];
+    for (var i = 0; i < pair.length; i++) {
+      var vertex = pair[i];
+      var current = this._parent_point_from_inner([
+        numberOrZero(this.coords.x[vertex]),
+        numberOrZero(this.coords.y[vertex]),
+        numberOrZero(this.coords.z[vertex])
+      ]);
+      var inner = this._inner_from_parent_point([
+        current[0] + numberOrZero(trans[0]),
+        current[1] + numberOrZero(trans[1]),
+        current[2] + numberOrZero(trans[2])
+      ]);
+      this.coords.x[vertex] = inner[0];
+      this.coords.y[vertex] = inner[1];
+      this.coords.z[vertex] = inner[2];
+    }
+    this.geometry_version++;
     return this;
   };
 
@@ -907,6 +966,34 @@
     return this.mode;
   };
 
+  function Keyboard() {
+    this.modifiers = {
+      ctrl: false,
+      shift: false,
+      alt: false,
+      meta: false
+    };
+  }
+
+  Keyboard.prototype.set_modifiers = function (mods) {
+    mods = mods || {};
+    this.modifiers.ctrl = !!mods.ctrl;
+    this.modifiers.shift = !!mods.shift;
+    this.modifiers.alt = !!mods.alt;
+    this.modifiers.meta = !!mods.meta;
+    return this.modifiers;
+  };
+
+  Keyboard.prototype.set_mask = function (mask) {
+    mask = intOrDefault(mask, 0);
+    return this.set_modifiers({
+      ctrl: (mask & 1) !== 0,
+      shift: (mask & 2) !== 0,
+      alt: (mask & 4) !== 0,
+      meta: (mask & 8) !== 0
+    });
+  };
+
   function createVkfUiRuntime(options) {
     var opts = options || {};
     if (!opts.arena || typeof opts.arena.setTranslate2D !== "function") {
@@ -935,7 +1022,8 @@
       HOVER_VERTEX: HOVER_VERTEX,
       display: new Display(runtime),
       events: new EventQueue(opts.eventArena),
-      cursor: new Cursor()
+      cursor: new Cursor(),
+      keyboard: new Keyboard()
     });
     return runtime;
   }
