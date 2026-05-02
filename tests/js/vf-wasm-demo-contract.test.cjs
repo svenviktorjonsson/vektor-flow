@@ -171,6 +171,23 @@ const wasmDemo = require("../../web/vf-ui/vf-wasm-demo-contract.js");
   assert.equal(calls[1].input.keyMask, 9);
 }
 
+{
+  const arena = shared.createTransformArena(1);
+  const uiRuntime = { ui: { display: "display", events: "events" } };
+  const demo = {
+    init(api) {
+      assert.equal(api.ui, uiRuntime.ui);
+    },
+    update(_input, api) {
+      assert.equal(api.ui.display, "display");
+      assert.equal(api.ui.events, "events");
+    }
+  };
+  const contract = wasmDemo.createWasmDemoContract({ demo, arena, uiRuntime });
+  contract.init();
+  contract.update();
+}
+
 assert.throws(
   () => wasmDemo.createWasmDemoContract({ demo: { init() {} }, arena: shared.createTransformArena(1) }),
   /update/

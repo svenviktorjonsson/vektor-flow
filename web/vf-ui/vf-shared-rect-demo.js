@@ -61,6 +61,7 @@
 
   function createDemo(canvas) {
     var shared = assertRuntime("VfSharedRuntime");
+    var vkfUi = assertRuntime("VfVkfUiRuntime");
     var gpu = assertRuntime("VfGpuRuntime");
     var wasmContract = assertRuntime("VfWasmDemoContract");
     var ctx = canvas.getContext("2d");
@@ -70,6 +71,7 @@
 
     var arena = shared.createTransformArena(1);
     var eventArena = shared.createEventArena(32);
+    var uiRuntime = vkfUi.createVkfUiRuntime({ arena: arena, eventArena: eventArena });
     var adapter = makeTrackedAdapter();
     var renderer = gpu.createTransformRenderer({ arena: arena, adapter: adapter });
     var sequence = 0;
@@ -80,7 +82,8 @@
     var contract = wasmContract.createWasmDemoContract({
       demo: compiledCoreStandIn,
       arena: arena,
-      eventArena: eventArena
+      eventArena: eventArena,
+      uiRuntime: uiRuntime
     });
 
     function canvasPoint(event) {
@@ -104,10 +107,12 @@
         cursorPx: [point.x, point.y],
         pointerAnchorPx: [anchor.x, anchor.y],
         pointerDown: down,
-        buttons: down ? 1 : 0
+        buttons: down ? 1 : 0,
+        hover: containsRect(point) || dragging ? { object: RECT_SLOT } : null
       });
       contract.update();
       renderer.flushDirtyTransforms();
+      anchor = point;
     }
 
     canvas.addEventListener("pointerdown", function (event) {

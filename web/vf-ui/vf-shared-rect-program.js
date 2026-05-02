@@ -44,34 +44,38 @@
   ].join("\n");
 
   function createVkfSharedRectProgram() {
-    var dragging = false;
-    var anchorX = 0;
-    var anchorY = 0;
-    var startX = RECT_START_X;
-    var startY = RECT_START_Y;
+    var panel = null;
+    var activeTarget = null;
 
     return {
       source: vkfSource,
       init: function (api) {
-        api.transforms.setTranslate2D(RECT_SLOT, RECT_START_X, RECT_START_Y);
+        var ui = api.ui;
+        panel = ui.display.frame({
+          title: "VKF rect",
+          draggable: true,
+          closable: true,
+          resizable: true,
+          dockable: true,
+          dock_loc: "bl",
+          alpha: 0.96,
+          master: true
+        });
+        ui.display.add_frame(panel, [0.18, 0.18, 0.42, 0.34]);
+        panel.add_rect([RECT_START_X, RECT_START_Y, 180, 118], {
+          color: [0.20, 0.82, 0.49, 1.0]
+        });
       },
       update: function (input, api) {
-        if (input.pointerDown && !dragging) {
-          dragging = true;
-          anchorX = input.pointerX;
-          anchorY = input.pointerY;
-          startX = api.transforms.mat4[RECT_SLOT * 16 + 12];
-          startY = api.transforms.mat4[RECT_SLOT * 16 + 13];
-        }
+        var e = api.ui.events.get();
         if (!input.pointerDown) {
-          dragging = false;
+          activeTarget = null;
           return;
         }
-        api.transforms.setTranslate2D(
-          RECT_SLOT,
-          startX + input.pointerX - anchorX,
-          startY + input.pointerY - anchorY
-        );
+        activeTarget = activeTarget || panel.get(e.hover);
+        if (activeTarget) {
+          activeTarget.translate({ trans: e.trans });
+        }
       }
     };
   }

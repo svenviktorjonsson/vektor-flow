@@ -108,6 +108,9 @@
     if (events) {
       apiShape.events = events;
     }
+    if (opts.uiRuntime && opts.uiRuntime.ui) {
+      apiShape.ui = opts.uiRuntime.ui;
+    }
     var api = Object.freeze(apiShape);
 
     return {
