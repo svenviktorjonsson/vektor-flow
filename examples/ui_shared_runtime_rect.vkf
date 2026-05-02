@@ -1,15 +1,41 @@
-# Shared-runtime draggable rectangle demo.
-# Target shape: compiled VKF exports init(api) and update(input, api).
-# Runtime path: EventArena -> VKF update -> TransformArena -> renderer.
+# Minimal VKF-driven rectangle interaction.
+# Run: vkf examples/ui_shared_runtime_rect.vkf
 
-rect_slot: 0
-rect_start: [120, 96]
+ui: .ui
+t: .time
+events: ui.events
+d: ui.display
 
-init(api):
-  api.transforms.set_translate_2d(rect_slot, rect_start)
+panel: d.frame(
+  title: "VKF rect",
+  draggable: true,
+  closable: true,
+  resizable: true,
+  dockable: true,
+  dock_loc: "bl",
+  alpha: 0.96,
+  master: true
+)
 
-update(input, api):
-  dragging: input.pointer_down
-  dragging?
-    trans: input.cursor_px - input.pointer_anchor_px
-    api.transforms.set_translate_2d(rect_slot, rect_start + trans)
+d.add_frame(panel, [0.18, 0.18, 0.42, 0.34])
+
+rect: panel.add_rect([0.22, 0.22, 0.34, 0.28], color: [0.20, 0.82, 0.49, 1.0])
+rect.set_interaction(cursor: "open_hand", pressed_cursor: "closed_hand", border: 0.03)
+
+drag(e):
+  target: panel.get(e.hover)
+  target?
+    target.translate(trans: e.trans)
+
+:: "vkf rect ready"
+
+(e: events.get())??>
+  ui.MOUSE_DOWN =>
+    ui.cursor.set_mode("closed_hand")
+  ui.MOUSE_MOVE =>
+    ui.cursor.set_mode("open_hand")
+  ui.MOUSE_DRAG =>
+    drag(e)
+  ui.MOUSE_UP =>
+    ui.cursor.set_mode("open_hand")
+  t.sleep(0.016)
