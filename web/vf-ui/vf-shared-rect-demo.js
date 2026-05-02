@@ -20,7 +20,7 @@
     };
   }
 
-  function draw(ctx, canvas, rects) {
+  function draw(ctx, canvas, rects, meshes) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (var i = 0; i < rects.length; i++) {
       var ref = rects[i];
@@ -32,6 +32,52 @@
         Math.round(rect.w),
         Math.round(rect.h)
       );
+    }
+    for (var m = 0; m < meshes.length; m++) {
+      drawMesh(ctx, meshes[m]);
+    }
+  }
+
+  function drawMesh(ctx, mesh) {
+    var i;
+    ctx.fillStyle = rgba(mesh.color);
+    for (i = 0; i < mesh.faces.length; i++) {
+      var face = mesh.faces[i];
+      if (face.length < 3) {
+        continue;
+      }
+      ctx.beginPath();
+      var first = mesh.world_point(face[0]);
+      ctx.moveTo(first[0], first[1]);
+      for (var j = 1; j < face.length; j++) {
+        var p = mesh.world_point(face[j]);
+        ctx.lineTo(p[0], p[1]);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (mesh.edge_width > 0) {
+      ctx.strokeStyle = rgba([0.15, 0.95, 0.95, 1.0]);
+      ctx.lineWidth = mesh.edge_width;
+      ctx.lineCap = "round";
+      for (i = 0; i < mesh.edges.length; i++) {
+        var edge = mesh.edges[i];
+        var a = mesh.world_point(edge[0]);
+        var b = mesh.world_point(edge[1]);
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        ctx.stroke();
+      }
+    }
+    if (mesh.vertex_width > 0) {
+      ctx.fillStyle = rgba([1.0, 0.22, 0.72, 1.0]);
+      for (i = 0; i < mesh.vertices.length; i++) {
+        var v = mesh.world_point(mesh.vertices[i]);
+        ctx.beginPath();
+        ctx.arc(v[0], v[1], mesh.vertex_width, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
 
@@ -75,6 +121,7 @@
     var sequence = 0;
     var dragging = false;
     var activeObjectId = -1;
+    var activeHover = null;
     var anchor = { x: 0, y: 0 };
 
     var compiledCoreStandIn = assertRuntime("VfSharedRectProgram").create();
@@ -93,14 +140,40 @@
       };
     }
 
-    function pickRect(point) {
+    function pickElement(point) {
       var frame = uiRuntime.ui.display.last_frame;
       return frame ? frame.pick([point.x, point.y]) : null;
     }
 
+    function hoverFromPick(picked) {
+      if (!picked) {
+        return null;
+      }
+      if (picked.hover) {
+        return {
+          object: picked.hover.object_id,
+          vertex: picked.hover.vertex_id,
+          edge: picked.hover.edge_id,
+          face: picked.hover.face_id
+        };
+      }
+      return { object: picked.id };
+    }
+
+    function idFromPick(picked) {
+      if (!picked) {
+        return -1;
+      }
+      return picked.hover ? picked.hover.object_id : picked.id;
+    }
+
     function updateFromPointer(point, down) {
-      var picked = pickRect(point);
-      var objectId = picked ? picked.id : activeObjectId;
+      var picked = pickElement(point);
+      var hover = hoverFromPick(picked);
+      var objectId = idFromPick(picked);
+      if (dragging && activeHover) {
+        hover = hover || activeHover;
+      }
       eventArena.writeInputSample({
         sequence: ++sequence,
         timeMs: performance.now(),
@@ -108,26 +181,30 @@
         pointerAnchorPx: [anchor.x, anchor.y],
         pointerDown: down,
         buttons: down ? 1 : 0,
-        hover: objectId >= 0 ? { object: objectId } : null
+        hover: hover || (activeObjectId >= 0 ? { object: activeObjectId } : null)
       });
       contract.update();
       renderer.flushDirtyTransforms();
       anchor = point;
-      if (picked) {
-        activeObjectId = picked.id;
+      if (objectId >= 0) {
+        activeObjectId = objectId;
+      }
+      if (hover) {
+        activeHover = hover;
       }
     }
 
     canvas.addEventListener("pointerdown", function (event) {
       var point = canvasPoint(event);
-      var picked = pickRect(point);
+      var picked = pickElement(point);
       if (!picked) {
         return;
       }
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
       dragging = true;
-      activeObjectId = picked.id;
+      activeObjectId = idFromPick(picked);
+      activeHover = hoverFromPick(picked);
       anchor = point;
       updateFromPointer(point, true);
     });
@@ -147,11 +224,13 @@
       dragging = false;
       updateFromPointer(canvasPoint(event), false);
       activeObjectId = -1;
+      activeHover = null;
     });
 
     canvas.addEventListener("pointercancel", function () {
       dragging = false;
       activeObjectId = -1;
+      activeHover = null;
     });
 
     contract.init();
@@ -162,7 +241,7 @@
 
     function frame() {
       resizeCanvasToPanel(canvas);
-      draw(ctx, canvas, uiRuntime.rects);
+      draw(ctx, canvas, uiRuntime.rects, uiRuntime.meshes);
       global.requestAnimationFrame(frame);
     }
     global.requestAnimationFrame(frame);
@@ -179,6 +258,15 @@
       getRects: function () {
         return uiRuntime.rects.map(function (ref) {
           return ref.world_rect();
+        });
+      },
+      getMeshes: function () {
+        return uiRuntime.meshes.map(function (mesh) {
+          return {
+            points: mesh.world_points(),
+            vertexWidth: mesh.vertex_width,
+            edgeWidth: mesh.edge_width
+          };
         });
       },
       getWrites: function () {

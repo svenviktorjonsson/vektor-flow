@@ -17,6 +17,11 @@
     return Number.isFinite(n) ? n | 0 : fallback;
   }
 
+  function finiteOrDefault(value, fallback) {
+    var n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
   function rectFromArray(rect) {
     if (!rect || rect.length < 4) {
       throw new TypeError("rect expects [x, y, w, h]");
@@ -71,6 +76,57 @@
       sequence: intOrDefault(sample.sequence, 0),
       time_ms: numberOrZero(sample.timeMs)
     });
+  }
+
+  function makeHover(objectId, vertexId, edgeId, faceId) {
+    return Object.freeze({
+      object_id: objectId,
+      vertex_id: vertexId == null ? -1 : vertexId,
+      edge_id: edgeId == null ? -1 : edgeId,
+      face_id: faceId == null ? -1 : faceId
+    });
+  }
+
+  function dot2(ax, ay, bx, by) {
+    return ax * bx + ay * by;
+  }
+
+  function dist2(ax, ay, bx, by) {
+    var dx = ax - bx;
+    var dy = ay - by;
+    return dx * dx + dy * dy;
+  }
+
+  function pointSegmentDistance(point, a, b) {
+    var px = point[0];
+    var py = point[1];
+    var ax = a[0];
+    var ay = a[1];
+    var bx = b[0];
+    var by = b[1];
+    var vx = bx - ax;
+    var vy = by - ay;
+    var len2 = vx * vx + vy * vy;
+    var t = len2 > 0 ? Math.max(0, Math.min(1, dot2(px - ax, py - ay, vx, vy) / len2)) : 0;
+    return Math.sqrt(dist2(px, py, ax + vx * t, ay + vy * t));
+  }
+
+  function pointInPolygon(point, polygon) {
+    var x = point[0];
+    var y = point[1];
+    var inside = false;
+    for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      var xi = polygon[i][0];
+      var yi = polygon[i][1];
+      var xj = polygon[j][0];
+      var yj = polygon[j][1];
+      var intersects = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-9) + xi);
+      if (intersects) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   function copyRect(rect) {
@@ -157,17 +213,25 @@
     return { x: x, y: y, z: z };
   }
 
-  function MeshRef(runtime, panel, slot, id, coords) {
+  function MeshRef(runtime, panel, slot, id, coords, options) {
+    options = options || {};
     this.runtime = runtime;
     this.panel = panel;
     this.slot = slot;
     this.id = id;
     this.coords = coords;
+    this.offset = [0, 0, 0];
     this.vertices = [];
     this.edges = [];
     this.faces = [];
     this.volumes = [];
     this.volume_policy = "filled";
+    this.color = options.color || [1, 1, 1, 1];
+    this.vertex_width = finiteOrDefault(options.vertex_width, 0);
+    this.edge_width = finiteOrDefault(
+      options.edge_width != null ? options.edge_width : options.edge_scale,
+      0
+    );
   }
 
   MeshRef.prototype.add_vertices = function (indices) {
@@ -193,10 +257,127 @@
     return this;
   };
 
+  MeshRef.prototype.world_point = function (index) {
+    return [
+      numberOrZero(this.coords.x[index]) + this.offset[0],
+      numberOrZero(this.coords.y[index]) + this.offset[1],
+      numberOrZero(this.coords.z[index]) + this.offset[2]
+    ];
+  };
+
+  MeshRef.prototype.world_points = function () {
+    var out = [];
+    for (var i = 0; i < this.coords.x.length; i++) {
+      out.push(this.world_point(i));
+    }
+    return out;
+  };
+
   MeshRef.prototype.translate = function (args) {
     args = args || {};
     var trans = args.trans || [numberOrZero(args.dx), numberOrZero(args.dy), numberOrZero(args.dz)];
-    this.runtime.arena.setTranslate2D(this.slot, numberOrZero(trans[0]), numberOrZero(trans[1]));
+    this.offset[0] += numberOrZero(trans[0]);
+    this.offset[1] += numberOrZero(trans[1]);
+    this.offset[2] += numberOrZero(trans[2]);
+    this.runtime.arena.setTranslate2D(this.slot, this.offset[0], this.offset[1]);
+    return this;
+  };
+
+  MeshRef.prototype.rotate_scale_at_vertex = function (args) {
+    args = args || {};
+    var vertex = intOrDefault(args.vertex, -1);
+    if (vertex < 0 || vertex >= this.coords.x.length) {
+      return this;
+    }
+    var trans = args.trans || [0, 0];
+    var pivot = this.world_point(vertex);
+    var angle = numberOrZero(trans[0]) * 0.015;
+    var scale = Math.max(0.15, 1 + numberOrZero(trans[1]) * -0.01);
+    var cos = Math.cos(angle);
+    var sin = Math.sin(angle);
+    for (var i = 0; i < this.coords.x.length; i++) {
+      if (i === vertex) {
+        continue;
+      }
+      var p = this.world_point(i);
+      var dx = (p[0] - pivot[0]) * scale;
+      var dy = (p[1] - pivot[1]) * scale;
+      this.coords.x[i] = pivot[0] + dx * cos - dy * sin - this.offset[0];
+      this.coords.y[i] = pivot[1] + dx * sin + dy * cos - this.offset[1];
+    }
+    return this;
+  };
+
+  MeshRef.prototype.scale_edge = function (args) {
+    args = args || {};
+    var edge = intOrDefault(args.edge, -1);
+    if (edge < 0 || edge >= this.edges.length) {
+      return this;
+    }
+    var pair = this.edges[edge];
+    var a = this.world_point(pair[0]);
+    var b = this.world_point(pair[1]);
+    var ex = b[0] - a[0];
+    var ey = b[1] - a[1];
+    var len = Math.sqrt(ex * ex + ey * ey) || 1;
+    var nx = -ey / len;
+    var ny = ex / len;
+    var trans = args.trans || [0, 0];
+    var factor = Math.max(0.15, 1 + dot2(numberOrZero(trans[0]), numberOrZero(trans[1]), nx, ny) * 0.01);
+    var cx = (a[0] + b[0]) * 0.5;
+    var cy = (a[1] + b[1]) * 0.5;
+    for (var i = 0; i < this.coords.x.length; i++) {
+      var p = this.world_point(i);
+      var normalDistance = dot2(p[0] - cx, p[1] - cy, nx, ny);
+      var delta = normalDistance * (factor - 1);
+      this.coords.x[i] = p[0] + nx * delta - this.offset[0];
+      this.coords.y[i] = p[1] + ny * delta - this.offset[1];
+    }
+    return this;
+  };
+
+  MeshRef.prototype.pick = function (point) {
+    var i;
+    for (i = this.vertices.length - 1; i >= 0; i--) {
+      var vertexId = this.vertices[i];
+      var p = this.world_point(vertexId);
+      if (Math.sqrt(dist2(point[0], point[1], p[0], p[1])) <= this.vertex_width) {
+        return { ref: this, hover: makeHover(this.id, vertexId, -1, -1) };
+      }
+    }
+    for (i = this.edges.length - 1; i >= 0; i--) {
+      var edge = this.edges[i];
+      if (pointSegmentDistance(point, this.world_point(edge[0]), this.world_point(edge[1])) <= this.edge_width) {
+        return { ref: this, hover: makeHover(this.id, -1, i, -1) };
+      }
+    }
+    for (i = this.faces.length - 1; i >= 0; i--) {
+      var face = this.faces[i].map(this.world_point.bind(this));
+      if (pointInPolygon(point, face)) {
+        return { ref: this, hover: makeHover(this.id, -1, -1, i) };
+      }
+    }
+    return null;
+  };
+
+  MeshRef.prototype.visible_volume_surfaces = function () {
+    return {
+      policy: this.volume_policy,
+      surfaces: "first_last_per_dimension"
+    };
+  };
+
+  MeshRef.prototype.set_overlay = function (options) {
+    options = options || {};
+    if (options.vertex_width != null) {
+      this.vertex_width = finiteOrDefault(options.vertex_width, this.vertex_width);
+    }
+    if (options.edge_width != null || options.edge_scale != null) {
+      this.edge_width = finiteOrDefault(
+        options.edge_width != null ? options.edge_width : options.edge_scale,
+        this.edge_width
+      );
+    }
     return this;
   };
 
@@ -236,7 +417,7 @@
     return this._add_rect(rectArray, options, null);
   };
 
-  PanelRef.prototype.add = function (spec) {
+  PanelRef.prototype.add = function (spec, options) {
     var slot = this.runtime.nextSlot++;
     if (slot >= this.runtime.arena.capacity()) {
       throw new RangeError("transform arena does not have capacity for another object");
@@ -246,9 +427,11 @@
       this,
       slot,
       slot,
-      coordsFromSpec(spec)
+      coordsFromSpec(spec),
+      options || {}
     );
     this.objects[ref.id] = ref;
+    this.runtime.meshes.push(ref);
     this.runtime.arena.setTranslate2D(slot, 0, 0);
     return ref;
   };
@@ -274,6 +457,12 @@
       var r = ref.world;
       if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
         return ref;
+      }
+    }
+    for (var m = this.runtime.meshes.length - 1; m >= 0; m--) {
+      var hit = this.runtime.meshes[m].pick([x, y]);
+      if (hit) {
+        return hit;
       }
     }
     return null;
@@ -325,7 +514,8 @@
       arena: opts.arena,
       eventArena: opts.eventArena,
       nextSlot: 0,
-      rects: []
+      rects: [],
+      meshes: []
     };
     runtime.ui = Object.freeze({
       MOUSE_MOVE: MOUSE_MOVE,

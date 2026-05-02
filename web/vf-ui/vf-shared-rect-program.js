@@ -24,9 +24,24 @@
     "child: parent.add_rect([46, 38, 142, 94], color: [0.16, 0.74, 0.34, 1.0])",
     "leaf: child.add_rect([34, 24, 54, 38], color: [0.22, 0.54, 0.96, 1.0])",
     "",
+    "poly: panel.add(",
+    "  x: [430, 560, 520, 410],",
+    "  y: [108, 132, 250, 226],",
+    "  color: [1.0, 0.72, 0.18, 0.42],",
+    "  vertex_width: 11,",
+    "  edge_width: 7",
+    ")",
+    "poly.add_vertices([0, 1, 2, 3])",
+    "poly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]])",
+    "poly.add_faces([[0, 1, 2, 3]])",
+    "",
     "drag(e):",
     "  target: panel.get(e.hover)",
     "  target?",
+    "    e.hover.vertex_id >= 0?",
+    "      @: target.rotate_scale_at_vertex(vertex: e.hover.vertex_id, trans: e.trans)",
+    "    e.hover.edge_id >= 0?",
+    "      @: target.scale_edge(edge: e.hover.edge_id, trans: e.trans)",
     "    target.translate(trans: e.trans)",
     "",
     "(e: events.get())??>",
@@ -69,6 +84,20 @@
         child.add_rect([34, 24, 54, 38], {
           color: [0.22, 0.54, 0.96, 1.0]
         });
+        var poly = panel.add({
+          x: [430, 560, 520, 410],
+          y: [108, 132, 250, 226],
+          color: [1.0, 0.72, 0.18, 0.42],
+          vertex_width: 11,
+          edge_width: 7
+        }, {
+          color: [1.0, 0.72, 0.18, 0.42],
+          vertex_width: 11,
+          edge_width: 7
+        });
+        poly.add_vertices([0, 1, 2, 3]);
+        poly.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+        poly.add_faces([[0, 1, 2, 3]]);
       },
       update: function (input, api) {
         var e = api.ui.events.get();
@@ -78,7 +107,13 @@
         }
         activeTarget = activeTarget || panel.get(e.hover);
         if (activeTarget) {
-          activeTarget.translate({ trans: e.trans });
+          if (e.hover.vertex_id >= 0 && typeof activeTarget.rotate_scale_at_vertex === "function") {
+            activeTarget.rotate_scale_at_vertex({ vertex: e.hover.vertex_id, trans: e.trans });
+          } else if (e.hover.edge_id >= 0 && typeof activeTarget.scale_edge === "function") {
+            activeTarget.scale_edge({ edge: e.hover.edge_id, trans: e.trans });
+          } else {
+            activeTarget.translate({ trans: e.trans });
+          }
         }
       }
     };

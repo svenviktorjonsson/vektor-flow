@@ -113,4 +113,57 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
   assert.equal(panel.get({ object_id: mesh.id }), mesh);
 }
 
+{
+  const arena = shared.createTransformArena(4);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add(
+    {
+      x: [100, 180, 140],
+      y: [120, 120, 190]
+    },
+    {
+      color: [0.8, 0.5, 0.2, 1],
+      vertex_width: 10,
+      edge_width: 6
+    }
+  );
+  mesh.add_vertices([0, 1, 2]);
+  mesh.add_edges([[0, 1], [1, 2], [2, 0]]);
+  mesh.add_faces([[0, 1, 2]]);
+
+  assert.equal(mesh.vertex_width, 10);
+  assert.equal(mesh.edge_width, 6);
+  assert.deepEqual(mesh.world_point(1), [180, 120, 0]);
+  assert.deepEqual(panel.pick([100, 120]).hover, {
+    object_id: mesh.id,
+    vertex_id: 0,
+    edge_id: -1,
+    face_id: -1
+  });
+  assert.deepEqual(panel.pick([140, 120]).hover, {
+    object_id: mesh.id,
+    vertex_id: -1,
+    edge_id: 0,
+    face_id: -1
+  });
+  assert.deepEqual(panel.pick([140, 145]).hover, {
+    object_id: mesh.id,
+    vertex_id: -1,
+    edge_id: -1,
+    face_id: 0
+  });
+
+  const beforeVertex = mesh.world_points().map((p) => p.slice());
+  mesh.rotate_scale_at_vertex({ vertex: 0, trans: [18, -12] });
+  assert.notDeepEqual(mesh.world_points(), beforeVertex);
+
+  const beforeEdge = mesh.world_points().map((p) => p.slice());
+  mesh.scale_edge({ edge: 0, trans: [0, 18] });
+  assert.notDeepEqual(mesh.world_points(), beforeEdge);
+}
+
 console.log("vf-vkf-ui-runtime tests passed");
