@@ -1,4 +1,4 @@
-# Minimal VKF-driven rectangle interaction.
+# Minimal VKF-driven hierarchy transform interaction.
 # Run: vkf examples/ui_shared_runtime_rect.vkf
 
 ui: .ui
@@ -19,7 +19,9 @@ panel: d.frame(
 
 d.add_frame(panel, [0.18, 0.18, 0.42, 0.34])
 
-rect: panel.add_rect([0.22, 0.22, 0.34, 0.28], color: [0.20, 0.82, 0.49, 1.0])
+parent: panel.add_rect([88, 72, 260, 172], color: [0.92, 0.28, 0.18, 1.0])
+child: parent.add_rect([46, 38, 142, 94], color: [0.16, 0.74, 0.34, 1.0])
+leaf: child.add_rect([34, 24, 54, 38], color: [0.22, 0.54, 0.96, 1.0])
 
 drag(e):
   target: panel.get(e.hover)

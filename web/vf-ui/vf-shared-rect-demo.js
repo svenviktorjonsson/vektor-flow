@@ -1,12 +1,6 @@
 (function (global) {
   "use strict";
 
-  var RECT_SLOT = 0;
-  var RECT_W = 180;
-  var RECT_H = 118;
-  var START_X = 120;
-  var START_Y = 96;
-
   function assertRuntime(name) {
     if (!global[name]) {
       throw new Error(name + " must be loaded before vf-shared-rect-demo.js");
@@ -26,25 +20,29 @@
     };
   }
 
-  function rectFromMat4(mat4) {
-    return {
-      x: mat4[RECT_SLOT * 16 + 12],
-      y: mat4[RECT_SLOT * 16 + 13],
-      w: RECT_W,
-      h: RECT_H
-    };
+  function draw(ctx, canvas, rects) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (var i = 0; i < rects.length; i++) {
+      var ref = rects[i];
+      var rect = ref.world_rect();
+      ctx.fillStyle = rgba(ref.color);
+      ctx.fillRect(
+        Math.round(rect.x),
+        Math.round(rect.y),
+        Math.round(rect.w),
+        Math.round(rect.h)
+      );
+    }
   }
 
-  function draw(ctx, canvas, mat4) {
-    var rect = rectFromMat4(mat4);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    var x = Math.round(rect.x);
-    var y = Math.round(rect.y);
-    var w = Math.round(rect.w);
-    var h = Math.round(rect.h);
-    ctx.fillStyle = "#32d17d";
-    ctx.fillRect(x, y, w, h);
+  function rgba(color) {
+    var c = color || [1, 1, 1, 1];
+    return "rgba(" +
+      Math.round((Number(c[0]) || 0) * 255) + "," +
+      Math.round((Number(c[1]) || 0) * 255) + "," +
+      Math.round((Number(c[2]) || 0) * 255) + "," +
+      (Number.isFinite(Number(c[3])) ? Number(c[3]) : 1) +
+      ")";
   }
 
   function resizeCanvasToPanel(canvas) {
@@ -69,13 +67,14 @@
       throw new Error("2D canvas context unavailable");
     }
 
-    var arena = shared.createTransformArena(1);
+    var arena = shared.createTransformArena(8);
     var eventArena = shared.createEventArena(32);
     var uiRuntime = vkfUi.createVkfUiRuntime({ arena: arena, eventArena: eventArena });
     var adapter = makeTrackedAdapter();
     var renderer = gpu.createTransformRenderer({ arena: arena, adapter: adapter });
     var sequence = 0;
     var dragging = false;
+    var activeObjectId = -1;
     var anchor = { x: 0, y: 0 };
 
     var compiledCoreStandIn = assertRuntime("VfSharedRectProgram").create();
@@ -94,13 +93,14 @@
       };
     }
 
-    function containsRect(point) {
-      var rect = rectFromMat4(arena.mat4);
-      return point.x >= rect.x && point.x <= rect.x + rect.w &&
-        point.y >= rect.y && point.y <= rect.y + rect.h;
+    function pickRect(point) {
+      var frame = uiRuntime.ui.display.last_frame;
+      return frame ? frame.pick([point.x, point.y]) : null;
     }
 
     function updateFromPointer(point, down) {
+      var picked = pickRect(point);
+      var objectId = picked ? picked.id : activeObjectId;
       eventArena.writeInputSample({
         sequence: ++sequence,
         timeMs: performance.now(),
@@ -108,21 +108,26 @@
         pointerAnchorPx: [anchor.x, anchor.y],
         pointerDown: down,
         buttons: down ? 1 : 0,
-        hover: containsRect(point) || dragging ? { object: RECT_SLOT } : null
+        hover: objectId >= 0 ? { object: objectId } : null
       });
       contract.update();
       renderer.flushDirtyTransforms();
       anchor = point;
+      if (picked) {
+        activeObjectId = picked.id;
+      }
     }
 
     canvas.addEventListener("pointerdown", function (event) {
       var point = canvasPoint(event);
-      if (!containsRect(point)) {
+      var picked = pickRect(point);
+      if (!picked) {
         return;
       }
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
       dragging = true;
+      activeObjectId = picked.id;
       anchor = point;
       updateFromPointer(point, true);
     });
@@ -141,10 +146,12 @@
       }
       dragging = false;
       updateFromPointer(canvasPoint(event), false);
+      activeObjectId = -1;
     });
 
     canvas.addEventListener("pointercancel", function () {
       dragging = false;
+      activeObjectId = -1;
     });
 
     contract.init();
@@ -155,7 +162,7 @@
 
     function frame() {
       resizeCanvasToPanel(canvas);
-      draw(ctx, canvas, arena.mat4);
+      draw(ctx, canvas, uiRuntime.rects);
       global.requestAnimationFrame(frame);
     }
     global.requestAnimationFrame(frame);
@@ -167,7 +174,12 @@
       renderer: renderer,
       contract: contract,
       getRect: function () {
-        return rectFromMat4(arena.mat4);
+        return uiRuntime.rects[0] ? uiRuntime.rects[0].world_rect() : null;
+      },
+      getRects: function () {
+        return uiRuntime.rects.map(function (ref) {
+          return ref.world_rect();
+        });
       },
       getWrites: function () {
         return adapter.writes.slice();

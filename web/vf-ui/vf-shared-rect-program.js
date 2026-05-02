@@ -1,10 +1,6 @@
 (function (global) {
   "use strict";
 
-  var RECT_SLOT = 0;
-  var RECT_START_X = 120;
-  var RECT_START_Y = 96;
-
   var vkfSource = [
     "ui: .ui",
     "t: .time",
@@ -24,7 +20,9 @@
     "",
     "d.add_frame(panel, [0.18, 0.18, 0.42, 0.34])",
     "",
-    "rect: panel.add_rect([120, 96, 180, 118], color: [0.20, 0.82, 0.49, 1.0])",
+    "parent: panel.add_rect([88, 72, 260, 172], color: [0.92, 0.28, 0.18, 1.0])",
+    "child: parent.add_rect([46, 38, 142, 94], color: [0.16, 0.74, 0.34, 1.0])",
+    "leaf: child.add_rect([34, 24, 54, 38], color: [0.22, 0.54, 0.96, 1.0])",
     "",
     "drag(e):",
     "  target: panel.get(e.hover)",
@@ -62,8 +60,14 @@
           master: true
         });
         ui.display.add_frame(panel, [0.18, 0.18, 0.42, 0.34]);
-        panel.add_rect([RECT_START_X, RECT_START_Y, 180, 118], {
-          color: [0.20, 0.82, 0.49, 1.0]
+        var parent = panel.add_rect([88, 72, 260, 172], {
+          color: [0.92, 0.28, 0.18, 1.0]
+        });
+        var child = parent.add_rect([46, 38, 142, 94], {
+          color: [0.16, 0.74, 0.34, 1.0]
+        });
+        child.add_rect([34, 24, 54, 38], {
+          color: [0.22, 0.54, 0.96, 1.0]
         });
       },
       update: function (input, api) {

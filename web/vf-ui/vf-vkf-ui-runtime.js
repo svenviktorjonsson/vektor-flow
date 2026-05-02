@@ -73,22 +73,54 @@
     });
   }
 
-  function RectRef(runtime, panel, slot, id, rect, color) {
+  function copyRect(rect) {
+    return { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+  }
+
+  function RectRef(runtime, panel, slot, id, rect, color, parent) {
     this.runtime = runtime;
     this.panel = panel;
     this.slot = slot;
     this.id = id;
-    this.rect = rect;
+    this.local = rect;
+    this.world = copyRect(rect);
     this.color = color || [1, 1, 1, 1];
+    this.parent = parent || null;
+    this.children = [];
   }
+
+  RectRef.prototype._sync_world = function () {
+    if (this.parent) {
+      var parentWorld = this.parent.world;
+      this.world.x = parentWorld.x + this.local.x;
+      this.world.y = parentWorld.y + this.local.y;
+    } else {
+      this.world.x = this.local.x;
+      this.world.y = this.local.y;
+    }
+    this.world.w = this.local.w;
+    this.world.h = this.local.h;
+    this.runtime.arena.setTranslate2D(this.slot, this.world.x, this.world.y);
+    for (var i = 0; i < this.children.length; i++) {
+      this.children[i]._sync_world();
+    }
+  };
+
+  RectRef.prototype.world_rect = function () {
+    return copyRect(this.world);
+  };
 
   RectRef.prototype.translate = function (args) {
     args = args || {};
     var trans = args.trans || [numberOrZero(args.dx), numberOrZero(args.dy)];
-    this.rect.x += numberOrZero(trans[0]);
-    this.rect.y += numberOrZero(trans[1]);
-    this.runtime.arena.setTranslate2D(this.slot, this.rect.x, this.rect.y);
+    this.local.x += numberOrZero(trans[0]);
+    this.local.y += numberOrZero(trans[1]);
+    this._sync_world();
     return this;
+  };
+
+  RectRef.prototype.add_rect = function (rectArray, options) {
+    return this.panel._add_rect(rectArray, options, this);
   };
 
   function copyIndexList(values, arity, name) {
@@ -176,7 +208,7 @@
     this.objects = Object.create(null);
   }
 
-  PanelRef.prototype.add_rect = function (rectArray, options) {
+  PanelRef.prototype._add_rect = function (rectArray, options, parent) {
     var rect = rectFromArray(rectArray);
     var slot = this.runtime.nextSlot++;
     if (slot >= this.runtime.arena.capacity()) {
@@ -188,11 +220,20 @@
       slot,
       slot,
       rect,
-      options && options.color
+      options && options.color,
+      parent || null
     );
+    if (parent) {
+      parent.children.push(ref);
+    }
     this.objects[ref.id] = ref;
-    this.runtime.arena.setTranslate2D(slot, rect.x, rect.y);
+    this.runtime.rects.push(ref);
+    ref._sync_world();
     return ref;
+  };
+
+  PanelRef.prototype.add_rect = function (rectArray, options) {
+    return this._add_rect(rectArray, options, null);
   };
 
   PanelRef.prototype.add = function (spec) {
@@ -219,13 +260,35 @@
     return this.objects[hover.object_id] || null;
   };
 
+  PanelRef.prototype.pick = function (point) {
+    if (!point || point.length < 2) {
+      return null;
+    }
+    var x = numberOrZero(point[0]);
+    var y = numberOrZero(point[1]);
+    for (var i = this.runtime.rects.length - 1; i >= 0; i--) {
+      var ref = this.runtime.rects[i];
+      if (ref.panel !== this) {
+        continue;
+      }
+      var r = ref.world;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        return ref;
+      }
+    }
+    return null;
+  };
+
   function Display(runtime) {
     this.runtime = runtime;
     this.nextFrameId = 0;
+    this.last_frame = null;
   }
 
   Display.prototype.frame = function (options) {
-    return new PanelRef(this.runtime, this.nextFrameId++, options || {});
+    var panel = new PanelRef(this.runtime, this.nextFrameId++, options || {});
+    this.last_frame = panel;
+    return panel;
   };
 
   Display.prototype.add_frame = function (panel, rectArray) {
@@ -261,7 +324,8 @@
     var runtime = {
       arena: opts.arena,
       eventArena: opts.eventArena,
-      nextSlot: 0
+      nextSlot: 0,
+      rects: []
     };
     runtime.ui = Object.freeze({
       MOUSE_MOVE: MOUSE_MOVE,

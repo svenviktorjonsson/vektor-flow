@@ -51,6 +51,34 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 }
 
 {
+  const arena = shared.createTransformArena(4);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });
+  const ui = runtime.ui;
+  const panel = ui.display.frame();
+  ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const parent = panel.add_rect([100, 80, 220, 140], { color: [1, 0, 0, 1] });
+  const child = parent.add_rect([40, 30, 100, 70], { color: [0, 1, 0, 1] });
+  const leaf = child.add_rect([18, 14, 36, 24], { color: [0, 0, 1, 1] });
+
+  assert.deepEqual(parent.world_rect(), { x: 100, y: 80, w: 220, h: 140 });
+  assert.deepEqual(child.world_rect(), { x: 140, y: 110, w: 100, h: 70 });
+  assert.deepEqual(leaf.world_rect(), { x: 158, y: 124, w: 36, h: 24 });
+
+  parent.translate({ trans: [10, 20] });
+
+  assert.deepEqual(parent.world_rect(), { x: 110, y: 100, w: 220, h: 140 });
+  assert.deepEqual(child.world_rect(), { x: 150, y: 130, w: 100, h: 70 });
+  assert.deepEqual(leaf.world_rect(), { x: 168, y: 144, w: 36, h: 24 });
+  assert.equal(arena.mat4[parent.slot * shared.MAT4_F32 + 12], 110);
+  assert.equal(arena.mat4[child.slot * shared.MAT4_F32 + 12], 150);
+  assert.equal(arena.mat4[leaf.slot * shared.MAT4_F32 + 12], 168);
+  assert.equal(panel.pick([170, 150]), leaf);
+  assert.equal(panel.get({ object_id: child.id }), child);
+}
+
+{
   const arena = shared.createTransformArena(1);
   const eventArena = shared.createEventArena(1);
   const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena });

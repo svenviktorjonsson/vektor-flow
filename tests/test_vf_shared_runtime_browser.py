@@ -90,28 +90,35 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
         page.wait_for_function("() => window.__vfSharedRectDemo")
 
         assert page.evaluate("() => crossOriginIsolated") is True
-        initial = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
-        assert initial == {"x": 120, "y": 96, "w": 180, "h": 118}
+        initial = page.evaluate("() => window.__vfSharedRectDemo.getRects()")
+        assert initial == [
+            {"x": 88, "y": 72, "w": 260, "h": 172},
+            {"x": 134, "y": 110, "w": 142, "h": 94},
+            {"x": 168, "y": 134, "w": 54, "h": 38},
+        ]
         canvas_box = page.locator(".vf-shared-demo-canvas").bounding_box()
         assert canvas_box is not None
-        start_x = canvas_box["x"] + 160
-        start_y = canvas_box["y"] + 140
-        end_x = canvas_box["x"] + 250
-        end_y = canvas_box["y"] + 210
+        start_x = canvas_box["x"] + 96
+        start_y = canvas_box["y"] + 88
+        end_x = canvas_box["x"] + 146
+        end_y = canvas_box["y"] + 128
 
         page.mouse.move(start_x, start_y)
         page.mouse.down()
         page.mouse.move(end_x, end_y, steps=5)
         page.mouse.up()
 
-        moved = page.evaluate("() => window.__vfSharedRectDemo.getRect()")
+        moved = page.evaluate("() => window.__vfSharedRectDemo.getRects()")
         writes = page.evaluate("() => window.__vfSharedRectDemo.getWrites()")
         latest_input = page.evaluate("() => window.__vfSharedRectDemo.getLatestInput()")
         layout_messages = page.evaluate("() => window.__vfOverlayMessages.filter(m => m.type === 'layout')")
 
-        assert moved["x"] == 210
-        assert moved["y"] == 166
-        assert latest_input["cursorPx"] == [250, 210]
+        assert moved == [
+            {"x": 138, "y": 112, "w": 260, "h": 172},
+            {"x": 184, "y": 150, "w": 142, "h": 94},
+            {"x": 218, "y": 174, "w": 54, "h": 38},
+        ]
+        assert latest_input["cursorPx"] == [146, 128]
         assert latest_input["pointerDown"] is False
         assert latest_input["sequence"] >= 2
         assert layout_messages

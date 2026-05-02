@@ -52,10 +52,9 @@ def test_shared_runtime_demo_runs_from_file_url_without_python_server() -> None:
         page.wait_for_function("() => window.__vfSharedRectDemo")
 
         assert page.evaluate("() => typeof SharedArrayBuffer") == "function"
-        assert page.evaluate("() => window.__vfSharedRectDemo.getRect()") == {
-            "x": 120,
-            "y": 96,
-            "w": 180,
-            "h": 118,
-        }
+        assert page.evaluate("() => window.__vfSharedRectDemo.getRects()") == [
+            {"x": 88, "y": 72, "w": 260, "h": 172},
+            {"x": 134, "y": 110, "w": 142, "h": 94},
+            {"x": 168, "y": 134, "w": 54, "h": 38},
+        ]
         assert all(request.startswith("file://") for request in requests)
