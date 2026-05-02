@@ -56,29 +56,171 @@
       ctx.closePath();
       ctx.fill();
     }
-    if (mesh.edge_radius > 0) {
+    if (hasVisibleEdges(mesh)) {
       ctx.strokeStyle = rgba(mesh.edge_color);
-      ctx.lineWidth = mesh.edge_radius * 2;
-      ctx.lineCap = "round";
+      ctx.lineCap = edgeLineCap(mesh);
+      if (typeof ctx.save === "function") {
+        ctx.save();
+      }
+      if (typeof ctx.setLineDash === "function") {
+        ctx.setLineDash(edgeDashPattern(mesh));
+      }
       for (i = 0; i < mesh.edges.length; i++) {
+        var edgeWidth = edgeWidthAt(mesh, i);
+        if (edgeWidth <= 0) {
+          continue;
+        }
         var edge = mesh.edges[i];
         var a = mesh.world_point(edge[0]);
         var b = mesh.world_point(edge[1]);
+        ctx.lineWidth = edgeWidth * 2;
         ctx.beginPath();
         ctx.moveTo(a[0], a[1]);
         ctx.lineTo(b[0], b[1]);
         ctx.stroke();
       }
-    }
-    if (mesh.vertex_radius > 0) {
-      ctx.fillStyle = rgba(mesh.vertex_color);
-      for (i = 0; i < mesh.vertices.length; i++) {
-        var v = mesh.world_point(mesh.vertices[i]);
-        ctx.beginPath();
-        ctx.arc(v[0], v[1], mesh.vertex_radius, 0, Math.PI * 2);
-        ctx.fill();
+      if (typeof ctx.restore === "function") {
+        ctx.restore();
+      } else if (typeof ctx.setLineDash === "function") {
+        ctx.setLineDash([]);
       }
     }
+    if (hasVisibleVertices(mesh)) {
+      ctx.fillStyle = rgba(mesh.vertex_color);
+      for (i = 0; i < mesh.vertices.length; i++) {
+        var vertexRadius = vertexRadiusAt(mesh, i);
+        if (vertexRadius <= 0) {
+          continue;
+        }
+        var v = mesh.world_point(mesh.vertices[i]);
+        drawVertexShape(ctx, v[0], v[1], vertexRadius, mesh.vertex_style || mesh.vertex_shape);
+      }
+    }
+  }
+
+  function hasVisibleEdges(mesh) {
+    for (var i = 0; mesh && i < mesh.edges.length; i++) {
+      if (edgeWidthAt(mesh, i) > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function hasVisibleVertices(mesh) {
+    for (var i = 0; mesh && i < mesh.vertices.length; i++) {
+      if (vertexRadiusAt(mesh, i) > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function vertexRadiusAt(mesh, index) {
+    if (mesh && typeof mesh.vertex_radius_at === "function") {
+      return Number(mesh.vertex_radius_at(index)) || 0;
+    }
+    return Number(mesh && mesh.vertex_radius) || 0;
+  }
+
+  function edgeWidthAt(mesh, index) {
+    if (mesh && typeof mesh.edge_width_at === "function") {
+      return Number(mesh.edge_width_at(index)) || 0;
+    }
+    if (mesh && typeof mesh.edge_radius_at === "function") {
+      return Number(mesh.edge_radius_at(index)) || 0;
+    }
+    return Number(mesh && (mesh.edge_width != null ? mesh.edge_width : mesh.edge_radius)) || 0;
+  }
+
+  function edgeDashPattern(mesh) {
+    if (Array.isArray(mesh.edge_dash)) {
+      return mesh.edge_dash.map(function (value) {
+        return Math.max(0, Number(value) || 0);
+      });
+    }
+    var style = mesh.edge_style != null ? mesh.edge_style : (mesh.edge_pattern || mesh.edgePattern || "-");
+    var pattern = String(style).toLowerCase();
+    if (pattern === "solid") {
+      return [];
+    }
+    if (pattern === "dash" || pattern === "dashed") {
+      pattern = "- ";
+    }
+    if (pattern === "dot" || pattern === "dotted") {
+      pattern = ". ";
+    }
+    return edgeStyleToDash(pattern, Number(mesh.edge_unit_length) || 8);
+  }
+
+  function edgeStyleToDash(style, unit) {
+    if (style.indexOf(" ") < 0) {
+      return [];
+    }
+    var out = [];
+    var visible = style[0] !== " ";
+    var count = 0;
+    for (var i = 0; i < style.length; i++) {
+      var nextVisible = style[i] !== " ";
+      if (nextVisible === visible) {
+        count++;
+        continue;
+      }
+      out.push(edgeStyleRunLength(style, i - count, count, visible, unit));
+      visible = nextVisible;
+      count = 1;
+    }
+    out.push(edgeStyleRunLength(style, style.length - count, count, visible, unit));
+    if (out.length % 2 === 1) {
+      out.push(0);
+    }
+    return out;
+  }
+
+  function edgeStyleRunLength(style, start, count, visible, unit) {
+    if (!visible) {
+      return count * unit;
+    }
+    if (count === 1 && style[start] === ".") {
+      return 0;
+    }
+    return count * unit;
+  }
+
+  function edgeLineCap(mesh) {
+    var pattern = String(mesh.edge_style != null ? mesh.edge_style : (mesh.edge_pattern || mesh.edgePattern || "-")).toLowerCase();
+    if (pattern === "dot" || pattern === "dotted" || /^(\. +)+\.?$/.test(pattern)) {
+      return "round";
+    }
+    if (pattern === "dash" || pattern === "dashed" || pattern.indexOf(" ") >= 0 || Array.isArray(mesh.edge_dash)) {
+      return "butt";
+    }
+    return "round";
+  }
+
+  function drawVertexShape(ctx, x, y, radius, shape) {
+    var r = Number(radius) || 0;
+    var vertexShape = String(shape || "circle").toLowerCase();
+    ctx.beginPath();
+    if (vertexShape === "square") {
+      if (typeof ctx.rect === "function") {
+        ctx.rect(x - r, y - r, r * 2, r * 2);
+      } else {
+        ctx.moveTo(x - r, y - r);
+        ctx.lineTo(x + r, y - r);
+        ctx.lineTo(x + r, y + r);
+        ctx.lineTo(x - r, y + r);
+        ctx.closePath();
+      }
+    } else if (vertexShape === "triangle") {
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x + r, y + r);
+      ctx.lineTo(x - r, y + r);
+      ctx.closePath();
+    } else {
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
   }
 
   function rgba(color) {
@@ -345,7 +487,8 @@
   }
 
   global.VfSharedRectDemo = {
-    createDemo: createDemo
+    createDemo: createDemo,
+    drawMesh: drawMesh
   };
 
   global.addEventListener("DOMContentLoaded", function () {

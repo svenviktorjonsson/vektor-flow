@@ -26,6 +26,50 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
+  function valueOrDefault(value, fallback) {
+    return value != null ? value : fallback;
+  }
+
+  function copyNumericVector(value, name) {
+    if (value == null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw new TypeError(name + " expects an array");
+    }
+    return value.map(function (entry) {
+      return numberOrZero(entry);
+    });
+  }
+
+  function setIndexedNumericValue(values, index, value) {
+    while (values.length < index) {
+      values.push(undefined);
+    }
+    values[index] = numberOrZero(value);
+  }
+
+  function copyIndexedNumericValues(baseName, spec, options) {
+    var out = copyNumericVector(
+      valueOrDefault(options[baseName + "_vector"], spec[baseName + "_vector"]),
+      baseName + "_vector"
+    );
+    [spec, options].forEach(function (source) {
+      Object.keys(source || {}).forEach(function (key) {
+        var prefix = baseName + "_";
+        if (key.indexOf(prefix) !== 0 || key === baseName + "_vector") {
+          return;
+        }
+        var suffix = key.slice(prefix.length);
+        if (!/^\d+$/.test(suffix)) {
+          return;
+        }
+        setIndexedNumericValue(out, Number(suffix), source[key]);
+      });
+    });
+    return out;
+  }
+
   function rectFromArray(rect) {
     if (!rect || rect.length < 4) {
       throw new TypeError("rect expects [x, y, w, h]");
@@ -50,6 +94,37 @@
     out.mask = intOrDefault(hover.mask, hoverMask(out));
     out.kind = intOrDefault(hover.kind_id != null ? hover.kind_id : hover.kind, hoverKind(out));
     return Object.freeze(out);
+  }
+
+  function normalizedSelectionTarget(target) {
+    var hover = target && target.hover ? target.hover : target;
+    if (!hover) {
+      return null;
+    }
+    var out = {
+      frame_id: intOrDefault(hover.frame_id != null ? hover.frame_id : hover.frame, -1),
+      object_id: intOrDefault(hover.object_id != null ? hover.object_id : hover.object, -1),
+      face_id: intOrDefault(hover.face_id != null ? hover.face_id : hover.face, -1),
+      edge_id: intOrDefault(hover.edge_id != null ? hover.edge_id : hover.edge, -1),
+      vertex_id: intOrDefault(hover.vertex_id != null ? hover.vertex_id : hover.vertex, -1)
+    };
+    out.mask = intOrDefault(hover.mask, hoverMask(out));
+    out.kind = intOrDefault(hover.kind_id != null ? hover.kind_id : hover.kind, hoverKind(out));
+    if (out.object_id < 0 || out.kind === 0) {
+      return null;
+    }
+    return Object.freeze(out);
+  }
+
+  function selectionKey(target) {
+    return [
+      target.frame_id,
+      target.object_id,
+      target.kind,
+      target.face_id,
+      target.edge_id,
+      target.vertex_id
+    ].join(":");
   }
 
   function eventKind(sample) {
@@ -303,12 +378,17 @@
       edge_color: options.edge_color || spec.edge_color || [1, 1, 1, 1],
       vertex_color: options.vertex_color || spec.vertex_color || [1, 1, 1, 1],
       volume_color: options.volume_color || spec.volume_color || [1, 1, 1, 1],
+      edge_style: valueOrDefault(options.edge_style, spec.edge_style),
+      edge_unit_length: valueOrDefault(options.edge_unit_length, spec.edge_unit_length),
+      vertex_style: valueOrDefault(options.vertex_style, spec.vertex_style),
       vertex_radius: options.vertex_radius != null ? options.vertex_radius :
         options.vertex_width != null ? options.vertex_width :
         spec.vertex_radius != null ? spec.vertex_radius : spec.vertex_width,
+      vertex_radius_values: copyIndexedNumericValues("vertex_radius", spec, options),
       edge_radius: options.edge_radius != null ? options.edge_radius :
         options.edge_width != null ? options.edge_width :
         spec.edge_radius != null ? spec.edge_radius : spec.edge_width,
+      edge_width_values: copyIndexedNumericValues("edge_width", spec, options),
       vertex_pick_radius: options.vertex_pick_radius != null ? options.vertex_pick_radius : spec.vertex_pick_radius,
       edge_pick_radius: options.edge_pick_radius != null ? options.edge_pick_radius : spec.edge_pick_radius,
       edge_scale: options.edge_scale != null ? options.edge_scale : spec.edge_scale,
@@ -344,11 +424,17 @@
     this.edge_color = options.edge_color || [1, 1, 1, 1];
     this.vertex_color = options.vertex_color || [1, 1, 1, 1];
     this.volume_color = options.volume_color || [1, 1, 1, 1];
+    this.edge_style = options.edge_style;
+    this.edge_unit_length = finiteOrDefault(options.edge_unit_length, 1);
+    this.vertex_style = options.vertex_style;
     this.vertex_radius = finiteOrDefault(options.vertex_radius, 4);
+    this.vertex_radius_values = (options.vertex_radius_values || []).slice();
     this.edge_radius = finiteOrDefault(
       options.edge_radius != null ? options.edge_radius : options.edge_scale,
       2
     );
+    this.edge_width = this.edge_radius;
+    this.edge_width_values = (options.edge_width_values || []).slice();
     this.vertex_pick_radius = Math.max(this.vertex_radius, finiteOrDefault(options.vertex_pick_radius, 5));
     this.edge_pick_radius = Math.max(this.edge_radius, finiteOrDefault(options.edge_pick_radius, 5));
     this.geometry_version = 0;
@@ -560,6 +646,20 @@
       out.push(this.world_point(i));
     }
     return out;
+  };
+
+  MeshRef.prototype.vertex_radius_at = function (index) {
+    var value = this.vertex_radius_values[intOrDefault(index, -1)];
+    return value != null ? value : this.vertex_radius;
+  };
+
+  MeshRef.prototype.edge_width_at = function (index) {
+    var value = this.edge_width_values[intOrDefault(index, -1)];
+    return value != null ? value : this.edge_width;
+  };
+
+  MeshRef.prototype.edge_radius_at = function (index) {
+    return this.edge_width_at(index);
   };
 
   MeshRef.prototype.translate = function (args) {
@@ -832,8 +932,25 @@
           options.edge_width != null ? options.edge_width : options.edge_scale,
         this.edge_radius
       );
+      this.edge_width = this.edge_radius;
       this.edge_pick_radius = Math.max(this.edge_radius, this.edge_pick_radius);
     }
+    if (options.vertex_radius_vector != null) {
+      this.vertex_radius_values = copyNumericVector(options.vertex_radius_vector, "vertex_radius_vector");
+    }
+    if (options.edge_width_vector != null) {
+      this.edge_width_values = copyNumericVector(options.edge_width_vector, "edge_width_vector");
+    }
+    Object.keys(options).forEach(function (key) {
+      var match = /^vertex_radius_(\d+)$/.exec(key);
+      if (match) {
+        setIndexedNumericValue(this.vertex_radius_values, Number(match[1]), options[key]);
+      }
+      match = /^edge_width_(\d+)$/.exec(key);
+      if (match) {
+        setIndexedNumericValue(this.edge_width_values, Number(match[1]), options[key]);
+      }
+    }, this);
     if (options.vertex_pick_radius != null) {
       this.vertex_pick_radius = Math.max(this.vertex_radius, finiteOrDefault(options.vertex_pick_radius, this.vertex_pick_radius));
     }
@@ -851,6 +968,15 @@
     }
     if (options.volume_color) {
       this.volume_color = options.volume_color;
+    }
+    if (options.edge_style != null) {
+      this.edge_style = options.edge_style;
+    }
+    if (options.edge_unit_length != null) {
+      this.edge_unit_length = finiteOrDefault(options.edge_unit_length, this.edge_unit_length);
+    }
+    if (options.vertex_style != null) {
+      this.vertex_style = options.vertex_style;
     }
     return this;
   };
@@ -1021,6 +1147,126 @@
     });
   };
 
+  function Selection() {
+    this._items = Object.create(null);
+    this._order = [];
+    this.size = 0;
+  }
+
+  Selection.prototype._store = function (target) {
+    var key = selectionKey(target);
+    if (!this._items[key]) {
+      this._order.push(key);
+      this.size++;
+    }
+    this._items[key] = target;
+    return target;
+  };
+
+  Selection.prototype.clear = function () {
+    this._items = Object.create(null);
+    this._order = [];
+    this.size = 0;
+    return this;
+  };
+
+  Selection.prototype.has = function (target) {
+    var normalized = normalizedSelectionTarget(target);
+    return !!(normalized && this._items[selectionKey(normalized)]);
+  };
+
+  Selection.prototype.add = function (target) {
+    var normalized = normalizedSelectionTarget(target);
+    if (normalized) {
+      this._store(normalized);
+    }
+    return this;
+  };
+
+  Selection.prototype.remove = function (target) {
+    var normalized = normalizedSelectionTarget(target);
+    if (!normalized) {
+      return this;
+    }
+    var key = selectionKey(normalized);
+    if (!this._items[key]) {
+      return this;
+    }
+    delete this._items[key];
+    this._order = this._order.filter(function (entry) {
+      return entry !== key;
+    });
+    this.size--;
+    return this;
+  };
+
+  Selection.prototype.toggle = function (target) {
+    return this.has(target) ? this.remove(target) : this.add(target);
+  };
+
+  Selection.prototype.set = function (target) {
+    this.clear();
+    return this.add(target);
+  };
+
+  Selection.prototype.select = function (target, modifiers) {
+    modifiers = modifiers || {};
+    if (modifiers.ctrl || modifiers.toggle) {
+      return this.toggle(target);
+    }
+    if (modifiers.shift || modifiers.add) {
+      return this.add(target);
+    }
+    return this.set(target);
+  };
+
+  Selection.prototype.select_event = function (event) {
+    event = event || {};
+    var mask = intOrDefault(event.key_mask, 0);
+    return this.select(event.hover, {
+      ctrl: (mask & 1) !== 0,
+      shift: (mask & 2) !== 0
+    });
+  };
+
+  Selection.prototype.targets = function () {
+    var out = [];
+    for (var i = 0; i < this._order.length; i++) {
+      out.push(this._items[this._order[i]]);
+    }
+    return out;
+  };
+
+  Selection.prototype.items_or = function (fallback) {
+    var targets = this.targets();
+    if (targets.length > 0) {
+      return targets;
+    }
+    return Array.isArray(fallback) ? fallback : [];
+  };
+
+  Selection.prototype.for_each = function (callback, thisArg) {
+    if (typeof callback !== "function") {
+      throw new TypeError("selection.for_each expects a callback");
+    }
+    var targets = this.targets();
+    for (var i = 0; i < targets.length; i++) {
+      callback.call(thisArg, targets[i], i, this);
+    }
+    return this;
+  };
+
+  Selection.prototype.apply = function (callback, thisArg) {
+    if (typeof callback !== "function") {
+      throw new TypeError("selection.apply expects a callback");
+    }
+    var out = [];
+    this.for_each(function (target, index, selection) {
+      out.push(callback.call(thisArg, target, index, selection));
+    }, this);
+    return out;
+  };
+
   function createVkfUiRuntime(options) {
     var opts = options || {};
     if (!opts.arena || typeof opts.arena.setTranslate2D !== "function") {
@@ -1052,7 +1298,8 @@
       display: new Display(runtime),
       events: new EventQueue(opts.eventArena),
       cursor: new Cursor(),
-      keyboard: new Keyboard()
+      keyboard: new Keyboard(),
+      selection: new Selection()
     });
     return runtime;
   }
