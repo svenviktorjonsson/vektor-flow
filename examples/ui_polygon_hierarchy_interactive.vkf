@@ -31,17 +31,15 @@ root_poly:
   ry: [r0 * xy, r0 * 0.75, r0 * 0.55]
   x: cos(o + tau / 2 + (tau / 3) * i) * rx
   y: sin(o + tau / 2 + (tau / 3) * i) * ry
+  x_uv: [[x.0, x.1], [x.1, x.2]]
+  y_uv: [[y.0, y.1], [y.1, y.2]]
   obj: panel.add(
-    x: x,
-    y: y,
+    x_uv: x_uv,
+    y_uv: y_uv,
+    z: 0,
     face_color: [0.96, 0.29, 0.46, 0.82],
     edge_color: [0.96, 0.29, 0.46, 0.82],
     vertex_color: [0.96, 0.29, 0.46, 0.82]
-  )
-  obj.add_simplices(
-    vertices: [0, 1, 2],
-    edges: [[0, 1], [1, 2], [2, 0]],
-    faces: [[0, 1, 2]]
   )
   obj
 
@@ -49,17 +47,15 @@ child_poly:
   i: [0.0, 1.0, 2.0, 3.0]
   x: cos(o + tau / 4 + (tau / 2) * i) * r1 + dx
   y: sin(o + tau / 4 + (tau / 2) * i) * r1 + yx
+  x_uv: [[x.0, x.3], [x.1, x.2]]
+  y_uv: [[y.0, y.3], [y.1, y.2]]
   obj: root_poly.add(
-    x: x,
-    y: y,
+    x_uv: x_uv,
+    y_uv: y_uv,
+    z: 0,
     face_color: [0.30, 0.82, 0.52, 0.80],
     edge_color: [0.30, 0.82, 0.52, 0.80],
     vertex_color: [0.30, 0.82, 0.52, 0.80]
-  )
-  obj.add_simplices(
-    vertices: [0, 1, 2, 3],
-    edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
-    faces: [[0, 1, 2, 3]]
   )
   obj
 
@@ -68,17 +64,15 @@ grand_poly:
   r_y: [r2 * grand_scale, r2 * grand_scale, r2 * grand_scale, r2 * grand_scale, r2 * grand_scale]
   x: cos(o + (tau / 5) * i) * r2 + dx
   y: sin(o + (tau / 5) * i) * r_y + yx
+  x_uv: [[x.0, x.1], [x.2, x.3]]
+  y_uv: [[y.0, y.1], [y.2, y.3]]
   obj: child_poly.add(
-    x: x,
-    y: y,
+    x_uv: x_uv,
+    y_uv: y_uv,
+    z: 0,
     face_color: [0.16, 0.58, 1.00, 0.78],
     edge_color: [0.16, 0.58, 1.00, 0.78],
     vertex_color: [0.16, 0.58, 1.00, 0.78]
-  )
-  obj.add_simplices(
-    vertices: [0, 1, 2, 3, 4],
-    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 0]],
-    faces: [[0, 1, 2, 3, 4]]
   )
   obj
 
@@ -86,17 +80,15 @@ overlap_poly:
   i: [0.0, 1.0, 2.0, 3.0]
   x: cos(o + tau / 4 + (tau / 2) * i) * r1 + dx
   y: sin(o + tau / 4 + (tau / 2) * i) * r1 + yx
+  x_uv: [[x.0, x.3], [x.1, x.2]]
+  y_uv: [[y.0, y.3], [y.1, y.2]]
   obj: panel.add(
-    x: x,
-    y: y,
+    x_uv: x_uv,
+    y_uv: y_uv,
+    z: 0,
     face_color: [1.00, 0.80, 0.24, 0.44],
     edge_color: [1.00, 0.80, 0.24, 0.44],
     vertex_color: [1.00, 0.80, 0.24, 0.44]
-  )
-  obj.add_simplices(
-    vertices: [0, 1, 2, 3],
-    edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
-    faces: [[0, 1, 2, 3]]
   )
   obj.translate([0.30, -0.06])
   obj

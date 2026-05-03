@@ -853,49 +853,62 @@
     }
   };
 
+  MeshRef.prototype._translation_from_basis = function (basis) {
+    var b00 = basis[0];
+    var b10 = basis[1];
+    var b01 = basis[2];
+    var b11 = basis[3];
+    var originBase = this._base_point(this.origin);
+    return {
+      x: this.offset[0] + originBase[0] - (b00 * originBase[0] + b01 * originBase[1]),
+      y: this.offset[1] + originBase[1] - (b10 * originBase[0] + b11 * originBase[1])
+    };
+  };
+
+  MeshRef.prototype._apply_linear_transform_around_point = function (m00, m01, m10, m11, origo) {
+    origo = origo || [0, 0];
+    var originBase = this._base_point(this.origin);
+    var ox = numberOrZero(origo[0]);
+    var oy = numberOrZero(origo[1]);
+    var basis = [this.basis[0], this.basis[1], this.basis[2], this.basis[3]];
+    var oldT = this._translation_from_basis(basis);
+    var newT = [
+      m00 * oldT.x + m01 * oldT.y + ox - (m00 * ox + m01 * oy),
+      m10 * oldT.x + m11 * oldT.y + oy - (m10 * ox + m11 * oy)
+    ];
+    var oldA = basis[0];
+    var oldB = basis[1];
+    var oldC = basis[2];
+    var oldD = basis[3];
+    this.basis[0] = m00 * oldA + m01 * oldB;
+    this.basis[1] = m10 * oldA + m11 * oldB;
+    this.basis[2] = m00 * oldC + m01 * oldD;
+    this.basis[3] = m10 * oldC + m11 * oldD;
+    this.offset[0] = newT[0] - originBase[0] + (this.basis[0] * originBase[0] + this.basis[2] * originBase[1]);
+    this.offset[1] = newT[1] - originBase[1] + (this.basis[1] * originBase[0] + this.basis[3] * originBase[1]);
+  };
+
   MeshRef.prototype.rotate_scale_at_vertex = function (args) {
     args = args || {};
     var vertex = intOrDefault(args.vertex, -1);
     if (vertex < 0 || vertex >= this.coords.x.length) {
       return this;
     }
-    var p = this._parent_point_from_inner([
-      numberOrZero(this.coords.x[vertex]),
-      numberOrZero(this.coords.y[vertex]),
-      numberOrZero(this.coords.z[vertex])
-    ]);
-    var originBase = this._base_point(this.origin);
-    var originParent = [
-      originBase[0] + this.offset[0],
-      originBase[1] + this.offset[1]
-    ];
-    var trans = args.local_trans || args.trans || [0, 0];
-    var cursor = args.local_cursor || (
-      args.cursor
-        ? this._parent_point_from_world(args.cursor)
-        : [p[0] + numberOrZero(trans[0]), p[1] + numberOrZero(trans[1])]
-    );
-    var vx = p[0] - originParent[0];
-    var vy = p[1] - originParent[1];
-    var wx = numberOrZero(cursor[0]) - originParent[0];
-    var wy = numberOrZero(cursor[1]) - originParent[1];
-    var vLen = Math.sqrt(vx * vx + vy * vy);
-    var wLen = Math.sqrt(wx * wx + wy * wy);
-    if (vLen < 1e-9 || wLen < 1e-9) {
+    var origo = args.origo || this.world_inner_point(this.origin);
+    var hasAngle = args.angle != null;
+    var hasScale = args.scale != null || args.value != null;
+    if (!hasAngle && !hasScale) {
       return this;
     }
-    var angle = Math.atan2(wy, wx) - Math.atan2(vy, vx);
-    var scale = Math.max(0.15, wLen / vLen);
+    var angle = finiteOrDefault(args.angle, 0);
+    var scale = finiteOrDefault(args.scale, args.value != null ? args.value : 1);
     var cos = Math.cos(angle);
     var sin = Math.sin(angle);
-    var a = this.basis[0];
-    var b = this.basis[1];
-    var c = this.basis[2];
-    var d = this.basis[3];
-    this.basis[0] = scale * (cos * a - sin * b);
-    this.basis[1] = scale * (sin * a + cos * b);
-    this.basis[2] = scale * (cos * c - sin * d);
-    this.basis[3] = scale * (sin * c + cos * d);
+    var s00 = scale * cos;
+    var s01 = -scale * sin;
+    var s10 = scale * sin;
+    var s11 = scale * cos;
+    this._apply_linear_transform_around_point(s00, s01, s10, s11, origo);
     this._sync_transform();
     return this;
   };
@@ -904,6 +917,12 @@
     args = args || {};
     var edge = intOrDefault(args.edge, -1);
     if (edge < 0 || edge >= this.edges.length) {
+      return this;
+    }
+    var origo = args.origo || this.world_inner_point(this.origin);
+    var factor = finiteOrDefault(args.scale, args.value != null ? args.value : null);
+    var angle = finiteOrDefault(args.angle, null);
+    if (factor == null) {
       return this;
     }
     var pair = this.edges[edge];
@@ -919,47 +938,26 @@
     ]);
     var ex = b[0] - a[0];
     var ey = b[1] - a[1];
+    var angleSet = angle != null;
+    if (angleSet) {
+      var edgeAngle = numberOrZero(angle);
+      ex = Math.cos(edgeAngle);
+      ey = Math.sin(edgeAngle);
+    }
     var len = Math.sqrt(ex * ex + ey * ey) || 1;
     var nx = -ey / len;
     var ny = ex / len;
-    var trans = args.local_trans || args.trans || [0, 0];
-    var cursor = args.local_cursor || (
-      args.cursor
-        ? this._parent_point_from_world(args.cursor)
-        : [a[0] + numberOrZero(trans[0]), a[1] + numberOrZero(trans[1])]
-    );
-    var anchor = args.local_anchor || [
-      numberOrZero(cursor[0]) - numberOrZero(trans[0]),
-      numberOrZero(cursor[1]) - numberOrZero(trans[1])
-    ];
-    var grabbed = closestPointOnSegment(anchor, a, b);
-    var originBase = this._base_point(this.origin);
-    var originParent = [
-      originBase[0] + this.offset[0],
-      originBase[1] + this.offset[1]
-    ];
-    var normalCoord = dot2(grabbed[0] - originParent[0], grabbed[1] - originParent[1], nx, ny);
-    if (Math.abs(normalCoord) < 1e-9) {
-      return this;
-    }
-    var targetCoord = dot2(numberOrZero(cursor[0]) - originParent[0], numberOrZero(cursor[1]) - originParent[1], nx, ny);
-    var factor = targetCoord / normalCoord;
-    if (Math.abs(factor) < 0.05) {
-      factor = factor < 0 ? -0.05 : 0.05;
+    factor = finiteOrDefault(factor, 1);
+    var minScale = 1e-6;
+    if (Math.abs(factor) < minScale) {
+      factor = factor < 0 ? -minScale : minScale;
     }
     var k = factor - 1;
     var s00 = 1 + k * nx * nx;
     var s01 = k * nx * ny;
     var s10 = k * ny * nx;
     var s11 = 1 + k * ny * ny;
-    var oldA = this.basis[0];
-    var oldB = this.basis[1];
-    var oldC = this.basis[2];
-    var oldD = this.basis[3];
-    this.basis[0] = s00 * oldA + s01 * oldB;
-    this.basis[1] = s10 * oldA + s11 * oldB;
-    this.basis[2] = s00 * oldC + s01 * oldD;
-    this.basis[3] = s10 * oldC + s11 * oldD;
+    this._apply_linear_transform_around_point(s00, s01, s10, s11, origo);
     this._sync_transform();
     return this;
   };

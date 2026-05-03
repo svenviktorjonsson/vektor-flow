@@ -89,6 +89,8 @@ This demo opens the shared-memory runtime in the native Windows overlay. It does
 not require Chrome, does not start a Python server, and does not use JSON polling
 for pointer movement.
 
+By default the launcher uses the native `vkf.exe` overlay runtime.
+
 ```powershell
 .\run-shared-runtime-demo.ps1
 ```

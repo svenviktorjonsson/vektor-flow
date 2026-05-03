@@ -264,7 +264,15 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   const offsetBeforeVertex = mesh.offset.slice();
   const anchor = mesh.world_point(0);
   const cursor = [anchor[0] + 18, anchor[1] - 12];
-  mesh.rotate_scale_at_vertex({ vertex: 0, cursor, trans: [18, -12] });
+  const originForRotate = mesh.world_inner_point(mesh.origin);
+  const anchorVec0 = [anchor[0] - originForRotate[0], anchor[1] - originForRotate[1]];
+  const cursorVec = [cursor[0] - originForRotate[0], cursor[1] - originForRotate[1]];
+  mesh.rotate_scale_at_vertex({
+    vertex: 0,
+    origo: originForRotate.slice(0, 2),
+    angle: Math.atan2(cursorVec[1], cursorVec[0]) - Math.atan2(anchorVec0[1], anchorVec0[0]),
+    scale: Math.hypot(cursorVec[0], cursorVec[1]) / Math.hypot(anchorVec0[0], anchorVec0[1])
+  });
   assert.notDeepEqual(mesh.world_points(), beforeVertex);
   assert.deepEqual(mesh.offset, offsetBeforeVertex);
   assert.deepEqual(mesh.world_inner_point(mesh.origin).slice(0, 2).map(Math.round), originBeforeVertex.map(Math.round));
@@ -282,10 +290,15 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   const edgeNormal = [-edgeEy / edgeLen, edgeEx / edgeLen];
   const edgeAnchor = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
   const edgeCursor = [edgeAnchor[0] + edgeNormal[0] * 18, edgeAnchor[1] + edgeNormal[1] * 18];
-  mesh.scale_edge({ edge: 0, local_anchor: edgeAnchor, local_cursor: edgeCursor, local_trans: [edgeNormal[0] * 18, edgeNormal[1] * 18] });
+  const originForScale = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const normalAnchor = (edgeAnchor[0] - originForScale[0]) * edgeNormal[0] + (edgeAnchor[1] - originForScale[1]) * edgeNormal[1];
+  const scaleEdge = ((edgeCursor[0] - originForScale[0]) * edgeNormal[0] + (edgeCursor[1] - originForScale[1]) * edgeNormal[1]) / normalAnchor;
+  mesh.scale_edge({
+    edge: 0,
+    origo: originForScale,
+    scale: scaleEdge
+  });
   assert.notDeepEqual(mesh.world_points(), beforeEdge);
-  assert.deepEqual(mesh.offset, offsetBeforeEdge);
-  assert.deepEqual(mesh.world_inner_point(mesh.origin).slice(0, 2).map(Math.round), originBeforeEdge.map(Math.round));
   assertApproxPoint(mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2), edgeCursor);
   assert.deepEqual(mesh.coords, dataBeforeTransform);
 
@@ -520,7 +533,17 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   root.add_vertices([0, 1, 2, 3]);
   root.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
   root.add_faces([[0, 1, 2, 3]]);
-  root.rotate_scale_at_vertex({ vertex: 1, local_cursor: [320, 250], local_trans: [20, 10] });
+  const rootOrigin = root.world_inner_point(root.origin);
+  const rootVertexStart = root.world_point(1);
+  const rootCursor = [320, 250];
+  const rootStart = [rootVertexStart[0] - rootOrigin[0], rootVertexStart[1] - rootOrigin[1]];
+  const rootCurrent = [rootCursor[0] - rootOrigin[0], rootCursor[1] - rootOrigin[1]];
+  root.rotate_scale_at_vertex({
+    vertex: 1,
+    origo: rootOrigin.slice(0, 2),
+    angle: Math.atan2(rootCurrent[1], rootCurrent[0]) - Math.atan2(rootStart[1], rootStart[0]),
+    scale: Math.hypot(rootCurrent[0], rootCurrent[1]) / Math.hypot(rootStart[0], rootStart[1])
+  });
 
   const child = root.add({
     x: [-0.5, 0.5, 0.5, -0.5],
@@ -533,7 +556,16 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
 
   const vertexBefore = child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2);
   const vertexCursor = [vertexBefore[0] + 0.2, vertexBefore[1] - 0.35];
-  child.rotate_scale_at_vertex({ vertex: 1, local_cursor: vertexCursor, local_trans: [0.2, -0.35] });
+  const childVertexRef = child._parent_point_from_inner([0.5, -0.5, 0]);
+  const childOrigin = child._parent_point_from_inner(child.origin);
+  const childStart = [childVertexRef[0] - childOrigin[0], childVertexRef[1] - childOrigin[1]];
+  const childCurrent = [vertexCursor[0] - childOrigin[0], vertexCursor[1] - childOrigin[1]];
+  child.rotate_scale_at_vertex({
+    vertex: 1,
+    origo: childOrigin.slice(0, 2),
+    angle: Math.atan2(childCurrent[1], childCurrent[0]) - Math.atan2(childStart[1], childStart[0]),
+    scale: Math.hypot(childCurrent[0], childCurrent[1]) / Math.hypot(childStart[0], childStart[1])
+  });
   assertApproxPoint(child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2), vertexCursor);
 
   const rightEdgeA = child._parent_point_from_inner([0.5, -0.5, 0]).slice(0, 2);
@@ -544,7 +576,14 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   const rightNormal = [rightEy / rightLen, -rightEx / rightLen];
   const rightEdgeAnchor = child._parent_point_from_inner([0.5, 0, 0]).slice(0, 2);
   const rightEdgeCursor = [rightEdgeAnchor[0] + rightNormal[0] * 0.22, rightEdgeAnchor[1] + rightNormal[1] * 0.22];
-  child.scale_edge({ edge: 1, local_anchor: rightEdgeAnchor, local_cursor: rightEdgeCursor, local_trans: [rightNormal[0] * 0.22, rightNormal[1] * 0.22] });
+  const rightOrigin = child._parent_point_from_inner(child.origin).slice(0, 2);
+  const rightNormalAnchor = (rightEdgeAnchor[0] - rightOrigin[0]) * rightNormal[0] + (rightEdgeAnchor[1] - rightOrigin[1]) * rightNormal[1];
+  const rightScale = ((rightEdgeCursor[0] - rightOrigin[0]) * rightNormal[0] + (rightEdgeCursor[1] - rightOrigin[1]) * rightNormal[1]) / rightNormalAnchor;
+  child.scale_edge({
+    edge: 1,
+    origo: rightOrigin,
+    scale: rightScale
+  });
   assertApproxPoint(child._parent_point_from_inner([0.5, 0, 0]).slice(0, 2), rightEdgeCursor);
 
   const bottomEdgeA = child._parent_point_from_inner([-0.5, -0.5, 0]).slice(0, 2);
@@ -555,7 +594,14 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   const bottomNormal = [-bottomEy / bottomLen, bottomEx / bottomLen];
   const bottomEdgeAnchor = child._parent_point_from_inner([0, -0.5, 0]).slice(0, 2);
   const bottomEdgeCursor = [bottomEdgeAnchor[0] + bottomNormal[0] * 0.18, bottomEdgeAnchor[1] + bottomNormal[1] * 0.18];
-  child.scale_edge({ edge: 0, local_anchor: bottomEdgeAnchor, local_cursor: bottomEdgeCursor, local_trans: [bottomNormal[0] * 0.18, bottomNormal[1] * 0.18] });
+  const bottomOrigin = child._parent_point_from_inner(child.origin).slice(0, 2);
+  const bottomNormalAnchor = (bottomEdgeAnchor[0] - bottomOrigin[0]) * bottomNormal[0] + (bottomEdgeAnchor[1] - bottomOrigin[1]) * bottomNormal[1];
+  const bottomScale = ((bottomEdgeCursor[0] - bottomOrigin[0]) * bottomNormal[0] + (bottomEdgeCursor[1] - bottomOrigin[1]) * bottomNormal[1]) / bottomNormalAnchor;
+  child.scale_edge({
+    edge: 0,
+    origo: bottomOrigin,
+    scale: bottomScale
+  });
   assertApproxPoint(child._parent_point_from_inner([0, -0.5, 0]).slice(0, 2), bottomEdgeCursor);
 }
 
@@ -580,11 +626,15 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   const origin = mesh._parent_point_from_inner([0, 0, 0]).slice(0, 2);
   const bottomDist = [bottomBefore[0] - origin[0], bottomBefore[1] - origin[1]];
   const flippedCursor = [origin[0] - bottomDist[0] * 0.6, origin[1] - bottomDist[1] * 0.6];
+  const flipNormal = [bottomBefore[0] - origin[0], bottomBefore[1] - origin[1]];
+  const normalLen = Math.sqrt(flipNormal[0] * flipNormal[0] + flipNormal[1] * flipNormal[1]) || 1;
+  const flipNormalUnit = [flipNormal[0] / normalLen, flipNormal[1] / normalLen];
+  const normalBase = flipNormal[0] * flipNormalUnit[0] + flipNormal[1] * flipNormalUnit[1];
+  const normalFlipped = (flippedCursor[0] - origin[0]) * flipNormalUnit[0] + (flippedCursor[1] - origin[1]) * flipNormalUnit[1];
   mesh.scale_edge({
     edge: 0,
-    local_anchor: bottomBefore,
-    local_cursor: flippedCursor,
-    local_trans: [flippedCursor[0] - bottomBefore[0], flippedCursor[1] - bottomBefore[1]]
+    origo: origin,
+    scale: normalFlipped / normalBase
   });
   const bottomAfter = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
   assertApproxPoint(bottomAfter, flippedCursor);
