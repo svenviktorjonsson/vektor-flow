@@ -10,11 +10,10 @@ import json
 import math
 import re
 import threading
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from itertools import product
-from typing import Any
+from typing import Any, Protocol
 
 from .screen import (
     Screen,
@@ -43,6 +42,63 @@ LIGHT_MODELS = {"flat", "lambert", "blinn_phong", "phong"}
 
 # Animation tick rate (frames per second written to vf-display.json)
 _ANIM_FPS = 60
+
+
+class _UiTimerHost(Protocol):
+    """Host callbacks used by UI animation loops."""
+
+    def monotonic(self) -> float: ...
+
+    def sleep(self, seconds: float) -> None: ...
+
+
+class _PythonUiTimerHost:
+    """Default host adapter for UI timing operations."""
+
+    def monotonic(self) -> float:
+        import time
+
+        return time.monotonic()
+
+    def sleep(self, seconds: float) -> None:
+        import time
+
+        time.sleep(float(seconds))
+
+
+def _normalize_ui_timer_host(host: _UiTimerHost) -> _UiTimerHost:
+    for name in ("monotonic", "sleep"):
+        if not callable(getattr(host, name, None)):
+            raise TypeError("ui timer host must define monotonic() and sleep(seconds)")
+    return host
+
+
+_ui_timer_host: _UiTimerHost = _PythonUiTimerHost()
+
+
+def set_ui_timer_host(host: _UiTimerHost) -> None:
+    """Install a custom UI timer host."""
+    global _ui_timer_host
+    _ui_timer_host = _normalize_ui_timer_host(host)
+
+
+def reset_ui_timer_host() -> None:
+    """Restore the default Python-backed UI timer host."""
+    global _ui_timer_host
+    _ui_timer_host = _PythonUiTimerHost()
+
+
+def get_ui_timer_host() -> _UiTimerHost:
+    """Return the currently installed UI timer host."""
+    return _ui_timer_host
+
+
+def _ui_monotonic() -> float:
+    return _ui_timer_host.monotonic()
+
+
+def _ui_sleep(seconds: float) -> None:
+    _ui_timer_host.sleep(float(seconds))
 
 
 # ---------------------------------------------------------------------------
@@ -733,9 +789,9 @@ class SceneCamera:
 
         def _run() -> None:
             while not self._anim_stop.is_set():
-                t0 = time.monotonic()
+                t0 = _ui_monotonic()
                 self.rotate_by(omega * dt, ax)
-                elapsed = time.monotonic() - t0
+                elapsed = _ui_monotonic() - t0
                 sleep = max(0.0, dt - elapsed)
                 self._anim_stop.wait(timeout=sleep)
 
@@ -842,12 +898,12 @@ class SceneLight:
 
         def _run() -> None:
             while not self._anim_stop.is_set():
-                t0 = time.monotonic()
+                t0 = _ui_monotonic()
                 p = self._data["pos"]
                 p2 = _rotate_vec3_around_axis(p, ax, omega * dt)
                 self._data["pos"] = p2
                 self._display._sync_all()
-                elapsed = time.monotonic() - t0
+                elapsed = _ui_monotonic() - t0
                 self._anim_stop.wait(timeout=max(0.0, dt - elapsed))
 
         self._anim_thread = threading.Thread(target=_run, daemon=True, name="vf-light-orbit")
