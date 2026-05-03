@@ -1,132 +1,63 @@
-# 2-D polygon hierarchy interaction test.
-# Plain drag:
-#   vertex -> move that vertex
-#   edge   -> move the edge endpoints to reshape the polygon
-#   face   -> move the object and its children through the parent transform
-# Ctrl drag is intentionally free for this demo loop to reinterpret.
-# Background drag pans. Wheel zooms around the cursor in data coordinates.
-
+math: .math
 ui: .ui
 t: .time
 events: ui.events
 d: ui.display
 
-frame_rect: [0.08, 0.08, 0.72, 0.72]
-root_face_color: [1.0, 0.48, 0.35, 0.72]
-root_edge_color: [1.0, 0.72, 0.58, 1.0]
-root_vertex_color: [1.0, 0.97, 0.85, 1.0]
-child_face_color: [0.25, 0.86, 0.55, 0.78]
-child_edge_color: [0.45, 1.0, 0.68, 1.0]
-child_vertex_color: [0.95, 1.0, 0.95, 1.0]
-leaf_face_color: [0.37, 0.78, 1.0, 0.88]
-leaf_edge_color: [0.72, 0.92, 1.0, 1.0]
-leaf_vertex_color: [1.0, 0.96, 0.75, 1.0]
+tau: math.tau
 
-root_x: [-1.0, 1.0, 1.0, -1.0]
-root_y: [-1.0, -1.0, 1.0, 1.0]
-child_x: [-0.45, 0.35, 0.70, -0.10]
-child_y: [-0.55, -0.65, 0.10, 0.25]
-leaf_x: [-0.40, 0.20, 0.30, -0.25]
-leaf_y: [0.20, 0.10, 0.60, 0.65]
+o: 0.0
+r0: 0.72
+r1: 0.43
+r2: 0.25
+
+root_points: [
+  (math.cos(o + tau / 2) * r0, math.sin(o + tau / 2) * r0 * 0.45),
+  (math.cos(o + tau / 2 + tau / 3) * (r0 * 0.45), math.sin(o + tau / 2 + tau / 3) * (r0 * 0.75)),
+  (math.cos(o + tau / 2 + 2 * tau / 3) * (r0 * 0.55), math.sin(o + tau / 2 + 2 * tau / 3) * (r0 * 0.55))
+]
+
+child_points: [
+  (math.cos(o + tau / 4) * r1 + 0.05, math.sin(o + tau / 4) * r1 - 0.06),
+  (math.cos(o + 3 * tau / 4) * r1 + 0.05, math.sin(o + 3 * tau / 4) * r1 - 0.06),
+  (math.cos(o + 5 * tau / 4) * r1 + 0.05, math.sin(o + 5 * tau / 4) * r1 - 0.06),
+  (math.cos(o + 7 * tau / 4) * r1 + 0.05, math.sin(o + 7 * tau / 4) * r1 - 0.06)
+]
+
+grand_points: [
+  (math.cos(o + tau * 0.0 / 5) * r2 + 0.10, math.sin(o + tau * 0.0 / 5) * (r2 * 1.35) - 0.06),
+  (math.cos(o + tau * 1 / 5) * r2 + 0.10, math.sin(o + tau * 1 / 5) * (r2 * 1.35) - 0.06),
+  (math.cos(o + tau * 2 / 5) * r2 + 0.10, math.sin(o + tau * 2 / 5) * (r2 * 1.35) - 0.06),
+  (math.cos(o + tau * 3 / 5) * r2 + 0.10, math.sin(o + tau * 3 / 5) * (r2 * 1.35) - 0.06),
+  (math.cos(o + tau * 4 / 5) * r2 + 0.10, math.sin(o + tau * 4 / 5) * (r2 * 1.35) - 0.06)
+]
 
 panel: d.frame(
-  title: "Polygon edit: red parent -> green child -> blue leaf",
+  title: "2d hierarchy (math init)",
   draggable: true,
-  closable: true,
-  resizable: true,
-  dockable: true,
-  dock_loc: "bl",
-  alpha: 0.96,
+  closable: false,
+  resizable: false,
+  alpha: 0.98,
   master: true
 )
+d.add_frame(panel, [0.07, 0.07, 0.86, 0.86])
 
-d.add_frame(panel, frame_rect)
+root_poly: panel.add_polygon(root_points, color: [0.96, 0.29, 0.46, 0.82])
+child_poly: root_poly.add_polygon(child_points, color: [0.30, 0.82, 0.52, 0.80])
+grand_poly: child_poly.add_polygon(grand_points, color: [0.16, 0.58, 1.00, 0.78])
 
-root_poly: panel.add(
-  x: root_x,
-  y: root_y,
-  face_color: root_face_color,
-  edge_color: root_edge_color,
-  vertex_color: root_vertex_color,
-  origin: [0.0, 0.0, 0.0],
-  vertex_radius: 4,
-  edge_radius: 2
-)
-root_poly.add_simplices(
-  vertices: [0, 1, 2, 3],
-  edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
-  faces: [[0, 1, 2, 3]]
-)
+overlap_poly: panel.add_polygon(child_points, color: [1.00, 0.80, 0.24, 0.44])
+overlap_poly.translate([0.30, -0.06])
 
-child_poly: root_poly.add(
-  x: child_x,
-  y: child_y,
-  face_color: child_face_color,
-  edge_color: child_edge_color,
-  vertex_color: child_vertex_color,
-  origin: [0.0, 0.0, 0.0],
-  vertex_radius: 4,
-  edge_radius: 2
-)
-child_poly.add_simplices(
-  vertices: [0, 1, 2, 3],
-  edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
-  faces: [[0, 1, 2, 3]]
-)
-
-leaf_poly: child_poly.add(
-  x: leaf_x,
-  y: leaf_y,
-  face_color: leaf_face_color,
-  edge_color: leaf_edge_color,
-  vertex_color: leaf_vertex_color,
-  origin: [0.0, 0.0, 0.0],
-  vertex_radius: 4,
-  edge_radius: 2
-)
-leaf_poly.add_simplices(
-  vertices: [0, 1, 2, 3],
-  edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
-  faces: [[0, 1, 2, 3]]
-)
-
-describe_action(e):
-  mods: ui.keyboard.modifiers
-  mods.ctrl?
-    (e.hover.mask & ui.HOVER_VERTEX)?
-      @: "ctrl vertex: custom branch"
-    (e.hover.mask & ui.HOVER_EDGE)?
-      @: "ctrl edge: custom branch"
-    @: "ctrl face: custom branch"
-  (e.hover.mask & ui.HOVER_VERTEX)?
-    @: "move vertex"
-  (e.hover.mask & ui.HOVER_EDGE)?
-    @: "move edge endpoints"
-  (e.hover.mask & ui.HOVER_FACE)?
-    @: "move object subtree"
-  @: "pan frame"
-
-print_event(e):
-  action: describe_action(e)
-  :: "event=$e.event action=$action mask=$e.hover.mask object=$e.hover.object_id kind=$e.hover.kind vertex=$e.hover.vertex_id edge=$e.hover.edge_id face=$e.hover.face_id"
-
-edit_polygon(e):
-  target: panel.get(e.hover)
-  target? target.translate(trans:e.trans)
-
-:: "interactive polygon hierarchy ready"
+drag_target(e):
+  target: d.get(e.hover)
+  target? target.translate(e.trans)
 
 (e: events.get())??>
+  ui.MOUSE_DRAG =>
+    drag_target(e)
   ui.MOUSE_DOWN =>
     ui.cursor.set_mode("closed_hand")
-    print_event(e)
-  ui.MOUSE_MOVE =>
-    ui.cursor.set_mode("open_hand")
-  ui.MOUSE_DRAG =>
-    edit_polygon(e)
   ui.MOUSE_UP =>
     ui.cursor.set_mode("open_hand")
-    print_event(e)
-  ui.MOUSE_WHEEL =>
-    print_event(e)
   t.sleep(0.016)
