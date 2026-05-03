@@ -15,3 +15,4 @@ dist/
 .DS_Store
 web/vf-ui/vkf-scene.json
 web/vf-ui/vf-display.json
+.pytest-tmp-*
