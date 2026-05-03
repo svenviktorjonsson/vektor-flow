@@ -68,6 +68,23 @@ Expected first output:
 hello, world
 ```
 
+### Runtime Backend
+
+By default, `vkf` runs files through the native backend when they match the native
+subset contract, and falls back to the Python interpreter otherwise.
+
+Set `VKF_RUNTIME_BACKEND` to force:
+
+- `auto` (default): native-first with interpreter fallback
+- `native`: native-only (fail fast if native execution fails)
+- `python`: force interpreter
+
+```bash
+VKF_RUNTIME_BACKEND=auto vkf examples/native_core/hello_native.vkf
+VKF_RUNTIME_BACKEND=native vkf examples/native_core/hello_native.vkf
+VKF_RUNTIME_BACKEND=python vkf examples/folder_repo/main.vkf
+```
+
 ## Core Ideas
 
 ### Compact, keyword-free style

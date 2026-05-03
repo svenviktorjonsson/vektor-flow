@@ -36,12 +36,15 @@ from pathlib import Path
 
 from . import __version__
 from .errors import EvalError, LexError, ParseError, VektorFlowError
+from .cpp_backend import discover_cpp_compiler
 from .lexer import tokenize
 from .native_frontend import (
     build_native_subset,
     emit_cpp_from_native_subset,
     lex_native_subset_payload,
     parse_native_subset,
+    native_subset_native_parser_fast_path_available,
+    run_native_subset,
 )
 from .parser import parse_token_stream_json
 from .token_stream import tokens_from_json, tokens_to_json
@@ -129,8 +132,27 @@ def cmd_tokens_native_core(
     return 0
 
 
-def cmd_run(path: Path) -> int:
-    """Parse and execute a ``.vkf`` file."""
+def _runtime_backend_preference() -> str:
+    value = os.getenv("VKF_RUNTIME_BACKEND", "auto").strip().lower()
+    if value in {"auto", "python", "native"}:
+        return value
+    return "auto"
+
+
+def _native_runtime_available(path: Path) -> bool:
+    if discover_cpp_compiler() is None:
+        return False
+    return bool(
+        native_subset_native_parser_fast_path_available(
+            None,
+            str(path),
+            subset="native_core",
+            filename_label=path.as_posix(),
+        )
+    )
+
+
+def _run_with_interpreter(path: Path) -> int:
     try:
         from .interpreter import run_file
 
@@ -142,6 +164,47 @@ def cmd_run(path: Path) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _run_with_native_core(path: Path) -> int:
+    result = run_native_subset(
+        None,
+        str(path),
+        subset="native_core",
+        filename_label=path.as_posix(),
+    )
+
+    if result.process.stdout:
+        print(result.process.stdout, end="")
+    if result.process.stderr:
+        print(result.process.stderr, file=sys.stderr, end="")
+    return result.process.returncode
+
+
+def cmd_run(path: Path) -> int:
+    """Parse and execute a ``.vkf`` file."""
+    preference = _runtime_backend_preference()
+    if preference in {"auto", "native"} and _native_runtime_available(path):
+        try:
+            native_rc = _run_with_native_core(path)
+            if native_rc == 0 or preference == "native":
+                return native_rc
+            print(
+                "warning: native runtime returned a non-zero exit code, "
+                "falling back to Python interpreter",
+                file=sys.stderr,
+            )
+            return _run_with_interpreter(path)
+        except Exception as exc:
+            if preference == "native":
+                print(f"error: native runtime execution failed: {exc}", file=sys.stderr)
+                return 1
+            print(
+                f"warning: native runtime execution unavailable, falling back to Python interpreter: {exc}",
+                file=sys.stderr,
+            )
+            return _run_with_interpreter(path)
+    return _run_with_interpreter(path)
 
 
 def cmd_parse_tokens(payload: str) -> int:
