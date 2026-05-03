@@ -777,7 +777,7 @@ class SceneCamera:
         Example::
 
             cam.rotate(around="z", omega=30)   # 30 °/s, full revolution in 12 s
-            time.sleep(5)
+            # ... allow the host-driven event loop to tick while rotating ...
             cam.stop()
         """
         self.stop()  # halt any existing animation
