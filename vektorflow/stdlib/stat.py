@@ -11,6 +11,7 @@ Functions:
 
 from __future__ import annotations
 
+import random as _random
 import math as _m
 from typing import Any, Sequence
 
@@ -26,6 +27,137 @@ def _to_floats(seq: Any) -> list[float]:
 def _require_nonempty(xs: list[float], name: str) -> None:
     if not xs:
         raise ValueError(f"stat.{name}: sequence must be non-empty")
+
+
+def _shape_to_dims(shape: Any) -> tuple[int, ...]:
+    """Convert nested shape-like data into a tuple of integer dimensions.
+
+    Accepts scalar sizes, 1-D lists like ``[2, 3]``, and nested lists
+    like ``[[2], [3, 4]]`` (flattened).
+    """
+
+    if isinstance(shape, (int, float)):
+        try:
+            dim = int(shape)
+        except (TypeError, ValueError, OverflowError) as e:
+            raise TypeError(f"stat: shape must be numeric, got {shape!r}") from e
+        if dim != shape:
+            raise TypeError(f"stat: shape sizes must be integers, got {shape!r}")
+        if dim < 0:
+            raise ValueError(f"stat: shape sizes must be non-negative, got {dim}")
+        return (dim,)
+
+    if isinstance(shape, (list, tuple)):
+        dims: list[int] = []
+        for axis in shape:
+            dims.extend(_shape_to_dims(axis))
+        return tuple(dims)
+
+    raise TypeError(
+        "stat: shape must be a non-negative integer or a nested list/tuple of integers"
+    )
+
+
+def _validate_shape(shape: Any, *, name: str = "shape") -> tuple[int, ...]:
+    dims = _shape_to_dims(shape)
+    if any(dim <= 0 for dim in dims):
+        raise ValueError(f"stat.{name}: each shape size must be > 0, got {dims}")
+    return dims
+
+
+def _uniform_single(low: float, high: float) -> float:
+    lo = float(low)
+    hi = float(high)
+    if lo > hi:
+        lo, hi = hi, lo
+    return lo + (hi - lo) * _random.random()
+
+
+def _randn(mean: float, sigma: float) -> float:
+    if sigma <= 0:
+        return float(mean)
+    return _random.gauss(float(mean), float(_m.sqrt(float(sigma))))
+
+
+def _build_nested(shape: tuple[int, ...], factory: Any) -> Any:
+    if not shape:
+        return factory()
+    if len(shape) == 1:
+        return [factory() for _ in range(shape[0])]
+    return [_build_nested(shape[1:], factory) for _ in range(shape[0])]
+
+
+def _to_float_vector(seq: Any, *, name: str) -> list[float]:
+    if not isinstance(seq, Sequence):
+        raise TypeError(f"stat.{name}: expected a sequence of numerics")
+    xs = [float(x) for x in seq]
+    if len(xs) == 0:
+        raise ValueError(f"stat.{name}: sequence must be non-empty")
+    return xs
+
+
+def _uniform_factory_with_shape(
+    low: float, high: float, shape: tuple[int, ...]
+) -> Any:
+    def _sample() -> float:
+        return _uniform_single(low, high)
+
+    return _build_nested(shape, _sample)
+
+
+def _normal_factory(
+    mean: Sequence[float], variance: Sequence[float], shape: tuple[int, ...]
+) -> Any:
+    means = list(mean)
+    vars = list(variance)
+    if len(means) != len(vars):
+        raise ValueError(
+            "stat.random.normal: mean and variance must be same length"
+        )
+    d = len(means)
+
+    def _sample_vec() -> list[float]:
+        return [_randn(m, v) for m, v in zip(means, vars)]
+
+    def _sample_scalar() -> float:
+        return _sample_vec()[0]
+
+    if d == 1:
+        return _build_nested(shape, _sample_scalar)
+    return _build_nested(shape, _sample_vec)
+
+
+def uniform(low: float, high: float, shape: Any) -> Any:
+    """Draw random numbers from a uniform distribution in [low, high]."""
+    dims = _validate_shape(shape)
+    return _uniform_factory_with_shape(low, high, dims)
+
+
+def normal(
+    mean: Sequence[float],
+    variance: Sequence[float],
+    shape: Any,
+) -> Any:
+    """Draw random samples from a normal distribution.
+
+    ``mean`` and ``variance`` are 1-D vectors that define the component-wise
+    Gaussian parameters for the returned elements.
+    """
+    mean_v = _to_float_vector(mean, name="random.normal.mean")
+    var_v = _to_float_vector(variance, name="random.normal.variance")
+    if len(mean_v) != len(var_v):
+        raise ValueError("stat.random.normal: mean and variance must be same length")
+    if any(v < 0 for v in var_v):
+        raise ValueError("stat.random.normal: variance entries must be non-negative")
+    dims = _validate_shape(shape, name="random.normal.shape")
+    return _normal_factory(mean_v, var_v, dims)
+
+
+def random_namespace() -> dict[str, Any]:
+    return {
+        "uniform": uniform,
+        "normal": normal,
+    }
 
 
 def mean(seq: Any) -> float:
@@ -225,4 +357,5 @@ def build_stat_namespace() -> dict[str, Any]:
         "correlation": correlation,
         "clamp": clamp,
         "sign": sign,
+        "random": random_namespace(),
     }

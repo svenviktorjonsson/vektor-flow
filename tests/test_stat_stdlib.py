@@ -16,6 +16,7 @@ from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.stat import (
     build_stat_namespace,
     clamp,
+    normal,
     correlation,
     count,
     covariance,
@@ -31,6 +32,7 @@ from vektorflow.stdlib.stat import (
     sign,
     std,
     sum_val,
+    uniform,
     variance,
     zscore,
 )
@@ -72,13 +74,26 @@ class TestResolveStatStdlib:
             "min", "max", "range", "sum", "count",
             "percentile", "iqr", "zscore", "normalize",
             "covariance", "correlation", "clamp", "sign",
+            "random",
         }
         assert expected <= set(s.keys())
+
+    def test_stat_random_namespace_present(self) -> None:
+        s = resolve_stdlib("stat")
+        random_ns = s["random"]
+        assert isinstance(random_ns, dict)
+        assert set(random_ns.keys()) == {"uniform", "normal"}
+        assert callable(random_ns["uniform"])
+        assert callable(random_ns["normal"])
 
     def test_all_callable(self) -> None:
         s = resolve_stdlib("stat")
         for k, v in s.items():
-            assert callable(v), f"{k} should be callable"
+            if k == "random":
+                assert isinstance(v, dict)
+                assert set(v.keys()) == {"uniform", "normal"}
+            else:
+                assert callable(v), f"{k} should be callable"
 
     def test_unknown_stdlib_raises(self) -> None:
         with pytest.raises(KeyError):
@@ -392,6 +407,60 @@ class TestNormalize:
     def test_empty_raises(self) -> None:
         with pytest.raises(ValueError):
             normalize([])
+
+
+class TestRandomNamespace:
+    def test_uniform_shape_and_bounds(self) -> None:
+        out = uniform(2.0, 5.0, [2, 3])
+        assert len(out) == 2
+        assert all(len(row) == 3 for row in out)
+        for row in out:
+            for v in row:
+                assert 2.0 <= v <= 5.0
+
+    def test_uniform_nested_shape(self) -> None:
+        out = uniform(-1.0, 1.0, [[2], [2]])
+        assert len(out) == 2
+        assert len(out[0]) == 2
+
+    def test_uniform_swapped_bounds(self) -> None:
+        sample = uniform(5.0, 1.0, 4)
+        assert len(sample) == 4
+        assert all(1.0 <= v <= 5.0 for v in sample)
+
+
+class TestNormalNamespace:
+    def test_normal_shape_with_vector_mean_and_variance(self) -> None:
+        out = normal([0.0, 1.0], [1.0, 4.0], [2, 2])
+        assert len(out) == 2
+        assert len(out[0]) == 2
+        assert len(out[0][0]) == 2
+        assert len(out[0][1]) == 2
+        assert all(len(v) == 2 for row in out for v in row)
+        for row in out:
+            for sample in row:
+                assert len(sample) == 2
+                assert all(_is_num(x) for x in sample)
+
+    def test_normal_scalar_default_shape(self) -> None:
+        # 1-D gaussian when mean/variance have len 1: output keeps requested shape.
+        out = normal([10.0], [1.0], 3)
+        assert isinstance(out, list)
+        assert len(out) == 3
+        assert all(_is_num(v) for v in out)
+
+    def test_normal_shape_uses_via_vkf(self) -> None:
+        lines = _run_with_stat_import(":: stat.random.normal([0.0, 1.0], [1.0, 1.0], [2, 2])")
+        assert len(lines) == 1
+        assert lines[0].startswith("[[")
+
+
+def _is_num(v: object) -> bool:
+    try:
+        float(v)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
