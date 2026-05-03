@@ -1,39 +1,50 @@
-math: .math
+:.math
 ui: .ui
 t: .time
 events: ui.events
 d: ui.display
 
-tau: math.tau
+tau: tau
 
-o: 0.0
+o: 0
 r0: 0.72
 r1: 0.43
 r2: 0.25
+xy: 0.45
+yx: -0.06
+dx: 0.05
+child_w: 1
+grand_scale: 1.35
 
+root_ang0: o + tau / 2
+root_step: tau / 3
 root_points: [
-  (math.cos(o + tau / 2) * r0, math.sin(o + tau / 2) * r0 * 0.45),
-  (math.cos(o + tau / 2 + tau / 3) * (r0 * 0.45), math.sin(o + tau / 2 + tau / 3) * (r0 * 0.75)),
-  (math.cos(o + tau / 2 + 2 * tau / 3) * (r0 * 0.55), math.sin(o + tau / 2 + 2 * tau / 3) * (r0 * 0.55))
+  [cos(root_ang0) * r0, sin(root_ang0) * r0 * xy],
+  [cos(root_ang0 + root_step) * (r0 * 0.45), sin(root_ang0 + root_step) * (r0 * 0.75)],
+  [cos(root_ang0 + 2 * root_step) * (r0 * 0.55), sin(root_ang0 + 2 * root_step) * (r0 * 0.55)]
 ]
 
+child_ang0: o + tau / 4
+child_step: tau / 2
 child_points: [
-  (math.cos(o + tau / 4) * r1 + 0.05, math.sin(o + tau / 4) * r1 - 0.06),
-  (math.cos(o + 3 * tau / 4) * r1 + 0.05, math.sin(o + 3 * tau / 4) * r1 - 0.06),
-  (math.cos(o + 5 * tau / 4) * r1 + 0.05, math.sin(o + 5 * tau / 4) * r1 - 0.06),
-  (math.cos(o + 7 * tau / 4) * r1 + 0.05, math.sin(o + 7 * tau / 4) * r1 - 0.06)
+  [cos(child_ang0) * child_w * r1 + dx, sin(child_ang0) * child_w * r1 + yx],
+  [cos(child_ang0 + child_step) * child_w * r1 + dx, sin(child_ang0 + child_step) * child_w * r1 + yx],
+  [cos(child_ang0 + 2 * child_step) * child_w * r1 + dx, sin(child_ang0 + 2 * child_step) * child_w * r1 + yx],
+  [cos(child_ang0 + 3 * child_step) * child_w * r1 + dx, sin(child_ang0 + 3 * child_step) * child_w * r1 + yx]
 ]
 
+grand_ang0: o
+grand_step: tau / 5
 grand_points: [
-  (math.cos(o + tau * 0.0 / 5) * r2 + 0.10, math.sin(o + tau * 0.0 / 5) * (r2 * 1.35) - 0.06),
-  (math.cos(o + tau * 1 / 5) * r2 + 0.10, math.sin(o + tau * 1 / 5) * (r2 * 1.35) - 0.06),
-  (math.cos(o + tau * 2 / 5) * r2 + 0.10, math.sin(o + tau * 2 / 5) * (r2 * 1.35) - 0.06),
-  (math.cos(o + tau * 3 / 5) * r2 + 0.10, math.sin(o + tau * 3 / 5) * (r2 * 1.35) - 0.06),
-  (math.cos(o + tau * 4 / 5) * r2 + 0.10, math.sin(o + tau * 4 / 5) * (r2 * 1.35) - 0.06)
+  [cos(grand_ang0) * r2 + dx, sin(grand_ang0) * (r2 * grand_scale) + yx],
+  [cos(grand_ang0 + grand_step) * r2 + dx, sin(grand_ang0 + grand_step) * (r2 * grand_scale) + yx],
+  [cos(grand_ang0 + 2 * grand_step) * r2 + dx, sin(grand_ang0 + 2 * grand_step) * (r2 * grand_scale) + yx],
+  [cos(grand_ang0 + 3 * grand_step) * r2 + dx, sin(grand_ang0 + 3 * grand_step) * (r2 * grand_scale) + yx],
+  [cos(grand_ang0 + 4 * grand_step) * r2 + dx, sin(grand_ang0 + 4 * grand_step) * (r2 * grand_scale) + yx]
 ]
 
 panel: d.frame(
-  title: "2d hierarchy (math init)",
+  title: "2d hierarchy (compact math init)",
   draggable: true,
   closable: false,
   resizable: false,
