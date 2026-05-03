@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
 from vektorflow.cpp_backend import (
     CppEmitError,
     compile_and_run_module,
+    compile_cpp_source,
     discover_cpp_compiler,
     emit_cpp_module,
+    emit_cpp_from_source_file,
 )
-from vektorflow.ir import IndexExpr, PrintStmt, lower_module
+from vektorflow.ir import IndexExpr, PrintStmt, TypeDef, lower_module
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
 
@@ -218,6 +221,31 @@ def test_cpp_emits_struct_program() -> None:
     assert "double y;" in cpp
     assert 'std::cout << vf_format_num(p.x) << "\\n";' in cpp
     assert 'std::cout << vf_format_value(p) << "\\n";' in cpp
+
+
+def test_cpp_lowers_named_record_type_definition_program() -> None:
+    src = """
+Point : (x:num, y:num)
+Point p: (x:1, y:2)
+:: p.x
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    assert isinstance(lowered.statements[0], TypeDef)
+    cpp = emit_cpp_module(lowered)
+    assert "struct VfRecord_" in cpp
+    assert "double p = " not in cpp
+    assert 'std::cout << vf_format_num(p.x) << "\\n";' in cpp
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_builds_named_record_type_example(tmp_path: Path) -> None:
+    path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_native.vkf"
+    cpp = emit_cpp_from_source_file(path)
+    exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_native")
+    proc = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert exe.exists()
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "4\n(x:4, y:6)"
 
 
 def test_cpp_emits_dynamic_map_and_list_program() -> None:

@@ -31,6 +31,8 @@ def _lower_block(block: ir.Block, slots: dict[str, int]) -> ir.Block:
 
 
 def _lower_stmt(stmt: Any, slots: dict[str, int]) -> Any:
+    if isinstance(stmt, ir.TypeDef):
+        return stmt
     if isinstance(stmt, ir.StoreName) and stmt.name in slots:
         return ir.StoreSlot(slots[stmt.name], stmt.name, _lower_expr(stmt.value, slots), stmt.declared_type)
     if isinstance(stmt, ir.PrintStmt):

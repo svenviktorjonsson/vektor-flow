@@ -170,6 +170,12 @@ class ReturnStmt:
 
 
 @dataclass(frozen=True, slots=True)
+class TypeDef:
+    name: str
+    type_expr: Any
+
+
+@dataclass(frozen=True, slots=True)
 class Block:
     statements: list[IRNode] = field(default_factory=list)
 
@@ -180,30 +186,63 @@ class Module:
 
 
 def lower_module(module: ast.Module) -> Module:
-    return Module([lower_stmt(stmt) for stmt in module.statements])
+    type_registry: dict[str, Any] = {}
+    return Module([lower_stmt(stmt, type_registry) for stmt in module.statements])
 
 
 def lower_block(block: ast.Block) -> Block:
-    return Block([lower_stmt(stmt) for stmt in block.statements])
+    return Block([lower_stmt(stmt, {}) for stmt in block.statements])
 
 
-def lower_stmt(node: Any) -> IRNode:
+def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
+    if isinstance(type_expr, ast.NamedTypeSpec):
+        return ast.NamedTypeSpec(type_expr.name, _resolve_type_refs(type_expr.type_expr, type_registry))
+    if isinstance(type_expr, ast.PrimTypeRef):
+        return type_registry.get(type_expr.name, type_expr)
+    if isinstance(type_expr, ast.TypeExpr):
+        return ast.TypeExpr([(name, _resolve_type_refs(inner, type_registry)) for name, inner in type_expr.fields])
+    if isinstance(type_expr, ast.TupleTypeExpr):
+        return ast.TupleTypeExpr([_resolve_type_refs(inner, type_registry) for inner in type_expr.elements])
+    if isinstance(type_expr, ast.FixedVectorType):
+        return ast.FixedVectorType(_resolve_type_refs(type_expr.element_type, type_registry), type_expr.size)
+    if isinstance(type_expr, ast.MultisetType):
+        return ast.MultisetType(_resolve_type_refs(type_expr.element_type, type_registry))
+    if isinstance(type_expr, ast.MapValueType):
+        return ast.MapValueType([(name, _resolve_type_refs(inner, type_registry)) for name, inner in type_expr.fields])
+    if isinstance(type_expr, ast.LinkedListValueType):
+        return ast.LinkedListValueType([_resolve_type_refs(inner, type_registry) for inner in type_expr.elements])
+    if isinstance(type_expr, ast.FuncType):
+        return ast.FuncType(
+            _resolve_type_refs(type_expr.domain, type_registry),
+            _resolve_type_refs(type_expr.codomain, type_registry),
+        )
+    return type_expr
+
+
+def lower_stmt(node: Any, type_registry: dict[str, Any] | None = None) -> IRNode:
+    if type_registry is None:
+        type_registry = {}
     if isinstance(node, ast.Bind):
         if not isinstance(node.target, ast.Ident):
             raise NotImplementedError(
                 f"IR lowering does not yet support bind target {type(node.target).__name__}"
             )
+        if node.declared_type is None and isinstance(node.value, ast.TypeExpr):
+            resolved_type = _resolve_type_refs(node.value, type_registry)
+            type_registry[node.target.name] = resolved_type
+            return TypeDef(node.target.name, resolved_type)
         value = lower_expr(node.value)
-        if node.declared_type is not None:
-            value = CoerceExpr(value, node.declared_type)
-        return StoreName(node.target.name, value, node.declared_type)
+        declared_type = None if node.declared_type is None else _resolve_type_refs(node.declared_type, type_registry)
+        if declared_type is not None:
+            value = CoerceExpr(value, declared_type)
+        return StoreName(node.target.name, value, declared_type)
     if isinstance(node, ast.FuncDef):
         param_types: list[Any] = []
         for p in node.params:
             if p.param_func_type is not None:
-                param_types.append(p.param_func_type)
+                param_types.append(_resolve_type_refs(p.param_func_type, type_registry))
             elif p.type_ref is not None:
-                param_types.append(p.type_ref)
+                param_types.append(_resolve_type_refs(p.type_ref, type_registry))
             else:
                 param_types.append(None)
         return FunctionDef(
@@ -211,7 +250,11 @@ def lower_stmt(node: Any) -> IRNode:
             [p.name for p in node.params],
             lower_body_as_block(node.body),
             param_types=param_types,
-            return_type=node.func_type.codomain if node.func_type is not None else None,
+            return_type=(
+                _resolve_type_refs(node.func_type.codomain, type_registry)
+                if node.func_type is not None
+                else None
+            ),
         )
     if isinstance(node, ast.ExprStmt):
         if isinstance(node.expr, ast.ConditionalExpr):

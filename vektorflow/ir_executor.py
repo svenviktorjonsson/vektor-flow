@@ -90,6 +90,9 @@ class IRExecutor:
         return result
 
     def exec_stmt(self, node: Any, env: dict[str, Any]) -> Any:
+        if isinstance(node, ir.TypeDef):
+            self.types[node.name] = node.type_expr
+            return None
         if isinstance(node, ir.StoreName):
             val = self.eval_expr(node.value, env)
             if node.declared_type is not None:
