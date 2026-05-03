@@ -581,6 +581,7 @@ class TestMain:
         assert '"summary"' in out
         assert '"results"' in out
         assert '"scalar_control"' in out
+        assert '"parse_py_ms"' in out
         assert '"python_ref_ms"' in out
 
     def test_bench_subcommand_samples(self, capsys: pytest.CaptureFixture[str]) -> None:

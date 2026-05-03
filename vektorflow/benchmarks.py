@@ -70,22 +70,118 @@ class BenchmarkResult:
     numpy_ref_samples_ms: list[float] = field(default_factory=list)
 
     @property
+    def parse_py_ms(self) -> float | None:
+        return self.parse_ms
+
+    @parse_py_ms.setter
+    def parse_py_ms(self, value: float | None) -> None:
+        self.parse_ms = value
+
+    @property
+    def lower_py_ms(self) -> float | None:
+        return self.lower_ms
+
+    @lower_py_ms.setter
+    def lower_py_ms(self, value: float | None) -> None:
+        self.lower_ms = value
+
+    @property
+    def interpret_py_ms(self) -> float | None:
+        return self.interpret_ms
+
+    @interpret_py_ms.setter
+    def interpret_py_ms(self, value: float | None) -> None:
+        self.interpret_ms = value
+
+    @property
+    def emit_cpp_py_ms(self) -> float | None:
+        return self.emit_cpp_ms
+
+    @emit_cpp_py_ms.setter
+    def emit_cpp_py_ms(self, value: float | None) -> None:
+        self.emit_cpp_ms = value
+
+    @property
+    def cpp_compile_ms(self) -> float | None:
+        return self.compile_ms
+
+    @cpp_compile_ms.setter
+    def cpp_compile_ms(self, value: float | None) -> None:
+        self.compile_ms = value
+
+    @property
+    def parse_py_samples_ms(self) -> list[float]:
+        return self.parse_samples_ms
+
+    @parse_py_samples_ms.setter
+    def parse_py_samples_ms(self, value: list[float]) -> None:
+        self.parse_samples_ms = value
+
+    @property
+    def lower_py_samples_ms(self) -> list[float]:
+        return self.lower_samples_ms
+
+    @lower_py_samples_ms.setter
+    def lower_py_samples_ms(self, value: list[float]) -> None:
+        self.lower_samples_ms = value
+
+    @property
+    def interpret_py_samples_ms(self) -> list[float]:
+        return self.interpret_samples_ms
+
+    @interpret_py_samples_ms.setter
+    def interpret_py_samples_ms(self, value: list[float]) -> None:
+        self.interpret_samples_ms = value
+
+    @property
+    def emit_cpp_py_samples_ms(self) -> list[float]:
+        return self.emit_cpp_samples_ms
+
+    @emit_cpp_py_samples_ms.setter
+    def emit_cpp_py_samples_ms(self, value: list[float]) -> None:
+        self.emit_cpp_samples_ms = value
+
+    @property
+    def cpp_compile_samples_ms(self) -> list[float]:
+        return self.compile_samples_ms
+
+    @cpp_compile_samples_ms.setter
+    def cpp_compile_samples_ms(self, value: list[float]) -> None:
+        self.compile_samples_ms = value
+
+    @property
+    def python_reference_ms(self) -> float | None:
+        return self.python_ref_ms
+
+    @python_reference_ms.setter
+    def python_reference_ms(self, value: float | None) -> None:
+        self.python_ref_ms = value
+
+    @property
+    def numpy_reference_ms(self) -> float | None:
+        return self.numpy_ref_ms
+
+    @numpy_reference_ms.setter
+    def numpy_reference_ms(self, value: float | None) -> None:
+        self.numpy_ref_ms = value
+
+    @property
     def ok(self) -> bool:
         return self.error is None and (self.output_match is not False)
 
     @property
     def python_roundtrip_ms(self) -> float | None:
-        if self.parse_ms is None or self.interpret_ms is None:
+        if self.parse_py_ms is None or self.interpret_py_ms is None:
             return None
-        return round(self.parse_ms + self.interpret_ms, 3)
+        return round(self.parse_py_ms + self.interpret_py_ms, 3)
 
     @property
     def native_roundtrip_ms(self) -> float | None:
         parts = (
-            self.parse_ms,
-            self.lower_ms,
-            self.emit_cpp_ms,
-            self.compile_ms,
+            self.parse_py_ms,
+            self.lower_py_ms,
+            self.emit_cpp_py_ms,
+            self.cpp_compile_ms,
             self.native_run_ms,
         )
         if any(part is None for part in parts):
@@ -94,9 +190,9 @@ class BenchmarkResult:
 
     @property
     def native_steady_speedup(self) -> float | None:
-        if self.interpret_ms is None or self.native_run_ms is None or self.native_run_ms == 0:
+        if self.interpret_py_ms is None or self.native_run_ms is None or self.native_run_ms == 0:
             return None
-        return round(self.interpret_ms / self.native_run_ms, 3)
+        return round(self.interpret_py_ms / self.native_run_ms, 3)
 
     @property
     def native_roundtrip_vs_python(self) -> float | None:
@@ -130,13 +226,20 @@ class BenchmarkResult:
 
 
 TIME_METRICS: tuple[str, ...] = (
+    "parse_py_ms",
+    "lower_py_ms",
+    "interpret_py_ms",
+    "emit_cpp_py_ms",
+    "cpp_compile_ms",
+    "native_run_ms",
+    "native_kernel_ms",
+    "python_reference_ms",
+    "numpy_reference_ms",
     "parse_ms",
     "lower_ms",
     "interpret_ms",
     "emit_cpp_ms",
     "compile_ms",
-    "native_run_ms",
-    "native_kernel_ms",
     "python_ref_ms",
     "numpy_ref_ms",
     "python_roundtrip_ms",
@@ -361,6 +464,7 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         module = parse_module(source, filename=str(case.path))
         t1 = time.perf_counter()
         result.parse_ms = _ms(t0, t1)
+        result.parse_py_ms = result.parse_ms
 
         buf = io.StringIO()
         interp = Interpreter(case.path.resolve())
@@ -369,6 +473,7 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
             interp.run_module(module)
         t5 = time.perf_counter()
         result.interpret_ms = _ms(t4, t5)
+        result.interpret_py_ms = result.interpret_ms
         result.interpreter_stdout = buf.getvalue()
 
         python_ref = _run_reference_impl(case.reference_impl, kind="python")
@@ -394,11 +499,13 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         lowered = lower_module(module)
         t3 = time.perf_counter()
         result.lower_ms = _ms(t2, t3)
+        result.lower_py_ms = result.lower_ms
 
         t6 = time.perf_counter()
         cpp_source = _instrument_cpp_for_internal_timing(emit_cpp_module(lowered))
         t7 = time.perf_counter()
         result.emit_cpp_ms = _ms(t6, t7)
+        result.emit_cpp_py_ms = result.emit_cpp_ms
 
         if discover_cpp_compiler() is None:
             result.native_status = "compiler-unavailable"
@@ -408,6 +515,7 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         exe = _compile_cached_benchmark(case, cpp_source)
         t9 = time.perf_counter()
         result.compile_ms = _ms(t8, t9)
+        result.cpp_compile_ms = result.compile_ms
 
         bench_args = ["--vf-bench-runs", str(native_runs)]
         for _ in range(native_warmups):
@@ -492,6 +600,11 @@ def run_benchmark(
         python_ref_samples_ms=[r.python_ref_ms for r in runs if r.python_ref_ms is not None],
         numpy_ref_samples_ms=[r.numpy_ref_ms for r in runs if r.numpy_ref_ms is not None],
     )
+    aggregated.parse_py_samples_ms = aggregated.parse_samples_ms
+    aggregated.lower_py_samples_ms = aggregated.lower_samples_ms
+    aggregated.interpret_py_samples_ms = aggregated.interpret_samples_ms
+    aggregated.emit_cpp_py_samples_ms = aggregated.emit_cpp_samples_ms
+    aggregated.cpp_compile_samples_ms = aggregated.compile_samples_ms
     aggregated.parse_ms = _median_ms(aggregated.parse_samples_ms)
     aggregated.lower_ms = _median_ms(aggregated.lower_samples_ms)
     aggregated.interpret_ms = _median_ms(aggregated.interpret_samples_ms)
@@ -514,17 +627,17 @@ def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, 
         str(native_warmup_counts[0]) if len(native_warmup_counts) == 1 else ",".join(str(n) for n in native_warmup_counts)
     )
     lines = [
-        "name                 parse   lower   interp   cpp_emit  compile   native    status",
+        "name                 parse_py lower_py   interpret_py emit_cpp_py cpp_compile native   status",
         "--------------------------------------------------------------------------------",
     ]
     for r in results:
         lines.append(
             f"{r.case.name:<20} "
-            f"{_fmt_ms(r.parse_ms):>7} "
-            f"{_fmt_ms(r.lower_ms):>7} "
-            f"{_fmt_ms(r.interpret_ms):>8} "
-            f"{_fmt_ms(r.emit_cpp_ms):>9} "
-            f"{_fmt_ms(r.compile_ms):>8} "
+            f"{_fmt_ms(r.parse_py_ms):>8} "
+            f"{_fmt_ms(r.lower_py_ms):>8} "
+            f"{_fmt_ms(r.interpret_py_ms):>10} "
+            f"{_fmt_ms(r.emit_cpp_py_ms):>10} "
+            f"{_fmt_ms(r.cpp_compile_ms):>10} "
             f"{_fmt_ms(r.native_run_ms):>8} "
             f"{_status_text(r)}"
         )
@@ -584,22 +697,34 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "native_warmup_count": result.native_warmup_count,
         "aggregation": "median",
         "units": "ms",
+        "parse_py_ms": result.parse_py_ms,
         "parse_ms": result.parse_ms,
         "parse_samples_ms": result.parse_samples_ms,
+        "parse_py_samples_ms": result.parse_py_samples_ms,
+        "lower_py_ms": result.lower_py_ms,
         "lower_ms": result.lower_ms,
         "lower_samples_ms": result.lower_samples_ms,
+        "lower_py_samples_ms": result.lower_py_samples_ms,
+        "interpret_py_ms": result.interpret_py_ms,
         "interpret_ms": result.interpret_ms,
         "interpret_samples_ms": result.interpret_samples_ms,
+        "interpret_py_samples_ms": result.interpret_py_samples_ms,
+        "emit_cpp_py_ms": result.emit_cpp_py_ms,
         "emit_cpp_ms": result.emit_cpp_ms,
         "emit_cpp_samples_ms": result.emit_cpp_samples_ms,
+        "emit_cpp_py_samples_ms": result.emit_cpp_py_samples_ms,
+        "cpp_compile_ms": result.cpp_compile_ms,
         "compile_ms": result.compile_ms,
         "compile_samples_ms": result.compile_samples_ms,
+        "cpp_compile_samples_ms": result.cpp_compile_samples_ms,
         "native_run_ms": result.native_run_ms,
         "native_run_samples_ms": result.native_run_samples_ms,
         "native_kernel_ms": result.native_kernel_ms,
         "native_kernel_samples_ms": result.native_kernel_samples_ms,
+        "python_reference_ms": result.python_reference_ms,
         "python_ref_ms": result.python_ref_ms,
         "python_ref_samples_ms": result.python_ref_samples_ms,
+        "numpy_reference_ms": result.numpy_reference_ms,
         "numpy_ref_ms": result.numpy_ref_ms,
         "numpy_ref_samples_ms": result.numpy_ref_samples_ms,
         "python_roundtrip_ms": result.python_roundtrip_ms,

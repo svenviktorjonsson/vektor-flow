@@ -43,10 +43,11 @@ def test_select_benchmarks_filters_by_name() -> None:
 def test_run_native_supported_benchmark_interpreter_and_emit() -> None:
     res = run_benchmark(get_benchmark("vectors_shapes"))
     assert res.error is None
-    assert res.parse_ms is not None
-    assert res.lower_ms is not None
-    assert res.interpret_ms is not None
-    assert res.emit_cpp_ms is not None
+    assert res.parse_py_ms is not None
+    assert res.lower_py_ms is not None
+    assert res.interpret_py_ms is not None
+    assert res.emit_cpp_py_ms is not None
+    assert res.cpp_compile_ms is not None
     assert "[2, 4, 6, 8, 10]" in res.interpreter_stdout
     assert res.native_status in {"compiler-unavailable", "ok"}
 
@@ -82,8 +83,8 @@ def test_run_benchmark_collects_sample_medians() -> None:
     assert res.sample_count == 2
     assert len(res.parse_samples_ms) == 2
     assert len(res.interpret_samples_ms) == 2
-    assert res.parse_ms is not None
-    assert res.interpret_ms is not None
+    assert res.parse_py_ms is not None
+    assert res.interpret_py_ms is not None
 
 
 def test_run_benchmark_collects_multiple_native_runs() -> None:
@@ -124,7 +125,11 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"results"' in payload
     assert '"scalar_control"' in payload
     assert '"units": "ms"' in payload
+    assert '"parse_py_ms"' in payload
+    assert '"parse_ms"' in payload
     assert '"python_roundtrip_ms"' in payload
+    assert '"python_reference_ms"' in payload
+    assert '"python_ref_ms"' in payload
     assert '"native_steady_speedup"' in payload
     assert '"sample_count"' in payload
     assert '"native_run_count"' in payload
