@@ -16,32 +16,37 @@ dx: 0.05
 child_w: 1
 grand_scale: 1.35
 
+root_i: [0.0, 1.0, 2.0]
+child_i: [0.0, 1.0, 2.0, 3.0]
+grand_i: [0.0, 1.0, 2.0, 3.0, 4.0]
+
 root_ang0: o + tau / 2
 root_step: tau / 3
-root_points: [
-  [cos(root_ang0) * r0, sin(root_ang0) * r0 * xy],
-  [cos(root_ang0 + root_step) * (r0 * 0.45), sin(root_ang0 + root_step) * (r0 * 0.75)],
-  [cos(root_ang0 + 2 * root_step) * (r0 * 0.55), sin(root_ang0 + 2 * root_step) * (r0 * 0.55)]
-]
+root_r_x: [r0, r0 * 0.45, r0 * 0.55]
+root_r_y: [r0 * xy, r0 * 0.75, r0 * 0.55]
+root_ang: root_ang0 + root_step * root_i
+root_x: cos(root_ang) * root_r_x
+root_y: sin(root_ang) * root_r_y
 
 child_ang0: o + tau / 4
 child_step: tau / 2
-child_points: [
-  [cos(child_ang0) * child_w * r1 + dx, sin(child_ang0) * child_w * r1 + yx],
-  [cos(child_ang0 + child_step) * child_w * r1 + dx, sin(child_ang0 + child_step) * child_w * r1 + yx],
-  [cos(child_ang0 + 2 * child_step) * child_w * r1 + dx, sin(child_ang0 + 2 * child_step) * child_w * r1 + yx],
-  [cos(child_ang0 + 3 * child_step) * child_w * r1 + dx, sin(child_ang0 + 3 * child_step) * child_w * r1 + yx]
-]
+child_ang: child_ang0 + child_step * child_i
+child_x: cos(child_ang) * r1 + dx
+child_y: sin(child_ang) * r1 + yx
 
 grand_ang0: o
 grand_step: tau / 5
-grand_points: [
-  [cos(grand_ang0) * r2 + dx, sin(grand_ang0) * (r2 * grand_scale) + yx],
-  [cos(grand_ang0 + grand_step) * r2 + dx, sin(grand_ang0 + grand_step) * (r2 * grand_scale) + yx],
-  [cos(grand_ang0 + 2 * grand_step) * r2 + dx, sin(grand_ang0 + 2 * grand_step) * (r2 * grand_scale) + yx],
-  [cos(grand_ang0 + 3 * grand_step) * r2 + dx, sin(grand_ang0 + 3 * grand_step) * (r2 * grand_scale) + yx],
-  [cos(grand_ang0 + 4 * grand_step) * r2 + dx, sin(grand_ang0 + 4 * grand_step) * (r2 * grand_scale) + yx]
-]
+grand_ang: grand_ang0 + grand_step * grand_i
+grand_scale_y: [r2 * grand_scale, r2 * grand_scale, r2 * grand_scale, r2 * grand_scale, r2 * grand_scale]
+grand_x: cos(grand_ang) * r2 + dx
+grand_y: sin(grand_ang) * grand_scale_y + yx
+
+tri_edges: [[0,1],[1,2],[2,0]]
+tri_faces: [[0,1,2]]
+quad_edges: [[0,1],[1,2],[2,3],[3,0]]
+quad_faces: [[0,1,2,3]]
+pent_edges: [[0,1],[1,2],[2,3],[3,4],[4,0]]
+pent_faces: [[0,1,2,3,4]]
 
 panel: d.frame(
   title: "2d hierarchy (compact math init)",
@@ -53,11 +58,57 @@ panel: d.frame(
 )
 d.add_frame(panel, [0.07, 0.07, 0.86, 0.86])
 
-root_poly: panel.add_polygon(root_points, color: [0.96, 0.29, 0.46, 0.82])
-child_poly: root_poly.add_polygon(child_points, color: [0.30, 0.82, 0.52, 0.80])
-grand_poly: child_poly.add_polygon(grand_points, color: [0.16, 0.58, 1.00, 0.78])
+root_poly: panel.add(
+  x: root_x,
+  y: root_y,
+  face_color: [0.96, 0.29, 0.46, 0.82],
+  edge_color: [0.96, 0.29, 0.46, 0.82],
+  vertex_color: [0.96, 0.29, 0.46, 0.82]
+)
+root_poly.add_simplices(
+  vertices: [0, 1, 2],
+  edges: tri_edges,
+  faces: tri_faces
+)
 
-overlap_poly: panel.add_polygon(child_points, color: [1.00, 0.80, 0.24, 0.44])
+child_poly: root_poly.add(
+  x: child_x,
+  y: child_y,
+  face_color: [0.30, 0.82, 0.52, 0.80],
+  edge_color: [0.30, 0.82, 0.52, 0.80],
+  vertex_color: [0.30, 0.82, 0.52, 0.80]
+)
+child_poly.add_simplices(
+  vertices: [0, 1, 2, 3],
+  edges: quad_edges,
+  faces: quad_faces
+)
+
+grand_poly: child_poly.add(
+  x: grand_x,
+  y: grand_y,
+  face_color: [0.16, 0.58, 1.00, 0.78],
+  edge_color: [0.16, 0.58, 1.00, 0.78],
+  vertex_color: [0.16, 0.58, 1.00, 0.78]
+)
+grand_poly.add_simplices(
+  vertices: [0, 1, 2, 3, 4],
+  edges: pent_edges,
+  faces: pent_faces
+)
+
+overlap_poly: panel.add(
+  x: child_x,
+  y: child_y,
+  face_color: [1.00, 0.80, 0.24, 0.44],
+  edge_color: [1.00, 0.80, 0.24, 0.44],
+  vertex_color: [1.00, 0.80, 0.24, 0.44]
+)
+overlap_poly.add_simplices(
+  vertices: [0, 1, 2, 3],
+  edges: quad_edges,
+  faces: quad_faces
+)
 overlap_poly.translate([0.30, -0.06])
 
 drag_target(e):
