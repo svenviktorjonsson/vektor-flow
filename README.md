@@ -85,6 +85,17 @@ VKF_RUNTIME_BACKEND=native vkf examples/native_core/hello_native.vkf
 VKF_RUNTIME_BACKEND=python vkf examples/folder_repo/main.vkf
 ```
 
+Native runs are cached by default under:
+
+- `%TEMP%\vektorflow-native-runs-cache\run` (Windows)
+- `$TMPDIR/vektorflow-native-runs-cache/run` (POSIX)
+
+If you want to place cache artifacts elsewhere, set `VKF_NATIVE_CACHE_DIR`:
+
+```bash
+VKF_NATIVE_CACHE_DIR=./.vf-native-cache vkf examples/native_core/hello_native.vkf
+```
+
 ## Core Ideas
 
 ### Compact, keyword-free style

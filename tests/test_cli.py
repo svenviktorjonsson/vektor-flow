@@ -9,7 +9,12 @@ import sys
 
 import pytest
 
-from vektorflow.cli import main, resolve_vkf_path
+from vektorflow.cli import (
+    _native_cache_artifact,
+    _run_with_native_core,
+    main,
+    resolve_vkf_path,
+)
 from vektorflow.cpp_backend import (
     compile_cpp_source,
     discover_cpp_compiler,
@@ -943,6 +948,76 @@ class TestMain:
         assert main([str(src)]) == 1
         assert calls == ["native"]
         assert "native runtime execution failed" in capsys.readouterr().err
+
+    def test_run_with_native_core_reuses_cached_binary(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        source = tmp_path / "reuses_cached.vkf"
+        source.write_text(":: 7", encoding="utf-8")
+        cached_exe = tmp_path / "cached.exe"
+        run_calls: list[list[str]] = []
+
+        monkeypatch.setattr("vektorflow.cli.discover_cpp_compiler", lambda: Path("cc.exe"))
+        monkeypatch.setattr("vektorflow.cli._native_cache_artifact", lambda *args, **kwargs: cached_exe)
+        monkeypatch.setattr("vektorflow.cli.build_native_subset", lambda *args, **kwargs: cached_exe)
+
+        def _fake_run(cmd: list[str], capture_output: bool = True, text: bool = True):
+            run_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok\n")
+
+        monkeypatch.setattr("vektorflow.cli.subprocess.run", _fake_run)
+        cached_exe.write_text("x", encoding="utf-8")
+
+        assert _run_with_native_core(source) == 0
+        assert run_calls == [[str(cached_exe)]]
+
+    def test_run_with_native_core_builds_when_cached_binary_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        source = tmp_path / "builds_missing_cache.vkf"
+        source.write_text(":: 7", encoding="utf-8")
+        cached_exe = tmp_path / "cached_missing.exe"
+        built_exe = tmp_path / "built.exe"
+        build_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        run_calls: list[list[str]] = []
+
+        monkeypatch.setattr("vektorflow.cli.discover_cpp_compiler", lambda: Path("cc.exe"))
+        monkeypatch.setattr("vektorflow.cli._native_cache_artifact", lambda *args, **kwargs: cached_exe)
+
+        def _fake_build(*args: object, **kwargs: object) -> Path:
+            build_calls.append((args, kwargs))
+            built_exe.write_text("binary", encoding="utf-8")
+            return built_exe
+
+        def _fake_run(cmd: list[str], capture_output: bool = True, text: bool = True):
+            run_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok\n")
+
+        monkeypatch.setattr("vektorflow.cli.build_native_subset", _fake_build)
+        monkeypatch.setattr("vektorflow.cli.subprocess.run", _fake_run)
+
+        assert _run_with_native_core(source) == 0
+        assert len(build_calls) == 1
+        assert run_calls == [[str(cached_exe)]]
+        assert cached_exe.is_file()
+
+    def test_native_cache_artifact_is_stable_per_source(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        source = tmp_path / "source.vkf"
+        source.write_text(":: 7", encoding="utf-8")
+        compiler = "C:\\compiler"
+        payload = source.read_text(encoding="utf-8")
+        artifact_a = _native_cache_artifact(source, payload, compiler_path=compiler)
+        artifact_b = _native_cache_artifact(source, "alt", compiler_path=compiler)
+        artifact_c = _native_cache_artifact(source, payload, compiler_path="D:\\compiler")
+        assert artifact_a != artifact_b
+        assert artifact_a != artifact_c
 
     def test_tokens_subcommand(self) -> None:
         rc = main(["tokens", str(HELLO)])

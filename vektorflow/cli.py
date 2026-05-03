@@ -30,8 +30,11 @@ Usage
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
+import subprocess
+import tempfile
 from pathlib import Path
 
 from . import __version__
@@ -57,6 +60,32 @@ def _format_token_line(kind: str, value: object, line: int, col: int) -> str:
     else:
         payload = repr(value)
     return f"{line:>4}:{col:<4} {kind:<12} {payload}"
+
+
+def _native_cache_root() -> Path:
+    env_root = os.getenv("VKF_NATIVE_CACHE_DIR")
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    return Path(tempfile.gettempdir()) / "vektorflow-native-runs-cache"
+
+
+def _native_cache_key(path: Path, source: str, *, compiler_path: str) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(str(path.resolve()).encode("utf-8"))
+    hasher.update(b"\0")
+    hasher.update(source.encode("utf-8"))
+    hasher.update(b"\0")
+    hasher.update(compiler_path.encode("utf-8"))
+    hasher.update(b"\0native_core")
+    return hasher.hexdigest()
+
+
+def _native_cache_artifact(path: Path, source: str, *, compiler_path: str) -> Path:
+    key = _native_cache_key(path, source, compiler_path=compiler_path)
+    suffix = ".exe" if os.name == "nt" else ""
+    cache_dir = _native_cache_root() / "run"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{path.stem}_{key[:16]}{suffix}"
 
 
 def resolve_vkf_path(arg: str) -> Path:
@@ -167,18 +196,38 @@ def _run_with_interpreter(path: Path) -> int:
 
 
 def _run_with_native_core(path: Path) -> int:
-    result = run_native_subset(
+    compiler = discover_cpp_compiler()
+    if compiler is None:
+        raise RuntimeError("no native compiler available")
+
+    source = path.read_text(encoding="utf-8")
+    cached_executable = _native_cache_artifact(path, source, compiler_path=str(compiler))
+    if cached_executable.is_file():
+        result = subprocess.run([str(cached_executable)], capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        return result.returncode
+
+    built = build_native_subset(
         None,
         str(path),
+        out_path=cached_executable,
         subset="native_core",
         filename_label=path.as_posix(),
     )
+    if built != cached_executable:
+        if cached_executable.exists():
+            cached_executable.unlink()
+        built.replace(cached_executable)
 
-    if result.process.stdout:
-        print(result.process.stdout, end="")
-    if result.process.stderr:
-        print(result.process.stderr, file=sys.stderr, end="")
-    return result.process.returncode
+    result = subprocess.run([str(cached_executable)], capture_output=True, text=True)
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end="")
+    return result.returncode
 
 
 def cmd_run(path: Path) -> int:
