@@ -1,8 +1,0 @@
-xs: [1, 2, 3, 4, 5]
-ys: [2, 4, 6, 8, 10]
-
-:: math.sin(0)
-:: math.pi
-:: stat.mean(xs)
-:: stat.normalize(xs)
-:: stat.correlation(xs, ys)

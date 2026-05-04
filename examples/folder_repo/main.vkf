@@ -1,4 +1,0 @@
-# Folder-as-module: `.pkg` loads the folder; exports merge like a struct.
-
-p : .pkg
-:: p.mod.answer()
