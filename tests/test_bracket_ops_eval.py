@@ -71,3 +71,8 @@ B : {2:1}
 """
     out = _run_emit(src)
     assert out in ("Multiset({})", "{}")
+
+
+def test_multiset_literal_duplicate_entries_override_later() -> None:
+    out = _run_emit(":: {1:2, 1:5, 2:0}")
+    assert _parse_multiset_repr(out) == Multiset({1: 5})

@@ -289,7 +289,7 @@ def runtime_collection_to_multiset(values: Iterable[Any]) -> Multiset:
 def runtime_collection_multiset_from_count_pairs(
     pairs: Iterable[tuple[Any, Any]],
 ) -> Multiset:
-    counts: Counter[Any] = Counter()
+    counts: dict[Any, int] = {}
     for key, count_value in pairs:
         if isinstance(count_value, bool) or not isinstance(count_value, (int, float)):
             raise EvalError("multiset count must be a number")
@@ -298,7 +298,11 @@ def runtime_collection_multiset_from_count_pairs(
             raise EvalError("multiset count must be an integer")
         if count < 0:
             raise EvalError("multiset count must be non-negative")
-        counts[key] += count
+        if count == 0:
+            counts.pop(key, None)
+            continue
+        # Multiset literal construction is keyed and override-based: later wins.
+        counts[key] = count
     return make_multiset(counts.items())
 
 

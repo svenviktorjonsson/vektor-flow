@@ -38,11 +38,13 @@ STAR = "STAR"          # *
 SLASH = "SLASH"        # /
 CARET = "CARET"        # ^
 PERCENT = "PERCENT"    # %
-AMPERSAND = "AMPERSAND"  # &  (concatenation: tuple, vector, struct merge, multiset union)
+AMPERSAND = "AMPERSAND"  # &  (concatenation / merge: tuple, vector, string, struct)
 
 # Relations
 EQ = "EQ"              # =
+EXACT_EQ = "EXACT_EQ"  # ==
 NEQ = "NEQ"            # !=
+STRUCT_NEQ = "STRUCT_NEQ"  # ~=
 LT = "LT"              # <
 LE = "LE"              # <=
 GT = "GT"              # >

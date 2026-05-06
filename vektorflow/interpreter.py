@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass, field
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +29,7 @@ from .runtime.multiset import (
     multiset_union,
 )
 from .stdlib import STDLIB_MODULES, resolve_stdlib
-from .stdlib.events import matches_event_code, event_match_specificity
+from .stdlib.events import MouseEvent, KeyEvent, matches_event_code, event_match_specificity
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
     VF_TYPE_KEY,
@@ -39,6 +41,7 @@ from .runtime.struct_value import (
 )
 from .runtime.compare import struct_eq, struct_lt
 from .runtime import (
+    VFVectorBuilder,
     runtime_collection_assign_path,
     runtime_collection_contains,
     runtime_collection_ctor_call,
@@ -60,6 +63,7 @@ from .runtime import (
     runtime_collection_set,
     make_vmap,
 )
+from .runtime.axis_broadcast import axis_broadcast_binary
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
 from .runtime.type_values import (
@@ -70,12 +74,15 @@ from .runtime.type_values import (
     coerce_typed_value,
     infer_type,
     is_type_value,
+    normalize_type_expr,
     resolve_return_type,
+    type_match_specificity,
     types_equal,
     wrap_typed_multiset_result,
     wrap_typed_vector_result,
 )
 from .runtime.typed_vector import TypedVector
+from .runtime.vfvector import VFVector
 from .runtime.vflist import VFLinkedList
 
 # Sentinel: no outer ``$`` in ``env`` before a :class:`ast.MatchStmt` binds it.
@@ -92,6 +99,7 @@ OPERATOR_SYMBOLS = frozenset(
         "^",
         "&",
         "=",
+        "~=",
         "!=",
         "<",
         "<=",
@@ -153,7 +161,9 @@ BINOP_KIND_TO_SYM = {
     "PERCENT": "%",
     "CARET": "^",
     "EQ": "=",
+    "EXACT_EQ": "==",
     "NEQ": "!=",
+    "STRUCT_NEQ": "~=",
     "LT": "<",
     "LE": "<=",
     "GT": ">",
@@ -247,8 +257,12 @@ def _expr_refs_param(expr: Any, param_names: set[str]) -> bool:
         )
     if isinstance(expr, ast.Lambda):
         return _expr_refs_param(expr.body, param_names)
-    if isinstance(expr, ast.StdinPipe):
-        return _expr_refs_param(expr.expr, param_names)
+    if isinstance(expr, ast.AxisAlign):
+        if _expr_refs_param(expr.value, param_names):
+            return True
+        if expr.indices is not None:
+            return any(_expr_refs_param(i, param_names) for i in expr.indices)
+        return False
     if isinstance(expr, ast.TypeOf):
         return _expr_refs_param(expr.value, param_names)
     if isinstance(expr, ast.StructIdentity):
@@ -279,10 +293,147 @@ def _vf_bool_display(b: bool) -> str:
     return "true" if b else "false"
 
 
-def _wrap_vector_result_if_typed(op: str, result: list[Any], left: Any, right: Any) -> list[Any]:
-    """Skip refined-type bookkeeping for ordinary Python lists in hot vector paths."""
+def _exact_numeric_eq(a: Any, b: Any) -> bool:
+    return type(a) is type(b) and a == b
+
+
+def _exact_struct_eq(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    ak = list(a.keys())
+    bk = list(b.keys())
+    if ak != bk:
+        return False
+    for k in ak:
+        if not _exact_eq(a[k], b[k]):
+            return False
+    return True
+
+
+def _exact_multiset_eq(a: Multiset, b: Multiset) -> bool:
+    if getattr(a, "vf_type_expr", None) != getattr(b, "vf_type_expr", None):
+        return False
+    ad = dict(a)
+    bd = dict(b)
+    if len(ad) != len(bd):
+        return False
+    for ak in ad:
+        matched = False
+        for bk in bd:
+            if _exact_eq(ak, bk):
+                if not _exact_eq(ad[ak], bd[bk]):
+                    return False
+                matched = True
+                break
+        if not matched:
+            return False
+    return True
+
+
+def _exact_eq(a: Any, b: Any) -> bool:
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, (bool, int, float, complex, str, bytes, bytearray)):
+        return a == b
+    if isinstance(a, tuple):
+        return len(a) == len(b) and all(_exact_eq(x, y) for x, y in zip(a, b))
+    if isinstance(a, VFVector):
+        if isinstance(a, TypedVector):
+            if not types_equal(getattr(a, "vf_type_expr", None), getattr(b, "vf_type_expr", None)):
+                return False
+        return len(a) == len(b) and all(_exact_eq(x, y) for x, y in zip(a, b))
+    if isinstance(a, Multiset):
+        return _exact_multiset_eq(a, b)
+    if is_struct_dict(a):
+        return _exact_struct_eq(a, b)
+    if isinstance(a, AxisTaggedValue):
+        return a.idx == b.idx and _exact_eq(a.data, b.data)
+    if isinstance(a, (VFunction, OpCallable, VStructCtor)):
+        return a is b
+    if is_type_value(a):
+        return types_equal(a, b)
+    return a == b
+
+
+def _negate_bool_structure(value: Any) -> Any:
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, tuple):
+        return tuple(_negate_bool_structure(v) for v in value)
+    if isinstance(value, VFVector):
+        return VFVector(_negate_bool_structure(v) for v in value)
+    if is_struct_dict(value):
+        return with_type(
+            None,
+            {k: _negate_bool_structure(v) for k, v in value.items() if k != VF_TYPE_KEY},
+        )
+    return not bool(value)
+
+
+def _structural_compare(op: str, a: Any, b: Any) -> Any:
+    if op == "STRUCT_NEQ":
+        return _negate_bool_structure(_structural_compare("EQ", a, b))
+    if isinstance(a, Multiset) and isinstance(b, Multiset):
+        akeys = list(a._c.keys())
+        bkeys = list(b._c.keys())
+        if akeys != bkeys:
+            raise EvalError("multiset key mismatch for relational op")
+        return with_type(None, {k: _structural_compare(op, a._c[k], b._c[k]) for k in akeys})
+    if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+        return with_type(None, {k: _structural_compare(op, v, b) for k, v in a._c.items()})
+    if isinstance(b, Multiset) and isinstance(a, int) and not isinstance(a, bool):
+        return with_type(None, {k: _structural_compare(op, a, v) for k, v in b._c.items()})
+    if is_struct_dict(a) and is_struct_dict(b):
+        if get_type_name(a) != get_type_name(b):
+            raise EvalError("struct shape mismatch for relational op")
+        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
+        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        if akeys != bkeys:
+            raise EvalError("struct shape mismatch for relational op")
+        return with_type(None, {k: _structural_compare(op, a[k], b[k]) for k in akeys})
+    if is_struct_dict(a) and not is_struct_dict(b):
+        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
+        return with_type(None, {k: _structural_compare(op, a[k], b) for k in akeys})
+    if is_struct_dict(b) and not is_struct_dict(a):
+        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        return with_type(None, {k: _structural_compare(op, a, b[k]) for k in bkeys})
+    if isinstance(a, tuple) and isinstance(b, tuple):
+        if len(a) != len(b):
+            raise EvalError("tuple length mismatch for relational op")
+        return tuple(_structural_compare(op, x, y) for x, y in zip(a, b))
+    if isinstance(a, tuple) and isinstance(b, (int, float, complex, bool)):
+        return tuple(_structural_compare(op, x, b) for x in a)
+    if isinstance(b, tuple) and isinstance(a, (int, float, complex, bool)):
+        return tuple(_structural_compare(op, a, y) for y in b)
+    if isinstance(a, VFVector) and isinstance(b, VFVector):
+        if len(a) != len(b):
+            raise EvalError("vector length mismatch for relational op")
+        return VFVector(_structural_compare(op, x, y) for x, y in zip(a, b))
+    if isinstance(a, VFVector) and isinstance(b, (int, float, complex, bool)):
+        return VFVector(_structural_compare(op, x, b) for x in a)
+    if isinstance(b, VFVector) and isinstance(a, (int, float, complex, bool)):
+        return VFVector(_structural_compare(op, a, y) for y in b)
+    return _binop(op, a, b)
+
+
+def _type_matches(
+    actual: Any,
+    pattern: Any,
+    types: dict[str, ast.TypeExpr | ast.FuncType],
+) -> bool:
+    return type_match_specificity(actual, pattern, types) is not None
+
+
+def _type_match_specificity(
+    actual: Any,
+    pattern: Any,
+    types: dict[str, ast.TypeExpr | ast.FuncType],
+) -> int | None:
+    return type_match_specificity(actual, pattern, types)
+
+
+def _wrap_vector_result_if_typed(op: str, result: Any, left: Any, right: Any) -> VFVector:
+    """Attach refined vector types when present; otherwise materialize a plain runtime vector."""
     if not isinstance(left, TypedVector) and not isinstance(right, TypedVector):
-        return result
+        return VFVector(result)
     return wrap_typed_vector_result(result, combine_typed_vector_types(op, left, right))
 
 
@@ -344,7 +495,28 @@ def _expr_to_compact_string(expr: Any) -> str:
     if isinstance(expr, ast.ListLit):
         inner = ", ".join(_expr_to_compact_string(e) for e in expr.elements)
         return f"[{inner}]"
+    if isinstance(expr, ast.AxisAlign):
+        inner = _expr_to_compact_string(expr.value)
+        if expr.label is not None:
+            return f"{inner}->{expr.label}"
+        assert expr.indices is not None
+        parts = ", ".join(_expr_to_compact_string(i) for i in expr.indices)
+        return f"{inner}->({parts})"
     return f"<{type(expr).__name__}>"
+
+
+def _event_object_code(value: Any) -> int | None:
+    if isinstance(value, (MouseEvent, KeyEvent)):
+        code = getattr(value, "event_code", 0)
+        try:
+            return int(code)
+        except Exception:
+            return None
+    return None
+
+
+def _contains_ast_nodes(items: list[Any]) -> bool:
+    return any(getattr(item.__class__, "__module__", "") == ast.__name__ for item in items)
 
 
 def _score_params_match(
@@ -362,50 +534,29 @@ def _score_params_match(
             ft = getattr(av, "func_type", None)
             if ft is None:
                 inferred = infer_type(av, types)
-                if not types_equal(inferred, p.param_func_type):
+                nested = type_match_specificity(inferred, p.param_func_type, types)
+                if nested is None:
                     return None
             else:
-                if not types_equal(ft, p.param_func_type):
+                nested = type_match_specificity(ft, p.param_func_type, types)
+                if nested is None:
                     return None
-            score += 2
+            score += 2 + nested
+            continue
+        if p.type_ref is not None:
+            actual = infer_type(av, types)
+            nested = type_match_specificity(actual, p.type_ref, types)
+            if nested is None:
+                return None
+            score += nested
             continue
         if p.type_name in (None, "any"):
             continue
-        if p.type_name == "num":
-            if isinstance(av, bool) or not isinstance(av, (int, float, complex)):
-                return None
-            score += 2
-            continue
-        if p.type_name == "bool":
-            if not isinstance(av, bool):
-                return None
-            score += 2
-            continue
-        if p.type_name == "str":
-            if not isinstance(av, str):
-                return None
-            score += 2
-            continue
-        if p.type_name == "byte":
-            if not isinstance(av, (bytes, bytearray)):
-                return None
-            score += 2
-            continue
-        if isinstance(av, dict) and is_struct_dict(av):
-            tag = get_type_name(av)
-            if tag == p.type_name:
-                score += 2
-                continue
-            if tag is None and p.type_name in types:
-                spec = types[p.type_name]
-                if not isinstance(spec, ast.TypeExpr):
-                    continue
-                need = {f[0] for f in spec.fields}
-                have = set(av.keys()) - {VF_TYPE_KEY}
-                if need <= have:
-                    score += 1
-                    continue
-        return None
+        actual = infer_type(av, types)
+        nested = type_match_specificity(actual, ast.PrimTypeRef(p.type_name), types)
+        if nested is None:
+            return None
+        score += nested
     return score
 
 
@@ -429,16 +580,16 @@ def _pick_best_overload(
 def _format_param_list_display(params: list[ast.Param]) -> str:
     parts: list[str] = []
     for p in params:
+        head = p.name
         if p.param_func_type is not None:
-            parts.append(
-                f"{p.name}:{_format_nested_func_type_for_param(p.param_func_type)}"
-            )
+            head = f"{_format_nested_func_type_for_param(p.param_func_type)} {p.name}"
         elif p.type_ref is not None:
-            parts.append(f"{p.name}:{_format_type_ast_for_stringify(p.type_ref)}")
+            head = f"{_format_type_ast_for_stringify(p.type_ref)} {p.name}"
         elif p.type_name:
-            parts.append(f"{p.name}:{p.type_name}")
-        else:
-            parts.append(p.name)
+            head = f"{p.type_name} {p.name}"
+        if p.default_expr is not None:
+            head = f"{head}:{_expr_to_compact_string(p.default_expr)}"
+        parts.append(head)
     return ", ".join(parts)
 
 
@@ -611,7 +762,7 @@ class Interpreter:
         self.builtin["errors"] = make_vmap(ERROR_NAMESPACE)
 
     def _merge_stdlibs(self) -> None:
-        for name in ("math", "capture", "io", "collections", "stat", "ui"):
+        for name in ("math", "capture", "io", "collections", "stat"):
             if name in STDLIB_MODULES:
                 try:
                     self.builtin[name] = resolve_stdlib(name)
@@ -664,6 +815,103 @@ class Interpreter:
                 pos.append(self.eval_expr(a, env))
         return pos, kw, spreads
 
+    def _iter_named_spread_items(self, value: Any) -> list[tuple[str, Any]]:
+        if is_struct_dict(value):
+            return [(k, value[k]) for k in value if k != VF_TYPE_KEY]
+        kind = runtime_collection_kind(value)
+        if kind == "map":
+            return [(str(k), v) for k, v in value.items()]
+        raise EvalError("named call spread requires a keyed struct or map value")
+
+    def _iter_positional_spread_items(self, value: Any) -> list[Any]:
+        if isinstance(value, tuple):
+            return list(value)
+        if isinstance(value, VFVector):
+            return list(value)
+        kind = runtime_collection_kind(value)
+        if kind in {"list", "queue"}:
+            return list(value)
+        raise EvalError("positional call spread requires a tuple, vector, list, or queue value")
+
+    def _normalize_vkf_call_args(
+        self,
+        raw_args: list[Any],
+        env: dict[str, Any],
+        *,
+        callee_name: str,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        pos: list[Any] = []
+        named: dict[str, Any] = {}
+        named_source: dict[str, str] = {}
+        named_started = False
+        for arg in raw_args:
+            if isinstance(arg, ast.NamedCallArg):
+                named_started = True
+                value = self.eval_expr(arg.value, env)
+                prev = named_source.get(arg.name)
+                if prev == "direct":
+                    raise EvalError(f"{callee_name}: multiple values for argument {arg.name!r}")
+                named[arg.name] = value
+                named_source[arg.name] = "direct"
+                continue
+            if isinstance(arg, ast.SpreadArg):
+                spread_value = self.eval_expr(arg.expr, env)
+                if is_struct_dict(spread_value) or runtime_collection_kind(spread_value) == "map":
+                    named_started = True
+                    for key, value in self._iter_named_spread_items(spread_value):
+                        named[key] = value
+                        named_source[key] = "spill"
+                    continue
+                if named_started:
+                    raise EvalError(f"{callee_name}: positional arguments cannot appear after named arguments")
+                pos.extend(self._iter_positional_spread_items(spread_value))
+                continue
+            if named_started:
+                raise EvalError(f"{callee_name}: positional arguments cannot appear after named arguments")
+            pos.append(self.eval_expr(arg, env))
+        return pos, named
+
+    def _bind_vkf_params(
+        self,
+        params: list[ast.Param],
+        raw_args: list[Any],
+        env: dict[str, Any],
+        *,
+        callee_name: str,
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        pos, named = self._normalize_vkf_call_args(raw_args, env, callee_name=callee_name)
+        param_names = [p.name for p in params]
+        param_lookup = {p.name: p for p in params}
+        for key in named:
+            if key not in param_lookup:
+                raise EvalError(f"{callee_name}: unknown argument {key!r}")
+        if len(pos) > len(params):
+            raise EvalError(f"{callee_name}: too many positional arguments")
+
+        loc = dict(env)
+        size_bindings: dict[str, int] = {}
+        for index, param in enumerate(params):
+            if param.name in named:
+                raw_value = named[param.name]
+            elif index < len(pos):
+                raw_value = pos[index]
+            elif param.default_expr is not None:
+                raw_value = self.eval_expr(param.default_expr, loc)
+            else:
+                raise EvalError(f"{callee_name}: missing argument {param.name!r}")
+
+            if param.type_ref is not None:
+                coerced, size_bindings = coerce_typed_value(
+                    raw_value,
+                    param.type_ref,
+                    self.types,
+                    size_bindings,
+                )
+            else:
+                coerced = self._coerce_param(raw_value, param)
+            loc[param.name] = coerced
+        return loc, size_bindings
+
     def _assign_bind(self, target: Any, val: Any, env: dict[str, Any]) -> None:
         if isinstance(target, ast.Ident):
             env[target.name] = val
@@ -692,11 +940,11 @@ class Interpreter:
         if isinstance(target, ast.DottedIndex):
             if all(isinstance(ix, ast.Ident) for ix in target.indices):
                 self.eval_expr(target.base, env)
-                if not isinstance(val, (list, tuple)):
+                if not isinstance(val, (VFVector, tuple)):
                     raise EvalError(
-                        "bind pattern .(name,…) requires a tuple or list on the right"
+                        "bind pattern .(name,…) requires a tuple or vector on the right"
                     )
-                seq = list(val)
+                seq = tuple(val)
                 if len(seq) != len(target.indices):
                     raise EvalError("bind pattern length does not match value")
                 for ix, item in zip(target.indices, seq):
@@ -710,9 +958,9 @@ class Interpreter:
             if n == 1:
                 _dotted_set_one(container, idxs[0], val)
                 return
-            if not isinstance(val, (list, tuple)):
-                raise EvalError("multi-index bind requires a tuple or list value")
-            vals = list(val)
+            if not isinstance(val, (VFVector, tuple)):
+                raise EvalError("multi-index bind requires a tuple or vector value")
+            vals = tuple(val)
             if len(vals) != n:
                 raise EvalError("index count and value count must match")
             for i, v in zip(idxs, vals):
@@ -803,19 +1051,11 @@ class Interpreter:
                 raise EvalError("spill import requires a module namespace")
             if node.alias is not None:
                 # ``alias:.path`` — bind only, no spill.
-                # If the module wraps a single value under the short name (e.g. ui returns
-                # {"ui": UIRoot()}), unwrap it so ``ui:.ui`` gives the UIRoot directly.
-                short = node.path.segments[-1] if node.path.segments else None
-                if short and list(mod.keys()) == [short]:
-                    env[node.alias] = mod[short]
-                else:
-                    env[node.alias] = mod
+                env[node.alias] = mod
             else:
-                # ``:.path`` — spill exports AND bind under short name
-                short_name = node.path.segments[-1] if node.path.segments else None
-                if short_name:
-                    env[short_name] = mod
-                for k, v in _exports(mod).items():
+                # ``:.path`` — spill exports only.
+                short_name = node.path.segments[-1] if node.path.segments else ""
+                for k, v in _spill_exports(mod, short_name).items():
                     env[k] = v
             return None
         if isinstance(node, ast.StdioReadLine):
@@ -913,18 +1153,30 @@ class Interpreter:
         raise EvalError(f"unknown stmt {type(node).__name__}")
 
     def _match_eq(self, a: Any, b: Any) -> bool:
-        if isinstance(a, int) and isinstance(b, int):
-            # Event code matching: exact code vs scoped integer patterns.
-            if matches_event_code(a, b) or matches_event_code(b, a):
-                return True
-        if is_type_value(a) and is_type_value(b):
-            return types_equal(a, b)
-        if bool(is_struct_dict(a) and is_struct_dict(b)):
-            return struct_eq(a, b, self.types)
-        return bool(_binop("EQ", a, b))
+        return _exact_eq(a, b)
 
     def _match_specificity(self, a: Any, b: Any) -> int | None:
         """Return match specificity for ``??`` arm selection, or ``None`` when not matched."""
+        if self._match_eq(a, b):
+            return 1_000_000
+        a_event_code = _event_object_code(a)
+        if a_event_code is not None and isinstance(b, int):
+            s = event_match_specificity(a_event_code, b)
+            if s is not None:
+                return s
+            s = event_match_specificity(b, a_event_code)
+            if s is not None:
+                return s
+            return None
+        b_event_code = _event_object_code(b)
+        if b_event_code is not None and isinstance(a, int):
+            s = event_match_specificity(a, b_event_code)
+            if s is not None:
+                return s
+            s = event_match_specificity(b_event_code, a)
+            if s is not None:
+                return s
+            return None
         if isinstance(a, int) and isinstance(b, int):
             s = event_match_specificity(a, b)
             if s is not None:
@@ -933,16 +1185,13 @@ class Interpreter:
             if s is not None:
                 return s
             return None
-        if self._match_eq(a, b):
-            return 1_000_000
         if isinstance(b, ErrorTypeValue) and isinstance(a, BaseException):
             return error_type_match_specificity(a, b)
         if is_type_value(b):
             actual = infer_type(a, self.types)
-            if types_equal(actual, b):
-                return 1
-            if isinstance(b, PrimType) and b.name == "any":
-                return 0
+            s = _type_match_specificity(actual, b, self.types)
+            if s is not None:
+                return s
         return None
 
     def _eval_match_body(self, body: Any, env: dict[str, Any]) -> None:
@@ -1030,10 +1279,58 @@ class Interpreter:
         self._eval_match(node, env)
         return None
 
+    def _axis_key_from_arrow_access(self, node: ast.AxisAlign, env: dict[str, Any]) -> str:
+        if node.label is not None:
+            return "i" if node.label == "_" else node.label
+        assert node.indices is not None
+        evaluated = [self.eval_expr(e, env) for e in node.indices]
+        if len(evaluated) != 1:
+            raise EvalError(
+                "axis access `->(...)` expects exactly one index expression for axis tagging"
+            )
+        v = evaluated[0]
+        if isinstance(v, str):
+            return v
+        if isinstance(v, bool):
+            raise EvalError("axis key cannot be bool")
+        if isinstance(v, int):
+            return str(v)
+        if isinstance(v, float):
+            if math.isfinite(v) and math.floor(v) == v:
+                return str(int(v))
+            return str(v)
+        raise EvalError(
+            f"axis access for tagging expected string or number key, got {type(v).__name__}"
+        )
+
+    def _eval_axis_align(self, val: Any, node: ast.AxisAlign, env: dict[str, Any]) -> Any:
+        axes = self._axis_key_from_arrow_access(node, env)
+        if isinstance(val, AxisTaggedValue):
+            raise EvalError(
+                "axis alignment expects an untagged value; value is already axis-tagged"
+            )
+        if isinstance(val, LazyList):
+            raise EvalError("axis alignment is not allowed on a lazy infinite range")
+        if isinstance(val, dict):
+            raise EvalError(
+                "axis alignment is not allowed on structs or maps (use a vector, tuple, or multiset)"
+            )
+        if val is None or isinstance(val, (bool, int, float, str)):
+            raise EvalError("axis alignment is not allowed on scalars or strings")
+        if isinstance(val, (VFVector, tuple, Multiset)):
+            return AxisTaggedValue(val, axes)
+        raise EvalError(
+            f"axis alignment is not supported for values of type {type(val).__name__}"
+        )
+
     def eval_expr(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ast.ConditionalExpr):
             if node.loop:
-                while bool(self.eval_expr(node.condition, env)):
+                while True:
+                    c = self.eval_expr(node.condition, env)
+                    _disallow_vector_truthiness(c, "`?>` loop condition")
+                    if not bool(c):
+                        break
                     try:
                         self._eval_match_body(node.body, env)
                     except ContinueSignal:
@@ -1041,7 +1338,9 @@ class Interpreter:
                     except BreakSignal:
                         return None
                 return None
-            if not bool(self.eval_expr(node.condition, env)):
+            c = self.eval_expr(node.condition, env)
+            _disallow_vector_truthiness(c, "`?` condition")
+            if not bool(c):
                 return None
             self._eval_match_body(node.body, env)
             return None
@@ -1098,6 +1397,10 @@ class Interpreter:
             return interpolate_string(s, eval_inner, resolve_chain)
         if isinstance(node, ast.Ident):
             return self._resolve(node.name, env)
+        if isinstance(node, ast.AxisAlign):
+            return self._eval_axis_align(
+                self.eval_expr(node.value, env), node, env
+            )
         if isinstance(node, ast.TupleLit):
             out: list[Any] = []
             for e in node.elements:
@@ -1105,7 +1408,7 @@ class Interpreter:
                     v = self.eval_expr(e.expr, env)
                     if isinstance(v, AxisTaggedValue):
                         v = v.data
-                    if isinstance(v, (tuple, list)):
+                    if isinstance(v, (tuple, VFVector)):
                         out.extend(v)
                     else:
                         raise EvalError(
@@ -1114,8 +1417,6 @@ class Interpreter:
                     continue
                 out.append(self.eval_expr(e, env))
             t = tuple(out)
-            if node.axis_tag is not None:
-                return AxisTaggedValue(t, node.axis_tag)
             return t
         if isinstance(node, ast.ListLit):
             if len(node.elements) == 1 and isinstance(
@@ -1123,20 +1424,14 @@ class Interpreter:
             ):
                 re0 = node.elements[0]
                 if re0.end is None:
-                    if node.axis_tag is not None:
-                        raise EvalError(
-                            "axis suffix is not allowed on a lazy infinite range literal"
-                        )
                     inner = self.eval_expr(re0, env)
                     if not isinstance(inner, LazyInfiniteIterator):
                         raise EvalError("internal: lazy range expected iterator")
                     return LazyList(inner)
                 r = self.eval_expr(re0, env)
-                seq = list(r)
-                if node.axis_tag is not None:
-                    return AxisTaggedValue(tuple(seq), node.axis_tag)
+                seq = VFVector(r)
                 return seq
-            out: list[Any] = []
+            out = VFVectorBuilder()
             for e in node.elements:
                 if isinstance(e, ast.MsetSpill):
                     m = self.eval_expr(e.expr, env)
@@ -1156,9 +1451,7 @@ class Interpreter:
                         out.append(v)
                     continue
                 out.append(self.eval_expr(e, env))
-            if node.axis_tag is not None:
-                return AxisTaggedValue(tuple(out), node.axis_tag)
-            return out
+            return out.build()
         if isinstance(node, ast.StructLit):
             return {
                 name: self.eval_expr(val, env)
@@ -1172,8 +1465,6 @@ class Interpreter:
                 key = self.eval_expr(ke, env)
                 pairs.append((key, self.eval_expr(ce, env)))
             m = runtime_collection_multiset_from_count_pairs(pairs)
-            if node.axis_tag is not None:
-                return AxisTaggedValue(m, node.axis_tag)
             return m
         if isinstance(node, ast.RangeExpr):
             if node.end is None:
@@ -1234,14 +1525,10 @@ class Interpreter:
                         return self._call(cast_fn, pos, env)
                 return fn(*pos)
             if isinstance(fn, VStructCtor):
-                if spreads:
-                    raise EvalError("struct constructor does not support spread arguments")
-                return self._call_struct_ctor(fn, pos, kw, env)
+                return self._call_struct_ctor(fn, node.args, env)
+            if isinstance(fn, VFunction):
+                return self._call(fn, node.args, env)
             if kw or spreads:
-                if isinstance(fn, VFunction):
-                    raise EvalError(
-                        "this call does not accept keyword or spread arguments"
-                    )
                 if spreads:
                     raise EvalError("this call does not support spread arguments")
                 if callable(fn):
@@ -1351,21 +1638,41 @@ class Interpreter:
 
     def _call(self, fn: Any, args: list[Any], env: dict[str, Any]) -> Any:
         if isinstance(fn, VFunction):
-            loc = dict(fn.closure)
-            size_bindings: dict[str, int] = {}
-            for p, a in zip(fn.params, args):
-                if p.type_ref is not None:
-                    coerced, size_bindings = coerce_typed_value(a, p.type_ref, self.types, size_bindings)
-                    loc[p.name] = coerced
-                else:
-                    loc[p.name] = self._coerce_param(a, p)
+            if _contains_ast_nodes(args):
+                loc, size_bindings = self._bind_vkf_params(
+                    fn.params,
+                    args,
+                    env,
+                    callee_name=fn.name or "$",
+                )
+            else:
+                if len(args) != len(fn.params):
+                    required = sum(1 for p in fn.params if p.default_expr is None)
+                    if not (required <= len(args) <= len(fn.params)):
+                        raise EvalError(
+                            f"{fn.name or '$'}: expected between {required} and {len(fn.params)} argument(s), got {len(args)}"
+                        )
+                loc = dict(fn.closure)
+                size_bindings: dict[str, int] = {}
+                for index, p in enumerate(fn.params):
+                    if index < len(args):
+                        a = args[index]
+                    elif p.default_expr is not None:
+                        a = self.eval_expr(p.default_expr, loc)
+                    else:
+                        raise EvalError(f"{fn.name or '$'}: missing argument {p.name!r}")
+                    if p.type_ref is not None:
+                        coerced, size_bindings = coerce_typed_value(a, p.type_ref, self.types, size_bindings)
+                        loc[p.name] = coerced
+                    else:
+                        loc[p.name] = self._coerce_param(a, p)
             result = self._eval_function_body(fn.body, loc)
             if fn.func_type is not None:
                 resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
                 result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
             return result
         if isinstance(fn, VStructCtor):
-            return self._call_struct_ctor(fn, args, {}, env)
+            return self._call_struct_ctor(fn, list(args), env)
         if callable(fn):
             return fn(*args)
         raise EvalError(f"not callable: {type(fn).__name__}")
@@ -1373,31 +1680,35 @@ class Interpreter:
     def _call_struct_ctor(
         self,
         fn: VStructCtor,
-        pos: list[Any],
-        kw: dict[str, Any],
-        _env: dict[str, Any],
+        raw_args: list[Any],
+        env: dict[str, Any],
     ) -> Any:
-        # _env / fn.closure reserved for future default expressions
-        params = fn.params
-        by_name: dict[str, Any] = {}
-        for i, a in enumerate(pos):
-            if i >= len(params):
-                raise EvalError(f"{fn.name}: too many positional arguments")
-            pname = params[i].name
-            if pname in by_name:
-                raise EvalError(f"{fn.name}: multiple values for field {pname!r}")
-            by_name[pname] = coerce_value(a, params[i].type_name)
-        for k, v in kw.items():
-            if k not in {p.name for p in params}:
-                raise EvalError(f"{fn.name}: unknown field {k!r}")
-            if k in by_name:
-                raise EvalError(f"{fn.name}: multiple values for field {k!r}")
-            pt = next(p.type_name for p in params if p.name == k)
-            by_name[k] = coerce_value(v, pt)
-        for p in params:
-            if p.name not in by_name:
-                raise EvalError(f"{fn.name}: missing field {p.name!r}")
-        return with_type(fn.name, by_name)
+        if _contains_ast_nodes(raw_args):
+            loc, _ = self._bind_vkf_params(
+                fn.params,
+                raw_args,
+                env,
+                callee_name=fn.name,
+            )
+        else:
+            required = sum(1 for p in fn.params if p.default_expr is None)
+            if not (required <= len(raw_args) <= len(fn.params)):
+                raise EvalError(
+                    f"{fn.name}: expected between {required} and {len(fn.params)} argument(s), got {len(raw_args)}"
+                )
+            loc = dict(fn.closure)
+            for index, p in enumerate(fn.params):
+                if index < len(raw_args):
+                    a = raw_args[index]
+                elif p.default_expr is not None:
+                    a = self.eval_expr(p.default_expr, loc)
+                else:
+                    raise EvalError(f"{fn.name}: missing argument {p.name!r}")
+                loc[p.name] = self._coerce_param(a, p)
+        return with_type(
+            fn.name,
+            {p.name: loc[p.name] for p in fn.params},
+        )
 
     def _eval_function_body(self, body: Any, env: dict[str, Any]) -> Any:
         """Implicit return: only the last *function-scope* statement counts.
@@ -1425,11 +1736,9 @@ class Interpreter:
 
     def _print_value(self, val: Any, env: dict[str, Any]) -> None:
         s = self._stringify_for_display(val, env)
-        # If the value already ends with a newline (e.g. ``$ & "\n"``), do not add another.
-        if s.endswith("\n"):
-            print(s, end="")
-        else:
-            print(s)
+        # No implicit newline: ``:: expr`` prints exactly ``s``; use ``::: expr`` (sugar for
+        # ``:: (expr & "\\n")``) or embed ``\\n`` in the value for line-oriented output.
+        print(s, end="", flush=True)
 
     def _pick_unary_overload(self, variants: list[VFunction], val: Any) -> VFunction | None:
         best_fn: VFunction | None = None
@@ -1475,6 +1784,7 @@ class Interpreter:
         if node.op == "NOT":
             if isinstance(v, dict) and is_struct_dict(v):
                 raise EvalError("struct ~ requires ~(a): … overload")
+            _disallow_vector_truthiness(v, "`not` / `~`")
             return not bool(v)
         raise EvalError(f"unknown unary {node.op}")
 
@@ -1545,7 +1855,7 @@ class Interpreter:
                     except ContinueSignal:
                         continue
                 return
-            if isinstance(left_v, list):
+            if isinstance(left_v, VFVector):
                 for el in left_v:
                     try:
                         fn(el)
@@ -1609,7 +1919,7 @@ class Interpreter:
 
         if isinstance(left_v, AxisTaggedValue):
             d = left_v.data
-            if isinstance(d, tuple):
+            if isinstance(d, (tuple, VFVector)):
                 out_t: list[Any] = []
 
                 def _collect(el: Any) -> None:
@@ -1618,7 +1928,8 @@ class Interpreter:
                     )
 
                 _foreach_element(_collect)
-                return AxisTaggedValue(tuple(out_t), left_v.idx)
+                tagged_result: Any = tuple(out_t) if isinstance(d, tuple) else VFVector(out_t)
+                return AxisTaggedValue(tagged_result, left_v.idx)
             if runtime_collection_preserves_pipe_result(d):
                 out: list[Any] = []
 
@@ -1639,14 +1950,14 @@ class Interpreter:
 
             _foreach_element(_t)
             return tuple(out)
-        if isinstance(left_v, list):
+        if isinstance(left_v, VFVector):
             out_l: list[Any] = []
 
             def _l(el: Any) -> None:
                 out_l.append(self._pipe_one_element_through_segments(el, segs, env))
 
             _foreach_element(_l)
-            return out_l
+            return VFVector(out_l)
         if isinstance(left_v, str):
             parts: list[str] = []
 
@@ -1697,35 +2008,32 @@ class Interpreter:
             raise EvalError("internal: use PipeChain for `>>`, not BinOp(PIPE)")
         a = self.eval_expr(node.left, env)
         b = self.eval_expr(node.right, env)
+        if node.op == "EXACT_EQ":
+            return _exact_eq(a, b)
+        if node.op == "NEQ":
+            return not _exact_eq(a, b)
         if node.op == "EQ" and is_type_value(a) and is_type_value(b):
-            return types_equal(a, b)
-        if node.op == "NEQ" and is_type_value(a) and is_type_value(b):
-            return not types_equal(a, b)
+            return _type_matches(a, b, self.types) or _type_matches(b, a, self.types)
+        if node.op == "STRUCT_NEQ" and is_type_value(a) and is_type_value(b):
+            return not (
+                _type_matches(a, b, self.types) or _type_matches(b, a, self.types)
+            )
         sym = BINOP_KIND_TO_SYM.get(node.op)
         sd = bool(is_struct_dict(a) and is_struct_dict(b))
-        if sym and (is_struct_dict(a) or is_struct_dict(b)):
+        if node.op not in ("EXACT_EQ", "NEQ") and sym and (is_struct_dict(a) or is_struct_dict(b)):
             variants = self.op_overloads.get(sym) or []
             f2 = [f for f in variants if len(f.params) == 2]
             fn = _pick_best_overload(f2, [a, b], self.types)
             if fn is not None:
                 return self._call(fn, [a, b], env)
+        if node.op in ("LT", "LE", "GT", "GE", "EQ", "STRUCT_NEQ"):
+            if is_struct_dict(a) or is_struct_dict(b) or isinstance(a, Multiset) or isinstance(b, Multiset):
+                return _structural_compare(node.op, a, b)
         if sym and sd:
             if node.op == "AMPERSAND":
                 return _struct_merge_concat(a, b)
-            if node.op == "LT":
-                return struct_lt(a, b, self.types)
-            if node.op == "LE":
-                return struct_lt(a, b, self.types) or struct_eq(
-                    a, b, self.types
-                )
-            if node.op == "GT":
-                return struct_lt(b, a, self.types)
-            if node.op == "GE":
-                return not struct_lt(a, b, self.types)
-            if node.op == "EQ":
-                return struct_eq(a, b, self.types)
-            if node.op == "NEQ":
-                return not struct_eq(a, b, self.types)
+            if node.op in ("LT", "LE", "GT", "GE", "EQ", "STRUCT_NEQ"):
+                return _structural_compare(node.op, a, b)
             if node.op in (
                 "PLUS",
                 "MINUS",
@@ -1869,6 +2177,13 @@ def _exports(env: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in env.items() if not k.startswith("_")}
 
 
+def _spill_exports(env: dict[str, Any], short_name: str) -> dict[str, Any]:
+    return {
+        k: v for k, v in _exports(env).items()
+        if k != short_name
+    }
+
+
 def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
     from itertools import islice
 
@@ -1886,7 +2201,7 @@ def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
     runtime_taken = runtime_collection_take(seq, k)
     if runtime_taken is not None:
         return runtime_taken
-    if isinstance(seq, (list, tuple)):
+    if isinstance(seq, (VFVector, tuple)):
         return tuple(seq[:k])
     if isinstance(seq, (str, bytes)):
         raise EvalError("take: use a sequence or iterator, not str/bytes")
@@ -1916,7 +2231,7 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
     handled, value = runtime_collection_index_read(base, _normalize_index(k))
     if handled:
         return value
-    if isinstance(base, list):
+    if isinstance(base, VFVector):
         return base[_normalize_index(k)]
     if isinstance(base, dict):
         if k not in base:
@@ -1934,7 +2249,7 @@ def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
         raise EvalError("cannot assign through index on lazy list")
     if runtime_collection_index_set(container, _normalize_index(k), val):
         return
-    if isinstance(container, list):
+    if isinstance(container, VFVector):
         container[_normalize_index(k)] = val
     elif isinstance(container, dict):
         container[k] = val
@@ -2041,7 +2356,7 @@ def _stringify(
         if len(hx) > 64:
             return f"byte(len {len(v)})"
         return f"byte[{hx}]"
-    if isinstance(v, list):
+    if isinstance(v, VFVector):
         return "[" + ", ".join(_stringify(x, types) for x in v) + "]"
     if isinstance(v, tuple):
         if len(v) == 1:
@@ -2067,6 +2382,31 @@ def _stringify(
     return "…"
 
 
+def _disallow_vector_truthiness(v: Any, what: str) -> None:
+    """Vectors are not booleans; use element-wise comparisons or a ``??`` match."""
+    if isinstance(v, (VFVector, TypedVector)):
+        raise EvalError(
+            f"{what}: a vector cannot be used as a boolean "
+            "(use element-wise `=`, `<`, `>`, …, or a `??` match on a value)"
+        )
+
+
+def _axis_broadcast_tagged_binop(op: str, a: AxisTaggedValue, b: AxisTaggedValue) -> Any:
+    """When ``a.idx != b.idx``: outer axis ``a.idx``, inner ``b.idx``.
+
+    Each cell is ``_binop(op, x, y)``. ``&`` is excluded: concatenation stays along
+    one shared axis only.
+
+    Result is nested axis tags; stringification peels tags and shows a plain grid
+    (e.g. ``[1,2]->i + [3,5]->j`` → ``[[4, 6], [5, 7]]``).
+    """
+    if op == "AMPERSAND":
+        raise EvalError(
+            "`&` concatenates along a single axis only; it does not broadcast across different axis names"
+        )
+    return axis_broadcast_binary(lambda x, y: _binop(op, x, y), a, b)
+
+
 def _struct_merge_concat(a: dict, b: dict) -> dict:
     """``a & b`` for structs: fields from ``a`` then ``b``; duplicate keys take ``b``."""
     ta, tb = get_type_name(a), get_type_name(b)
@@ -2087,21 +2427,16 @@ def _struct_merge_concat(a: dict, b: dict) -> dict:
 def _binop(op: str, a: Any, b: Any) -> Any:
     if isinstance(a, AxisTaggedValue) and isinstance(b, AxisTaggedValue):
         if a.idx != b.idx:
-            raise EvalError(f"axis mismatch: {a.idx!r} vs {b.idx!r}")
+            return _axis_broadcast_tagged_binop(op, a, b)
         ad, bd = a.data, b.data
         if op == "AMPERSAND":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 return AxisTaggedValue(ad + bd, a.idx)
-            if isinstance(ad, list) and isinstance(bd, list):
-                return AxisTaggedValue(ad + bd, a.idx)
-            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a.idx,
-                )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                return AxisTaggedValue(_wrap_vector_result_if_typed(op, chain(ad, bd), ad, bd), a.idx)
             raise EvalError(
                 "unsupported types inside axis-tagged values for & "
-                "(use tuple, vector, or multiset)"
+                "(use tuple or vector)"
             )
         if op == "PLUS":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
@@ -2109,6 +2444,18 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     raise EvalError("tuple length mismatch for +")
                 return AxisTaggedValue(
                     tuple(x + y for x, y in zip(ad, bd)), a.idx
+                )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for +")
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x + y for x, y in zip(ad, bd)),
+                        ad,
+                        bd,
+                    ),
+                    a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return AxisTaggedValue(
@@ -2122,6 +2469,18 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 return AxisTaggedValue(
                     tuple(x - y for x, y in zip(ad, bd)), a.idx
                 )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for -")
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x - y for x, y in zip(ad, bd)),
+                        ad,
+                        bd,
+                    ),
+                    a.idx,
+                )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return AxisTaggedValue(
                     wrap_typed_multiset_result(multiset_difference(ad, bd), combine_typed_multiset_types(ad, bd)),
@@ -2133,6 +2492,18 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     raise EvalError("tuple length mismatch for *")
                 return AxisTaggedValue(
                     tuple(x * y for x, y in zip(ad, bd)), a.idx
+                )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for *")
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x * y for x, y in zip(ad, bd)),
+                        ad,
+                        bd,
+                    ),
+                    a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return AxisTaggedValue(
@@ -2146,11 +2517,76 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 return AxisTaggedValue(
                     tuple(x / y for x, y in zip(ad, bd)), a.idx
                 )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for /")
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x / y for x, y in zip(ad, bd)),
+                        ad,
+                        bd,
+                    ),
+                    a.idx,
+                )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return AxisTaggedValue(
                     wrap_typed_multiset_result(
                         multiset_symmetric_difference(ad, bd), combine_typed_multiset_types(ad, bd)
                     ),
+                    a.idx,
+                )
+        if op == "PERCENT":
+            if isinstance(ad, tuple) and isinstance(bd, tuple):
+                if len(ad) != len(bd):
+                    raise EvalError("tuple length mismatch for %")
+                return AxisTaggedValue(
+                    tuple(x % y for x, y in zip(ad, bd)), a.idx
+                )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for %")
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x % y for x, y in zip(ad, bd)),
+                        ad,
+                        bd,
+                    ),
+                    a.idx,
+                )
+        if op == "CARET":
+            if isinstance(ad, tuple) and isinstance(bd, tuple):
+                if len(ad) != len(bd):
+                    raise EvalError("tuple length mismatch for ^")
+                return AxisTaggedValue(
+                    tuple(x**y for x, y in zip(ad, bd)), a.idx
+                )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for ^")
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x**y for x, y in zip(ad, bd)),
+                        ad,
+                        bd,
+                    ),
+                    a.idx,
+                )
+        if op in ("EQ", "NEQ", "LT", "LE", "GT", "GE"):
+            if isinstance(ad, tuple) and isinstance(bd, tuple):
+                if len(ad) != len(bd):
+                    raise EvalError("tuple length mismatch for relational op")
+                return AxisTaggedValue(
+                    tuple(_binop(op, x, y) for x, y in zip(ad, bd)),
+                    a.idx,
+                )
+            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
+                if len(ad) != len(bd):
+                    raise EvalError("vector length mismatch for relational op")
+                return AxisTaggedValue(
+                    VFVector(_binop(op, x, y) for x, y in zip(ad, bd)),
                     a.idx,
                 )
         raise EvalError(
@@ -2161,10 +2597,192 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             if isinstance(a.data, tuple):
                 bf = float(b)
                 return AxisTaggedValue(tuple(bf * x for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (float(b) * x for x in a.data),
+                        b,
+                        a.data,
+                    ),
+                    a.idx,
+                )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             if isinstance(b.data, tuple):
                 af = float(a)
                 return AxisTaggedValue(tuple(af * x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x * float(a) for x in b.data),
+                        b.data,
+                        a,
+                    ),
+                    b.idx,
+                )
+    if op == "CARET":
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            bf = float(b)
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(x**bf for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x**bf for x in a.data),
+                        a.data,
+                        b,
+                    ),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            af = float(a)
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(af**x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (af**x for x in b.data),
+                        a,
+                        b.data,
+                    ),
+                    b.idx,
+                )
+    if op == "PERCENT":
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            bf = float(b)
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(x % bf for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x % bf for x in a.data),
+                        a.data,
+                        b,
+                    ),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            af = float(a)
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(af % x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (af % x for x in b.data),
+                        a,
+                        b.data,
+                    ),
+                    b.idx,
+                )
+    if op == "PLUS":
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            bf = float(b)
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(x + bf for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x + bf for x in a.data),
+                        a.data,
+                        b,
+                    ),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            af = float(a)
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(af + x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (af + x for x in b.data),
+                        b.data,
+                        a,
+                    ),
+                    b.idx,
+                )
+    if op == "MINUS":
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            bf = float(b)
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(x - bf for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x - bf for x in a.data),
+                        a.data,
+                        b,
+                    ),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            af = float(a)
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(af - x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (af - x for x in b.data),
+                        b.data,
+                        a,
+                    ),
+                    b.idx,
+                )
+    if op == "SLASH":
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            bf = float(b)
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(x / bf for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x / bf for x in a.data),
+                        a.data,
+                        b,
+                    ),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            af = float(a)
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(af / x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (af / x for x in b.data),
+                        b.data,
+                        a,
+                    ),
+                    b.idx,
+                )
+    if op in ("EQ", "NEQ", "LT", "LE", "GT", "GE"):
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float, bool)):
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(_binop(op, x, b) for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    VFVector(_binop(op, x, b) for x in a.data),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float, bool)):
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(_binop(op, a, y) for y in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    VFVector(_binop(op, a, y) for y in b.data),
+                    b.idx,
+                )
     if isinstance(a, AxisTaggedValue) or isinstance(b, AxisTaggedValue):
         raise EvalError("cannot mix axis-tagged and untagged operands")
     if op == "AMPERSAND":
@@ -2172,74 +2790,133 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             return a + b
         if isinstance(a, tuple) and isinstance(b, tuple):
             return a + b
-        if isinstance(a, list) and isinstance(b, list):
-            return _wrap_vector_result_if_typed(op, a + b, a, b)
-        if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
+            return _wrap_vector_result_if_typed(op, chain(a, b), a, b)
         if isinstance(a, dict) and isinstance(b, dict) and is_struct_dict(a) and is_struct_dict(b):
             return _struct_merge_concat(a, b)
         raise EvalError(
             f"unsupported operand types for &: {type(a).__name__!r} and {type(b).__name__!r}"
         )
     if op == "PLUS":
-        if isinstance(a, list) and isinstance(b, list):
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
-                raise EvalError("list length mismatch for +")
-            return _wrap_vector_result_if_typed(op, [x + y for x, y in zip(a, b)], a, b)
+                raise EvalError("vector length mismatch for +")
+            return _wrap_vector_result_if_typed(op, (x + y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            af = float(a)
+            return _wrap_vector_result_if_typed(op, (af + x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            bf = float(b)
+            return _wrap_vector_result_if_typed(op, (x + bf for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         return a + b
     if op == "MINUS":
-        if isinstance(a, list) and isinstance(b, list):
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
-                raise EvalError("list length mismatch for -")
-            return _wrap_vector_result_if_typed(op, [x - y for x, y in zip(a, b)], a, b)
+                raise EvalError("vector length mismatch for -")
+            return _wrap_vector_result_if_typed(op, (x - y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            af = float(a)
+            return _wrap_vector_result_if_typed(op, (af - x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            bf = float(b)
+            return _wrap_vector_result_if_typed(op, (x - bf for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_difference(a, b), combine_typed_multiset_types(a, b))
         return a - b
     if op == "STAR":
-        if isinstance(a, list) and isinstance(b, list):
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
-                raise EvalError("list length mismatch for *")
-            return _wrap_vector_result_if_typed(op, [x * y for x, y in zip(a, b)], a, b)
-        if isinstance(a, (int, float)) and isinstance(b, list):
-            return _wrap_vector_result_if_typed(op, [float(a) * x for x in b], a, b)
-        if isinstance(a, list) and isinstance(b, (int, float)):
-            return _wrap_vector_result_if_typed(op, [x * float(b) for x in a], a, b)
+                raise EvalError("vector length mismatch for *")
+            return _wrap_vector_result_if_typed(op, (x * y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            return _wrap_vector_result_if_typed(op, (float(a) * x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            return _wrap_vector_result_if_typed(op, (x * float(b) for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_intersection(a, b), combine_typed_multiset_types(a, b))
         return a * b
     if op == "SLASH":
-        if isinstance(a, list) and isinstance(b, list):
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
-                raise EvalError("list length mismatch for /")
-            return _wrap_vector_result_if_typed(op, [x / y for x, y in zip(a, b)], a, b)
+                raise EvalError("vector length mismatch for /")
+            return _wrap_vector_result_if_typed(op, (x / y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            af = float(a)
+            return _wrap_vector_result_if_typed(op, (af / x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            bf = float(b)
+            return _wrap_vector_result_if_typed(op, (x / bf for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(
                 multiset_symmetric_difference(a, b), combine_typed_multiset_types(a, b)
             )
         return a / b
     if op == "PERCENT":
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
+            if len(a) != len(b):
+                raise EvalError("vector length mismatch for %")
+            return _wrap_vector_result_if_typed(op, (x % y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            return _wrap_vector_result_if_typed(op, (float(a) % x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            return _wrap_vector_result_if_typed(op, (x % float(b) for x in a), a, b)
         return a % b
     if op == "CARET":
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
+            if len(a) != len(b):
+                raise EvalError("vector length mismatch for ^")
+            return _wrap_vector_result_if_typed(op, (x**y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            return _wrap_vector_result_if_typed(op, (float(a)**x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            return _wrap_vector_result_if_typed(op, (x**float(b) for x in a), a, b)
         return a**b
-    if op == "EQ":
-        return a == b
-    if op == "NEQ":
-        return a != b
-    if op == "LT":
-        return a < b
-    if op == "LE":
-        return a <= b
-    if op == "GT":
-        return a > b
-    if op == "GE":
-        return a >= b
+    if op in ("EQ", "STRUCT_NEQ", "LT", "LE", "GT", "GE"):
+        if isinstance(a, tuple) and isinstance(b, tuple):
+            if len(a) != len(b):
+                raise EvalError("tuple length mismatch for relational op")
+            return tuple(_binop(op, x, y) for x, y in zip(a, b))
+        if isinstance(a, (int, float, bool)) and isinstance(b, tuple):
+            return tuple(_binop(op, a, y) for y in b)
+        if isinstance(a, tuple) and isinstance(b, (int, float, bool)):
+            return tuple(_binop(op, x, b) for x in a)
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
+            if len(a) != len(b):
+                raise EvalError("vector length mismatch for relational op")
+            return VFVector(_binop(op, x, y) for x, y in zip(a, b))
+        if isinstance(a, (int, float, bool)) and isinstance(b, VFVector):
+            return VFVector(_binop(op, a, y) for y in b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float, bool)):
+            return VFVector(_binop(op, x, b) for x in a)
+        if op == "EQ":
+            return a == b
+        if op == "STRUCT_NEQ":
+            return a != b
+        if op == "LT":
+            return a < b
+        if op == "LE":
+            return a <= b
+        if op == "GT":
+            return a > b
+        if op == "GE":
+            return a >= b
     if op == "AND":
-        return bool(a) and bool(b)
+        _disallow_vector_truthiness(a, "`and` left operand")
+        if not bool(a):
+            return False
+        _disallow_vector_truthiness(b, "`and` right operand")
+        return bool(b)
     if op == "OR":
-        return bool(a) or bool(b)
+        _disallow_vector_truthiness(a, "`or` left operand")
+        if bool(a):
+            return True
+        _disallow_vector_truthiness(b, "`or` right operand")
+        return bool(b)
     if op == "XOR":
+        _disallow_vector_truthiness(a, "`xor` left operand")
+        _disallow_vector_truthiness(b, "`xor` right operand")
         return bool(a) ^ bool(b)
     raise EvalError(f"unknown binary operator {op!r}")
 

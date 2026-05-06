@@ -24,6 +24,7 @@ from vektorflow.tokens import (
     EMIT,
     EOF,
     EQ,
+    EXACT_EQ,
     FAT_ARROW,
     GE,
     GT,
@@ -51,6 +52,7 @@ from vektorflow.tokens import (
     SEMICOLON,
     SLASH,
     STAR,
+    STRUCT_NEQ,
     STRING,
     STRING_RAW,
     TRUE,
@@ -172,7 +174,7 @@ class TestOperators:
         assert kinds("&")[:1] == [AMPERSAND]
 
     def test_relations(self) -> None:
-        assert kinds("= != < <= > >=")[:6] == [EQ, NEQ, LT, LE, GT, GE]
+        assert kinds("= == != ~= < <= > >=")[:8] == [EQ, EXACT_EQ, NEQ, STRUCT_NEQ, LT, LE, GT, GE]
 
     def test_fat_arrow_vs_ge(self) -> None:
         assert kinds("=>")[:1] == [FAT_ARROW]
@@ -189,6 +191,9 @@ class TestOperators:
     def test_arrow_function_type(self) -> None:
         assert kinds("->")[:1] == [ARROW]
         assert kinds("-")[:1] == [MINUS]
+        assert [kv for kv in values("a->b") if kv[0] == ARROW] == [(ARROW, (True, True))]
+        assert [kv for kv in values("a -> b") if kv[0] == ARROW] == [(ARROW, (False, False))]
+        assert [kv for kv in values("a-> b") if kv[0] == ARROW] == [(ARROW, (True, False))]
 
     def test_dollar(self) -> None:
         assert kinds("$")[:1] == [DOLLAR]
@@ -300,6 +305,28 @@ class TestPrograms:
             (COMMA, None),
             (IDENT, "y"),
             (RPAREN, None),
+            (COLON, None),
+            (IDENT, "x"),
+            (CARET, None),
+            (NUMBER, 2),
+            (PLUS, None),
+            (IDENT, "y"),
+            (CARET, None),
+            (NUMBER, 2),
+        ]
+
+    def test_function_definition_declaration_style_params(self) -> None:
+        assert values("f(num x, int y) -> num : x^2 + y^2") == [
+            (IDENT, "f"),
+            (LPAREN, None),
+            (IDENT, "num"),
+            (IDENT, "x"),
+            (COMMA, None),
+            (IDENT, "int"),
+            (IDENT, "y"),
+            (RPAREN, None),
+            (ARROW, (False, False)),
+            (IDENT, "num"),
             (COLON, None),
             (IDENT, "x"),
             (CARET, None),

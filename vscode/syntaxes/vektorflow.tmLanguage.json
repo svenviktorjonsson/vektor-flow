@@ -106,12 +106,14 @@
     "function-definition": {
       "patterns": [
         {
-          "comment": "f(x):  or  f(x, y) :  # c — head line (no nested parens in list)",
-          "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^\\)]*)\\)\\s*(:)(?:\\s*(?:#.*)?\\s*)?$",
+          "comment": "f(num x):  f(x:num):  f(num x, int y) -> num: — head line",
+          "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^\\)]*)\\)\\s*(?:(->)\\s*([^:]+))?\\s*(:)(?:\\s*(?:#.*)?\\s*)?$",
           "captures": {
             "1": { "name": "entity.name.function.definition.vektorflow" },
             "2": { "name": "variable.parameter.list.vektorflow" },
-            "3": { "name": "punctuation.block.head.vektorflow" }
+            "3": { "name": "keyword.operator.thinarrow.vektorflow" },
+            "4": { "name": "meta.function.return-type.vektorflow" },
+            "5": { "name": "punctuation.block.head.vektorflow" }
           }
         }
       ]
@@ -160,6 +162,10 @@
         {
           "name": "constant.language.boolean.vektorflow",
           "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "storage.type.primitive.vektorflow",
+          "match": "\\b(int|float|num|str|byte|bytes|bool|any)\\b"
         }
       ]
     },
@@ -187,7 +193,7 @@
         },
         {
           "name": "keyword.operator.comparison.vektorflow",
-          "match": "!=|<=|>="
+          "match": "==|~=|!=|<=|>="
         },
         {
           "name": "keyword.operator.fatarrow.vektorflow",

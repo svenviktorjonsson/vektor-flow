@@ -27,8 +27,8 @@ def test_struct_ctor_positional_and_field_access() -> None:
 Point(x:num, y:num):
 
 p : Point(3, 4)
-:: p.x
-:: p.y
+::: p.x
+::: p.y
 """
     lines = _run(src).splitlines()
     assert lines[0] in ("3", "3.0")
@@ -62,12 +62,12 @@ def test_function_value_prints_name_param_types_and_codomain() -> None:
     src = """
 f(x:num, y:num): x + y
 g(x:num) -> num: x^2
-:: f
-:: g
+::: f
+::: g
 """
     lines = _run(src).splitlines()
-    assert lines[0] == "f(x:num, y:num)"
-    assert lines[1] == "g(x:num) -> num"
+    assert lines[0] == "f(num x, num y)"
+    assert lines[1] == "g(num x) -> num"
 
 
 def test_struct_ctor_reference_prints_constructor_head() -> None:
@@ -76,7 +76,7 @@ Point(x:num, y:num):
     :
 :: Point
 """
-    assert _run(src).strip() == "Point(x:num, y:num)"
+    assert _run(src).strip() == "Point(num x, num y)"
 
 
 def test_lambda_prints_dollar_signature() -> None:

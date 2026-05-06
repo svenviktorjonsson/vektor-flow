@@ -48,6 +48,7 @@ from .tokens import (
     EMIT,
     EOF,
     EQ,
+    EXACT_EQ,
     FAT_ARROW,
     GE,
     GT,
@@ -77,6 +78,7 @@ from .tokens import (
     SEMICOLON,
     SLASH,
     STAR,
+    STRUCT_NEQ,
     STRING,
     STRING_RAW,
     Token,
@@ -294,10 +296,20 @@ class Lexer:
             return
 
         if ch == "-":
+            minus_pos = self.pos
+            left_adjacent = (
+                minus_pos > 0 and self.src[minus_pos - 1] not in (" ", "\t", "\r")
+            )
             self._advance()
             if self._peek() == ">":
                 self._advance()
-                self._emit(ARROW, None, loc)
+                right_adjacent = self.pos < len(self.src) and self.src[self.pos] not in (
+                    " ",
+                    "\t",
+                    "\n",
+                    "\r",
+                )
+                self._emit(ARROW, (left_adjacent, right_adjacent), loc)
             else:
                 self._emit(MINUS, None, loc)
             return
@@ -339,11 +351,22 @@ class Lexer:
             return
         if ch == "=":
             self._advance()
-            if self._peek() == ">":
+            if self._peek() == "=":
+                self._advance()
+                self._emit(EXACT_EQ, None, loc)
+            elif self._peek() == ">":
                 self._advance()
                 self._emit(FAT_ARROW, None, loc)
             else:
                 self._emit(EQ, None, loc)
+            return
+        if ch == "~":
+            self._advance()
+            if self._peek() == "=":
+                self._advance()
+                self._emit(STRUCT_NEQ, None, loc)
+            else:
+                self._emit(NOT, None, loc)
             return
         if ch == "!":
             self._advance()

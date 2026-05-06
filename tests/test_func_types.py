@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from vektorflow import ast
 from vektorflow.interpreter import Interpreter
-from vektorflow.parser import parse_module
+from vektorflow.parser import ParseError, parse_module
 
 
 def _ip() -> Interpreter:
@@ -14,6 +16,36 @@ def _ip() -> Interpreter:
 
 
 class TestFuncTypeParse:
+    def test_func_def_declaration_style_params(self) -> None:
+        m = parse_module("f(num x, int y): x", "<t>")
+        f = m.statements[0]
+        assert isinstance(f, ast.FuncDef)
+        assert [p.name for p in f.params] == ["x", "y"]
+        assert [p.type_name for p in f.params] == ["num", "int"]
+
+    def test_func_type_named_declaration_style_domain(self) -> None:
+        m = parse_module("Ftype : (num x, num y) -> num", "<t>")
+        ft = m.statements[0].value
+        assert isinstance(ft, ast.FuncType)
+        assert isinstance(ft.domain, ast.TypeExpr)
+        assert [(n, t.name) for n, t in ft.domain.fields] == [("x", "num"), ("y", "num")]
+
+    def test_old_style_func_params_still_parse(self) -> None:
+        m = parse_module("f(x:num, y:int): x", "<t>")
+        f = m.statements[0]
+        assert isinstance(f, ast.FuncDef)
+        assert [p.name for p in f.params] == ["x", "y"]
+        assert [p.type_name for p in f.params] == ["num", "int"]
+
+    def test_declaration_style_params_and_defaults_parse(self) -> None:
+        m = parse_module("f(num x, int y:4): x", "<t>")
+        f = m.statements[0]
+        assert isinstance(f, ast.FuncDef)
+        assert [p.name for p in f.params] == ["x", "y"]
+        assert [p.type_name for p in f.params] == ["num", "int"]
+        assert f.params[0].default_expr is None
+        assert isinstance(f.params[1].default_expr, ast.NumberLit)
+
     def test_prefix_typed_bind_parse(self) -> None:
         m = parse_module("[num:2] v: [1,2]", "<t>")
         b = m.statements[0]
@@ -111,6 +143,24 @@ class TestFuncTypeParse:
         assert isinstance(b.value, ast.MultisetType)
         assert isinstance(b.value.element_type, ast.PrimTypeRef)
         assert b.value.element_type.name == "num"
+
+    def test_tight_arrow_after_rparen_rejected_in_func_def(self) -> None:
+        with pytest.raises(ParseError, match="spaced ` -> `"):
+            parse_module("f(x:num)->num:\n  1\n", "<t>")
+
+    def test_spaced_arrow_after_rparen_ok_in_func_def(self) -> None:
+        m = parse_module("f(x:num) -> num:\n  1\n", "<t>")
+        assert isinstance(m.statements[0], ast.FuncDef)
+
+    def test_tight_arrow_after_rparen_rejected_in_type_bind(self) -> None:
+        with pytest.raises(ParseError, match="spaced ` -> `"):
+            parse_module("Ftype : (num)->num", "<t>")
+
+    def test_empty_tuple_type_arrow_requires_space(self) -> None:
+        with pytest.raises(ParseError, match="spaced ` -> `"):
+            parse_module("Ftype : ()->num", "<t>")
+        m = parse_module("Ftype : () -> num", "<t>")
+        assert isinstance(m.statements[0].value, ast.FuncType)
 
 
 class TestFuncTypeInterpreter:

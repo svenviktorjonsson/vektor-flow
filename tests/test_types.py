@@ -8,6 +8,7 @@ from pathlib import Path
 
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
+from vektorflow.runtime import VFVector
 
 
 def _run(src: str) -> str:
@@ -22,7 +23,7 @@ def _run(src: str) -> str:
 def test_typeof_struct_matches_type_literal() -> None:
     src = """
 a : (x:1, y:2)
-:: a. = (x:num, y:num)
+::: a. = (x:num, y:num)
 """
     assert _run(src) == "true"
 
@@ -30,7 +31,7 @@ a : (x:1, y:2)
 def test_func_arrow_and_typeof() -> None:
     src = """
 f(x:num) -> num: x^2
-:: f. = (x:num) -> num
+::: f. = (x:num) -> num
 """
     assert _run(src) == "true"
 
@@ -38,9 +39,9 @@ f(x:num) -> num: x^2
 def test_num_coercion_and_callable() -> None:
     src = """
 f(x:num) -> num: x + 1
-:: f(3)
-:: num(3.14)
-:: num(0, 1)
+::: f(3)
+::: num(3.14)
+::: num(0, 1)
 """
     lines = _run(src).splitlines()
     assert lines[0] in ("4", "4.0")
@@ -53,9 +54,9 @@ def test_prefix_typed_bind_coerces_values() -> None:
 num a: 3
 int b: true
 bytes raw: "hej"
-:: a
-:: b
-:: raw.
+::: a
+::: b
+::: raw.
 """
     lines = _run(src).splitlines()
     assert lines[0] in ("3", "3.0")
@@ -67,8 +68,8 @@ def test_trailing_dot_type_can_drive_prefix_typed_bind() -> None:
     src = """
 v : [1, 2]
 v. value: [3, 4]
-:: value. = v.
-:: value
+::: value. = v.
+::: value
 """
     lines = _run(src).splitlines()
     assert lines[0] == "true"
@@ -79,52 +80,61 @@ def test_trailing_dot_type_can_be_used_inside_fixed_vector_type() -> None:
     src = """
 v : [1, 2, 3, 4]
 [v.:3] rows: [[1,2,3,4], [5,6,7,8], [9,10,11,12]]
-:: rows.
+::: rows.
 """
-    assert _run(src) == "[[num:4]:3]"
+    assert _run(src) == "[[int:4]:3]"
 
 
 def test_trailing_dot_on_call_result_is_typeof_call_result() -> None:
     src = """
 f(x:num) -> num: x
-:: f(3). = num
+::: f(3). = num
 """
     assert _run(src) == "true"
 
 
 def test_parenthesized_typeof_stays_grouping_but_trailing_comma_makes_tuple_type() -> None:
     src = """
-:: (1.)
-:: (1.,)
+::: (1.)
+::: (1.,)
 (1.,) t: (1,)
-:: t.
+::: t.
 """
     lines = _run(src).splitlines()
-    assert lines[0] == "num"
-    assert lines[1] == "(num,)"
-    assert lines[2] == "(num,)"
+    assert lines[0] == "int"
+    assert lines[1] == "(int,)"
+    assert lines[2] == "(int,)"
 
 
 def test_trailing_dot_type_works_in_multiset_and_fixed_vector_type_positions() -> None:
     src = """
 {1.34.} bag: {1.34:2}
 [1.:3] xs: [1, 2, 3]
-:: bag.
-:: xs.
+::: bag.
+::: xs.
 """
     lines = _run(src).splitlines()
     assert lines[0] == "{num}"
-    assert lines[1] == "[num:3]"
+    assert lines[1] == "[int:3]"
 
 
 def test_imaginary_constants() -> None:
     src = """
-:: i
-:: j
-:: i * i
+::: i
+::: j
+::: i * i
 """
     lines = _run(src).splitlines()
     assert lines[0] == "1j"
     assert lines[1] == "1j"
     assert lines[2] == "(-1+0j)"
+
+
+def test_vector_literal_uses_vector_runtime_type() -> None:
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module("v : [1, 2, 3]\n", filename="<test>"))
+    value = ip.globals["v"]
+    assert isinstance(value, VFVector)
+    assert not isinstance(value, list)
+    assert tuple(value) == (1, 2, 3)
 

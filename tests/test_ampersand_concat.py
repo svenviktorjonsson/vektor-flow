@@ -1,4 +1,4 @@
-"""``&`` concatenation: tuple, vector, string, multiset, struct."""
+"""``&`` concatenation: tuple, vector, string, struct."""
 
 from __future__ import annotations
 
@@ -6,6 +6,9 @@ import contextlib
 from io import StringIO
 from pathlib import Path
 
+import pytest
+
+from vektorflow.errors import EvalError
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 
@@ -36,10 +39,11 @@ def test_string_concat_stringifies_non_str_operand() -> None:
     assert _emit(r':: 1 & "\n"') == _emit(r':: 1 + "\n"')
 
 
-def test_mset_union_same_as_plus() -> None:
-    out = _emit(":: {1:1, 2:1} & {2:1, 3:1}")
-    out2 = _emit(":: {1:1, 2:1} + {2:1, 3:1}")
-    assert out == out2
+def test_multiset_ampersand_is_not_supported() -> None:
+    mod = parse_module(":: {1:1, 2:1} & {2:1, 3:1}", filename="<test>")
+    ip = Interpreter(Path(__file__))
+    with pytest.raises(EvalError, match="unsupported operand types for &"):
+        ip.run_module(mod)
 
 
 def test_struct_merge() -> None:

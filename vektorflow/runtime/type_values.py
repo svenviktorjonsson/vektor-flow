@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from .. import ast
 from ..errors import ErrorTypeValue, EvalError, error_type_for_exception
+from .axis_tagged import AxisTaggedValue
 from .collections_runtime import runtime_collection_kind
 from .struct_value import VF_TYPE_KEY, get_type_name, is_struct_dict
 from .multiset import Multiset
 from .typed_vector import TypedVector
 from .vflist import VFLinkedList
+from .vfvector import VFVector, VFVectorBuilder
 from .vmap import VMap
 
 
@@ -179,6 +182,178 @@ def types_equal(a: Any, b: Any) -> bool:
     return False
 
 
+def _resolve_named_type_once(
+    type_expr: Any,
+    type_registry: dict[str, ast.TypeExpr | ast.FuncType],
+) -> Any:
+    if isinstance(type_expr, PrimType):
+        return ast.PrimTypeRef(type_expr.name)
+    if isinstance(type_expr, ast.NamedTypeSpec):
+        return type_expr.type_expr
+    if isinstance(type_expr, ast.PrimTypeRef):
+        resolved = type_registry.get(type_expr.name)
+        if resolved is not None and not isinstance(resolved, ast.FuncType):
+            return resolved
+    return type_expr
+
+
+def normalize_type_expr(
+    type_expr: Any,
+    type_registry: dict[str, ast.TypeExpr | ast.FuncType],
+) -> Any:
+    seen: set[tuple[str, str]] = set()
+    current = type_expr
+    while True:
+        key = (type(current).__name__, repr(current))
+        if key in seen:
+            return current
+        seen.add(key)
+        nxt = _resolve_named_type_once(current, type_registry)
+        if nxt is current:
+            return current
+        current = nxt
+
+
+def _prim_match_specificity(actual: str, pattern: str) -> int | None:
+    if actual == pattern:
+        return 100
+    if pattern == "any":
+        return 1
+    if pattern == "num" and actual == "int":
+        return 40
+    if pattern == "vector" and actual == "vector":
+        return 100
+    if pattern == "multiset" and actual == "multiset":
+        return 100
+    if pattern == "tuple" and actual == "tuple":
+        return 100
+    if pattern == "struct" and actual == "struct":
+        return 100
+    if pattern == "map" and actual == "map":
+        return 100
+    if pattern == "list" and actual == "list":
+        return 100
+    return None
+
+
+def _ordered_field_subset_match(
+    actual_fields: list[tuple[str, Any]],
+    pattern_fields: list[tuple[str, Any]],
+    type_registry: dict[str, ast.TypeExpr | ast.FuncType],
+) -> int | None:
+    if len(pattern_fields) > len(actual_fields):
+        return None
+    pos = 0
+    score = 0
+    for pname, ptype in pattern_fields:
+        found = False
+        while pos < len(actual_fields):
+            aname, atype = actual_fields[pos]
+            pos += 1
+            if aname != pname:
+                continue
+            nested = type_match_specificity(atype, ptype, type_registry)
+            if nested is None:
+                return None
+            score += 10 + nested
+            found = True
+            break
+        if not found:
+            return None
+    return score
+
+
+def type_match_specificity(
+    actual: Any,
+    pattern: Any,
+    type_registry: dict[str, ast.TypeExpr | ast.FuncType],
+) -> int | None:
+    actual = normalize_type_expr(actual, type_registry)
+    pattern = normalize_type_expr(pattern, type_registry)
+    if types_equal(actual, pattern):
+        return 1_000
+
+    if isinstance(actual, ast.PrimTypeRef) and isinstance(pattern, ast.PrimTypeRef):
+        return _prim_match_specificity(actual.name, pattern.name)
+
+    if isinstance(actual, ast.FixedVectorType):
+        if isinstance(pattern, ast.PrimTypeRef):
+            return _prim_match_specificity("vector", pattern.name)
+        if isinstance(pattern, ast.FixedVectorType):
+            if not types_equal(actual.size, pattern.size):
+                return None
+            nested = type_match_specificity(actual.element_type, pattern.element_type, type_registry)
+            if nested is None:
+                return None
+            return 200 + nested
+
+    if isinstance(actual, ast.MultisetType):
+        if isinstance(pattern, ast.PrimTypeRef):
+            return _prim_match_specificity("multiset", pattern.name)
+        if isinstance(pattern, ast.MultisetType):
+            nested = type_match_specificity(actual.element_type, pattern.element_type, type_registry)
+            if nested is None:
+                return None
+            return 180 + nested
+
+    if isinstance(actual, ast.TupleTypeExpr):
+        if isinstance(pattern, ast.PrimTypeRef):
+            return _prim_match_specificity("tuple", pattern.name)
+        if isinstance(pattern, ast.TupleTypeExpr):
+            if len(actual.elements) != len(pattern.elements):
+                return None
+            nested_scores: list[int] = []
+            for av, pv in zip(actual.elements, pattern.elements):
+                nested = type_match_specificity(av, pv, type_registry)
+                if nested is None:
+                    return None
+                nested_scores.append(nested)
+            return 150 + sum(nested_scores)
+
+    if isinstance(actual, ast.TypeExpr):
+        if isinstance(pattern, ast.PrimTypeRef):
+            return _prim_match_specificity("struct", pattern.name)
+        if isinstance(pattern, ast.TypeExpr):
+            score = _ordered_field_subset_match(actual.fields, pattern.fields, type_registry)
+            if score is None:
+                return None
+            return 220 + score
+
+    if isinstance(actual, ast.MapValueType):
+        if isinstance(pattern, ast.PrimTypeRef):
+            return _prim_match_specificity("map", pattern.name)
+        if isinstance(pattern, ast.MapValueType):
+            score = _ordered_field_subset_match(actual.fields, pattern.fields, type_registry)
+            if score is None:
+                return None
+            return 140 + score
+
+    if isinstance(actual, ast.LinkedListValueType):
+        if isinstance(pattern, ast.PrimTypeRef):
+            return _prim_match_specificity("list", pattern.name)
+        if isinstance(pattern, ast.LinkedListValueType):
+            if len(actual.elements) != len(pattern.elements):
+                return None
+            nested_scores: list[int] = []
+            for av, pv in zip(actual.elements, pattern.elements):
+                nested = type_match_specificity(av, pv, type_registry)
+                if nested is None:
+                    return None
+                nested_scores.append(nested)
+            return 130 + sum(nested_scores)
+
+    if isinstance(actual, ast.FuncType) and isinstance(pattern, ast.FuncType):
+        if not types_equal(actual, pattern):
+            return None
+        return 900
+
+    return None
+
+
+def _is_host_vector_input(v: Any) -> bool:
+    return isinstance(v, Sequence) and not isinstance(v, (str, bytes, bytearray, tuple, VFVector))
+
+
 def _infer_field_type(v: Any) -> str:
     if isinstance(v, bool):
         return "bool"
@@ -194,9 +369,9 @@ def _infer_field_type(v: Any) -> str:
         return "str"
     if isinstance(v, Multiset):
         return "multiset"
-    if isinstance(v, list):
-        if isinstance(v, TypedVector) and v.vf_type_expr is not None:
-            return "vector"
+    if isinstance(v, VFVector):
+        return "vector"
+    if _is_host_vector_input(v):
         return "vector"
     if isinstance(v, tuple):
         return "tuple"
@@ -239,6 +414,8 @@ def infer_type(
         )
         return ast.FuncType(domain, ast.PrimTypeRef("any"))
 
+    if isinstance(v, AxisTaggedValue):
+        return infer_type(v.data, type_registry)
     if isinstance(v, bool):
         return ast.PrimTypeRef("bool")
     if isinstance(v, int) and not isinstance(v, bool):
@@ -253,7 +430,7 @@ def infer_type(
         return ast.PrimTypeRef("bytes")
     if isinstance(v, str):
         return ast.PrimTypeRef("str")
-    if isinstance(v, list):
+    if isinstance(v, VFVector):
         if isinstance(v, TypedVector) and v.vf_type_expr is not None:
             return v.vf_type_expr
         if not v:
@@ -261,6 +438,14 @@ def infer_type(
         elem_type = infer_type(v[0], type_registry)
         if all(types_equal(infer_type(item, type_registry), elem_type) for item in v[1:]):
             return ast.FixedVectorType(elem_type, ast.TypeSizeConst(len(v)))
+        return ast.PrimTypeRef("vector")
+    if _is_host_vector_input(v):
+        seq = tuple(v)
+        if not seq:
+            return ast.PrimTypeRef("vector")
+        elem_type = infer_type(seq[0], type_registry)
+        if all(types_equal(infer_type(item, type_registry), elem_type) for item in seq[1:]):
+            return ast.FixedVectorType(elem_type, ast.TypeSizeConst(len(seq)))
         return ast.PrimTypeRef("vector")
     if isinstance(v, tuple):
         if len(v) == 0:
@@ -392,9 +577,9 @@ def _coerce_tuple_value(
     type_registry: dict[str, ast.TypeExpr | ast.FuncType],
     size_bindings: dict[str, int],
 ) -> tuple[Any, ...]:
-    if not isinstance(val, (tuple, list)):
+    if not isinstance(val, (tuple, VFVector)) and not _is_host_vector_input(val):
         raise EvalError("expected a tuple-like value")
-    seq = list(val)
+    seq = tuple(val)
     if len(seq) != len(type_expr.elements):
         raise EvalError(f"expected tuple length {len(type_expr.elements)}, got {len(seq)}")
     out: list[Any] = []
@@ -410,20 +595,18 @@ def _coerce_fixed_vector_value(
     type_registry: dict[str, ast.TypeExpr | ast.FuncType],
     size_bindings: dict[str, int],
 ) -> Any:
-    if not isinstance(val, (list, tuple)):
+    if not isinstance(val, (tuple, VFVector)) and not _is_host_vector_input(val):
         raise EvalError("expected a vector-like value")
-    seq = list(val)
+    seq = tuple(val)
     _bind_type_size(type_expr.size, len(seq), size_bindings)
-    out: list[Any] = []
+    out = VFVectorBuilder(len(seq))
     for item in seq:
         coerced, size_bindings = coerce_typed_value(
             item, type_expr.element_type, type_registry, size_bindings
         )
         out.append(coerced)
     resolved = resolve_return_type(type_expr, size_bindings)
-    if isinstance(val, tuple):
-        return tuple(out)
-    return TypedVector(out, resolved)
+    return TypedVector(out.build(), resolved)
 
 
 def coerce_typed_value(
@@ -525,9 +708,9 @@ def combine_typed_vector_types(op: str, a: Any, b: Any) -> ast.FixedVectorType |
     return None
 
 
-def wrap_typed_vector_result(values: list[Any], type_expr: ast.FixedVectorType | None) -> list[Any]:
+def wrap_typed_vector_result(values: Sequence[Any] | Any, type_expr: ast.FixedVectorType | None) -> VFVector:
     if type_expr is None:
-        return values
+        return VFVector(values)
     return TypedVector(values, type_expr)
 
 

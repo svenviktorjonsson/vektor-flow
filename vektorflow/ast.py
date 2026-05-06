@@ -38,13 +38,11 @@ class Ident:
 @dataclass
 class TupleLit:
     elements: list[Any]
-    axis_tag: str | None = None  # fast path: ``(1,2)_i`` only — not struct literals
 
 
 @dataclass
 class ListLit:
     elements: list[Any]
-    axis_tag: str | None = None  # ``[1,2]_i`` — not ``(x:1)`` structs
 
 
 @dataclass
@@ -92,7 +90,21 @@ class MultisetLit:
     """Multiset literal ``{value:count, ...}`` — counts are positive integers."""
 
     pairs: list[tuple[Any, Any]]
-    axis_tag: str | None = None  # ``{1:2}_ij``
+
+
+@dataclass
+class AxisAlign:
+    """Axis tagging via tight ``->`` (same adjacency rules as ``.``).
+
+    Exactly one of ``label`` or ``indices`` is set. ``label`` is the raw identifier
+    text after ``->`` (never a variable lookup), so ``->ij`` tags as ``ij`` even if
+    ``ij`` is bound. ``indices`` is ``->(...)`` / ``->.$`` / ``->.0`` shapes like dotted
+    access; expressions are evaluated to a single axis key string.
+    """
+
+    value: Any
+    label: str | None = None
+    indices: list[Any] | None = None
 
 
 @dataclass
@@ -271,6 +283,7 @@ class Param:
     type_name: str | None = None
     param_func_type: FuncType | None = None  # ``f:num->num`` — function parameter
     type_ref: Any | None = None
+    default_expr: Any | None = None
 
 
 Stmt = Any
@@ -293,14 +306,10 @@ class Emit:
 
 @dataclass
 class StdioPrint:
-    """``:: expr`` — print to stdout.
+    """``:: expr`` — print to stdout with no implicit newline (exact stringified output).
 
-    A trailing newline is added unless the stringified value already ends with
-    ``\\n`` (e.g. ``$ & "\\n"`` or a string literal that ends with ``\\n``), so you
-    can control line endings explicitly in tight loops.
-
-    ``::: expr`` is syntactic sugar for printing ``expr`` as a line (same as
-    ``:: (expr & "\\n")`` / ``::"$a\\n"``-style output when ``expr`` is ``a``).
+    ``::: expr`` is syntactic sugar for a line-oriented print: ``:: (expr & "\\n")``
+    (same as ``::"$a\\n"``-style when ``expr`` stringifies to ``a``).
     """
 
     value: Any
@@ -310,7 +319,7 @@ class StdioPrint:
 class SpillImport:
     """``: .path`` — load module (``.vkf`` / folder / stdlib) and merge exports into current scope.
     If ``alias`` is set (e.g. ``time:.time``) the module is bound under that name only (no spill).
-    If ``alias`` is None (plain ``:.path``) exports are spilled AND the module is bound by its short name."""
+    If ``alias`` is None (plain ``:.path``) only exported names are spilled into the current scope."""
 
     path: Any        # DotModulePath
     alias: str | None = None  # e.g. "time" from ``time:.time``

@@ -21,13 +21,12 @@ def _emit(src: str) -> str:
 
 def test_mset_spill_to_vector() -> None:
     src = """
-m : {1:2, 2:1}
+m : {2:1, 1:2}
 v : [:m]
 :: v
 """
     out = _emit(src)
-    assert "1" in out and "2" in out
-    assert out.count("1") >= 2
+    assert out == "[1, 1, 2]"
 
 
 def test_bind_pattern_dotted_names() -> None:

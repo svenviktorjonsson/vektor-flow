@@ -26,6 +26,7 @@ from .tokens import (
     EMIT,
     EOF,
     EQ,
+    EXACT_EQ,
     FAT_ARROW,
     FALSE,
     GE,
@@ -57,6 +58,7 @@ from .tokens import (
     SEMICOLON,
     SLASH,
     STAR,
+    STRUCT_NEQ,
     STRING,
     STRING_RAW,
     Token,
@@ -75,7 +77,7 @@ OPERATOR_FUNC_KINDS = frozenset(
         CARET,
         AMPERSAND,
         EQ,
-        NEQ,
+        STRUCT_NEQ,
         LT,
         LE,
         GT,
@@ -98,7 +100,7 @@ def _token_kind_to_op_symbol(kind: str) -> str:
         PERCENT: "%",
         CARET: "^",
         EQ: "=",
-        NEQ: "!=",
+        STRUCT_NEQ: "~=",
         LT: "<",
         LE: "<=",
         GT: ">",
@@ -119,7 +121,7 @@ _ATOM_CALL_OP_KINDS = frozenset(OPERATOR_FUNC_KINDS - {NOT})
 
 # ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
 # before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
-_PRIMITIVE_TYPE_IDENTS = frozenset({"int", "num", "str", "byte", "bytes", "bool", "any"})
+_PRIMITIVE_TYPE_IDENTS = frozenset({"int", "float", "num", "str", "byte", "bytes", "bool", "any"})
 
 
 class Parser:
@@ -246,7 +248,9 @@ class Parser:
                 "`_ =>` is not supported",
                 self._loc_here(),
             )
-        cond = self.parse_or_expr()
+        cond = self._try_parse_match_arm_fixed_vector_type_pattern()
+        if cond is None:
+            cond = self.parse_or_expr()
         self._skip_trivia()
         if self._peek_raw() != FAT_ARROW:
             raise ParseError("expected `=>` in `??` switch arm", self._loc_here())
@@ -357,33 +361,19 @@ class Parser:
         return EOF
 
     def _paren_is_only_func_param_list(self, lparen_idx: int) -> bool:
-        """True if ``(`` … ``)`` at ``lparen_idx`` is only ``name``, ``name: type``, commas, newlines."""
+        """True if ``(`` … ``)`` at ``lparen_idx`` is a valid function parameter list."""
         if lparen_idx >= len(self.toks) or self.toks[lparen_idx].kind != LPAREN:
             return False
-        depth = 1
-        j = lparen_idx + 1
-        while j < len(self.toks) and depth > 0:
-            k = self.toks[j].kind
-            if k == LPAREN:
-                depth += 1
-                j += 1
-                continue
-            if k == RPAREN:
-                depth -= 1
-                j += 1
-                if depth == 0:
-                    return True
-                continue
-            if depth != 1:
-                j += 1
-                continue
-            if k == NEWLINE:
-                j += 1
-                continue
-            if k not in (IDENT, COMMA, COLON):
-                return False
-            j += 1
-        return False
+        saved = self.i
+        try:
+            self.i = lparen_idx + 1
+            self.parse_func_params()
+            self._skip_trivia()
+            return self._peek_raw() == RPAREN
+        except ParseError:
+            return False
+        finally:
+            self.i = saved
 
     def _kind_after_balanced_call_from_lparen(self, lparen_idx: int) -> str | None:
         """Kind after the ``)`` matching ``lparen_idx`` (``lparen_idx`` points at ``LPAREN``)."""
@@ -653,7 +643,7 @@ class Parser:
             )
         name = _token_kind_to_op_symbol(t.kind)
         self._expect(LPAREN)
-        params = self.parse_func_params()
+        params = self.parse_func_params(allow_defaults=False)
         self._expect(RPAREN)
         self._expect(COLON)
         if self._peek_raw() == NEWLINE:
@@ -696,27 +686,66 @@ class Parser:
             return stmts[0].expr
         return ast.Block(stmts)
 
-    def parse_func_params(self) -> list[ast.Param]:
+    def parse_func_params(self, *, allow_defaults: bool = True) -> list[ast.Param]:
         params: list[ast.Param] = []
         if self._peek_raw() == RPAREN:
             return params
         while True:
-            pname = str(self._expect(IDENT).value)
-            if self._peek_raw() == COLON:
-                self._advance()
-                t = self._parse_arrow_type()
-                if isinstance(t, ast.FuncType):
-                    params.append(ast.Param(pname, None, t))
-                else:
-                    tname = t.name if isinstance(t, ast.PrimTypeRef) else None
-                    params.append(ast.Param(pname, tname, None, t))
-            else:
-                params.append(ast.Param(pname, None, None))
+            params.append(self._parse_func_param(allow_defaults=allow_defaults))
             if self._peek_raw() == COMMA:
                 self._advance()
                 continue
             break
         return params
+
+    def _param_from_type_expr(
+        self,
+        pname: str,
+        t: Any | None,
+        default_expr: Any | None = None,
+    ) -> ast.Param:
+        if isinstance(t, ast.FuncType):
+            return ast.Param(pname, None, t, None, default_expr)
+        if isinstance(t, ast.PrimTypeRef):
+            return ast.Param(pname, t.name, None, t, default_expr)
+        if t is None:
+            return ast.Param(pname, None, None, None, default_expr)
+        return ast.Param(pname, None, None, t, default_expr)
+
+    def _try_parse_name_first_typed_param(self, pname: str) -> ast.Param | None:
+        saved = self.i
+        try:
+            t = self._parse_arrow_type()
+        except ParseError:
+            self.i = saved
+            return None
+        if self._peek_raw() not in (COMMA, RPAREN):
+            self.i = saved
+            return None
+        return self._param_from_type_expr(pname, t)
+
+    def _parse_func_param(self, *, allow_defaults: bool = True) -> ast.Param:
+        saved = self.i
+        try:
+            t = self._parse_arrow_type()
+            self._skip_trivia()
+            if self._peek_raw() != IDENT:
+                raise ParseError("expected parameter name after parameter type", self._loc_here())
+            pname = str(self._advance().value)
+            default_expr: Any | None = None
+            if allow_defaults and self._peek_raw() == COLON:
+                self._advance()
+                default_expr = self.parse_expr()
+            return self._param_from_type_expr(pname, t, default_expr)
+        except ParseError as exc:
+            self.i = saved
+
+        pname = str(self._expect(IDENT).value)
+        if self._peek_raw() == COLON:
+            self._advance()
+            t = self._parse_arrow_type()
+            return self._param_from_type_expr(pname, t)
+        return ast.Param(pname, None, None, None, None)
 
     def _parse_type_size_atom(self) -> Any:
         self._skip_trivia()
@@ -779,13 +808,30 @@ class Parser:
             j += 1
         return j < len(self.toks) and self.toks[j].kind == COLON
 
-    def _parse_fixed_vector_type(self) -> ast.FixedVectorType:
-        self._expect(LBRACKET)
+    def _parse_fixed_vector_type_after_lbracket(self) -> ast.FixedVectorType:
+        """Parse ``elem : size ]`` after leading ``[`` (fixed-vector type)."""
         elem = self._parse_type_atom()
         self._expect(COLON)
         size = self._parse_type_size_expr()
         self._expect(RBRACKET)
         return ast.FixedVectorType(elem, size)
+
+    def _parse_fixed_vector_type(self) -> ast.FixedVectorType:
+        self._expect(LBRACKET)
+        return self._parse_fixed_vector_type_after_lbracket()
+
+    def _try_parse_match_arm_fixed_vector_type_pattern(self) -> ast.FixedVectorType | None:
+        """In ``??`` arms only: ``[T:n]`` -> type pattern, not vector literal / repeat."""
+        self._skip_trivia()
+        if self._peek_raw() != LBRACKET:
+            return None
+        saved = self.i
+        self._advance()
+        try:
+            return self._parse_fixed_vector_type_after_lbracket()
+        except ParseError:
+            self.i = saved
+            return None
 
     def _parse_multiset_type(self) -> ast.MultisetType:
         self._expect(LBRACE)
@@ -827,6 +873,25 @@ class Parser:
         self._expect(RPAREN)
         return ast.LinkedListValueType(elements)
 
+    def _tuple_type_has_comma_before_matching_rparen(self) -> bool:
+        """True when ``( … )`` is a tuple type (comma-separated); false for a singleton ``(T)``."""
+        if self._peek_raw() != LPAREN:
+            return False
+        depth = 1
+        j = self.i + 1
+        while j < len(self.toks):
+            k = self.toks[j].kind
+            if k in (LPAREN, LBRACKET, LBRACE):
+                depth += 1
+            elif k in (RPAREN, RBRACKET, RBRACE):
+                depth -= 1
+                if depth == 0:
+                    return False
+            elif k == COMMA and depth == 1:
+                return True
+            j += 1
+        return False
+
     def _parse_type_atom(self) -> Any:
         self._skip_trivia()
         saved = self.i
@@ -841,8 +906,20 @@ class Parser:
             self._type_expr_relaxed_loose_dot_depth -= 1
         self.i = saved
         if self._peek_raw() == LPAREN:
+            named_domain = self._try_parse_named_func_domain_type()
+            if named_domain is not None:
+                return named_domain
             if self._paren_starts_type_record():
                 return self._parse_type_record()
+            if not self._tuple_type_has_comma_before_matching_rparen():
+                self._expect(LPAREN)
+                if self._peek_raw() == RPAREN:
+                    self._advance()
+                    inner: Any = ast.TypeExpr([])
+                else:
+                    inner = self._parse_arrow_type()
+                    self._expect(RPAREN)
+                return inner
             return self._parse_tuple_type()
         if self._peek_raw() == LBRACKET:
             return self._parse_fixed_vector_type()
@@ -860,11 +937,35 @@ class Parser:
                 return ast.PrimTypeRef(str(self._advance().value))
         raise ParseError("expected type atom", self._loc_here())
 
+    def _try_parse_named_func_domain_type(self) -> Any | None:
+        if self._peek_raw() != LPAREN:
+            return None
+        saved = self.i
+        try:
+            self._expect(LPAREN)
+            params = self.parse_func_params(allow_defaults=False)
+            self._expect(RPAREN)
+            self._skip_trivia()
+            if self._peek_raw() != ARROW:
+                self.i = saved
+                return None
+            if not any(
+                p.param_func_type is not None or p.type_ref is not None or p.type_name is not None
+                for p in params
+            ):
+                self.i = saved
+                return None
+            return self._params_to_domain_type(params)
+        except ParseError:
+            self.i = saved
+            return None
+
     def _parse_arrow_type(self) -> Any:
         """Parse type expressions with right-associative ``->``."""
         left = self._parse_type_atom()
         if self._peek_raw() != ARROW:
             return left
+        self._require_spaced_arrow_after_rparen_for_types()
         self._advance()
         rhs = self._parse_arrow_type()
         return ast.FuncType(left, rhs)
@@ -910,6 +1011,7 @@ class Parser:
         self._expect(RPAREN)
         func_type: ast.FuncType | None = None
         if self._peek_raw() == ARROW:
+            self._require_spaced_arrow_after_rparen_for_types()
             self._advance()
             cod = self._parse_return_type_spec()
             domain = self._params_to_domain_type(params)
@@ -1001,6 +1103,7 @@ class Parser:
         if isinstance(domain, ast.TupleTypeExpr) and not domain.elements:
             domain = ast.TypeExpr([])
         if self._peek_raw() == ARROW:
+            self._require_spaced_arrow_after_rparen_for_types()
             self._advance()
             codomain = self._parse_return_type_spec()
             return ast.FuncType(domain, codomain)
@@ -1027,7 +1130,9 @@ class Parser:
                     self.i = saved
                     return self.parse_expr()
                 return out
-            except ParseError:
+            except ParseError as e:
+                if "spaced ` -> `" in str(e):
+                    raise
                 self.i = saved
                 return self.parse_expr()
         return self.parse_expr()
@@ -1153,7 +1258,7 @@ class Parser:
         return self.parse_cmp_expr()
 
     def parse_cmp_expr(self) -> Any:
-        cmp_ops = (EQ, NEQ, LT, LE, GT, GE)
+        cmp_ops = (EQ, EXACT_EQ, NEQ, STRUCT_NEQ, LT, LE, GT, GE)
         left = self.parse_add_expr()
         while True:
             k = self._peek_raw()
@@ -1343,7 +1448,7 @@ class Parser:
                 "expected identifier or (expr) after .$", self._loc_here()
             )
         if self._peek_raw() == NUMBER:
-            n = float(self._advance().value)
+            n = self._advance().value
             return ast.DottedIndex(left, [ast.NumberLit(n)])
         if self._peek_raw() == STRING:
             s = self._expect(STRING)
@@ -1381,6 +1486,109 @@ class Parser:
             return ast.SpreadArg(inner)
         return self.parse_expr()
 
+    def _arrow_adjacency(self) -> tuple[bool, bool]:
+        """Lexer records whether ``->`` touches the operand on each side (no whitespace)."""
+        v = self.toks[self.i - 1].value
+        if isinstance(v, tuple) and len(v) == 2:
+            return (bool(v[0]), bool(v[1]))
+        return (True, True)
+
+    def _arrow_adjacency_at_cursor(self) -> tuple[bool, bool]:
+        """Tightness for the ``ARROW`` token currently under ``self._peek_raw()``."""
+        v = self.toks[self.i].value
+        if isinstance(v, tuple) and len(v) == 2:
+            return (bool(v[0]), bool(v[1]))
+        return (True, True)
+
+    def _require_spaced_arrow_after_rparen_for_types(self) -> None:
+        """Distinguish type/function ``) ->`` from value postfix ``)->`` (axis access).
+
+        After a closing ``)`` that ends a parameter list or tuple type, the lexer
+        marks ``->`` as left-loose only when there is whitespace before ``-``. Axis
+        tagging uses tight ``)->`` on parenthesized values.
+        """
+        if self.i == 0:
+            return
+        if self.toks[self.i - 1].kind != RPAREN:
+            return
+        lt, _ = self._arrow_adjacency_at_cursor()
+        if lt:
+            raise ParseError(
+                "after `)` use a spaced ` -> ` for function or type arrows "
+                "(e.g. `(x:num) -> num` or `() -> num`); tight `)->` is postfix axis access",
+                self._loc_here(),
+            )
+
+    def _parse_arrow_access_suffix(
+        self, left: Any, left_tight: bool, right_tight: bool
+    ) -> Any:
+        """After tight ``->``: same reach shapes as ``.`` (field / index / string / number)."""
+        if not left_tight:
+            raise ParseError(
+                "`->` must be adjacent to the left operand (no space before `->`)",
+                self._loc_here(),
+            )
+        if not right_tight:
+            raise ParseError(
+                "`->` must be adjacent to the axis access (no space after `->`)",
+                self._loc_here(),
+            )
+        self._skip_trivia()
+        k0 = self._peek_raw()
+        if k0 not in (LPAREN, DOLLAR, NUMBER, STRING, STRING_RAW, IDENT):
+            raise ParseError(
+                "expected axis access after `->` (identifier, number, string, or `(...)` like after `.`)",
+                self._loc_here(),
+            )
+        if self._peek_raw() == LPAREN:
+            self._advance()
+            indices: list[Any] = []
+            if self._peek_raw() == RPAREN:
+                raise ParseError(
+                    "expected at least one index in `->(...)`", self._loc_here()
+                )
+            while True:
+                indices.append(self.parse_expr())
+                if self._peek_raw() == COMMA:
+                    self._advance()
+                    continue
+                break
+            self._expect(RPAREN)
+            return ast.AxisAlign(left, indices=indices)
+        if self._peek_raw() == DOLLAR:
+            self._advance()
+            if self._peek_raw() == LPAREN:
+                self._advance()
+                if self._peek_raw() == RPAREN:
+                    raise ParseError(
+                        "expected expression in `->$(...)`", self._loc_here()
+                    )
+                expr = self.parse_expr()
+                self._expect(RPAREN)
+                return ast.AxisAlign(left, indices=[expr])
+            if self._peek_raw() == IDENT:
+                name = str(self._advance().value)
+                return ast.AxisAlign(left, indices=[ast.Ident(name)])
+            raise ParseError(
+                "expected identifier or (expr) after `->$`", self._loc_here()
+            )
+        if self._peek_raw() == NUMBER:
+            n = self._advance().value
+            return ast.AxisAlign(left, indices=[ast.NumberLit(n)])
+        if self._peek_raw() == STRING:
+            s = self._expect(STRING)
+            return ast.AxisAlign(left, label=str(s.value))
+        if self._peek_raw() == STRING_RAW:
+            s = self._expect(STRING_RAW)
+            return ast.AxisAlign(left, label=str(s.value))
+        name = str(self._expect(IDENT).value)
+        if name in _PRIMITIVE_TYPE_IDENTS:
+            raise ParseError(
+                f"{name!r} cannot be used as an axis label (reserved like a primitive type name)",
+                self._loc_here(),
+            )
+        return ast.AxisAlign(left, label=name)
+
     def parse_postfix(self) -> Any:
         left = self.parse_atom()
         while True:
@@ -1389,6 +1597,13 @@ class Parser:
                 self._advance()
                 lt, rt = self._dot_adjacency()
                 left = self._parse_dot_suffix(left, lt, rt)
+                continue
+            if k == ARROW:
+                if isinstance(left, ast.Ident) and left.name in _PRIMITIVE_TYPE_IDENTS:
+                    break
+                self._advance()
+                lt, rt = self._arrow_adjacency()
+                left = self._parse_arrow_access_suffix(left, lt, rt)
                 continue
             if k == LPAREN:
                 self._advance()
@@ -1412,6 +1627,14 @@ class Parser:
                     lt, rt = self._dot_adjacency()
                     left = self._parse_dot_suffix(left, lt, rt)
                     continue
+                if self._peek_raw() == ARROW:
+                    if isinstance(left, ast.Ident) and left.name in _PRIMITIVE_TYPE_IDENTS:
+                        self.i = saved
+                        break
+                    self._advance()
+                    lt, rt = self._arrow_adjacency()
+                    left = self._parse_arrow_access_suffix(left, lt, rt)
+                    continue
                 if self._peek_raw() == LPAREN and self._call_may_continue_after_newline(left):
                     if isinstance(left, ast.Ident) and left.name in _PRIMITIVE_TYPE_IDENTS:
                         self.i = saved
@@ -1430,7 +1653,6 @@ class Parser:
                     left = ast.Call(left, args)
                     continue
                 self.i = saved
-                break
             break
         return left
 
@@ -1455,15 +1677,15 @@ class Parser:
         if k == RANGE:
             self._advance()
             if self._peek_raw() == NUMBER:
-                n = float(self._advance().value)
+                n = self._advance().value
                 return ast.RangeExpr(None, ast.NumberLit(n))
             return ast.RangeExpr(None, None)
         if k == NUMBER:
-            n = float(self._advance().value)
+            n = self._advance().value
             if self._peek_raw() == RANGE:
                 self._advance()
                 if self._peek_raw() == NUMBER:
-                    end = float(self._advance().value)
+                    end = self._advance().value
                     return ast.RangeExpr(ast.NumberLit(n), ast.NumberLit(end))
                 return ast.RangeExpr(ast.NumberLit(n), None)
             return ast.NumberLit(n)
@@ -1498,6 +1720,7 @@ class Parser:
                     te = self._parse_type_record_after_lparen()
                     self._skip_trivia()
                     if self._peek_raw() == ARROW:
+                        self._require_spaced_arrow_after_rparen_for_types()
                         self._advance()
                         cod = self._parse_return_type_spec()
                         return ast.FuncType(te, self._normalize_codomain_for_func_type(cod))
@@ -1545,11 +1768,7 @@ class Parser:
                     els.append(self._parse_tuple_literal_element())
                     self._emit_disallowed_in_value_expr("tuple literal")
                 self._expect(RPAREN)
-                node = ast.TupleLit(els)
-                axis = self._parse_optional_axis_suffix()
-                if axis is not None:
-                    node.axis_tag = axis
-                return node
+                return ast.TupleLit(els)
             self._expect(RPAREN)
             if isinstance(e, ast.SpreadArg):
                 return ast.TupleLit([e])
@@ -1566,20 +1785,12 @@ class Parser:
                         continue
                     break
             self._expect(RBRACKET)
-            node = ast.ListLit(els)
-            axis = self._parse_optional_axis_suffix()
-            if axis is not None:
-                node.axis_tag = axis
-            return node
+            return ast.ListLit(els)
         if k == LBRACE:
             self._advance()
             if self._peek_raw() == RBRACE:
                 self._expect(RBRACE)
-                node = ast.MultisetLit([])
-                axis = self._parse_optional_axis_suffix()
-                if axis is not None:
-                    node.axis_tag = axis
-                return node
+                return ast.MultisetLit([])
             pairs: list[tuple[Any, Any]] = []
             while True:
                 ke = self.parse_expr()
@@ -1597,11 +1808,7 @@ class Parser:
                     continue
                 break
             self._expect(RBRACE)
-            node = ast.MultisetLit(pairs)
-            axis = self._parse_optional_axis_suffix()
-            if axis is not None:
-                node.axis_tag = axis
-            return node
+            return ast.MultisetLit(pairs)
 
         raise ParseError(f"unexpected token in expression: {k}", self._loc_here())
 
@@ -1619,31 +1826,6 @@ class Parser:
             cnt = self.parse_expr()
             return ast.VectorRepeat(e, cnt)
         return e
-
-    def _is_axis_suffix_identifier(self, name: str) -> bool:
-        """``_``, ``_i``, ``_ij`` — lowercase axis labels (fast path on literals only)."""
-        if name == "_":
-            return True
-        if not name.startswith("_") or len(name) < 2:
-            return False
-        rest = name[1:]
-        return rest.isalpha() and rest.islower()
-
-    def _parse_optional_axis_suffix(self) -> str | None:
-        """After ``]`` / ``}`` / ``)`` for literals only. Suffix must be on the **same line** as the closing bracket (no newline before ``_i``)."""
-        if self.i >= len(self.toks):
-            return None
-        if self._peek_raw() == NEWLINE:
-            return None
-        if self._peek_raw() != IDENT:
-            return None
-        name = str(self.toks[self.i].value)
-        if not self._is_axis_suffix_identifier(name):
-            return None
-        self.i += 1  # raw advance — do not skip newlines (``_skip_trivia`` would consume the next line)
-        if name == "_":
-            return "i"
-        return name[1:]
 
     def _parse_struct_literal(self) -> ast.StructLit:
         fields: list[tuple[str, Any]] = []

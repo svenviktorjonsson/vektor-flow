@@ -1,14 +1,8 @@
-"""Multiset (element → positive integer count).
+"""Multiset runtime value.
 
-**Language semantics** (two multisets, missing key ⇒ multiplicity 0):
-
-- ``+`` union: sum of counts
-- ``-`` difference: ``max(0, count_A - count_B)``
-- ``*`` intersection: ``min(count_A, count_B)`` per key (stable for missing keys)
-- ``/`` symmetric difference (disjoint union of A\\\\B and B\\\\A)
-
-**Cartesian product** ``cartesian_binary`` is still available for library/tests
-but is not the default for ``+ - * /`` on multisets.
+Counts are canonicalized to non-negative integers, with zero counts removed.
+This module only owns the value semantics; operator semantics live higher in
+the interpreter/runtime layers.
 """
 
 from __future__ import annotations
@@ -27,15 +21,17 @@ class Multiset:
         self.vf_type_expr = None
         if counts is not None:
             for k, v in counts.items():
-                if v > 0:
-                    self._c[k] += v
+                count = _normalize_multiset_count(v)
+                if count > 0:
+                    self._c[k] += count
 
     @classmethod
     def from_pairs(cls, pairs: list[tuple[Any, int]]) -> Multiset:
         c: Counter[Any] = Counter()
         for k, v in pairs:
-            if v > 0:
-                c[k] += v
+            count = _normalize_multiset_count(v)
+            if count > 0:
+                c[k] += count
         m = cls()
         m._c = c
         return m
@@ -47,8 +43,8 @@ class Multiset:
         return int(sum(self._c.values()))
 
     def elements(self) -> Iterator[Any]:
-        """Yield each element repeated according to multiplicity (arbitrary order)."""
-        for k, n in self._c.items():
+        """Yield each element repeated according to multiplicity in canonical order."""
+        for k, n in self.items_sorted():
             for _ in range(n):
                 yield k
 
@@ -109,3 +105,11 @@ def multiset_intersection(a: Multiset, b: Multiset) -> Multiset:
 
 def multiset_symmetric_difference(a: Multiset, b: Multiset) -> Multiset:
     return multiset_union(multiset_difference(a, b), multiset_difference(b, a))
+
+
+def _normalize_multiset_count(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("multiset counts must be non-negative integers")
+    if value < 0:
+        raise ValueError("multiset counts must be non-negative")
+    return value
