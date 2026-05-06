@@ -90,3 +90,37 @@ class TestAbsInMath:
         m = build_math_namespace()
         assert m["abs"](-3) == 3.0
         assert m["abs"]([3.0, 4.0]) == 5.0
+
+    def test_unary_math_rejects_bool(self) -> None:
+        m = build_math_namespace()
+        with pytest.raises(TypeError, match="expected a number"):
+            m["sin"](True)
+
+
+class TestVectorizedMath:
+    def test_sin_on_vector(self) -> None:
+        m = build_math_namespace()
+        v = m["sin"]([0.0, 1.0])
+        assert list(v) == [0.0, pymath.sin(1.0)]
+
+    def test_log_atan2_zip_two_vectors(self) -> None:
+        m = build_math_namespace()
+        v = m["log"]([4.0, 8.0], [2.0, 2.0])
+        assert list(v) == [2.0, 3.0]
+        w = m["atan2"]([1.0, 0.0], [1.0, 1.0])
+        assert abs(w[0] - pymath.pi / 4) < 1e-12 and w[1] == 0.0
+
+    def test_log_broadcasts_over_tuple(self) -> None:
+        m = build_math_namespace()
+        assert m["log"]((4.0, 8.0), 2.0) == (2.0, 3.0)
+
+    def test_atan2_is_positionwise_on_tuples(self) -> None:
+        m = build_math_namespace()
+        out = m["atan2"]((1.0, 0.0), (1.0, 1.0))
+        assert out[0] == pytest.approx(pymath.pi / 4)
+        assert out[1] == pytest.approx(0.0)
+
+    def test_log_broadcasts_keywise_over_structs(self) -> None:
+        m = build_math_namespace()
+        out = m["log"]({"x": 4.0, "y": 8.0}, 2.0)
+        assert out == {"x": 2.0, "y": 3.0}

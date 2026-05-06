@@ -27,6 +27,16 @@ class TestCaptureRegex:
         with pytest.raises(ValueError, match="no match"):
             c["regex"]("nope", r"(?P<x>\d+)")
 
+    def test_optional_named_groups_drop_missing_values(self) -> None:
+        c = resolve_stdlib("capture")
+        d = c["regex"]("capture 10", r"capture (?P<a>\d+)(?: and (?P<b>\d+))?")
+        assert d == {"a": "10"}
+
+    def test_no_groups_falls_back_to_full_match_under_underscore(self) -> None:
+        c = resolve_stdlib("capture")
+        d = c["regex"]("hello 42 world", r"\d+")
+        assert d == {"_": "42"}
+
 
 class TestCaptureGroups:
     def test_tuple(self) -> None:

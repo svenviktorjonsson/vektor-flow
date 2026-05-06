@@ -345,6 +345,24 @@ class TestAbsNorm:
         m = build_math_namespace()
         assert _approx(m["abs"]([1.0, 0.0, 0.0]), 1.0)
 
+    def test_unary_math_rejects_bool(self) -> None:
+        m = build_math_namespace()
+        with pytest.raises(TypeError, match="expected a number"):
+            m["sqrt"](True)
+
+    def test_binary_math_is_positionwise_on_tuples(self) -> None:
+        m = build_math_namespace()
+        assert m["log"]((4.0, 8.0), 2.0) == (2.0, 3.0)
+
+    def test_binary_math_is_keywise_on_structs(self) -> None:
+        m = build_math_namespace()
+        assert m["log"]({"x": 4.0, "y": 8.0}, 2.0) == {"x": 2.0, "y": 3.0}
+
+    def test_binary_math_rejects_struct_key_mismatch(self) -> None:
+        m = build_math_namespace()
+        with pytest.raises(ValueError, match="struct key mismatch"):
+            m["atan2"]({"x": 1.0}, {"y": 1.0})
+
 
 # ---------------------------------------------------------------------------
 # VKF-level integration (interpreter runs .vkf source)

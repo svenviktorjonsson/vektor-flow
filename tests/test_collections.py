@@ -26,10 +26,10 @@ def test_map_keyword_init_and_assign() -> None:
 a : map(x:3, y:4)
 a.z : 9
 a.4 : 7
-:: a.x
-:: a.y
-:: a.z
-:: a.(4)
+::: a.x
+::: a.y
+::: a.z
+::: a.(4)
 """
     lines = _run(src).splitlines()
     assert lines == ["3", "4", "9", "7"]
@@ -57,10 +57,10 @@ L1 : list(2, 3, 4)
 L2 : list(2)
 L3 : list(u)
 L4 : list(:u)
-:: L1
-:: L2
-:: L3
-:: L4
+::: L1
+::: L2
+::: L3
+::: L4
 """
     out = _run(src).splitlines()
     # VFLinkedList prints like a bracket list via interpreter._stringify (not repr()).
@@ -82,7 +82,7 @@ def test_take_on_linked_list() -> None:
     src = """
 :.collections
 L : list(1, 2, 3, 4)
-:: take(2, L)
+::: take(2, L)
 """
     assert _run(src) == "(1, 2)"
 
@@ -97,10 +97,10 @@ a : q.get()
 b : q.get()
 c : q.get()
 d : q.empty()
-:: a
-:: b
-:: c
-:: d
+::: a
+::: b
+::: c
+::: d
 """
     out = _run(src).splitlines()
     assert out[0] in ("1.0", "1")

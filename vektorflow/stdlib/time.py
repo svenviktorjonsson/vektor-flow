@@ -40,6 +40,12 @@ def _coerce_str(x: Any) -> str:
     )
 
 
+def _coerce_seconds(x: Any) -> float:
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise TypeError("sleep: seconds must be int or float")
+    return float(x)
+
+
 def _normalize_host(host: TimeHost) -> TimeHost:
     required = ("sleep", "current_time", "time_stamp")
     for name in required:
@@ -87,7 +93,7 @@ def reset_time_native_host() -> None:
 
 def sleep(seconds: object) -> None:
     """Block for *seconds* (fractional allowed). Like Python :func:`time.sleep`."""
-    s = float(seconds)  # type: ignore[arg-type]
+    s = _coerce_seconds(seconds)
     if s < 0:
         raise ValueError("sleep: seconds must be non-negative")
     _time_host.sleep(s)

@@ -178,8 +178,8 @@ class TestMapVkf:
         src = """
 :.collections
 m : map(a:1, b:2)
-:: m.a
-:: m.b
+::: m.a
+::: m.b
 """
         lines = _run(src)
         assert lines[0] in ("1", "1.0")
@@ -190,7 +190,7 @@ m : map(a:1, b:2)
 :.collections
 m : map()
 m.x : 99
-:: m.x
+::: m.x
 """
         lines = _run(src)
         assert lines[0] in ("99", "99.0")
@@ -200,7 +200,7 @@ m.x : 99
 :.collections
 m : map(v:10)
 m.v : 20
-:: m.v
+::: m.v
 """
         lines = _run(src)
         assert lines[0] in ("20", "20.0")
@@ -210,7 +210,7 @@ m.v : 20
 :.collections
 m : map()
 m.0 : 111
-:: m.(0)
+::: m.(0)
 """
         lines = _run(src)
         assert lines[0] in ("111", "111.0")
@@ -219,7 +219,7 @@ m.0 : 111
         src = """
 :.collections
 m : map(name:"alice")
-:: m.name
+::: m.name
 """
         lines = _run(src)
         assert lines[0] == "alice"
@@ -228,9 +228,9 @@ m : map(name:"alice")
         src = """
 :.collections
 m : map(n:42, s:"hi", b:true)
-:: m.n
-:: m.s
-:: m.b
+::: m.n
+::: m.s
+::: m.b
 """
         lines = _run(src)
         assert lines[0] in ("42", "42.0")
@@ -247,7 +247,7 @@ class TestListVkf:
         src = """
 :.collections
 L : list()
-:: L
+::: L
 """
         lines = _run(src)
         assert lines[0] == "[]"
@@ -256,7 +256,7 @@ L : list()
         src = """
 :.collections
 L : list(5)
-:: L
+::: L
 """
         lines = _run(src)
         assert lines[0] == "[5]"
@@ -265,7 +265,7 @@ L : list(5)
         src = """
 :.collections
 L : list(1, 2, 3, 4)
-:: L
+::: L
 """
         lines = _run(src)
         assert lines[0] == "[1, 2, 3, 4]"
@@ -275,7 +275,7 @@ L : list(1, 2, 3, 4)
 :.collections
 v : [10, 20, 30]
 L : list(:v)
-:: L
+::: L
 """
         lines = _run(src)
         assert lines[0] == "[10, 20, 30]"
@@ -284,7 +284,7 @@ L : list(:v)
         src = """
 :.collections
 L : list(1, 2, 3, 4, 5)
-:: take(3, L)
+::: take(3, L)
 """
         lines = _run(src)
         assert lines[0] == "(1, 2, 3)"
@@ -294,7 +294,7 @@ L : list(1, 2, 3, 4, 5)
 :.collections
 v : [1, 2, 3]
 L : list(v)
-:: L
+::: L
 """
         lines = _run(src)
         assert lines[0] == "[[1, 2, 3]]"
@@ -312,9 +312,9 @@ q : queue()
 q.put(1)
 q.put(2)
 q.put(3)
-:: q.get()
-:: q.get()
-:: q.get()
+::: q.get()
+::: q.get()
+::: q.get()
 """
         lines = _run(src)
         assert lines[0] in ("1", "1.0")
@@ -325,7 +325,7 @@ q.put(3)
         src = """
 :.collections
 q : queue()
-:: q.empty()
+::: q.empty()
 """
         lines = _run(src)
         assert lines[0].lower() in ("true", "1")
@@ -340,9 +340,9 @@ q.put(30)
 a : q.get()
 b : q.get()
 c : q.get()
-:: a
-:: b
-:: c
+::: a
+::: b
+::: c
 """
         lines = _run(src)
         vals = [float(l) for l in lines]
@@ -353,7 +353,7 @@ c : q.get()
 :.collections
 q : queue()
 q.put(1)
-:: q.empty()
+::: q.empty()
 """
         lines = _run(src)
         assert lines[0].lower() in ("false", "0")

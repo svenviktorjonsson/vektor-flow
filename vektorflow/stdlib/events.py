@@ -205,6 +205,28 @@ def event_match_specificity(exact_code: int, pattern_code: int) -> int | None:
     return None
 
 
+def _event_codes_from_payload(d: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Return exact/ui/frame/widget codes, synthesizing them when omitted."""
+    ev_name = str(d.get("event", ""))
+    frame_id = str(d.get("frame_id", d.get("frameId", "")) or "")
+    widget_id = str(d.get("widget_id", d.get("widgetId", "")) or "")
+    base = _base_code(ev_name)
+    exact = int(d.get("event_code", 0) or 0)
+    ui = int(d.get("ui_code", 0) or 0)
+    frame = int(d.get("frame_code", 0) or 0)
+    widget = int(d.get("widget_code", 0) or 0)
+    if base:
+        if exact == 0:
+            exact = encode_event_code(ev_name, frame_id=frame_id, widget_id=widget_id)
+        if ui == 0:
+            ui = encode_ui_pattern(ev_name)
+        if frame == 0 and frame_id:
+            frame = encode_frame_pattern(ev_name, frame_id)
+        if widget == 0 and widget_id:
+            widget = encode_widget_pattern(ev_name, widget_id)
+    return exact, ui, frame, widget
+
+
 # ---------------------------------------------------------------------------
 # Port discovery
 # ---------------------------------------------------------------------------
@@ -325,6 +347,10 @@ class OverlayPoller:
                     except Exception:
                         pass
             except Exception:
+                # Overlay instances are relaunched frequently during local UI work.
+                # If the cached port is stale, drop it so the next poll re-reads
+                # vf-api-port.txt from the newly started overlay.
+                reset_overlay_port()
                 break
 
 
@@ -382,8 +408,19 @@ class MouseEvent:
     x:          float           # canvas CSS pixels, left=0
     y:          float           # canvas CSS pixels, top=0
     frame_id:   str    = ""
+    widget_id:  str    = ""
     object_id:  int    = 0      # 0 = no object
     simplex_id: int    = 0      # primitive index (face/edge/vert)
+    event_code: int    = 0
+    ui_code:    int    = 0
+    frame_code: int    = 0
+    widget_code:int    = 0
+    index:      int    = 0
+    pick_id:    int    = 0
+    pick_mask_representation: int = 0
+    pick_mask_carrier: int = 0
+    pick_mask_content: int = 0
+    pick_mask_exact: int = 0
     button:     int    = -1     # 0=left 1=mid 2=right (-1 = N/A)
     buttons:    int    = 0      # bitmask from MouseEvent.buttons (for hover/drag state)
     ctrl:       bool   = False
@@ -394,17 +431,31 @@ class MouseEvent:
     delta:      float  = 0.0    # raw wheel deltaY (platform/browser units)
     dx:         float  = 0.0    # drag delta x (for synthetic "drag" events)
     dy:         float  = 0.0    # drag delta y (for synthetic "drag" events)
+    dx_norm:    float  = 0.0    # drag delta x normalized to the frame width
+    dy_norm:    float  = 0.0    # drag delta y normalized to the frame height
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "MouseEvent":
         ev = str(d.get("event", ""))
+        event_code, ui_code, frame_code, widget_code = _event_codes_from_payload(d)
         return cls(
             event      = ev,
             x          = float(d.get("x", 0)),
             y          = float(d.get("y", 0)),
-            frame_id   = str(d.get("frame_id", "")),
+            frame_id   = str(d.get("frame_id", d.get("frameId", "")) or ""),
+            widget_id  = str(d.get("widget_id", d.get("widgetId", "")) or ""),
             object_id  = int(d.get("object_id", 0)),
             simplex_id = int(d.get("simplex_id", 0)),
+            event_code = event_code,
+            ui_code    = ui_code,
+            frame_code = frame_code,
+            widget_code= widget_code,
+            index      = int(d.get("index", 0)),
+            pick_id    = int(d.get("pick_id", 0)),
+            pick_mask_representation = int(d.get("pick_mask_representation", 0)),
+            pick_mask_carrier = int(d.get("pick_mask_carrier", 0)),
+            pick_mask_content = int(d.get("pick_mask_content", 0)),
+            pick_mask_exact = int(d.get("pick_mask_exact", 0)),
             button     = int(d.get("button", -1)),
             buttons    = int(d.get("buttons", 0)),
             ctrl       = bool(d.get("ctrl", False)),
@@ -415,12 +466,15 @@ class MouseEvent:
             delta      = float(d.get("delta", 0.0)),
             dx         = float(d.get("dx", 0.0)),
             dy         = float(d.get("dy", 0.0)),
+            dx_norm    = float(d.get("dx_norm", 0.0)),
+            dy_norm    = float(d.get("dy_norm", 0.0)),
         )
 
     def __repr__(self) -> str:
         parts = [f"event={self.event!r}", f"x={self.x:.1f}", f"y={self.y:.1f}"]
         if self.frame_id:   parts.append(f"frame={self.frame_id!r}")
         if self.object_id:  parts.append(f"obj={self.object_id}")
+        if self.pick_id:    parts.append(f"pick={self.pick_id}")
         if self.button >= 0: parts.append(f"btn={self.button}")
         if self.step:       parts.append(f"step={self.step:+d}")
         return "MouseEvent(" + ", ".join(parts) + ")"
@@ -440,6 +494,12 @@ class KeyEvent:
     event:    str   # "key_down" | "key_up"
     key:      str   # key name (e.g. "ArrowLeft", "a", "Enter")
     code:     str = ""
+    event_code: int = 0
+    ui_code:    int = 0
+    frame_code: int = 0
+    widget_code:int = 0
+    index:      int = 0
+    widget_id:  str = ""
     ctrl:     bool = False
     shift:    bool = False
     alt:      bool = False
@@ -448,14 +508,21 @@ class KeyEvent:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "KeyEvent":
         ev = str(d.get("event", ""))
+        event_code, ui_code, frame_code, widget_code = _event_codes_from_payload(d)
         return cls(
             event    = ev,
             key      = str(d.get("key", "")),
             code     = str(d.get("code", "")),
+            event_code = event_code,
+            ui_code    = ui_code,
+            frame_code = frame_code,
+            widget_code= widget_code,
+            index      = int(d.get("index", 0)),
+            widget_id  = str(d.get("widget_id", d.get("widgetId", "")) or ""),
             ctrl     = bool(d.get("ctrl", False)),
             shift    = bool(d.get("shift", False)),
             alt      = bool(d.get("alt", False)),
-            frame_id = str(d.get("frame_id", "")),
+            frame_id = str(d.get("frame_id", d.get("frameId", "")) or ""),
         )
 
     def __repr__(self) -> str:

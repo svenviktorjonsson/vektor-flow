@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,9 +16,12 @@ from vektorflow.stdlib.events import (
     MouseEvent, KeyEvent,
     UIMouse, UIKeyboard,
     OverlayPoller, get_global_poller,
+    encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern,
+    event_match_specificity,
     reset_overlay_port,
 )
 from vektorflow.stdlib.ui import Display, SceneBox, FrameRef
+from vektorflow.interpreter import Interpreter
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +65,48 @@ class TestMouseEvent:
         assert me.frame_id   == "f1"
         assert me.object_id  == 2
         assert me.simplex_id == 7
+
+    def test_from_dict_preserves_pick_fields(self) -> None:
+        d = dict(
+            event="down",
+            x=5.0,
+            y=10.0,
+            frame_id="f1",
+            pick_id=1234,
+            pick_mask_representation=11,
+            pick_mask_carrier=22,
+            pick_mask_content=33,
+            pick_mask_exact=44,
+        )
+        me = MouseEvent.from_dict(d)
+        assert me.pick_id == 1234
+        assert me.pick_mask_representation == 11
+        assert me.pick_mask_carrier == 22
+        assert me.pick_mask_content == 33
+        assert me.pick_mask_exact == 44
+
+    def test_from_dict_synthesizes_event_codes(self) -> None:
+        d = dict(event="hover", x=5.0, y=10.0, frame_id="f1", widget_id="btn.ok")
+        me = MouseEvent.from_dict(d)
+        assert me.event_code == encode_event_code("hover", frame_id="f1", widget_id="btn.ok")
+        assert me.ui_code == encode_ui_pattern("hover")
+        assert me.frame_code == encode_frame_pattern("hover", "f1")
+        assert me.widget_code == encode_widget_pattern("hover", "btn.ok")
+
+    def test_from_dict_preserves_explicit_codes_over_synthesized(self) -> None:
+        me = MouseEvent.from_dict(
+            dict(
+                event="hover",
+                x=0.0,
+                y=0.0,
+                frame_id="f1",
+                event_code=99,
+                ui_code=88,
+                frame_code=77,
+                widget_code=66,
+            )
+        )
+        assert (me.event_code, me.ui_code, me.frame_code, me.widget_code) == (99, 88, 77, 66)
 
     def test_from_dict_down(self) -> None:
         d = dict(event="down", x=1.0, y=2.0, button=0)
@@ -107,6 +153,13 @@ class TestKeyEvent:
         ke = KeyEvent.from_dict(dict(event="key_up", key="Enter"))
         assert "KeyEvent" in repr(ke)
         assert "Enter" in repr(ke)
+
+    def test_from_dict_synthesizes_event_codes(self) -> None:
+        ke = KeyEvent.from_dict(dict(event="key_down", key="Enter", frame_id="f2", widget_id="input.main"))
+        assert ke.event_code == encode_event_code("key_down", frame_id="f2", widget_id="input.main")
+        assert ke.ui_code == encode_ui_pattern("key_down")
+        assert ke.frame_code == encode_frame_pattern("key_down", "f2")
+        assert ke.widget_code == encode_widget_pattern("key_down", "input.main")
 
 
 # ---------------------------------------------------------------------------
@@ -363,9 +416,9 @@ class TestUIRoot:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
         received_m, received_k = [], []
-        root.mouse.on_hover(lambda e: received_m.append(e))
+        root.cursor.on_hover(lambda e: received_m.append(e))
         root.keyboard.on_down(lambda e: received_k.append(e))
-        root.mouse._push(dict(type="vf_event", event="hover", x=0, y=0))
+        root.cursor._push(dict(type="vf_event", event="hover", x=0, y=0))
         root.keyboard._push(dict(type="vf_event", event="key_down", key="a"))
         root.poll()
         assert len(received_m) == 1
@@ -383,7 +436,7 @@ class TestUIRoot:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
         received = []
-        root.mouse.on_down(lambda e: received.append(e))
+        root.cursor.on_down(lambda e: received.append(e))
         # Manually call the poller subscription we just registered
         sub = get_global_poller()._subs[-1]  # last subscriber = this UIRoot
         sub(dict(type="vf_event", event="down", x=5, y=5, button=0,
@@ -406,8 +459,45 @@ class TestUIRoot:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
         received = []
-        root.mouse.on_hover(lambda e: received.append(e))
+        root.cursor.on_hover(lambda e: received.append(e))
         sub = get_global_poller()._subs[-1]
         sub(dict(type="print", line="hello"))   # not a vf_event
         root.poll()
         assert received == []
+
+    def test_next_event_returns_mouse_event_object_with_event_codes(self) -> None:
+        from vektorflow.stdlib.ui import UIRoot
+        root = UIRoot()
+        sub = get_global_poller()._subs[-1]
+        sub(dict(type="vf_event", event="hover", x=5, y=5, button=-1, object_id=1, simplex_id=0, frame_id="f1"))
+        e = root.next_event()
+        assert isinstance(e, MouseEvent)
+        assert e.event == "hover"
+        assert e.event_code != 0
+        assert e.ui_code != 0
+        assert e.frame_code != 0
+def test_interpreter_event_object_matches_ui_event_type_pattern() -> None:
+    from vektorflow.stdlib.ui import UIRoot
+    root = UIRoot()
+    me = MouseEvent(
+        event="hover",
+        x=1.0,
+        y=2.0,
+        frame_id="f1",
+        event_code=root.MOUSE_HOVER,
+        ui_code=root.MOUSE_HOVER,
+    )
+    ip = Interpreter(Path(__file__))
+    assert ip._match_specificity(me, root.MOUSE_HOVER) is not None
+
+
+def test_interpreter_event_object_uses_synthesized_exact_first_codes() -> None:
+    from vektorflow.stdlib.ui import UIRoot
+
+    root = UIRoot()
+    me = MouseEvent.from_dict(dict(event="hover", x=1.0, y=2.0, frame_id="f1", widget_id="btn.ok"))
+    ip = Interpreter(Path(__file__))
+
+    assert ip._match_specificity(me, me.event_code) is not None
+    assert ip._match_specificity(me, root.MOUSE_HOVER) is not None
+    assert event_match_specificity(me.event_code, me.event_code) > event_match_specificity(me.event_code, root.MOUSE_HOVER)

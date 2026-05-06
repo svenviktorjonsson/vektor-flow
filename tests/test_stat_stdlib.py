@@ -14,6 +14,8 @@ from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.stat import (
+    all_val,
+    any_val,
     build_stat_namespace,
     clamp,
     correlation,
@@ -27,6 +29,7 @@ from vektorflow.stdlib.stat import (
     mode,
     normalize,
     percentile,
+    prod,
     range_val,
     sign,
     std,
@@ -61,9 +64,10 @@ class TestResolveStatStdlib:
     def test_stat_in_resolve_stdlib(self) -> None:
         s = resolve_stdlib("stat")
         expected = {
+            "all", "any",
             "mean", "median", "mode", "variance", "std",
             "min", "max", "range", "sum", "count",
-            "percentile", "iqr", "zscore", "normalize",
+            "prod", "percentile", "iqr", "zscore", "normalize",
             "covariance", "correlation", "clamp", "sign",
         }
         assert expected <= set(s.keys())
@@ -239,6 +243,19 @@ class TestAggregates:
     def test_sum_empty(self) -> None:
         assert sum_val([]) == 0.0
 
+    def test_sum_reduces_nested_numeric_structure(self) -> None:
+        assert sum_val((1, [2, 3], {"x": 4})) == 10
+
+    def test_sum_rejects_bool_leaves(self) -> None:
+        with pytest.raises(TypeError):
+            sum_val([True, False])
+
+    def test_prod_reduces_nested_numeric_structure(self) -> None:
+        assert prod((2, [3], {"x": 4})) == 24
+
+    def test_prod_empty_identity(self) -> None:
+        assert prod([]) == 1
+
     def test_count_list(self) -> None:
         assert count([1, 2, 3]) == 3
 
@@ -265,6 +282,40 @@ class TestAggregates:
 
     def test_max_negative(self) -> None:
         assert max_val([-5, -1, -3]) == -1.0
+
+    def test_mean_rejects_bool_inputs(self) -> None:
+        with pytest.raises(TypeError):
+            mean([True, False])
+
+
+class TestBooleanReducers:
+    def test_all_scalar_bool(self) -> None:
+        assert all_val(True) is True
+
+    def test_any_scalar_bool(self) -> None:
+        assert any_val(False) is False
+
+    def test_all_nested_bool_structure(self) -> None:
+        value = {"x": True, "y": [True, {"z": False}]}
+        assert all_val(value) is False
+
+    def test_any_nested_bool_structure(self) -> None:
+        value = {"x": False, "y": [False, {"z": True}]}
+        assert any_val(value) is True
+
+    def test_all_empty_container(self) -> None:
+        assert all_val([]) is True
+
+    def test_any_empty_container(self) -> None:
+        assert any_val([]) is False
+
+    def test_all_rejects_non_bool_leaf(self) -> None:
+        with pytest.raises(TypeError):
+            all_val({"x": True, "y": 1})
+
+    def test_any_rejects_non_bool_leaf(self) -> None:
+        with pytest.raises(TypeError):
+            any_val([False, 0])
 
 
 # ---------------------------------------------------------------------------
@@ -510,8 +561,8 @@ class TestStatVkfIntegration:
 
     def test_min_max_via_vkf(self) -> None:
         src = """
-:: stat.min([3, 1, 4, 1, 5])
-:: stat.max([3, 1, 4, 1, 5])
+::: stat.min([3, 1, 4, 1, 5])
+::: stat.max([3, 1, 4, 1, 5])
 """
         lines = _run(src)
         assert float(lines[0]) == pytest.approx(1.0)
@@ -519,8 +570,8 @@ class TestStatVkfIntegration:
 
     def test_sum_count_via_vkf(self) -> None:
         src = """
-:: stat.sum([1, 2, 3, 4])
-:: stat.count([1, 2, 3, 4])
+::: stat.sum([1, 2, 3, 4])
+::: stat.count([1, 2, 3, 4])
 """
         lines = _run(src)
         assert float(lines[0]) == pytest.approx(10.0)
@@ -532,9 +583,9 @@ class TestStatVkfIntegration:
 
     def test_sign_via_vkf(self) -> None:
         src = """
-:: stat.sign(-5.0)
-:: stat.sign(0.0)
-:: stat.sign(3.0)
+::: stat.sign(-5.0)
+::: stat.sign(0.0)
+::: stat.sign(3.0)
 """
         lines = _run(src)
         assert float(lines[0]) == pytest.approx(-1.0)
@@ -558,3 +609,37 @@ n : stat.normalize(data)
 """
         lines = _run(src)
         assert float(lines[0]) == pytest.approx(0.5, abs=0.01)
+
+    def test_stat_all_over_structured_bool_result(self) -> None:
+        src = """
+a : (x:1, y:1)
+b : (x:1, y:2)
+:: stat.all(a = b)
+"""
+        lines = _run(src)
+        assert lines == ["false"]
+
+    def test_stat_any_over_structured_bool_result(self) -> None:
+        src = """
+a : (x:1, y:1)
+b : (x:1, y:2)
+:: stat.any(a = b)
+"""
+        lines = _run(src)
+        assert lines == ["true"]
+
+    def test_stat_sum_nested_numeric_value(self) -> None:
+        src = """
+value : (x:1, y:[2, 3])
+:: stat.sum(value)
+"""
+        lines = _run(src)
+        assert float(lines[0]) == pytest.approx(6.0)
+
+    def test_stat_prod_nested_numeric_value(self) -> None:
+        src = """
+value : (x:2, y:[3, 4])
+:: stat.prod(value)
+"""
+        lines = _run(src)
+        assert float(lines[0]) == pytest.approx(24.0)

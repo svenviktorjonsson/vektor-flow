@@ -83,3 +83,29 @@ def test_time_host_aliases() -> None:
     assert timelib.get_time_host() is host
     timelib.reset_time_native_host()
     assert timelib.get_time_host() is not host
+
+
+def test_sleep_rejects_bool_and_string() -> None:
+    with pytest.raises(TypeError, match="seconds must be int or float"):
+        timelib.sleep(True)
+    with pytest.raises(TypeError, match="seconds must be int or float"):
+        timelib.sleep("1")
+
+
+def test_sleep_rejects_negative_seconds() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        timelib.sleep(-0.01)
+
+
+def test_current_time_requires_string_format() -> None:
+    with pytest.raises(TypeError, match="format must be a string"):
+        timelib.current_time(123)  # type: ignore[arg-type]
+
+
+def test_set_time_host_requires_full_protocol() -> None:
+    class IncompleteTimeHost:
+        def sleep(self, seconds: float) -> None:
+            pass
+
+    with pytest.raises(TypeError, match="time host must define"):
+        timelib.set_time_host(IncompleteTimeHost())  # type: ignore[arg-type]
