@@ -83,7 +83,7 @@ class PrimType:
 
 
 def is_type_value(v: Any) -> bool:
-    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)):
+    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)):
         return True
     return isinstance(v, (PrimType, ErrorTypeValue))
 
@@ -96,6 +96,42 @@ def _type_field_equal(ta: Any, tb: Any) -> bool:
     if isinstance(tb, str) and isinstance(ta, ast.PrimTypeRef):
         return tb == ta.name
     return types_equal(ta, tb)
+
+
+def _flatten_union_members(node: Any) -> list[Any]:
+    if isinstance(node, ast.TypeUnionExpr):
+        out: list[Any] = []
+        for member in node.members:
+            out.extend(_flatten_union_members(member))
+        return out
+    return [node]
+
+
+def _flatten_intersection_members(node: Any) -> list[Any]:
+    if isinstance(node, ast.TypeIntersectionExpr):
+        out: list[Any] = []
+        for member in node.members:
+            out.extend(_flatten_intersection_members(member))
+        return out
+    return [node]
+
+
+def _unordered_type_member_list_equal(a_members: list[Any], b_members: list[Any]) -> bool:
+    if len(a_members) != len(b_members):
+        return False
+    used = [False] * len(b_members)
+    for am in a_members:
+        found = False
+        for idx, bm in enumerate(b_members):
+            if used[idx]:
+                continue
+            if types_equal(am, bm):
+                used[idx] = True
+                found = True
+                break
+        if not found:
+            return False
+    return True
 
 
 def _func_domains_equal(a: Any, b: Any) -> bool:
@@ -139,6 +175,16 @@ def types_equal(a: Any, b: Any) -> bool:
         return b.name == a.name
     if isinstance(a, ast.PrimTypeRef) and isinstance(b, ast.PrimTypeRef):
         return a.name == b.name
+    if isinstance(a, ast.TypeUnionExpr) and isinstance(b, ast.TypeUnionExpr):
+        return _unordered_type_member_list_equal(
+            _flatten_union_members(a),
+            _flatten_union_members(b),
+        )
+    if isinstance(a, ast.TypeIntersectionExpr) and isinstance(b, ast.TypeIntersectionExpr):
+        return _unordered_type_member_list_equal(
+            _flatten_intersection_members(a),
+            _flatten_intersection_members(b),
+        )
     if isinstance(a, ast.TypeExpr) and isinstance(b, ast.TypeExpr):
         if len(a.fields) != len(b.fields):
             return False
@@ -194,6 +240,14 @@ def _resolve_named_type_once(
         resolved = type_registry.get(type_expr.name)
         if resolved is not None and not isinstance(resolved, ast.FuncType):
             return resolved
+    if isinstance(type_expr, ast.TypeUnionExpr):
+        return ast.TypeUnionExpr(
+            [normalize_type_expr(member, type_registry) for member in type_expr.members]
+        )
+    if isinstance(type_expr, ast.TypeIntersectionExpr):
+        return ast.TypeIntersectionExpr(
+            [normalize_type_expr(member, type_registry) for member in type_expr.members]
+        )
     return type_expr
 
 
@@ -263,6 +317,40 @@ def _ordered_field_subset_match(
     return score
 
 
+def _collapse_union_members(
+    members: list[Any],
+    type_registry: dict[str, ast.TypeExpr | ast.FuncType],
+) -> list[Any]:
+    out: list[Any] = []
+    for member in members:
+        norm = normalize_type_expr(member, type_registry)
+        if isinstance(norm, ast.TypeUnionExpr):
+            for inner in _collapse_union_members(norm.members, type_registry):
+                if not any(types_equal(inner, existing) for existing in out):
+                    out.append(inner)
+            continue
+        if not any(types_equal(norm, existing) for existing in out):
+            out.append(norm)
+    return out
+
+
+def _collapse_intersection_members(
+    members: list[Any],
+    type_registry: dict[str, ast.TypeExpr | ast.FuncType],
+) -> list[Any]:
+    out: list[Any] = []
+    for member in members:
+        norm = normalize_type_expr(member, type_registry)
+        if isinstance(norm, ast.TypeIntersectionExpr):
+            for inner in _collapse_intersection_members(norm.members, type_registry):
+                if not any(types_equal(inner, existing) for existing in out):
+                    out.append(inner)
+            continue
+        if not any(types_equal(norm, existing) for existing in out):
+            out.append(norm)
+    return out
+
+
 def type_match_specificity(
     actual: Any,
     pattern: Any,
@@ -272,6 +360,48 @@ def type_match_specificity(
     pattern = normalize_type_expr(pattern, type_registry)
     if types_equal(actual, pattern):
         return 1_000
+
+    if isinstance(pattern, ast.TypeUnionExpr):
+        best: int | None = None
+        for member in _collapse_union_members(pattern.members, type_registry):
+            score = type_match_specificity(actual, member, type_registry)
+            if score is None:
+                continue
+            candidate = score - 25
+            if best is None or candidate > best:
+                best = candidate
+        return best
+
+    if isinstance(pattern, ast.TypeIntersectionExpr):
+        scores: list[int] = []
+        for member in _collapse_intersection_members(pattern.members, type_registry):
+            score = type_match_specificity(actual, member, type_registry)
+            if score is None:
+                return None
+            scores.append(score)
+        return 250 + sum(scores)
+
+    if isinstance(actual, ast.TypeUnionExpr):
+        scores: list[int] = []
+        for member in _collapse_union_members(actual.members, type_registry):
+            score = type_match_specificity(member, pattern, type_registry)
+            if score is None:
+                return None
+            scores.append(score)
+        return min(scores) - 25 if scores else None
+
+    if isinstance(actual, ast.TypeIntersectionExpr):
+        best: int | None = None
+        member_scores: list[int] = []
+        for member in _collapse_intersection_members(actual.members, type_registry):
+            score = type_match_specificity(member, pattern, type_registry)
+            if score is not None:
+                member_scores.append(score)
+                if best is None or score > best:
+                    best = score
+        if best is None:
+            return None
+        return best + 25 + len(member_scores)
 
     if isinstance(actual, ast.PrimTypeRef) and isinstance(pattern, ast.PrimTypeRef):
         return _prim_match_specificity(actual.name, pattern.name)
@@ -390,7 +520,7 @@ def infer_type(
     if isinstance(v, ErrorTypeValue):
         return v
     if isinstance(
-        v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)
+        v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)
     ):
         return v
 
@@ -621,6 +751,23 @@ def coerce_typed_value(
         return coerce_typed_value(val, type_expr.type_expr, type_registry, size_bindings)
     if isinstance(type_expr, PrimType):
         return coerce_value(val, type_expr.name), size_bindings
+    if isinstance(type_expr, ast.TypeUnionExpr):
+        errors: list[str] = []
+        for member in _collapse_union_members(type_expr.members, type_registry):
+            trial_bindings = dict(size_bindings)
+            try:
+                coerced, new_bindings = coerce_typed_value(val, member, type_registry, trial_bindings)
+                size_bindings.clear()
+                size_bindings.update(new_bindings)
+                return coerced, size_bindings
+            except EvalError as exc:
+                errors.append(str(exc))
+        raise EvalError("value does not match any type-union branch")
+    if isinstance(type_expr, ast.TypeIntersectionExpr):
+        current = val
+        for member in _collapse_intersection_members(type_expr.members, type_registry):
+            current, size_bindings = coerce_typed_value(current, member, type_registry, size_bindings)
+        return current, size_bindings
     if isinstance(type_expr, ast.PrimTypeRef):
         if type_expr.name in type_registry and not isinstance(type_registry[type_expr.name], ast.FuncType):
             return coerce_typed_value(val, type_registry[type_expr.name], type_registry, size_bindings)
@@ -652,6 +799,14 @@ def coerce_typed_value(
 def resolve_return_type(type_expr: Any, size_bindings: dict[str, int]) -> Any:
     if isinstance(type_expr, ast.NamedTypeSpec):
         return resolve_return_type(type_expr.type_expr, size_bindings)
+    if isinstance(type_expr, ast.TypeUnionExpr):
+        return ast.TypeUnionExpr(
+            [resolve_return_type(member, size_bindings) for member in type_expr.members]
+        )
+    if isinstance(type_expr, ast.TypeIntersectionExpr):
+        return ast.TypeIntersectionExpr(
+            [resolve_return_type(member, size_bindings) for member in type_expr.members]
+        )
     if isinstance(type_expr, ast.FixedVectorType):
         return ast.FixedVectorType(
             resolve_return_type(type_expr.element_type, size_bindings),

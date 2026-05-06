@@ -226,6 +226,20 @@ class PrimTypeRef:
 
 
 @dataclass
+class TypeUnionExpr:
+    """Type union ``A|B``."""
+
+    members: list[Any]
+
+
+@dataclass
+class TypeIntersectionExpr:
+    """Type intersection ``A&B``."""
+
+    members: list[Any]
+
+
+@dataclass
 class TupleTypeExpr:
     """Positional product in a function domain, e.g. ``(num, num)`` in ``(num,num) -> num``."""
 

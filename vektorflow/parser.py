@@ -29,6 +29,7 @@ from .tokens import (
     EXACT_EQ,
     FAT_ARROW,
     FALSE,
+    FLOORDIV,
     GE,
     GT,
     IDENT,
@@ -73,6 +74,7 @@ OPERATOR_FUNC_KINDS = frozenset(
         MINUS,
         STAR,
         SLASH,
+        FLOORDIV,
         PERCENT,
         CARET,
         AMPERSAND,
@@ -97,6 +99,7 @@ def _token_kind_to_op_symbol(kind: str) -> str:
         MINUS: "-",
         STAR: "*",
         SLASH: "/",
+        FLOORDIV: "//",
         PERCENT: "%",
         CARET: "^",
         EQ: "=",
@@ -118,6 +121,17 @@ def _token_kind_to_op_symbol(kind: str) -> str:
 
 # Operator tokens that can start a call: ``+(2, 3)``, ``/\\(1, 0)`` (not unary ``~`` — use ``~(x)``).
 _ATOM_CALL_OP_KINDS = frozenset(OPERATOR_FUNC_KINDS - {NOT})
+_UPDATE_BIND_OPS = {
+    PLUS: PLUS,
+    MINUS: MINUS,
+    STAR: STAR,
+    SLASH: SLASH,
+    FLOORDIV: FLOORDIV,
+    PERCENT: PERCENT,
+    AND: AND,
+    OR: OR,
+    XOR: XOR,
+}
 
 # ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
 # before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
@@ -248,7 +262,7 @@ class Parser:
                 "`_ =>` is not supported",
                 self._loc_here(),
             )
-        cond = self._try_parse_match_arm_fixed_vector_type_pattern()
+        cond = self._try_parse_match_arm_type_pattern()
         if cond is None:
             cond = self.parse_or_expr()
         self._skip_trivia()
@@ -529,6 +543,12 @@ class Parser:
                 mark = self.i
                 target = self.parse_postfix()
                 self._skip_trivia()
+                update_op = self._peek_update_bind_op()
+                if update_op is not None:
+                    self._advance()
+                    self._expect(COLON)
+                    rhs = self._parse_bind_rhs(target)
+                    return ast.Bind(target, ast.BinOp(update_op, target, rhs))
                 if self._peek_raw() == COLON and (
                     self.i + 1 >= len(self.toks) or self.toks[self.i + 1].kind != COLON
                 ):
@@ -810,7 +830,7 @@ class Parser:
 
     def _parse_fixed_vector_type_after_lbracket(self) -> ast.FixedVectorType:
         """Parse ``elem : size ]`` after leading ``[`` (fixed-vector type)."""
-        elem = self._parse_type_atom()
+        elem = self._parse_type_union()
         self._expect(COLON)
         size = self._parse_type_size_expr()
         self._expect(RBRACKET)
@@ -835,7 +855,7 @@ class Parser:
 
     def _parse_multiset_type(self) -> ast.MultisetType:
         self._expect(LBRACE)
-        elem = self._parse_type_atom()
+        elem = self._parse_type_union()
         self._expect(RBRACE)
         return ast.MultisetType(elem)
 
@@ -960,9 +980,68 @@ class Parser:
             self.i = saved
             return None
 
+    def _try_parse_match_arm_type_pattern(self) -> Any | None:
+        """In ``??`` arms: allow full type patterns like ``int|str`` and ``num&int``.
+
+        We only commit to the parse if a top-level ``=>`` follows immediately after the
+        type expression, so ordinary value arms still parse through expression syntax.
+        """
+        fixed = self._try_parse_match_arm_fixed_vector_type_pattern()
+        if fixed is not None:
+            return fixed
+        saved = self.i
+        try:
+            pattern = self._parse_arrow_type()
+            self._skip_trivia()
+            if self._peek_raw() != FAT_ARROW:
+                self.i = saved
+                return None
+            return pattern
+        except ParseError:
+            self.i = saved
+            return None
+
+    def _flatten_type_members(self, node_type: type, left: Any, right: Any) -> list[Any]:
+        out: list[Any] = []
+        if isinstance(left, node_type):
+            out.extend(left.members)
+        else:
+            out.append(left)
+        if isinstance(right, node_type):
+            out.extend(right.members)
+        else:
+            out.append(right)
+        return out
+
+    def _parse_type_intersection(self) -> Any:
+        left = self._parse_type_atom()
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() != AMPERSAND:
+                break
+            self._advance()
+            right = self._parse_type_atom()
+            left = ast.TypeIntersectionExpr(
+                self._flatten_type_members(ast.TypeIntersectionExpr, left, right)
+            )
+        return left
+
+    def _parse_type_union(self) -> Any:
+        left = self._parse_type_intersection()
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() != BAR:
+                break
+            self._advance()
+            right = self._parse_type_intersection()
+            left = ast.TypeUnionExpr(
+                self._flatten_type_members(ast.TypeUnionExpr, left, right)
+            )
+        return left
+
     def _parse_arrow_type(self) -> Any:
         """Parse type expressions with right-associative ``->``."""
-        left = self._parse_type_atom()
+        left = self._parse_type_union()
         if self._peek_raw() != ARROW:
             return left
         self._require_spaced_arrow_after_rparen_for_types()
@@ -978,6 +1057,8 @@ class Parser:
                     ast.FuncType,
                     ast.TupleTypeExpr,
                     ast.TypeExpr,
+                    ast.TypeUnionExpr,
+                    ast.TypeIntersectionExpr,
                     ast.FixedVectorType,
                     ast.MultisetType,
                     ast.MapValueType,
@@ -1095,7 +1176,7 @@ class Parser:
             return ast.TupleTypeExpr(els)
 
     def _parse_type_domain(self) -> Any:
-        return self._parse_type_atom()
+        return self._parse_type_union()
 
     def _parse_type_definition(self) -> ast.TypeExpr | ast.FuncType:
         """Parse a type RHS after ``Name :`` when ``Name`` is a type binding (capitalized)."""
@@ -1107,26 +1188,51 @@ class Parser:
             self._advance()
             codomain = self._parse_return_type_spec()
             return ast.FuncType(domain, codomain)
-        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
+        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
             return domain
         raise ParseError(
             "tuple or bare type name requires '->' codomain (e.g. num -> num, (num,num) -> num)",
             self._loc_here(),
         )
 
+    def _stmt_boundary_index(self, start: int) -> int:
+        """Return the first top-level statement terminator from ``start`` onward."""
+        depth = 0
+        j = start
+        while j < len(self.toks):
+            kind = self.toks[j].kind
+            if depth == 0 and kind in (NEWLINE, SEMICOLON, DEDENT, EOF):
+                return j
+            if kind in (LPAREN, LBRACKET, LBRACE):
+                depth += 1
+            elif kind in (RPAREN, RBRACKET, RBRACE) and depth > 0:
+                depth -= 1
+            j += 1
+        return j
+
+    def _parse_type_definition_until_stmt_end(self) -> ast.TypeExpr | ast.FuncType:
+        """Parse a type RHS without consuming across the enclosing statement boundary."""
+        boundary = self._stmt_boundary_index(self.i)
+        eof_loc = self.toks[boundary].location if boundary < len(self.toks) else self._loc_here()
+        eof_tok = Token(EOF, None, eof_loc)
+        sub = Parser(self.toks[self.i:boundary] + [eof_tok])
+        out = sub._parse_type_definition()
+        sub._skip_trivia()
+        if sub._peek_raw() != EOF:
+            raise ParseError("unexpected trailing tokens in type definition", sub._loc_here())
+        self.i = boundary
+        return out
+
     def _parse_bind_rhs(self, target: Any) -> Any:
         if isinstance(target, ast.Ident) and self._name_is_type_bind(target.name):
             saved = self.i
             try:
-                out = self._parse_type_definition()
+                out = self._parse_type_definition_until_stmt_end()
                 if (
                     isinstance(out, ast.MapValueType) and not out.fields
                 ) or (
                     isinstance(out, ast.LinkedListValueType) and not out.elements
                 ):
-                    self.i = saved
-                    return self.parse_expr()
-                if self._peek_raw() not in (NEWLINE, SEMICOLON, EOF, DEDENT):
                     self.i = saved
                     return self.parse_expr()
                 return out
@@ -1136,6 +1242,17 @@ class Parser:
                 self.i = saved
                 return self.parse_expr()
         return self.parse_expr()
+
+    def _peek_update_bind_op(self) -> str | None:
+        self._skip_trivia()
+        kind = self._peek_raw()
+        if kind not in _UPDATE_BIND_OPS:
+            return None
+        if self.i + 1 >= len(self.toks) or self.toks[self.i + 1].kind != COLON:
+            return None
+        if kind in (AND, OR, XOR) and self.i + 2 < len(self.toks) and self.toks[self.i + 2].kind == LPAREN:
+            return None
+        return _UPDATE_BIND_OPS[kind]
 
     def parse_expr(self) -> Any:
         return self.parse_pipe()
@@ -1302,7 +1419,7 @@ class Parser:
         left = self.parse_power()
         while True:
             k = self._peek_raw()
-            if k in (STAR, SLASH, PERCENT):
+            if k in (STAR, SLASH, FLOORDIV, PERCENT):
                 op = self._advance().kind
                 left = ast.BinOp(op, left, self.parse_power())
                 continue
@@ -1310,7 +1427,7 @@ class Parser:
                 saved = self.i
                 self._skip_trivia()
                 k2 = self._peek_raw()
-                if k2 in (STAR, SLASH, PERCENT):
+                if k2 in (STAR, SLASH, FLOORDIV, PERCENT):
                     op = self._advance().kind
                     left = ast.BinOp(op, left, self.parse_power())
                     continue

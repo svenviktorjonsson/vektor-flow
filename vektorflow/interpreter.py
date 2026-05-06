@@ -23,9 +23,11 @@ from .errors import (
 )
 from .runtime.multiset import (
     Multiset,
+    multiset_countwise_floordiv,
     multiset_difference,
-    multiset_intersection,
-    multiset_symmetric_difference,
+    multiset_scalar_add,
+    multiset_scalar_floordiv,
+    multiset_scalar_subtract,
     multiset_union,
 )
 from .stdlib import STDLIB_MODULES, resolve_stdlib
@@ -78,6 +80,7 @@ from .runtime.type_values import (
     resolve_return_type,
     type_match_specificity,
     types_equal,
+    typed_multiset_type_of,
     wrap_typed_multiset_result,
     wrap_typed_vector_result,
 )
@@ -95,6 +98,7 @@ OPERATOR_SYMBOLS = frozenset(
         "-",
         "*",
         "/",
+        "//",
         "%",
         "^",
         "&",
@@ -158,6 +162,7 @@ BINOP_KIND_TO_SYM = {
     "MINUS": "-",
     "STAR": "*",
     "SLASH": "/",
+    "FLOORDIV": "//",
     "PERCENT": "%",
     "CARET": "^",
     "EQ": "=",
@@ -328,6 +333,29 @@ def _exact_multiset_eq(a: Multiset, b: Multiset) -> bool:
     return True
 
 
+def _multiset_keys_match(a: Multiset, b: Multiset) -> bool:
+    return [key for key, _count in a.items_sorted()] == [key for key, _count in b.items_sorted()]
+
+
+def _multiset_to_struct_counts(value: Multiset) -> dict[str, Any]:
+    return with_type(None, {key: count for key, count in value.items_sorted()})
+
+
+def _multiset_division_struct(a: Multiset, b: Any) -> dict[str, Any]:
+    if isinstance(b, Multiset):
+        if not _multiset_keys_match(a, b):
+            raise EvalError("multiset key mismatch for /")
+        out: dict[Any, Any] = {}
+        for key, count in a.items_sorted():
+            out[key] = count / b._c[key]
+        return with_type(None, out)
+    if isinstance(b, int) and not isinstance(b, bool):
+        if b == 0:
+            raise ZeroDivisionError("division by zero")
+        return with_type(None, {key: count / b for key, count in a.items_sorted()})
+    raise EvalError(f"unsupported right operand for multiset /: {type(b).__name__!r}")
+
+
 def _exact_eq(a: Any, b: Any) -> bool:
     if type(a) is not type(b):
         return False
@@ -356,6 +384,8 @@ def _exact_eq(a: Any, b: Any) -> bool:
 def _negate_bool_structure(value: Any) -> Any:
     if isinstance(value, bool):
         return not value
+    if isinstance(value, AxisTaggedValue):
+        return AxisTaggedValue(_negate_bool_structure(value.data), value.idx)
     if isinstance(value, tuple):
         return tuple(_negate_bool_structure(v) for v in value)
     if isinstance(value, VFVector):
@@ -365,22 +395,131 @@ def _negate_bool_structure(value: Any) -> Any:
             None,
             {k: _negate_bool_structure(v) for k, v in value.items() if k != VF_TYPE_KEY},
         )
-    return not bool(value)
+    raise EvalError("logical negation requires booleans or boolean structures")
+
+
+def _is_bool_structure(value: Any) -> bool:
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, AxisTaggedValue):
+        return _is_bool_structure(value.data)
+    if isinstance(value, tuple):
+        return all(_is_bool_structure(v) for v in value)
+    if isinstance(value, VFVector):
+        return all(_is_bool_structure(v) for v in value)
+    if is_struct_dict(value):
+        return all(_is_bool_structure(v) for k, v in value.items() if k != VF_TYPE_KEY)
+    return False
+
+
+def _logical_scalar_binop(op: str, a: bool, b: bool) -> bool:
+    if op == "AND":
+        return a and b
+    if op == "OR":
+        return a or b
+    if op == "XOR":
+        return a ^ b
+    raise EvalError(f"unknown logical operator {op!r}")
+
+
+def _logical_structure_binop(op: str, a: Any, b: Any) -> Any:
+    if isinstance(a, bool) and isinstance(b, bool):
+        return _logical_scalar_binop(op, a, b)
+    if isinstance(a, AxisTaggedValue) and isinstance(b, AxisTaggedValue):
+        if a.idx != b.idx:
+            raise EvalError("axis alignment mismatch for logical op")
+        return AxisTaggedValue(_logical_structure_binop(op, a.data, b.data), a.idx)
+    if isinstance(a, AxisTaggedValue) and isinstance(b, bool):
+        return AxisTaggedValue(_logical_structure_binop(op, a.data, b), a.idx)
+    if isinstance(b, AxisTaggedValue) and isinstance(a, bool):
+        return AxisTaggedValue(_logical_structure_binop(op, a, b.data), b.idx)
+    if is_struct_dict(a) and is_struct_dict(b):
+        if get_type_name(a) != get_type_name(b):
+            raise EvalError("struct shape mismatch for logical op")
+        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
+        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        if akeys != bkeys:
+            raise EvalError("struct shape mismatch for logical op")
+        return with_type(None, {k: _logical_structure_binop(op, a[k], b[k]) for k in akeys})
+    if is_struct_dict(a) and isinstance(b, bool):
+        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
+        return with_type(None, {k: _logical_structure_binop(op, a[k], b) for k in akeys})
+    if is_struct_dict(b) and isinstance(a, bool):
+        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        return with_type(None, {k: _logical_structure_binop(op, a, b[k]) for k in bkeys})
+    if isinstance(a, tuple) and isinstance(b, tuple):
+        if len(a) != len(b):
+            raise EvalError("tuple length mismatch for logical op")
+        return tuple(_logical_structure_binop(op, x, y) for x, y in zip(a, b))
+    if isinstance(a, tuple) and isinstance(b, bool):
+        return tuple(_logical_structure_binop(op, x, b) for x in a)
+    if isinstance(b, tuple) and isinstance(a, bool):
+        return tuple(_logical_structure_binop(op, a, y) for y in b)
+    if isinstance(a, VFVector) and isinstance(b, VFVector):
+        if len(a) != len(b):
+            raise EvalError("vector length mismatch for logical op")
+        return VFVector(_logical_structure_binop(op, x, y) for x, y in zip(a, b))
+    if isinstance(a, VFVector) and isinstance(b, bool):
+        return VFVector(_logical_structure_binop(op, x, b) for x in a)
+    if isinstance(b, VFVector) and isinstance(a, bool):
+        return VFVector(_logical_structure_binop(op, a, y) for y in b)
+    raise EvalError("logical operators require booleans or aligned boolean structures")
+
+
+def _try_scalar_relational_derivation(op: str, a: Any, b: Any) -> Any:
+    def _try_lt(x: Any, y: Any) -> bool | None:
+        try:
+            return bool(x < y)
+        except Exception:
+            return None
+
+    if op == "LT":
+        lt = _try_lt(a, b)
+        if lt is not None:
+            return lt
+        return a < b
+    if op == "GT":
+        lt = _try_lt(b, a)
+        if lt is not None:
+            return lt
+        return a > b
+    if op == "EQ":
+        lt_ab = _try_lt(a, b)
+        lt_ba = _try_lt(b, a)
+        if lt_ab is not None and lt_ba is not None:
+            return (not lt_ab) and (not lt_ba)
+        return a == b
+    if op == "STRUCT_NEQ":
+        return not _try_scalar_relational_derivation("EQ", a, b)
+    if op == "LE":
+        return _logical_scalar_binop(
+            "OR",
+            _try_scalar_relational_derivation("LT", a, b),
+            _try_scalar_relational_derivation("EQ", a, b),
+        )
+    if op == "GE":
+        return _logical_scalar_binop(
+            "OR",
+            _try_scalar_relational_derivation("GT", a, b),
+            _try_scalar_relational_derivation("EQ", a, b),
+        )
+    raise EvalError(f"unknown relational operator {op!r}")
 
 
 def _structural_compare(op: str, a: Any, b: Any) -> Any:
     if op == "STRUCT_NEQ":
         return _negate_bool_structure(_structural_compare("EQ", a, b))
     if isinstance(a, Multiset) and isinstance(b, Multiset):
-        akeys = list(a._c.keys())
-        bkeys = list(b._c.keys())
-        if akeys != bkeys:
+        if not _multiset_keys_match(a, b):
             raise EvalError("multiset key mismatch for relational op")
-        return with_type(None, {k: _structural_compare(op, a._c[k], b._c[k]) for k in akeys})
+        return with_type(
+            None,
+            {key: _structural_compare(op, count, b._c[key]) for key, count in a.items_sorted()},
+        )
     if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
-        return with_type(None, {k: _structural_compare(op, v, b) for k, v in a._c.items()})
+        return with_type(None, {key: _structural_compare(op, count, b) for key, count in a.items_sorted()})
     if isinstance(b, Multiset) and isinstance(a, int) and not isinstance(a, bool):
-        return with_type(None, {k: _structural_compare(op, a, v) for k, v in b._c.items()})
+        return with_type(None, {key: _structural_compare(op, a, count) for key, count in b.items_sorted()})
     if is_struct_dict(a) and is_struct_dict(b):
         if get_type_name(a) != get_type_name(b):
             raise EvalError("struct shape mismatch for relational op")
@@ -577,6 +716,17 @@ def _pick_best_overload(
     return best
 
 
+def _pick_overload_for_symbol(
+    op_overloads: dict[str, list[VFunction]],
+    sym: str,
+    args: list[Any],
+    types: dict[str, ast.TypeExpr | ast.FuncType],
+) -> VFunction | None:
+    variants = op_overloads.get(sym) or []
+    fns = [f for f in variants if len(f.params) == len(args)]
+    return _pick_best_overload(fns, args, types)
+
+
 def _format_param_list_display(params: list[ast.Param]) -> str:
     parts: list[str] = []
     for p in params:
@@ -626,7 +776,7 @@ def _format_ft_codomain_part(cod: Any) -> str:
         return _format_nested_func_type_for_param(cod)
     if isinstance(cod, ast.PrimTypeRef):
         return cod.name
-    if isinstance(cod, (ast.TupleTypeExpr, ast.TypeExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)):
+    if isinstance(cod, (ast.TupleTypeExpr, ast.TypeExpr, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)):
         return _format_type_ast_for_stringify(cod)
     return "…"
 
@@ -635,6 +785,10 @@ def _format_type_ast_for_stringify(v: Any) -> str:
     """Surface-syntax type printout (no ``PrimTypeRef(...)`` / ``dataclass`` repr)."""
     if isinstance(v, ast.PrimTypeRef):
         return v.name
+    if isinstance(v, ast.TypeUnionExpr):
+        return "|".join(_format_type_ast_for_stringify(member) for member in v.members)
+    if isinstance(v, ast.TypeIntersectionExpr):
+        return "&".join(_format_type_ast_for_stringify(member) for member in v.members)
     if isinstance(v, ast.TypeSizeConst):
         return str(v.value)
     if isinstance(v, ast.TypeSizeVar):
@@ -781,6 +935,14 @@ class Interpreter:
             return self.eval_expr(type_expr, env)
         if isinstance(type_expr, ast.NamedTypeSpec):
             return ast.NamedTypeSpec(type_expr.name, self._resolve_runtime_type_expr(type_expr.type_expr, env))
+        if isinstance(type_expr, ast.TypeUnionExpr):
+            return ast.TypeUnionExpr(
+                [self._resolve_runtime_type_expr(member, env) for member in type_expr.members]
+            )
+        if isinstance(type_expr, ast.TypeIntersectionExpr):
+            return ast.TypeIntersectionExpr(
+                [self._resolve_runtime_type_expr(member, env) for member in type_expr.members]
+            )
         if isinstance(type_expr, ast.FixedVectorType):
             return ast.FixedVectorType(self._resolve_runtime_type_expr(type_expr.element_type, env), type_expr.size)
         if isinstance(type_expr, ast.MultisetType):
@@ -1018,9 +1180,9 @@ class Interpreter:
                 resolved_type = self._resolve_runtime_type_expr(node.declared_type, env)
                 coerced, _ = coerce_typed_value(value, resolved_type, self.types)
                 self._assign_bind(node.target, coerced, env)
-                return None
+                return coerced
             if isinstance(node.target, ast.Ident) and isinstance(
-                node.value, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)
+                node.value, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)
             ):
                 self.types[node.target.name] = node.value
                 return None
@@ -1030,9 +1192,10 @@ class Interpreter:
                 tname = node.value.name
                 if tname in ("num", "str", "bool"):
                     env[node.target.name] = default_field_value(tname, self.types)
-                    return None
-            self._assign_bind(node.target, self.eval_expr(node.value, env), env)
-            return None
+                    return env[node.target.name]
+            assigned = self.eval_expr(node.value, env)
+            self._assign_bind(node.target, assigned, env)
+            return assigned
         if isinstance(node, ast.Emit):
             val = self.eval_expr(node.value, env)
             if node.to_file is not None:
@@ -1600,7 +1763,7 @@ class Interpreter:
             return abs_or_norm(self.eval_expr(node.inner, env))
         if isinstance(node, ast.DotModulePath):
             return self._eval_dot_module(node)
-        if isinstance(node, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
+        if isinstance(node, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
             return node
         if isinstance(node, ast.TypeOf):
             v = self.eval_expr(node.value, env)
@@ -1782,8 +1945,8 @@ class Interpreter:
                 raise EvalError("struct negation requires -(a): … overload")
             return -v
         if node.op == "NOT":
-            if isinstance(v, dict) and is_struct_dict(v):
-                raise EvalError("struct ~ requires ~(a): … overload")
+            if _is_bool_structure(v):
+                return _negate_bool_structure(v)
             _disallow_vector_truthiness(v, "`not` / `~`")
             return not bool(v)
         raise EvalError(f"unknown unary {node.op}")
@@ -2029,6 +2192,8 @@ class Interpreter:
         if node.op in ("LT", "LE", "GT", "GE", "EQ", "STRUCT_NEQ"):
             if is_struct_dict(a) or is_struct_dict(b) or isinstance(a, Multiset) or isinstance(b, Multiset):
                 return _structural_compare(node.op, a, b)
+        if node.op in ("AND", "OR", "XOR") and (_is_bool_structure(a) or _is_bool_structure(b)):
+            return _logical_structure_binop(node.op, a, b)
         if sym and sd:
             if node.op == "AMPERSAND":
                 return _struct_merge_concat(a, b)
@@ -2319,7 +2484,7 @@ def _stringify(
         return _stringify_op_callable(v)
     if isinstance(v, PrimType):
         return v.name
-    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
+    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
         return _format_type_ast_for_stringify(v)
     if isinstance(v, dict) and is_struct_dict(v):
         if struct_tagged(v):
@@ -2506,10 +2671,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(multiset_intersection(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a.idx,
-                )
+                raise EvalError("operator * is not defined for multisets")
         if op == "SLASH":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 if len(ad) != len(bd):
@@ -2530,12 +2692,19 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return AxisTaggedValue(
-                    wrap_typed_multiset_result(
-                        multiset_symmetric_difference(ad, bd), combine_typed_multiset_types(ad, bd)
-                    ),
-                    a.idx,
-                )
+                return AxisTaggedValue(_multiset_division_struct(ad, bd), a.idx)
+        if op == "FLOORDIV":
+            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
+                try:
+                    return AxisTaggedValue(
+                        wrap_typed_multiset_result(
+                            multiset_countwise_floordiv(ad, bd),
+                            combine_typed_multiset_types(ad, bd),
+                        ),
+                        a.idx,
+                    )
+                except KeyError as e:
+                    raise EvalError(str(e)) from e
         if op == "PERCENT":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 if len(ad) != len(bd):
@@ -2694,6 +2863,14 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     ),
                     a.idx,
                 )
+            if isinstance(a.data, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(
+                        multiset_scalar_add(a.data, b),
+                        typed_multiset_type_of(a.data),
+                    ),
+                    a.idx,
+                )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
             if isinstance(b.data, tuple):
@@ -2705,6 +2882,14 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                         (af + x for x in b.data),
                         b.data,
                         a,
+                    ),
+                    b.idx,
+                )
+            if isinstance(b.data, Multiset) and isinstance(a, int) and not isinstance(a, bool):
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(
+                        multiset_scalar_add(b.data, a),
+                        typed_multiset_type_of(b.data),
                     ),
                     b.idx,
                 )
@@ -2720,6 +2905,14 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                         (x - bf for x in a.data),
                         a.data,
                         b,
+                    ),
+                    a.idx,
+                )
+            if isinstance(a.data, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(
+                        multiset_scalar_subtract(a.data, b),
+                        typed_multiset_type_of(a.data),
                     ),
                     a.idx,
                 )
@@ -2752,6 +2945,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     ),
                     a.idx,
                 )
+            if isinstance(a.data, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+                return AxisTaggedValue(_multiset_division_struct(a.data, b), a.idx)
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
             if isinstance(b.data, tuple):
@@ -2763,6 +2958,41 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                         (af / x for x in b.data),
                         b.data,
                         a,
+                    ),
+                    b.idx,
+                )
+    if op == "FLOORDIV":
+        if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            if isinstance(a.data, tuple):
+                return AxisTaggedValue(tuple(x // b for x in a.data), a.idx)
+            if isinstance(a.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (x // b for x in a.data),
+                        a.data,
+                        b,
+                    ),
+                    a.idx,
+                )
+            if isinstance(a.data, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+                return AxisTaggedValue(
+                    wrap_typed_multiset_result(
+                        multiset_scalar_floordiv(a.data, b),
+                        typed_multiset_type_of(a.data),
+                    ),
+                    a.idx,
+                )
+        if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            if isinstance(b.data, tuple):
+                return AxisTaggedValue(tuple(a // x for x in b.data), b.idx)
+            if isinstance(b.data, VFVector):
+                return AxisTaggedValue(
+                    _wrap_vector_result_if_typed(
+                        op,
+                        (a // x for x in b.data),
+                        a,
+                        b.data,
                     ),
                     b.idx,
                 )
@@ -2810,6 +3040,10 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             return _wrap_vector_result_if_typed(op, (x + bf for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
+        if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+            return wrap_typed_multiset_result(multiset_scalar_add(a, b), typed_multiset_type_of(a))
+        if isinstance(b, Multiset) and isinstance(a, int) and not isinstance(a, bool):
+            return wrap_typed_multiset_result(multiset_scalar_add(b, a), typed_multiset_type_of(b))
         return a + b
     if op == "MINUS":
         if isinstance(a, VFVector) and isinstance(b, VFVector):
@@ -2824,6 +3058,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             return _wrap_vector_result_if_typed(op, (x - bf for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
             return wrap_typed_multiset_result(multiset_difference(a, b), combine_typed_multiset_types(a, b))
+        if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+            return wrap_typed_multiset_result(multiset_scalar_subtract(a, b), typed_multiset_type_of(a))
         return a - b
     if op == "STAR":
         if isinstance(a, VFVector) and isinstance(b, VFVector):
@@ -2835,7 +3071,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, VFVector) and isinstance(b, (int, float)):
             return _wrap_vector_result_if_typed(op, (x * float(b) for x in a), a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return wrap_typed_multiset_result(multiset_intersection(a, b), combine_typed_multiset_types(a, b))
+            raise EvalError("operator * is not defined for multisets")
         return a * b
     if op == "SLASH":
         if isinstance(a, VFVector) and isinstance(b, VFVector):
@@ -2848,11 +3084,29 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, VFVector) and isinstance(b, (int, float)):
             bf = float(b)
             return _wrap_vector_result_if_typed(op, (x / bf for x in a), a, b)
-        if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return wrap_typed_multiset_result(
-                multiset_symmetric_difference(a, b), combine_typed_multiset_types(a, b)
-            )
+        if isinstance(a, Multiset):
+            return _multiset_division_struct(a, b)
         return a / b
+    if op == "FLOORDIV":
+        if isinstance(a, Multiset) and isinstance(b, Multiset):
+            try:
+                result = multiset_countwise_floordiv(a, b)
+            except KeyError as e:
+                raise EvalError(str(e)) from e
+            return wrap_typed_multiset_result(result, combine_typed_multiset_types(a, b))
+        if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+            return wrap_typed_multiset_result(multiset_scalar_floordiv(a, b), typed_multiset_type_of(a))
+        return a // b
+    if op == "FLOORDIV":
+        if isinstance(a, VFVector) and isinstance(b, VFVector):
+            if len(a) != len(b):
+                raise EvalError("vector length mismatch for //")
+            return _wrap_vector_result_if_typed(op, (x // y for x, y in zip(a, b)), a, b)
+        if isinstance(a, (int, float)) and isinstance(b, VFVector):
+            return _wrap_vector_result_if_typed(op, (a // x for x in b), a, b)
+        if isinstance(a, VFVector) and isinstance(b, (int, float)):
+            return _wrap_vector_result_if_typed(op, (x // b for x in a), a, b)
+        return a // b
     if op == "PERCENT":
         if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
@@ -2890,31 +3144,26 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             return VFVector(_binop(op, a, y) for y in b)
         if isinstance(a, VFVector) and isinstance(b, (int, float, bool)):
             return VFVector(_binop(op, x, b) for x in a)
-        if op == "EQ":
-            return a == b
-        if op == "STRUCT_NEQ":
-            return a != b
-        if op == "LT":
-            return a < b
-        if op == "LE":
-            return a <= b
-        if op == "GT":
-            return a > b
-        if op == "GE":
-            return a >= b
+        return _try_scalar_relational_derivation(op, a, b)
     if op == "AND":
+        if _is_bool_structure(a) or _is_bool_structure(b):
+            return _logical_structure_binop(op, a, b)
         _disallow_vector_truthiness(a, "`and` left operand")
         if not bool(a):
             return False
         _disallow_vector_truthiness(b, "`and` right operand")
         return bool(b)
     if op == "OR":
+        if _is_bool_structure(a) or _is_bool_structure(b):
+            return _logical_structure_binop(op, a, b)
         _disallow_vector_truthiness(a, "`or` left operand")
         if bool(a):
             return True
         _disallow_vector_truthiness(b, "`or` right operand")
         return bool(b)
     if op == "XOR":
+        if _is_bool_structure(a) or _is_bool_structure(b):
+            return _logical_structure_binop(op, a, b)
         _disallow_vector_truthiness(a, "`xor` left operand")
         _disallow_vector_truthiness(b, "`xor` right operand")
         return bool(a) ^ bool(b)
@@ -2933,9 +3182,14 @@ def _combine_field_values_for_struct(
         if op == "MINUS":
             return multiset_difference(av, bv)
         if op == "STAR":
-            return multiset_intersection(av, bv)
+            raise EvalError("operator * is not defined for multiset fields")
         if op == "SLASH":
-            return multiset_symmetric_difference(av, bv)
+            return _multiset_division_struct(av, bv)
+        if op == "FLOORDIV":
+            try:
+                return multiset_countwise_floordiv(av, bv)
+            except KeyError as e:
+                raise EvalError(str(e)) from e
         raise EvalError(f"operator {op} is not defined for multiset fields")
     if isinstance(av, dict) and isinstance(bv, dict) and is_struct_dict(av) and is_struct_dict(bv):
         inner = _default_struct_elementwise_binop(op, av, bv, types)

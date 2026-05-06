@@ -50,6 +50,7 @@ from .tokens import (
     EQ,
     EXACT_EQ,
     FAT_ARROW,
+    FLOORDIV,
     GE,
     GT,
     IDENT,
@@ -406,6 +407,9 @@ class Lexer:
             if self._peek() == "\\":
                 self._advance()
                 self._emit(AND, None, loc)
+            elif self._peek() == "/":
+                self._advance()
+                self._emit(FLOORDIV, None, loc)
             else:
                 self._emit(SLASH, None, loc)
             return

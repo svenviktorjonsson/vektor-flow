@@ -204,6 +204,10 @@
           "match": "->"
         },
         {
+          "name": "keyword.operator.arithmetic.vektorflow",
+          "match": "//"
+        },
+        {
           "name": "keyword.operator.range.vektorflow",
           "match": "\\.\\."
         },

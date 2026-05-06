@@ -107,6 +107,56 @@ def multiset_symmetric_difference(a: Multiset, b: Multiset) -> Multiset:
     return multiset_union(multiset_difference(a, b), multiset_difference(b, a))
 
 
+def multiset_scalar_add(a: Multiset, amount: int) -> Multiset:
+    amount = _normalize_multiset_count(amount)
+    if amount == 0:
+        return Multiset(dict(a._c))
+    out: Counter[Any] = Counter()
+    for key, count in a._c.items():
+        nxt = count + amount
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
+def multiset_scalar_subtract(a: Multiset, amount: int) -> Multiset:
+    amount = _normalize_multiset_count(amount)
+    if amount == 0:
+        return Multiset(dict(a._c))
+    out: Counter[Any] = Counter()
+    for key, count in a._c.items():
+        nxt = count - amount
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
+def multiset_scalar_floordiv(a: Multiset, amount: int) -> Multiset:
+    amount = _normalize_multiset_count(amount)
+    if amount == 0:
+        raise ZeroDivisionError("integer division or modulo by zero")
+    out: Counter[Any] = Counter()
+    for key, count in a._c.items():
+        nxt = count // amount
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
+def multiset_countwise_floordiv(a: Multiset, b: Multiset) -> Multiset:
+    if set(a._c.keys()) != set(b._c.keys()):
+        raise KeyError("multiset key mismatch for //")
+    out: Counter[Any] = Counter()
+    for key, count in a.items_sorted():
+        divisor = int(b._c[key])
+        if divisor == 0:
+            raise ZeroDivisionError("integer division or modulo by zero")
+        nxt = count // divisor
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
 def _normalize_multiset_count(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("multiset counts must be non-negative integers")

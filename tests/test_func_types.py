@@ -144,6 +144,24 @@ class TestFuncTypeParse:
         assert isinstance(b.value.element_type, ast.PrimTypeRef)
         assert b.value.element_type.name == "num"
 
+    def test_type_union_and_intersection_parse_with_precedence(self) -> None:
+        m = parse_module("Choice : num|str&int", "<t>")
+        b = m.statements[0]
+        assert isinstance(b, ast.Bind)
+        assert isinstance(b.value, ast.TypeUnionExpr)
+        assert len(b.value.members) == 2
+        assert isinstance(b.value.members[0], ast.PrimTypeRef)
+        assert b.value.members[0].name == "num"
+        assert isinstance(b.value.members[1], ast.TypeIntersectionExpr)
+        assert [member.name for member in b.value.members[1].members] == ["str", "int"]
+
+    def test_declaration_style_param_accepts_union_and_intersection_types(self) -> None:
+        m = parse_module("f(num|str x, num&int y): x", "<t>")
+        f = m.statements[0]
+        assert isinstance(f, ast.FuncDef)
+        assert isinstance(f.params[0].type_ref, ast.TypeUnionExpr)
+        assert isinstance(f.params[1].type_ref, ast.TypeIntersectionExpr)
+
     def test_tight_arrow_after_rparen_rejected_in_func_def(self) -> None:
         with pytest.raises(ParseError, match="spaced ` -> `"):
             parse_module("f(x:num)->num:\n  1\n", "<t>")
