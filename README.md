@@ -101,7 +101,7 @@ total:
 :: total       # 30
 ```
 
-Use `@:` for an early return.
+Use `@:` for an early return with a value.
 
 ```vkf
 classify(n):
@@ -112,8 +112,24 @@ classify(n):
 :: classify(-2)
 ```
 
-If you want a block to act as a namespace/struct, return the local scope with a
-final `:`.
+Think of `@` as the return channel:
+
+- `@` returns `null`.
+- `@: value` returns `value`.
+- `@:` with no value returns the current local scope.
+
+That last form follows the same rule as a lone `:`: when the right side is
+missing, `:` means "the current local scope as a value".
+
+```vkf
+make_point(x, y):
+    x: x
+    y: y
+    @:
+```
+
+If you want a block to act as a namespace/struct without returning early, make
+the final row a lone `:`.
 
 ```vkf
 geometry:
