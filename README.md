@@ -1,607 +1,575 @@
 # Vektor Flow
 
-A mathematical visualization and computational language.
+Vektor Flow is a small computational language for shaping data, defining
+geometry, and driving interactive visual programs. It is built around a few
+ideas that repeat everywhere:
 
-**Status:** Reference interpreter in Python plus an early native compiler pipeline for a growing benchmarked subset. The interpreter is still the language reference; the C++ backend is now used to prove and measure real examples, not yet to cover the full language.
-
-The current standalone target is tracked explicitly in [NATIVE_CORE.md](/C:/dev/vektor-flow/NATIVE_CORE.md) and exercised through [`examples/native_core`](/C:/dev/vektor-flow/examples/native_core/README.md).
+- `:` binds names and builds scopes.
+- Blocks return their last row.
+- `[]` are vectors, `()` are tuples or structs, `{}` are multisets.
+- `>>` pipes values through `$`.
+- `::` prints.
+- UI geometry is authored in `.vkf` and rendered by the native/WebGPU runtime.
 
 File extension: `.vkf`.
 
-## Installation
+## First Look
 
-Install into the active Python environment so the **`vkf`** command is on your PATH (same folder as `python`, e.g. Windows **Scripts**, Unix **bin**):
+```vkf
+name: "Ada"
+score: 41
+
+message:
+    next: score + 1
+    "Hello $name, next score is $next"
+
+message ::
+```
+
+This prints:
+
+```text
+Hello Ada, next score is 42
+```
+
+Read this as:
+
+- `name: "Ada"` binds a value.
+- `message:` opens a scope.
+- The scope returns its last row.
+- `$name` and `$next` interpolate values into a string.
+- `message ::` prints the value.
+
+## Install And Run
+
+Install from this repository:
 
 ```bash
-# Editable (recommended while developing)
 pip install -e .[dev]
-
-# One-off global install from a clone (same machine, any directory after this)
-pip install .
-
-# Isolated “app” install (installs only vkf + deps into its own env)
-pipx install .
 ```
 
-Then run **`vkf`** from any directory (pass a path to your `.vkf` file).
-
-## Running
+Run a file:
 
 ```bash
-# Run a file (extension optional: `hello` → `hello.vkf` in the same directory)
 vkf examples/hello.vkf
-vkf examples/hello
-vkf examples/branching.vkf
-
-# Emit C++ for the currently supported native subset
-vkf cpp examples/benchmarks/vectors_shapes.vkf
-
-# Build a standalone native executable for the supported subset
-vkf build examples/benchmarks/scalar_control.vkf
-.\examples\benchmarks\scalar_control.exe
-
-# Benchmark curated examples through interpreter/native paths
-vkf bench --list
-vkf bench
-vkf bench vectors records
-
-# Lexer diagnostics
-vkf tokens examples/hello.vkf
-vkf tokens examples/hello.vkf --json
-
-# Inline snippet
-vkf -s '"hi" ::'
-
-# Same as `vkf` if the package is installed
-python -m vektorflow --version
 ```
 
-## Benchmarks And Native Compiler Progress
-
-The repo now includes a curated benchmark suite in [`examples/benchmarks`](examples/benchmarks) and a CLI entrypoint:
+Useful commands:
 
 ```bash
-vkf bench --list
-vkf bench
+vkf examples/language_features.vkf
+vkf tokens examples/language_features.vkf --json
+vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
 ```
 
-Each benchmark currently records as much of the pipeline as the local machine supports:
+On Windows, interactive UI examples use the native overlay executable. Build it
+when needed:
 
-- parse time
-- IR lowering time
-- interpreter runtime
-- C++ emit time
-- native compile/run time when `clang++` or `g++` is available on `PATH`
-
-This is the current end-to-end proving ground for the compiler work. The idea is simple: when we extend the native subset, we should also add or expand a benchmark so we can track both correctness and bottlenecks over time.
-
-For simple programs in the current native subset, `vkf build` already gives a standalone executable. Python is still required for the front-end compiler today, but the produced binary does not depend on the Python runtime to execute.
-
-## Native Core
-
-The practical standalone contract now lives in:
-
-- [NATIVE_CORE.md](/C:/dev/vektor-flow/NATIVE_CORE.md)
-- [`examples/native_core`](/C:/dev/vektor-flow/examples/native_core/README.md)
-
-Those examples are the ones we expect to keep building cleanly with:
-
-```bash
-vkf build examples/native_core/hello_native.vkf
-vkf build examples/native_core/vectors_native.vkf
-vkf build examples/native_core/records_native.vkf
-vkf build examples/native_core/numeric_native.vkf
+```powershell
+.\scripts\build-vf-overlay.ps1
 ```
 
-They are narrower than the benchmark suite on purpose: this is the current
-"Python-free runtime" promise, while the benchmark suite is the wider proving
-ground for compiler growth and performance work.
+## The Core Mental Model
 
-## Token Stream Boundary
+### Bind With `:`
 
-`vkf tokens --json file.vkf` now emits a stable JSON token payload. This is the
-first frontend extraction seam:
+`:` means "put the value on the right into the name on the left".
 
-- today: Python lexer -> token JSON / token objects -> Python parser
-- later: native lexer -> same token JSON / token objects -> parser / native frontend
-
-This lets us replace the lexer without changing the language contract at the
-same time.
-
-### Standard library (`:.math`)
-
-**`:.math`** **pours** the **`math`** stdlib namespace into the current scope (see *Bindings (`:`)* and *Modules*). Same idea for **`:.capture`**, **`:.collections`**, **`:.io`**, etc. In Python you can resolve the same dict with:
-
-```python
-from vektorflow.stdlib import resolve_stdlib
-m = resolve_stdlib("math")
-m["sin"](0.0)   # 0.0
-m["lg"](100.0)  # log10, i.e. 2.0
-m["lg2"](8.0)   # log2, i.e. 3.0
-m["ln"](2.7)    # natural log
-m["log"](8.0, 2.0)  # log base 2 of 8 → 3.0
-m["sqrt"](9.0)
-m["abs"](-3)         # scalar absolute value
-m["abs"]([3.0, 4.0]) # Euclidean norm (1D vector only)
+```vkf
+x: 3
+y: 4
+x + y ::
 ```
 
-Included names: **sin, cos, tan, sinh, cosh, tanh, asin, acos, atan, atan2, asinh, acosh, atanh**, **exp, ln, lg** (log10), **lg2** (log2), **log(x, y)** (log base *y* of *x*), **sqrt**, **abs** (delegates to scalar `abs` / 1D vector norm), plus **pi, e, tau**.
+`=` is equality, not assignment:
 
-**`:.capture`** exposes **`capture.regex`**, **`capture.groups`** (see *Capturing data from text* under Modules). **`resolve_stdlib("capture")`** in Python returns the same namespace.
+```vkf
+(x = 3) ::     # true
+(x = y) ::     # false
+```
 
-**Python tooling:** `vektorflow.use_resolve.resolve_use_path(base_dir, "lib/helpers")` implements optional **`.vkf`** for the same paths as **`.lib.helpers`** on disk (see *Modules*).
+### Blocks Return Their Last Row
 
-### Built-ins (always in scope)
+Any indented block evaluates to its last row.
 
-These are bound by the interpreter (no **`:.…`** import needed):
+```vkf
+total:
+    a: 10
+    b: 20
+    a + b
 
-- **`take(n, seq)`** — first `n` values from a **vector**, a lazy **`[a..]`** range, **tuple**, **`collections.list`** linked list, or other iterable (not str/bytes/dict/multiset). Returns a **tuple**.
-- **`to_list(n, seq)`** — materialize prefix into a Python **`list`** (host type only; **`[…]`** in source remains a **vector**).
-- **`to_multiset(n, seq)`** — multiset built from that prefix (counts follow duplicates).
+total ::       # 30
+```
 
-Use them to **materialize** infinite or lazy generators into concrete collections when you choose.
+Use `@:` for an early return.
+
+```vkf
+classify(n):
+    n < 0? @: "negative"
+    n = 0? @: "zero"
+    @: "positive"
+
+classify(-2) ::
+```
+
+If you want a block to act as a namespace/struct, return the local scope with a
+final `:`.
+
+```vkf
+geometry:
+    points: [[0, 0], [1, 0], [1, 1]]
+    color: [1, 0, 0, 1]
+    :
+
+geometry.points ::
+```
+
+### Print With `::`
+
+```vkf
+"hello" ::
+(2 + 3) ::
+```
+
+`@::` returns and prints from inside a function.
+
+```vkf
+debug_square(x):
+    @:: x * x
+
+debug_square(5)
+```
+
+### Comments Use `#`
+
+```vkf
+# This is a comment.
+answer: 42
+```
+
+## Values
+
+### Numbers, Strings, Booleans, Null
+
+```vkf
+n: 42
+pi: 3.1415
+name: "Ada"
+ready: true
+missing: null
+```
+
+Double-quoted strings support interpolation:
+
+```vkf
+x: 4.2345
+"x rounded is $x.2f" ::    # x rounded is 4.23
+```
+
+Use `$(...)` when the expression is more than a simple name or field access.
+
+```vkf
+a: 2
+b: 3
+"sum=$(a + b)" ::
+```
+
+### Tuples
+
+Tuples are positional values.
+
+```vkf
+point: (3, 4)
+point.(0) ::     # 3
+point.(1) ::     # 4
+```
+
+Use tuples for fixed positional bundles.
+
+### Structs
+
+Structs are named records.
+
+```vkf
+point: (x: 3, y: 4)
+point.x ::
+point.y ::
+```
+
+Struct updates create a new value for that binding.
+
+```vkf
+point.z: 5
+point ::
+```
+
+### Vectors
+
+Vectors use square brackets.
+
+```vkf
+values: [1, 2, 3, 4]
+values.(2) ::      # 3
+```
+
+Finite ranges can build vectors:
+
+```vkf
+numbers: [1..5]
+numbers ::         # [1, 2, 3, 4, 5]
+```
+
+`..n` starts at zero:
+
+```vkf
+zero_to_three: [..3]
+```
 
 ### Multisets
 
-Literals use **`{value:count, …}`** — each **value** has a **non-negative integer multiplicity** (not comma-separated elements). For two multisets *A*, *B*, **missing keys count as multiplicity 0**. Regular operators:
+Multisets use `{value: count}` and store multiplicities.
 
-| Op | Meaning |
-| -- | ------- |
-| `+` | multiset union (sum counts) |
-| `-` | multiset difference |
-| `*` | intersection (min of counts per key) |
-| `/` | symmetric difference (disjoint union of A\\\\B and B\\\\A) |
+```vkf
+a: {1: 2, 2: 1}
+b: {1: 1, 3: 1}
 
-`vektorflow.runtime.cartesian_binary` remains for Python callers that need the Cartesian product of pairs; it is not the default for `+` / `-` / `*` / `/` in `.vkf`.
-
-### Absolute value `|x|` (mini expression helper)
-
-A small expression evaluator (`vektorflow.expr.eval_expression`) parses **`|expr|`** as absolute value / vector norm (same rules as **`abs`** above). It is for tests and early integration until the full `.vkf` parser exists.
-
-### VS Code (syntax, run button, terminal)
-
-1. **Install the extension** from this repo: **Developer: Install Extension from Location…** and select the **`vscode`** folder (the one that contains `package.json`). **Do not** use `code --install-extension ./vscode` — that only accepts Marketplace IDs.
-
-2. Open the **vektor-flow** project folder (or any folder where you use `.vkf` files). Open a **`.vkf`** file — the language mode should be **Vektor Flow**.
-
-3. **Run the program** (output goes to the **integrated Terminal**):
-   - **Play** (▶) in the **editor title bar** (top right) — command **Run Vektor Flow File** — or **Command Palette** → **Run Vektor Flow File**. This runs `python -m vektorflow.cli` on the current file in a new terminal named **Vektor Flow**.
-   - Or use **Run and Debug** (**F5**) with the workspace config **vkf: run current file** (needs the **Python** extension and an interpreter where **`vektorflow`** is installed).
-   - Or **Terminal → Run Task…** → **vkf: run current file** (same CLI as above).
-
-**Settings:** **Vektor Flow: Python Path** (`vektorflow.pythonPath`) — defaults to `python`; set it to your venv’s interpreter if `vektorflow` is not on the default PATH.
-
-**Development:** open the `vscode` folder and press **F5** (“Run Extension”) to launch an **Extension Development Host** window.
-
-**Optional CLI install:** in `vscode/` run `npm install -g @vscode/vsce && vsce package`, then install the generated `.vsix` that matches the version in `vscode/package.json`. Avoid checking stale packaged `.vsix` artifacts into the repo.
-
-The repo includes **`.vscode/`** for this workspace:
-
-- **`launch.json`** — **F5** / **Run and Debug** runs **`python -m vektorflow.cli`** on `${file}` in the **integrated terminal**.
-- **`tasks.json`** — **vkf: run current file** and **vkf: tokens (current file)**.
-
-**Is `vkf` “global”?** Only if the Python you used for `pip install -e .` is the one on your PATH and its **Scripts** folder (Windows) is on PATH. Otherwise use **`python -m vektorflow.cli`** from the same environment, or activate your venv first.
-
-### UI host (`web/vf-ui`)
-
-Floating **panel = frame** chrome is **`VfFrame`** in **`web/vf-ui/`**; scene types in **`vektorflow/ui/`**. On **Windows**, the shell is **`vf-overlay.exe`** — WebView2 with **DirectComposition** (typical WebView2 overlay style). Build **`native/VfOverlay/`** then **`.\scripts\run-vf-ui.ps1`**, or the first `add_frame` can launch the built **`vf-overlay.exe`** (see **`vektorflow.ui.launch`**). See **`web/vf-ui/README.md`** and **`native/VfOverlay/README.md`**.
-
-## Language at a glance
-
-**Terminology:** **`[ … ]`** values are **vectors**. The surface language does **not** call that shape a *list* — **list** is reserved for Python’s **`list`** (e.g. **`to_list`**) and for the **`collections.list`** **linked-list** constructor (`VFLinkedList`), not for **`[…]`**.
-
-### Emit (`::`)
-
-```
-"hello, world" ::           # prints to stdout
+(a + b) ::         # union by counts
+(a * b) ::         # intersection by min counts
 ```
 
-**Leading** **`:: expr`** prints **`expr`** to **stdout**. **Leading** **`::: expr`** is sugar for a **line-oriented** print (same as **`:: (expr & "\n")`**). Those are **not** stdin reads.
+Multiset keys are sorted by the language ordering for the key type.
 
-**`@:: expr`** returns from the innermost function **and** prints the value (like **`::`** at statement level). The lexer treats **`@::`** as **one** token so it is never split into **`@:`** and **`::`**.
+## Functions
 
-To write text to a file, use the stdlib **`io.write_text(path, text)`** (after **`:.io`** or **`io : .io`** so **`io`** is in scope).
+A function is a named block with parameters.
 
-### Reading from stdin
+```vkf
+square(x):
+    @: x * x
 
-There are **three** ways to bring **one line** from standard input into the program (same newline stripping: no trailing `\r\n` in the stored value):
-
-| Form | Where the line goes |
-| ---- | ------------------- |
-| **`name ::`** | **Trailing** **`::`** after a simple **name** — read into **`name`**, no prompt. |
-| **`name :::`** | **Trailing** **`:::`** after a simple **name** — print **`name: `**, then read into **`name`**. |
-| **`>> expr`** | **Leading** **`>>`** with **nothing** to the left of **`>>`** — read into **`$`**, then evaluate **`expr`** (same **`$`** rules as **`left >> expr`**; see *Pipes and the `$` sigil*). |
-
-**Two styles:** bind into a **named variable** (**`name ::`** / **`name :::`**), or bind into the pipe placeholder **`$`** (**`>> …`**). There is **no** walrus operator; use **`name :::`** when you want a prompt before input.
-
-**Also:** **`f(x) ::`** / **`f(x) :::`** reads the **function body** as one line from stdin (see parser). That is not the same as **`name ::`** at top level.
-
-**`::` in value positions:** **`::`** cannot appear **inside** a tuple **`( … )`**, vector **`[ … ]`**, struct field value, multiset element, or **function call argument** — the parser reports an error. **Statement-level** print is fine: **`(1, 2) ::`**, **`f(3) ::`**, or bind then print.
-
-### Bindings (`:`)
-
-```
-x : 42
-f(x, y) : x^2 + y^2
+square(7) ::
 ```
 
-`:` defines; `=` is the equality relation:
+Because blocks return their last row, short functions can omit `@:`.
 
+```vkf
+distance2(x, y):
+    x*x + y*y
+
+distance2(3, 4) ::
 ```
-(3 = 2 + 1) ::              # true
-(2 = 4) ::                  # false
+
+### Function Docstrings
+
+A function can start with a string row. The VS Code extension uses that string
+with the function signature for hover information.
+
+```vkf
+area(width:num, height:num):
+    """Return rectangle area."""
+    width * height
 ```
 
-If you are used to **`=`** for assignment from other languages, use **`:`** here — **only** **`:`** binds a name; **`=`** is never assignment.
+Multiline docstrings use the same style:
 
-**Reading `:` — right into left:** Usually **`RHS → LHS`**: the **right** side moves into the **left** binding target.
-
-- **`name : expr`** — **`expr`** goes into **`name`** (definition / bind).
-
-**Pour into scope — `:…` (colon on the left):** One form for **everything** you want to **pour** into the **current** (module / top-level) **scope**: **`:a`**, **`:.path`** (load a **`.vkf`** / folder / stdlib module — see *Modules*), **`:v`** where **`v`** is a **vector**, … The **`:`** comes **before** the value — **“pour this into scope”** — **not** **`a:`** (that pattern is **only** for **unpack** inside **`[a:]`**, *Axis tags*).
-
-| Kind | What **`:x`** does |
-| ---- | ------------------ |
-| **Struct** | Each **field name** becomes a **binding** in scope (**values copied** on spill, same copy story as struct updates elsewhere). |
-| **Module** (path **`.m`**) | Load module; **exported names** pour into scope (see *Modules*). **`:.m`** into current scope; **`a : .m`** binds the module namespace to **`a`**. |
-| **Vector** | **Elements** pour into scope **in order** — **positional** spill (same **idea** as **tuple** of the same length: **one** binding per slot). **Exact** names for each slot (e.g. **`_0`**, **`_1`**, …) follow the lexer / grammar once fixed. |
-| **Tuple** | Same as **vector** of that **length**: **positional** pour. |
-| **Anything else** | **Spill as-is**: the value is **made available** in that scope the way a **single** binding would (no field or element **decomposition**). |
-
+```vkf
+normalize(v):
+    """
+    Return v scaled to unit length.
+    Expects a non-zero vector.
+    """
+    v / |v|
 ```
-a : (x: 3, y: 4)
-:a              # pour struct into scope → `x` and `y` in scope
+
+### Type Annotations
+
+Type annotations sit beside parameters.
+
+```vkf
+add(a:num, b:num):
+    a + b
+```
+
+Type-shaped structs define reusable interfaces.
+
+```vkf
+Point: (x:num, y:num)
+
+length2(p:Point):
+    p.x*p.x + p.y*p.y
+```
+
+## Control Flow
+
+### If With `?`
+
+```vkf
+label(n):
+    n < 0? @: "negative"
+    n = 0? @: "zero"
+    @: "positive"
+```
+
+Indented conditional bodies are allowed:
+
+```vkf
+x > 10?
+    "large" ::
+    "small" ::
+```
+
+### Switch With `??` And `=>`
+
+Use switch form when dispatching on a value.
+
+```vkf
+kind: "edge"
+
+kind??
+    "face" => "red"
+    "edge" => "green"
+    "vertex" => "blue"
+    _ => "gray"
+::
+```
+
+UI event loops use the same idea:
+
+```vkf
+(e: events.get())??>
+    null =>
+        ui.sleep(0.005)
+    ui.MouseMove =>
+        handle_move(e)
+    ui.MouseDown =>
+        handle_down(e)
+```
+
+## Pipes And `$`
+
+`>>` evaluates the right side once for each element on the left. `$` is the
+current element.
+
+```vkf
+squares: [1..5] >> $ * $
+squares ::
+```
+
+Pipes preserve the container kind where possible.
+
+```vkf
+tuple_squares: (1..5) >> $ * $
+vector_squares: [1..5] >> $ * $
+```
+
+Use functions inside pipes:
+
+```vkf
+square(x): x*x
+
+[1..5] >> square($) ::
+```
+
+`..3 >> expr` is a compact loop from `0` through `3`.
+
+```vkf
+..3 >> "index=$" ::
+```
+
+## Operators
+
+Arithmetic:
+
+```vkf
+1 + 2
+5 - 3
+4 * 7
+8 / 2
+2 ^ 8
+```
+
+Logic:
+
+```vkf
+true /\ false     # and
+true \/ false     # or
+true >< false     # xor
+~true             # not
+```
+
+Concatenation uses `&`.
+
+```vkf
+"hello " & "world" ::
+[1, 2] & [3, 4] ::
+(a: 1) & (b: 2) ::
+```
+
+Absolute value and vector norm use bars:
+
+```vkf
+|-3| ::
+|[3, 4]| ::
+```
+
+### Operator Overloads
+
+Operators can be defined for your own types.
+
+```vkf
+Point: (x:num, y:num)
+
++(a:Point, b:Point):
+    (x: a.x + b.x, y: a.y + b.y)
+
+p: (x: 1, y: 2)
+q: (x: 3, y: 4)
+(p + q) ::
+```
+
+Custom display works through `display`.
+
+```vkf
+display(value: Point):
+    "Point($value.x, $value.y)"
+
+p ::
+```
+
+## Modules And Scope
+
+Import a module into a namespace:
+
+```vkf
+math: .math
+math.sqrt(9) ::
+```
+
+Pour a module into the current scope with `:.module`.
+
+```vkf
+:.math
+sqrt(9) ::
+```
+
+The same pour idea works for structs.
+
+```vkf
+point: (x: 3, y: 4)
+:point
 x + y ::
-
-v : [1, 2, 3]
-:v              # pour vector into scope → positional bindings for each element (order 0, 1, …)
 ```
 
-**Do not confuse** with **`[a:]`** — inside **`[]`**, **`a:`** means **unpack** **`a`**’s **elements** **into a new vector** literal, **not** pour into **outer** scope.
+Files and folders are modules too. If `lib/helpers.vkf` exists:
 
-**Bind patterns:** On the **left** of **`:`**, **`container.(i, j, …)`** with **identifiers only** inside **`( … )`** introduces **new names** bound from the **right-hand** value (tuple or **vector**). **R-value** uses of **`.(expr)`** still evaluate the index expressions.
-
-**Concatenation:** **`&`** is the dedicated **concatenation** operator (it is not used for anything else). It **appends** **strings**, **tuples**, and **vectors** end-to-end; **merges** two **structs** (fields from the left, then the right — duplicate keys take the **right**); on **multisets** it behaves like **`+`** (union of counts). For **vectors**, remember **`+`** is **element-wise** (same length); use **`&`** to splice. If **one operand is a string** and the other is **not**, **`&`** **stringifies** the non-string side (same rule as **`+`**), so **`expr & "\n"`** works for **`::: expr`** with any printable value. **Sugar:** **`(:(a,b),:(c,d))`** spreads each piece into one flat tuple **`(a,b,c,d)`** (same idea as tuple literals with **`:expr`** spreads).
-
-**Constructors and `@::`:** A **type-shaped** header **`Name(x:num, y:num):`** with an **empty** body defines a **struct constructor** **`Name`**. Inside a function, **`@:: expr`** returns **`expr`** from the callable **and** prints it (one lexer token **`@::`**, so it never splits into **`@:`** + **`::`**). Combine with **operator overloads** and **`display(value: T):`** for full control over construction and printing.
-
-### Blocks — tab indent, last expression returns
-
-```
-f(x, y) :
-	t : x^2
-	t + y^2
+```vkf
+helpers: .lib.helpers
+helpers.some_function() ::
 ```
 
-Rule: any indented block returns its **last row** by default.  
-Use **`@:`** only for an **early** return before the last row.
+Public names are exported. Names beginning with `_` are private by convention.
 
-The same rule applies to multiline parenthesized blocks:
+## UI Overview
 
-```
-(
-  this
-  can
-  be done
-)
-```
+UI programs use the `ui` stdlib module and native overlay mode.
 
-The block value is the last line (`be done` in this example), unless an earlier `@:` is used.
+```vkf
+ui:.ui
+ui.set_mode("overlay")
 
-### Conditionals And Switch
+frame: ui.Frame()
+screen: ui.display
 
-Use the two forms consistently:
-
-- **`?`** = if-style conditional
-- **`??`** + **`=>`** = switch dispatch
-
-**If / else style (`?`)**:
-
-```
-x > 3?
-  :: "gt"
-  :: "le"
+screen.add_frame(frame, (0.1, 0.1, 0.6, 0.6))
+screen.render()
 ```
 
-**Switch style (`??` with `=>`)**:
+Geometry is described with representations and views. The runtime owns drawing
+and picking through WebGPU.
 
-```
-event.get()??
-  ui.MOUSE_MOVE => on_mouse_move(e)
-  ui.MOUSE_DOWN => on_mouse_down(e)
-  ui.MOUSE_UP => on_mouse_up(e)
-  _ => @:
-```
+```vkf
+reps:
+    vertex_rep(v, view):
+        vertices: [view.point]
+        vertex_color: view.color
+        vertex_scale: 0.02
+        :
+    :
 
-The key rule is simple: **do not use `?` arm syntax as switch-case**.  
-If you are dispatching over event kinds or enum-like values, use **`??`** and **`=>`**.
-
-For switch expressions, if you omit a default arm and no case matches, the result is **`null`**:
-
-```
-expr??
-  A => one
-  B => two
+frame.add((i: 0,), reps.vertex_rep, (point: [0.5, 0.5], color: [0, 0.4, 1, 1]))
 ```
 
-Within each `=>` branch, the branch result is the **last line** in that branch body, unless an earlier **`@:`** is used to return before the end of the branch.
-
-Also, the single-form conditional expression:
-
-```
-expr? this
-```
-
-returns **`this`** when `expr` is true-like, otherwise **`null`**.
-
-### Containers
-
-| Literal            | Meaning                 |
-| ------------------ | ----------------------- |
-| `(1, 2, 3)`        | tuple                   |
-| `(1..5)`           | tuple of 1..5 inclusive (step +1 or −1 so both ends are included; `..5` ⇒ `0..5`) |
-| `[1, 2, 3]`        | vector                  |
-| `[1..5]`           | vector of 1..5          |
-| `[3:4, 5:2]`       | vector with repeats — same as `[3, 3, 3, 3, 5, 5]` (`value : count` per slot) |
-| `[:m]`             | multiset **`m`** spilled into a vector (multiplicity preserved: each copy is its own element) |
-| `a..` / `..`       | **lazy** infinite iterator from `a` or `0` (cannot use `a..` inside `[ ]`) |
-| `{1:1, 2:1, 3:1}`  | multiset (value → count; axis tags for outer / broadcast shapes) |
-| `(a: 4, b: 5)`     | struct                  |
-
-These are **not interchangeable** — the shape you choose fixes **how values are indexed, merged, and typed** later (operator dispatch, interfaces, reach-in, pipe, …).
-
-| Kind | Syntax | What it is |
-| ---- | ------ | ---------- |
-| **Tuple** | `(1, 2, 3)`, `(1..5)` | **Positional** — elements are **only** by index (0, 1, …). No field names. Range forms materialize to a tuple of numbers. |
-| **Struct (record)** | `(x: 1, y: 2)` or type-only `(x:num, y:num)` | **Named fields** — keys are identifiers; access with **`.x`**, **`.y`**. Same **paren** syntax as tuples, but **`name:`** makes it a **record**, not a positional tuple. (Other languages call this a *struct* or *named record*; it is **not** the same thing as a plain tuple.) |
-| **Vector** | `[1, 2, 3]`, `[1..5]`, `[3:4, 5:2]` | **Bracket** sequence — ordered, **`[]`** only (not a “list” in the language; that word is for Python / **`collections.list`**). Inside **`[]`**, **`expr : count`** repeats **`expr`** **`count`** times (non-negative integer), e.g. **`[3:4, 5:2]`** is **`[3, 3, 3, 3, 5, 5]`**. Homogeneous **vector** shape for element-wise ops and pipe. |
-| **Multiset** | `{value:count, …}` | Bag / multiplicity — see *Multisets*. |
-| **Hash map** | **`:.collections`** then **`map(x:3, y:4)`** | Mutable key–value map (stdlib); **not** a struct — see *`collections` (stdlib)*. |
-
-**Vectors vs host lists:** **`[ … ]`** is always called a **vector** in docs and on the language surface. The reference interpreter stores vectors as Python **`list`** internally; **`to_list`** exposes a **Python** `list` for interop. The **`list(...)`** **callable** from **`:.collections`** builds a **linked list** (`VFLinkedList`), which is also **not** a vector.
-
-**Why the distinction matters later:** **tuples** vs **structs** differ in **whether positions or names are part of the type** (structural matching on field names vs arity-only for tuples). **Vectors** vs **tuples** differ in **syntax and intended use** (`[]` vs `()`, element-wise algebra vs fixed positional bundles). Keeping these concepts separate now avoids painting the type system into a corner when you add richer **`:`** types, overloads, and APIs.
-
-**Tuple vs vector vs multiset for ranges:** finite `a..b` materializes to a **tuple** of ints; `[]` flattens a single finite range into a **vector**. **`a..` with no end** is a lazy iterator (not allowed inside `[ ]`). `()` is tuple-shaped, `[]` is vector-shaped, `{}` is multiset-shaped. Multisets are **sorted**; order uses `<` / `=` on elements (see below).
-
-**Vectors:** The **only** surface syntax for homogeneous sequences is **`[ … ]`**. A trailing **`_`**, **`_i`**, **`_ij`**, … is **not** part of the core language story — use **`[]`** for vectors; the interpreter may still attach optional axis metadata for advanced tensor-style ops.
-
-**Inside `[ ]`:** **`expr : count`** repeats **`expr`** **`count`** times; **`[a:]`** unpacks **`a`**; **`[:m]`** expands a **multiset** **`m`** into a flat vector with **multiplicity preserved** (each copy is its own element).
-
-### `collections` (stdlib)
-
-After **`:.collections`** (spill stdlib **collections** into scope) or **`c : .collections`** then **`c.map`**, …:
-
-- **`map(x:3, y:4)`** — mutable hash map (**`VMap`**). Initialization uses **keyword-style** pairs **`name: value`** in the call. **`map()`** is empty. Read with **`.field`** or **`.(expr)`**; assign with **`a.field : v`** or **`a.(key) : v`** (same bind syntax as structs, but the value is **not** a struct).
-- **`list(2, 3, 4)`** — **doubly linked list** (`VFLinkedList`) with those elements in order.
-- **`list(2)`** — one node containing **`2`** (not “two” as length).
-- **`list(x)`** when **`x`** is a single **iterable** — one element wrapping that whole iterable (often a **vector**); use **`list(:x)`** to **spread** **`x`** into the **linked list** (**`:expr`** is a spread argument in call position).
-
-**Reading `a:` (inside `[ ]` only):** The **`:`** after **`a`** means **unpack** **`a`** into the brackets. **Scope** spill is **`:a`**, **not** **`a:`** (see *Bindings (`:`)* — **pour into** vs **unpack into `[]`**).
-
-**Index access** on **vectors** and **multisets** uses **`.`** — **`.(expression)`**, **`.$identifier`**, or **`v.N`** where the lexer allows.
-
-Structs are immutable (copy-on-write rebind):
-
-```
-a : ()
-a.x : 3
-a.type : "cool"
-```
-
-### Types (type-only structs; no `interface` keyword)
-
-Names like **`Point`** or **`Vec`** in this document are **only examples** of interfaces you might define — they are **not** keywords, builtins, or a fixed standard library. Any identifier can name a type record the same way.
-
-There are no classes — only **structs**. A **named type** is a struct whose fields carry **only types** (no values), written right after `:`:
-
-```
-Point:(x:num,y:num)
-```
-
-Spacing is flexible; e.g. `Point : (x : num, y : num)` is the same idea. The RHS is **type-only**; that’s what constrains parameters in operator definitions and elsewhere.
-
-**Values** use the same shape with **values** or expressions:
-
-```
-p : (x: 1, y: 2)
-```
-
-**Redefining operators (binary and unary):** any built-in operator can be given a meaning for your types. Write the **operator symbol**, then **parameters in parentheses** (with optional type annotations), then `:` and the body — same idea as a function, but the name position is an operator.
-
-**Binary** — two parameters:
-
-```
-<(a:Point, b:Point): a.x < b.x
-+(a:Point, b:Point): (x:a.x+b.x, y:a.y+b.y)
-```
-
-**Unary** — one parameter:
-
-```
--(v1:Vec): (x:-v1.x,y:-v1.y)
-```
-
-Here `Vec` would be a type-only struct (e.g. `Vec:(x:num,y:num)`). Unary forms work for operators like `-`, `+` (if you define unary `+`), `~`, etc., using the same `op(param:Type):` pattern.
-
-If you omit type annotations, the body still works for any value with the needed fields (**structural typing**):
-
-```
-<(a, b): a.x < b.x
-```
-
-**Default struct ordering:** if `<` is not defined for a struct, order is **lexicographic by field declaration order** (“smaller wins” at the first differing field). That order **sorts multisets** and drives ordered iteration.
-
-**Multisets:** elements are stored in **sorted** order per `<` on the element type; `=` identifies the same key for counts.
-
-**Field names vs keywords:** after `.`, names like `type` are always field names.
-
-### Modules — everything is a struct
-
-```
-# a.vkf
-f(x, y) : x^2 + y^2
-```
-
-```
-# b.vkf
-funcs : .a
-funcs.f(2, 3) ::
-```
-
-**Surface syntax:** **`:.m`** **pours** a module’s **exported names** (bindings whose names do not start with **`_`**) into the **current scope**. **`a : .m`** loads the same module and binds its namespace to **`a`**, so you qualify (**`a.f`**, …). Segments after **`.`** are path pieces: **`.a`** resolves **`a.vkf`** next to the importing file; **`.lib.helpers`** → **`lib/helpers.vkf`**. **Omitting `.vkf`:** if there is no extension and **`name.vkf`** exists, that file is used. **Folders** load as a nested struct of files/subfolders; use **`:.folder`** to pour or **`pkg : .folder`** to bind. Resolution is **relative to the importing file’s directory** (see `vektorflow.use_resolve` in Python). Stdlib names (**`math`**, **`capture`**, **`collections`**, **`io`**, …) resolve when the path is a single segment and no file matches.
-
-**Inside** **`[]`**, **`[a:]`** is **unpack** into a **vector** literal (*Axis tags*) — not a module load.
-
-```
-:.a
-f(2, 3) ::
-```
-
-**Examples on disk:** `examples/nested/` (file import without `.vkf`), `examples/folder_repo/` (folder-as-package with `pkg/mod.vkf`).
-
-### Overloading `::` (display) for a type
-
-You can define how **`::`** formats a value of type `T` when it appears before `::`:
-
-```
-display(value: Point): "($value.x.2f, $value.y.2f)"
-```
-
-Then `p::` uses that template (with string interpolation) instead of the default `to_string`. Multiple overloads dispatch on `T` the same way as other operators. The body is an expression that **evaluates to the string (or bytes) to print** — the final `::` on a line is still “print this expression”; the overload defines **what** gets printed for that type.
-
-### Capturing data from text
-
-**Natural phrasing** (“capture 10 and 20 from this”) is easiest if **“this”** is a **variable** holding the text, and the **pattern** is explicit. The stdlib **`capture`** module (via **`:.capture`**) provides:
-
-- **`regex(source, pattern)`** (stdlib name **`regex`**) — Python `re.search`; **named groups** `(?P<a>…)` become struct fields, e.g. `a: 10, b: 20` after you bind the result to a struct.
-- **`groups(source, pattern)`** — returns numbered groups as a tuple.
-
-Example (conceptual — exact bind syntax comes with the full evaluator):
-
-```
-text : "values are 10 and 20"
-nums : regex(text, "values are (?P<a>\\d+) and (?P<b>\\d+)")
-# nums.a, nums.b as strings; convert with as_num(...) later
-```
-
-A future sugar form could map `"capture $a and $b from this"` to a regex template, but the **robust** base is: **one string `source`**, **one regex `pattern`** with named captures, then bind to a struct or tuple. That stays predictable and debuggable.
-
-### Pipes and the `$` sigil
-
-`$` is the implicit/anonymous binding — current pipe element, lambda parameter, or the most recently bound lambda in the flow.
-
-**Pipe left-hand side:** for **vector** (`[…]`), **tuple**, **string**, **set**, **frozenset**, or **multiset** (`{…}`), **`$`** is each element (each character for strings, each occurrence for multisets); the right-hand side runs once per step; the result keeps the **same kind** — vector, tuple, string (each step’s text joined end-to-end, same idea as **`&`** on strings), set, frozenset, or `Multiset`. For **any other value** (a number, struct, lazy range, etc.), **`$`** is that **whole value once** — a scalar is a **single** step, not a length-1 tuple (no implicit `(x)` wrapper).
-
-**Print a pipe:** use **`::`** at the **start** of the statement (**`:: expr`**). A **trailing** **`::`** after an arbitrary **`expr`** is **not** print — it is only the forms **`name ::`** / **`name :::`** (stdin into **`name`**).
-
-```
-:: [1..5] >> $^2            # vector: [1, 4, 9, 16, 25]
-:: (1..5) >> $^2           # tuple:  (1, 4, 9, 16, 25)
-:: 4 >> $^2                # 16 — one step, $ is 4
-
-:: ($(x): x^2)(3)          # 9 — anonymous lambda applied
-```
-
-**Console input** (**`>> expr`**): a **leading** **`>>`** (nothing on the left) reads **one line** from standard input into **`$`**, then evaluates **`expr`** — same **`$`** binding as **`value >> expr`**, but the value comes from stdin (terminal or redirect). See *Reading from stdin* for how this fits next to **`name ::`** / **`name :::`**.
-
-```
-:: >> $                     # echo one typed line
-:: >> ( $ & "!" )           # read line, append "!", print
-```
-
-Use **`>> ( … )`** when the right-hand side needs an inner pipe: **`:: >> ( a >> b )`** reads stdin, then runs the nested pipe (still wrapped in **`:: …`** if you want it printed).
-
-**Absolute value** uses **`|expr|`** only — **`|`** is not the pipe operator (pipe is **`>>`**).
-
-### String interpolation and formatting
-
-Inside **double-quoted** strings, `$` starts an interpolation (decoded when the string is evaluated for display / printing):
-
-| Form | Meaning |
-| ---- | ------- |
-| `$name` | Value of variable `name` |
-| `$name.fmt` | Same value, formatted with a **printf-style** suffix (e.g. `$pi.4f`, `$n.2e`) |
-| `$a.b.fmt` | Field `b` of struct `a`, then format (greedy: whole chain is one interpolation target) |
-| `$(expr)` or `$(expr).fmt` | Interpolate an arbitrary expression; use this when greedy `.` would be wrong |
-
-Escape a literal dollar as `\\$` in the string source.
-
-Example:
-
-```
-a : 4.2345
-"printing $a.2f" ::        # printing 4.23
-```
-
-### Structs (immutable values)
-
-- **Structs are immutable by definition** (runtime: field updates **replace** the struct with a shallow copy; other bindings that still pointed at the old value are unchanged).
-- **`p : ()`** creates an empty struct (a dict-backed record).  
-- **`p.fieldName : value`** sets a field: **any identifier** after `.` is a **field name** (not numeric reach-in).  
-- Read with **`p.field`** — same key as **`p."field"`** when the name is that string (no separate “string field” mode). Use **`p.("field")`** when the key comes from an expression, or **`p.("x", "y")`** for multiple keys.
-- **Name vs value as key (structs / paren reach-in):** **`p.i`** uses the **identifier** `i` as the **field** or **element** key (reach-in). To use the **value** of `i` as the key (e.g. numeric index), write **`p.$i`** or **`p.(i)`**. For an arbitrary expression as the key, **`p.(expr)`** and **`p.$(expr)`** mean the same thing. **On the left of `:`**, **`p.(i, j) : (u, v)`** treats **`i`** and **`j`** as **new names** bound from the right-hand side (pattern), not as expressions to evaluate first.
-
-### Types, interfaces, and one `:` for types and values
-
-The language uses the same **`:`** for **binding a name to a type shape** and **binding a name to a value**. Examples of the intended surface syntax:
-
-| Form | Role |
-| ---- | ---- |
-| `Point : (x:num, y:num)` | **Interface / type** — example name `Point` plus a type-only record (`num` etc. are the primitive type names in play). |
-| `Ftype : num -> num` | **Function type** — arrow `->` is only for types (not expressions). If a name starts with an uppercase letter, the parser tries a type RHS first; if that fails (e.g. `S : {1:1,2:1}` as multiset), it parses a normal value expression. |
-| `Ftype : (num, num) -> num` | **Function type** — tuple domain (positional). |
-| `Ftype : (x:num, y:num) -> num` | **Function type** — record-shaped domain (named parameters in the type). |
-| `p : (x:1, y:2)` | **Instance** — struct literal (values). |
-| `x : num`, `s : str`, `b : bool` | **Default primitives** — `0`, `""`, boolean false. |
-
-**Operator overloading** (specified): define the operator as a function whose name is the symbol and whose parameters carry types:
+For a full working example, read:
 
 ```text
-+(a:Point, b:Point): (x:a.x+b.x, y:a.y+b.y)
+examples/ui_face_edge_vertex_drag.vkf
 ```
 
-Dispatch is by the declared parameter types (`Point`, …), with **structural** matching when a value is untagged (struct literal with the right fields). The reference interpreter supports **named type shapes**, **struct literals**, **typed parameters**, **operator definitions** (`+`, `<`, `/\`, …), **unary** `-(a):` / `~(a):`, **`display` overloads** `display(value: T): …` for **`::`** output, **string** `$a.2f` **interpolation**, **default struct ordering** for `<` / `<=` / `==`, **`[1..5]`** vector range expansion, **lambdas** `($(x): x^2)`, and **`operator(...)`** calls (e.g. `+(2, 3)`).
+That example shows the recommended structure:
 
-There is **no** C-style ternary **`cond ? a : b`** — the second **`:`** would fight **`:`** as **bind / pour / `header : body`**. Use **`?`** for if-style conditionals and **`??` + `=>`** for switch-style dispatch.
+- `styles:` for colors and sizes.
+- `reps:` for geometry representation functions.
+- `geometry:` for points and topology.
+- `selection:` for interaction state.
+- `views:` for derived render state.
+- `targets:` for hit-testing.
+- `motion:` for state updates.
 
-### Operators
+## Native Runtime Direction
 
-- Arithmetic: `+ - * / ^ %` — on **two vectors** of the same length, `+ - * /` are **element-wise** (see *Vectors vs multisets*).
-- Concatenation: **`&`** — **`a & b`** appends **strings**, **tuples**, and **vectors**; **merges** **structs** by field; on **multisets** is the same as **`+`** (union). Overload with **`&(a:T, b:T): …`** when needed.
-- Relations: `=  !=  <  <=  >  >=`
-- Logical: `/\` (and), `\/` (or), `><` (xor), `~` (not) — `><` is boolean exclusive-or
-- Pipe: `>>` — **`left >> right`** sends **`left`** into **`$`** on **`right`**; **`>> right`** alone reads **one stdin line** into **`$`** (console input). **`|expr|`** is absolute value / norm only (single `|` is not pipe).
-- **Reach-in with `.`:** `a.(i, j, ...)` or **`a.N`** (integer literal, no parentheses) — e.g. `a.1`, `a.2 : 2`. Nested: `m.1.(0)` or `m.(1).(0)`; **`m.1.0` is not two indices** (the lexer reads `1.0` as one float). Field keys: **`a.x`** or **`a."x"`** (same). **`a.$x`** is **`a.(x)`** (key = value of `x`); **`a.$(expr)`** is the same as **`a.(expr)`**. **Structs, tuples, and named tuples** use **`.`** + identifier to **reach in**. On the **left** of **`:`**, **`.(i, j)`** with **identifiers only** is a **pattern** (unpack / parallel bind); on the **right** of **`:`** in expressions, **`.(i)`** still evaluates **`i`**. **`[` `]`** are only **vector** literals; **implicit multiplication** applies before a vector (`2 [1, 2]` or `2 * [1, 2]`).
-- Names: letters, digits, underscore (`row_1`, `myVar`).
+The current project has two execution tracks:
 
-#### Vectors vs multisets
+- The Python interpreter remains the broad language reference.
+- The native pipeline is growing toward Python-free runtime execution.
 
-On **two vectors** of the **same length**, `+ - * /` are **element-wise** when shapes match. To **concatenate** two vectors **without** zipping, use **`&`**. On **two multisets**, they use **multiplicity** (see *Multisets* above); **`&`** and **`+`** both mean **union** on multisets. There are no special `(op)` or `{op}` tokens.
+Native UI bundles package the overlay runtime, scene program, runtime packets,
+and shared geometry ledger data.
 
-Square brackets `[]` are only for **vector** literals (not indexing). Comments use `#`.
+```bash
+vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
+```
 
-## Phase 1 scope
+The produced runtime should execute without Python after the `.vkf` program has
+been parsed and packaged.
 
-- [x] Lexer
-- [x] Parser (reference `.vkf` surface documented in this README)
-- [x] Tree-walking evaluator (same)
-- [x] Runtime helpers: multisets + Cartesian binary op, `abs`/norm
-- [x] Stdlib **`math`**, **`capture`** (`resolve_stdlib(...)` from Python; **`:.name`** in `.vkf`)
-- [x] **`.path` / string path resolution** with optional `.vkf` — `vektorflow.use_resolve`
-- [x] Mini expression parser (`|x|`, math calls) — `vektorflow.expr`
-- [x] Module system (**`:.path`** / **`a : .path`** loads `.vkf` / folders; types and operator overloads merge into importer)
-- [x] Examples: `examples/nested/`, `examples/folder_repo/`
-- [x] CLI (`vkf`, `vkf tokens`, optional `.vkf` suffix)
-- [x] VS Code syntax highlighting + run command / F5 / tasks (see `vscode/` and `.vscode/`)
-- [ ] REPL
-- [ ] Visualization hooks
+## VS Code
 
-## Phase 2+
+The `vscode/` folder contains the Vektor Flow extension.
 
-- [x] Typed interfaces (`Point : (x:num, y:num)`), struct literals `(x:1, y:2)` with the same `:` shape
-- [x] Operator overloads (`+(a:Point, b:Point): …`, `and(a, b): …`, `not(x): …`, `display(value: Point): …`) with dispatch by type tags and structural fallback; `+(2, 3)`-style calls
-- [x] String interpolation, `display` formatting for `::`, default struct comparison, vector `[a..b]` range, `$(x):` lambdas
-- Stabilize spec + full test suite
-- Replace tree-walking evaluator with bytecode VM or native compile (LLVM / Rust backend)
-- Visualization and plotting
+Features:
+
+- Syntax highlighting for `.vkf`.
+- Run command for the current file.
+- Function hover with signature and docstring.
+
+Install it from VS Code with:
+
+```text
+Developer: Install Extension from Location...
+```
+
+Select the `vscode` folder in this repository.
+
+## Useful Examples
+
+```text
+examples/hello.vkf
+examples/language_features.vkf
+examples/native_scene_probe.vkf
+examples/ui_event_probe.vkf
+examples/ui_face_edge_vertex_drag.vkf
+```
+
+Start with `examples/language_features.vkf` if you want a non-UI tour with lots
+of printed output. Start with `examples/ui_face_edge_vertex_drag.vkf` if you
+want the current interactive geometry model.
+
+## Status
+
+The language and runtime are still moving quickly. The most stable way to learn
+the current surface is:
+
+1. Read this README top to bottom.
+2. Run `examples/language_features.vkf`.
+3. Inspect `examples/ui_face_edge_vertex_drag.vkf`.
+4. Use tests as executable documentation when behavior is unclear.
