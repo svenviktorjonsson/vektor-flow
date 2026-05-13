@@ -131,13 +131,21 @@ geometry:
 :: (2 + 3)
 ```
 
-`@::` returns and prints from inside a function.
+`::` is a print effect. It returns `null`, so a function whose last row is a
+print also returns `null`.
 
 ```vkf
-debug_square(x):
-    @:: x * x
+print_square(x):
+    :: x * x
 
-debug_square(5)
+print_square(5)
+```
+
+Return a value with `@:` or by making the value the last row.
+
+```vkf
+square(x):
+    @: x * x
 ```
 
 ### Comments Use `#`
