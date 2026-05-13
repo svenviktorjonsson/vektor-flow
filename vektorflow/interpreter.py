@@ -1861,6 +1861,8 @@ def _stringify(
         return _format_vstruct_ctor_display(v)
     if isinstance(v, OpCallable):
         return _stringify_op_callable(v)
+    if isinstance(v, ErrorTypeValue):
+        return v.name
     if isinstance(v, PrimType):
         return v.name
     if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):

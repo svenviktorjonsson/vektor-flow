@@ -267,6 +267,17 @@ missing!?
     assert _run(src) == "1"
 
 
+def test_errors_namespace_exposes_primary_language_error_types() -> None:
+    src = """
+errors: .errors
+:: errors.LEX_ERROR
+:: errors.PARSE_ERROR
+:: errors.EVAL_ERROR
+:: errors.ERROR
+"""
+    assert _run(src).splitlines() == ["LEX_ERROR", "PARSE_ERROR", "EVAL_ERROR", "ERROR"]
+
+
 def test_break_outside_pipe_errors() -> None:
     with pytest.raises(EvalError, match="break outside >> pipe"):
         _run("@|")

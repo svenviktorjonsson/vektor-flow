@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .errors import ParseError
+from .errors import ParseError, describe_unexpected_expression_token
 from .lexer import tokenize
 from .runtime.absnorm import abs_or_norm
 from .tokens import (
@@ -186,7 +186,7 @@ class _Parser:
                 self._next()
                 return CallNode(name, args)
             return NameNode(name)
-        raise ParseError(f"unexpected token {k!r}")
+        raise ParseError(describe_unexpected_expression_token(k))
 
 
 def parse_expression(source: str, *, filename: str = "<expr>") -> Any:

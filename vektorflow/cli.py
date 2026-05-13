@@ -38,7 +38,7 @@ import tempfile
 from pathlib import Path
 
 from . import __version__
-from .errors import EvalError, LexError, ParseError, VektorFlowError
+from .errors import EvalError, LexError, ParseError, VektorFlowError, format_source_diagnostic
 from .cpp_backend import discover_cpp_compiler
 from .lexer import tokenize
 from .native_frontend import (
@@ -106,7 +106,7 @@ def cmd_tokens(source: str, filename: str, *, compact: bool, json_output: bool =
     try:
         toks = tokenize(source, filename=filename)
     except VektorFlowError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_source_diagnostic(source, exc), file=sys.stderr)
         return 1
 
     if json_output:
@@ -183,14 +183,23 @@ def _native_runtime_available(path: Path) -> bool:
 
 def _run_with_interpreter(path: Path) -> int:
     try:
-        from .interpreter import run_file
+        from .interpreter import Interpreter
+        from .parser import parse_module
 
-        run_file(path)
+        resolved = path.resolve()
+        source = resolved.read_text(encoding="utf-8")
+        module = parse_module(source, filename=str(resolved))
+        Interpreter(resolved).run_module(module)
     except OSError as exc:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        source = ""
+        try:
+            source = path.resolve().read_text(encoding="utf-8")
+        except OSError:
+            pass
+        print(format_source_diagnostic(source, exc), file=sys.stderr)
         return 1
     return 0
 
@@ -269,23 +278,6 @@ def cmd_parse_tokens(payload: str) -> int:
     return 0
 
 
-def _source_diagnostic(source: str, exc: VektorFlowError) -> str:
-    """Format an inline-source error with the offending line and a caret."""
-    location = exc.location
-    if location is None:
-        return f"error: {exc}"
-    lines = source.splitlines() or [source]
-    if 1 <= location.line <= len(lines):
-        line = lines[location.line - 1]
-    else:
-        line = ""
-    caret_col = max(1, location.column)
-    if exc.message.startswith("unexpected indentation") and line[: max(0, caret_col - 1)].strip() == "":
-        caret_col = 1
-    caret = " " * (caret_col - 1) + "^"
-    return f"error: {location}: {exc.message}\n{line}\n{caret}"
-
-
 def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
     try:
         from .interpreter import Interpreter
@@ -294,7 +286,7 @@ def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
         module = parse_module(source, filename=filename)
         Interpreter(Path(filename)).run_module(module)
     except (LexError, ParseError, EvalError) as exc:
-        print(_source_diagnostic(source, exc), file=sys.stderr)
+        print(format_source_diagnostic(source, exc), file=sys.stderr)
         return 1
     return 0
 
@@ -318,7 +310,9 @@ def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: 
 
 
 def cmd_cpp(path: Path, out_path: Path | None) -> int:
+    source_text = ""
     try:
+        source_text = path.read_text(encoding="utf-8")
         from .cpp_backend import emit_cpp_from_source_file
 
         source = emit_cpp_from_source_file(path)
@@ -326,7 +320,7 @@ def cmd_cpp(path: Path, out_path: Path | None) -> int:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_source_diagnostic(source_text, exc), file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -369,7 +363,9 @@ def cmd_cpp_native_core(
 
 
 def cmd_build(path: Path, out_path: Path | None) -> int:
+    source_text = ""
     try:
+        source_text = path.read_text(encoding="utf-8")
         from .cpp_backend import compile_cpp_source, emit_cpp_from_source_file
 
         source = emit_cpp_from_source_file(path)
@@ -384,7 +380,7 @@ def cmd_build(path: Path, out_path: Path | None) -> int:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_source_diagnostic(source_text, exc), file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

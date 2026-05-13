@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from . import ast
-from .errors import ParseError, SourceLocation
+from .errors import (
+    ParseError,
+    SourceLocation,
+    describe_token_kind,
+    describe_unexpected_expression_token,
+)
 from .tokens import (
     AMPERSAND,
     AND,
@@ -110,7 +115,7 @@ def _token_kind_to_op_symbol(kind: str) -> str:
         AMPERSAND: "&",
     }
     if kind not in m:
-        raise ParseError(f"unsupported operator token for definition: {kind}")
+        raise ParseError(f"unsupported operator for definition: {describe_token_kind(kind)}")
     return m[kind]
 
 
@@ -120,24 +125,6 @@ _ATOM_CALL_OP_KINDS = frozenset(OPERATOR_FUNC_KINDS - {NOT})
 # ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
 # before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
 _PRIMITIVE_TYPE_IDENTS = frozenset({"int", "num", "str", "byte", "bytes", "bool", "any"})
-
-
-def _describe_expression_token(kind: str) -> str:
-    """Return a user-facing description for a token found where an expression should start."""
-    descriptions = {
-        INDENT: "unexpected indentation; remove leading spaces or put the statement inside a block",
-        DEDENT: "unexpected dedent; check the indentation of the surrounding block",
-        NEWLINE: "unexpected newline; expected an expression",
-        EOF: "unexpected end of input; expected an expression",
-        EMIT: "unexpected print operator `::`; use it as a statement, not as a value",
-        COLON: "unexpected `:`; use `:` alone as a statement to return the current local scope",
-        RPAREN: "unexpected `)`",
-        RBRACKET: "unexpected `]`",
-        RBRACE: "unexpected `}`",
-    }
-    if kind in descriptions:
-        return descriptions[kind]
-    return "unexpected syntax where an expression should start"
 
 
 class Parser:
@@ -177,7 +164,10 @@ class Parser:
     def _expect(self, kind: str) -> Token:
         self._skip_trivia()
         if self._peek_raw() != kind:
-            raise ParseError(f"expected {kind}, got {self._peek_raw()}", self._loc_here())
+            raise ParseError(
+                f"expected {describe_token_kind(kind)}, got {describe_token_kind(self._peek_raw())}",
+                self._loc_here(),
+            )
         return self._advance()
 
     def _emit_disallowed_in_value_expr(self, ctx: str) -> None:
@@ -192,7 +182,10 @@ class Parser:
     def _consume_newline_raw(self) -> None:
         """Consume exactly one ``NEWLINE`` without ``_advance`` (which would skip past ``INDENT``)."""
         if self._peek_raw() != NEWLINE:
-            raise ParseError(f"expected {NEWLINE}, got {self._peek_raw()}", self._loc_here())
+            raise ParseError(
+                f"expected {describe_token_kind(NEWLINE)}, got {describe_token_kind(self._peek_raw())}",
+                self._loc_here(),
+            )
         self.i += 1
 
     def _expect_end_of_simple_control_stmt(self) -> None:
@@ -726,7 +719,7 @@ class Parser:
         t = self._advance()
         if t.kind not in OPERATOR_FUNC_KINDS:
             raise ParseError(
-                f"expected operator token, got {t.kind}", self._loc_here()
+                f"expected operator token, got {describe_token_kind(t.kind)}", self._loc_here()
             )
         name = _token_kind_to_op_symbol(t.kind)
         self._expect(LPAREN)
@@ -1714,7 +1707,7 @@ class Parser:
                 node.axis_tag = axis
             return node
 
-        raise ParseError(_describe_expression_token(k), self._loc_here())
+        raise ParseError(describe_unexpected_expression_token(k), self._loc_here())
 
     def _parse_vector_element(self) -> Any:
         """One vector slot: ``:expr`` multiset spill, ``expr`` or ``expr : count`` repeat."""

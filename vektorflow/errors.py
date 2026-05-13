@@ -42,6 +42,98 @@ class EvalError(VektorFlowError):
     """Raised during evaluation."""
 
 
+_TOKEN_LABELS: dict[str, str] = {
+    "AMPERSAND": "`&`",
+    "AND": "`/\\`",
+    "ARROW": "`->`",
+    "AT": "`@`",
+    "AT_BANG": "`@!`",
+    "AT_BAR": "`@|`",
+    "AT_COLON": "`@:`",
+    "AT_EMIT": "`@::`",
+    "AT_GT": "`@>`",
+    "BANG_QUESTION": "`!?`",
+    "BAR": "`|`",
+    "CARET": "`^`",
+    "COLON": "`:`",
+    "COMMA": "`,`",
+    "DEDENT": "end of indented block",
+    "DOLLAR": "`$`",
+    "DOT": "`.`",
+    "EMIT": "`::`",
+    "EOF": "end of input",
+    "EQ": "`=`",
+    "FALSE": "`false`",
+    "FAT_ARROW": "`=>`",
+    "GE": "`>=`",
+    "GT": "`>`",
+    "IDENT": "name",
+    "INDENT": "indentation",
+    "LBRACE": "`{`",
+    "LBRACKET": "`[`",
+    "LE": "`<=`",
+    "LPAREN": "`(`",
+    "LT": "`<`",
+    "MINUS": "`-`",
+    "NEQ": "`!=`",
+    "NEWLINE": "end of line",
+    "NOT": "`~`",
+    "NULL": "`null`",
+    "NUMBER": "number",
+    "OR": "`\\/`",
+    "PERCENT": "`%`",
+    "PIPE": "`>>`",
+    "PLUS": "`+`",
+    "QUESTION": "`?`",
+    "RANGE": "`..`",
+    "RBRACE": "`}`",
+    "RBRACKET": "`]`",
+    "RPAREN": "`)`",
+    "SEMICOLON": "`;`",
+    "SLASH": "`/`",
+    "STAR": "`*`",
+    "STRING": "string",
+    "STRING_RAW": "raw string",
+    "TRUE": "`true`",
+    "XOR": "`><`",
+}
+
+
+def describe_token_kind(kind: str) -> str:
+    """Return user-facing wording for an internal token kind."""
+    return _TOKEN_LABELS.get(kind, "syntax")
+
+
+def describe_unexpected_expression_token(kind: str) -> str:
+    """Return clear wording for a token found where an expression should start."""
+    descriptions = {
+        "INDENT": "unexpected indentation; remove leading spaces or put the statement inside a block",
+        "DEDENT": "unexpected end of indented block; check surrounding indentation",
+        "NEWLINE": "unexpected newline; expected an expression",
+        "EOF": "unexpected end of input; expected an expression",
+        "EMIT": "unexpected print operator `::`; use it as a statement, not as a value",
+        "COLON": "unexpected `:`; use `:` alone as a statement to return the current local scope",
+        "RPAREN": "unexpected `)`",
+        "RBRACKET": "unexpected `]`",
+        "RBRACE": "unexpected `}`",
+    }
+    return descriptions.get(kind, "unexpected syntax where an expression should start")
+
+
+def format_source_diagnostic(source: str, exc: VektorFlowError) -> str:
+    """Format a user-facing error with source line and caret when location is known."""
+    location = exc.location
+    if location is None:
+        return f"error: {exc.message}"
+    lines = source.splitlines() or [source]
+    line = lines[location.line - 1] if 1 <= location.line <= len(lines) else ""
+    caret_col = max(1, location.column)
+    if exc.message.startswith("unexpected indentation") and line[: max(0, caret_col - 1)].strip() == "":
+        caret_col = 1
+    caret = " " * (caret_col - 1) + "^"
+    return f"error: {location}: {exc.message}\n{line}\n{caret}"
+
+
 @dataclass(frozen=True)
 class ErrorTypeValue:
     """Runtime-matchable error type value for ``errors.X`` arms."""
