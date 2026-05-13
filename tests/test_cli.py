@@ -8,7 +8,8 @@ import json
 
 import pytest
 
-from vektorflow.cli import main, resolve_vkf_path
+from vektorflow.cli import cmd_run_python, main, resolve_vkf_path
+from vektorflow.native_runtime_bundle import NativeRuntimeBundlePackage
 from vektorflow.cpp_backend import (
     compile_cpp_source,
     discover_cpp_compiler,
@@ -93,16 +94,140 @@ class TestResolveVkfPath:
 
 
 class TestMain:
-    def test_run_hello(self) -> None:
-        assert main([str(HELLO)]) == 0
+    def test_default_run_packages_and_launches_native_runtime_bundle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "hello.vkf"
+        source.write_text(':: "hello"\n', encoding="utf-8")
 
-    def test_run_short_name(self) -> None:
-        assert main([str(ROOT / "examples" / "hello")]) == 0
+        bundle_dir = tmp_path / "bundle"
+        exe = bundle_dir / "hello.exe"
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text("fake", encoding="utf-8")
+        bundle = NativeRuntimeBundlePackage(
+            bundle_dir=bundle_dir,
+            executable_path=exe,
+            artifact_path=None,
+            launcher_path=None,
+            manifest_path=bundle_dir / "runtime-bundle-manifest.json",
+            overlay_bundle_dir=None,
+        )
 
-    def test_run_folder_repo_main(self, capsys: pytest.CaptureFixture[str]) -> None:
+        seen: dict[str, object] = {}
+
+        def _fake_package(path: Path):
+            seen["path"] = path
+            return bundle
+
+        class _FakeProc:
+            def poll(self) -> None:
+                return None
+
+        def _fake_popen(args, cwd=None, **kwargs):
+            seen["popen_args"] = list(args)
+            seen["cwd"] = cwd
+            seen["kwargs"] = kwargs
+            return _FakeProc()
+
+        monkeypatch.setattr("vektorflow.cli._package_native_run_bundle", _fake_package)
+        monkeypatch.setattr("vektorflow.cli.subprocess.Popen", _fake_popen)
+
+        assert main([str(source)]) == 0
+        assert seen["path"] == source.resolve()
+        assert seen["popen_args"] == [str(exe)]
+        assert seen["cwd"] == str(bundle_dir)
+
+    def test_default_run_uses_overlay_bundle_for_ui_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = tmp_path / "ui_example.vkf"
+        source.write_text("ui:.ui\n", encoding="utf-8")
+
+        overlay_dir = tmp_path / "overlay"
+        (overlay_dir / "web" / "sessions" / "ui-example").mkdir(parents=True, exist_ok=True)
+        (overlay_dir / "web" / "sessions" / "ui-example" / "vkf-scene.html").write_text("ok", encoding="utf-8")
+        overlay_exe = overlay_dir / "vf-overlay.exe"
+        overlay_exe.write_text("fake", encoding="utf-8")
+
+        bundle_dir = tmp_path / "bundle"
+        manifest = bundle_dir / "runtime-bundle-manifest.json"
+        bundle = NativeRuntimeBundlePackage(
+            bundle_dir=bundle_dir,
+            executable_path=None,
+            artifact_path=None,
+            launcher_path=None,
+            manifest_path=manifest,
+            overlay_bundle_dir=overlay_dir,
+            overlay_launcher_path=None,
+            overlay_page_rel="sessions/ui-example/vkf-scene.html",
+        )
+
+        seen: dict[str, object] = {}
+
+        def _fake_discover():
+            seen["discover"] = True
+            return overlay_dir
+
+        def _fake_package(path: Path, target: Path, *, overlay_bundle_dir=None, **kwargs):
+            seen["path"] = path
+            seen["target"] = target
+            seen["overlay_bundle_dir"] = overlay_bundle_dir
+            return bundle
+
+        class _FakeProc:
+            def poll(self) -> None:
+                return None
+
+        def _fake_popen(args, cwd=None, **kwargs):
+            seen["popen_args"] = list(args)
+            seen["cwd"] = cwd
+            return _FakeProc()
+
+        monkeypatch.setattr("vektorflow.cli.discover_vf_overlay_bundle", _fake_discover)
+        monkeypatch.setattr("vektorflow.cli.package_native_runtime_bundle", _fake_package)
+        monkeypatch.setattr("vektorflow.cli.subprocess.Popen", _fake_popen)
+        monkeypatch.setattr(
+            "vektorflow.cli._terminate_existing_overlay_processes",
+            lambda: seen.setdefault("terminated_overlay", True),
+        )
+        def _fake_native_run_root() -> Path:
+            root = tmp_path / "runs"
+            root.mkdir(parents=True, exist_ok=True)
+            return root
+
+        monkeypatch.setattr("vektorflow.cli._native_run_root", _fake_native_run_root)
+
+        assert main([str(source)]) == 0
+        assert seen["discover"] is True
+        assert seen["terminated_overlay"] is True
+        assert seen["overlay_bundle_dir"] == overlay_dir
+        assert seen["popen_args"] == [str(overlay_exe), "sessions/ui-example/vkf-scene.html"]
+        assert seen["cwd"] == str(overlay_dir)
+
+    def test_run_hello_through_interpreter_helper(self) -> None:
+        assert cmd_run_python(HELLO) == 0
+
+    def test_run_short_name_resolves_vkf_path(self) -> None:
+        assert resolve_vkf_path(str(ROOT / "examples" / "hello")) == HELLO.resolve()
+
+    def test_run_folder_repo_main_through_interpreter_helper(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Regression: bind + emit on the next line must not join across newlines."""
-        assert main([str(FOLDER_REPO_MAIN)]) == 0
+        assert cmd_run_python(FOLDER_REPO_MAIN) == 0
         assert capsys.readouterr().out.strip() == "42"
+
+    def test_cmd_run_python_parse_error_shows_context_and_caret(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        bad = tmp_path / "bad.vkf"
+        bad.write_text("x?\n:: 1\n", encoding="utf-8")
+
+        assert cmd_run_python(bad) == 1
+        err = capsys.readouterr().err
+        assert "error: expected indented block" in err
+        assert f" --> {bad}:2:1" in err
+        assert "1 | x?" in err
+        assert "2 | :: 1" in err
+        assert "| ^" in err
 
     def test_tokens_subcommand(self) -> None:
         rc = main(["tokens", str(HELLO)])
@@ -327,7 +452,7 @@ class TestMain:
         assert main(["cpp", str(src)]) == 0
         out = capsys.readouterr().out
         assert "double twice(double x)" in out
-        assert 'std::cout << vf_format_num(twice(a)) << "\\n";' in out
+        assert 'std::cout << vf_format_num(twice(a));' in out
 
     def test_cpp_subcommand_output_file(self, tmp_path: Path) -> None:
         src = tmp_path / "native_vec.vkf"

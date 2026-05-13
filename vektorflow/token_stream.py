@@ -39,6 +39,7 @@ TOKENS_WITH_PAYLOADS = frozenset(
         token_defs.STRING_RAW,
         token_defs.NUMBER,
         token_defs.DOT,
+        token_defs.ARROW,
     }
 )
 
@@ -211,12 +212,12 @@ def _normalize_token_value(kind: str, value: Any) -> Any:
             raise ValueError("invalid token value for NUMBER: expected JSON number")
         if not math.isfinite(float(normalized)):
             raise ValueError("invalid token value for NUMBER: expected finite number")
-    if kind == token_defs.DOT:
+    if kind in (token_defs.DOT, token_defs.ARROW):
         if not isinstance(normalized, tuple) or len(normalized) != 2 or not all(
             isinstance(flag, bool) for flag in normalized
         ):
             raise ValueError(
-                "invalid token value for DOT: expected [left_tight, right_tight] booleans"
+                f"invalid token value for {kind}: expected [left_tight, right_tight] booleans"
             )
     return normalized
 

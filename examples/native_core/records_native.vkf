@@ -1,0 +1,3 @@
+Row : (pts:[num:2], bag:{num}, total:num)
+Row r: (pts:[11, 22], bag:{2:1, 3:3, 4:2}, total:3)
+:: r

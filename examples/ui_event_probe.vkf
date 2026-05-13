@@ -1,0 +1,96 @@
+ui:.ui
+ui.set_mode("overlay")
+
+events: ui.events
+screen: ui.display
+w: ui.widgets
+
+run_tag: "ui_event_probe 2026-05-07 19:00 latest"
+
+input_frame: ui.Frame()
+log_frame: ui.Frame()
+log_text: run_tag & "\nwaiting for events...\n"
+hover_n: 0
+move_n: 0
+
+screen.add_frame(input_frame, (0.06, 0.08, 0.38, 0.78))
+screen.add_frame(
+    log_frame,
+    (0.48, 0.05, 0.46, 0.86),
+    body: [w.text_area("log", text: log_text, rows: 24, readonly: true)]
+)
+screen.render()
+
+Show(line):
+    log_text: log_text & line & "\n"
+    screen.widget_append_text(
+        log_frame.id,
+        "log",
+        line & "\n"
+    )
+
+ShouldIgnore(e):
+    @: e.frame_id = log_frame.id
+
+Trace(kind, e):
+    ShouldIgnore(e)? @:
+    e??
+        ui.MouseEvent =>
+            Show(
+                kind
+                & " | "
+                & (event: e.event, frame_id: e.frame_id, widget_id: e.widget_id, x: e.x, y: e.y, pick_id: e.pick_id, button: e.button, buttons: e.buttons,)
+            )
+        ui.KeyboardEvent =>
+            Show(
+                kind
+                & " | "
+                & (event: e.event, frame_id: e.frame_id, widget_id: e.widget_id, key: e.key, code: e.code, ctrl: e.ctrl, shift: e.shift, alt: e.alt,)
+            )
+        ui.FrameEvent =>
+            Show(
+                kind
+                & " | "
+                & (event: e.event, frame_id: e.frame_id, x: e.x, y: e.y, width: e.width, height: e.height, dock: e.dock,)
+            )
+        Show(
+            kind
+            & " | "
+            & (event: e.event, frame_id: e.frame_id, widget_id: e.widget_id,)
+        )
+
+(e: events.get())??>
+    null =>
+        ui.sleep(0.005)
+    ui.MouseHover =>
+        Trace("MouseHover", e)
+    ui.MouseMove =>
+        Trace("MouseMove", e)
+    ui.MouseDown =>
+        Trace("MouseDown", e)
+    ui.MouseUp =>
+        Trace("MouseUp", e)
+    ui.MouseDrag =>
+        Trace("MouseDrag", e)
+    ui.MouseWheel =>
+        Trace("MouseWheel", e)
+    ui.KeyDown =>
+        Trace("KeyDown", e)
+    ui.KeyUp =>
+        Trace("KeyUp", e)
+    ui.FrameClosed =>
+        Trace("FrameClosed", e)
+    ui.FrameDocked =>
+        Trace("FrameDocked", e)
+    ui.FrameDragged =>
+        Trace("FrameDragged", e)
+    ui.FrameResized =>
+        Trace("FrameResized", e)
+    ui.KeyboardEvent =>
+        Trace("KeyboardEvent", e)
+    ui.MouseEvent =>
+        Trace("MouseEvent", e)
+    ui.TouchEvent =>
+        Trace("TouchEvent", e)
+    any =>
+        Trace("Other", e)

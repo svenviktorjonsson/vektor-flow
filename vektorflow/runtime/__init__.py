@@ -46,6 +46,7 @@ from .collections_runtime import (
 from .multiset import Multiset, cartesian_binary
 from .vflist import VFLinkedList
 from .vfqueue import VFQueue
+from .vfvector import VFVector, VFVectorBuilder
 from .vmap import VMap
 
 __all__ = [
@@ -53,6 +54,8 @@ __all__ = [
     "Multiset",
     "VFLinkedList",
     "VFQueue",
+    "VFVectorBuilder",
+    "VFVector",
     "VMap",
     "abs_or_norm",
     "cartesian_binary",

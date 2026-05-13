@@ -39,6 +39,11 @@ a : current_time("%Y")
     assert len(s) == 4 and s.isdigit()
 
 
+def test_time_stamp_is_numeric() -> None:
+    stamp = timelib.time_stamp()
+    assert isinstance(stamp, float)
+
+
 def test_time_host_swap_works() -> None:
     calls: list[tuple[str, tuple]] = []
 
@@ -50,15 +55,15 @@ def test_time_host_swap_works() -> None:
             calls.append(("current_time", (fmt,)))
             return f"fake-time::{fmt}"
 
-        def time_stamp(self) -> str:
+        def time_stamp(self) -> float:
             calls.append(("time_stamp", ()))
-            return "123.000001"
+            return 123.000001
 
     host = FakeTimeHost()
     timelib.set_time_host(host)
 
     assert timelib.current_time("%Y") == "fake-time::%Y"
-    assert timelib.time_stamp() == "123.000001"
+    assert timelib.time_stamp() == 123.000001
     timelib.sleep(0.25)
 
     assert ("current_time", ("%Y",)) in calls
@@ -74,8 +79,8 @@ def test_time_host_aliases() -> None:
         def current_time(self, fmt: str) -> str:
             return "ok"
 
-        def time_stamp(self) -> str:
-            return "0"
+        def time_stamp(self) -> float:
+            return 0.0
 
     host = FakeTimeHost()
     timelib.set_time_native_host(host)

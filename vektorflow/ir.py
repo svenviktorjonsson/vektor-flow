@@ -316,7 +316,7 @@ def lower_expr(node: Any) -> IRNode:
         return None
 
     def _fixed_vector_type_from_expr(expr: Any) -> Any | None:
-        if not isinstance(expr, ast.ListLit) or expr.axis_tag is not None or len(expr.elements) != 1:
+        if not isinstance(expr, ast.ListLit) or len(expr.elements) != 1:
             return None
         only = expr.elements[0]
         if not isinstance(only, ast.VectorRepeat):
@@ -402,4 +402,6 @@ def lower_expr(node: Any) -> IRNode:
         return UnaryExpr(node.op, lower_expr(node.operand))
     if isinstance(node, ast.BinOp):
         return BinaryExpr(node.op, lower_expr(node.left), lower_expr(node.right))
+    if isinstance(node, ast.AxisAlign):
+        raise NotImplementedError("IR lowering does not yet support axis alignment `expr -> axes`")
     raise NotImplementedError(f"IR lowering does not yet support expr {type(node).__name__}")

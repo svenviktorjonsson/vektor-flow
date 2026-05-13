@@ -24,7 +24,7 @@ def test_numeric_semantic_vs_exact_equality() -> None:
 ::: 2 ~= 2.0
 ::: 2 != 2.0
 """
-    assert _run(src).splitlines() == ["true", "false", "false", "true"]
+    assert _run(src).splitlines() == ["2=2: true", "2==2: false", "2~=2: false", "2!=2: true"]
 
 
 def test_vector_semantic_vs_exact_equality() -> None:
@@ -35,10 +35,10 @@ def test_vector_semantic_vs_exact_equality() -> None:
 ::: [1, 2] != [1.0, 2.0]
 """
     assert _run(src).splitlines() == [
-        "[true, true]",
-        "false",
-        "[false, false]",
-        "true",
+        "[1, 2]=[1, 2]: [true, true]",
+        "[1, 2]==[1, 2]: false",
+        "[1, 2]~=[1, 2]: [false, false]",
+        "[1, 2]!=[1, 2]: true",
     ]
 
 
@@ -52,10 +52,10 @@ b : (x:1.0, y:2.0)
 ::: a != b
 """
     assert _run(src).splitlines() == [
-        "(x:true, y:true)",
-        "false",
-        "(x:false, y:false)",
-        "true",
+        "a=b: (x:true, y:true)",
+        "a==b: false",
+        "a~=b: (x:false, y:false)",
+        "a!=b: true",
     ]
 
 

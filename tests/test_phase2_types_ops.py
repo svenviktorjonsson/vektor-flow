@@ -174,8 +174,8 @@ Pair(x:num, y:num):
     @
 
 p : Pair(3, 4)
-:: p.left
-:: p.("right")
+::: p.left
+::: p.("right")
 """
         assert _run_emit(src) in ("3\n4", "3.0\n4.0")
 

@@ -76,7 +76,7 @@
     },
     {
       "kind": "NUMBER",
-      "value": 1,
+      "value": 1.0,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 1,
@@ -89,34 +89,16 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 1,
-        "column": 14
-      }
-    },
-    {
-      "kind": "NUMBER",
-      "value": 2,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 1,
         "column": 16
       }
     },
     {
-      "kind": "COMMA",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 1,
-        "column": 17
-      }
-    },
-    {
       "kind": "NUMBER",
-      "value": 3,
+      "value": 2.0,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 1,
-        "column": 19
+        "column": 18
       }
     },
     {
@@ -125,16 +107,34 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 1,
-        "column": 20
+        "column": 21
       }
     },
     {
       "kind": "NUMBER",
-      "value": 4,
+      "value": 3.0,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 1,
-        "column": 22
+        "column": 23
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 26
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 4.0,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 1,
+        "column": 28
       }
     },
     {
@@ -143,7 +143,7 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 1,
-        "column": 23
+        "column": 31
       }
     },
     {
@@ -229,7 +229,7 @@
     },
     {
       "kind": "NUMBER",
-      "value": 4,
+      "value": 4.0,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 2,
@@ -242,34 +242,16 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 2,
-        "column": 14
-      }
-    },
-    {
-      "kind": "NUMBER",
-      "value": 3,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 2,
         "column": 16
       }
     },
     {
-      "kind": "COMMA",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 2,
-        "column": 17
-      }
-    },
-    {
       "kind": "NUMBER",
-      "value": 2,
+      "value": 3.0,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 2,
-        "column": 19
+        "column": 18
       }
     },
     {
@@ -278,16 +260,34 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 2,
-        "column": 20
+        "column": 21
       }
     },
     {
       "kind": "NUMBER",
-      "value": 1,
+      "value": 2.0,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 2,
-        "column": 22
+        "column": 23
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 26
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 1.0,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 2,
+        "column": 28
       }
     },
     {
@@ -296,7 +296,7 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 2,
-        "column": 23
+        "column": 31
       }
     },
     {
@@ -313,7 +313,7 @@
       "value": "mix",
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 1
       }
     },
@@ -322,7 +322,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 4
       }
     },
@@ -331,7 +331,7 @@
       "value": "x",
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 5
       }
     },
@@ -340,7 +340,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 6
       }
     },
@@ -349,8 +349,8 @@
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 7
+        "line": 3,
+        "column": 8
       }
     },
     {
@@ -358,8 +358,8 @@
       "value": "num",
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 8
+        "line": 3,
+        "column": 9
       }
     },
     {
@@ -367,8 +367,8 @@
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 11
+        "line": 3,
+        "column": 12
       }
     },
     {
@@ -376,8 +376,8 @@
       "value": "n",
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 12
+        "line": 3,
+        "column": 13
       }
     },
     {
@@ -385,8 +385,8 @@
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 13
+        "line": 3,
+        "column": 14
       }
     },
     {
@@ -394,8 +394,191 @@
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 15
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "y",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 17
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 18
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 20
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 21
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 24
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "n",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 25
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 26
+      }
+    },
+    {
+      "kind": "RPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 27
+      }
+    },
+    {
+      "kind": "ARROW",
+      "value": [
+        false,
+        false
+      ],
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 29
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 32
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "num",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 33
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 36
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "n",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 37
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 38
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 3,
+        "column": 39
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
         "line": 4,
-        "column": 14
+        "column": 1
+      }
+    },
+    {
+      "kind": "INDENT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 5
+      }
+    },
+    {
+      "kind": "LPAREN",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 5
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "x",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 6
+      }
+    },
+    {
+      "kind": "PLUS",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 4,
+        "column": 8
       }
     },
     {
@@ -404,61 +587,7 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 4,
-        "column": 16
-      }
-    },
-    {
-      "kind": "COLON",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 17
-      }
-    },
-    {
-      "kind": "LBRACKET",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 18
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "num",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 19
-      }
-    },
-    {
-      "kind": "COLON",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 22
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "n",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 23
-      }
-    },
-    {
-      "kind": "RBRACKET",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 24
+        "column": 10
       }
     },
     {
@@ -467,70 +596,25 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 4,
-        "column": 25
+        "column": 11
       }
     },
     {
-      "kind": "ARROW",
+      "kind": "STAR",
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 4,
-        "column": 27
+        "column": 13
       }
     },
     {
-      "kind": "LBRACKET",
-      "value": null,
+      "kind": "NUMBER",
+      "value": 0.5,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 4,
-        "column": 30
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "num",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 31
-      }
-    },
-    {
-      "kind": "COLON",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 34
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "n",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 35
-      }
-    },
-    {
-      "kind": "RBRACKET",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 36
-      }
-    },
-    {
-      "kind": "COLON",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 4,
-        "column": 37
+        "column": 15
       }
     },
     {
@@ -543,12 +627,30 @@
       }
     },
     {
-      "kind": "INDENT",
+      "kind": "DEDENT",
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 5,
-        "column": 5
+        "column": 1
+      }
+    },
+    {
+      "kind": "EMIT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "mix",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 4
       }
     },
     {
@@ -557,21 +659,12 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 5,
-        "column": 5
+        "column": 7
       }
     },
     {
       "kind": "IDENT",
-      "value": "x",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 5,
-        "column": 6
-      }
-    },
-    {
-      "kind": "PLUS",
-      "value": null,
+      "value": "a",
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 5,
@@ -579,12 +672,21 @@
       }
     },
     {
-      "kind": "IDENT",
-      "value": "y",
+      "kind": "COMMA",
+      "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 5,
-        "column": 10
+        "column": 9
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "b",
+      "location": {
+        "file": "examples/native_core/vectors_native.vkf",
+        "line": 5,
+        "column": 11
       }
     },
     {
@@ -593,25 +695,7 @@
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 5,
-        "column": 11
-      }
-    },
-    {
-      "kind": "STAR",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 5,
-        "column": 13
-      }
-    },
-    {
-      "kind": "NUMBER",
-      "value": 0.5,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 5,
-        "column": 15
+        "column": 12
       }
     },
     {
@@ -624,92 +708,11 @@
       }
     },
     {
-      "kind": "DEDENT",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 1
-      }
-    },
-    {
-      "kind": "EMIT",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 1
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "mix",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 4
-      }
-    },
-    {
-      "kind": "LPAREN",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 7
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "a",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 8
-      }
-    },
-    {
-      "kind": "COMMA",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 9
-      }
-    },
-    {
-      "kind": "IDENT",
-      "value": "b",
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 11
-      }
-    },
-    {
-      "kind": "RPAREN",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 7,
-        "column": 12
-      }
-    },
-    {
-      "kind": "NEWLINE",
-      "value": null,
-      "location": {
-        "file": "examples/native_core/vectors_native.vkf",
-        "line": 8,
-        "column": 1
-      }
-    },
-    {
       "kind": "EOF",
       "value": null,
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
-        "line": 8,
+        "line": 6,
         "column": 1
       }
     }

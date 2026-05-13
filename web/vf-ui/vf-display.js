@@ -1,5 +1,7 @@
 /**
- * vf-display.js — renders from vf-display.json.
+ * vf-display.js — renders from display payloads.
+ * Preferred runtime path: explicit packets from vf-runtime-packets.json.
+ * Legacy fallback: polling vf-display.json.
  *
  * JSON structure:
  *   { "screen": [...2D ops],
@@ -15,6 +17,8 @@
  */
 (function (global) {
   "use strict";
+
+  var _vfDisplayScript = typeof document !== "undefined" ? document.currentScript : null;
 
   // ── Logging ───────────────────────────────────────────────────────────────
   function vlog(level, text) {
@@ -41,6 +45,7 @@
   // frame_id -> { entries: [{renderer, ref}] }
   var frameRecs = {};
   var _lastPayloadSummary = "";   // cheap change-detect for log spam suppression
+  var _lastDisplayPayload = null;
 
   // ── Event forwarding ──────────────────────────────────────────────────────
   // frame_id -> { fid, canvases: [...] } for hit-testing
@@ -56,6 +61,24 @@
   }
 
   function postEvent(evt) {
+    try {
+      if (typeof global.CustomEvent === "function" && typeof global.dispatchEvent === "function") {
+        global.dispatchEvent(new global.CustomEvent("vf_event", { detail: evt }));
+      }
+    } catch (_) {}
+    try {
+      var localOnlyFrames = global.__vfLocalOnlyFrameEvents;
+      var frameId = evt && evt.frame_id != null ? String(evt.frame_id) : "";
+      if (localOnlyFrames && frameId && localOnlyFrames[frameId]) {
+        return;
+      }
+    } catch (_) {}
+    try {
+      if (typeof window !== "undefined" && window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+        window.chrome.webview.postMessage(evt);
+        return;
+      }
+    } catch (_) {}
     var port = getApiPort();
     if (!port) { return; }  // no port yet — events queued until next hover/click
     var body = JSON.stringify({ line: JSON.stringify(evt) });
@@ -68,98 +91,228 @@
     } catch(_) {}
   }
 
-  /** Convert a canvas-relative MouseEvent to the { frame_id, object_id, simplex_id }
-   *  by firing a pickAt on the renderer that owns that canvas. */
-  function resolvePickAt(canvas, cx, cy, fid, rendererIdx) {
-    var rec = frameRecs[fid];
-    if (!rec || rendererIdx >= rec.entries.length) { return null; }
-    return rec.entries[rendererIdx].renderer;
+  function _emptyGeomHit(frameX, frameY, fid) {
+    return {
+      type: "vf_event",
+      x: frameX,
+      y: frameY,
+      frame_id: fid,
+      object_id: 0,
+      simplex_id: 0,
+      pick_id: 0,
+      pick_mask_representation: 0,
+      pick_mask_carrier: 0,
+      pick_mask_content: 0,
+      pick_mask_exact: 0
+    };
   }
 
-  /** Attach mouse/wheel listeners to a geom canvas.
-   *  Multiple overlapping geom canvases per frame are each listened to. */
-  function attachCanvasEvents(canvas, fid, meshIdx) {
-    // Avoid double-attach
-    if (canvas.__vfEventsAttached) { return; }
-    canvas.__vfEventsAttached = true;
-    canvas.style.pointerEvents = "auto";  // enable pointer events for geom canvases
+  function isGeomClaimedFrame(fid) {
+    try {
+      var geomFrameIds = global.__vfGeomFrameIds;
+      if (geomFrameIds && fid && geomFrameIds[String(fid)]) {
+        return true;
+      }
+    } catch (_) {}
+    var frameEl = findFrameEl(fid);
+    var body = frameEl ? (frameEl.querySelector(".vf-frame__body") || frameEl) : null;
+    return !!(
+      (frameEl && frameEl.querySelector("canvas.vf-geom-canvas")) ||
+      (body && body.__vfGeomFrameEventsAttached)
+    );
+  }
 
-    function canvasXY(e) {
-      var r = canvas.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
+  function disableFrameCanvasEvents(fid) {
+    var frameEl = findFrameEl(fid);
+    if (!frameEl) { return; }
+    var drawCanvas = frameEl.querySelector("canvas.vf-frame__draw-canvas");
+    if (!drawCanvas) { return; }
+    drawCanvas.__vfFrameEventsDisabled = true;
+    drawCanvas.__vfOps = [];
+    drawCanvas.style.pointerEvents = "none";
+  }
+
+  function ensureGeomFrameEvents(fid) {
+    var frameEl = findFrameEl(fid);
+    if (!frameEl) { return; }
+    if (!global.__vfGeomFrameIds) {
+      global.__vfGeomFrameIds = Object.create(null);
     }
-    function canvasXYscaled(e) {
-      // Account for CSS pixels vs device pixels
-      var r  = canvas.getBoundingClientRect();
-      var sx = canvas.width  / (r.width  || 1);
-      var sy = canvas.height / (r.height || 1);
-      return {
-        x:  (e.clientX - r.left) * sx,
-        y:  (e.clientY - r.top)  * sy,
-        cx: e.clientX - r.left,
-        cy: e.clientY - r.top,
-      };
+    global.__vfGeomFrameIds[String(fid)] = true;
+    disableFrameCanvasEvents(fid);
+    var body = frameEl.querySelector(".vf-frame__body") || frameEl;
+    if (!body || body.__vfGeomFrameEventsAttached) { return; }
+    var AdapterApi = global.VfGeomFrameAdapter;
+    if (!AdapterApi || typeof AdapterApi.createPointerDispatch !== "function" || typeof AdapterApi.createPointerRuntime !== "function") {
+      throw new Error("ensureGeomFrameEvents(" + String(fid) + "): VfGeomFrameAdapter pointer runtime not loaded");
     }
+    var pointerDispatch = AdapterApi.createPointerDispatch();
+    var pickArbitrator = AdapterApi.createPickArbitrator({ emptyHit: _emptyGeomHit });
+    var pointerRuntime = AdapterApi.createPointerRuntime({
+      dispatch: pointerDispatch,
+      requestAnimationFrame: global.requestAnimationFrame.bind(global),
+      cancelAnimationFrame: global.cancelAnimationFrame.bind(global),
+      performPick: function (req, cb) {
+        var rec = frameRecs[fid];
+        var frameRect = body ? body.getBoundingClientRect() : null;
+        pickArbitrator.pickFrame({
+          fid: fid,
+          entries: rec && rec.entries ? rec.entries : [],
+          clientX: req.clientX,
+          clientY: req.clientY,
+          frameRect: frameRect
+        }, cb);
+      },
+      emit: function (hit, req) {
+        if (req && req.evtType === "leave") {
+          postEvent(hit);
+          return;
+        }
+        if (req && req.evtType === "down" && body.__vfGeomDragState) {
+          if (Number(hit && hit.object_id || 0) > 0 && !(req.mods && (req.mods.ctrl || req.mods.shift))) {
+            body.__vfGeomDragState.hit = Object.assign({}, hit);
+          } else {
+            body.__vfGeomDragState = null;
+          }
+        }
+        postEvent(Object.assign({}, hit, req.mods, { event: req.evtType }, req.extra));
+      }
+    });
+    body.__vfGeomFrameEventsAttached = true;
+    body.style.pointerEvents = "auto";
+    body.__vfGeomPickRuntime = pointerRuntime;
+    body.__vfGeomDragState = null;
 
     function emitWithPick(evtType, e, extra) {
-      var p = canvasXYscaled(e);
       var mods = {
         ctrl: !!(e && e.ctrlKey),
         shift: !!(e && e.shiftKey),
         alt: !!(e && e.altKey),
         meta: !!(e && e.metaKey)
       };
-      var renderer = resolvePickAt(canvas, p.x, p.y, fid, meshIdx);
-      if (!renderer) {
-        postEvent(Object.assign({ type: "vf_event", event: evtType,
-          x: p.cx, y: p.cy, frame_id: fid, object_id: 0, simplex_id: 0 }, mods, extra));
-        return;
-      }
-      renderer.pickAt(p.x, p.y, function(oid, sid) {
-        postEvent(Object.assign({ type: "vf_event", event: evtType,
-          x: p.cx, y: p.cy, frame_id: fid,
-          object_id: oid, simplex_id: sid }, mods, extra));
+      if (!body.__vfGeomPickRuntime) { return; }
+      body.__vfGeomPickRuntime.enqueue({
+        evtType: evtType,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        mods: mods,
+        extra: extra
       });
     }
 
-    canvas.addEventListener("mousemove", function(e) {
-      // Move must be low-latency; do not gate it on async GPU picking.
-      var p = canvasXY(e);
-      postEvent({
+    function currentFrameMetrics() {
+      var rect = body.getBoundingClientRect();
+      var aspect = "";
+      try {
+        aspect = String(frameEl && frameEl.dataset && frameEl.dataset.vfAspect ? frameEl.dataset.vfAspect : "").trim().toLowerCase();
+      } catch (_) {}
+      if (aspect === "equal") {
+        var fitSize = Math.max(1, Math.min(rect.width || 1, rect.height || 1));
+        return {
+          left: rect.left + ((rect.width - fitSize) * 0.5),
+          top: rect.top + ((rect.height - fitSize) * 0.5),
+          width: fitSize,
+          height: fitSize
+        };
+      }
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width || 1,
+        height: rect.height || 1
+      };
+    }
+
+    function postDirectDrag(e) {
+      var dragState = body.__vfGeomDragState;
+      if (!dragState) { return false; }
+      var buttons = Number(e.buttons) || 0;
+      if ((buttons & 1) === 0) {
+        body.__vfGeomDragState = null;
+        return false;
+      }
+      var dx = e.clientX - dragState.lastX;
+      var dy = e.clientY - dragState.lastY;
+      if (!dx && !dy) {
+        return true;
+      }
+      if (!dragState.hit || !(Number(dragState.hit.object_id || 0) > 0)) {
+        return true;
+      }
+      dragState.lastX = e.clientX;
+      dragState.lastY = e.clientY;
+      var metrics = currentFrameMetrics();
+      var hit = Object.assign({}, dragState.hit);
+      postEvent(Object.assign({}, hit, {
         type: "vf_event",
-        event: "move",
-        x: p.x,
-        y: p.y,
-        frame_id: fid,
-        object_id: 0,
-        simplex_id: 0,
-        buttons: Number(e.buttons) || 0,
+        event: "drag",
+        x: e.clientX - metrics.left,
+        y: e.clientY - metrics.top,
+        dx: dx,
+        dy: dy,
+        dx_norm: dx / (metrics.width || 1),
+        dy_norm: dy / (metrics.height || 1),
+        button: 0,
+        buttons: buttons,
+        pointerId: Number(e.pointerId) || 0,
         ctrl: !!e.ctrlKey,
         shift: !!e.shiftKey,
         alt: !!e.altKey,
-        meta: !!e.metaKey
-      });
+        meta: !!e.metaKey,
+        frame_id: fid
+      }));
+      return true;
+    }
+
+    body.addEventListener("pointermove", function(e) {
+      if (body.__vfGeomDragState && postDirectDrag(e)) {
+        return;
+      }
+      emitWithPick((Number(e.buttons) || 0) ? "move" : "hover", e, { buttons: Number(e.buttons) || 0 });
     }, { passive: true });
 
-    canvas.addEventListener("mousedown", function(e) {
-      emitWithPick("down", e, { button: e.button });
+    body.addEventListener("pointerleave", function() {
+      if (body.__vfGeomPickRuntime) {
+        body.__vfGeomPickRuntime.leave(_emptyGeomHit(0, 0, fid));
+      }
     }, { passive: true });
 
-    canvas.addEventListener("mouseup", function(e) {
-      emitWithPick("up", e, { button: e.button });
+    body.addEventListener("pointerdown", function(e) {
+      try { body.setPointerCapture(e.pointerId); } catch (_) {}
+      body.__vfGeomDragState = {
+        pointerId: Number(e.pointerId) || 0,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        hit: null
+      };
+      emitWithPick("down", e, { button: e.button, pointerId: Number(e.pointerId) || 0 });
     }, { passive: true });
 
-    canvas.addEventListener("wheel", function(e) {
+    body.addEventListener("pointerup", function(e) {
+      body.__vfGeomDragState = null;
+      emitWithPick("up", e, { button: e.button, pointerId: Number(e.pointerId) || 0 });
+      try { body.releasePointerCapture(e.pointerId); } catch (_) {}
+    }, { passive: true });
+
+    body.addEventListener("pointercancel", function(e) {
+      body.__vfGeomDragState = null;
+      emitWithPick("up", e, { button: e.button, pointerId: Number(e.pointerId) || 0 });
+      try { body.releasePointerCapture(e.pointerId); } catch (_) {}
+    }, { passive: true });
+
+    body.addEventListener("wheel", function(e) {
       try { e.__vfHandledWheel = true; } catch(_) {}
-      var p = canvasXY(e);
+      var r = body.getBoundingClientRect();
+      var x = e.clientX - r.left;
+      var y = e.clientY - r.top;
       var step = e.deltaY > 0 ? 1 : -1;
       if (e && typeof e.preventDefault === "function") { e.preventDefault(); }
       postEvent({ type: "vf_event", event: "wheel",
-        x: p.x, y: p.y, step: step, delta: Number(e.deltaY) || 0,
+        x: x, y: y, step: step, delta: Number(e.deltaY) || 0,
         ctrl: !!e.ctrlKey, frame_id: fid, object_id: 0, simplex_id: 0 });
     }, { passive: false });
 
-    vlog("info", "attachCanvasEvents: frame=" + fid + " meshIdx=" + meshIdx);
+    vlog("info", "ensureGeomFrameEvents: frame=" + fid);
   }
 
   // ── 2-D canvas helpers ────────────────────────────────────────────────────
@@ -177,6 +330,87 @@
     return { x: rect[0]*w, y: rect[1]*h, rw: rect[2]*w, rh: rect[3]*h };
   }
 
+  function colorToCss(color) {
+    if (typeof color === "string") { return color; }
+    if (Array.isArray(color) && color.length >= 3) {
+      var r = Number(color[0]);
+      var g = Number(color[1]);
+      var b = Number(color[2]);
+      var a = color.length >= 4 ? Number(color[3]) : 1;
+      if (!isFinite(r) || !isFinite(g) || !isFinite(b)) { return "#888"; }
+      if (Math.max(Math.abs(r), Math.abs(g), Math.abs(b), Math.abs(a)) > 1) {
+        if (Math.abs(r) > 1) { r = r / 255; }
+        if (Math.abs(g) > 1) { g = g / 255; }
+        if (Math.abs(b) > 1) { b = b / 255; }
+        if (Math.abs(a) > 1) { a = a / 255; }
+      }
+      r = Math.max(0, Math.min(1, r));
+      g = Math.max(0, Math.min(1, g));
+      b = Math.max(0, Math.min(1, b));
+      a = Math.max(0, Math.min(1, a));
+      return "rgba(" +
+        Math.round(r * 255) + ", " +
+        Math.round(g * 255) + ", " +
+        Math.round(b * 255) + ", " + a + ")";
+    }
+    return String(color != null ? color : "#888");
+  }
+
+  function pointToPx(point, w, h) {
+    if (!point || point.length < 2) { return null; }
+    return [point[0] * w, point[1] * h];
+  }
+
+  function pathPoints(ctx, points, w, h) {
+    if (!points || !points.length) { return false; }
+    var first = pointToPx(points[0], w, h);
+    if (!first) { return false; }
+    ctx.beginPath();
+    ctx.moveTo(first[0], first[1]);
+    for (var i = 1; i < points.length; i++) {
+      var p = pointToPx(points[i], w, h);
+      if (!p) { return false; }
+      ctx.lineTo(p[0], p[1]);
+    }
+    return true;
+  }
+
+  function applyLinePattern(ctx, pattern, widthPx) {
+    var p = String(pattern || "solid");
+    if (p === "dashed") {
+      ctx.setLineDash([Math.max(4, widthPx * 3), Math.max(3, widthPx * 2)]);
+      return;
+    }
+    if (p === "dotted") {
+      ctx.setLineDash([Math.max(1, widthPx), Math.max(3, widthPx * 2.2)]);
+      return;
+    }
+    ctx.setLineDash([]);
+  }
+
+  function drawPointShape(ctx, shape, x, y, r) {
+    var s = String(shape || "circle");
+    if (s === "square") {
+      ctx.beginPath();
+      ctx.rect(x - r, y - r, r * 2, r * 2);
+      ctx.fill();
+      return;
+    }
+    if (s === "diamond") {
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x + r, y);
+      ctx.lineTo(x, y + r);
+      ctx.lineTo(x - r, y);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawOpList(ctx, w, h, ops) {
     if (!w || !h || !ctx) { return; }
     ctx.clearRect(0, 0, w, h);
@@ -184,9 +418,41 @@
     for (var i = 0; i < ops.length; i++) {
       var o = ops[i];
       if (!o) { continue; }
+      if (o.op === "polygon") {
+        if (!pathPoints(ctx, o.points, w, h)) { continue; }
+        ctx.closePath();
+        if (o.color != null) {
+          ctx.fillStyle = colorToCss(o.color);
+          ctx.fill();
+        }
+        if (o.strokeColor != null && o.strokeWidth != null) {
+          ctx.strokeStyle = colorToCss(o.strokeColor);
+          ctx.lineWidth = Math.max(1, Number(o.strokeWidth) * Math.min(w, h));
+          ctx.setLineDash([]);
+          ctx.stroke();
+        }
+        continue;
+      }
+      if (o.op === "polyline") {
+        if (!pathPoints(ctx, o.points, w, h)) { continue; }
+        ctx.strokeStyle = colorToCss(o.color);
+        ctx.lineWidth = Math.max(1, (Number(o.width) || 0) * Math.min(w, h));
+        ctx.lineCap = String(o.cap || "round");
+        applyLinePattern(ctx, o.pattern, ctx.lineWidth);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        continue;
+      }
+      if (o.op === "point") {
+        var pp = pointToPx(o.point, w, h);
+        if (!pp) { continue; }
+        ctx.fillStyle = colorToCss(o.color);
+        drawPointShape(ctx, o.shape, pp[0], pp[1], Math.max(1, (Number(o.radius) || 0) * Math.min(w, h)));
+        continue;
+      }
       var p = normToPx(o.rect, w, h);
       if (!p) { continue; }
-      ctx.fillStyle = o.color != null ? String(o.color) : "#888";
+      ctx.fillStyle = colorToCss(o.color);
       if (o.op === "rect") {
         ctx.fillRect(p.x, p.y, p.rw, p.rh);
         continue;
@@ -209,6 +475,185 @@
         ctx.fill();
       }
     }
+  }
+
+  function _opPickFields(op) {
+    if (!op || typeof op !== "object") {
+      return {
+        pick_id: 0,
+        pick_mask_representation: 0,
+        pick_mask_carrier: 0,
+        pick_mask_content: 0,
+        pick_mask_exact: 0
+      };
+    }
+    return {
+      pick_id: Number(op.pick_id) || 0,
+      pick_mask_representation: Number(op.pick_mask_representation) || 0,
+      pick_mask_carrier: Number(op.pick_mask_carrier) || 0,
+      pick_mask_content: Number(op.pick_mask_content) || 0,
+      pick_mask_exact: Number(op.pick_mask_exact) || 0
+    };
+  }
+
+  function _distToSegmentSq(px, py, ax, ay, bx, by) {
+    var abx = bx - ax;
+    var aby = by - ay;
+    var ab2 = abx * abx + aby * aby;
+    if (ab2 <= 1e-12) {
+      var dx0 = px - ax;
+      var dy0 = py - ay;
+      return dx0 * dx0 + dy0 * dy0;
+    }
+    var t = ((px - ax) * abx + (py - ay) * aby) / ab2;
+    if (t < 0) { t = 0; }
+    if (t > 1) { t = 1; }
+    var qx = ax + abx * t;
+    var qy = ay + aby * t;
+    var dx = px - qx;
+    var dy = py - qy;
+    return dx * dx + dy * dy;
+  }
+
+  function _pointInPolygon(px, py, points, w, h) {
+    var inside = false;
+    for (var i = 0, j = points.length - 1; i < points.length; j = i++) {
+      var pi = pointToPx(points[i], w, h);
+      var pj = pointToPx(points[j], w, h);
+      if (!pi || !pj) { return false; }
+      var xi = pi[0], yi = pi[1];
+      var xj = pj[0], yj = pj[1];
+      var intersects = ((yi > py) !== (yj > py)) &&
+        (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-12) + xi);
+      if (intersects) { inside = !inside; }
+    }
+    return inside;
+  }
+
+  function _pointHitsDiamond(px, py, cx, cy, r) {
+    if (r <= 0) { return false; }
+    return (Math.abs(px - cx) + Math.abs(py - cy)) <= r;
+  }
+
+  function _hitTestFrameOps(ops, w, h, px, py) {
+    if (!ops || !ops.length || !w || !h) { return null; }
+    for (var i = ops.length - 1; i >= 0; i--) {
+      var op = ops[i];
+      if (!op || typeof op !== "object") { continue; }
+      if (op.op === "point") {
+        var pp = pointToPx(op.point, w, h);
+        if (!pp) { continue; }
+        var r = Math.max(1, (Number(op.radius) || 0) * Math.min(w, h));
+        var hit = false;
+        var shape = String(op.shape || "circle");
+        if (shape === "square") {
+          hit = px >= (pp[0] - r) && px <= (pp[0] + r) && py >= (pp[1] - r) && py <= (pp[1] + r);
+        } else if (shape === "diamond") {
+          hit = _pointHitsDiamond(px, py, pp[0], pp[1], r);
+        } else {
+          var dxp = px - pp[0];
+          var dyp = py - pp[1];
+          hit = (dxp * dxp + dyp * dyp) <= (r * r);
+        }
+        if (hit) {
+          return Object.assign({ object_id: 1, simplex_id: i }, _opPickFields(op));
+        }
+        continue;
+      }
+      if (op.op === "polyline") {
+        var pts = op.points;
+        if (!Array.isArray(pts) || pts.length < 2) { continue; }
+        var tol = Math.max(3, (Number(op.width) || 0) * Math.min(w, h) * 0.75);
+        var tolSq = tol * tol;
+        var segHit = false;
+        for (var s = 0; s < pts.length - 1; s++) {
+          var a = pointToPx(pts[s], w, h);
+          var b = pointToPx(pts[s + 1], w, h);
+          if (!a || !b) { continue; }
+          if (_distToSegmentSq(px, py, a[0], a[1], b[0], b[1]) <= tolSq) {
+            segHit = true;
+            break;
+          }
+        }
+        if (segHit) {
+          return Object.assign({ object_id: 1, simplex_id: i }, _opPickFields(op));
+        }
+        continue;
+      }
+      if (op.op === "polygon") {
+        if (_pointInPolygon(px, py, op.points, w, h)) {
+          return Object.assign({ object_id: 1, simplex_id: i }, _opPickFields(op));
+        }
+      }
+    }
+    return null;
+  }
+
+  function attachFrameCanvasEvents(canvas, fid) {
+    if (!canvas || canvas.__vfFrameEventsAttached) { return; }
+    if (canvas.__vfFrameEventsDisabled || isGeomClaimedFrame(fid)) {
+      canvas.__vfFrameEventsDisabled = true;
+      canvas.style.pointerEvents = "none";
+      return;
+    }
+    canvas.__vfFrameEventsAttached = true;
+    canvas.style.pointerEvents = "auto";
+
+    function canvasXY(e) {
+      var r = canvas.getBoundingClientRect();
+      var sx = canvas.width / (r.width || 1);
+      var sy = canvas.height / (r.height || 1);
+      return {
+        x: (e.clientX - r.left) * sx,
+        y: (e.clientY - r.top) * sy,
+        cx: e.clientX - r.left,
+        cy: e.clientY - r.top
+      };
+    }
+
+    function emit(evtType, e, extra) {
+      var p = canvasXY(e);
+      var hit = _hitTestFrameOps(canvas.__vfOps || [], canvas.width || 0, canvas.height || 0, p.x, p.y) || {
+        object_id: 0,
+        simplex_id: 0,
+        pick_id: 0,
+        pick_mask_representation: 0,
+        pick_mask_carrier: 0,
+        pick_mask_content: 0,
+        pick_mask_exact: 0
+      };
+      postEvent(Object.assign({
+        type: "vf_event",
+        event: evtType,
+        x: p.cx,
+        y: p.cy,
+        frame_id: fid
+      }, hit, {
+        ctrl: !!(e && e.ctrlKey),
+        shift: !!(e && e.shiftKey),
+        alt: !!(e && e.altKey),
+        meta: !!(e && e.metaKey)
+      }, extra));
+    }
+
+    canvas.addEventListener("pointerdown", function(e) {
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      emit("down", e, { button: e.button });
+    }, { passive: true });
+
+    canvas.addEventListener("pointerup", function(e) {
+      emit("up", e, { button: e.button });
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    }, { passive: true });
+
+    canvas.addEventListener("pointercancel", function(e) {
+      emit("up", e, { button: e.button });
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    }, { passive: true });
+
+    canvas.addEventListener("pointermove", function(e) {
+      emit("hover", e, { buttons: Number(e.buttons) || 0 });
+    }, { passive: true });
   }
 
   var _globalWheelBridgeInstalled = false;
@@ -258,8 +703,17 @@
         if (!(t instanceof Element)) { return; }
         var frameEl = t.closest(".vf-frame");
         if (!frameEl) { return; }
+        var frameBody = frameEl.querySelector(".vf-frame__body");
+        if (frameBody && frameBody.__vfGeomFrameEventsAttached) { return; }
         var fid = frameEl.getAttribute("data-vf-frame-id") || "";
-        _dragState = { fid: fid, lastX: e.clientX, lastY: e.clientY };
+        var rect = frameEl.getBoundingClientRect();
+        _dragState = {
+          fid: fid,
+          lastX: e.clientX,
+          lastY: e.clientY,
+          width: rect && rect.width ? rect.width : 1,
+          height: rect && rect.height ? rect.height : 1
+        };
       } catch (_) {}
     }, true);
 
@@ -272,6 +726,12 @@
     document.addEventListener("mousemove", function(e) {
       try {
         if (!_dragState) { return; }
+        var activeFrameEl = _dragState.fid ? findFrameEl(_dragState.fid) : null;
+        var activeFrameBody = activeFrameEl ? (activeFrameEl.querySelector(".vf-frame__body") || activeFrameEl) : null;
+        if (activeFrameBody && activeFrameBody.__vfGeomFrameEventsAttached) {
+          _dragState = null;
+          return;
+        }
         var buttons = Number(e.buttons) || 0;
         if ((buttons & 1) === 0) {
           _dragState = null;
@@ -289,6 +749,8 @@
           y: e.clientY,
           dx: dx,
           dy: dy,
+          dx_norm: dx / (_dragState.width || 1),
+          dy_norm: dy / (_dragState.height || 1),
           button: 0,
           buttons: buttons,
           ctrl: !!e.ctrlKey,
@@ -473,6 +935,25 @@
     };
   }
 
+  function buildUnifiedFrameScene(specs, camera, lights) {
+    if (!Array.isArray(specs) || !specs.length) { return null; }
+    var parts = [];
+    for (var i = 0; i < specs.length; i++) {
+      var mesh = buildSingleMesh(specs[i], camera, lights);
+      if (!mesh) { return null; }
+      mesh.object_id = Number(specs[i] && specs[i].object_id) || (i + 1);
+      parts.push(mesh);
+    }
+    return {
+      id: "unified_frame_scene",
+      parts: parts,
+      camera: camera || null,
+      lights: lights || [],
+      mode3d: false,
+      unified_renderer: true
+    };
+  }
+
   // Build a single-mesh object for the renderer from a spec
   function buildSingleMesh(spec, camera, lights) {
     var Core = global.VfGeomCore;
@@ -496,7 +977,7 @@
       var inds = spec.indices || [];
       mesh = {
         id: spec.id || "field_mesh",
-        mode3d: true,
+        mode3d: spec.mode3d === false ? false : true,
         label: spec.id || "field_mesh",
         vertices: (verts instanceof Float32Array) ? verts : new Float32Array(verts),
         indices: (inds instanceof Uint32Array) ? inds : new Uint32Array(inds),
@@ -521,7 +1002,8 @@
     out.rotation = spec.rotation || [0,0,0];
     out.scale    = spec.scale    || [1,1,1];
     out.alpha    = meshAlpha(spec);
-    out.transparent = out.alpha < 0.999;
+    out.transparent = spec.transparent === true || out.alpha < 0.999;
+    out.depth_write = spec.depth_write === true;
     out._modelMatrix = meshModelMatrix(spec);  // fallback if VfGeomMath.mat4ModelTRS absent
     return out;
   }
@@ -544,15 +1026,60 @@
     return c;
   }
 
+  function prewarmGeomRenderer(renderer) {
+    if (!renderer || typeof renderer._renderContent !== "function") { return; }
+    try {
+      var now = (global.performance && typeof global.performance.now === "function")
+        ? global.performance.now()
+        : Date.now();
+      renderer._renderContent(now);
+    } catch (err) {
+      vlog("warn", "prewarmGeomRenderer failed: " + (err && err.message ? err.message : String(err)));
+    }
+  }
+
   // ── Notify native host of updated hit regions after geom frames change ─────
   var _layoutDebounceTimer = null;
+  function collectGeomFrameBodyHitRegions() {
+    var out = [];
+    var keys = Object.keys(frameRecs || {});
+    for (var i = 0; i < keys.length; i += 1) {
+      var fid = keys[i];
+      var rec = frameRecs[fid];
+      if (!rec || !rec.entries || rec.entries.length < 1) { continue; }
+      var hasRenderer = false;
+      for (var j = 0; j < rec.entries.length; j += 1) {
+        if (rec.entries[j] && rec.entries[j].renderer) {
+          hasRenderer = true;
+          break;
+        }
+      }
+      if (!hasRenderer) { continue; }
+      var frameEl = findFrameEl(fid);
+      if (!frameEl) { continue; }
+      var body = frameEl.querySelector(".vf-frame__body") || frameEl;
+      var rect = body.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) { continue; }
+      out.push({
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        right: Math.round(rect.right),
+        bottom: Math.round(rect.bottom)
+      });
+    }
+    return out;
+  }
+
   function schedulePostGeomLayout() {
     if (_layoutDebounceTimer) { clearTimeout(_layoutDebounceTimer); }
     _layoutDebounceTimer = setTimeout(function() {
       _layoutDebounceTimer = null;
       var layer = document.getElementById("layer") || document.getElementById("vf-layer") || document.body;
       if (global.VfFrame && typeof global.VfFrame.postNativeHostLayout === "function") {
-        global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+        global.VfFrame.postNativeHostLayout(layer, {
+          stageAlpha: 0,
+          hitRegions: collectGeomFrameBodyHitRegions()
+        });
       }
     }, 50);
   }
@@ -624,12 +1151,20 @@
     var specs   = geomSpec.meshes || [];
     var camera  = geomSpec.camera || null;
     var lights  = geomSpec.lights || [];
-    var combinedTransparent = buildCombinedTransparentMesh(specs, camera, lights);
-    var renderSpecs = combinedTransparent
+    var unifiedScene = geomSpec && geomSpec.unified_renderer === true
+      ? buildUnifiedFrameScene(specs, camera, lights)
+      : null;
+    var combinedTransparent = !unifiedScene && geomSpec && geomSpec.combine_transparent === true && specs.length > 1
+      ? buildCombinedTransparentMesh(specs, camera, lights)
+      : null;
+    var renderSpecs = unifiedScene
+      ? [{ __mesh: unifiedScene, type: "unified_frame_scene" }]
+      : combinedTransparent
       ? [{ __mesh: combinedTransparent, type: "combined_transparent" }]
       : specs;
 
     vlog("info", "updateGeomFrame [" + fid + "]: meshes=" + specs.length +
+      (unifiedScene ? " (unified frame renderer)" : "") +
       (combinedTransparent ? " (combined transparent pass)" : "") +
       " camera=" + (camera ? JSON.stringify(camera.pos) : "none") +
       " lights=" + lights.length);
@@ -676,12 +1211,13 @@
 
         var refHolder = { mesh: mesh };
         (function(rh, fidInner, meshIdx, cv) {
-          var entry = { renderer: null, ref: rh, _logCount: 0 };
+          var entry = { renderer: null, ref: rh, _logCount: 0, resizeObserver: null, resizeRaf: 0 };
           rec.entries.push(entry);
           var r = new Ctor(canvas, function() { return rh.mesh; });
           entry.renderer = r;
           entry.canvas = cv;
           cv.style.opacity = String(mesh.alpha == null ? 1 : mesh.alpha);
+          cv.style.pointerEvents = "none";
           // Assign stable object_id (1-based: 0 means "no object")
           r._objectId = meshIdx + 1;
           r.init().then(function(ok) {
@@ -689,8 +1225,23 @@
               vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init FAILED (WebGPU unavailable?)");
             } else {
               vlog("info", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init OK, starting render loop");
+              prewarmGeomRenderer(r);
               r.start();
-              attachCanvasEvents(cv, fidInner, meshIdx);
+              if (typeof ResizeObserver === "function") {
+                var host = cv.parentElement || cv;
+                entry.resizeObserver = new ResizeObserver(function () {
+                  if (entry.resizeRaf) { return; }
+                  entry.resizeRaf = requestAnimationFrame(function () {
+                    entry.resizeRaf = 0;
+                    syncCanvasSize(cv);
+                    if (r && typeof r.onResize === "function") {
+                      r.onResize();
+                    }
+                  });
+                });
+                entry.resizeObserver.observe(host);
+              }
+              ensureGeomFrameEvents(fidInner);
             }
           }).catch(function(err) {
             vlog("error", "updateGeomFrame [" + fidInner + "]: renderer " + meshIdx + " init threw: " + (err && err.message ? err.message : String(err)));
@@ -706,6 +1257,16 @@
         rec.entries[j].renderer.stop();
       } catch(_) {}
       try {
+        if (rec.entries[j].resizeObserver) {
+          rec.entries[j].resizeObserver.disconnect();
+        }
+      } catch(_) {}
+      try {
+        if (rec.entries[j].resizeRaf) {
+          cancelAnimationFrame(rec.entries[j].resizeRaf);
+        }
+      } catch(_) {}
+      try {
         if (rec.entries[j].canvas && rec.entries[j].canvas.parentNode) {
           rec.entries[j].canvas.parentNode.removeChild(rec.entries[j].canvas);
         }
@@ -717,6 +1278,221 @@
     schedulePostGeomLayout();
   }
 
+  function _buildDynamicGeomScene(geomSpec) {
+    if (geomSpec && Array.isArray(geomSpec.parts)) {
+      return geomSpec;
+    }
+    if (!geomSpec || !Array.isArray(geomSpec.meshes)) {
+      throw new Error("dynamic geom provider returned invalid spec");
+    }
+    var scene = geomSpec && geomSpec.unified_renderer === true
+      ? buildUnifiedFrameScene(geomSpec.meshes, geomSpec.camera || null, geomSpec.lights || [])
+      : null;
+    if (!scene) {
+      throw new Error("dynamic geom provider did not produce a unified scene");
+    }
+    return scene;
+  }
+
+  function mountDynamicGeomFrame(fid, provider) {
+    if (typeof provider !== "function") {
+      throw new Error("mountDynamicGeomFrame(" + String(fid) + "): provider must be a function");
+    }
+    var Ctor = global.VfGeomWgpu;
+    if (!Ctor) {
+      throw new Error("mountDynamicGeomFrame(" + String(fid) + "): VfGeomWgpu not loaded");
+    }
+    var frameEl = findFrameEl(fid);
+    if (!frameEl) {
+      throw new Error("mountDynamicGeomFrame(" + String(fid) + "): frame DOM element not found");
+    }
+    var AdapterCtor = global.VfGeomFrameAdapter;
+    if (!AdapterCtor || typeof AdapterCtor.createAdapter !== "function") {
+      throw new Error("mountDynamicGeomFrame(" + String(fid) + "): VfGeomFrameAdapter not loaded");
+    }
+    if (!frameRecs[fid]) { frameRecs[fid] = { entries: [] }; }
+    if (!global.__vfGeomFrameIds) {
+      global.__vfGeomFrameIds = Object.create(null);
+    }
+    global.__vfGeomFrameIds[String(fid)] = true;
+    disableFrameCanvasEvents(fid);
+    var rec = frameRecs[fid];
+    if (!rec.dynamicAdapter) {
+      rec.dynamicAdapter = AdapterCtor.createAdapter({
+        provider: provider,
+        buildScene: _buildDynamicGeomScene
+      });
+    } else {
+      rec.dynamicAdapter.replaceProvider(provider);
+    }
+
+    if (rec.entries.length > 0 && rec.entries[0] && rec.entries[0].renderer) {
+      ensureGeomFrameEvents(fid);
+      schedulePostGeomLayout();
+      return;
+    }
+
+    var canvas = ensureGeomCanvas(frameEl, 0);
+    if (!canvas) {
+      throw new Error("mountDynamicGeomFrame(" + String(fid) + "): could not create geom canvas");
+    }
+    syncCanvasSize(canvas);
+    var entry = { renderer: null, ref: null, _logCount: 0, resizeObserver: null, resizeRaf: 0, canvas: canvas };
+    rec.entries = [entry];
+    var refHolder = {
+      get mesh() {
+        if (!rec.dynamicAdapter) { return null; }
+        try {
+          return rec.dynamicAdapter.currentScene();
+        } catch (err) {
+          vlog("error", err && err.message ? err.message : String(err));
+          return null;
+        }
+      }
+    };
+    entry.ref = refHolder;
+    var r = new Ctor(canvas, function() { return refHolder.mesh; });
+    entry.renderer = r;
+    canvas.style.pointerEvents = "none";
+    r.init().then(function(ok) {
+      if (!ok) {
+        vlog("error", "mountDynamicGeomFrame [" + fid + "]: renderer init FAILED");
+        return;
+      }
+      vlog("info", "mountDynamicGeomFrame [" + fid + "]: renderer init OK, starting render loop");
+      prewarmGeomRenderer(r);
+      r.start();
+      if (typeof ResizeObserver === "function") {
+        var host = canvas.parentElement || canvas;
+        entry.resizeObserver = new ResizeObserver(function () {
+          if (entry.resizeRaf) { return; }
+          entry.resizeRaf = requestAnimationFrame(function () {
+            entry.resizeRaf = 0;
+            syncCanvasSize(canvas);
+            if (rec.dynamicAdapter) {
+              rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
+            }
+            if (r && typeof r.onResize === "function") {
+              r.onResize();
+            }
+          });
+        });
+        entry.resizeObserver.observe(host);
+        if (rec.dynamicAdapter) {
+          rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
+        }
+      }
+      ensureGeomFrameEvents(fid);
+      schedulePostGeomLayout();
+    }).catch(function(err) {
+      vlog("error", "mountDynamicGeomFrame [" + fid + "]: renderer init threw: " + (err && err.message ? err.message : String(err)));
+    });
+  }
+
+  function mountLedgerGeomFrame(fid, ledger, selectGeomSpec) {
+    if (!ledger || typeof ledger.snapshot !== "function") {
+      throw new Error("mountLedgerGeomFrame(" + String(fid) + "): ledger must expose snapshot()");
+    }
+    var Ctor = global.VfGeomWgpu;
+    if (!Ctor) {
+      throw new Error("mountLedgerGeomFrame(" + String(fid) + "): VfGeomWgpu not loaded");
+    }
+    var frameEl = findFrameEl(fid);
+    if (!frameEl) {
+      throw new Error("mountLedgerGeomFrame(" + String(fid) + "): frame DOM element not found");
+    }
+    var AdapterCtor = global.VfGeomFrameAdapter;
+    if (!AdapterCtor || typeof AdapterCtor.createLedgerAdapter !== "function") {
+      throw new Error("mountLedgerGeomFrame(" + String(fid) + "): VfGeomFrameAdapter ledger runtime not loaded");
+    }
+    if (!frameRecs[fid]) { frameRecs[fid] = { entries: [] }; }
+    if (!global.__vfGeomFrameIds) {
+      global.__vfGeomFrameIds = Object.create(null);
+    }
+    global.__vfGeomFrameIds[String(fid)] = true;
+    disableFrameCanvasEvents(fid);
+    var rec = frameRecs[fid];
+    if (rec.dynamicAdapter && typeof rec.dynamicAdapter.dispose === "function") {
+      try { rec.dynamicAdapter.dispose(); } catch (_) {}
+    }
+    rec.dynamicAdapter = AdapterCtor.createLedgerAdapter({
+      ledger: ledger,
+      selectGeomSpec: selectGeomSpec,
+      buildScene: _buildDynamicGeomScene
+    });
+
+    if (rec.entries.length > 0 && rec.entries[0] && rec.entries[0].renderer) {
+      ensureGeomFrameEvents(fid);
+      schedulePostGeomLayout();
+      return;
+    }
+
+    var canvas = ensureGeomCanvas(frameEl, 0);
+    if (!canvas) {
+      throw new Error("mountLedgerGeomFrame(" + String(fid) + "): could not create geom canvas");
+    }
+    syncCanvasSize(canvas);
+    var entry = { renderer: null, ref: null, _logCount: 0, resizeObserver: null, resizeRaf: 0, canvas: canvas };
+    rec.entries = [entry];
+    var refHolder = {
+      get mesh() {
+        if (!rec.dynamicAdapter) { return null; }
+        try {
+          return rec.dynamicAdapter.currentScene();
+        } catch (err) {
+          vlog("error", err && err.message ? err.message : String(err));
+          return null;
+        }
+      }
+    };
+    entry.ref = refHolder;
+    var r = new Ctor(canvas, function() { return refHolder.mesh; });
+    entry.renderer = r;
+    canvas.style.pointerEvents = "none";
+    r.init().then(function(ok) {
+      if (!ok) {
+        vlog("error", "mountLedgerGeomFrame [" + fid + "]: renderer init FAILED");
+        return;
+      }
+      vlog("info", "mountLedgerGeomFrame [" + fid + "]: renderer init OK, starting render loop");
+      prewarmGeomRenderer(r);
+      r.start();
+      if (typeof ResizeObserver === "function") {
+        var host = canvas.parentElement || canvas;
+        entry.resizeObserver = new ResizeObserver(function () {
+          if (entry.resizeRaf) { return; }
+          entry.resizeRaf = requestAnimationFrame(function () {
+            entry.resizeRaf = 0;
+            syncCanvasSize(canvas);
+            if (rec.dynamicAdapter) {
+              rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
+            }
+            if (r && typeof r.onResize === "function") {
+              r.onResize();
+            }
+          });
+        });
+        entry.resizeObserver.observe(host);
+        if (rec.dynamicAdapter) {
+          rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
+        }
+      }
+      ensureGeomFrameEvents(fid);
+      schedulePostGeomLayout();
+    }).catch(function(err) {
+      vlog("error", "mountLedgerGeomFrame [" + fid + "]: renderer init threw: " + (err && err.message ? err.message : String(err)));
+    });
+  }
+
+  function requestDynamicGeomFrameUpdate(fid) {
+    var rec = frameRecs[fid];
+    if (!rec || !rec.dynamicAdapter) {
+      vlog("warn", "requestDynamicGeomFrameUpdate [" + fid + "]: no dynamic geom frame mounted");
+      return;
+    }
+    rec.dynamicAdapter.markDirty();
+  }
+
   // ── Main render from JSON ─────────────────────────────────────────────────
 
   function renderFromJson(data) {
@@ -724,6 +1500,7 @@
       vlog("warn", "renderFromJson: data is null or not an object");
       return;
     }
+    _lastDisplayPayload = data;
 
     // Log a summary of what arrived (suppress repeat spam)
     var geomKeys = data.geom ? Object.keys(data.geom) : [];
@@ -760,12 +1537,38 @@
           vlog("warn", "renderFromJson: 2D frame [" + fid + "] not found in DOM");
           continue;
         }
+        if (isGeomClaimedFrame(fid)) {
+          disableFrameCanvasEvents(fid);
+          continue;
+        }
         var cv = el.querySelector("canvas.vf-frame__draw-canvas");
         if (!cv) { continue; }
         var fsz = syncCanvasSize(cv);
         if (!fsz) { continue; }
+        cv.__vfOps = frames[fid];
+        attachFrameCanvasEvents(cv, fid);
         drawOpList(get2d(cv), fsz.w, fsz.h, frames[fid]);
       }
+    }
+
+    // Empty frames still need a live event surface.
+    var frameEls = document.querySelectorAll(".vf-frame[data-vf-frame-id]");
+    for (var i = 0; i < frameEls.length; i++) {
+      var frameEl = frameEls[i];
+      if (!(frameEl instanceof Element)) { continue; }
+      var emptyFid = frameEl.getAttribute("data-vf-frame-id") || "";
+      if (!emptyFid) { continue; }
+      if (isGeomClaimedFrame(emptyFid)) {
+        disableFrameCanvasEvents(emptyFid);
+        continue;
+      }
+      var emptyCanvas = frameEl.querySelector("canvas.vf-frame__draw-canvas");
+      if (!emptyCanvas) { continue; }
+      if (!syncCanvasSize(emptyCanvas)) { continue; }
+      if (!emptyCanvas.__vfOps) {
+        emptyCanvas.__vfOps = [];
+      }
+      attachFrameCanvasEvents(emptyCanvas, emptyFid);
     }
 
     // 3-D geom
@@ -775,6 +1578,15 @@
         if (!Object.prototype.hasOwnProperty.call(geom, gid)) { continue; }
         updateGeomFrame(gid, geom[gid]);
       }
+    }
+  }
+
+  function applyRuntimePacket(packet) {
+    if (!packet || typeof packet !== "object") { return; }
+    var kind = String(packet.kind || "");
+    var payload = packet.payload;
+    if (kind === "display.replace" && payload && payload.display && typeof payload.display === "object") {
+      renderFromJson(payload.display);
     }
   }
 
@@ -789,7 +1601,6 @@
   }
 
   var _lastFetchFailed = false;
-  var _lastFetchText   = "";
   var _fetchInFlight   = false;   // prevent fetch pile-up at 60 fps
 
   function loadAndRender() {
@@ -814,8 +1625,6 @@
       })
       .then(function(t) {
         if (t == null) { return; }
-        if (t === _lastFetchText) { return; }  // no change, skip parse
-        _lastFetchText = t;
         var o; try { o = JSON.parse(t); } catch(e) {
           vlog("error", "loadAndRender: JSON.parse failed: " + e.message + " (first 200 chars: " + t.slice(0,200) + ")");
           return;
@@ -826,6 +1635,35 @@
         vlog("warn", "loadAndRender: fetch error: " + (err && err.message ? err.message : String(err)));
       })
       .finally(function() { _fetchInFlight = false; });
+  }
+
+  function redrawCurrentDisplay() {
+    if (!_lastDisplayPayload) { return false; }
+    renderFromJson(_lastDisplayPayload);
+    return true;
+  }
+
+  function resolveRuntimeShellScriptUrl() {
+    if (_vfDisplayScript && _vfDisplayScript.src && typeof URL !== "undefined") {
+      try {
+        var u = new URL(_vfDisplayScript.src, document.baseURI);
+        u.pathname = u.pathname.replace(/vf-display\.js$/, "vf-runtime-shell.js");
+        return u.toString();
+      } catch (_) {}
+    }
+    return "vf-runtime-shell.js";
+  }
+
+  function ensureRuntimeShellLoaded() {
+    if (global.VfRuntimeShell || typeof document === "undefined") { return; }
+    if (document.querySelector('script[data-vf-runtime-shell-module="true"]')) { return; }
+    var script = document.createElement("script");
+    script.src = resolveRuntimeShellScriptUrl();
+    script.async = false;
+    script.setAttribute("data-vf-runtime-shell-module", "true");
+    var parent = document.head || document.body || document.documentElement;
+    if (!parent) { return; }
+    parent.appendChild(script);
   }
 
   // ── Dependency check on load ──────────────────────────────────────────────
@@ -875,6 +1713,15 @@
 
   installGlobalWheelBridge();
   installGlobalDragBridge();
-  global.VfDisplay = { renderFromJson: renderFromJson, loadAndRender: loadAndRender };
+  global.VfDisplay = {
+    renderFromJson: renderFromJson,
+    loadAndRender: loadAndRender,
+    applyRuntimePacket: applyRuntimePacket,
+    redrawCurrentDisplay: redrawCurrentDisplay,
+    mountDynamicGeomFrame: mountDynamicGeomFrame,
+    mountLedgerGeomFrame: mountLedgerGeomFrame,
+    requestDynamicGeomFrameUpdate: requestDynamicGeomFrameUpdate
+  };
+  ensureRuntimeShellLoaded();
   vlog("info", "VfDisplay registered");
 })(typeof window !== "undefined" ? window : this);

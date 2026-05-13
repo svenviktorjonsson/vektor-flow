@@ -208,7 +208,7 @@ def test_runtime_collection_take_prefix_for_list_and_queue() -> None:
     overridden_pairs_ms = runtime_collection_multiset_from_count_pairs(
         [(1, 2), (1, 5), (2, 0), (3, 1)]
     )
-    assert runtime_collection_items_sorted(overridden_pairs_ms) == [(1, 5), (3, 1)]
+    assert runtime_collection_items_sorted(overridden_pairs_ms) == [(1, 7), (3, 1)]
     with pytest.raises(EvalError, match=r"multiset count must be a number"):
         runtime_collection_multiset_from_count_pairs([(1, "x")])
     with pytest.raises(EvalError, match=r"multiset count must be an integer"):

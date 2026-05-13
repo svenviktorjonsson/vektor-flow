@@ -42,9 +42,8 @@ def test_emit_in_op_call_arg_errors() -> None:
         parse_module("+(1, 2::)", "<t>")
 
 
-def test_multiset_comma_form_errors() -> None:
-    with pytest.raises(ParseError, match="multiset literal must use"):
-        parse_module("{1, 2}", "<t>")
+def test_multiset_comma_form_defaults_count_to_one() -> None:
+    parse_module("{1, 2}", "<t>")
 
 
 def test_emit_in_multiset_errors() -> None:

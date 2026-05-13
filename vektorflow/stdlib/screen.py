@@ -16,7 +16,17 @@ from vektorflow.ui.ir import (
     dumps_scene,
     parse_dock_location,
 )
+from vektorflow.ui.payloads import (
+    publish_widget_append_patch,
+)
+from vektorflow.ui.scene_runtime import (
+    append_frame_upsert,
+    dump_scene_commands,
+    sync_scene_commands,
+    sync_ui_state,
+)
 from vektorflow.runtime.vflist import VFLinkedList
+from vektorflow.runtime.vfvector import VFVector
 from .events import (
     EVENT_CONST_TO_NAME,
     WIDGET_TYPE_EVENT_CONSTS,
@@ -54,13 +64,13 @@ def _coerce_body(body: Any) -> list[dict[str, Any]] | None:
     """Normalize ``body`` to a list of widget dicts for :class:`FrameSpec`."""
     if body is None:
         return None
-    if isinstance(body, (list, tuple)):
+    if isinstance(body, (VFVector, list, tuple)):
         return [_as_widget_node(x) for x in body]
     if isinstance(body, VFLinkedList):
         return [_as_widget_node(x) for x in body]
     if isinstance(body, dict):
         return [_as_widget_node(body)]
-    raise TypeError("body must be a list, tuple, collections list, or a single widget dict")
+    raise TypeError("body must be a vector, tuple, collections list, or a single widget dict")
 
 
 def _as_widget_node(x: Any) -> dict[str, Any]:
@@ -94,7 +104,7 @@ def _widget_props(x: Any) -> dict[str, Any]:
 
 
 def _normalize_grid_slot(slot: Any) -> list[int]:
-    if not isinstance(slot, (list, tuple)) or len(slot) != 4:
+    if not isinstance(slot, (VFVector, list, tuple)) or len(slot) != 4:
         raise TypeError("grid must be a 4-tuple (row, col, row_span, col_span)")
     vals = [int(slot[0]), int(slot[1]), int(slot[2]), int(slot[3])]
     if vals[0] < 0 or vals[1] < 0:
@@ -112,7 +122,7 @@ def _apply_widget_meta(node: dict[str, Any], *, grid: Any = None) -> dict[str, A
 
 
 def _normalize_grid_layout(value: Any) -> dict[str, Any]:
-    if not isinstance(value, (list, tuple)) or len(value) != 2:
+    if not isinstance(value, (VFVector, list, tuple)) or len(value) != 2:
         raise TypeError("gridlayout must be a 2-tuple (rows, cols)")
     rows = int(value[0])
     cols = int(value[1])
@@ -198,13 +208,26 @@ class _Widget:
             }, grid=grid)
         )
 
-    def text_area(self, id: str, text: str = "", **kwargs: Any) -> dict[str, Any]:
+    def text_area(
+        self,
+        id: str,
+        text: str = "",
+        *,
+        rows: int | None = None,
+        readonly: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"text_area() got unexpected keyword argument(s): {bad}")
+        spec: dict[str, Any] = {"id": str(id), "type": "textarea", "text": str(text)}
+        if rows is not None:
+            spec["rows"] = int(rows)
+        if readonly:
+            spec["readonly"] = True
         return _attach_widget_event_consts(
-            _apply_widget_meta({"id": str(id), "type": "textarea", "text": str(text)}, grid=grid)
+            _apply_widget_meta(spec, grid=grid)
         )
 
     def dropdown(
@@ -216,12 +239,12 @@ class _Widget:
             raise TypeError(f"dropdown() got unexpected keyword argument(s): {bad}")
         opts: list[str] = []
         if options is not None:
-            if isinstance(options, (list, tuple)):
+            if isinstance(options, (VFVector, list, tuple)):
                 opts = [str(x) for x in options]
             elif isinstance(options, VFLinkedList):
                 opts = [str(x) for x in options]
             else:
-                raise TypeError("dropdown options must be a list or collections.list")
+                raise TypeError("dropdown options must be a vector, tuple, or collections.list")
         return _attach_widget_event_consts(
             _apply_widget_meta({"id": str(id), "type": "dropdown", "options": opts, "value": int(value)}, grid=grid)
         )
@@ -261,6 +284,7 @@ class Screen:
         self._next_id = 0
         # ``frame_id`` -> ``widget_id`` -> props — merged in ``web/vf-ui/vf-ui-state.json`` for live updates.
         self._ui_state: dict[str, dict[str, dict[str, Any]]] = {}
+        self._widget_append_seq = 0
 
     def _alloc_id(self) -> str:
         self._next_id += 1
@@ -324,6 +348,7 @@ class Screen:
         pending: PendingFrame,
         rect: Any | None = None,
         *,
+        write_files: bool = True,
         body: Any = None,
         in_frame: PendingFrame | None = None,
         under: PendingFrame | None = None,
@@ -441,20 +466,16 @@ class Screen:
             body_layout=dict(pending.body_layout) if pending.body_layout is not None else None,
             parent_id=parent_id,
         )
-        self._commands.append(
-            UiCommand("frame_upsert", fid, {"spec": spec.to_json_obj()})
-        )
+        append_frame_upsert(self._commands, frame_id=fid, spec=spec)
         pending._placed_id = fid
         pending._placed_rect = xs
-        _write_vkf_scene_to_vf_ui(self._commands)
-        _write_vf_ui_state_to_vf_ui(self._ui_state)
-        if len(self._commands) == 1:
-            from vektorflow.ui.launch import maybe_launch_ui
-            maybe_launch_ui()
+        if write_files:
+            _write_vkf_scene_to_vf_ui(self._commands)
+            _write_vf_ui_state_to_vf_ui(self._ui_state)
 
     def dumps(self) -> str:
         """JSON scene log for debugging / host bridge."""
-        return dumps_scene(self._commands)
+        return dump_scene_commands(self._commands)
 
     def widget_set(self, frame_id: str, widget_id: str, props: Any) -> None:
         """Merge *props* into the live UI state (``web/vf-ui/vf-ui-state.json``) for one widget."""
@@ -467,6 +488,34 @@ class Screen:
         merged = {**cur, **d}
         by_f[str(widget_id)] = merged
         _write_vf_ui_state_to_vf_ui(self._ui_state)
+
+    def widget_append_text(self, frame_id: str, widget_id: str, text: Any) -> None:
+        """Append text to a live text widget once, without replaying it on every state poll."""
+        frame_key = str(frame_id)
+        widget_key = str(widget_id)
+        by_f = self._ui_state.get(frame_key)
+        if by_f is None:
+            by_f = {}
+            self._ui_state[frame_key] = by_f
+        cur = dict(by_f.get(widget_key, {}))
+        cur_text = str(cur.get("text", ""))
+        append_text = str(text)
+        self._widget_append_seq += 1
+        publish_widget_append_patch(
+            frame_key,
+            widget_key,
+            append_text,
+            append_seq=int(self._widget_append_seq),
+        )
+        self.widget_set(
+            frame_key,
+            widget_key,
+            {
+                "text": cur_text + append_text,
+                "append_text": append_text,
+                "append_seq": int(self._widget_append_seq),
+            },
+        )
 
 
 def _sync_json_to_all_built_webs(root: Path, filename: str, text: str) -> None:
@@ -523,18 +572,15 @@ def _copy_vf_ui_file_to_built_web(root: Path, src_rel: str) -> None:
 
 
 def _write_vkf_scene_to_vf_ui(commands: list[UiCommand]) -> None:
-    """Write scene JSON for ``vkf-scene.html`` (repo copy + overlay ``web/`` next to built exe)."""
+    """Write scene JSON for the active UI session (and mirror latest to root for compatibility)."""
     try:
+        root = None
+        text = sync_scene_commands(commands)
         from vektorflow.ui.launch import find_vektorflow_repo_root
 
         root = find_vektorflow_repo_root()
         if root is None:
             return
-        text = dumps_scene(commands)
-        out = root / "web" / "vf-ui" / "vkf-scene.json"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
-        _sync_json_to_all_built_webs(root, "vkf-scene.json", text)
         _copy_vf_ui_file_to_built_web(root, "vf-widgets.js")
     except OSError:
         pass
@@ -542,35 +588,20 @@ def _write_vkf_scene_to_vf_ui(commands: list[UiCommand]) -> None:
 
 def _write_vf_ui_state_to_vf_ui(state: dict[str, dict[str, dict[str, Any]]]) -> None:
     """Per-widget props overlay for ``vf-widgets.js`` (sliders, labels, text fields)."""
-    import json
-
     try:
-        from vektorflow.ui.launch import find_vektorflow_repo_root, find_vf_overlay_exe
-
-        root = find_vektorflow_repo_root()
-        if root is None:
-            return
-        text = json.dumps(state, indent=2) + "\n"
-        out = root / "web" / "vf-ui" / "vf-ui-state.json"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
-        exe = find_vf_overlay_exe(root)
-        if exe is not None:
-            built = exe.parent / "web" / "vf-ui-state.json"
-            built.parent.mkdir(parents=True, exist_ok=True)
-            built.write_text(text, encoding="utf-8")
+        sync_ui_state(state)
     except (OSError, TypeError, ValueError):
         pass
 
 
 def _coerce_norm_rect(rect: Any) -> NormRect:
-    if isinstance(rect, (list, tuple)) and len(rect) == 4:
+    if isinstance(rect, (VFVector, list, tuple)) and len(rect) == 4:
         x, y, w, h = (float(rect[i]) for i in range(4))
         r = NormRect(x=x, y=y, w=w, h=h)
         r.validate()
         return r
     raise TypeError(
-        "rect must be a 4-tuple (or list) of numbers (x, y, w, h) in normalized coords"
+        "rect must be a 4-tuple or vector of numbers (x, y, w, h) in normalized coords"
     )
 
 

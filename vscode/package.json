@@ -71,6 +71,8 @@
           "textMateRules": [
             { "scope": "comment.line.number-sign.vektorflow", "settings": { "foreground": "#5E9A65", "fontStyle": "italic" } },
             { "scope": "string.quoted.double.vektorflow", "settings": { "foreground": "#D98C6A" } },
+            { "scope": "string.quoted.triple.double.vektorflow", "settings": { "foreground": "#D98C6A", "fontStyle": "italic" } },
+            { "scope": "string.quoted.triple.single.raw.vektorflow", "settings": { "foreground": "#CFA07A", "fontStyle": "italic" } },
             { "scope": "constant.character.escape.vektorflow", "settings": { "foreground": "#C9A65C" } },
             { "scope": "punctuation.interpolation.dollar.vektorflow", "settings": { "foreground": "#FFB24D", "fontStyle": "bold" } },
             { "scope": "variable.interpolation.name.vektorflow", "settings": { "foreground": "#B89CFF" } },

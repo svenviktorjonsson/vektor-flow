@@ -10,6 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(VF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 
+if(NOT TARGET vf-core-runtime)
+  add_subdirectory("${VF_REPO_ROOT}/native/VfCore" "${CMAKE_BINARY_DIR}/vfcore")
+endif()
+
 # WebView2 SDK (NuGet)
 set(WV2_VERSION "1.0.2849.39")
 set(WV2_PKG "${CMAKE_BINARY_DIR}/Microsoft.Web.WebView2.${WV2_VERSION}.nupkg")
@@ -76,12 +80,15 @@ FetchContent_MakeAvailable(cjson)
 
 add_executable(vf-overlay WIN32
   main.cpp
+  overlay_geometry_ledger_runtime.cpp
+  overlay_packet_runtime.cpp
 )
 target_include_directories(vf-overlay PRIVATE
   "${WV2_INCLUDE_DIR}"
   "${cjson_SOURCE_DIR}"
 )
 target_link_libraries(vf-overlay PRIVATE
+  vf-core-runtime
   cjson
   "${WV2_LOADER_LIB}"
   ole32
@@ -103,6 +110,8 @@ target_link_libraries(vf-overlay PRIVATE
 target_compile_definitions(vf-overlay PRIVATE UNICODE _UNICODE)
 
 add_custom_command(TARGET vf-overlay POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+  "$<TARGET_FILE_DIR:vf-overlay>/web"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
   "${VF_REPO_ROOT}/web/vf-ui"
   "$<TARGET_FILE_DIR:vf-overlay>/web"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -42,6 +43,10 @@ class EvalError(VektorFlowError):
     """Raised during evaluation."""
 
 
+class AssertionError(VektorFlowError):
+    """Raised by ``?!`` assertions and explicit ``errors.AssertionError(...)!``."""
+
+
 @dataclass(frozen=True)
 class ErrorTypeValue:
     """Runtime-matchable error type value for ``errors.X`` arms."""
@@ -55,6 +60,18 @@ class ErrorTypeValue:
 
     def __str__(self) -> str:
         return self.name
+
+    def __call__(self, message: str = "") -> BaseException:
+        exc_type = next(
+            (t for t in self.py_types if issubclass(t, VektorFlowError)),
+            None,
+        )
+        if exc_type is None:
+            if self is ERROR:
+                exc_type = EvalError
+            else:
+                exc_type = RuntimeError
+        return exc_type(message)
 
 
 class ControlFlow(Exception):
@@ -84,6 +101,7 @@ VEKTORFLOW_ERROR = ErrorTypeValue("VEKTORFLOW_ERROR", 0b11, (VektorFlowError,))
 LEX_ERROR_TYPE = ErrorTypeValue("LEX_ERROR", 0b111, (LexError,))
 PARSE_ERROR_TYPE = ErrorTypeValue("PARSE_ERROR", 0b1011, (ParseError,))
 EVAL_ERROR_TYPE = ErrorTypeValue("EVAL_ERROR", 0b10011, (EvalError,))
+ASSERTION_ERROR_TYPE = ErrorTypeValue("ASSERTION_ERROR", 0b1000011, (AssertionError,))
 PYTHON_ERROR = ErrorTypeValue("PYTHON_ERROR", 0b100001, (Exception,))
 TYPE_ERROR_TYPE = ErrorTypeValue("TYPE_ERROR", 0b1100001, (TypeError,))
 VALUE_ERROR_TYPE = ErrorTypeValue("VALUE_ERROR", 0b10100001, (ValueError,))
@@ -94,22 +112,37 @@ RUNTIME_ERROR_TYPE = ErrorTypeValue("RUNTIME_ERROR", 0b100000100001, (RuntimeErr
 
 ERROR_NAMESPACE: dict[str, ErrorTypeValue] = {
     "ERROR": ERROR,
+    "Error": ERROR,
     "VEKTORFLOW_ERROR": VEKTORFLOW_ERROR,
+    "VektorflowError": VEKTORFLOW_ERROR,
     "LEX_ERROR": LEX_ERROR_TYPE,
+    "LexError": LEX_ERROR_TYPE,
     "PARSE_ERROR": PARSE_ERROR_TYPE,
+    "ParseError": PARSE_ERROR_TYPE,
     "EVAL_ERROR": EVAL_ERROR_TYPE,
+    "EvalError": EVAL_ERROR_TYPE,
+    "ASSERTION_ERROR": ASSERTION_ERROR_TYPE,
+    "AssertionError": ASSERTION_ERROR_TYPE,
     "PYTHON_ERROR": PYTHON_ERROR,
+    "PythonError": PYTHON_ERROR,
     "TYPE_ERROR": TYPE_ERROR_TYPE,
+    "TypeError": TYPE_ERROR_TYPE,
     "VALUE_ERROR": VALUE_ERROR_TYPE,
+    "ValueError": VALUE_ERROR_TYPE,
     "KEY_ERROR": KEY_ERROR_TYPE,
+    "KeyError": KEY_ERROR_TYPE,
     "INDEX_ERROR": INDEX_ERROR_TYPE,
+    "IndexError": INDEX_ERROR_TYPE,
     "FILE_NOT_FOUND": FILE_NOT_FOUND_ERROR_TYPE,
+    "FileNotFound": FILE_NOT_FOUND_ERROR_TYPE,
     "RUNTIME_ERROR": RUNTIME_ERROR_TYPE,
+    "RuntimeError": RUNTIME_ERROR_TYPE,
 }
 
 _ERROR_TYPES_BY_SPECIFICITY: tuple[ErrorTypeValue, ...] = (
     LEX_ERROR_TYPE,
     PARSE_ERROR_TYPE,
+    ASSERTION_ERROR_TYPE,
     EVAL_ERROR_TYPE,
     FILE_NOT_FOUND_ERROR_TYPE,
     INDEX_ERROR_TYPE,
@@ -135,3 +168,47 @@ def error_type_match_specificity(value: BaseException, pattern: ErrorTypeValue) 
     if (actual.mask & pattern.mask) != pattern.mask:
         return None
     return pattern.mask.bit_count()
+
+
+def format_error_diagnostic(
+    exc: BaseException,
+    *,
+    source_text: str | None = None,
+    context_lines: int = 1,
+) -> str:
+    if not isinstance(exc, VektorFlowError):
+        return f"error: {exc}"
+
+    message = exc.message
+    loc = exc.location
+    if loc is None:
+        return f"error: {message}"
+
+    lines: list[str] = [f"error: {message}", f" --> {loc.file}:{loc.line}:{loc.column}"]
+
+    text = source_text
+    if text is None and loc.file and not str(loc.file).startswith("<"):
+        try:
+            text = Path(loc.file).read_text(encoding="utf-8")
+        except OSError:
+            text = None
+
+    if text is None:
+        return "\n".join(lines)
+
+    source_lines = text.splitlines()
+    if not source_lines:
+        return "\n".join(lines)
+
+    line_no = max(1, loc.line)
+    start = max(1, line_no - context_lines)
+    end = min(len(source_lines), line_no + context_lines)
+    gutter_width = max(len(str(end)), 1)
+
+    for current in range(start, end + 1):
+        snippet = source_lines[current - 1]
+        lines.append(f"{current:>{gutter_width}} | {snippet}")
+        if current == line_no:
+            caret_col = max(1, loc.column)
+            lines.append(f"{'':>{gutter_width}} | {' ' * (caret_col - 1)}^")
+    return "\n".join(lines)

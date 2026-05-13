@@ -79,3 +79,6 @@ class TestDottedIndex:
 
     def test_underscore_name(self) -> None:
         assert _run("row_1 : [7]\n:: row_1.(0)") == "7"
+
+    def test_multiset_numeric_reach_returns_count(self) -> None:
+        assert _run("m : {1:2, 3:4}\n::: m.1\n::: m.2") == "m.(1): 2\nm.(2): 0"

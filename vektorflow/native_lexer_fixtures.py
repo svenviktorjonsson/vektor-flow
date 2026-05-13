@@ -86,6 +86,10 @@ TOKEN_FIXTURE_SPECS: tuple[TokenFixtureSpec, ...] = (
         source_rel="examples/native_core/numeric_native.vkf",
         fixture_name="numeric_native_versioned.json",
     ),
+    TokenFixtureSpec(
+        source_rel="examples/native_core/axis_align_native.vkf",
+        fixture_name="axis_align_native_versioned.json",
+    ),
 )
 
 

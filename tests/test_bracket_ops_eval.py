@@ -93,8 +93,8 @@ B : {"a":5, "b":2}
 ::: A / 2
 """
     lines = _run_emit(src).splitlines()
-    assert lines[0] == "(a:0.4, b:1.5)"
-    assert lines[1] in {"(a:1, b:1.5)", "(a:1.0, b:1.5)"}
+    assert lines[0] == "A/B: (a:0.4, b:1.5)"
+    assert lines[1] in {"A/2: (a:1, b:1.5)", "A/2: (a:1.0, b:1.5)"}
 
 
 def test_multiset_scalar_broadcast_plus_minus_over_existing_keys_only() -> None:
@@ -118,9 +118,19 @@ def test_multiset_floordiv_runtime_support_scalar_and_keywise() -> None:
     )
 
 
-def test_multiset_literal_duplicate_entries_override_later() -> None:
+def test_multiset_literal_duplicate_entries_accumulate_counts() -> None:
     out = _run_emit(":: {1:2, 1:5, 2:0}")
-    assert _parse_multiset_repr(out) == Multiset({1: 5})
+    assert _parse_multiset_repr(out) == Multiset({1: 7})
+
+
+def test_multiset_literal_bare_entries_default_count_to_one() -> None:
+    out = _run_emit(":: {1, 2, 4:5}")
+    assert _parse_multiset_repr(out) == Multiset({1: 1, 2: 1, 4: 5})
+
+
+def test_multiset_literal_repeated_bare_entries_accumulate() -> None:
+    out = _run_emit(":: {1, 1, 2, 2, 2}")
+    assert _parse_multiset_repr(out) == Multiset({1: 2, 2: 3})
 
 
 def test_axis_tagged_multiset_scalar_ops_follow_same_rules() -> None:

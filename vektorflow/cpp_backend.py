@@ -1689,21 +1689,32 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
     raise CppEmitError(f"unsupported expression emission for {type(node).__name__}")
 
 
+def _print_expr_strip_trailing_newline_literal(expr: Any) -> tuple[Any, bool]:
+    """If ``expr`` is ``(inner & "\\n")`` in IR, return inner and a flag to append ``\\n`` in C++."""
+    if isinstance(expr, ir.BinaryExpr) and expr.op == "AMPERSAND":
+        rhs = expr.right
+        if isinstance(rhs, ir.Const) and rhs.value == "\n":
+            return expr.left, True
+    return expr, False
+
+
 def _emit_print(expr: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
+    expr, line_suffix = _print_expr_strip_trailing_newline_literal(expr)
     t = _expr_type(expr, typed)
     code = _emit_expr(expr, env, functions, state, typed)
+    tail = ' << "\\n"' if line_suffix else ""
     if isinstance(t, (ast.FixedVectorType, ast.TypeExpr, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
-        return f"std::cout << vf_format_value({code}) << \"\\n\";"
+        return f"std::cout << vf_format_value({code}){tail};"
     if not isinstance(t, ast.PrimTypeRef):
         raise CppEmitError("only primitive print values are supported in C++ emission")
     if t.name == "bool":
-        return f'std::cout << ({code} ? "true" : "false") << "\\n";'
+        return f'std::cout << ({code} ? "true" : "false"){tail};'
     if t.name == "int":
-        return f"std::cout << {code} << \"\\n\";"
+        return f"std::cout << {code}{tail};"
     if t.name == "num":
-        return f"std::cout << vf_format_num({code}) << \"\\n\";"
+        return f"std::cout << vf_format_num({code}){tail};"
     if t.name == "str":
-        return f"std::cout << {code} << \"\\n\";"
+        return f"std::cout << {code}{tail};"
     raise CppEmitError(f"unsupported print type {t.name}")
 
 

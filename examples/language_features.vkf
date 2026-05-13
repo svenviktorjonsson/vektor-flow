@@ -1,0 +1,131 @@
+# Non-UI language tour: lots of prints, no overlay/runtime UI.
+
+Section(title):
+    :: "\n"
+    :: title
+    :: "\n"
+    title
+
+Show(value):
+    :: value
+    :: "\n"
+    @: value
+
+Section("== Vektor Flow language feature tour ==")
+
+numbers: [1, 2, 3, 4, 5]
+weights: [10, 20, 30, 40, 50]
+profile: (
+    name: "Ada",
+    role: "compiler gardener",
+    active: true,
+    scores: numbers
+)
+
+Section("-- bindings and literals --")
+Show(numbers)
+Show(weights)
+Show(profile)
+Show(profile.name)
+Show(profile.scores.(2))
+
+square(x):
+    @: x * x
+
+cube(x):
+    @: x * x * x
+
+classify(n):
+    n < 0? @: "negative"
+    n = 0? @: "zero"
+    n < 10? @: "small positive"
+    @: "large positive"
+
+pair_stats(a, b):
+    sum: a + b
+    diff: a - b
+    product: a * b
+    @: (
+        sum: sum,
+        diff: diff,
+        product: product
+    )
+
+Section("-- functions --")
+Show(square(7))
+Show(cube(3))
+Show(classify(-2))
+Show(classify(0))
+Show(classify(8))
+Show(classify(42))
+Show(pair_stats(9, 4))
+
+Section("-- ranges and map pipeline --")
+range_values: ..5 >> $
+squares: ..5 >> square($)
+cubes: ..5 >> cube($)
+labels: ..5 >> classify($)
+Show(range_values)
+Show(squares)
+Show(cubes)
+Show(labels)
+
+Section("-- loops --")
+i: 0
+running_total: 0
+i < 5?>
+    running_total: running_total + numbers.(i)
+    Show(running_total)
+    i: i + 1
+Show(running_total)
+
+Section("-- vector-style indexing and derived rows --")
+IndexRow(index):
+    @: (
+        index: index,
+        value: numbers.(index),
+        square: square(numbers.(index)),
+        weighted: numbers.(index) * weights.(index)
+    )
+
+rows: ..4 >> IndexRow($)
+Show(rows)
+Show(rows.(0))
+Show(rows.(4))
+
+Section("-- nested structs as grouped concepts --")
+view_model: (
+    data: (
+        points: [[0.1, 0.2], [0.8, 0.2], [0.5, 0.9]],
+        labels: ["left", "right", "top"]
+    ),
+    state: (
+        hovered: 1,
+        selected: [false, true, false]
+    )
+)
+
+PointInfo(model, index):
+    @: (
+        label: model.data.labels.(index),
+        point: model.data.points.(index),
+        selected: model.state.selected.(index),
+        hovered: model.state.hovered = index
+    )
+
+point_infos: ..2 >> PointInfo(view_model, $)
+Show(view_model)
+Show(point_infos)
+
+Section("-- early returns --")
+FirstSelected(flags):
+    index: 0
+    index < 3?>
+        flags.(index)? @: index
+        index: index + 1
+    @: -1
+
+Show(FirstSelected([false, false, true]))
+Show(FirstSelected([false, false, false]))
+
+Section("== done ==")

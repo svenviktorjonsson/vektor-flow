@@ -8,32 +8,71 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import threading
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from itertools import product
 from typing import Any, Protocol
 
+from ..runtime.vfvector import VFVector
+from ..runtime.struct_value import VF_TYPE_KEY, public_struct_items
+from ..ui.display_runtime import (
+    build_display_payload,
+    has_visible_display_content,
+    publish_display_runtime_payload,
+)
+from ..ui.representation_runtime import (
+    build_embedding_scope_draw_ops,
+    build_field_mesh_from_kwargs,
+    build_field_mesh_geometry,
+    refresh_all_representations,
+    refresh_representation,
+    refresh_representations_for_frame,
+)
 from .screen import (
     Screen,
     PendingFrame,
     _Widget,
     _write_vkf_scene_to_vf_ui,
 )
-from .screen import _copy_vf_ui_file_to_built_web
-from .screen import _sync_json_to_all_built_webs
 from .events import (
     UIMouse, UIKeyboard,
-    MouseEvent, KeyEvent,
+    MouseEvent, MouseMove, MouseHover, MouseDown, MouseUp, MouseWheel, MouseDrag,
+    FrameEvent, FrameClosed, FrameDocked, FrameDragged, FrameResized,
+    TouchEvent, KeyboardEvent, KeyEvent, KeyDown, KeyUp,
     EVENT_NAME_TO_BASE,
     EVENT_CONST_TO_NAME,
     encode_event_code,
     encode_ui_pattern,
     encode_frame_pattern,
     encode_widget_pattern,
+    ui_event_from_payload,
     start_event_poller, get_global_poller,
 )
+
+
+def _ui_trace_enabled() -> bool:
+    raw = str(os.environ.get("VF_UI_TRACE_EVENTS", "") or "").strip().lower()
+    return raw not in ("", "0", "false", "off", "no")
+
+
+def _ui_trace_line(msg: str) -> None:
+    if not _ui_trace_enabled():
+        return
+    try:
+        base = os.environ.get("LOCALAPPDATA", "")
+        if not base:
+            return
+        p = Path(base) / "vektor-flow" / "python-ui-events.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"{ts} {msg}\n")
+    except OSError:
+        pass
 
 # ---------------------------------------------------------------------------
 # Lighting models supported by vf-geom-wgpu.js
@@ -106,13 +145,13 @@ def _ui_sleep(seconds: float) -> None:
 # ---------------------------------------------------------------------------
 
 def _vec3(v: Any, name: str = "vec") -> list[float]:
-    if isinstance(v, (list, tuple)) and len(v) >= 3:
+    if isinstance(v, (VFVector, list, tuple)) and len(v) >= 3:
         return [float(v[0]), float(v[1]), float(v[2])]
     raise TypeError(f"{name} must be [x, y, z]")
 
 
 def _rect_from_tuple(t: Any) -> tuple[float, float, float, float]:
-    if isinstance(t, (list, tuple)) and len(t) == 4:
+    if isinstance(t, (VFVector, list, tuple)) and len(t) == 4:
         return (float(t[0]), float(t[1]), float(t[2]), float(t[3]))
     raise TypeError("rect must be a 4-tuple (x, y, w, h) in normalized 0..1 coordinates")
 
@@ -158,33 +197,492 @@ _COLOR_NAMES: dict[str, tuple[float, float, float, float]] = {
     "grey": (0.5, 0.5, 0.5, 1.0),
 }
 
+_NO_VIEW = object()
+_BASE_GRAPHICS_DEFAULTS: dict[str, Any] = {
+    "vertex": {"color": "#222222", "scale": 0.015, "style": None},
+    "edge": {"color": "#222222", "scale": 0.004, "style": None},
+    "face": {"color": "#c8c8c8", "scale": 0.0, "style": None},
+}
 
-def _shape_of_nested(value: Any) -> tuple[int, ...]:
-    if not isinstance(value, (list, tuple)):
-        return ()
-    n = len(value)
-    if n == 0:
-        return (0,)
-    first = _shape_of_nested(value[0])
-    for i in range(1, n):
-        if _shape_of_nested(value[i]) != first:
-            raise ValueError("ragged arrays are not supported in ui.add(...)")
-    return (n,) + first
+_PICK_REP_BITS = 16
+_PICK_KIND_BITS = 4
+_PICK_CARRIER_BITS = 20
+_PICK_CONTENT_BITS = 16
+_PICK_SUB_BITS = 8
+
+_PICK_SUB_SHIFT = 0
+_PICK_CONTENT_SHIFT = _PICK_SUB_SHIFT + _PICK_SUB_BITS
+_PICK_CARRIER_SHIFT = _PICK_CONTENT_SHIFT + _PICK_CONTENT_BITS
+_PICK_KIND_SHIFT = _PICK_CARRIER_SHIFT + _PICK_CARRIER_BITS
+_PICK_REP_SHIFT = _PICK_KIND_SHIFT + _PICK_KIND_BITS
+
+_PICK_SUB_MASK = ((1 << _PICK_SUB_BITS) - 1) << _PICK_SUB_SHIFT
+_PICK_CONTENT_MASK = ((1 << _PICK_CONTENT_BITS) - 1) << _PICK_CONTENT_SHIFT
+_PICK_CARRIER_MASK = ((1 << _PICK_CARRIER_BITS) - 1) << _PICK_CARRIER_SHIFT
+_PICK_KIND_MASK = ((1 << _PICK_KIND_BITS) - 1) << _PICK_KIND_SHIFT
+_PICK_REP_MASK = ((1 << _PICK_REP_BITS) - 1) << _PICK_REP_SHIFT
+_PICK_SEMANTIC_MASK = _PICK_REP_MASK | _PICK_KIND_MASK | _PICK_CARRIER_MASK
+_PICK_CONTENT_MATCH_MASK = _PICK_SEMANTIC_MASK | _PICK_CONTENT_MASK
+_PICK_EXACT_MASK = _PICK_CONTENT_MATCH_MASK | _PICK_SUB_MASK
+
+_PICK_KIND_VERTEX = 1
+_PICK_KIND_EDGE = 2
+_PICK_KIND_FACE = 3
+
+_PICK_KIND_NAMES = {
+    _PICK_KIND_VERTEX: "vertex",
+    _PICK_KIND_EDGE: "edge",
+    _PICK_KIND_FACE: "face",
+}
 
 
-def _nested_get(value: Any, idxs: tuple[int, ...]) -> Any:
-    cur = value
-    for idx in idxs:
-        cur = cur[idx]
-    return cur
+def _is_sequence(value: Any) -> bool:
+    return isinstance(value, (VFVector, list, tuple))
 
 
-def _iter_multi_index(shape: tuple[int, ...]):
-    if not shape:
-        yield ()
-        return
-    for tup in product(*[range(n) for n in shape]):
-        yield tup
+def _deep_copy_dict(value: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in value.items():
+        if isinstance(v, dict):
+            out[k] = _deep_copy_dict(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _structural_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    out = _deep_copy_dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _structural_merge_dict(out[k], v)
+        elif isinstance(v, dict):
+            out[k] = _deep_copy_dict(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _normalize_graphics_defaults_patch(patch: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    flat_map = {
+        "vertex_color": ("vertex", "color"),
+        "vertex_scale": ("vertex", "scale"),
+        "vertex_style": ("vertex", "style"),
+        "edge_color": ("edge", "color"),
+        "edge_scale": ("edge", "scale"),
+        "edge_style": ("edge", "style"),
+        "face_color": ("face", "color"),
+        "face_scale": ("face", "scale"),
+        "face_style": ("face", "style"),
+    }
+    for k, v in patch.items():
+        if k in flat_map:
+            outer, inner = flat_map[k]
+            out.setdefault(outer, {})[inner] = v
+            continue
+        if isinstance(v, dict):
+            out[k] = _normalize_graphics_defaults_patch(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _resolve_graphics_default(
+    defaults: dict[str, Any],
+    carrier: str,
+    field: str,
+) -> Any:
+    carrier_defaults = defaults.get(carrier)
+    if isinstance(carrier_defaults, dict) and field in carrier_defaults:
+        return carrier_defaults[field]
+    return _BASE_GRAPHICS_DEFAULTS[carrier][field]
+
+
+def _is_numeric_color_vector(value: Any) -> bool:
+    if not _is_sequence(value):
+        return False
+    if len(value) not in (3, 4):
+        return False
+    return all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in value)
+
+
+def _color_to_css(color: Any) -> str:
+    if isinstance(color, str):
+        return color
+    r, g, b, a = _parse_color_rgba(color)
+    rr = int(max(0.0, min(1.0, r)) * 255.0)
+    gg = int(max(0.0, min(1.0, g)) * 255.0)
+    bb = int(max(0.0, min(1.0, b)) * 255.0)
+    aa = max(0.0, min(1.0, a))
+    return f"rgba({rr}, {gg}, {bb}, {aa:.6g})"
+
+
+def _coerce_vertices2(vertices: Any) -> list[list[float]]:
+    if not _is_sequence(vertices):
+        raise TypeError("embedding vertices must be a vector/list of points")
+    out: list[list[float]] = []
+    for i, point in enumerate(vertices):
+        if not _is_sequence(point) or len(point) < 2:
+            raise TypeError(f"embedding vertex {i} must be a 2D or 3D point")
+        out.append([float(point[0]), float(point[1])])
+    return out
+
+
+def _coerce_index_pairs(indices: Any, name: str) -> list[list[int]]:
+    if not _is_sequence(indices):
+        raise TypeError(f"{name} must be a vector/list of index pairs")
+    out: list[list[int]] = []
+    for i, pair in enumerate(indices):
+        if not _is_sequence(pair) or len(pair) != 2:
+            raise TypeError(f"{name}[{i}] must contain exactly 2 vertex indices")
+        out.append([int(pair[0]), int(pair[1])])
+    return out
+
+
+def _coerce_face_indices(indices: Any) -> list[list[int]]:
+    if not _is_sequence(indices):
+        raise TypeError("face_indices must be a vector/list of faces")
+    out: list[list[int]] = []
+    for i, face in enumerate(indices):
+        if not _is_sequence(face) or len(face) < 3:
+            raise TypeError(f"face_indices[{i}] must contain at least 3 vertex indices")
+        out.append([int(v) for v in face])
+    return out
+
+
+def _vertex_value_ledger(value: Any, count: int, default: Any) -> list[Any]:
+    if value is None:
+        return [default for _ in range(count)]
+    if _is_sequence(value) and len(value) == count and not _is_numeric_color_vector(value):
+        return list(value)
+    return [value for _ in range(count)]
+
+
+def _vertex_scalar_ledger(value: Any, count: int, default: float) -> list[float]:
+    if value is not None and _is_sequence(value) and len(value) == count:
+        return [float(v) for v in value]
+    raw = _vertex_value_ledger(value, count, default)
+    return [float(v) for v in raw]
+
+
+def _sample_continuous_property(value: Any, sample: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if callable(value):
+        return value(sample)
+    return value
+
+
+def _style_fields(value: Any, expected_kind: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, _GraphicsStyleValue):
+        if value.kind != expected_kind:
+            raise TypeError(f"expected {expected_kind} style, got {value.kind}")
+        return dict(value.fields)
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if k != VF_TYPE_KEY}
+    raise TypeError(f"{expected_kind}_style must be a ui.graphics style value")
+
+
+def _coerce_content_spec(spec: Any, default_value: Any) -> tuple[Any, Any, Any, dict[str, Any] | None] | None:
+    if spec is None:
+        return None
+    if callable(spec):
+        return default_value, spec, _NO_VIEW, None
+    if isinstance(spec, dict):
+        payload = {k: v for k, v in spec.items() if k != VF_TYPE_KEY}
+        embedding = payload.get("embedding")
+        if embedding is None or not callable(embedding):
+            raise TypeError("style.content record must define callable embedding")
+        value = payload.get("value", default_value)
+        view = payload.get("view", _NO_VIEW)
+        defaults = payload.get("defaults")
+        if defaults is not None and not isinstance(defaults, dict):
+            raise TypeError("style.content defaults must be a record/dict when provided")
+        return value, embedding, view, defaults
+    raise TypeError("style.content must be an embedding or a record with embedding/value/view")
+
+
+def _transform_point_vertex(anchor: list[float], scale: float, point: list[float]) -> list[float]:
+    return [anchor[0] + scale * float(point[0]), anchor[1] + scale * float(point[1])]
+
+
+def _transform_point_edge(a: list[float], b: list[float], width: float, point: list[float]) -> list[float]:
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    length = math.sqrt(dx * dx + dy * dy)
+    if length <= 1e-12:
+        tx, ty = 1.0, 0.0
+        nx, ny = 0.0, 1.0
+    else:
+        tx, ty = dx / length, dy / length
+        nx, ny = -ty, tx
+    x = float(point[0])
+    y = float(point[1]) if len(point) > 1 else 0.0
+    return [
+        a[0] + tx * (x * length) + nx * (y * width),
+        a[1] + ty * (x * length) + ny * (y * width),
+    ]
+
+
+def _transform_point_face(points: list[list[float]], point: list[float]) -> list[float]:
+    x = float(point[0])
+    y = float(point[1]) if len(point) > 1 else 0.0
+    if len(points) == 4:
+        p0, p1, p2, p3 = points
+        w0 = (1.0 - x) * (1.0 - y)
+        w1 = x * (1.0 - y)
+        w2 = x * y
+        w3 = (1.0 - x) * y
+        return [
+            w0 * p0[0] + w1 * p1[0] + w2 * p2[0] + w3 * p3[0],
+            w0 * p0[1] + w1 * p1[1] + w2 * p2[1] + w3 * p3[1],
+        ]
+    if len(points) == 3:
+        p0, p1, p2 = points
+        w0 = max(0.0, 1.0 - x - y)
+        w1 = max(0.0, x)
+        w2 = max(0.0, y)
+        return [
+            w0 * p0[0] + w1 * p1[0] + w2 * p2[0],
+            w0 * p0[1] + w1 * p1[1] + w2 * p2[1],
+        ]
+    min_x = min(p[0] for p in points)
+    max_x = max(p[0] for p in points)
+    min_y = min(p[1] for p in points)
+    max_y = max(p[1] for p in points)
+    return [min_x + x * (max_x - min_x), min_y + y * (max_y - min_y)]
+
+
+def _transform_ops(
+    ops: list[dict[str, Any]],
+    point_transform: Any,
+    *,
+    linear_scale: float,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for op in ops:
+        op2 = dict(op)
+        if op2.get("op") == "point":
+            op2["point"] = point_transform(op2["point"])
+            op2["radius"] = float(op2.get("radius", 0.0)) * linear_scale
+        elif op2.get("op") in ("polyline", "polygon"):
+            op2["points"] = [point_transform(p) for p in op2.get("points", [])]
+            if "width" in op2:
+                op2["width"] = float(op2.get("width", 0.0)) * linear_scale
+            if op2.get("strokeWidth") is not None:
+                op2["strokeWidth"] = float(op2.get("strokeWidth", 0.0)) * linear_scale
+        out.append(op2)
+    return out
+
+
+def _pack_pick_id(
+    rep_ordinal: int,
+    carrier_kind: int,
+    carrier_index: int,
+    *,
+    content_path: int = 0,
+    sub_index: int = 0,
+) -> int:
+    if rep_ordinal < 0 or rep_ordinal >= (1 << _PICK_REP_BITS):
+        raise ValueError(f"rep ordinal {rep_ordinal} is out of range")
+    if carrier_kind < 0 or carrier_kind >= (1 << _PICK_KIND_BITS):
+        raise ValueError(f"carrier kind {carrier_kind} is out of range")
+    if carrier_index < 0 or carrier_index >= (1 << _PICK_CARRIER_BITS):
+        raise ValueError(f"carrier index {carrier_index} is out of range")
+    if content_path < 0 or content_path >= (1 << _PICK_CONTENT_BITS):
+        raise ValueError(f"content path {content_path} is out of range")
+    if sub_index < 0 or sub_index >= (1 << _PICK_SUB_BITS):
+        raise ValueError(f"sub index {sub_index} is out of range")
+    return (
+        (int(rep_ordinal) << _PICK_REP_SHIFT)
+        | (int(carrier_kind) << _PICK_KIND_SHIFT)
+        | (int(carrier_index) << _PICK_CARRIER_SHIFT)
+        | (int(content_path) << _PICK_CONTENT_SHIFT)
+        | (int(sub_index) << _PICK_SUB_SHIFT)
+    )
+
+
+def _decode_pick_id(value: int) -> dict[str, int | str]:
+    pick_id = int(value)
+    kind = (pick_id & _PICK_KIND_MASK) >> _PICK_KIND_SHIFT
+    return {
+        "representation": (pick_id & _PICK_REP_MASK) >> _PICK_REP_SHIFT,
+        "carrier_kind_code": kind,
+        "carrier_kind": _PICK_KIND_NAMES.get(kind, "unknown"),
+        "carrier_index": (pick_id & _PICK_CARRIER_MASK) >> _PICK_CARRIER_SHIFT,
+        "content_path": (pick_id & _PICK_CONTENT_MASK) >> _PICK_CONTENT_SHIFT,
+        "sub_index": (pick_id & _PICK_SUB_MASK) >> _PICK_SUB_SHIFT,
+    }
+
+
+def _match_pick_id(pick_id: int, target: int, mask: int) -> bool:
+    return (int(pick_id) & int(mask)) == (int(target) & int(mask))
+
+
+def _pick_kind_from_event(event: Any) -> str:
+    try:
+        pick_id = int(getattr(event, "pick_id", 0) if not isinstance(event, dict) else event.get("pick_id", 0))
+    except Exception:
+        return "none"
+    if pick_id == 0:
+        return "none"
+    decoded = _decode_pick_id(pick_id)
+    kind = decoded.get("carrier_kind", "unknown")
+    return str(kind)
+
+
+def _pick_index_from_event(event: Any) -> int:
+    try:
+        pick_id = int(getattr(event, "pick_id", 0) if not isinstance(event, dict) else event.get("pick_id", 0))
+    except Exception:
+        return -1
+    if pick_id == 0:
+        return -1
+    decoded = _decode_pick_id(pick_id)
+    try:
+        return int(decoded.get("carrier_index", -1))
+    except Exception:
+        return -1
+
+
+def _pick_hit(event: Any, target: dict[str, int], mode: str = "content") -> bool:
+    if not isinstance(target, dict):
+        return False
+    if isinstance(event, dict):
+        try:
+            pick_id = int(event.get("pick_id", 0) or 0)
+            object_id = int(event.get("object_id", 0) or 0)
+        except Exception:
+            return False
+    else:
+        try:
+            pick_id = int(getattr(event, "pick_id", 0) or 0)
+            object_id = int(getattr(event, "object_id", 0) or 0)
+        except Exception:
+            return False
+    if pick_id == 0 or object_id == 0:
+        return False
+    try:
+        target_id = int(target.get("pick_id", 0) or 0)
+    except Exception:
+        return False
+    mask_key = {
+        "representation": "pick_mask_representation",
+        "carrier": "pick_mask_carrier",
+        "content": "pick_mask_content",
+        "exact": "pick_mask_exact",
+    }.get(str(mode), "pick_mask_content")
+    try:
+        mask = int(target.get(mask_key, 0) or 0)
+    except Exception:
+        return False
+    if mask == 0:
+        return False
+    return _match_pick_id(pick_id, target_id, mask)
+
+
+def _next_content_path(parent_path: int, carrier_kind: int, carrier_index: int) -> int:
+    mixed = (
+        (int(parent_path) * 1315423911)
+        ^ (int(carrier_kind) * 2654435761)
+        ^ (int(carrier_index) + 1)
+    )
+    return mixed & ((1 << _PICK_CONTENT_BITS) - 1)
+
+
+def _pick_meta(
+    rep_ordinal: int,
+    carrier_kind: int,
+    carrier_index: int,
+    *,
+    content_path: int = 0,
+    sub_index: int = 0,
+) -> dict[str, int]:
+    pick_id = _pack_pick_id(
+        rep_ordinal,
+        carrier_kind,
+        carrier_index,
+        content_path=content_path,
+        sub_index=sub_index,
+    )
+    return {
+        "pick_id": pick_id,
+        "pick_mask_representation": _PICK_REP_MASK,
+        "pick_mask_carrier": _PICK_SEMANTIC_MASK,
+        "pick_mask_content": _PICK_CONTENT_MATCH_MASK,
+        "pick_mask_exact": _PICK_EXACT_MASK,
+    }
+
+
+@dataclass
+class SceneRepresentation:
+    """Handle for a frame/display-hosted graphics embedding."""
+
+    __vf_py_attrs__ = True
+
+    rep_id: str
+    rep_ordinal: int
+    source: Any
+    embedding: Any
+    view: Any
+    _display: "Display" = field(repr=False)
+    _frame_id: str | None = field(default=None, repr=False)
+
+    def refresh(self) -> "SceneRepresentation":
+        self._display._refresh_representation(self)
+        return self
+
+    def set_view(self, view: Any) -> "SceneRepresentation":
+        self.view = view
+        return self.refresh()
+
+    def remove(self) -> None:
+        self._display._remove_representation(self)
+
+    def pick(self) -> dict[str, int]:
+        """Representation-wide pick target for coarse matching."""
+        return {
+            "pick_id": _pack_pick_id(self.rep_ordinal, 0, 0),
+            "pick_mask_representation": _PICK_REP_MASK,
+            "pick_mask_carrier": _PICK_SEMANTIC_MASK,
+            "pick_mask_content": _PICK_CONTENT_MATCH_MASK,
+            "pick_mask_exact": _PICK_EXACT_MASK,
+        }
+
+    def vertex(self, index: int) -> dict[str, int]:
+        return _pick_meta(self.rep_ordinal, _PICK_KIND_VERTEX, int(index))
+
+    def edge(self, index: int) -> dict[str, int]:
+        return _pick_meta(self.rep_ordinal, _PICK_KIND_EDGE, int(index))
+
+    def face(self, index: int) -> dict[str, int]:
+        return _pick_meta(self.rep_ordinal, _PICK_KIND_FACE, int(index))
+
+
+@dataclass
+class _GraphicsStyleValue:
+    __vf_py_attrs__ = True
+
+    kind: str
+    fields: dict[str, Any]
+
+
+@dataclass
+class UIGraphicsNamespace:
+    """Built-in graphics namespace (styles first; embedding contract is user-defined)."""
+
+    __vf_py_attrs__ = True
+
+    def VertexStyle(self, **kwargs: Any) -> _GraphicsStyleValue:  # noqa: N802
+        return _GraphicsStyleValue("vertex", dict(kwargs))
+
+    def EdgeStyle(self, **kwargs: Any) -> _GraphicsStyleValue:  # noqa: N802
+        return _GraphicsStyleValue("edge", dict(kwargs))
+
+    def FaceStyle(self, **kwargs: Any) -> _GraphicsStyleValue:  # noqa: N802
+        return _GraphicsStyleValue("face", dict(kwargs))
 
 
 def _parse_mesh_channel(
@@ -197,6 +695,7 @@ def _parse_mesh_channel(
     for d in dims:
         if d not in _DIM_ORDER:
             raise ValueError(f"unsupported dimension {d!r}; use only {_DIM_ORDER!r}")
+    from ..ui.representation_runtime import _shape_of_nested
     shape = _shape_of_nested(value)
     if len(shape) != len(dims):
         raise ValueError(
@@ -208,7 +707,7 @@ def _parse_mesh_channel(
 def _parse_color_rgba(color: Any) -> tuple[float, float, float, float]:
     if color is None:
         return (0.8, 0.8, 0.8, 1.0)
-    if isinstance(color, (list, tuple)) and len(color) >= 3:
+    if isinstance(color, (VFVector, list, tuple)) and len(color) >= 3:
         r = float(color[0]); g = float(color[1]); b = float(color[2])
         a = float(color[3]) if len(color) >= 4 else 1.0
         # Allow either 0..1 or 0..255 input.
@@ -228,239 +727,6 @@ def _parse_color_rgba(color: Any) -> tuple[float, float, float, float]:
             n = int(h, 16)
             return (((n >> 16) & 255) / 255.0, ((n >> 8) & 255) / 255.0, (n & 255) / 255.0, 1.0)
     return (0.8, 0.8, 0.8, 1.0)
-
-
-def _normalize3(x: float, y: float, z: float) -> tuple[float, float, float]:
-    m = math.sqrt(x * x + y * y + z * z)
-    if m <= 1e-12:
-        return (0.0, 0.0, 1.0)
-    return (x / m, y / m, z / m)
-
-
-def _face_normal(a: tuple[float, float, float], b: tuple[float, float, float], c: tuple[float, float, float]) -> tuple[float, float, float]:
-    ux, uy, uz = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
-    vx, vy, vz = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
-    nx = uy * vz - uz * vy
-    ny = uz * vx - ux * vz
-    nz = ux * vy - uy * vx
-    return _normalize3(nx, ny, nz)
-
-
-def _build_field_mesh_geometry(
-    channels: dict[str, dict[str, Any]],
-    meta: dict[str, Any],
-    *,
-    time_index: int = 0,
-) -> dict[str, Any]:
-    # Canonical dim order is fixed; channel suffix order can vary.
-    canonical_dims = [d for d in _DIM_ORDER if any(d in channels[a]["dims"] for a in ("x", "y", "z"))]
-    dim_sizes: dict[str, int] = {}
-    for d in canonical_dims:
-        sizes: list[int] = []
-        for a in ("x", "y", "z"):
-            cdims = channels[a]["dims"]
-            if d in cdims:
-                axis_i = cdims.index(d)
-                sizes.append(int(channels[a]["shape"][axis_i]))
-        if not sizes:
-            dim_sizes[d] = 1
-            continue
-        target = max(sizes)
-        for s in sizes:
-            if s not in (1, target):
-                raise ValueError(
-                    f"incompatible broadcast for dim {d!r}: sizes={sizes}"
-                )
-        dim_sizes[d] = target
-
-    time_count = int(dim_sizes.get("t", 1))
-    current_t = max(0, min(int(time_index), max(0, time_count - 1)))
-    sample_dims = [d for d in canonical_dims if d != "t"]
-    cshape = tuple(dim_sizes[d] for d in sample_dims)
-
-    def _sample(axis: str, idx_tuple: tuple[int, ...]) -> float:
-        ch = channels[axis]
-        if not ch["dims"]:
-            return float(ch["data"])
-        idx_map = {d: 0 for d in canonical_dims}
-        idx_map["t"] = current_t
-        for i, d in enumerate(sample_dims):
-            idx_map[d] = idx_tuple[i]
-        use_idxs: list[int] = []
-        for k, d in enumerate(ch["dims"]):
-            sz = int(ch["shape"][k])
-            full_i = idx_map.get(d, 0)
-            use_idxs.append(0 if sz == 1 else full_i)
-        return float(_nested_get(ch["data"], tuple(use_idxs)))
-
-    rgba = _parse_color_rgba(meta.get("color"))
-    interpolation = bool(meta.get("interpolation", False))
-
-    points: list[tuple[float, float, float]] = []
-    vindex: dict[tuple[int, ...], int] = {}
-    for i, idx in enumerate(_iter_multi_index(cshape)):
-        x = _sample("x", idx)
-        y = _sample("y", idx)
-        z = _sample("z", idx)
-        points.append((x, y, z))
-        vindex[idx] = i
-
-    manifold_dims = [d for d in "uvw" if d in dim_sizes and dim_sizes[d] > 1]
-    base_indices: list[int] = []
-    topology = "line-list"
-
-    dim_pos = {d: i for i, d in enumerate(sample_dims)}
-
-    def _idx(base: dict[str, int]) -> int:
-        tup = tuple(base.get(d, 0) for d in sample_dims)
-        return int(vindex[tup])
-
-    if len(manifold_dims) == 1:
-        topology = "line-list"
-        du = manifold_dims[0]
-        loop_dims = [d for d in sample_dims if d != du]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                base[du] = u
-                a = _idx(base)
-                base[du] = u + 1
-                b = _idx(base)
-                base_indices.extend([a, b])
-    elif len(manifold_dims) == 2:
-        topology = "triangle-list"
-        du, dv = manifold_dims
-        loop_dims = [d for d in sample_dims if d not in (du, dv)]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                for v in range(dim_sizes[dv] - 1):
-                    base[du], base[dv] = u, v
-                    a = _idx(base)
-                    base[du], base[dv] = u + 1, v
-                    b = _idx(base)
-                    base[du], base[dv] = u + 1, v + 1
-                    c = _idx(base)
-                    base[du], base[dv] = u, v + 1
-                    d = _idx(base)
-                    base_indices.extend([a, b, c, a, c, d])
-    elif len(manifold_dims) >= 3:
-        topology = "triangle-list"
-        du, dv, dw = manifold_dims[0], manifold_dims[1], manifold_dims[2]
-        loop_dims = [d for d in sample_dims if d not in (du, dv, dw)]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                for v in range(dim_sizes[dv] - 1):
-                    for w in range(dim_sizes[dw] - 1):
-                        base[du], base[dv], base[dw] = u, v, w
-                        c000 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v, w
-                        c100 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v + 1, w
-                        c010 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v + 1, w
-                        c110 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v, w + 1
-                        c001 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v, w + 1
-                        c101 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v + 1, w + 1
-                        c011 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v + 1, w + 1
-                        c111 = _idx(base)
-                        base_indices.extend([c000, c100, c110, c000, c110, c010])
-                        base_indices.extend([c001, c011, c111, c001, c111, c101])
-                        base_indices.extend([c000, c010, c011, c000, c011, c001])
-                        base_indices.extend([c100, c101, c111, c100, c111, c110])
-                        base_indices.extend([c000, c001, c101, c000, c101, c100])
-                        base_indices.extend([c010, c110, c111, c010, c111, c011])
-
-    vertices: list[float] = []
-    indices: list[int] = []
-    if topology == "triangle-list":
-        if interpolation:
-            acc: list[list[float]] = [[0.0, 0.0, 0.0] for _ in range(len(points))]
-            for t in range(0, len(base_indices), 3):
-                ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
-                n = _face_normal(points[ia], points[ib], points[ic])
-                for ii in (ia, ib, ic):
-                    acc[ii][0] += n[0]
-                    acc[ii][1] += n[1]
-                    acc[ii][2] += n[2]
-            for i, p in enumerate(points):
-                nx, ny, nz = _normalize3(acc[i][0], acc[i][1], acc[i][2])
-                vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
-            indices = list(base_indices)
-        else:
-            for t in range(0, len(base_indices), 3):
-                ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
-                a, b, c = points[ia], points[ib], points[ic]
-                nx, ny, nz = _face_normal(a, b, c)
-                base = len(vertices) // 10
-                for p in (a, b, c):
-                    vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
-                indices.extend([base, base + 1, base + 2])
-    else:
-        for p in points:
-            vertices.extend([p[0], p[1], p[2], 0.0, 0.0, 1.0, rgba[0], rgba[1], rgba[2], rgba[3]])
-        indices = list(base_indices)
-
-    return {
-        "vertices": vertices,
-        "indices": indices,
-        "topology": topology,
-        "interpolation": interpolation,
-        "alpha": float(rgba[3]),
-        "time_count": time_count,
-        "time_index": current_t,
-    }
-
-
-def _build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
-    # Split channels (x_*, y_*, z_*) from style/meta kwargs.
-    channels: dict[str, dict[str, Any]] = {}
-    meta: dict[str, Any] = {}
-    for key, value in kwargs.items():
-        m = _MESH_CHANNEL_RE.match(str(key))
-        if m:
-            axis = m.group(1)
-            dims = str(m.group(2) or "")
-            channels[axis] = _parse_mesh_channel(axis, dims, value)
-        else:
-            meta[key] = value
-
-    missing = [a for a in ("x", "y", "z") if a not in channels]
-    if missing:
-        raise ValueError(f"ui.add(...) missing channels: {', '.join(missing)}")
-
-    geom = _build_field_mesh_geometry(
-        channels,
-        meta,
-        time_index=int(meta.get("t", 0)),
-    )
-
-    return {
-        "type": "field_mesh",
-        "id": str(meta.get("id", "field_mesh")),
-        "vertices": geom["vertices"],
-        "indices": geom["indices"],
-        "topology": geom["topology"],
-        "interpolation": geom["interpolation"],
-        "alpha": geom["alpha"],
-        "center": _vec3(meta.get("center", [0, 0, 0]), "center"),
-        "scale": _vec3(meta.get("scale", [1, 1, 1]), "scale"),
-        "rotation": _vec3(meta.get("rotation", [0, 0, 0]), "rotation"),
-        "color": meta.get("color"),
-        "time_count": geom["time_count"],
-        "time_index": geom["time_index"],
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +1217,7 @@ class FrameRef:
     _placed: bool = field(default=False, repr=False)
     _frame_id: str = field(default="", repr=False)
     _pending_key: int = field(default=0, repr=False)
+    _graphics_defaults: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_pending_key", id(self))
@@ -958,6 +1225,20 @@ class FrameRef:
     @property
     def id(self) -> str:
         return self._pending.id
+
+    @property
+    def graphics_defaults(self) -> dict[str, Any]:
+        return self._graphics_defaults
+
+    def set_graphics_defaults(self, defaults: dict[str, Any] | None = None, **kwargs: Any) -> "FrameRef":
+        patch: dict[str, Any] = {}
+        if defaults is not None:
+            patch.update(defaults)
+        patch.update(kwargs)
+        normalized = _normalize_graphics_defaults_patch(patch)
+        self._graphics_defaults = _structural_merge_dict(self._graphics_defaults, normalized)
+        self._display._refresh_representations_for_frame(self._frame_id if self._placed else None)
+        return self
 
     def __getattr__(self, name: str) -> Any:
         """Frame-scoped event constants, e.g. ``frame.BUTTON_PRESSED``."""
@@ -1058,9 +1339,18 @@ class FrameRef:
             minor_radius=minor_radius,
         )
 
-    def add(self, **kwargs: Any) -> SceneFieldMesh:
-        """Generic field mesh add using x_*/y_*/z_* channels over tijkuvw dims."""
+    def add(self, *args: Any, **kwargs: Any) -> Any:
+        """Add a graphics embedding or a generic field mesh to this frame."""
         fid = self._get_placed_id()
+        if args:
+            if kwargs:
+                raise TypeError("frame.add(value, embedding[, view]) does not accept keyword arguments")
+            if len(args) not in (2, 3):
+                raise TypeError("frame.add(...) expects (value, embedding) or (value, embedding, view)")
+            value = args[0]
+            embedding = args[1]
+            view = args[2] if len(args) == 3 else _NO_VIEW
+            return self._display._add_graphics_representation(fid, value, embedding, view=view)
         return self._display._add_field_mesh(fid, **kwargs)
 
     def add_camera(
@@ -1108,7 +1398,7 @@ class UIEventQueue:
         self._ui._ensure_poller()
         return bool(self._ui._event_queue)
 
-    def get(self) -> MouseEvent | KeyEvent | None:
+    def get(self) -> MouseEvent | KeyboardEvent | FrameEvent | dict[str, Any] | None:
         """Pop one pending event (mouse first), or ``None``."""
         return self._ui.next_event()
 
@@ -1119,7 +1409,7 @@ class UIEventQueue:
 
 @dataclass
 class UIRoot:
-    """``use("ui")`` / ``:.ui`` — use ``ui.cursor``, ``ui.keyboard``, ``ui.display``, ``ui.widgets``, ``ui.poll()``.
+    """``use("ui")`` / ``:.ui`` — use UI bindings such as ``display``, ``Frame``, ``set_mode()``, or alias with ``ui:.ui``.
 
     Events
     ------
@@ -1130,16 +1420,15 @@ class UIRoot:
     Example::
 
         :.ui
-        d : ui.display
-        f : d.Frame()
-        d.add_frame((0.1, 0.1, 0.8, 0.8))
+        d : display
+        f : Frame((0.1, 0.1, 0.8, 0.8))
         cam : d.add_camera(pos:[4,3,5])
 
-        ui.cursor.on_wheel(fn(e) => cam.translate([0, 0, e.step * 0.3]))
-        ui.cursor.on_down( fn(e) => print("click", e.object_id))
+        cursor.on_wheel(fn(e) => cam.translate([0, 0, e.step * 0.3]))
+        cursor.on_down( fn(e) => print("click", e.object_id))
 
         loop:
-            ui.poll()
+            poll()
     """
 
     __vf_py_attrs__ = True
@@ -1153,6 +1442,9 @@ class UIRoot:
     KEY_DOWN: int = encode_ui_pattern("key_down")
     KEY_UP: int = encode_ui_pattern("key_up")
     FRAME_CLOSED: int = encode_ui_pattern("frame.closed")
+    FRAME_DOCKED: int = encode_ui_pattern("frame.docked")
+    FRAME_DRAGGED: int = encode_ui_pattern("frame.dragged")
+    FRAME_RESIZED: int = encode_ui_pattern("frame.resized")
     BUTTON_PRESSED: int = encode_ui_pattern("button.pressed")
     CHECKBOX_TOGGLED: int = encode_ui_pattern("checkbox.toggled")
     SLIDER_VALUE_CHANGED: int = encode_ui_pattern("slider.value_changed")
@@ -1178,6 +1470,7 @@ class UIRoot:
             ev_name = str(evt.get("event", ""))
             frame_id = str(evt.get("frame_id", evt.get("frameId", "")) or "")
             widget_id = str(evt.get("widget_id", evt.get("widgetId", "")) or "")
+            _ui_trace_line(f"dispatch raw type={evt.get('type')} event={ev_name} frame={frame_id} widget={widget_id}")
             base = int(EVENT_NAME_TO_BASE.get(ev_name, 0))
             code = encode_event_code(ev_name, frame_id=frame_id, widget_id=widget_id)
             ui_code = encode_ui_pattern(ev_name) if base else 0
@@ -1192,40 +1485,45 @@ class UIRoot:
             payload["event"] = ev_name
             payload["frame_id"] = frame_id
             payload["widget_id"] = widget_id
-            payload["code"] = code
+            payload["event_code"] = code
             payload["ui_code"] = ui_code
             payload["frame_code"] = frame_code
             payload["widget_code"] = widget_code
             payload["index"] = idx
+            normalized = ui_event_from_payload(payload)
+            _ui_trace_line(f"dispatch normalized cls={type(normalized).__name__} event={getattr(normalized, 'event', '')} frame={getattr(normalized, 'frame_id', '')}")
 
             t = evt.get("type")
             if t != "vf_event":
-                # Non-vf_event UI host events (e.g. frame.closed, widget events)
-                self._event_queue.append(payload)
+                # Non-vf_event host events (frame lifecycle, widget payloads, etc.).
+                self._event_queue.append(normalized)
                 return
             if ev_name in ("move", "hover", "down", "up", "wheel", "drag"):
                 self.keyboard._observe_modifiers(evt)
-                self.cursor._push(evt)
-                self._event_queue.append(payload)
+                self.cursor._push(payload)
+                self._event_queue.append(normalized)
             elif ev_name in ("key_down", "key_up"):
-                ke = KeyEvent.from_dict(evt)
+                ke = KeyboardEvent.from_dict(payload)
                 is_modifier = self.keyboard._modifier_name(ke) is not None
-                self.keyboard._push(evt)
+                self.keyboard._push(payload)
                 if not is_modifier:
-                    self._event_queue.append(payload)
+                    self._event_queue.append(normalized)
         p = get_global_poller()
         p.subscribe(_dispatch)
 
     def _ensure_poller(self) -> None:
         if not self._poller_started:
             object.__setattr__(self, "_poller_started", True)
-            start_event_poller()
+            if self.mode != "test":
+                start_event_poller()
 
     def next_event(self) -> Any:
         """Return one pending queued event, or ``None`` when no event is queued."""
         self._ensure_poller()
         if self._event_queue:
-            return self._event_queue.popleft()
+            evt = self._event_queue.popleft()
+            _ui_trace_line(f"next_event cls={type(evt).__name__} event={getattr(evt, 'event', '')} frame={getattr(evt, 'frame_id', '')}")
+            return evt
         return None
 
     def poll(self) -> None:
@@ -1234,29 +1532,50 @@ class UIRoot:
         self.cursor.poll()
         self.keyboard.poll()
 
+    def sleep(self, seconds: float) -> None:
+        """Host-backed sleep for vkf event loops."""
+        _ui_sleep(float(seconds))
+
+    def Frame(self, rect: Any | None = None) -> "FrameRef":  # noqa: N802
+        """Create a frame from the root namespace; optionally place it immediately."""
+        frame = self.display.Frame()
+        if rect is not None:
+            self.display.add_frame(frame, rect)
+        return frame
+
     @property
     def widgets(self) -> _Widget:
         """Widget factory namespace (preferred over ``d.widget``): ``ui.widgets.button(...)``."""
         return self.display.widget
 
+    @property
+    def graphics(self) -> UIGraphicsNamespace:
+        """Built-in graphics helpers and style constructors."""
+        return UIGraphicsNamespace()
+
 
     def set_mode(self, mode: str) -> None:
-        """Set the UI target: ``"overlay"``, ``"browser"``, or ``"headless"``.
+        """Set the UI target: ``"overlay"``, ``"browser"``, ``"headless"``, or ``"test"``.
 
         Call this **before** ``d.add_frame(...)`` so the right host is started.
 
         * ``"overlay"``  — native Windows host (WebView2 + DirectComposition).
         * ``"browser"``  — built-in HTTP server + open default browser.
         * ``"headless"`` — write ``vf-display.json`` only; no process spawned.
+        * ``"test"``     — use only the in-memory UI payload and event seams.
 
         You can also set the ``VF_UI_MODE`` environment variable to the same
         values instead of calling ``set_mode`` in code.
 
+        To point the runtime at a checkout when the current working directory
+        is not inside the repo, set ``VF_UI_REPO_ROOT`` to the repository root
+        (the directory that contains ``web/vf-ui/``).
+
         Example (vkf)::
 
             :.ui
-            ui.set_mode("browser")
-            d : ui.display
+            set_mode("browser")
+            d : display
             d.add_frame((0.05, 0.05, 0.9, 0.9))
 
         Example (Python)::
@@ -1270,7 +1589,7 @@ class UIRoot:
 
     @property
     def mode(self) -> str:
-        """Return the effective UI mode (``"overlay"``, ``"browser"``, or ``"headless"``)."""
+        """Return the effective UI mode (``"overlay"``, ``"browser"``, ``"headless"``, or ``"test"``)."""
         from vektorflow.ui.launch import get_ui_mode
         return get_ui_mode()
 
@@ -1319,8 +1638,11 @@ class Display:
 
     _screen: Screen = field(default_factory=Screen, repr=False)
     _w: _Widget = field(default_factory=_Widget, repr=False)
+    _graphics_defaults: dict[str, Any] = field(default_factory=lambda: _deep_copy_dict(_BASE_GRAPHICS_DEFAULTS), repr=False)
     _screen_ops: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    _screen_repr_ops: dict[str, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
     _frame_ops: dict[str, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
+    _frame_repr_ops: dict[str, dict[str, list[dict[str, Any]]]] = field(default_factory=dict, repr=False)
     _pending_ops: dict[int, list[dict[str, Any]]] = field(default_factory=dict, repr=False)
     _last_frame: FrameRef | None = field(default=None, repr=False)
     # geom: frame_id -> { meshes: [...], camera: {...}|None, lights: [...] }
@@ -1331,6 +1653,22 @@ class Display:
     _frame_refs: list[Any] = field(default_factory=list, repr=False)
     # Scene command file (vkf-scene.json) changes only when command count changes.
     _last_scene_cmd_count: int = field(default=-1, repr=False)
+    _next_representation_id: int = field(default=0, repr=False)
+    _representations: dict[str, SceneRepresentation] = field(default_factory=dict, repr=False)
+    _frame_parent: dict[str, str | None] = field(default_factory=dict, repr=False)
+    _auto_render: bool = field(default=True, repr=False)
+    _dirty: bool = field(default=False, repr=False)
+
+    def __post_init__(self) -> None:
+        try:
+            from vektorflow.ui.launch import find_vektorflow_repo_root
+            from vektorflow.ui.session import ensure_ui_session
+
+            root = find_vektorflow_repo_root()
+            if root is not None:
+                ensure_ui_session(root)
+        except Exception:
+            pass
 
     # ---- properties -------------------------------------------------------
 
@@ -1338,11 +1676,42 @@ class Display:
     def widget(self) -> _Widget:
         return self._w
 
+    @property
+    def graphics_defaults(self) -> dict[str, Any]:
+        return self._graphics_defaults
+
+    def set_graphics_defaults(self, defaults: dict[str, Any] | None = None, **kwargs: Any) -> "Display":
+        patch: dict[str, Any] = {}
+        if defaults is not None:
+            patch.update(defaults)
+        patch.update(kwargs)
+        normalized = _normalize_graphics_defaults_patch(patch)
+        self._graphics_defaults = _structural_merge_dict(self._graphics_defaults, normalized)
+        self._refresh_all_representations()
+        return self
+
     def dumps(self) -> str:
         return self._screen.dumps()
 
     def widget_set(self, frame_id: str, widget_id: str, props: Any) -> None:
         self._screen.widget_set(frame_id, widget_id, props)
+
+    def widget_append_text(self, frame_id: str, widget_id: str, text: Any) -> None:
+        self._screen.widget_append_text(frame_id, widget_id, text)
+
+    @property
+    def auto_render(self) -> bool:
+        return self._auto_render
+
+    def set_auto_render(self, enabled: Any = True) -> "Display":
+        self._auto_render = bool(enabled)
+        if self._auto_render and self._dirty:
+            self.render()
+        return self
+
+    def render(self) -> "Display":
+        self._sync_all(force=True)
+        return self
 
     # ---- frame creation ---------------------------------------------------
 
@@ -1447,8 +1816,17 @@ class Display:
             minor_radius=minor_radius,
         )
 
-    def add(self, **kwargs: Any) -> SceneFieldMesh:
-        """Generic field mesh add using x_*/y_*/z_* channels over tijkuvw dims."""
+    def add(self, *args: Any, **kwargs: Any) -> Any:
+        """Add a graphics embedding to the display or a generic field mesh to the last frame."""
+        if args:
+            if kwargs:
+                raise TypeError("display.add(value, embedding[, view]) does not accept keyword arguments")
+            if len(args) not in (2, 3):
+                raise TypeError("display.add(...) expects (value, embedding) or (value, embedding, view)")
+            value = args[0]
+            embedding = args[1]
+            view = args[2] if len(args) == 3 else _NO_VIEW
+            return self._add_graphics_representation(None, value, embedding, view=view)
         fid = self._last_placed_id("add")
         return self._add_field_mesh(fid, **kwargs)
 
@@ -1656,14 +2034,21 @@ class Display:
         if pending is not None:
             if second is not None or bool(kwargs):
                 skw = _coerce_frame_kw_for_screen(dict(kwargs))
-                self._screen.add_frame(pending, second, **skw)
+                parent_pending = skw.get("in_frame")
+                self._screen.add_frame(pending, second, write_files=self._auto_render, **skw)
                 if fr is not None:
                     self._mark_frame_ref_placed(fr)
+                    self._frame_parent[fr._frame_id] = (
+                        parent_pending._placed_id if isinstance(parent_pending, PendingFrame) else None
+                    )
                 self._sync_all()
                 if fr is not None:
                     return fr
                 out = FrameRef(self, pending)
                 self._mark_frame_ref_placed(out)
+                self._frame_parent[out._frame_id] = (
+                    parent_pending._placed_id if isinstance(parent_pending, PendingFrame) else None
+                )
                 return out
             raise TypeError(
                 "add_frame: pass a rect or a layout option, "
@@ -1680,29 +2065,39 @@ class Display:
                 )
             self._last_frame = FrameRef(self, p)
         f = self._last_frame
-        self._screen.add_frame(f._pending, (t[0], t[1], t[2], t[3]))
+        self._screen.add_frame(f._pending, (t[0], t[1], t[2], t[3]), write_files=self._auto_render)
         self._mark_frame_ref_placed(f)
+        self._frame_parent[f._frame_id] = None
         self._sync_all()
         return f
 
     def _mark_frame_ref_placed(self, f: FrameRef) -> None:
         old_key = f._pending_key
+        pending_frame_id = f"__pending_{old_key}"
         f._placed = True
         f._frame_id = str(f._pending.id)
+        self._frame_parent.setdefault(f._frame_id, None)
         # migrate pending 2-D ops
         if old_key in self._pending_ops:
             ops = self._pending_ops.pop(old_key)
             self._frame_ops[f._frame_id] = self._frame_ops.get(f._frame_id, []) + ops
         # migrate pending geom ops
-        pending_geom_key = f"__pending_{old_key}"
-        if pending_geom_key in self._geom:
-            geom_data = self._geom.pop(pending_geom_key)
+        if pending_frame_id in self._geom:
+            geom_data = self._geom.pop(pending_frame_id)
             existing = self._geom.get(f._frame_id, {"meshes": [], "camera": None, "lights": []})
             existing["meshes"].extend(geom_data["meshes"])
             if geom_data["camera"] is not None:
                 existing["camera"] = geom_data["camera"]
             existing["lights"].extend(geom_data["lights"])
             self._geom[f._frame_id] = existing
+        # migrate pending representation ops + ownership
+        pending_rep_ops = self._frame_repr_ops.pop(pending_frame_id, None)
+        if pending_rep_ops:
+            placed_rep_ops = self._frame_repr_ops.setdefault(f._frame_id, {})
+            placed_rep_ops.update(pending_rep_ops)
+        for rep in self._representations.values():
+            if rep._frame_id == pending_frame_id:
+                rep._frame_id = f._frame_id
         self._last_frame = f
         if f not in self._frame_refs:
             self._frame_refs.append(f)
@@ -1713,27 +2108,125 @@ class Display:
     def _append_pending_frame_op(self, key: int, op: dict[str, Any]) -> None:
         self._pending_ops.setdefault(key, []).append(op)
 
+    def _next_rep_id(self) -> str:
+        self._next_representation_id += 1
+        return f"rep_{self._next_representation_id}"
+
+    def _effective_graphics_defaults(self, frame_id: str | None) -> dict[str, Any]:
+        defaults = _deep_copy_dict(self._graphics_defaults)
+        cur = frame_id
+        seen: set[str] = set()
+        chain_ids: list[str] = []
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            chain_ids.append(cur)
+            cur = self._frame_parent.get(cur)
+        for fid in reversed(chain_ids):
+            frame = self.get_frame(fid)
+            if frame is not None and frame.graphics_defaults:
+                defaults = _structural_merge_dict(defaults, frame.graphics_defaults)
+        return defaults
+
+    def _evaluate_embedding_scope(self, value: Any, embedding: Any, view: Any = _NO_VIEW) -> dict[str, Any]:
+        if not callable(embedding):
+            raise TypeError("embedding must be callable")
+        scope = embedding(value) if view is _NO_VIEW else embedding(value, view)
+        if not isinstance(scope, dict):
+            raise TypeError("embedding must return local scope via `:`")
+        if VF_TYPE_KEY in scope:
+            return public_struct_items(scope)
+        return scope
+
+    def _set_representation_ops(
+        self,
+        frame_id: str | None,
+        rep_id: str,
+        ops: list[dict[str, Any]],
+    ) -> None:
+        if frame_id is None:
+            self._screen_repr_ops[rep_id] = ops
+            return
+        self._frame_repr_ops.setdefault(frame_id, {})[rep_id] = ops
+
+    def _add_graphics_representation(
+        self,
+        frame_id: str | None,
+        value: Any,
+        embedding: Any,
+        *,
+        view: Any = _NO_VIEW,
+    ) -> SceneRepresentation:
+        rep = SceneRepresentation(
+            rep_id=self._next_rep_id(),
+            rep_ordinal=self._next_representation_id,
+            source=value,
+            embedding=embedding,
+            view=view,
+            _display=self,
+            _frame_id=frame_id,
+        )
+        self._representations[rep.rep_id] = rep
+        self._refresh_representation(rep)
+        return rep
+
+    def _refresh_representation(self, rep: SceneRepresentation) -> None:
+        refresh_representation(self, rep)
+        self._sync_all()
+
+    def _refresh_representations_for_frame(self, frame_id: str | None) -> None:
+        if frame_id is None:
+            return
+        descendants = {frame_id}
+        changed = True
+        while changed:
+            changed = False
+            for child, parent in list(self._frame_parent.items()):
+                if parent in descendants and child not in descendants:
+                    descendants.add(child)
+                    changed = True
+        for rep in list(self._representations.values()):
+            if rep._frame_id in descendants:
+                refresh_representation(self, rep)
+        self._sync_all()
+
+    def _refresh_all_representations(self) -> None:
+        refresh_all_representations(self)
+        self._sync_all()
+
+    def _remove_representation(self, rep: SceneRepresentation) -> None:
+        self._representations.pop(rep.rep_id, None)
+        if rep._frame_id is None:
+            self._screen_repr_ops.pop(rep.rep_id, None)
+        else:
+            per_frame = self._frame_repr_ops.get(rep._frame_id)
+            if per_frame is not None:
+                per_frame.pop(rep.rep_id, None)
+                if not per_frame:
+                    self._frame_repr_ops.pop(rep._frame_id, None)
+        self._sync_all()
+
     # ---- sync -------------------------------------------------------------
 
-    def _sync_all(self) -> None:
+    def _sync_all(self, *, force: bool = False) -> None:
+        if not force and not self._auto_render:
+            self._dirty = True
+            return
+        self._dirty = False
         cmd_count = len(self._screen._commands)
         if cmd_count != self._last_scene_cmd_count:
             _write_vkf_scene_to_vf_ui(self._screen._commands)
             self._last_scene_cmd_count = cmd_count
-        placed_geom = {
-            fid: g for fid, g in self._geom.items()
-            if not fid.startswith("__pending_")
-        }
-        _write_vf_display_json(
-            {
-                "screen": list(self._screen_ops),
-                "frames": {k: list(v) for k, v in self._frame_ops.items()},
-                "geom":   placed_geom,
-            }
+        payload = build_display_payload(
+            screen_ops=self._screen_ops,
+            screen_repr_ops=self._screen_repr_ops,
+            frame_ops=self._frame_ops,
+            frame_repr_ops=self._frame_repr_ops,
+            geom=self._geom,
         )
+        _write_vf_display_json(payload)
         # Launch UI only when there is placed/visible content.
         # Pending frame ops/geom should not auto-open the host.
-        if self._screen._commands or self._screen_ops or self._frame_ops or placed_geom:
+        if has_visible_display_content(commands=self._screen._commands, payload=payload):
             from vektorflow.ui.launch import maybe_launch_ui
             maybe_launch_ui()
 
@@ -1750,48 +2243,69 @@ def _unwrap_frame_ref(a: Any) -> tuple[FrameRef | None, PendingFrame | None]:
     return None, None
 
 
-_display_assets_synced_once = False
-
-
 def _write_vf_display_json(payload: dict[str, Any]) -> None:
-    global _display_assets_synced_once
-    try:
-        from vektorflow.ui.launch import find_vektorflow_repo_root
-        root = find_vektorflow_repo_root()
-        if root is None:
-            return
-        text = json.dumps(payload, indent=2) + "\n"
-        out = root / "web" / "vf-ui" / "vf-display.json"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
-        _sync_json_to_all_built_webs(root, "vf-display.json", text)
-        # Static JS/CSS assets are large; syncing them every camera tick is costly.
-        # Sync once per process (fresh process after code edits will resync).
-        if not _display_assets_synced_once:
-            for f in ("vf-display.js", "vkf-scene.html", "vf-frame.js", "vf-frame.css", "vf-widgets.js"):
-                _copy_vf_ui_file_to_built_web(root, f)
-            for js in ("vf-geom-core.js", "vf-geom-wgpu.js", "vf-geom-math.js", "vf-geom-mount.js"):
-                _copy_geom_file_to_built_web(root, js)
-            _display_assets_synced_once = True
-    except (OSError, TypeError, ValueError):
-        pass
-
-
-def _copy_geom_file_to_built_web(root: Any, filename: str) -> None:
-    try:
-        src = root / "web" / "vf-ui" / "geom" / filename
-        if not src.is_file():
-            return
-        for built in (root / "native" / "VfOverlay").rglob("vf-ui"):
-            dst = built / "geom" / filename
-            try:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_bytes(src.read_bytes())
-            except OSError:
-                pass
-    except Exception:
-        pass
+    publish_display_runtime_payload(payload)
 
 
 def build_ui_namespace() -> dict[str, Any]:
-    return {"ui": UIRoot()}
+    root = UIRoot()
+    return {
+        "ui": root,
+        "display": root.display,
+        "cursor": root.cursor,
+        "keyboard": root.keyboard,
+        "events": root.events,
+        "widgets": root.widgets,
+        "graphics": root.graphics,
+        "poll": root.poll,
+        "sleep": root.sleep,
+        "next_event": root.next_event,
+        "set_mode": root.set_mode,
+        "hit": _pick_hit,
+        "pick_kind": _pick_kind_from_event,
+        "pick_index": _pick_index_from_event,
+        "Frame": root.Frame,
+        "MouseEvent": MouseEvent,
+        "MouseMove": MouseMove,
+        "MouseHover": MouseHover,
+        "MouseDown": MouseDown,
+        "MouseUp": MouseUp,
+        "MouseWheel": MouseWheel,
+        "MouseDrag": MouseDrag,
+        "FrameEvent": FrameEvent,
+        "FrameClosed": FrameClosed,
+        "FrameDocked": FrameDocked,
+        "FrameDragged": FrameDragged,
+        "FrameResized": FrameResized,
+        "TouchEvent": TouchEvent,
+        "KeyboardEvent": KeyboardEvent,
+        "KeyEvent": KeyEvent,
+        "KeyDown": KeyDown,
+        "KeyUp": KeyUp,
+        "MOUSE_MOVE": root.MOUSE_MOVE,
+        "MOUSE_HOVER": root.MOUSE_HOVER,
+        "MOUSE_DOWN": root.MOUSE_DOWN,
+        "MOUSE_UP": root.MOUSE_UP,
+        "MOUSE_WHEEL": root.MOUSE_WHEEL,
+        "MOUSE_DRAG": root.MOUSE_DRAG,
+        "KEY_DOWN": root.KEY_DOWN,
+        "KEY_UP": root.KEY_UP,
+        "FRAME_CLOSED": root.FRAME_CLOSED,
+        "FRAME_DOCKED": root.FRAME_DOCKED,
+        "FRAME_DRAGGED": root.FRAME_DRAGGED,
+        "FRAME_RESIZED": root.FRAME_RESIZED,
+        "BUTTON_PRESSED": root.BUTTON_PRESSED,
+        "CHECKBOX_TOGGLED": root.CHECKBOX_TOGGLED,
+        "SLIDER_VALUE_CHANGED": root.SLIDER_VALUE_CHANGED,
+        "INPUT_FIELD_TEXT_CHANGED": root.INPUT_FIELD_TEXT_CHANGED,
+        "INPUT_FIELD_TEXT_ENTERED": root.INPUT_FIELD_TEXT_ENTERED,
+        "DROPDOWN_ITEM_CHANGED": root.DROPDOWN_ITEM_CHANGED,
+        "TEXT_AREA_TEXT_CHANGED": root.TEXT_AREA_TEXT_CHANGED,
+        "ButtonPressed": root.BUTTON_PRESSED,
+        "CheckboxToggled": root.CHECKBOX_TOGGLED,
+        "SliderValueChanged": root.SLIDER_VALUE_CHANGED,
+        "InputFieldTextChanged": root.INPUT_FIELD_TEXT_CHANGED,
+        "InputFieldTextEntered": root.INPUT_FIELD_TEXT_ENTERED,
+        "DropdownItemChanged": root.DROPDOWN_ITEM_CHANGED,
+        "TextAreaTextChanged": root.TEXT_AREA_TEXT_CHANGED,
+    }

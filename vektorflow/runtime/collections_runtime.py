@@ -11,9 +11,46 @@ from typing import Any, Iterable
 
 from ..errors import EvalError
 from .multiset import Multiset
+from .typed_vector import TypedVector
 from .vflist import VFLinkedList
 from .vfqueue import VFQueue
 from .vmap import VMap
+from .vfvector import VFVector
+
+
+def _string_is_num(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    try:
+        float(stripped)
+        return True
+    except ValueError:
+        try:
+            complex(stripped)
+            return True
+        except ValueError:
+            return False
+
+
+def _string_is_int(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    try:
+        int(stripped)
+        return True
+    except ValueError:
+        try:
+            as_num = float(stripped)
+        except ValueError:
+            return False
+        return as_num == int(as_num)
+
+
+def _string_is_bool(text: str) -> bool:
+    stripped = text.strip().lower()
+    return stripped in {"true", "false"}
 
 
 def make_vmap(initial: dict[Any, Any] | None = None) -> VMap:
@@ -171,6 +208,8 @@ def runtime_collection_index_get(value: Any, key: Any) -> Any:
 def runtime_collection_index_read(value: Any, key: Any) -> tuple[bool, Any]:
     if runtime_collection_kind(value) == "map":
         return True, runtime_collection_index_get(value, key)
+    if runtime_collection_kind(value) == "multiset":
+        return True, value.count(key)
     return False, None
 
 
@@ -283,6 +322,11 @@ def runtime_collection_multiset_from_values(values: Iterable[Any]) -> Multiset:
 
 
 def runtime_collection_to_multiset(values: Iterable[Any]) -> Multiset:
+    kind = runtime_collection_kind(values)
+    if kind == "multiset":
+        return runtime_collection_multiset_from_values(runtime_collection_expanded_values(values))
+    if kind in {"list", "queue"}:
+        return runtime_collection_multiset_from_values(runtime_collection_values(values))
     return runtime_collection_multiset_from_values(values)
 
 
@@ -299,10 +343,8 @@ def runtime_collection_multiset_from_count_pairs(
         if count < 0:
             raise EvalError("multiset count must be non-negative")
         if count == 0:
-            counts.pop(key, None)
             continue
-        # Multiset literal construction is keyed and override-based: later wins.
-        counts[key] = count
+        counts[key] = counts.get(key, 0) + count
     return make_multiset(counts.items())
 
 
@@ -317,10 +359,135 @@ def runtime_collection_attr(value: Any, name: str) -> Any | None:
     return None
 
 
+def runtime_object_size_bits(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return 1
+    if isinstance(value, int) and not isinstance(value, bool):
+        return 64
+    if isinstance(value, float):
+        return 64
+    if isinstance(value, complex):
+        return 128
+    if isinstance(value, str):
+        return len(value.encode("utf-8")) * 8
+    if isinstance(value, (bytes, bytearray)):
+        return len(value) * 8
+    if isinstance(value, VFVector):
+        return sum(runtime_object_size_bits(item) for item in value)
+    if isinstance(value, tuple):
+        return sum(runtime_object_size_bits(item) for item in value)
+    kind = runtime_collection_kind(value)
+    if kind == "multiset":
+        return sum(runtime_object_size_bits(key) * count for key, count in value.items_sorted())
+    if kind in {"list", "queue"}:
+        return sum(runtime_object_size_bits(item) for item in value)
+    if kind == "map":
+        return sum(runtime_object_size_bits(item) for item in value.values())
+    if isinstance(value, dict):
+        return sum(runtime_object_size_bits(item) for item in value.values())
+    return 0
+
+
+def runtime_object_length(value: Any) -> int | None:
+    if isinstance(value, (str, bytes, bytearray, tuple, VFVector)):
+        return len(value)
+    kind = runtime_collection_kind(value)
+    if kind in {"list", "queue", "map"}:
+        return len(value)
+    if kind == "multiset":
+        return len(value._c)
+    return None
+
+
+def runtime_object_read_attr(value: Any, name: str) -> Any | None:
+    if isinstance(value, dict):
+        return None
+    if isinstance(value, str):
+        if name == "is_num":
+            return lambda: _string_is_num(value)
+        if name == "is_int":
+            return lambda: _string_is_int(value)
+        if name == "is_bool":
+            return lambda: _string_is_bool(value)
+    if name == "has":
+        def _has(item: Any) -> bool:
+            if isinstance(value, (str, bytes, bytearray, tuple, VFVector)):
+                return item in value
+            kind = runtime_collection_kind(value)
+            if kind == "multiset":
+                return value.count(item) > 0
+            if kind == "map":
+                return item in value
+            if kind in {"list", "queue"}:
+                for candidate in value:
+                    if candidate == item:
+                        return True
+                return False
+            raise EvalError("has expects a container")
+
+        return _has
+    if name == "count":
+        def _count(*args: Any) -> int:
+            if len(args) > 1:
+                raise EvalError("count expects at most one argument")
+            kind = runtime_collection_kind(value)
+            if len(args) == 0:
+                if isinstance(value, (str, bytes, bytearray, tuple, VFVector)):
+                    return len(value)
+                if kind == "multiset":
+                    return value.total()
+                if kind in {"list", "queue", "map"}:
+                    return len(value)
+                raise EvalError("count() expects a container")
+            item = args[0]
+            if isinstance(value, str):
+                return value.count(str(item))
+            if isinstance(value, (bytes, bytearray)):
+                if not isinstance(item, (bytes, bytearray)):
+                    return 0
+                return bytes(value).count(bytes(item))
+            if isinstance(value, (tuple, VFVector)):
+                return sum(1 for candidate in value if candidate == item)
+            if kind == "multiset":
+                return value.count(item)
+            if kind == "map":
+                return 1 if item in value else 0
+            if kind in {"list", "queue"}:
+                return sum(1 for candidate in value if candidate == item)
+            raise EvalError("count(value) expects a container")
+
+        return _count
+    if name == "size":
+        return runtime_object_size_bits(value)
+    length = runtime_object_length(value)
+    if name == "length" and length is not None:
+        return length
+    if isinstance(value, VFVector):
+        if name == "shape":
+            return (len(value),)
+        if name == "ndim":
+            return 1
+        if name == "length":
+            return len(value)
+        if name == "size":
+            return runtime_object_size_bits(value)
+    if isinstance(value, TypedVector) and value.vf_type_expr is not None and name == "shape":
+        return (len(value),)
+    kind = runtime_collection_kind(value)
+    if kind == "multiset" and name == "count":
+        return value.total()
+    return runtime_collection_attr(value, name)
+
+
 def runtime_collection_read_attr(value: Any, name: str) -> Any | None:
+    generic = runtime_object_read_attr(value, name)
+    if generic is not None:
+        return generic
     if runtime_collection_kind(value) == "map":
         return runtime_collection_require_get(value, name)
-    return runtime_collection_attr(value, name)
+    return None
 
 
 def runtime_collection_path_step(

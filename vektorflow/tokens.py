@@ -58,11 +58,13 @@ PIPE = "PIPE"          # >>
 BAR = "BAR"            # |  (absolute value only; pipe is `>>`)
 DOT = "DOT"            # .
 RANGE = "RANGE"        # ..
+ELLIPSIS = "ELLIPSIS"  # ...
 ARROW = "ARROW"        # ->
 FAT_ARROW = "FAT_ARROW"  # =>
 COMMA = "COMMA"        # ,
 SEMICOLON = "SEMICOLON"  # ;  (statement separator in function bodies)
 QUESTION = "QUESTION"  # ?
+BANG = "BANG"          # !
 BANG_QUESTION = "BANG_QUESTION"  # !?
 DOLLAR = "DOLLAR"      # $  (sigil, used for lambda/pipe-element/current)
 

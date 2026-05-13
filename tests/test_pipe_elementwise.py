@@ -43,13 +43,13 @@ class TestPipeElementwise:
 
     def test_lazy_range_pipe_emit_print_until_break(self) -> None:
         """``..`` drives ``>>`` until ``@|``; RHS uses ``$??`` switch arms."""
-        out = _run("..>>::$;$?? (20 => @|)")
+        out = _run('..>>::($ & "\\n");$?? (20 => @|)')
         lines = [x.rstrip() for x in out.splitlines() if x.strip() != ""]
         assert lines == [str(i) for i in range(21)]
 
     def test_finite_range_pipe_emit_print(self) -> None:
         """``..20`` is a finite tuple; ``>> ::$`` prints each element (same RHS form as lazy ``..``)."""
-        out = _run("..20>>::$")
+        out = _run('..20>>::($ & "\\n")')
         lines = [x.rstrip() for x in out.splitlines() if x.strip() != ""]
         assert lines == [str(i) for i in range(21)]
 
@@ -58,6 +58,8 @@ class TestPipeElementwise:
         assert _run(":: (1..3) >> $ >> $ * 2") == _run(":: (1..3) >> $ * 2")
 
     def test_triple_colon_line_emit_sugar(self) -> None:
-        """``::: expr`` is sugar for ``:: (expr & "\\n")`` (line-oriented print)."""
-        assert _run("::: 1") == _run(':: 1 & "\\n"')
-        assert _run("..3>>::: $") == _run('..3>>::($ & "\\n")')
+        """``::: expr`` prints the source text label and the evaluated value."""
+        assert _run("::: 1") == "1: 1"
+        assert _run('::: "hej"') == '"hej": hej'
+        assert _run("::: 1+2") == "1+2: 3"
+        assert _run("..3>>::: $") == "$: 0\n$: 1\n$: 2\n$: 3"

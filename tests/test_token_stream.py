@@ -442,6 +442,7 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
     )
     (out_root / TOKEN_FIXTURE_SPECS[1].fixture_name).unlink()
     payload = fixture_status_payload(repo_root=repo, fixture_root=out_root)
+    n_specs = len(TOKEN_FIXTURE_SPECS)
     assert payload["schema"] == TOKEN_FIXTURE_REPORT_SCHEMA
     assert payload["version"] == TOKEN_FIXTURE_REPORT_VERSION
     assert {key for key in payload["bundle_sha256"]} == {
@@ -452,15 +453,15 @@ def test_fixture_status_payload_summarizes_current_and_drifted_counts(tmp_path: 
         "validation_issues",
     }
     assert payload["summary"] == {
-        "total": len(TOKEN_FIXTURE_SPECS),
-        "current": 1,
+        "total": n_specs,
+        "current": n_specs - 2,
         "missing": 1,
         "stale": 1,
         "source_missing": 0,
         "unmanaged": 0,
         "discovered": len(payload["discovered_fixture_names"]),
-        "canonical_versioned": 1,
-        "versioned_envelopes": 1,
+        "canonical_versioned": n_specs - 2,
+        "versioned_envelopes": n_specs - 2,
         "legacy_envelopes": 0,
         "other_envelopes": 1,
         "invalid_json": 0,
@@ -634,6 +635,7 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
         "legacy": ["legacy_singleton_tuple_type.json"],
         "versioned": sorted(
             [
+                "axis_align_native_versioned.json",
                 "hello_native_versioned.json",
                 "numeric_native_versioned.json",
                 "vectors_native_versioned.json",
@@ -644,6 +646,7 @@ def test_native_lexer_fixtures_module_report_emits_json_summary() -> None:
     assert payload["discovered_fixtures_by_pairing_mode"] == {
         "declared-label": sorted(
             [
+                "axis_align_native_versioned.json",
                 "hello_native_versioned.json",
                 "numeric_native_versioned.json",
                 "vectors_native_versioned.json",
@@ -724,7 +727,7 @@ def test_native_lexer_fixtures_module_report_emits_drifted_statuses(tmp_path: Pa
     status_by_name = {item["fixture_name"]: item["status"] for item in payload["fixtures"]}
     assert status_by_name[TOKEN_FIXTURE_SPECS[0].fixture_name] == "stale"
     assert payload["managed_fixtures_by_status"] == {
-        "current": sorted([TOKEN_FIXTURE_SPECS[1].fixture_name, TOKEN_FIXTURE_SPECS[2].fixture_name]),
+        "current": sorted(spec.fixture_name for i, spec in enumerate(TOKEN_FIXTURE_SPECS) if i != 0),
         "stale": [TOKEN_FIXTURE_SPECS[0].fixture_name],
     }
     assert (

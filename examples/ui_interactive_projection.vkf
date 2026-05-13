@@ -1,0 +1,253 @@
+ui:.ui
+g: ui.graphics
+ui.set_mode("overlay")
+
+InnerPolygons(v):
+    vertices: [
+        [0.18, 0.22],
+        [0.50, 0.20],
+        [0.42, 0.46],
+        [0.64, 0.32],
+        [0.82, 0.26],
+        [0.76, 0.52],
+        [0.30, 0.62],
+        [0.55, 0.70],
+        [0.24, 0.82]
+    ]
+
+    edge_indices: [
+        [0, 1],
+        [1, 2],
+        [2, 0],
+        [3, 4],
+        [4, 5],
+        [5, 3],
+        [6, 7],
+        [7, 8],
+        [8, 6]
+    ]
+
+    face_indices: [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8]
+    ]
+
+    vertex_color: v.vertex_color
+    vertex_scale: v.vertex_scale
+    edge_color: v.edge_color
+    edge_scale: v.edge_scale
+    face_color: v.face_color
+
+    :
+
+ProjectionDemoEmbedding(v, view):
+    ox: view.offset_x
+    oy: view.offset_y
+
+    vertices: [
+        [0.16 + ox, 0.14 + oy],
+        [0.84 + ox, 0.14 + oy],
+        [0.84 + ox, 0.82 + oy],
+        [0.16 + ox, 0.82 + oy]
+    ]
+
+    edge_indices: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0]
+    ]
+
+    face_indices: [
+        [0, 1, 2, 3]
+    ]
+
+    vertex_color: view.outer_vertex_color
+    vertex_scale: view.outer_vertex_scale
+    edge_color: view.outer_edge_color
+    edge_scale: view.outer_edge_scale
+    face_color: view.outer_face_color
+    face_style: g.FaceStyle(
+        stroke_color: view.outer_edge_color,
+        stroke_scale: view.outer_edge_scale,
+        content: (
+            embedding: InnerPolygons,
+            value: (
+                vertex_color: view.inner_vertex_color,
+                vertex_scale: view.inner_vertex_scale,
+                edge_color: view.inner_edge_color,
+                edge_scale: view.inner_edge_scale,
+                face_color: view.inner_face_color
+            )
+        )
+    )
+
+    :
+
+OuterFaceColor(hovered, selected):
+    selected? @: "#ffe6a6"
+    hovered? @: "#c8d8ff"
+    @: "#dbe7ff"
+
+OuterEdgeColor(selected):
+    selected? @: "#df7a00"
+    @: "#415a9c"
+
+OuterEdgeScale(selected):
+    selected? @: 0.013
+    @: 0.01
+
+OuterVertexColor(selected):
+    selected? @: "#bf5b00"
+    @: "#304c8f"
+
+OuterVertexScale(selected):
+    selected? @: 0.026
+    @: 0.022
+
+InnerFaceColor(hovered, selected):
+    selected? @: "#ffb55c"
+    hovered? @: "#79a2ff"
+    @: "#8fb0ff"
+
+InnerEdgeColor(hovered, selected):
+    selected? @: "#b44b00"
+    hovered? @: "#1f3d84"
+    @: "#29458f"
+
+InnerEdgeScale(selected):
+    selected? @: 0.011
+    @: 0.008
+
+InnerVertexColor(selected):
+    selected? @: "#b44b00"
+    @: "#29458f"
+
+InnerVertexScale(selected):
+    selected? @: 0.02
+    @: 0.017
+
+HitRepresentation(e, target):
+    @: ui.hit(e, target, "representation")
+
+demo: (
+    label: "projection"
+)
+
+events: ui.events
+frame: ui.Frame()
+offset_x: 0.0
+offset_y: 0.0
+hovered: false
+selected: false
+dragging: false
+
+rep: frame.add(demo, ProjectionDemoEmbedding, (
+    offset_x: offset_x,
+    offset_y: offset_y,
+    outer_face_color: OuterFaceColor(hovered, selected),
+    outer_edge_color: OuterEdgeColor(selected),
+    outer_edge_scale: OuterEdgeScale(selected),
+    outer_vertex_color: OuterVertexColor(selected),
+    outer_vertex_scale: OuterVertexScale(selected),
+    inner_face_color: InnerFaceColor(hovered, selected),
+    inner_edge_color: InnerEdgeColor(hovered, selected),
+    inner_edge_scale: InnerEdgeScale(selected),
+    inner_vertex_color: InnerVertexColor(selected),
+    inner_vertex_scale: InnerVertexScale(selected)
+))
+target: rep.pick()
+
+screen: ui.display
+screen.add_frame(frame, (0.12, 0.12, 0.62, 0.54))
+screen.render()
+
+(e: events.get())??>
+    ui.MouseHover =>
+        hovered: HitRepresentation(e, target)
+        rep.set_view((
+            offset_x: offset_x,
+            offset_y: offset_y,
+            outer_face_color: OuterFaceColor(hovered, selected),
+            outer_edge_color: OuterEdgeColor(selected),
+            outer_edge_scale: OuterEdgeScale(selected),
+            outer_vertex_color: OuterVertexColor(selected),
+            outer_vertex_scale: OuterVertexScale(selected),
+            inner_face_color: InnerFaceColor(hovered, selected),
+            inner_edge_color: InnerEdgeColor(hovered, selected),
+            inner_edge_scale: InnerEdgeScale(selected),
+            inner_vertex_color: InnerVertexColor(selected),
+            inner_vertex_scale: InnerVertexScale(selected)
+        ))
+    ui.MouseMove =>
+        hovered: HitRepresentation(e, target)
+        rep.set_view((
+            offset_x: offset_x,
+            offset_y: offset_y,
+            outer_face_color: OuterFaceColor(hovered, selected),
+            outer_edge_color: OuterEdgeColor(selected),
+            outer_edge_scale: OuterEdgeScale(selected),
+            outer_vertex_color: OuterVertexColor(selected),
+            outer_vertex_scale: OuterVertexScale(selected),
+            inner_face_color: InnerFaceColor(hovered, selected),
+            inner_edge_color: InnerEdgeColor(hovered, selected),
+            inner_edge_scale: InnerEdgeScale(selected),
+            inner_vertex_color: InnerVertexColor(selected),
+            inner_vertex_scale: InnerVertexScale(selected)
+        ))
+    ui.MouseDown =>
+        hit: HitRepresentation(e, target)
+        hovered: hit
+        selected: hit
+        dragging: hit
+        rep.set_view((
+            offset_x: offset_x,
+            offset_y: offset_y,
+            outer_face_color: OuterFaceColor(hovered, selected),
+            outer_edge_color: OuterEdgeColor(selected),
+            outer_edge_scale: OuterEdgeScale(selected),
+            outer_vertex_color: OuterVertexColor(selected),
+            outer_vertex_scale: OuterVertexScale(selected),
+            inner_face_color: InnerFaceColor(hovered, selected),
+            inner_edge_color: InnerEdgeColor(hovered, selected),
+            inner_edge_scale: InnerEdgeScale(selected),
+            inner_vertex_color: InnerVertexColor(selected),
+            inner_vertex_scale: InnerVertexScale(selected)
+        ))
+    ui.MouseUp =>
+        dragging: false
+        rep.set_view((
+            offset_x: offset_x,
+            offset_y: offset_y,
+            outer_face_color: OuterFaceColor(hovered, selected),
+            outer_edge_color: OuterEdgeColor(selected),
+            outer_edge_scale: OuterEdgeScale(selected),
+            outer_vertex_color: OuterVertexColor(selected),
+            outer_vertex_scale: OuterVertexScale(selected),
+            inner_face_color: InnerFaceColor(hovered, selected),
+            inner_edge_color: InnerEdgeColor(hovered, selected),
+            inner_edge_scale: InnerEdgeScale(selected),
+            inner_vertex_color: InnerVertexColor(selected),
+            inner_vertex_scale: InnerVertexScale(selected)
+        ))
+    ui.MouseDrag =>
+        dragging?
+            offset_x: offset_x + e.dx_norm
+            offset_y: offset_y + e.dy_norm
+            rep.set_view((
+                offset_x: offset_x,
+                offset_y: offset_y,
+                outer_face_color: OuterFaceColor(hovered, selected),
+                outer_edge_color: OuterEdgeColor(selected),
+                outer_edge_scale: OuterEdgeScale(selected),
+                outer_vertex_color: OuterVertexColor(selected),
+                outer_vertex_scale: OuterVertexScale(selected),
+                inner_face_color: InnerFaceColor(hovered, selected),
+                inner_edge_color: InnerEdgeColor(hovered, selected),
+                inner_edge_scale: InnerEdgeScale(selected),
+                inner_vertex_color: InnerVertexColor(selected),
+                inner_vertex_scale: InnerVertexScale(selected)
+            ))
+    null =>
+        ui.sleep(0.1)

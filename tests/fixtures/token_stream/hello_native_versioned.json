@@ -44,7 +44,7 @@
       "location": {
         "file": "examples/native_core/hello_native.vkf",
         "line": 1,
-        "column": 9
+        "column": 10
       }
     },
     {
@@ -53,16 +53,19 @@
       "location": {
         "file": "examples/native_core/hello_native.vkf",
         "line": 1,
-        "column": 12
+        "column": 13
       }
     },
     {
       "kind": "ARROW",
-      "value": null,
+      "value": [
+        false,
+        false
+      ],
       "location": {
         "file": "examples/native_core/hello_native.vkf",
         "line": 1,
-        "column": 14
+        "column": 15
       }
     },
     {
@@ -71,7 +74,7 @@
       "location": {
         "file": "examples/native_core/hello_native.vkf",
         "line": 1,
-        "column": 17
+        "column": 18
       }
     },
     {
@@ -80,7 +83,7 @@
       "location": {
         "file": "examples/native_core/hello_native.vkf",
         "line": 1,
-        "column": 20
+        "column": 21
       }
     },
     {
@@ -142,7 +145,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 1
       }
     },
@@ -151,7 +154,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 1
       }
     },
@@ -160,7 +163,7 @@
       "value": "twice",
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 4
       }
     },
@@ -169,7 +172,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 9
       }
     },
@@ -178,7 +181,7 @@
       "value": 21,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 10
       }
     },
@@ -187,7 +190,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 4,
+        "line": 3,
         "column": 12
       }
     },
@@ -196,7 +199,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 5,
+        "line": 4,
         "column": 1
       }
     },
@@ -205,7 +208,7 @@
       "value": null,
       "location": {
         "file": "examples/native_core/hello_native.vkf",
-        "line": 5,
+        "line": 4,
         "column": 1
       }
     }

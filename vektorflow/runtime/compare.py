@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from .. import ast
-from .struct_value import VF_TYPE_KEY, field_order_for_compare, get_type_name
+from .struct_value import VF_SPILL_BASE_KEY, VF_TYPE_KEY, field_order_for_compare, get_type_name
+from .vfvector import VFVector
 
 
 def struct_eq(a: Any, b: Any, types: dict[str, ast.TypeExpr | ast.FuncType]) -> bool:
@@ -15,13 +16,14 @@ def struct_eq(a: Any, b: Any, types: dict[str, ast.TypeExpr | ast.FuncType]) -> 
             return False
         keys = set(a) | set(b)
         keys.discard(VF_TYPE_KEY)
+        keys.discard(VF_SPILL_BASE_KEY)
         for k in keys:
             if k not in a or k not in b:
                 return False
             if not struct_eq(a[k], b[k], types):
                 return False
         return True
-    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+    if isinstance(a, (VFVector, tuple)) and isinstance(b, (VFVector, tuple)):
         if len(a) != len(b):
             return False
         return all(struct_eq(x, y, types) for x, y in zip(a, b))
@@ -31,7 +33,7 @@ def struct_eq(a: Any, b: Any, types: dict[str, ast.TypeExpr | ast.FuncType]) -> 
 def struct_lt(a: dict, b: dict, types: dict[str, ast.TypeExpr | ast.FuncType]) -> bool:
     keys = field_order_for_compare(a, b, types)
     for k in keys:
-        if k == VF_TYPE_KEY:
+        if k in (VF_TYPE_KEY, VF_SPILL_BASE_KEY):
             continue
         if k not in a or k not in b:
             continue

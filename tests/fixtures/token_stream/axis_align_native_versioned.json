@@ -1,0 +1,135 @@
+{
+  "schema": "vektorflow.token_stream",
+  "version": 1,
+  "tokens": [
+    {
+      "kind": "IDENT",
+      "value": "v",
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "kind": "COLON",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 3
+      }
+    },
+    {
+      "kind": "LBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 5
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 1,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 6
+      }
+    },
+    {
+      "kind": "COMMA",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 7
+      }
+    },
+    {
+      "kind": "NUMBER",
+      "value": 2,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 9
+      }
+    },
+    {
+      "kind": "RBRACKET",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 10
+      }
+    },
+    {
+      "kind": "ARROW",
+      "value": [
+        true,
+        true
+      ],
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 11
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "i",
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 1,
+        "column": 13
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EMIT",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "kind": "IDENT",
+      "value": "v",
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 2,
+        "column": 4
+      }
+    },
+    {
+      "kind": "NEWLINE",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 3,
+        "column": 1
+      }
+    },
+    {
+      "kind": "EOF",
+      "value": null,
+      "location": {
+        "file": "examples/native_core/axis_align_native.vkf",
+        "line": 3,
+        "column": 1
+      }
+    }
+  ]
+}

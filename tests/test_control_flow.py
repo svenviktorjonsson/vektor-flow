@@ -141,7 +141,7 @@ def test_conditional_expression_returns_null_on_false() -> None:
 
 
 def test_conditional_expression_returns_null_on_true_after_effects() -> None:
-    assert _run("x: 0\n:: (true? x: 1)\n:: x") == "null\n1"
+    assert _run("x: 0\n::: (true? x: 1)\n::: x") == "null\n1"
 
 
 def test_conditional_loop_continue_with_at_gt() -> None:

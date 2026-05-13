@@ -21,6 +21,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 import vektorflow.ui.launch as L
+from vektorflow.ui.session import get_ui_session, reset_ui_session
 from vektorflow.stdlib.ui import build_ui_namespace, UIRoot
 from vektorflow.ui.launch import (
     _reset_ui_launch_for_tests,
@@ -36,7 +37,7 @@ from vektorflow.ui.launch import (
 _REPO = Path(__file__).resolve().parents[1]
 _HAS_MARKERS = (
     (_REPO / "web" / "vf-ui" / "index.html").is_file()
-    and (_REPO / "native" / "VfOverlay" / "CMakeLists.txt").is_file()
+    and (_REPO / "web" / "vf-ui" / "vkf-scene.html").is_file()
 )
 
 
@@ -52,7 +53,10 @@ def _reset(monkeypatch):
     monkeypatch.setattr(L, "_browser_server", None)
     monkeypatch.setattr(L, "_browser_thread", None)
     monkeypatch.setattr(L, "_browser_port", None)
+    monkeypatch.setattr(L, "_overlay_launch_in_progress", False)
+    monkeypatch.setattr(L, "_overlay_launch_failed", None)
     monkeypatch.setattr(L, "_suppress_ui_auto_launch", False)
+    reset_ui_session()
     # Remove env var so auto-detect kicks in cleanly
     monkeypatch.delenv("VF_UI_MODE", raising=False)
     yield
@@ -90,6 +94,10 @@ class TestGetSetMode:
         monkeypatch.setenv("VF_UI_MODE", "headless")
         assert get_ui_mode() == "headless"
 
+    def test_env_var_test(self, monkeypatch) -> None:
+        monkeypatch.setenv("VF_UI_MODE", "test")
+        assert get_ui_mode() == "test"
+
     def test_forced_mode_beats_env(self, monkeypatch) -> None:
         monkeypatch.setenv("VF_UI_MODE", "overlay")
         set_ui_mode("browser")
@@ -99,6 +107,10 @@ class TestGetSetMode:
         monkeypatch.setattr("sys.platform", "win32")
         set_ui_mode("headless")
         assert get_ui_mode() == "headless"
+
+    def test_set_mode_test(self) -> None:
+        set_ui_mode("test")
+        assert get_ui_mode() == "test"
 
     def test_set_mode_resets_launched(self) -> None:
         L._launched = True
@@ -113,6 +125,14 @@ class TestGetSetMode:
         set_ui_mode("BROWSER")
         assert get_ui_mode() == "browser"
 
+    def test_vf_ui_repo_root_used_when_valid(self, monkeypatch, tmp_path) -> None:
+        ui_dir = tmp_path / "web" / "vf-ui"
+        ui_dir.mkdir(parents=True)
+        (ui_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+        (ui_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        monkeypatch.setenv("VF_UI_REPO_ROOT", str(tmp_path))
+        assert find_vektorflow_repo_root() == tmp_path.resolve()
+
 
 # ---------------------------------------------------------------------------
 # UIRoot.set_mode / UIRoot.mode
@@ -123,6 +143,11 @@ class TestUIRootMode:
         ui = UIRoot()
         ui.set_mode("browser")
         assert ui.mode == "browser"
+
+    def test_set_mode_test(self) -> None:
+        ui = UIRoot()
+        ui.set_mode("test")
+        assert ui.mode == "test"
 
     def test_set_mode_headless(self) -> None:
         ui = UIRoot()
@@ -147,6 +172,16 @@ class TestUIRootMode:
 class TestMaybeLaunchUiDispatch:
     def test_headless_calls_nothing(self, monkeypatch) -> None:
         set_ui_mode("headless")
+        with (
+            patch.object(L, "maybe_launch_browser") as mb,
+            patch.object(L, "maybe_launch_vf_overlay") as mo,
+        ):
+            maybe_launch_ui()
+        mb.assert_not_called()
+        mo.assert_not_called()
+
+    def test_test_mode_calls_nothing(self, monkeypatch) -> None:
+        set_ui_mode("test")
         with (
             patch.object(L, "maybe_launch_browser") as mb,
             patch.object(L, "maybe_launch_vf_overlay") as mo,
@@ -181,6 +216,14 @@ class TestMaybeLaunchUiDispatch:
         with patch.object(L, "maybe_launch_browser") as mb:
             maybe_launch_ui()
         mb.assert_not_called()
+
+    def test_test_mode_poll_does_not_start_live_event_poller(self) -> None:
+        ui = UIRoot()
+        ui.set_mode("test")
+        with patch("vektorflow.stdlib.ui.start_event_poller") as start_poller:
+            ui.poll()
+            assert ui.events.poll() is False
+        start_poller.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -245,12 +288,67 @@ class TestBrowserServer:
         r = urllib.request.urlopen(url, timeout=3)
         assert r.status == 200
 
+    def test_browser_opens_session_page(self) -> None:
+        set_ui_mode("browser")
+        with patch("webbrowser.open") as open_browser:
+            maybe_launch_browser()
+        open_browser.assert_called_once()
+        url = open_browser.call_args.args[0]
+        assert "/sessions/" in url
+        assert url.endswith("/vkf-scene.html")
+        session = get_ui_session()
+        assert session is not None
+        assert (session.repo_session_dir / "vkf-scene.html").is_file()
+        html = (session.repo_session_dir / "vkf-scene.html").read_text(encoding="utf-8")
+        assert 'src="../../vf-runtime-shell.js?v=' in html
+
+    def test_browser_transport_prefers_healthy_existing_helper_process(self, monkeypatch, tmp_path) -> None:
+        ui_dir = tmp_path / "web" / "vf-ui"
+        ui_dir.mkdir(parents=True)
+        (ui_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+        (ui_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+
+        monkeypatch.setattr(L, "_running_under_pytest", lambda: False)
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: tmp_path)
+        monkeypatch.setattr(L, "_read_browser_state", lambda: 43123)
+        monkeypatch.setattr(L, "_probe_browser_server", lambda port: port == 43123)
+
+        with (
+            patch("vektorflow.ui.launch._spawn_browser_server_process") as spawn_helper,
+            patch("webbrowser.open") as open_browser,
+        ):
+            maybe_launch_browser()
+
+        spawn_helper.assert_not_called()
+        open_browser.assert_called_once()
+        assert L.get_browser_port() == 43123
+        assert open_browser.call_args.args[0].startswith("http://127.0.0.1:43123/")
+
+    def test_browser_transport_falls_back_to_new_helper_when_cached_port_is_stale(self, monkeypatch, tmp_path) -> None:
+        ui_dir = tmp_path / "web" / "vf-ui"
+        ui_dir.mkdir(parents=True)
+        (ui_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+        (ui_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+
+        monkeypatch.setattr(L, "_running_under_pytest", lambda: False)
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: tmp_path)
+        monkeypatch.setattr(L, "_read_browser_state", lambda: 43123)
+        monkeypatch.setattr(L, "_probe_browser_server", lambda port: False)
+        monkeypatch.setattr(L, "_spawn_browser_server_process", lambda serve_dir: 43124)
+
+        with patch("webbrowser.open") as open_browser:
+            maybe_launch_browser()
+
+        open_browser.assert_called_once()
+        assert L.get_browser_port() == 43124
+        assert open_browser.call_args.args[0].startswith("http://127.0.0.1:43124/")
+
 
 # ---------------------------------------------------------------------------
 # Overlay mode: Popen called exactly once
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not _HAS_MARKERS, reason="web/vf-ui or native/VfOverlay not present")
+@pytest.mark.skipif(not _HAS_MARKERS, reason="web/vf-ui bundle not present")
 class TestOverlayMode:
     def test_launch_skipped_when_suppressed(self, monkeypatch) -> None:
         monkeypatch.setattr(L, "_suppress_ui_auto_launch", True)
@@ -258,22 +356,53 @@ class TestOverlayMode:
             maybe_launch_vf_overlay()
         popen.assert_not_called()
 
-    def test_popen_called_once_then_guarded(self, monkeypatch) -> None:
-        fake_exe = _REPO / "native" / "VfOverlay" / "build" / "Release" / "fake-overlay.exe"
-        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
+    def test_popen_called_once_then_guarded(self, monkeypatch, tmp_path) -> None:
+        web_dir = tmp_path / "fake-overlay-root" / "web"
+        session_dir = web_dir / "sessions" / "s1"
+        session_dir.mkdir(parents=True)
+        (web_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        (session_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        fake_exe = web_dir.parent / "fake-overlay.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: tmp_path)
         monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
+        monkeypatch.setattr(
+            L,
+            "ensure_ui_session",
+            None,
+            raising=False,
+        )
+        from vektorflow.ui.session import UISessionArtifacts
+
+        monkeypatch.setattr(
+            "vektorflow.ui.session.ensure_ui_session",
+            lambda root: UISessionArtifacts(
+                session_id="s1",
+                page_rel="sessions/s1/vkf-scene.html",
+                repo_web_dir=tmp_path / "web" / "vf-ui",
+                repo_session_dir=tmp_path / "web" / "vf-ui" / "sessions" / "s1",
+                built_web_dirs=(web_dir,),
+            ),
+        )
+        monkeypatch.setattr(L, "_wait_for_overlay_ready", lambda **kwargs: 5555)
         set_ui_mode("overlay")
 
         calls: list = []
 
         def _fake_popen(*args, **kwargs):
+            proc = MagicMock()
+            proc.pid = 111
             calls.append(args)
+            return proc
 
         with patch("vektorflow.ui.launch.subprocess.Popen", side_effect=_fake_popen):
             maybe_launch_vf_overlay()
             maybe_launch_vf_overlay()  # second call must be a no-op
 
         assert len(calls) == 1
+        argv = calls[0][0]
+        assert len(argv) == 2
+        assert str(argv[1]).endswith("vkf-scene.html")
+        assert "sessions" in str(argv[1])
 
     def test_overlay_exe_missing_warns(self, monkeypatch, capsys) -> None:
         monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
@@ -281,9 +410,111 @@ class TestOverlayMode:
         set_ui_mode("overlay")
         with patch("vektorflow.ui.launch.subprocess.Popen") as popen:
             maybe_launch_vf_overlay()
+            maybe_launch_vf_overlay()
         popen.assert_not_called()
         err = capsys.readouterr().err
-        assert "vf-overlay.exe not found" in err or "UI not started" in err
+        assert err.count("vf-overlay.exe not found") == 1
+
+    def test_overlay_launch_terminates_tracked_previous_process_before_spawning_new_one(self, monkeypatch, tmp_path) -> None:
+        web_dir = tmp_path / "native" / "build" / "VfOverlay" / "Release" / "web"
+        session_dir = web_dir / "sessions" / "s1"
+        session_dir.mkdir(parents=True)
+        (web_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        (session_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        fake_exe = web_dir.parent / "vf-overlay.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: tmp_path)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
+        monkeypatch.setattr(L, "_read_overlay_pid", lambda: 321)
+        terminated: list[int] = []
+        written: list[tuple[int, Path]] = []
+        monkeypatch.setattr(L, "_terminate_previous_overlay", lambda pid: terminated.append(pid))
+        monkeypatch.setattr(L, "_write_overlay_state", lambda *, pid, exe: written.append((pid, exe)))
+        from vektorflow.ui.session import UISessionArtifacts
+
+        monkeypatch.setattr(
+            "vektorflow.ui.session.ensure_ui_session",
+            lambda root: UISessionArtifacts(
+                session_id="s1",
+                page_rel="sessions/s1/vkf-scene.html",
+                repo_web_dir=tmp_path / "web" / "vf-ui",
+                repo_session_dir=tmp_path / "web" / "vf-ui" / "sessions" / "s1",
+                built_web_dirs=(web_dir,),
+            ),
+        )
+        monkeypatch.setattr(L, "_wait_for_overlay_ready", lambda **kwargs: 5555)
+        set_ui_mode("overlay")
+
+        proc = MagicMock()
+        proc.pid = 654
+
+        with patch("vektorflow.ui.launch.subprocess.Popen", return_value=proc) as popen:
+            maybe_launch_vf_overlay()
+
+        popen.assert_called_once()
+        assert terminated == [321]
+        assert written == [(654, fake_exe)]
+
+    def test_overlay_launch_requires_session_page_beside_launched_exe(self, monkeypatch, tmp_path, capsys) -> None:
+        web_dir = tmp_path / "native" / "build" / "VfOverlay" / "Release" / "web"
+        web_dir.mkdir(parents=True)
+        (web_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        fake_exe = web_dir.parent / "vf-overlay.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: tmp_path)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
+        from vektorflow.ui.session import UISessionArtifacts
+
+        monkeypatch.setattr(
+            "vektorflow.ui.session.ensure_ui_session",
+            lambda root: UISessionArtifacts(
+                session_id="missing",
+                page_rel="sessions/missing/vkf-scene.html",
+                repo_web_dir=tmp_path / "web" / "vf-ui",
+                repo_session_dir=tmp_path / "web" / "vf-ui" / "sessions" / "missing",
+                built_web_dirs=(web_dir,),
+            ),
+        )
+        set_ui_mode("overlay")
+
+        with patch("vektorflow.ui.launch.subprocess.Popen") as popen:
+            maybe_launch_vf_overlay()
+
+        popen.assert_not_called()
+        assert "staged overlay session page missing" in capsys.readouterr().err
+        assert L._launched is False
+
+    def test_overlay_launch_failure_is_sticky_until_reset(self, monkeypatch, tmp_path, capsys) -> None:
+        web_dir = tmp_path / "native" / "build" / "VfOverlay" / "Release" / "web"
+        session_dir = web_dir / "sessions" / "s1"
+        session_dir.mkdir(parents=True)
+        (web_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        (session_dir / "vkf-scene.html").write_text("<html></html>", encoding="utf-8")
+        fake_exe = web_dir.parent / "vf-overlay.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: tmp_path)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
+        from vektorflow.ui.session import UISessionArtifacts
+
+        monkeypatch.setattr(
+            "vektorflow.ui.session.ensure_ui_session",
+            lambda root: UISessionArtifacts(
+                session_id="s1",
+                page_rel="sessions/s1/vkf-scene.html",
+                repo_web_dir=tmp_path / "web" / "vf-ui",
+                repo_session_dir=tmp_path / "web" / "vf-ui" / "sessions" / "s1",
+                built_web_dirs=(web_dir,),
+            ),
+        )
+        monkeypatch.setattr(L, "_wait_for_overlay_ready", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+        set_ui_mode("overlay")
+        proc = MagicMock()
+        proc.pid = 999
+
+        with patch("vektorflow.ui.launch.subprocess.Popen", return_value=proc) as popen:
+            maybe_launch_vf_overlay()
+            maybe_launch_vf_overlay()
+
+        assert popen.call_count == 1
+        assert "boom" in capsys.readouterr().err
+        assert L._overlay_launch_failed == "boom"
 
 
 # ---------------------------------------------------------------------------

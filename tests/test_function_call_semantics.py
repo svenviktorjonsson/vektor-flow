@@ -22,7 +22,7 @@ def _run(src: str) -> str:
 
 
 def test_parser_accepts_declaration_style_params_and_defaults() -> None:
-    mod = parse_module("f(num x, num y:4): x + y", "<test>")
+    mod = parse_module("f(num x, num y=4): x + y", "<test>")
     fn = mod.statements[0]
     assert isinstance(fn, ast.FuncDef)
     assert fn.params[0].name == "x"
@@ -36,39 +36,39 @@ def test_parser_accepts_declaration_style_params_and_defaults() -> None:
 
 def test_defaults_are_evaluated_at_call_time_from_earlier_params() -> None:
     src = """
-f(num x, num y:x+1, num z:y+1): x + y + z
+f(num x, num y=x+1, num z=y+1): x + y + z
 ::: f(2)
 ::: f(2, z:10)
 """
-    assert _run(src).splitlines() == ["9", "15"]
+    assert _run(src).splitlines() == ["f(2): 9", "f(2, z:10): 15"]
 
 
 def test_named_calls_allow_any_order_and_mixed_tail_keywords() -> None:
     src = """
-f(num x, num y, num z:0): x*100 + y*10 + z
+f(num x, num y, num z=0): x*100 + y*10 + z
 ::: f(y:2, x:1)
 ::: f(1, z:3, y:2)
 """
-    assert _run(src).splitlines() == ["120", "123"]
+    assert _run(src).splitlines() == ["f(y:2, x:1): 120", "f(1, z:3, y:2): 123"]
 
 
 def test_call_spreads_support_positional_and_named_categories() -> None:
     src = """
-f(num x, num y, num z:0): x*100 + y*10 + z
+f(num x, num y, num z=0): x*100 + y*10 + z
 a: (y:4, z:5)
 ::: f(:[1,2], :a)
 """
-    assert _run(src).splitlines() == ["145"]
+    assert _run(src).splitlines() == ["f(:[1, 2], :a): 145"]
 
 
 def test_named_spread_later_wins_but_direct_duplicate_errors() -> None:
     src = """
-f(num x, num y:0): x*10 + y
-a: (x:1)
+f(num x, num y=0): x*10 + y
+a: (x:1,)
 b: (x:2, y:3)
 ::: f(:a, :b)
 """
-    assert _run(src).splitlines() == ["23"]
+    assert _run(src).splitlines() == ["f(:a, :b): 23"]
 
     dup = """
 f(num x): x
@@ -85,3 +85,45 @@ f(num x, num y): x + y
 """
     with pytest.raises(EvalError, match="positional arguments cannot appear after named arguments"):
         _run(src)
+
+
+def test_variadic_positional_and_named_capture_bind_cleanly() -> None:
+    src = """
+f(num x, num y=4, ...rest:num, :::named:any):
+    ::: x
+    ::: y
+    ::: rest.length()
+    ::: rest.(0)
+    ::: named.flag
+f(1, 2, 3, 4, flag:true)
+"""
+    assert _run(src).splitlines() == [
+        "x: 1",
+        "y: 2",
+        "rest.length(): 2",
+        "rest.(0): 3",
+        "named.flag: true",
+    ]
+
+
+def test_variadic_named_capture_prevents_unknown_argument_error() -> None:
+    src = """
+f(x, :::named):
+    ::: named.a
+    ::: named.b
+f(1, a:2, b:3)
+"""
+    assert _run(src).splitlines() == [
+        "named.a: 2",
+        "named.b: 3",
+    ]
+
+
+def test_parser_accepts_variadic_param_markers() -> None:
+    mod = parse_module("f(num x, ...rest:num, :::named:any): x", "<test>")
+    fn = mod.statements[0]
+    assert isinstance(fn, ast.FuncDef)
+    assert fn.params[1].name == "rest"
+    assert fn.params[1].variadic_positional is True
+    assert fn.params[2].name == "named"
+    assert fn.params[2].variadic_named is True

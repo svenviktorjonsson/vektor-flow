@@ -93,6 +93,13 @@ class MultisetLit:
 
 
 @dataclass
+class MultisetFromValues:
+    """Inside ``{}``: leading ``:expr`` — spill a compatible container into a multiset literal."""
+
+    expr: Any
+
+
+@dataclass
 class AxisAlign:
     """Axis tagging via tight ``->`` (same adjacency rules as ``.``).
 
@@ -147,6 +154,13 @@ class SpreadArg:
 class Attribute:
     value: Any
     name: str
+
+
+@dataclass
+class RaiseExpr:
+    """``expr!`` — evaluate ``expr`` and raise the resulting error value."""
+
+    value: Any
 
 
 @dataclass
@@ -298,6 +312,8 @@ class Param:
     param_func_type: FuncType | None = None  # ``f:num->num`` — function parameter
     type_ref: Any | None = None
     default_expr: Any | None = None
+    variadic_positional: bool = False
+    variadic_named: bool = False
 
 
 Stmt = Any
@@ -308,6 +324,7 @@ class Bind:
     target: Any  # Ident, Attribute, or DottedIndex
     value: Any
     declared_type: Any | None = None
+    docstring: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -320,12 +337,16 @@ class Emit:
 
 @dataclass
 class StdioPrint:
-    """``:: expr`` — print to stdout with no implicit newline (exact stringified output).
+    """``:: expr`` — print to stdout with no implicit newline (exact stringified output)."""
 
-    ``::: expr`` is syntactic sugar for a line-oriented print: ``:: (expr & "\\n")``
-    (same as ``::"$a\\n"``-style when ``expr`` stringifies to ``a``).
-    """
+    value: Any
 
+
+@dataclass
+class StdioLabelPrint:
+    """``::: expr`` — print ``expr_text: value\\n`` for quick labeled inspection."""
+
+    expr_text: str
     value: Any
 
 
@@ -340,10 +361,32 @@ class SpillImport:
 
 
 @dataclass
+class SpillValue:
+    """``:expr`` — spill full object behavior and any visible fields into current local scope."""
+
+    value: Any
+
+
+@dataclass
+class SpillExpr:
+    """``(:expr)`` — materialize the spill result of ``expr`` as a scope record value."""
+
+    value: Any
+
+
+@dataclass
+class ScopeExpr:
+    """Scoped block expression — returns last row; lone ``:`` returns the local scope record."""
+
+    body: "Block"
+
+
+@dataclass
 class StdioReadLine:
     """``name ::`` — read one line from stdin into ``name``."""
 
     target: Any  # Ident
+    declared_type: Any | None = None
 
 
 @dataclass
@@ -351,6 +394,7 @@ class StdioPrompt:
     """``name:::` — print ``name: `` then read one line (prompted stdin)."""
 
     target: Any  # Ident
+    declared_type: Any | None = None
 
 
 @dataclass
@@ -363,11 +407,30 @@ class FuncDefStdin:
 
 
 @dataclass
+class EvalBind:
+    """``name :: expr`` — evaluate source text/value and bind result to ``name``."""
+
+    target: Any  # Ident
+    source: Any
+    declared_type: Any | None = None
+
+
+@dataclass
+class FuncDefSource:
+    """``f(x) :: expr`` — compile function body from source text at runtime."""
+
+    name: str
+    params: list[Param]
+    source: Any
+
+
+@dataclass
 class FuncDef:
     name: str
     params: list[Param]
     body: Union[Any, "Block"]
     func_type: FuncType | None = None
+    docstring: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -452,6 +515,15 @@ class ConditionalExpr:
     condition: Any
     body: Any
     loop: bool = False
+
+
+@dataclass
+class AssertExpr:
+    """``condition?!`` or ``condition?! message`` — fail if falsy."""
+
+    condition: Any
+    message: Any | None = None
+    condition_text: str | None = None
 
 
 @dataclass

@@ -87,7 +87,7 @@
       "kind": "DOT",
       "value": [
         true,
-        false
+        true
       ],
       "location": {
         "file": "<fixture-versioned>",
@@ -101,7 +101,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 4
+        "column": 3
       }
     },
     {
@@ -110,7 +110,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 9
+        "column": 8
       }
     },
     {
@@ -119,7 +119,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 11
+        "column": 10
       }
     },
     {
@@ -128,7 +128,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 12
+        "column": 11
       }
     },
     {
@@ -137,7 +137,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 13
+        "column": 12
       }
     },
     {
@@ -146,7 +146,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 14
+        "column": 13
       }
     },
     {
@@ -155,7 +155,7 @@
       "location": {
         "file": "<fixture-versioned>",
         "line": 2,
-        "column": 15
+        "column": 14
       }
     },
     {

@@ -14,7 +14,7 @@ class TimeHost(Protocol):
 
     def current_time(self, fmt: str) -> str: ...
 
-    def time_stamp(self) -> str: ...
+    def time_stamp(self) -> float: ...
 
 
 class _PythonTimeHost:
@@ -28,8 +28,8 @@ class _PythonTimeHost:
 
         return datetime.now().strftime(fmt)
 
-    def time_stamp(self) -> str:
-        return f"{_time.time():.6f}"
+    def time_stamp(self) -> float:
+        return float(_time.time())
 
 
 def _coerce_str(x: Any) -> str:
@@ -105,8 +105,8 @@ def current_time(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     return _time_host.current_time(t)
 
 
-def time_stamp() -> str:
-    """``time.time()`` as a fixed-point decimal string (seconds since the epoch)."""
+def time_stamp() -> float:
+    """``time.time()`` as a numeric Unix timestamp (seconds since the epoch)."""
     return _time_host.time_stamp()
 
 

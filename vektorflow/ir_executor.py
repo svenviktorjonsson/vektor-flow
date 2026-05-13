@@ -125,7 +125,7 @@ class IRExecutor:
             return self.eval_expr(node.expr, env)
         if isinstance(node, ir.PrintStmt):
             value = self.eval_expr(node.value, env)
-            print(_stringify(value, self.types))
+            print(_stringify(value, self.types), end="", flush=True)
             return None
         if isinstance(node, ir.IfStmt):
             if bool(self.eval_expr(node.condition, env)):

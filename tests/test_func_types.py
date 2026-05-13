@@ -38,7 +38,7 @@ class TestFuncTypeParse:
         assert [p.type_name for p in f.params] == ["num", "int"]
 
     def test_declaration_style_params_and_defaults_parse(self) -> None:
-        m = parse_module("f(num x, int y:4): x", "<t>")
+        m = parse_module("f(num x, int y=4): x", "<t>")
         f = m.statements[0]
         assert isinstance(f, ast.FuncDef)
         assert [p.name for p in f.params] == ["x", "y"]

@@ -35,6 +35,22 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.triple.double.vektorflow",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.vektorflow",
+              "match": "\\\\(?:[\"\\\\nrt$]|.)"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.single.raw.vektorflow",
+          "begin": "'''",
+          "end": "'''"
+        },
+        {
           "name": "string.quoted.double.vektorflow",
           "begin": "\"",
           "end": "\"",

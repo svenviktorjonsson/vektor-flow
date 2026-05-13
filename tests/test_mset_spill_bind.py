@@ -38,3 +38,19 @@ a.(i, j) : (3, 4)
 """
     out = _emit(src)
     assert "3" in out and "4" in out
+
+
+def test_vector_spill_to_multiset_collapses_counts() -> None:
+    src = """
+v : [1, 1, 2, 2, 2]
+:: {:v}
+"""
+    assert _emit(src) == "{1:2, 2:3}"
+
+
+def test_multiset_spill_to_multiset_preserves_counts() -> None:
+    src = """
+m : {1:2, 2:3}
+:: {:m}
+"""
+    assert _emit(src) == "{1:2, 2:3}"

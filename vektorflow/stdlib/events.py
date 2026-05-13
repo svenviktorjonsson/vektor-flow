@@ -1,8 +1,7 @@
 """vektorflow.stdlib.events — input event bus.
 
-Polls the vf-overlay HTTP server for ``vf_event`` messages posted by the
-JS front-end (mouse / keyboard).  Events are dispatched to registered
-Python callbacks.
+Polls the vf-overlay runtime packet API for ``input.event`` payloads posted by
+the JS/native front-end. Events are dispatched to registered Python callbacks.
 
 Usage (VKF):
     :.ui
@@ -28,13 +27,18 @@ The event dict ``e`` has:
 
 from __future__ import annotations
 
-import json
-import threading
-import time
-import urllib.request
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
+from vektorflow.ui.event_ingress import (
+    OverlayPoller,
+    get_global_poller,
+    get_overlay_port,
+    publish_ui_event_payload,
+    reset_global_poller,
+    reset_overlay_port,
+    start_event_poller as _start_event_poller,
+)
 
 # ---------------------------------------------------------------------------
 # Event code system (integers only)
@@ -68,6 +72,9 @@ EVENT_NAME_TO_BASE: dict[str, int] = {
     "key_down": 7,
     "key_up": 8,
     "frame.closed": 20,
+    "frame.docked": 28,
+    "frame.dragged": 29,
+    "frame.resized": 30,
     "button.pressed": 21,
     "checkbox.toggled": 22,
     "slider.value_changed": 23,
@@ -87,6 +94,9 @@ EVENT_CONST_TO_NAME: dict[str, str] = {
     "KEY_DOWN": "key_down",
     "KEY_UP": "key_up",
     "FRAME_CLOSED": "frame.closed",
+    "FRAME_DOCKED": "frame.docked",
+    "FRAME_DRAGGED": "frame.dragged",
+    "FRAME_RESIZED": "frame.resized",
     "BUTTON_PRESSED": "button.pressed",
     "CHECKBOX_TOGGLED": "checkbox.toggled",
     "SLIDER_VALUE_CHANGED": "slider.value_changed",
@@ -227,171 +237,14 @@ def _event_codes_from_payload(d: dict[str, Any]) -> tuple[int, int, int, int]:
     return exact, ui, frame, widget
 
 
-# ---------------------------------------------------------------------------
-# Port discovery
-# ---------------------------------------------------------------------------
-
-def _read_port_file() -> int:
-    """Read vf-api-port.txt written by vf-overlay.exe next to the executable."""
-    try:
-        from vektorflow.ui.launch import find_vektorflow_repo_root, find_vf_overlay_exe
-        root = find_vektorflow_repo_root()
-        if root is None:
-            return 0
-        exe = find_vf_overlay_exe(root)
-        if exe is None:
-            return 0
-        port_file = exe.parent / "web" / "vf-api-port.txt"
-        if port_file.is_file():
-            txt = port_file.read_text(encoding="utf-8").strip()
-            return int(txt) if txt.isdigit() else 0
-    except Exception:
-        pass
-    return 0
-
-
-_discovered_port: int = 0
-_port_lock = threading.Lock()
-
-
-def get_overlay_port() -> int:
-    """Return the HTTP port of the running vf-overlay, or 0 if not found."""
-    global _discovered_port
-    with _port_lock:
-        if _discovered_port:
-            return _discovered_port
-        p = _read_port_file()
-        if p:
-            _discovered_port = p
-        return _discovered_port
-
-
-def reset_overlay_port() -> None:
-    """Force re-discovery of the port (e.g. after restarting the overlay)."""
-    global _discovered_port
-    with _port_lock:
-        _discovered_port = 0
-
-
-# ---------------------------------------------------------------------------
-# Low-level HTTP poller
-# ---------------------------------------------------------------------------
-
-_POP_URL_TEMPLATE = "http://127.0.0.1:{port}/api/pop"
-_POLL_INTERVAL    = 0.01   # 10 ms between polls (lower input latency)
-_MAX_DRAIN        = 80     # drain bursts faster (touchpad/wheel can spike)
-
-
-class OverlayPoller:
-    """Background thread that drains ``/api/pop`` and routes events by type.
-
-    ``on_event`` subscribers receive every parsed JSON dict.
-    """
-
-    def __init__(self) -> None:
-        self._subs: list[Callable[[dict[str, Any]], None]] = []
-        self._thread: threading.Thread | None = None
-        self._stop = threading.Event()
-
-    def subscribe(self, fn: Callable[[dict[str, Any]], None]) -> None:
-        self._subs.append(fn)
-
-    def start(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._run, daemon=True, name="vf-event-poller"
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=1.0)
-            self._thread = None
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            self._stop.wait(timeout=_POLL_INTERVAL)
-            if self._stop.is_set():
-                break
-            self._drain_once()
-
-    def _drain_once(self) -> None:
-        port = get_overlay_port()
-        if not port:
-            return
-        url = _POP_URL_TEMPLATE.format(port=port)
-        for _ in range(_MAX_DRAIN):
-            try:
-                with urllib.request.urlopen(url, timeout=0.12) as resp:
-                    raw = resp.read()
-                outer = json.loads(raw)
-                line = outer.get("line")
-                if line is None:
-                    break  # queue empty
-                # line is a JSON string inside
-                if isinstance(line, str):
-                    try:
-                        evt = json.loads(line)
-                    except Exception:
-                        evt = {"type": "raw", "raw": line}
-                elif isinstance(line, dict):
-                    evt = line
-                else:
-                    continue
-                for sub in self._subs:
-                    try:
-                        sub(evt)
-                    except Exception:
-                        pass
-            except Exception:
-                # Overlay instances are relaunched frequently during local UI work.
-                # If the cached port is stale, drop it so the next poll re-reads
-                # vf-api-port.txt from the newly started overlay.
-                reset_overlay_port()
-                break
-
-
-# Process-global poller (started lazily)
-_global_poller: OverlayPoller | None = None
-_poller_lock = threading.Lock()
-
-
-def get_global_poller() -> OverlayPoller:
-    global _global_poller
-    with _poller_lock:
-        if _global_poller is None:
-            _global_poller = OverlayPoller()
-        return _global_poller
-
-
 def drain_overlay_events(max_events: int = 512) -> int:
-    """Discard pending host events from ``/api/pop`` before a fresh UI session starts."""
-    port = get_overlay_port()
-    if not port:
-        return 0
-    url = _POP_URL_TEMPLATE.format(port=port)
-    drained = 0
-    for _ in range(max(0, int(max_events))):
-        try:
-            with urllib.request.urlopen(url, timeout=0.12) as resp:
-                raw = resp.read()
-            outer = json.loads(raw)
-        except Exception:
-            break
-        if not isinstance(outer, dict) or outer.get("line") is None:
-            break
-        drained += 1
-    return drained
-
+    """Compatibility no-op retained while old startup call sites disappear."""
+    _ = max_events
+    return 0
 
 def start_event_poller() -> OverlayPoller:
     drain_overlay_events()
-    p = get_global_poller()
-    p.start()
-    return p
+    return _start_event_poller()
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +256,7 @@ class MouseEvent:
     """A mouse event received from the overlay."""
 
     __vf_py_attrs__ = True
+    __vf_event_type_name__ = "MouseEvent"
 
     event:      str             # "move" | "hover" | "down" | "up" | "wheel"
     x:          float           # canvas CSS pixels, left=0
@@ -433,12 +287,18 @@ class MouseEvent:
     dy:         float  = 0.0    # drag delta y (for synthetic "drag" events)
     dx_norm:    float  = 0.0    # drag delta x normalized to the frame width
     dy_norm:    float  = 0.0    # drag delta y normalized to the frame height
+    width:      float  = 0.0
+    height:     float  = 0.0
+    key:        str    = ""
+    code:       str    = ""
+    dock:       str    = ""
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "MouseEvent":
         ev = str(d.get("event", ""))
         event_code, ui_code, frame_code, widget_code = _event_codes_from_payload(d)
-        return cls(
+        event_cls = cls if cls is not MouseEvent else _MOUSE_EVENT_CLASS_BY_NAME.get(ev, MouseEvent)
+        return event_cls(
             event      = ev,
             x          = float(d.get("x", 0)),
             y          = float(d.get("y", 0)),
@@ -468,6 +328,11 @@ class MouseEvent:
             dy         = float(d.get("dy", 0.0)),
             dx_norm    = float(d.get("dx_norm", 0.0)),
             dy_norm    = float(d.get("dy_norm", 0.0)),
+            width      = float(d.get("width", 0.0)),
+            height     = float(d.get("height", 0.0)),
+            key        = str(d.get("key", "")),
+            code       = str(d.get("code", "")),
+            dock       = str(d.get("dock", d.get("dock_location", "")) or ""),
         )
 
     def __repr__(self) -> str:
@@ -485,11 +350,128 @@ class MouseEvent:
         return self.event
 
 
+class MouseMove(MouseEvent):
+    __vf_event_type_name__ = "MouseMove"
+
+
+class MouseHover(MouseEvent):
+    __vf_event_type_name__ = "MouseHover"
+
+
+class MouseDown(MouseEvent):
+    __vf_event_type_name__ = "MouseDown"
+
+
+class MouseUp(MouseEvent):
+    __vf_event_type_name__ = "MouseUp"
+
+
+class MouseWheel(MouseEvent):
+    __vf_event_type_name__ = "MouseWheel"
+
+
+class MouseDrag(MouseEvent):
+    __vf_event_type_name__ = "MouseDrag"
+
+
 @dataclass
-class KeyEvent:
+class TouchEvent(MouseEvent):
+    __vf_event_type_name__ = "TouchEvent"
+
+
+@dataclass
+class FrameEvent:
+    """A host frame lifecycle/layout event."""
+
+    __vf_py_attrs__ = True
+    __vf_event_type_name__ = "FrameEvent"
+
+    event: str
+    frame_id: str = ""
+    widget_id: str = ""
+    event_code: int = 0
+    ui_code: int = 0
+    frame_code: int = 0
+    widget_code: int = 0
+    index: int = 0
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 0.0
+    height: float = 0.0
+    button: int = -1
+    key: str = ""
+    code: str = ""
+    pick_id: int = 0
+    object_id: int = 0
+    simplex_id: int = 0
+    dock: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "FrameEvent":
+        ev = str(d.get("event", ""))
+        event_code, ui_code, frame_code, widget_code = _event_codes_from_payload(d)
+        event_cls = cls if cls is not FrameEvent else _FRAME_EVENT_CLASS_BY_NAME.get(ev, FrameEvent)
+        return event_cls(
+            event=ev,
+            frame_id=str(d.get("frame_id", d.get("frameId", "")) or ""),
+            widget_id=str(d.get("widget_id", d.get("widgetId", "")) or ""),
+            event_code=event_code,
+            ui_code=ui_code,
+            frame_code=frame_code,
+            widget_code=widget_code,
+            index=int(d.get("index", 0)),
+            x=float(d.get("x", 0.0)),
+            y=float(d.get("y", 0.0)),
+            width=float(d.get("width", 0.0)),
+            height=float(d.get("height", 0.0)),
+            button=int(d.get("button", -1)),
+            key=str(d.get("key", "")),
+            code=str(d.get("code", "")),
+            pick_id=int(d.get("pick_id", 0)),
+            object_id=int(d.get("object_id", 0)),
+            simplex_id=int(d.get("simplex_id", 0)),
+            dock=str(d.get("dock", d.get("dock_location", "")) or ""),
+        )
+
+    def __repr__(self) -> str:
+        parts = [f"event={self.event!r}"]
+        if self.frame_id:
+            parts.append(f"frame={self.frame_id!r}")
+        if self.width or self.height:
+            parts.append(f"size=({self.width:.1f}, {self.height:.1f})")
+        if self.dock:
+            parts.append(f"dock={self.dock!r}")
+        if self.x or self.y:
+            parts.append(f"pos=({self.x:.1f}, {self.y:.1f})")
+        return "FrameEvent(" + ", ".join(parts) + ")"
+
+    @property
+    def type(self) -> str:
+        return self.event
+
+
+class FrameClosed(FrameEvent):
+    __vf_event_type_name__ = "FrameClosed"
+
+
+class FrameDocked(FrameEvent):
+    __vf_event_type_name__ = "FrameDocked"
+
+
+class FrameDragged(FrameEvent):
+    __vf_event_type_name__ = "FrameDragged"
+
+
+class FrameResized(FrameEvent):
+    __vf_event_type_name__ = "FrameResized"
+
+
+@dataclass
+class KeyboardEvent:
     """A keyboard event received from the overlay."""
 
     __vf_py_attrs__ = True
+    __vf_event_type_name__ = "KeyboardEvent"
 
     event:    str   # "key_down" | "key_up"
     key:      str   # key name (e.g. "ArrowLeft", "a", "Enter")
@@ -504,12 +486,20 @@ class KeyEvent:
     shift:    bool = False
     alt:      bool = False
     frame_id: str  = ""
+    x:        float = 0.0
+    y:        float = 0.0
+    width:    float = 0.0
+    height:   float = 0.0
+    pick_id:  int = 0
+    button:   int = -1
+    dock:     str = ""
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "KeyEvent":
+    def from_dict(cls, d: dict[str, Any]) -> "KeyboardEvent":
         ev = str(d.get("event", ""))
         event_code, ui_code, frame_code, widget_code = _event_codes_from_payload(d)
-        return cls(
+        event_cls = cls if cls not in (KeyboardEvent, KeyEvent) else _KEYBOARD_EVENT_CLASS_BY_NAME.get(ev, KeyboardEvent)
+        return event_cls(
             event    = ev,
             key      = str(d.get("key", "")),
             code     = str(d.get("code", "")),
@@ -523,6 +513,13 @@ class KeyEvent:
             shift    = bool(d.get("shift", False)),
             alt      = bool(d.get("alt", False)),
             frame_id = str(d.get("frame_id", d.get("frameId", "")) or ""),
+            x        = float(d.get("x", 0.0)),
+            y        = float(d.get("y", 0.0)),
+            width    = float(d.get("width", 0.0)),
+            height   = float(d.get("height", 0.0)),
+            pick_id  = int(d.get("pick_id", 0)),
+            button   = int(d.get("button", -1)),
+            dock     = str(d.get("dock", d.get("dock_location", "")) or ""),
         )
 
     def __repr__(self) -> str:
@@ -535,6 +532,57 @@ class KeyEvent:
     def type(self) -> str:
         """Alias for event kind (dispatch-friendly)."""
         return self.event
+
+
+class KeyEvent(KeyboardEvent):
+    __vf_event_type_name__ = "KeyEvent"
+
+
+class KeyDown(KeyboardEvent):
+    __vf_event_type_name__ = "KeyDown"
+
+
+class KeyUp(KeyboardEvent):
+    __vf_event_type_name__ = "KeyUp"
+
+
+_MOUSE_EVENT_CLASS_BY_NAME: dict[str, type[MouseEvent]] = {
+    "move": MouseMove,
+    "hover": MouseHover,
+    "down": MouseDown,
+    "up": MouseUp,
+    "wheel": MouseWheel,
+    "drag": MouseDrag,
+}
+
+
+_KEYBOARD_EVENT_CLASS_BY_NAME: dict[str, type[KeyboardEvent]] = {
+    "key_down": KeyDown,
+    "key_up": KeyUp,
+}
+
+
+_FRAME_EVENT_CLASS_BY_NAME: dict[str, type[FrameEvent]] = {
+    "frame.closed": FrameClosed,
+    "frame.docked": FrameDocked,
+    "frame.dragged": FrameDragged,
+    "frame.resized": FrameResized,
+}
+
+
+def ui_event_from_payload(d: dict[str, Any]) -> MouseEvent | KeyboardEvent | FrameEvent | dict[str, Any]:
+    """Normalize a raw host payload into the most specific typed UI event."""
+    payload = dict(d)
+    ev = str(payload.get("event", ""))
+    kind = str(payload.get("type", ""))
+    if kind == "vf_event":
+        if ev in _MOUSE_EVENT_CLASS_BY_NAME:
+            return MouseEvent.from_dict(payload)
+        if ev in _KEYBOARD_EVENT_CLASS_BY_NAME:
+            return KeyboardEvent.from_dict(payload)
+    if ev in _FRAME_EVENT_CLASS_BY_NAME:
+        return FrameEvent.from_dict(payload)
+    return payload
 
 
 # ---------------------------------------------------------------------------

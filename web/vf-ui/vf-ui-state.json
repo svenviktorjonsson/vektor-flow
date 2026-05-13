@@ -1,13 +1,1 @@
-{
-  "f1": {
-    "time": {
-      "value": 38.0
-    },
-    "play": {
-      "label": "Play"
-    },
-    "status": {
-      "text": "t=38 / 47  autoplay:off  interp=True  light=(191,21)  color=pink"
-    }
-  }
-}
+{}

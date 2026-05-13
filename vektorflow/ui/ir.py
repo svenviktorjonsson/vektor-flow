@@ -122,6 +122,8 @@ class FrameSpec:
     body_layout: dict[str, Any] | None = None
     # Optional parent frame id. When set, ``rect`` is normalized to the parent frame body.
     parent_id: str | None = None
+    # Optional aspect contract for content coordinates, e.g. "equal".
+    aspect: str | None = None
 
     def to_json_obj(self) -> dict[str, Any]:
         d = asdict(self)
@@ -137,6 +139,7 @@ class FrameSpec:
         d["body_layout"] = dict(self.body_layout) if self.body_layout is not None else None
         d["anchor"] = self.anchor
         d["parent_id"] = self.parent_id
+        d["aspect"] = self.aspect
         return d
 
 

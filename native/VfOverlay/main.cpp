@@ -37,6 +37,10 @@
 
 #include <cJSON.h>
 
+#include "overlay_geometry_ledger_runtime.hpp"
+#include "overlay_packet_runtime.hpp"
+#include "vf/geom_ledger_face_edge_vertex_layout.hpp"
+
 #include <gdiplus.h>
 #include <objidl.h>
 #include <wincrypt.h>
@@ -149,6 +153,12 @@ SOCKET g_listenSock = INVALID_SOCKET;
 HANDLE g_httpReadyEvent = nullptr;
 std::wstring g_webRootW;
 std::wstring g_uiNavUri;
+OverlayPacketRuntime g_overlayPacketRuntime;
+OverlayGeometryLedgerRuntime g_overlayGeometryLedgerRuntime;
+ComPtr<ICoreWebView2Environment12> g_webEnvironment12;
+ComPtr<ICoreWebView2_17> g_webview17;
+ComPtr<ICoreWebView2SharedBuffer> g_sceneGeomHeaderSharedBuffer;
+ComPtr<ICoreWebView2SharedBuffer> g_sceneGeomStateSharedBuffer;
 
 /* vf-dock / vf-undock: saved host rect (screen px) before shrinking to the minimized strip. */
 static RECT g_preDockWindowRect{};
@@ -158,6 +168,7 @@ ULONG_PTR g_gdiplusToken = 0;
 
 static void SyncPassThroughInputShape(HWND host);
 static bool EffectiveStagePassThrough();
+static void ViewerDiagLogPrintf(const char* fmt, ...);
 
 void HttpSendAll(SOCKET s, const char* data, size_t len);
 
@@ -196,6 +207,175 @@ std::string JsonEscapeForJsUtf8(const std::string& in) {
         }
     }
     return o;
+}
+
+static std::string JsonEscapeForHostUtf8(const std::string& in) {
+    std::string out;
+    out.reserve(in.size() + 8);
+    for (unsigned char c : in) {
+        switch (c) {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\b': out += "\\b"; break;
+        case '\f': out += "\\f"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            if (c < 0x20) {
+                char buf[7];
+                snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+                out += buf;
+            } else {
+                out += static_cast<char>(c);
+            }
+        }
+    }
+    return out;
+}
+
+static void PostHostJsonMessageToWeb(const std::string& jsonUtf8) {
+    if (!g_webview) {
+        return;
+    }
+    std::wstring w = Utf8ToWide(jsonUtf8);
+    if (!w.empty()) {
+        g_webview->PostWebMessageAsJson(w.c_str());
+    }
+}
+
+static void PostGeometryLedgerErrorToWeb(const std::string& channel, const std::string& name, const std::string& message) {
+    const std::string json =
+        std::string("{\"type\":\"vf_geom_ledger_error\",\"channel\":\"") + JsonEscapeForHostUtf8(channel) +
+        "\",\"name\":\"" + JsonEscapeForHostUtf8(name) +
+        "\",\"message\":\"" + JsonEscapeForHostUtf8(message) + "\"}";
+    PostHostJsonMessageToWeb(json);
+}
+
+static bool CreateAndFillSharedBuffer(ICoreWebView2Environment12* env12,
+                                      UINT64 sizeBytes,
+                                      const std::uint8_t* source,
+                                      ComPtr<ICoreWebView2SharedBuffer>* outBuffer,
+                                      std::string* errorOut) {
+    if (errorOut) {
+        errorOut->clear();
+    }
+    if (!env12 || !outBuffer) {
+        if (errorOut) {
+            *errorOut = "CreateAndFillSharedBuffer requires environment and output buffer";
+        }
+        return false;
+    }
+    outBuffer->Reset();
+    ComPtr<ICoreWebView2SharedBuffer> buffer;
+    HRESULT hr = env12->CreateSharedBuffer(sizeBytes, &buffer);
+    if (FAILED(hr) || !buffer) {
+        if (errorOut) {
+            char msg[160];
+            snprintf(msg, sizeof(msg), "CreateSharedBuffer failed hr=0x%08X", static_cast<unsigned>(hr));
+            *errorOut = msg;
+        }
+        return false;
+    }
+    BYTE* target = nullptr;
+    hr = buffer->get_Buffer(&target);
+    if (FAILED(hr) || !target) {
+        if (errorOut) {
+            char msg[160];
+            snprintf(msg, sizeof(msg), "ICoreWebView2SharedBuffer::get_Buffer failed hr=0x%08X", static_cast<unsigned>(hr));
+            *errorOut = msg;
+        }
+        return false;
+    }
+    if (source && sizeBytes > 0) {
+        memcpy(target, source, static_cast<size_t>(sizeBytes));
+    } else if (sizeBytes > 0) {
+        memset(target, 0, static_cast<size_t>(sizeBytes));
+    }
+    *outBuffer = buffer;
+    return true;
+}
+
+static bool PublishSceneGeometrySharedBuffersToWeb(const std::string& channel,
+                                                   const std::string& name,
+                                                   const std::string& stateFormatText) {
+    if (!g_webEnvironment12) {
+        PostGeometryLedgerErrorToWeb(channel, name, "WebView2 shared-buffer environment unavailable");
+        return false;
+    }
+    if (!g_webview17) {
+        PostGeometryLedgerErrorToWeb(channel, name, "WebView2 shared-buffer posting API unavailable");
+        return false;
+    }
+    OverlayGeometryLedgerRuntime::SharedBufferSpec spec;
+    std::string specError;
+    if (!g_overlayGeometryLedgerRuntime.TryGetSceneSharedBufferSpec(&spec, &specError)) {
+        PostGeometryLedgerErrorToWeb(channel, name, specError);
+        return false;
+    }
+    if (spec.channel != channel || spec.name != name) {
+        PostGeometryLedgerErrorToWeb(channel, name, "requested geometry ledger channel/name not loaded");
+        return false;
+    }
+    if (spec.descriptor.header.state_format != static_cast<std::int32_t>(vf::GeomLedgerStateFormat::FaceEdgeVertexV1)) {
+        PostGeometryLedgerErrorToWeb(channel, name, "unsupported geometry ledger state format");
+        return false;
+    }
+
+    vf::GeomLedgerSharedBufferHeader header = spec.descriptor.header;
+    header.state_byte_length = static_cast<std::int32_t>(spec.state_bytes.size());
+    std::string fillError;
+    if (!CreateAndFillSharedBuffer(
+            g_webEnvironment12.Get(),
+            sizeof(vf::GeomLedgerSharedBufferHeader),
+            reinterpret_cast<const std::uint8_t*>(&header),
+            &g_sceneGeomHeaderSharedBuffer,
+            &fillError)) {
+        PostGeometryLedgerErrorToWeb(channel, name, fillError);
+        return false;
+    }
+    if (!CreateAndFillSharedBuffer(
+            g_webEnvironment12.Get(),
+            spec.state_bytes.size(),
+            spec.state_bytes.data(),
+            &g_sceneGeomStateSharedBuffer,
+            &fillError)) {
+        PostGeometryLedgerErrorToWeb(channel, name, fillError);
+        return false;
+    }
+
+    const std::string commonJson =
+        std::string("\"type\":\"vf_geom_ledger_shared_buffer\",\"channel\":\"") + JsonEscapeForHostUtf8(channel) +
+        "\",\"name\":\"" + JsonEscapeForHostUtf8(name) +
+        "\",\"stateFormat\":" + std::to_string(header.state_format) +
+        ",\"stateFormatName\":\"" + JsonEscapeForHostUtf8(stateFormatText) + "\"";
+    std::wstring headerMeta = Utf8ToWide(
+        std::string("{") + commonJson +
+        ",\"slot\":\"header\",\"byteLength\":" + std::to_string(sizeof(vf::GeomLedgerSharedBufferHeader)) + "}");
+    std::wstring stateMeta = Utf8ToWide(
+        std::string("{") + commonJson +
+        ",\"slot\":\"state\",\"byteLength\":" + std::to_string(spec.state_bytes.size()) + "}");
+    HRESULT hr = g_webview17->PostSharedBufferToScript(
+        g_sceneGeomHeaderSharedBuffer.Get(),
+        COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_WRITE,
+        headerMeta.c_str());
+    if (FAILED(hr)) {
+        char msg[160];
+        snprintf(msg, sizeof(msg), "PostSharedBufferToScript(header) failed hr=0x%08X", static_cast<unsigned>(hr));
+        PostGeometryLedgerErrorToWeb(channel, name, msg);
+        return false;
+    }
+    hr = g_webview17->PostSharedBufferToScript(
+        g_sceneGeomStateSharedBuffer.Get(),
+        COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_WRITE,
+        stateMeta.c_str());
+    if (FAILED(hr)) {
+        char msg[160];
+        snprintf(msg, sizeof(msg), "PostSharedBufferToScript(state) failed hr=0x%08X", static_cast<unsigned>(hr));
+        PostGeometryLedgerErrorToWeb(channel, name, msg);
+        return false;
+    }
+    return true;
 }
 
 // web\\ next to the executable (POST_BUILD copy of web/vf-ui).
@@ -693,6 +873,37 @@ static bool TryHandleVfUserLogMessage(const std::string& u8) {
     if (t.size() > 12000)
         t.resize(12000);
     VfUserLogLineA(lev, t.c_str());
+    return true;
+}
+
+static bool TryHandleVfEventMessage(const std::string& u8) {
+    return g_overlayPacketRuntime.TryHandleInputEventWebMessageAndDispatch(u8);
+}
+
+static bool TryHandleVfSharedBufferRequestMessage(const std::string& u8) {
+    if (u8.find("vf_request_shared_buffers") == std::string::npos) {
+        return false;
+    }
+    cJSON* root = ParseWebViewPostMessageObject(u8);
+    if (!root) {
+        return false;
+    }
+    cJSON* type = cJSON_GetObjectItem(root, "type");
+    if (!cJSON_IsString(type) || _stricmp(type->valuestring, "vf_request_shared_buffers") != 0) {
+        cJSON_Delete(root);
+        return false;
+    }
+    cJSON* channelItem = cJSON_GetObjectItem(root, "channel");
+    cJSON* nameItem = cJSON_GetObjectItem(root, "name");
+    std::string channel = cJSON_IsString(channelItem) && channelItem->valuestring ? channelItem->valuestring : "scene";
+    std::string name = cJSON_IsString(nameItem) && nameItem->valuestring ? nameItem->valuestring : "geom_frame";
+    cJSON_Delete(root);
+    ViewerDiagLogPrintf("vf shared buffer request: channel=%s name=%s", channel.c_str(), name.c_str());
+    if (!PublishSceneGeometrySharedBuffersToWeb(channel, name, vf::ToString(vf::GeomLedgerStateFormat::FaceEdgeVertexV1))) {
+        ViewerDiagLogPrintf("vf shared buffer publish failed: channel=%s name=%s", channel.c_str(), name.c_str());
+    } else {
+        ViewerDiagLogPrintf("vf shared buffer publish ok: channel=%s name=%s", channel.c_str(), name.c_str());
+    }
     return true;
 }
 
@@ -1840,7 +2051,9 @@ void HttpThreadMain() {
     }
 
     HttpSignalReady(true);
-    ViewerDiagLogPrintf("HTTP listener ready on http://127.0.0.1:%d/ (enqueue /api/enqueue, pop /api/pop)", g_port);
+    ViewerDiagLogPrintf(
+        "HTTP listener ready on http://127.0.0.1:%d/ (enqueue /api/enqueue, pop /api/pop, runtime /api/runtime-packets, input /api/runtime-packets/input)",
+        g_port);
 
     while (!g_httpStop.load()) {
         fd_set fds;
@@ -1975,6 +2188,10 @@ void HttpThreadMain() {
             }
             HttpRespondJson(c, 200, "OK", body);
             closesocket(c);
+            continue;
+        }
+
+        if (g_overlayPacketRuntime.TryServeSocketHttpRequest(method, path, body, g_webRootW, c)) {
             continue;
         }
 
@@ -2248,6 +2465,7 @@ void InitWebView(HWND h) {
                                 L"vf-overlay", MB_OK | MB_ICONERROR);
                     return E_FAIL;
                 }
+                env->QueryInterface(IID_PPV_ARGS(&g_webEnvironment12));
                 return env3->CreateCoreWebView2CompositionController(
                     h,
                     Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
@@ -2289,6 +2507,7 @@ void InitWebView(HWND h) {
                             ComPtr<ICoreWebView2> web;
                             controller->get_CoreWebView2(&web);
                             g_webview = web;
+                            web.As(&g_webview17);
 
                             ComPtr<ICoreWebView2Controller2> c2;
                             if (SUCCEEDED(controller->QueryInterface(IID_PPV_ARGS(&c2)))) {
@@ -2340,12 +2559,18 @@ void InitWebView(HWND h) {
                                                PostMessageW(h, WM_APP_YIELD_FOCUS, 0, 0);
                                                return S_OK;
                                            }
-                                           if (TryHandleCaptureScreenRectMessage(u8)) {
-                                               return S_OK;
-                                           }
-                                           if (TryHandleVfHostChromeMessage(u8, h)) {
-                                               return S_OK;
-                                           }
+                                            if (TryHandleCaptureScreenRectMessage(u8)) {
+                                                return S_OK;
+                                            }
+                                            if (TryHandleVfEventMessage(u8)) {
+                                                return S_OK;
+                                            }
+                                            if (TryHandleVfSharedBufferRequestMessage(u8)) {
+                                                return S_OK;
+                                            }
+                                            if (TryHandleVfHostChromeMessage(u8, h)) {
+                                                return S_OK;
+                                            }
                                            if (TryHandleVfUserLogMessage(u8)) {
                                                return S_OK;
                                            }
@@ -2456,6 +2681,19 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR lpCmdLine, int show) {
         std::string rootUtf8 = WideToUtf8(g_webRootW.c_str());
         VfTraceLogA("wWinMain: web root: %s", rootUtf8.c_str());
     }
+    {
+        std::string runtimePacketError;
+        if (!g_overlayPacketRuntime.InitializeHostBindingsForWebRoot(
+                g_webRootW, [](const std::string& msg) { ViewerDiagLogPrintf("%s", msg.c_str()); },
+                [](const std::string& compact) {
+                    ViewerEnqueueDiagLog(std::string("[webmessage vf_event] ") + compact);
+                    std::lock_guard<std::mutex> lock(g_queueMutex);
+                    g_userQueue.emplace_back(compact);
+                }, HttpRespondJson,
+                &runtimePacketError)) {
+            VfTraceLogA("wWinMain: runtime packet preload skipped: %s", runtimePacketError.c_str());
+        }
+    }
 
     HICON hAppIconLg = nullptr;
     HICON hAppIconSm = nullptr;
@@ -2548,18 +2786,85 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR lpCmdLine, int show) {
             while (!s.empty() && (s.back() == L' ' || s.back() == L'\t' || s.back() == L'"')) {
                 s.pop_back();
             }
-            if (!s.empty() && s.find(L"..") == std::wstring::npos) {
-                for (auto& c : s) {
-                    if (c == L'\\') {
-                        c = L'/';
+            if (!s.empty()) {
+                std::wstring absWebRoot = g_webRootW;
+                for (auto& c : absWebRoot) {
+                    if (c == L'/')
+                        c = L'\\';
+                }
+                std::wstring absArg = s;
+                for (auto& c : absArg) {
+                    if (c == L'/')
+                        c = L'\\';
+                }
+                bool handled = false;
+                if (absArg.size() >= absWebRoot.size()) {
+                    bool prefixMatch = _wcsnicmp(absArg.c_str(), absWebRoot.c_str(), absWebRoot.size()) == 0;
+                    if (prefixMatch) {
+                        std::wstring tail = absArg.substr(absWebRoot.size());
+                        while (!tail.empty() && (tail.front() == L'\\' || tail.front() == L'/')) {
+                            tail.erase(0, 1);
+                        }
+                        for (auto& c : tail) {
+                            if (c == L'\\')
+                                c = L'/';
+                        }
+                        if (!tail.empty() && tail.find(L"..") == std::wstring::npos) {
+                            relPath = tail;
+                            handled = true;
+                        }
                     }
                 }
-                while (!s.empty() && s.front() == L'/') {
-                    s.erase(0, 1);
+                if (!handled && s.find(L"..") == std::wstring::npos) {
+                    for (auto& c : s) {
+                        if (c == L'\\') {
+                            c = L'/';
+                        }
+                    }
+                    while (!s.empty() && s.front() == L'/') {
+                        s.erase(0, 1);
+                    }
+                    if (!s.empty()) {
+                        relPath = s;
+                    }
                 }
-                if (!s.empty()) {
-                    relPath = s;
-                }
+            }
+        }
+        {
+            std::wstring packetPath;
+            std::wstring geomTransportPath;
+            std::wstring geomStatePath;
+            std::wstring relDir = relPath;
+            size_t slash = relDir.find_last_of(L'/');
+            if (slash != std::wstring::npos) {
+                relDir = relDir.substr(0, slash);
+            } else {
+                relDir.clear();
+            }
+            if (!relDir.empty()) {
+                packetPath = g_webRootW + L"\\" + relDir + L"\\vf-runtime-packets.json";
+                geomTransportPath = g_webRootW + L"\\" + relDir + L"\\vf-geom-ledger-transport.json";
+                geomStatePath = g_webRootW + L"\\" + relDir + L"\\vf-geom-ledger-state.json";
+            } else {
+                packetPath = g_webRootW + L"\\vf-runtime-packets.json";
+                geomTransportPath = g_webRootW + L"\\vf-geom-ledger-transport.json";
+                geomStatePath = g_webRootW + L"\\vf-geom-ledger-state.json";
+            }
+            std::string packetLoadError;
+            if (!g_overlayPacketRuntime.LoadRuntimePacketFileIntoSnapshot(packetPath, &packetLoadError)) {
+                VfTraceLogA("wWinMain: session runtime packet preload skipped: %s",
+                            packetLoadError.c_str());
+            } else {
+                VfTraceLogA("wWinMain: session runtime packet preload: %s",
+                            WideToUtf8(packetPath.c_str()).c_str());
+            }
+            std::string geomLoadError;
+            if (!g_overlayGeometryLedgerRuntime.LoadSceneSharedBufferSpec(geomTransportPath, geomStatePath, &geomLoadError)) {
+                VfTraceLogA("wWinMain: geometry ledger shared-buffer preload skipped: %s", geomLoadError.c_str());
+            } else {
+                VfTraceLogA("wWinMain: geometry ledger shared-buffer preload: %s | %s",
+                            WideToUtf8(geomTransportPath.c_str()).c_str(),
+                            WideToUtf8(geomStatePath.c_str()).c_str());
             }
         }
         wchar_t prefix[64];

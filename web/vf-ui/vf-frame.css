@@ -175,6 +175,17 @@
   background: rgba(28, 28, 34, calc(0.92 * var(--vf-ui-alpha, 1)));
 }
 
+.vf-frame__body:focus,
+.vf-frame__body:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.vf-frame__body--empty {
+  padding: 0;
+  background: rgba(28, 28, 34, calc(0.92 * var(--vf-ui-alpha, 1)));
+}
+
 /* Background layer for vektorflow ``d.draw_rect`` / vf-display.json (see vf-display.js). */
 .vf-frame__draw-canvas {
   position: absolute;

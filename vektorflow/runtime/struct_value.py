@@ -7,6 +7,7 @@ from typing import Any
 from .. import ast
 
 VF_TYPE_KEY = "__vf_type__"
+VF_SPILL_BASE_KEY = "__vf_spill_base__"
 
 
 def is_struct_dict(v: Any) -> bool:
@@ -16,6 +17,14 @@ def is_struct_dict(v: Any) -> bool:
 
 def struct_tagged(v: dict) -> bool:
     return VF_TYPE_KEY in v
+
+
+def struct_has_spill_base(v: dict) -> bool:
+    return VF_SPILL_BASE_KEY in v
+
+
+def get_spill_base(v: dict) -> Any | None:
+    return v.get(VF_SPILL_BASE_KEY)
 
 
 def get_type_name(v: dict) -> str | None:
@@ -30,6 +39,20 @@ def with_type(type_name: str | None, fields: dict[str, Any]) -> dict[str, Any]:
     else:
         out.pop(VF_TYPE_KEY, None)
     return out
+
+
+def with_spill_base(type_name: str | None, base: Any, fields: dict[str, Any]) -> dict[str, Any]:
+    out = with_type(type_name, fields)
+    out[VF_SPILL_BASE_KEY] = base
+    return out
+
+
+def public_struct_items(v: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in v.items()
+        if key not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+    }
 
 
 def default_field_value(
@@ -81,8 +104,11 @@ def field_order_for_compare(
         spec = types[ta]
         if isinstance(spec, ast.TypeExpr):
             return [f[0] for f in spec.fields]
-    keys = [k for k in a if k != VF_TYPE_KEY]
+    keys = [k for k in a if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
     if ta == tb and keys:
         return keys
-    return sorted({k for k in a if k != VF_TYPE_KEY} | {k for k in b if k != VF_TYPE_KEY})
+    return sorted(
+        {k for k in a if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)}
+        | {k for k in b if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)}
+    )
 

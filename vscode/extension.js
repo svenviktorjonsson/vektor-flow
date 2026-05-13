@@ -2,6 +2,7 @@
 
 const path = require("path");
 const vscode = require("vscode");
+const { findFunctionSymbolAt, parseFunctionSymbols } = require("./docIndex");
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -40,6 +41,35 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("vektorflow.runFile", runFile)
   );
+
+  const hoverProvider = vscode.languages.registerHoverProvider("vektorflow", {
+    provideHover(document, position) {
+      const text = document.getText();
+      let symbol = findFunctionSymbolAt(text, position.line, position.character);
+
+      if (!symbol) {
+        const range = document.getWordRangeAtPosition(position, /[A-Za-z_][A-Za-z0-9_]*/);
+        if (!range) return null;
+        const word = document.getText(range);
+        const candidates = parseFunctionSymbols(text).filter((entry) => entry.name === word);
+        if (!candidates.length) return null;
+        symbol =
+          candidates
+            .filter((entry) => entry.line <= position.line)
+            .sort((a, b) => b.line - a.line)[0] || candidates[0];
+      }
+
+      const md = new vscode.MarkdownString();
+      md.appendCodeblock(symbol.signature, "vektorflow");
+      md.appendMarkdown("\n\nFunction");
+      if (symbol.docstring) {
+        md.appendMarkdown(`\n\nDoc:\n${symbol.docstring}`);
+      }
+      return new vscode.Hover(md);
+    },
+  });
+
+  context.subscriptions.push(hoverProvider);
 }
 
 function deactivate() {}

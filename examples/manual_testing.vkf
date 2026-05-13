@@ -1,0 +1,39 @@
+
+t:.time
+
+size:100
+primes: [2,0:(size-1)]
+
+
+prime_at(int n):
+    n>=size?ablea
+
+
+
+
+        ::: size
+        # primes &: [0:size]
+        # size*:2
+        # @: pkrime_at(n)
+    # primes.(n-1)!=0?
+    #     @: primes.(n-1)
+
+
+::: prime_at(1)
+::: size
+# N: 1000
+
+# t0 :: t.time_stamp()
+
+# p: prime(N)
+
+# t1 :: t.time_stamp()
+
+
+# :: "Found prime $N: $p within $(1000*(t1-t0))ms"
+
+
+
+
+#Timestamp should be num
+# you should be able to access attributes on any object not just struct, built in types also have

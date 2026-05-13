@@ -9,7 +9,14 @@ from .. import ast
 from ..errors import ErrorTypeValue, EvalError, error_type_for_exception
 from .axis_tagged import AxisTaggedValue
 from .collections_runtime import runtime_collection_kind
-from .struct_value import VF_TYPE_KEY, get_type_name, is_struct_dict
+from .struct_value import (
+    VF_SPILL_BASE_KEY,
+    VF_TYPE_KEY,
+    get_spill_base,
+    get_type_name,
+    is_struct_dict,
+    struct_has_spill_base,
+)
 from .multiset import Multiset
 from .typed_vector import TypedVector
 from .vflist import VFLinkedList
@@ -35,6 +42,8 @@ class PrimType:
                     return float(v)
                 if isinstance(v, complex):
                     return v
+                if isinstance(v, str):
+                    return _parse_num_string(v)
                 raise EvalError("num: expected a numeric value")
             if len(args) == 2:
                 a, b = args[0], args[1]
@@ -56,7 +65,27 @@ class PrimType:
                 if v != int(v):
                     raise EvalError("int: explicit cast from num requires an integer-valued number")
                 return int(v)
+            if isinstance(v, str):
+                return _parse_int_string(v)
             raise EvalError("int: expected bool, int, or integer-valued num")
+        if self.name == "str":
+            if len(args) != 1:
+                raise EvalError("str: expected 1 argument")
+            v = args[0]
+            if isinstance(v, str):
+                return v
+            if isinstance(v, bytes):
+                return v.decode("utf-8")
+            return str(v)
+        if self.name == "bool":
+            if len(args) != 1:
+                raise EvalError("bool: expected 1 argument")
+            v = args[0]
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return _parse_bool_string(v)
+            raise EvalError("bool: explicit cast only accepts bool or str")
         if self.name == "bytes":
             if len(args) != 1:
                 raise EvalError("bytes: expected 1 argument")
@@ -82,8 +111,48 @@ class PrimType:
         return f"PrimType({self.name!r})"
 
 
+def _parse_num_string(text: str) -> float | complex:
+    stripped = text.strip()
+    if not stripped:
+        raise EvalError("cannot coerce empty str to num")
+    try:
+        return float(stripped)
+    except ValueError:
+        try:
+            return complex(stripped)
+        except ValueError as exc:
+            raise EvalError(f"cannot coerce str {text!r} to num") from exc
+
+
+def _parse_int_string(text: str) -> int:
+    stripped = text.strip()
+    if not stripped:
+        raise EvalError("cannot coerce empty str to int")
+    try:
+        return int(stripped)
+    except ValueError:
+        try:
+            as_num = float(stripped)
+        except ValueError as exc:
+            raise EvalError(f"cannot coerce str {text!r} to int") from exc
+        if as_num != int(as_num):
+            raise EvalError("int: explicit cast from str requires an integer-valued number")
+        return int(as_num)
+
+
+def _parse_bool_string(text: str) -> bool:
+    stripped = text.strip().lower()
+    if stripped == "true":
+        return True
+    if stripped == "false":
+        return False
+    raise EvalError("bool: explicit cast from str requires 'true' or 'false'")
+
+
 def is_type_value(v: Any) -> bool:
     if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)):
+        return True
+    if isinstance(v, type) and isinstance(getattr(v, "__vf_event_type_name__", None), str):
         return True
     return isinstance(v, (PrimType, ErrorTypeValue))
 
@@ -255,6 +324,10 @@ def normalize_type_expr(
     type_expr: Any,
     type_registry: dict[str, ast.TypeExpr | ast.FuncType],
 ) -> Any:
+    if isinstance(type_expr, type):
+        host_name = getattr(type_expr, "__vf_event_type_name__", None)
+        if isinstance(host_name, str):
+            return ast.PrimTypeRef(host_name)
     seen: set[tuple[str, str]] = set()
     current = type_expr
     while True:
@@ -287,6 +360,28 @@ def _prim_match_specificity(actual: str, pattern: str) -> int | None:
         return 100
     if pattern == "list" and actual == "list":
         return 100
+    event_supertypes = {
+        "MouseMove": ("MouseEvent",),
+        "MouseHover": ("MouseEvent",),
+        "MouseDown": ("MouseEvent",),
+        "MouseUp": ("MouseEvent",),
+        "MouseWheel": ("MouseEvent",),
+        "MouseDrag": ("MouseEvent",),
+        "FrameEvent": ("any",),
+        "FrameClosed": ("FrameEvent",),
+        "FrameDocked": ("FrameEvent",),
+        "FrameDragged": ("FrameEvent",),
+        "FrameResized": ("FrameEvent",),
+        "TouchEvent": ("any",),
+        "MouseEvent": ("any",),
+        "KeyboardEvent": ("any",),
+        "KeyEvent": ("KeyboardEvent",),
+        "KeyDown": ("KeyboardEvent", "KeyEvent"),
+        "KeyUp": ("KeyboardEvent", "KeyEvent"),
+    }
+    for idx, super_name in enumerate(event_supertypes.get(actual, ()), start=1):
+        if pattern == super_name:
+            return max(2, 80 - idx * 10)
     return None
 
 
@@ -560,6 +655,9 @@ def infer_type(
         return ast.PrimTypeRef("bytes")
     if isinstance(v, str):
         return ast.PrimTypeRef("str")
+    host_event_name = getattr(type(v), "__vf_event_type_name__", None)
+    if isinstance(host_event_name, str):
+        return ast.PrimTypeRef(host_event_name)
     if isinstance(v, VFVector):
         if isinstance(v, TypedVector) and v.vf_type_expr is not None:
             return v.vf_type_expr
@@ -585,25 +683,39 @@ def infer_type(
     if collection_kind == "multiset":
         if getattr(v, "vf_type_expr", None) is not None:
             return v.vf_type_expr
+        keys = list(getattr(v, "_c", {}).keys())
+        if not keys:
+            return ast.PrimTypeRef("multiset")
+        elem_type = infer_type(keys[0], type_registry)
+        if all(types_equal(infer_type(item, type_registry), elem_type) for item in keys[1:]):
+            return ast.MultisetType(elem_type)
         return ast.PrimTypeRef("multiset")
     if collection_kind == "map":
         return ast.MapValueType([(k, infer_type(val, type_registry)) for k, val in v.items()])
     if collection_kind == "list":
         return ast.LinkedListValueType([infer_type(item, type_registry) for item in v])
     if isinstance(v, dict) and is_struct_dict(v):
+        if struct_has_spill_base(v):
+            base_type = infer_type(get_spill_base(v), type_registry)
+            tname = get_type_name(v)
+            if tname is not None and tname in type_registry:
+                return ast.TypeIntersectionExpr([type_registry[tname], base_type])
+            return base_type
         tname = get_type_name(v)
         if tname is not None and tname in type_registry:
             return type_registry[tname]
         pairs = [
             (k, infer_type(v[k], type_registry))
             for k in v
-            if k != VF_TYPE_KEY
+            if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
         ]
         return ast.TypeExpr(pairs)
     return ast.PrimTypeRef("any")
 
 
 def coerce_value(val: Any, tname: str | None) -> Any:
+    if isinstance(val, dict) and struct_has_spill_base(val):
+        val = get_spill_base(val)
     if tname is None or tname == "any":
         return val
     if tname == "int":
@@ -617,6 +729,8 @@ def coerce_value(val: Any, tname: str | None) -> Any:
             return 1.0 if val else 0.0
         if isinstance(val, (int, float, complex)):
             return float(val) if isinstance(val, (int, float)) else val
+        if isinstance(val, str):
+            return _parse_num_string(val)
         raise EvalError(f"cannot coerce {type(val).__name__} to num")
     if tname == "str":
         if isinstance(val, str):

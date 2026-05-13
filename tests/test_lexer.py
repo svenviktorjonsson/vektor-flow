@@ -584,9 +584,9 @@ class TestErrors:
         with pytest.raises(LexError):
             tokenize('"oops')
 
-    def test_bang_alone_errors(self) -> None:
-        with pytest.raises(LexError):
-            tokenize("! ")
+    def test_bang_alone_tokenizes(self) -> None:
+        toks = tokenize("! ")
+        assert any(t.kind == "BANG" for t in toks)
 
     def test_unmatched_closing_bracket(self) -> None:
         with pytest.raises(LexError):

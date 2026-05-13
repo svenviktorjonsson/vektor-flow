@@ -36,7 +36,7 @@ num a: 3
     cpp = emit_cpp_module(lowered)
     assert "double twice(double x)" in cpp
     assert "double a = 3.0;" in cpp
-    assert 'std::cout << vf_format_num(twice(a)) << "\\n";' in cpp
+    assert 'std::cout << vf_format_num(twice(a));' in cpp
     assert "#include <any>" not in cpp
     assert "#include <list>" not in cpp
     assert "#include <map>" not in cpp
@@ -205,7 +205,7 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
     cpp = emit_cpp_module(lowered)
     assert "template <std::size_t m, std::size_t n>" in cpp
     assert "std::array<double, (n + m)> join(const std::array<double, n>& x, const std::array<double, m>& y)" in cpp
-    assert 'std::cout << vf_format_value(join(a, b)) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(join(a, b));' in cpp
 
 
 def test_cpp_emits_struct_program() -> None:
@@ -219,8 +219,8 @@ def test_cpp_emits_struct_program() -> None:
     assert "struct VfRecord_" in cpp
     assert "double x;" in cpp
     assert "double y;" in cpp
-    assert 'std::cout << vf_format_num(p.x) << "\\n";' in cpp
-    assert 'std::cout << vf_format_value(p) << "\\n";' in cpp
+    assert 'std::cout << vf_format_num(p.x);' in cpp
+    assert 'std::cout << vf_format_value(p);' in cpp
 
 
 def test_cpp_lowers_named_record_type_definition_program() -> None:
@@ -234,12 +234,14 @@ Point p: (x:1, y:2)
     cpp = emit_cpp_module(lowered)
     assert "struct VfRecord_" in cpp
     assert "double p = " not in cpp
-    assert 'std::cout << vf_format_num(p.x) << "\\n";' in cpp
+    assert 'std::cout << vf_format_num(p.x);' in cpp
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_builds_named_record_type_example(tmp_path: Path) -> None:
     path = Path(__file__).resolve().parent.parent / "examples" / "native_core" / "named_record_native.vkf"
+    if not path.is_file():
+        pytest.skip("examples/native_core/named_record_native.vkf not present")
     cpp = emit_cpp_from_source_file(path)
     exe = compile_cpp_source(cpp, tmp_path, exe_name="named_record_native")
     proc = subprocess.run([str(exe)], capture_output=True, text=True)
@@ -263,9 +265,9 @@ L: collections.list(:[1,2,3])
     assert "vf_map_make" in cpp
     assert "vf_list_from_array" in cpp
     assert "std::any_cast<std::string>(m.at(\"b\"))" in cpp
-    assert 'std::cout << vf_format_value(m) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(m);' in cpp
     assert 'std::cout << m.at("b")' not in cpp
-    assert 'std::cout << vf_format_value(L) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(L);' in cpp
 
 
 def test_cpp_rejects_dynamic_list_with_unsupported_nested_vector_cell() -> None:
@@ -294,9 +296,9 @@ make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     assert "std::list<std::any>" in cpp
     assert "vf_map_make" in cpp
     assert "vf_list_from_array" in cpp
-    assert 'std::cout << vf_format_value(make()) << "\\n";' in cpp
-    assert 'std::cout << vf_format_value(make().meta) << "\\n";' in cpp
-    assert 'std::cout << vf_format_value(make().items) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(make());' in cpp
+    assert 'std::cout << vf_format_value(make().meta);' in cpp
+    assert 'std::cout << vf_format_value(make().items);' in cpp
     assert 'std::any_cast<std::string>(make().meta.at("name"))' in cpp
 
 
@@ -398,7 +400,7 @@ def test_cpp_emits_typed_multiset_program() -> None:
     assert "#include <map>" in cpp
     assert "vf_mset_make<double>" in cpp
     assert "vf_mset_union(a, b)" in cpp
-    assert 'std::cout << vf_format_value(vf_mset_union(a, b)) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(vf_mset_union(a, b));' in cpp
 
 
 def test_cpp_emits_nested_record_with_multiset_field() -> None:
@@ -414,8 +416,8 @@ make() -> (bag:{num}, total:num):
     assert "struct VfRecord_" in cpp
     assert "std::map<double, long long>" in cpp
     assert "vf_mset_make<double>" in cpp
-    assert 'std::cout << vf_format_value(make()) << "\\n";' in cpp
-    assert 'std::cout << vf_format_value(make().bag) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(make());' in cpp
+    assert 'std::cout << vf_format_value(make().bag);' in cpp
 
 
 def test_cpp_emits_record_with_vector_and_multiset_fields() -> None:
@@ -433,9 +435,9 @@ make() -> (pts:[num:2], bag:{num}, total:num):
     assert "std::array<double, 2>" in cpp
     assert "std::map<double, long long>" in cpp
     assert "vf_mset_make<double>" in cpp
-    assert 'std::cout << vf_format_value(make()) << "\\n";' in cpp
-    assert 'std::cout << vf_format_value(make().pts) << "\\n";' in cpp
-    assert 'std::cout << vf_format_value(make().bag) << "\\n";' in cpp
+    assert 'std::cout << vf_format_value(make());' in cpp
+    assert 'std::cout << vf_format_value(make().pts);' in cpp
+    assert 'std::cout << vf_format_value(make().bag);' in cpp
 
 
 def test_cpp_emits_transform_for_record_with_vector_and_multiset_fields() -> None:
@@ -520,7 +522,7 @@ k < 3?>
     cpp = emit_cpp_module(lowered)
     assert "while ((k < 3.0))" in cpp or "while ((k < 3))" in cpp
     assert "continue;" in cpp
-    assert 'std::cout << vf_format_num(k) << "\\n";' in cpp
+    assert 'std::cout << vf_format_num(k);' in cpp
 
 
 def test_cpp_emits_match_loop_program() -> None:
@@ -674,8 +676,8 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
 
 [num:2] a: [1,2]
 [num:3] b: [3,4,5]
-:: join(a, b)
-:: a + [num:2]([5,6])
+::: join(a, b)
+::: a + [num:2]([5,6])
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -686,10 +688,10 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_math_and_stat_intrinsics() -> None:
     src = """
-:: math.sin(0)
-:: stat.mean([1,2,3,4])
-:: stat.range([3,1,4,1,5])
-:: stat.count([1,2,3])
+::: math.sin(0)
+::: stat.mean([1,2,3,4])
+::: stat.range([3,1,4,1,5])
+::: stat.count([1,2,3])
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -699,15 +701,15 @@ def test_cpp_compile_and_run_math_and_stat_intrinsics() -> None:
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 def test_cpp_compile_and_run_math_constants_and_extended_stats() -> None:
     src = """
-:: math.pi
-:: math.e
-:: stat.median([1,2,3,4])
-:: stat.percentile([1,2,3,4,5], 75)
-:: stat.iqr([1,2,3,4,5])
-:: stat.zscore([1,2,3])
-:: stat.normalize([2,4,6])
-:: stat.covariance([1,2,3], [2,4,6])
-:: stat.correlation([1,2,3], [2,4,6])
+::: math.pi
+::: math.e
+::: stat.median([1,2,3,4])
+::: stat.percentile([1,2,3,4,5], 75)
+::: stat.iqr([1,2,3,4,5])
+::: stat.zscore([1,2,3])
+::: stat.normalize([2,4,6])
+::: stat.covariance([1,2,3], [2,4,6])
+::: stat.correlation([1,2,3], [2,4,6])
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -731,8 +733,8 @@ sum(p:(x:num, y:num)) -> num:
     p.x + p.y
 
 (x:num, y:num) p: (x:3, y:4)
-:: sum(p)
-:: p
+::: sum(p)
+::: p
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -745,9 +747,9 @@ def test_cpp_compile_and_run_dynamic_map_and_list_program() -> None:
     src = """
 m: collections.map(a:1, b:"hi", c:true)
 L: collections.list(:[1,2,3])
-:: m
-:: m.b
-:: L
+::: m
+::: m.b
+::: L
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -761,10 +763,10 @@ def test_cpp_compile_and_run_record_with_map_and_list_fields() -> None:
 make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
-:: make()
-:: make().meta
-:: make().items
-:: make().meta.name
+::: make()
+::: make().meta
+::: make().items
+::: make().meta.name
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -797,11 +799,11 @@ def test_cpp_compile_and_run_nested_dynamic_map_and_list_program() -> None:
 make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
 
-:: make()
-:: make().payload
-:: make().payload.meta
-:: make().payload.meta.name
-:: make().payload.groups
+::: make()
+::: make().payload
+::: make().payload.meta
+::: make().payload.meta.name
+::: make().payload.groups
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -835,8 +837,8 @@ def test_cpp_compile_and_run_transform_direct_dynamic_map_payload() -> None:
 update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
-:: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
-:: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b")))).meta.name
+::: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
+::: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b")))).meta.name
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -853,10 +855,10 @@ def test_cpp_compile_and_run_mixed_static_and_dynamic_collection_record() -> Non
 make() -> (pts:[num:2], payload:map(meta:map(name:str), items:list(num, num)), total:num):
     (pts:[1,2], payload:collections.map(meta:collections.map(name:"alice"), items:collections.list(:[3,4])), total:5)
 
-:: make()
-:: make().pts
-:: make().payload
-:: make().payload.meta.name
+::: make()
+::: make().pts
+::: make().payload
+::: make().payload.meta.name
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -882,8 +884,8 @@ flag??>
         flag: 1
         @>
     1 => @|
-:: k
-:: flag
+::: k
+::: flag
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -906,9 +908,9 @@ f(x:num) -> num:
         @>
     0
 
-:: f(4)
-:: f(0)
-:: f(-1)
+::: f(4)
+::: f(0)
+::: f(-1)
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -946,8 +948,8 @@ make() -> (pts:[num:2], meta:(x:num, y:num)):
 
 [num:2] extra: [5,6]
 v: make().pts + extra
-:: v
-:: make().meta
+::: v
+::: make().meta
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -961,8 +963,8 @@ def test_cpp_compile_and_run_multiset_program() -> None:
 merge(a:{num}, b:{num}) -> {num}:
     a + b
 
-:: merge({1:1}, {2:2})
-:: ({1:3, 2:1} * {1:1, 2:4})
+::: merge({1:1}, {2:2})
+::: ({1:3, 2:1} * {1:1, 2:4})
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -976,8 +978,8 @@ def test_cpp_compile_and_run_nested_record_with_multiset_field() -> None:
 make() -> (bag:{num}, total:num):
     (bag:{1:2, 3:1}, total:3)
 
-:: make()
-:: make().bag
+::: make()
+::: make().bag
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
@@ -991,9 +993,9 @@ def test_cpp_compile_and_run_record_with_vector_and_multiset_fields() -> None:
 make() -> (pts:[num:2], bag:{num}, total:num):
     (pts:[1,2], bag:{3:1, 4:2}, total:3)
 
-:: make()
-:: make().pts
-:: make().bag
+::: make()
+::: make().pts
+::: make().bag
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)

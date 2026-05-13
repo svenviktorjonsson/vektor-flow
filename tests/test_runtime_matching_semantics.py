@@ -86,7 +86,10 @@ def test_semantic_type_equality_uses_subtype_compatibility() -> None:
 ::: (x:num, y:num, z:num) = (x:num, y:num)
 ::: (x:num, y:num, z:num) ~= (x:num, y:num)
 """
-    assert _run(src).splitlines() == ["true", "false"]
+    assert _run(src).splitlines() == [
+        "<TypeExpr>=<TypeExpr>: true",
+        "<TypeExpr>~=<TypeExpr>: false",
+    ]
 
 
 def test_union_and_intersection_type_equality_use_subtype_logic() -> None:
@@ -103,8 +106,8 @@ b : (x:2, y:4)
 ::: a >= b
 """
     assert _run(src).splitlines() == [
-        "(x:true, y:false)",
-        "(x:false, y:true)",
+        "a<b: (x:true, y:false)",
+        "a>=b: (x:false, y:true)",
     ]
 
 
@@ -113,7 +116,7 @@ def test_struct_relational_ops_support_scalar_broadcast() -> None:
 a : (x:1, y:2)
 ::: a > 0
 """
-    assert _run(src) == "(x:true, y:true)"
+    assert _run(src) == "a>0: (x:true, y:true)"
 
 
 def test_multiset_relational_ops_return_keyed_struct() -> None:
@@ -124,8 +127,8 @@ b : {"a":5, "b":2}
 ::: a <= 2
 """
     assert _run(src).splitlines() == [
-        "(a:false, b:true)",
-        "(a:true, b:false)",
+        "a>b: (a:false, b:true)",
+        "a<=2: (a:true, b:false)",
     ]
 
 

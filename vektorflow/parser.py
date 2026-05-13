@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from typing import Any
 
 from . import ast
@@ -17,12 +18,14 @@ from .tokens import (
     AT_EMIT,
     AT_GT,
     BAR,
+    BANG,
     CARET,
     COLON,
     COMMA,
     DEDENT,
     DOLLAR,
     DOT,
+    ELLIPSIS,
     EMIT,
     EOF,
     EQ,
@@ -133,16 +136,84 @@ _UPDATE_BIND_OPS = {
     XOR: XOR,
 }
 
+BINOP_KIND_TO_SYM = {
+    PLUS: "+",
+    MINUS: "-",
+    STAR: "*",
+    SLASH: "/",
+    FLOORDIV: "//",
+    PERCENT: "%",
+    CARET: "^",
+    AMPERSAND: "&",
+    EQ: "=",
+    EXACT_EQ: "==",
+    NEQ: "!=",
+    STRUCT_NEQ: "~=",
+    LT: "<",
+    LE: "<=",
+    GT: ">",
+    GE: ">=",
+    AND: "/\\",
+    OR: "\\/",
+    XOR: "><",
+}
+
+UNARY_KIND_TO_SYM = {
+    PLUS: "+",
+    MINUS: "-",
+    NOT: "~",
+}
+
 # ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
 # before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
 _PRIMITIVE_TYPE_IDENTS = frozenset({"int", "float", "num", "str", "byte", "bytes", "bool", "any"})
 
+_TOKEN_DISPLAY = {
+    INDENT: "indented block",
+    DEDENT: "dedent",
+    NEWLINE: "end of line",
+    EOF: "end of input",
+    IDENT: "identifier",
+    NUMBER: "number",
+    STRING: "string",
+    STRING_RAW: "raw string",
+    LPAREN: "`(`",
+    RPAREN: "`)`",
+    LBRACKET: "`[`",
+    RBRACKET: "`]`",
+    LBRACE: "`{`",
+    RBRACE: "`}`",
+    COLON: "`:`",
+    COMMA: "`,`",
+    SEMICOLON: "`;`",
+    DOT: "`.`",
+    ELLIPSIS: "`...`",
+    QUESTION: "`?`",
+    BANG: "`!`",
+    BANG_QUESTION: "`!?`",
+    EMIT: "`::`",
+    FAT_ARROW: "`=>`",
+    ARROW: "`->`",
+}
+
+
+def _describe_token_kind(kind: str) -> str:
+    return _TOKEN_DISPLAY.get(kind, kind.lower())
+
 
 class Parser:
-    def __init__(self, tokens: list[Token]) -> None:
+    def __init__(self, tokens: list[Token], *, source: str | None = None, filename: str = "<stdin>") -> None:
         self.toks = tokens
         self.i = 0
         self._type_expr_relaxed_loose_dot_depth = 0
+        self.source = source
+        self.filename = filename
+        self._line_offsets: list[int] | None = None
+        if source is not None:
+            self._line_offsets = [0]
+            for idx, ch in enumerate(source):
+                if ch == "\n":
+                    self._line_offsets.append(idx + 1)
 
     def _peek(self) -> str:
         self._skip_trivia()
@@ -175,7 +246,10 @@ class Parser:
     def _expect(self, kind: str) -> Token:
         self._skip_trivia()
         if self._peek_raw() != kind:
-            raise ParseError(f"expected {kind}, got {self._peek_raw()}", self._loc_here())
+            raise ParseError(
+                f"expected {_describe_token_kind(kind)}, got {_describe_token_kind(self._peek_raw())}",
+                self._loc_here(),
+            )
         return self._advance()
 
     def _emit_disallowed_in_value_expr(self, ctx: str) -> None:
@@ -416,23 +490,32 @@ class Parser:
             self._skip_trivia()
             if self._peek_raw() == EOF:
                 break
+            if (
+                self._peek_raw() == IDENT
+                and self.i + 1 < len(self.toks)
+                and self.toks[self.i + 1].kind == COLON
+                and not (self.i + 2 < len(self.toks) and self.toks[self.i + 2].kind == DOT)
+                and not (self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN)
+            ):
+                name = str(self._advance().value)
+                self._advance()
+                stmts.append(ast.Bind(ast.Ident(name), self._parse_bind_rhs(ast.Ident(name))))
+                continue
             stmts.append(self.parse_stmt())
         return ast.Module(stmts)
 
     def parse_stmt(self) -> Any:
         self._skip_trivia()
         # Leading ``:: expr`` — print to stdout; ``:: :`` prints the current local scope (see StructIdentity).
-        # ``::: expr`` is sugar for ``:: (expr & "\\n")`` (line-oriented print, like ``::"$a\\n"`` with interpolation).
+        # ``::: expr`` — labeled print: ``expr_text: value`` with newline.
         if self._peek_raw() == EMIT:
             self._advance()
             if self._peek_raw() == COLON:
                 self._advance()
                 if self._peek_raw() in (NEWLINE, EOF, SEMICOLON):
-                    return ast.StdioPrint(ast.StructIdentity())
+                    return ast.StdioLabelPrint(":", ast.StructIdentity())
                 val = self.parse_expr()
-                return ast.StdioPrint(
-                    ast.BinOp(AMPERSAND, val, ast.StringLit("\n"))
-                )
+                return ast.StdioLabelPrint(self._format_expr_for_label(val), val)
             val = self.parse_expr()
             return ast.StdioPrint(val)
 
@@ -443,16 +526,43 @@ class Parser:
                 path = self._parse_dot_module_path_from_dot()
                 return ast.SpillImport(path)
 
-        # Lone ``:`` — expression ``StructIdentity`` (return current local scope as a record)
+        # Simple name bind fast path: `name: expr` / `name:` block / `name op: expr`
+        if self._peek_raw() == IDENT:
+            if not (
+                self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN
+            ):
+                name = str(self.toks[self.i].value)
+                if (
+                    self.i + 1 < len(self.toks)
+                    and self.toks[self.i + 1].kind == COLON
+                    and not (
+                        self.i + 2 < len(self.toks)
+                        and self.toks[self.i + 2].kind == DOT
+                    )
+                ):
+                    self._advance()
+                    self._advance()
+                    return ast.Bind(ast.Ident(name), self._parse_bind_rhs(ast.Ident(name)))
+                mark = self.i
+                target = ast.Ident(str(self._advance().value))
+                update_op = self._peek_update_bind_op()
+                if update_op is not None:
+                    self._advance()
+                    self._expect(COLON)
+                    rhs = self._parse_bind_rhs(target)
+                    return ast.Bind(target, ast.BinOp(update_op, target, rhs))
+                self.i = mark
+
+        typed_stdio_stmt = self._try_parse_prefix_typed_stdio_stmt()
+        if typed_stdio_stmt is not None:
+            return typed_stdio_stmt
+
+        # ``:expr`` spills a value/module into local scope; lone ``:`` returns current local scope.
         if self._peek_raw() == COLON:
             self._advance()
-            # Do not skip newlines here: the line must end after `:` or `;` (see StructIdentity).
             if self._peek_raw() in (NEWLINE, EOF, SEMICOLON):
                 return ast.ExprStmt(ast.StructIdentity())
-            raise ParseError(
-                "expected end of line or `;` after `:` (use `:` alone to return the local scope)",
-                self._loc_here(),
-            )
+            return ast.SpillValue(self.parse_expr())
 
         if self._peek_raw() == AT:
             self._advance()
@@ -468,10 +578,6 @@ class Parser:
             self._advance()
             self._expect_end_of_simple_control_stmt()
             return ast.BreakStmt()
-
-        typed_bind = self._try_parse_prefix_typed_bind_stmt()
-        if typed_bind is not None:
-            return typed_bind
 
         if self._peek_raw() == AT_BANG:
             self._advance()
@@ -515,7 +621,7 @@ class Parser:
                 if self._paren_is_only_func_param_list(lpar):
                     k_after = self._kind_after_balanced_call()
                     if k_after == EMIT:
-                        return self.parse_func_def_stdin()
+                        return self.parse_func_def_acquire()
 
         # Function: IDENT ( ... ) :  or  IDENT ( ... ) -> codomain :
         if self._peek_raw() == IDENT:
@@ -557,6 +663,10 @@ class Parser:
                     return ast.Bind(target, val)
                 self.i = mark
 
+        typed_bind = self._try_parse_prefix_typed_bind_stmt()
+        if typed_bind is not None:
+            return typed_bind
+
         expr = self.parse_expr()
         # After a multiline ``expr?`` / ``…?`` block, ``DEDENT`` can be immediately followed
         # by ``::`` (no ``NEWLINE`` token between). The next statement must be a leading
@@ -568,10 +678,8 @@ class Parser:
         # Trailing ``name ::`` / ``name :::`` — stdin read; ``:::`` prints ``name: `` before the caret.
         if self._peek_raw() == EMIT:
             self._advance()
-            self._skip_trivia()
             if self._peek_raw() == COLON:
                 self._advance()
-                self._skip_trivia()
                 if self._peek_raw() not in (NEWLINE, EOF):
                     raise ParseError(
                         "trailing `:::` only reads stdin after `name: ` prompt; nothing may follow on the line",
@@ -583,13 +691,16 @@ class Parser:
                     "`:::` line input expects a simple name before `:::`",
                     self._loc_here(),
                 )
+            if isinstance(expr, ast.Ident):
+                if self._peek_raw() in (NEWLINE, EOF):
+                    return ast.StdioReadLine(expr)
+                source = self.parse_expr()
+                return ast.EvalBind(expr, source)
             if self._peek_raw() not in (NEWLINE, EOF):
                 raise ParseError(
-                    ":: only supports stdio; use io.write_text(path, text) to write to a file",
+                    "trailing :: source bind expects a simple name before :: expr",
                     self._loc_here(),
                 )
-            if isinstance(expr, ast.Ident):
-                return ast.StdioReadLine(expr)
             raise ParseError(
                 "trailing :: only reads a line into a simple name; use leading :: to print ( :: expr )",
                 self._loc_here(),
@@ -642,7 +753,7 @@ class Parser:
             break
         return ast.DotModulePath(segments)
 
-    def parse_func_def_stdin(self) -> ast.FuncDefStdin:
+    def parse_func_def_acquire(self) -> Any:
         name = str(self._expect(IDENT).value)
         self._expect(LPAREN)
         params = self.parse_func_params()
@@ -653,7 +764,10 @@ class Parser:
         if self._peek_raw() == COLON:
             self._advance()
             return ast.FuncDefStdin(name, params, True)
-        return ast.FuncDefStdin(name, params, False)
+        if self._peek_raw() in (NEWLINE, EOF):
+            return ast.FuncDefStdin(name, params, False)
+        source = self.parse_expr()
+        return ast.FuncDefSource(name, params, source)
 
     def parse_operator_func_def(self) -> ast.FuncDef:
         t = self._advance()
@@ -706,12 +820,35 @@ class Parser:
             return stmts[0].expr
         return ast.Block(stmts)
 
+    def _extract_leading_docstring(self, stmts: list[Any]) -> tuple[str | None, list[Any]]:
+        if not stmts:
+            return None, stmts
+        first = stmts[0]
+        if isinstance(first, ast.ExprStmt) and isinstance(first.expr, ast.StringLit):
+            return first.expr.value, stmts[1:]
+        return None, stmts
+
     def parse_func_params(self, *, allow_defaults: bool = True) -> list[ast.Param]:
         params: list[ast.Param] = []
+        seen_var_pos = False
+        seen_var_named = False
         if self._peek_raw() == RPAREN:
             return params
         while True:
-            params.append(self._parse_func_param(allow_defaults=allow_defaults))
+            param = self._parse_func_param(allow_defaults=allow_defaults)
+            if param.variadic_named:
+                if seen_var_named:
+                    raise ParseError("only one `:::named` parameter is allowed", self._loc_here())
+                seen_var_named = True
+            elif param.variadic_positional:
+                if seen_var_pos:
+                    raise ParseError("only one `...rest` parameter is allowed", self._loc_here())
+                if seen_var_named:
+                    raise ParseError("`...rest` may not appear after `:::named`", self._loc_here())
+                seen_var_pos = True
+            elif seen_var_pos or seen_var_named:
+                raise ParseError("fixed parameters must come before variadic captures", self._loc_here())
+            params.append(param)
             if self._peek_raw() == COMMA:
                 self._advance()
                 continue
@@ -723,19 +860,56 @@ class Parser:
         pname: str,
         t: Any | None,
         default_expr: Any | None = None,
+        *,
+        variadic_positional: bool = False,
+        variadic_named: bool = False,
     ) -> ast.Param:
         if isinstance(t, ast.FuncType):
-            return ast.Param(pname, None, t, None, default_expr)
+            return ast.Param(pname, None, t, None, default_expr, variadic_positional, variadic_named)
         if isinstance(t, ast.PrimTypeRef):
-            return ast.Param(pname, t.name, None, t, default_expr)
+            return ast.Param(pname, t.name, None, t, default_expr, variadic_positional, variadic_named)
         if t is None:
-            return ast.Param(pname, None, None, None, default_expr)
-        return ast.Param(pname, None, None, t, default_expr)
+            return ast.Param(pname, None, None, None, default_expr, variadic_positional, variadic_named)
+        return ast.Param(pname, None, None, t, default_expr, variadic_positional, variadic_named)
 
     def _try_parse_name_first_typed_param(self, pname: str) -> ast.Param | None:
         saved = self.i
         try:
             t = self._parse_arrow_type()
+        except ParseError:
+            self.i = saved
+            return None
+
+    def _try_parse_prefix_typed_stdio_stmt(self) -> Any | None:
+        self._skip_trivia()
+        if self._peek_raw() not in (IDENT, LPAREN, LBRACKET, LBRACE):
+            return None
+        saved = self.i
+        try:
+            declared_type = self._parse_arrow_type()
+            self._skip_trivia()
+            if self._peek_raw() != IDENT:
+                self.i = saved
+                return None
+            name = str(self._advance().value)
+            self._skip_trivia()
+            if self._peek_raw() != EMIT:
+                self.i = saved
+                return None
+            self._advance()
+            target = ast.Ident(name)
+            if self._peek_raw() == COLON:
+                self._advance()
+                if self._peek_raw() not in (NEWLINE, EOF):
+                    raise ParseError(
+                        "typed `:::` prompt input may not have trailing tokens on the line",
+                        self._loc_here(),
+                    )
+                return ast.StdioPrompt(target, declared_type=declared_type)
+            if self._peek_raw() in (NEWLINE, EOF):
+                return ast.StdioReadLine(target, declared_type=declared_type)
+            source = self.parse_expr()
+            return ast.EvalBind(target, source, declared_type=declared_type)
         except ParseError:
             self.i = saved
             return None
@@ -745,6 +919,36 @@ class Parser:
         return self._param_from_type_expr(pname, t)
 
     def _parse_func_param(self, *, allow_defaults: bool = True) -> ast.Param:
+        if self._peek_raw() == ELLIPSIS:
+            self._advance()
+            pname = str(self._expect(IDENT).value)
+            declared_type: Any | None = None
+            if self._peek_raw() == COLON:
+                self._advance()
+                declared_type = self._parse_arrow_type()
+            return self._param_from_type_expr(
+                pname,
+                declared_type,
+                variadic_positional=True,
+            )
+        if self._peek_raw() == EMIT:
+            saved = self.i
+            self._advance()
+            if self._peek_raw() != COLON:
+                self.i = saved
+            else:
+                self._advance()
+                pname = str(self._expect(IDENT).value)
+                declared_type: Any | None = None
+                if self._peek_raw() == COLON:
+                    self._advance()
+                    declared_type = self._parse_arrow_type()
+                return self._param_from_type_expr(
+                    pname,
+                    declared_type,
+                    variadic_named=True,
+                )
+
         saved = self.i
         try:
             t = self._parse_arrow_type()
@@ -753,7 +957,7 @@ class Parser:
                 raise ParseError("expected parameter name after parameter type", self._loc_here())
             pname = str(self._advance().value)
             default_expr: Any | None = None
-            if allow_defaults and self._peek_raw() == COLON:
+            if allow_defaults and self._peek_raw() == EQ:
                 self._advance()
                 default_expr = self.parse_expr()
             return self._param_from_type_expr(pname, t, default_expr)
@@ -761,11 +965,15 @@ class Parser:
             self.i = saved
 
         pname = str(self._expect(IDENT).value)
+        declared_type: Any | None = None
         if self._peek_raw() == COLON:
             self._advance()
-            t = self._parse_arrow_type()
-            return self._param_from_type_expr(pname, t)
-        return ast.Param(pname, None, None, None, None)
+            declared_type = self._parse_arrow_type()
+        default_expr: Any | None = None
+        if allow_defaults and self._peek_raw() == EQ:
+            self._advance()
+            default_expr = self.parse_expr()
+        return self._param_from_type_expr(pname, declared_type, default_expr)
 
     def _parse_type_size_atom(self) -> Any:
         self._skip_trivia()
@@ -1111,9 +1319,23 @@ class Parser:
                     break
                 body_stmts.extend(self.parse_stmt_semicolon_chain())
             self._expect(DEDENT)
-            return ast.FuncDef(name, params, self._func_body_from_stmts(body_stmts), func_type)
+            docstring, body_stmts = self._extract_leading_docstring(body_stmts)
+            return ast.FuncDef(
+                name,
+                params,
+                self._func_body_from_stmts(body_stmts),
+                func_type,
+                docstring,
+            )
         stmts = self.parse_stmt_semicolon_chain()
-        return ast.FuncDef(name, params, self._func_body_from_stmts(stmts), func_type)
+        docstring, stmts = self._extract_leading_docstring(stmts)
+        return ast.FuncDef(
+            name,
+            params,
+            self._func_body_from_stmts(stmts),
+            func_type,
+            docstring,
+        )
 
     def _name_is_type_bind(self, name: str) -> bool:
         return len(name) > 0 and name[0].isalpha() and name[0].isupper()
@@ -1223,7 +1445,96 @@ class Parser:
         self.i = boundary
         return out
 
+    def _parse_indented_stmt_block(self, *, missing_message: str) -> ast.Block:
+        self._consume_newline_raw()
+        if self._peek_raw() != INDENT:
+            raise ParseError(missing_message, self._loc_here())
+        self._expect(INDENT)
+        body_stmts: list[Any] = []
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() in (DEDENT, EOF):
+                break
+            body_stmts.extend(self.parse_stmt_semicolon_chain())
+        self._expect(DEDENT)
+        return ast.Block(body_stmts)
+
+    def _parse_parenthesized_scope_block(self) -> ast.ScopeExpr:
+        if self.source is not None and self.i > 0:
+            open_paren = self.toks[self.i - 1]
+            close_index = self._find_matching_group_end(self.i, LPAREN, RPAREN)
+            close_paren = self.toks[close_index]
+            inner_source = self._slice_source_between(open_paren.location, close_paren.location)
+            dedented = textwrap.dedent(inner_source).strip("\n")
+            if dedented:
+                inner_module = parse_module(dedented, filename=self.filename)
+                self.i = close_index + 1
+                return ast.ScopeExpr(ast.Block(inner_module.statements))
+            self.i = close_index + 1
+            return ast.ScopeExpr(ast.Block([]))
+        body_stmts: list[Any] = []
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() in (RPAREN, EOF):
+                break
+            body_stmts.extend(self.parse_stmt_semicolon_chain())
+        self._expect(RPAREN)
+        return ast.ScopeExpr(ast.Block(body_stmts))
+
+    def _next_token_starts_new_line_after(self, line: int) -> bool:
+        self._skip_trivia()
+        if self.i >= len(self.toks):
+            return False
+        return self.toks[self.i].location.line > line
+
+    def _find_matching_group_end(self, start_index: int, open_kind: str, close_kind: str) -> int:
+        depth = 0
+        for j in range(start_index, len(self.toks)):
+            kind = self.toks[j].kind
+            if kind == open_kind:
+                depth += 1
+                continue
+            if kind == close_kind:
+                if depth == 0:
+                    return j
+                depth -= 1
+        raise ParseError(f"expected {_describe_token_kind(close_kind)}", self._loc_here())
+
+    def _slice_source_between(self, start: SourceLocation, end: SourceLocation) -> str:
+        if self.source is None or self._line_offsets is None:
+            raise ParseError("internal error: source text unavailable for scope block parsing", start)
+        start_offset = self._line_offsets[start.line - 1] + start.column
+        end_offset = self._line_offsets[end.line - 1] + (end.column - 1)
+        return self.source[start_offset:end_offset]
+
+    def _paren_contains_top_level_comma(self) -> bool:
+        depth = 0
+        j = self.i
+        while j < len(self.toks):
+            kind = self.toks[j].kind
+            if kind == LPAREN:
+                depth += 1
+            elif kind == RPAREN:
+                if depth == 0:
+                    return False
+                depth -= 1
+            elif kind == COMMA and depth == 0:
+                return True
+            j += 1
+        return False
+
     def _parse_bind_rhs(self, target: Any) -> Any:
+        if self._peek_raw() == NEWLINE:
+            if not isinstance(target, ast.Ident):
+                raise ParseError(
+                    "only simple named definitions may use an indented scope body",
+                    self._loc_here(),
+                )
+            return ast.ScopeExpr(
+                self._parse_indented_stmt_block(
+                    missing_message="expected indented block after `name:`",
+                )
+            )
         if isinstance(target, ast.Ident) and self._name_is_type_bind(target.name):
             saved = self.i
             try:
@@ -1267,7 +1578,13 @@ class Parser:
         left = self.parse_or_expr()
         if self._peek_raw() == QUESTION:
             self._advance()
-            if self._peek_raw() == QUESTION:
+            if self._peek_raw() == BANG:
+                self._advance()
+                message = None
+                if self._peek_raw() not in (NEWLINE, EOF, SEMICOLON, RPAREN, DEDENT):
+                    message = self.parse_expr()
+                left = ast.AssertExpr(left, message, self._format_expr_for_label(left))
+            elif self._peek_raw() == QUESTION:
                 self._advance()
                 loop_mode = False
                 if self._peek_raw() == GT:
@@ -1472,7 +1789,7 @@ class Parser:
 
     def _call_may_continue_after_newline(self, left: Any) -> bool:
         """``f`` / ``obj.m`` / ``g(x)`` may be split across lines before ``(``; literals may not."""
-        return isinstance(left, (ast.Ident, ast.Attribute, ast.Call))
+        return isinstance(left, (ast.Ident, ast.Attribute))
 
     def _params_to_domain_type(
         self, params: list[ast.Param]
@@ -1770,6 +2087,10 @@ class Parser:
                     left = ast.Call(left, args)
                     continue
                 self.i = saved
+            if k == BANG:
+                self._advance()
+                left = ast.RaiseExpr(left)
+                continue
             break
         return left
 
@@ -1827,10 +2148,20 @@ class Parser:
             self._advance()
             return ast.Ident("$")
         if k == LPAREN:
-            self._advance()
+            open_paren = self._advance()
             if self._peek_raw() == RPAREN:
                 self._advance()
                 return ast.StructLit([])
+            if self._next_token_starts_new_line_after(open_paren.location.line) and not self._paren_contains_top_level_comma():
+                return self._parse_parenthesized_scope_block()
+            if self._peek_raw() == COLON:
+                self._advance()
+                if self._peek_raw() == RPAREN:
+                    self._advance()
+                    return ast.StructIdentity()
+                inner = self.parse_expr()
+                self._expect(RPAREN)
+                return ast.SpillExpr(inner)
             if self._is_type_record_contents_after_lparen():
                 saved = self.i
                 try:
@@ -1866,11 +2197,30 @@ class Parser:
                 return ast.Lambda(pnames, body)
             if self._peek_raw() == IDENT:
                 saved = self.i
-                self._expect(IDENT)
+                name = str(self._expect(IDENT).value)
                 self._skip_trivia()
                 if self._peek_raw() == COLON:
-                    self.i = saved
-                    return self._parse_struct_literal()
+                    self._advance()
+                    value = self.parse_expr()
+                    self._emit_disallowed_in_value_expr("parenthesized binding / struct literal")
+                    self._skip_trivia()
+                    if self._peek_raw() == COMMA:
+                        fields = [(name, value)]
+                        while self._peek_raw() == COMMA:
+                            self._advance()
+                            self._skip_trivia()
+                            if self._peek_raw() == RPAREN:
+                                break
+                            field_name = str(self._expect(IDENT).value)
+                            self._expect(COLON)
+                            field_value = self.parse_expr()
+                            self._emit_disallowed_in_value_expr("struct literal")
+                            fields.append((field_name, field_value))
+                            self._skip_trivia()
+                        self._expect(RPAREN)
+                        return ast.StructLit(fields)
+                    self._expect(RPAREN)
+                    return ast.Bind(ast.Ident(name), value)
                 self.i = saved
             e = self._parse_tuple_literal_element()
             self._emit_disallowed_in_value_expr("tuple literal")
@@ -1908,16 +2258,25 @@ class Parser:
             if self._peek_raw() == RBRACE:
                 self._expect(RBRACE)
                 return ast.MultisetLit([])
+            if self._peek_raw() == COLON:
+                self._advance()
+                inner = self.parse_expr()
+                self._emit_disallowed_in_value_expr("multiset literal")
+                if self._peek_raw() == COMMA:
+                    raise ParseError(
+                        "multiset spill `{:expr}` must be the only entry in the multiset literal",
+                        self._loc_here(),
+                    )
+                self._expect(RBRACE)
+                return ast.MultisetFromValues(inner)
             pairs: list[tuple[Any, Any]] = []
             while True:
                 ke = self.parse_expr()
-                if self._peek_raw() != COLON:
-                    raise ParseError(
-                        "multiset literal must use {value:count, …}; use collections.map for a hash map",
-                        self._loc_here(),
-                    )
-                self._advance()
-                ce = self.parse_expr()
+                if self._peek_raw() == COLON:
+                    self._advance()
+                    ce = self.parse_expr()
+                else:
+                    ce = ast.NumberLit(1)
                 pairs.append((ke, ce))
                 self._emit_disallowed_in_value_expr("multiset literal")
                 if self._peek_raw() == COMMA:
@@ -1927,7 +2286,7 @@ class Parser:
             self._expect(RBRACE)
             return ast.MultisetLit(pairs)
 
-        raise ParseError(f"unexpected token in expression: {k}", self._loc_here())
+        raise ParseError(f"unexpected {_describe_token_kind(k)} in expression", self._loc_here())
 
     def _parse_vector_element(self) -> Any:
         """One vector slot: ``:expr`` multiset spill, ``expr`` or ``expr : count`` repeat."""
@@ -1975,12 +2334,71 @@ class Parser:
             STRING_RAW,
         )
 
+    def _format_expr_for_label(self, expr: Any) -> str:
+        if isinstance(expr, ast.Ident):
+            return expr.name
+        if isinstance(expr, ast.NumberLit):
+            v = expr.value
+            if isinstance(v, int):
+                return str(v)
+            if isinstance(v, float) and v.is_integer():
+                return str(int(v))
+            return str(v)
+        if isinstance(expr, ast.BoolLit):
+            return "true" if expr.value else "false"
+        if isinstance(expr, ast.NullLit):
+            return "null"
+        if isinstance(expr, ast.StringLit):
+            quote = "'" if expr.raw else '"'
+            inner = expr.value.replace("\\", "\\\\").replace(quote, "\\" + quote)
+            return f"{quote}{inner}{quote}"
+        if isinstance(expr, ast.BinOp):
+            return (
+                f"{self._format_expr_for_label(expr.left)}"
+                f"{BINOP_KIND_TO_SYM.get(expr.op, expr.op)}"
+                f"{self._format_expr_for_label(expr.right)}"
+            )
+        if isinstance(expr, ast.UnaryOp):
+            return f"{UNARY_KIND_TO_SYM.get(expr.op, expr.op)}{self._format_expr_for_label(expr.operand)}"
+        if isinstance(expr, ast.Call):
+            parts: list[str] = []
+            for a in expr.args:
+                if isinstance(a, ast.NamedCallArg):
+                    parts.append(f"{a.name}:{self._format_expr_for_label(a.value)}")
+                elif isinstance(a, ast.SpreadArg):
+                    parts.append(f":{self._format_expr_for_label(a.expr)}")
+                else:
+                    parts.append(self._format_expr_for_label(a))
+            return f"{self._format_expr_for_label(expr.func)}({', '.join(parts)})"
+        if isinstance(expr, ast.Attribute):
+            return f"{self._format_expr_for_label(expr.value)}.{expr.name}"
+        if isinstance(expr, ast.DottedIndex):
+            parts = ", ".join(self._format_expr_for_label(i) for i in expr.indices)
+            return f"{self._format_expr_for_label(expr.base)}.({parts})"
+        if isinstance(expr, ast.TupleLit):
+            parts: list[str] = []
+            for e in expr.elements:
+                if isinstance(e, ast.SpreadArg):
+                    parts.append(f":{self._format_expr_for_label(e.expr)}")
+                else:
+                    parts.append(self._format_expr_for_label(e))
+            return f"({', '.join(parts)})"
+        if isinstance(expr, ast.ListLit):
+            return "[" + ", ".join(self._format_expr_for_label(e) for e in expr.elements) + "]"
+        if isinstance(expr, ast.AxisAlign):
+            inner = self._format_expr_for_label(expr.value)
+            if expr.label is not None:
+                return f"{inner}->{expr.label}"
+            assert expr.indices is not None
+            return f"{inner}->({', '.join(self._format_expr_for_label(i) for i in expr.indices)})"
+        return f"<{type(expr).__name__}>"
+
 
 def parse_module(source: str, filename: str = "<stdin>") -> ast.Module:
     from .lexer import tokenize
 
     toks = tokenize(source, filename=filename)
-    p = Parser(toks)
+    p = Parser(toks, source=source, filename=filename)
     return p.parse_module()
 
 

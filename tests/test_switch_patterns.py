@@ -45,9 +45,9 @@ def test_parens_only_sanity() -> None:
 
 def test_semicolon_between_match_arms_after_at_bar() -> None:
     """``@|`` may consume the following ``;``; parser still reads the next ``??`` arm."""
-    out = _run_prints("..>>:::$;$?? (20 => @|)")
+    out = _run_prints("..>>:: $;$?? (20 => @|)")
     lines = [x.rstrip() for x in out.splitlines() if x.strip() != ""]
-    assert lines == [str(i) for i in range(21)]
+    assert lines == ["01234567891011121314151617181920"]
 
 
 def test_implicit_mul_in_bracketed_arms() -> None:
@@ -74,4 +74,20 @@ v ??
 :: r
 """
     assert _run_prints(src2) == "9"
+
+
+def test_grouped_bind_expression_assigns_and_returns_value() -> None:
+    src = """
+out: 0
+::: (x: 4)
+::: x
+out: (y: 9)
+::: out
+::: y
+"""
+    assert _run_prints(src).splitlines() == ["<Bind>: 4", "x: 4", "out: 9", "y: 9"]
+
+
+def test_singleton_struct_requires_trailing_comma() -> None:
+    assert _run_prints(":: (x: 4,)") == "(x:4)"
 

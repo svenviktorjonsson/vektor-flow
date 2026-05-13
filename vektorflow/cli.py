@@ -9,6 +9,12 @@ Usage
     vkf build <file>         Build a standalone native executable for the supported subset
     vkf build-native-core <file>
                              Build through the native-core lexer/token-stream frontend
+    vkf build-runtime <file>
+                             Build parser-only-Python runtime bundle (exe + artifact)
+    vkf package-runtime <file>
+                             Package runtime bundle directory
+                             (exe + artifact + launcher + manifest, or overlay scene bundle for
+                              supported native scene sources)
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
@@ -17,6 +23,8 @@ Usage
     vkf parse-tokens <file>  Parse a stable token JSON payload and print the AST repr
     vkf parse-native-core <file>
                              Native-core C++ lexer -> token contract -> AST repr
+    vkf native-artifact <file>
+                             Emit stable lowered program artifact JSON
     vkf -s 'code'           Tokenize an inline snippet
     vkf --help
     vkf --version
@@ -26,18 +34,29 @@ Usage
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from . import __version__
-from .errors import EvalError, LexError, ParseError, VektorFlowError
+from .errors import EvalError, LexError, ParseError, VektorFlowError, format_error_diagnostic
 from .lexer import tokenize
 from .native_frontend import (
     build_native_subset,
     emit_cpp_from_native_subset,
     lex_native_subset_payload,
     parse_native_subset,
+)
+from .native_program_artifact import emit_native_program_artifact_from_source_file
+from .native_runtime_bundle import (
+    build_native_runtime_bundle,
+    discover_vf_overlay_bundle,
+    package_native_runtime_bundle,
 )
 from .parser import parse_token_stream_json
 from .token_stream import tokens_from_json, tokens_to_json
@@ -70,7 +89,7 @@ def cmd_tokens(source: str, filename: str, *, compact: bool, json_output: bool =
     try:
         toks = tokenize(source, filename=filename)
     except VektorFlowError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_error_diagnostic(exc, source_text=source), file=sys.stderr)
         return 1
 
     if json_output:
@@ -102,7 +121,7 @@ def cmd_tokens_native_core(
             filename_label=filename_label,
         )
     except VektorFlowError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_error_diagnostic(exc, source_text=source), file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -126,7 +145,24 @@ def cmd_tokens_native_core(
 
 
 def cmd_run(path: Path) -> int:
-    """Parse and execute a ``.vkf`` file."""
+    """Package and launch a native runtime bundle for ``path``."""
+    try:
+        bundle = _package_native_run_bundle(path)
+        _launch_native_run_bundle(bundle)
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError) as exc:
+        print(format_error_diagnostic(exc), file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_run_python(path: Path) -> int:
+    """Parse and execute a ``.vkf`` file through the interpreter."""
     try:
         from .interpreter import run_file
 
@@ -135,7 +171,7 @@ def cmd_run(path: Path) -> int:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_error_diagnostic(exc), file=sys.stderr)
         return 1
     return 0
 
@@ -147,7 +183,7 @@ def cmd_parse_tokens(payload: str) -> int:
         print(f"error: invalid token stream payload: {exc}", file=sys.stderr)
         return 1
     except ParseError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_error_diagnostic(exc), file=sys.stderr)
         return 1
     print(repr(module))
     return 0
@@ -162,7 +198,7 @@ def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: 
             filename_label=filename_label,
         )
     except VektorFlowError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_error_diagnostic(exc, source_text=source), file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -180,7 +216,7 @@ def cmd_cpp(path: Path, out_path: Path | None) -> int:
         print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(format_error_diagnostic(exc), file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -266,6 +302,209 @@ def cmd_build_native_core(
         print(built)
     except OSError as exc:
         print(f"error: cannot read {filename}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _native_run_root() -> Path:
+    base = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "vektor-flow" / "native-runs"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _looks_like_ui_source(path: Path) -> bool:
+    source = path.read_text(encoding="utf-8")
+    return bool(
+        re.search(
+            r"(^|\n)\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*\.ui\b|"
+            r"\bui\.(display|widgets|Frame|set_mode)\b|"
+            r"\badd_frame\b",
+            source,
+        )
+    )
+
+
+def _clean_stale_native_run_dirs(root: Path, *, keep: set[Path], max_dirs: int = 8) -> None:
+    resolved_keep = {p.resolve() for p in keep}
+    candidates = [p for p in root.iterdir() if p.is_dir() and p.resolve() not in resolved_keep]
+    for broken in list(candidates):
+        overlay_dir = broken / "overlay"
+        manifest_path = broken / "runtime-bundle-manifest.json"
+        if overlay_dir.is_dir() and (
+            not manifest_path.is_file() or not (overlay_dir / "vf-overlay.exe").is_file()
+        ):
+            shutil.rmtree(broken, ignore_errors=True)
+            candidates.remove(broken)
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for stale in candidates[max_dirs:]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def _validate_launchable_native_run_bundle(bundle) -> None:
+    if bundle.overlay_bundle_dir is not None:
+        overlay_dir = bundle.overlay_bundle_dir
+        overlay_exe = overlay_dir / "vf-overlay.exe"
+        if not overlay_exe.is_file():
+            raise FileNotFoundError(f"packaged overlay bundle missing executable: {overlay_exe}")
+        if bundle.overlay_page_rel:
+            overlay_page = overlay_dir / "web" / Path(bundle.overlay_page_rel)
+            if not overlay_page.is_file():
+                raise FileNotFoundError(f"packaged overlay bundle missing scene page: {overlay_page}")
+    if bundle.executable_path is not None and not bundle.executable_path.is_file():
+        raise FileNotFoundError(f"packaged runtime bundle missing executable: {bundle.executable_path}")
+    if bundle.overlay_bundle_dir is None and bundle.executable_path is None:
+        raise RuntimeError("native bundle produced no launchable binaries")
+
+
+def _relocate_native_run_bundle(bundle, target: Path):
+    source_dir = bundle.bundle_dir
+
+    def relocated(path: Path | None) -> Path | None:
+        if path is None:
+            return None
+        try:
+            return target / path.relative_to(source_dir)
+        except ValueError:
+            return path
+
+    return replace(
+        bundle,
+        bundle_dir=target,
+        executable_path=relocated(bundle.executable_path),
+        artifact_path=relocated(bundle.artifact_path),
+        launcher_path=relocated(bundle.launcher_path),
+        manifest_path=relocated(bundle.manifest_path),
+        overlay_bundle_dir=relocated(bundle.overlay_bundle_dir),
+        overlay_launcher_path=relocated(bundle.overlay_launcher_path),
+    )
+
+
+def _package_native_run_bundle(path: Path):
+    needs_overlay = _looks_like_ui_source(path)
+    run_root = _native_run_root()
+    _clean_stale_native_run_dirs(run_root, keep=set())
+    staging = Path(tempfile.mkdtemp(prefix=f".{path.stem}-staging-", dir=run_root))
+    target = run_root / staging.name.replace(f".{path.stem}-staging-", f"{path.stem}-", 1)
+    try:
+        overlay_dir = discover_vf_overlay_bundle() if needs_overlay else None
+        staged_bundle = package_native_runtime_bundle(path, staging, overlay_bundle_dir=overlay_dir)
+        _validate_launchable_native_run_bundle(staged_bundle)
+        staging.replace(target)
+        bundle = _relocate_native_run_bundle(staged_bundle, target)
+        _validate_launchable_native_run_bundle(bundle)
+        _clean_stale_native_run_dirs(run_root, keep={target})
+        return bundle
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+
+
+def _terminate_existing_overlay_processes() -> None:
+    if os.name != "nt":
+        return
+    subprocess.run(
+        ["taskkill", "/IM", "vf-overlay.exe", "/F"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def _native_launch_popen(args: list[str], *, cwd: str):
+    kwargs: dict[str, object] = {"cwd": cwd}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        kwargs["close_fds"] = True
+    return subprocess.Popen(args, **kwargs)
+
+
+def _launch_native_run_bundle(bundle) -> None:
+    _validate_launchable_native_run_bundle(bundle)
+    launched = 0
+    if bundle.overlay_bundle_dir is not None:
+        overlay_exe = bundle.overlay_bundle_dir / "vf-overlay.exe"
+        _terminate_existing_overlay_processes()
+        overlay_args = [str(overlay_exe)]
+        if bundle.overlay_page_rel:
+            overlay_args.append(bundle.overlay_page_rel)
+        overlay_proc = _native_launch_popen(overlay_args, cwd=str(bundle.overlay_bundle_dir))
+        launched += 1
+        if overlay_proc.poll() not in (None,):
+            raise RuntimeError("native overlay exited immediately after launch")
+    if bundle.executable_path is not None:
+        runtime_exe = bundle.executable_path
+        runtime_proc = _native_launch_popen([str(runtime_exe)], cwd=str(bundle.bundle_dir))
+        launched += 1
+        if runtime_proc.poll() not in (None,):
+            raise RuntimeError("native runtime executable exited immediately after launch")
+    if launched == 0:
+        raise RuntimeError(
+            "native bundle produced no launchable binaries; expected overlay scene page or runtime executable"
+        )
+
+
+def cmd_native_artifact(path: Path, out_path: Path | None) -> int:
+    try:
+        payload = emit_native_program_artifact_from_source_file(path)
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError, ValueError) as exc:
+        if isinstance(exc, VektorFlowError):
+            print(format_error_diagnostic(exc, source_text=source), file=sys.stderr)
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if out_path is not None:
+        out_path.write_text(payload, encoding="utf-8")
+    else:
+        print(payload, end="")
+    return 0
+
+
+def cmd_build_runtime(path: Path, out_path: Path | None) -> int:
+    try:
+        target = out_path.resolve() if out_path is not None else path.with_suffix(".exe").resolve()
+        bundle = build_native_runtime_bundle(path, target)
+        print(bundle.executable_path)
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
+        return 1
+    except (LexError, ParseError, EvalError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_package_runtime(
+    path: Path,
+    out_path: Path | None,
+    *,
+    include_overlay: bool = False,
+    overlay_bundle_dir: Path | None = None,
+) -> int:
+    try:
+        target = out_path.resolve() if out_path is not None else path.with_name(path.stem + "-runtime-bundle").resolve()
+        overlay_dir = overlay_bundle_dir
+        if include_overlay and overlay_dir is None:
+            overlay_dir = discover_vf_overlay_bundle()
+        bundle = package_native_runtime_bundle(path, target, overlay_bundle_dir=overlay_dir)
+        print(bundle.bundle_dir)
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
         return 1
     except (LexError, ParseError, EvalError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -420,6 +659,14 @@ def main(argv: list[str] | None = None) -> int:
             "  vkf build <file>     Build a standalone native executable for the supported subset\n"
             "  vkf build-native-core <file>\n"
             "                       Build through the native-core lexer/token-stream frontend\n"
+            "  vkf build-runtime <file>\n"
+            "                       Build parser-only-Python runtime bundle (exe + artifact)\n"
+            "  vkf package-runtime <file>\n"
+            "                       Package runtime bundle directory\n"
+            "                       (exe + artifact + launcher + manifest, or overlay scene bundle\n"
+            "                       for supported native scene sources)\n"
+            "                       add --with-overlay to include native overlay bundle\n"
+            "                       add --overlay-bundle DIR to use an explicit overlay bundle\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
             "                       add --samples N for median-of-N timing\n"
@@ -438,6 +685,8 @@ def main(argv: list[str] | None = None) -> int:
             "                       Parse a stable token JSON payload and print the AST repr\n"
             "  vkf parse-native-core <file>\n"
             "                       Native-core C++ lexer -> token contract -> AST repr\n"
+            "  vkf native-artifact <file>\n"
+            "                       Emit stable lowered program artifact JSON\n"
             "  vkf -s/--source STR  Tokenize a snippet\n"
             "  --version            Show version\n",
             end="",
@@ -667,6 +916,96 @@ def main(argv: list[str] | None = None) -> int:
             out_path=out_path,
             filename_label=path.as_posix(),
         )
+
+    if argv[0] == "build-runtime":
+        out_path: Path | None = None
+        args = argv[1:]
+        if not args:
+            print("error: vkf build-runtime <file>", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_build_runtime(path, out_path)
+
+    if argv[0] == "package-runtime":
+        out_path: Path | None = None
+        overlay_bundle_dir: Path | None = None
+        include_overlay = False
+        args = argv[1:]
+        if not args:
+            print("error: vkf package-runtime <file>", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        if "--with-overlay" in args:
+            include_overlay = True
+            args.remove("--with-overlay")
+        if "--overlay-bundle" in args:
+            oi = args.index("--overlay-bundle")
+            if oi + 1 >= len(args):
+                print("error: --overlay-bundle requires a path", file=sys.stderr)
+                return 1
+            overlay_bundle_dir = Path(args[oi + 1])
+            include_overlay = True
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_package_runtime(
+            path,
+            out_path,
+            include_overlay=include_overlay,
+            overlay_bundle_dir=overlay_bundle_dir,
+        )
+
+    if argv[0] == "native-artifact":
+        out_path: Path | None = None
+        args = argv[1:]
+        if not args:
+            print("error: vkf native-artifact <file>", file=sys.stderr)
+            return 1
+        if "-o" in args:
+            oi = args.index("-o")
+            if oi + 1 >= len(args):
+                print("error: -o requires a path", file=sys.stderr)
+                return 1
+            out_path = Path(args[oi + 1])
+            del args[oi : oi + 2]
+        path_arg = next((a for a in args if not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_native_artifact(path, out_path)
 
     if argv[0] == "bench":
         args = argv[1:]

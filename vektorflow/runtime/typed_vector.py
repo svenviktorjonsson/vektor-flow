@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Iterable
 
+from .vfvector import VFVector
 
-@dataclass
-class TypedVector(list):
-    """List value carrying a refined static vector type expression."""
 
-    vf_type_expr: Any | None = None
+class TypedVector(VFVector):
+    """Vector value carrying a refined static vector type expression."""
+
+    __slots__ = ("vf_type_expr",)
 
     def __init__(self, values: Iterable[Any] = (), vf_type_expr: Any | None = None) -> None:
         super().__init__(values)

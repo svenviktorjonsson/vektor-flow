@@ -5,6 +5,10 @@
   "Visual Studio 16 2019", not "Visual Studio 17 2022"). Passing CMAKE_GENERATOR_INSTANCE for the
   wrong year causes: "could not find specified instance ... no version= field was given".
 #>
+param(
+    [switch]$SkipBundle
+)
+
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..')
 $overlay = Join-Path $repo 'native\VfOverlay'
@@ -119,7 +123,7 @@ if (-not $ok) {
     Write-Error "cmake configure failed. Install a matching CMake (supports $generator) or open Developer PowerShell for your VS and run cmake from there."
 }
 
-& cmake --build build --config Release
+& cmake --build build --config Release --target vf-overlay
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $out = Join-Path $overlay 'build\Release\vf-overlay.exe'
@@ -127,3 +131,85 @@ if (-not (Test-Path $out)) {
     $out = Join-Path $overlay 'build\vf-overlay.exe'
 }
 Write-Host "OK: $out"
+
+if (-not $SkipBundle) {
+    $outDir = Split-Path $out -Parent
+    $distRoot = Join-Path $overlay 'build\dist'
+    $bundleDir = Join-Path $distRoot 'vf-overlay-win64'
+    $zipPath = Join-Path $distRoot 'vf-overlay-win64.zip'
+    $manifestPath = Join-Path $bundleDir 'bundle-manifest.json'
+    $launcherPath = Join-Path $bundleDir 'launch-vf-overlay.cmd'
+    $requiredBundleItems = @(
+        'vf-overlay.exe',
+        'web'
+    )
+    $optionalBundleItems = @(
+        'vf-overlay.exe.WebView2'
+    )
+
+    if (Test-Path $bundleDir) {
+        Remove-Item -Recurse -Force $bundleDir
+    }
+    New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+
+    foreach ($item in $requiredBundleItems) {
+        $source = Join-Path $outDir $item
+        if (-not (Test-Path $source)) {
+            Write-Error "Bundle step missing required runtime asset: $source"
+        }
+        Copy-Item -Recurse -Force $source $bundleDir
+    }
+
+    foreach ($item in $optionalBundleItems) {
+        $source = Join-Path $outDir $item
+        if (Test-Path $source) {
+            Copy-Item -Recurse -Force $source $bundleDir
+        }
+    }
+
+    @'
+@echo off
+setlocal
+cd /d "%~dp0"
+start "" "%~dp0vf-overlay.exe"
+'@ | Set-Content -Path $launcherPath -Encoding ASCII
+
+    $bundleFiles = Get-ChildItem -Path $bundleDir -Recurse -File | ForEach-Object {
+        [PSCustomObject]@{
+            path = $_.FullName.Substring($bundleDir.Length + 1).Replace('\', '/')
+            size = $_.Length
+        }
+    }
+    $manifest = [ordered]@{
+        bundleName = 'vf-overlay-win64'
+        platform = 'windows-x64'
+        entryExe = 'vf-overlay.exe'
+        launchFromBundleRoot = '.\vf-overlay.exe'
+        launcher = 'launch-vf-overlay.cmd'
+        webRoot = 'web'
+        runtimeArtifacts = [ordered]@{
+            uiShell = 'web/index.html'
+            defaultRuntimePackets = 'web/vf-runtime-packets.json'
+            sessionRuntimePacketsGlob = 'web/sessions/*/vf-runtime-packets.json'
+        }
+        runtimeContract = [ordered]@{
+            overlayConsumesRuntimePacketsFrom = '/api/runtime-packets and web/vf-runtime-packets.json'
+            overlayExposesInputPacketsAt = '/api/runtime-packets/input'
+        }
+        builtAtUtc = [DateTime]::UtcNow.ToString('o')
+        webView2LoaderSidecarIncluded = (Test-Path (Join-Path $bundleDir 'vf-overlay.exe.WebView2'))
+        runtimeRequirements = @(
+            'Microsoft Edge WebView2 Runtime installed on target machine'
+        )
+        files = $bundleFiles
+    }
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $manifestPath -Encoding UTF8
+
+    if (Test-Path $zipPath) {
+        Remove-Item -Force $zipPath
+    }
+    Compress-Archive -Path (Join-Path $bundleDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
+
+    Write-Host "Bundle folder: $bundleDir"
+    Write-Host "Bundle zip:    $zipPath"
+}

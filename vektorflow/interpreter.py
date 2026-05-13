@@ -11,6 +11,7 @@ from typing import Any
 
 from . import ast
 from .errors import (
+    AssertionError as VfAssertionError,
     BreakSignal,
     ContinueSignal,
     ControlFlow,
@@ -18,6 +19,7 @@ from .errors import (
     ErrorTypeValue,
     EvalError,
     ExitProgramSignal,
+    ParseError,
     ReturnSignal,
     error_type_match_specificity,
 )
@@ -31,14 +33,19 @@ from .runtime.multiset import (
     multiset_union,
 )
 from .stdlib import STDLIB_MODULES, resolve_stdlib
-from .stdlib.events import MouseEvent, KeyEvent, matches_event_code, event_match_specificity
+from .stdlib.events import MouseEvent, KeyboardEvent, KeyEvent, TouchEvent, matches_event_code, event_match_specificity
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
+    VF_SPILL_BASE_KEY,
     VF_TYPE_KEY,
     default_field_value,
     get_type_name,
+    get_spill_base,
     is_struct_dict,
+    public_struct_items,
+    struct_has_spill_base,
     struct_tagged,
+    with_spill_base,
     with_type,
 )
 from .runtime.compare import struct_eq, struct_lt
@@ -65,6 +72,7 @@ from .runtime import (
     runtime_collection_set,
     make_vmap,
 )
+from .runtime.type_surface import runtime_type_member_callable, runtime_type_surface_metadata
 from .runtime.axis_broadcast import axis_broadcast_binary
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
@@ -239,6 +247,8 @@ def _expr_refs_param(expr: Any, param_names: set[str]) -> bool:
             if _expr_refs_param(a, param_names) or _expr_refs_param(b, param_names):
                 return True
         return False
+    if isinstance(expr, ast.MultisetFromValues):
+        return _expr_refs_param(expr.expr, param_names)
     if isinstance(expr, ast.StructLit):
         for _n, v in expr.fields:
             if _expr_refs_param(v, param_names):
@@ -275,22 +285,92 @@ def _expr_refs_param(expr: Any, param_names: set[str]) -> bool:
     return False
 
 
-def _is_struct_ctor_body(body: Any) -> bool:
-    """``Name(params):`` with no executable body, or only ``:`` (return local scope / record)."""
+def _is_struct_ctor_body(body: Any, docstring: str | None = None) -> bool:
+    """``Name(params):`` with constructor-style body ending in lone ``:``."""
     if isinstance(body, ast.Block):
         if len(body.statements) == 0:
-            return True
-        if len(body.statements) == 1:
-            st = body.statements[0]
-            return isinstance(st, ast.ExprStmt) and isinstance(st.expr, ast.StructIdentity)
-        return False
+            return docstring is None
+        st = body.statements[-1]
+        return isinstance(st, ast.ExprStmt) and isinstance(st.expr, ast.StructIdentity)
     return isinstance(body, ast.StructIdentity)
 
 
+def _struct_or_self_base(value: Any) -> Any:
+    if isinstance(value, dict) and struct_has_spill_base(value):
+        return get_spill_base(value)
+    return value
+
+
+def _spill_public_fields(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return public_struct_items(value)
+    return {}
+
+
+def _spill_value_as_record(value: Any) -> dict[str, Any]:
+    base = _struct_or_self_base(value)
+    return with_spill_base(None, base, _spill_public_fields(value))
+
+
+def _spill_expr_record(value: Any) -> dict[str, Any]:
+    type_surface = runtime_type_surface_metadata(value)
+    if type_surface is not None:
+        return with_spill_base(None, value, type_surface)
+    return _spill_value_as_record(value)
+
+
+def _spill_values_for_vector(value: Any) -> tuple[Any, ...]:
+    type_surface = runtime_type_surface_metadata(value)
+    if type_surface is not None:
+        return tuple(type_surface.values())
+    if isinstance(value, dict):
+        return tuple(public_struct_items(value).values())
+    if isinstance(value, tuple):
+        return value
+    if isinstance(value, VFVector):
+        return tuple(value)
+    if isinstance(value, str):
+        return tuple(value)
+    if isinstance(value, (bytes, bytearray)):
+        return tuple(value)
+    kind = runtime_collection_kind(value)
+    if kind == "multiset":
+        return runtime_collection_spill_values(value)
+    if kind in {"list", "queue"}:
+        return runtime_collection_expanded_values(value)
+    raise EvalError("[: …] spill requires a compatible container or scope")
+
+
+def _spill_keys_for_multiset(value: Any) -> Any:
+    type_surface = runtime_type_surface_metadata(value)
+    if type_surface is not None:
+        return runtime_collection_to_multiset(type_surface.keys())
+    if isinstance(value, dict):
+        return runtime_collection_to_multiset(public_struct_items(value).keys())
+    return runtime_collection_to_multiset(value)
+
+
 def _local_scope_as_record(env: dict[str, Any]) -> dict[str, Any]:
-    """Snapshot of current locals as an untagged record (for ``:`` expression)."""
-    out = {k: v for k, v in env.items() if k != VF_TYPE_KEY}
+    """Snapshot of current locals; preserves spilled full-object base when present."""
+    out = {
+        k: v
+        for k, v in env.items()
+        if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+    }
+    if VF_SPILL_BASE_KEY in env:
+        return with_spill_base(None, env[VF_SPILL_BASE_KEY], out)
     return with_type(None, out)
+
+
+def _eval_scope_block_as_record(ip: "Interpreter", body: ast.Block, env: dict[str, Any]) -> dict[str, Any]:
+    loc = dict(env)
+    result: Any = None
+    try:
+        for stmt in body.statements:
+            result = ip.eval_stmt(stmt, loc)
+    except ReturnSignal as r:
+        return r.value
+    return result
 
 
 def _vf_bool_display(b: bool) -> str:
@@ -303,8 +383,8 @@ def _exact_numeric_eq(a: Any, b: Any) -> bool:
 
 
 def _exact_struct_eq(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    ak = list(a.keys())
-    bk = list(b.keys())
+    ak = [k for k in a.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
+    bk = [k for k in b.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
     if ak != bk:
         return False
     for k in ak:
@@ -393,7 +473,11 @@ def _negate_bool_structure(value: Any) -> Any:
     if is_struct_dict(value):
         return with_type(
             None,
-            {k: _negate_bool_structure(v) for k, v in value.items() if k != VF_TYPE_KEY},
+            {
+                k: _negate_bool_structure(v)
+                for k, v in value.items()
+                if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+            },
         )
     raise EvalError("logical negation requires booleans or boolean structures")
 
@@ -408,7 +492,11 @@ def _is_bool_structure(value: Any) -> bool:
     if isinstance(value, VFVector):
         return all(_is_bool_structure(v) for v in value)
     if is_struct_dict(value):
-        return all(_is_bool_structure(v) for k, v in value.items() if k != VF_TYPE_KEY)
+        return all(
+            _is_bool_structure(v)
+            for k, v in value.items()
+            if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+        )
     return False
 
 
@@ -436,16 +524,16 @@ def _logical_structure_binop(op: str, a: Any, b: Any) -> Any:
     if is_struct_dict(a) and is_struct_dict(b):
         if get_type_name(a) != get_type_name(b):
             raise EvalError("struct shape mismatch for logical op")
-        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
-        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        akeys = [k for k in a.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
+        bkeys = [k for k in b.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         if akeys != bkeys:
             raise EvalError("struct shape mismatch for logical op")
         return with_type(None, {k: _logical_structure_binop(op, a[k], b[k]) for k in akeys})
     if is_struct_dict(a) and isinstance(b, bool):
-        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
+        akeys = [k for k in a.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         return with_type(None, {k: _logical_structure_binop(op, a[k], b) for k in akeys})
     if is_struct_dict(b) and isinstance(a, bool):
-        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        bkeys = [k for k in b.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         return with_type(None, {k: _logical_structure_binop(op, a, b[k]) for k in bkeys})
     if isinstance(a, tuple) and isinstance(b, tuple):
         if len(a) != len(b):
@@ -523,16 +611,16 @@ def _structural_compare(op: str, a: Any, b: Any) -> Any:
     if is_struct_dict(a) and is_struct_dict(b):
         if get_type_name(a) != get_type_name(b):
             raise EvalError("struct shape mismatch for relational op")
-        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
-        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        akeys = [k for k in a.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
+        bkeys = [k for k in b.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         if akeys != bkeys:
             raise EvalError("struct shape mismatch for relational op")
         return with_type(None, {k: _structural_compare(op, a[k], b[k]) for k in akeys})
     if is_struct_dict(a) and not is_struct_dict(b):
-        akeys = [k for k in a.keys() if k != VF_TYPE_KEY]
+        akeys = [k for k in a.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         return with_type(None, {k: _structural_compare(op, a[k], b) for k in akeys})
     if is_struct_dict(b) and not is_struct_dict(a):
-        bkeys = [k for k in b.keys() if k != VF_TYPE_KEY]
+        bkeys = [k for k in b.keys() if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         return with_type(None, {k: _structural_compare(op, a, b[k]) for k in bkeys})
     if isinstance(a, tuple) and isinstance(b, tuple):
         if len(a) != len(b):
@@ -645,7 +733,7 @@ def _expr_to_compact_string(expr: Any) -> str:
 
 
 def _event_object_code(value: Any) -> int | None:
-    if isinstance(value, (MouseEvent, KeyEvent)):
+    if isinstance(value, (MouseEvent, KeyboardEvent, KeyEvent, TouchEvent)):
         code = getattr(value, "event_code", 0)
         try:
             return int(code)
@@ -658,15 +746,49 @@ def _contains_ast_nodes(items: list[Any]) -> bool:
     return any(getattr(item.__class__, "__module__", "") == ast.__name__ for item in items)
 
 
+def _fixed_params(params: list[ast.Param]) -> list[ast.Param]:
+    return [p for p in params if not p.variadic_positional and not p.variadic_named]
+
+
+def _variadic_positional_param(params: list[ast.Param]) -> ast.Param | None:
+    for p in params:
+        if p.variadic_positional:
+            return p
+    return None
+
+
+def _variadic_named_param(params: list[ast.Param]) -> ast.Param | None:
+    for p in params:
+        if p.variadic_named:
+            return p
+    return None
+
+
+def _required_fixed_param_count(params: list[ast.Param]) -> int:
+    return sum(1 for p in _fixed_params(params) if p.default_expr is None)
+
+
+def _accepts_positional_arity(params: list[ast.Param], argc: int) -> bool:
+    fixed = _fixed_params(params)
+    required = _required_fixed_param_count(params)
+    if _variadic_positional_param(params) is not None:
+        return argc >= required
+    return required <= argc <= len(fixed)
+
+
 def _score_params_match(
     fn: VFunction,
     args: list[Any],
     types: dict[str, ast.TypeExpr | ast.FuncType],
 ) -> int | None:
-    if len(fn.params) != len(args):
+    fixed = _fixed_params(fn.params)
+    var_pos = _variadic_positional_param(fn.params)
+    if var_pos is None and len(fixed) != len(args):
+        return None
+    if var_pos is not None and len(args) < _required_fixed_param_count(fn.params):
         return None
     score = 0
-    for p, av in zip(fn.params, args):
+    for p, av in zip(fixed, args[: len(fixed)]):
         if p.param_func_type is not None:
             if not isinstance(av, VFunction):
                 return None
@@ -696,6 +818,38 @@ def _score_params_match(
         if nested is None:
             return None
         score += nested
+    if var_pos is not None:
+        extra = args[len(fixed) :]
+        for av in extra:
+            if var_pos.param_func_type is not None:
+                if not isinstance(av, VFunction):
+                    return None
+                ft = getattr(av, "func_type", None)
+                if ft is None:
+                    inferred = infer_type(av, types)
+                    nested = type_match_specificity(inferred, var_pos.param_func_type, types)
+                    if nested is None:
+                        return None
+                else:
+                    nested = type_match_specificity(ft, var_pos.param_func_type, types)
+                    if nested is None:
+                        return None
+                score += 2 + nested
+                continue
+            if var_pos.type_ref is not None:
+                actual = infer_type(av, types)
+                nested = type_match_specificity(actual, var_pos.type_ref, types)
+                if nested is None:
+                    return None
+                score += nested
+                continue
+            if var_pos.type_name in (None, "any"):
+                continue
+            actual = infer_type(av, types)
+            nested = type_match_specificity(actual, ast.PrimTypeRef(var_pos.type_name), types)
+            if nested is None:
+                return None
+            score += nested
     return score
 
 
@@ -723,22 +877,33 @@ def _pick_overload_for_symbol(
     types: dict[str, ast.TypeExpr | ast.FuncType],
 ) -> VFunction | None:
     variants = op_overloads.get(sym) or []
-    fns = [f for f in variants if len(f.params) == len(args)]
+    fns = [f for f in variants if _accepts_positional_arity(f.params, len(args))]
     return _pick_best_overload(fns, args, types)
 
 
 def _format_param_list_display(params: list[ast.Param]) -> str:
     parts: list[str] = []
     for p in params:
-        head = p.name
+        if p.variadic_named:
+            head = f":::{p.name}"
+        elif p.variadic_positional:
+            head = f"...{p.name}"
+        else:
+            head = p.name
         if p.param_func_type is not None:
-            head = f"{_format_nested_func_type_for_param(p.param_func_type)} {p.name}"
+            head = f"{_format_nested_func_type_for_param(p.param_func_type)} {head}"
         elif p.type_ref is not None:
-            head = f"{_format_type_ast_for_stringify(p.type_ref)} {p.name}"
+            if p.variadic_named or p.variadic_positional:
+                head = f"{head}:{_format_type_ast_for_stringify(p.type_ref)}"
+            else:
+                head = f"{_format_type_ast_for_stringify(p.type_ref)} {head}"
         elif p.type_name:
-            head = f"{p.type_name} {p.name}"
+            if p.variadic_named or p.variadic_positional:
+                head = f"{head}:{p.type_name}"
+            else:
+                head = f"{p.type_name} {head}"
         if p.default_expr is not None:
-            head = f"{head}:{_expr_to_compact_string(p.default_expr)}"
+            head = f"{head}={_expr_to_compact_string(p.default_expr)}"
         parts.append(head)
     return ", ".join(parts)
 
@@ -832,8 +997,7 @@ def _format_untagged_dict_as_record(
     v: dict[str, Any],
     types: dict[str, ast.TypeExpr | ast.FuncType] | None,
 ) -> str:
-    keys = [k for k in v if k != VF_TYPE_KEY]
-    keys.sort(key=lambda k: (str(type(k).__name__), str(k)))
+    keys = [k for k in v if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
     parts = [f"{_stringify(k, types)}:{_stringify(v[k], types)}" for k in keys]
     return f"({', '.join(parts)})"
 
@@ -860,6 +1024,7 @@ class VFunction:
     body: Any
     closure: dict[str, Any]
     func_type: ast.FuncType | None = None
+    docstring: str | None = None
     field_sources: dict[str, Any] = field(default_factory=dict)
     ip: Any = field(default=None, repr=False)
 
@@ -883,11 +1048,19 @@ class OpCallable:
 
 @dataclass
 class VStructCtor:
-    """Struct ``class``: ``Name(params):`` with no body — call ``Name(...)`` to build a tagged struct."""
+    """Struct ``class`` / wrapper ctor: call ``Name(...)`` to build tagged value."""
 
     name: str
     params: list[ast.Param]
     closure: dict[str, Any]
+    body: Any | None = None
+    docstring: str | None = None
+    ip: Any = field(default=None, repr=False)
+
+    def __call__(self, *args: Any) -> Any:
+        if self.ip is None:
+            raise TypeError("VStructCtor has no interpreter reference; cannot call from Python")
+        return self.ip._call_struct_ctor(self, list(args), self.ip.globals)
 
 
 class Interpreter:
@@ -928,6 +1101,8 @@ class Interpreter:
             return env[name]
         if name in self.builtin:
             return self.builtin[name]
+        if name in self.types:
+            return self.types[name]
         raise EvalError(f"undefined name: {name!r}")
 
     def _resolve_runtime_type_expr(self, type_expr: Any, env: dict[str, Any]) -> Any:
@@ -979,7 +1154,11 @@ class Interpreter:
 
     def _iter_named_spread_items(self, value: Any) -> list[tuple[str, Any]]:
         if is_struct_dict(value):
-            return [(k, value[k]) for k in value if k != VF_TYPE_KEY]
+            return [
+                (k, value[k])
+                for k in value
+                if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+            ]
         kind = runtime_collection_kind(value)
         if kind == "map":
             return [(str(k), v) for k, v in value.items()]
@@ -1040,19 +1219,22 @@ class Interpreter:
         env: dict[str, Any],
         *,
         callee_name: str,
+        base_env: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, int]]:
         pos, named = self._normalize_vkf_call_args(raw_args, env, callee_name=callee_name)
-        param_names = [p.name for p in params]
-        param_lookup = {p.name: p for p in params}
+        fixed = _fixed_params(params)
+        var_pos = _variadic_positional_param(params)
+        var_named = _variadic_named_param(params)
+        param_lookup = {p.name: p for p in fixed}
         for key in named:
-            if key not in param_lookup:
+            if key not in param_lookup and var_named is None:
                 raise EvalError(f"{callee_name}: unknown argument {key!r}")
-        if len(pos) > len(params):
+        if var_pos is None and len(pos) > len(fixed):
             raise EvalError(f"{callee_name}: too many positional arguments")
 
-        loc = dict(env)
+        loc = dict(base_env if base_env is not None else env)
         size_bindings: dict[str, int] = {}
-        for index, param in enumerate(params):
+        for index, param in enumerate(fixed):
             if param.name in named:
                 raw_value = named[param.name]
             elif index < len(pos):
@@ -1072,6 +1254,35 @@ class Interpreter:
             else:
                 coerced = self._coerce_param(raw_value, param)
             loc[param.name] = coerced
+        if var_pos is not None:
+            rest_values: list[Any] = []
+            for raw_value in pos[len(fixed) :]:
+                if var_pos.type_ref is not None:
+                    coerced, size_bindings = coerce_typed_value(
+                        raw_value,
+                        var_pos.type_ref,
+                        self.types,
+                        size_bindings,
+                    )
+                else:
+                    coerced = self._coerce_param(raw_value, var_pos)
+                rest_values.append(coerced)
+            loc[var_pos.name] = VFVector(rest_values)
+        extra_named = {k: v for k, v in named.items() if k not in param_lookup}
+        if var_named is not None:
+            kw_values: dict[str, Any] = {}
+            for key, raw_value in extra_named.items():
+                if var_named.type_ref is not None:
+                    coerced, size_bindings = coerce_typed_value(
+                        raw_value,
+                        var_named.type_ref,
+                        self.types,
+                        size_bindings,
+                    )
+                else:
+                    coerced = self._coerce_param(raw_value, var_named)
+                kw_values[key] = coerced
+            loc[var_named.name] = with_type(None, kw_values)
         return loc, size_bindings
 
     def _assign_bind(self, target: Any, val: Any, env: dict[str, Any]) -> None:
@@ -1208,6 +1419,11 @@ class Interpreter:
             val = self.eval_expr(node.value, env)
             self._print_value(val, env)
             return None
+        if isinstance(node, ast.StdioLabelPrint):
+            val = self.eval_expr(node.value, env)
+            s = self._stringify_for_display(val, env)
+            print(f"{node.expr_text}: {s}")
+            return None
         if isinstance(node, ast.SpillImport):
             mod = self._eval_dot_module(node.path)
             if not isinstance(mod, dict):
@@ -1221,13 +1437,21 @@ class Interpreter:
                 for k, v in _spill_exports(mod, short_name).items():
                     env[k] = v
             return None
+        if isinstance(node, ast.SpillValue):
+            value = self.eval_expr(node.value, env)
+            type_surface = runtime_type_surface_metadata(value)
+            fields = type_surface if type_surface is not None else _spill_public_fields(value)
+            for key, field_value in fields.items():
+                env[key] = field_value
+            env[VF_SPILL_BASE_KEY] = _struct_or_self_base(value)
+            return value
         if isinstance(node, ast.StdioReadLine):
             t = node.target
             if not isinstance(t, ast.Ident):
                 raise EvalError("stdin read requires a simple name")
             line = sys.stdin.readline()
             line = "" if line == "" else line.rstrip("\r\n")
-            env[t.name] = line
+            env[t.name] = self._coerce_stdio_binding_value(line, node.declared_type, env)
             return None
         if isinstance(node, ast.StdioPrompt):
             t = node.target
@@ -1236,7 +1460,18 @@ class Interpreter:
             print(f"{t.name}: ", end="", flush=True)
             line = sys.stdin.readline()
             line = "" if line == "" else line.rstrip("\r\n")
-            env[t.name] = line
+            env[t.name] = self._coerce_stdio_binding_value(line, node.declared_type, env)
+            return None
+        if isinstance(node, ast.EvalBind):
+            t = node.target
+            if not isinstance(t, ast.Ident):
+                raise EvalError("runtime source bind requires a simple name")
+            source_text = self._eval_runtime_source_text(node.source, env)
+            value = self._eval_runtime_source_value(source_text, env)
+            if node.declared_type is not None:
+                resolved_type = self._resolve_runtime_type_expr(node.declared_type, env)
+                value, _ = coerce_typed_value(value, resolved_type, self.types)
+            env[t.name] = value
             return None
         if isinstance(node, ast.FuncDefStdin):
             if node.interactive_prompt:
@@ -1255,9 +1490,20 @@ class Interpreter:
             closure[node.name] = vf
             env[node.name] = vf
             return None
+        if isinstance(node, ast.FuncDefSource):
+            source_text = self._eval_runtime_source_text(node.source, env)
+            body = self._parse_runtime_source_body(source_text)
+            closure = dict(env)
+            vf = VFunction(
+                node.name, node.params, body, closure, None, field_sources={}
+            )
+            vf.ip = self
+            closure[node.name] = vf
+            env[node.name] = vf
+            return None
         if isinstance(node, ast.FuncDef):
             body = node.body
-            if _is_struct_ctor_body(body):
+            if _is_struct_ctor_body(body, node.docstring):
                 if node.func_type is not None:
                     raise EvalError(
                         f"{node.name!r}: empty definition with `->` is invalid; "
@@ -1272,7 +1518,7 @@ class Interpreter:
                     [(p.name, p.type_name or "any") for p in node.params]
                 )
                 self.types[node.name] = type_expr
-                ctor = VStructCtor(node.name, node.params, dict(env))
+                ctor = VStructCtor(node.name, node.params, dict(env), body, node.docstring, ip=self)
                 if node.name == "display" and len(node.params) == 1:
                     raise EvalError(
                         "display overload must be a function with a body, not a struct constructor"
@@ -1286,6 +1532,7 @@ class Interpreter:
                 node.body,
                 closure,
                 node.func_type,
+                node.docstring,
                 field_sources=_collect_field_sources(node.body),
             )
             vf.ip = self
@@ -1322,6 +1569,10 @@ class Interpreter:
         """Return match specificity for ``??`` arm selection, or ``None`` when not matched."""
         if self._match_eq(a, b):
             return 1_000_000
+        if isinstance(a, dict) and struct_has_spill_base(a):
+            delegated = self._match_specificity(get_spill_base(a), b)
+            if delegated is not None:
+                return delegated + 5
         a_event_code = _event_object_code(a)
         if a_event_code is not None and isinstance(b, int):
             s = event_match_specificity(a_event_code, b)
@@ -1509,6 +1760,16 @@ class Interpreter:
             return None
         if isinstance(node, ast.MatchStmt):
             return self._eval_match_as_value(node, env)
+        if isinstance(node, ast.Bind):
+            if node.declared_type is not None:
+                value = self.eval_expr(node.value, env)
+                resolved_type = self._resolve_runtime_type_expr(node.declared_type, env)
+                coerced, _ = coerce_typed_value(value, resolved_type, self.types)
+                self._assign_bind(node.target, coerced, env)
+                return coerced
+            assigned = self.eval_expr(node.value, env)
+            self._assign_bind(node.target, assigned, env)
+            return assigned
         if isinstance(node, ast.NumberLit):
             return node.value
         if isinstance(node, ast.BoolLit):
@@ -1598,7 +1859,7 @@ class Interpreter:
             for e in node.elements:
                 if isinstance(e, ast.MsetSpill):
                     m = self.eval_expr(e.expr, env)
-                    out.extend(runtime_collection_spill_values(m))
+                    out.extend(_spill_values_for_vector(m))
                     continue
                 if isinstance(e, ast.VectorRepeat):
                     v = self.eval_expr(e.value, env)
@@ -1622,6 +1883,10 @@ class Interpreter:
             }
         if isinstance(node, ast.StructIdentity):
             return _local_scope_as_record(env)
+        if isinstance(node, ast.SpillExpr):
+            return _spill_expr_record(self.eval_expr(node.value, env))
+        if isinstance(node, ast.ScopeExpr):
+            return _eval_scope_block_as_record(self, node.body, env)
         if isinstance(node, ast.MultisetLit):
             pairs: list[tuple[Any, Any]] = []
             for ke, ce in node.pairs:
@@ -1629,6 +1894,8 @@ class Interpreter:
                 pairs.append((key, self.eval_expr(ce, env)))
             m = runtime_collection_multiset_from_count_pairs(pairs)
             return m
+        if isinstance(node, ast.MultisetFromValues):
+            return _spill_keys_for_multiset(self.eval_expr(node.expr, env))
         if isinstance(node, ast.RangeExpr):
             if node.end is None:
                 if node.start is None:
@@ -1691,6 +1958,14 @@ class Interpreter:
                 return self._call_struct_ctor(fn, node.args, env)
             if isinstance(fn, VFunction):
                 return self._call(fn, node.args, env)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and not callable(fn)
+                and not pos
+                and not kw
+                and not spreads
+            ):
+                return fn
             if kw or spreads:
                 if spreads:
                     raise EvalError("this call does not support spread arguments")
@@ -1700,6 +1975,11 @@ class Interpreter:
                     "this call does not accept keyword or spread arguments"
                 )
             return self._call(fn, pos, env)
+        if isinstance(node, ast.RaiseExpr):
+            value = self.eval_expr(node.value, env)
+            if isinstance(value, BaseException):
+                raise value
+            raise EvalError("`!` expects an error value")
         if isinstance(node, ast.Attribute):
             o = self.eval_expr(node.value, env)
             if node.name == "idx" and isinstance(o, AxisTaggedValue):
@@ -1724,12 +2004,21 @@ class Interpreter:
                 raise EvalError(
                     f"function has no body binding {node.name!r}"
                 )
+            type_attr = runtime_type_member_callable(o, node.name)
+            if type_attr is not None:
+                return type_attr
             collection_attr = runtime_collection_read_attr(o, node.name)
             if collection_attr is not None:
                 return collection_attr
             if isinstance(o, dict):
                 if node.name in o:
                     return o[node.name]
+                if struct_has_spill_base(o):
+                    base_attr = runtime_collection_read_attr(get_spill_base(o), node.name)
+                    if base_attr is not None:
+                        return base_attr
+                if node.name == "size":
+                    return sum(runtime_collection_read_attr(v, "size") if runtime_collection_read_attr(v, "size") is not None else 0 for v in o.values())
                 if is_struct_dict(o):
                     variants = self.op_overloads.get(".") or []
                     fn = _pick_best_overload([f for f in variants if len(f.params) == 2], [o, node.name], self.types)
@@ -1761,6 +2050,16 @@ class Interpreter:
             from .runtime.absnorm import abs_or_norm
 
             return abs_or_norm(self.eval_expr(node.inner, env))
+        if isinstance(node, ast.AssertExpr):
+            cond = self.eval_expr(node.condition, env)
+            if cond:
+                return cond
+            if node.message is not None:
+                msg = self._stringify_for_display(self.eval_expr(node.message, env), env)
+            else:
+                label = node.condition_text or _expr_to_compact_string(node.condition)
+                msg = f"assertion failed: {label}"
+            raise VfAssertionError(msg)
         if isinstance(node, ast.DotModulePath):
             return self._eval_dot_module(node)
         if isinstance(node, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
@@ -1807,17 +2106,21 @@ class Interpreter:
                     args,
                     env,
                     callee_name=fn.name or "$",
+                    base_env=fn.closure,
                 )
             else:
-                if len(args) != len(fn.params):
-                    required = sum(1 for p in fn.params if p.default_expr is None)
-                    if not (required <= len(args) <= len(fn.params)):
-                        raise EvalError(
-                            f"{fn.name or '$'}: expected between {required} and {len(fn.params)} argument(s), got {len(args)}"
-                        )
+                fixed = _fixed_params(fn.params)
+                var_pos = _variadic_positional_param(fn.params)
+                var_named = _variadic_named_param(fn.params)
+                if not _accepts_positional_arity(fn.params, len(args)):
+                    required = _required_fixed_param_count(fn.params)
+                    upper = "∞" if var_pos is not None else str(len(fixed))
+                    raise EvalError(
+                        f"{fn.name or '$'}: expected between {required} and {upper} positional argument(s), got {len(args)}"
+                    )
                 loc = dict(fn.closure)
                 size_bindings: dict[str, int] = {}
-                for index, p in enumerate(fn.params):
+                for index, p in enumerate(fixed):
                     if index < len(args):
                         a = args[index]
                     elif p.default_expr is not None:
@@ -1829,6 +2132,19 @@ class Interpreter:
                         loc[p.name] = coerced
                     else:
                         loc[p.name] = self._coerce_param(a, p)
+                if var_pos is not None:
+                    rest_values: list[Any] = []
+                    for raw_value in args[len(fixed) :]:
+                        if var_pos.type_ref is not None:
+                            coerced, size_bindings = coerce_typed_value(
+                                raw_value, var_pos.type_ref, self.types, size_bindings
+                            )
+                        else:
+                            coerced = self._coerce_param(raw_value, var_pos)
+                        rest_values.append(coerced)
+                    loc[var_pos.name] = VFVector(rest_values)
+                if var_named is not None:
+                    loc[var_named.name] = with_type(None, {})
             result = self._eval_function_body(fn.body, loc)
             if fn.func_type is not None:
                 resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
@@ -1854,13 +2170,17 @@ class Interpreter:
                 callee_name=fn.name,
             )
         else:
-            required = sum(1 for p in fn.params if p.default_expr is None)
-            if not (required <= len(raw_args) <= len(fn.params)):
+            fixed = _fixed_params(fn.params)
+            var_pos = _variadic_positional_param(fn.params)
+            var_named = _variadic_named_param(fn.params)
+            required = _required_fixed_param_count(fn.params)
+            if not _accepts_positional_arity(fn.params, len(raw_args)):
+                upper = "∞" if var_pos is not None else str(len(fixed))
                 raise EvalError(
-                    f"{fn.name}: expected between {required} and {len(fn.params)} argument(s), got {len(raw_args)}"
+                    f"{fn.name}: expected between {required} and {upper} positional argument(s), got {len(raw_args)}"
                 )
             loc = dict(fn.closure)
-            for index, p in enumerate(fn.params):
+            for index, p in enumerate(fixed):
                 if index < len(raw_args):
                     a = raw_args[index]
                 elif p.default_expr is not None:
@@ -1868,8 +2188,28 @@ class Interpreter:
                 else:
                     raise EvalError(f"{fn.name}: missing argument {p.name!r}")
                 loc[p.name] = self._coerce_param(a, p)
-        return with_type(
+            if var_pos is not None:
+                rest_values: list[Any] = [self._coerce_param(a, var_pos) for a in raw_args[len(fixed) :]]
+                loc[var_pos.name] = VFVector(rest_values)
+            if var_named is not None:
+                loc[var_named.name] = with_type(None, {})
+        if fn.body is None:
+            return with_type(
+                fn.name,
+                {p.name: loc[p.name] for p in fn.params},
+            )
+        result = self._eval_function_body(fn.body, loc)
+        if isinstance(result, dict):
+            if struct_has_spill_base(result):
+                return with_spill_base(
+                    fn.name,
+                    get_spill_base(result),
+                    public_struct_items(result),
+                )
+            return with_type(fn.name, public_struct_items(result))
+        return with_spill_base(
             fn.name,
+            result,
             {p.name: loc[p.name] for p in fn.params},
         )
 
@@ -1902,6 +2242,47 @@ class Interpreter:
         # No implicit newline: ``:: expr`` prints exactly ``s``; use ``::: expr`` (sugar for
         # ``:: (expr & "\\n")``) or embed ``\\n`` in the value for line-oriented output.
         print(s, end="", flush=True)
+
+    def _eval_runtime_source_text(self, source_expr: Any, env: dict[str, Any]) -> str:
+        source = self.eval_expr(source_expr, env)
+        if not isinstance(source, str):
+            raise EvalError("runtime :: source must evaluate to str")
+        return source
+
+    def _eval_runtime_source_value(self, source_text: str, env: dict[str, Any]) -> Any:
+        from .parser import parse_expression
+
+        expr = parse_expression(source_text, filename=str(self.file_path))
+        return self.eval_expr(expr, env)
+
+    def _parse_runtime_source_body(self, source_text: str) -> Any:
+        from .parser import parse_expression, parse_module
+
+        try:
+            return parse_expression(source_text, filename=str(self.file_path))
+        except ParseError:
+            module = parse_module(source_text, filename=str(self.file_path))
+            if len(module.statements) == 1:
+                stmt = module.statements[0]
+                if isinstance(stmt, ast.ExprStmt):
+                    return stmt.expr
+                return stmt
+            return ast.Block(module.statements)
+
+    def _coerce_stdio_binding_value(self, line: str, declared_type: Any | None, env: dict[str, Any]) -> Any:
+        if declared_type is None:
+            return line
+        resolved_type = self._resolve_runtime_type_expr(declared_type, env)
+        base_value: Any = line
+        if isinstance(resolved_type, ast.PrimTypeRef) and resolved_type.name in {"str", "bytes"}:
+            base_value = line if resolved_type.name == "str" else line.encode("utf-8")
+        else:
+            try:
+                base_value = self._eval_runtime_source_value(line, env)
+            except Exception:
+                base_value = line
+        coerced, _ = coerce_typed_value(base_value, resolved_type, self.types)
+        return coerced
 
     def _pick_unary_overload(self, variants: list[VFunction], val: Any) -> VFunction | None:
         best_fn: VFunction | None = None
@@ -1940,6 +2321,8 @@ class Interpreter:
             fn = _pick_best_overload(f1, [v], self.types)
             if fn is not None:
                 return self._call(fn, [v], env)
+            if struct_has_spill_base(v):
+                v = get_spill_base(v)
         if node.op == "MINUS":
             if isinstance(v, dict):
                 raise EvalError("struct negation requires -(a): … overload")
@@ -2189,6 +2572,13 @@ class Interpreter:
             fn = _pick_best_overload(f2, [a, b], self.types)
             if fn is not None:
                 return self._call(fn, [a, b], env)
+            if (
+                (isinstance(a, dict) and struct_has_spill_base(a))
+                or (isinstance(b, dict) and struct_has_spill_base(b))
+            ):
+                a = get_spill_base(a) if isinstance(a, dict) and struct_has_spill_base(a) else a
+                b = get_spill_base(b) if isinstance(b, dict) and struct_has_spill_base(b) else b
+                return _binop(node.op, a, b)
         if node.op in ("LT", "LE", "GT", "GE", "EQ", "STRUCT_NEQ"):
             if is_struct_dict(a) or is_struct_dict(b) or isinstance(a, Multiset) or isinstance(b, Multiset):
                 return _structural_compare(node.op, a, b)
@@ -2399,6 +2789,8 @@ def _dotted_get_one(base: Any, k: Any) -> Any:
     if isinstance(base, VFVector):
         return base[_normalize_index(k)]
     if isinstance(base, dict):
+        if struct_has_spill_base(base) and k not in base:
+            return _dotted_get_one(get_spill_base(base), k)
         if k not in base:
             raise EvalError(f"missing key {k!r}")
         return base[k]
@@ -2447,18 +2839,22 @@ def _format_tagged_struct_record(
     """Print tagged values as ``Point(x:1, y:2)`` (constructor-style; field order from the type when known)."""
     tname = get_type_name(v)
     if not tname:
-        keys = [k for k in v if k != VF_TYPE_KEY]
+        keys = [k for k in v if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
         parts = [f"{k}:{_stringify(v[k], types)}" for k in keys]
         return f"({', '.join(parts)})"
     keys: list[str]
     if types is not None and tname in types:
         spec = types[tname]
         if isinstance(spec, ast.TypeExpr):
-            keys = [f[0] for f in spec.fields if f[0] in v and f[0] != VF_TYPE_KEY]
+            keys = [
+                f[0]
+                for f in spec.fields
+                if f[0] in v and f[0] not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+            ]
         else:
-            keys = [k for k in v if k != VF_TYPE_KEY]
+            keys = [k for k in v if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
     else:
-        keys = [k for k in v if k != VF_TYPE_KEY]
+        keys = [k for k in v if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)]
     parts: list[str] = []
     for k in keys:
         parts.append(f"{k}:{_stringify(v[k], types)}")
@@ -2577,11 +2973,11 @@ def _struct_merge_concat(a: dict, b: dict) -> dict:
     ta, tb = get_type_name(a), get_type_name(b)
     out: dict[str, Any] = {}
     for k, v in a.items():
-        if k == VF_TYPE_KEY:
+        if k in (VF_TYPE_KEY, VF_SPILL_BASE_KEY):
             continue
         out[k] = v
     for k, v in b.items():
-        if k == VF_TYPE_KEY:
+        if k in (VF_TYPE_KEY, VF_SPILL_BASE_KEY):
             continue
         out[k] = v
     if ta and ta == tb:
@@ -3213,8 +3609,8 @@ def _default_struct_elementwise_binop(
         return None
     if ta is not None and tb is not None and ta != tb:
         return None
-    keys_a = {k for k in a if k != VF_TYPE_KEY}
-    keys_b = {k for k in b if k != VF_TYPE_KEY}
+    keys_a = {k for k in a if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)}
+    keys_b = {k for k in b if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)}
     if keys_a != keys_b:
         return None
     if not keys_a:
