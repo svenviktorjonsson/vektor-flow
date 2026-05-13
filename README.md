@@ -54,6 +54,21 @@ Run a file:
 vkf examples/hello.vkf
 ```
 
+Run a short snippet:
+
+```powershell
+vkf -e ':: "hello, world"'
+vkf -e '..5 >> :: $^2'
+```
+
+Use single quotes around inline snippets in PowerShell when the snippet contains
+`$`. Double quotes let PowerShell expand `$...` before `vkf` receives the code.
+
+```powershell
+vkf -e "..5 >> :: $^2"   # Wrong in PowerShell: `$^2` is expanded by the shell.
+vkf -e '..5 >> :: $^2'   # Right: VKF receives `$^2`.
+```
+
 Useful commands:
 
 ```bash
@@ -378,6 +393,23 @@ current element.
 ```vkf
 squares: [1..5] >> $ * $
 :: squares
+```
+
+Command-line demo:
+
+```powershell
+vkf -e '..5 >> :: $^2'
+```
+
+Output:
+
+```text
+0
+1
+4
+9
+16
+25
 ```
 
 Pipes preserve the container kind where possible.
