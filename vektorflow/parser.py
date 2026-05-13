@@ -122,6 +122,24 @@ _ATOM_CALL_OP_KINDS = frozenset(OPERATOR_FUNC_KINDS - {NOT})
 _PRIMITIVE_TYPE_IDENTS = frozenset({"int", "num", "str", "byte", "bytes", "bool", "any"})
 
 
+def _describe_expression_token(kind: str) -> str:
+    """Return a user-facing description for a token found where an expression should start."""
+    descriptions = {
+        INDENT: "unexpected indentation; remove leading spaces or put the statement inside a block",
+        DEDENT: "unexpected dedent; check the indentation of the surrounding block",
+        NEWLINE: "unexpected newline; expected an expression",
+        EOF: "unexpected end of input; expected an expression",
+        EMIT: "unexpected print operator `::`; use it as a statement, not as a value",
+        COLON: "unexpected `:`; use `:` alone as a statement to return the current local scope",
+        RPAREN: "unexpected `)`",
+        RBRACKET: "unexpected `]`",
+        RBRACE: "unexpected `}`",
+    }
+    if kind in descriptions:
+        return descriptions[kind]
+    return "unexpected syntax where an expression should start"
+
+
 class Parser:
     def __init__(self, tokens: list[Token]) -> None:
         self.toks = tokens
@@ -1696,7 +1714,7 @@ class Parser:
                 node.axis_tag = axis
             return node
 
-        raise ParseError(f"unexpected token in expression: {k}", self._loc_here())
+        raise ParseError(_describe_expression_token(k), self._loc_here())
 
     def _parse_vector_element(self) -> Any:
         """One vector slot: ``:expr`` multiset spill, ``expr`` or ``expr : count`` repeat."""

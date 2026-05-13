@@ -269,6 +269,23 @@ def cmd_parse_tokens(payload: str) -> int:
     return 0
 
 
+def _source_diagnostic(source: str, exc: VektorFlowError) -> str:
+    """Format an inline-source error with the offending line and a caret."""
+    location = exc.location
+    if location is None:
+        return f"error: {exc}"
+    lines = source.splitlines() or [source]
+    if 1 <= location.line <= len(lines):
+        line = lines[location.line - 1]
+    else:
+        line = ""
+    caret_col = max(1, location.column)
+    if exc.message.startswith("unexpected indentation") and line[: max(0, caret_col - 1)].strip() == "":
+        caret_col = 1
+    caret = " " * (caret_col - 1) + "^"
+    return f"error: {location}: {exc.message}\n{line}\n{caret}"
+
+
 def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
     try:
         from .interpreter import Interpreter
@@ -277,7 +294,7 @@ def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
         module = parse_module(source, filename=filename)
         Interpreter(Path(filename)).run_module(module)
     except (LexError, ParseError, EvalError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(_source_diagnostic(source, exc), file=sys.stderr)
         return 1
     return 0
 
