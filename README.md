@@ -219,8 +219,9 @@ Tuples are positional values.
 
 ```vkf
 point: (3, 4)
-:: point.(0)     # 3
-:: point.(1)     # 4
+:: point.0       # 3
+:: point.1       # 4
+:: point.(0)     # 3, same as point.0
 ```
 
 Use tuples for fixed positional bundles.
