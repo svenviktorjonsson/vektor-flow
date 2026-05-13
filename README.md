@@ -1,408 +1,600 @@
 # Vektor Flow
 
-A mathematical visualization and computational language.
+Vektor Flow is a small computational language for shaping data, defining
+geometry, and driving interactive visual programs. It is built around a few
+ideas that repeat everywhere:
 
-Use `vkf` to run `.vkf` programs.
+- `:` binds names and builds scopes.
+- Blocks return their last row.
+- `[]` are vectors, `()` are tuples or structs, `{}` are multisets.
+- `>>` pipes values through `$`.
+- `::` prints.
+- UI geometry is authored in `.vkf` and rendered by the native/WebGPU runtime.
 
-File extension: `.vkf`
+File extension: `.vkf`.
 
-## Try Out Vektor Flow
+## First Look
 
-Vektor Flow is a compact, keyword-light language for math, data, geometry, UI,
-and computational experiments.
+```vkf
+name: "Ada"
+score: 41
 
-The feel is roughly:
+message:
+    next: score + 1
+    "Hello $name, next score is $next"
 
-- more compact than Python
-- more expression-oriented than C++
-- designed so values, shapes, and structure are easy to reach into directly
-
-## Do This To Get Started
-
-Choose the package for your OS, extract it, run `vkf`, then optionally install
-the VS Code extension.
-
-### Platform support
-
-| Platform | UI modes today | Recommended path |
-| --- | --- | --- |
-| Windows | `overlay`, `browser`, `headless` | Full beta |
-| macOS | `browser`, `headless` | Portable beta |
-| Linux | `browser`, `headless` | Portable beta |
-
-Windows is the only platform with the native transparent overlay host today.
-
-## Hello World
-
-### Windows
-
-1. Download and extract the Windows package.
-2. In PowerShell inside the extracted folder, run:
-
-```powershell
-.\vkf.exe -e ':: "hello, world"'
-.\vkf.exe .\samples\hello.vkf
-.\vkf.exe .\samples\core_language_tour.vkf
+:: message
 ```
 
-Expected first output:
+This prints:
 
 ```text
-hello, world
+Hello Ada, next score is 42
 ```
 
-### macOS / Linux
+Read this as:
 
-1. Download and extract the package for your OS.
-2. In a shell inside the extracted folder, run:
+- `name: "Ada"` binds a value.
+- `message:` opens a scope.
+- The scope returns its last row.
+- `$name` and `$next` interpolate values into a string.
+- `:: message` prints the value.
 
-```bash
-./vkf -e ':: "hello, world"'
-./vkf ./samples/hello.vkf
-./vkf ./samples/core_language_tour.vkf
-```
+## Install And Run
 
-Expected first output:
-
-```text
-hello, world
-```
-
-### Runtime Backend
-
-By default, `vkf` runs files through the native backend when they match the native
-subset contract, and falls back to the Python interpreter otherwise.
-
-Set `VKF_RUNTIME_BACKEND` to force:
-
-- `auto` (default): native-first with interpreter fallback
-- `native`: native-only (fail fast if native execution fails)
-- `python`: force interpreter
-
-```bash
-VKF_RUNTIME_BACKEND=auto vkf examples/native_core/hello_native.vkf
-VKF_RUNTIME_BACKEND=native vkf examples/native_core/hello_native.vkf
-VKF_RUNTIME_BACKEND=python vkf examples/folder_repo/main.vkf
-```
-
-Native runs are cached by default under:
-
-- `%TEMP%\vektorflow-native-runs-cache\run` (Windows)
-- `$TMPDIR/vektorflow-native-runs-cache/run` (POSIX)
-
-If you want to place cache artifacts elsewhere, set `VKF_NATIVE_CACHE_DIR`:
-
-```bash
-VKF_NATIVE_CACHE_DIR=./.vf-native-cache vkf examples/native_core/hello_native.vkf
-```
-
-## Core Ideas
-
-### Compact, keyword-free style
-
-Vektor Flow tries to stay small and dense.
-
-- expressions do more of the work
-- punctuation carries more structure
-- many operations are direct instead of wrapped in long keyword forms
-
-Example:
-
-```vkf
-a: 7
-b: 5
-:: "a + b = $(a + b)"
-:: "a * b = $(a * b)"
-```
-
-### Reaching in
-
-It should feel easy to reach into values:
-
-```vkf
-pair.0
-person.name
-grid.2.4
-```
-
-You can work directly with fields, tuple positions, vector entries, and nested
-structure without a lot of ceremony.
-
-Example:
-
-```vkf
-person: ()
-person.name: "Ada"
-person.score: 42
-person.tags: ["math", "logic", "code"]
-
-:: person.name
-:: person.tags.0
-```
-
-### Spilling
-
-Vektor Flow supports “spilling” ideas where structured values can be expanded
-or unpacked naturally into the surrounding expression flow instead of always
-needing verbose temporary setup.
-
-That is part of why the language can stay compact while still working well for
-mathy and structured data code.
-
-Example:
-
-```vkf
-pair: ("left", "right")
-:: pair.0
-:: pair.1
-```
-
-### Shapes and structure matter
-
-The language does not treat vectors, tuples, records, multisets, and typed
-shapes as afterthoughts.
-
-Examples:
-
-```vkf
-[num:n]
-(x:num, y:num)
-{1:1, 2:3}
-value.
-```
-
-The goal is to make structure visible and usable, not hidden behind a lot of
-library glue.
-
-Example:
-
-```vkf
-join_scale(x:[num:n], y:[num:m], s:num) -> [num:n+m]:
-  (x & y) * s
-
-a2: [1,2]
-b3: [3,4,5]
-joined: join_scale(a2, b3, 2)
-:: joined
-:: joined.
-```
-
-### A blend of C++ and Python, but not a copy of either
-
-The project borrows useful instincts from both:
-
-- from Python:
-  - interactive workflow
-  - readable data access
-  - quick iteration
-- from C++:
-  - explicit shapes and lowerable/native execution paths
-  - tighter control over runtime/package output
-
-But the surface language is its own thing: more symbolic, more structural, and
-more compact than either.
-
-## VS Code
-
-To get Vektor Flow syntax highlighting, commands, and diagnostics in VS Code:
-
-1. Install the bundled `.vsix` from the package, or install the extension from
-   `vscode/`.
-2. Point the extension at your packaged `vkf`.
-
-### Windows setting
-
-```json
-{
-  "vektorflow.compilerPath": "C:\\path\\to\\vkf.exe"
-}
-```
-
-### macOS / Linux setting
-
-```json
-{
-  "vektorflow.compilerPath": "/path/to/vkf"
-}
-```
-
-3. Open `samples/hello.vkf`.
-4. Run `Run Vektor Flow File`.
-
-You should now get:
-
-- `.vkf` syntax highlighting
-- run / parse / build commands
-- compiler-backed diagnostics
-
-Example file to open once the extension is installed:
-
-```vkf
-math: .math
-
-hyp2(x:num, y:num) -> num:
-  x^2 + y^2
-
-point: (x:3, y:4)
-
-:: "hyp2 = $(hyp2(point.x, point.y))"
-:: point.
-:: math.sqrt(81)
-```
-
-Extension guide:
-
-- [vscode/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\vscode\README.md)
-
-## Need More Detail?
-
-- install guide:
-  - [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
-- tester guide:
-  - [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
-- release layout:
-  - [RELEASES.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\RELEASES.md)
-- macOS/Linux maintainer bring-up:
-  - [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)
-
-## Try These First
-
-```bash
-vkf examples/hello.vkf
-vkf examples/branching.vkf
-vkf examples/core_language_tour.vkf
-```
-
-For current packaged-native work:
-
-```bash
-vkf package examples/benchmarks/scalar_control.vkf -o dist/scalar-control
-vkf package-native-core examples/native_core/hello_native.vkf -o dist/hello-native
-```
-
-## Packaging And Native Compiler Progress
-
-The current standalone and packaging work is tracked in:
-
-- [NATIVE_CORE.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\NATIVE_CORE.md)
-- [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
-- [RELEASES.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\RELEASES.md)
-- [examples/native_core/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\examples\native_core\README.md)
-
-Important current distinction:
-
-- `vkf build` produces a native executable for the supported subset
-- `vkf package` and `vkf package-native-core` produce a native package directory
-- Python is still used to produce those packages today
-- the produced packaged executables do not require Python at runtime
-
-Current package shape includes:
-
-- built native executable
-- emitted C++ source
-- `vektorflow-package.json`
-- `README.txt`
-- `run.bat`
-- `run.sh`
-- `smoke-test.bat`
-- `smoke-test.sh`
-
-The package manifest now carries the runnable contract, launcher information, install hints, and codegen/build lineage so callers do not have to guess how to execute the package.
-
-## UI Host Status
-
-Current UI host modes:
-
-- `overlay`
-- `browser`
-- `headless`
-
-Current platform truth:
-
-- `overlay` is Windows-only today
-- `browser` is the portable bridge for macOS and Linux
-- `headless` is the no-host mode
-
-So the cross-platform release strategy is:
-
-- Windows ships the native overlay host
-- macOS and Linux ship the same language/runtime with browser-mode UI
-- future native overlay hosts for macOS and Linux can plug into the same display/event contract
-
-## Standard Library Notes
-
-Most stdlib areas are not blocked on Windows-only native code.
-
-Important examples:
-
-- `math`, `collections`, `errors`, `stat`: general runtime/library work
-- `io`: mostly portable by design, with host seams for file and time behavior
-- `ui`: the main host/platform-specific stdlib area
-
-That means the major cross-platform native-host effort is the UI host, not the rest of the stdlib surface.
-
-## Community Feedback
-
-The best feedback right now is:
-
-- install friction on each platform
-- `vkf` command behavior on packaged builds
-- VS Code extension setup friction
-- browser-mode UI issues on macOS/Linux
-- overlay issues on Windows
-- compiler/runtime bugs from real `.vkf` programs
-
-When reporting a bug, include:
-
-- platform
-- whether you used a packaged build or a source build
-- the `.vkf` file or minimal snippet
-- package manifest if the bug is package/runtime related
-
-For a fuller tester checklist, use:
-
-- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
-
-## Contributor Path
-
-If you want to build from source today:
-
-### Windows
-
-```powershell
-.\build.ps1
-```
-
-That script:
-
-- installs the Python package
-- builds the Windows overlay host
-- runs tests
-
-### macOS / Linux
+Install from this repository:
 
 ```bash
 pip install -e .[dev]
-python -m vektorflow --version
 ```
 
-If you are building tester bundles from source:
-
-- Windows:
-  - `.\scripts\build-release-bundle.ps1`
-- macOS / Linux:
-  - `./scripts/build-release-bundle.sh`
-
-Verify before sharing:
-
-- `python scripts/verify_release_bundle.py dist/releases/<channel>`
-
-### Useful developer commands
+Run a file:
 
 ```bash
-vkf bench --list
-vkf bench
-vkf tokens examples/hello.vkf --json
-vkf package examples/benchmarks/scalar_control.vkf -o dist/scalar-control
-vkf package-native-core examples/native_core/hello_native.vkf -o dist/hello-native
+vkf examples/hello.vkf
 ```
+
+Useful commands:
+
+```bash
+vkf examples/language_features.vkf
+vkf tokens examples/language_features.vkf --json
+vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
+```
+
+On Windows, interactive UI examples use the native overlay executable. Build it
+when needed:
+
+```powershell
+.\scripts\build-vf-overlay.ps1
+```
+
+## The Core Mental Model
+
+### Bind With `:`
+
+`:` means "put the value on the right into the name on the left".
+
+```vkf
+x: 3
+y: 4
+:: x + y
+```
+
+`=` is equality, not assignment:
+
+```vkf
+:: (x = 3)     # true
+:: (x = y)     # false
+```
+
+### Blocks Return Their Last Row
+
+Any indented block evaluates to its last row.
+
+```vkf
+total:
+    a: 10
+    b: 20
+    a + b
+
+:: total       # 30
+```
+
+Use `@:` for an early return with a value.
+
+```vkf
+classify(n):
+    n < 0? @: "negative"
+    n = 0? @: "zero"
+    @: "positive"
+
+:: classify(-2)
+```
+
+Think of `@` as the return channel:
+
+- `@` returns `null`.
+- `@: value` returns `value`.
+- `@:` with no value returns the current local scope.
+
+That last form follows the same rule as a lone `:`: when the right side is
+missing, `:` means "the current local scope as a value".
+
+```vkf
+make_point(x, y):
+    x: x
+    y: y
+    @:
+```
+
+If you want a block to act as a namespace/struct without returning early, make
+the final row a lone `:`.
+
+```vkf
+geometry:
+    points: [[0, 0], [1, 0], [1, 1]]
+    color: [1, 0, 0, 1]
+    :
+
+:: geometry.points
+```
+
+### Print With `::`
+
+```vkf
+:: "hello"
+:: (2 + 3)
+```
+
+`::` is a print effect. It returns `null`, so a function whose last row is a
+print also returns `null`.
+
+```vkf
+print_square(x):
+    :: x * x
+
+print_square(5)
+```
+
+Return a value with `@:` or by making the value the last row.
+
+```vkf
+square(x):
+    @: x * x
+```
+
+### Comments Use `#`
+
+```vkf
+# This is a comment.
+answer: 42
+```
+
+## Values
+
+### Numbers, Strings, Booleans, Null
+
+```vkf
+n: 42
+pi: 3.1415
+name: "Ada"
+ready: true
+missing: null
+```
+
+Double-quoted strings support interpolation:
+
+```vkf
+x: 4.2345
+:: "x rounded is $x.2f"    # x rounded is 4.23
+```
+
+Use `$(...)` when the expression is more than a simple name or field access.
+
+```vkf
+a: 2
+b: 3
+:: "sum=$(a + b)"
+```
+
+### Tuples
+
+Tuples are positional values.
+
+```vkf
+point: (3, 4)
+:: point.(0)     # 3
+:: point.(1)     # 4
+```
+
+Use tuples for fixed positional bundles.
+
+### Structs
+
+Structs are named records.
+
+```vkf
+point: (x: 3, y: 4)
+:: point.x
+:: point.y
+```
+
+Struct updates create a new value for that binding.
+
+```vkf
+point.z: 5
+:: point
+```
+
+### Vectors
+
+Vectors use square brackets.
+
+```vkf
+values: [1, 2, 3, 4]
+:: values.(2)      # 3
+```
+
+Finite ranges can build vectors:
+
+```vkf
+numbers: [1..5]
+:: numbers         # [1, 2, 3, 4, 5]
+```
+
+`..n` starts at zero:
+
+```vkf
+zero_to_three: [..3]
+```
+
+### Multisets
+
+Multisets use `{value: count}` and store multiplicities.
+
+```vkf
+a: {1: 2, 2: 1}
+b: {1: 1, 3: 1}
+
+:: (a + b)         # union by counts
+:: (a * b)         # intersection by min counts
+```
+
+Multiset keys are sorted by the language ordering for the key type.
+
+## Functions
+
+A function is a named block with parameters.
+
+```vkf
+square(x):
+    @: x * x
+
+:: square(7)
+```
+
+Because blocks return their last row, short functions can omit `@:`.
+
+```vkf
+distance2(x, y):
+    x*x + y*y
+
+:: distance2(3, 4)
+```
+
+### Function Docstrings
+
+A function can start with a string row. The VS Code extension uses that string
+with the function signature for hover information.
+
+```vkf
+area(width:num, height:num):
+    """Return rectangle area."""
+    width * height
+```
+
+Multiline docstrings use the same style:
+
+```vkf
+normalize(v):
+    """
+    Return v scaled to unit length.
+    Expects a non-zero vector.
+    """
+    v / |v|
+```
+
+### Type Annotations
+
+Type annotations sit beside parameters.
+
+```vkf
+add(a:num, b:num):
+    a + b
+```
+
+Type-shaped structs define reusable interfaces.
+
+```vkf
+Point: (x:num, y:num)
+
+length2(p:Point):
+    p.x*p.x + p.y*p.y
+```
+
+## Control Flow
+
+### If With `?`
+
+```vkf
+label(n):
+    n < 0? @: "negative"
+    n = 0? @: "zero"
+    @: "positive"
+```
+
+Indented conditional bodies are allowed:
+
+```vkf
+x > 10?
+    :: "large"
+    :: "small"
+```
+
+### Switch With `??` And `=>`
+
+Use switch form when dispatching on a value.
+
+```vkf
+kind: "edge"
+color: "gray"
+
+kind??
+    "face" => color: "red"
+    "edge" => color: "green"
+    "vertex" => color: "blue"
+
+:: color
+```
+
+UI event loops use the same idea:
+
+```vkf
+(e: events.get())??>
+    null =>
+        ui.sleep(0.005)
+    ui.MouseMove =>
+        handle_move(e)
+    ui.MouseDown =>
+        handle_down(e)
+```
+
+## Pipes And `$`
+
+`>>` evaluates the right side once for each element on the left. `$` is the
+current element.
+
+```vkf
+squares: [1..5] >> $ * $
+:: squares
+```
+
+Pipes preserve the container kind where possible.
+
+```vkf
+tuple_squares: (1..5) >> $ * $
+vector_squares: [1..5] >> $ * $
+```
+
+Use functions inside pipes:
+
+```vkf
+square(x): x*x
+
+:: [1..5] >> square($)
+```
+
+`..3 >> expr` is a compact loop from `0` through `3`.
+
+```vkf
+:: ..3 >> "index=$"
+```
+
+## Operators
+
+Arithmetic:
+
+```vkf
+1 + 2
+5 - 3
+4 * 7
+8 / 2
+2 ^ 8
+```
+
+Logic:
+
+```vkf
+true /\ false     # and
+true \/ false     # or
+true >< false     # xor
+~true             # not
+```
+
+Concatenation uses `&`.
+
+```vkf
+:: "hello " & "world"
+:: [1, 2] & [3, 4]
+:: (a: 1) & (b: 2)
+```
+
+Absolute value and vector norm use bars:
+
+```vkf
+:: |-3|
+:: |[3, 4]|
+```
+
+### Operator Overloads
+
+Operators can be defined for your own types.
+
+```vkf
+Point: (x:num, y:num)
+
++(a:Point, b:Point):
+    (x: a.x + b.x, y: a.y + b.y)
+
+p: (x: 1, y: 2)
+q: (x: 3, y: 4)
+:: (p + q)
+```
+
+Custom display works through `display`.
+
+```vkf
+display(value: Point):
+    "Point($value.x, $value.y)"
+
+:: p
+```
+
+## Modules And Scope
+
+Import a module into a namespace:
+
+```vkf
+math: .math
+:: math.sqrt(9)
+```
+
+Pour a module into the current scope with `:.module`.
+
+```vkf
+:.math
+:: sqrt(9)
+```
+
+The same pour idea works for structs.
+
+```vkf
+point: (x: 3, y: 4)
+:point
+:: x + y
+```
+
+Files and folders are modules too. If `lib/helpers.vkf` exists:
+
+```vkf
+helpers: .lib.helpers
+:: helpers.some_function()
+```
+
+Public names are exported. Names beginning with `_` are private by convention.
+
+## UI Overview
+
+UI programs use the `ui` stdlib module and native overlay mode.
+
+```vkf
+ui:.ui
+ui.set_mode("overlay")
+
+frame: ui.Frame()
+screen: ui.display
+
+screen.add_frame(frame, (0.1, 0.1, 0.6, 0.6))
+screen.render()
+```
+
+Geometry is described with representations and views. The runtime owns drawing
+and picking through WebGPU.
+
+```vkf
+reps:
+    vertex_rep(v, view):
+        vertices: [view.point]
+        vertex_color: view.color
+        vertex_scale: 0.02
+        :
+    :
+
+frame.add((i: 0,), reps.vertex_rep, (point: [0.5, 0.5], color: [0, 0.4, 1, 1]))
+```
+
+For a full working example, read:
+
+```text
+examples/ui_face_edge_vertex_drag.vkf
+```
+
+That example shows the recommended structure:
+
+- `styles:` for colors and sizes.
+- `reps:` for geometry representation functions.
+- `geometry:` for points and topology.
+- `selection:` for interaction state.
+- `views:` for derived render state.
+- `targets:` for hit-testing.
+- `motion:` for state updates.
+
+## Native Runtime Direction
+
+The current project has two execution tracks:
+
+- The Python interpreter remains the broad language reference.
+- The native pipeline is growing toward Python-free runtime execution.
+
+Native UI bundles package the overlay runtime, scene program, runtime packets,
+and shared geometry ledger data.
+
+```bash
+vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
+```
+
+The produced runtime should execute without Python after the `.vkf` program has
+been parsed and packaged.
+
+## VS Code
+
+The `vscode/` folder contains the Vektor Flow extension.
+
+Features:
+
+- Syntax highlighting for `.vkf`.
+- Run command for the current file.
+- Function hover with signature and docstring.
+
+Install it from VS Code with:
+
+```text
+Developer: Install Extension from Location...
+```
+
+Select the `vscode` folder in this repository.
+
+## Useful Examples
+
+```text
+examples/hello.vkf
+examples/language_features.vkf
+examples/native_scene_probe.vkf
+examples/ui_event_probe.vkf
+examples/ui_face_edge_vertex_drag.vkf
+```
+
+Start with `examples/language_features.vkf` if you want a non-UI tour with lots
+of printed output. Start with `examples/ui_face_edge_vertex_drag.vkf` if you
+want the current interactive geometry model.
+
+## Status
+
+The language and runtime are still moving quickly. The most stable way to learn
+the current surface is:
+
+1. Read this README top to bottom.
+2. Run `examples/language_features.vkf`.
+3. Inspect `examples/ui_face_edge_vertex_drag.vkf`.
+4. Use tests as executable documentation when behavior is unclear.
