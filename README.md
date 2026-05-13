@@ -23,7 +23,7 @@ message:
     next: score + 1
     "Hello $name, next score is $next"
 
-message ::
+:: message
 ```
 
 This prints:
@@ -38,7 +38,7 @@ Read this as:
 - `message:` opens a scope.
 - The scope returns its last row.
 - `$name` and `$next` interpolate values into a string.
-- `message ::` prints the value.
+- `:: message` prints the value.
 
 ## Install And Run
 
@@ -78,14 +78,14 @@ when needed:
 ```vkf
 x: 3
 y: 4
-x + y ::
+:: x + y
 ```
 
 `=` is equality, not assignment:
 
 ```vkf
-(x = 3) ::     # true
-(x = y) ::     # false
+:: (x = 3)     # true
+:: (x = y)     # false
 ```
 
 ### Blocks Return Their Last Row
@@ -98,7 +98,7 @@ total:
     b: 20
     a + b
 
-total ::       # 30
+:: total       # 30
 ```
 
 Use `@:` for an early return.
@@ -109,7 +109,7 @@ classify(n):
     n = 0? @: "zero"
     @: "positive"
 
-classify(-2) ::
+:: classify(-2)
 ```
 
 If you want a block to act as a namespace/struct, return the local scope with a
@@ -121,14 +121,14 @@ geometry:
     color: [1, 0, 0, 1]
     :
 
-geometry.points ::
+:: geometry.points
 ```
 
 ### Print With `::`
 
 ```vkf
-"hello" ::
-(2 + 3) ::
+:: "hello"
+:: (2 + 3)
 ```
 
 `@::` returns and prints from inside a function.
@@ -163,7 +163,7 @@ Double-quoted strings support interpolation:
 
 ```vkf
 x: 4.2345
-"x rounded is $x.2f" ::    # x rounded is 4.23
+:: "x rounded is $x.2f"    # x rounded is 4.23
 ```
 
 Use `$(...)` when the expression is more than a simple name or field access.
@@ -171,7 +171,7 @@ Use `$(...)` when the expression is more than a simple name or field access.
 ```vkf
 a: 2
 b: 3
-"sum=$(a + b)" ::
+:: "sum=$(a + b)"
 ```
 
 ### Tuples
@@ -180,8 +180,8 @@ Tuples are positional values.
 
 ```vkf
 point: (3, 4)
-point.(0) ::     # 3
-point.(1) ::     # 4
+:: point.(0)     # 3
+:: point.(1)     # 4
 ```
 
 Use tuples for fixed positional bundles.
@@ -192,15 +192,15 @@ Structs are named records.
 
 ```vkf
 point: (x: 3, y: 4)
-point.x ::
-point.y ::
+:: point.x
+:: point.y
 ```
 
 Struct updates create a new value for that binding.
 
 ```vkf
 point.z: 5
-point ::
+:: point
 ```
 
 ### Vectors
@@ -209,14 +209,14 @@ Vectors use square brackets.
 
 ```vkf
 values: [1, 2, 3, 4]
-values.(2) ::      # 3
+:: values.(2)      # 3
 ```
 
 Finite ranges can build vectors:
 
 ```vkf
 numbers: [1..5]
-numbers ::         # [1, 2, 3, 4, 5]
+:: numbers         # [1, 2, 3, 4, 5]
 ```
 
 `..n` starts at zero:
@@ -233,8 +233,8 @@ Multisets use `{value: count}` and store multiplicities.
 a: {1: 2, 2: 1}
 b: {1: 1, 3: 1}
 
-(a + b) ::         # union by counts
-(a * b) ::         # intersection by min counts
+:: (a + b)         # union by counts
+:: (a * b)         # intersection by min counts
 ```
 
 Multiset keys are sorted by the language ordering for the key type.
@@ -247,7 +247,7 @@ A function is a named block with parameters.
 square(x):
     @: x * x
 
-square(7) ::
+:: square(7)
 ```
 
 Because blocks return their last row, short functions can omit `@:`.
@@ -256,7 +256,7 @@ Because blocks return their last row, short functions can omit `@:`.
 distance2(x, y):
     x*x + y*y
 
-distance2(3, 4) ::
+:: distance2(3, 4)
 ```
 
 ### Function Docstrings
@@ -314,8 +314,8 @@ Indented conditional bodies are allowed:
 
 ```vkf
 x > 10?
-    "large" ::
-    "small" ::
+    :: "large"
+    :: "small"
 ```
 
 ### Switch With `??` And `=>`
@@ -324,13 +324,14 @@ Use switch form when dispatching on a value.
 
 ```vkf
 kind: "edge"
+color: "gray"
 
 kind??
-    "face" => "red"
-    "edge" => "green"
-    "vertex" => "blue"
-    _ => "gray"
-::
+    "face" => color: "red"
+    "edge" => color: "green"
+    "vertex" => color: "blue"
+
+:: color
 ```
 
 UI event loops use the same idea:
@@ -352,7 +353,7 @@ current element.
 
 ```vkf
 squares: [1..5] >> $ * $
-squares ::
+:: squares
 ```
 
 Pipes preserve the container kind where possible.
@@ -367,13 +368,13 @@ Use functions inside pipes:
 ```vkf
 square(x): x*x
 
-[1..5] >> square($) ::
+:: [1..5] >> square($)
 ```
 
 `..3 >> expr` is a compact loop from `0` through `3`.
 
 ```vkf
-..3 >> "index=$" ::
+:: ..3 >> "index=$"
 ```
 
 ## Operators
@@ -400,16 +401,16 @@ true >< false     # xor
 Concatenation uses `&`.
 
 ```vkf
-"hello " & "world" ::
-[1, 2] & [3, 4] ::
-(a: 1) & (b: 2) ::
+:: "hello " & "world"
+:: [1, 2] & [3, 4]
+:: (a: 1) & (b: 2)
 ```
 
 Absolute value and vector norm use bars:
 
 ```vkf
-|-3| ::
-|[3, 4]| ::
+:: |-3|
+:: |[3, 4]|
 ```
 
 ### Operator Overloads
@@ -424,7 +425,7 @@ Point: (x:num, y:num)
 
 p: (x: 1, y: 2)
 q: (x: 3, y: 4)
-(p + q) ::
+:: (p + q)
 ```
 
 Custom display works through `display`.
@@ -433,7 +434,7 @@ Custom display works through `display`.
 display(value: Point):
     "Point($value.x, $value.y)"
 
-p ::
+:: p
 ```
 
 ## Modules And Scope
@@ -442,14 +443,14 @@ Import a module into a namespace:
 
 ```vkf
 math: .math
-math.sqrt(9) ::
+:: math.sqrt(9)
 ```
 
 Pour a module into the current scope with `:.module`.
 
 ```vkf
 :.math
-sqrt(9) ::
+:: sqrt(9)
 ```
 
 The same pour idea works for structs.
@@ -457,14 +458,14 @@ The same pour idea works for structs.
 ```vkf
 point: (x: 3, y: 4)
 :point
-x + y ::
+:: x + y
 ```
 
 Files and folders are modules too. If `lib/helpers.vkf` exists:
 
 ```vkf
 helpers: .lib.helpers
-helpers.some_function() ::
+:: helpers.some_function()
 ```
 
 Public names are exported. Names beginning with `_` are private by convention.
