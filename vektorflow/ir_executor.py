@@ -206,7 +206,7 @@ def execute_binary_via_runtime(
         comparison = struct_compare_binop(op, left, right, types)
         if comparison is not None:
             return True, comparison
-        if op in {"PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "CARET"}:
+        if op in {"PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT", "CARET"}:
             defaulted = _default_struct_elementwise_binop(op, left, right, types)
             if defaulted is not None:
                 return True, defaulted

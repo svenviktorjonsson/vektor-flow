@@ -889,7 +889,12 @@ static std::vector<Token> lex_line(const std::string& line) {
             out.push_back({"MINUS", "-"});
             break;
         case '/':
-            out.push_back({"SLASH", "/"});
+            if (pos + 1 < input.size() && input[pos + 1] == '/') {
+                out.push_back({"FLOOR_DIV", "//"});
+                pos += 1;
+            } else {
+                out.push_back({"SLASH", "/"});
+            }
             break;
         case '[':
             out.push_back({"LBRACKET", "["});
@@ -902,6 +907,9 @@ static std::vector<Token> lex_line(const std::string& line) {
             break;
         case '+':
             out.push_back({"PLUS", "+"});
+            break;
+        case '%':
+            out.push_back({"PERCENT", "%"});
             break;
         case '.':
             out.push_back({"DOT", "."});
@@ -1596,7 +1604,7 @@ private:
         std::string left = parse_inline_body_unary_text(tokens, position, allowed_identifiers, functions);
         while (position < tokens.size()) {
             const std::string& kind = tokens[position].kind;
-            if (kind != "STAR" && kind != "SLASH") {
+            if (kind != "STAR" && kind != "SLASH" && kind != "FLOOR_DIV" && kind != "PERCENT") {
                 break;
             }
             const std::string op = tokens[position].text;
@@ -1936,7 +1944,7 @@ private:
         std::string left = parse_inline_emit_unary_text(tokens, position, allowed_identifiers, functions);
         while (position < tokens.size()) {
             const std::string& kind = tokens[position].kind;
-            if (kind != "STAR" && kind != "SLASH") {
+            if (kind != "STAR" && kind != "SLASH" && kind != "FLOOR_DIV" && kind != "PERCENT") {
                 break;
             }
             const std::string op = tokens[position].text;
@@ -2050,7 +2058,7 @@ private:
         std::string left = parse_emit_unary_text(tokens, position);
         while (position < tokens.size()) {
             const std::string& kind = tokens[position].kind;
-            if (kind != "STAR" && kind != "SLASH") {
+            if (kind != "STAR" && kind != "SLASH" && kind != "FLOOR_DIV" && kind != "PERCENT") {
                 break;
             }
             const std::string op = tokens[position].text;
@@ -2125,7 +2133,7 @@ private:
         std::string left = parse_numeric_unary_text(tokens, position, allowed_identifiers);
         while (position < tokens.size()) {
             const std::string& kind = tokens[position].kind;
-            if (kind != "STAR" && kind != "SLASH") {
+            if (kind != "STAR" && kind != "SLASH" && kind != "FLOOR_DIV" && kind != "PERCENT") {
                 break;
             }
             const std::string op = tokens[position].text;

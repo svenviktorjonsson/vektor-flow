@@ -36,6 +36,7 @@ PLUS = "PLUS"          # +
 MINUS = "MINUS"        # -
 STAR = "STAR"          # *
 SLASH = "SLASH"        # /
+FLOOR_DIV = "FLOOR_DIV"  # //
 CARET = "CARET"        # ^
 PERCENT = "PERCENT"    # %
 AMPERSAND = "AMPERSAND"  # &  (concatenation: tuple, vector, struct merge, multiset union)

@@ -525,13 +525,29 @@ def test_cpp_emits_typed_multiset_program() -> None:
 {num} a: {1:2, 3:1}
 {num} b: {3:2}
 :: a + b
+:: a // b
+:: a % b
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
     assert "#include <map>" in cpp
     assert "vf_mset_make<double>" in cpp
     assert "vf_mset_union(a, b)" in cpp
+    assert "vf_mset_floor_div(a, b)" in cpp
+    assert "vf_mset_mod(a, b)" in cpp
     assert 'std::cout << vf_format_value(vf_mset_union(a, b)) << "\\n";' in cpp
+
+
+def test_cpp_rejects_star_and_slash_on_typed_multisets() -> None:
+    for op in ("*", "/"):
+        src = f"""
+{{num}} a: {{1:2}}
+{{num}} b: {{1:1}}
+:: a {op} b
+"""
+        lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+        with pytest.raises(CppEmitError, match=r"multisets support \+, -, //, and % count operators"):
+            emit_cpp_module(lowered)
 
 
 def test_cpp_emits_nested_record_with_multiset_field() -> None:
@@ -1106,12 +1122,13 @@ merge(a:{num}, b:{num}) -> {num}:
     a + b
 
 :: merge({1:1}, {2:2})
-:: ({1:3, 2:1} * {1:1, 2:4})
+:: ({1:3, 2:1} // {1:1, 2:4})
+:: ({1:3, 2:5} % {1:1, 2:4})
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
     assert res.returncode == 0
-    assert res.stdout.strip().splitlines() == ["{1:1, 2:2}", "{1:1, 2:1}"]
+    assert res.stdout.strip().splitlines() == ["{1:1, 2:2}", "{1:3}", "{2:1}"]
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")

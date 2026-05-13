@@ -63,7 +63,7 @@ from .collections_runtime import (
     runtime_collection_kind,
     runtime_collection_take,
 )
-from .multiset import Multiset, cartesian_binary
+from .multiset import Multiset, cartesian_binary, multiset_count_floor_div, multiset_count_mod
 from .value_access import (
     normalize_runtime_index,
     runtime_value_index_get,
@@ -93,6 +93,8 @@ __all__ = [
     "VMap",
     "abs_or_norm",
     "cartesian_binary",
+    "multiset_count_floor_div",
+    "multiset_count_mod",
     "is_runtime_collection",
     "is_axis_tagged_value",
     "make_multiset",

@@ -293,7 +293,7 @@ class IRTypeAnalyzer:
                     return self._remember_expr(node, ast.PrimTypeRef("str"))
                 if isinstance(rt_n, ast.PrimTypeRef) and rt_n.name == "str":
                     return self._remember_expr(node, ast.PrimTypeRef("str"))
-            if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "CARET"):
+            if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT", "CARET"):
                 lt_n = _normalize_type(lt)
                 rt_n = _normalize_type(rt)
                 if isinstance(lt_n, ast.FixedVectorType) and isinstance(rt_n, ast.FixedVectorType):
@@ -308,8 +308,8 @@ class IRTypeAnalyzer:
                     if isinstance(rt_n, ast.FixedVectorType) and _is_scalar_numeric_type(lt_n):
                         return self._remember_expr(node, rt_n)
                 if isinstance(lt_n, ast.MultisetType) and isinstance(rt_n, ast.MultisetType):
-                    if node.op not in ("PLUS", "MINUS", "STAR", "SLASH"):
-                        raise TypedIRError(f"unsupported multiset op for typed IR analysis: {node.op}")
+                    if node.op not in ("PLUS", "MINUS", "FLOOR_DIV", "PERCENT"):
+                        raise TypedIRError("multisets support +, -, //, and % count operators")
                     if not _same_type(lt_n.element_type, rt_n.element_type):
                         raise TypedIRError("multiset arithmetic requires matching element types")
                     return self._remember_expr(node, lt_n)

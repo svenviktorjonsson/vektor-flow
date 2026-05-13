@@ -20,9 +20,9 @@ from .errors import (
 )
 from .runtime.multiset import (
     Multiset,
+    multiset_count_floor_div,
+    multiset_count_mod,
     multiset_difference,
-    multiset_intersection,
-    multiset_symmetric_difference,
     multiset_union,
 )
 from .stdlib import STDLIB_AUTOLOADED_NAMESPACES, STDLIB_MODULES, resolve_stdlib
@@ -162,6 +162,7 @@ BINOP_KIND_TO_SYM = {
     "MINUS": "-",
     "STAR": "*",
     "SLASH": "/",
+    "FLOOR_DIV": "//",
     "PERCENT": "%",
     "CARET": "^",
     "EQ": "=",
@@ -1967,7 +1968,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, (int, float)):
             return _wrap_vector_result_if_typed(op, [x * float(b) for x in a], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return wrap_typed_multiset_result(multiset_intersection(a, b), combine_typed_multiset_types(a, b))
+            raise EvalError("operator * is not defined for multisets; use +, -, //, or % on counts")
         return a * b
     if op == "SLASH":
         if isinstance(a, list) and isinstance(b, list):
@@ -1979,11 +1980,17 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, list) and isinstance(b, (int, float)):
             return _wrap_vector_result_if_typed(op, [x / float(b) for x in a], a, b)
         if isinstance(a, Multiset) and isinstance(b, Multiset):
-            return wrap_typed_multiset_result(
-                multiset_symmetric_difference(a, b), combine_typed_multiset_types(a, b)
-            )
+            raise EvalError("operator / is not defined for multisets; use +, -, //, or % on counts")
         return a / b
+    if op == "FLOOR_DIV":
+        if isinstance(a, Multiset) and isinstance(b, Multiset):
+            return wrap_typed_multiset_result(
+                multiset_count_floor_div(a, b), combine_typed_multiset_types(a, b)
+            )
+        return a // b
     if op == "PERCENT":
+        if isinstance(a, Multiset) and isinstance(b, Multiset):
+            return wrap_typed_multiset_result(multiset_count_mod(a, b), combine_typed_multiset_types(a, b))
         return a % b
     if op == "CARET":
         return a**b
@@ -2019,11 +2026,11 @@ def _combine_field_values_for_struct(
             return multiset_union(av, bv)
         if op == "MINUS":
             return multiset_difference(av, bv)
-        if op == "STAR":
-            return multiset_intersection(av, bv)
-        if op == "SLASH":
-            return multiset_symmetric_difference(av, bv)
-        raise EvalError(f"operator {op} is not defined for multiset fields")
+        if op == "FLOOR_DIV":
+            return multiset_count_floor_div(av, bv)
+        if op == "PERCENT":
+            return multiset_count_mod(av, bv)
+        raise EvalError(f"operator {BINOP_KIND_TO_SYM.get(op, op)} is not defined for multiset fields")
     if isinstance(av, dict) and isinstance(bv, dict) and is_struct_dict(av) and is_struct_dict(bv):
         inner = _default_struct_elementwise_binop(op, av, bv, types)
         if inner is None:

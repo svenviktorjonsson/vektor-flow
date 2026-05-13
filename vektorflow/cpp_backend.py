@@ -1198,19 +1198,28 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "    return out;",
                 "}",
                 "template <typename T>",
-                "static std::map<T, long long> vf_mset_intersection(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
+                "static std::map<T, long long> vf_mset_floor_div(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
                 "    std::map<T, long long> out;",
                 "    for (const auto& kv : left) {",
                 "        auto it = right.find(kv.first);",
                 "        if (it == right.end()) continue;",
-                "        long long count = std::min(kv.second, it->second);",
+                "        if (it->second <= 0) continue;",
+                "        long long count = kv.second / it->second;",
                 "        if (count > 0) out[kv.first] = count;",
                 "    }",
                 "    return out;",
                 "}",
                 "template <typename T>",
-                "static std::map<T, long long> vf_mset_symdiff(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
-                "    return vf_mset_union(vf_mset_difference(left, right), vf_mset_difference(right, left));",
+                "static std::map<T, long long> vf_mset_mod(const std::map<T, long long>& left, const std::map<T, long long>& right) {",
+                "    std::map<T, long long> out;",
+                "    for (const auto& kv : left) {",
+                "        auto it = right.find(kv.first);",
+                "        if (it == right.end()) continue;",
+                "        if (it->second <= 0) continue;",
+                "        long long count = kv.second % it->second;",
+                "        if (count > 0) out[kv.first] = count;",
+                "    }",
+                "    return out;",
                 "}",
             ]
         )
@@ -2166,7 +2175,7 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
                 )
             if isinstance(lt_n, ast.LinkedListValueType) and isinstance(rt_n, ast.LinkedListValueType):
                 return ast.LinkedListValueType(list(lt_n.elements) + list(rt_n.elements))
-        if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "CARET"):
+        if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT", "CARET"):
             lt_n = _normalize_type(lt)
             rt_n = _normalize_type(rt)
             if isinstance(lt_n, ast.FixedVectorType) and isinstance(rt_n, ast.FixedVectorType):
@@ -2180,10 +2189,12 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
                         return lt_n
                     if isinstance(rt_n, ast.FixedVectorType) and _is_scalar_numeric_type(lt_n):
                         return rt_n
-                if isinstance(lt_n, ast.MultisetType) and isinstance(rt_n, ast.MultisetType):
-                    if lt_n.element_type != rt_n.element_type:
-                        raise CppEmitError("multiset arithmetic requires matching element types")
-                    return lt_n
+            if isinstance(lt_n, ast.MultisetType) and isinstance(rt_n, ast.MultisetType):
+                if node.op not in ("PLUS", "MINUS", "FLOOR_DIV", "PERCENT"):
+                    raise CppEmitError("multisets support +, -, //, and % count operators")
+                if lt_n.element_type != rt_n.element_type:
+                    raise CppEmitError("multiset arithmetic requires matching element types")
+                return lt_n
             return _promote_numeric(lt, rt)
         if node.op in ("EQ", "NEQ", "LT", "LE", "GT", "GE", "AND", "OR", "XOR"):
             return ast.PrimTypeRef("bool")
@@ -2475,11 +2486,11 @@ def _emit_collection_binary(
         suffix = {
             "PLUS": "union",
             "MINUS": "difference",
-            "STAR": "intersection",
-            "SLASH": "symdiff",
+            "FLOOR_DIV": "floor_div",
+            "PERCENT": "mod",
         }.get(node.op)
         if suffix is None:
-            raise CppEmitError(f"unsupported multiset expression for C++ emitter: {node.op}")
+            raise CppEmitError("multisets support +, -, //, and % count operators")
         return f"vf_mset_{suffix}({left}, {right})"
     if isinstance(left_type, ast.FixedVectorType) or isinstance(right_type, ast.FixedVectorType):
         fused = _emit_fused_array_expr(node, env, functions, state, typed)
@@ -2795,6 +2806,7 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             "MINUS": "-",
             "STAR": "*",
             "SLASH": "/",
+            "FLOOR_DIV": "/",
             "PERCENT": "%",
             "EQ": "==",
             "NEQ": "!=",

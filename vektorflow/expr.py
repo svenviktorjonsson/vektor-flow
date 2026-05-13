@@ -18,6 +18,7 @@ from .tokens import (
     COMMA,
     DEDENT,
     EOF,
+    FLOOR_DIV,
     IDENT,
     INDENT,
     LBRACKET,
@@ -117,7 +118,7 @@ class _Parser:
 
     def parse_multiplicative(self) -> Any:
         left = self.parse_power()
-        while self._peek() in (STAR, SLASH, PERCENT):
+        while self._peek() in (STAR, SLASH, FLOOR_DIV, PERCENT):
             op = self._next().kind
             right = self.parse_power()
             left = BinOpNode(op, left, right)
@@ -236,6 +237,8 @@ def eval_ast(node: Any, env: dict[str, Any]) -> Any:
             return a * b
         if node.op == SLASH:
             return a / b
+        if node.op == FLOOR_DIV:
+            return a // b
         if node.op == PERCENT:
             return a % b
         if node.op == CARET:

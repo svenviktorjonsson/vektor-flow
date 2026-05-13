@@ -8,9 +8,9 @@ from typing import Any
 
 from .multiset import Multiset
 from .multiset import (
+    multiset_count_floor_div,
+    multiset_count_mod,
     multiset_difference,
-    multiset_intersection,
-    multiset_symmetric_difference,
     multiset_union,
 )
 from .type_values import combine_typed_multiset_types, wrap_typed_multiset_result
@@ -71,6 +71,10 @@ def _apply_scalar_axis_op(op: str, left: Any, right: Any, error_factory: Callabl
         return left * right
     if op == "SLASH":
         return left / right
+    if op == "FLOOR_DIV":
+        return left // right
+    if op == "PERCENT":
+        return left % right
     raise error_factory(f"unsupported operator {op!r} for broadcast axis-tagged values")
 
 
@@ -173,12 +177,12 @@ def axis_tagged_binary_op(
         a_idx = axis_tagged_idx(a)
         b_idx = axis_tagged_idx(b)
         ad, bd = axis_tagged_data(a), axis_tagged_data(b)
-        if _is_axis_sequence(ad) and _is_axis_sequence(bd) and op in {"PLUS", "MINUS", "STAR", "SLASH"}:
+        if _is_axis_sequence(ad) and _is_axis_sequence(bd) and op in {"PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT"}:
             result, out_idx = _axis_broadcast_tuple_op(op, ad, a_idx or "", bd, b_idx or "", error_factory)
             return True, axis_tagged_wrap(result, out_idx)
         if a_idx != b_idx:
             if isinstance(ad, tuple) and isinstance(bd, tuple) and set(a_idx or "").isdisjoint(set(b_idx or "")):
-                if op in {"PLUS", "MINUS", "STAR", "SLASH"}:
+                if op in {"PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT"}:
                     return True, axis_tagged_wrap(_axis_outer_tuple_op(op, ad, bd, error_factory), f"{a_idx}{b_idx}")
             raise error_factory(f"axis mismatch: {a_idx!r} vs {b_idx!r}")
         if op == "AMPERSAND":
@@ -220,20 +224,24 @@ def axis_tagged_binary_op(
                     raise error_factory("tuple length mismatch for *")
                 return True, axis_tagged_wrap(tuple(x * y for x, y in zip(ad, bd)), a_idx)
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
-                return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(multiset_intersection(ad, bd), combine_typed_multiset_types(ad, bd)),
-                    a_idx,
-                )
+                raise error_factory("operator * is not defined for multisets; use +, -, //, or % on counts")
         if op == "SLASH":
             if isinstance(ad, tuple) and isinstance(bd, tuple):
                 if len(ad) != len(bd):
                     raise error_factory("tuple length mismatch for /")
                 return True, axis_tagged_wrap(tuple(x / y for x, y in zip(ad, bd)), a_idx)
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
+                raise error_factory("operator / is not defined for multisets; use +, -, //, or % on counts")
+        if op == "FLOOR_DIV":
+            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(
-                        multiset_symmetric_difference(ad, bd), combine_typed_multiset_types(ad, bd)
-                    ),
+                    wrap_typed_multiset_result(multiset_count_floor_div(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    a_idx,
+                )
+        if op == "PERCENT":
+            if isinstance(ad, Multiset) and isinstance(bd, Multiset):
+                return True, axis_tagged_wrap(
+                    wrap_typed_multiset_result(multiset_count_mod(ad, bd), combine_typed_multiset_types(ad, bd)),
                     a_idx,
                 )
         raise error_factory(

@@ -14,9 +14,9 @@ from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 from vektorflow.runtime.multiset import (
     Multiset,
+    multiset_count_floor_div,
+    multiset_count_mod,
     multiset_difference,
-    multiset_intersection,
-    multiset_symmetric_difference,
     multiset_union,
 )
 
@@ -181,29 +181,39 @@ p : Pair(3, 4)
 
 
 class TestStructElementwiseMultisetFields:
-    """Default struct ``+ - * /`` on fields that hold multisets uses multiset pairing rules."""
+    """Default struct multiset fields use count operators for ``+ - // %``."""
 
-    @pytest.mark.parametrize("ch", ["+", "-", "*", "/"])
+    @pytest.mark.parametrize("ch", ["+", "-", "//", "%"])
     def test_struct_field_multiset_ops_match_plain_multiset(self, ch: str) -> None:
-        s = Multiset({1: 1, 2: 2})
-        t = Multiset({2: 1, 3: 1})
+        s = Multiset({1: 5, 2: 2})
+        t = Multiset({1: 2, 2: 3, 3: 1})
         if ch == "+":
             expected = multiset_union(s, t)
         elif ch == "-":
             expected = multiset_difference(s, t)
-        elif ch == "*":
-            expected = multiset_intersection(s, t)
+        elif ch == "//":
+            expected = multiset_count_floor_div(s, t)
         else:
-            expected = multiset_symmetric_difference(s, t)
+            expected = multiset_count_mod(s, t)
 
         src = f"""
-a : (m: {{1:1, 2:2}},)
-b : (m: {{2:1, 3:1}},)
+a : (m: {{1:5, 2:2}},)
+b : (m: {{1:2, 2:3, 3:1}},)
 r : a {ch} b
 :: r.m
 """
         out = _run_emit(src)
         assert _parse_multiset_print(out) == expected
+
+    @pytest.mark.parametrize("ch", ["*", "/"])
+    def test_struct_field_multiset_star_and_slash_are_not_defined(self, ch: str) -> None:
+        src = f"""
+a : (m: {{1:2}},)
+b : (m: {{1:1}},)
+:: (a {ch} b)
+"""
+        with pytest.raises(EvalError, match=rf"operator \{ch} is not defined for multiset fields"):
+            _run_emit(src)
 
 
 class TestStructElementwiseArithmeticFields:

@@ -340,7 +340,9 @@ private:
         case '^':
             advance(); emit_at("CARET", tok_line, tok_col); return;
         case '/':
-            advance(); emit_at("SLASH", tok_line, tok_col); return;
+            advance();
+            if (peek() == '/') { advance(); emit_at("FLOOR_DIV", tok_line, tok_col); return; }
+            emit_at("SLASH", tok_line, tok_col); return;
         case '&':
             advance(); emit_at("AMPERSAND", tok_line, tok_col); return;
         case ',':

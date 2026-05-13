@@ -32,6 +32,7 @@ from .tokens import (
     EOF,
     EQ,
     FAT_ARROW,
+    FLOOR_DIV,
     FALSE,
     GE,
     GT,
@@ -76,6 +77,7 @@ OPERATOR_FUNC_KINDS = frozenset(
         MINUS,
         STAR,
         SLASH,
+        FLOOR_DIV,
         PERCENT,
         CARET,
         AMPERSAND,
@@ -100,6 +102,7 @@ def _token_kind_to_op_symbol(kind: str) -> str:
         MINUS: "-",
         STAR: "*",
         SLASH: "/",
+        FLOOR_DIV: "//",
         PERCENT: "%",
         CARET: "^",
         EQ: "=",
@@ -1285,7 +1288,7 @@ class Parser:
         left = self.parse_power()
         while True:
             k = self._peek_raw()
-            if k in (STAR, SLASH, PERCENT):
+            if k in (STAR, SLASH, FLOOR_DIV, PERCENT):
                 op = self._advance().kind
                 left = ast.BinOp(op, left, self.parse_power())
                 continue
@@ -1293,7 +1296,7 @@ class Parser:
                 saved = self.i
                 self._skip_trivia()
                 k2 = self._peek_raw()
-                if k2 in (STAR, SLASH, PERCENT):
+                if k2 in (STAR, SLASH, FLOOR_DIV, PERCENT):
                     op = self._advance().kind
                     left = ast.BinOp(op, left, self.parse_power())
                     continue

@@ -21,6 +21,7 @@ from vektorflow.tokens import (
     DOLLAR,
     DOT,
     FALSE,
+    FLOOR_DIV,
     EMIT,
     EOF,
     EQ,
@@ -164,8 +165,8 @@ class TestLiterals:
 
 class TestOperators:
     def test_arithmetic(self) -> None:
-        assert kinds("+ - * / ^ %")[:6] == [
-            PLUS, MINUS, STAR, SLASH, CARET, PERCENT,
+        assert kinds("+ - * / // ^ %")[:7] == [
+            PLUS, MINUS, STAR, SLASH, FLOOR_DIV, CARET, PERCENT,
         ]
 
     def test_ampersand_concat(self) -> None:
@@ -204,27 +205,27 @@ class TestOperators:
 # --- Grouping: ``(+ )`` is ``(`` ``+`` ``)``, not a special token ------------
 
 class TestGroupingNotBracketOp:
-    @pytest.mark.parametrize("op", ["+", "-", "*", "/"])
+    @pytest.mark.parametrize("op", ["+", "-", "*", "/", "//"])
     def test_paren_wrapped_op_is_grouping(self, op: str) -> None:
-        op_map = {"+": PLUS, "-": MINUS, "*": STAR, "/": SLASH}
+        op_map = {"+": PLUS, "-": MINUS, "*": STAR, "/": SLASH, "//": FLOOR_DIV}
         assert values(f"({op})") == [
             (LPAREN, None),
             (op_map[op], None),
             (RPAREN, None),
         ]
 
-    @pytest.mark.parametrize("op", ["+", "-", "*", "/"])
+    @pytest.mark.parametrize("op", ["+", "-", "*", "/", "//"])
     def test_square_brackets(self, op: str) -> None:
-        op_map = {"+": PLUS, "-": MINUS, "*": STAR, "/": SLASH}
+        op_map = {"+": PLUS, "-": MINUS, "*": STAR, "/": SLASH, "//": FLOOR_DIV}
         assert values(f"[{op}]") == [
             (LBRACKET, None),
             (op_map[op], None),
             (RBRACKET, None),
         ]
 
-    @pytest.mark.parametrize("op", ["+", "-", "*", "/"])
+    @pytest.mark.parametrize("op", ["+", "-", "*", "/", "//"])
     def test_brace_wrapped_op_is_lbrace_plus_rbrace(self, op: str) -> None:
-        op_map = {"+": PLUS, "-": MINUS, "*": STAR, "/": SLASH}
+        op_map = {"+": PLUS, "-": MINUS, "*": STAR, "/": SLASH, "//": FLOOR_DIV}
         assert values(f"{{{op}}}") == [
             (LBRACE, None),
             (op_map[op], None),

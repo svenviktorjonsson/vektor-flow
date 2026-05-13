@@ -274,7 +274,9 @@ a: {1: 2, 2: 1}
 b: {1: 1, 3: 1}
 
 :: (a + b)         # union by counts
-:: (a * b)         # intersection by min counts
+:: (a - b)         # subtract counts, clamped at zero
+:: (a // b)        # floor-divide counts for matching keys
+:: (a % b)         # remainder of counts for matching keys
 ```
 
 Multiset keys are sorted by the language ordering for the key type.

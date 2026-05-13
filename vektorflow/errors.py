@@ -65,6 +65,7 @@ _TOKEN_LABELS: dict[str, str] = {
     "EQ": "`=`",
     "FALSE": "`false`",
     "FAT_ARROW": "`=>`",
+    "FLOOR_DIV": "`//`",
     "GE": "`>=`",
     "GT": "`>`",
     "IDENT": "name",

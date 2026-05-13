@@ -1,14 +1,14 @@
 """Multiset (element → positive integer count).
 
-**Language semantics** (two multisets, missing key ⇒ multiplicity 0):
+**Language semantics** (two multisets, operations work on multiplicities):
 
 - ``+`` union: sum of counts
 - ``-`` difference: ``max(0, count_A - count_B)``
-- ``*`` intersection: ``min(count_A, count_B)`` per key (stable for missing keys)
-- ``/`` symmetric difference (disjoint union of A\\\\B and B\\\\A)
+- ``//`` floor-divide counts for keys present in the divisor
+- ``%`` remainder counts for keys present in the divisor
 
 **Cartesian product** ``cartesian_binary`` is still available for library/tests
-but is not the default for ``+ - * /`` on multisets.
+but is not the default for multiset operators.
 """
 
 from __future__ import annotations
@@ -97,15 +97,27 @@ def multiset_difference(a: Multiset, b: Multiset) -> Multiset:
     return Multiset({k: v for k, v in c.items() if v > 0})
 
 
-def multiset_intersection(a: Multiset, b: Multiset) -> Multiset:
-    """``min(count_A(k), count_B(k))``; keys missing on either side count as 0."""
+def multiset_count_floor_div(a: Multiset, b: Multiset) -> Multiset:
+    """Floor-divide multiplicities by matching divisor counts; missing divisors omit the key."""
     out: Counter[Any] = Counter()
-    for k in set(a._c.keys()) | set(b._c.keys()):
-        m = min(int(a._c.get(k, 0)), int(b._c.get(k, 0)))
-        if m > 0:
-            out[k] = m
+    for k, left_count in a._c.items():
+        right_count = int(b._c.get(k, 0))
+        if right_count <= 0:
+            continue
+        count = int(left_count) // right_count
+        if count > 0:
+            out[k] = count
     return Multiset(dict(out))
 
 
-def multiset_symmetric_difference(a: Multiset, b: Multiset) -> Multiset:
-    return multiset_union(multiset_difference(a, b), multiset_difference(b, a))
+def multiset_count_mod(a: Multiset, b: Multiset) -> Multiset:
+    """Modulo multiplicities by matching divisor counts; missing divisors omit the key."""
+    out: Counter[Any] = Counter()
+    for k, left_count in a._c.items():
+        right_count = int(b._c.get(k, 0))
+        if right_count <= 0:
+            continue
+        count = int(left_count) % right_count
+        if count > 0:
+            out[k] = count
+    return Multiset(dict(out))

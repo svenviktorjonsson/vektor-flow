@@ -1,4 +1,4 @@
-"""Multiset binary ``+ - * /`` use multiplicity semantics."""
+"""Multiset binary ``+ - // %`` use multiplicity semantics."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from vektorflow.parser import parse_module
 from vektorflow.runtime.multiset import (
     Multiset,
     multiset_difference,
-    multiset_intersection,
-    multiset_symmetric_difference,
+    multiset_count_floor_div,
+    multiset_count_mod,
     multiset_union,
 )
 
@@ -41,33 +41,33 @@ def _parse_multiset_repr(s: str) -> Multiset:
     raise AssertionError(f"expected Multiset(...) or {{...}} multiset print, got {s!r}")
 
 
-@pytest.mark.parametrize("ch", ["+", "-", "*", "/"])
+@pytest.mark.parametrize("ch", ["+", "-", "//", "%"])
 def test_multiset_ops_plain(ch: str) -> None:
-    s = Multiset({1: 1, 2: 2})
-    t = Multiset({2: 1, 3: 1})
+    s = Multiset({1: 5, 2: 2})
+    t = Multiset({1: 2, 2: 3, 3: 1})
     if ch == "+":
         expected = multiset_union(s, t)
     elif ch == "-":
         expected = multiset_difference(s, t)
-    elif ch == "*":
-        expected = multiset_intersection(s, t)
+    elif ch == "//":
+        expected = multiset_count_floor_div(s, t)
     else:
-        expected = multiset_symmetric_difference(s, t)
+        expected = multiset_count_mod(s, t)
 
-    src = f"""S : {{1:1, 2:2}}
-T : {{2:1, 3:1}}
+    src = f"""S : {{1:5, 2:2}}
+T : {{1:2, 2:3, 3:1}}
 :: S {ch} T
 """
     out = _run_emit(src)
     assert _parse_multiset_repr(out) == expected
 
 
-def test_intersection_missing_key_counts_as_zero() -> None:
-    """Key only in one multiset ⇒ multiplicity 0 on the other ⇒ min = 0."""
-    src = """
-A : {1:2}
-B : {2:1}
-:: (A * B)
+@pytest.mark.parametrize("ch", ["*", "/"])
+def test_multiset_star_and_slash_are_not_defined(ch: str) -> None:
+    src = f"""
+A : {{1:2}}
+B : {{1:1}}
+:: (A {ch} B)
 """
-    out = _run_emit(src)
-    assert out in ("Multiset({})", "{}")
+    with pytest.raises(Exception, match=rf"operator \{ch} is not defined for multisets"):
+        _run_emit(src)
