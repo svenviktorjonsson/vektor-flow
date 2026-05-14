@@ -281,6 +281,24 @@ def _start_browser_server(serve_dir: Path) -> tuple[int, threading.Thread]:
     return port, t
 
 
+def _ensure_browser_runtime_files(root: Path) -> None:
+    """Create required generated UI runtime files when launching a bare browser."""
+    from .host_bootstrap import build_host_bootstrap_manifest, write_host_bootstrap_manifest
+
+    serve_dir = root / "web" / "vf-ui"
+    serve_dir.mkdir(parents=True, exist_ok=True)
+    write_host_bootstrap_manifest(root, build_host_bootstrap_manifest("browser"))
+    defaults = {
+        "vf-display.json": "{}\n",
+        "vf-ui-state.json": "{}\n",
+        "vkf-scene.json": "[]\n",
+    }
+    for filename, text in defaults.items():
+        path = serve_dir / filename
+        if not path.exists():
+            path.write_text(text, encoding="utf-8")
+
+
 def maybe_launch_browser() -> None:
     """Start the built-in HTTP server and open the default browser (once per process)."""
     global _launched, _browser_thread, _browser_port
@@ -298,6 +316,7 @@ def maybe_launch_browser() -> None:
         return
 
     serve_dir = root / "web" / "vf-ui"
+    _ensure_browser_runtime_files(root)
     port, thread = _start_browser_server(serve_dir)
     _browser_port = port
     _browser_thread = thread
