@@ -290,7 +290,6 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
         return None
 
     try:
-        from .ui.display_runtime import _sync_display_runtime_assets
         from .ui.launch import (
             _clear_overlay_port_file,
             _clear_overlay_state,
@@ -313,7 +312,6 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
                 "(expect web/vf-ui/index.html and web/vf-ui/vkf-scene.html). "
                 "Set VF_UI_REPO_ROOT explicitly."
             )
-        _sync_display_runtime_assets(root)
 
         exe = find_vf_overlay_exe(root)
         if exe is None:
@@ -324,6 +322,30 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
 
         repo_session_dir = root / "web" / "vf-ui" / "sessions" / program.session_name
         overlay_web_dir = _overlay_web_dir_for_exe(exe)
+        required_assets = (
+            "vf-runtime-shell.js",
+            "vf-runtime-source.js",
+            "vf-runtime-scene.js",
+            "vf-runtime-flow.js",
+            "vf-display.js",
+            "vf-frame.css",
+            "vf-frame.js",
+            "vf-widgets.js",
+            "geom/vf-geom-wgpu.js",
+            "geom/vf-geom-ledger.js",
+            "geom/vf-geom-ledger-layout.js",
+            "geom/vf-geom-ledger-transport.js",
+        )
+        missing_assets = [
+            asset for asset in required_assets if not (overlay_web_dir / asset).is_file()
+        ]
+        if missing_assets:
+            missing = ", ".join(missing_assets)
+            raise RuntimeError(
+                "UI not started: built overlay web runtime is missing required "
+                f"native scene asset(s): {missing}. Rebuild native/VfOverlay."
+            )
+
         overlay_session_dir = overlay_web_dir / "sessions" / program.session_name
         for session_dir in (repo_session_dir, overlay_session_dir):
             session_dir.mkdir(parents=True, exist_ok=True)
