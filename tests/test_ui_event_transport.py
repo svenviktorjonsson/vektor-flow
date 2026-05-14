@@ -5,6 +5,7 @@ from collections import deque
 from typing import Any
 
 from vektorflow.stdlib.events import OverlayPoller
+from vektorflow.ui import event_ingress
 from vektorflow.ui_display_ir import (
     UiHostTransportEvent,
     build_browser_host_event_dispatch,
@@ -239,6 +240,40 @@ def test_overlay_poller_emits_canonical_transport_payloads(monkeypatch) -> None:
             "widget_id": "time",
         }
     ]
+
+
+def test_overlay_poller_rediscovers_port_after_failed_poll(monkeypatch) -> None:
+    ports = iter([1111, 2222])
+    resets: list[bool] = []
+    calls: list[tuple[int, int]] = []
+    poller = OverlayPoller()
+    poller._last_packet_seq = 99
+    poller._last_packet_revision = 7
+
+    monkeypatch.setattr(event_ingress, "get_overlay_port", lambda: next(ports))
+    monkeypatch.setattr(event_ingress, "reset_overlay_port", lambda: resets.append(True))
+
+    def _fake_drain(port: int) -> bool:
+        calls.append((port, poller._last_packet_seq))
+        return port == 2222
+
+    monkeypatch.setattr(poller, "_drain_runtime_packets_once", _fake_drain)
+
+    poller._drain_once()
+
+    assert resets == [True]
+    assert calls == [(1111, 0), (2222, 0)]
+
+
+def test_overlay_poller_subscriber_survives_ingress_reset() -> None:
+    received: list[dict[str, Any]] = []
+    poller = OverlayPoller()
+    poller.subscribe(lambda evt: received.append(evt))
+
+    event_ingress.reset_ui_event_ingress()
+    poller._publish_event_payload({"type": "vf_event", "event": "hover", "frame_id": "f1"})
+
+    assert received == [{"type": "vf_event", "event": "hover", "frame_id": "f1"}]
 
 
 def test_decode_browser_enqueue_body_unwraps_playwright_widget_post_shape() -> None:

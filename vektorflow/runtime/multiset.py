@@ -121,3 +121,47 @@ def multiset_count_mod(a: Multiset, b: Multiset) -> Multiset:
         if count > 0:
             out[k] = count
     return Multiset(dict(out))
+
+
+def multiset_scalar_add(a: Multiset, amount: int) -> Multiset:
+    out: Counter[Any] = Counter()
+    for key, count in a._c.items():
+        nxt = count + int(amount)
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
+def multiset_scalar_subtract(a: Multiset, amount: int) -> Multiset:
+    out: Counter[Any] = Counter()
+    for key, count in a._c.items():
+        nxt = count - int(amount)
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
+def multiset_scalar_floordiv(a: Multiset, amount: int) -> Multiset:
+    divisor = int(amount)
+    if divisor == 0:
+        raise ZeroDivisionError("integer division or modulo by zero")
+    out: Counter[Any] = Counter()
+    for key, count in a._c.items():
+        nxt = count // divisor
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))
+
+
+def multiset_countwise_floordiv(a: Multiset, b: Multiset) -> Multiset:
+    if set(a._c.keys()) != set(b._c.keys()):
+        raise KeyError("multiset key mismatch for //")
+    out: Counter[Any] = Counter()
+    for key, count in a.items_sorted():
+        divisor = int(b._c[key])
+        if divisor == 0:
+            raise ZeroDivisionError("integer division or modulo by zero")
+        nxt = count // divisor
+        if nxt > 0:
+            out[key] = nxt
+    return Multiset(dict(out))

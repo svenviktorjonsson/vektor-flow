@@ -218,6 +218,16 @@ def test_widget_set_merges_state_without_touching_frame_command_log() -> None:
     assert s._ui_state == {"f1": {"btn.save": {"label": "Save", "disabled": True}}}
 
 
+def test_widget_set_text_sets_text_without_props_map() -> None:
+    s = build_screen_namespace()["screen"]()
+    f = s.frame(title="Tools")
+    s.add_frame(f, (0.1, 0.1, 0.3, 0.2))
+
+    s.widget_set_text(f.id, "status", "ready")
+
+    assert s._ui_state == {"f1": {"status": {"text": "ready"}}}
+
+
 def test_display_draw_and_frame_draw_match_draw_rect() -> None:
     d = build_ui_namespace()["ui"].display
     d.draw((0.0, 0.0, 0.2, 0.2), color="#010101")

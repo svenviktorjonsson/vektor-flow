@@ -36,14 +36,17 @@ PLUS = "PLUS"          # +
 MINUS = "MINUS"        # -
 STAR = "STAR"          # *
 SLASH = "SLASH"        # /
-FLOOR_DIV = "FLOOR_DIV"  # //
+FLOORDIV = "FLOORDIV"  # //
+FLOOR_DIV = FLOORDIV  # Compatibility spelling used by older parser/runtime helpers.
 CARET = "CARET"        # ^
 PERCENT = "PERCENT"    # %
-AMPERSAND = "AMPERSAND"  # &  (concatenation: tuple, vector, struct merge, multiset union)
+AMPERSAND = "AMPERSAND"  # &  (concatenation / merge: tuple, vector, string, struct)
 
 # Relations
 EQ = "EQ"              # =
+EXACT_EQ = "EXACT_EQ"  # ==
 NEQ = "NEQ"            # !=
+STRUCT_NEQ = "STRUCT_NEQ"  # ~=
 LT = "LT"              # <
 LE = "LE"              # <=
 GT = "GT"              # >
@@ -56,11 +59,13 @@ PIPE = "PIPE"          # >>
 BAR = "BAR"            # |  (absolute value only; pipe is `>>`)
 DOT = "DOT"            # .
 RANGE = "RANGE"        # ..
+ELLIPSIS = "ELLIPSIS"  # ...
 ARROW = "ARROW"        # ->
 FAT_ARROW = "FAT_ARROW"  # =>
 COMMA = "COMMA"        # ,
 SEMICOLON = "SEMICOLON"  # ;  (statement separator in function bodies)
 QUESTION = "QUESTION"  # ?
+BANG = "BANG"          # !
 BANG_QUESTION = "BANG_QUESTION"  # !?
 DOLLAR = "DOLLAR"      # $  (sigil, used for lambda/pipe-element/current)
 

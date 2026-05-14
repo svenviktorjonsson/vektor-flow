@@ -3,19 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from . import ast, ir
-from .ir_executor import (
-    execute_const_binary_expr_via_runtime,
-    execute_const_dot_attr_expr_via_runtime,
-    execute_const_dot_index_expr_via_runtime,
-    execute_const_primitive_cast_via_runtime,
-    execute_const_unary_expr_via_runtime,
-    execute_typed_coercion_via_runtime,
-    execute_truthiness_via_runtime,
-    execute_match_specificity_via_runtime,
-    select_const_match_arm_via_runtime,
-)
-from .runtime import make_vmap
 from .typed_ir import TypedModuleInfo
+from .stdlib.events import event_match_specificity
 
 
 def _load_name(node: Any) -> str | None:
@@ -30,40 +19,76 @@ def _store_name(node: Any) -> str | None:
     return None
 
 
+def _const_binop(op: str, left: Any, right: Any) -> Any:
+    if op == "PLUS":
+        return left + right
+    if op == "MINUS":
+        return left - right
+    if op == "STAR":
+        return left * right
+    if op == "SLASH":
+        return left / right
+    if op == "PERCENT":
+        return left % right
+    if op == "CARET":
+        return left**right
+    if op == "EQ":
+        return left == right
+    if op == "NEQ":
+        return left != right
+    if op == "LT":
+        return left < right
+    if op == "LE":
+        return left <= right
+    if op == "GT":
+        return left > right
+    if op == "GE":
+        return left >= right
+    if op == "AND":
+        return bool(left) and bool(right)
+    if op == "OR":
+        return bool(left) or bool(right)
+    if op == "XOR":
+        return bool(left) != bool(right)
+    if op == "AMPERSAND":
+        return left + right
+    raise ValueError(op)
+
+
 def _const_cast(name: str, value: Any) -> Any:
-    try:
-        return execute_const_primitive_cast_via_runtime(name, value)
-    except Exception as exc:
-        raise ValueError(name) from exc
+    if name == "int":
+        if isinstance(value, bool):
+            return 1 if value else 0
+        if isinstance(value, (int, float)) and float(value).is_integer():
+            return int(value)
+        raise ValueError(name)
+    if name == "num":
+        if isinstance(value, bool):
+            return 1.0 if value else 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        raise ValueError(name)
+    if name == "str":
+        if isinstance(value, str):
+            return value
+        raise ValueError(name)
+    if name == "bool":
+        if isinstance(value, bool):
+            return value
+        raise ValueError(name)
+    raise ValueError(name)
 
 
-def _const_coerce(type_expr: Any, value: Any) -> Any:
-    try:
-        coerced, _ = execute_typed_coercion_via_runtime(value, type_expr, {})
-        return coerced
-    except Exception as exc:
-        raise ValueError(type_expr) from exc
-
-
-def _const_runtime_value(node: Any) -> Any:
-    if isinstance(node, ir.Const):
-        return node.value
-    if isinstance(node, ir.ListExpr):
-        values: list[Any] = []
-        for element in node.elements:
-            values.append(_const_runtime_value(element))
-        return values
-    if isinstance(node, ir.MapExpr):
-        values: dict[str, Any] = {}
-        for name, value in node.fields:
-            values[name] = _const_runtime_value(value)
-        return make_vmap(values)
-    if isinstance(node, ir.StructExpr):
-        values: dict[str, Any] = {}
-        for name, value in node.fields:
-            values[name] = _const_runtime_value(value)
-        return values
-    raise ValueError(type(node).__name__)
+def _match_specificity(a: Any, b: Any) -> int | None:
+    if isinstance(a, int) and isinstance(b, int):
+        s = event_match_specificity(a, b)
+        if s is not None:
+            return s
+        s = event_match_specificity(b, a)
+        if s is not None:
+            return s
+        return None
+    return 0 if a == b else None
 
 
 def _expr_is_pure(node: Any) -> bool:
@@ -96,8 +121,6 @@ def _expr_is_pure(node: Any) -> bool:
             isinstance(node.func, ir.LoadName)
             and node.func.name in {"int", "num", "bool", "str"}
             and all(_expr_is_pure(a) for a in node.args)
-            and not node.kwargs
-            and not node.spreads
         )
     return False
 
@@ -116,10 +139,6 @@ def _expr_loads(node: Any) -> set[str]:
         used = _expr_loads(node.func)
         for arg in node.args:
             used |= _expr_loads(arg)
-        for _, value in node.kwargs:
-            used |= _expr_loads(value)
-        for value in node.spreads:
-            used |= _expr_loads(value)
         return used
     if isinstance(node, ir.ListExpr):
         used: set[str] = set()
@@ -207,38 +226,31 @@ def fold_expr(node: Any) -> Any:
     if isinstance(node, ir.UnaryExpr):
         operand = fold_expr(node.operand)
         if isinstance(operand, ir.Const):
-            try:
-                return ir.Const(execute_const_unary_expr_via_runtime(node.op, operand.value))
-            except Exception:
-                pass
+            if node.op == "MINUS":
+                return ir.Const(-operand.value)
+            if node.op == "NOT":
+                return ir.Const(not bool(operand.value))
         return ir.UnaryExpr(node.op, operand)
     if isinstance(node, ir.BinaryExpr):
         left = fold_expr(node.left)
         right = fold_expr(node.right)
         if isinstance(left, ir.Const) and isinstance(right, ir.Const):
-            try:
-                return ir.Const(execute_const_binary_expr_via_runtime(node.op, left.value, right.value))
-            except Exception:
-                pass
+            return ir.Const(_const_binop(node.op, left.value, right.value))
         return ir.BinaryExpr(node.op, left, right)
     if isinstance(node, ir.CallExpr):
         func = fold_expr(node.func)
         args = [fold_expr(a) for a in node.args]
-        kwargs = [(name, fold_expr(value)) for name, value in node.kwargs]
-        spreads = [fold_expr(value) for value in node.spreads]
         if (
             isinstance(func, ir.LoadName)
             and len(args) == 1
             and isinstance(args[0], ir.Const)
             and func.name in {"int", "num", "bool", "str"}
-            and not kwargs
-            and not spreads
         ):
             try:
                 return ir.Const(_const_cast(func.name, args[0].value))
             except ValueError:
                 pass
-        return ir.CallExpr(func, args, kwargs, spreads)
+        return ir.CallExpr(func, args)
     if isinstance(node, ir.ListExpr):
         return ir.ListExpr([fold_expr(e) for e in node.elements])
     if isinstance(node, ir.MultisetExpr):
@@ -254,29 +266,20 @@ def fold_expr(node: Any) -> Any:
         return ir.StructExpr([(name, fold_expr(val)) for name, val in node.fields])
     if isinstance(node, ir.AttrExpr):
         value = fold_expr(node.value)
-        try:
-            return ir.Const(execute_const_dot_attr_expr_via_runtime(_const_runtime_value(value), node.name))
-        except Exception:
-            return ir.AttrExpr(value, node.name)
+        if isinstance(value, ir.StructExpr):
+            for name, inner in value.fields:
+                if name == node.name:
+                    return inner
+        return ir.AttrExpr(value, node.name)
     if isinstance(node, ir.IndexExpr):
-        value = fold_expr(node.value)
-        indices = [fold_expr(idx) for idx in node.indices]
-        try:
-            return ir.Const(
-                execute_const_dot_index_expr_via_runtime(
-                    _const_runtime_value(value),
-                    [_const_runtime_value(idx) for idx in indices],
-                )
-            )
-        except Exception:
-            return ir.IndexExpr(value, indices)
+        return ir.IndexExpr(fold_expr(node.value), [fold_expr(idx) for idx in node.indices])
     if isinstance(node, ir.CoerceExpr):
         expr = fold_expr(node.expr)
         if isinstance(expr, ir.CoerceExpr) and expr.target_type == node.target_type:
             return expr
-        if isinstance(expr, ir.Const):
+        if isinstance(node.target_type, ast.PrimTypeRef) and isinstance(expr, ir.Const):
             try:
-                return ir.Const(_const_coerce(node.target_type, expr.value))
+                return ir.Const(_const_cast(node.target_type.name, expr.value))
             except ValueError:
                 pass
         return ir.CoerceExpr(expr, node.target_type)
@@ -304,12 +307,12 @@ def optimize_stmt(node: Any) -> list[Any]:
         cond = fold_expr(node.condition)
         body = optimize_block(node.body, allow_dead_store_elimination=False)
         if isinstance(cond, ir.Const):
-            return body.statements if execute_truthiness_via_runtime(cond.value) else []
+            return body.statements if bool(cond.value) else []
         return [ir.IfStmt(cond, body)]
     if isinstance(node, ir.WhileStmt):
         cond = fold_expr(node.condition)
         body = optimize_block(node.body, allow_dead_store_elimination=False)
-        if isinstance(cond, ir.Const) and not execute_truthiness_via_runtime(cond.value):
+        if isinstance(cond, ir.Const) and not bool(cond.value):
             return []
         return [ir.WhileStmt(cond, body)]
     if isinstance(node, ir.MatchStmt):
@@ -322,28 +325,26 @@ def optimize_stmt(node: Any) -> list[Any]:
             for arm in node.arms
         ]
         if isinstance(disc, ir.Const) and not node.loop:
-            if any(arm.condition is not None and not isinstance(arm.condition, ir.Const) for arm in arms):
-                return [ir.MatchStmt(disc, arms, loop=node.loop)]
-            chosen = select_const_match_arm_via_runtime(
-                disc.value,
-                arms,
-                match_specificity=lambda a, b: execute_match_specificity_via_runtime(a, b, {}),
-            )
+            best_arm: ir.MatchArm | None = None
+            best_spec = -1
+            default_arm: ir.MatchArm | None = None
+            for arm in arms:
+                if arm.condition is None:
+                    if default_arm is None:
+                        default_arm = arm
+                    continue
+                if isinstance(arm.condition, ir.Const):
+                    spec = _match_specificity(disc.value, arm.condition.value)
+                    if spec is not None and spec > best_spec:
+                        best_spec = spec
+                        best_arm = arm
+            chosen = best_arm if best_arm is not None else default_arm
             if chosen is None:
                 return []
             return chosen.body.statements
         return [ir.MatchStmt(disc, arms, loop=node.loop)]
     if isinstance(node, ir.FunctionDef):
-        return [
-            ir.FunctionDef(
-                node.name,
-                list(node.params),
-                optimize_block(node.body),
-                list(node.param_types),
-                node.return_type,
-                list(node.param_specs),
-            )
-        ]
+        return [ir.FunctionDef(node.name, list(node.params), optimize_block(node.body), list(node.param_types), node.return_type)]
     raise TypeError(type(node).__name__)
 
 
@@ -387,11 +388,11 @@ def optimize_module(module: ir.Module) -> ir.Module:
     out: list[Any] = []
     for stmt in module.statements:
         out.extend(optimize_stmt(stmt))
-    return ir.Module(out, stdlib_imports=list(module.stdlib_imports))
+    return ir.Module(out)
 
 
 def eliminate_noop_coercions(module: ir.Module, typed: TypedModuleInfo) -> ir.Module:
-    return ir.Module([_strip_stmt(stmt, typed) for stmt in module.statements], stdlib_imports=list(module.stdlib_imports))
+    return ir.Module([_strip_stmt(stmt, typed) for stmt in module.statements])
 
 
 def _strip_stmt(stmt: Any, typed: TypedModuleInfo) -> Any:
@@ -404,7 +405,6 @@ def _strip_stmt(stmt: Any, typed: TypedModuleInfo) -> Any:
             ir.Block([_strip_stmt(sub, typed) for sub in stmt.body.statements]),
             list(stmt.param_types),
             stmt.return_type,
-            list(stmt.param_specs),
         )
     if isinstance(stmt, ir.StoreName):
         return ir.StoreName(stmt.name, _strip_expr(stmt.value, typed), stmt.declared_type)
@@ -450,12 +450,7 @@ def _strip_expr(node: Any, typed: TypedModuleInfo) -> Any:
     if isinstance(node, ir.BinaryExpr):
         return ir.BinaryExpr(node.op, _strip_expr(node.left, typed), _strip_expr(node.right, typed))
     if isinstance(node, ir.CallExpr):
-        return ir.CallExpr(
-            _strip_expr(node.func, typed),
-            [_strip_expr(arg, typed) for arg in node.args],
-            [(name, _strip_expr(value, typed)) for name, value in node.kwargs],
-            [_strip_expr(value, typed) for value in node.spreads],
-        )
+        return ir.CallExpr(_strip_expr(node.func, typed), [_strip_expr(arg, typed) for arg in node.args])
     if isinstance(node, ir.ListExpr):
         return ir.ListExpr([_strip_expr(e, typed) for e in node.elements])
     if isinstance(node, ir.MultisetExpr):

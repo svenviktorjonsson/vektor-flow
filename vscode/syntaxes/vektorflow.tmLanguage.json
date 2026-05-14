@@ -5,33 +5,19 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
-    { "include": "#imports" },
+    { "include": "#line-print-sugar" },
+    { "include": "#module-spill" },
+    { "include": "#stdlib-member-call" },
     { "include": "#function-definition" },
-    { "include": "#type-definition" },
-    { "include": "#shape-type-expressions" },
-    { "include": "#typed-bindings" },
-    { "include": "#constant-binding" },
-    { "include": "#dotted-binding" },
     { "include": "#line-binding" },
-    { "include": "#control-heads" },
-    { "include": "#type-switch-arms" },
     { "include": "#match-arm-bool" },
     { "include": "#match-wild" },
-    { "include": "#qualified-constants" },
-    { "include": "#stdlib-member-call" },
-    { "include": "#member-call" },
-    { "include": "#field-access" },
-    { "include": "#postfix-typeof" },
-    { "include": "#format-suffix" },
-    { "include": "#lambda-head" },
-    { "include": "#function-call" },
-    { "include": "#property-labels" },
-    { "include": "#multiset-counts" },
     { "include": "#keywords" },
     { "include": "#numbers" },
     { "include": "#operators-multi" },
     { "include": "#at-forms" },
     { "include": "#bracket-ops" },
+    { "include": "#function-call" },
     { "include": "#punctuation" },
     { "include": "#operators-single" },
     { "include": "#type-names" },
@@ -49,6 +35,22 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.triple.double.vektorflow",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.vektorflow",
+              "match": "\\\\(?:[\"\\\\nrt$]|.)"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.single.raw.vektorflow",
+          "begin": "'''",
+          "end": "'''"
+        },
+        {
           "name": "string.quoted.double.vektorflow",
           "begin": "\"",
           "end": "\"",
@@ -58,6 +60,7 @@
               "match": "\\\\(?:[\"\\\\nrt$]|.)"
             },
             {
+              "comment": "Expr interpolation $( … ) : $ and ( are distinct from the inner expr",
               "contentName": "meta.embedded.expr.interpolation.vektorflow",
               "begin": "(?<!\\\\)(\\$)(\\()",
               "end": "(\\))",
@@ -68,11 +71,10 @@
               "endCaptures": {
                 "1": { "name": "punctuation.interpolation.paren.end.vektorflow" }
               },
-              "patterns": [
-                { "include": "#interpolation-expr" }
-              ]
+              "patterns": [{ "include": "#interpolation-expr" }]
             },
             {
+              "comment": "Simple $name and $a.b in strings — $ and path differ in color",
               "match": "(?<!\\\\)(\\$)([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:\\.\\d+[a-zA-Z]+)?)",
               "captures": {
                 "1": { "name": "punctuation.interpolation.dollar.vektorflow" },
@@ -80,39 +82,39 @@
               }
             }
           ]
-        },
-        {
-          "name": "string.quoted.single.raw.vektorflow",
-          "begin": "'",
-          "end": "'",
-          "patterns": [
-            {
-              "name": "constant.character.escape.raw.vektorflow",
-              "match": "\\\\['\\\\]"
-            }
-          ]
         }
       ]
     },
-    "imports": {
+    "line-print-sugar": {
       "patterns": [
         {
-          "comment": ":.math or : .math",
-          "match": "^(\\s*)(:)(\\s*)(\\.)([a-zA-Z_][a-zA-Z0-9_]*)\\b",
-          "captures": {
-            "2": { "name": "keyword.module.spill.start.vektorflow" },
-            "4": { "name": "keyword.module.spill.dot.vektorflow" },
-            "5": { "name": "entity.name.namespace.vektorflow" }
-          }
-        },
+          "name": "keyword.operator.emit.line-sugar.vektorflow",
+          "match": ":::"
+        }
+      ]
+    },
+    "module-spill": {
+      "patterns": [
         {
-          "comment": "math: .math or ui:.ui",
-          "match": "^(\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\\s*:)(\\s*)(\\.)([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "comment": "Import spill : .math  : .io  (stdlib module name after the dot)",
+          "match": "(:)(\\.)([a-zA-Z_][a-zA-Z0-9_]*)",
           "captures": {
-            "2": { "name": "variable.other.assignment.vektorflow" },
-            "3": { "name": "punctuation.separator.key-value.vektorflow" },
-            "5": { "name": "keyword.module.spill.dot.vektorflow" },
-            "6": { "name": "entity.name.namespace.vektorflow" }
+            "1": { "name": "keyword.module.spill.start.vektorflow" },
+            "2": { "name": "keyword.module.spill.dot.vektorflow" },
+            "3": { "name": "entity.name.module.std.vektorflow" }
+          }
+        }
+      ]
+    },
+    "stdlib-member-call": {
+      "patterns": [
+        {
+          "comment": "bridge.pop(  screen.frame(  — stdlib + method + (",
+          "match": "\\b(bridge|io|math|time|screen|widget|collections|capture)\\b\\s*\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+          "captures": {
+            "1": { "name": "entity.name.namespace.std.vektorflow" },
+            "2": { "name": "entity.name.function.call.vektorflow" },
+            "3": { "name": "punctuation.parens.begin.vektorflow" }
           }
         }
       ]
@@ -120,101 +122,14 @@
     "function-definition": {
       "patterns": [
         {
-          "comment": "function head with optional return type",
-          "match": "^(\\s*)([a-zA-Z_][a-zA-Z0-9_]*|/\\\\|\\\\/|><|<=|>=|!=|[+\\-*/%^&~=<>])(\\s*)(\\()([^)]*)(\\))(\\s*(->)\\s*([^:#\\n]+))?(\\s*)(:)(?:\\s*(?:#.*)?\\s*)?$",
+          "comment": "f(num x):  f(x:num):  f(num x, int y) -> num: — head line",
+          "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^\\)]*)\\)\\s*(?:(->)\\s*([^:]+))?\\s*(:)(?:\\s*(?:#.*)?\\s*)?$",
           "captures": {
-            "2": { "name": "entity.name.function.definition.vektorflow" },
-            "4": { "name": "punctuation.parens.begin.vektorflow" },
-            "5": { "name": "variable.parameter.vektorflow" },
-            "6": { "name": "punctuation.parens.end.vektorflow" },
-            "9": { "name": "keyword.operator.thinarrow.vektorflow" },
-            "10": { "name": "entity.name.type.vektorflow" },
-            "12": { "name": "punctuation.block.head.vektorflow" }
-          }
-        }
-      ]
-    },
-    "type-definition": {
-      "patterns": [
-        {
-          "comment": "Point : (x:num, y:num) or Alias : [num:2]",
-          "match": "^(\\s*)([A-Z][a-zA-Z0-9_]*)(\\s*:)(\\s*)(?=(?:\\(|\\[|\\{|int\\b|num\\b|str\\b|byte\\b|bytes\\b|bool\\b|any\\b|[A-Z][a-zA-Z0-9_]*\\b))",
-          "captures": {
-            "2": { "name": "entity.name.type.definition.vektorflow" },
-            "3": { "name": "punctuation.separator.type.vektorflow" }
-          }
-        }
-      ]
-    },
-    "shape-type-expressions": {
-      "patterns": [
-        {
-          "comment": "shape/type expressions like [num:n] or [Point:n+m]",
-          "begin": "(?=\\[\\s*(?:int|num|str|byte|bytes|bool|any|vec|list|set|map|[A-Z][a-zA-Z0-9_]*)\\s*:)(\\[)",
-          "beginCaptures": {
-            "1": { "name": "punctuation.brackets.begin.vektorflow" }
-          },
-          "end": "(\\])",
-          "endCaptures": {
-            "1": { "name": "punctuation.brackets.end.vektorflow" }
-          },
-          "patterns": [
-            { "include": "#type-names" },
-            {
-              "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b",
-              "name": "variable.parameter.size.vektorflow"
-            },
-            { "include": "#numbers" },
-            { "include": "#operators-multi" },
-            { "include": "#operators-single" },
-            { "include": "#punctuation" }
-          ]
-        }
-      ]
-    },
-    "typed-bindings": {
-      "patterns": [
-        {
-          "comment": "[num:2] xs: ... or Point p: ...",
-          "match": "^(\\s*)((?:\\[[^\\]\\n]+\\]|\\{[^}\\n]+\\}|\\([^\\)\\n]+\\)|[A-Z][a-zA-Z0-9_]*|int|num|str|byte|bytes|bool|any))(\\s+)([a-zA-Z_][a-zA-Z0-9_]*)(\\s*:)(?!:)",
-          "captures": {
-            "2": { "name": "entity.name.type.vektorflow" },
-            "4": { "name": "variable.other.assignment.vektorflow" },
-            "5": { "name": "punctuation.separator.key-value.vektorflow" }
-          }
-        },
-        {
-          "comment": "field type annotations x:num inside records, params, and switch-like heads",
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\s*:)(\\s*)((?:\\[[^\\]\\n]+\\]|\\{[^}\\n]+\\}|\\([^\\)\\n]+\\)|[A-Z][a-zA-Z0-9_]*|int|num|str|byte|bytes|bool|any))",
-          "captures": {
-            "1": { "name": "variable.parameter.vektorflow" },
-            "2": { "name": "punctuation.separator.type.vektorflow" },
-            "4": { "name": "entity.name.type.vektorflow" }
-          }
-        }
-      ]
-    },
-    "constant-binding": {
-      "patterns": [
-        {
-          "match": "^(\\s*)([A-Z][A-Z0-9_]*)(\\s*:)(?!:)",
-          "captures": {
-            "2": { "name": "variable.other.constant.vektorflow" },
-            "3": { "name": "punctuation.separator.key-value.vektorflow" }
-          }
-        }
-      ]
-    },
-    "dotted-binding": {
-      "patterns": [
-        {
-          "comment": "person.name: ... or moved.state.total: ...",
-          "match": "^(\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\\s*\\.\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\\s*:)(?!:)",
-          "captures": {
-            "2": { "name": "variable.other.vektorflow" },
-            "3": { "name": "keyword.operator.deref.vektorflow" },
-            "4": { "name": "entity.name.tag.vektorflow" },
-            "5": { "name": "punctuation.separator.key-value.vektorflow" }
+            "1": { "name": "entity.name.function.definition.vektorflow" },
+            "2": { "name": "variable.parameter.list.vektorflow" },
+            "3": { "name": "keyword.operator.thinarrow.vektorflow" },
+            "4": { "name": "meta.function.return-type.vektorflow" },
+            "5": { "name": "punctuation.block.head.vektorflow" }
           }
         }
       ]
@@ -222,43 +137,10 @@
     "line-binding": {
       "patterns": [
         {
-          "match": "^(\\s*)([a-z_][a-zA-Z0-9_]*)(\\s*:)(?!:)",
+          "comment": "a: 3  (not a::, not f(x):) — simple toplevel/line binding",
+          "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*:(?!:)(?!:)",
           "captures": {
-            "2": { "name": "variable.other.assignment.vektorflow" },
-            "3": { "name": "punctuation.separator.key-value.vektorflow" }
-          }
-        }
-      ]
-    },
-    "control-heads": {
-      "patterns": [
-        {
-          "comment": "line-oriented heads with an explicit relational operator, e.g. k<4? or n<=3?>",
-          "match": "^(\\s*)([^#\\n]*?)(!=|<=|>=|=|<|>)([^#\\n]*?)(\\?\\?>|\\?>|\\?\\?|!\\?)(?=\\s|$)",
-          "captures": {
-            "2": { "name": "variable.other.readwrite.vektorflow" },
-            "3": { "name": "keyword.operator.comparison.vektorflow" },
-            "4": { "name": "variable.other.readwrite.vektorflow" },
-            "5": { "name": "keyword.control.conditional.vektorflow" }
-          }
-        },
-        {
-          "comment": "generic line-oriented conditional/switch/catch heads like value?? or missing!?",
-          "match": "^(\\s*)([^#\\n][^\\n]*?)(\\?\\?>|\\?>|\\?\\?|!\\?)(?=\\s|$)",
-          "captures": {
-            "2": { "name": "variable.other.readwrite.vektorflow" },
-            "3": { "name": "keyword.control.conditional.vektorflow" }
-          }
-        }
-      ]
-    },
-    "type-switch-arms": {
-      "patterns": [
-        {
-          "match": "\\b(int|num|str|byte|bytes|bool|any|[A-Z][a-zA-Z0-9_]*)(\\s*)(=>)",
-          "captures": {
-            "1": { "name": "entity.name.type.vektorflow" },
-            "3": { "name": "keyword.operator.fatarrow.vektorflow" }
+            "1": { "name": "variable.name.binding.vektorflow" }
           }
         }
       ]
@@ -279,169 +161,16 @@
         }
       ]
     },
-    "qualified-constants": {
-      "patterns": [
-        {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\s*\\.\\s*)([A-Z][A-Z0-9_]*)\\b",
-          "captures": {
-            "1": { "name": "entity.name.namespace.vektorflow" },
-            "2": { "name": "punctuation.accessor.vektorflow" },
-            "3": { "name": "variable.other.constant.vektorflow" }
-          }
-        }
-      ]
-    },
-    "stdlib-member-call": {
-      "patterns": [
-        {
-          "match": "\\b(bridge|capture|collections|errors|io|math|screen|stat|time|ui|widget)\\b(\\s*\\.\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*\\()",
-          "captures": {
-            "1": { "name": "entity.name.namespace.vektorflow" },
-            "2": { "name": "punctuation.accessor.vektorflow" },
-            "3": { "name": "support.function.vektorflow" }
-          }
-        },
-        {
-          "match": "\\b(bridge|capture|collections|errors|io|math|screen|stat|time|ui|widget)\\b(\\s*\\.\\s*)([a-zA-Z_][a-zA-Z0-9_]*)\\b",
-          "captures": {
-            "1": { "name": "entity.name.namespace.vektorflow" },
-            "2": { "name": "punctuation.accessor.vektorflow" },
-            "3": { "name": "variable.other.member.vektorflow" }
-          }
-        }
-      ]
-    },
-    "member-call": {
-      "patterns": [
-        {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\s*\\.\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*\\()",
-          "captures": {
-            "1": { "name": "variable.other.readwrite.vektorflow" },
-            "2": { "name": "punctuation.accessor.vektorflow" },
-            "3": { "name": "entity.name.function.member.vektorflow" }
-          }
-        }
-      ]
-    },
-    "field-access": {
-      "patterns": [
-        {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\s*\\.\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(?!\\s*\\()",
-          "captures": {
-            "1": { "name": "variable.other.readwrite.vektorflow" },
-            "2": { "name": "punctuation.accessor.vektorflow" },
-            "3": { "name": "variable.other.member.vektorflow" }
-          }
-        }
-      ]
-    },
-    "postfix-typeof": {
-      "patterns": [
-        {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\s*\\.)(?=\\s*(?:$|[),;\\]}}#]))",
-          "captures": {
-            "1": { "name": "variable.other.readwrite.vektorflow" },
-            "2": { "name": "keyword.operator.typeof.vektorflow" }
-          }
-        }
-      ]
-    },
-    "format-suffix": {
-      "patterns": [
-        {
-          "match": "(\\.)(\\d+)([a-zA-Z]+)\\b",
-          "captures": {
-            "1": { "name": "keyword.operator.format.vektorflow" },
-            "2": { "name": "constant.numeric.format.precision.vektorflow" },
-            "3": { "name": "storage.modifier.format.vektorflow" }
-          }
-        }
-      ]
-    },
-    "lambda-head": {
-      "patterns": [
-        {
-          "match": "(\\$)(\\()([^)]*)(\\))(\\s*:)",
-          "captures": {
-            "1": { "name": "keyword.operator.lambda.vektorflow" },
-            "2": { "name": "punctuation.parens.begin.vektorflow" },
-            "3": { "name": "variable.parameter.vektorflow" },
-            "4": { "name": "punctuation.parens.end.vektorflow" },
-            "5": { "name": "punctuation.block.head.vektorflow" }
-          }
-        }
-      ]
-    },
-    "function-call": {
-      "patterns": [
-        {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*\\()",
-          "captures": {
-            "1": { "name": "entity.name.function.call.vektorflow" }
-          }
-        }
-      ]
-    },
-    "property-labels": {
-      "patterns": [
-        {
-          "match": "([({\\[,]\\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\\s*:)(?!:)",
-          "captures": {
-            "2": { "name": "entity.name.tag.vektorflow" },
-            "3": { "name": "punctuation.separator.key-value.vektorflow" }
-          }
-        }
-      ]
-    },
-    "multiset-counts": {
-      "patterns": [
-        {
-          "comment": "numeric multiset/map counts like {1:1, 2:1}",
-          "match": "([\\{,]\\s*)(\\d+)(\\s*:)(\\s*)(\\d+)(?=\\s*(?:,|\\}))",
-          "captures": {
-            "2": { "name": "constant.numeric.integer.vektorflow" },
-            "3": { "name": "punctuation.separator.key-value.vektorflow" },
-            "5": { "name": "constant.numeric.multiset.count.vektorflow" }
-          }
-        }
-      ]
-    },
     "interpolation-expr": {
       "patterns": [
         { "include": "#comments" },
-        { "include": "#strings" },
-        { "include": "#qualified-constants" },
-        { "include": "#stdlib-member-call" },
-        { "include": "#member-call" },
-        { "include": "#postfix-typeof" },
-        { "include": "#function-call" },
-        { "include": "#property-labels" },
         { "include": "#numbers" },
         { "include": "#operators-multi" },
         { "include": "#at-forms" },
-        { "include": "#interpolation-nested-parens" },
+        { "include": "#function-call" },
         { "include": "#punctuation" },
         { "include": "#operators-single" },
-        { "include": "#type-names" },
         { "include": "#identifiers" }
-      ]
-    },
-    "interpolation-nested-parens": {
-      "patterns": [
-        {
-          "name": "meta.group.parens.interpolation.vektorflow",
-          "begin": "\\(",
-          "end": "\\)",
-          "beginCaptures": {
-            "0": { "name": "punctuation.parens.begin.vektorflow" }
-          },
-          "endCaptures": {
-            "0": { "name": "punctuation.parens.end.vektorflow" }
-          },
-          "patterns": [
-            { "include": "#interpolation-expr" }
-          ]
-        }
       ]
     },
     "keywords": {
@@ -451,8 +180,8 @@
           "match": "\\b(true|false)\\b"
         },
         {
-          "name": "constant.language.null.vektorflow",
-          "match": "\\bnull\\b"
+          "name": "storage.type.primitive.vektorflow",
+          "match": "\\b(int|float|num|str|byte|bytes|bool|any)\\b"
         }
       ]
     },
@@ -471,10 +200,6 @@
     "operators-multi": {
       "patterns": [
         {
-          "name": "keyword.operator.emit.line-sugar.vektorflow",
-          "match": ":::"
-        },
-        {
           "name": "keyword.operator.emit.vektorflow",
           "match": "::"
         },
@@ -484,7 +209,7 @@
         },
         {
           "name": "keyword.operator.comparison.vektorflow",
-          "match": "!=|<=|>="
+          "match": "==|~=|!=|<=|>="
         },
         {
           "name": "keyword.operator.fatarrow.vektorflow",
@@ -495,16 +220,12 @@
           "match": "->"
         },
         {
+          "name": "keyword.operator.arithmetic.vektorflow",
+          "match": "//"
+        },
+        {
           "name": "keyword.operator.range.vektorflow",
           "match": "\\.\\."
-        },
-        {
-          "name": "keyword.control.loop.vektorflow",
-          "match": "\\?\\?>|\\?>"
-        },
-        {
-          "name": "keyword.control.switch.vektorflow",
-          "match": "\\?\\?"
         },
         {
           "name": "keyword.operator.xor.vektorflow",
@@ -548,11 +269,11 @@
       "patterns": [
         {
           "name": "keyword.operator.infix.vektorflow",
-          "match": "\\(\\s*(?:[+\\-*/%^&~]|/\\\\|\\\\/|><|<=|>=|!=|=|<|>)\\s*\\)"
+          "match": "\\(\\s*[+\\-*/]\\s*\\)"
         },
         {
           "name": "keyword.operator.infix.vektorflow",
-          "match": "\\{\\s*(?:[+\\-*/%^&~]|/\\\\|\\\\/|><|<=|>=|!=|=|<|>)\\s*\\}"
+          "match": "\\{\\s*[+\\-*/]\\s*\\}"
         }
       ]
     },
@@ -595,7 +316,7 @@
           "match": "\\|"
         },
         {
-          "name": "keyword.control.conditional.vektorflow",
+          "name": "keyword.operator.match.vektorflow",
           "match": "\\?"
         }
       ]
@@ -636,12 +357,20 @@
         }
       ]
     },
-    "type-names": {
+    "function-call": {
       "patterns": [
         {
-          "name": "entity.name.type.builtin.vektorflow",
-          "match": "\\b(int|num|str|byte|bytes|bool|any|vec|list|set|map)\\b"
-        },
+          "comment": "identifier( — calls (def line handled above; std method handled above)",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.call.vektorflow" },
+            "2": { "name": "punctuation.parens.begin.vektorflow" }
+          }
+        }
+      ]
+    },
+    "type-names": {
+      "patterns": [
         {
           "name": "entity.name.type.class.vektorflow",
           "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"

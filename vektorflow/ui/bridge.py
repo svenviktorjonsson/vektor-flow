@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 import urllib.error
 import urllib.request
+from typing import Protocol
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,65 @@ def _port_file_candidates() -> list[Path]:
 
 
 _cached_base: str | None = None
+
+
+class _BridgeTimerHost(Protocol):
+    """Host callbacks used by bridge polling."""
+
+    def monotonic(self) -> float: ...
+
+    def sleep(self, seconds: float) -> None: ...
+
+
+class _PythonBridgeTimerHost:
+    """Default host adapter backed by Python ``time``."""
+
+    def monotonic(self) -> float:
+        import time
+
+        return time.monotonic()
+
+    def sleep(self, seconds: float) -> None:
+        import time
+
+        time.sleep(float(seconds))
+
+
+def _normalize_bridge_timer_host(host: _BridgeTimerHost) -> _BridgeTimerHost:
+    for name in ("monotonic", "sleep"):
+        if not callable(getattr(host, name, None)):
+            raise TypeError(
+                "bridge timer host must define monotonic() and sleep(seconds)"
+            )
+    return host
+
+
+_timer_host: _BridgeTimerHost = _PythonBridgeTimerHost()
+
+
+def set_bridge_timer_host(host: _BridgeTimerHost) -> None:
+    """Install a custom timer host for vf_base_url polling."""
+    global _timer_host
+    _timer_host = _normalize_bridge_timer_host(host)
+
+
+def reset_bridge_timer_host() -> None:
+    """Restore the default Python timer host."""
+    global _timer_host
+    _timer_host = _PythonBridgeTimerHost()
+
+
+def get_bridge_timer_host() -> _BridgeTimerHost:
+    """Return the currently installed timer host."""
+    return _timer_host
+
+
+def _now() -> float:
+    return _timer_host.monotonic()
+
+
+def _sleep(seconds: float) -> None:
+    _timer_host.sleep(float(seconds))
 
 
 def clear_base_cache() -> None:
@@ -77,16 +136,16 @@ def vf_base_url(
             return _cached_base
 
     candidates = _port_file_candidates()
-    deadline = time.monotonic() + max(0.0, wait_seconds)
+    deadline = _now() + max(0.0, wait_seconds)
     while True:
         for c in candidates:
             pr = _read_port_file(c)
             if pr is not None:
                 _cached_base = f"http://127.0.0.1:{pr}"
                 return _cached_base
-        if time.monotonic() >= deadline:
+        if _now() >= deadline:
             break
-        time.sleep(poll_interval)
+        _sleep(poll_interval)
 
     raise RuntimeError(
         "vf overlay API base not found: set VEKTORFLOW_VF_API, VEKTORFLOW_VF_PORT, or "

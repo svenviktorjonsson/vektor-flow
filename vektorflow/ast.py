@@ -38,13 +38,11 @@ class Ident:
 @dataclass
 class TupleLit:
     elements: list[Any]
-    axis_tag: str | None = None  # fast path: ``(1,2)_i`` only — not struct literals
 
 
 @dataclass
 class ListLit:
     elements: list[Any]
-    axis_tag: str | None = None  # ``[1,2]_i`` — not ``(x:1)`` structs
 
 
 @dataclass
@@ -60,21 +58,6 @@ class MsetSpill:
     """Inside ``[…]``: leading ``:expr`` — multiset ``expr`` expands to repeated elements (multiplicity preserved)."""
 
     expr: Any
-
-
-@dataclass
-class TypeKeySet:
-    """Inside ``{…}``: leading ``:expr`` where expr is a type — collect member keys."""
-
-    expr: Any
-
-
-@dataclass
-class AxisTag:
-    """``expr -> i`` / ``expr -> ij`` — attach named tensor axes to a value."""
-
-    value: Any
-    axis_tag: str
 
 
 @dataclass
@@ -107,12 +90,33 @@ class MultisetLit:
     """Multiset literal ``{value:count, ...}`` — counts are positive integers."""
 
     pairs: list[tuple[Any, Any]]
-    axis_tag: str | None = None  # ``{1:2}_ij``
+
+
+@dataclass
+class MultisetFromValues:
+    """Inside ``{}``: leading ``:expr`` — spill a compatible container into a multiset literal."""
+
+    expr: Any
+
+
+@dataclass
+class AxisAlign:
+    """Axis tagging via tight ``->`` (same adjacency rules as ``.``).
+
+    Exactly one of ``label`` or ``indices`` is set. ``label`` is the raw identifier
+    text after ``->`` (never a variable lookup), so ``->ij`` tags as ``ij`` even if
+    ``ij`` is bound. ``indices`` is ``->(...)`` / ``->.$`` / ``->.0`` shapes like dotted
+    access; expressions are evaluated to a single axis key string.
+    """
+
+    value: Any
+    label: str | None = None
+    indices: list[Any] | None = None
 
 
 @dataclass
 class Lambda:
-    """Anonymous function ``(x, y): expr`` — parameters are names only."""
+    """Anonymous function ``($(x, y): expr)`` — parameters are names only."""
 
     params: list[str]
     body: Any
@@ -150,6 +154,13 @@ class SpreadArg:
 class Attribute:
     value: Any
     name: str
+
+
+@dataclass
+class RaiseExpr:
+    """``expr!`` — evaluate ``expr`` and raise the resulting error value."""
+
+    value: Any
 
 
 @dataclass
@@ -198,14 +209,6 @@ class StructLit:
 
 
 @dataclass
-class BindExpr:
-    """Expression-level bind ``target: expr``; evaluates to the bound value."""
-
-    target: Any
-    value: Any
-
-
-@dataclass
 class TypeExpr:
     """Record type shape ``(x:num, y:num)`` for interfaces."""
 
@@ -234,6 +237,20 @@ class PrimTypeRef:
     """Single primitive or named type in a function domain, e.g. ``num`` in ``num -> num``."""
 
     name: str
+
+
+@dataclass
+class TypeUnionExpr:
+    """Type union ``A|B``."""
+
+    members: list[Any]
+
+
+@dataclass
+class TypeIntersectionExpr:
+    """Type intersection ``A&B``."""
+
+    members: list[Any]
 
 
 @dataclass
@@ -294,6 +311,9 @@ class Param:
     type_name: str | None = None
     param_func_type: FuncType | None = None  # ``f:num->num`` — function parameter
     type_ref: Any | None = None
+    default_expr: Any | None = None
+    variadic_positional: bool = False
+    variadic_named: bool = False
 
 
 Stmt = Any
@@ -304,13 +324,7 @@ class Bind:
     target: Any  # Ident, Attribute, or DottedIndex
     value: Any
     declared_type: Any | None = None
-
-
-@dataclass
-class UpdateBind:
-    target: Any  # Ident, Attribute, or DottedIndex
-    op: str
-    value: Any
+    docstring: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -323,16 +337,16 @@ class Emit:
 
 @dataclass
 class StdioPrint:
-    """``:: expr`` — print to stdout.
+    """``:: expr`` — print to stdout with no implicit newline (exact stringified output)."""
 
-    A trailing newline is added unless the stringified value already ends with
-    ``\\n`` (e.g. ``$ & "\\n"`` or a string literal that ends with ``\\n``), so you
-    can control line endings explicitly in tight loops.
+    value: Any
 
-    ``::: expr`` is syntactic sugar for printing ``expr`` as a line (same as
-    ``:: (expr & "\\n")`` / ``::"$a\\n"``-style output when ``expr`` is ``a``).
-    """
 
+@dataclass
+class StdioLabelPrint:
+    """``::: expr`` — print ``expr_text: value\\n`` for quick labeled inspection."""
+
+    expr_text: str
     value: Any
 
 
@@ -340,10 +354,31 @@ class StdioPrint:
 class SpillImport:
     """``: .path`` — load module (``.vkf`` / folder / stdlib) and merge exports into current scope.
     If ``alias`` is set (e.g. ``time:.time``) the module is bound under that name only (no spill).
-    If ``alias`` is None (plain ``:.path``) exports are spilled AND the module is bound by its short name."""
+    If ``alias`` is None (plain ``:.path``) only exported names are spilled into the current scope."""
 
     path: Any        # DotModulePath
     alias: str | None = None  # e.g. "time" from ``time:.time``
+
+
+@dataclass
+class SpillValue:
+    """``:expr`` — spill full object behavior and any visible fields into current local scope."""
+
+    value: Any
+
+
+@dataclass
+class SpillExpr:
+    """``(:expr)`` — materialize the spill result of ``expr`` as a scope record value."""
+
+    value: Any
+
+
+@dataclass
+class ScopeExpr:
+    """Scoped block expression — returns last row; lone ``:`` returns the local scope record."""
+
+    body: "Block"
 
 
 @dataclass
@@ -351,6 +386,7 @@ class StdioReadLine:
     """``name ::`` — read one line from stdin into ``name``."""
 
     target: Any  # Ident
+    declared_type: Any | None = None
 
 
 @dataclass
@@ -358,6 +394,7 @@ class StdioPrompt:
     """``name:::` — print ``name: `` then read one line (prompted stdin)."""
 
     target: Any  # Ident
+    declared_type: Any | None = None
 
 
 @dataclass
@@ -370,11 +407,30 @@ class FuncDefStdin:
 
 
 @dataclass
+class EvalBind:
+    """``name :: expr`` — evaluate source text/value and bind result to ``name``."""
+
+    target: Any  # Ident
+    source: Any
+    declared_type: Any | None = None
+
+
+@dataclass
+class FuncDefSource:
+    """``f(x) :: expr`` — compile function body from source text at runtime."""
+
+    name: str
+    params: list[Param]
+    source: Any
+
+
+@dataclass
 class FuncDef:
     name: str
     params: list[Param]
     body: Union[Any, "Block"]
     func_type: FuncType | None = None
+    docstring: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -459,6 +515,15 @@ class ConditionalExpr:
     condition: Any
     body: Any
     loop: bool = False
+
+
+@dataclass
+class AssertExpr:
+    """``condition?!`` or ``condition?! message`` — fail if falsy."""
+
+    condition: Any
+    message: Any | None = None
+    condition_text: str | None = None
 
 
 @dataclass

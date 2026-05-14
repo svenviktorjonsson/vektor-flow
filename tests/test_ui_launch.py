@@ -264,16 +264,17 @@ class TestOverlayMode:
         monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
         set_ui_mode("overlay")
 
-        calls: list = []
+        proc = MagicMock()
+        proc.pid = 12345
 
-        def _fake_popen(*args, **kwargs):
-            calls.append(args)
-
-        with patch("vektorflow.ui.launch.subprocess.Popen", side_effect=_fake_popen):
+        with (
+            patch("vektorflow.ui.launch.subprocess.Popen", return_value=proc) as popen,
+            patch.object(L, "_wait_for_overlay_ready", return_value=12345),
+        ):
             maybe_launch_vf_overlay()
             maybe_launch_vf_overlay()  # second call must be a no-op
 
-        assert len(calls) == 1
+        assert popen.call_count == 1
 
     def test_overlay_exe_missing_warns(self, monkeypatch, capsys) -> None:
         monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
@@ -290,6 +291,7 @@ class TestOverlayMode:
         web_root = bundle_root / "web" / "vf-ui"
         (web_root / "index.html").parent.mkdir(parents=True, exist_ok=True)
         (web_root / "index.html").write_text("<!doctype html>", encoding="utf-8")
+        (web_root / "vkf-scene.html").write_text("<!doctype html>", encoding="utf-8")
         exe = bundle_root / "vf-overlay.exe"
         exe.write_bytes(b"")
         monkeypatch.chdir(tmp_path)

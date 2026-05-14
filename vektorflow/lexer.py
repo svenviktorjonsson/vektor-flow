@@ -14,8 +14,9 @@ Responsibilities
 * ``@`` is tokenized **before** ``:`` so ``@::`` is one token (return+emit), not ``@:`` + ``::``.
 * Inside matched brackets, newlines are ignored (implicit line continuation).
 
-* Double-quoted strings (``"..."``) use backslash escapes (``\\n``, ``\\t``, ``\\\\``, ``\\"``, ``\\$``, …).
-* Single-quoted strings (``'...'``) are **raw**: no escape sequences; dollar and
+* Double-quoted strings (single-line and triple-double-quoted) use backslash escapes
+  (``\\n``, ``\\t``, ``\\\\``, ``\\"``, ``\\$``, …).
+* Single-quoted strings (single-line and triple-single-quoted) are **raw**: no escape sequences; dollar and
   backslash are literal. A single quote inside the text is written as ``''``
   (SQL-style). They tokenize as ``STRING_RAW`` and skip ``$`` interpolation.
 
@@ -34,6 +35,7 @@ from .tokens import (
     AND,
     ARROW,
     AT,
+    BANG,
     AT_BANG,
     AT_BAR,
     AT_COLON,
@@ -45,11 +47,13 @@ from .tokens import (
     DEDENT,
     DOLLAR,
     DOT,
+    ELLIPSIS,
     EMIT,
     EOF,
     EQ,
+    EXACT_EQ,
     FAT_ARROW,
-    FLOOR_DIV,
+    FLOORDIV,
     GE,
     GT,
     IDENT,
@@ -78,6 +82,7 @@ from .tokens import (
     SEMICOLON,
     SLASH,
     STAR,
+    STRUCT_NEQ,
     STRING,
     STRING_RAW,
     Token,
@@ -295,10 +300,20 @@ class Lexer:
             return
 
         if ch == "-":
+            minus_pos = self.pos
+            left_adjacent = (
+                minus_pos > 0 and self.src[minus_pos - 1] not in (" ", "\t", "\r")
+            )
             self._advance()
             if self._peek() == ">":
                 self._advance()
-                self._emit(ARROW, None, loc)
+                right_adjacent = self.pos < len(self.src) and self.src[self.pos] not in (
+                    " ",
+                    "\t",
+                    "\n",
+                    "\r",
+                )
+                self._emit(ARROW, (left_adjacent, right_adjacent), loc)
             else:
                 self._emit(MINUS, None, loc)
             return
@@ -340,11 +355,22 @@ class Lexer:
             return
         if ch == "=":
             self._advance()
-            if self._peek() == ">":
+            if self._peek() == "=":
+                self._advance()
+                self._emit(EXACT_EQ, None, loc)
+            elif self._peek() == ">":
                 self._advance()
                 self._emit(FAT_ARROW, None, loc)
             else:
                 self._emit(EQ, None, loc)
+            return
+        if ch == "~":
+            self._advance()
+            if self._peek() == "=":
+                self._advance()
+                self._emit(STRUCT_NEQ, None, loc)
+            else:
+                self._emit(NOT, None, loc)
             return
         if ch == "!":
             self._advance()
@@ -356,7 +382,8 @@ class Lexer:
                 self._advance()
                 self._emit(NEQ, None, loc)
                 return
-            raise LexError("Unexpected '!'; did you mean '!=', '!?'?", loc)
+            self._emit(BANG, None, loc)
+            return
         if ch == "<":
             self._advance()
             if self._peek() == "=":
@@ -386,7 +413,7 @@ class Lexer:
                 self._emit(AND, None, loc)
             elif self._peek() == "/":
                 self._advance()
-                self._emit(FLOOR_DIV, None, loc)
+                self._emit(FLOORDIV, None, loc)
             else:
                 self._emit(SLASH, None, loc)
             return
@@ -409,21 +436,27 @@ class Lexer:
             pos_at_dot = self.pos
             # Only spaces/tabs before `.` break the reach; newline is allowed (line continuation).
             left_adjacent = pos_at_dot > 0 and self.src[pos_at_dot - 1] not in (" ", "\t", "\r")
-            self._advance()
-            if self._peek() == ".":
+            if self._peek(1) == "." and self._peek(2) == ".":
                 self._advance()
-                self._emit(RANGE, None, loc)
+                self._advance()
+                self._advance()
+                self._emit(ELLIPSIS, None, loc)
             else:
-                right_adjacent = self.pos < len(self.src) and self.src[self.pos] not in (
-                    " ",
-                    "\t",
-                    "\n",
-                    "\r",
-                )
-                # (left_adjacent, right_adjacent): tight reach requires no whitespace
-                # touching `.` on that side.
-                self._emit(DOT, (left_adjacent, right_adjacent), loc)
-                self._field_name_next = right_adjacent
+                self._advance()
+                if self._peek() == ".":
+                    self._advance()
+                    self._emit(RANGE, None, loc)
+                else:
+                    right_adjacent = self.pos < len(self.src) and self.src[self.pos] not in (
+                        " ",
+                        "\t",
+                        "\n",
+                        "\r",
+                    )
+                    # (left_adjacent, right_adjacent): tight reach requires no whitespace
+                    # touching `.` on that side.
+                    self._emit(DOT, (left_adjacent, right_adjacent), loc)
+                    self._field_name_next = right_adjacent
             return
 
         if ch in _SINGLE_CHAR:
@@ -473,6 +506,9 @@ class Lexer:
         self._emit(NUMBER, value, loc)
 
     def _lex_string(self, loc: SourceLocation) -> None:
+        if self._peek(1) == '"' and self._peek(2) == '"':
+            self._lex_string_triple(loc)
+            return
         self._advance()  # opening quote
         out: list[str] = []
         windows_path_mode = False
@@ -502,8 +538,36 @@ class Lexer:
             self._advance()
         raise LexError("Unterminated string literal", loc)
 
+    def _lex_string_triple(self, loc: SourceLocation) -> None:
+        self._advance()
+        self._advance()
+        self._advance()
+        out: list[str] = []
+        while self.pos < len(self.src):
+            if self._peek() == '"' and self._peek(1) == '"' and self._peek(2) == '"':
+                self._advance()
+                self._advance()
+                self._advance()
+                self._emit(STRING, "".join(out), loc)
+                return
+            ch = self._peek()
+            if ch == "\\":
+                self._advance()
+                esc = self._peek()
+                if esc == "":
+                    raise LexError("Unterminated triple-quoted string literal", loc)
+                self._advance()
+                out.append(_decode_escape(esc, loc))
+                continue
+            out.append(ch)
+            self._advance()
+        raise LexError("Unterminated triple-quoted string literal", loc)
+
     def _lex_string_single(self, loc: SourceLocation) -> None:
         """Single-quoted literal: no `\\` escapes; `''` -> one `'`; `$` and `\\` are kept as-is."""
+        if self._peek(1) == "'" and self._peek(2) == "'":
+            self._lex_string_single_triple(loc)
+            return
         self._advance()  # opening '
         out: list[str] = []
         while self.pos < len(self.src):
@@ -521,6 +585,25 @@ class Lexer:
             out.append(ch)
             self._advance()
         raise LexError("Unterminated single-quoted string literal", loc)
+
+    def _lex_string_single_triple(self, loc: SourceLocation) -> None:
+        self._advance()
+        self._advance()
+        self._advance()
+        out: list[str] = []
+        while self.pos < len(self.src):
+            if self._peek() == "'" and self._peek(1) == "'" and self._peek(2) == "'":
+                self._advance()
+                self._advance()
+                self._advance()
+                self._emit(STRING_RAW, "".join(out), loc)
+                return
+            ch = self._peek()
+            if ch == "":
+                break
+            out.append(ch)
+            self._advance()
+        raise LexError("Unterminated triple single-quoted string literal", loc)
 
     def _lex_ident(self, loc: SourceLocation, *, field_name: bool = False) -> None:
         start = self.pos

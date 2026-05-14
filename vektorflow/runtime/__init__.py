@@ -71,6 +71,7 @@ from .value_access import (
 )
 from .vflist import VFLinkedList
 from .vfqueue import VFQueue
+from .vfvector import VFVector, VFVectorBuilder
 from .vmap import VMap
 
 __all__ = [
@@ -90,6 +91,8 @@ __all__ = [
     "Multiset",
     "VFLinkedList",
     "VFQueue",
+    "VFVector",
+    "VFVectorBuilder",
     "VMap",
     "abs_or_norm",
     "cartesian_binary",

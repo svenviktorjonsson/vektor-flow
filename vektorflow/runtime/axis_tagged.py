@@ -13,7 +13,6 @@ from .multiset import (
     multiset_difference,
     multiset_union,
 )
-from .type_values import combine_typed_multiset_types, wrap_typed_multiset_result
 
 
 @dataclass
@@ -60,6 +59,12 @@ def axis_tagged_stringify(value: Any, stringify_item: Any) -> str | None:
     if not isinstance(value, AxisTaggedValue):
         return None
     return stringify_item(value.data)
+
+
+def _wrap_typed_multiset_result(result: Multiset, a: Multiset, b: Multiset) -> Any:
+    from .type_values import combine_typed_multiset_types, wrap_typed_multiset_result
+
+    return wrap_typed_multiset_result(result, combine_typed_multiset_types(a, b))
 
 
 def _apply_scalar_axis_op(op: str, left: Any, right: Any, error_factory: Callable[[str], Exception]) -> Any:
@@ -192,7 +197,7 @@ def axis_tagged_binary_op(
                 return True, axis_tagged_wrap(ad + bd, a_idx)
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    _wrap_typed_multiset_result(multiset_union(ad, bd), ad, bd),
                     a_idx,
                 )
             raise error_factory(
@@ -205,7 +210,7 @@ def axis_tagged_binary_op(
                 return True, axis_tagged_wrap(tuple(x + y for x, y in zip(ad, bd)), a_idx)
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(multiset_union(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    _wrap_typed_multiset_result(multiset_union(ad, bd), ad, bd),
                     a_idx,
                 )
         if op == "MINUS":
@@ -215,7 +220,7 @@ def axis_tagged_binary_op(
                 return True, axis_tagged_wrap(tuple(x - y for x, y in zip(ad, bd)), a_idx)
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(multiset_difference(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    _wrap_typed_multiset_result(multiset_difference(ad, bd), ad, bd),
                     a_idx,
                 )
         if op == "STAR":
@@ -235,13 +240,13 @@ def axis_tagged_binary_op(
         if op == "FLOOR_DIV":
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(multiset_count_floor_div(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    _wrap_typed_multiset_result(multiset_count_floor_div(ad, bd), ad, bd),
                     a_idx,
                 )
         if op == "PERCENT":
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 return True, axis_tagged_wrap(
-                    wrap_typed_multiset_result(multiset_count_mod(ad, bd), combine_typed_multiset_types(ad, bd)),
+                    _wrap_typed_multiset_result(multiset_count_mod(ad, bd), ad, bd),
                     a_idx,
                 )
         raise error_factory(
