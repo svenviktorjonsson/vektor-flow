@@ -113,6 +113,7 @@ OPERATOR_SYMBOLS = frozenset(
         "\\/",
         "><",
         "~",
+        "::",
     }
 )
 
@@ -604,7 +605,7 @@ class Interpreter:
         self.globals: dict[str, Any] = {}
         self.types: dict[str, ast.TypeExpr | ast.FuncType] = {}
         self.op_overloads: dict[str, list[VFunction]] = {}
-        self.display_overloads: list[VFunction] = []
+        self.emit_overloads: list[VFunction] = []
         self.cast_overloads: dict[str, list[VFunction]] = {}
         # `@:` may only return to the nearest callable `:` scope.
         self._return_scope_depth: int = 0
@@ -918,10 +919,6 @@ class Interpreter:
                 )
                 self.types[node.name] = type_expr
                 ctor = VStructCtor(node.name, node.params, dict(env))
-                if node.name == "display" and len(node.params) == 1:
-                    raise EvalError(
-                        "display overload must be a function with a body, not a struct constructor"
-                    )
                 env[node.name] = ctor
                 return None
             closure = dict(env)
@@ -935,9 +932,9 @@ class Interpreter:
             )
             vf.ip = self
             closure[node.name] = vf
-            if node.name == "display" and len(node.params) == 1:
-                _validate_custom_unary_overload(node.params, "display(value: T)")
-                self.display_overloads.append(vf)
+            if node.name == "::" and len(node.params) == 1:
+                _validate_custom_unary_overload(node.params, "::(value: T)")
+                self.emit_overloads.append(vf)
             elif node.name in ("num", "str", "bool", "byte") and len(node.params) == 1:
                 _validate_custom_unary_overload(node.params, f"{node.name}(value: T)")
                 self.cast_overloads.setdefault(node.name, []).append(vf)
@@ -1489,6 +1486,11 @@ class Interpreter:
             self._return_scope_depth -= 1
 
     def _print_value(self, val: Any, env: dict[str, Any]) -> None:
+        if self.emit_overloads:
+            emit_fn = self._pick_unary_overload(self.emit_overloads, val)
+            if emit_fn is not None:
+                self._call(emit_fn, [val], env)
+                return
         s = self._stringify_for_display(val, env)
         # If the value already ends with a newline (e.g. ``$ & "\n"``), do not add another.
         if s.endswith("\n"):
@@ -1511,11 +1513,6 @@ class Interpreter:
         return best_fn
 
     def _stringify_for_display(self, val: Any, env: dict[str, Any]) -> str:
-        if self.display_overloads:
-            best_fn = self._pick_unary_overload(self.display_overloads, val)
-            if best_fn is not None:
-                shown = self._call(best_fn, [val], env)
-                return _stringify(shown, self.types)
         str_variants = self.cast_overloads.get("str") or []
         if str_variants:
             cast_fn = self._pick_unary_overload(str_variants, val)
@@ -1790,7 +1787,7 @@ class Interpreter:
         self.types.update(child.types)
         for k, vs in child.op_overloads.items():
             self.op_overloads.setdefault(k, []).extend(vs)
-        self.display_overloads.extend(child.display_overloads)
+        self.emit_overloads.extend(child.emit_overloads)
         return _exports(child.globals)
 
     def _load_folder(self, folder: Path) -> dict[str, Any]:

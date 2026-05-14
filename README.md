@@ -549,11 +549,11 @@ q: (x: 3, y: 4)
 :: (p + q)
 ```
 
-Custom display works through `display`.
+Custom print display overloads the `::` operator.
 
 ```vkf
-display(value: Point):
-    "Point($value.x, $value.y)"
+::(value: Point):
+    :: "Point($value.x, $value.y)"
 
 :: p
 ```

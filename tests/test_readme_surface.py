@@ -59,7 +59,7 @@ b : bool
     def test_emit_overload(self) -> None:
         src = """
 Point : (x:num, y:num)
-display(value:Point): "($value.x,$value.y)"
+::(value:Point): :: "($value.x,$value.y)"
 q : (x:3, y:4)
 :: q
 """

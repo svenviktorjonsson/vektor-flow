@@ -3,7 +3,7 @@
 
 Point : (x:num, y:num)
 +(a:Point, b:Point): (x:a.x+b.x, y:a.y+b.y)
-display(value:Point): "($value.x.1f, $value.y.1f)"
+::(value:Point): :: "($value.x.1f, $value.y.1f)"
 
 p : (x:1, y:2)
 q : (x:3, y:4)

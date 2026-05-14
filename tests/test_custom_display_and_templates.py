@@ -28,8 +28,8 @@ Person(name:str, age:num):
 str(p:Person):
     "str:" & p.name
 
-display(p:Person):
-    "display:" & p.name
+::(p:Person):
+    :: "display:" & p.name
 
 p : Person("Ada", 42)
 :: p

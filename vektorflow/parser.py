@@ -73,6 +73,7 @@ from .tokens import (
 OPERATOR_FUNC_KINDS = frozenset(
     {
         DOT,
+        EMIT,
         PLUS,
         MINUS,
         STAR,
@@ -98,6 +99,7 @@ OPERATOR_FUNC_KINDS = frozenset(
 def _token_kind_to_op_symbol(kind: str) -> str:
     m = {
         DOT: ".",
+        EMIT: "::",
         PLUS: "+",
         MINUS: "-",
         STAR: "*",
@@ -475,6 +477,10 @@ class Parser:
         # Leading ``:: expr`` — print to stdout; ``:: :`` prints the current local scope (see StructIdentity).
         # ``::: expr`` is sugar for ``:: (expr & "\\n")`` (line-oriented print, like ``::"$a\\n"`` with interpolation).
         if self._peek_raw() == EMIT:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                k_after = self._kind_after_balanced_call_from_lparen(self.i + 1)
+                if k_after == COLON:
+                    return self.parse_operator_func_def()
             self._advance()
             if self._peek_raw() == COLON:
                 self._advance()
