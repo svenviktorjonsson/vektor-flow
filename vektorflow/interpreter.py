@@ -237,6 +237,10 @@ def _expr_refs_param(expr: Any, param_names: set[str]) -> bool:
             if _expr_refs_param(a, param_names) or _expr_refs_param(b, param_names):
                 return True
         return False
+    if isinstance(expr, ast.TypeKeySet):
+        return _expr_refs_param(expr.expr, param_names)
+    if isinstance(expr, ast.AxisTag):
+        return _expr_refs_param(expr.value, param_names)
     if isinstance(expr, ast.StructLit):
         for _n, v in expr.fields:
             if _expr_refs_param(v, param_names):
@@ -284,6 +288,17 @@ def _is_struct_ctor_body(body: Any) -> bool:
 def _local_scope_as_record(env: dict[str, Any]) -> dict[str, Any]:
     """Snapshot of current locals as an untagged record (for ``:`` expression)."""
     return snapshot_scope_record(env)
+
+
+def _type_member_fields(value: Any) -> list[tuple[str, Any]]:
+    """Member surface for spilling a struct-like type into another container."""
+    if isinstance(value, ast.NamedTypeSpec):
+        value = value.type_expr
+    if isinstance(value, ast.TypeExpr):
+        return list(value.fields)
+    if isinstance(value, ast.TupleTypeExpr):
+        return [(str(i), inner) for i, inner in enumerate(value.elements)]
+    raise EvalError("type member spill requires a struct or tuple type value")
 
 
 def _vf_bool_display(b: bool) -> str:
@@ -1065,6 +1080,10 @@ class Interpreter:
             self._assign_bind(node.target, val, env)
             return val
         if isinstance(node, ast.TupleLit):
+            if len(node.elements) == 1 and isinstance(node.elements[0], ast.SpreadArg):
+                spilled = self.eval_expr(node.elements[0].expr, env)
+                if isinstance(spilled, (ast.TypeExpr, ast.TupleTypeExpr, ast.NamedTypeSpec)):
+                    return {name: typ for name, typ in _type_member_fields(spilled)}
             out: list[Any] = []
             for e in node.elements:
                 if isinstance(e, ast.SpreadArg):
@@ -1103,6 +1122,9 @@ class Interpreter:
             for e in node.elements:
                 if isinstance(e, ast.MsetSpill):
                     m = self.eval_expr(e.expr, env)
+                    if isinstance(m, (ast.TypeExpr, ast.TupleTypeExpr, ast.NamedTypeSpec)):
+                        out.extend(typ for _, typ in _type_member_fields(m))
+                        continue
                     out.extend(runtime_collection_spill_values(m))
                     continue
                 if isinstance(e, ast.VectorRepeat):
@@ -1127,6 +1149,11 @@ class Interpreter:
                 name: self.eval_expr(val, env)
                 for name, val in node.fields
             }
+        if isinstance(node, ast.TypeKeySet):
+            value = self.eval_expr(node.expr, env)
+            return Multiset({name: 1 for name, _ in _type_member_fields(value)})
+        if isinstance(node, ast.AxisTag):
+            return axis_tagged_wrap(self.eval_expr(node.value, env), node.axis_tag)
         if isinstance(node, ast.StructIdentity):
             return _local_scope_as_record(env)
         if isinstance(node, ast.MultisetLit):

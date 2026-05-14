@@ -1,4 +1,4 @@
-"""Values produced by axis suffixes ``_``, ``_i``, ``_ij`` on literal vectors, tuples, or multisets."""
+"""Values produced by axis tags such as ``-> i`` or suffixes ``_i``."""
 
 from __future__ import annotations
 

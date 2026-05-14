@@ -40,6 +40,23 @@ v : [1, 2]_i
 """
         assert _emit(src) == "i"
 
+    def test_vector_arrow_axis_idx(self) -> None:
+        src = """
+v : [1, 2] -> i
+:: v.idx
+"""
+        assert _emit(src) == "i"
+
+    def test_arrow_axis_broadcasts_like_suffix(self) -> None:
+        src = """
+a : [1, 2] -> i
+b : [10, 20] -> j
+out : a * b
+:: out.idx
+:: out.(0).(1)
+"""
+        assert _emit(src).splitlines() == ["ij", "20"]
+
     def test_vector_suffix_ij(self) -> None:
         src = """
 w : [1, 2, 3]_ij

@@ -216,6 +216,32 @@ b : (m: {{1:1}},)
             _run_emit(src)
 
 
+class TestTypeMemberSpills:
+    def test_struct_type_spills_to_record_of_member_types(self) -> None:
+        src = """
+point: (x:3, y:4)
+members: (:point.)
+:: members
+"""
+        assert _run_emit(src) == "(x:num, y:num)"
+
+    def test_struct_type_spills_to_vector_of_member_types(self) -> None:
+        src = """
+point: (x:3, y:4)
+members: [:point.]
+:: members
+"""
+        assert _run_emit(src) == "[num, num]"
+
+    def test_struct_type_spills_to_multiset_of_member_keys(self) -> None:
+        src = """
+point: (x:3, y:4)
+members: {:point.}
+:: members
+"""
+        assert _run_emit(src) == "{x:1, y:1}"
+
+
 class TestStructElementwiseArithmeticFields:
     """``%`` and ``^`` apply field-wise between structs (same shape)."""
 

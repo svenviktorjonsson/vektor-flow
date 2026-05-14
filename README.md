@@ -265,6 +265,36 @@ numbers: [1..5]
 zero_to_three: [..3]
 ```
 
+### Axis Tags And Tensor-Style Operations
+
+Attach named axes to vectors with `-> axis`. Matching axis names align; missing
+axes broadcast. This makes elementwise math feel close to Einstein notation.
+
+```vkf
+a: [1, 2] -> i
+b: [10, 20] -> j
+
+outer: a * b
+:: outer.idx      # ij
+:: outer.(0).(1)  # 20
+```
+
+Shared axes multiply elementwise along that axis and broadcast across the rest.
+
+```vkf
+matrix: [[1, 2], [3, 4]] -> ij
+scale: [10, 20] -> j
+
+scaled: matrix * scale
+:: scaled         # ((10, 40), (30, 80))
+```
+
+The older suffix form is still accepted for compact literals:
+
+```vkf
+v: [1, 2, 3]_i
+```
+
 ### Multisets
 
 Multisets use `{value: count}` and store multiplicities.
@@ -341,6 +371,37 @@ length2(p:Point):
     p.x*p.x + p.y*p.y
 ```
 
+### Core Types And Type Reflection
+
+Core scalar types are `num`, `int`, `str`, `bool`, and `null`. Containers add
+shape:
+
+```vkf
+Point: (x:num, y:num)
+Pair: (num, num)
+Nums: [num:3]
+Bag: {str}
+```
+
+A loose dot with no member asks for the type of a value.
+
+```vkf
+point: (x:3, y:4)
+
+:: point.       # (x:num, y:num)
+:: [1, 2, 3].   # [num:3]
+```
+
+You can spill a type's members into different containers.
+
+```vkf
+point: (x:3, y:4)
+
+:: (:point.)    # (x:num, y:num)  key -> type struct
+:: [:point.]    # [num, num]      member types
+:: {:point.}    # {x:1, y:1}     member keys
+```
+
 ## Control Flow
 
 ### If With `?`
@@ -379,13 +440,14 @@ kind??
 UI event loops use the same idea:
 
 ```vkf
+time: .time
+
 (e: events.get())??>
-    null =>
-        ui.sleep(0.005)
     ui.MouseMove =>
         handle_move(e)
     ui.MouseDown =>
         handle_down(e)
+    time.sleep(0.005)
 ```
 
 ## Pipes And `$`
@@ -528,6 +590,32 @@ helpers: .lib.helpers
 ```
 
 Public names are exported. Names beginning with `_` are private by convention.
+
+## Standard Library
+
+Stdlib modules are explicit. Bind them to a namespace with `name: .module`, or
+pour them into scope with `:.module`.
+
+```vkf
+math: .math
+time: .time
+stat: .stat
+
+:: math.sqrt(81)
+time.sleep(0.01)
+:: stat.mean([1, 2, 3])
+```
+
+Current public modules:
+
+- `math`: constants and scalar math such as `pi`, `tau`, `sin`, `cos`, `sqrt`, `log`.
+- `stat`: sequence statistics such as `mean`, `median`, `std`, `variance`, `percentile`, `normalize`, `zscore`.
+- `time`: timing surface; use `time.sleep(seconds)`, `time.current_time()`, `time.time_stamp()`.
+- `io`: file IO and compatibility sleeps: `read_text`, `write_text`, `read_bytes`, `write_bytes`, `read_numbers`, `sleep`, `sleep_ms`.
+- `collections`: mutable runtime containers: `map`, `list`, `queue`.
+- `capture`: regex helpers: `regex`, `groups`.
+- `errors`: catchable error type values such as `PARSE_ERROR`, `EVAL_ERROR`, `TYPE_ERROR`.
+- `ui`: interactive display namespace. `sleep` is not in `ui`; import `time` for delays.
 
 ## UI Overview
 

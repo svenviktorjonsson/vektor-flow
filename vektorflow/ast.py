@@ -63,6 +63,21 @@ class MsetSpill:
 
 
 @dataclass
+class TypeKeySet:
+    """Inside ``{…}``: leading ``:expr`` where expr is a type — collect member keys."""
+
+    expr: Any
+
+
+@dataclass
+class AxisTag:
+    """``expr -> i`` / ``expr -> ij`` — attach named tensor axes to a value."""
+
+    value: Any
+    axis_tag: str
+
+
+@dataclass
 class UnaryOp:
     op: str
     operand: Any

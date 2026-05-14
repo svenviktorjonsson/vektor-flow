@@ -480,6 +480,10 @@ def lower_expr(node: Any) -> IRNode:
         if node.axis_tag is not None:
             raise NotImplementedError("IR lowering does not yet support axis-tagged multiset literals")
         return MultisetExpr([(lower_expr(val), lower_expr(count)) for val, count in node.pairs])
+    if isinstance(node, ast.TypeKeySet):
+        raise NotImplementedError("IR lowering does not yet support type-key set spills")
+    if isinstance(node, ast.AxisTag):
+        raise NotImplementedError("IR lowering does not yet support arrow axis tags")
     if isinstance(node, ast.StructLit):
         return StructExpr([(name, lower_expr(val)) for name, val in node.fields])
     if isinstance(node, ast.BindExpr):

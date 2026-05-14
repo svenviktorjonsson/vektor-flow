@@ -1495,6 +1495,10 @@ class Parser:
                 self._expect(RPAREN)
                 left = ast.Call(left, args)
                 continue
+            if k == ARROW:
+                self._advance()
+                left = ast.AxisTag(left, self._parse_axis_arrow_tag())
+                continue
             if k == NEWLINE:
                 saved = self.i
                 self._skip_trivia()
@@ -1519,6 +1523,10 @@ class Parser:
                             break
                     self._expect(RPAREN)
                     left = ast.Call(left, args)
+                    continue
+                if self._peek_raw() == ARROW:
+                    self._advance()
+                    left = ast.AxisTag(left, self._parse_axis_arrow_tag())
                     continue
                 self.i = saved
                 break
@@ -1680,6 +1688,11 @@ class Parser:
             return node
         if k == LBRACE:
             self._advance()
+            if self._peek_raw() == COLON:
+                self._advance()
+                expr = self.parse_expr()
+                self._expect(RBRACE)
+                return ast.TypeKeySet(expr)
             if self._peek_raw() == RBRACE:
                 self._expect(RBRACE)
                 node = ast.MultisetLit([])
@@ -1751,6 +1764,16 @@ class Parser:
         if name == "_":
             return "i"
         return name[1:]
+
+    def _parse_axis_arrow_tag(self) -> str:
+        """After ``->`` in value position: lowercase axis label, e.g. ``i`` or ``ij``."""
+        tok = self._expect(IDENT)
+        name = str(tok.value)
+        if name == "_":
+            return "i"
+        if not name.isalpha() or not name.islower():
+            raise ParseError("axis tag after `->` must be lowercase letters, e.g. `i` or `ij`", tok.location)
+        return name
 
     def _parse_struct_literal(self) -> ast.StructLit:
         fields: list[tuple[str, Any]] = []

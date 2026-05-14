@@ -31,6 +31,11 @@ def test_screen_and_bridge_not_registered_stdlib() -> None:
         resolve_stdlib("bridge")
 
 
+def test_ui_namespace_does_not_export_sleep() -> None:
+    ui = build_ui_namespace()["ui"]
+    assert not hasattr(ui, "sleep")
+
+
 def test_screen_frame_and_add_frame() -> None:
     s = build_screen_namespace()["screen"]()
     f = s.frame(
