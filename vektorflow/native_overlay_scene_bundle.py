@@ -37,7 +37,7 @@ class NativeOverlaySceneProgram:
 def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySceneProgram | None:
     source_text = source_path.read_text(encoding="utf-8")
     module = parse_module(source_text, filename=source_path.as_posix())
-    spec = _extract_face_edge_vertex_drag_spec(source_path, source_text)
+    spec = _extract_face_edge_vertex_drag_spec(module)
     if spec is not None:
         session_name = _slugify(source_path.stem or "ui-face-edge-vertex-drag")
         return NativeOverlaySceneProgram(
@@ -62,144 +62,200 @@ def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySc
     )
 
 
-def _extract_face_edge_vertex_drag_spec(source_path: Path, source_text: str) -> dict[str, Any] | None:
-    if source_path.stem != "ui_face_edge_vertex_drag":
+def _extract_face_edge_vertex_drag_spec(module: ast.Module) -> dict[str, Any] | None:
+    declared = _find_top_level_struct_binding(module, "native_scene")
+    if declared is None:
         return None
-    rect_match = re.search(
-        r"screen\.add_frame\(\s*frame\s*,\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\)\s*\)",
-        source_text,
-    )
-    points_match = re.search(
-        r"points:\s*\[\s*\[([0-9.]+)\s*,\s*([0-9.]+)\s*\]\s*,\s*\[([0-9.]+)\s*,\s*([0-9.]+)\s*\]\s*,\s*\[([0-9.]+)\s*,\s*([0-9.]+)\s*\]\s*,\s*\[([0-9.]+)\s*,\s*([0-9.]+)\s*\]\s*\]",
-        source_text,
-        re.S,
-    )
-    edges_match = re.search(
-        r"edge_pairs:\s*\[\s*\[([0-3])\s*,\s*([0-3])\s*\]\s*,\s*\[([0-3])\s*,\s*([0-3])\s*\]\s*,\s*\[([0-3])\s*,\s*([0-3])\s*\]\s*,\s*\[([0-3])\s*,\s*([0-3])\s*\]\s*\]",
-        source_text,
-        re.S,
-    )
-    if rect_match is None or points_match is None or edges_match is None:
+    if declared.get("kind") != "face_edge_vertex_drag":
         return None
-    def _extract_color(name: str) -> list[float]:
-        match = re.search(rf"{name}\(\):\s*@:\s*\[([^\]]+)\]", source_text, re.S)
-        if match is None:
-            raise ValueError(f"{name} missing in ui_face_edge_vertex_drag")
-        parts = [part.strip() for part in match.group(1).split(",")]
-        if len(parts) != 4:
-            raise ValueError(f"{name} must define 4 rgba components")
-        return [float(part) for part in parts]
 
-    def _extract_overlay_triplet(name: str) -> dict[str, list[float]]:
-        match = re.search(
-            rf"{name}\([^)]*\):\s*selected\?\s*@:\s*\[([^\]]+)\]\s*hovered\?\s*@:\s*\[([^\]]+)\]\s*@:\s*\[([^\]]+)\]",
-            source_text,
-            re.S,
-        )
-        if match is None:
-            raise ValueError(f"{name} missing selected/hover/default colors")
-        labels = ("selected", "hover", "none")
-        out: dict[str, list[float]] = {}
-        for idx, label in enumerate(labels, start=1):
-            parts = [part.strip() for part in match.group(idx).split(",")]
-            if len(parts) != 4:
-                raise ValueError(f"{name} {label} color must define 4 rgba components")
-            out[label] = [float(part) for part in parts]
-        return out
-
-    def _extract_scalar(name: str) -> float:
-        match = re.search(rf"{name}\(\):\s*@:\s*([0-9.]+)", source_text, re.S)
-        if match is None:
-            raise ValueError(f"{name} missing in ui_face_edge_vertex_drag")
-        return float(match.group(1))
-
-    def _extract_overlay_scalar_triplet(name: str) -> dict[str, float]:
-        match = re.search(
-            rf"{name}\([^)]*\):\s*selected\?\s*@:\s*([0-9.]+)\s*hovered\?\s*@:\s*([0-9.]+)\s*@:\s*([0-9.]+)",
-            source_text,
-            re.S,
-        )
-        if match is None:
-            raise ValueError(f"{name} missing selected/hover/default scalars")
-        return {
-            "selected": float(match.group(1)),
-            "hover": float(match.group(2)),
-            "none": float(match.group(3)),
-        }
-
-    def _extract_json_literal(name: str) -> Any:
-        match = re.search(rf"{name}\(\):\s*@:\s*", source_text, re.S)
-        if match is None:
-            raise ValueError(f"{name} missing in ui_face_edge_vertex_drag")
-        start = match.end()
-        remainder = source_text[start:].lstrip()
-        if not remainder:
-            raise ValueError(f"{name} literal missing in ui_face_edge_vertex_drag")
-        if remainder[0] != "[":
-            token_match = re.match(r'(true|false|null|\"[^\"]*\")', remainder)
-            if token_match is None:
-                raise ValueError(f"{name} literal malformed in ui_face_edge_vertex_drag")
-            return json.loads(token_match.group(1))
-        depth = 0
-        end = None
-        for idx, ch in enumerate(remainder):
-            if ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth -= 1
-                if depth == 0:
-                    end = idx + 1
-                    break
-        if end is None:
-            raise ValueError(f"{name} array literal unterminated in ui_face_edge_vertex_drag")
-        return json.loads(remainder[:end])
-
-    rect = tuple(float(rect_match.group(i)) for i in range(1, 5))
-    point_values = [float(points_match.group(i)) for i in range(1, 9)]
-    points = [
-        [point_values[0], point_values[1]],
-        [point_values[2], point_values[3]],
-        [point_values[4], point_values[5]],
-        [point_values[6], point_values[7]],
-    ]
-    edge_values = [int(edges_match.group(i)) for i in range(1, 9)]
-    edge_pairs = [
-        [edge_values[0], edge_values[1]],
-        [edge_values[2], edge_values[3]],
-        [edge_values[4], edge_values[5]],
-        [edge_values[6], edge_values[7]],
-    ]
+    styles = _require_struct_value(declared, "styles")
+    face_style = _require_struct_value(styles, "face")
+    edge_style = _require_struct_value(styles, "edge")
+    vertex_style = _require_struct_value(styles, "vertex")
+    drag = _require_struct_value(declared, "drag")
     return {
-        "frame_id": "geom_frame",
-        "title": "Face / Edge / Vertex Drag",
-        "rect": rect,
-        "aspect": "equal",
-        "points": points,
-        "edge_pairs": edge_pairs,
+        "frame_id": _require_string_value(declared, "frame_id"),
+        "title": _require_string_value(declared, "title"),
+        "rect": tuple(_require_number_list(declared, "rect", length=4)),
+        "aspect": _require_string_value(declared, "aspect"),
+        "points": _require_point_list(declared, "points"),
+        "edge_pairs": _require_index_pairs(declared, "edge_pairs"),
         "styles": {
             "face": {
-                "base_color": _extract_color("FaceBaseColor"),
-                "overlay_colors": _extract_overlay_triplet("FaceOverlayColor"),
+                "base_color": _require_rgba(face_style, "base_color"),
+                "overlay_colors": _require_overlay_colors(face_style, "overlay_colors"),
             },
             "edge": {
-                "base_color": _extract_color("EdgeBaseColor"),
-                "overlay_colors": _extract_overlay_triplet("EdgeOverlayColor"),
-                "base_scale": _extract_scalar("EdgeBaseScale"),
-                "overlay_scales": _extract_overlay_scalar_triplet("EdgeOverlayScale"),
+                "base_color": _require_rgba(edge_style, "base_color"),
+                "overlay_colors": _require_overlay_colors(edge_style, "overlay_colors"),
+                "base_scale": _require_number_value(edge_style, "base_scale"),
+                "overlay_scales": _require_overlay_scales(edge_style, "overlay_scales"),
             },
             "vertex": {
-                "base_color": _extract_color("VertexBaseColor"),
-                "overlay_colors": _extract_overlay_triplet("VertexOverlayColor"),
-                "base_scale": _extract_scalar("VertexBaseScale"),
-                "overlay_scales": _extract_overlay_scalar_triplet("VertexOverlayScale"),
+                "base_color": _require_rgba(vertex_style, "base_color"),
+                "overlay_colors": _require_overlay_colors(vertex_style, "overlay_colors"),
+                "base_scale": _require_number_value(vertex_style, "base_scale"),
+                "overlay_scales": _require_overlay_scales(vertex_style, "overlay_scales"),
             },
         },
         "drag": {
-            "face_vertices": _extract_json_literal("FaceVertices"),
-            "edge_vertices": _extract_json_literal("EdgeVertices"),
-            "vertex_vertices": _extract_json_literal("VertexVertices"),
-            "preserve_selected_on_plain_down": bool(_extract_json_literal("PreserveSelectedOnPlainDown")),
+            "face_vertices": _require_int_list(drag, "face_vertices"),
+            "edge_vertices": _require_index_pairs(drag, "edge_vertices"),
+            "vertex_vertices": _require_nested_int_list(drag, "vertex_vertices"),
+            "preserve_selected_on_plain_down": _require_bool_value(drag, "preserve_selected_on_plain_down"),
         },
+    }
+
+
+def _find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
+    for stmt in module.statements:
+        if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
+            value = _eval_native_scene_literal(stmt.value, f"{name}")
+            if not isinstance(value, dict):
+                raise ValueError(f"{name} must be a struct literal")
+            return value
+    return None
+
+
+def _eval_native_scene_literal(expr: Any, path: str) -> Any:
+    if isinstance(expr, ast.StructLit):
+        return {key: _eval_native_scene_literal(value, f"{path}.{key}") for key, value in expr.fields}
+    if isinstance(expr, ast.ListLit):
+        return [_eval_native_scene_literal(value, f"{path}[]") for value in expr.elements]
+    if isinstance(expr, ast.TupleLit):
+        return [_eval_native_scene_literal(value, f"{path}[]") for value in expr.elements]
+    if isinstance(expr, ast.StringLit):
+        return expr.value
+    if isinstance(expr, ast.NumberLit):
+        return expr.value
+    if isinstance(expr, ast.BoolLit):
+        return expr.value
+    if isinstance(expr, ast.NullLit):
+        return None
+    raise ValueError(f"{path} must be a literal value; got {type(expr).__name__}")
+
+
+def _require_field(scope: dict[str, Any], name: str) -> Any:
+    if name not in scope:
+        raise ValueError(f"native_scene missing field {name!r}")
+    return scope[name]
+
+
+def _require_struct_value(scope: dict[str, Any], name: str) -> dict[str, Any]:
+    value = _require_field(scope, name)
+    if not isinstance(value, dict):
+        raise ValueError(f"native_scene.{name} must be a struct")
+    return value
+
+
+def _require_string_value(scope: dict[str, Any], name: str) -> str:
+    value = _require_field(scope, name)
+    if not isinstance(value, str):
+        raise ValueError(f"native_scene.{name} must be a string")
+    return value
+
+
+def _require_bool_value(scope: dict[str, Any], name: str) -> bool:
+    value = _require_field(scope, name)
+    if not isinstance(value, bool):
+        raise ValueError(f"native_scene.{name} must be a bool")
+    return value
+
+
+def _require_number_value(scope: dict[str, Any], name: str) -> float:
+    value = _require_field(scope, name)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"native_scene.{name} must be a number")
+    return float(value)
+
+
+def _require_number_list(scope: dict[str, Any], name: str, *, length: int | None = None) -> list[float]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[float] = []
+    for item in value:
+        if not isinstance(item, (int, float)) or isinstance(item, bool):
+            raise ValueError(f"native_scene.{name} must contain only numbers")
+        out.append(float(item))
+    if length is not None and len(out) != length:
+        raise ValueError(f"native_scene.{name} must contain exactly {length} numbers")
+    return out
+
+
+def _require_int_list(scope: dict[str, Any], name: str) -> list[int]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[int] = []
+    for item in value:
+        if not isinstance(item, (int, float)) or isinstance(item, bool) or int(item) != float(item):
+            raise ValueError(f"native_scene.{name} must contain only integers")
+        out.append(int(item))
+    return out
+
+
+def _require_nested_int_list(scope: dict[str, Any], name: str) -> list[list[int]]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[list[int]] = []
+    for row in value:
+        if not isinstance(row, list):
+            raise ValueError(f"native_scene.{name} must contain integer lists")
+        inner: list[int] = []
+        for item in row:
+            if not isinstance(item, (int, float)) or isinstance(item, bool) or int(item) != float(item):
+                raise ValueError(f"native_scene.{name} must contain only integers")
+            inner.append(int(item))
+        out.append(inner)
+    return out
+
+
+def _require_point_list(scope: dict[str, Any], name: str) -> list[list[float]]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[list[float]] = []
+    for point in value:
+        if not isinstance(point, list) or len(point) != 2:
+            raise ValueError(f"native_scene.{name} must contain [x, y] points")
+        out.append([float(point[0]), float(point[1])])
+    return out
+
+
+def _require_index_pairs(scope: dict[str, Any], name: str) -> list[list[int]]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[list[int]] = []
+    for pair in value:
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ValueError(f"native_scene.{name} must contain [a, b] pairs")
+        out.append([int(pair[0]), int(pair[1])])
+    return out
+
+
+def _require_rgba(scope: dict[str, Any], name: str) -> list[float]:
+    return _require_number_list(scope, name, length=4)
+
+
+def _require_overlay_colors(scope: dict[str, Any], name: str) -> dict[str, list[float]]:
+    value = _require_struct_value(scope, name)
+    return {
+        "selected": _require_rgba(value, "selected"),
+        "hover": _require_rgba(value, "hover"),
+        "none": _require_rgba(value, "none"),
+    }
+
+
+def _require_overlay_scales(scope: dict[str, Any], name: str) -> dict[str, float]:
+    value = _require_struct_value(scope, name)
+    return {
+        "selected": _require_number_value(value, "selected"),
+        "hover": _require_number_value(value, "hover"),
+        "none": _require_number_value(value, "none"),
     }
 
 

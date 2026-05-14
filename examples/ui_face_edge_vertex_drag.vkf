@@ -1,6 +1,80 @@
 ui:.ui
 ui.set_mode("overlay")
 
+native_scene: (
+    kind: "face_edge_vertex_drag",
+    frame_id: "geom_frame",
+    title: "Face / Edge / Vertex Drag",
+    rect: [0.12, 0.12, 0.62, 0.62],
+    aspect: "equal",
+    points: [
+        [0.24, 0.24],
+        [0.76, 0.24],
+        [0.76, 0.76],
+        [0.24, 0.76]
+    ],
+    edge_pairs: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0]
+    ],
+    styles: (
+        face: (
+            base_color: [1.0, 0.0, 0.0, 1.0],
+            overlay_colors: (
+                selected: [1.0, 1.0, 0.2, 0.72],
+                hover: [1.0, 0.95, 0.35, 0.48],
+                none: [1.0, 0.0, 0.0, 0.0]
+            )
+        ),
+        edge: (
+            base_color: [0.0, 0.8, 0.0, 1.0],
+            overlay_colors: (
+                selected: [1.0, 1.0, 0.2, 0.78],
+                hover: [0.35, 1.0, 0.35, 0.54],
+                none: [0.0, 0.8, 0.0, 0.0]
+            ),
+            base_scale: 0.01,
+            overlay_scales: (
+                selected: 0.01,
+                hover: 0.01,
+                none: 0.01
+            )
+        ),
+        vertex: (
+            base_color: [0.0, 0.4, 1.0, 1.0],
+            overlay_colors: (
+                selected: [1.0, 1.0, 0.2, 0.82],
+                hover: [1.0, 1.0, 1.0, 0.62],
+                none: [0.0, 0.4, 1.0, 0.0]
+            ),
+            base_scale: 0.022,
+            overlay_scales: (
+                selected: 0.022,
+                hover: 0.022,
+                none: 0.022
+            )
+        )
+    ),
+    drag: (
+        face_vertices: [0, 1, 2, 3],
+        edge_vertices: [
+            [0, 1],
+            [1, 2],
+            [2, 3],
+            [3, 0]
+        ],
+        vertex_vertices: [
+            [0],
+            [1],
+            [2],
+            [3]
+        ],
+        preserve_selected_on_plain_down: true
+    )
+)
+
 styles:
     FaceBaseColor():
         @: [1.0, 0.0, 0.0, 1.0]
