@@ -61,8 +61,9 @@ def test_face_edge_vertex_scene_is_declared_by_vkf_not_filename(tmp_path: Path) 
     assert program is not None
     assert program.session_name == "not-the-example-name"
     assert "FSM Debug" in program.runtime_packets_text
-    assert "createFaceEdgeVertexSharedStore" in program.html_text
-    assert "vf-geom-ledger-transport.json" in program.html_text
+    assert "vf-native-scene-face-edge-vertex.js" in program.html_text
+    assert "createFaceEdgeVertexSharedStore" not in program.html_text
+    assert "vf-geom-ledger-transport.json" not in program.html_text
 
 
 def test_face_edge_vertex_scene_does_not_use_filename_magic(tmp_path: Path) -> None:
@@ -70,3 +71,11 @@ def test_face_edge_vertex_scene_does_not_use_filename_magic(tmp_path: Path) -> N
     path.write_text(':: "not a native scene"', encoding="utf-8")
 
     assert try_build_native_overlay_scene_program(path) is None
+
+
+def test_face_edge_vertex_implementation_lives_in_ui_engine() -> None:
+    source = Path("vektorflow/native_overlay_scene_bundle.py").read_text(encoding="utf-8")
+
+    assert "writeCapsuleMesh" not in source
+    assert "createFaceEdgeVertexSharedStore" not in source
+    assert "vf-native-scene-face-edge-vertex.js" in source

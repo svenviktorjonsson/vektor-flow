@@ -327,6 +327,7 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
             "vf-runtime-source.js",
             "vf-runtime-scene.js",
             "vf-runtime-flow.js",
+            "vf-native-scene-face-edge-vertex.js",
             "vf-display.js",
             "vf-frame.css",
             "vf-frame.js",
