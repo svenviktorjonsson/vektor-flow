@@ -244,6 +244,25 @@ join(x:[num:n], y:[num:m]) -> [num:n+m]:
     assert 'std::cout << vf_format_value(join(a, b)) << "\\n";' in cpp
 
 
+def test_cpp_resolves_readme_compile_time_number_params_as_templates() -> None:
+    src = """
+join(x:[num:n], y:[num:m]) -> [num:n+m]:
+    x & y
+
+[num:2] a: [1, 2]
+[num:3] b: [3, 4, 5]
+:: join(a, b)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "template <std::size_t m, std::size_t n>" in cpp
+    assert "std::array<double, (n + m)> join(" in cpp
+    assert "const std::array<double, n>& x" in cpp
+    assert "const std::array<double, m>& y" in cpp
+    assert "double n" not in cpp
+    assert "double m" not in cpp
+
+
 def test_cpp_emits_struct_program() -> None:
     src = """
 (x:num, y:num) p: (x:1, y:2)

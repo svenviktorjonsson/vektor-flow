@@ -371,6 +371,61 @@ length2(p:Point):
     p.x*p.x + p.y*p.y
 ```
 
+### Compile-Time Number Parameters
+
+Shape names inside types are compile-time number parameters. They are inferred
+from the arguments, not passed as runtime values.
+
+```vkf
+join(x:[num:n], y:[num:m]) -> [num:n+m]:
+    x & y
+
+[num:2] a: [1, 2]
+[num:3] b: [3, 4, 5]
+
+:: join(a, b)     # [1, 2, 3, 4, 5]
+```
+
+Here `n` and `m` resolve at compile time from `a` and `b`. The native backend
+emits a C++ template over those sizes, so the return shape `[num:n+m]` becomes a
+fixed vector shape for each call.
+
+You can use size expressions in nested records too.
+
+```vkf
+State: (left:[num:n], right:[num:m])
+
+push_right(state:State, extra:[num:k]) -> (left:[num:n], right:[num:m+k]):
+    (left: state.left, right: state.right & extra)
+```
+
+### Varargs And Argument Spread
+
+VKF varargs are call-site spreads. A leading `:` inside a call pours a vector,
+tuple, list, or record into the function arguments.
+
+```vkf
+volume(x, y, z):
+    x * y * z
+
+args: [2, 3, 4]
+:: volume(:args)     # 24
+```
+
+Records spill by parameter name.
+
+```vkf
+point_sum(x, y):
+    x + y
+
+point: (y:4, x:3)
+:: point_sum(:point) # 7
+```
+
+Use this when a function accepts a fixed signature but the caller owns the
+argument bundle. Definition-side rest parameters are not part of the language
+surface yet.
+
 ### Core Types And Type Reflection
 
 Core scalar types are `num`, `int`, `str`, `bool`, and `null`. Containers add

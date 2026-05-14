@@ -77,6 +77,39 @@ b : bool
         assert _emit(src) == "true"
 
 
+class TestTemplateNumbersAndVarargs:
+    def test_compile_time_number_parameter_example_interprets(self) -> None:
+        src = """
+join(x:[num:n], y:[num:m]) -> [num:n+m]:
+    x & y
+
+[num:2] a: [1, 2]
+[num:3] b: [3, 4, 5]
+:: join(a, b)
+"""
+        assert _emit(src) == "[1, 2, 3, 4, 5]"
+
+    def test_varargs_vector_spread_example(self) -> None:
+        src = """
+volume(x, y, z):
+    x * y * z
+
+args: [2, 3, 4]
+:: volume(:args)
+"""
+        assert _emit(src) == "24"
+
+    def test_varargs_record_spread_example(self) -> None:
+        src = """
+point_sum(x, y):
+    x + y
+
+point: (y:4, x:3)
+:: point_sum(:point)
+"""
+        assert _emit(src) == "7"
+
+
 class TestDefaultStructOrder:
     def test_lt_lexicographic(self) -> None:
         src = """
