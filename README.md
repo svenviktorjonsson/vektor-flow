@@ -45,6 +45,7 @@ Read this as:
 Install from this repository:
 
 ```bash
+git submodule update --init --recursive
 pip install -e .[dev]
 ```
 
@@ -81,6 +82,7 @@ On Windows, interactive UI examples use the native overlay executable. Build it
 when needed:
 
 ```powershell
+git submodule update --init --recursive
 .\scripts\build-vf-overlay.ps1
 ```
 
@@ -739,14 +741,15 @@ been parsed and packaged.
 
 The UI architecture is split into three systems:
 
-- `vf-overlay-host`: minimal C++/Win32/WebView2 transparent overlay host.
-- `vf-ui-engine`: language-neutral graphics, widgets, WebGPU, picking, ledgers,
+- `transparent-overlay`: minimal C++/Win32/WebView2 transparent overlay host.
+- `overlay-ui-engine`: language-neutral graphics, widgets, WebGPU, picking, ledgers,
   and runtime protocol.
 - `vektor-flow`: VKF language, compiler, stdlib, and UI plugin adapter.
 
 Each system is intended to live in its own repo or package. During migration,
-this repo may import or vendor transitional builds, but the overlay host should
-not own widgets or geometry, the UI engine should not know VKF syntax, and VKF
+this repo imports `transparent-overlay` at `native/VfOverlay` and
+`overlay-ui-engine` at `web/vf-ui` as Git submodules. The overlay host should not
+own widgets or geometry, the UI engine should not know VKF syntax, and VKF
 should not carry the native overlay implementation.
 
 See `docs/adr/0002-split-overlay-host-ui-engine-vkf-plugin.md` for the recorded

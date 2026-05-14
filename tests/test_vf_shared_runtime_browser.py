@@ -76,7 +76,7 @@ def _chromium_page() -> Generator[Page, None, None]:
 
 
 @pytest.mark.network
-def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
+def test_shared_runtime_mesh_drag_updates_arena_without_json_hot_path() -> None:
     with _shared_runtime_page() as url, _chromium_page() as page:
         requests: list[str] = []
         page.add_init_script(
@@ -87,38 +87,40 @@ def test_shared_runtime_rect_drag_updates_arena_without_json_hot_path() -> None:
         )
         page.on("request", lambda request: requests.append(request.url))
         page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_function("() => window.__vfSharedRectDemo")
+        page.wait_for_function("() => window.__vfSharedRectDemo && window.__vfSharedRectDemo.getMeshes().length === 12")
 
         assert page.evaluate("() => crossOriginIsolated") is True
-        initial = page.evaluate("() => window.__vfSharedRectDemo.getRects()")
+        initial = page.evaluate("() => window.__vfSharedRectDemo.getMeshes()[0].points")
         assert initial == [
-            {"x": 88, "y": 72, "w": 260, "h": 172},
-            {"x": 134, "y": 110, "w": 142, "h": 94},
-            {"x": 168, "y": 134, "w": 54, "h": 38},
+            [80, 270, 0],
+            [300, 270, 0],
+            [300, 70, 0],
+            [80, 70, 0],
         ]
         canvas_box = page.locator(".vf-shared-demo-canvas").bounding_box()
         assert canvas_box is not None
-        start_x = canvas_box["x"] + 96
-        start_y = canvas_box["y"] + 88
-        end_x = canvas_box["x"] + 146
-        end_y = canvas_box["y"] + 128
+        start_x = canvas_box["x"] + 100
+        start_y = canvas_box["y"] + 100
+        end_x = start_x + 50
+        end_y = start_y + 40
 
         page.mouse.move(start_x, start_y)
         page.mouse.down()
         page.mouse.move(end_x, end_y, steps=5)
         page.mouse.up()
 
-        moved = page.evaluate("() => window.__vfSharedRectDemo.getRects()")
+        moved = page.evaluate("() => window.__vfSharedRectDemo.getMeshes()[0].points")
         writes = page.evaluate("() => window.__vfSharedRectDemo.getWrites()")
         latest_input = page.evaluate("() => window.__vfSharedRectDemo.getLatestInput()")
         layout_messages = page.evaluate("() => window.__vfOverlayMessages.filter(m => m.type === 'layout')")
 
         assert moved == [
-            {"x": 138, "y": 112, "w": 260, "h": 172},
-            {"x": 184, "y": 150, "w": 142, "h": 94},
-            {"x": 218, "y": 174, "w": 54, "h": 38},
+            [130, 310, 0],
+            [350, 310, 0],
+            [350, 110, 0],
+            [130, 110, 0],
         ]
-        assert latest_input["cursorPx"] == [146, 128]
+        assert latest_input["cursorPx"] == [150, 140]
         assert latest_input["pointerDown"] is False
         assert latest_input["sequence"] >= 2
         assert layout_messages

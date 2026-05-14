@@ -1,0 +1,6 @@
+[submodule "native/VfOverlay"]
+	path = native/VfOverlay
+	url = https://github.com/svenviktorjonsson/transparent-overlay.git
+[submodule "web/vf-ui"]
+	path = web/vf-ui
+	url = https://github.com/svenviktorjonsson/overlay-ui-engine.git

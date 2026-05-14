@@ -101,11 +101,11 @@ It must not carry the native overlay implementation.
 
 The intended repo/package split is:
 
-- `vf-overlay-host`: native C++/Win32/WebView2 transparent overlay host
-- `vf-ui-engine`: language-neutral graphics and widget UI engine
+- `transparent-overlay`: native C++/Win32/WebView2 transparent overlay host
+- `overlay-ui-engine`: language-neutral graphics and widget UI engine
 - `vektor-flow`: VKF language, compiler, stdlib, and UI plugin adapter
 
-The protocol may start inside `vf-ui-engine`. It should become a tiny shared
+The protocol may start inside `overlay-ui-engine`. It should become a tiny shared
 package only when a second language adapter needs it. Until then, splitting it
 early would create a shallow module with more release cost than leverage.
 
@@ -127,10 +127,10 @@ ownership model.
 ## Migration Plan
 
 1. Define the overlay host interface from current `native/VfOverlay` behavior.
-2. Extract the smallest C++/WebView2 overlay host into `vf-overlay-host`.
+2. Extract the smallest C++/WebView2 overlay host into `transparent-overlay`.
 3. Replace local overlay builds with an imported overlay package.
 4. Extract UI engine assets, ledgers, widgets, renderer, and picker into
-   `vf-ui-engine`.
+   `overlay-ui-engine`.
 5. Keep VKF-specific UI lowering and examples in `vektor-flow`.
 6. Remove local native overlay implementation from `vektor-flow` after imported
    packages are stable.

@@ -8,8 +8,12 @@
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..')
 $overlay = Join-Path $repo 'native\VfOverlay'
-if (-not (Test-Path $overlay)) {
-    Write-Error "Missing folder: native\VfOverlay (e.g. after deleting native\). Restore native\VfOverlay from the repo: `git checkout HEAD -- native/` or copy the folder back from backup."
+if (-not (Test-Path (Join-Path $overlay 'CMakeLists.txt'))) {
+    Write-Error "Missing overlay submodule at native\VfOverlay. Run: git submodule update --init --recursive"
+}
+$uiEngine = Join-Path $repo 'web\vf-ui'
+if (-not (Test-Path (Join-Path $uiEngine 'index.html'))) {
+    Write-Error "Missing UI engine submodule at web\vf-ui. Run: git submodule update --init --recursive"
 }
 Set-Location $overlay
 
