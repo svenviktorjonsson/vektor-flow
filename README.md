@@ -735,6 +735,23 @@ vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
 The produced runtime should execute without Python after the `.vkf` program has
 been parsed and packaged.
 
+### Target System Split
+
+The UI architecture is split into three systems:
+
+- `vf-overlay-host`: minimal C++/Win32/WebView2 transparent overlay host.
+- `vf-ui-engine`: language-neutral graphics, widgets, WebGPU, picking, ledgers,
+  and runtime protocol.
+- `vektor-flow`: VKF language, compiler, stdlib, and UI plugin adapter.
+
+Each system is intended to live in its own repo or package. During migration,
+this repo may import or vendor transitional builds, but the overlay host should
+not own widgets or geometry, the UI engine should not know VKF syntax, and VKF
+should not carry the native overlay implementation.
+
+See `docs/adr/0002-split-overlay-host-ui-engine-vkf-plugin.md` for the recorded
+decision.
+
 ## VS Code
 
 The `vscode/` folder contains the Vektor Flow extension.
