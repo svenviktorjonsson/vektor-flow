@@ -1,0 +1,346 @@
+ui:.ui
+ui.set_mode("overlay")
+
+styles:
+    FaceBaseColor():
+        @: [1.0, 0.0, 0.0, 1.0]
+
+    FaceOverlayColor(hovered, selected):
+        selected? @: [1.0, 1.0, 0.2, 0.72]
+        hovered? @: [1.0, 0.95, 0.35, 0.48]
+        @: [1.0, 0.0, 0.0, 0.0]
+
+    EdgeBaseColor():
+        @: [0.0, 0.8, 0.0, 1.0]
+
+    EdgeOverlayColor(hovered, selected):
+        selected? @: [1.0, 1.0, 0.2, 0.78]
+        hovered? @: [0.35, 1.0, 0.35, 0.54]
+        @: [0.0, 0.8, 0.0, 0.0]
+
+    VertexBaseColor():
+        @: [0.0, 0.4, 1.0, 1.0]
+
+    VertexOverlayColor(hovered, selected):
+        selected? @: [1.0, 1.0, 0.2, 0.82]
+        hovered? @: [1.0, 1.0, 1.0, 0.62]
+        @: [0.0, 0.4, 1.0, 0.0]
+
+    EdgeBaseScale():
+        @: 0.01
+
+    EdgeOverlayScale(hovered, selected):
+        selected? @: 0.01
+        hovered? @: 0.01
+        @: 0.01
+
+    VertexBaseScale():
+        @: 0.022
+
+    VertexOverlayScale(hovered, selected):
+        selected? @: 0.022
+        hovered? @: 0.022
+        @: 0.022
+    :
+
+reps:
+    face_rep(v, view):
+        vertices: view.points
+        face_indices: [[0, 1, 2, 3]]
+        face_color: view.color
+        :
+
+    edge_rep(v, view):
+        vertices: [
+            view.points.(v.a),
+            view.points.(v.b)
+        ]
+        edge_indices: [[0, 1]]
+        edge_color: view.color
+        edge_scale: view.scale
+        :
+
+    vertex_rep(v, view):
+        vertices: [view.points.(v.i)]
+        vertex_color: view.color
+        vertex_scale: view.scale
+        :
+    :
+
+geometry:
+    points: [
+        [0.24, 0.24],
+        [0.76, 0.24],
+        [0.76, 0.76],
+        [0.24, 0.76]
+    ]
+
+    edge_pairs: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0]
+    ]
+
+    EdgeTouchesVertex(edge_index, vertex_index):
+        pair: edge_pairs.(edge_index)
+        @: (pair.(0) = vertex_index) \/ (pair.(1) = vertex_index)
+    :
+
+drag:
+    FaceVertices():
+        @: [0, 1, 2, 3]
+
+    EdgeVertices():
+        @: [
+            [0, 1],
+            [1, 2],
+            [2, 3],
+            [3, 0]
+        ]
+
+    VertexVertices():
+        @: [
+            [0],
+            [1],
+            [2],
+            [3]
+        ]
+
+    PreserveSelectedOnPlainDown():
+        @: true
+    :
+
+selection:
+    hover_kind: "none"
+    hover_index: -1
+    face_selected: false
+    edge_selected: [false, false, false, false]
+    vertex_selected: [false, false, false, false]
+    drag_vertices: [false, false, false, false]
+    dragging: false
+    drag_kind: "none"
+    drag_index: -1
+    :
+
+views:
+    FaceBase(scene):
+        @: (
+            points: scene.geometry.points,
+            color: scene.styles.FaceBaseColor()
+        )
+
+    FaceOverlay(scene):
+        @: (
+            points: scene.geometry.points,
+            color: scene.styles.FaceOverlayColor((scene.selection.hover_kind = "face") /\ (scene.selection.hover_index = 0), scene.selection.face_selected)
+        )
+
+    EdgeBase(index, scene):
+        @: (
+            points: scene.geometry.points,
+            color: scene.styles.EdgeBaseColor(),
+            scale: scene.styles.EdgeBaseScale()
+        )
+
+    EdgeOverlay(index, scene):
+        hovered: (scene.selection.hover_kind = "edge") /\ (scene.selection.hover_index = index)
+        selected: scene.selection.edge_selected.(index)
+        @: (
+            points: scene.geometry.points,
+            color: scene.styles.EdgeOverlayColor(hovered, selected),
+            scale: scene.styles.EdgeOverlayScale(hovered, selected)
+        )
+
+    VertexBase(index, scene):
+        @: (
+            points: scene.geometry.points,
+            color: scene.styles.VertexBaseColor(),
+            scale: scene.styles.VertexBaseScale()
+        )
+
+    VertexOverlay(index, scene):
+        hovered: (scene.selection.hover_kind = "vertex") /\ (scene.selection.hover_index = index)
+        selected: scene.selection.vertex_selected.(index)
+        @: (
+            points: scene.geometry.points,
+            color: scene.styles.VertexOverlayColor(hovered, selected),
+            scale: scene.styles.VertexOverlayScale(hovered, selected)
+        )
+    :
+
+events: ui.events
+frame: ui.Frame()
+screen: ui.display
+
+ViewModel():
+    @: (
+        geometry: geometry,
+        selection: selection,
+        styles: styles
+    )
+
+EdgeRepFor(index, rep_kind):
+    pair: geometry.edge_pairs.(index)
+    rep_kind = "base"?
+        @: frame.add((a: pair.(0), b: pair.(1)), reps.edge_rep, views.EdgeBase(index, ViewModel()))
+    @: frame.add((a: pair.(0), b: pair.(1)), reps.edge_rep, views.EdgeOverlay(index, ViewModel()))
+
+VertexRepFor(index, rep_kind):
+    rep_kind = "base"?
+        @: frame.add((i: index,), reps.vertex_rep, views.VertexBase(index, ViewModel()))
+    @: frame.add((i: index,), reps.vertex_rep, views.VertexOverlay(index, ViewModel()))
+
+face_base_rep: frame.add((), reps.face_rep, views.FaceBase(ViewModel()))
+face_overlay_rep: frame.add((), reps.face_rep, views.FaceOverlay(ViewModel()))
+edge_base_reps: ..3 >> EdgeRepFor($, "base")
+edge_overlay_reps: ..3 >> EdgeRepFor($, "overlay")
+vertex_base_reps: ..3 >> VertexRepFor($, "base")
+vertex_overlay_reps: ..3 >> VertexRepFor($, "overlay")
+
+ViewRefs():
+    @: (
+        face: (
+            base: face_base_rep,
+            overlay: face_overlay_rep
+        ),
+        edges: (
+            base: edge_base_reps,
+            overlay: edge_overlay_reps
+        ),
+        vertices: (
+            base: vertex_base_reps,
+            overlay: vertex_overlay_reps
+        )
+    )
+
+ViewContext():
+    @: (
+        model: ViewModel(),
+        refs: ViewRefs()
+    )
+
+targets:
+    face_target: face_base_rep.face(0)
+    edge_targets: edge_base_reps >> $.edge(0)
+    vertex_targets: vertex_base_reps >> $.vertex(0)
+
+    HitAt(e, targets, index):
+        ui.hit(e, targets.(index), "content")? @: index
+        @: -1
+
+    FirstHitIndex(hits):
+        i: 0
+        i < 4?>
+            hits.(i) >= 0? @: hits.(i)
+            i: i + 1
+        @: -1
+
+    Of(e):
+        vertex_hits: ..3 >> HitAt(e, vertex_targets, $)
+        vertex_index: FirstHitIndex(vertex_hits)
+        vertex_index >= 0? @: (kind: "vertex", index: vertex_index)
+        edge_hits: ..3 >> HitAt(e, edge_targets, $)
+        edge_index: FirstHitIndex(edge_hits)
+        edge_index >= 0? @: (kind: "edge", index: edge_index)
+        ui.hit(e, face_target, "content")? @: (kind: "face", index: 0)
+        @: (kind: "none", index: -1)
+    :
+
+motion:
+    UpdateViews(context):
+        model: context.model
+        refs: context.refs
+        refs.face.base.set_view(views.FaceBase(model))
+        refs.face.overlay.set_view(views.FaceOverlay(model))
+        ..3 >> refs.edges.base.($).set_view(views.EdgeBase($, model))
+        ..3 >> refs.edges.overlay.($).set_view(views.EdgeOverlay($, model))
+        ..3 >> refs.vertices.base.($).set_view(views.VertexBase($, model))
+        ..3 >> refs.vertices.overlay.($).set_view(views.VertexOverlay($, model))
+        @
+
+    DragVertexMask(current_selection, current_geometry):
+        current_selection.face_selected?
+            @: [true, true, true, true]
+        mask: ..3 >> (
+            current_selection.vertex_selected.($) \/
+            (
+                current_selection.edge_selected.(0) /\ current_geometry.EdgeTouchesVertex(0, $)
+            ) \/
+            (
+                current_selection.edge_selected.(1) /\ current_geometry.EdgeTouchesVertex(1, $)
+            ) \/
+            (
+                current_selection.edge_selected.(2) /\ current_geometry.EdgeTouchesVertex(2, $)
+            ) \/
+            (
+                current_selection.edge_selected.(3) /\ current_geometry.EdgeTouchesVertex(3, $)
+            )
+        )
+        @: mask
+
+    HasDragVertices(current_selection):
+        i: 0
+        i < 4?>
+            current_selection.drag_vertices.(i)?
+                @: true
+            i: i + 1
+        @: false
+
+    ShiftedPoint(index, dx, dy, drag_vertices, current_geometry):
+        p: current_geometry.points.(index)
+        drag_vertices.(index)?
+            @: [p.(0) + dx, p.(1) + dy]
+        @: p
+
+    ShiftedPoints(dx, dy, drag_vertices, current_geometry):
+        shifted: ..3 >> ShiftedPoint($, dx, dy, drag_vertices, current_geometry)
+        @: shifted
+    :
+
+screen.add_frame(frame, (0.12, 0.12, 0.62, 0.62))
+screen.render()
+
+(e: events.get())??>
+    null =>
+        ui.sleep(0.005)
+    ui.MouseMove =>
+        target: targets.Of(e)
+        selection.hover_kind: target.kind
+        selection.hover_index: target.index
+        motion.UpdateViews(ViewContext())
+    ui.MouseHover =>
+        target: targets.Of(e)
+        selection.hover_kind: target.kind
+        selection.hover_index: target.index
+        motion.UpdateViews(ViewContext())
+    ui.MouseDown =>
+        target: targets.Of(e)
+        selection.hover_kind: target.kind
+        selection.hover_index: target.index
+        selection.dragging: target.kind != "none"
+        selection.drag_kind: target.kind
+        selection.drag_index: target.index
+        target.kind = "none"?
+            selection.face_selected: false
+            selection.edge_selected: [false, false, false, false]
+            selection.vertex_selected: [false, false, false, false]
+            selection.drag_vertices: [false, false, false, false]
+        target.kind != "none"?
+            target.kind = "face"? selection.face_selected: true
+            target.kind = "edge"? selection.edge_selected.(target.index): true
+            target.kind = "vertex"? selection.vertex_selected.(target.index): true
+            target.kind = "face"?
+                selection.drag_vertices: [true, true, true, true]
+            target.kind = "face" = false?
+                selection.drag_vertices: motion.DragVertexMask(selection, geometry)
+        motion.UpdateViews(ViewContext())
+    ui.MouseUp =>
+        selection.dragging: false
+        selection.drag_kind: "none"
+        selection.drag_index: -1
+        selection.drag_vertices: [false, false, false, false]
+    ui.MouseDrag =>
+        motion.HasDragVertices(selection)?
+            geometry.points: motion.ShiftedPoints(e.dx_norm, e.dy_norm, selection.drag_vertices, geometry)
+            motion.UpdateViews(ViewContext())

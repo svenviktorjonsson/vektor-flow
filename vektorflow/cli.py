@@ -241,6 +241,10 @@ def _run_with_native_core(path: Path) -> int:
 
 def cmd_run(path: Path) -> int:
     """Parse and execute a ``.vkf`` file."""
+    scene_rc = _try_run_native_overlay_scene(path)
+    if scene_rc is not None:
+        return scene_rc
+
     preference = _runtime_backend_preference()
     if preference in {"auto", "native"} and _native_runtime_available(path):
         try:
@@ -263,6 +267,114 @@ def cmd_run(path: Path) -> int:
             )
             return _run_with_interpreter(path)
     return _run_with_interpreter(path)
+
+
+def _try_run_native_overlay_scene(path: Path) -> int | None:
+    """Launch recovered native overlay scenes through their generated GPU runtime."""
+    try:
+        from .native_overlay_scene_bundle import try_build_native_overlay_scene_program
+
+        program = try_build_native_overlay_scene_program(path)
+    except (LexError, ParseError, EvalError) as exc:
+        try:
+            source = path.resolve().read_text(encoding="utf-8")
+        except OSError:
+            source = ""
+        print(format_source_diagnostic(source, exc), file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: native overlay scene build failed: {exc}", file=sys.stderr)
+        return 1
+
+    if program is None:
+        return None
+
+    try:
+        from .ui.display_runtime import _sync_display_runtime_assets
+        from .ui.launch import (
+            _clear_overlay_port_file,
+            _clear_overlay_state,
+            _overlay_trace_enabled,
+            _overlay_web_dir_for_exe,
+            _read_overlay_pid,
+            _terminate_previous_overlay,
+            _vf_warn,
+            _wait_for_overlay_ready,
+            _write_overlay_state,
+            find_vektorflow_repo_root,
+            find_vf_overlay_exe,
+        )
+        from .stdlib.events import reset_overlay_port
+
+        root = find_vektorflow_repo_root()
+        if root is None:
+            raise RuntimeError(
+                "UI not started: could not find vektor-flow tree "
+                "(expect web/vf-ui/index.html and web/vf-ui/vkf-scene.html). "
+                "Set VF_UI_REPO_ROOT explicitly."
+            )
+        _sync_display_runtime_assets(root)
+
+        exe = find_vf_overlay_exe(root)
+        if exe is None:
+            raise RuntimeError(
+                "UI not started: vf-overlay.exe not found. "
+                "Build native/VfOverlay (.\\scripts\\build-vf-overlay.ps1)."
+            )
+
+        repo_session_dir = root / "web" / "vf-ui" / "sessions" / program.session_name
+        overlay_web_dir = _overlay_web_dir_for_exe(exe)
+        overlay_session_dir = overlay_web_dir / "sessions" / program.session_name
+        for session_dir in (repo_session_dir, overlay_session_dir):
+            session_dir.mkdir(parents=True, exist_ok=True)
+            (session_dir / "vkf-scene.html").write_text(program.html_text, encoding="utf-8")
+            (session_dir / "vf-runtime-packets.json").write_text(program.runtime_packets_text, encoding="utf-8")
+            if program.geom_transport_text:
+                (session_dir / "vf-geom-ledger-transport.json").write_text(
+                    program.geom_transport_text,
+                    encoding="utf-8",
+                )
+            if program.geom_state_text:
+                (session_dir / "vf-geom-ledger-state.json").write_text(
+                    program.geom_state_text,
+                    encoding="utf-8",
+                )
+
+        reset_overlay_port()
+        previous_pid = _read_overlay_pid()
+        if previous_pid is not None:
+            _terminate_previous_overlay(previous_pid)
+        _clear_overlay_port_file(exe)
+
+        use_terminal = (os.environ.get("VF_UI_TERMINAL") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        popen_kwargs: dict[str, object] = {"cwd": str(exe.parent)}
+        if not use_terminal:
+            popen_kwargs["stdin"] = subprocess.DEVNULL
+            popen_kwargs["stdout"] = subprocess.DEVNULL
+            popen_kwargs["stderr"] = subprocess.DEVNULL
+        if _overlay_trace_enabled():
+            env = dict(os.environ)
+            env["VF_OVERLAY_ENQUEUE_LOG"] = "1"
+            popen_kwargs["env"] = env
+
+        proc = subprocess.Popen([str(exe), program.page_rel], **popen_kwargs)
+        if getattr(proc, "pid", 0):
+            _write_overlay_state(pid=int(proc.pid), exe=exe)
+        _wait_for_overlay_ready(exe=exe, proc=proc, page_rel=program.page_rel)
+        return 0
+    except (OSError, RuntimeError) as exc:
+        _clear_overlay_state()
+        try:
+            _vf_warn(f"vektorflow: {exc}")  # type: ignore[name-defined]
+        except Exception:
+            pass
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 def cmd_parse_tokens(payload: str) -> int:
