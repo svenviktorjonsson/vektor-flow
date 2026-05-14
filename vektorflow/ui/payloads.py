@@ -126,8 +126,7 @@ def write_scene_payload(commands: list[UiCommand]) -> str:
     scene = json.loads(text)
     _set_snapshot(scene_text=text)
     _, publish_result = _push_packet("scene.replace", {"commands": scene})
-    if not publish_result.direct_published:
-        mirror_payload_file("vkf-scene.json", text)
+    mirror_payload_file("vkf-scene.json", text)
     return text
 
 
@@ -135,8 +134,7 @@ def write_ui_state_payload(state: dict[str, dict[str, dict[str, Any]]]) -> str:
     text = json.dumps(state, indent=2) + "\n"
     _set_snapshot(ui_state_text=text)
     _, publish_result = _push_packet("ui_state.replace", {"state": json.loads(text)})
-    if not publish_result.direct_published:
-        mirror_payload_file("vf-ui-state.json", text)
+    mirror_payload_file("vf-ui-state.json", text)
     return text
 
 
@@ -152,13 +150,11 @@ def write_display_payload(
         {"display": json.loads(text)},
         warn_missing_root=warn_missing_root,
     )
-    wrote_files = False
-    if not publish_result.direct_published:
-        wrote_files = mirror_payload_file(
-            "vf-display.json",
-            text,
-            warn_missing_root=warn_missing_root,
-        )
+    wrote_files = mirror_payload_file(
+        "vf-display.json",
+        text,
+        warn_missing_root=warn_missing_root,
+    )
     return text, wrote_files
 
 

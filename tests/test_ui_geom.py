@@ -495,6 +495,20 @@ class TestDisplayJson:
         assert obj["geom"][fid]["camera"]["fov"] == pytest.approx(45.0)
         assert obj["geom"][fid]["lights"][0]["model"] == "blinn_phong"
 
+    def test_frame_geom_options_are_serialisable(self) -> None:
+        d, fid = _placed()
+        d.set_geom_options(unified_renderer=True)
+        d.add_box(center=[0,0,0], scale=[1,1,1], color="red")
+        obj = json.loads(json.dumps(self._payload(d)))
+        assert obj["geom"][fid]["unified_renderer"] is True
+
+    def test_vector_color_is_serialisable(self) -> None:
+        d, fid = _placed()
+        box = d.add_box(center=[0,0,0], scale=[1,1,1], color=[1, 0, 0, 0.5])
+        box.set_color([0, 1, 0, 0.75])
+        obj = json.loads(json.dumps(self._payload(d)))
+        assert obj["geom"][fid]["meshes"][0]["color"] == [0.0, 1.0, 0.0, 0.75]
+
 
 # ---------------------------------------------------------------------------
 # lit_box.vkf example

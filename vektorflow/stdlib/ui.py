@@ -318,6 +318,15 @@ def _color_to_css(color: Any) -> str:
     return f"rgba({rr}, {gg}, {bb}, {aa:.6g})"
 
 
+def _color_to_payload(color: Any) -> Any:
+    if color is None:
+        return None
+    if _is_numeric_color_vector(color):
+        r, g, b, a = _parse_color_rgba(color)
+        return [r, g, b, a]
+    return str(color)
+
+
 def _coerce_vertices2(vertices: Any) -> list[list[float]]:
     if not _is_sequence(vertices):
         raise TypeError("embedding vertices must be a vector/list of points")
@@ -792,7 +801,7 @@ class SceneBox:
 
     def set_color(self, color: Any) -> "SceneBox":
         """Change the box color. Returns self."""
-        self._data["color"] = str(color)
+        self._data["color"] = _color_to_payload(color)
         self._display._sync_all()
         return self
 
@@ -1377,6 +1386,12 @@ class FrameRef:
         fid = self._get_placed_id()
         return self._display._add_light(fid, pos=pos, model=model, color=color)
 
+    def set_geom_options(self, **kwargs: Any) -> "FrameRef":
+        """Set GPU geometry renderer options for this frame."""
+        fid = self._get_placed_id()
+        self._display._set_geom_options(fid, **kwargs)
+        return self
+
     def _get_placed_id(self) -> str:
         if self._placed and self._frame_id:
             return self._frame_id
@@ -1857,7 +1872,26 @@ class Display:
         fid = self._last_placed_id("add_light")
         return self._add_light(fid, pos=pos, model=model, color=color)
 
+    def set_geom_options(self, **kwargs: Any) -> "Display":
+        """Set GPU geometry renderer options for the last placed frame."""
+        fid = self._last_placed_id("set_geom_options")
+        self._set_geom_options(fid, **kwargs)
+        return self
+
     # ---- internal 3-D builders (used by both Display and FrameRef) --------
+
+    def _set_geom_options(self, fid: str, **kwargs: Any) -> None:
+        allowed = {"unified_renderer", "combine_transparent"}
+        bad = sorted(k for k in kwargs if k not in allowed)
+        if bad:
+            joined = ", ".join(repr(k) for k in bad)
+            raise TypeError(f"set_geom_options() got unexpected keyword argument(s): {joined}")
+        geom = self._geom_for(fid)
+        if "unified_renderer" in kwargs:
+            geom["unified_renderer"] = bool(kwargs["unified_renderer"])
+        if "combine_transparent" in kwargs:
+            geom["combine_transparent"] = bool(kwargs["combine_transparent"])
+        self._sync_all()
 
     def _add_box(
         self,
@@ -1871,7 +1905,7 @@ class Display:
             "type":     "box",
             "center":   _vec3(center or [0, 0, 0], "center"),
             "scale":    _vec3(scale  or [1, 1, 1], "scale"),
-            "color":    str(color) if color is not None else None,
+            "color":    _color_to_payload(color),
             "rotation": [0.0, 0.0, 0.0],
         }
         self._geom_for(fid)["meshes"].append(data)
@@ -1893,7 +1927,7 @@ class Display:
             "type":     "ellipsoid",
             "center":   _vec3(center or [0, 0, 0], "center"),
             "scale":    _vec3(scale  or [1, 1, 1], "scale"),
-            "color":    str(color) if color is not None else None,
+            "color":    _color_to_payload(color),
             "rotation": [0.0, 0.0, 0.0],
         }
         self._geom_for(fid)["meshes"].append(data)
@@ -1917,7 +1951,7 @@ class Display:
             "type":         "torus",
             "center":       _vec3(center or [0, 0, 0], "center"),
             "scale":        _vec3(scale  or [1, 1, 1], "scale"),
-            "color":        str(color) if color is not None else None,
+            "color":        _color_to_payload(color),
             "major_radius": float(major_radius),
             "minor_radius": float(minor_radius),
             "rotation":     [0.0, 0.0, 0.0],
