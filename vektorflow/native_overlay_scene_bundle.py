@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 from . import ast
 from .parser import parse_module
@@ -34,38 +34,22 @@ class NativeOverlaySceneProgram:
     geom_state_text: str = ""
 
 
+@dataclass(frozen=True)
+class _NativeSceneCompiler:
+    default_session_name: str
+    normalize_spec: Callable[[dict[str, Any]], dict[str, Any]]
+    render_html: Callable[[dict[str, Any]], str]
+    render_runtime_packets: Callable[[dict[str, Any]], str]
+    render_geom_transport: Callable[[dict[str, Any]], str] | None = None
+    render_geom_state: Callable[[dict[str, Any]], str] | None = None
+
+
 def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySceneProgram | None:
     source_text = source_path.read_text(encoding="utf-8")
     module = parse_module(source_text, filename=source_path.as_posix())
-    spec = _extract_face_edge_vertex_drag_spec(module)
-    if spec is not None:
-        session_name = _slugify(source_path.stem or "ui-face-edge-vertex-drag")
-        return NativeOverlaySceneProgram(
-            session_name=session_name,
-            page_rel=f"sessions/{session_name}/vkf-scene.html",
-            html_text=_render_face_edge_vertex_drag_html(spec),
-            runtime_packets_text=_render_face_edge_vertex_drag_packets(spec),
-            geom_transport_text=_render_face_edge_vertex_drag_transport(spec),
-            geom_state_text=_render_face_edge_vertex_drag_state(spec),
-        )
-    spec = _extract_cube_hover_spec(module)
-    if spec is not None:
-        session_name = _slugify(source_path.stem or "ui-cube-hover")
-        return NativeOverlaySceneProgram(
-            session_name=session_name,
-            page_rel=f"sessions/{session_name}/vkf-scene.html",
-            html_text=_render_cube_hover_html(spec),
-            runtime_packets_text=_render_cube_hover_packets(spec),
-        )
-    spec = _extract_ocean_wave_spec(module)
-    if spec is not None:
-        session_name = _slugify(source_path.stem or "ui-ocean-wave")
-        return NativeOverlaySceneProgram(
-            session_name=session_name,
-            page_rel=f"sessions/{session_name}/vkf-scene.html",
-            html_text=_render_ocean_wave_html(spec),
-            runtime_packets_text=_render_ocean_wave_packets(spec),
-        )
+    declared = _find_top_level_struct_binding(module, "native_scene")
+    if declared is not None:
+        return _compile_native_scene_program(source_path, declared)
     spec = _extract_declarative_ui_scene_probe_spec(module)
     if spec is None:
         spec = _extract_scene_probe_spec(module)
@@ -80,13 +64,25 @@ def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySc
     )
 
 
-def _extract_face_edge_vertex_drag_spec(module: ast.Module) -> dict[str, Any] | None:
-    declared = _find_top_level_struct_binding(module, "native_scene")
-    if declared is None:
-        return None
-    if declared.get("kind") != "face_edge_vertex_drag":
-        return None
+def _compile_native_scene_program(source_path: Path, declared: dict[str, Any]) -> NativeOverlaySceneProgram:
+    kind = _require_string_value(declared, "kind")
+    compiler = _NATIVE_SCENE_COMPILERS.get(kind)
+    if compiler is None:
+        supported = ", ".join(sorted(_NATIVE_SCENE_COMPILERS))
+        raise ValueError(f"unsupported native_scene.kind {kind!r}; expected one of: {supported}")
+    spec = compiler.normalize_spec(declared)
+    session_name = _slugify(source_path.stem or compiler.default_session_name)
+    return NativeOverlaySceneProgram(
+        session_name=session_name,
+        page_rel=f"sessions/{session_name}/vkf-scene.html",
+        html_text=compiler.render_html(spec),
+        runtime_packets_text=compiler.render_runtime_packets(spec),
+        geom_transport_text="" if compiler.render_geom_transport is None else compiler.render_geom_transport(spec),
+        geom_state_text="" if compiler.render_geom_state is None else compiler.render_geom_state(spec),
+    )
 
+
+def _normalize_face_edge_vertex_drag_spec(declared: dict[str, Any]) -> dict[str, Any]:
     styles = _require_struct_value(declared, "styles")
     face_style = _require_struct_value(styles, "face")
     edge_style = _require_struct_value(styles, "edge")
@@ -126,13 +122,8 @@ def _extract_face_edge_vertex_drag_spec(module: ast.Module) -> dict[str, Any] | 
     }
 
 
-def _extract_cube_hover_spec(module: ast.Module) -> dict[str, Any] | None:
-    declared = _find_top_level_struct_binding(module, "native_scene")
-    if declared is None:
-        return None
-    kind = declared.get("kind")
-    if kind not in {"cube_hover", "cube_lighting_camera"}:
-        return None
+def _normalize_cube_hover_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    kind = _require_string_value(declared, "kind")
     styles = _require_struct_value(declared, "styles")
     camera = _optional_camera_value(declared)
     light = _optional_light_value(declared)
@@ -159,13 +150,7 @@ def _extract_cube_hover_spec(module: ast.Module) -> dict[str, Any] | None:
     }
 
 
-def _extract_ocean_wave_spec(module: ast.Module) -> dict[str, Any] | None:
-    declared = _find_top_level_struct_binding(module, "native_scene")
-    if declared is None:
-        return None
-    if declared.get("kind") != "ocean_wave":
-        return None
-
+def _normalize_ocean_wave_spec(declared: dict[str, Any]) -> dict[str, Any]:
     surface = _require_struct_value(declared, "surface")
     styles = _require_struct_value(declared, "styles")
     timing = _optional_ocean_timing_value(declared)
@@ -1741,3 +1726,33 @@ def _render_ocean_wave_html(spec: dict[str, Any]) -> str:
   </body>
 </html>
 """
+
+
+_NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
+    "face_edge_vertex_drag": _NativeSceneCompiler(
+        default_session_name="ui-face-edge-vertex-drag",
+        normalize_spec=_normalize_face_edge_vertex_drag_spec,
+        render_html=_render_face_edge_vertex_drag_html,
+        render_runtime_packets=_render_face_edge_vertex_drag_packets,
+        render_geom_transport=_render_face_edge_vertex_drag_transport,
+        render_geom_state=_render_face_edge_vertex_drag_state,
+    ),
+    "cube_hover": _NativeSceneCompiler(
+        default_session_name="ui-cube-hover",
+        normalize_spec=_normalize_cube_hover_spec,
+        render_html=_render_cube_hover_html,
+        render_runtime_packets=_render_cube_hover_packets,
+    ),
+    "cube_lighting_camera": _NativeSceneCompiler(
+        default_session_name="ui-cube-lighting-camera",
+        normalize_spec=_normalize_cube_hover_spec,
+        render_html=_render_cube_hover_html,
+        render_runtime_packets=_render_cube_hover_packets,
+    ),
+    "ocean_wave": _NativeSceneCompiler(
+        default_session_name="ui-ocean-wave",
+        normalize_spec=_normalize_ocean_wave_spec,
+        render_html=_render_ocean_wave_html,
+        render_runtime_packets=_render_ocean_wave_packets,
+    ),
+}

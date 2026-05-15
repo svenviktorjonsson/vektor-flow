@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from vektorflow.native_overlay_scene_bundle import try_build_native_overlay_scene_program
 
 
@@ -166,6 +168,16 @@ native_scene: (
 """
 
 
+UNKNOWN_NATIVE_SCENE_SOURCE = """
+native_scene: (
+    kind: "not_a_real_scene",
+    frame_id: "mystery_frame",
+    title: "Unknown Scene",
+    rect: [0.1, 0.1, 0.4, 0.4]
+)
+"""
+
+
 def test_face_edge_vertex_scene_is_declared_by_vkf_not_filename(tmp_path: Path) -> None:
     path = tmp_path / "not_the_example_name.vkf"
     path.write_text(NATIVE_SCENE_SOURCE, encoding="utf-8")
@@ -185,6 +197,14 @@ def test_face_edge_vertex_scene_does_not_use_filename_magic(tmp_path: Path) -> N
     path.write_text(':: "not a native scene"', encoding="utf-8")
 
     assert try_build_native_overlay_scene_program(path) is None
+
+
+def test_unknown_native_scene_kind_fails_with_clear_error(tmp_path: Path) -> None:
+    path = tmp_path / "unknown_native_scene.vkf"
+    path.write_text(UNKNOWN_NATIVE_SCENE_SOURCE, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"unsupported native_scene\.kind 'not_a_real_scene'"):
+        try_build_native_overlay_scene_program(path)
 
 
 def test_cube_hover_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
