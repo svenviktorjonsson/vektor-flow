@@ -303,6 +303,7 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
             find_vektorflow_repo_root,
             find_vf_overlay_exe,
         )
+        from .ui.display_runtime import _sync_display_runtime_assets
         from .stdlib.events import reset_overlay_port
 
         root = find_vektorflow_repo_root()
@@ -322,16 +323,22 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
 
         repo_session_dir = root / "web" / "vf-ui" / "sessions" / program.session_name
         overlay_web_dir = _overlay_web_dir_for_exe(exe)
+        _sync_display_runtime_assets(root)
         required_assets = (
             "vf-runtime-shell.js",
             "vf-runtime-source.js",
             "vf-runtime-scene.js",
             "vf-runtime-flow.js",
             "vf-native-scene-face-edge-vertex.js",
+            "vf-native-scene-cube-hover.js",
+            "vf-native-scene-ocean.js",
             "vf-display.js",
             "vf-frame.css",
             "vf-frame.js",
             "vf-widgets.js",
+            "geom/vf-geom-math.js",
+            "geom/vf-geom-core.js",
+            "geom/vf-geom-frame-adapter.js",
             "geom/vf-geom-wgpu.js",
             "geom/vf-geom-ledger.js",
             "geom/vf-geom-ledger-layout.js",
@@ -362,6 +369,20 @@ def _try_run_native_overlay_scene(path: Path) -> int | None:
                     program.geom_state_text,
                     encoding="utf-8",
                 )
+
+        # Native-scene launch must not inherit stale root runtime packets from a
+        # previous generic UI session. Seed the root runtime snapshot with this
+        # session's packet stream before the overlay process starts.
+        root_runtime_files = (
+            (root / "web" / "vf-ui"),
+            overlay_web_dir,
+        )
+        for runtime_dir in root_runtime_files:
+            runtime_dir.mkdir(parents=True, exist_ok=True)
+            (runtime_dir / "vf-runtime-packets.json").write_text(program.runtime_packets_text, encoding="utf-8")
+            (runtime_dir / "vf-display.json").write_text('{\n  "screen": [],\n  "frames": {},\n  "geom": {}\n}\n', encoding="utf-8")
+            (runtime_dir / "vkf-scene.json").write_text("[]\n", encoding="utf-8")
+            (runtime_dir / "vf-ui-state.json").write_text("{}\n", encoding="utf-8")
 
         reset_overlay_port()
         previous_pid = _read_overlay_pid()

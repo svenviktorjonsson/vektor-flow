@@ -110,9 +110,9 @@ def _push_packet(
         [packet_json],
         packets_text=get_ui_payload_snapshot().packets_text,
         warn_missing_root=warn_missing_root,
-        keep_packet_mirror=False,
+        keep_packet_mirror=True,
     )
-    if not publish_result.direct_published:
+    if not publish_result.mirrored:
         mirror_payload_file(
             "vf-runtime-packets.json",
             get_ui_payload_snapshot().packets_text,
@@ -156,6 +156,18 @@ def write_display_payload(
         warn_missing_root=warn_missing_root,
     )
     return text, wrote_files
+
+
+def publish_geom_color_patch(frame_id: str, object_id: int, color: Any) -> UIRuntimePacket:
+    packet, _ = _push_packet(
+        "geom.color.patch",
+        {
+            "frame_id": str(frame_id),
+            "object_id": int(object_id),
+            "color": color,
+        },
+    )
+    return packet
 
 
 def publish_widget_append_patch(frame_id: str, widget_id: str, text: str, *, append_seq: int) -> UIRuntimePacket:

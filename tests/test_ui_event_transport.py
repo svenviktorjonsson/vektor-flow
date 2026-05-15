@@ -187,7 +187,7 @@ def test_drag_events_do_not_coalesce_across_targets() -> None:
     assert coalesce_host_event_queue(queue, payload) is False
 
 
-def test_overlay_poller_emits_canonical_transport_payloads(monkeypatch) -> None:
+def test_overlay_poller_emits_canonical_transport_payloads_from_pop_stream(monkeypatch) -> None:
     responses = [
         {
             "line": json.dumps(
@@ -222,7 +222,7 @@ def test_overlay_poller_emits_canonical_transport_payloads(monkeypatch) -> None:
         return _FakeResponse({"line": None})
 
     received: list[dict[str, Any]] = []
-    monkeypatch.setattr("vektorflow.stdlib.events.get_overlay_port", lambda: 9999)
+    monkeypatch.setattr(event_ingress, "get_overlay_port", lambda: 9999)
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
     poller = OverlayPoller()
     poller.subscribe(lambda evt: received.append(evt))
@@ -236,10 +236,66 @@ def test_overlay_poller_emits_canonical_transport_payloads(monkeypatch) -> None:
             "frameId": "controls",
             "widgetId": "time",
             "data": {"value": 12},
-            "frame_id": "controls",
-            "widget_id": "time",
         }
     ]
+
+
+def test_overlay_poller_treats_empty_pop_timeout_as_complete_tick(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(event_ingress, "get_overlay_port", lambda: 9999)
+
+    def _fake_urlopen(url: str, timeout: float = 0.0) -> object:
+        calls.append(url)
+        raise TimeoutError("empty pop tick")
+
+    def _no_runtime_fallback(_port: int) -> bool:
+        raise AssertionError("empty /api/pop tick must not fall back to slow runtime snapshots")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    poller = OverlayPoller()
+    monkeypatch.setattr(poller, "_drain_runtime_packets_once", _no_runtime_fallback)
+
+    poller._drain_once()
+
+    assert calls == ["http://127.0.0.1:9999/api/pop"]
+
+
+def test_overlay_poller_emits_input_runtime_packet_payloads(monkeypatch) -> None:
+    response = {
+        "revision": 1,
+        "packets": [
+            {
+                "seq": 1,
+                "kind": "input.event",
+                "payload": {
+                    "event": {
+                        "type": "vf_event",
+                        "event": "hover",
+                        "frame_id": "scene",
+                        "object_id": 5,
+                    }
+                },
+            }
+        ],
+    }
+
+    class _FakeResponse:
+        def __enter__(self) -> "_FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(response).encode("utf-8")
+
+    received: list[dict[str, Any]] = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda _url, timeout=0.0: _FakeResponse())
+    poller = OverlayPoller()
+    poller.subscribe(lambda evt: received.append(evt))
+
+    assert poller._drain_runtime_packets_once(9999) is True
+    assert received == [{"type": "vf_event", "event": "hover", "frame_id": "scene", "object_id": 5}]
 
 
 def test_overlay_poller_rediscovers_port_after_failed_poll(monkeypatch) -> None:
@@ -257,6 +313,7 @@ def test_overlay_poller_rediscovers_port_after_failed_poll(monkeypatch) -> None:
         calls.append((port, poller._last_packet_seq))
         return port == 2222
 
+    monkeypatch.setattr(poller, "_drain_pop_events_once", lambda _port: False)
     monkeypatch.setattr(poller, "_drain_runtime_packets_once", _fake_drain)
 
     poller._drain_once()

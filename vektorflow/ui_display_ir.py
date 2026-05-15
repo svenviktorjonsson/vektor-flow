@@ -124,6 +124,7 @@ class UiFieldMesh:
     color: Any
     time_count: int
     time_index: int
+    time_boundary: str = "stop"
     model_matrix: tuple[float, ...] | None = None
     type: Literal["field_mesh"] = "field_mesh"
 
@@ -144,6 +145,7 @@ class UiFieldMesh:
             "scale": [self.scale[0], self.scale[1], self.scale[2]],
             "rotation": [self.rotation[0], self.rotation[1], self.rotation[2]],
             "color": self.color,
+            "time_boundary": self.time_boundary,
             "time_count": self.time_count,
             "time_index": self.time_index,
         }
@@ -792,6 +794,7 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
                     color=mesh.get("color"),
                     time_count=int(mesh["time_count"]),
                     time_index=int(mesh["time_index"]),
+                    time_boundary=str(mesh.get("time_boundary", "stop")),
                 )
             )
             continue
@@ -858,6 +861,7 @@ def field_mesh_payload_from_geometry(
         color=color,
         time_count=int(geom["time_count"]),
         time_index=int(geom["time_index"]),
+        time_boundary=str(geom.get("time_boundary", "stop")),
         model_matrix=(
             tuple(geom["model_matrix"])
             if geom.get("model_matrix") is not None
@@ -875,6 +879,7 @@ def apply_field_mesh_geometry_update(
     payload["topology"] = geom["topology"]
     payload["interpolation"] = geom["interpolation"]
     payload["alpha"] = geom["alpha"]
+    payload["time_boundary"] = geom.get("time_boundary", "stop")
     payload["time_count"] = geom["time_count"]
     payload["time_index"] = geom["time_index"]
     payload["manifold_dim_count"] = geom["manifold_dim_count"]

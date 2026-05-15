@@ -61,3 +61,12 @@ class TestPipeElementwise:
         """``::: expr`` is sugar for ``:: (expr & "\\n")`` (line-oriented print)."""
         assert _run("::: 1") == _run(':: 1 & "\\n"')
         assert _run("..3>>::: $") == _run('..3>>::($ & "\\n")')
+
+    def test_interpolated_string_in_pipe_function_uses_display_stringifier(self) -> None:
+        src = r"""
+F(i):
+    :: "call $i\n"
+    @: i
+..2 >> F($)
+"""
+        assert _run(src.strip()) == "call 0\ncall 1\ncall 2"

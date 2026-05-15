@@ -1,0 +1,38 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene: (
+    kind: "cube_lighting_camera",
+    frame_id: "cube_lighting_frame",
+    title: "3D Cube Lighting + Camera",
+    rect: [0.08, 0.10, 0.58, 0.72],
+    debug_frame_id: "cube_lighting_debug",
+    debug_title: "Lighting Hover Context",
+    debug_rect: [0.70, 0.10, 0.24, 0.42],
+    edge_radius: 0.085,
+    vertex_radius: 0.135,
+    camera: (
+        pos: [3.2, 2.25, 4.2],
+        target: [0, 0, 0],
+        fov: 40,
+        up: [0, 1, 0]
+    ),
+    light: (
+        target: [0, 0, 0],
+        orbit: true,
+        orbit_radius: 4.8,
+        height: 3.3,
+        theta: 0.45,
+        angular_velocity: 0.9,
+        model: "blinn_phong",
+        color: [1.0, 0.93, 0.78, 1.0]
+    ),
+    styles: (
+        face_base: [1.0, 0.04, 0.02, 1.0],
+        face_hover: [1.0, 0.95, 0.0, 1.0],
+        edge_base: [0.0, 0.82, 0.12, 1.0],
+        edge_hover: [1.0, 1.0, 0.0, 1.0],
+        vertex_base: [0.05, 0.32, 1.0, 1.0],
+        vertex_hover: [1.0, 1.0, 1.0, 1.0]
+    )
+)

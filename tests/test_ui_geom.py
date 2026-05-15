@@ -20,6 +20,9 @@ from vektorflow.stdlib.ui import (
     LIGHT_MODELS,
     build_ui_namespace,
 )
+from vektorflow.runtime.axis_tagged import AxisTaggedValue
+from vektorflow.runtime.vfvector import VFVector
+from vektorflow.ui.payloads import get_ui_payload_snapshot, reset_ui_payload_snapshot
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -183,6 +186,8 @@ class TestFieldMeshTimeSlices:
         mesh, data, *_ = self._mesh()
         assert mesh.t == 0
         assert mesh.t_count == 3
+        assert mesh.time_boundary == "stop"
+        assert data["time_boundary"] == "stop"
         assert data["time_index"] == 0
         assert data["time_count"] == 3
 
@@ -200,6 +205,40 @@ class TestFieldMeshTimeSlices:
         assert mesh.t == 2
         assert data["time_index"] == 2
 
+    def test_set_t_repeat_wraps(self) -> None:
+        mesh, data, *_ = self._mesh()
+        mesh.set_time_boundary("repeat")
+        mesh.set_t(4)
+        assert mesh.t == 1
+        assert data["time_index"] == 1
+
+    def test_set_t_mirror_ping_pongs(self) -> None:
+        mesh, data, *_ = self._mesh()
+        mesh.set_time_boundary("mirror")
+        mesh.set_t(3)
+        assert mesh.t == 1
+        assert data["time_index"] == 1
+
+    def test_set_t_reset_snaps_out_of_range_back_to_zero(self) -> None:
+        mesh, data, *_ = self._mesh()
+        mesh.set_time_boundary("reset")
+        mesh.set_t(99)
+        assert mesh.t == 0
+        assert data["time_index"] == 0
+
+    def test_set_t_boundary_alias(self) -> None:
+        mesh, data, *_ = self._mesh()
+        mesh.set_t_boundary("repeat")
+        mesh.set_t(5)
+        assert mesh.time_boundary == "repeat"
+        assert data["time_boundary"] == "repeat"
+        assert data["time_index"] == 2
+
+    def test_set_time_boundary_invalid_raises(self) -> None:
+        mesh, *_ = self._mesh()
+        with pytest.raises(ValueError):
+            mesh.set_time_boundary("loop")
+
     def test_set_time_alias(self) -> None:
         mesh, data, *_ = self._mesh()
         mesh.set_time(1)
@@ -213,6 +252,106 @@ class TestFieldMeshTimeSlices:
         after = data["vertices"][6:10]
         assert before != after
         assert after == pytest.approx([1.0, 0.0, 0.0, 1.0])
+
+    def test_vector_color_payload_is_json_serializable(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+        mesh = d.add(
+            x=0,
+            y=0,
+            z=0,
+            vertex_size=0.1,
+            color=VFVector([1.0, 0.2, 0.3, 0.4]),
+        )
+        data = _geom(d, fid)["meshes"][0]
+        assert data["color"] == pytest.approx([1.0, 0.2, 0.3, 0.4])
+        json.dumps(data)
+
+    def test_set_color_vector_payload_stays_json_serializable(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+        mesh = d.add(
+            x=0,
+            y=0,
+            z=0,
+            vertex_size=0.1,
+            color="blue",
+        )
+        data = _geom(d, fid)["meshes"][0]
+        mesh.set_color(VFVector([1.0, 0.95, 0.2, 0.72]))
+        assert data["color"] == pytest.approx([1.0, 0.95, 0.2, 0.72])
+        assert data["vertices"][6:10] == pytest.approx([1.0, 0.95, 0.2, 0.72])
+        json.dumps(data)
+
+    def test_set_color_publishes_geom_color_patch_without_display_replace(self) -> None:
+        reset_ui_payload_snapshot()
+        d, fid = _placed()
+        d.set_auto_render(False)
+        mesh = d.add(x=0, y=0, z=0, vertex_size=0.1, color="blue")
+        reset_ui_payload_snapshot()
+
+        mesh.set_color([1.0, 0.95, 0.2, 1.0])
+
+        packets = get_ui_payload_snapshot().packets
+        assert [packet.kind for packet in packets] == ["geom.color.patch"]
+        assert packets[0].payload == {
+            "frame_id": fid,
+            "object_id": 1,
+            "color": [1.0, 0.95, 0.2, 1.0],
+        }
+
+    def test_depth_write_metadata_is_preserved(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+        d.add(
+            x_uv=[[0, 0], [1, 1]],
+            y_uv=[[0, 1], [0, 1]],
+            z_uv=[[0, 0], [0, 0]],
+            color=[1, 0, 0, 0.4],
+            depth_write=True,
+        )
+        data = _geom(d, fid)["meshes"][0]
+        assert data["depth_write"] is True
+
+    def test_add_infers_channel_indices_from_axis_tagged_values(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+
+        d.add(
+            x=AxisTaggedValue((-1.0, 0.0, 1.0), "u"),
+            y=AxisTaggedValue((-1.0, 0.0, 1.0), "v"),
+            z=AxisTaggedValue(
+                (
+                    (2.0, 1.0, 2.0),
+                    (1.0, 0.0, 1.0),
+                    (2.0, 1.0, 2.0),
+                ),
+                "uv",
+            ),
+            color="cyan",
+            interpolation=True,
+        )
+
+        data = _geom(d, fid)["meshes"][0]
+        assert data["topology"] == "triangle-list"
+        assert data["indices"] == [
+            0, 3, 4, 0, 4, 1,
+            1, 4, 5, 1, 5, 2,
+            3, 6, 7, 3, 7, 4,
+            4, 7, 8, 4, 8, 5,
+        ]
+        assert data["manifold_dim_count"] == 2
+
+    def test_explicit_channel_suffix_must_match_axis_tagged_value(self) -> None:
+        d, _ = _placed()
+        d.set_auto_render(False)
+
+        with pytest.raises(ValueError, match="conflicts with value indices"):
+            d.add(
+                x_u=AxisTaggedValue((0.0, 1.0), "v"),
+                y=0.0,
+                z=0.0,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +377,11 @@ class TestAddCamera:
         d.add_camera(pos=[1,1,1])
         d.add_camera(pos=[2,2,2])
         assert _geom(d, fid)["camera"]["pos"] == [2.0, 2.0, 2.0]
+
+    def test_default_up_axis_is_z(self) -> None:
+        d, fid = _placed()
+        d.add_camera(pos=[4,3,5])
+        assert _geom(d, fid)["camera"]["up"] == [0.0, 0.0, 1.0]
 
 
 class TestSceneCamera:

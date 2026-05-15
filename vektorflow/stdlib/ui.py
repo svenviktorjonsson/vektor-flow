@@ -25,13 +25,17 @@ from ..ui.display_runtime import (
     has_visible_display_content,
     publish_display_runtime_payload,
 )
+from ..ui.payloads import publish_geom_color_patch
 from ..ui.representation_runtime import (
     build_embedding_scope_draw_ops,
-    build_field_mesh_from_kwargs,
-    build_field_mesh_geometry,
+    build_field_mesh_from_kwargs as _build_field_mesh_from_kwargs,
+    build_field_mesh_geometry as _build_field_mesh_geometry,
+    normalize_field_mesh_time_boundary as _normalize_field_mesh_time_boundary,
+    parse_field_mesh_channels_and_meta as _parse_field_mesh_channels_and_meta,
     refresh_all_representations,
     refresh_representation,
     refresh_representations_for_frame,
+    resolve_field_mesh_time_index as _resolve_field_mesh_time_index,
 )
 from .screen import (
     Screen,
@@ -325,6 +329,23 @@ def _color_to_payload(color: Any) -> Any:
         r, g, b, a = _parse_color_rgba(color)
         return [r, g, b, a]
     return str(color)
+
+
+def _paint_field_mesh_vertex_colors(data: dict[str, Any], color: Any) -> None:
+    rgba = _parse_color_rgba(color)
+    vertices = data.get("vertices")
+    if not isinstance(vertices, list):
+        return
+    stride = 10
+    if len(vertices) < stride:
+        return
+    for offset in range(6, len(vertices), stride):
+        if offset + 3 >= len(vertices):
+            break
+        vertices[offset] = rgba[0]
+        vertices[offset + 1] = rgba[1]
+        vertices[offset + 2] = rgba[2]
+        vertices[offset + 3] = rgba[3]
 
 
 def _coerce_vertices2(vertices: Any) -> list[list[float]]:
@@ -772,6 +793,19 @@ class SceneBox:
         # local rotation accumulator (axis-angle in degrees, stored as euler ZYX)
         self._rot: list[float] = [0.0, 0.0, 0.0]  # [rx, ry, rz] degrees
 
+    def _object_id(self) -> int:
+        meshes = self._display._geom.get(self._frame_id, {}).get("meshes", [])
+        for index, mesh in enumerate(meshes):
+            if mesh is self._data:
+                return index + 1
+        return 0
+
+    def _publish_color_patch(self, color: Any) -> None:
+        object_id = self._object_id()
+        if object_id <= 0:
+            return
+        publish_geom_color_patch(self._frame_id, object_id, _color_to_payload(color))
+
     # -- mutations ------------------------------------------------------------
 
     def translate(self, delta: Any) -> "SceneBox":
@@ -802,7 +836,8 @@ class SceneBox:
     def set_color(self, color: Any) -> "SceneBox":
         """Change the box color. Returns self."""
         self._data["color"] = _color_to_payload(color)
-        self._display._sync_all()
+        self._publish_color_patch(color)
+        self._display._dirty = True
         return self
 
     def set_scale(self, scale: Any) -> "SceneBox":
@@ -857,28 +892,31 @@ class SceneFieldMesh(SceneBox):
     def interpolation(self) -> bool:
         return bool(self._data.get("interpolation", False))
 
+    @property
+    def time_boundary(self) -> str:
+        return str(self._data.get("time_boundary", "stop"))
+
     def _rebuild(self, *, time_value: Any | None = None) -> "SceneFieldMesh":
         count = max(1, self.t_count)
         raw_t = self._data.get("time_index", 0) if time_value is None else time_value
-        idx = max(0, min(int(round(float(raw_t))), count - 1))
-        channels: dict[str, dict[str, Any]] = {}
-        meta: dict[str, Any] = {}
-        for key, raw in self._source_kwargs.items():
-            m = _MESH_CHANNEL_RE.match(str(key))
-            if m:
-                axis = m.group(1)
-                dims = str(m.group(2) or "")
-                channels[axis] = _parse_mesh_channel(axis, dims, raw)
-            else:
-                meta[str(key)] = raw
+        boundary = self._source_kwargs.get("time_boundary", self._source_kwargs.get("t_boundary", "stop"))
+        idx = _resolve_field_mesh_time_index(raw_t, count, boundary=boundary)
+        channels, meta = _parse_field_mesh_channels_and_meta(self._source_kwargs)
         geom = _build_field_mesh_geometry(channels, meta, time_index=idx)
         self._data["vertices"] = geom["vertices"]
         self._data["indices"] = geom["indices"]
         self._data["topology"] = geom["topology"]
         self._data["interpolation"] = geom["interpolation"]
         self._data["alpha"] = geom["alpha"]
+        self._data["time_boundary"] = geom["time_boundary"]
         self._data["time_count"] = geom["time_count"]
         self._data["time_index"] = geom["time_index"]
+        self._data["manifold_dim_count"] = geom["manifold_dim_count"]
+        self._data["solid_volume"] = geom["solid_volume"]
+        self._data["vertex_size"] = geom["vertex_size"]
+        self._data["edge_width"] = geom["edge_width"]
+        self._data["color"] = _color_to_payload(self._source_kwargs.get("color"))
+        self._data["depth_write"] = bool(self._source_kwargs.get("depth_write", False))
         self._display._sync_all()
         return self
 
@@ -888,20 +926,33 @@ class SceneFieldMesh(SceneBox):
     def set_time(self, value: Any) -> "SceneFieldMesh":
         return self.set_t(value)
 
+    def set_time_boundary(self, value: Any) -> "SceneFieldMesh":
+        mode = _normalize_field_mesh_time_boundary(value)
+        self._source_kwargs["time_boundary"] = mode
+        self._source_kwargs.pop("t_boundary", None)
+        return self._rebuild()
+
+    def set_t_boundary(self, value: Any) -> "SceneFieldMesh":
+        return self.set_time_boundary(value)
+
     def set_interpolation(self, value: Any) -> "SceneFieldMesh":
         self._source_kwargs["interpolation"] = bool(value)
         return self._rebuild()
 
     def set_color(self, color: Any) -> "SceneFieldMesh":
-        """Change mesh color and rebuild vertex colors. Returns self."""
+        """Change mesh color without rebuilding positions or indices. Returns self."""
         self._source_kwargs["color"] = color
-        self._data["color"] = color
-        return self._rebuild()
+        self._data["color"] = _color_to_payload(color)
+        _paint_field_mesh_vertex_colors(self._data, color)
+        self._publish_color_patch(color)
+        self._display._dirty = True
+        return self
 
     def __repr__(self) -> str:
         return (
             f"SceneFieldMesh(time_index={self._data.get('time_index', 0)}, "
             f"time_count={self._data.get('time_count', 1)}, "
+            f"time_boundary={self._data.get('time_boundary', 'stop')!r}, "
             f"color={self._data.get('color')!r})"
         )
 
@@ -1512,20 +1563,58 @@ class UIRoot:
             t = evt.get("type")
             if t != "vf_event":
                 # Non-vf_event host events (frame lifecycle, widget payloads, etc.).
-                self._event_queue.append(normalized)
+                self._queue_event(normalized)
                 return
             if ev_name in ("move", "hover", "down", "up", "wheel", "drag"):
                 self.keyboard._observe_modifiers(evt)
                 self.cursor._push(payload)
-                self._event_queue.append(normalized)
+                self._queue_event(normalized)
             elif ev_name in ("key_down", "key_up"):
                 ke = KeyboardEvent.from_dict(payload)
                 is_modifier = self.keyboard._modifier_name(ke) is not None
                 self.keyboard._push(payload)
                 if not is_modifier:
-                    self._event_queue.append(normalized)
+                    self._queue_event(normalized)
         p = get_global_poller()
         p.subscribe(_dispatch)
+
+    def _queue_event(self, evt: Any) -> None:
+        if isinstance(evt, (MouseHover, MouseMove)):
+            frame_id = getattr(evt, "frame_id", "")
+            for i in range(len(self._event_queue) - 1, -1, -1):
+                queued = self._event_queue[i]
+                if not isinstance(queued, (MouseHover, MouseMove)):
+                    break
+                if getattr(queued, "frame_id", "") == frame_id:
+                    self._event_queue[i] = evt
+                    _ui_trace_line(
+                        "queue coalesced pointer "
+                        f"event={evt.event} frame={frame_id} object_id={getattr(evt, 'object_id', 0)}"
+                    )
+                    return
+            self._event_queue.append(evt)
+            return
+        if isinstance(evt, MouseDrag):
+            frame_id = getattr(evt, "frame_id", "")
+            object_id = getattr(evt, "object_id", 0)
+            for i in range(len(self._event_queue) - 1, -1, -1):
+                queued = self._event_queue[i]
+                if not isinstance(queued, MouseDrag):
+                    break
+                if getattr(queued, "frame_id", "") != frame_id or getattr(queued, "object_id", 0) != object_id:
+                    continue
+                queued.dx += evt.dx
+                queued.dy += evt.dy
+                queued.dx_norm += evt.dx_norm
+                queued.dy_norm += evt.dy_norm
+                queued.x = evt.x
+                queued.y = evt.y
+                queued.buttons = evt.buttons
+                _ui_trace_line(f"queue coalesced drag frame={frame_id} object_id={object_id}")
+                return
+            self._event_queue.append(evt)
+            return
+        self._event_queue.append(evt)
 
     def _ensure_poller(self) -> None:
         if not self._poller_started:
@@ -1538,7 +1627,13 @@ class UIRoot:
         self._ensure_poller()
         if self._event_queue:
             evt = self._event_queue.popleft()
-            _ui_trace_line(f"next_event cls={type(evt).__name__} event={getattr(evt, 'event', '')} frame={getattr(evt, 'frame_id', '')}")
+            _ui_trace_line(
+                f"next_event cls={type(evt).__name__} "
+                f"event={getattr(evt, 'event', '')} "
+                f"frame={getattr(evt, 'frame_id', '')} "
+                f"object_id={getattr(evt, 'object_id', '')} "
+                f"simplex_id={getattr(evt, 'simplex_id', '')}"
+            )
             return evt
         return None
 
@@ -1985,7 +2080,7 @@ class Display:
             "pos":    _vec3(pos, "pos"),
             "target": _vec3(target or [0, 0, 0], "target"),
             "fov":    float(fov),
-            "up":     _vec3(up or [0, 1, 0], "up"),
+            "up":     _vec3(up or [0, 0, 1], "up"),
         }
         self._geom_for(fid)["camera"] = data
         self._sync_all()

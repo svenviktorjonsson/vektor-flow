@@ -71,7 +71,8 @@ def _render_session_html(source_html: str) -> str:
 
     def repl(match: re.Match[str]) -> str:
         prefix, asset, suffix = match.groups()
-        return f"{prefix}../../{asset}{suffix}"
+        asset = _VERSION_RE.sub("", asset)
+        return f"{prefix}../../{asset}?v={version}{suffix}"
 
     return _ROOT_ASSET_RE.sub(repl, stamped)
 

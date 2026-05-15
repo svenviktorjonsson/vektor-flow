@@ -6,6 +6,7 @@ import math as pymath
 
 import pytest
 
+from vektorflow.runtime.axis_tagged import AxisTaggedValue
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib.math import build_math_namespace
 
@@ -46,6 +47,23 @@ class TestTrig:
         assert m["asinh"](0) == 0.0
         assert m["acosh"](1) == 0.0
         assert m["atanh"](0) == 0.0
+
+    def test_sin_axis_tagged_tensor_broadcasts_elementwise(self) -> None:
+        m = build_math_namespace()
+        tagged = AxisTaggedValue(
+            (
+                (0.0, pymath.pi / 2),
+                (pymath.pi, -pymath.pi / 2),
+            ),
+            "uv",
+        )
+        out = m["sin"](tagged)
+        assert isinstance(out, AxisTaggedValue)
+        assert out.idx == "uv"
+        assert out.data[0][0] == pytest.approx(0.0)
+        assert out.data[0][1] == pytest.approx(1.0)
+        assert out.data[1][0] == pytest.approx(0.0, abs=1e-12)
+        assert out.data[1][1] == pytest.approx(-1.0)
 
 
 class TestExpLog:

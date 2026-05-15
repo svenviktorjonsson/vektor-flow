@@ -10,11 +10,46 @@ import math
 from itertools import product
 from typing import Any
 
+from vektorflow.runtime.axis_tagged import AxisTaggedValue
+
 
 def _ui():
     from vektorflow.stdlib import ui as ui_stdlib
 
     return ui_stdlib
+
+
+FIELD_TIME_BOUNDARY_MODES = frozenset({"mirror", "repeat", "reset", "stop"})
+
+
+def normalize_field_mesh_time_boundary(value: Any) -> str:
+    mode = str(value or "stop").strip().lower().replace("-", "_")
+    if mode not in FIELD_TIME_BOUNDARY_MODES:
+        allowed = ", ".join(sorted(FIELD_TIME_BOUNDARY_MODES))
+        raise ValueError(f"time boundary must be one of: {allowed}")
+    return mode
+
+
+def resolve_field_mesh_time_index(
+    time_value: Any,
+    time_count: int,
+    *,
+    boundary: Any = "stop",
+) -> int:
+    count = max(1, int(time_count))
+    idx = int(round(float(time_value)))
+    mode = normalize_field_mesh_time_boundary(boundary)
+    if count <= 1:
+        return 0
+    if mode == "stop":
+        return max(0, min(idx, count - 1))
+    if mode == "repeat":
+        return idx % count
+    if mode == "reset":
+        return idx if 0 <= idx < count else 0
+    period = 2 * (count - 1)
+    ping = idx % period
+    return ping if ping < count else period - ping
 
 
 def build_embedding_scope_draw_ops(
@@ -323,7 +358,11 @@ def build_field_mesh_geometry(
         dim_sizes[d] = target
 
     time_count = int(dim_sizes.get("t", 1))
-    current_t = max(0, min(int(time_index), max(0, time_count - 1)))
+    current_t = resolve_field_mesh_time_index(
+        time_index,
+        time_count,
+        boundary=meta.get("time_boundary", meta.get("t_boundary", meta.get("time_mode", meta.get("t_mode", "stop")))),
+    )
     sample_dims = [d for d in canonical_dims if d != "t"]
     cshape = tuple(dim_sizes[d] for d in sample_dims)
 
@@ -355,14 +394,19 @@ def build_field_mesh_geometry(
         vindex[idx] = i
 
     manifold_dims = [d for d in "uvw" if d in dim_sizes and dim_sizes[d] > 1]
+    manifold_dim_count = len(manifold_dims)
+    vertex_size, edge_width = _overlay_size_policy(meta, manifold_dim_count)
     base_indices: list[int] = []
-    topology = "line-list"
+    topology = "point-list"
 
     def _idx(base: dict[str, int]) -> int:
         tup = tuple(base.get(d, 0) for d in sample_dims)
         return int(vindex[tup])
 
-    if len(manifold_dims) == 1:
+    if len(manifold_dims) == 0:
+        topology = "point-list"
+        base_indices = list(range(len(points)))
+    elif len(manifold_dims) == 1:
         topology = "line-list"
         du = manifold_dims[0]
         loop_dims = [d for d in sample_dims if d != du]
@@ -465,12 +509,42 @@ def build_field_mesh_geometry(
         "topology": topology,
         "interpolation": interpolation,
         "alpha": float(rgba[3]),
+        "time_boundary": normalize_field_mesh_time_boundary(
+            meta.get("time_boundary", meta.get("t_boundary", meta.get("time_mode", meta.get("t_mode", "stop"))))
+        ),
         "time_count": time_count,
         "time_index": current_t,
+        "manifold_dim_count": manifold_dim_count,
+        "solid_volume": manifold_dim_count >= 3,
+        "vertex_size": vertex_size,
+        "edge_width": edge_width,
     }
 
 
-def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+def _overlay_size_policy(meta: dict[str, Any], manifold_dim_count: int) -> tuple[float, float]:
+    if manifold_dim_count == 0:
+        default_vertex_size = 4.0
+        default_edge_width = 0.0
+    elif manifold_dim_count == 1:
+        default_vertex_size = 0.0
+        default_edge_width = 4.0
+    else:
+        default_vertex_size = 0.0
+        default_edge_width = 0.0
+    return (
+        _nonnegative_float(meta.get("vertex_size", default_vertex_size), "vertex_size"),
+        _nonnegative_float(meta.get("edge_width", default_edge_width), "edge_width"),
+    )
+
+
+def _nonnegative_float(value: Any, name: str) -> float:
+    out = float(value)
+    if out < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return out
+
+
+def parse_field_mesh_channels_and_meta(kwargs: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     ui_stdlib = _ui()
     channels: dict[str, dict[str, Any]] = {}
     meta: dict[str, Any] = {}
@@ -479,9 +553,23 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         if m:
             axis = m.group(1)
             dims = str(m.group(2) or "")
+            if isinstance(value, AxisTaggedValue):
+                inferred_dims = value.idx
+                if dims and dims != inferred_dims:
+                    raise ValueError(
+                        f"ui.add(...) channel {key!r} conflicts with value indices {inferred_dims!r}"
+                    )
+                dims = inferred_dims
+                value = value.data
             channels[axis] = _parse_mesh_channel(axis, dims, value)
         else:
             meta[key] = value
+    return channels, meta
+
+
+def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    ui_stdlib = _ui()
+    channels, meta = parse_field_mesh_channels_and_meta(kwargs)
 
     missing = [a for a in ("x", "y", "z") if a not in channels]
     if missing:
@@ -504,9 +592,15 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "center": ui_stdlib._vec3(meta.get("center", [0, 0, 0]), "center"),
         "scale": ui_stdlib._vec3(meta.get("scale", [1, 1, 1]), "scale"),
         "rotation": ui_stdlib._vec3(meta.get("rotation", [0, 0, 0]), "rotation"),
-        "color": meta.get("color"),
+        "color": ui_stdlib._color_to_payload(meta.get("color")),
+        "time_boundary": geom["time_boundary"],
         "time_count": geom["time_count"],
         "time_index": geom["time_index"],
+        "manifold_dim_count": geom["manifold_dim_count"],
+        "solid_volume": geom["solid_volume"],
+        "vertex_size": geom["vertex_size"],
+        "edge_width": geom["edge_width"],
+        "depth_write": bool(meta.get("depth_write", False)),
     }
 
 

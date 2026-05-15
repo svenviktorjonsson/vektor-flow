@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import socket
 import threading
 import urllib.request
 import time
@@ -124,7 +125,12 @@ def reset_overlay_port() -> None:
 
 _INPUT_RUNTIME_PACKETS_URL_TEMPLATE = "http://127.0.0.1:{port}/api/runtime-packets/input"
 _RUNTIME_PACKETS_URL_TEMPLATE = "http://127.0.0.1:{port}/api/runtime-packets"
+_POP_URL_TEMPLATE = "http://127.0.0.1:{port}/api/pop"
 _POLL_INTERVAL = 0.001
+_FETCH_TIMEOUT = 0.25
+_POP_TIMEOUT = 0.01
+_MAX_POP_EVENTS_PER_DRAIN = 128
+_FETCH_TIMEOUT_SENTINEL = object()
 
 
 class OverlayPoller:
@@ -169,6 +175,8 @@ class OverlayPoller:
             self._active_port = port
             self._last_packet_seq = 0
             self._last_packet_revision = 0
+        if self._drain_pop_events_once(port):
+            return
         if self._drain_runtime_packets_once(port):
             return
         reset_overlay_port()
@@ -178,7 +186,40 @@ class OverlayPoller:
         self._active_port = new_port
         self._last_packet_seq = 0
         self._last_packet_revision = 0
-        self._drain_runtime_packets_once(new_port)
+        if not self._drain_pop_events_once(new_port):
+            self._drain_runtime_packets_once(new_port)
+
+    def _drain_pop_events_once(self, port: int) -> bool:
+        url = _POP_URL_TEMPLATE.format(port=port)
+        for _ in range(_MAX_POP_EVENTS_PER_DRAIN):
+            outer = self._fetch_json(url, timeout=_POP_TIMEOUT)
+            if outer is _FETCH_TIMEOUT_SENTINEL:
+                # /api/pop is the intended low-latency event stream. A missed
+                # short poll means "try again next tick", not "fall back to
+                # slower snapshot endpoints" while the cursor is moving.
+                return True
+            if outer is None:
+                return False
+            if not isinstance(outer, dict):
+                return False
+            line = outer.get("line")
+            if line is None:
+                return True
+            if isinstance(line, bytes):
+                line = line.decode("utf-8")
+            if not isinstance(line, str):
+                _trace_ingress_error(TypeError("/api/pop line must be a JSON string or null"))
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception as exc:
+                _trace_ingress_error(exc)
+                continue
+            if not isinstance(payload, dict):
+                _trace_ingress_error(TypeError("/api/pop line JSON must decode to an object"))
+                continue
+            self._publish_event_payload(payload)
+        return True
 
     def _drain_runtime_packets_once(self, port: int) -> bool:
         outer = self._fetch_runtime_packet_snapshot(_INPUT_RUNTIME_PACKETS_URL_TEMPLATE.format(port=port))
@@ -234,11 +275,22 @@ class OverlayPoller:
         return None
 
     def _fetch_runtime_packet_snapshot(self, url: str) -> dict[str, Any] | None:
+        return self._fetch_json(url, timeout=_FETCH_TIMEOUT)
+
+    def _fetch_json(self, url: str, *, timeout: float) -> dict[str, Any] | None:
         try:
-            with urllib.request.urlopen(url, timeout=0.01) as resp:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
                 raw = resp.read()
             outer = json.loads(raw)
-        except Exception:
+        except (TimeoutError, socket.timeout):
+            return _FETCH_TIMEOUT_SENTINEL
+        except urllib.error.URLError as exc:
+            if isinstance(getattr(exc, "reason", None), (TimeoutError, socket.timeout)):
+                return _FETCH_TIMEOUT_SENTINEL
+            _trace_poll_error(url, exc)
+            return None
+        except Exception as exc:
+            _trace_poll_error(url, exc)
             return None
         return outer if isinstance(outer, dict) else None
 
@@ -291,8 +343,13 @@ def _trace_ingress(evt: dict[str, Any]) -> None:
         event = str(evt.get("event", ""))
         frame = str(evt.get("frame_id", evt.get("frameId", "")) or "")
         widget = str(evt.get("widget_id", evt.get("widgetId", "")) or "")
+        object_id = evt.get("object_id", "")
+        simplex_id = evt.get("simplex_id", "")
         with p.open("a", encoding="utf-8") as f:
-            f.write(f"{ts} ingress event={event} frame={frame} widget={widget}\n")
+            f.write(
+                f"{ts} ingress event={event} frame={frame} widget={widget} "
+                f"object_id={object_id} simplex_id={simplex_id}\n"
+            )
     except OSError:
         pass
 
@@ -309,5 +366,21 @@ def _trace_ingress_error(exc: Exception) -> None:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         with p.open("a", encoding="utf-8") as f:
             f.write(f"{ts} ingress subscriber error={type(exc).__name__}: {exc}\n")
+    except OSError:
+        pass
+
+
+def _trace_poll_error(url: str, exc: Exception) -> None:
+    if not _trace_enabled():
+        return
+    try:
+        base = os.environ.get("LOCALAPPDATA", "") or ""
+        if not base:
+            return
+        p = Path(base) / "vektor-flow" / "python-ui-events.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"{ts} ingress poll error url={url} error={type(exc).__name__}: {exc}\n")
     except OSError:
         pass

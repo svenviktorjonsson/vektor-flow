@@ -664,6 +664,15 @@ def _wrap_vector_result_if_typed(op: str, result: Any, left: Any, right: Any) ->
     return wrap_typed_vector_result(result, combine_typed_vector_types(op, left, right))
 
 
+def _axis_map_numeric_leaf(value: Any, fn: Any) -> Any:
+    """Apply scalar arithmetic recursively across an axis-tagged tensor."""
+    if isinstance(value, tuple):
+        return tuple(_axis_map_numeric_leaf(item, fn) for item in value)
+    if isinstance(value, VFVector):
+        return VFVector(_axis_map_numeric_leaf(item, fn) for item in value)
+    return fn(value)
+
+
 def _expr_to_compact_string(expr: Any) -> str:
     """Readable RHS snapshot when parameters are not bound (e.g. ``f.y`` → ``\"2x\"``)."""
     if isinstance(expr, ast.Ident):
@@ -1818,7 +1827,12 @@ class Interpreter:
                         )
                 return v
 
-            return interpolate_string(s, eval_inner, resolve_chain)
+            return interpolate_string(
+                s,
+                eval_inner,
+                resolve_chain,
+                lambda value: self._stringify_for_display(value, env),
+            )
         if isinstance(node, ast.Ident):
             return self._resolve(node.name, env)
         if isinstance(node, ast.AxisAlign):
@@ -2968,6 +2982,25 @@ def _axis_broadcast_tagged_binop(op: str, a: AxisTaggedValue, b: AxisTaggedValue
     return axis_broadcast_binary(lambda x, y: _binop(op, x, y), a, b)
 
 
+def _axis_zip_same_signature_binop(op: str, left: Any, right: Any, mismatch_label: str) -> Any:
+    """Recurse through same-signature axis payloads before applying a leaf binop."""
+    if isinstance(left, tuple) and isinstance(right, tuple):
+        if len(left) != len(right):
+            raise EvalError(f"tuple length mismatch for {mismatch_label}")
+        return tuple(
+            _axis_zip_same_signature_binop(op, lx, rx, mismatch_label)
+            for lx, rx in zip(left, right)
+        )
+    if isinstance(left, VFVector) and isinstance(right, VFVector):
+        if len(left) != len(right):
+            raise EvalError(f"vector length mismatch for {mismatch_label}")
+        return VFVector(
+            _axis_zip_same_signature_binop(op, lx, rx, mismatch_label)
+            for lx, rx in zip(left, right)
+        )
+    return _binop(op, left, right)
+
+
 def _struct_merge_concat(a: dict, b: dict) -> dict:
     """``a & b`` for structs: fields from ``a`` then ``b``; duplicate keys take ``b``."""
     ta, tb = get_type_name(a), get_type_name(b)
@@ -3000,22 +3033,9 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 "(use tuple or vector)"
             )
         if op == "PLUS":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for +")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(x + y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for +")
-                return AxisTaggedValue(
-                    _wrap_vector_result_if_typed(
-                        op,
-                        (x + y for x, y in zip(ad, bd)),
-                        ad,
-                        bd,
-                    ),
+                    _axis_zip_same_signature_binop(op, ad, bd, "+"),
                     a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
@@ -3024,22 +3044,9 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     a.idx,
                 )
         if op == "MINUS":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for -")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(x - y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for -")
-                return AxisTaggedValue(
-                    _wrap_vector_result_if_typed(
-                        op,
-                        (x - y for x, y in zip(ad, bd)),
-                        ad,
-                        bd,
-                    ),
+                    _axis_zip_same_signature_binop(op, ad, bd, "-"),
                     a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
@@ -3048,43 +3055,17 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     a.idx,
                 )
         if op == "STAR":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for *")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(x * y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for *")
-                return AxisTaggedValue(
-                    _wrap_vector_result_if_typed(
-                        op,
-                        (x * y for x, y in zip(ad, bd)),
-                        ad,
-                        bd,
-                    ),
+                    _axis_zip_same_signature_binop(op, ad, bd, "*"),
                     a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
                 raise EvalError("operator * is not defined for multisets")
         if op == "SLASH":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for /")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(x / y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for /")
-                return AxisTaggedValue(
-                    _wrap_vector_result_if_typed(
-                        op,
-                        (x / y for x, y in zip(ad, bd)),
-                        ad,
-                        bd,
-                    ),
+                    _axis_zip_same_signature_binop(op, ad, bd, "/"),
                     a.idx,
                 )
             if isinstance(ad, Multiset) and isinstance(bd, Multiset):
@@ -3102,56 +3083,21 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 except KeyError as e:
                     raise EvalError(str(e)) from e
         if op == "PERCENT":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for %")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(x % y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for %")
-                return AxisTaggedValue(
-                    _wrap_vector_result_if_typed(
-                        op,
-                        (x % y for x, y in zip(ad, bd)),
-                        ad,
-                        bd,
-                    ),
+                    _axis_zip_same_signature_binop(op, ad, bd, "%"),
                     a.idx,
                 )
         if op == "CARET":
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for ^")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(x**y for x, y in zip(ad, bd)), a.idx
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for ^")
-                return AxisTaggedValue(
-                    _wrap_vector_result_if_typed(
-                        op,
-                        (x**y for x, y in zip(ad, bd)),
-                        ad,
-                        bd,
-                    ),
+                    _axis_zip_same_signature_binop(op, ad, bd, "^"),
                     a.idx,
                 )
         if op in ("EQ", "NEQ", "LT", "LE", "GT", "GE"):
-            if isinstance(ad, tuple) and isinstance(bd, tuple):
-                if len(ad) != len(bd):
-                    raise EvalError("tuple length mismatch for relational op")
+            if isinstance(ad, (tuple, VFVector)) and isinstance(bd, type(ad)):
                 return AxisTaggedValue(
-                    tuple(_binop(op, x, y) for x, y in zip(ad, bd)),
-                    a.idx,
-                )
-            if isinstance(ad, VFVector) and isinstance(bd, VFVector):
-                if len(ad) != len(bd):
-                    raise EvalError("vector length mismatch for relational op")
-                return AxisTaggedValue(
-                    VFVector(_binop(op, x, y) for x, y in zip(ad, bd)),
+                    _axis_zip_same_signature_binop(op, ad, bd, "relational op"),
                     a.idx,
                 )
         raise EvalError(
@@ -3159,6 +3105,9 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         )
     if op == "STAR":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            if isinstance(a.data, (tuple, VFVector)):
+                bf = float(b)
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x * bf), a.idx)
             if isinstance(a.data, tuple):
                 bf = float(b)
                 return AxisTaggedValue(tuple(bf * x for x in a.data), a.idx)
@@ -3173,6 +3122,9 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     a.idx,
                 )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            if isinstance(b.data, (tuple, VFVector)):
+                af = float(a)
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: af * x), b.idx)
             if isinstance(b.data, tuple):
                 af = float(a)
                 return AxisTaggedValue(tuple(af * x for x in b.data), b.idx)
@@ -3189,6 +3141,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
     if op == "CARET":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
             bf = float(b)
+            if isinstance(a.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x**bf), a.idx)
             if isinstance(a.data, tuple):
                 return AxisTaggedValue(tuple(x**bf for x in a.data), a.idx)
             if isinstance(a.data, VFVector):
@@ -3203,6 +3157,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
+            if isinstance(b.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: af**x), b.idx)
             if isinstance(b.data, tuple):
                 return AxisTaggedValue(tuple(af**x for x in b.data), b.idx)
             if isinstance(b.data, VFVector):
@@ -3218,6 +3174,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
     if op == "PERCENT":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
             bf = float(b)
+            if isinstance(a.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x % bf), a.idx)
             if isinstance(a.data, tuple):
                 return AxisTaggedValue(tuple(x % bf for x in a.data), a.idx)
             if isinstance(a.data, VFVector):
@@ -3232,6 +3190,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
+            if isinstance(b.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: af % x), b.idx)
             if isinstance(b.data, tuple):
                 return AxisTaggedValue(tuple(af % x for x in b.data), b.idx)
             if isinstance(b.data, VFVector):
@@ -3247,6 +3207,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
     if op == "PLUS":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
             bf = float(b)
+            if isinstance(a.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x + bf), a.idx)
             if isinstance(a.data, tuple):
                 return AxisTaggedValue(tuple(x + bf for x in a.data), a.idx)
             if isinstance(a.data, VFVector):
@@ -3269,6 +3231,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
+            if isinstance(b.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: af + x), b.idx)
             if isinstance(b.data, tuple):
                 return AxisTaggedValue(tuple(af + x for x in b.data), b.idx)
             if isinstance(b.data, VFVector):
@@ -3292,6 +3256,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
     if op == "MINUS":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
             bf = float(b)
+            if isinstance(a.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x - bf), a.idx)
             if isinstance(a.data, tuple):
                 return AxisTaggedValue(tuple(x - bf for x in a.data), a.idx)
             if isinstance(a.data, VFVector):
@@ -3314,6 +3280,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
+            if isinstance(b.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: af - x), b.idx)
             if isinstance(b.data, tuple):
                 return AxisTaggedValue(tuple(af - x for x in b.data), b.idx)
             if isinstance(b.data, VFVector):
@@ -3329,6 +3297,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
     if op == "SLASH":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
             bf = float(b)
+            if isinstance(a.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x / bf), a.idx)
             if isinstance(a.data, tuple):
                 return AxisTaggedValue(tuple(x / bf for x in a.data), a.idx)
             if isinstance(a.data, VFVector):
@@ -3345,6 +3315,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 return AxisTaggedValue(_multiset_division_struct(a.data, b), a.idx)
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
             af = float(a)
+            if isinstance(b.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: af / x), b.idx)
             if isinstance(b.data, tuple):
                 return AxisTaggedValue(tuple(af / x for x in b.data), b.idx)
             if isinstance(b.data, VFVector):
@@ -3359,6 +3331,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                 )
     if op == "FLOORDIV":
         if isinstance(a, AxisTaggedValue) and isinstance(b, (int, float)):
+            if isinstance(a.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(a.data, lambda x: x // b), a.idx)
             if isinstance(a.data, tuple):
                 return AxisTaggedValue(tuple(x // b for x in a.data), a.idx)
             if isinstance(a.data, VFVector):
@@ -3380,6 +3354,8 @@ def _binop(op: str, a: Any, b: Any) -> Any:
                     a.idx,
                 )
         if isinstance(b, AxisTaggedValue) and isinstance(a, (int, float)):
+            if isinstance(b.data, (tuple, VFVector)):
+                return AxisTaggedValue(_axis_map_numeric_leaf(b.data, lambda x: a // x), b.idx)
             if isinstance(b.data, tuple):
                 return AxisTaggedValue(tuple(a // x for x in b.data), b.idx)
             if isinstance(b.data, VFVector):

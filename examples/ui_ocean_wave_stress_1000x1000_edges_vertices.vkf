@@ -1,0 +1,85 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene: (
+    kind: "ocean_wave",
+    frame_id: "ocean_wave_stress_1000x1000_edges_vertices",
+    title: "Ocean Wave Stress 1000x1000 Edges Vertices",
+    rect: [0.08, 0.08, 0.70, 0.78],
+    surface: (
+        u_min: -6.0,
+        u_max: 6.0,
+        u_steps: 1000,
+        v_min: -6.0,
+        v_max: 6.0,
+        v_steps: 1000,
+        face_subdivisions: 1
+    ),
+    timing: (
+        fps: 60,
+        duration_seconds: 10.0,
+        boundary: "repeat"
+    ),
+    camera: (
+        target: [0.0, 0.0, 0.0],
+        radius: 9.6,
+        height: 3.2,
+        theta: 0.10,
+        turns_per_cycle: 0.0,
+        fov: 42.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    light: (
+        target: [0.0, 0.0, 0.0],
+        radius: 7.1,
+        height: 4.6,
+        theta: 0.45,
+        turns_per_cycle: 0.0,
+        model: "blinn_phong",
+        color: [1.0, 0.93, 0.78, 1.0]
+    ),
+    styles: (
+        face_color: [0.06, 0.55, 0.94, 1.0],
+        edge_color: [0.14, 0.96, 0.36, 0.96],
+        vertex_color: [1.0, 0.42, 0.14, 1.0],
+        edge_width: 0.016,
+        vertex_size: 0.035,
+        show_edges: true,
+        show_vertices: true,
+        edge_caps: false,
+        face_light_model: "flat"
+    ),
+    waves: [
+        (
+            kind: "linear",
+            fn: "sin",
+            amplitude: 0.38,
+            ux: 0.78,
+            uy: 0.0,
+            time_freq: 0.0
+        ),
+        (
+            kind: "linear",
+            fn: "cos",
+            amplitude: 0.24,
+            ux: 0.0,
+            uy: 1.04,
+            time_freq: 0.0
+        ),
+        (
+            kind: "linear",
+            fn: "sin",
+            amplitude: 0.16,
+            ux: 0.56,
+            uy: 0.56,
+            time_freq: 0.0
+        ),
+        (
+            kind: "radial2",
+            fn: "cos",
+            amplitude: 0.08,
+            radial2: 0.075,
+            time_freq: 0.0
+        )
+    ]
+)

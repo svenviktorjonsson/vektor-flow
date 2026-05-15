@@ -1956,17 +1956,12 @@ class Parser:
     def _parse_arrow_access_suffix(
         self, left: Any, left_tight: bool, right_tight: bool
     ) -> Any:
-        """After tight ``->``: same reach shapes as ``.`` (field / index / string / number)."""
-        if not left_tight:
-            raise ParseError(
-                "`->` must be adjacent to the left operand (no space before `->`)",
-                self._loc_here(),
-            )
-        if not right_tight:
-            raise ParseError(
-                "`->` must be adjacent to the axis access (no space after `->`)",
-                self._loc_here(),
-            )
+        """After value ``->``: same reach shapes as ``.`` (field / index / string / number).
+
+        Value axis tags are intentionally whitespace-friendly (`xs -> u`) so
+        plotting/tensor code reads like math. Type arrows remain guarded by
+        their own parser paths and primitive identifiers are rejected above.
+        """
         self._skip_trivia()
         k0 = self._peek_raw()
         if k0 not in (LPAREN, DOLLAR, NUMBER, STRING, STRING_RAW, IDENT):

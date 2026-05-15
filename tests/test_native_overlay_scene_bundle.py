@@ -52,6 +52,120 @@ native_scene: (
 """
 
 
+CUBE_HOVER_SOURCE = """
+native_scene: (
+    kind: "cube_hover",
+    frame_id: "cube_frame",
+    title: "3D Cube Hover",
+    rect: [0.08, 0.10, 0.58, 0.72],
+    debug_frame_id: "cube_hover_debug",
+    debug_title: "Cube Hover Context",
+    debug_rect: [0.70, 0.10, 0.24, 0.42],
+    edge_radius: 0.085,
+    vertex_radius: 0.135,
+    styles: (
+        face_base: [1, 0, 0, 1],
+        face_hover: [1, 0.95, 0, 1],
+        edge_base: [0, 0.82, 0.12, 1],
+        edge_hover: [1, 1, 0, 1],
+        vertex_base: [0.05, 0.32, 1, 1],
+        vertex_hover: [1, 1, 1, 1]
+    )
+)
+"""
+
+
+CUBE_LIGHTING_SOURCE = """
+native_scene: (
+    kind: "cube_lighting_camera",
+    frame_id: "cube_lighting_frame",
+    title: "3D Cube Lighting + Camera",
+    rect: [0.08, 0.10, 0.58, 0.72],
+    debug_frame_id: "cube_lighting_debug",
+    debug_title: "Lighting Hover Context",
+    debug_rect: [0.70, 0.10, 0.24, 0.42],
+    edge_radius: 0.085,
+    vertex_radius: 0.135,
+    camera: (
+        pos: [3.2, 2.25, 4.2],
+        target: [0, 0, 0],
+        fov: 40,
+        up: [0, 1, 0]
+    ),
+    light: (
+        target: [0, 0, 0],
+        orbit: true,
+        orbit_radius: 4.8,
+        height: 3.3,
+        theta: 0.45,
+        angular_velocity: 0.9,
+        model: "blinn_phong",
+        color: [1.0, 0.93, 0.78, 1.0]
+    ),
+    styles: (
+        face_base: [1, 0, 0, 1],
+        face_hover: [1, 0.95, 0, 1],
+        edge_base: [0, 0.82, 0.12, 1],
+        edge_hover: [1, 1, 0, 1],
+        vertex_base: [0.05, 0.32, 1, 1],
+        vertex_hover: [1, 1, 1, 1]
+    )
+)
+"""
+
+
+OCEAN_WAVE_SOURCE = """
+native_scene: (
+    kind: "ocean_wave",
+    frame_id: "ocean_wave_frame",
+    title: "Ocean Wave Native",
+    rect: [0.06, 0.08, 0.72, 0.82],
+    surface: (
+        u_min: -6.0,
+        u_max: 6.0,
+        u_steps: 25,
+        v_min: -6.0,
+        v_max: 6.0,
+        v_steps: 25
+    ),
+    timing: (
+        fps: 30,
+        duration_seconds: 10.0,
+        boundary: "repeat"
+    ),
+    camera: (
+        target: [0.0, 0.0, 0.0],
+        radius: 9.6,
+        height: 3.2,
+        theta: 0.10,
+        turns_per_cycle: 1.0,
+        fov: 42.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    light: (
+        target: [0.0, 0.0, 0.0],
+        radius: 7.1,
+        height: 4.6,
+        theta: 0.45,
+        turns_per_cycle: 2.0,
+        model: "blinn_phong",
+        color: [1.0, 0.93, 0.78, 1.0]
+    ),
+    styles: (
+        face_color: [0.06, 0.55, 0.94, 1.0],
+        edge_color: [0.08, 0.78, 1.0, 0.95],
+        edge_width: 1.6
+    ),
+    waves: [
+        (kind: "linear", fn: "sin", amplitude: 0.38, ux: 0.78, uy: 0.0, time_freq: 1.35),
+        (kind: "linear", fn: "cos", amplitude: 0.24, ux: 0.0, uy: 1.04, time_freq: -0.82),
+        (kind: "linear", fn: "sin", amplitude: 0.16, ux: 0.56, uy: 0.56, time_freq: 0.61),
+        (kind: "radial2", fn: "cos", amplitude: 0.08, radial2: 0.075, time_freq: -0.33)
+    ]
+)
+"""
+
+
 def test_face_edge_vertex_scene_is_declared_by_vkf_not_filename(tmp_path: Path) -> None:
     path = tmp_path / "not_the_example_name.vkf"
     path.write_text(NATIVE_SCENE_SOURCE, encoding="utf-8")
@@ -71,6 +185,51 @@ def test_face_edge_vertex_scene_does_not_use_filename_magic(tmp_path: Path) -> N
     path.write_text(':: "not a native scene"', encoding="utf-8")
 
     assert try_build_native_overlay_scene_program(path) is None
+
+
+def test_cube_hover_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
+    path = tmp_path / "ui_cube_hover.vkf"
+    path.write_text(CUBE_HOVER_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.session_name == "ui-cube-hover"
+    assert "vf-native-scene-cube-hover.js" in program.html_text
+    assert "window.__vfNativeCubeHoverConfig" in program.html_text
+    assert "Cube Hover Context" in program.runtime_packets_text
+    assert program.geom_transport_text == ""
+    assert program.geom_state_text == ""
+
+
+def test_cube_lighting_scene_exposes_camera_and_orbit_light(tmp_path: Path) -> None:
+    path = tmp_path / "ui_cube_lighting_camera.vkf"
+    path.write_text(CUBE_LIGHTING_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.session_name == "ui-cube-lighting-camera"
+    assert '"kind": "cube_lighting_camera"' in program.html_text
+    assert '"pos": [3.2, 2.25, 4.2]' in program.html_text
+    assert '"orbit": true' in program.html_text
+    assert '"angular_velocity": 0.9' in program.html_text
+    assert "Lighting Hover Context" in program.runtime_packets_text
+
+
+def test_ocean_wave_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
+    path = tmp_path / "ui_ocean_wave_test.vkf"
+    path.write_text(OCEAN_WAVE_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.session_name == "ui-ocean-wave-test"
+    assert "vf-native-scene-ocean.js" in program.html_text
+    assert "window.__vfNativeOceanConfig" in program.html_text
+    assert '"boundary": "repeat"' in program.html_text
+    assert '"turns_per_cycle": 2.0' in program.html_text
+    assert "Ocean Wave Native" in program.runtime_packets_text
 
 
 def test_face_edge_vertex_implementation_lives_in_ui_engine() -> None:

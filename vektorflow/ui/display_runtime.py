@@ -25,6 +25,9 @@ _DISPLAY_RUNTIME_ASSETS = (
     "vf-runtime-source.js",
     "vf-runtime-scene.js",
     "vf-runtime-flow.js",
+    "vf-native-scene-cube-hover.js",
+    "vf-native-scene-ocean.js",
+    "vf-native-scene-face-edge-vertex.js",
     "vf-runtime-packets.json",
     "vf-frame.js",
     "vf-frame.css",
@@ -126,8 +129,10 @@ def publish_display_runtime_payload(payload: dict[str, Any]) -> None:
         if not _display_assets_synced_once:
             _sync_display_runtime_assets(root)
             _display_assets_synced_once = True
-    except (OSError, TypeError, ValueError):
-        pass
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"vektorflow: UI display payload is invalid: {exc}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"vektorflow: UI display payload could not be written: {exc}") from exc
 
 
 def _sync_display_runtime_assets(root: Path) -> None:
@@ -159,11 +164,11 @@ def _copy_geom_runtime_asset_to_built_web(root: Path, filename: str) -> None:
     src = root / "web" / "vf-ui" / "geom" / filename
     if not src.is_file():
         return
-    for built_ui_dir in (root / "native" / "VfOverlay").rglob("vf-ui"):
-        dst = built_ui_dir / "geom" / filename
+    for built_web_dir in _iter_overlay_built_web_dirs(root):
+        dst = built_web_dir / "geom" / filename
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(src.read_bytes())
+            shutil.copy2(src, dst)
         except OSError:
             pass
 

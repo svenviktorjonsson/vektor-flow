@@ -1,207 +1,22 @@
 ui:.ui
-t:.time
-
 ui.set_mode("overlay")
 
-d: ui.display
-widgets: ui.widgets
-events: ui.events
-
-d.set_auto_render(false)
-
-scene: d.frame(
+native_scene: (
+    kind: "cube_hover",
+    frame_id: "cube_frame",
     title: "3D Cube Hover",
-    draggable: true,
-    closable: true,
-    resizable: true,
-    dockable: true,
-    dock_loc: "bl",
-    alpha: 0.96,
-    master: true
+    rect: [0.08, 0.10, 0.58, 0.72],
+    debug_frame_id: "cube_hover_debug",
+    debug_title: "Cube Hover Context",
+    debug_rect: [0.70, 0.10, 0.24, 0.42],
+    edge_radius: 0.085,
+    vertex_radius: 0.135,
+    styles: (
+        face_base: [1.0, 0.0, 0.0, 1.0],
+        face_hover: [1.0, 0.95, 0.0, 1.0],
+        edge_base: [0.0, 0.82, 0.12, 1.0],
+        edge_hover: [1.0, 1.0, 0.0, 1.0],
+        vertex_base: [0.05, 0.32, 1.0, 1.0],
+        vertex_hover: [1.0, 1.0, 1.0, 1.0]
+    )
 )
-d.add_frame(scene, [0.08, 0.10, 0.58, 0.72])
-scene.set_geom_options(unified_renderer: true)
-
-debug: d.frame(
-    title: "Cube Hover Context",
-    draggable: true,
-    closable: true,
-    resizable: true,
-    dockable: true,
-    dock_loc: "br",
-    alpha: 0.94
-)
-d.add_frame(
-    debug,
-    [0.70, 0.10, 0.24, 0.42],
-    body: [
-        widgets.text_area("hover", "hover=none:-1", rows: 10, readonly: true)
-    ]
-)
-
-style:
-    face_base: [1.0, 0.0, 0.0, 0.32]
-    face_hover: [1.0, 0.95, 0.20, 0.64]
-    edge_base: [0.0, 0.82, 0.12, 1.0]
-    edge_hover: [0.55, 1.0, 0.35, 1.0]
-    vertex_base: [0.05, 0.32, 1.0, 1.0]
-    vertex_hover: [1.0, 1.0, 1.0, 1.0]
-    :
-
-cube:
-    a: 0.82
-    face_thickness: 0.025
-    edge_thickness: 0.055
-    vertex_radius: 0.16
-
-    face_centers: [
-        [0, 0, a],
-        [0, 0, -a],
-        [a, 0, 0],
-        [-a, 0, 0],
-        [0, a, 0],
-        [0, -a, 0]
-    ]
-    face_scales: [
-        [a * 2, a * 2, face_thickness],
-        [a * 2, a * 2, face_thickness],
-        [face_thickness, a * 2, a * 2],
-        [face_thickness, a * 2, a * 2],
-        [a * 2, face_thickness, a * 2],
-        [a * 2, face_thickness, a * 2]
-    ]
-
-    edge_centers: [
-        [0, -a, -a],
-        [0, a, -a],
-        [0, -a, a],
-        [0, a, a],
-        [-a, 0, -a],
-        [a, 0, -a],
-        [-a, 0, a],
-        [a, 0, a],
-        [-a, -a, 0],
-        [a, -a, 0],
-        [-a, a, 0],
-        [a, a, 0]
-    ]
-    edge_scales: [
-        [a * 2, edge_thickness, edge_thickness],
-        [a * 2, edge_thickness, edge_thickness],
-        [a * 2, edge_thickness, edge_thickness],
-        [a * 2, edge_thickness, edge_thickness],
-        [edge_thickness, a * 2, edge_thickness],
-        [edge_thickness, a * 2, edge_thickness],
-        [edge_thickness, a * 2, edge_thickness],
-        [edge_thickness, a * 2, edge_thickness],
-        [edge_thickness, edge_thickness, a * 2],
-        [edge_thickness, edge_thickness, a * 2],
-        [edge_thickness, edge_thickness, a * 2],
-        [edge_thickness, edge_thickness, a * 2]
-    ]
-
-    vertex_centers: [
-        [-a, -a, -a],
-        [a, -a, -a],
-        [a, a, -a],
-        [-a, a, -a],
-        [-a, -a, a],
-        [a, -a, a],
-        [a, a, a],
-        [-a, a, a]
-    ]
-    vertex_scale: [vertex_radius, vertex_radius, vertex_radius]
-
-    Face(i):
-        @: scene.add_box(center: face_centers.(i), scale: face_scales.(i), color: style.face_base)
-
-    Edge(i):
-        @: scene.add_box(center: edge_centers.(i), scale: edge_scales.(i), color: style.edge_base)
-
-    Vertex(i):
-        @: scene.add_ellipsoid(center: vertex_centers.(i), scale: vertex_scale, color: style.vertex_base)
-    :
-
-faces: ..5 >> cube.Face($)
-edges: ..11 >> cube.Edge($)
-vertices: ..7 >> cube.Vertex($)
-scene.add_camera(pos: [3.2, 2.4, 4.0], target: [0, 0, 0], fov: 42)
-scene.add_light(pos: [4, 5, 6], model: "blinn_phong", color: "white")
-
-hover:
-    kind: "none"
-    index: -1
-    object_id: 0
-    simplex_id: 0
-
-    Kind(object_id):
-        object_id <= 0? @: "none"
-        object_id <= 6? @: "face"
-        object_id <= 18? @: "edge"
-        object_id <= 26? @: "vertex"
-        @: "none"
-
-    Index(object_id, kind):
-        kind = "face"? @: object_id - 1
-        kind = "edge"? @: object_id - 7
-        kind = "vertex"? @: object_id - 19
-        @: -1
-
-    Capture(e):
-        object_id: e.object_id
-        kind: Kind(object_id)
-        hover.kind: kind
-        hover.index: Index(object_id, kind)
-        hover.object_id: object_id
-        hover.simplex_id: e.simplex_id
-        @
-
-    FaceColor(i):
-        (hover.kind = "face") /\ (hover.index = i)? @: style.face_hover
-        @: style.face_base
-
-    EdgeColor(i):
-        (hover.kind = "edge") /\ (hover.index = i)? @: style.edge_hover
-        @: style.edge_base
-
-    VertexColor(i):
-        (hover.kind = "vertex") /\ (hover.index = i)? @: style.vertex_hover
-        @: style.vertex_base
-
-    Apply():
-        ..5 >> faces.($).set_color(FaceColor($))
-        ..11 >> edges.($).set_color(EdgeColor($))
-        ..7 >> vertices.($).set_color(VertexColor($))
-        d.render()
-        @
-
-    Text(e):
-        @: "hover=$hover.kind:$hover.index\nobject_id=$hover.object_id\nsimplex_id=$hover.simplex_id\nevent=$e.event\nx=$e.x y=$e.y"
-
-    Publish(e):
-        d.widget_set_text(debug.id, "hover", Text(e))
-        @
-    :
-
-d.render()
-
-Handle(e):
-    e.event = ui.MOUSE_HOVER?
-        hover.Capture(e)
-        hover.Apply()
-        hover.Publish(e)
-        @
-    e.event = ui.MOUSE_MOVE?
-        hover.Capture(e)
-        hover.Apply()
-        hover.Publish(e)
-        @
-    @
-
-(e: events.get())??>
-    null =>
-        t.sleep(0.008)
-    ui.MouseMove =>
-        Handle(e)
-    ui.MouseHover =>
-        Handle(e)

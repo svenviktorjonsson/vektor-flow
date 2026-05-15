@@ -48,6 +48,24 @@ def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySc
             geom_transport_text=_render_face_edge_vertex_drag_transport(spec),
             geom_state_text=_render_face_edge_vertex_drag_state(spec),
         )
+    spec = _extract_cube_hover_spec(module)
+    if spec is not None:
+        session_name = _slugify(source_path.stem or "ui-cube-hover")
+        return NativeOverlaySceneProgram(
+            session_name=session_name,
+            page_rel=f"sessions/{session_name}/vkf-scene.html",
+            html_text=_render_cube_hover_html(spec),
+            runtime_packets_text=_render_cube_hover_packets(spec),
+        )
+    spec = _extract_ocean_wave_spec(module)
+    if spec is not None:
+        session_name = _slugify(source_path.stem or "ui-ocean-wave")
+        return NativeOverlaySceneProgram(
+            session_name=session_name,
+            page_rel=f"sessions/{session_name}/vkf-scene.html",
+            html_text=_render_ocean_wave_html(spec),
+            runtime_packets_text=_render_ocean_wave_packets(spec),
+        )
     spec = _extract_declarative_ui_scene_probe_spec(module)
     if spec is None:
         spec = _extract_scene_probe_spec(module)
@@ -108,6 +126,81 @@ def _extract_face_edge_vertex_drag_spec(module: ast.Module) -> dict[str, Any] | 
     }
 
 
+def _extract_cube_hover_spec(module: ast.Module) -> dict[str, Any] | None:
+    declared = _find_top_level_struct_binding(module, "native_scene")
+    if declared is None:
+        return None
+    kind = declared.get("kind")
+    if kind not in {"cube_hover", "cube_lighting_camera"}:
+        return None
+    styles = _require_struct_value(declared, "styles")
+    camera = _optional_camera_value(declared)
+    light = _optional_light_value(declared)
+    return {
+        "kind": str(kind),
+        "frame_id": _require_string_value(declared, "frame_id"),
+        "title": _require_string_value(declared, "title"),
+        "rect": tuple(_require_number_list(declared, "rect", length=4)),
+        "debug_frame_id": _require_string_value(declared, "debug_frame_id"),
+        "debug_title": _require_string_value(declared, "debug_title"),
+        "debug_rect": tuple(_require_number_list(declared, "debug_rect", length=4)),
+        "edge_radius": _require_number_value(declared, "edge_radius"),
+        "vertex_radius": _require_number_value(declared, "vertex_radius"),
+        "styles": {
+            "face_base": _require_rgba(styles, "face_base"),
+            "face_hover": _require_rgba(styles, "face_hover"),
+            "edge_base": _require_rgba(styles, "edge_base"),
+            "edge_hover": _require_rgba(styles, "edge_hover"),
+            "vertex_base": _require_rgba(styles, "vertex_base"),
+            "vertex_hover": _require_rgba(styles, "vertex_hover"),
+        },
+        "camera": camera,
+        "light": light,
+    }
+
+
+def _extract_ocean_wave_spec(module: ast.Module) -> dict[str, Any] | None:
+    declared = _find_top_level_struct_binding(module, "native_scene")
+    if declared is None:
+        return None
+    if declared.get("kind") != "ocean_wave":
+        return None
+
+    surface = _require_struct_value(declared, "surface")
+    styles = _require_struct_value(declared, "styles")
+    timing = _optional_ocean_timing_value(declared)
+    return {
+        "kind": "ocean_wave",
+        "frame_id": _require_string_value(declared, "frame_id"),
+        "title": _require_string_value(declared, "title"),
+        "rect": tuple(_require_number_list(declared, "rect", length=4)),
+        "surface": {
+            "u_min": _require_number_value(surface, "u_min"),
+            "u_max": _require_number_value(surface, "u_max"),
+            "u_steps": _require_positive_int_value(surface, "u_steps", minimum=2),
+            "v_min": _require_number_value(surface, "v_min"),
+            "v_max": _require_number_value(surface, "v_max"),
+            "v_steps": _require_positive_int_value(surface, "v_steps", minimum=2),
+            "face_subdivisions": _optional_positive_int_value(surface, "face_subdivisions", default=4, minimum=1),
+        },
+        "styles": {
+            "face_color": _require_rgba(styles, "face_color"),
+            "edge_color": _require_rgba(styles, "edge_color"),
+            "vertex_color": _optional_number_list(styles, "vertex_color", [1.0, 0.45, 0.18, 1.0], length=4),
+            "edge_width": _optional_number_value(styles, "edge_width", 1.0),
+            "vertex_size": _optional_number_value(styles, "vertex_size", 0.12),
+            "show_edges": _optional_bool_value(styles, "show_edges", True),
+            "show_vertices": _optional_bool_value(styles, "show_vertices", False),
+            "edge_caps": _optional_bool_value(styles, "edge_caps", False),
+            "face_light_model": _optional_string_value(styles, "face_light_model", "blinn_phong"),
+        },
+        "camera": _optional_ocean_camera_value(declared),
+        "light": _optional_ocean_light_value(declared),
+        "timing": timing,
+        "waves": _require_wave_specs(declared, "waves"),
+    }
+
+
 def _find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
     for stmt in module.statements:
         if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
@@ -133,6 +226,14 @@ def _eval_native_scene_literal(expr: Any, path: str) -> Any:
         return expr.value
     if isinstance(expr, ast.NullLit):
         return None
+    if isinstance(expr, ast.UnaryOp):
+        operand = _eval_native_scene_literal(expr.operand, f"{path}.operand")
+        if not isinstance(operand, (int, float)) or isinstance(operand, bool):
+            raise ValueError(f"{path} unary operand must be numeric")
+        if expr.op == "MINUS":
+            return -float(operand)
+        if expr.op == "PLUS":
+            return float(operand)
     raise ValueError(f"{path} must be a literal value; got {type(expr).__name__}")
 
 
@@ -241,6 +342,205 @@ def _require_rgba(scope: dict[str, Any], name: str) -> list[float]:
     return _require_number_list(scope, name, length=4)
 
 
+def _require_positive_int_value(scope: dict[str, Any], name: str, *, minimum: int = 0) -> int:
+    value = _require_number_value(scope, name)
+    if int(value) != value:
+        raise ValueError(f"native_scene.{name} must be an integer")
+    out = int(value)
+    if out < minimum:
+        raise ValueError(f"native_scene.{name} must be >= {minimum}")
+    return out
+
+
+def _optional_number_value(scope: dict[str, Any], name: str, default: float) -> float:
+    if name not in scope:
+        return default
+    return _require_number_value(scope, name)
+
+
+def _optional_positive_int_value(scope: dict[str, Any], name: str, default: int, *, minimum: int = 0) -> int:
+    if name not in scope:
+        return default
+    return _require_positive_int_value(scope, name, minimum=minimum)
+
+
+def _optional_string_value(scope: dict[str, Any], name: str, default: str) -> str:
+    if name not in scope:
+        return default
+    return _require_string_value(scope, name)
+
+
+def _optional_bool_value(scope: dict[str, Any], name: str, default: bool) -> bool:
+    if name not in scope:
+        return default
+    return _require_bool_value(scope, name)
+
+
+def _optional_number_list(
+    scope: dict[str, Any], name: str, default: list[float], *, length: int | None = None
+) -> list[float]:
+    if name not in scope:
+        return list(default)
+    return _require_number_list(scope, name, length=length)
+
+
+def _optional_struct_value(scope: dict[str, Any], name: str) -> dict[str, Any] | None:
+    if name not in scope:
+        return None
+    return _require_struct_value(scope, name)
+
+
+def _require_struct_list(scope: dict[str, Any], name: str) -> list[dict[str, Any]]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError(f"native_scene.{name} must contain struct values")
+        out.append(item)
+    return out
+
+
+def _optional_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
+    camera = _optional_struct_value(scope, "camera")
+    if camera is None:
+        return {
+            "pos": [3.2, 2.4, 4.0],
+            "target": [0.0, 0.0, 0.0],
+            "fov": 42.0,
+            "up": [0.0, 1.0, 0.0],
+        }
+    return {
+        "pos": _optional_number_list(camera, "pos", [3.2, 2.4, 4.0], length=3),
+        "target": _optional_number_list(camera, "target", [0.0, 0.0, 0.0], length=3),
+        "fov": _optional_number_value(camera, "fov", 42.0),
+        "up": _optional_number_list(camera, "up", [0.0, 1.0, 0.0], length=3),
+    }
+
+
+def _optional_light_value(scope: dict[str, Any]) -> dict[str, Any]:
+    light = _optional_struct_value(scope, "light")
+    if light is None:
+        return {
+            "pos": [4.0, 5.0, 6.0],
+            "target": [0.0, 0.0, 0.0],
+            "orbit": False,
+            "orbit_radius": 4.5,
+            "height": 3.2,
+            "theta": 0.0,
+            "angular_velocity": 0.0,
+            "model": "flat",
+            "color": "white",
+        }
+    color = light.get("color", "white")
+    if not isinstance(color, str) and not isinstance(color, list):
+        raise ValueError("native_scene.light.color must be a string or rgba list")
+    if isinstance(color, list):
+        color = _require_number_list(light, "color", length=4)
+    return {
+        "pos": _optional_number_list(light, "pos", [4.0, 5.0, 6.0], length=3),
+        "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+        "orbit": _optional_bool_value(light, "orbit", False),
+        "orbit_radius": _optional_number_value(light, "orbit_radius", 4.5),
+        "height": _optional_number_value(light, "height", 3.2),
+        "theta": _optional_number_value(light, "theta", 0.0),
+        "angular_velocity": _optional_number_value(light, "angular_velocity", 0.0),
+        "model": _optional_string_value(light, "model", "flat"),
+        "color": color,
+    }
+
+
+def _optional_ocean_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
+    camera = _optional_struct_value(scope, "camera")
+    if camera is None:
+        return {
+            "target": [0.0, 0.0, 0.0],
+            "radius": 9.6,
+            "height": 3.2,
+            "theta": 0.1,
+            "turns_per_cycle": 1.0,
+            "fov": 42.0,
+            "up": [0.0, 0.0, 1.0],
+        }
+    return {
+        "target": _optional_number_list(camera, "target", [0.0, 0.0, 0.0], length=3),
+        "radius": _optional_number_value(camera, "radius", 9.6),
+        "height": _optional_number_value(camera, "height", 3.2),
+        "theta": _optional_number_value(camera, "theta", 0.1),
+        "turns_per_cycle": _optional_number_value(camera, "turns_per_cycle", 1.0),
+        "fov": _optional_number_value(camera, "fov", 42.0),
+        "up": _optional_number_list(camera, "up", [0.0, 0.0, 1.0], length=3),
+    }
+
+
+def _optional_ocean_light_value(scope: dict[str, Any]) -> dict[str, Any]:
+    light = _optional_struct_value(scope, "light")
+    if light is None:
+        return {
+            "target": [0.0, 0.0, 0.0],
+            "radius": 7.1,
+            "height": 4.6,
+            "theta": 0.45,
+            "turns_per_cycle": 2.0,
+            "model": "blinn_phong",
+            "color": [1.0, 0.93, 0.78, 1.0],
+        }
+    return {
+        "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+        "radius": _optional_number_value(light, "radius", 7.1),
+        "height": _optional_number_value(light, "height", 4.6),
+        "theta": _optional_number_value(light, "theta", 0.45),
+        "turns_per_cycle": _optional_number_value(light, "turns_per_cycle", 2.0),
+        "model": _optional_string_value(light, "model", "blinn_phong"),
+        "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
+    }
+
+
+def _optional_ocean_timing_value(scope: dict[str, Any]) -> dict[str, Any]:
+    timing = _optional_struct_value(scope, "timing")
+    if timing is None:
+        return {
+            "fps": 30,
+            "duration_seconds": 10.0,
+            "boundary": "repeat",
+        }
+    boundary = _optional_string_value(timing, "boundary", "repeat")
+    if boundary not in {"repeat", "mirror", "stop", "reset"}:
+        raise ValueError("native_scene.timing.boundary must be repeat, mirror, stop, or reset")
+    return {
+        "fps": _require_positive_int_value(timing, "fps", minimum=1),
+        "duration_seconds": _optional_number_value(timing, "duration_seconds", 10.0),
+        "boundary": boundary,
+    }
+
+
+def _require_wave_specs(scope: dict[str, Any], name: str) -> list[dict[str, Any]]:
+    waves = _require_struct_list(scope, name)
+    if not waves:
+        raise ValueError("native_scene.waves must contain at least one wave component")
+    out: list[dict[str, Any]] = []
+    for index, wave in enumerate(waves):
+        kind = _optional_string_value(wave, "kind", "linear")
+        fn_name = _optional_string_value(wave, "fn", "sin")
+        if kind not in {"linear", "radial2"}:
+            raise ValueError(f"native_scene.waves[{index}].kind must be linear or radial2")
+        if fn_name not in {"sin", "cos"}:
+            raise ValueError(f"native_scene.waves[{index}].fn must be sin or cos")
+        out.append(
+            {
+                "kind": kind,
+                "fn": fn_name,
+                "amplitude": _optional_number_value(wave, "amplitude", 0.0),
+                "ux": _optional_number_value(wave, "ux", 0.0),
+                "uy": _optional_number_value(wave, "uy", 0.0),
+                "radial2": _optional_number_value(wave, "radial2", 0.0),
+                "time_freq": _optional_number_value(wave, "time_freq", 0.0),
+            }
+        )
+    return out
+
+
 def _require_overlay_colors(scope: dict[str, Any], name: str) -> dict[str, list[float]]:
     value = _require_struct_value(scope, name)
     return {
@@ -331,7 +631,7 @@ def _extract_declarative_ui_scene_probe_spec(module: ast.Module) -> dict[str, An
             if _is_attr_of_ident(value, ui_aliases, "widgets"):
                 widget_aliases.add(name)
                 continue
-            if _is_call_of_attr(value, ui_aliases, "Frame"):
+            if _is_call_of_attr(value, ui_aliases | screen_aliases, "Frame"):
                 frame_names.add(name)
                 continue
             const_value = _try_eval_const(value, bindings)
@@ -939,6 +1239,134 @@ def _render_face_edge_vertex_drag_state(spec: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
+def _render_cube_hover_packets(spec: dict[str, Any]) -> str:
+    x, y, w, h = spec["rect"]
+    dx, dy, dw, dh = spec["debug_rect"]
+    frame_id = str(spec["frame_id"])
+    debug_frame_id = str(spec["debug_frame_id"])
+    debug_widget_id = "hover"
+    payload = [
+        {
+            "seq": 1,
+            "kind": "scene.replace",
+            "payload": {
+                "commands": [
+                    {
+                        "kind": "frame_upsert",
+                        "id": frame_id,
+                        "payload": {
+                            "spec": {
+                                "id": frame_id,
+                                "title": str(spec["title"]),
+                                "title_align": "left",
+                                "rect": {"x": x, "y": y, "w": w, "h": h},
+                                "flags": {
+                                    "draggable": True,
+                                    "dockable": True,
+                                    "resizable": True,
+                                    "closable": True,
+                                    "use_browser": True,
+                                },
+                                "alpha": 1.0,
+                                "master": False,
+                                "exit_counted": True,
+                                "dock_location": "bl",
+                                "anchor": "tl",
+                                "body": None,
+                                "body_layout": None,
+                                "parent_id": None,
+                            }
+                        },
+                    },
+                    {
+                        "kind": "frame_upsert",
+                        "id": debug_frame_id,
+                        "payload": {
+                            "spec": {
+                                "id": debug_frame_id,
+                                "title": str(spec["debug_title"]),
+                                "title_align": "left",
+                                "rect": {"x": dx, "y": dy, "w": dw, "h": dh},
+                                "flags": {
+                                    "draggable": True,
+                                    "dockable": True,
+                                    "resizable": True,
+                                    "closable": True,
+                                    "use_browser": True,
+                                },
+                                "alpha": 1.0,
+                                "master": False,
+                                "exit_counted": True,
+                                "dock_location": "br",
+                                "anchor": "tl",
+                                "body": [
+                                    {
+                                        "id": debug_widget_id,
+                                        "type": "textarea",
+                                        "text": "waiting for native hover...\n",
+                                        "rows": 10,
+                                        "readonly": True,
+                                    }
+                                ],
+                                "body_layout": None,
+                                "parent_id": None,
+                            }
+                        },
+                    },
+                ]
+            },
+        },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def _render_ocean_wave_packets(spec: dict[str, Any]) -> str:
+    x, y, w, h = spec["rect"]
+    frame_id = str(spec["frame_id"])
+    payload = [
+        {
+            "seq": 1,
+            "kind": "scene.replace",
+            "payload": {
+                "commands": [
+                    {
+                        "kind": "frame_upsert",
+                        "id": frame_id,
+                        "payload": {
+                            "spec": {
+                                "id": frame_id,
+                                "title": str(spec["title"]),
+                                "title_align": "left",
+                                "rect": {"x": x, "y": y, "w": w, "h": h},
+                                "flags": {
+                                    "draggable": True,
+                                    "dockable": True,
+                                    "resizable": True,
+                                    "closable": True,
+                                    "use_browser": True,
+                                },
+                                "alpha": 1.0,
+                                "master": False,
+                                "exit_counted": True,
+                                "dock_location": "bl",
+                                "anchor": "tl",
+                                "body": None,
+                                "body_layout": None,
+                                "parent_id": None,
+                            }
+                        },
+                    }
+                ]
+            },
+        },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
 def _render_scene_probe_html(spec: dict[str, Any]) -> str:
     config_json = json.dumps(spec.get("event_probe") or {}, ensure_ascii=False)
     asset_version = _runtime_asset_version()
@@ -1253,6 +1681,63 @@ def _render_face_edge_vertex_drag_html(spec: dict[str, Any]) -> str:
       window.__vfNativeFaceEdgeVertexConfig = {config_json};
     </script>
     <script src="../../vf-native-scene-face-edge-vertex.js?v={asset_version}"></script>
+  </body>
+</html>
+"""
+
+
+def _render_cube_hover_html(spec: dict[str, Any]) -> str:
+    config_json = json.dumps(
+        {
+            "kind": spec.get("kind", "cube_hover"),
+            "frame_id": spec["frame_id"],
+            "debug_frame_id": spec["debug_frame_id"],
+            "debug_widget_id": "hover",
+            "edge_radius": spec["edge_radius"],
+            "vertex_radius": spec["vertex_radius"],
+            "styles": spec["styles"],
+            "camera": spec.get("camera", {}),
+            "light": spec.get("light", {}),
+        },
+        ensure_ascii=False,
+    )
+    asset_version = _runtime_asset_version()
+    return f"""<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
+    <script>
+      window.__vfNativeCubeHoverConfig = {config_json};
+    </script>
+    <script src="../../vf-native-scene-cube-hover.js?v={asset_version}"></script>
+  </body>
+</html>
+"""
+
+
+def _render_ocean_wave_html(spec: dict[str, Any]) -> str:
+    config_json = json.dumps(
+        {
+            "kind": "ocean_wave",
+            "frame_id": spec["frame_id"],
+            "surface": spec["surface"],
+            "styles": spec["styles"],
+            "camera": spec["camera"],
+            "light": spec["light"],
+            "timing": spec["timing"],
+            "waves": spec["waves"],
+        },
+        ensure_ascii=False,
+    )
+    asset_version = _runtime_asset_version()
+    return f"""<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
+    <script>
+      window.__vfNativeOceanConfig = {config_json};
+    </script>
+    <script src="../../vf-native-scene-ocean.js?v={asset_version}"></script>
   </body>
 </html>
 """

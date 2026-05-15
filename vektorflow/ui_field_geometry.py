@@ -23,11 +23,37 @@ _COLOR_NAMES: dict[str, tuple[float, float, float, float]] = {
     "gray": (0.5, 0.5, 0.5, 1.0),
     "grey": (0.5, 0.5, 0.5, 1.0),
 }
+_TIME_BOUNDARY_MODES = frozenset({"mirror", "repeat", "reset", "stop"})
 
 
 @dataclass(frozen=True, slots=True)
 class FieldTopologyPolicy:
     volume_surface_mode: str = "boundary-only"
+
+
+def _normalize_time_boundary(value: Any) -> str:
+    mode = str(value or "stop").strip().lower().replace("-", "_")
+    if mode not in _TIME_BOUNDARY_MODES:
+        allowed = ", ".join(sorted(_TIME_BOUNDARY_MODES))
+        raise ValueError(f"time boundary must be one of: {allowed}")
+    return mode
+
+
+def _resolve_time_index(time_value: Any, time_count: int, *, boundary: Any = "stop") -> int:
+    count = max(1, int(time_count))
+    idx = int(round(float(time_value)))
+    mode = _normalize_time_boundary(boundary)
+    if count <= 1:
+        return 0
+    if mode == "stop":
+        return max(0, min(idx, count - 1))
+    if mode == "repeat":
+        return idx % count
+    if mode == "reset":
+        return idx if 0 <= idx < count else 0
+    period = 2 * (count - 1)
+    ping = idx % period
+    return ping if ping < count else period - ping
 
 
 def parse_field_channels_and_meta(kwargs: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -74,7 +100,11 @@ def build_field_mesh_geometry(
         dim_sizes[d] = target
 
     time_count = int(dim_sizes.get("t", 1))
-    current_t = max(0, min(int(time_index), max(0, time_count - 1)))
+    current_t = _resolve_time_index(
+        time_index,
+        time_count,
+        boundary=meta.get("time_boundary", meta.get("t_boundary", meta.get("time_mode", meta.get("t_mode", "stop")))),
+    )
     sample_dims = [d for d in canonical_dims if d != "t"]
     cshape = tuple(dim_sizes[d] for d in sample_dims)
 
@@ -207,6 +237,9 @@ def build_field_mesh_geometry(
         "topology": topology,
         "interpolation": interpolation,
         "alpha": float(rgba[3]),
+        "time_boundary": _normalize_time_boundary(
+            meta.get("time_boundary", meta.get("t_boundary", meta.get("time_mode", meta.get("t_mode", "stop"))))
+        ),
         "time_count": time_count,
         "time_index": current_t,
         "manifold_dim_count": manifold_dim_count,
