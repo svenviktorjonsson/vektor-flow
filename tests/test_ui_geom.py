@@ -353,6 +353,96 @@ class TestFieldMeshTimeSlices:
                 z=0.0,
             )
 
+    def test_mixed_grouping_and_manifold_axes_cover_0d_1d_2d_and_3d(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+
+        d.add(
+            x=AxisTaggedValue((-7.0, -5.0), "i"),
+            y=AxisTaggedValue((-1.0, 1.0), "j"),
+            z=AxisTaggedValue((0.0, 1.5), "k"),
+            color="orange",
+        )
+        d.add(
+            x=AxisTaggedValue((-1.5, 0.0, 1.5), "u"),
+            y=AxisTaggedValue((-4.0, -2.5), "j"),
+            z=0.0,
+            color="green",
+        )
+        d.add(
+            x=AxisTaggedValue(
+                (
+                    ((0.5, 2.5), (0.5, 2.5), (0.5, 2.5)),
+                    ((2.0, 4.0), (2.0, 4.0), (2.0, 4.0)),
+                    ((3.5, 5.5), (3.5, 5.5), (3.5, 5.5)),
+                ),
+                "uvi",
+            ),
+            y=AxisTaggedValue((-1.5, 0.0, 1.5), "v"),
+            z=AxisTaggedValue(
+                (
+                    ((0.45, 0.45), (0.0, 0.0), (0.45, 0.45)),
+                    ((0.0, 0.0), (-0.45, -0.45), (0.0, 0.0)),
+                    ((0.45, 0.45), (0.0, 0.0), (0.45, 0.45)),
+                ),
+                "uvi",
+            ),
+            color="cyan",
+            interpolation=True,
+        )
+        d.add(
+            x=AxisTaggedValue((-1.0, 0.0, 1.0), "u"),
+            y=AxisTaggedValue((-1.0, 0.0, 1.0), "v"),
+            z=AxisTaggedValue((-1.0, 0.0, 1.0), "w"),
+            color="magenta",
+            interpolation=True,
+        )
+
+        meshes = _geom(d, fid)["meshes"]
+        assert [mesh["topology"] for mesh in meshes] == [
+            "point-list",
+            "line-list",
+            "triangle-list",
+            "triangle-list",
+        ]
+        assert [mesh["manifold_dim_count"] for mesh in meshes] == [0, 1, 2, 3]
+        assert meshes[0]["indices"] == list(range(8))
+        assert meshes[3]["solid_volume"] is True
+
+    def test_uvw_volume_emits_only_outer_boundary_surfaces(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+
+        d.add(
+            x=AxisTaggedValue((0.0, 1.0, 2.0), "u"),
+            y=AxisTaggedValue((0.0, 1.0), "v"),
+            z=AxisTaggedValue((0.0, 1.0), "w"),
+            color="blue",
+            interpolation=True,
+        )
+
+        mesh = _geom(d, fid)["meshes"][0]
+        vertices = mesh["vertices"]
+        points = [
+            (vertices[offset], vertices[offset + 1], vertices[offset + 2])
+            for offset in range(0, len(vertices), 10)
+        ]
+        triangles = [
+            (mesh["indices"][i], mesh["indices"][i + 1], mesh["indices"][i + 2])
+            for i in range(0, len(mesh["indices"]), 3)
+        ]
+
+        assert mesh["topology"] == "triangle-list"
+        assert mesh["manifold_dim_count"] == 3
+        assert mesh["solid_volume"] is True
+        assert len(mesh["indices"]) == 20 * 3
+        assert not any(
+            points[a][0] == pytest.approx(1.0)
+            and points[b][0] == pytest.approx(1.0)
+            and points[c][0] == pytest.approx(1.0)
+            for (a, b, c) in triangles
+        )
+
 
 # ---------------------------------------------------------------------------
 # add_camera — returns SceneCamera

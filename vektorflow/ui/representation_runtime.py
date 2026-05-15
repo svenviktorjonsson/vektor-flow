@@ -450,28 +450,9 @@ def build_field_mesh_geometry(
             for u in range(dim_sizes[du] - 1):
                 for v in range(dim_sizes[dv] - 1):
                     for w in range(dim_sizes[dw] - 1):
-                        base[du], base[dv], base[dw] = u, v, w
-                        c000 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v, w
-                        c100 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v + 1, w
-                        c010 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v + 1, w
-                        c110 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v, w + 1
-                        c001 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v, w + 1
-                        c101 = _idx(base)
-                        base[du], base[dv], base[dw] = u, v + 1, w + 1
-                        c011 = _idx(base)
-                        base[du], base[dv], base[dw] = u + 1, v + 1, w + 1
-                        c111 = _idx(base)
-                        base_indices.extend([c000, c100, c110, c000, c110, c010])
-                        base_indices.extend([c001, c011, c111, c001, c111, c101])
-                        base_indices.extend([c000, c010, c011, c000, c011, c001])
-                        base_indices.extend([c100, c101, c111, c100, c111, c110])
-                        base_indices.extend([c000, c001, c101, c000, c101, c100])
-                        base_indices.extend([c010, c110, c111, c010, c111, c011])
+                        _extend_boundary_faces(
+                            base_indices, base, _idx, dim_sizes, du, dv, dw, u, v, w
+                        )
 
     vertices: list[float] = []
     indices: list[int] = []
@@ -519,6 +500,45 @@ def build_field_mesh_geometry(
         "vertex_size": vertex_size,
         "edge_width": edge_width,
     }
+
+
+def _extend_boundary_faces(
+    indices: list[int],
+    base: dict[str, int],
+    idx_fn: Any,
+    dim_sizes: dict[str, int],
+    du: str,
+    dv: str,
+    dw: str,
+    u: int,
+    v: int,
+    w: int,
+) -> None:
+    def vertex(uu: int, vv: int, ww: int) -> int:
+        base[du], base[dv], base[dw] = uu, vv, ww
+        return idx_fn(base)
+
+    c000 = vertex(u, v, w)
+    c100 = vertex(u + 1, v, w)
+    c010 = vertex(u, v + 1, w)
+    c110 = vertex(u + 1, v + 1, w)
+    c001 = vertex(u, v, w + 1)
+    c101 = vertex(u + 1, v, w + 1)
+    c011 = vertex(u, v + 1, w + 1)
+    c111 = vertex(u + 1, v + 1, w + 1)
+
+    if u == 0:
+        indices.extend([c000, c010, c011, c000, c011, c001])
+    if u == dim_sizes[du] - 2:
+        indices.extend([c100, c101, c111, c100, c111, c110])
+    if v == 0:
+        indices.extend([c000, c001, c101, c000, c101, c100])
+    if v == dim_sizes[dv] - 2:
+        indices.extend([c010, c110, c111, c010, c111, c011])
+    if w == 0:
+        indices.extend([c000, c100, c110, c000, c110, c010])
+    if w == dim_sizes[dw] - 2:
+        indices.extend([c001, c011, c111, c001, c111, c101])
 
 
 def _overlay_size_policy(meta: dict[str, Any], manifold_dim_count: int) -> tuple[float, float]:

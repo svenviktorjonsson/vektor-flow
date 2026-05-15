@@ -1,0 +1,90 @@
+ui:.ui
+ui.set_mode("overlay")
+
+d: ui.display
+f: d.Frame()
+d.add_frame(f, (0.05, 0.08, 0.72, 0.82))
+
+# 0D: only grouping axes i, j, k -> independent points.
+points_x: [-7.0, -5.0] -> i
+points_y: [-1.0, 1.0] -> j
+points_z: [0.0, 1.5] -> k
+f.add(
+    x: points_x,
+    y: points_y,
+    z: points_z,
+    color: [1.0, 0.55, 0.10, 1.0],
+    vertex_size: 10
+)
+
+# 1D: only u is manifold; j groups two parallel curves.
+line_u: [-1.5, 0.0, 1.5] -> u
+line_y: [-4.0, -2.5] -> j
+f.add(
+    x: line_u,
+    y: line_y,
+    z: 0.0,
+    color: [0.15, 0.85, 0.25, 1.0],
+    edge_width: 3
+)
+
+# 2D: u and v are manifold; i groups two separate surfaces.
+surface_x:
+    [
+        [
+            [0.5, 2.5],
+            [0.5, 2.5],
+            [0.5, 2.5]
+        ],
+        [
+            [2.0, 4.0],
+            [2.0, 4.0],
+            [2.0, 4.0]
+        ],
+        [
+            [3.5, 5.5],
+            [3.5, 5.5],
+            [3.5, 5.5]
+        ]
+    ] -> uvi
+surface_y: [-1.5, 0.0, 1.5] -> v
+surface_z:
+    [
+        [
+            [0.45, 0.45],
+            [0.0, 0.0],
+            [0.45, 0.45]
+        ],
+        [
+            [0.0, 0.0],
+            [-0.45, -0.45],
+            [0.0, 0.0]
+        ],
+        [
+            [0.45, 0.45],
+            [0.0, 0.0],
+            [0.45, 0.45]
+        ]
+    ] -> uvi
+f.add(
+    x: surface_x,
+    y: surface_y,
+    z: surface_z,
+    color: [0.08, 0.78, 0.95, 1.0],
+    interpolation: true
+)
+
+# 3D: u, v, w all active -> only the six outer boundary surfaces are drawn.
+volume_x: [6.0, 7.0, 8.0] -> u
+volume_y: [-1.0, 0.0, 1.0] -> v
+volume_z: [-1.0, 0.0, 1.0] -> w
+f.add(
+    x: volume_x,
+    y: volume_y,
+    z: volume_z,
+    color: [0.92, 0.18, 0.88, 1.0],
+    interpolation: true
+)
+
+f.add_camera(pos: [4.0, -17.0, 8.5], target: [2.0, -0.6, 0.4], fov: 40)
+f.add_light(pos: [9.0, -10.0, 12.0], model: "blinn_phong", color: "white")
