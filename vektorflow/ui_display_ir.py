@@ -939,6 +939,8 @@ def build_scene_light_payload(
 
 def normalize_scene_light_model(model: str, *, allowed_models: set[str]) -> str:
     normalized = str(model).lower().replace("-", "_")
+    if normalized in {"flat", "lambert", "phong"} and "blinn_phong" in allowed_models:
+        return "blinn_phong"
     if normalized not in allowed_models:
         raise ValueError(f"model {model!r} unknown; use one of: {sorted(allowed_models)}")
     return normalized
@@ -1228,6 +1230,8 @@ def zoom_camera_payload(
 
 def set_light_model(data: dict[str, Any], model: str, *, allowed_models: set[str]) -> None:
     normalized = str(model).lower().replace("-", "_")
+    if normalized in {"flat", "lambert", "phong"} and "blinn_phong" in allowed_models:
+        normalized = "blinn_phong"
     if normalized not in allowed_models:
         raise ValueError(f"model {model!r} unknown; use one of: {sorted(allowed_models)}")
     data["model"] = normalized

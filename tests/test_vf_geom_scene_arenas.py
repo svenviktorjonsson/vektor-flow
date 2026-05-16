@@ -60,7 +60,7 @@ process.stdout.write(JSON.stringify({{
 }}));
     """
     payload = _run_node(script)
-    assert payload["lightModel"] == "flat"
+    assert payload["lightModel"] == "blinn_phong"
     assert payload["transparent"] is True
     assert payload["depthWrite"] is True
     assert payload["alpha"] == pytest.approx(0.8)

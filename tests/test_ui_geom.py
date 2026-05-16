@@ -598,7 +598,7 @@ class TestAddLight:
             d.add_light(pos=[0,5,0], model="gouraud")
 
     def test_known_models(self) -> None:
-        assert {"flat", "lambert", "blinn_phong"} <= LIGHT_MODELS
+        assert LIGHT_MODELS == {"blinn_phong"}
 
 
 class TestSceneLight:
@@ -625,7 +625,7 @@ class TestSceneLight:
     def test_set_model(self) -> None:
         light, data = self._light()
         light.set_model("lambert")
-        assert data["model"] == "lambert"
+        assert data["model"] == "blinn_phong"
 
     def test_set_model_bad(self) -> None:
         light, _ = self._light()

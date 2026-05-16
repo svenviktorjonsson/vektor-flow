@@ -1,0 +1,44 @@
+ui:.ui
+ui.set_mode("overlay")
+t:.time
+
+d: ui.display
+events: ui.events
+EV_FRAME_CLOSED: "frame.closed"
+
+f: d.frame(
+    title: "0D Point Cloud",
+    draggable: true,
+    alpha: 0.94,
+    closable: true,
+    dockable: true,
+    resizable: true,
+    dock_loc: "bl",
+    master: true
+)
+d.add_frame(f, (0.12, 0.12, 0.60, 0.64))
+
+# 0D only: i/j/k are grouping axes, so this becomes a pure point cloud.
+x: [-1.0, 1.0] -> i
+y: [-1.0, 1.0] -> j
+z: [-1.0, 1.0] -> k
+
+f.add(
+    x: x,
+    y: y,
+    z: z,
+    color: [1.0, 0.55, 0.12, 1.0],
+    vertex_size: 0.1
+)
+
+f.add_camera(pos: [4.0, -5.0, 3.5], target: [0, 0, 0], fov: 42)
+f.add_light(pos: [5.0, -4.0, 7.0], model: "blinn_phong", color: "white")
+
+dispatch(e):
+    e.event??
+        EV_FRAME_CLOSED =>
+            @|
+
+true?>
+    events.poll()? dispatch(events.get())
+    t.sleep(0.016)

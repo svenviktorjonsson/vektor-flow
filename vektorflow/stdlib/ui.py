@@ -80,9 +80,10 @@ def _ui_trace_line(msg: str) -> None:
         pass
 
 # ---------------------------------------------------------------------------
-# Lighting models supported by vf-geom-wgpu.js
+# The UI engine uses one renderer lighting path. Legacy names normalize into
+# blinn_phong for compatibility.
 # ---------------------------------------------------------------------------
-LIGHT_MODELS = {"flat", "lambert", "blinn_phong", "phong"}
+LIGHT_MODELS = {"blinn_phong"}
 
 # Animation tick rate (frames per second written to vf-display.json)
 _ANIM_FPS = 60
@@ -1206,6 +1207,8 @@ class SceneLight:
     def set_model(self, model: str) -> "SceneLight":
         """Change lighting model. Returns self."""
         m = str(model).lower().replace("-", "_")
+        if m in {"flat", "lambert", "phong"}:
+            m = "blinn_phong"
         if m not in LIGHT_MODELS:
             raise ValueError(f"model {model!r} unknown; use one of: {sorted(LIGHT_MODELS)}")
         self._data["model"] = m
@@ -1742,7 +1745,7 @@ class Display:
         cam.stop()
         light.translate([0, 2, 0])
 
-    Lighting models: ``"flat"`` · ``"lambert"`` · ``"blinn_phong"``
+    Lighting model: ``"blinn_phong"``. Legacy names normalize to this.
     """
 
     __vf_py_attrs__ = True
@@ -2095,6 +2098,8 @@ class Display:
         color: Any,
     ) -> SceneLight:
         m = str(model).lower().replace("-", "_")
+        if m in {"flat", "lambert", "phong"}:
+            m = "blinn_phong"
         if m not in LIGHT_MODELS:
             raise ValueError(f"model {model!r} unknown; use one of: {sorted(LIGHT_MODELS)}")
         data: dict[str, Any] = {

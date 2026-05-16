@@ -40,6 +40,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.request
 import webbrowser
 from datetime import datetime, timezone
@@ -336,11 +337,47 @@ def _terminate_previous_overlay(pid: int) -> None:
             )
         except OSError:
             pass
+        _wait_for_process_exit(pid, timeout_s=2.0)
+        # CreateCoreWebView2CompositionController can fail on a zero-gap relaunch
+        # while the previous WebView2 / DirectComposition teardown is still
+        # settling. Wait explicitly at the seam instead of racing startup.
+        time.sleep(0.25)
         return
     try:
         os.kill(pid, 15)
     except OSError:
         pass
+    _wait_for_process_exit(pid, timeout_s=2.0)
+
+
+def _wait_for_process_exit(pid: int, *, timeout_s: float) -> None:
+    if pid <= 0 or timeout_s <= 0:
+        return
+    deadline = time.monotonic() + timeout_s
+    if sys.platform == "win32":
+        while time.monotonic() < deadline:
+            try:
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                )
+            except OSError:
+                return
+            if str(pid) not in (result.stdout or ""):
+                return
+            time.sleep(0.05)
+        return
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.05)
 
 
 def _probe_browser_server(port: int) -> bool:
@@ -589,6 +626,7 @@ def maybe_launch_vf_overlay() -> None:
     _overlay_launch_in_progress = True
     proc: subprocess.Popen[bytes] | subprocess.Popen[str] | None = None
     try:
+        from vektorflow.ui.display_runtime import _sync_display_runtime_assets
         from vektorflow.stdlib.events import reset_overlay_port
 
         reset_overlay_port()
@@ -642,6 +680,8 @@ def maybe_launch_vf_overlay() -> None:
         if previous_pid is not None:
             _log_launch_line(f"maybe_launch: terminating prior vf-overlay pid={previous_pid}")
             _terminate_previous_overlay(previous_pid)
+        _log_launch_line("maybe_launch: syncing overlay runtime assets")
+        _sync_display_runtime_assets(root, strict=True)
         _clear_overlay_port_file(exe)
 
         popen_kwargs: dict[str, object] = {"cwd": str(exe.parent)}

@@ -2,49 +2,24 @@
 
 This module owns the packet-first display payload assembly seam for the UI
 runtime. ``vektorflow.stdlib.ui.Display`` should orchestrate when a sync
-happens, but the display payload shape and display-runtime bundle sync live
-here.
+happens, while the display payload shape and the built-overlay asset bundle
+sync live here.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import shutil
 import time
+from pathlib import Path
 from typing import Any, Mapping
 
 from vektorflow.ui.launch import _vf_warn, find_vektorflow_repo_root
 from vektorflow.ui.payloads import write_display_payload
 
 
-_DISPLAY_RUNTIME_ASSETS = (
-    "vf-display.js",
-    "vkf-scene.html",
-    "vf-runtime-shell.js",
-    "vf-runtime-source.js",
-    "vf-runtime-scene.js",
-    "vf-runtime-flow.js",
-    "vf-native-scene-cube-hover.js",
-    "vf-native-scene-ocean.js",
-    "vf-native-scene-face-edge-vertex.js",
-    "vf-runtime-packets.json",
-    "vf-frame.js",
-    "vf-frame.css",
-    "vf-widgets.js",
-)
-_GEOM_RUNTIME_ASSETS = (
-    "vf-geom-core.js",
-    "vf-geom-ledger-layout.js",
-    "vf-geom-ledger-transport.js",
-    "vf-geom-frame-adapter.js",
-    "vf-geom-ledger.js",
-    "vf-geom-wgpu.js",
-    "vf-geom-math.js",
-    "vf-geom-mount.js",
-)
 _VERSION_QUERY_RE = re.compile(r"\?v=\d+")
-_display_assets_synced_once = False
+_SYNC_SKIP_TOP_LEVEL = frozenset({"sessions", "__pycache__"})
 
 
 def filter_placed_geom(geom: Mapping[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -106,8 +81,7 @@ def build_display_payload(
 
 
 def publish_display_runtime_payload(payload: dict[str, Any]) -> None:
-    """Persist the display payload and sync runtime assets for native/browser hosts."""
-    global _display_assets_synced_once
+    """Persist the current display payload for browser/native hosts."""
     try:
         warned_missing_root = False
 
@@ -122,55 +96,56 @@ def publish_display_runtime_payload(payload: dict[str, Any]) -> None:
                 "to that directory, or pip install -e from a clone that includes web/vf-ui."
             )
 
-        _text, wrote_files = write_display_payload(payload, warn_missing_root=warn_missing_root)
-        root = find_vektorflow_repo_root()
-        if not wrote_files or root is None:
-            return
-        if not _display_assets_synced_once:
-            _sync_display_runtime_assets(root)
-            _display_assets_synced_once = True
+        write_display_payload(payload, warn_missing_root=warn_missing_root)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"vektorflow: UI display payload is invalid: {exc}") from exc
     except OSError as exc:
         raise RuntimeError(f"vektorflow: UI display payload could not be written: {exc}") from exc
 
 
-def _sync_display_runtime_assets(root: Path) -> None:
-    for filename in _DISPLAY_RUNTIME_ASSETS:
-        _copy_root_runtime_asset_to_built_web(root, filename)
-    for filename in _GEOM_RUNTIME_ASSETS:
-        _copy_geom_runtime_asset_to_built_web(root, filename)
-
-
-def _copy_root_runtime_asset_to_built_web(root: Path, filename: str) -> None:
-    src = root / "web" / "vf-ui" / filename
-    if not src.is_file():
+def _sync_display_runtime_assets(root: Path, *, strict: bool = False) -> None:
+    src_root = (root / "web" / "vf-ui").resolve()
+    if not src_root.is_dir():
+        if strict:
+            raise RuntimeError(f"UI not started: runtime asset source tree missing: {src_root}")
         return
-    for built_web_dir in _iter_overlay_built_web_dirs(root):
-        dst = built_web_dir / filename
-        try:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if filename == "vkf-scene.html":
-                text = src.read_text(encoding="utf-8", errors="replace")
-                stamped = _VERSION_QUERY_RE.sub(f"?v={int(time.time())}", text)
-                dst.write_text(stamped, encoding="utf-8")
-            else:
-                shutil.copy2(src, dst)
-        except OSError:
-            pass
-
-
-def _copy_geom_runtime_asset_to_built_web(root: Path, filename: str) -> None:
-    src = root / "web" / "vf-ui" / "geom" / filename
-    if not src.is_file():
+    built_web_dirs = _iter_overlay_built_web_dirs(root)
+    if not built_web_dirs:
+        if strict:
+            raise RuntimeError("UI not started: built overlay web runtime directory is missing")
         return
-    for built_web_dir in _iter_overlay_built_web_dirs(root):
-        dst = built_web_dir / "geom" / filename
-        try:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        except OSError:
-            pass
+
+    errors: list[str] = []
+    for src in src_root.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(src_root)
+        if rel.parts and rel.parts[0] in _SYNC_SKIP_TOP_LEVEL:
+            continue
+        for built_web_dir in built_web_dirs:
+            dst = built_web_dir / rel
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if rel.as_posix() == "vkf-scene.html":
+                    text = src.read_text(encoding="utf-8", errors="replace")
+                    stamped = _VERSION_QUERY_RE.sub(f"?v={int(time.time())}", text)
+                    dst.write_text(stamped, encoding="utf-8")
+                else:
+                    shutil.copy2(src, dst)
+            except OSError as exc:
+                msg = f"{src} -> {dst}: {exc}"
+                if strict:
+                    errors.append(msg)
+                else:
+                    _vf_warn(f"vektorflow: UI asset sync skipped {msg}")
+    if errors:
+        preview = "; ".join(errors[:3])
+        if len(errors) > 3:
+            preview += f"; ... ({len(errors)} files failed)"
+        raise RuntimeError(
+            "UI not started: overlay runtime asset sync failed after previous host shutdown. "
+            f"Details: {preview}"
+        )
 
 
 def _iter_overlay_built_web_dirs(root: Path) -> tuple[Path, ...]:

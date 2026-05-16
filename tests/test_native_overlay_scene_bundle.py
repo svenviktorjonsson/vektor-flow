@@ -116,6 +116,75 @@ native_scene: (
 """
 
 
+CUBE_SHADOW_PLANE_SOURCE = """
+native_scene: (
+    kind: "cube_shadow_plane",
+    frame_id: "cube_shadow_plane_frame",
+    title: "Cube + Plane + Hard Shadow",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [-2.1, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.96, 0.22, 0.16, 1.0]
+    ),
+    plane: (
+        center: [-2.1, 0.0],
+        size: 4.6,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    compare_cube: (
+        center: [2.1, 0.0, 2.0],
+        size: 1.6,
+        face_color: [0.96, 0.22, 0.16, 1.0]
+    ),
+    compare_plane: (
+        center: [2.1, 0.0],
+        size: 4.6,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [0.0, -9.0, 4.8],
+        target: [0.0, 0.0, 1.15],
+        fov: 30.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            target: [0.0, 0.0, 0.9],
+            radius: 4.8,
+            height: 4.0,
+            theta: 0.2,
+            angular_velocity: 0.55,
+            model: "blinn_phong",
+            color: [1.0, 0.95, 0.84, 1.0],
+            casts_shadow: true,
+            source_radius: 0.18,
+            spread: 1.0
+        ),
+        (
+            target: [0.0, 0.0, 0.9],
+            radius: 3.8,
+            height: 2.2,
+            theta: 3.1,
+            angular_velocity: -0.22,
+            model: "blinn_phong",
+            color: [0.30, 0.36, 0.52, 1.0],
+            casts_shadow: false,
+            source_radius: 0.10,
+            spread: 0.8
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+"""
+
+
 OCEAN_WAVE_SOURCE = """
 native_scene: (
     kind: "ocean_wave",
@@ -164,6 +233,51 @@ native_scene: (
         (kind: "linear", fn: "sin", amplitude: 0.16, ux: 0.56, uy: 0.56, time_freq: 0.61),
         (kind: "radial2", fn: "cos", amplitude: 0.08, radial2: 0.075, time_freq: -0.33)
     ]
+)
+"""
+
+
+DIMENSION_MIX_SOURCE = """
+native_scene: (
+    kind: "dimension_mix",
+    frames: (
+        points: (frame_id: "dim0_points", title: "0D", rect: [0.02, 0.03, 0.47, 0.44]),
+        lines: (frame_id: "dim1_lines", title: "1D", rect: [0.51, 0.03, 0.47, 0.44]),
+        surface: (frame_id: "dim2_surface", title: "2D", rect: [0.02, 0.50, 0.47, 0.44]),
+        volume: (frame_id: "dim3_volume", title: "3D", rect: [0.51, 0.50, 0.47, 0.44])
+    ),
+    cloud: (
+        count_i: 7,
+        count_j: 7,
+        count_k: 7,
+        sigma: 0.24,
+        seed: 7,
+        color: [1.0, 0.55, 0.10, 1.0],
+        vertex_size: 0.1
+    ),
+    helix: (
+        u_steps: 60,
+        radius: 0.72,
+        pitch: 0.065,
+        turn_step: 0.30,
+        color: [0.15, 0.85, 0.25, 1.0],
+        edge_width: 0.04,
+        vertex_size: 0.08
+    ),
+    planes: (
+        u_steps: 25,
+        v_steps: 25,
+        layers: [-1.0, 1.0],
+        face_color: [0.08, 0.78, 0.95, 0.95],
+        edge_color: [0.04, 0.94, 1.0, 1.0],
+        edge_width: 0.03
+    ),
+    volume: (
+        u_steps: 20,
+        v_steps: 20,
+        w_steps: 20,
+        face_color: [0.92, 0.18, 0.88, 0.95]
+    )
 )
 """
 
@@ -237,6 +351,26 @@ def test_cube_lighting_scene_exposes_camera_and_orbit_light(tmp_path: Path) -> N
     assert "Lighting Hover Context" in program.runtime_packets_text
 
 
+def test_cube_shadow_plane_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
+    path = tmp_path / "ui_cube_shadow_plane.vkf"
+    path.write_text(CUBE_SHADOW_PLANE_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.session_name == "ui-cube-shadow-plane"
+    assert "vf-native-scene-cube-shadow-plane.js" in program.html_text
+    assert "window.__vfNativeCubeShadowConfig" in program.html_text
+    assert '"enabled": true' in program.html_text
+    assert '"lights": [{' in program.html_text
+    assert '"casts_shadow": false' in program.html_text
+    assert '"source_radius": 0.18' in program.html_text
+    assert '"spread": 0.8' in program.html_text
+    assert '"compare_cube": {' in program.html_text
+    assert '"center": [2.1, 0.0, 2.0]' in program.html_text
+    assert "Cube + Plane + Hard Shadow" in program.runtime_packets_text
+
+
 def test_ocean_wave_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
     path = tmp_path / "ui_ocean_wave_test.vkf"
     path.write_text(OCEAN_WAVE_SOURCE, encoding="utf-8")
@@ -250,6 +384,20 @@ def test_ocean_wave_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
     assert '"boundary": "repeat"' in program.html_text
     assert '"turns_per_cycle": 2.0' in program.html_text
     assert "Ocean Wave Native" in program.runtime_packets_text
+
+
+def test_dimension_mix_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
+    path = tmp_path / "ui_field_mesh_dimension_mix.vkf"
+    path.write_text(DIMENSION_MIX_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.session_name == "ui-field-mesh-dimension-mix"
+    assert "vf-native-scene-dimension-mix.js" in program.html_text
+    assert "window.__vfNativeDimensionMixConfig" in program.html_text
+    assert '"kind": "dimension_mix"' in program.html_text
+    assert "dim3_volume" in program.runtime_packets_text
 
 
 def test_face_edge_vertex_implementation_lives_in_ui_engine() -> None:

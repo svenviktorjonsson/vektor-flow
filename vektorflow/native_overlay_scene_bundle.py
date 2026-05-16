@@ -20,6 +20,13 @@ _DEFAULT_LOG_RECT = (0.48, 0.05, 0.46, 0.86)
 _UNSUPPORTED = object()
 
 
+def _normalize_native_light_model(model: str) -> str:
+    normalized = str(model).lower().replace("-", "_")
+    if normalized in {"flat", "lambert", "phong", "blinn_phong"}:
+        return "blinn_phong"
+    raise ValueError(f"native_scene light model {model!r} unknown; use 'blinn_phong'")
+
+
 def _runtime_asset_version() -> str:
     return str(int(time.time() * 1000))
 
@@ -150,6 +157,57 @@ def _normalize_cube_hover_spec(declared: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_cube_shadow_plane_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    cube = _require_struct_value(declared, "cube")
+    plane = _require_struct_value(declared, "plane")
+    shadow = _require_struct_value(declared, "shadow")
+    compare_cube = _optional_struct_value(declared, "compare_cube")
+    compare_plane = _optional_struct_value(declared, "compare_plane")
+    if "lights" in declared:
+        lights = [_normalize_ocean_light_spec(light) for light in _require_struct_list(declared, "lights")]
+        if not lights:
+            raise ValueError("native_scene.lights must contain at least one light")
+        if len(lights) > 2:
+            raise ValueError("native_scene.lights supports at most 2 lights")
+    else:
+        lights = [_normalize_ocean_light_spec(_optional_struct_value(declared, "light"))]
+    return {
+        "kind": "cube_shadow_plane",
+        "frame_id": _require_string_value(declared, "frame_id"),
+        "title": _require_string_value(declared, "title"),
+        "rect": tuple(_require_number_list(declared, "rect", length=4)),
+        "cube": {
+            "center": _optional_number_list(cube, "center", [0.0, 0.0, 1.1], length=3),
+            "size": _optional_number_value(cube, "size", 1.6),
+            "face_color": _optional_number_list(cube, "face_color", [0.96, 0.22, 0.16, 1.0], length=4),
+        },
+        "plane": {
+            "center": _optional_number_list(plane, "center", [0.0, 0.0], length=2),
+            "size": _optional_number_value(plane, "size", 7.0),
+            "z": _optional_number_value(plane, "z", 0.0),
+            "color": _optional_number_list(plane, "color", [0.20, 0.22, 0.26, 1.0], length=4),
+        },
+        "compare_cube": None if compare_cube is None else {
+            "center": _optional_number_list(compare_cube, "center", [3.4, 0.0, 1.8], length=3),
+            "size": _optional_number_value(compare_cube, "size", 1.6),
+            "face_color": _optional_number_list(compare_cube, "face_color", [0.96, 0.22, 0.16, 1.0], length=4),
+        },
+        "compare_plane": None if compare_plane is None else {
+            "center": _optional_number_list(compare_plane, "center", [3.4, 0.0], length=2),
+            "size": _optional_number_value(compare_plane, "size", 7.0),
+            "z": _optional_number_value(compare_plane, "z", 0.0),
+            "color": _optional_number_list(compare_plane, "color", [0.20, 0.22, 0.26, 1.0], length=4),
+        },
+        "camera": _optional_ocean_camera_value(declared),
+        "lights": lights,
+        "shadow": {
+            "enabled": _optional_bool_value(shadow, "enabled", True),
+            "color": _optional_number_list(shadow, "color", [0.0, 0.0, 0.0, 0.30], length=4),
+            "lift": _optional_number_value(shadow, "lift", 0.002),
+        },
+    }
+
+
 def _normalize_ocean_wave_spec(declared: dict[str, Any]) -> dict[str, Any]:
     surface = _require_struct_value(declared, "surface")
     styles = _require_struct_value(declared, "styles")
@@ -177,12 +235,94 @@ def _normalize_ocean_wave_spec(declared: dict[str, Any]) -> dict[str, Any]:
             "show_edges": _optional_bool_value(styles, "show_edges", True),
             "show_vertices": _optional_bool_value(styles, "show_vertices", False),
             "edge_caps": _optional_bool_value(styles, "edge_caps", False),
-            "face_light_model": _optional_string_value(styles, "face_light_model", "blinn_phong"),
+            "face_light_model": _normalize_native_light_model(
+                _optional_string_value(styles, "face_light_model", "blinn_phong")
+            ),
         },
         "camera": _optional_ocean_camera_value(declared),
         "light": _optional_ocean_light_value(declared),
         "timing": timing,
         "waves": _require_wave_specs(declared, "waves"),
+    }
+
+
+def _require_frame_scene_spec(scope: dict[str, Any], name: str) -> dict[str, Any]:
+    frame = _require_struct_value(scope, name)
+    return {
+        "frame_id": _require_string_value(frame, "frame_id"),
+        "title": _require_string_value(frame, "title"),
+        "rect": tuple(_require_number_list(frame, "rect", length=4)),
+    }
+
+
+def _normalize_dimension_mix_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    frames = _require_struct_value(declared, "frames")
+    cloud = _require_struct_value(declared, "cloud")
+    helix = _require_struct_value(declared, "helix")
+    planes = _require_struct_value(declared, "planes")
+    volume = _require_struct_value(declared, "volume")
+    return {
+        "kind": "dimension_mix",
+        "frames": {
+            "points": _require_frame_scene_spec(frames, "points"),
+            "lines": _require_frame_scene_spec(frames, "lines"),
+            "surface": _require_frame_scene_spec(frames, "surface"),
+            "volume": _require_frame_scene_spec(frames, "volume"),
+        },
+        "cloud": {
+            "count_i": _optional_positive_int_value(cloud, "count_i", 320, minimum=2),
+            "sigma": _optional_number_value(cloud, "sigma", 0.24),
+            "seed": _optional_positive_int_value(cloud, "seed", 7, minimum=0),
+            "color": _optional_number_list(cloud, "color", [1.0, 0.55, 0.10, 1.0], length=4),
+            "vertex_size": _optional_number_value(cloud, "vertex_size", 0.1),
+            "camera": _optional_ocean_camera_value(cloud),
+            "light": _optional_ocean_light_value(cloud),
+        },
+        "helix": {
+            "u_steps": _optional_positive_int_value(helix, "u_steps", 60, minimum=2),
+            "radius": _optional_number_value(helix, "radius", 0.72),
+            "pitch": _optional_number_value(helix, "pitch", 0.065),
+            "turn_step": _optional_number_value(helix, "turn_step", 0.30),
+            "edge_color_j": _optional_rgba_list(helix, "edge_color_j", [[0.10, 0.86, 0.30, 1.0], [0.10, 0.56, 0.96, 1.0]], expected_length=2),
+            "vertex_color_j": _optional_rgba_list(helix, "vertex_color_j", [[0.95, 0.62, 0.18, 1.0], [0.96, 0.34, 0.72, 1.0]], expected_length=2),
+            "edge_width": _optional_number_value(helix, "edge_width", 0.04),
+            "vertex_size": _optional_number_value(helix, "vertex_size", 0.08),
+            "camera": _optional_ocean_camera_value(helix),
+            "light": _optional_ocean_light_value(helix),
+        },
+        "planes": {
+            "u_steps": _optional_positive_int_value(planes, "u_steps", 25, minimum=2),
+            "v_steps": _optional_positive_int_value(planes, "v_steps", 25, minimum=2),
+            "layers": _optional_number_list(planes, "layers", [-1.0, 1.0], length=2),
+            "u_scale": _optional_number_value(planes, "u_scale", 0.11),
+            "v_scale": _optional_number_value(planes, "v_scale", 0.11),
+            "x_offset_per_layer": _optional_number_value(planes, "x_offset_per_layer", 0.28),
+            "y_offset_per_layer": _optional_number_value(planes, "y_offset_per_layer", 0.14),
+            "z_offset_per_layer": _optional_number_value(planes, "z_offset_per_layer", 0.85),
+            "face_color_i": _optional_rgba_list(planes, "face_color_i", [[0.08, 0.78, 0.95, 0.95], [0.22, 0.96, 0.54, 0.95]], expected_length=2),
+            "height_amp_i": _optional_number_list(planes, "height_amp_i", [0.16, 0.22], length=2),
+            "height_phase_i": _optional_number_list(planes, "height_phase_i", [0.0, 1.35], length=2),
+            "camera": _optional_ocean_camera_value(planes),
+            "light": _optional_ocean_light_value(planes),
+        },
+        "volume": {
+            "u_steps": _optional_positive_int_value(volume, "u_steps", 20, minimum=2),
+            "v_steps": _optional_positive_int_value(volume, "v_steps", 20, minimum=2),
+            "w_steps": _optional_positive_int_value(volume, "w_steps", 20, minimum=2),
+            "scale": _optional_number_value(volume, "scale", 0.12),
+            "warp_x_amp": _optional_number_value(volume, "warp_x_amp", 0.12),
+            "warp_x_y_freq": _optional_number_value(volume, "warp_x_y_freq", 1.5),
+            "warp_x_z_freq": _optional_number_value(volume, "warp_x_z_freq", 1.1),
+            "warp_y_amp": _optional_number_value(volume, "warp_y_amp", 0.10),
+            "warp_y_x_freq": _optional_number_value(volume, "warp_y_x_freq", 1.3),
+            "warp_y_z_freq": _optional_number_value(volume, "warp_y_z_freq", -1.4),
+            "warp_z_amp": _optional_number_value(volume, "warp_z_amp", 0.11),
+            "warp_z_x_freq": _optional_number_value(volume, "warp_z_x_freq", 1.2),
+            "warp_z_y_freq": _optional_number_value(volume, "warp_z_y_freq", 1.6),
+            "face_color": _optional_number_list(volume, "face_color", [0.92, 0.18, 0.88, 0.95], length=4),
+            "camera": _optional_ocean_camera_value(volume),
+            "light": _optional_ocean_light_value(volume),
+        },
     }
 
 
@@ -369,6 +509,24 @@ def _optional_number_list(
     return _require_number_list(scope, name, length=length)
 
 
+def _optional_rgba_list(
+    scope: dict[str, Any], name: str, default: list[list[float]], *, expected_length: int | None = None
+) -> list[list[float]]:
+    if name not in scope:
+        return [list(row) for row in default]
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[list[float]] = []
+    for index, row in enumerate(value):
+        if not isinstance(row, list):
+            raise ValueError(f"native_scene.{name}[{index}] must be a color list")
+        out.append(_require_number_list({name: row}, name, length=4))
+    if expected_length is not None and len(out) != expected_length:
+        raise ValueError(f"native_scene.{name} must contain exactly {expected_length} colors")
+    return out
+
+
 def _optional_struct_value(scope: dict[str, Any], name: str) -> dict[str, Any] | None:
     if name not in scope:
         return None
@@ -415,7 +573,7 @@ def _optional_light_value(scope: dict[str, Any]) -> dict[str, Any]:
             "height": 3.2,
             "theta": 0.0,
             "angular_velocity": 0.0,
-            "model": "flat",
+            "model": "blinn_phong",
             "color": "white",
         }
     color = light.get("color", "white")
@@ -431,7 +589,7 @@ def _optional_light_value(scope: dict[str, Any]) -> dict[str, Any]:
         "height": _optional_number_value(light, "height", 3.2),
         "theta": _optional_number_value(light, "theta", 0.0),
         "angular_velocity": _optional_number_value(light, "angular_velocity", 0.0),
-        "model": _optional_string_value(light, "model", "flat"),
+        "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
         "color": color,
     }
 
@@ -448,6 +606,16 @@ def _optional_ocean_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
             "fov": 42.0,
             "up": [0.0, 0.0, 1.0],
         }
+    if "pos" in camera:
+        result = {
+            "pos": _optional_number_list(camera, "pos", [3.2, 2.4, 4.0], length=3),
+            "target": _optional_number_list(camera, "target", [0.0, 0.0, 0.0], length=3),
+            "fov": _optional_number_value(camera, "fov", 42.0),
+            "up": _optional_number_list(camera, "up", [0.0, 0.0, 1.0], length=3),
+        }
+        if "min_distance" in camera:
+            result["min_distance"] = _optional_number_value(camera, "min_distance", 0.0)
+        return result
     return {
         "target": _optional_number_list(camera, "target", [0.0, 0.0, 0.0], length=3),
         "radius": _optional_number_value(camera, "radius", 9.6),
@@ -461,6 +629,10 @@ def _optional_ocean_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
 
 def _optional_ocean_light_value(scope: dict[str, Any]) -> dict[str, Any]:
     light = _optional_struct_value(scope, "light")
+    return _normalize_ocean_light_spec(light)
+
+
+def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
     if light is None:
         return {
             "target": [0.0, 0.0, 0.0],
@@ -468,18 +640,42 @@ def _optional_ocean_light_value(scope: dict[str, Any]) -> dict[str, Any]:
             "height": 4.6,
             "theta": 0.45,
             "turns_per_cycle": 2.0,
+            "angular_velocity": (2.0 * 2.0 * 3.141592653589793) / 12.0,
             "model": "blinn_phong",
             "color": [1.0, 0.93, 0.78, 1.0],
+            "casts_shadow": True,
+            "source_radius": 0.0,
+            "spread": 1.0,
         }
-    return {
-        "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
-        "radius": _optional_number_value(light, "radius", 7.1),
-        "height": _optional_number_value(light, "height", 4.6),
-        "theta": _optional_number_value(light, "theta", 0.45),
-        "turns_per_cycle": _optional_number_value(light, "turns_per_cycle", 2.0),
-        "model": _optional_string_value(light, "model", "blinn_phong"),
-        "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
-    }
+    if "pos" in light:
+        result = {
+            "pos": _optional_number_list(light, "pos", [4.0, 5.0, 6.0], length=3),
+            "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+            "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
+            "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
+            "source_radius": _optional_number_value(light, "source_radius", 0.0),
+            "spread": _optional_number_value(light, "spread", 1.0),
+        }
+    else:
+        turns_per_cycle = _optional_number_value(light, "turns_per_cycle", 2.0)
+        result = {
+            "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+            "radius": _optional_number_value(light, "radius", 7.1),
+            "height": _optional_number_value(light, "height", 4.6),
+            "theta": _optional_number_value(light, "theta", 0.45),
+            "turns_per_cycle": turns_per_cycle,
+            "angular_velocity": _optional_number_value(
+                light,
+                "angular_velocity",
+                (turns_per_cycle * 2.0 * 3.141592653589793) / 12.0,
+            ),
+            "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
+            "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
+            "source_radius": _optional_number_value(light, "source_radius", 0.0),
+            "spread": _optional_number_value(light, "spread", 1.0),
+        }
+    result["casts_shadow"] = _optional_bool_value(light, "casts_shadow", True)
+    return result
 
 
 def _optional_ocean_timing_value(scope: dict[str, Any]) -> dict[str, Any]:
@@ -1307,6 +1503,51 @@ def _render_cube_hover_packets(spec: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
+def _render_cube_shadow_plane_packets(spec: dict[str, Any]) -> str:
+    x, y, w, h = spec["rect"]
+    frame_id = str(spec["frame_id"])
+    payload = [
+        {
+            "seq": 1,
+            "kind": "scene.replace",
+            "payload": {
+                "commands": [
+                    {
+                        "kind": "frame_upsert",
+                        "id": frame_id,
+                        "payload": {
+                            "spec": {
+                                "id": frame_id,
+                                "title": str(spec["title"]),
+                                "title_align": "left",
+                                "rect": {"x": x, "y": y, "w": w, "h": h},
+                                "flags": {
+                                    "draggable": True,
+                                    "dockable": True,
+                                    "resizable": True,
+                                    "closable": True,
+                                    "use_browser": True,
+                                },
+                                "alpha": 1.0,
+                                "master": True,
+                                "exit_counted": True,
+                                "dock_location": "bl",
+                                "anchor": "tl",
+                                "body": None,
+                                "body_layout": None,
+                                "parent_id": None,
+                            }
+                        },
+                    }
+                ]
+            },
+        },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
 def _render_ocean_wave_packets(spec: dict[str, Any]) -> str:
     x, y, w, h = spec["rect"]
     frame_id = str(spec["frame_id"])
@@ -1346,6 +1587,47 @@ def _render_ocean_wave_packets(spec: dict[str, Any]) -> str:
                 ]
             },
         },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def _render_dimension_mix_packets(spec: dict[str, Any]) -> str:
+    commands: list[dict[str, Any]] = []
+    for key, dock in (("points", "bl"), ("lines", "br"), ("surface", "tl"), ("volume", "tr")):
+        frame = spec["frames"][key]
+        x, y, w, h = frame["rect"]
+        commands.append(
+            {
+                "kind": "frame_upsert",
+                "id": str(frame["frame_id"]),
+                "payload": {
+                    "spec": {
+                        "id": str(frame["frame_id"]),
+                        "title": str(frame["title"]),
+                        "title_align": "left",
+                        "rect": {"x": x, "y": y, "w": w, "h": h},
+                        "flags": {
+                            "draggable": True,
+                            "dockable": True,
+                            "resizable": True,
+                            "closable": True,
+                            "use_browser": True,
+                        },
+                        "alpha": 1.0,
+                        "master": key == "points",
+                        "dock_location": dock,
+                        "anchor": "tl",
+                        "body": None,
+                        "body_layout": None,
+                        "parent_id": None,
+                    }
+                },
+            }
+        )
+    payload = [
+        {"seq": 1, "kind": "scene.replace", "payload": {"commands": commands}},
         {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
         {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
     ]
@@ -1700,6 +1982,22 @@ def _render_cube_hover_html(spec: dict[str, Any]) -> str:
 """
 
 
+def _render_cube_shadow_plane_html(spec: dict[str, Any]) -> str:
+    config_json = json.dumps(spec, ensure_ascii=False)
+    asset_version = _runtime_asset_version()
+    return f"""<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
+    <script>
+      window.__vfNativeCubeShadowConfig = {config_json};
+    </script>
+    <script src="../../vf-native-scene-cube-shadow-plane.js?v={asset_version}"></script>
+  </body>
+</html>
+"""
+
+
 def _render_ocean_wave_html(spec: dict[str, Any]) -> str:
     config_json = json.dumps(
         {
@@ -1728,6 +2026,22 @@ def _render_ocean_wave_html(spec: dict[str, Any]) -> str:
 """
 
 
+def _render_dimension_mix_html(spec: dict[str, Any]) -> str:
+    config_json = json.dumps(spec, ensure_ascii=False)
+    asset_version = _runtime_asset_version()
+    return f"""<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
+    <script>
+      window.__vfNativeDimensionMixConfig = {config_json};
+    </script>
+    <script src="../../vf-native-scene-dimension-mix.js?v={asset_version}"></script>
+  </body>
+</html>
+"""
+
+
 _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
     "face_edge_vertex_drag": _NativeSceneCompiler(
         default_session_name="ui-face-edge-vertex-drag",
@@ -1749,10 +2063,22 @@ _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
         render_html=_render_cube_hover_html,
         render_runtime_packets=_render_cube_hover_packets,
     ),
+    "cube_shadow_plane": _NativeSceneCompiler(
+        default_session_name="ui-cube-shadow-plane",
+        normalize_spec=_normalize_cube_shadow_plane_spec,
+        render_html=_render_cube_shadow_plane_html,
+        render_runtime_packets=_render_cube_shadow_plane_packets,
+    ),
     "ocean_wave": _NativeSceneCompiler(
         default_session_name="ui-ocean-wave",
         normalize_spec=_normalize_ocean_wave_spec,
         render_html=_render_ocean_wave_html,
         render_runtime_packets=_render_ocean_wave_packets,
+    ),
+    "dimension_mix": _NativeSceneCompiler(
+        default_session_name="ui-field-mesh-dimension-mix",
+        normalize_spec=_normalize_dimension_mix_spec,
+        render_html=_render_dimension_mix_html,
+        render_runtime_packets=_render_dimension_mix_packets,
     ),
 }

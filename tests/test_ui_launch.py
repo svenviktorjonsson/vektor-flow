@@ -262,6 +262,7 @@ class TestOverlayMode:
         fake_exe = _REPO / "native" / "VfOverlay" / "build" / "Release" / "fake-overlay.exe"
         monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
         monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
+        monkeypatch.setattr(L, "_read_overlay_pid", lambda: None)
         set_ui_mode("overlay")
 
         proc = MagicMock()
@@ -285,6 +286,33 @@ class TestOverlayMode:
         popen.assert_not_called()
         err = capsys.readouterr().err
         assert "vf-overlay.exe not found" in err or "UI not started" in err
+
+    def test_overlay_launch_syncs_assets_after_prior_host_shutdown(self, monkeypatch) -> None:
+        fake_exe = _REPO / "native" / "VfOverlay" / "build" / "Release" / "fake-overlay.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: fake_exe)
+        monkeypatch.setattr(L, "_read_overlay_pid", lambda: 777)
+        set_ui_mode("overlay")
+
+        proc = MagicMock()
+        proc.pid = 12345
+        calls: list[tuple[str, object]] = []
+
+        def record_terminate(pid: int) -> None:
+            calls.append(("terminate", pid))
+
+        def record_sync(root: Path, *, strict: bool = False) -> None:
+            calls.append(("sync", strict))
+
+        with (
+            patch.object(L, "_terminate_previous_overlay", side_effect=record_terminate),
+            patch("vektorflow.ui.display_runtime._sync_display_runtime_assets", side_effect=record_sync),
+            patch("vektorflow.ui.launch.subprocess.Popen", return_value=proc),
+            patch.object(L, "_wait_for_overlay_ready", return_value=12345),
+        ):
+            maybe_launch_vf_overlay()
+
+        assert calls == [("terminate", 777), ("sync", True)]
 
     def test_exec_root_fallback(self, monkeypatch, tmp_path) -> None:
         bundle_root = tmp_path / "bundle"
