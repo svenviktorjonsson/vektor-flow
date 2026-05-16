@@ -6,38 +6,21 @@ native_scene: (
     frame_id: "cube_shadow_plane_frame",
     title: "Cube + Plane + Hard Shadow",
     rect: [0.08, 0.08, 0.72, 0.78],
-    pairs: [
-        (
-            cube: (
-                center: [-2.1, 0.0, 1.15],
-                size: 1.6,
-                face_color: [0.96, 0.22, 0.16, 1.0]
-            ),
-            plane: (
-                center: [-2.1, 0.0],
-                size: 4.6,
-                z: 0.0,
-                color: [0.34, 0.48, 0.72, 1.0]
-            )
-        ),
-        (
-            cube: (
-                center: [2.1, 0.0, 2.0],
-                size: 1.6,
-                face_color: [0.96, 0.22, 0.16, 1.0]
-            ),
-            plane: (
-                center: [2.1, 0.0],
-                size: 4.6,
-                z: 0.0,
-                color: [0.34, 0.48, 0.72, 1.0]
-            )
-        )
-    ],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.96, 0.22, 0.16, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.34, 0.48, 0.72, 1.0]
+    ),
     camera: (
-        pos: [0.0, -9.0, 4.8],
-        target: [0.0, 0.0, 1.15],
-        fov: 30.0,
+        pos: [3.9, -5.6, 3.2],
+        target: [0.0, 0.0, 0.9],
+        fov: 34.0,
         up: [0.0, 0.0, 1.0]
     ),
     lights: [
