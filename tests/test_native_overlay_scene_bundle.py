@@ -122,28 +122,34 @@ native_scene: (
     frame_id: "cube_shadow_plane_frame",
     title: "Cube + Plane + Hard Shadow",
     rect: [0.08, 0.08, 0.72, 0.78],
-    cube: (
-        center: [-2.1, 0.0, 1.15],
-        size: 1.6,
-        face_color: [0.96, 0.22, 0.16, 1.0]
-    ),
-    plane: (
-        center: [-2.1, 0.0],
-        size: 4.6,
-        z: 0.0,
-        color: [0.20, 0.22, 0.26, 1.0]
-    ),
-    compare_cube: (
-        center: [2.1, 0.0, 2.0],
-        size: 1.6,
-        face_color: [0.96, 0.22, 0.16, 1.0]
-    ),
-    compare_plane: (
-        center: [2.1, 0.0],
-        size: 4.6,
-        z: 0.0,
-        color: [0.20, 0.22, 0.26, 1.0]
-    ),
+    pairs: [
+        (
+            cube: (
+                center: [-2.1, 0.0, 1.15],
+                size: 1.6,
+                face_color: [0.96, 0.22, 0.16, 1.0]
+            ),
+            plane: (
+                center: [-2.1, 0.0],
+                size: 4.6,
+                z: 0.0,
+                color: [0.20, 0.22, 0.26, 1.0]
+            )
+        ),
+        (
+            cube: (
+                center: [2.1, 0.0, 2.0],
+                size: 1.6,
+                face_color: [0.96, 0.22, 0.16, 1.0]
+            ),
+            plane: (
+                center: [2.1, 0.0],
+                size: 4.6,
+                z: 0.0,
+                color: [0.20, 0.22, 0.26, 1.0]
+            )
+        )
+    ],
     camera: (
         pos: [0.0, -9.0, 4.8],
         target: [0.0, 0.0, 1.15],
@@ -366,8 +372,9 @@ def test_cube_shadow_plane_scene_runs_in_native_ui_runtime(tmp_path: Path) -> No
     assert '"casts_shadow": false' in program.html_text
     assert '"source_radius": 0.18' in program.html_text
     assert '"spread": 0.8' in program.html_text
-    assert '"compare_cube": {' in program.html_text
-    assert '"center": [2.1, 0.0, 2.0]' in program.html_text
+    assert '"meshes": [{' in program.html_text
+    assert '"shadow_receivers": [{' in program.html_text
+    assert '"receiver_mesh": "plane_1"' in program.html_text
     assert "Cube + Plane + Hard Shadow" in program.runtime_packets_text
 
 

@@ -157,12 +157,81 @@ def _normalize_cube_hover_spec(declared: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_cube_shadow_pair_spec(
+    pair: dict[str, Any],
+    *,
+    cube_defaults: dict[str, Any],
+    plane_defaults: dict[str, Any],
+) -> dict[str, Any]:
+    cube = _require_struct_value(pair, "cube")
+    plane = _require_struct_value(pair, "plane")
+    return {
+        "cube": {
+            "center": _optional_number_list(cube, "center", cube_defaults["center"], length=3),
+            "size": _optional_number_value(cube, "size", cube_defaults["size"]),
+            "face_color": _optional_number_list(cube, "face_color", cube_defaults["face_color"], length=4),
+        },
+        "plane": {
+            "center": _optional_number_list(plane, "center", plane_defaults["center"], length=2),
+            "size": _optional_number_value(plane, "size", plane_defaults["size"]),
+            "z": _optional_number_value(plane, "z", plane_defaults["z"]),
+            "color": _optional_number_list(plane, "color", plane_defaults["color"], length=4),
+        },
+    }
+
+
 def _normalize_cube_shadow_plane_spec(declared: dict[str, Any]) -> dict[str, Any]:
-    cube = _require_struct_value(declared, "cube")
-    plane = _require_struct_value(declared, "plane")
     shadow = _require_struct_value(declared, "shadow")
-    compare_cube = _optional_struct_value(declared, "compare_cube")
-    compare_plane = _optional_struct_value(declared, "compare_plane")
+    base_cube_defaults = {
+        "center": [0.0, 0.0, 1.1],
+        "size": 1.6,
+        "face_color": [0.96, 0.22, 0.16, 1.0],
+    }
+    compare_cube_defaults = {
+        "center": [3.4, 0.0, 1.8],
+        "size": 1.6,
+        "face_color": [0.96, 0.22, 0.16, 1.0],
+    }
+    base_plane_defaults = {
+        "center": [0.0, 0.0],
+        "size": 7.0,
+        "z": 0.0,
+        "color": [0.20, 0.22, 0.26, 1.0],
+    }
+    compare_plane_defaults = {
+        "center": [3.4, 0.0],
+        "size": 7.0,
+        "z": 0.0,
+        "color": [0.20, 0.22, 0.26, 1.0],
+    }
+    if "pairs" in declared:
+        raw_pairs = _require_struct_list(declared, "pairs")
+        if not raw_pairs:
+            raise ValueError("native_scene.pairs must contain at least one cube/plane pair")
+        pairs = [
+            _normalize_cube_shadow_pair_spec(pair, cube_defaults=base_cube_defaults, plane_defaults=base_plane_defaults)
+            for pair in raw_pairs
+        ]
+    else:
+        cube = _require_struct_value(declared, "cube")
+        plane = _require_struct_value(declared, "plane")
+        pairs = [
+            _normalize_cube_shadow_pair_spec(
+                {"cube": cube, "plane": plane},
+                cube_defaults=base_cube_defaults,
+                plane_defaults=base_plane_defaults,
+            )
+        ]
+        compare_cube = _optional_struct_value(declared, "compare_cube")
+        compare_plane = _optional_struct_value(declared, "compare_plane")
+        if compare_cube is not None and compare_plane is not None:
+            pairs.append(
+                _normalize_cube_shadow_pair_spec(
+                    {"cube": compare_cube, "plane": compare_plane},
+                    cube_defaults=compare_cube_defaults,
+                    plane_defaults=compare_plane_defaults,
+                )
+            )
     if "lights" in declared:
         lights = [_normalize_ocean_light_spec(light) for light in _require_struct_list(declared, "lights")]
         if not lights:
@@ -171,35 +240,54 @@ def _normalize_cube_shadow_plane_spec(declared: dict[str, Any]) -> dict[str, Any
             raise ValueError("native_scene.lights supports at most 2 lights")
     else:
         lights = [_normalize_ocean_light_spec(_optional_struct_value(declared, "light"))]
+    for index, light in enumerate(lights):
+        light["id"] = str(light.get("id") or f"light_{index}")
+    meshes: list[dict[str, Any]] = []
+    shadow_receivers: list[dict[str, Any]] = []
+    shadow_light_ids = [light["id"] for light in lights if light.get("casts_shadow", True)]
+    for index, pair in enumerate(pairs):
+        plane_id = f"plane_{index}"
+        cube_id = f"cube_{index}"
+        meshes.append(
+            {
+                "id": plane_id,
+                "kind": "quad",
+                "center": pair["plane"]["center"],
+                "size": pair["plane"]["size"],
+                "z": pair["plane"]["z"],
+                "color": pair["plane"]["color"],
+            }
+        )
+        meshes.append(
+            {
+                "id": cube_id,
+                "kind": "cube",
+                "center": pair["cube"]["center"],
+                "size": pair["cube"]["size"],
+                "face_color": pair["cube"]["face_color"],
+            }
+        )
+        shadow_receivers.append(
+            {
+                "receiver_mesh": plane_id,
+                "occluders": [cube_id],
+                "lights": list(shadow_light_ids),
+                "policy": {
+                    "kind": "projected_convex_hull",
+                    "softness": "area_light_penumbra",
+                },
+            }
+        )
     return {
         "kind": "cube_shadow_plane",
         "frame_id": _require_string_value(declared, "frame_id"),
         "title": _require_string_value(declared, "title"),
         "rect": tuple(_require_number_list(declared, "rect", length=4)),
-        "cube": {
-            "center": _optional_number_list(cube, "center", [0.0, 0.0, 1.1], length=3),
-            "size": _optional_number_value(cube, "size", 1.6),
-            "face_color": _optional_number_list(cube, "face_color", [0.96, 0.22, 0.16, 1.0], length=4),
-        },
-        "plane": {
-            "center": _optional_number_list(plane, "center", [0.0, 0.0], length=2),
-            "size": _optional_number_value(plane, "size", 7.0),
-            "z": _optional_number_value(plane, "z", 0.0),
-            "color": _optional_number_list(plane, "color", [0.20, 0.22, 0.26, 1.0], length=4),
-        },
-        "compare_cube": None if compare_cube is None else {
-            "center": _optional_number_list(compare_cube, "center", [3.4, 0.0, 1.8], length=3),
-            "size": _optional_number_value(compare_cube, "size", 1.6),
-            "face_color": _optional_number_list(compare_cube, "face_color", [0.96, 0.22, 0.16, 1.0], length=4),
-        },
-        "compare_plane": None if compare_plane is None else {
-            "center": _optional_number_list(compare_plane, "center", [3.4, 0.0], length=2),
-            "size": _optional_number_value(compare_plane, "size", 7.0),
-            "z": _optional_number_value(compare_plane, "z", 0.0),
-            "color": _optional_number_list(compare_plane, "color", [0.20, 0.22, 0.26, 1.0], length=4),
-        },
+        "pairs": pairs,
+        "meshes": meshes,
         "camera": _optional_ocean_camera_value(declared),
         "lights": lights,
+        "shadow_receivers": shadow_receivers,
         "shadow": {
             "enabled": _optional_bool_value(shadow, "enabled", True),
             "color": _optional_number_list(shadow, "color", [0.0, 0.0, 0.0, 0.30], length=4),
