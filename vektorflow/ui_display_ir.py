@@ -96,14 +96,31 @@ class UiSceneCamera:
 class UiSceneLight:
     pos: tuple[float, float, float]
     model: str
-    color: str
+    color: Any
+    intensity: float = 24.0
+    kind: str = "point"
+    direction: tuple[float, float, float] | None = None
+    target: tuple[float, float, float] | None = None
+    inner_cone_deg: float = 14.0
+    outer_cone_deg: float = 22.0
+    range: float = 0.0
 
     def to_json_obj(self) -> dict[str, Any]:
-        return {
+        payload = {
             "pos": [self.pos[0], self.pos[1], self.pos[2]],
             "model": self.model,
             "color": self.color,
+            "intensity": float(self.intensity),
+            "kind": self.kind,
+            "inner_cone_deg": float(self.inner_cone_deg),
+            "outer_cone_deg": float(self.outer_cone_deg),
+            "range": float(self.range),
         }
+        if self.direction is not None:
+            payload["direction"] = [self.direction[0], self.direction[1], self.direction[2]]
+        if self.target is not None:
+            payload["target"] = [self.target[0], self.target[1], self.target[2]]
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -828,7 +845,14 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
         UiSceneLight(
             pos=tuple(light["pos"]),
             model=str(light["model"]),
-            color=str(light["color"]),
+            color=light["color"],
+            intensity=float(light.get("intensity", 24.0)),
+            kind=str(light.get("kind", "point")),
+            direction=tuple(light["direction"]) if light.get("direction") is not None else None,
+            target=tuple(light["target"]) if light.get("target") is not None else None,
+            inner_cone_deg=float(light.get("inner_cone_deg", 14.0)),
+            outer_cone_deg=float(light.get("outer_cone_deg", 22.0)),
+            range=float(light.get("range", 0.0)),
         )
         for light in data.get("lights", [])
     )
@@ -928,12 +952,26 @@ def build_scene_light_payload(
     *,
     pos: tuple[float, float, float],
     model: str,
-    color: str,
+    color: Any,
+    intensity: float = 24.0,
+    kind: str = "point",
+    direction: tuple[float, float, float] | None = None,
+    target: tuple[float, float, float] | None = None,
+    inner_cone_deg: float = 14.0,
+    outer_cone_deg: float = 22.0,
+    range: float = 0.0,
 ) -> dict[str, Any]:
     return UiSceneLight(
         pos=pos,
         model=model,
         color=color,
+        intensity=float(intensity),
+        kind=str(kind),
+        direction=direction,
+        target=target,
+        inner_cone_deg=float(inner_cone_deg),
+        outer_cone_deg=float(outer_cone_deg),
+        range=float(range),
     ).to_json_obj()
 
 

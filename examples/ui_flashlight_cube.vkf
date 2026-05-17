@@ -1,0 +1,60 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene: (
+    kind: "cube_shadow_plane",
+    frame_id: "flashlight_cube_frame",
+    title: "Flashlight Cube",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.96, 0.22, 0.16, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.26, 0.30, 0.36, 1.0]
+    ),
+    camera: (
+        pos: [3.5, -4.8, 2.8],
+        target: [0.0, 0.0, 0.8],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "spot",
+            target: [0.0, 0.0, 0.8],
+            radius: 4.2,
+            height: 3.1,
+            theta: 0.35,
+            angular_velocity: 0.30,
+            model: "blinn_phong",
+            color: [1.0, 0.96, 0.88, 1.0],
+            intensity: 58.0,
+            inner_cone_deg: 10.0,
+            outer_cone_deg: 18.0,
+            range: 10.0,
+            casts_shadow: true,
+            source_radius: 0.10,
+            spread: 1.0
+        ),
+        (
+            kind: "point",
+            pos: [-2.6, -1.8, 2.1],
+            target: [0.0, 0.0, 0.8],
+            model: "blinn_phong",
+            color: [0.35, 0.42, 0.62, 1.0],
+            intensity: 10.0,
+            range: 8.0,
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)

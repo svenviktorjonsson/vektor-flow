@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from vektorflow.ui_display_ir import build_scene_light_payload, frame_scene_from_runtime_geom
 from vektorflow.ui import FrameFlags, FrameSpec, NormRect, UiCommand, dumps_scene
 from vektorflow.ui.ir import parse_dock_location
 
@@ -59,3 +60,27 @@ def test_parse_dock_location_aliases() -> None:
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_scene_light_payload_round_trips_spotlight_fields() -> None:
+    payload = build_scene_light_payload(
+        pos=(1.0, 2.0, 3.0),
+        model="blinn_phong",
+        color=[1.0, 0.9, 0.7, 1.0],
+        intensity=42.0,
+        kind="spot",
+        direction=(0.0, 0.0, -1.0),
+        target=(0.0, 0.0, 0.0),
+        inner_cone_deg=12.0,
+        outer_cone_deg=20.0,
+        range=8.0,
+    )
+    scene = frame_scene_from_runtime_geom({"meshes": [], "camera": None, "lights": [payload]})
+    light = scene.lights[0]
+    assert light.kind == "spot"
+    assert light.intensity == 42.0
+    assert light.direction == (0.0, 0.0, -1.0)
+    assert light.target == (0.0, 0.0, 0.0)
+    assert light.inner_cone_deg == 12.0
+    assert light.outer_cone_deg == 20.0
+    assert light.range == 8.0

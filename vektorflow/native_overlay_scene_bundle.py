@@ -595,6 +595,11 @@ def _optional_light_value(scope: dict[str, Any]) -> dict[str, Any]:
             "height": 3.2,
             "theta": 0.0,
             "angular_velocity": 0.0,
+            "kind": "point",
+            "intensity": 24.0,
+            "inner_cone_deg": 14.0,
+            "outer_cone_deg": 22.0,
+            "range": 0.0,
             "model": "blinn_phong",
             "color": "white",
         }
@@ -611,6 +616,14 @@ def _optional_light_value(scope: dict[str, Any]) -> dict[str, Any]:
         "height": _optional_number_value(light, "height", 3.2),
         "theta": _optional_number_value(light, "theta", 0.0),
         "angular_velocity": _optional_number_value(light, "angular_velocity", 0.0),
+        "kind": _normalize_native_light_kind(_optional_string_value(light, "kind", "point")),
+        "direction": _optional_number_list(light, "direction", [0.0, 0.0, -1.0], length=3)
+        if "direction" in light
+        else (_optional_number_list(light, "dir", [0.0, 0.0, -1.0], length=3) if "dir" in light else None),
+        "intensity": _optional_number_value(light, "intensity", _optional_number_value(light, "power", 24.0)),
+        "inner_cone_deg": _optional_number_value(light, "inner_cone_deg", 14.0),
+        "outer_cone_deg": _optional_number_value(light, "outer_cone_deg", 22.0),
+        "range": _optional_number_value(light, "range", 0.0),
         "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
         "color": color,
     }
@@ -654,6 +667,15 @@ def _optional_ocean_light_value(scope: dict[str, Any]) -> dict[str, Any]:
     return _normalize_ocean_light_spec(light)
 
 
+def _normalize_native_light_kind(kind: str) -> str:
+    normalized = str(kind).lower().strip()
+    if normalized == "spotlight":
+        normalized = "spot"
+    if normalized not in {"point", "spot"}:
+        raise ValueError(f"native_scene light kind {kind!r} unknown; use 'point' or 'spot'")
+    return normalized
+
+
 def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
     if light is None:
         return {
@@ -663,6 +685,12 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "theta": 0.45,
             "turns_per_cycle": 2.0,
             "angular_velocity": (2.0 * 2.0 * 3.141592653589793) / 12.0,
+            "kind": "point",
+            "intensity": 24.0,
+            "direction": None,
+            "inner_cone_deg": 14.0,
+            "outer_cone_deg": 22.0,
+            "range": 0.0,
             "model": "blinn_phong",
             "color": [1.0, 0.93, 0.78, 1.0],
             "casts_shadow": True,
@@ -673,6 +701,14 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
         result = {
             "pos": _optional_number_list(light, "pos", [4.0, 5.0, 6.0], length=3),
             "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+            "kind": _normalize_native_light_kind(_optional_string_value(light, "kind", "point")),
+            "direction": _optional_number_list(light, "direction", [0.0, 0.0, -1.0], length=3)
+            if "direction" in light
+            else (_optional_number_list(light, "dir", [0.0, 0.0, -1.0], length=3) if "dir" in light else None),
+            "intensity": _optional_number_value(light, "intensity", _optional_number_value(light, "power", 24.0)),
+            "inner_cone_deg": _optional_number_value(light, "inner_cone_deg", 14.0),
+            "outer_cone_deg": _optional_number_value(light, "outer_cone_deg", 22.0),
+            "range": _optional_number_value(light, "range", 0.0),
             "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
             "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
             "source_radius": _optional_number_value(light, "source_radius", 0.0),
@@ -691,6 +727,14 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
                 "angular_velocity",
                 (turns_per_cycle * 2.0 * 3.141592653589793) / 12.0,
             ),
+            "kind": _normalize_native_light_kind(_optional_string_value(light, "kind", "point")),
+            "direction": _optional_number_list(light, "direction", [0.0, 0.0, -1.0], length=3)
+            if "direction" in light
+            else (_optional_number_list(light, "dir", [0.0, 0.0, -1.0], length=3) if "dir" in light else None),
+            "intensity": _optional_number_value(light, "intensity", _optional_number_value(light, "power", 24.0)),
+            "inner_cone_deg": _optional_number_value(light, "inner_cone_deg", 14.0),
+            "outer_cone_deg": _optional_number_value(light, "outer_cone_deg", 22.0),
+            "range": _optional_number_value(light, "range", 0.0),
             "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
             "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
             "source_radius": _optional_number_value(light, "source_radius", 0.0),

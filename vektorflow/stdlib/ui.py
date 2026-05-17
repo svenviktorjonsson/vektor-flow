@@ -1200,7 +1200,7 @@ class SceneLight:
 
     def set_color(self, color: Any) -> "SceneLight":
         """Change light color. Returns self."""
-        self._data["color"] = str(color)
+        self._data["color"] = color
         self._display._sync_all()
         return self
 
@@ -1212,6 +1212,45 @@ class SceneLight:
         if m not in LIGHT_MODELS:
             raise ValueError(f"model {model!r} unknown; use one of: {sorted(LIGHT_MODELS)}")
         self._data["model"] = m
+        self._display._sync_all()
+        return self
+
+    def set_intensity(self, intensity: float) -> "SceneLight":
+        self._data["intensity"] = max(0.0, float(intensity))
+        self._display._sync_all()
+        return self
+
+    def set_power(self, power: float) -> "SceneLight":
+        return self.set_intensity(power)
+
+    def set_kind(self, kind: str) -> "SceneLight":
+        normalized = str(kind).lower().strip()
+        if normalized == "spotlight":
+            normalized = "spot"
+        if normalized not in {"point", "spot"}:
+            raise ValueError("light kind must be 'point' or 'spot'")
+        self._data["kind"] = normalized
+        self._display._sync_all()
+        return self
+
+    def set_direction(self, direction: Any) -> "SceneLight":
+        self._data["direction"] = _vec3(direction, "direction")
+        self._display._sync_all()
+        return self
+
+    def set_target(self, target: Any) -> "SceneLight":
+        self._data["target"] = _vec3(target, "target")
+        self._display._sync_all()
+        return self
+
+    def set_range(self, distance: float) -> "SceneLight":
+        self._data["range"] = max(0.0, float(distance))
+        self._display._sync_all()
+        return self
+
+    def set_cone(self, inner_cone_deg: float, outer_cone_deg: float) -> "SceneLight":
+        self._data["inner_cone_deg"] = float(inner_cone_deg)
+        self._data["outer_cone_deg"] = float(outer_cone_deg)
         self._display._sync_all()
         return self
 
@@ -1256,7 +1295,11 @@ class SceneLight:
         return list(self._data["pos"])
 
     def __repr__(self) -> str:
-        return f"SceneLight(pos={self._data['pos']}, model={self._data['model']!r}, color={self._data['color']!r})"
+        return (
+            f"SceneLight(pos={self._data['pos']}, model={self._data['model']!r}, "
+            f"color={self._data['color']!r}, intensity={self._data.get('intensity', 24.0)!r}, "
+            f"kind={self._data.get('kind', 'point')!r})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1435,10 +1478,29 @@ class FrameRef:
         pos: Any,
         model: str = "blinn_phong",
         color: Any = "white",
+        intensity: float = 24.0,
+        kind: str = "point",
+        direction: Any = None,
+        target: Any = None,
+        inner_cone_deg: float = 14.0,
+        outer_cone_deg: float = 22.0,
+        range: float = 0.0,
     ) -> SceneLight:
         """Add a light. Returns a :class:`SceneLight` you can mutate live."""
         fid = self._get_placed_id()
-        return self._display._add_light(fid, pos=pos, model=model, color=color)
+        return self._display._add_light(
+            fid,
+            pos=pos,
+            model=model,
+            color=color,
+            intensity=intensity,
+            kind=kind,
+            direction=direction,
+            target=target,
+            inner_cone_deg=inner_cone_deg,
+            outer_cone_deg=outer_cone_deg,
+            range=range,
+        )
 
     def set_geom_options(self, **kwargs: Any) -> "FrameRef":
         """Set GPU geometry renderer options for this frame."""
@@ -1965,10 +2027,29 @@ class Display:
         pos: Any,
         model: str = "blinn_phong",
         color: Any = "white",
+        intensity: float = 24.0,
+        kind: str = "point",
+        direction: Any = None,
+        target: Any = None,
+        inner_cone_deg: float = 14.0,
+        outer_cone_deg: float = 22.0,
+        range: float = 0.0,
     ) -> SceneLight:
         """Add a light to last placed frame. Returns :class:`SceneLight`."""
         fid = self._last_placed_id("add_light")
-        return self._add_light(fid, pos=pos, model=model, color=color)
+        return self._add_light(
+            fid,
+            pos=pos,
+            model=model,
+            color=color,
+            intensity=intensity,
+            kind=kind,
+            direction=direction,
+            target=target,
+            inner_cone_deg=inner_cone_deg,
+            outer_cone_deg=outer_cone_deg,
+            range=range,
+        )
 
     def set_geom_options(self, **kwargs: Any) -> "Display":
         """Set GPU geometry renderer options for the last placed frame."""
@@ -2096,17 +2177,38 @@ class Display:
         pos: Any,
         model: str,
         color: Any,
+        intensity: float,
+        kind: str,
+        direction: Any,
+        target: Any,
+        inner_cone_deg: float,
+        outer_cone_deg: float,
+        range: float,
     ) -> SceneLight:
         m = str(model).lower().replace("-", "_")
         if m in {"flat", "lambert", "phong"}:
             m = "blinn_phong"
         if m not in LIGHT_MODELS:
             raise ValueError(f"model {model!r} unknown; use one of: {sorted(LIGHT_MODELS)}")
+        k = str(kind).lower().strip()
+        if k == "spotlight":
+            k = "spot"
+        if k not in {"point", "spot"}:
+            raise ValueError("light kind must be 'point' or 'spot'")
         data: dict[str, Any] = {
             "pos":   _vec3(pos, "pos"),
             "model": m,
-            "color": str(color),
+            "color": color,
+            "intensity": max(0.0, float(intensity)),
+            "kind": k,
+            "inner_cone_deg": float(inner_cone_deg),
+            "outer_cone_deg": float(outer_cone_deg),
+            "range": max(0.0, float(range)),
         }
+        if direction is not None:
+            data["direction"] = _vec3(direction, "direction")
+        if target is not None:
+            data["target"] = _vec3(target, "target")
         self._geom_for(fid)["lights"].append(data)
         self._sync_all()
         return SceneLight(data, self, fid)
