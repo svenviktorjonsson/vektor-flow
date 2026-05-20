@@ -118,8 +118,8 @@ native_scene: (
 
 CUBE_SHADOW_PLANE_SOURCE = """
 native_scene: (
-    kind: "cube_shadow_plane",
-    frame_id: "cube_shadow_plane_frame",
+    kind: "scene_3d",
+    frame_id: "scene_3d_frame",
     title: "Cube + Plane + Hard Shadow",
     rect: [0.08, 0.08, 0.72, 0.78],
     cube: (
@@ -174,9 +174,92 @@ native_scene: (
 """
 
 
+SCENE_3D_VIEWS_SOURCE = """
+native_scene: (
+    kind: "scene_3d_views",
+    views: [
+        (
+            frame_id: "front_camera_frame",
+            title: "Front Camera",
+            rect: [0.06, 0.10, 0.42, 0.72],
+            camera: (
+                pos: [0.0, -4.45, 3.2],
+                target: [0.0, 1.4, 1.0],
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0]
+            )
+        ),
+        (
+            frame_id: "back_camera_frame",
+            title: "Back Camera",
+            rect: [0.52, 0.10, 0.42, 0.72],
+            camera: (
+                pos: [0.0, 10.5, 3.5],
+                target: [0.0, 3.5, 3.5],
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0]
+            )
+        )
+    ],
+    lights: [
+        (
+            kind: "point",
+            target: [0.0, 3.5, 1.6],
+            model: "blinn_phong",
+            color: [1.0, 0.93, 0.78, 1.0],
+            intensity: 18.0,
+            range: 24.0,
+            theta: 0.15,
+            angular_velocity: 1.8,
+            pos_t: [[0.0, 6.8, 9.2], [-1.3397, 6.6665, 9.2]]
+        )
+    ],
+    timing: (
+        fps: 60,
+        duration_seconds: 16.0,
+        boundary: "repeat"
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    object: (
+        kind: "simplices",
+        points: [[-3.5, 3.5, 0.0], [3.5, 3.5, 0.0]],
+        add_simplices: (
+            edges: [[0, 1]],
+        ),
+        show_edges: true,
+        edge_width: 5.0,
+        edge_caps: true,
+        show_vertices: true,
+        vertex_size: 5.0,
+        edge_color: [0.12, 0.82, 0.22, 1.0],
+        vertex_color: [0.12, 0.82, 0.22, 1.0],
+        face_color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    surfaces: [
+        (
+            center: [0.0, 3.5, 3.5],
+            size: [7.0, 7.0],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+"""
+
+
 FLASHLIGHT_CUBE_SOURCE = """
 native_scene: (
-    kind: "cube_shadow_plane",
+    kind: "scene_3d",
     frame_id: "flashlight_cube_frame",
     title: "Flashlight Cube",
     rect: [0.08, 0.08, 0.72, 0.78],
@@ -226,6 +309,647 @@ native_scene: (
             casts_shadow: false
         )
     ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+RANDOM_HULL_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "random_hull_frame",
+    title: "Random Hull Orbit",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        kind: "random_hull",
+        center: [0.0, 0.0, 1.25],
+        radius: 1.05,
+        count: 100,
+        seed: 13,
+        stretch: [1.0, 0.82, 1.32],
+        jitter: 0.30,
+        face_color: [0.94, 0.94, 0.94, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [3.9, -5.6, 3.2],
+        target: [0.0, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+CONVEX_HULL_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "convex_hull_frame",
+    title: "Convex Hull Orbit",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        kind: "convex_hull",
+        points: [
+            [-0.98, 0.22, 0.44],
+            [0.65, 0.17, 0.37],
+            [-0.35, -0.09, 2.21],
+            [-0.36, -0.83, 0.74],
+            [-0.07, 1.02, 0.58],
+            [1.22, 0.06, 1.37],
+            [-0.39, -0.10, -0.22],
+            [0.84, -0.41, 2.29]
+        ],
+        face_color: [0.94, 0.94, 0.94, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [3.9, -5.6, 3.2],
+        target: [0.0, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+HULL_SUGAR_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "hull_sugar_frame",
+    title: "Hull Sugar Orbit",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        points: [
+            [-0.98, 0.22, 0.44],
+            [0.65, 0.17, 0.37],
+            [-0.35, -0.09, 2.21],
+            [-0.36, -0.83, 0.74],
+            [-0.07, 1.02, 0.58],
+            [1.22, 0.06, 1.37],
+            [-0.39, -0.10, -0.22],
+            [0.84, -0.41, 2.29]
+        ] -> h,
+        face_color: [0.94, 0.94, 0.94, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [3.9, -5.6, 3.2],
+        target: [0.0, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+HULL_SET_SUGAR_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "hull_set_sugar_frame",
+    title: "Hull Set Sugar Orbit",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        points: [
+            [
+                [-0.98, 0.22, 0.44],
+                [0.65, 0.17, 0.37],
+                [-0.35, -0.09, 2.21],
+                [-0.36, -0.83, 0.74]
+            ],
+            [
+                [1.02, 0.12, 0.54],
+                [2.65, 0.07, 0.47],
+                [1.61, -0.14, 2.28],
+                [1.55, -0.92, 0.81]
+            ]
+        ] -> hi,
+        face_color_i: [
+            [0.94, 0.94, 0.94, 1.0],
+            [0.84, 0.92, 1.0, 1.0]
+        ]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [3.9, -5.6, 3.2],
+        target: [0.8, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+SIMPLICES_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "simplices_frame",
+    title: "Simplices Orbit",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        kind: "simplices",
+        points: [
+            [-0.8, -0.6, 0.2],
+            [0.7, -0.5, 0.2],
+            [0.1, 0.8, 0.2],
+            [0.0, 0.0, 1.8]
+        ],
+        add_simplices: (
+            edges: [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]],
+            faces: [[0, 1, 2]],
+            volumes: [[0, 1, 2, 3]]
+        ),
+        face_color: [0.94, 0.94, 0.94, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [3.9, -5.6, 3.2],
+        target: [0.0, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+DELAUNAY_2D_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "delaunay_2d_frame",
+    title: "Delaunay 2D",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        points: [
+            [-1.4, -0.9, 0.2],
+            [-0.2, -1.2, 0.2],
+            [0.9, -0.8, 0.2],
+            [1.5, 0.0, 0.2],
+            [0.7, 1.1, 0.2],
+            [-0.4, 1.3, 0.2],
+            [-1.3, 0.3, 0.2],
+            [0.1, 0.2, 0.2]
+        ] -> d,
+        face_color: [0.94, 0.94, 0.94, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [0.0, -0.01, 6.2],
+        target: [0.0, 0.0, 0.2],
+        fov: 18.0,
+        up: [0.0, 1.0, 0.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 0.0, 5.6],
+            power: 18000.0,
+            range: 16.0,
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+DELAUNAY_3D_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "delaunay_3d_frame",
+    title: "Delaunay 3D",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        points: [
+            [-1.1, -0.8, 0.1],
+            [-0.4, -1.0, 0.6],
+            [0.6, -0.9, -0.2],
+            [1.1, -0.1, 0.7],
+            [0.9, 0.8, -0.4],
+            [0.1, 1.0, 0.3],
+            [-0.8, 0.9, -0.1],
+            [-1.0, 0.1, 0.8],
+            [0.0, 0.0, 1.2],
+            [0.2, -0.1, -0.9]
+        ] -> d,
+        face_color: [0.94, 0.60, 0.22, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: -1.8,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [3.9, -5.6, 3.2],
+        target: [0.0, 0.0, 0.1],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+EMBEDDED_PROPERTY_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "embedded_property_frame",
+    title: "Embedded Property Scene",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    object: (
+        kind: "convex_hull",
+        properties: (
+            verts: [
+                [-0.98, 0.22, 0.44],
+                [0.65, 0.17, 0.37],
+                [-0.35, -0.09, 2.21],
+                [-0.36, -0.83, 0.74]
+            ],
+            tint: [0.94, 0.94, 0.94, 1.0]
+        ),
+        embedding: (
+            points: "verts",
+            face_color: "tint"
+        )
+    ),
+    plane: (
+        properties: (
+            where: [0.0, 0.0],
+            span: 7.0,
+            level: 0.0,
+            tint: [0.20, 0.22, 0.26, 1.0]
+        ),
+        embedding: (
+            center: "where",
+            size: "span",
+            z: "level",
+            color: "tint"
+        )
+    ),
+    camera: (
+        properties: (
+            eye: [3.9, -5.6, 3.2],
+            look: [0.0, 0.0, 1.0],
+            angle: 34.0,
+            zen: [0.0, 0.0, 1.0]
+        ),
+        embedding: (
+            pos: "eye",
+            target: "look",
+            fov: "angle",
+            up: "zen"
+        )
+    ),
+    lights: [
+        (
+            properties: (
+                location: [0.0, 4.8, 4.8],
+                watt: 24000.0,
+                max_range: 18.0,
+                shadow_on: true,
+                beam: [1.0, 0.95, 0.84, 1.0]
+            ),
+            embedding: (
+                pos: "location",
+                power: "watt",
+                range: "max_range",
+                casts_shadow: "shadow_on",
+                color: "beam"
+            )
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+LIGHT_EYE_TRACK_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "cube_light_eye_test_frame",
+    title: "Cube Light Eye Test",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.94, 0.24, 0.18, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.30, 0.34, 0.40, 1.0]
+    ),
+    camera: (
+        pos: [0.0, -5.8, 2.35],
+        target: [0.0, 0.0, 0.95],
+        fov: 32.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    timing: (
+        fps: 14,
+        duration_seconds: 1.35,
+        boundary: "repeat"
+    ),
+    lights: [
+        (
+            kind: "spot",
+            target: [0.0, 0.0, 0.95],
+            pos_t: [
+                [3.02, 4.93, 0.5],
+                [2.45, 5.26, 0.5],
+                [1.78, 5.52, 0.5],
+                [1.10, 5.70, 0.5]
+            ],
+            color_t: [
+                [1.0, 0.2, 0.2, 1.0],
+                [0.2, 1.0, 0.2, 1.0],
+                [0.2, 0.4, 1.0, 1.0],
+                [1.0, 0.9, 0.2, 1.0]
+            ],
+            intensity: 220.0,
+            inner_cone_deg: 4.5,
+            outer_cone_deg: 6.0,
+            range: 20.0,
+            casts_shadow: true
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+LIGHTS_I_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "lights_i_frame",
+    title: "Lights I",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.94, 0.24, 0.18, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.30, 0.34, 0.40, 1.0]
+    ),
+    lights_i: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        ),
+        (
+            kind: "point",
+            pos: [0.0, -4.8, 4.8],
+            power: 6000.0,
+            range: 18.0,
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+LIGHTS_IJ_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "lights_ij_frame",
+    title: "Lights IJ",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.94, 0.24, 0.18, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.30, 0.34, 0.40, 1.0]
+    ),
+    lights_ij: [
+        [
+            (kind: "point", pos: [-2.5, 4.2, 4.6], power: 8000.0, range: 18.0, casts_shadow: true)
+        ],
+        [
+            (kind: "point", pos: [2.5, 4.2, 4.6], power: 8000.0, range: 18.0, casts_shadow: false)
+        ]
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+LIGHTS_ARROW_I_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "lights_arrow_i_frame",
+    title: "Lights Arrow I",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.94, 0.24, 0.18, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.30, 0.34, 0.40, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, 4.8, 4.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: true
+        ),
+        (
+            kind: "point",
+            pos: [0.0, -4.8, 4.8],
+            power: 6000.0,
+            range: 18.0,
+            casts_shadow: false
+        )
+    ] -> i,
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+"""
+
+
+LIGHTS_ARROW_IJ_SOURCE = """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "lights_arrow_ij_frame",
+    title: "Lights Arrow IJ",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.15],
+        size: 1.6,
+        face_color: [0.94, 0.24, 0.18, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.30, 0.34, 0.40, 1.0]
+    ),
+    lights: [
+        [
+            (kind: "point", pos: [-2.5, 4.2, 4.6], power: 8000.0, range: 18.0, casts_shadow: true)
+        ],
+        [
+            (kind: "point", pos: [2.5, 4.2, 4.6], power: 8000.0, range: 18.0, casts_shadow: false)
+        ]
+    ] -> ij,
     shadow: (
         enabled: true,
         color: [0.0, 0.0, 0.0, 1.0],
@@ -401,16 +1125,16 @@ def test_cube_lighting_scene_exposes_camera_and_orbit_light(tmp_path: Path) -> N
     assert "Lighting Hover Context" in program.runtime_packets_text
 
 
-def test_cube_shadow_plane_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
-    path = tmp_path / "ui_cube_shadow_plane.vkf"
-    path.write_text(CUBE_SHADOW_PLANE_SOURCE, encoding="utf-8")
+def test_scene_3d_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d.vkf"
+    path.write_text(CUBE_SHADOW_PLANE_SOURCE.replace('kind: "scene_3d"', 'kind: "scene_3d"'), encoding="utf-8")
 
     program = try_build_native_overlay_scene_program(path)
 
     assert program is not None
-    assert program.session_name == "ui-cube-shadow-plane"
-    assert "vf-native-scene-cube-shadow-plane.js" in program.html_text
-    assert "window.__vfNativeCubeShadowConfig" in program.html_text
+    assert program.session_name == "ui-scene-3d"
+    assert "vf-native-scene.js" in program.html_text
+    assert "window.__vfNativeSceneConfig" in program.html_text
     assert '"enabled": true' in program.html_text
     assert '"lights": [{' in program.html_text
     assert '"casts_shadow": false' in program.html_text
@@ -418,8 +1142,181 @@ def test_cube_shadow_plane_scene_runs_in_native_ui_runtime(tmp_path: Path) -> No
     assert '"spread": 0.8' in program.html_text
     assert '"meshes": [{' in program.html_text
     assert '"shadow_receivers": [{' in program.html_text
+    assert '"scene_ir": {' in program.html_text
+    assert '"frame": {"frame_id": "scene_3d_frame"' in program.html_text
     assert '"receiver_mesh": "plane_0"' in program.html_text
+    assert '"policy_kind": "projected_convex_hull"' in program.html_text
+    assert '"policy_softness": "area_light_penumbra"' in program.html_text
     assert "Cube + Plane + Hard Shadow" in program.runtime_packets_text
+
+
+def test_scene_3d_views_runs_as_multi_view_native_runtime(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_views.vkf"
+    path.write_text(SCENE_3D_VIEWS_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.session_name == "ui-scene-3d-views"
+    assert "window.__vfNativeSceneConfigs" in program.html_text
+    assert 'vf-native-scene.js?v=' in program.html_text
+    assert '"frame_id": "front_camera_frame"' in program.html_text
+    assert '"frame_id": "back_camera_frame"' in program.html_text
+    assert '"angular_velocity": 1.8' in program.html_text
+    assert '"enabled": false' in program.html_text
+    assert "Front Camera" in program.runtime_packets_text
+    assert "Back Camera" in program.runtime_packets_text
+
+
+def test_scene_3d_views_allows_per_view_surface_overrides(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_views_surface_override.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d_views",
+    views: [
+        (
+            frame_id: "front_camera_frame",
+            title: "Front Camera",
+            rect: [0.06, 0.10, 0.42, 0.72],
+            camera: (
+                pos: [0.0, -3.5, 3.5],
+                target: [0.0, 3.5, 3.5],
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0]
+            ),
+            surfaces: [
+                (
+                    center: [0.0, 3.5, 3.5],
+                    size: [7.0, 7.0],
+                    rotation: [-90.0, 0.0, 0.0],
+                    color: [0.24, 0.26, 0.30, 0.35],
+                    surface_system: (
+                        kind: "screen",
+                        frame_ref: "back_camera_frame",
+                        reverse_facing: true
+                    )
+                )
+            ]
+        ),
+        (
+            frame_id: "back_camera_frame",
+            title: "Back Camera",
+            rect: [0.52, 0.10, 0.42, 0.72],
+            camera: (
+                pos: [0.0, 10.5, 3.5],
+                target: [0.0, 3.5, 3.5],
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0]
+            ),
+            surfaces: [
+                (
+                    center: [0.0, 3.5, 3.5],
+                    size: [7.0, 7.0],
+                    rotation: [-90.0, 0.0, 0.0],
+                    color: [0.24, 0.26, 0.30, 0.35]
+                )
+            ]
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    object: (
+        kind: "simplices",
+        points: [[-3.5, 3.5, 0.0], [3.5, 3.5, 0.0]],
+        add_simplices: (
+            edges: [[0, 1]],
+        ),
+        show_edges: true,
+        edge_width: 5.0,
+        edge_caps: true,
+        show_vertices: true,
+        vertex_size: 5.0,
+        edge_color: [0.12, 0.82, 0.22, 1.0],
+        vertex_color: [0.12, 0.82, 0.22, 1.0],
+        face_color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    html = program.html_text
+    compact = "".join(html.split())
+    assert '"frame_id": "front_camera_frame"' in html
+    assert '"frame_id": "back_camera_frame"' in html
+    assert '"surface_system"' in html
+    assert '"kind":"screen"' in compact
+    assert '"frame_ref":"back_camera_frame"' in compact
+    assert '"reverse_facing":true' in compact
+    assert '"color":[0.24,0.26,0.3,0.35]' in compact
+
+
+def test_scene_3d_camera_preserves_aperture_mirror_mesh_id(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_aperture.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "aperture_frame",
+    title: "Aperture",
+    rect: [0.1, 0.1, 0.5, 0.5],
+    camera: (
+        pos: [0.0, -4.0, 3.5],
+        target: [0.0, 3.5, 3.5],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0],
+        aperture_mirror_mesh_id: "quad_0"
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    surfaces: [
+        (
+            id: "quad_0",
+            center: [0.0, 3.5, 3.5],
+            size: [7.0, 7.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    object: (
+        kind: "simplices",
+        points: [[-3.5, 3.5, 0.0], [3.5, 3.5, 0.0]],
+        add_simplices: (
+            edges: [[0, 1]],
+        )
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"aperture_mirror_mesh_id":"quad_0"' in compact
 
 
 def test_flashlight_scene_preserves_spotlight_fields(tmp_path: Path) -> None:
@@ -435,8 +1332,510 @@ def test_flashlight_scene_preserves_spotlight_fields(tmp_path: Path) -> None:
     assert '"inner_cone_deg": 10.0' in program.html_text
     assert '"outer_cone_deg": 18.0' in program.html_text
     assert '"range": 10.0' in program.html_text
-    assert '"power":' not in program.html_text
+    assert '"power": 10.0' in program.html_text
     assert "Flashlight Cube" in program.runtime_packets_text
+
+
+def test_scene_3d_accepts_surfaces_and_rejects_quads_alias(tmp_path: Path) -> None:
+    surfaces_path = tmp_path / "ui_surfaces_ok.vkf"
+    surfaces_path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "surface_frame",
+    title: "Surface Alias Test",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    aspect: "equal",
+    surfaces: [
+        (
+            center: [0.0, 0.0, 0.0],
+            size: [4.0, 4.0],
+            color: [1.0, 1.0, 1.0, 1.0]
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 4.0,
+        z: 0.0,
+        visible: false,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    camera: (
+        pos: [0.0, -6.0, 0.0],
+        target: [0.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        aperture_mirror_mesh_id: "plane_0"
+    ),
+    lights: [],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(surfaces_path)
+
+    assert program is not None
+    assert '"kind": "quad"' in program.html_text
+    assert '"id": "plane_0"' in program.html_text
+    assert '"aspect": "equal"' in program.runtime_packets_text
+
+    quads_path = tmp_path / "ui_quads_bad.vkf"
+    quads_path.write_text(surfaces_path.read_text(encoding="utf-8").replace("surfaces:", "quads:"), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="native_scene.scene_3d uses surfaces, not quads"):
+        try_build_native_overlay_scene_program(quads_path)
+
+
+def test_scene_3d_accepts_random_hull_object(tmp_path: Path) -> None:
+    path = tmp_path / "ui_random_hull_orbit.vkf"
+    path.write_text(RANDOM_HULL_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "random_hull"' in program.html_text
+    assert '"count": 100' in program.html_text
+    assert '"seed": 13' in program.html_text
+    assert '"occluders": ["object_0"]' in program.html_text
+
+
+def test_scene_3d_accepts_explicit_convex_hull_object(tmp_path: Path) -> None:
+    path = tmp_path / "ui_convex_hull_orbit.vkf"
+    path.write_text(CONVEX_HULL_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "convex_hull"' in program.html_text
+    assert '"points": [[-0.98, 0.22, 0.44], [0.65, 0.17, 0.37]' in program.html_text
+    assert '"occluders": ["object_0"]' in program.html_text
+
+
+def test_scene_3d_accepts_points_arrow_h_hull_sugar(tmp_path: Path) -> None:
+    path = tmp_path / "ui_hull_sugar_orbit.vkf"
+    path.write_text(HULL_SUGAR_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "convex_hull"' in program.html_text
+    assert '"points": [[-0.98, 0.22, 0.44], [0.65, 0.17, 0.37]' in program.html_text
+    assert '"occluders": ["object_0"]' in program.html_text
+
+
+def test_scene_3d_accepts_points_arrow_hi_hull_set_sugar(tmp_path: Path) -> None:
+    path = tmp_path / "ui_hull_set_sugar_orbit.vkf"
+    path.write_text(HULL_SET_SUGAR_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.html_text.count('"kind": "convex_hull"') >= 2
+    assert '"id": "object_0"' in program.html_text
+    assert '"id": "object_1"' in program.html_text
+    assert '"occluders": ["object_0", "object_1"]' in program.html_text
+    assert '[0.84, 0.92, 1.0, 1.0]' in program.html_text
+
+
+def test_scene_3d_accepts_direct_add_simplices_object(tmp_path: Path) -> None:
+    path = tmp_path / "ui_simplices_orbit.vkf"
+    path.write_text(SIMPLICES_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "simplices"' in program.html_text
+    assert '"add_simplices": {"edges": [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]], "faces": [[0, 1, 2]], "volumes": [[0, 1, 2, 3]]}' in program.html_text
+    assert '"occluders": ["object_0"]' in program.html_text
+
+
+def test_scene_3d_accepts_points_arrow_d_delaunay_sugar(tmp_path: Path) -> None:
+    path = tmp_path / "ui_delaunay_2d.vkf"
+    path.write_text(DELAUNAY_2D_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "simplices"' in program.html_text
+    assert '"faces": [[' in program.html_text
+    assert '"volumes": []' in program.html_text
+    assert '"edges": [[' in program.html_text
+    assert '"occluders": ["object_0"]' in program.html_text
+
+
+def test_scene_3d_accepts_points_arrow_d_delaunay_3d_volumes(tmp_path: Path) -> None:
+    path = tmp_path / "ui_delaunay_3d.vkf"
+    path.write_text(DELAUNAY_3D_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "simplices"' in program.html_text
+    assert '"volumes": [[' in program.html_text
+    assert '"faces": []' in program.html_text
+    assert '"edges": [[' in program.html_text
+    assert '"occluders": ["object_0"]' in program.html_text
+
+
+def test_scene_3d_scene_ir_separates_properties_from_embedding(tmp_path: Path) -> None:
+    path = tmp_path / "ui_embedded_property_scene.vkf"
+    path.write_text(EMBEDDED_PROPERTY_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"properties": {"eye": [3.9, -5.6, 3.2], "look": [0.0, 0.0, 1.0], "angle": 34.0, "zen": [0.0, 0.0, 1.0]}' in program.html_text
+    assert '"embedding": {"pos": "eye", "target": "look", "fov": "angle", "up": "zen"' in program.html_text
+    assert '"properties": {"location": [0.0, 4.8, 4.8], "watt": 24000.0, "max_range": 18.0, "shadow_on": true, "beam": [1.0, 0.95, 0.84, 1.0], "motion": "orbit"' in program.html_text
+    assert '"pos": "location"' in program.html_text
+    assert '"power": "watt"' in program.html_text
+    assert '"range": "max_range"' in program.html_text
+    assert '"casts_shadow": "shadow_on"' in program.html_text
+    assert '"color": "beam"' in program.html_text
+    assert '"embedding": {"center": "where", "size": "span", "z": "level", "color": "tint", "visible": "visible", "surface_system": "surface_system"}' in program.html_text
+    assert '"points": "verts"' in program.html_text
+    assert '"face_color": "tint"' in program.html_text
+
+
+def test_cube_light_eye_scene_preserves_track_fields(tmp_path: Path) -> None:
+    path = tmp_path / "ui_cube_light_eye_test.vkf"
+    path.write_text(LIGHT_EYE_TRACK_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"boundary": "repeat"' in program.html_text
+    assert '"tracks": {' in program.html_text
+
+
+def test_scene_3d_cube_scene_ir_preserves_texture_and_transform_tracks(tmp_path: Path) -> None:
+    path = tmp_path / "cube_dice_tracks.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "cube_dice_tracks_frame",
+    title: "Cube Dice Tracks",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.1],
+        size: 1.6,
+        transform: [
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 1.1],
+                [0.0, 0.0, 0.0, 1.0]
+            ],
+            [
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0, 1.1],
+                [0.0, 0.0, 0.0, 1.0]
+            ],
+            [
+                [-1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, -1.0, 1.1],
+                [0.0, 0.0, 0.0, 1.0]
+            ]
+        ] -> abt,
+        texture: (
+            kind: "dice",
+            color_a: [1.0, 1.0, 1.0, 1.0],
+            color_b: [0.0, 0.0, 0.0, 1.0]
+        ),
+        face_color: [0.98, 0.98, 0.98, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        visible: false,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    camera: (
+        pos: [3.8, -5.2, 3.1],
+        target: [0.0, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            target: [0.0, 0.0, 1.0],
+            radius: 4.8,
+            height: 4.0,
+            theta: 0.2,
+            angular_velocity: 0.55,
+            model: "blinn_phong",
+            color: [1.0, 0.95, 0.84, 1.0],
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""".strip(),
+        encoding="utf-8",
+    )
+    program = try_build_native_overlay_scene_program(path)
+    assert program is not None
+    assert '"texture":{"kind":"dice"' in program.html_text.replace(" ", "")
+    compact = program.html_text.replace(" ", "")
+    assert '"transform":{"__vf_axis_tagged__":true,"idx":"abt"' in compact
+    assert '"tracks":{"transform":' in compact
+
+
+def test_scene_3d_cube_scene_ir_preserves_texture_tracks(tmp_path: Path) -> None:
+    path = tmp_path / "cube_texture_tracks.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "cube_texture_tracks_frame",
+    title: "Cube Texture Tracks",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.1],
+        size: 1.6,
+        texture: [
+            (
+                kind: "dice",
+                color_a: [1.0, 1.0, 1.0, 1.0],
+                color_b: [0.0, 0.0, 0.0, 1.0],
+                graph_test: true,
+                graph_width_px: 5.0
+            ),
+            (
+                kind: "dice",
+                color_a: [1.0, 1.0, 1.0, 1.0],
+                color_b: [1.0, 0.10, 0.10, 1.0],
+                graph_test: true,
+                graph_width_px: 5.0
+            )
+        ] -> t,
+        face_color: [0.98, 0.98, 0.98, 1.0]
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        visible: false,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    camera: (
+        pos: [3.8, -5.2, 3.1],
+        target: [0.0, 0.0, 1.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            target: [0.0, 0.0, 1.0],
+            radius: 4.8,
+            height: 4.0,
+            theta: 0.2,
+            angular_velocity: 0.55,
+            model: "blinn_phong",
+            color: [1.0, 0.95, 0.84, 1.0],
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""".strip(),
+        encoding="utf-8",
+    )
+    program = try_build_native_overlay_scene_program(path)
+    assert program is not None
+    compact = program.html_text.replace(" ", "")
+    assert '"tracks":{"texture":' in compact
+    assert '"graph_width_px":5.0' in compact
+
+
+def test_scene_3d_cube_scene_ir_preserves_surface_screen_system(tmp_path: Path) -> None:
+    path = tmp_path / "cube_surface_screen.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "cube_surface_screen_frame",
+    title: "Cube Surface Screen",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, 0.0, 1.1],
+        size: 1.6,
+        surface_system: (
+            kind: "screen",
+            camera_ref: "current",
+            scale: [1.0, 1.0],
+            world: (
+                kind: "cube_demo",
+                spin_axis: [0.0, 1.0, 0.0],
+                angular_velocity: 1.0
+            )
+        )
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        visible: false,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    camera: (
+        pos: [4.6, -5.6, 3.4],
+        target: [0.0, 0.0, 1.1],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""",
+        encoding="utf-8",
+    )
+    program = try_build_native_overlay_scene_program(path)
+    assert program is not None
+    compact = program.html_text.replace(" ", "")
+    assert '"surface_system":{"kind":"screen","camera_ref":"current","scale":[1.0,1.0],"world":{"kind":"cube_demo"' in compact
+
+
+def test_scene_3d_scene_ir_preserves_cubes_and_mirror_surface_system(tmp_path: Path) -> None:
+    path = tmp_path / "cube_surface_mirror.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "cube_surface_mirror_frame",
+    title: "Cube Surface Mirror",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cubes: [
+        (
+            center: [0.0, 1.55, 1.35],
+            size: 2.4,
+            face_color: [0.92, 0.92, 0.94, 1.0],
+            surface_system: (
+                kind: "mirror",
+                scale: [1.0, 1.0],
+                world: (
+                    kind: "mirror_demo",
+                    background: [0.0, 0.0, 0.0, 0.0],
+                    frame_color: [0.0, 0.0, 0.0, 0.0]
+                )
+            )
+        ),
+        (
+            center: [-1.15, -1.25, 0.55],
+            size: 0.64,
+            face_color: [1.0, 1.0, 1.0, 1.0],
+            texture: (
+                kind: "checker",
+                scale: [5.0, 5.0],
+                color_a: [0.10, 0.14, 0.22, 1.0],
+                color_b: [0.92, 0.94, 0.98, 1.0]
+            )
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    camera: (
+        pos: [4.2, -5.8, 2.7],
+        target: [0.0, -1.1, 1.0],
+        fov: 33.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    lights: [
+        (
+            kind: "point",
+            pos: [0.0, -4.5, 5.8],
+            power: 24000.0,
+            range: 18.0,
+            casts_shadow: false
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""",
+        encoding="utf-8",
+    )
+    program = try_build_native_overlay_scene_program(path)
+    assert program is not None
+    compact = program.html_text.replace(" ", "")
+    assert '"surface_system":{"kind":"mirror","scale":[1.0,1.0],"world":{"kind":"mirror_demo"' in compact
+    assert '"id":"cube_1","kind":"cube"' in compact
+
+
+def test_scene_3d_accepts_lights_i(tmp_path: Path) -> None:
+    path = tmp_path / "ui_lights_i.vkf"
+    path.write_text(LIGHTS_I_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.html_text.count('"id": "light_') >= 2
+    assert '"pos": [0.0, 4.8, 4.8]' in program.html_text
+    assert '"pos": [0.0, -4.8, 4.8]' in program.html_text
+
+
+def test_scene_3d_accepts_lights_ij(tmp_path: Path) -> None:
+    path = tmp_path / "ui_lights_ij.vkf"
+    path.write_text(LIGHTS_IJ_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.html_text.count('"id": "light_') >= 2
+    assert '"pos": [-2.5, 4.2, 4.6]' in program.html_text
+    assert '"pos": [2.5, 4.2, 4.6]' in program.html_text
+
+
+def test_scene_3d_accepts_lights_arrow_i_equivalent(tmp_path: Path) -> None:
+    path = tmp_path / "ui_lights_arrow_i.vkf"
+    path.write_text(LIGHTS_ARROW_I_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.html_text.count('"id": "light_') >= 2
+    assert '"pos": [0.0, 4.8, 4.8]' in program.html_text
+    assert '"pos": [0.0, -4.8, 4.8]' in program.html_text
+
+
+def test_scene_3d_accepts_lights_arrow_ij_equivalent(tmp_path: Path) -> None:
+    path = tmp_path / "ui_lights_arrow_ij.vkf"
+    path.write_text(LIGHTS_ARROW_IJ_SOURCE, encoding="utf-8")
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert program.html_text.count('"id": "light_') >= 2
+    assert '"pos": [-2.5, 4.2, 4.6]' in program.html_text
+    assert '"pos": [2.5, 4.2, 4.6]' in program.html_text
 
 
 def test_ocean_wave_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
@@ -474,3 +1873,4 @@ def test_face_edge_vertex_implementation_lives_in_ui_engine() -> None:
     assert "writeCapsuleMesh" not in source
     assert "createFaceEdgeVertexSharedStore" not in source
     assert "vf-native-scene-face-edge-vertex.js" in source
+

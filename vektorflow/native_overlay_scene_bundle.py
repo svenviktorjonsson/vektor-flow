@@ -8,7 +8,12 @@ import time
 from typing import Any, Callable
 
 from . import ast
-from .parser import parse_module
+from .native_overlay_scene_contract import NativeOverlaySceneContract
+from . import native_scene_entities as _entities
+from . import native_scene_ir_builder as _ir_builder
+from . import native_scene_ir_entities as _ir_entities
+from . import native_scene_topology as _topology
+from .runtime.axis_tagged import axis_tagged_data, axis_tagged_idx, axis_tagged_wrap, is_axis_tagged_value
 
 
 _DEFAULT_INPUT_TITLE = "Input Surface"
@@ -18,6 +23,7 @@ _DEFAULT_PROMPT = "focus left pane, then move / click / type"
 _DEFAULT_INPUT_RECT = (0.06, 0.08, 0.38, 0.78)
 _DEFAULT_LOG_RECT = (0.48, 0.05, 0.46, 0.86)
 _UNSUPPORTED = object()
+_NATIVE_AXIS_SUFFIX_CHARS = frozenset("tijkuvwh")
 
 
 def _normalize_native_light_model(model: str) -> str:
@@ -51,34 +57,53 @@ class _NativeSceneCompiler:
     render_geom_state: Callable[[dict[str, Any]], str] | None = None
 
 
-def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySceneProgram | None:
-    source_text = source_path.read_text(encoding="utf-8")
-    module = parse_module(source_text, filename=source_path.as_posix())
-    declared = _find_top_level_struct_binding(module, "native_scene")
-    if declared is not None:
-        return _compile_native_scene_program(source_path, declared)
-    spec = _extract_declarative_ui_scene_probe_spec(module)
-    if spec is None:
-        spec = _extract_scene_probe_spec(module)
-    if spec is None:
-        return None
-    session_name = _slugify(source_path.stem or "native-scene-probe")
-    return NativeOverlaySceneProgram(
-        session_name=session_name,
-        page_rel=f"sessions/{session_name}/vkf-scene.html",
-        html_text=_render_scene_probe_html(spec),
-        runtime_packets_text=_render_scene_probe_packets(spec),
+def build_native_overlay_scene_program_from_module(
+    module: ast.Module,
+    *,
+    session_stem: str,
+) -> NativeOverlaySceneProgram | None:
+    from .native_overlay_scene_frontend import try_extract_native_overlay_scene_contract_from_module
+
+    contract = try_extract_native_overlay_scene_contract_from_module(
+        module,
+        session_stem=session_stem,
     )
+    if contract is None:
+        return None
+    return build_native_overlay_scene_program_from_contract(contract)
 
 
-def _compile_native_scene_program(source_path: Path, declared: dict[str, Any]) -> NativeOverlaySceneProgram:
+def try_build_native_overlay_scene_program(source_path: Path) -> NativeOverlaySceneProgram | None:
+    from .native_overlay_scene_frontend import try_build_native_overlay_scene_program as _frontend_try_build_native_overlay_scene_program
+
+    return _frontend_try_build_native_overlay_scene_program(source_path)
+
+
+def build_native_overlay_scene_program_from_contract(
+    contract: NativeOverlaySceneContract,
+) -> NativeOverlaySceneProgram:
+    session_name = _slugify(contract.session_stem or "native-scene-probe")
+    if contract.kind == "native_scene":
+        return _compile_native_scene_program(session_name, contract.payload)
+    if contract.kind == "scene_probe":
+        spec = contract.payload
+        return NativeOverlaySceneProgram(
+            session_name=session_name,
+            page_rel=f"sessions/{session_name}/vkf-scene.html",
+            html_text=_render_scene_probe_html(spec),
+            runtime_packets_text=_render_scene_probe_packets(spec),
+        )
+    raise ValueError(f"unsupported native overlay scene contract kind {contract.kind!r}")
+
+
+def _compile_native_scene_program(session_stem: str, declared: dict[str, Any]) -> NativeOverlaySceneProgram:
     kind = _require_string_value(declared, "kind")
     compiler = _NATIVE_SCENE_COMPILERS.get(kind)
     if compiler is None:
         supported = ", ".join(sorted(_NATIVE_SCENE_COMPILERS))
         raise ValueError(f"unsupported native_scene.kind {kind!r}; expected one of: {supported}")
     spec = compiler.normalize_spec(declared)
-    session_name = _slugify(source_path.stem or compiler.default_session_name)
+    session_name = _slugify(session_stem or compiler.default_session_name)
     return NativeOverlaySceneProgram(
         session_name=session_name,
         page_rel=f"sessions/{session_name}/vkf-scene.html",
@@ -157,76 +182,524 @@ def _normalize_cube_hover_spec(declared: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_cube_shadow_plane_spec(declared: dict[str, Any]) -> dict[str, Any]:
-    cube = _require_struct_value(declared, "cube")
+def _scene_ir_mesh_entity(
+    *,
+    mesh_id: str,
+    kind: str,
+    properties: dict[str, Any],
+    embedding: dict[str, str],
+    tracks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _entities.scene_ir_mesh_entity(
+        mesh_id=mesh_id,
+        kind=kind,
+        properties=properties,
+        embedding=embedding,
+        tracks=tracks,
+    )
+
+
+def _scene_ir_shadow_receiver_entity(
+    *,
+    receiver_mesh: str,
+    occluders: list[str],
+    lights: list[str],
+    policy_kind: str,
+    policy_softness: str,
+) -> dict[str, Any]:
+    return _entities.scene_ir_shadow_receiver_entity(
+        receiver_mesh=receiver_mesh,
+        occluders=occluders,
+        lights=lights,
+        policy_kind=policy_kind,
+        policy_softness=policy_softness,
+    )
+
+
+def _normalize_add_simplices_spec(value: Any, *, path: str) -> dict[str, list[list[int]]]:
+    return _topology.normalize_add_simplices_spec(value, path=path)
+
+
+def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    cube = _optional_struct_value(declared, "cube")
+    obj = _optional_struct_value(declared, "object")
     plane = _require_struct_value(declared, "plane")
     shadow = _require_struct_value(declared, "shadow")
-    cube_spec = {
-        "center": _optional_number_list(cube, "center", [0.0, 0.0, 1.1], length=3),
-        "size": _optional_number_value(cube, "size", 1.6),
-        "face_color": _optional_number_list(cube, "face_color", [0.96, 0.22, 0.16, 1.0], length=4),
-    }
-    plane_spec = {
-        "center": _optional_number_list(plane, "center", [0.0, 0.0], length=2),
-        "size": _optional_number_value(plane, "size", 7.0),
-        "z": _optional_number_value(plane, "z", 0.0),
-        "color": _optional_number_list(plane, "color", [0.20, 0.22, 0.26, 1.0], length=4),
-    }
-    if "lights" in declared:
-        lights = [_normalize_ocean_light_spec(light) for light in _require_struct_list(declared, "lights")]
-        if not lights:
-            raise ValueError("native_scene.lights must contain at least one light")
-        if len(lights) > 2:
-            raise ValueError("native_scene.lights supports at most 2 lights")
-    else:
-        lights = [_normalize_ocean_light_spec(_optional_struct_value(declared, "light"))]
-    for index, light in enumerate(lights):
-        light["id"] = str(light.get("id") or f"light_{index}")
-    shadow_light_ids = [light["id"] for light in lights if light.get("casts_shadow", True)]
-    meshes: list[dict[str, Any]] = [
-        {
-            "id": "plane_0",
-            "kind": "quad",
-            "center": plane_spec["center"],
-            "size": plane_spec["size"],
-            "z": plane_spec["z"],
-            "color": plane_spec["color"],
-        },
-        {
-            "id": "cube_0",
-            "kind": "cube",
-            "center": cube_spec["center"],
-            "size": cube_spec["size"],
-            "face_color": cube_spec["face_color"],
-        },
-    ]
-    shadow_receivers: list[dict[str, Any]] = [
-        {
-            "receiver_mesh": "plane_0",
-            "occluders": ["cube_0"],
-            "lights": list(shadow_light_ids),
-            "policy": {
-                "kind": "projected_convex_hull",
-                "softness": "area_light_penumbra",
+    cubes_value = _optional_axis_value(declared, "cubes")
+    surfaces_value = _optional_axis_value(declared, "surfaces")
+    quads_value = _optional_axis_value(declared, "quads")
+    if quads_value is not None:
+        raise ValueError("native_scene.scene_3d uses surfaces, not quads")
+    has_cube = cube is not None
+    has_cubes = cubes_value is not None
+    has_surfaces = surfaces_value is not None
+    if not has_cube and not has_cubes and obj is None and not has_surfaces:
+        raise ValueError("native_scene.scene_3d requires cube, cubes, object, or surfaces")
+    if sum(1 for flag in (has_cube, has_cubes, obj is not None) if flag) > 1:
+        raise ValueError("native_scene.scene_3d accepts only one of cube, cubes, or object")
+    cube_spec = None
+    object_mesh = None
+    object_mesh_entity = None
+    if obj is not None:
+        object_kind_declared = _optional_string_value(obj, "kind", "")
+        if object_kind_declared and object_kind_declared not in {"random_hull", "convex_hull", "simplices"}:
+            raise ValueError("native_scene.object.kind must be random_hull, convex_hull, or simplices")
+        obj_props, obj_embedding = _normalize_native_named_parameters(
+            obj,
+            default_embedding={
+                "center": "center",
+                "radius": "radius",
+                "count": "count",
+                "seed": "seed",
+                "stretch": "stretch",
+                "jitter": "jitter",
+                "points": "points",
+                "add_simplices": "add_simplices",
+                "face_color": "face_color",
+                "edge_color": "edge_color",
+                "edge_width": "edge_width",
+                "edge_caps": "edge_caps",
+                "edge_lift": "edge_lift",
+                "show_edges": "show_edges",
+                "vertex_color": "vertex_color",
+                "vertex_size": "vertex_size",
+                "vertex_lift": "vertex_lift",
+                "show_vertices": "show_vertices",
+                "color": "color",
+                "center": "center",
+                "size": "size",
+                "rotation": "rotation",
+                "transform": "transform",
+                "surface_system": "surface_system",
+                "texture": "texture",
             },
-        }
-    ]
-    return {
-        "kind": "cube_shadow_plane",
+            reserved={"kind"},
+            path="native_scene.object",
+        )
+        embedded_points = _embedded_named_property(obj_props, obj_embedding, "points", None)
+        embedded_points_axis = axis_tagged_idx(embedded_points) if is_axis_tagged_value(embedded_points) else None
+        embedded_simplices = _embedded_named_property(obj_props, obj_embedding, "add_simplices", None)
+        if embedded_points_axis not in {None, "h", "hi", "d"}:
+            raise ValueError("native_scene.object points supports -> h, -> hi, or -> d only right now")
+        object_kind = object_kind_declared or ("simplices" if embedded_simplices is not None or embedded_points_axis == "d" else ("convex_hull" if embedded_points_axis in {"h", "hi"} else "random_hull"))
+        if object_kind not in {"random_hull", "convex_hull", "simplices", "quad"}:
+            raise ValueError("native_scene.object.kind must be random_hull, convex_hull, simplices, or quad")
+        if embedded_points_axis in {"h", "hi"} and object_kind != "convex_hull":
+            raise ValueError("native_scene.object points -> h/hi requires convex_hull lowering")
+        if embedded_points_axis == "d" and object_kind != "simplices":
+            raise ValueError("native_scene.object points -> d requires simplices lowering")
+        if object_kind == "simplices" and embedded_simplices is None and embedded_points_axis != "d":
+            raise ValueError("native_scene.object.kind simplices requires add_simplices")
+        if object_kind == "simplices" and embedded_points is None:
+            raise ValueError("native_scene.object.kind simplices requires points")
+        object_meshes: list[dict[str, Any]] = []
+        object_mesh_entities: list[dict[str, Any]] = []
+        if object_kind == "quad":
+            quad_props = dict(obj_props)
+            object_meshes.append({
+                "id": "object_0",
+                "kind": "quad",
+                "center": _embedded_named_property(obj_props, obj_embedding, "center", [0.0, 0.0, 0.0]),
+                "size": _embedded_named_property(obj_props, obj_embedding, "size", [1.0, 1.0]),
+                "rotation": _embedded_named_property(obj_props, obj_embedding, "rotation", [0.0, 0.0, 0.0]),
+                "transform": _embedded_named_property(obj_props, obj_embedding, "transform", None),
+                "color": _embedded_named_property(obj_props, obj_embedding, "color", [0.84, 0.86, 0.90, 1.0]),
+                "surface_system": _embedded_named_property(obj_props, obj_embedding, "surface_system", None),
+                "texture": _embedded_named_property(obj_props, obj_embedding, "texture", None),
+                "no_backface_specular": _embedded_named_property(obj_props, obj_embedding, "no_backface_specular", False),
+            })
+            object_mesh_entities.append(
+                _scene_ir_mesh_entity(
+                    mesh_id="object_0",
+                    kind="quad",
+                    properties=quad_props,
+                    embedding=obj_embedding,
+                    tracks=_normalize_native_named_tracks(
+                        declared["object"],
+                        obj_props,
+                        obj_embedding,
+                        legacy_canonical_names=("center", "size", "rotation", "transform", "color", "surface_system", "texture", "no_backface_specular"),
+                        path="native_scene.object",
+                    ),
+                )
+            )
+        elif object_kind == "convex_hull":
+            point_sets, point_mode = _require_hull_point_sets(
+                _embedded_named_property(obj_props, obj_embedding, "points", []) or [],
+                path="native_scene.object.points",
+            )
+            face_color_value = _embedded_named_property(
+                obj_props, obj_embedding, "face_color",
+                _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+            )
+            for object_index, point_set in enumerate(point_sets):
+                if len(point_set) < 4:
+                    raise ValueError("native_scene.object.points must contain at least 4 [x, y, z] points")
+                face_color = _slice_axis_i_property(face_color_value, object_index, path="native_scene.object.face_color") if point_mode == "hi" else face_color_value
+                mesh_id = f"object_{object_index}"
+                object_meshes.append({
+                    "id": mesh_id,
+                    "kind": "convex_hull",
+                    "points": point_set,
+                    "face_color": face_color,
+                    "edge_color": _embedded_named_property(obj_props, obj_embedding, "edge_color", [0.12, 0.16, 0.22, 1.0]),
+                    "edge_width": _embedded_named_property(obj_props, obj_embedding, "edge_width", 0.03),
+                    "edge_caps": _embedded_named_property(obj_props, obj_embedding, "edge_caps", True),
+                    "edge_lift": _embedded_named_property(obj_props, obj_embedding, "edge_lift", 0.003),
+                    "show_edges": _embedded_named_property(obj_props, obj_embedding, "show_edges", True),
+                    "vertex_color": _embedded_named_property(
+                        obj_props,
+                        obj_embedding,
+                        "vertex_color",
+                        face_color,
+                    ),
+                    "vertex_size": _embedded_named_property(obj_props, obj_embedding, "vertex_size", 0.06),
+                    "vertex_lift": _embedded_named_property(obj_props, obj_embedding, "vertex_lift", 0.006),
+                    "show_vertices": _embedded_named_property(obj_props, obj_embedding, "show_vertices", True),
+                })
+                mesh_props = {
+                    key: (_slice_axis_i_property(value, object_index, path=f"native_scene.object.{key}") if point_mode == "hi" and key != obj_embedding.get("points", "points") else value)
+                    for key, value in obj_props.items()
+                }
+                point_prop_name = str(obj_embedding.get("points", "points"))
+                mesh_props[point_prop_name] = point_set
+                object_mesh_entities.append(
+                    _scene_ir_mesh_entity(
+                        mesh_id=mesh_id,
+                        kind="convex_hull",
+                        properties=mesh_props,
+                        embedding=obj_embedding,
+                    )
+                )
+        elif object_kind == "simplices":
+            point_matrix = _require_number_matrix_value(
+                _embedded_named_property(obj_props, obj_embedding, "points", []) or [],
+                path="native_scene.object.points",
+                row_length=3,
+            )
+            simplices_spec = (
+                _delaunay_simplices(point_matrix, path="native_scene.object.points")
+                if embedded_points_axis == "d"
+                else _normalize_add_simplices_spec(embedded_simplices, path="native_scene.object.add_simplices")
+            )
+            object_meshes.append({
+                "id": "object_0",
+                "kind": "simplices",
+                "points": point_matrix,
+                "add_simplices": simplices_spec,
+                "face_color": _embedded_named_property(
+                    obj_props, obj_embedding, "face_color",
+                    _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+                ),
+                "edge_color": _embedded_named_property(obj_props, obj_embedding, "edge_color", [0.12, 0.16, 0.22, 1.0]),
+                "edge_width": _embedded_named_property(obj_props, obj_embedding, "edge_width", 0.03),
+                "edge_caps": _embedded_named_property(obj_props, obj_embedding, "edge_caps", True),
+                "edge_lift": _embedded_named_property(obj_props, obj_embedding, "edge_lift", 0.003),
+                "show_edges": _embedded_named_property(obj_props, obj_embedding, "show_edges", True),
+                "vertex_color": _embedded_named_property(
+                    obj_props,
+                    obj_embedding,
+                    "vertex_color",
+                    _embedded_named_property(
+                        obj_props,
+                        obj_embedding,
+                        "face_color",
+                        _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0]),
+                    ),
+                ),
+                "vertex_size": _embedded_named_property(obj_props, obj_embedding, "vertex_size", 0.06),
+                "vertex_lift": _embedded_named_property(obj_props, obj_embedding, "vertex_lift", 0.006),
+                "show_vertices": _embedded_named_property(obj_props, obj_embedding, "show_vertices", True),
+            })
+            simplices_prop_name = str(obj_embedding.get("add_simplices", "add_simplices"))
+            simplices_props = dict(obj_props)
+            simplices_props[simplices_prop_name] = simplices_spec
+            point_prop_name = str(obj_embedding.get("points", "points"))
+            simplices_props[point_prop_name] = point_matrix
+            object_mesh_entities.append(
+                _scene_ir_mesh_entity(
+                    mesh_id="object_0",
+                    kind="simplices",
+                    properties=simplices_props,
+                    embedding=obj_embedding,
+                )
+            )
+        else:
+            object_spec = {
+                "center": _embedded_named_property(obj_props, obj_embedding, "center", [0.0, 0.0, 1.2]),
+                "radius": _embedded_named_property(obj_props, obj_embedding, "radius", 1.1),
+                "count": _embedded_named_property(obj_props, obj_embedding, "count", 100),
+                "seed": _embedded_named_property(obj_props, obj_embedding, "seed", 7),
+                "stretch": _embedded_named_property(obj_props, obj_embedding, "stretch", [1.0, 0.84, 1.28]),
+                "jitter": _embedded_named_property(obj_props, obj_embedding, "jitter", 0.28),
+                "face_color": _embedded_named_property(
+                    obj_props, obj_embedding, "face_color",
+                    _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+                ),
+            }
+            object_meshes.append({
+                "id": "object_0",
+                "kind": "random_hull",
+                **object_spec,
+            })
+            object_mesh_entities.append(
+                _scene_ir_mesh_entity(
+                    mesh_id="object_0",
+                    kind="random_hull",
+                    properties=obj_props,
+                    embedding=obj_embedding,
+                )
+            )
+        object_mesh = object_meshes[0]
+        object_mesh_entity = object_mesh_entities[0]
+    else:
+        cube_specs_raw: list[dict[str, Any]]
+        if has_cubes:
+            cubes_axis = axis_tagged_idx(cubes_value) if is_axis_tagged_value(cubes_value) else None
+            cubes_data = axis_tagged_data(cubes_value) if is_axis_tagged_value(cubes_value) else cubes_value
+            if cubes_axis not in {None, "i"}:
+                raise ValueError("native_scene.cubes axis tag must be i")
+            if not isinstance(cubes_data, list):
+                raise ValueError("native_scene.cubes must be a list of cube structs")
+            cube_specs_raw = []
+            for cube_index, cube_item in enumerate(cubes_data):
+                if not isinstance(cube_item, dict):
+                    raise ValueError(f"native_scene.cubes[{cube_index}] must be a struct")
+                cube_specs_raw.append(cube_item)
+        elif has_cube:
+            cube_specs_raw = [cube]
+        else:
+            cube_specs_raw = []
+        cube_specs: list[dict[str, Any]] = []
+        object_meshes = []
+        object_mesh_entities = []
+        for cube_index, cube_decl in enumerate(cube_specs_raw):
+            cube_path = "native_scene.cube" if len(cube_specs_raw) == 1 else f"native_scene.cubes[{cube_index}]"
+            cube_props, cube_embedding = _normalize_native_named_parameters(
+                cube_decl,
+                default_embedding={
+                    "center": "center",
+                    "size": "size",
+                    "rotation": "rotation",
+                    "transform": "transform",
+                    "face_color": "face_color",
+                    "color": "color",
+                    "texture": "texture",
+                    "surface_system": "surface_system",
+                },
+                path=cube_path,
+            )
+            cube_tracks = _normalize_native_named_tracks(
+                cube_decl,
+                cube_props,
+                cube_embedding,
+                legacy_canonical_names=("center", "size", "rotation", "transform", "face_color", "color", "texture", "surface_system", "no_backface_specular"),
+                path=cube_path,
+            )
+            cube_spec = {
+                "center": _embedded_named_property(cube_props, cube_embedding, "center", [0.0, 0.0, 1.1]),
+                "size": _embedded_named_property(cube_props, cube_embedding, "size", 1.6),
+                "rotation": _embedded_named_property(cube_props, cube_embedding, "rotation", [0.0, 0.0, 0.0]),
+                "transform": _embedded_named_property(cube_props, cube_embedding, "transform", None),
+                "face_color": _embedded_named_property(
+                    cube_props, cube_embedding, "face_color",
+                    _embedded_named_property(cube_props, cube_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+                ),
+                "texture": _embedded_named_property(cube_props, cube_embedding, "texture", None),
+                "surface_system": _embedded_named_property(cube_props, cube_embedding, "surface_system", None),
+                "no_backface_specular": _embedded_named_property(cube_props, cube_embedding, "no_backface_specular", False),
+            }
+            mesh_id = f"cube_{cube_index}"
+            cube_specs.append(cube_spec)
+            object_meshes.append({
+                "id": mesh_id,
+                "kind": "cube",
+                "center": cube_spec["center"],
+                "size": cube_spec["size"],
+                "rotation": cube_spec["rotation"],
+                "transform": cube_spec["transform"],
+                "face_color": cube_spec["face_color"],
+                "texture": cube_spec["texture"],
+                "surface_system": cube_spec["surface_system"],
+            })
+            object_mesh_entities.append(
+                _scene_ir_mesh_entity(
+                    mesh_id=mesh_id,
+                    kind="cube",
+                    properties=cube_props,
+                    embedding=cube_embedding,
+                    tracks=cube_tracks,
+                )
+            )
+        cube_spec = cube_specs[0] if len(cube_specs) == 1 else None
+        object_mesh = object_meshes[0] if object_meshes else None
+        object_mesh_entity = object_mesh_entities[0] if object_mesh_entities else None
+    if surfaces_value is not None:
+        surface_axis = axis_tagged_idx(surfaces_value) if is_axis_tagged_value(surfaces_value) else None
+        surface_data = axis_tagged_data(surfaces_value) if is_axis_tagged_value(surfaces_value) else surfaces_value
+        if surface_axis not in {None, "i"}:
+            raise ValueError("native_scene.surfaces axis tag must be i")
+        if not isinstance(surface_data, list):
+            raise ValueError("native_scene.surfaces must be a list of surface structs")
+        for quad_index, quad_decl in enumerate(surface_data):
+            if not isinstance(quad_decl, dict):
+                raise ValueError(f"native_scene.surfaces[{quad_index}] must be a struct")
+            quad_path = f"native_scene.surfaces[{quad_index}]"
+            quad_props, quad_embedding = _normalize_native_named_parameters(
+                quad_decl,
+                default_embedding={
+                    "center": "center",
+                    "size": "size",
+                    "rotation": "rotation",
+                    "transform": "transform",
+                    "color": "color",
+                    "texture": "texture",
+                    "surface_system": "surface_system",
+                    "visible": "visible",
+                },
+                path=quad_path,
+            )
+            quad_tracks = _normalize_native_named_tracks(
+                quad_decl,
+                quad_props,
+                quad_embedding,
+                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "no_backface_specular"),
+                path=quad_path,
+            )
+            mesh_id = f"quad_{quad_index}"
+            object_meshes.append({
+                "id": mesh_id,
+                "kind": "quad",
+                "center": _embedded_named_property(quad_props, quad_embedding, "center", [0.0, 0.0, 0.0]),
+                "size": _embedded_named_property(quad_props, quad_embedding, "size", [1.0, 1.0]),
+                "rotation": _embedded_named_property(quad_props, quad_embedding, "rotation", [0.0, 0.0, 0.0]),
+                "transform": _embedded_named_property(quad_props, quad_embedding, "transform", None),
+                "color": _embedded_named_property(quad_props, quad_embedding, "color", [0.84, 0.86, 0.90, 1.0]),
+                "texture": _embedded_named_property(quad_props, quad_embedding, "texture", None),
+                "surface_system": _embedded_named_property(quad_props, quad_embedding, "surface_system", None),
+                "visible": _embedded_named_property(quad_props, quad_embedding, "visible", True),
+                "no_backface_specular": _embedded_named_property(quad_props, quad_embedding, "no_backface_specular", False),
+            })
+            object_mesh_entities.append(
+                _scene_ir_mesh_entity(
+                    mesh_id=mesh_id,
+                    kind="quad",
+                    properties=quad_props,
+                    embedding=quad_embedding,
+                    tracks=quad_tracks,
+                )
+            )
+    plane_props, plane_embedding = _normalize_native_named_parameters(
+        plane,
+        default_embedding={
+            "center": "center",
+            "size": "size",
+            "z": "z",
+            "color": "color",
+            "visible": "visible",
+            "surface_system": "surface_system",
+        },
+        path="native_scene.plane",
+    )
+    plane_spec = {
+        "center": _embedded_named_property(plane_props, plane_embedding, "center", [0.0, 0.0]),
+        "size": _embedded_named_property(plane_props, plane_embedding, "size", 7.0),
+        "z": _embedded_named_property(plane_props, plane_embedding, "z", 0.0),
+        "color": _embedded_named_property(plane_props, plane_embedding, "color", [0.20, 0.22, 0.26, 1.0]),
+        "visible": _embedded_named_property(plane_props, plane_embedding, "visible", True),
+        "surface_system": _embedded_named_property(plane_props, plane_embedding, "surface_system", None),
+        "no_backface_specular": _embedded_named_property(plane_props, plane_embedding, "no_backface_specular", False),
+    }
+    lights = _normalize_native_light_set(declared)
+    light_entities = _normalize_scene_ir_light_entity_set(declared)
+    if len(lights) > 2:
+        raise ValueError("native_scene lights supports at most 2 lights for scene_3d")
+    frame_spec = {
         "frame_id": _require_string_value(declared, "frame_id"),
         "title": _require_string_value(declared, "title"),
         "rect": tuple(_require_number_list(declared, "rect", length=4)),
-        "cube": cube_spec,
+        "aspect": _optional_string_value(declared, "aspect", None),
+    }
+    shadow_spec = {
+        "enabled": _optional_bool_value(shadow, "enabled", True),
+        "color": _optional_number_list(shadow, "color", [0.0, 0.0, 0.0, 0.30], length=4),
+        "lift": _optional_number_value(shadow, "lift", 0.002),
+    }
+    scene_state = _ir_builder.build_scene_3d_state(
+        frame_spec=frame_spec,
+        plane_spec=plane_spec,
+        plane_props=plane_props,
+        plane_embedding=plane_embedding,
+        object_meshes=object_meshes,
+        object_mesh_entities=object_mesh_entities,
+        camera_entity=_normalize_scene_ir_camera_entity(declared),
+        lights=lights,
+        light_entities=light_entities,
+        timing=_optional_ocean_timing_value(declared),
+        shadow_spec=shadow_spec,
+        show_light_markers=_optional_bool_value(declared, "show_light_markers", False),
+        light_marker_size=_optional_number_value(declared, "light_marker_size", 0.18),
+        surface_worlds=_optional_struct_value(declared, "surface_worlds"),
+        surface_cameras=_optional_struct_value(declared, "surface_cameras"),
+    )
+    meshes = scene_state["meshes"]
+    shadow_receivers = scene_state["shadow_receivers"]
+    scene_ir = scene_state["scene_ir"]
+    return {
+        "kind": "scene_3d",
+        "frame_id": frame_spec["frame_id"],
+        "title": frame_spec["title"],
+        "rect": frame_spec["rect"],
+        "aspect": frame_spec["aspect"],
+        "cube": None if obj is not None else cube_spec,
+        "cubes": None if obj is not None or len(object_meshes) <= 1 else cube_specs,
+        "object": object_mesh,
         "plane": plane_spec,
         "meshes": meshes,
-        "camera": _optional_ocean_camera_value(declared),
+        "camera": scene_ir["camera"],
         "lights": lights,
+        "timing": scene_ir["timing"],
+        "surface_worlds": scene_ir.get("surface_worlds", {}),
+        "surface_cameras": scene_ir.get("surface_cameras", {}),
+        "show_light_markers": scene_ir["render_options"]["show_light_markers"],
+        "light_marker_size": scene_ir["render_options"]["light_marker_size"],
         "shadow_receivers": shadow_receivers,
-        "shadow": {
-            "enabled": _optional_bool_value(shadow, "enabled", True),
-            "color": _optional_number_list(shadow, "color", [0.0, 0.0, 0.0, 0.30], length=4),
-            "lift": _optional_number_value(shadow, "lift", 0.002),
-        },
+        "shadow": shadow_spec,
+        "scene_ir": scene_ir,
+    }
+
+
+def _normalize_scene_3d_views_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    views_declared = _require_struct_list(declared, "views")
+    if not views_declared:
+        raise ValueError("native_scene.scene_3d_views requires at least one view")
+    shared_declared = {k: v for k, v in declared.items() if k not in {"kind", "views", "frame_id", "title", "rect", "aspect", "camera"}}
+    reserved_view_fields = {"frame_id", "title", "rect", "aspect", "camera"}
+    views: list[dict[str, Any]] = []
+    seen_frame_ids: set[str] = set()
+    for idx, view in enumerate(views_declared):
+        frame_id = _require_string_value(view, "frame_id")
+        if frame_id in seen_frame_ids:
+            raise ValueError(f'native_scene.scene_3d_views view frame_id "{frame_id}" is duplicated')
+        seen_frame_ids.add(frame_id)
+        view_declared = dict(shared_declared)
+        for key, value in view.items():
+            if key in reserved_view_fields:
+                continue
+            view_declared[key] = value
+        view_declared["kind"] = "scene_3d"
+        view_declared["frame_id"] = frame_id
+        view_declared["title"] = _require_string_value(view, "title")
+        view_declared["rect"] = list(_require_number_list(view, "rect", length=4))
+        if "aspect" in view:
+            view_declared["aspect"] = _require_string_value(view, "aspect")
+        if "camera" not in view:
+            raise ValueError(f"native_scene.scene_3d_views view[{idx}] requires camera")
+        view_declared["camera"] = _require_struct_value(view, "camera")
+        views.append(_normalize_scene_3d_spec(view_declared))
+    return {
+        "kind": "scene_3d_views",
+        "views": views,
     }
 
 
@@ -359,6 +832,24 @@ def _find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, A
 
 
 def _eval_native_scene_literal(expr: Any, path: str) -> Any:
+    if isinstance(expr, ast.AxisAlign):
+        value = _eval_native_scene_literal(expr.value, f"{path}.value")
+        if expr.label is not None:
+            axis_key = "i" if expr.label == "_" else expr.label
+        else:
+            evaluated = [_eval_native_scene_literal(item, f"{path}.axis") for item in (expr.indices or [])]
+            if len(evaluated) != 1:
+                raise ValueError(f"{path} axis access expects exactly one key")
+            raw = evaluated[0]
+            if isinstance(raw, bool):
+                raise ValueError(f"{path} axis key cannot be bool")
+            if isinstance(raw, str):
+                axis_key = raw
+            elif isinstance(raw, (int, float)):
+                axis_key = str(int(raw)) if isinstance(raw, float) and raw == int(raw) else str(raw)
+            else:
+                raise ValueError(f"{path} axis key must be string or number")
+        return axis_tagged_wrap(value, axis_key)
     if isinstance(expr, ast.StructLit):
         return {key: _eval_native_scene_literal(value, f"{path}.{key}") for key, value in expr.fields}
     if isinstance(expr, ast.ListLit):
@@ -392,6 +883,15 @@ def _require_field(scope: dict[str, Any], name: str) -> Any:
 
 def _require_struct_value(scope: dict[str, Any], name: str) -> dict[str, Any]:
     value = _require_field(scope, name)
+    if not isinstance(value, dict):
+        raise ValueError(f"native_scene.{name} must be a struct")
+    return value
+
+
+def _optional_struct_value(scope: dict[str, Any], name: str) -> dict[str, Any]:
+    value = scope.get(name)
+    if value is None:
+        return {}
     if not isinstance(value, dict):
         raise ValueError(f"native_scene.{name} must be a struct")
     return value
@@ -523,12 +1023,152 @@ def _optional_bool_value(scope: dict[str, Any], name: str, default: bool) -> boo
     return _require_bool_value(scope, name)
 
 
+def _normalize_native_named_parameters(
+    scope: dict[str, Any],
+    *,
+    default_embedding: dict[str, str],
+    reserved: set[str] | None = None,
+    path: str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    return _entities.normalize_native_named_parameters(
+        scope,
+        default_embedding=default_embedding,
+        reserved=reserved,
+        path=path,
+    )
+
+
+def _normalize_native_named_tracks(
+    scope: dict[str, Any],
+    props: dict[str, Any],
+    embedding: dict[str, str],
+    *,
+    legacy_canonical_names: tuple[str, ...],
+    path: str,
+) -> dict[str, Any]:
+    return _entities.normalize_native_named_tracks(
+        scope,
+        props,
+        embedding,
+        legacy_canonical_names=legacy_canonical_names,
+        path=path,
+    )
+
+
+def _embedded_named_property(
+    props: dict[str, Any],
+    embedding: dict[str, str],
+    canonical_name: str,
+    default: Any,
+) -> Any:
+    return _entities.embedded_named_property(props, embedding, canonical_name, default)
+
+
+def _native_json_safe_value(value: Any) -> Any:
+    return _entities.native_json_safe_value(value)
+
+
+def _slice_axis_i_property(value: Any, index: int, *, path: str) -> Any:
+    return _topology.slice_axis_i_property(value, index, path=path)
+
+
+def _require_hull_point_sets(value: Any, *, path: str) -> tuple[list[list[list[float]]], str]:
+    return _topology.require_hull_point_sets(value, path=path)
+
+
+def _delaunay_faces_2d(points: list[list[float]], *, path: str) -> list[list[int]]:
+    return _topology._delaunay_faces_2d(points, path=path)
+
+
+def _volumes_to_edge_pairs(volumes: list[list[int]]) -> list[list[int]]:
+    return _topology._volumes_to_edge_pairs(volumes)
+
+
+def _delaunay_simplices(points: list[list[float]], *, path: str) -> dict[str, list[list[int]]]:
+    return _topology.delaunay_simplices(points, path=path)
+
+
+def _faces_to_edge_pairs(faces: list[list[int]]) -> list[list[int]]:
+    return _topology.faces_to_edge_pairs(faces)
+
+
+def _optional_axis_value(scope: dict[str, Any], name: str) -> Any:
+    direct = scope.get(name, _UNSUPPORTED)
+    matches: list[tuple[str, Any]] = []
+    prefix = f"{name}_"
+    for key, value in scope.items():
+        if key.startswith(prefix) and len(key) > len(prefix):
+            axis_name = key[len(prefix):]
+            if axis_name != "_" and any(ch not in _NATIVE_AXIS_SUFFIX_CHARS for ch in axis_name):
+                continue
+            matches.append((axis_name, value))
+    if direct is not _UNSUPPORTED and matches:
+        raise ValueError(f"native_scene.{name} must use either {name!r} or suffixed axis form, not both")
+    if direct is not _UNSUPPORTED:
+        return direct
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError(f"native_scene.{name} axis form is ambiguous; found multiple suffixed variants")
+    axis_name, value = matches[0]
+    return axis_tagged_wrap(value, "i" if axis_name == "_" else axis_name)
+
+
 def _optional_number_list(
     scope: dict[str, Any], name: str, default: list[float], *, length: int | None = None
 ) -> list[float]:
     if name not in scope:
         return list(default)
     return _require_number_list(scope, name, length=length)
+
+
+def _optional_number_matrix(
+    scope: dict[str, Any], name: str, *, row_length: int
+) -> list[list[float]] | None:
+    if name not in scope:
+        return None
+    value = _require_field(scope, name)
+    return _require_number_matrix_value(value, path=f"native_scene.{name}", row_length=row_length)
+
+
+def _require_number_matrix_value(value: Any, *, path: str, row_length: int) -> list[list[float]]:
+    value = axis_tagged_data(value)
+    if not isinstance(value, list):
+        raise ValueError(f"{path} must be a list")
+    out: list[list[float]] = []
+    for index, row in enumerate(value):
+        if not isinstance(row, list):
+            raise ValueError(f"{path}[{index}] must be a list")
+        out.append(_require_number_list({"row": row}, "row", length=row_length))
+    return out
+
+
+def _require_index_matrix_value(
+    value: Any,
+    *,
+    path: str,
+    row_length: int,
+    minimum_rows: int = 0,
+) -> list[list[int]]:
+    value = axis_tagged_data(value)
+    if not isinstance(value, list):
+        raise ValueError(f"{path} must be a list")
+    out: list[list[int]] = []
+    for index, row in enumerate(value):
+        if not isinstance(row, list):
+            raise ValueError(f"{path}[{index}] must be a list")
+        if len(row) != row_length:
+            raise ValueError(f"{path}[{index}] must contain exactly {row_length} indices")
+        out.append([int(v) for v in row])
+    if len(out) < minimum_rows:
+        raise ValueError(f"{path} must contain at least {minimum_rows} rows")
+    return out
+
+
+def _optional_number_track(scope: dict[str, Any], name: str) -> list[float] | None:
+    if name not in scope:
+        return None
+    return _require_number_list(scope, name)
 
 
 def _optional_rgba_list(
@@ -567,6 +1207,23 @@ def _require_struct_list(scope: dict[str, Any], name: str) -> list[dict[str, Any
     return out
 
 
+def _require_struct_matrix(scope: dict[str, Any], name: str) -> list[list[dict[str, Any]]]:
+    value = _require_field(scope, name)
+    if not isinstance(value, list):
+        raise ValueError(f"native_scene.{name} must be a list")
+    out: list[list[dict[str, Any]]] = []
+    for row_index, row in enumerate(value):
+        if not isinstance(row, list):
+            raise ValueError(f"native_scene.{name}[{row_index}] must be a list")
+        inner: list[dict[str, Any]] = []
+        for col_index, item in enumerate(row):
+            if not isinstance(item, dict):
+                raise ValueError(f"native_scene.{name}[{row_index}][{col_index}] must be a struct")
+            inner.append(dict(item))
+        out.append(inner)
+    return out
+
+
 def _optional_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
     camera = _optional_struct_value(scope, "camera")
     if camera is None:
@@ -576,12 +1233,17 @@ def _optional_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
             "fov": 42.0,
             "up": [0.0, 1.0, 0.0],
         }
-    return {
+    result = {
         "pos": _optional_number_list(camera, "pos", [3.2, 2.4, 4.0], length=3),
         "target": _optional_number_list(camera, "target", [0.0, 0.0, 0.0], length=3),
         "fov": _optional_number_value(camera, "fov", 42.0),
         "up": _optional_number_list(camera, "up", [0.0, 1.0, 0.0], length=3),
     }
+    if "aperture_mirror_mesh_id" in camera:
+        result["aperture_mirror_mesh_id"] = _require_string_value(camera, "aperture_mirror_mesh_id")
+    if "min_distance" in camera:
+        result["min_distance"] = _optional_number_value(camera, "min_distance", 0.0)
+    return result
 
 
 def _optional_light_value(scope: dict[str, Any]) -> dict[str, Any]:
@@ -667,6 +1329,56 @@ def _optional_ocean_light_value(scope: dict[str, Any]) -> dict[str, Any]:
     return _normalize_ocean_light_spec(light)
 
 
+def _normalize_scene_ir_camera_entity(scope: dict[str, Any]) -> dict[str, Any]:
+    return _ir_entities.normalize_scene_ir_camera_entity(scope)
+
+
+def _normalize_scene_ir_light_entity(light: dict[str, Any]) -> dict[str, Any]:
+    return _ir_entities.normalize_scene_ir_light_entity(light)
+
+
+def _normalize_scene_ir_light_entity_set(scope: dict[str, Any]) -> list[dict[str, Any]]:
+    return _ir_entities.normalize_scene_ir_light_entity_set(scope)
+
+
+def _normalize_native_light_set(scope: dict[str, Any]) -> list[dict[str, Any]]:
+    light_value = _optional_axis_value(scope, "light")
+    lights_value = _optional_axis_value(scope, "lights")
+    has_light = light_value is not None
+    has_lights = lights_value is not None
+    mode_count = sum(1 for flag in (has_light, has_lights) if flag)
+    if mode_count > 1:
+        raise ValueError("native_scene light declarations must use only one of light or lights")
+    lights_axis = axis_tagged_idx(lights_value) if is_axis_tagged_value(lights_value) else None
+    lights_data = axis_tagged_data(lights_value) if is_axis_tagged_value(lights_value) else lights_value
+    if has_lights and lights_axis is not None:
+        if lights_axis == "i":
+            if not isinstance(lights_data, list):
+                raise ValueError("native_scene.lights -> i must wrap a list of light structs")
+            lights = [_normalize_ocean_light_spec(light) for light in lights_data]
+        elif lights_axis == "ij":
+            if not isinstance(lights_data, list):
+                raise ValueError("native_scene.lights -> ij must wrap a list of light rows")
+            lights = [
+                _normalize_ocean_light_spec(light)
+                for row in lights_data
+                for light in row
+            ]
+        else:
+            raise ValueError("native_scene.lights axis tag must be i or ij")
+    elif has_lights:
+        if not isinstance(lights_data, list):
+            raise ValueError("native_scene.lights must be a list of light structs")
+        lights = [_normalize_ocean_light_spec(light) for light in lights_data]
+    else:
+        lights = [_normalize_ocean_light_spec(light_value if isinstance(light_value, dict) else _optional_struct_value(scope, "light"))]
+    if len(lights) > 64:
+        raise ValueError("native_scene lights supports at most 64 lights in compiler IR")
+    for index, light in enumerate(lights):
+        light["id"] = str(light.get("id") or f"light_{index}")
+    return lights
+
+
 def _normalize_native_light_kind(kind: str) -> str:
     normalized = str(kind).lower().strip()
     if normalized == "spotlight":
@@ -700,27 +1412,44 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
     if "pos" in light:
         result = {
             "pos": _optional_number_list(light, "pos", [4.0, 5.0, 6.0], length=3),
+            "pos_t": _optional_number_matrix(light, "pos_t", row_length=3),
             "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+            "target_t": _optional_number_matrix(light, "target_t", row_length=3),
+            "motion": _optional_string_value(light, "motion", "fixed"),
             "kind": _normalize_native_light_kind(_optional_string_value(light, "kind", "point")),
             "direction": _optional_number_list(light, "direction", [0.0, 0.0, -1.0], length=3)
             if "direction" in light
             else (_optional_number_list(light, "dir", [0.0, 0.0, -1.0], length=3) if "dir" in light else None),
-            "intensity": _optional_number_value(light, "intensity", _optional_number_value(light, "power", 24.0)),
+            "direction_t": _optional_number_matrix(light, "direction_t", row_length=3),
+            "intensity": _optional_number_value(light, "intensity", 24.0),
+            "intensity_t": _optional_number_track(light, "intensity_t"),
+            "power": _optional_number_value(light, "power", 0.0),
+            "power_t": _optional_number_track(light, "power_t"),
             "inner_cone_deg": _optional_number_value(light, "inner_cone_deg", 14.0),
+            "inner_cone_deg_t": _optional_number_track(light, "inner_cone_deg_t"),
             "outer_cone_deg": _optional_number_value(light, "outer_cone_deg", 22.0),
+            "outer_cone_deg_t": _optional_number_track(light, "outer_cone_deg_t"),
             "range": _optional_number_value(light, "range", 0.0),
+            "range_t": _optional_number_track(light, "range_t"),
             "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
             "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
+            "color_t": _optional_rgba_list(light, "color_t", []),
             "source_radius": _optional_number_value(light, "source_radius", 0.0),
+            "source_radius_t": _optional_number_track(light, "source_radius_t"),
             "spread": _optional_number_value(light, "spread", 1.0),
+            "spread_t": _optional_number_track(light, "spread_t"),
         }
     else:
         turns_per_cycle = _optional_number_value(light, "turns_per_cycle", 2.0)
         result = {
             "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
+            "pos_t": _optional_number_matrix(light, "pos_t", row_length=3),
+            "target_t": _optional_number_matrix(light, "target_t", row_length=3),
+            "motion": _optional_string_value(light, "motion", "orbit"),
             "radius": _optional_number_value(light, "radius", 7.1),
             "height": _optional_number_value(light, "height", 4.6),
             "theta": _optional_number_value(light, "theta", 0.45),
+            "theta_amplitude": _optional_number_value(light, "theta_amplitude", 0.0),
             "turns_per_cycle": turns_per_cycle,
             "angular_velocity": _optional_number_value(
                 light,
@@ -731,15 +1460,48 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "direction": _optional_number_list(light, "direction", [0.0, 0.0, -1.0], length=3)
             if "direction" in light
             else (_optional_number_list(light, "dir", [0.0, 0.0, -1.0], length=3) if "dir" in light else None),
-            "intensity": _optional_number_value(light, "intensity", _optional_number_value(light, "power", 24.0)),
+            "direction_t": _optional_number_matrix(light, "direction_t", row_length=3),
+            "intensity": _optional_number_value(light, "intensity", 24.0),
+            "intensity_t": _optional_number_track(light, "intensity_t"),
+            "power": _optional_number_value(light, "power", 0.0),
+            "power_t": _optional_number_track(light, "power_t"),
             "inner_cone_deg": _optional_number_value(light, "inner_cone_deg", 14.0),
+            "inner_cone_deg_t": _optional_number_track(light, "inner_cone_deg_t"),
             "outer_cone_deg": _optional_number_value(light, "outer_cone_deg", 22.0),
+            "outer_cone_deg_t": _optional_number_track(light, "outer_cone_deg_t"),
             "range": _optional_number_value(light, "range", 0.0),
+            "range_t": _optional_number_track(light, "range_t"),
             "model": _normalize_native_light_model(_optional_string_value(light, "model", "blinn_phong")),
             "color": _optional_number_list(light, "color", [1.0, 0.93, 0.78, 1.0], length=4),
+            "color_t": _optional_rgba_list(light, "color_t", []),
             "source_radius": _optional_number_value(light, "source_radius", 0.0),
+            "source_radius_t": _optional_number_track(light, "source_radius_t"),
             "spread": _optional_number_value(light, "spread", 1.0),
+            "spread_t": _optional_number_track(light, "spread_t"),
         }
+    track_fields = [
+        "pos",
+        "target",
+        "direction",
+        "intensity",
+        "power",
+        "inner_cone_deg",
+        "outer_cone_deg",
+        "range",
+        "color",
+        "source_radius",
+        "spread",
+    ]
+    tracks: dict[str, Any] = {}
+    for field_name in track_fields:
+        track_key = f"{field_name}_t"
+        track_value = result.pop(track_key, None)
+        if track_value:
+            tracks[field_name] = track_value
+    if tracks:
+        result["tracks"] = tracks
+    if result["motion"] not in {"fixed", "orbit", "oscillate"}:
+        raise ValueError("native_scene lights motion must be fixed, orbit, or oscillate")
     result["casts_shadow"] = _optional_bool_value(light, "casts_shadow", True)
     return result
 
@@ -1522,6 +2284,7 @@ def _render_cube_hover_packets(spec: dict[str, Any]) -> str:
                                 "body": None,
                                 "body_layout": None,
                                 "parent_id": None,
+                                "aspect": spec.get("aspect"),
                             }
                         },
                     },
@@ -1569,7 +2332,7 @@ def _render_cube_hover_packets(spec: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
-def _render_cube_shadow_plane_packets(spec: dict[str, Any]) -> str:
+def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
     x, y, w, h = spec["rect"]
     frame_id = str(spec["frame_id"])
     payload = [
@@ -1602,12 +2365,55 @@ def _render_cube_shadow_plane_packets(spec: dict[str, Any]) -> str:
                                 "body": None,
                                 "body_layout": None,
                                 "parent_id": None,
+                                "aspect": spec.get("aspect"),
                             }
                         },
                     }
                 ]
             },
         },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def _render_scene_3d_views_packets(spec: dict[str, Any]) -> str:
+    commands: list[dict[str, Any]] = []
+    for idx, view in enumerate(spec.get("views", [])):
+        x, y, w, h = view["rect"]
+        commands.append(
+            {
+                "kind": "frame_upsert",
+                "id": str(view["frame_id"]),
+                "payload": {
+                    "spec": {
+                        "id": str(view["frame_id"]),
+                        "title": str(view["title"]),
+                        "title_align": "left",
+                        "rect": {"x": x, "y": y, "w": w, "h": h},
+                        "flags": {
+                            "draggable": True,
+                            "dockable": True,
+                            "resizable": True,
+                            "closable": True,
+                            "use_browser": True,
+                        },
+                        "alpha": 1.0,
+                        "master": idx == 0,
+                        "exit_counted": True,
+                        "dock_location": "bl" if idx == 0 else "br",
+                        "anchor": "tl",
+                        "body": None,
+                        "body_layout": None,
+                        "parent_id": None,
+                        "aspect": view.get("aspect"),
+                    }
+                },
+            }
+        )
+    payload = [
+        {"seq": 1, "kind": "scene.replace", "payload": {"commands": commands}},
         {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
         {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
     ]
@@ -2048,17 +2854,57 @@ def _render_cube_hover_html(spec: dict[str, Any]) -> str:
 """
 
 
-def _render_cube_shadow_plane_html(spec: dict[str, Any]) -> str:
-    config_json = json.dumps(spec, ensure_ascii=False)
+def _render_scene_3d_html(spec: dict[str, Any]) -> str:
+    config_json = json.dumps({"scene_ir": spec.get("scene_ir", {})}, ensure_ascii=False)
     asset_version = _runtime_asset_version()
     return f"""<!DOCTYPE html>
 <html>
   <body>
     <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
     <script>
-      window.__vfNativeCubeShadowConfig = {config_json};
+      window.__vfNativeSceneConfig = {config_json};
     </script>
-    <script src="../../vf-native-scene-cube-shadow-plane.js?v={asset_version}"></script>
+    <script src="../../vf-native-scene.js?v={asset_version}"></script>
+  </body>
+</html>
+"""
+
+
+def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
+    config_json = json.dumps(
+        [{"scene_ir": view.get("scene_ir", {})} for view in spec.get("views", [])],
+        ensure_ascii=False,
+    )
+    asset_version = _runtime_asset_version()
+    return f"""<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
+    <script>
+      window.__vfNativeSceneConfigs = {config_json};
+      (function (global) {{
+        var configs = Array.isArray(global.__vfNativeSceneConfigs) ? global.__vfNativeSceneConfigs.slice() : [];
+        function fail(text) {{
+          throw new Error("scene_3d_views: " + String(text));
+        }}
+        function loadAt(index) {{
+          if (index >= configs.length) {{
+            return;
+          }}
+          global.__vfNativeSceneConfig = configs[index];
+          var el = document.createElement("script");
+          el.src = "../../vf-native-scene.js?v={asset_version}&view=" + String(index);
+          el.onload = function () {{
+            loadAt(index + 1);
+          }};
+          el.onerror = function () {{
+            fail("failed to load vf-native-scene.js for view " + String(index));
+          }};
+          document.body.appendChild(el);
+        }}
+        loadAt(0);
+      }})(typeof window !== "undefined" ? window : this);
+    </script>
   </body>
 </html>
 """
@@ -2109,6 +2955,18 @@ def _render_dimension_mix_html(spec: dict[str, Any]) -> str:
 
 
 _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
+    "scene_3d": _NativeSceneCompiler(
+        default_session_name="ui-scene-3d",
+        normalize_spec=_normalize_scene_3d_spec,
+        render_html=_render_scene_3d_html,
+        render_runtime_packets=_render_scene_3d_packets,
+    ),
+    "scene_3d_views": _NativeSceneCompiler(
+        default_session_name="ui-scene-3d-views",
+        normalize_spec=_normalize_scene_3d_views_spec,
+        render_html=_render_scene_3d_views_html,
+        render_runtime_packets=_render_scene_3d_views_packets,
+    ),
     "face_edge_vertex_drag": _NativeSceneCompiler(
         default_session_name="ui-face-edge-vertex-drag",
         normalize_spec=_normalize_face_edge_vertex_drag_spec,
@@ -2129,12 +2987,6 @@ _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
         render_html=_render_cube_hover_html,
         render_runtime_packets=_render_cube_hover_packets,
     ),
-    "cube_shadow_plane": _NativeSceneCompiler(
-        default_session_name="ui-cube-shadow-plane",
-        normalize_spec=_normalize_cube_shadow_plane_spec,
-        render_html=_render_cube_shadow_plane_html,
-        render_runtime_packets=_render_cube_shadow_plane_packets,
-    ),
     "ocean_wave": _NativeSceneCompiler(
         default_session_name="ui-ocean-wave",
         normalize_spec=_normalize_ocean_wave_spec,
@@ -2148,3 +3000,4 @@ _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
         render_runtime_packets=_render_dimension_mix_packets,
     ),
 }
+
