@@ -48,6 +48,39 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Literal
 
+from vektorflow.ui.host_process import (
+    browser_state_path as _process_browser_state_path,
+    probe_browser_server as _process_probe_browser_server,
+    probe_overlay_page_ready as _process_probe_overlay_page_ready,
+    read_browser_state as _process_read_browser_state,
+    terminate_previous_overlay as _process_terminate_previous_overlay,
+    wait_for_overlay_ready as _process_wait_for_overlay_ready,
+    wait_for_process_exit as _process_wait_for_process_exit,
+    write_browser_state as _process_write_browser_state,
+)
+from vektorflow.ui.launch_contract import (
+    build_browser_helper_launch as _contract_build_browser_helper_launch,
+    find_free_port as _contract_find_free_port,
+    find_vf_overlay_exe as _contract_find_vf_overlay_exe,
+    find_vektorflow_repo_root as _contract_find_vektorflow_repo_root,
+    is_vektorflow_repo as _contract_is_vektorflow_repo,
+)
+from vektorflow.ui.overlay_host_contract import (
+    clear_overlay_port_file as _contract_clear_overlay_port_file,
+    clear_overlay_state as _contract_clear_overlay_state,
+    overlay_port_file_for_exe as _contract_overlay_port_file_for_exe,
+    overlay_state_path as _contract_overlay_state_path,
+    overlay_web_dir_for_exe as _contract_overlay_web_dir_for_exe,
+    read_overlay_pid as _contract_read_overlay_pid,
+    read_overlay_port_from_exe as _contract_read_overlay_port_from_exe,
+    read_overlay_state as _contract_read_overlay_state,
+    write_overlay_state as _contract_write_overlay_state,
+)
+from vektorflow.ui.runtime_boot import (
+    build_browser_launch_plan as _boot_build_browser_launch_plan,
+    build_overlay_launch_plan as _boot_build_overlay_launch_plan,
+)
+
 # ---------------------------------------------------------------------------
 # Mode type
 # ---------------------------------------------------------------------------
@@ -194,107 +227,55 @@ def _overlay_trace_enabled() -> bool:
 
 
 def _browser_state_path() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
-    return Path(base) / "vektor-flow" / "browser-server.json"
+    return _process_browser_state_path()
 
 
 def _overlay_state_path() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
-    return Path(base) / "vektor-flow" / "overlay-process.json"
+    return _contract_overlay_state_path()
 
 
 def _write_browser_state(port: int) -> None:
-    try:
-        p = _browser_state_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"port": int(port)}), encoding="utf-8")
-    except OSError:
-        pass
+    _process_write_browser_state(port)
 
 
 def _read_browser_state() -> int | None:
-    try:
-        data = json.loads(_browser_state_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return None
-    port = data.get("port")
-    if isinstance(port, int) and port > 0:
-        return port
-    return None
+    return _process_read_browser_state()
 
 
 def _read_overlay_state() -> dict[str, object] | None:
-    try:
-        data = json.loads(_overlay_state_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return None
-    return data if isinstance(data, dict) else None
+    return _contract_read_overlay_state()
 
 
 def _read_overlay_pid() -> int | None:
-    data = _read_overlay_state()
-    if not isinstance(data, dict):
-        return None
-    pid = data.get("pid")
-    if isinstance(pid, int) and pid > 0:
-        return pid
-    return None
+    return _contract_read_overlay_pid()
 
 
 def _write_overlay_state(*, pid: int, exe: Path) -> None:
-    try:
-        p = _overlay_state_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(
-            json.dumps(
-                {
-                    "pid": int(pid),
-                    "exe": str(exe),
-                }
-            ),
-            encoding="utf-8",
-        )
-    except OSError:
-        pass
+    _contract_write_overlay_state(pid=pid, exe=exe)
 
 
 def _clear_overlay_state() -> None:
-    try:
-        _overlay_state_path().unlink(missing_ok=True)
-    except OSError:
-        pass
+    _contract_clear_overlay_state()
 
 
 def _overlay_web_dir_for_exe(exe: Path) -> Path:
-    return (exe.parent / "web").resolve()
+    return _contract_overlay_web_dir_for_exe(exe)
 
 
 def _overlay_port_file_for_exe(exe: Path) -> Path:
-    return _overlay_web_dir_for_exe(exe) / "vf-api-port.txt"
+    return _contract_overlay_port_file_for_exe(exe)
 
 
 def _clear_overlay_port_file(exe: Path) -> None:
-    try:
-        _overlay_port_file_for_exe(exe).unlink(missing_ok=True)
-    except OSError:
-        pass
+    _contract_clear_overlay_port_file(exe)
 
 
 def _read_overlay_port_from_exe(exe: Path) -> int:
-    try:
-        txt = _overlay_port_file_for_exe(exe).read_text(encoding="utf-8").strip()
-    except OSError:
-        return 0
-    return int(txt) if txt.isdigit() else 0
+    return _contract_read_overlay_port_from_exe(exe)
 
 
 def _probe_overlay_page_ready(port: int, page_rel: str) -> bool:
-    rel = str(page_rel).lstrip("/")
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/{rel}", timeout=0.2) as r:
-            return int(getattr(r, "status", 0) or 0) == 200
-    except Exception:
-        return False
+    return _process_probe_overlay_page_ready(port, page_rel)
 
 
 def _wait_for_overlay_ready(
@@ -304,88 +285,41 @@ def _wait_for_overlay_ready(
     page_rel: str,
     timeout_s: float = 3.0,
 ) -> int:
-    import time
-
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        rc = proc.poll()
-        if rc is not None:
-            raise RuntimeError(
-                f"vf-overlay exited before becoming ready (exit code {rc}). "
-                "Check %LOCALAPPDATA%\\vektor-flow\\vf-overlay.log for host details."
-            )
-        port = _read_overlay_port_from_exe(exe)
-        if port > 0 and _probe_overlay_page_ready(port, page_rel):
-            return port
-        threading.Event().wait(0.02)
-    raise RuntimeError(
-        "vf-overlay did not become ready in time. "
-        "Expected vf-api-port.txt and a reachable session page beside the launched executable."
+    return _process_wait_for_overlay_ready(
+        exe=exe,
+        proc=proc,
+        page_rel=page_rel,
+        timeout_s=timeout_s,
+        read_port_from_exe=_read_overlay_port_from_exe,
+        probe_overlay_page_ready=_probe_overlay_page_ready,
+        wait_fn=lambda seconds: threading.Event().wait(seconds),
     )
 
 
 def _terminate_previous_overlay(pid: int) -> None:
-    if pid <= 0:
-        return
-    if sys.platform == "win32":
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-        except OSError:
-            pass
-        _wait_for_process_exit(pid, timeout_s=2.0)
-        # CreateCoreWebView2CompositionController can fail on a zero-gap relaunch
-        # while the previous WebView2 / DirectComposition teardown is still
-        # settling. Wait explicitly at the seam instead of racing startup.
-        time.sleep(0.25)
-        return
-    try:
-        os.kill(pid, 15)
-    except OSError:
-        pass
-    _wait_for_process_exit(pid, timeout_s=2.0)
+    _process_terminate_previous_overlay(
+        pid,
+        platform_name=sys.platform,
+        run_fn=subprocess.run,
+        kill_fn=os.kill,
+        wait_for_process_exit_fn=lambda target_pid, timeout_s: _wait_for_process_exit(target_pid, timeout_s=timeout_s),
+        sleep_fn=time.sleep,
+    )
 
 
 def _wait_for_process_exit(pid: int, *, timeout_s: float) -> None:
-    if pid <= 0 or timeout_s <= 0:
-        return
-    deadline = time.monotonic() + timeout_s
-    if sys.platform == "win32":
-        while time.monotonic() < deadline:
-            try:
-                result = subprocess.run(
-                    ["tasklist", "/FI", f"PID eq {pid}"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                    text=True,
-                    encoding="utf-8",
-                    errors="ignore",
-                )
-            except OSError:
-                return
-            if str(pid) not in (result.stdout or ""):
-                return
-            time.sleep(0.05)
-        return
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            return
-        time.sleep(0.05)
+    _process_wait_for_process_exit(
+        pid,
+        timeout_s=timeout_s,
+        platform_name=sys.platform,
+        run_fn=subprocess.run,
+        kill_fn=os.kill,
+        sleep_fn=time.sleep,
+    )
 
 
 def _probe_browser_server(port: int) -> bool:
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/vkf-scene.html", timeout=0.5) as r:
-            return int(getattr(r, "status", 0) or 0) == 200
-    except Exception:
-        return False
+    return _process_probe_browser_server(port)
 
 
 def _running_under_pytest() -> bool:
@@ -398,70 +332,37 @@ def _running_under_pytest() -> bool:
 
 def find_vektorflow_repo_root() -> Path | None:
     """Locate the tree that contains ``web/vf-ui`` (HTML/JS host for browser + JSON sync)."""
+    package_file: Path | None = None
+    try:
+        import vektorflow as _vf
+
+        package_file = Path(_vf.__file__).resolve()
+    except Exception:
+        package_file = None
+    root = _contract_find_vektorflow_repo_root(
+        env_root=os.environ.get("VF_UI_REPO_ROOT") or "",
+        cwd=Path.cwd(),
+        module_file=Path(__file__),
+        sys_executable=Path(sys.executable),
+        package_file=package_file,
+    )
     env = (os.environ.get("VF_UI_REPO_ROOT") or "").strip()
-    if env:
-        p = Path(env).expanduser().resolve()
-        if _is_vektorflow_repo(p):
-            return p
+    if root is None and env:
         _vf_warn(
             f"vektorflow: VF_UI_REPO_ROOT={env!r} is not a vf-ui tree "
             "(expected web/vf-ui/index.html and web/vf-ui/vkf-scene.html)"
         )
-    try:
-        exe_root = Path(sys.executable).resolve().parent
-        for base in (exe_root, *exe_root.parents):
-            if _is_vektorflow_repo(base):
-                return base
-    except Exception:
-        pass
-    cur = Path.cwd().resolve()
-    for _ in range(40):
-        if _is_vektorflow_repo(cur):
-            return cur
-        if cur.parent == cur:
-            break
-        cur = cur.parent
-    for base in Path(__file__).resolve().parents:
-        if _is_vektorflow_repo(base):
-            return base
-    try:
-        import vektorflow as _vf
-
-        p = Path(_vf.__file__).resolve().parent
-        for _ in range(24):
-            if _is_vektorflow_repo(p):
-                return p
-            if p.parent == p:
-                break
-            p = p.parent
-    except Exception:
-        pass
-    return None
+    return root
 
 
 def _is_vektorflow_repo(p: Path) -> bool:
     """True when the browser/headless/test UI bundle is on disk (native overlay is optional)."""
-    ui = p / "web" / "vf-ui"
-    return ui.joinpath("index.html").is_file() and ui.joinpath("vkf-scene.html").is_file()
+    return _contract_is_vektorflow_repo(p)
 
 
 def find_vf_overlay_exe(root: Path) -> Path | None:
     """Resolve ``vf-overlay.exe`` from either local build tree or packaged bundle."""
-    for rel in (
-        Path("native") / "VfOverlay" / "build" / "Release" / "vf-overlay.exe",
-        Path("native") / "VfOverlay" / "build" / "Debug" / "vf-overlay.exe",
-        Path("native") / "VfOverlay" / "build" / "x64" / "Release" / "vf-overlay.exe",
-        Path("native") / "VfOverlay" / "build" / "x64" / "Debug" / "vf-overlay.exe",
-        Path("native") / "VfOverlay" / "build" / "vf-overlay.exe",
-        Path("native") / "build" / "VfOverlay" / "Release" / "vf-overlay.exe",
-        Path("native") / "build" / "VfOverlay" / "Debug" / "vf-overlay.exe",
-        Path("native") / "build" / "vf-overlay.exe",
-        Path("native") / "VfOverlay" / "build" / "dist" / "vf-overlay-win64" / "vf-overlay.exe",
-    ):
-        c = (root / rel).resolve()
-        if c.is_file():
-            return c
-    return None
+    return _contract_find_vf_overlay_exe(root)
 
 
 # ---------------------------------------------------------------------------
@@ -470,18 +371,7 @@ def find_vf_overlay_exe(root: Path) -> Path | None:
 
 def _find_free_port(prefer: int | None = None) -> int:
     """Return a free TCP port (prefer the given one if free)."""
-    import socket
-
-    if prefer is not None:
-        try:
-            with socket.socket() as s:
-                s.bind(("127.0.0.1", prefer))
-                return prefer
-        except OSError:
-            pass
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return _contract_find_free_port(prefer)
 
 
 class _QuietHandler(SimpleHTTPRequestHandler):
@@ -511,53 +401,26 @@ def _start_browser_server(serve_dir: Path) -> tuple[int, threading.Thread]:
     return port, t
 
 
-def _spawn_browser_server_process(serve_dir: Path) -> int:
+def _spawn_browser_server_process(root: Path, serve_dir: Path) -> int:
     env_port = (os.environ.get("VF_UI_PORT") or "").strip()
     prefer = int(env_port) if env_port.isdigit() else _read_browser_state()
     port = _find_free_port(prefer)
     state_path = _browser_state_path()
-
-    helper = """
-import json
-import sys
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
-serve_dir = sys.argv[1]
-port = int(sys.argv[2])
-state_path = Path(sys.argv[3])
-
-class QuietHandler(SimpleHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
-    def log_error(self, format, *args):
-        pass
-
-handler = lambda *a, **kw: QuietHandler(*a, directory=serve_dir, **kw)
-server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-state_path.parent.mkdir(parents=True, exist_ok=True)
-state_path.write_text(json.dumps({"port": port}), encoding="utf-8")
-server.serve_forever()
-""".strip()
-
-    popen_kwargs: dict[str, object] = {
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-    }
+    overlay_exe = None
     if sys.platform == "win32":
-        flags = 0
-        flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        popen_kwargs["creationflags"] = flags
-    else:
-        popen_kwargs["start_new_session"] = True
-
-    subprocess.Popen(
-        [sys.executable, "-u", "-c", helper, str(serve_dir), str(port), str(state_path)],
-        **popen_kwargs,
+        overlay_exe = find_vf_overlay_exe(root)
+    command, popen_kwargs = _contract_build_browser_helper_launch(
+        serve_dir=serve_dir,
+        port=port,
+        state_path=state_path,
+        python_executable=Path(sys.executable),
+        platform_name=sys.platform,
+        detached_process_flag=getattr(subprocess, "DETACHED_PROCESS", 0),
+        new_process_group_flag=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        no_window_flag=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        overlay_exe=overlay_exe,
     )
+    subprocess.Popen(command, **popen_kwargs)
 
     for _ in range(20):
         if _probe_browser_server(port):
@@ -596,13 +459,14 @@ def maybe_launch_browser() -> None:
         port = _read_browser_state()
         if port is None or not _probe_browser_server(port):
             try:
-                port = _spawn_browser_server_process(serve_dir)
+                port = _spawn_browser_server_process(root, serve_dir)
             except RuntimeError as e:
                 _vf_warn(f"vektorflow [browser]: {e}")
                 return
         _browser_port = port
+    browser_plan = _boot_build_browser_launch_plan(root=root, session=session, port=port)
 
-    url = f"http://127.0.0.1:{port}/{session.page_rel}"
+    url = browser_plan.url
     _vf_info(f"vektorflow [browser]: serving {serve_dir}")
     _vf_info(f"vektorflow [browser]: open  {url}")
     _log_launch_line(f"browser mode: serving {serve_dir} on port {port}")
@@ -670,11 +534,7 @@ def maybe_launch_vf_overlay() -> None:
         from vektorflow.ui.session import ensure_ui_session
 
         session = ensure_ui_session(root)
-        overlay_page = (overlay_web_dir / "sessions" / session.session_id / "vkf-scene.html").resolve()
-        if not overlay_page.is_file():
-            raise RuntimeError(
-                f"UI not started: staged overlay session page missing for launched executable: {overlay_page}"
-            )
+        overlay_plan = _boot_build_overlay_launch_plan(root=root, exe=exe, session=session)
 
         previous_pid = _read_overlay_pid()
         if previous_pid is not None:
@@ -684,7 +544,7 @@ def maybe_launch_vf_overlay() -> None:
         _sync_display_runtime_assets(root, strict=True)
         _clear_overlay_port_file(exe)
 
-        popen_kwargs: dict[str, object] = {"cwd": str(exe.parent)}
+        popen_kwargs: dict[str, object] = {"cwd": str(overlay_plan.cwd)}
         if not use_terminal:
             popen_kwargs["stdin"] = subprocess.DEVNULL
             popen_kwargs["stdout"] = subprocess.DEVNULL
@@ -697,11 +557,11 @@ def maybe_launch_vf_overlay() -> None:
         # vf-overlay serves files relative to its adjacent web/ directory.
         # Passing an absolute Windows path becomes an unservable HTTP path
         # such as /C:/Users/... and WebView2 reports navigation failure.
-        proc = subprocess.Popen([str(exe), session.page_rel], **popen_kwargs)
+        proc = subprocess.Popen(overlay_plan.argv, **popen_kwargs)
         if getattr(proc, "pid", 0):
             _write_overlay_state(pid=int(proc.pid), exe=exe)
         _log_launch_line("maybe_launch: Popen returned ok")
-        port = _wait_for_overlay_ready(exe=exe, proc=proc, page_rel=session.page_rel)
+        port = _wait_for_overlay_ready(exe=exe, proc=proc, page_rel=overlay_plan.page_rel)
         _log_launch_line(f"maybe_launch: overlay ready on port {port}")
         _overlay_launch_failed = None
         _launched = True

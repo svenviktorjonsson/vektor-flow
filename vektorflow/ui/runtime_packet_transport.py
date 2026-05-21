@@ -16,6 +16,8 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 import urllib.error
 import urllib.request
 
+from vektorflow.ui.file_io import write_text_if_changed
+
 
 EMPTY_SCENE_TEXT = "[]\n"
 EMPTY_STATE_TEXT = "{}\n"
@@ -182,6 +184,6 @@ def seed_payload_dir(
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     for filename, text in empty_payload_files().items():
-        (directory / filename).write_text(text, encoding="utf-8")
+        write_text_if_changed(directory / filename, text)
     if session_html is not None:
-        (directory / "vkf-scene.html").write_text(session_html, encoding="utf-8")
+        write_text_if_changed(directory / "vkf-scene.html", session_html)

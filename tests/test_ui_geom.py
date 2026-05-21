@@ -62,6 +62,64 @@ class TestAddBox:
         assert m["scale"]  == [1.0, 2.0, 3.0]
         assert m["color"]  == "blue"
 
+    def test_texture_data_in_geom(self) -> None:
+        d, fid = _placed()
+        d.add_box(
+            center=[1,2,3],
+            scale=[1,2,3],
+            color=[0.95, 0.95, 0.95, 1.0],
+            texture={
+                "kind": "checker",
+                "scale": [8.0, 12.0],
+                "color_a": [0.1, 0.12, 0.18, 1.0],
+                "color_b": [0.88, 0.9, 0.98, 1.0],
+            },
+        )
+        m = _geom(d, fid)["meshes"][0]
+        assert m["texture"]["kind"] == "checker"
+        assert m["texture"]["scale"] == [8.0, 12.0]
+        assert m["texture"]["color_a"] == pytest.approx([0.1, 0.12, 0.18, 1.0])
+        assert m["texture"]["color_b"] == pytest.approx([0.88, 0.9, 0.98, 1.0])
+
+    def test_dice_texture_kind_in_geom(self) -> None:
+        d, fid = _placed()
+        d.add_box(
+            center=[0,0,0],
+            scale=[1,1,1],
+            color=[1.0, 1.0, 1.0, 1.0],
+            texture={
+                "kind": "dice",
+                "color_a": [1.0, 1.0, 1.0, 1.0],
+                "color_b": [0.0, 0.0, 0.0, 1.0],
+                "graph_test": True,
+                "graph_width_px": 5.0,
+            },
+        )
+        m = _geom(d, fid)["meshes"][0]
+        assert m["texture"]["kind"] == "dice"
+        assert m["texture"]["color_b"] == pytest.approx([0.0, 0.0, 0.0, 1.0])
+        assert m["texture"]["graph_test"] is True
+        assert m["texture"]["graph_width_px"] == pytest.approx(5.0)
+
+    def test_face_cube_texture_kind_in_geom(self) -> None:
+        d, fid = _placed()
+        d.add_box(
+            center=[0,0,0],
+            scale=[1,1,1],
+            color=[1.0, 1.0, 1.0, 1.0],
+            texture={
+                "kind": "face_cube",
+                "scale": [1.1, 1.1],
+                "color_a": [0.98, 0.98, 1.0, 1.0],
+                "color_b": [0.02, 0.02, 0.04, 1.0],
+                "rotation": [0.0, 1.5707963, 0.0],
+            },
+        )
+        m = _geom(d, fid)["meshes"][0]
+        assert m["texture"]["kind"] == "face_cube"
+        assert m["texture"]["scale"] == [1.1, 1.1]
+        assert m["texture"]["rotation"] == pytest.approx([0.0, 1.5707963, 0.0])
+
     def test_rotation_initialised_to_zero(self) -> None:
         d, fid = _placed()
         box = d.add_box(center=[0,0,0])
@@ -140,6 +198,18 @@ class TestSceneBox:
         box, data, *_ = self._box()
         box.set_scale([2, 3, 4])
         assert data["scale"] == [2.0, 3.0, 4.0]
+
+    def test_set_texture(self) -> None:
+        box, data, *_ = self._box()
+        result = box.set_texture({
+            "kind": "stripes",
+            "scale": [14.0, 5.0],
+            "color_a": [0.95, 0.95, 0.98, 1.0],
+            "color_b": [0.18, 0.22, 0.32, 1.0],
+        })
+        assert result is box
+        assert data["texture"]["kind"] == "stripes"
+        assert data["texture"]["scale"] == [14.0, 5.0]
 
     def test_center_property(self) -> None:
         box, *_ = self._box()

@@ -10,12 +10,16 @@ native_scene: (
             rect: [0.52, 0.10, 0.42, 0.42],
             aspect: "equal",
             camera: (
-                pos: [0.0, 10.5, 3.5],
-                target: [0.0, 3.5, 3.5],
                 orbit_step_deg: 5.0,
                 fov: 34.0,
                 up: [0.0, 0.0, 1.0],
-                aperture_mirror_mesh_id: "quad_0"
+                mirror_of: (
+                    frame_id: "front_camera_frame",
+                    mesh_id: "quad_0",
+                    reflect_eye_only: true,
+                    lock_aperture_camera: true,
+                    controls_enabled: false
+                )
             ),
             surfaces: [
                 (
@@ -38,7 +42,8 @@ native_scene: (
                 orbit_step_deg: 5.0,
                 fov: 34.0,
                 up: [0.0, 0.0, 1.0],
-                aperture_mirror_mesh_id: "quad_0"
+                fit_to_mesh_id: "quad_0",
+                controls_mode: "look_only"
             ),
             surfaces: [
                 (

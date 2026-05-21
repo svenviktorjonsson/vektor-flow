@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import re
 import shutil
-import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from vektorflow.ui.file_io import write_text_if_changed
 from vektorflow.ui.launch import _vf_warn, find_vektorflow_repo_root
 from vektorflow.ui.payloads import write_display_payload
 
@@ -128,9 +128,11 @@ def _sync_display_runtime_assets(root: Path, *, strict: bool = False) -> None:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if rel.as_posix() == "vkf-scene.html":
                     text = src.read_text(encoding="utf-8", errors="replace")
-                    stamped = _VERSION_QUERY_RE.sub(f"?v={int(time.time())}", text)
-                    dst.write_text(stamped, encoding="utf-8")
+                    stamped = _VERSION_QUERY_RE.sub(f"?v={src.stat().st_mtime_ns}", text)
+                    write_text_if_changed(dst, stamped)
                 else:
+                    if _file_copy_is_current(src, dst):
+                        continue
                     shutil.copy2(src, dst)
             except OSError as exc:
                 msg = f"{src} -> {dst}: {exc}"
@@ -162,6 +164,20 @@ def _iter_overlay_built_web_dirs(root: Path) -> tuple[Path, ...]:
         if built_web_dir.is_dir() and (built_web_dir / "vkf-scene.html").is_file():
             built_dirs.append(built_web_dir)
     return tuple(built_dirs)
+
+
+def _file_copy_is_current(src: Path, dst: Path) -> bool:
+    try:
+        if not dst.is_file():
+            return False
+        src_stat = src.stat()
+        dst_stat = dst.stat()
+    except OSError:
+        return False
+    return (
+        src_stat.st_size == dst_stat.st_size
+        and src_stat.st_mtime_ns == dst_stat.st_mtime_ns
+    )
 
 
 def has_visible_display_content(*, commands: list[Any], payload: Mapping[str, Any]) -> bool:

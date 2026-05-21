@@ -67,6 +67,131 @@ process.stdout.write(JSON.stringify({{
     assert payload["color"] == pytest.approx([0.2, 0.4, 0.6, 0.8])
 
 
+def test_material_arena_resolves_procedural_texture_descriptor() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console,
+  Float32Array,
+  Uint32Array,
+  Math
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATERIAL_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-material-arena.js" }});
+
+const arena = sandbox.VfGeomMaterialArena.createArena({{
+  surface: {{
+    base_color: [0.95, 0.95, 0.95, 1.0],
+    texture: {{
+      kind: "checker",
+      scale: [6, 10],
+      color_a: [0.15, 0.18, 0.24, 1.0],
+      color_b: [0.85, 0.88, 0.96, 1.0]
+    }}
+  }}
+}});
+
+const scene = arena.resolveScene({{
+  parts: [
+    {{ id: "surface", material_id: "surface" }}
+  ]
+}});
+
+process.stdout.write(JSON.stringify(scene.parts[0].texture));
+    """
+    payload = _run_node(script)
+    assert payload["kind"] == "checker"
+    assert payload["space"] == "triplanar"
+    assert payload["scale"] == pytest.approx([6.0, 10.0])
+    assert payload["color_a"] == pytest.approx([0.15, 0.18, 0.24, 1.0])
+    assert payload["color_b"] == pytest.approx([0.85, 0.88, 0.96, 1.0])
+
+
+def test_material_arena_resolves_dice_texture_descriptor() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console,
+  Float32Array,
+  Uint32Array,
+  Math
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATERIAL_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-material-arena.js" }});
+
+const arena = sandbox.VfGeomMaterialArena.createArena({{
+  die: {{
+    base_color: [1.0, 1.0, 1.0, 1.0],
+    texture: {{
+      kind: "dice",
+      color_a: [1.0, 1.0, 1.0, 1.0],
+      color_b: [0.0, 0.0, 0.0, 1.0],
+      graph_test: true,
+      graph_width_px: 5.0
+    }}
+  }}
+}});
+
+const scene = arena.resolveScene({{
+  parts: [
+    {{ id: "die", material_id: "die" }}
+  ]
+}});
+
+process.stdout.write(JSON.stringify(scene.parts[0].texture));
+    """
+    payload = _run_node(script)
+    assert payload["kind"] == "dice"
+    assert payload["space"] == "triplanar"
+    assert payload["color_a"] == pytest.approx([1.0, 1.0, 1.0, 1.0])
+    assert payload["color_b"] == pytest.approx([0.0, 0.0, 0.0, 1.0])
+    assert payload["graph_test"] is True
+    assert payload["graph_width_px"] == pytest.approx(5.0)
+
+
+def test_material_arena_resolves_face_cube_texture_descriptor() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console,
+  Float32Array,
+  Uint32Array,
+  window: {{}},
+}};
+sandbox.globalThis = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync({json.dumps(str(MATERIAL_ARENA_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-material-arena.js" }});
+
+const arena = sandbox.VfGeomMaterialArena.createArena({{
+  projected: {{
+    texture: {{
+      kind: "face_cube",
+      scale: [1.2, 1.2],
+      color_a: [0.98, 0.98, 1.0, 1.0],
+      color_b: [0.02, 0.02, 0.04, 1.0],
+      rotation: [0.0, 1.5707963, 0.0]
+    }}
+  }}
+}});
+const scene = arena.resolveScene({{
+  parts: [{{ material_id: "projected", color: [1,1,1,1] }}]
+}});
+process.stdout.write(JSON.stringify(scene.parts[0].texture));
+    """
+    payload = _run_node(script)
+    assert payload["kind"] == "face_cube"
+    assert payload["scale"] == pytest.approx([1.2, 1.2])
+    assert payload["rotation"] == pytest.approx([0.0, 1.5707963, 0.0])
+
+
 def test_parametric_surface_arena_owns_grid_topology_and_dynamic_revision() -> None:
     script = f"""
 const fs = require("fs");

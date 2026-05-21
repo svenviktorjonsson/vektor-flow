@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../native/VfOverlay/build/Release/web/vf-runtime-shell.js"></script>
+    <script>
+      window.__vfNativeSceneConfig = {
+        "scene_ir": {
+          "frame": {
+            "frame_id": "planar_mirror_calibration_frame",
+            "title": "Planar Mirror Calibration",
+            "rect": [0.08, 0.08, 0.72, 0.78]
+          },
+          "camera": {
+            "properties": {
+              "pos": [0.0, -4.45, 3.2],
+              "target": [0.0, 1.4, 1.0],
+              "orbit_step_deg": 5.0,
+              "fov": 34.0,
+              "up": [0.0, 0.0, 1.0]
+            },
+            "embedding": {
+              "pos": "pos",
+              "target": "target",
+              "fov": "fov",
+              "up": "up",
+              "min_distance": "min_distance",
+              "radius": "radius",
+              "height": "height",
+              "theta": "theta",
+              "turns_per_cycle": "turns_per_cycle"
+            }
+          },
+          "lights": [
+            {
+              "properties": {
+                "kind": "point",
+                "target": [0.0, 0.0, 1.0],
+                "model": "blinn_phong",
+                "power": 24000.0,
+                "range": 18.0,
+                "casts_shadow": true,
+                "source_radius": 0.1,
+                "spread": 1.0,
+                "motion": "orbit",
+                "color": [1.0, 0.93, 0.78, 1.0],
+                "intensity": 24.0,
+                "inner_cone_deg": 14.0,
+                "outer_cone_deg": 22.0,
+                "id": "light_0"
+              },
+              "embedding": {
+                "id": "id",
+                "pos": "pos",
+                "target": "target",
+                "motion": "motion",
+                "radius": "radius",
+                "height": "height",
+                "theta": "theta",
+                "theta_amplitude": "theta_amplitude",
+                "turns_per_cycle": "turns_per_cycle",
+                "angular_velocity": "angular_velocity",
+                "kind": "kind",
+                "direction": "direction",
+                "intensity": "intensity",
+                "power": "power",
+                "inner_cone_deg": "inner_cone_deg",
+                "outer_cone_deg": "outer_cone_deg",
+                "range": "range",
+                "model": "model",
+                "color": "color",
+                "casts_shadow": "casts_shadow",
+                "source_radius": "source_radius",
+                "spread": "spread"
+              },
+              "tracks": {
+                "pos": [
+                  [0.0, 4.8, 4.8], [-0.9981, 4.6953, 4.8], [-1.9526, 4.3868, 4.8], [-2.8207, 3.8903, 4.8],
+                  [-3.5639, 3.2281, 4.8], [-4.1491, 2.4278, 4.8], [-4.5507, 1.5237, 4.8], [-4.7503, 0.5544, 4.8],
+                  [-4.7394, -0.4385, 4.8], [-4.5188, -1.4123, 4.8], [-4.0979, -2.3247, 4.8], [-3.4946, -3.1348, 4.8],
+                  [-2.7352, -3.8059, 4.8], [-1.853, -4.3074, 4.8], [-0.8874, -4.6159, 4.8], [0.1183, -4.7164, 4.8],
+                  [1.1183, -4.603, 4.8], [2.0668, -4.281, 4.8], [2.9207, -3.765, 4.8], [3.6417, -3.0792, 4.8],
+                  [4.1975, -2.2542, 4.8], [4.5623, -1.3267, 4.8], [4.7189, -0.3387, 4.8], [4.6598, 0.6643, 4.8],
+                  [4.3879, 1.6365, 4.8], [3.9154, 2.5326, 4.8], [3.2636, 3.3107, 4.8], [2.4619, 3.9347, 4.8],
+                  [1.5462, 4.3749, 4.8], [0.5587, 4.6105, 4.8]
+                ]
+              }
+            }
+          ],
+          "timing": {
+            "fps": 60,
+            "duration_seconds": 16.0,
+            "boundary": "repeat"
+          },
+          "meshes": [
+            {
+              "id": "plane_0",
+              "kind": "quad",
+              "properties": {
+                "center": [0.0, 0.0],
+                "size": 7.0,
+                "z": 0.0,
+                "color": [0.96, 0.96, 0.96, 1.0],
+                "surface_system": {
+                  "kind": "mirror",
+                  "scale": [3.5, 3.5],
+                  "world": {
+                    "kind": "floor_plane_mirror",
+                    "background": [0.0, 0.0, 0.0, 0.0],
+                    "frame_color": [0.0, 0.0, 0.0, 0.0]
+                  }
+                }
+              },
+              "embedding": {
+                "center": "center",
+                "size": "size",
+                "z": "z",
+                "color": "color",
+                "visible": "visible",
+                "surface_system": "surface_system"
+              }
+            },
+            {
+              "id": "mirror_probe_edge",
+              "kind": "simplices",
+              "properties": {
+                "points": [[-3.5, 3.5, 0.0], [3.5, 3.5, 0.0]],
+                "add_simplices": { "edges": [[0, 1]], "faces": [], "volumes": [] },
+                "show_edges": true,
+                "edge_width": 10.0,
+                "edge_caps": true,
+                "edge_lift": 0.0,
+                "edge_color": [0.12, 0.82, 0.22, 1.0],
+                "show_vertices": true,
+                "vertex_size": 16.0,
+                "vertex_color": [0.12, 0.82, 0.22, 1.0],
+                "face_color": [0.0, 0.0, 0.0, 0.0]
+              },
+              "embedding": {
+                "points": "points",
+                "add_simplices": "add_simplices",
+                "show_edges": "show_edges",
+                "edge_width": "edge_width",
+                "edge_caps": "edge_caps",
+                "edge_lift": "edge_lift",
+                "edge_color": "edge_color",
+                "show_vertices": "show_vertices",
+                "vertex_size": "vertex_size",
+                "vertex_color": "vertex_color",
+                "face_color": "face_color",
+                "color": "color",
+                "visible": "visible"
+              }
+            },
+            {
+              "id": "quad_0",
+              "kind": "quad",
+              "properties": {
+                "id": "back_mirror_plane",
+                "center": [0.0, 3.5, 3.5],
+                "size": [7.0, 7.0],
+                "rotation": [90.0, 0.0, 0.0],
+                "color": [0.24, 0.26, 0.3, 1.0],
+                "surface_system": {
+                  "kind": "mirror",
+                  "scale": [3.5, 3.5],
+                  "world": {
+                    "kind": "back_plane_mirror",
+                    "background": [0.0, 0.0, 0.0, 0.0],
+                    "frame_color": [0.0, 0.0, 0.0, 0.0]
+                  }
+                }
+              },
+              "embedding": {
+                "center": "center",
+                "size": "size",
+                "rotation": "rotation",
+                "transform": "transform",
+                "color": "color",
+                "texture": "texture",
+                "surface_system": "surface_system",
+                "visible": "visible"
+              }
+            }
+          ],
+          "shadow_receivers": [
+            {
+              "properties": {
+                "receiver_mesh": "plane_0",
+                "occluders": ["mirror_probe_edge", "quad_0"],
+                "lights": ["light_0"],
+                "policy_kind": "projected_convex_hull",
+                "policy_softness": "area_light_penumbra"
+              },
+              "embedding": {
+                "receiver_mesh": "receiver_mesh",
+                "occluders": "occluders",
+                "lights": "lights",
+                "policy_kind": "policy_kind",
+                "policy_softness": "policy_softness"
+              }
+            }
+          ],
+          "shadow": {
+            "enabled": true,
+            "color": [0.0, 0.0, 0.0, 1.0],
+            "lift": 0.002
+          },
+          "surface_worlds": {},
+          "surface_cameras": {},
+          "render_options": {
+            "show_light_markers": false,
+            "light_marker_size": 0.18
+          }
+        }
+      };
+    </script>
+    <script src="../../native/VfOverlay/build/Release/web/vf-native-scene.js"></script>
+  </body>
+</html>
+

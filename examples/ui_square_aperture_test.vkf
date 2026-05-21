@@ -1,0 +1,85 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "square_aperture_test_frame",
+    title: "Square Aperture Test",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    aspect: "equal",
+    plane: (
+        center: [0.0, 0.0],
+        size: 1.0,
+        z: 0.0,
+        visible: false,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    surfaces: [
+        (
+            center: [-2.0, 0.0, -2.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.52, 0.52, 0.52, 1.0]
+        ),
+        (
+            center: [0.0, 0.0, -2.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.74, 0.74, 0.74, 1.0]
+        ),
+        (
+            center: [2.0, 0.0, -2.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.52, 0.52, 0.52, 1.0]
+        ),
+        (
+            center: [-2.0, 0.0, 0.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.74, 0.74, 0.74, 1.0]
+        ),
+        (
+            center: [0.0, 0.0, 0.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.12, 0.12, 0.14, 1.0]
+        ),
+        (
+            center: [2.0, 0.0, 0.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.74, 0.74, 0.74, 1.0]
+        ),
+        (
+            center: [-2.0, 0.0, 2.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.52, 0.52, 0.52, 1.0]
+        ),
+        (
+            center: [0.0, 0.0, 2.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.74, 0.74, 0.74, 1.0]
+        ),
+        (
+            center: [2.0, 0.0, 2.0],
+            size: [2.0667, 2.0667],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.52, 0.52, 0.52, 1.0]
+        )
+    ],
+    camera: (
+        pos: [0.0, -9.0, 0.0],
+        target: [0.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        fov: 38.0
+    ),
+    lights: [],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)

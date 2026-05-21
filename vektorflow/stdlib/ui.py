@@ -349,6 +349,47 @@ def _paint_field_mesh_vertex_colors(data: dict[str, Any], color: Any) -> None:
         vertices[offset + 3] = rgba[3]
 
 
+def _normalize_texture_spec(texture: Any) -> dict[str, Any] | None:
+    if texture is None:
+        return None
+    if not isinstance(texture, dict):
+        raise TypeError("texture must be a dict-like spec")
+    kind = str(texture.get("kind", "") or "").strip().lower()
+    if kind not in {"checker", "stripes", "dice", "face_cube"}:
+        raise ValueError("texture kind must be 'checker', 'stripes', 'dice', or 'face_cube'")
+    space = str(texture.get("space", "triplanar") or "triplanar").strip().lower()
+    if space != "triplanar":
+        raise ValueError("texture space must be 'triplanar'")
+    default_scale = [1.0, 1.0] if kind == "face_cube" else [8.0, 8.0]
+    raw_scale = texture.get("scale", default_scale)
+    if not _is_sequence(raw_scale) or len(raw_scale) < 2:
+        raise TypeError("texture scale must be a 2-element sequence")
+    sx = float(raw_scale[0])
+    sy = float(raw_scale[1])
+    if not math.isfinite(sx) or sx <= 0.0:
+        sx = default_scale[0]
+    if not math.isfinite(sy) or sy <= 0.0:
+        sy = default_scale[1]
+    raw_rotation = texture.get("rotation", [0.0, 0.0, 0.0])
+    if not _is_sequence(raw_rotation) or len(raw_rotation) < 3:
+        raise TypeError("texture rotation must be a 3-element sequence")
+    rotation = [
+        float(raw_rotation[0]),
+        float(raw_rotation[1]),
+        float(raw_rotation[2]),
+    ]
+    return {
+        "kind": kind,
+        "space": "triplanar",
+        "scale": [sx, sy],
+        "color_a": list(_parse_color_rgba(texture.get("color_a", [0.18, 0.22, 0.30, 1.0]))),
+        "color_b": list(_parse_color_rgba(texture.get("color_b", [0.90, 0.92, 0.98, 1.0]))),
+        "rotation": rotation,
+        "graph_test": bool(texture.get("graph_test", False)),
+        "graph_width_px": max(0.0, float(texture.get("graph_width_px", 0.0) or 0.0)),
+    }
+
+
 def _coerce_vertices2(vertices: Any) -> list[list[float]]:
     if not _is_sequence(vertices):
         raise TypeError("embedding vertices must be a vector/list of points")
@@ -844,6 +885,16 @@ class SceneBox:
     def set_scale(self, scale: Any) -> "SceneBox":
         """Resize the box. Returns self."""
         self._data["scale"] = _vec3(scale, "scale")
+        self._display._sync_all()
+        return self
+
+    def set_texture(self, texture: Any) -> "SceneBox":
+        """Change the procedural texture spec. Returns self."""
+        normalized = _normalize_texture_spec(texture)
+        if normalized is None:
+            self._data.pop("texture", None)
+        else:
+            self._data["texture"] = normalized
         self._display._sync_all()
         return self
 
@@ -1388,14 +1439,15 @@ class FrameRef:
         center: Any = None,
         scale: Any = None,
         color: Any = None,
+        texture: Any = None,
     ) -> SceneBox:
         """Add a 3-D box. Returns a :class:`SceneBox` you can mutate live."""
         fid = self._get_placed_id()
-        return self._display._add_box(fid, center=center, scale=scale, color=color)
+        return self._display._add_box(fid, center=center, scale=scale, color=color, texture=texture)
 
     # legacy alias
-    def draw_box(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
-        return self.add_box(center=center, scale=scale, color=color)
+    def draw_box(self, *, center: Any = None, scale: Any = None, color: Any = None, texture: Any = None) -> SceneBox:
+        return self.add_box(center=center, scale=scale, color=color, texture=texture)
 
     def add_ellipsoid(
         self,
@@ -1403,12 +1455,13 @@ class FrameRef:
         center: Any = None,
         scale: Any = None,
         color: Any = None,
+        texture: Any = None,
     ) -> SceneBox:
         fid = self._get_placed_id()
-        return self._display._add_ellipsoid(fid, center=center, scale=scale, color=color)
+        return self._display._add_ellipsoid(fid, center=center, scale=scale, color=color, texture=texture)
 
-    def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
-        return self.add_ellipsoid(center=center, scale=scale, color=color)
+    def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None, texture: Any = None) -> SceneBox:
+        return self.add_ellipsoid(center=center, scale=scale, color=color, texture=texture)
 
     def add_torus(
         self,
@@ -1418,6 +1471,7 @@ class FrameRef:
         color: Any = None,
         major_radius: float = 0.65,
         minor_radius: float = 0.22,
+        texture: Any = None,
     ) -> SceneBox:
         fid = self._get_placed_id()
         return self._display._add_torus(
@@ -1427,6 +1481,7 @@ class FrameRef:
             color=color,
             major_radius=major_radius,
             minor_radius=minor_radius,
+            texture=texture,
         )
 
     def draw_torus(
@@ -1437,6 +1492,7 @@ class FrameRef:
         color: Any = None,
         major_radius: float = 0.65,
         minor_radius: float = 0.22,
+        texture: Any = None,
     ) -> SceneBox:
         return self.add_torus(
             center=center,
@@ -1444,6 +1500,7 @@ class FrameRef:
             color=color,
             major_radius=major_radius,
             minor_radius=minor_radius,
+            texture=texture,
         )
 
     def add(self, *args: Any, **kwargs: Any) -> Any:
@@ -1936,15 +1993,16 @@ class Display:
         center: Any = None,
         scale: Any = None,
         color: Any = None,
+        texture: Any = None,
     ) -> SceneBox:
         """Add a box to the last placed frame. Returns :class:`SceneBox`."""
         fid = self._last_placed_id("add_box")
-        return self._add_box(fid, center=center, scale=scale, color=color)
+        return self._add_box(fid, center=center, scale=scale, color=color, texture=texture)
 
     # legacy alias
-    def draw_box(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
+    def draw_box(self, *, center: Any = None, scale: Any = None, color: Any = None, texture: Any = None) -> SceneBox:
         """Alias for :meth:`add_box`."""
-        return self.add_box(center=center, scale=scale, color=color)
+        return self.add_box(center=center, scale=scale, color=color, texture=texture)
 
     def add_ellipsoid(
         self,
@@ -1952,12 +2010,13 @@ class Display:
         center: Any = None,
         scale: Any = None,
         color: Any = None,
+        texture: Any = None,
     ) -> SceneBox:
         fid = self._last_placed_id("add_ellipsoid")
-        return self._add_ellipsoid(fid, center=center, scale=scale, color=color)
+        return self._add_ellipsoid(fid, center=center, scale=scale, color=color, texture=texture)
 
-    def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None) -> SceneBox:
-        return self.add_ellipsoid(center=center, scale=scale, color=color)
+    def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None, texture: Any = None) -> SceneBox:
+        return self.add_ellipsoid(center=center, scale=scale, color=color, texture=texture)
 
     def add_torus(
         self,
@@ -1967,6 +2026,7 @@ class Display:
         color: Any = None,
         major_radius: float = 0.65,
         minor_radius: float = 0.22,
+        texture: Any = None,
     ) -> SceneBox:
         fid = self._last_placed_id("add_torus")
         return self._add_torus(
@@ -1976,6 +2036,7 @@ class Display:
             color=color,
             major_radius=major_radius,
             minor_radius=minor_radius,
+            texture=texture,
         )
 
     def draw_torus(
@@ -1986,6 +2047,7 @@ class Display:
         color: Any = None,
         major_radius: float = 0.65,
         minor_radius: float = 0.22,
+        texture: Any = None,
     ) -> SceneBox:
         return self.add_torus(
             center=center,
@@ -1993,6 +2055,7 @@ class Display:
             color=color,
             major_radius=major_radius,
             minor_radius=minor_radius,
+            texture=texture,
         )
 
     def add(self, *args: Any, **kwargs: Any) -> Any:
@@ -2079,6 +2142,7 @@ class Display:
         center: Any,
         scale: Any,
         color: Any,
+        texture: Any = None,
     ) -> SceneBox:
         data: dict[str, Any] = {
             "type":     "box",
@@ -2087,6 +2151,9 @@ class Display:
             "color":    _color_to_payload(color),
             "rotation": [0.0, 0.0, 0.0],
         }
+        normalized_texture = _normalize_texture_spec(texture)
+        if normalized_texture is not None:
+            data["texture"] = normalized_texture
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
         obj = SceneBox(data, self, fid)
@@ -2101,6 +2168,7 @@ class Display:
         center: Any,
         scale: Any,
         color: Any,
+        texture: Any = None,
     ) -> SceneBox:
         data: dict[str, Any] = {
             "type":     "ellipsoid",
@@ -2109,6 +2177,9 @@ class Display:
             "color":    _color_to_payload(color),
             "rotation": [0.0, 0.0, 0.0],
         }
+        normalized_texture = _normalize_texture_spec(texture)
+        if normalized_texture is not None:
+            data["texture"] = normalized_texture
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
         obj = SceneBox(data, self, fid)
@@ -2125,6 +2196,7 @@ class Display:
         color: Any,
         major_radius: float,
         minor_radius: float,
+        texture: Any = None,
     ) -> SceneBox:
         data: dict[str, Any] = {
             "type":         "torus",
@@ -2135,6 +2207,9 @@ class Display:
             "minor_radius": float(minor_radius),
             "rotation":     [0.0, 0.0, 0.0],
         }
+        normalized_texture = _normalize_texture_spec(texture)
+        if normalized_texture is not None:
+            data["texture"] = normalized_texture
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
         obj = SceneBox(data, self, fid)

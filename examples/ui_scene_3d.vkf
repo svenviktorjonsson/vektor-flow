@@ -2,8 +2,8 @@ ui:.ui
 ui.set_mode("overlay")
 
 native_scene: (
-    kind: "cube_shadow_plane",
-    frame_id: "cube_shadow_plane_frame",
+    kind: "scene_3d",
+    frame_id: "scene_3d_frame",
     title: "Cube + Plane + Hard Shadow",
     rect: [0.08, 0.08, 0.72, 0.78],
     cube: (
@@ -55,3 +55,5 @@ native_scene: (
         lift: 0.002
     )
 )
+
+

@@ -1,0 +1,100 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "main_mirror_frame",
+    title: "Planar Mirror Virtual Light",
+    rect: [0.10, 0.08, 0.76, 0.76],
+    aspect: "equal",
+    show_light_markers: true,
+    light_marker_size: 0.18,
+    camera: (
+        pos: [0.0, -4.2, 3.5],
+        target: [0.0, 0.0, 0.0],
+        orbit_step_deg: 5.0,
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    surfaces: [
+        (
+            id: "mirror_face",
+            center: [0.0, 0.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35],
+            no_backface_specular: true,
+            surface_system: (
+                kind: "screen",
+                reverse_facing: true,
+                scale: [1.0, 1.0],
+                camera: (
+                    fov: 34.0,
+                    up: [0.0, 0.0, 1.0],
+                    mirror_of: (
+                        frame_id: "main_mirror_frame",
+                        mesh_id: "mirror_face",
+                        reflect_eye_only: true,
+                        lock_aperture_camera: true,
+                        controls_enabled: false
+                    )
+                )
+            )
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 8.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0],
+        texture: (
+            kind: "checker",
+            scale: [1.0, 1.0],
+            color_a: [0.12, 0.14, 0.18, 1.0],
+            color_b: [0.90, 0.92, 0.96, 1.0]
+        )
+    ),
+    lights: [
+        (
+            id: "real_light",
+            kind: "point",
+            motion: "orbit",
+            target: [0.0, 0.0, 1.0],
+            radius: 4.6,
+            height: 4.8,
+            theta: -0.62,
+            angular_velocity: 0.9,
+            model: "blinn_phong",
+            color: [1.0, 0.93, 0.78, 1.0],
+            intensity: 24.0,
+            range: 24.0,
+            casts_shadow: true,
+            source_radius: 0.18,
+            spread: 1.0
+        ),
+        (
+            id: "virtual_light",
+            kind: "projected",
+            motion: "orbit",
+            target: [0.0, 0.0, 1.0],
+            radius: 4.6,
+            height: 4.8,
+            theta: 0.62,
+            angular_velocity: -0.9,
+            model: "blinn_phong",
+            color: [1.0, 0.93, 0.78, 1.0],
+            intensity: 24.0,
+            range: 24.0,
+            casts_shadow: true,
+            source_radius: 0.18,
+            spread: 1.0,
+            aperture_face_id: "mirror_face",
+            clip_epsilon: 0.001
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)

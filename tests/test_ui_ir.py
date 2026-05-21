@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 
-from vektorflow.ui_display_ir import build_scene_light_payload, frame_scene_from_runtime_geom
+from vektorflow.ui_display_ir import (
+    build_scene_light_payload,
+    build_scene_mesh_payload,
+    frame_scene_from_runtime_geom,
+)
 from vektorflow.ui import FrameFlags, FrameSpec, NormRect, UiCommand, dumps_scene
 from vektorflow.ui.ir import parse_dock_location
 
@@ -84,3 +88,25 @@ def test_scene_light_payload_round_trips_spotlight_fields() -> None:
     assert light.inner_cone_deg == 12.0
     assert light.outer_cone_deg == 20.0
     assert light.range == 8.0
+
+
+def test_scene_mesh_payload_round_trips_procedural_texture_fields() -> None:
+    payload = build_scene_mesh_payload(
+        "box",
+        center=(0.0, 0.0, 0.0),
+        scale=(1.0, 1.0, 1.0),
+        color=[0.92, 0.92, 0.92, 1.0],
+        texture={
+            "kind": "checker",
+            "scale": [8.0, 12.0],
+            "color_a": [0.10, 0.12, 0.18, 1.0],
+            "color_b": [0.88, 0.90, 0.98, 1.0],
+        },
+    )
+    scene = frame_scene_from_runtime_geom({"meshes": [payload], "camera": None, "lights": []})
+    mesh = scene.meshes[0]
+    assert mesh.texture is not None
+    assert mesh.texture["kind"] == "checker"
+    assert mesh.texture["scale"] == [8.0, 12.0]
+    assert mesh.texture["color_a"] == [0.10, 0.12, 0.18, 1.0]
+    assert mesh.texture["color_b"] == [0.88, 0.90, 0.98, 1.0]

@@ -49,11 +49,12 @@ class UiSceneMesh:
     type: UiMeshKind
     center: tuple[float, float, float]
     scale: tuple[float, float, float]
-    color: str | None
+    color: Any
     rotation: tuple[float, float, float] = (0.0, 0.0, 0.0)
     model_matrix: tuple[float, ...] | None = None
     major_radius: float | None = None
     minor_radius: float | None = None
+    texture: dict[str, Any] | None = None
 
     def to_json_obj(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -69,6 +70,8 @@ class UiSceneMesh:
             payload["major_radius"] = self.major_radius
         if self.minor_radius is not None:
             payload["minor_radius"] = self.minor_radius
+        if self.texture is not None:
+            payload["texture"] = dict(self.texture)
         return payload
 
 
@@ -829,6 +832,7 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
                 ),
                 major_radius=mesh.get("major_radius"),
                 minor_radius=mesh.get("minor_radius"),
+                texture=dict(mesh["texture"]) if mesh.get("texture") is not None else None,
             )
         )
     raw_camera = data.get("camera")
@@ -917,10 +921,11 @@ def build_scene_mesh_payload(
     *,
     center: tuple[float, float, float],
     scale: tuple[float, float, float],
-    color: str | None,
+    color: Any,
     rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
     major_radius: float | None = None,
     minor_radius: float | None = None,
+    texture: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return UiSceneMesh(
         type=kind,  # type: ignore[arg-type]
@@ -930,6 +935,7 @@ def build_scene_mesh_payload(
         rotation=rotation,
         major_radius=major_radius,
         minor_radius=minor_radius,
+        texture=texture,
     ).to_json_obj()
 
 
