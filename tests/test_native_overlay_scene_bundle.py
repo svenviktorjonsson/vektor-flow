@@ -1145,8 +1145,8 @@ def test_scene_3d_scene_runs_in_native_ui_runtime(tmp_path: Path) -> None:
     assert '"scene_ir": {' in program.html_text
     assert '"frame": {"frame_id": "scene_3d_frame"' in program.html_text
     assert '"receiver_mesh": "plane_0"' in program.html_text
-    assert '"policy_kind": "projected_convex_hull"' in program.html_text
-    assert '"policy_softness": "area_light_penumbra"' in program.html_text
+    assert '"policy_kind": "light_camera_depth_map"' in program.html_text
+    assert '"policy_softness": "shadow_map_bias"' in program.html_text
     assert "Cube + Plane + Hard Shadow" in program.runtime_packets_text
 
 
@@ -1319,6 +1319,423 @@ native_scene: (
     assert '"aperture_mirror_mesh_id":"quad_0"' in compact
 
 
+def test_scene_3d_views_hidden_source_view_stays_in_html_but_not_frame_packets(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_views_hidden_source.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d_views",
+    views: [
+        (
+            frame_id: "hidden_source",
+            visible: false,
+            title: "",
+            rect: [0.1, 0.1, 0.5, 0.5],
+            aspect: "equal",
+            camera: (
+                pos: [0.0, 4.0, 3.0],
+                target: [0.0, 0.0, 1.0],
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0]
+            )
+        ),
+        (
+            frame_id: "main_view",
+            title: "Main",
+            rect: [0.1, 0.1, 0.5, 0.5],
+            aspect: "equal",
+            camera: (
+                pos: [0.0, -4.0, 3.0],
+                target: [0.0, 0.0, 1.0],
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0]
+            )
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 4.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0]
+    ),
+    surfaces: [
+        (
+            center: [0.0, 0.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.8, 0.8, 0.8, 1.0]
+        )
+    ],
+    lights: [],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"frame_id": "hidden_source"' in program.html_text
+    packets = program.runtime_packets_text
+    assert '"id": "main_view"' in packets
+    assert '"id": "hidden_source"' not in packets
+
+
+def test_scene_3d_camera_preserves_look_only_controls(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_look_only.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "look_only_frame",
+    title: "Look Only",
+    rect: [0.1, 0.1, 0.5, 0.5],
+    camera: (
+        pos: [0.0, -4.0, 3.5],
+        target: [0.0, 3.5, 3.5],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0],
+        look_only_controls: true
+    ),
+    surfaces: [
+        (
+            center: [0.0, 3.5, 3.5],
+            size: [7.0, 7.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"look_only_controls":true' in compact
+
+
+def test_scene_3d_camera_controls_mode_look_only_lowers_to_look_only_controls(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_controls_mode.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "controls_mode_frame",
+    title: "Controls Mode",
+    rect: [0.1, 0.1, 0.5, 0.5],
+    camera: (
+        pos: [0.0, -4.0, 3.5],
+        target: [0.0, 3.5, 3.5],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0],
+        controls_mode: "look_only"
+    ),
+    surfaces: [
+        (
+            center: [0.0, 3.5, 3.5],
+            size: [7.0, 7.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"controls_mode":"look_only"' in compact
+    assert '"look_only_controls":true' in compact
+
+
+def test_scene_3d_camera_fit_to_mesh_id_lowers_to_aperture_mirror_mesh_id(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_fit_to_mesh.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "fit_to_mesh_frame",
+    title: "Fit To Mesh",
+    rect: [0.1, 0.1, 0.5, 0.5],
+    camera: (
+        pos: [0.0, -4.0, 3.5],
+        target: [0.0, 3.5, 3.5],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0],
+        fit_to_mesh_id: "quad_0"
+    ),
+    surfaces: [
+        (
+            id: "quad_0",
+            center: [0.0, 3.5, 3.5],
+            size: [7.0, 7.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"aperture_mirror_mesh_id":"quad_0"' in compact
+
+
+def test_scene_3d_camera_mirror_of_sugar_lowers_to_locked_reflected_camera(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_mirror_of.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d_views",
+    views: [
+        (
+            frame_id: "main_frame",
+            title: "Main",
+            rect: [0.06, 0.10, 0.42, 0.42],
+            aspect: "equal",
+            camera: (
+                pos: [0.0, -4.2, 3.5],
+                target: [0.0, 3.5, 3.5],
+                fov: 34.0,
+                    up: [0.0, 0.0, 1.0]
+                ),
+            surfaces: [
+                (
+                    center: [0.0, 3.5, 3.5],
+                    size: [7.0, 7.0],
+                    rotation: [-90.0, 0.0, 0.0],
+                    color: [0.24, 0.26, 0.30, 0.35]
+                )
+            ]
+        ),
+        (
+            frame_id: "mirror_frame",
+            title: "Mirror",
+            rect: [0.52, 0.10, 0.42, 0.42],
+            aspect: "equal",
+            camera: (
+                fov: 34.0,
+                up: [0.0, 0.0, 1.0],
+                mirror_of: (
+                    frame_id: "main_frame",
+                    mesh_id: "quad_0"
+                )
+            ),
+            surfaces: [
+                (
+                    center: [0.0, 3.5, 3.5],
+                    size: [7.0, 7.0],
+                    rotation: [-90.0, 0.0, 0.0],
+                    color: [0.24, 0.26, 0.30, 0.35]
+                )
+            ]
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.96, 0.96, 0.96, 1.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"reflect_of_frame_id":"main_frame"' in compact
+    assert '"reflect_mirror_mesh_id":"quad_0"' in compact
+    assert '"aperture_mirror_mesh_id":"quad_0"' in compact
+    assert '"reflect_eye_only":true' in compact
+
+
+def test_scene_3d_surface_mirror_camera_lowers_to_hidden_source_view(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_surface_mirror_camera.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "main_mirror_frame",
+    title: "Mirror",
+    rect: [0.10, 0.08, 0.76, 0.76],
+    aspect: "equal",
+    camera: (
+        pos: [0.0, -4.8, 2.2],
+        target: [0.0, 0.0, 0.0],
+        fov: 34.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    surfaces: [
+        (
+            id: "mirror_face",
+            center: [0.0, 0.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35],
+            surface_system: (
+                kind: "screen",
+                reverse_facing: true,
+                scale: [1.0, 1.0],
+                camera: (
+                    fov: 34.0,
+                    up: [0.0, 0.0, 1.0],
+                    mirror_of: (
+                        frame_id: "main_mirror_frame",
+                        mesh_id: "mirror_face",
+                        reflect_eye_only: true,
+                        lock_aperture_camera: true,
+                        controls_enabled: false
+                    )
+                )
+            )
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 8.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    packets = "".join(program.runtime_packets_text.split())
+    assert 'window.__vfNativeSceneConfigs=' in compact
+    assert '"frame_ref":"main_mirror_frame__surface_source_0"' in compact
+    assert '"reflect_of_frame_id":"main_mirror_frame"' in compact
+    assert '"reflect_mirror_mesh_id":"mirror_face"' in compact
+    assert '"visible":false' in compact
+    assert '"show_light_markers":false' in compact
+    assert '"id":"main_mirror_frame__surface_source_0"' not in packets
+    assert '"lock_aperture_camera":true' in compact
+    assert '"controls_enabled":false' in compact
+    assert '"flip_x":true' in compact
+    assert compact.index('"frame_id":"main_mirror_frame__surface_source_0"') < compact.index('"frame_id":"main_mirror_frame"')
+
+
+def test_scene_3d_shadow_receivers_use_declared_light_ids(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_shadow_light_ids.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "shadow_ids_frame",
+    title: "Shadow IDs",
+    rect: [0.10, 0.08, 0.76, 0.76],
+    plane: (
+        center: [0.0, 0.0],
+        size: 8.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0]
+    ),
+    surfaces: [
+        (
+            id: "mirror_face",
+            center: [0.0, 0.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    lights: [
+        (
+            id: "real_light",
+            kind: "point",
+            pos: [1.0, -2.0, 4.0],
+            casts_shadow: true
+        ),
+        (
+            id: "virtual_light",
+            kind: "projected",
+            pos: [1.0, 2.0, 4.0],
+            casts_shadow: true,
+            aperture_face_id: "mirror_face"
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"lights":["real_light","virtual_light"]' in compact
+
+
 def test_flashlight_scene_preserves_spotlight_fields(tmp_path: Path) -> None:
     path = tmp_path / "ui_flashlight_cube.vkf"
     path.write_text(FLASHLIGHT_CUBE_SOURCE, encoding="utf-8")
@@ -1334,6 +1751,61 @@ def test_flashlight_scene_preserves_spotlight_fields(tmp_path: Path) -> None:
     assert '"range": 10.0' in program.html_text
     assert '"power": 10.0' in program.html_text
     assert "Flashlight Cube" in program.runtime_packets_text
+
+
+def test_scene_3d_projected_light_preserves_aperture_face_fields(tmp_path: Path) -> None:
+    path = tmp_path / "ui_projected_light.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "projected_light_frame",
+    title: "Projected Light",
+    rect: [0.10, 0.10, 0.72, 0.72],
+    plane: (
+        center: [0.0, 0.0],
+        size: 8.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0]
+    ),
+    surfaces: [
+        (
+            id: "mirror_face",
+            center: [0.0, 0.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    lights: [
+        (
+            kind: "projected",
+            pos: [-2.2, 2.8, 5.4],
+            target: [0.0, 0.0, 1.0],
+            intensity: 42.0,
+            source_radius: 0.18,
+            spread: 1.0,
+            aperture_face_id: "mirror_face",
+            clip_epsilon: 0.002
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"kind":"projected"' in compact
+    assert '"aperture_mesh_id":"mirror_face"' in compact
+    assert '"clip_epsilon":0.002' in compact
 
 
 def test_scene_3d_accepts_surfaces_and_rejects_quads_alias(tmp_path: Path) -> None:

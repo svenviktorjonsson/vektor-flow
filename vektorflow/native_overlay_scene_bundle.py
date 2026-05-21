@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -24,6 +25,177 @@ _DEFAULT_INPUT_RECT = (0.06, 0.08, 0.38, 0.78)
 _DEFAULT_LOG_RECT = (0.48, 0.05, 0.46, 0.86)
 _UNSUPPORTED = object()
 _NATIVE_AXIS_SUFFIX_CHARS = frozenset("tijkuvwh")
+
+
+def _dot3(a: list[float], b: list[float]) -> float:
+    return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
+
+
+def _normalize3(v: list[float]) -> list[float]:
+    length = (_dot3(v, v)) ** 0.5
+    if length <= 1e-9:
+        return [0.0, 0.0, 1.0]
+    inv = 1.0 / length
+    return [v[0] * inv, v[1] * inv, v[2] * inv]
+
+
+def _rotate_vec3_zyx_deg(v: list[float], rotation_deg: list[float]) -> list[float]:
+    import math
+
+    rx = math.radians(float(rotation_deg[0] if len(rotation_deg) > 0 else 0.0))
+    ry = math.radians(float(rotation_deg[1] if len(rotation_deg) > 1 else 0.0))
+    rz = math.radians(float(rotation_deg[2] if len(rotation_deg) > 2 else 0.0))
+
+    x, y, z = float(v[0]), float(v[1]), float(v[2])
+
+    cy = math.cos(rz)
+    sy = math.sin(rz)
+    x, y = (x * cy) - (y * sy), (x * sy) + (y * cy)
+
+    cy = math.cos(ry)
+    sy = math.sin(ry)
+    x, z = (x * cy) + (z * sy), (-x * sy) + (z * cy)
+
+    cx = math.cos(rx)
+    sx = math.sin(rx)
+    y, z = (y * cx) - (z * sx), (y * sx) + (z * cx)
+
+    return [x, y, z]
+
+
+def _surface_plane_point_normal(surface: dict[str, Any]) -> tuple[list[float], list[float]] | None:
+    center_value = surface.get("center")
+    if not isinstance(center_value, list):
+        return None
+    if len(center_value) == 3:
+        center = [float(center_value[0]), float(center_value[1]), float(center_value[2])]
+    elif len(center_value) == 2:
+        center = [float(center_value[0]), float(center_value[1]), 0.0]
+        if "z" in surface:
+            center[2] = float(surface.get("z") or 0.0)
+    else:
+        return None
+    rotation_value = surface.get("rotation")
+    rotation = (
+        [float(rotation_value[0]), float(rotation_value[1]), float(rotation_value[2])]
+        if isinstance(rotation_value, list) and len(rotation_value) == 3
+        else [0.0, 0.0, 0.0]
+    )
+    normal = _normalize3(_rotate_vec3_zyx_deg([0.0, 0.0, 1.0], rotation))
+    return center, normal
+
+
+def _reflect_point_across_plane(point: list[float], plane_point: list[float], plane_normal: list[float]) -> list[float]:
+    offset = [
+        float(point[0]) - float(plane_point[0]),
+        float(point[1]) - float(plane_point[1]),
+        float(point[2]) - float(plane_point[2]),
+    ]
+    dist = _dot3(offset, plane_normal)
+    return [
+        float(point[0]) - (2.0 * dist * plane_normal[0]),
+        float(point[1]) - (2.0 * dist * plane_normal[1]),
+        float(point[2]) - (2.0 * dist * plane_normal[2]),
+    ]
+
+
+def _lower_scene_3d_surface_camera_mirrors_to_views(declared: dict[str, Any]) -> dict[str, Any] | None:
+    surfaces = declared.get("surfaces")
+    if not isinstance(surfaces, list) or not surfaces:
+        return None
+    visible_decl = copy.deepcopy(declared)
+    hidden_decls: list[dict[str, Any]] = []
+    changed = False
+    visible_surfaces = visible_decl.get("surfaces")
+    if not isinstance(visible_surfaces, list):
+        return None
+    visible_frame_id = str(declared.get("frame_id") or "")
+    visible_rect = list(declared.get("rect") or [0.0, 0.0, 1.0, 1.0])
+    visible_aspect = declared.get("aspect")
+    for index, surface in enumerate(surfaces):
+        if not isinstance(surface, dict):
+            continue
+        system = surface.get("surface_system")
+        if not isinstance(system, dict):
+            continue
+        camera = system.get("camera")
+        if not isinstance(camera, dict):
+            continue
+        mirror_of = camera.get("mirror_of")
+        reflect_mesh_id = camera.get("reflect_mirror_mesh_id")
+        if not isinstance(mirror_of, dict) and not isinstance(reflect_mesh_id, str):
+            continue
+        source_frame_id = f"{visible_frame_id}__surface_source_{index}"
+        visible_surface = visible_surfaces[index]
+        if not isinstance(visible_surface, dict):
+            continue
+        visible_system = visible_surface.get("surface_system")
+        if not isinstance(visible_system, dict):
+            continue
+        visible_system.pop("camera", None)
+        visible_system["frame_ref"] = source_frame_id
+        if str(visible_system.get("kind", "")).lower().strip() == "mirror":
+            visible_system["kind"] = "screen"
+            visible_system["reverse_facing"] = True
+        hidden_decl = copy.deepcopy(declared)
+        hidden_decl["kind"] = "scene_3d"
+        hidden_decl["frame_id"] = source_frame_id
+        hidden_decl["title"] = ""
+        hidden_decl["rect"] = list(visible_rect)
+        hidden_decl["visible"] = False
+        hidden_decl["show_light_markers"] = False
+        if visible_aspect is not None:
+            hidden_decl["aspect"] = visible_aspect
+        hidden_camera = copy.deepcopy(camera)
+        visible_camera = visible_decl.get("camera")
+        if isinstance(visible_camera, dict):
+            for field in ("pos", "target", "up", "fov"):
+                if field not in hidden_camera and field in visible_camera:
+                    hidden_camera[field] = copy.deepcopy(visible_camera[field])
+        hidden_decl["camera"] = hidden_camera
+        plane = _surface_plane_point_normal(surface)
+        if plane is not None and isinstance(hidden_camera, dict):
+            plane_point, plane_normal = plane
+            hidden_pos = hidden_camera.get("pos")
+            if isinstance(hidden_pos, list) and len(hidden_pos) == 3:
+                hidden_camera["pos"] = _reflect_point_across_plane(
+                    [float(hidden_pos[0]), float(hidden_pos[1]), float(hidden_pos[2])],
+                    plane_point,
+                    plane_normal,
+                )
+            hidden_camera["target"] = plane_point
+        hidden_surfaces = hidden_decl.get("surfaces")
+        if isinstance(hidden_surfaces, list) and index < len(hidden_surfaces) and isinstance(hidden_surfaces[index], dict):
+            hidden_surfaces[index]["surface_system"] = None
+            hidden_surfaces[index]["visible"] = False
+        hidden_decls.append(hidden_decl)
+        changed = True
+    if not changed:
+        return None
+    normalized_visible = _normalize_scene_3d_spec(visible_decl)
+    visible_camera_props = (
+        normalized_visible.get("camera", {}).get("properties", {})
+        if isinstance(normalized_visible, dict)
+        else {}
+    )
+    normalized_hidden_views: list[dict[str, Any]] = []
+    for hidden in hidden_decls:
+        normalized_hidden = _normalize_scene_3d_spec(hidden)
+        hidden_camera = normalized_hidden.get("camera")
+        if isinstance(hidden_camera, dict):
+            hidden_props = hidden_camera.get("properties")
+            if isinstance(hidden_props, dict):
+                for field in ("pos", "target", "up", "fov"):
+                    if field not in hidden_props and field in visible_camera_props:
+                        hidden_props[field] = copy.deepcopy(visible_camera_props[field])
+        normalized_hidden_views.append(normalized_hidden)
+    return {
+        "kind": "scene_3d_views",
+        "views": [
+            *normalized_hidden_views,
+            normalized_visible,
+        ],
+    }
 
 
 def _normalize_native_light_model(model: str) -> str:
@@ -221,6 +393,9 @@ def _normalize_add_simplices_spec(value: Any, *, path: str) -> dict[str, list[li
 
 
 def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    lowered_views = _lower_scene_3d_surface_camera_mirrors_to_views(declared)
+    if lowered_views is not None:
+        return lowered_views
     cube = _optional_struct_value(declared, "cube")
     obj = _optional_struct_value(declared, "object")
     plane = _require_struct_value(declared, "plane")
@@ -478,6 +653,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             cube_props, cube_embedding = _normalize_native_named_parameters(
                 cube_decl,
                 default_embedding={
+                    "id": "id",
                     "center": "center",
                     "size": "size",
                     "rotation": "rotation",
@@ -566,7 +742,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "no_backface_specular"),
                 path=quad_path,
             )
-            mesh_id = f"quad_{quad_index}"
+            mesh_id = str(_embedded_named_property(quad_props, quad_embedding, "id", f"quad_{quad_index}"))
             object_meshes.append({
                 "id": mesh_id,
                 "kind": "quad",
@@ -619,6 +795,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "title": _require_string_value(declared, "title"),
         "rect": tuple(_require_number_list(declared, "rect", length=4)),
         "aspect": _optional_string_value(declared, "aspect", None),
+        "visible": _optional_bool_value(declared, "visible", True),
     }
     shadow_spec = {
         "enabled": _optional_bool_value(shadow, "enabled", True),
@@ -651,6 +828,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "title": frame_spec["title"],
         "rect": frame_spec["rect"],
         "aspect": frame_spec["aspect"],
+        "visible": frame_spec["visible"],
         "cube": None if obj is not None else cube_spec,
         "cubes": None if obj is not None or len(object_meshes) <= 1 else cube_specs,
         "object": object_mesh,
@@ -674,7 +852,7 @@ def _normalize_scene_3d_views_spec(declared: dict[str, Any]) -> dict[str, Any]:
     if not views_declared:
         raise ValueError("native_scene.scene_3d_views requires at least one view")
     shared_declared = {k: v for k, v in declared.items() if k not in {"kind", "views", "frame_id", "title", "rect", "aspect", "camera"}}
-    reserved_view_fields = {"frame_id", "title", "rect", "aspect", "camera"}
+    reserved_view_fields = {"frame_id", "title", "rect", "aspect", "camera", "visible"}
     views: list[dict[str, Any]] = []
     seen_frame_ids: set[str] = set()
     for idx, view in enumerate(views_declared):
@@ -691,11 +869,12 @@ def _normalize_scene_3d_views_spec(declared: dict[str, Any]) -> dict[str, Any]:
         view_declared["frame_id"] = frame_id
         view_declared["title"] = _require_string_value(view, "title")
         view_declared["rect"] = list(_require_number_list(view, "rect", length=4))
+        view_declared["visible"] = _optional_bool_value(view, "visible", True)
         if "aspect" in view:
             view_declared["aspect"] = _require_string_value(view, "aspect")
         if "camera" not in view:
             raise ValueError(f"native_scene.scene_3d_views view[{idx}] requires camera")
-        view_declared["camera"] = _require_struct_value(view, "camera")
+        view_declared["camera"] = _optional_camera_value({"camera": _require_struct_value(view, "camera")})
         views.append(_normalize_scene_3d_spec(view_declared))
     return {
         "kind": "scene_3d_views",
@@ -1241,6 +1420,28 @@ def _optional_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
     }
     if "aperture_mirror_mesh_id" in camera:
         result["aperture_mirror_mesh_id"] = _require_string_value(camera, "aperture_mirror_mesh_id")
+    if "fit_to_mesh_id" in camera:
+        result["aperture_mirror_mesh_id"] = _require_string_value(camera, "fit_to_mesh_id")
+    if "look_only_controls" in camera:
+        result["look_only_controls"] = _require_bool_value(camera, "look_only_controls")
+    if "controls_mode" in camera:
+        controls_mode = _require_string_value(camera, "controls_mode")
+        if controls_mode not in {"look_only", "free"}:
+            raise ValueError("native_scene.camera.controls_mode must be look_only or free")
+        result["controls_mode"] = controls_mode
+        if controls_mode == "look_only":
+            result["look_only_controls"] = True
+    if "mirror_of" in camera:
+        mirror_of = _require_struct_value(camera, "mirror_of")
+        if "frame_id" not in mirror_of or "mesh_id" not in mirror_of:
+            raise ValueError("native_scene.camera.mirror_of requires frame_id and mesh_id")
+        result["flip_x"] = _optional_bool_value(camera, "flip_x", True)
+        result["aperture_mirror_mesh_id"] = _require_string_value(mirror_of, "mesh_id")
+        result["reflect_of_frame_id"] = _require_string_value(mirror_of, "frame_id")
+        result["reflect_mirror_mesh_id"] = _require_string_value(mirror_of, "mesh_id")
+        result["reflect_eye_only"] = _optional_bool_value(mirror_of, "reflect_eye_only", True)
+        result["lock_aperture_camera"] = _optional_bool_value(mirror_of, "lock_aperture_camera", True)
+        result["controls_enabled"] = _optional_bool_value(mirror_of, "controls_enabled", False)
     if "min_distance" in camera:
         result["min_distance"] = _optional_number_value(camera, "min_distance", 0.0)
     return result
@@ -1383,8 +1584,8 @@ def _normalize_native_light_kind(kind: str) -> str:
     normalized = str(kind).lower().strip()
     if normalized == "spotlight":
         normalized = "spot"
-    if normalized not in {"point", "spot"}:
-        raise ValueError(f"native_scene light kind {kind!r} unknown; use 'point' or 'spot'")
+    if normalized not in {"point", "spot", "projected"}:
+        raise ValueError(f"native_scene light kind {kind!r} unknown; use 'point', 'spot', or 'projected'")
     return normalized
 
 
@@ -1408,6 +1609,9 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "casts_shadow": True,
             "source_radius": 0.0,
             "spread": 1.0,
+            "aperture_face_id": None,
+            "aperture_mesh_id": None,
+            "clip_epsilon": 1e-3,
         }
     if "pos" in light:
         result = {
@@ -1438,6 +1642,10 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "source_radius_t": _optional_number_track(light, "source_radius_t"),
             "spread": _optional_number_value(light, "spread", 1.0),
             "spread_t": _optional_number_track(light, "spread_t"),
+            "aperture_face_id": _optional_string_value(light, "aperture_face_id", None),
+            "aperture_mesh_id": _optional_string_value(light, "aperture_mesh_id", None),
+            "clip_epsilon": _optional_number_value(light, "clip_epsilon", 1e-3),
+            "clip_epsilon_t": _optional_number_track(light, "clip_epsilon_t"),
         }
     else:
         turns_per_cycle = _optional_number_value(light, "turns_per_cycle", 2.0)
@@ -1478,6 +1686,10 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "source_radius_t": _optional_number_track(light, "source_radius_t"),
             "spread": _optional_number_value(light, "spread", 1.0),
             "spread_t": _optional_number_track(light, "spread_t"),
+            "aperture_face_id": _optional_string_value(light, "aperture_face_id", None),
+            "aperture_mesh_id": _optional_string_value(light, "aperture_mesh_id", None),
+            "clip_epsilon": _optional_number_value(light, "clip_epsilon", 1e-3),
+            "clip_epsilon_t": _optional_number_track(light, "clip_epsilon_t"),
         }
     track_fields = [
         "pos",
@@ -1491,6 +1703,7 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
         "color",
         "source_radius",
         "spread",
+        "clip_epsilon",
     ]
     tracks: dict[str, Any] = {}
     for field_name in track_fields:
@@ -1500,6 +1713,8 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             tracks[field_name] = track_value
     if tracks:
         result["tracks"] = tracks
+    if result.get("aperture_face_id") and not result.get("aperture_mesh_id"):
+        result["aperture_mesh_id"] = result["aperture_face_id"]
     if result["motion"] not in {"fixed", "orbit", "oscillate"}:
         raise ValueError("native_scene lights motion must be fixed, orbit, or oscillate")
     result["casts_shadow"] = _optional_bool_value(light, "casts_shadow", True)
@@ -2333,6 +2548,8 @@ def _render_cube_hover_packets(spec: dict[str, Any]) -> str:
 
 
 def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
+    if spec.get("kind") == "scene_3d_views":
+        return _render_scene_3d_views_packets(spec)
     x, y, w, h = spec["rect"]
     frame_id = str(spec["frame_id"])
     payload = [
@@ -2380,38 +2597,41 @@ def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
 
 def _render_scene_3d_views_packets(spec: dict[str, Any]) -> str:
     commands: list[dict[str, Any]] = []
+    visible_index = 0
     for idx, view in enumerate(spec.get("views", [])):
         x, y, w, h = view["rect"]
-        commands.append(
-            {
-                "kind": "frame_upsert",
-                "id": str(view["frame_id"]),
-                "payload": {
-                    "spec": {
-                        "id": str(view["frame_id"]),
-                        "title": str(view["title"]),
-                        "title_align": "left",
-                        "rect": {"x": x, "y": y, "w": w, "h": h},
-                        "flags": {
-                            "draggable": True,
-                            "dockable": True,
-                            "resizable": True,
-                            "closable": True,
-                            "use_browser": True,
-                        },
-                        "alpha": 1.0,
-                        "master": idx == 0,
-                        "exit_counted": True,
-                        "dock_location": "bl" if idx == 0 else "br",
-                        "anchor": "tl",
-                        "body": None,
-                        "body_layout": None,
-                        "parent_id": None,
-                        "aspect": view.get("aspect"),
-                    }
-                },
-            }
-        )
+        if view.get("visible", True):
+            commands.append(
+                {
+                    "kind": "frame_upsert",
+                    "id": str(view["frame_id"]),
+                    "payload": {
+                        "spec": {
+                            "id": str(view["frame_id"]),
+                            "title": str(view["title"]),
+                            "title_align": "left",
+                            "rect": {"x": x, "y": y, "w": w, "h": h},
+                            "flags": {
+                                "draggable": True,
+                                "dockable": True,
+                                "resizable": True,
+                                "closable": True,
+                                "use_browser": True,
+                            },
+                            "alpha": 1.0,
+                            "master": visible_index == 0,
+                            "exit_counted": True,
+                            "dock_location": "bl" if visible_index == 0 else "br",
+                            "anchor": "tl",
+                            "body": None,
+                            "body_layout": None,
+                            "parent_id": None,
+                            "aspect": view.get("aspect"),
+                        }
+                    },
+                }
+            )
+            visible_index += 1
     payload = [
         {"seq": 1, "kind": "scene.replace", "payload": {"commands": commands}},
         {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
@@ -2855,6 +3075,8 @@ def _render_cube_hover_html(spec: dict[str, Any]) -> str:
 
 
 def _render_scene_3d_html(spec: dict[str, Any]) -> str:
+    if spec.get("kind") == "scene_3d_views":
+        return _render_scene_3d_views_html(spec)
     config_json = json.dumps({"scene_ir": spec.get("scene_ir", {})}, ensure_ascii=False)
     asset_version = _runtime_asset_version()
     return f"""<!DOCTYPE html>
@@ -2871,8 +3093,12 @@ def _render_scene_3d_html(spec: dict[str, Any]) -> str:
 
 
 def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
+    ordered_views = sorted(
+        spec.get("views", []),
+        key=lambda view: 0 if not view.get("visible", True) else 1,
+    )
     config_json = json.dumps(
-        [{"scene_ir": view.get("scene_ir", {})} for view in spec.get("views", [])],
+        [{"scene_ir": view.get("scene_ir", {})} for view in ordered_views],
         ensure_ascii=False,
     )
     asset_version = _runtime_asset_version()
