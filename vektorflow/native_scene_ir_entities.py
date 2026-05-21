@@ -142,6 +142,8 @@ def normalize_scene_ir_light_entity(light: dict[str, Any]) -> dict[str, Any]:
             "spread": "spread",
             "aperture_face_id": "aperture_face_id",
             "aperture_mesh_id": "aperture_mesh_id",
+            "reflect_of_light_id": "reflect_of_light_id",
+            "reflect_mirror_mesh_id": "reflect_mirror_mesh_id",
             "clip_epsilon": "clip_epsilon",
         },
         path="native_scene.light",
@@ -184,6 +186,8 @@ def normalize_scene_ir_light_entity(light: dict[str, Any]) -> dict[str, Any]:
     props.setdefault("source_radius", 0.0)
     props.setdefault("spread", 1.0)
     props.setdefault("clip_epsilon", 1e-3)
+    props.setdefault("reflect_of_light_id", None)
+    props.setdefault("reflect_mirror_mesh_id", None)
     aperture_face_id = props.pop("aperture_face_id", None)
     if aperture_face_id is not None and "aperture_mesh_id" not in props:
         props["aperture_mesh_id"] = aperture_face_id

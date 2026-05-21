@@ -1611,6 +1611,8 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "spread": 1.0,
             "aperture_face_id": None,
             "aperture_mesh_id": None,
+            "reflect_of_light_id": None,
+            "reflect_mirror_mesh_id": None,
             "clip_epsilon": 1e-3,
         }
     if "pos" in light:
@@ -1644,6 +1646,8 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "spread_t": _optional_number_track(light, "spread_t"),
             "aperture_face_id": _optional_string_value(light, "aperture_face_id", None),
             "aperture_mesh_id": _optional_string_value(light, "aperture_mesh_id", None),
+            "reflect_of_light_id": _optional_string_value(light, "reflect_of_light_id", None),
+            "reflect_mirror_mesh_id": _optional_string_value(light, "reflect_mirror_mesh_id", None),
             "clip_epsilon": _optional_number_value(light, "clip_epsilon", 1e-3),
             "clip_epsilon_t": _optional_number_track(light, "clip_epsilon_t"),
         }
@@ -1688,6 +1692,8 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "spread_t": _optional_number_track(light, "spread_t"),
             "aperture_face_id": _optional_string_value(light, "aperture_face_id", None),
             "aperture_mesh_id": _optional_string_value(light, "aperture_mesh_id", None),
+            "reflect_of_light_id": _optional_string_value(light, "reflect_of_light_id", None),
+            "reflect_mirror_mesh_id": _optional_string_value(light, "reflect_mirror_mesh_id", None),
             "clip_epsilon": _optional_number_value(light, "clip_epsilon", 1e-3),
             "clip_epsilon_t": _optional_number_track(light, "clip_epsilon_t"),
         }
