@@ -188,7 +188,7 @@ def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 
 _DIM_ORDER = "tijkuvw"
-_MESH_CHANNEL_RE = re.compile(r"^([xyz])(?:_([tijkuvw]+))?$")
+_MESH_CHANNEL_RE = re.compile(r"^([xyzc])(?:_([tijkuvw]+))?$")
 _COLOR_NAMES: dict[str, tuple[float, float, float, float]] = {
     "white": (1.0, 1.0, 1.0, 1.0),
     "black": (0.0, 0.0, 0.0, 1.0),

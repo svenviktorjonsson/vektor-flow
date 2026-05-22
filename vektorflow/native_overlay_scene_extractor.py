@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from . import ast
-from .runtime.axis_tagged import axis_tagged_wrap
+from .interpreter import Interpreter
+from .runtime.axis_tagged import axis_tagged_data, axis_tagged_idx, axis_tagged_wrap, is_axis_tagged_value
 
 _DEFAULT_INPUT_TITLE = "Input Surface"
 _DEFAULT_LOG_TITLE = "Native Log"
@@ -14,12 +16,37 @@ _DEFAULT_LOG_RECT = (0.48, 0.05, 0.46, 0.86)
 _UNSUPPORTED = object()
 
 
+def _materialize_interpreter_value(value: Any) -> Any:
+    if is_axis_tagged_value(value):
+        return axis_tagged_wrap(_materialize_interpreter_value(axis_tagged_data(value)), axis_tagged_idx(value))
+    if isinstance(value, dict):
+        return {key: _materialize_interpreter_value(item) for key, item in value.items()}
+    if isinstance(value, (str, bytes)) or value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_materialize_interpreter_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_materialize_interpreter_value(item) for item in value]
+    try:
+        return [_materialize_interpreter_value(item) for item in value]
+    except TypeError:
+        return value
+
+
 def find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
+    prefix: list[Any] = []
     for stmt in module.statements:
+        prefix.append(stmt)
         if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
-            value = eval_native_scene_literal(stmt.value, f"{name}")
+            interp = Interpreter(Path.cwd() / "__native_scene_extract__.vkf")
+            interp.run_module(ast.Module(statements=list(prefix)))
+            value = interp.globals.get(name, _UNSUPPORTED)
+            if value is _UNSUPPORTED:
+                value = eval_native_scene_literal(stmt.value, f"{name}")
+            else:
+                value = _materialize_interpreter_value(value)
             if not isinstance(value, dict):
-                raise ValueError(f"{name} must be a struct literal")
+                raise ValueError(f"{name} must be a struct value")
             return value
     return None
 

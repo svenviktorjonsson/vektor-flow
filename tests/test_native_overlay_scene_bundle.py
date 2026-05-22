@@ -1954,6 +1954,62 @@ def test_scene_3d_accepts_points_arrow_d_delaunay_3d_volumes(tmp_path: Path) -> 
     assert '"occluders": ["object_0"]' in program.html_text
 
 
+def test_scene_3d_accepts_field_mesh_objects_alongside_cubes(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_field_mesh_object.vkf"
+    path.write_text(
+        """
+math:.math
+u: [-1.0, 0.0, 1.0] -> u
+v: [-1.0, 0.0, 1.0] -> v
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "scene_3d_field_mesh_frame",
+    title: "Scene 3D Field Mesh Object",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    cube: (
+        center: [0.0, -1.8, 0.7],
+        size: 1.0,
+        face_color: [0.88, 0.24, 0.20, 1.0]
+    ),
+    objects: [
+        (
+            id: "wave_patch",
+            kind: "field_mesh",
+            x: u,
+            y: v,
+            z: math.sin(u + v),
+            center: [0.0, 1.6, 1.0],
+            scale: [0.8, 0.8, 0.35],
+            color: [0.18, 0.62, 0.96, 1.0],
+            interpolation: true,
+            depth_write: true
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    lights: [],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    assert '"kind": "field_mesh"' in program.html_text
+    assert '"id": "wave_patch"' in program.html_text
+    assert '"occluders": ["wave_patch", "cube_0"]' in program.html_text
+
+
 def test_scene_3d_scene_ir_separates_properties_from_embedding(tmp_path: Path) -> None:
     path = tmp_path / "ui_embedded_property_scene.vkf"
     path.write_text(EMBEDDED_PROPERTY_SOURCE, encoding="utf-8")

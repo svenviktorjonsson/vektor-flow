@@ -9,6 +9,19 @@ from .runtime.axis_tagged import axis_tagged_data, axis_tagged_idx, axis_tagged_
 _NATIVE_AXIS_SUFFIX_CHARS = frozenset("tijkuvwh")
 
 
+def _coerce_sequence(value: Any, *, path: str) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, (str, bytes, dict)) or value is None:
+        raise ValueError(f"{path} must be a list of light structs")
+    try:
+        return list(value)
+    except TypeError as exc:
+        raise ValueError(f"{path} must be a list of light structs") from exc
+
+
 def _optional_axis_value(scope: dict[str, Any], name: str) -> Any:
     direct = scope.get(name, _UNSUPPORTED)
     matches: list[tuple[str, Any]] = []
@@ -211,19 +224,13 @@ def normalize_scene_ir_light_entity_set(scope: dict[str, Any]) -> list[dict[str,
     lights_data = axis_tagged_data(lights_value) if is_axis_tagged_value(lights_value) else lights_value
     if has_lights and lights_axis is not None:
         if lights_axis == "i":
-            if not isinstance(lights_data, list):
-                raise ValueError("native_scene.lights -> i must wrap a list of light structs")
-            lights = [normalize_scene_ir_light_entity(light) for light in lights_data]
+            lights = [normalize_scene_ir_light_entity(light) for light in _coerce_sequence(lights_data, path="native_scene.lights")]
         elif lights_axis == "ij":
-            if not isinstance(lights_data, list):
-                raise ValueError("native_scene.lights -> ij must wrap a list of light rows")
-            lights = [normalize_scene_ir_light_entity(light) for row in lights_data for light in row]
+            lights = [normalize_scene_ir_light_entity(light) for row in _coerce_sequence(lights_data, path="native_scene.lights") for light in _coerce_sequence(row, path="native_scene.lights[]")]
         else:
             raise ValueError("native_scene.lights axis tag must be i or ij")
     elif has_lights:
-        if not isinstance(lights_data, list):
-            raise ValueError("native_scene.lights must be a list of light structs")
-        lights = [normalize_scene_ir_light_entity(light) for light in lights_data]
+        lights = [normalize_scene_ir_light_entity(light) for light in _coerce_sequence(lights_data, path="native_scene.lights")]
     else:
         lights = [normalize_scene_ir_light_entity(light_value if isinstance(light_value, dict) else {})]
     if len(lights) > 64:

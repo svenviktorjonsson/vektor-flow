@@ -381,16 +381,54 @@ def build_field_mesh_geometry(
             use_idxs.append(0 if sz == 1 else full_i)
         return float(_nested_get(ch["data"], tuple(use_idxs)))
 
+    def _sample_rgba(idx_tuple: tuple[int, ...]) -> tuple[float, float, float, float]:
+        if "c" not in channels:
+            return rgba
+        ch = channels["c"]
+        if not ch["dims"]:
+            return ui_stdlib._parse_color_rgba(ch["data"])
+        idx_map = {d: 0 for d in canonical_dims}
+        idx_map["t"] = current_t
+        for i, d in enumerate(sample_dims):
+            idx_map[d] = idx_tuple[i]
+        use_idxs: list[int] = []
+        for k, d in enumerate(ch["dims"]):
+            sz = int(ch["shape"][k])
+            full_i = idx_map.get(d, 0)
+            use_idxs.append(0 if sz == 1 else full_i)
+        return ui_stdlib._parse_color_rgba(_nested_get(ch["data"], tuple(use_idxs)))
+
+    def _sample_vertex_width(idx_tuple: tuple[int, ...]) -> float:
+        ch = meta.get("vertex_width_channel")
+        if not isinstance(ch, dict):
+            return 0.0
+        if not ch["dims"]:
+            return _nonnegative_float(ch["data"], "vertex_width")
+        idx_map = {d: 0 for d in canonical_dims}
+        idx_map["t"] = current_t
+        for i, d in enumerate(sample_dims):
+            idx_map[d] = idx_tuple[i]
+        use_idxs: list[int] = []
+        for k, d in enumerate(ch["dims"]):
+            sz = int(ch["shape"][k])
+            full_i = idx_map.get(d, 0)
+            use_idxs.append(0 if sz == 1 else full_i)
+        return _nonnegative_float(_nested_get(ch["data"], tuple(use_idxs)), "vertex_width")
+
     rgba = ui_stdlib._parse_color_rgba(meta.get("color"))
     interpolation = bool(meta.get("interpolation", False))
 
     points: list[tuple[float, float, float]] = []
+    point_rgba: list[tuple[float, float, float, float]] = []
+    point_widths: list[float] = []
     vindex: dict[tuple[int, ...], int] = {}
     for i, idx in enumerate(_iter_multi_index(cshape)):
         x = _sample("x", idx)
         y = _sample("y", idx)
         z = _sample("z", idx)
         points.append((x, y, z))
+        point_rgba.append(_sample_rgba(idx))
+        point_widths.append(_sample_vertex_width(idx))
         vindex[idx] = i
 
     manifold_dims = [d for d in "uvw" if d in dim_sizes and dim_sizes[d] > 1]
@@ -468,28 +506,53 @@ def build_field_mesh_geometry(
                     acc[ii][2] += n[2]
             for i, p in enumerate(points):
                 nx, ny, nz = _normalize3(acc[i][0], acc[i][1], acc[i][2])
-                vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
+                prgba = point_rgba[i]
+                vertices.extend([p[0], p[1], p[2], nx, ny, nz, prgba[0], prgba[1], prgba[2], prgba[3]])
             indices = list(base_indices)
         else:
-            for t in range(0, len(base_indices), 3):
+            t = 0
+            while t < len(base_indices):
+                if (
+                    t + 5 < len(base_indices)
+                    and base_indices[t + 3] == base_indices[t]
+                    and base_indices[t + 4] == base_indices[t + 2]
+                ):
+                    ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
+                    id_ = base_indices[t + 5]
+                    a, b, c, d = points[ia], points[ib], points[ic], points[id_]
+                    nx, ny, nz = _face_normal(a, b, c)
+                    quad_rgba = _avg_rgba([point_rgba[ia], point_rgba[ib], point_rgba[ic], point_rgba[id_]])
+                    base = len(vertices) // 10
+                    for p in (a, b, c, a, c, d):
+                        vertices.extend([p[0], p[1], p[2], nx, ny, nz, quad_rgba[0], quad_rgba[1], quad_rgba[2], quad_rgba[3]])
+                    indices.extend([base, base + 1, base + 2, base + 3, base + 4, base + 5])
+                    t += 6
+                    continue
                 ia, ib, ic = base_indices[t], base_indices[t + 1], base_indices[t + 2]
                 a, b, c = points[ia], points[ib], points[ic]
                 nx, ny, nz = _face_normal(a, b, c)
+                tri_rgba = _avg_rgba([point_rgba[ia], point_rgba[ib], point_rgba[ic]])
                 base = len(vertices) // 10
                 for p in (a, b, c):
-                    vertices.extend([p[0], p[1], p[2], nx, ny, nz, rgba[0], rgba[1], rgba[2], rgba[3]])
+                    vertices.extend([p[0], p[1], p[2], nx, ny, nz, tri_rgba[0], tri_rgba[1], tri_rgba[2], tri_rgba[3]])
                 indices.extend([base, base + 1, base + 2])
+                t += 3
     else:
-        for p in points:
-            vertices.extend([p[0], p[1], p[2], 0.0, 0.0, 1.0, rgba[0], rgba[1], rgba[2], rgba[3]])
+        for i, p in enumerate(points):
+            prgba = point_rgba[i]
+            vertices.extend([p[0], p[1], p[2], 0.0, 0.0, 1.0, prgba[0], prgba[1], prgba[2], prgba[3]])
         indices = list(base_indices)
+
+    alpha = float(rgba[3])
+    if point_rgba:
+        alpha = max(float(prgba[3]) for prgba in point_rgba)
 
     return {
         "vertices": vertices,
         "indices": indices,
         "topology": topology,
         "interpolation": interpolation,
-        "alpha": float(rgba[3]),
+        "alpha": alpha,
         "time_boundary": normalize_field_mesh_time_boundary(
             meta.get("time_boundary", meta.get("t_boundary", meta.get("time_mode", meta.get("t_mode", "stop"))))
         ),
@@ -499,6 +562,7 @@ def build_field_mesh_geometry(
         "solid_volume": manifold_dim_count >= 3,
         "vertex_size": vertex_size,
         "edge_width": edge_width,
+        "vertex_widths": point_widths,
     }
 
 
@@ -541,6 +605,18 @@ def _extend_boundary_faces(
         indices.extend([c001, c011, c111, c001, c111, c101])
 
 
+def _avg_rgba(samples: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float]:
+    if not samples:
+        return (1.0, 1.0, 1.0, 1.0)
+    inv = 1.0 / float(len(samples))
+    return (
+        sum(float(s[0]) for s in samples) * inv,
+        sum(float(s[1]) for s in samples) * inv,
+        sum(float(s[2]) for s in samples) * inv,
+        sum(float(s[3]) for s in samples) * inv,
+    )
+
+
 def _overlay_size_policy(meta: dict[str, Any], manifold_dim_count: int) -> tuple[float, float]:
     if manifold_dim_count == 0:
         default_vertex_size = 4.0
@@ -557,6 +633,25 @@ def _overlay_size_policy(meta: dict[str, Any], manifold_dim_count: int) -> tuple
     )
 
 
+def _normalize_field_mesh_render_mode(value: Any) -> str:
+    mode = str(value or "proxy_geometry").strip().lower()
+    if mode in ("proxy_geometry", "proxy", "proxy_mesh", "geometry", "real_geometry"):
+        return "proxy_geometry"
+    if mode in ("marker", "impostor", "marker_impostor", "analytical_marker"):
+        return "marker_impostor"
+    raise ValueError("render_mode must be 'proxy_geometry' or 'marker_impostor'")
+
+
+def _normalize_field_mesh_marker_space(value: Any, render_mode: str) -> str:
+    default_space = "pixel" if render_mode == "marker_impostor" else "world"
+    space = str(value or default_space).strip().lower()
+    if space in ("pixel", "pixels", "screen"):
+        return "pixel"
+    if space in ("world", "scene"):
+        return "world"
+    raise ValueError("marker_space must be 'pixel' or 'world'")
+
+
 def _nonnegative_float(value: Any, name: str) -> float:
     out = float(value)
     if out < 0:
@@ -569,7 +664,8 @@ def parse_field_mesh_channels_and_meta(kwargs: dict[str, Any]) -> tuple[dict[str
     channels: dict[str, dict[str, Any]] = {}
     meta: dict[str, Any] = {}
     for key, value in kwargs.items():
-        m = ui_stdlib._MESH_CHANNEL_RE.match(str(key))
+        key_str = str(key)
+        m = ui_stdlib._MESH_CHANNEL_RE.match(key_str)
         if m:
             axis = m.group(1)
             dims = str(m.group(2) or "")
@@ -582,6 +678,18 @@ def parse_field_mesh_channels_and_meta(kwargs: dict[str, Any]) -> tuple[dict[str
                 dims = inferred_dims
                 value = value.data
             channels[axis] = _parse_mesh_channel(axis, dims, value)
+        elif key_str.startswith("vertex_width"):
+            suffix = key_str[len("vertex_width") :]
+            dims = suffix[1:] if suffix.startswith("_") else ""
+            if isinstance(value, AxisTaggedValue):
+                inferred_dims = value.idx
+                if dims and dims != inferred_dims:
+                    raise ValueError(
+                        f"ui.add(...) channel {key!r} conflicts with value indices {inferred_dims!r}"
+                    )
+                dims = inferred_dims
+                value = value.data
+            meta["vertex_width_channel"] = _parse_mesh_channel("vertex_width", dims, value)
         else:
             meta[key] = value
     return channels, meta
@@ -600,6 +708,10 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         meta,
         time_index=int(meta.get("t", 0)),
     )
+    render_mode = _normalize_field_mesh_render_mode(meta.get("render_mode", "proxy_geometry"))
+    marker_space = _normalize_field_mesh_marker_space(meta.get("marker_space"), render_mode)
+    casts_shadow = bool(meta.get("casts_shadow", render_mode != "marker_impostor"))
+    receives_lighting = bool(meta.get("receives_lighting", True))
 
     return {
         "type": "field_mesh",
@@ -620,6 +732,11 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "solid_volume": geom["solid_volume"],
         "vertex_size": geom["vertex_size"],
         "edge_width": geom["edge_width"],
+        "vertex_widths": geom["vertex_widths"],
+        "render_mode": render_mode,
+        "marker_space": marker_space,
+        "casts_shadow": casts_shadow,
+        "receives_lighting": receives_lighting,
         "depth_write": bool(meta.get("depth_write", False)),
     }
 
@@ -636,6 +753,24 @@ def _parse_mesh_channel(
         if d not in ui_stdlib._DIM_ORDER:
             raise ValueError(f"unsupported dimension {d!r}; use only {ui_stdlib._DIM_ORDER!r}")
     shape = _shape_of_nested(value)
+    if axis == "c":
+        if len(shape) == len(dims) + 1 and shape[-1] in (3, 4):
+            return {
+                "axis": axis,
+                "dims": dims,
+                "shape": shape[:-1],
+                "color_width": int(shape[-1]),
+                "data": value,
+            }
+        raise ValueError(
+            f"{axis}_{dims}: color channel must have trailing rgb/rgba width; got shape {shape}"
+        )
+    if axis == "vertex_width":
+        if len(shape) != len(dims):
+            raise ValueError(
+                f"{axis}_{dims}: rank mismatch; got array rank {len(shape)} for {len(dims)} dims"
+            )
+        return {"axis": axis, "dims": dims, "shape": shape, "data": value}
     if len(shape) != len(dims):
         raise ValueError(
             f"{axis}_{dims}: rank mismatch; got array rank {len(shape)} for {len(dims)} dims"

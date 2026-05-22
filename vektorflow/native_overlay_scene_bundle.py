@@ -15,6 +15,7 @@ from . import native_scene_ir_builder as _ir_builder
 from . import native_scene_ir_entities as _ir_entities
 from . import native_scene_topology as _topology
 from .runtime.axis_tagged import axis_tagged_data, axis_tagged_idx, axis_tagged_wrap, is_axis_tagged_value
+from .ui.representation_runtime import build_field_mesh_from_kwargs as _build_field_mesh_from_kwargs
 
 
 _DEFAULT_INPUT_TITLE = "Input Surface"
@@ -163,7 +164,28 @@ def _lower_scene_3d_surface_camera_mirrors_to_views(declared: dict[str, Any]) ->
                     plane_point,
                     plane_normal,
                 )
-            hidden_camera["target"] = plane_point
+            target_seed = hidden_camera.get("target")
+            if isinstance(visible_camera, dict) and isinstance(visible_camera.get("target"), list):
+                target_seed = copy.deepcopy(visible_camera.get("target"))
+            reflect_eye_only = (
+                isinstance(mirror_of, dict)
+                and bool(mirror_of.get("reflect_eye_only", True))
+            )
+            if isinstance(target_seed, list) and len(target_seed) == 3:
+                if reflect_eye_only:
+                    hidden_camera["target"] = [
+                        float(target_seed[0]),
+                        float(target_seed[1]),
+                        float(target_seed[2]),
+                    ]
+                else:
+                    hidden_camera["target"] = _reflect_point_across_plane(
+                        [float(target_seed[0]), float(target_seed[1]), float(target_seed[2])],
+                        plane_point,
+                        plane_normal,
+                    )
+            else:
+                hidden_camera["target"] = plane_point
         hidden_surfaces = hidden_decl.get("surfaces")
         if isinstance(hidden_surfaces, list) and index < len(hidden_surfaces) and isinstance(hidden_surfaces[index], dict):
             hidden_surfaces[index]["surface_system"] = None
@@ -392,12 +414,26 @@ def _normalize_add_simplices_spec(value: Any, *, path: str) -> dict[str, list[li
     return _topology.normalize_add_simplices_spec(value, path=path)
 
 
+def _coerce_sequence(value: Any, *, path: str) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, (str, bytes, dict)) or value is None:
+        raise ValueError(f"{path} must be a list")
+    try:
+        return list(value)
+    except TypeError as exc:
+        raise ValueError(f"{path} must be a list") from exc
+
+
 def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
     lowered_views = _lower_scene_3d_surface_camera_mirrors_to_views(declared)
     if lowered_views is not None:
         return lowered_views
     cube = _optional_struct_value(declared, "cube")
     obj = _optional_struct_value(declared, "object")
+    objs_value = _optional_axis_value(declared, "objects")
     plane = _require_struct_value(declared, "plane")
     shadow = _require_struct_value(declared, "shadow")
     cubes_value = _optional_axis_value(declared, "cubes")
@@ -407,317 +443,360 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("native_scene.scene_3d uses surfaces, not quads")
     has_cube = cube is not None
     has_cubes = cubes_value is not None
+    has_object = obj is not None
+    has_objects = objs_value is not None
     has_surfaces = surfaces_value is not None
-    if not has_cube and not has_cubes and obj is None and not has_surfaces:
-        raise ValueError("native_scene.scene_3d requires cube, cubes, object, or surfaces")
-    if sum(1 for flag in (has_cube, has_cubes, obj is not None) if flag) > 1:
-        raise ValueError("native_scene.scene_3d accepts only one of cube, cubes, or object")
+    if not has_cube and not has_cubes and not has_object and not has_objects and not has_surfaces:
+        raise ValueError("native_scene.scene_3d requires cube, cubes, object, objects, or surfaces")
+    if sum(1 for flag in (has_cube, has_cubes) if flag) > 1:
+        raise ValueError("native_scene.scene_3d accepts only one of cube or cubes")
+    if sum(1 for flag in (has_object, has_objects) if flag) > 1:
+        raise ValueError("native_scene.scene_3d accepts only one of object or objects")
+
     cube_spec = None
-    object_mesh = None
-    object_mesh_entity = None
-    if obj is not None:
-        object_kind_declared = _optional_string_value(obj, "kind", "")
-        if object_kind_declared and object_kind_declared not in {"random_hull", "convex_hull", "simplices"}:
-            raise ValueError("native_scene.object.kind must be random_hull, convex_hull, or simplices")
-        obj_props, obj_embedding = _normalize_native_named_parameters(
-            obj,
-            default_embedding={
-                "center": "center",
-                "radius": "radius",
-                "count": "count",
-                "seed": "seed",
-                "stretch": "stretch",
-                "jitter": "jitter",
-                "points": "points",
-                "add_simplices": "add_simplices",
-                "face_color": "face_color",
-                "edge_color": "edge_color",
-                "edge_width": "edge_width",
-                "edge_caps": "edge_caps",
-                "edge_lift": "edge_lift",
-                "show_edges": "show_edges",
-                "vertex_color": "vertex_color",
-                "vertex_size": "vertex_size",
-                "vertex_lift": "vertex_lift",
-                "show_vertices": "show_vertices",
-                "color": "color",
-                "center": "center",
-                "size": "size",
-                "rotation": "rotation",
-                "transform": "transform",
-                "surface_system": "surface_system",
-                "texture": "texture",
-            },
+    cube_specs: list[dict[str, Any]] = []
+    object_meshes: list[dict[str, Any]] = []
+    object_mesh_entities: list[dict[str, Any]] = []
+    public_objects: list[dict[str, Any]] = []
+
+    object_specs_raw: list[dict[str, Any]] = []
+    if has_objects:
+        objects_axis = axis_tagged_idx(objs_value) if is_axis_tagged_value(objs_value) else None
+        objects_data = axis_tagged_data(objs_value) if is_axis_tagged_value(objs_value) else objs_value
+        if objects_axis not in {None, "i"}:
+            raise ValueError("native_scene.objects axis tag must be i")
+        for object_index, object_item in enumerate(_coerce_sequence(objects_data, path="native_scene.objects")):
+            if not isinstance(object_item, dict):
+                raise ValueError(f"native_scene.objects[{object_index}] must be a struct")
+            object_specs_raw.append(object_item)
+    elif has_object:
+        object_specs_raw = [obj]
+
+    field_mesh_defaults = {
+        "id": "id",
+        "center": "center",
+        "scale": "scale",
+        "rotation": "rotation",
+        "color": "color",
+        "vertex_size": "vertex_size",
+        "edge_width": "edge_width",
+        "depth_write": "depth_write",
+        "interpolation": "interpolation",
+        "x": "x",
+        "y": "y",
+        "z": "z",
+    }
+    for axis_dims in ("t", "i", "j", "k", "u", "v", "w", "uv", "uvw"):
+        for axis_name in ("x", "y", "z"):
+            field_mesh_defaults[f"{axis_name}_{axis_dims}"] = f"{axis_name}_{axis_dims}"
+
+    for object_index, object_decl in enumerate(object_specs_raw):
+        object_path = "native_scene.object" if len(object_specs_raw) == 1 and has_object else f"native_scene.objects[{object_index}]"
+        object_kind_declared = _optional_string_value(object_decl, "kind", "")
+        if object_kind_declared and object_kind_declared not in {"random_hull", "convex_hull", "simplices", "quad", "field_mesh"}:
+            raise ValueError("native_scene.object.kind must be random_hull, convex_hull, simplices, quad, or field_mesh")
+        object_defaults = {
+            "id": "id",
+            "center": "center",
+            "radius": "radius",
+            "count": "count",
+            "seed": "seed",
+            "stretch": "stretch",
+            "jitter": "jitter",
+            "points": "points",
+            "add_simplices": "add_simplices",
+            "face_color": "face_color",
+            "edge_color": "edge_color",
+            "edge_width": "edge_width",
+            "edge_caps": "edge_caps",
+            "edge_lift": "edge_lift",
+            "show_edges": "show_edges",
+            "vertex_color": "vertex_color",
+            "vertex_size": "vertex_size",
+            "vertex_lift": "vertex_lift",
+            "show_vertices": "show_vertices",
+            "color": "color",
+            "size": "size",
+            "rotation": "rotation",
+            "transform": "transform",
+            "surface_system": "surface_system",
+            "texture": "texture",
+            "visible": "visible",
+            "no_backface_specular": "no_backface_specular",
+            **field_mesh_defaults,
+        }
+        object_props, object_embedding = _normalize_native_named_parameters(
+            object_decl,
+            default_embedding=object_defaults,
             reserved={"kind"},
-            path="native_scene.object",
+            path=object_path,
         )
-        embedded_points = _embedded_named_property(obj_props, obj_embedding, "points", None)
+        embedded_points = _embedded_named_property(object_props, object_embedding, "points", None)
         embedded_points_axis = axis_tagged_idx(embedded_points) if is_axis_tagged_value(embedded_points) else None
-        embedded_simplices = _embedded_named_property(obj_props, obj_embedding, "add_simplices", None)
+        embedded_simplices = _embedded_named_property(object_props, object_embedding, "add_simplices", None)
         if embedded_points_axis not in {None, "h", "hi", "d"}:
             raise ValueError("native_scene.object points supports -> h, -> hi, or -> d only right now")
         object_kind = object_kind_declared or ("simplices" if embedded_simplices is not None or embedded_points_axis == "d" else ("convex_hull" if embedded_points_axis in {"h", "hi"} else "random_hull"))
-        if object_kind not in {"random_hull", "convex_hull", "simplices", "quad"}:
-            raise ValueError("native_scene.object.kind must be random_hull, convex_hull, simplices, or quad")
-        if embedded_points_axis in {"h", "hi"} and object_kind != "convex_hull":
-            raise ValueError("native_scene.object points -> h/hi requires convex_hull lowering")
-        if embedded_points_axis == "d" and object_kind != "simplices":
-            raise ValueError("native_scene.object points -> d requires simplices lowering")
-        if object_kind == "simplices" and embedded_simplices is None and embedded_points_axis != "d":
-            raise ValueError("native_scene.object.kind simplices requires add_simplices")
-        if object_kind == "simplices" and embedded_points is None:
-            raise ValueError("native_scene.object.kind simplices requires points")
-        object_meshes: list[dict[str, Any]] = []
-        object_mesh_entities: list[dict[str, Any]] = []
-        if object_kind == "quad":
-            quad_props = dict(obj_props)
+        if object_kind == "field_mesh":
+            field_mesh_payload = _build_field_mesh_from_kwargs(dict(object_props))
+            mesh_id = str(field_mesh_payload.get("id") or f"object_{object_index}")
+            field_mesh_entity_props = {key: value for key, value in field_mesh_payload.items() if key != "type"}
             object_meshes.append({
-                "id": "object_0",
-                "kind": "quad",
-                "center": _embedded_named_property(obj_props, obj_embedding, "center", [0.0, 0.0, 0.0]),
-                "size": _embedded_named_property(obj_props, obj_embedding, "size", [1.0, 1.0]),
-                "rotation": _embedded_named_property(obj_props, obj_embedding, "rotation", [0.0, 0.0, 0.0]),
-                "transform": _embedded_named_property(obj_props, obj_embedding, "transform", None),
-                "color": _embedded_named_property(obj_props, obj_embedding, "color", [0.84, 0.86, 0.90, 1.0]),
-                "surface_system": _embedded_named_property(obj_props, obj_embedding, "surface_system", None),
-                "texture": _embedded_named_property(obj_props, obj_embedding, "texture", None),
-                "no_backface_specular": _embedded_named_property(obj_props, obj_embedding, "no_backface_specular", False),
+                **field_mesh_payload,
+                "id": mesh_id,
+                "kind": "field_mesh",
             })
+            public_objects.append({"id": mesh_id, "kind": "field_mesh"})
             object_mesh_entities.append(
                 _scene_ir_mesh_entity(
-                    mesh_id="object_0",
+                    mesh_id=mesh_id,
+                    kind="field_mesh",
+                    properties=field_mesh_entity_props,
+                    embedding={},
+                )
+            )
+            continue
+        if object_kind == "quad":
+            mesh_id = str(_embedded_named_property(object_props, object_embedding, "id", f"object_{object_index}"))
+            object_meshes.append({
+                "id": mesh_id,
+                "kind": "quad",
+                "center": _embedded_named_property(object_props, object_embedding, "center", [0.0, 0.0, 0.0]),
+                "size": _embedded_named_property(object_props, object_embedding, "size", [1.0, 1.0]),
+                "rotation": _embedded_named_property(object_props, object_embedding, "rotation", [0.0, 0.0, 0.0]),
+                "transform": _embedded_named_property(object_props, object_embedding, "transform", None),
+                "color": _embedded_named_property(object_props, object_embedding, "color", [0.84, 0.86, 0.90, 1.0]),
+                "surface_system": _embedded_named_property(object_props, object_embedding, "surface_system", None),
+                "texture": _embedded_named_property(object_props, object_embedding, "texture", None),
+                "visible": _embedded_named_property(object_props, object_embedding, "visible", True),
+                "no_backface_specular": _embedded_named_property(object_props, object_embedding, "no_backface_specular", False),
+            })
+            public_objects.append({"id": mesh_id, "kind": "quad"})
+            object_mesh_entities.append(
+                _scene_ir_mesh_entity(
+                    mesh_id=mesh_id,
                     kind="quad",
-                    properties=quad_props,
-                    embedding=obj_embedding,
+                    properties=object_props,
+                    embedding=object_embedding,
                     tracks=_normalize_native_named_tracks(
-                        declared["object"],
-                        obj_props,
-                        obj_embedding,
-                        legacy_canonical_names=("center", "size", "rotation", "transform", "color", "surface_system", "texture", "no_backface_specular"),
-                        path="native_scene.object",
+                        object_decl,
+                        object_props,
+                        object_embedding,
+                        legacy_canonical_names=("center", "size", "rotation", "transform", "color", "surface_system", "texture", "visible", "no_backface_specular"),
+                        path=object_path,
                     ),
                 )
             )
-        elif object_kind == "convex_hull":
+            continue
+        if object_kind == "convex_hull":
             point_sets, point_mode = _require_hull_point_sets(
-                _embedded_named_property(obj_props, obj_embedding, "points", []) or [],
-                path="native_scene.object.points",
+                _embedded_named_property(object_props, object_embedding, "points", []) or [],
+                path=f"{object_path}.points",
             )
             face_color_value = _embedded_named_property(
-                obj_props, obj_embedding, "face_color",
-                _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+                object_props, object_embedding, "face_color",
+                _embedded_named_property(object_props, object_embedding, "color", [0.96, 0.22, 0.16, 1.0])
             )
-            for object_index, point_set in enumerate(point_sets):
+            base_mesh_id = str(_embedded_named_property(object_props, object_embedding, "id", f"object_{object_index}"))
+            public_objects.append({"id": base_mesh_id, "kind": "convex_hull"})
+            for hull_index, point_set in enumerate(point_sets):
                 if len(point_set) < 4:
                     raise ValueError("native_scene.object.points must contain at least 4 [x, y, z] points")
-                face_color = _slice_axis_i_property(face_color_value, object_index, path="native_scene.object.face_color") if point_mode == "hi" else face_color_value
-                mesh_id = f"object_{object_index}"
+                face_color = _slice_axis_i_property(face_color_value, hull_index, path=f"{object_path}.face_color") if point_mode == "hi" else face_color_value
+                mesh_id = base_mesh_id if len(point_sets) == 1 else f"{base_mesh_id}_{hull_index}"
                 object_meshes.append({
                     "id": mesh_id,
                     "kind": "convex_hull",
                     "points": point_set,
                     "face_color": face_color,
-                    "edge_color": _embedded_named_property(obj_props, obj_embedding, "edge_color", [0.12, 0.16, 0.22, 1.0]),
-                    "edge_width": _embedded_named_property(obj_props, obj_embedding, "edge_width", 0.03),
-                    "edge_caps": _embedded_named_property(obj_props, obj_embedding, "edge_caps", True),
-                    "edge_lift": _embedded_named_property(obj_props, obj_embedding, "edge_lift", 0.003),
-                    "show_edges": _embedded_named_property(obj_props, obj_embedding, "show_edges", True),
-                    "vertex_color": _embedded_named_property(
-                        obj_props,
-                        obj_embedding,
-                        "vertex_color",
-                        face_color,
-                    ),
-                    "vertex_size": _embedded_named_property(obj_props, obj_embedding, "vertex_size", 0.06),
-                    "vertex_lift": _embedded_named_property(obj_props, obj_embedding, "vertex_lift", 0.006),
-                    "show_vertices": _embedded_named_property(obj_props, obj_embedding, "show_vertices", True),
+                    "edge_color": _embedded_named_property(object_props, object_embedding, "edge_color", [0.12, 0.16, 0.22, 1.0]),
+                    "edge_width": _embedded_named_property(object_props, object_embedding, "edge_width", 0.03),
+                    "edge_caps": _embedded_named_property(object_props, object_embedding, "edge_caps", True),
+                    "edge_lift": _embedded_named_property(object_props, object_embedding, "edge_lift", 0.003),
+                    "show_edges": _embedded_named_property(object_props, object_embedding, "show_edges", True),
+                    "vertex_color": _embedded_named_property(object_props, object_embedding, "vertex_color", face_color),
+                    "vertex_size": _embedded_named_property(object_props, object_embedding, "vertex_size", 0.06),
+                    "vertex_lift": _embedded_named_property(object_props, object_embedding, "vertex_lift", 0.006),
+                    "show_vertices": _embedded_named_property(object_props, object_embedding, "show_vertices", True),
                 })
                 mesh_props = {
-                    key: (_slice_axis_i_property(value, object_index, path=f"native_scene.object.{key}") if point_mode == "hi" and key != obj_embedding.get("points", "points") else value)
-                    for key, value in obj_props.items()
+                    key: (_slice_axis_i_property(value, hull_index, path=f"{object_path}.{key}") if point_mode == "hi" and key != object_embedding.get("points", "points") else value)
+                    for key, value in object_props.items()
                 }
-                point_prop_name = str(obj_embedding.get("points", "points"))
+                point_prop_name = str(object_embedding.get("points", "points"))
                 mesh_props[point_prop_name] = point_set
                 object_mesh_entities.append(
                     _scene_ir_mesh_entity(
                         mesh_id=mesh_id,
                         kind="convex_hull",
                         properties=mesh_props,
-                        embedding=obj_embedding,
+                        embedding=object_embedding,
                     )
                 )
-        elif object_kind == "simplices":
+            continue
+        if object_kind == "simplices":
             point_matrix = _require_number_matrix_value(
-                _embedded_named_property(obj_props, obj_embedding, "points", []) or [],
-                path="native_scene.object.points",
+                _embedded_named_property(object_props, object_embedding, "points", []) or [],
+                path=f"{object_path}.points",
                 row_length=3,
             )
             simplices_spec = (
-                _delaunay_simplices(point_matrix, path="native_scene.object.points")
+                _delaunay_simplices(point_matrix, path=f"{object_path}.points")
                 if embedded_points_axis == "d"
-                else _normalize_add_simplices_spec(embedded_simplices, path="native_scene.object.add_simplices")
+                else _normalize_add_simplices_spec(embedded_simplices, path=f"{object_path}.add_simplices")
             )
+            mesh_id = str(_embedded_named_property(object_props, object_embedding, "id", f"object_{object_index}"))
             object_meshes.append({
-                "id": "object_0",
+                "id": mesh_id,
                 "kind": "simplices",
                 "points": point_matrix,
                 "add_simplices": simplices_spec,
                 "face_color": _embedded_named_property(
-                    obj_props, obj_embedding, "face_color",
-                    _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+                    object_props, object_embedding, "face_color",
+                    _embedded_named_property(object_props, object_embedding, "color", [0.96, 0.22, 0.16, 1.0])
                 ),
-                "edge_color": _embedded_named_property(obj_props, obj_embedding, "edge_color", [0.12, 0.16, 0.22, 1.0]),
-                "edge_width": _embedded_named_property(obj_props, obj_embedding, "edge_width", 0.03),
-                "edge_caps": _embedded_named_property(obj_props, obj_embedding, "edge_caps", True),
-                "edge_lift": _embedded_named_property(obj_props, obj_embedding, "edge_lift", 0.003),
-                "show_edges": _embedded_named_property(obj_props, obj_embedding, "show_edges", True),
+                "edge_color": _embedded_named_property(object_props, object_embedding, "edge_color", [0.12, 0.16, 0.22, 1.0]),
+                "edge_width": _embedded_named_property(object_props, object_embedding, "edge_width", 0.03),
+                "edge_caps": _embedded_named_property(object_props, object_embedding, "edge_caps", True),
+                "edge_lift": _embedded_named_property(object_props, object_embedding, "edge_lift", 0.003),
+                "show_edges": _embedded_named_property(object_props, object_embedding, "show_edges", True),
                 "vertex_color": _embedded_named_property(
-                    obj_props,
-                    obj_embedding,
+                    object_props,
+                    object_embedding,
                     "vertex_color",
                     _embedded_named_property(
-                        obj_props,
-                        obj_embedding,
+                        object_props,
+                        object_embedding,
                         "face_color",
-                        _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0]),
+                        _embedded_named_property(object_props, object_embedding, "color", [0.96, 0.22, 0.16, 1.0]),
                     ),
                 ),
-                "vertex_size": _embedded_named_property(obj_props, obj_embedding, "vertex_size", 0.06),
-                "vertex_lift": _embedded_named_property(obj_props, obj_embedding, "vertex_lift", 0.006),
-                "show_vertices": _embedded_named_property(obj_props, obj_embedding, "show_vertices", True),
+                "vertex_size": _embedded_named_property(object_props, object_embedding, "vertex_size", 0.06),
+                "vertex_lift": _embedded_named_property(object_props, object_embedding, "vertex_lift", 0.006),
+                "show_vertices": _embedded_named_property(object_props, object_embedding, "show_vertices", True),
             })
-            simplices_prop_name = str(obj_embedding.get("add_simplices", "add_simplices"))
-            simplices_props = dict(obj_props)
+            public_objects.append({"id": mesh_id, "kind": "simplices"})
+            simplices_prop_name = str(object_embedding.get("add_simplices", "add_simplices"))
+            simplices_props = dict(object_props)
             simplices_props[simplices_prop_name] = simplices_spec
-            point_prop_name = str(obj_embedding.get("points", "points"))
+            point_prop_name = str(object_embedding.get("points", "points"))
             simplices_props[point_prop_name] = point_matrix
             object_mesh_entities.append(
                 _scene_ir_mesh_entity(
-                    mesh_id="object_0",
+                    mesh_id=mesh_id,
                     kind="simplices",
                     properties=simplices_props,
-                    embedding=obj_embedding,
+                    embedding=object_embedding,
                 )
             )
-        else:
-            object_spec = {
-                "center": _embedded_named_property(obj_props, obj_embedding, "center", [0.0, 0.0, 1.2]),
-                "radius": _embedded_named_property(obj_props, obj_embedding, "radius", 1.1),
-                "count": _embedded_named_property(obj_props, obj_embedding, "count", 100),
-                "seed": _embedded_named_property(obj_props, obj_embedding, "seed", 7),
-                "stretch": _embedded_named_property(obj_props, obj_embedding, "stretch", [1.0, 0.84, 1.28]),
-                "jitter": _embedded_named_property(obj_props, obj_embedding, "jitter", 0.28),
-                "face_color": _embedded_named_property(
-                    obj_props, obj_embedding, "face_color",
-                    _embedded_named_property(obj_props, obj_embedding, "color", [0.96, 0.22, 0.16, 1.0])
-                ),
-            }
-            object_meshes.append({
-                "id": "object_0",
-                "kind": "random_hull",
-                **object_spec,
-            })
-            object_mesh_entities.append(
-                _scene_ir_mesh_entity(
-                    mesh_id="object_0",
-                    kind="random_hull",
-                    properties=obj_props,
-                    embedding=obj_embedding,
-                )
+            continue
+        mesh_id = str(_embedded_named_property(object_props, object_embedding, "id", f"object_{object_index}"))
+        object_meshes.append({
+            "id": mesh_id,
+            "kind": "random_hull",
+            "center": _embedded_named_property(object_props, object_embedding, "center", [0.0, 0.0, 1.2]),
+            "radius": _embedded_named_property(object_props, object_embedding, "radius", 1.1),
+            "count": _embedded_named_property(object_props, object_embedding, "count", 100),
+            "seed": _embedded_named_property(object_props, object_embedding, "seed", 7),
+            "stretch": _embedded_named_property(object_props, object_embedding, "stretch", [1.0, 0.84, 1.28]),
+            "jitter": _embedded_named_property(object_props, object_embedding, "jitter", 0.28),
+            "face_color": _embedded_named_property(
+                object_props, object_embedding, "face_color",
+                _embedded_named_property(object_props, object_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+            ),
+        })
+        public_objects.append({"id": mesh_id, "kind": "random_hull"})
+        object_mesh_entities.append(
+            _scene_ir_mesh_entity(
+                mesh_id=mesh_id,
+                kind="random_hull",
+                properties=object_props,
+                embedding=object_embedding,
             )
-        object_mesh = object_meshes[0]
-        object_mesh_entity = object_mesh_entities[0]
+        )
+
+    cube_specs_raw: list[dict[str, Any]]
+    if has_cubes:
+        cubes_axis = axis_tagged_idx(cubes_value) if is_axis_tagged_value(cubes_value) else None
+        cubes_data = axis_tagged_data(cubes_value) if is_axis_tagged_value(cubes_value) else cubes_value
+        if cubes_axis not in {None, "i"}:
+            raise ValueError("native_scene.cubes axis tag must be i")
+        cube_specs_raw = []
+        for cube_index, cube_item in enumerate(_coerce_sequence(cubes_data, path="native_scene.cubes")):
+            if not isinstance(cube_item, dict):
+                raise ValueError(f"native_scene.cubes[{cube_index}] must be a struct")
+            cube_specs_raw.append(cube_item)
+    elif has_cube:
+        cube_specs_raw = [cube]
     else:
-        cube_specs_raw: list[dict[str, Any]]
-        if has_cubes:
-            cubes_axis = axis_tagged_idx(cubes_value) if is_axis_tagged_value(cubes_value) else None
-            cubes_data = axis_tagged_data(cubes_value) if is_axis_tagged_value(cubes_value) else cubes_value
-            if cubes_axis not in {None, "i"}:
-                raise ValueError("native_scene.cubes axis tag must be i")
-            if not isinstance(cubes_data, list):
-                raise ValueError("native_scene.cubes must be a list of cube structs")
-            cube_specs_raw = []
-            for cube_index, cube_item in enumerate(cubes_data):
-                if not isinstance(cube_item, dict):
-                    raise ValueError(f"native_scene.cubes[{cube_index}] must be a struct")
-                cube_specs_raw.append(cube_item)
-        elif has_cube:
-            cube_specs_raw = [cube]
-        else:
-            cube_specs_raw = []
-        cube_specs: list[dict[str, Any]] = []
-        object_meshes = []
-        object_mesh_entities = []
-        for cube_index, cube_decl in enumerate(cube_specs_raw):
-            cube_path = "native_scene.cube" if len(cube_specs_raw) == 1 else f"native_scene.cubes[{cube_index}]"
-            cube_props, cube_embedding = _normalize_native_named_parameters(
-                cube_decl,
-                default_embedding={
-                    "id": "id",
-                    "center": "center",
-                    "size": "size",
-                    "rotation": "rotation",
-                    "transform": "transform",
-                    "face_color": "face_color",
-                    "color": "color",
-                    "texture": "texture",
-                    "surface_system": "surface_system",
-                },
-                path=cube_path,
+        cube_specs_raw = []
+    for cube_index, cube_decl in enumerate(cube_specs_raw):
+        cube_path = "native_scene.cube" if len(cube_specs_raw) == 1 else f"native_scene.cubes[{cube_index}]"
+        cube_props, cube_embedding = _normalize_native_named_parameters(
+            cube_decl,
+            default_embedding={
+                "id": "id",
+                "center": "center",
+                "size": "size",
+                "rotation": "rotation",
+                "transform": "transform",
+                "face_color": "face_color",
+                "color": "color",
+                "texture": "texture",
+                "surface_system": "surface_system",
+            },
+            path=cube_path,
+        )
+        cube_tracks = _normalize_native_named_tracks(
+            cube_decl,
+            cube_props,
+            cube_embedding,
+            legacy_canonical_names=("center", "size", "rotation", "transform", "face_color", "color", "texture", "surface_system", "no_backface_specular"),
+            path=cube_path,
+        )
+        cube_spec = {
+            "center": _embedded_named_property(cube_props, cube_embedding, "center", [0.0, 0.0, 1.1]),
+            "size": _embedded_named_property(cube_props, cube_embedding, "size", 1.6),
+            "rotation": _embedded_named_property(cube_props, cube_embedding, "rotation", [0.0, 0.0, 0.0]),
+            "transform": _embedded_named_property(cube_props, cube_embedding, "transform", None),
+            "face_color": _embedded_named_property(
+                cube_props, cube_embedding, "face_color",
+                _embedded_named_property(cube_props, cube_embedding, "color", [0.96, 0.22, 0.16, 1.0])
+            ),
+            "texture": _embedded_named_property(cube_props, cube_embedding, "texture", None),
+            "surface_system": _embedded_named_property(cube_props, cube_embedding, "surface_system", None),
+            "no_backface_specular": _embedded_named_property(cube_props, cube_embedding, "no_backface_specular", False),
+        }
+        mesh_id = str(_embedded_named_property(cube_props, cube_embedding, "id", f"cube_{cube_index}"))
+        cube_specs.append(cube_spec)
+        object_meshes.append({
+            "id": mesh_id,
+            "kind": "cube",
+            "center": cube_spec["center"],
+            "size": cube_spec["size"],
+            "rotation": cube_spec["rotation"],
+            "transform": cube_spec["transform"],
+            "face_color": cube_spec["face_color"],
+            "texture": cube_spec["texture"],
+            "surface_system": cube_spec["surface_system"],
+            "no_backface_specular": cube_spec["no_backface_specular"],
+        })
+        object_mesh_entities.append(
+            _scene_ir_mesh_entity(
+                mesh_id=mesh_id,
+                kind="cube",
+                properties=cube_props,
+                embedding=cube_embedding,
+                tracks=cube_tracks,
             )
-            cube_tracks = _normalize_native_named_tracks(
-                cube_decl,
-                cube_props,
-                cube_embedding,
-                legacy_canonical_names=("center", "size", "rotation", "transform", "face_color", "color", "texture", "surface_system", "no_backface_specular"),
-                path=cube_path,
-            )
-            cube_spec = {
-                "center": _embedded_named_property(cube_props, cube_embedding, "center", [0.0, 0.0, 1.1]),
-                "size": _embedded_named_property(cube_props, cube_embedding, "size", 1.6),
-                "rotation": _embedded_named_property(cube_props, cube_embedding, "rotation", [0.0, 0.0, 0.0]),
-                "transform": _embedded_named_property(cube_props, cube_embedding, "transform", None),
-                "face_color": _embedded_named_property(
-                    cube_props, cube_embedding, "face_color",
-                    _embedded_named_property(cube_props, cube_embedding, "color", [0.96, 0.22, 0.16, 1.0])
-                ),
-                "texture": _embedded_named_property(cube_props, cube_embedding, "texture", None),
-                "surface_system": _embedded_named_property(cube_props, cube_embedding, "surface_system", None),
-                "no_backface_specular": _embedded_named_property(cube_props, cube_embedding, "no_backface_specular", False),
-            }
-            mesh_id = f"cube_{cube_index}"
-            cube_specs.append(cube_spec)
-            object_meshes.append({
-                "id": mesh_id,
-                "kind": "cube",
-                "center": cube_spec["center"],
-                "size": cube_spec["size"],
-                "rotation": cube_spec["rotation"],
-                "transform": cube_spec["transform"],
-                "face_color": cube_spec["face_color"],
-                "texture": cube_spec["texture"],
-                "surface_system": cube_spec["surface_system"],
-            })
-            object_mesh_entities.append(
-                _scene_ir_mesh_entity(
-                    mesh_id=mesh_id,
-                    kind="cube",
-                    properties=cube_props,
-                    embedding=cube_embedding,
-                    tracks=cube_tracks,
-                )
-            )
-        cube_spec = cube_specs[0] if len(cube_specs) == 1 else None
-        object_mesh = object_meshes[0] if object_meshes else None
-        object_mesh_entity = object_mesh_entities[0] if object_mesh_entities else None
+        )
+    cube_spec = cube_specs[0] if len(cube_specs) == 1 else None
     if surfaces_value is not None:
         surface_axis = axis_tagged_idx(surfaces_value) if is_axis_tagged_value(surfaces_value) else None
         surface_data = axis_tagged_data(surfaces_value) if is_axis_tagged_value(surfaces_value) else surfaces_value
         if surface_axis not in {None, "i"}:
             raise ValueError("native_scene.surfaces axis tag must be i")
-        if not isinstance(surface_data, list):
-            raise ValueError("native_scene.surfaces must be a list of surface structs")
-        for quad_index, quad_decl in enumerate(surface_data):
+        for quad_index, quad_decl in enumerate(_coerce_sequence(surface_data, path="native_scene.surfaces")):
             if not isinstance(quad_decl, dict):
                 raise ValueError(f"native_scene.surfaces[{quad_index}] must be a struct")
             quad_path = f"native_scene.surfaces[{quad_index}]"
@@ -829,9 +908,10 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "rect": frame_spec["rect"],
         "aspect": frame_spec["aspect"],
         "visible": frame_spec["visible"],
-        "cube": None if obj is not None else cube_spec,
-        "cubes": None if obj is not None or len(object_meshes) <= 1 else cube_specs,
-        "object": object_mesh,
+        "cube": cube_spec,
+        "cubes": cube_specs if len(cube_specs) > 1 else None,
+        "object": public_objects[0] if len(public_objects) == 1 else None,
+        "objects": public_objects if len(public_objects) > 1 else None,
         "plane": plane_spec,
         "meshes": meshes,
         "camera": scene_ir["camera"],
@@ -1554,23 +1634,17 @@ def _normalize_native_light_set(scope: dict[str, Any]) -> list[dict[str, Any]]:
     lights_data = axis_tagged_data(lights_value) if is_axis_tagged_value(lights_value) else lights_value
     if has_lights and lights_axis is not None:
         if lights_axis == "i":
-            if not isinstance(lights_data, list):
-                raise ValueError("native_scene.lights -> i must wrap a list of light structs")
-            lights = [_normalize_ocean_light_spec(light) for light in lights_data]
+            lights = [_normalize_ocean_light_spec(light) for light in _coerce_sequence(lights_data, path="native_scene.lights")]
         elif lights_axis == "ij":
-            if not isinstance(lights_data, list):
-                raise ValueError("native_scene.lights -> ij must wrap a list of light rows")
             lights = [
                 _normalize_ocean_light_spec(light)
-                for row in lights_data
-                for light in row
+                for row in _coerce_sequence(lights_data, path="native_scene.lights")
+                for light in _coerce_sequence(row, path="native_scene.lights[]")
             ]
         else:
             raise ValueError("native_scene.lights axis tag must be i or ij")
     elif has_lights:
-        if not isinstance(lights_data, list):
-            raise ValueError("native_scene.lights must be a list of light structs")
-        lights = [_normalize_ocean_light_spec(light) for light in lights_data]
+        lights = [_normalize_ocean_light_spec(light) for light in _coerce_sequence(lights_data, path="native_scene.lights")]
     else:
         lights = [_normalize_ocean_light_spec(light_value if isinstance(light_value, dict) else _optional_struct_value(scope, "light"))]
     if len(lights) > 64:

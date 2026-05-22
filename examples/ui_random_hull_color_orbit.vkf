@@ -132,14 +132,21 @@ native_scene: (
             center: [0.0, 3.5, 3.5],
             size: [7.0, 7.0],
             rotation: [90.0, 0.0, 0.0],
-            color: [0.24, 0.26, 0.30, 1.0],
+            color: [1.0, 1.0, 1.0, 1.0],
             surface_system: (
-                kind: "mirror",
+                kind: "screen",
+                reverse_facing: true,
                 scale: [3.5, 3.5],
-                world: (
-                    kind: "back_plane_mirror",
-                    background: [0.0, 0.0, 0.0, 0.0],
-                    frame_color: [0.0, 0.0, 0.0, 0.0]
+                camera: (
+                    fov: 34.0,
+                    up: [0.0, 0.0, 1.0],
+                    mirror_of: (
+                        frame_id: "random_hull_color_orbit_frame",
+                        mesh_id: "back_mirror_plane",
+                        reflect_eye_only: true,
+                        lock_aperture_camera: true,
+                        controls_enabled: false
+                    )
                 )
             )
         )
@@ -160,6 +167,7 @@ native_scene: (
     light_marker_size: 0.18,
     lights: [
         (
+            id: "real_light",
             kind: "point",
             target: [0.0, 0.0, 1.0],
             pos_t: [
@@ -235,10 +243,27 @@ native_scene: (
             ],
             model: "blinn_phong",
             power: 24000.0,
+            intensity: 24.0,
             range: 18.0,
             casts_shadow: true,
             source_radius: 0.10,
             spread: 1.0
+        ),
+        (
+            id: "virtual_light",
+            kind: "projected",
+            reflect_of_light_id: "real_light",
+            reflect_mirror_mesh_id: "back_mirror_plane",
+            model: "blinn_phong",
+            color: [1.0, 0.93, 0.78, 1.0],
+            power: 24000.0,
+            intensity: 120.0,
+            range: 18.0,
+            casts_shadow: true,
+            source_radius: 0.10,
+            spread: 1.0,
+            aperture_face_id: "back_mirror_plane",
+            clip_epsilon: 0.001
         )
     ],
     shadow: (

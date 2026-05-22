@@ -138,6 +138,7 @@ class UiFieldMesh:
     solid_volume: bool
     vertex_size: float
     edge_width: float
+    vertex_widths: tuple[float, ...] = ()
     center: tuple[float, float, float]
     scale: tuple[float, float, float]
     rotation: tuple[float, float, float]
@@ -145,6 +146,10 @@ class UiFieldMesh:
     time_count: int
     time_index: int
     time_boundary: str = "stop"
+    render_mode: str = "proxy_geometry"
+    marker_space: str = "world"
+    casts_shadow: bool = True
+    receives_lighting: bool = True
     model_matrix: tuple[float, ...] | None = None
     type: Literal["field_mesh"] = "field_mesh"
 
@@ -161,6 +166,11 @@ class UiFieldMesh:
             "solid_volume": self.solid_volume,
             "vertex_size": self.vertex_size,
             "edge_width": self.edge_width,
+            "vertex_widths": list(self.vertex_widths),
+            "render_mode": self.render_mode,
+            "marker_space": self.marker_space,
+            "casts_shadow": self.casts_shadow,
+            "receives_lighting": self.receives_lighting,
             "center": [self.center[0], self.center[1], self.center[2]],
             "scale": [self.scale[0], self.scale[1], self.scale[2]],
             "rotation": [self.rotation[0], self.rotation[1], self.rotation[2]],
@@ -808,6 +818,11 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
                     solid_volume=bool(mesh.get("solid_volume", False)),
                     vertex_size=float(mesh.get("vertex_size", 0.0)),
                     edge_width=float(mesh.get("edge_width", 0.0)),
+                    vertex_widths=tuple(float(v) for v in mesh.get("vertex_widths", []) or []),
+                    render_mode=str(mesh.get("render_mode", "proxy_geometry")),
+                    marker_space=str(mesh.get("marker_space", "world")),
+                    casts_shadow=bool(mesh.get("casts_shadow", True)),
+                    receives_lighting=bool(mesh.get("receives_lighting", True)),
                     center=tuple(mesh["center"]),
                     scale=tuple(mesh["scale"]),
                     rotation=tuple(mesh["rotation"]),
@@ -883,6 +898,11 @@ def field_mesh_payload_from_geometry(
         solid_volume=bool(geom["solid_volume"]),
         vertex_size=float(geom["vertex_size"]),
         edge_width=float(geom["edge_width"]),
+        vertex_widths=tuple(float(v) for v in geom.get("vertex_widths", []) or []),
+        render_mode=str(geom.get("render_mode", "proxy_geometry")),
+        marker_space=str(geom.get("marker_space", "world")),
+        casts_shadow=bool(geom.get("casts_shadow", True)),
+        receives_lighting=bool(geom.get("receives_lighting", True)),
         center=center,
         scale=scale,
         rotation=rotation,
@@ -914,6 +934,11 @@ def apply_field_mesh_geometry_update(
     payload["solid_volume"] = geom["solid_volume"]
     payload["vertex_size"] = geom["vertex_size"]
     payload["edge_width"] = geom["edge_width"]
+    payload["vertex_widths"] = geom.get("vertex_widths", [])
+    payload["render_mode"] = str(geom.get("render_mode", "proxy_geometry"))
+    payload["marker_space"] = str(geom.get("marker_space", "world"))
+    payload["casts_shadow"] = bool(geom.get("casts_shadow", True))
+    payload["receives_lighting"] = bool(geom.get("receives_lighting", True))
 
 
 def build_scene_mesh_payload(

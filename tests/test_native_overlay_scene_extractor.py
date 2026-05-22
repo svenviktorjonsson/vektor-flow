@@ -56,6 +56,48 @@ native_scene: (
     assert declared["frame_id"] == "scene_3d_frame"
 
 
+def test_find_top_level_struct_binding_evaluates_axis_math_for_native_scene() -> None:
+    module = parse_module(
+        """
+math:.math
+u: [-1, 0, 1] -> u
+v: [-1, 0, 1] -> v
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "scene_3d_frame",
+    title: "Axis Math Scene",
+    rect: [0.08, 0.08, 0.72, 0.78],
+    objects: [
+        (
+            id: "wave_patch",
+            kind: "field_mesh",
+            x: u,
+            y: v,
+            z: math.sin(u + v)
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.20, 0.22, 0.26, 1.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 1.0],
+        lift: 0.002
+    )
+)
+""",
+        filename="memory_scene_axis_math.vkf",
+    )
+    declared = find_top_level_struct_binding(module, "native_scene")
+    assert declared is not None
+    field_mesh = declared["objects"][0]
+    assert field_mesh["kind"] == "field_mesh"
+    assert getattr(field_mesh["z"], "idx", None) == "uv"
+
+
 def test_extract_declarative_ui_scene_probe_spec_extracts_ui_probe() -> None:
     module = parse_module(
         """
