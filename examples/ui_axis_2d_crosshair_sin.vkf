@@ -1,0 +1,61 @@
+ui:.ui
+
+ui.set_mode("overlay")
+
+Frame(...arg, :::kwargs):
+  d: ui.display
+  frame: d.frame(:arg, :kwargs)
+  mount(rect):
+    d.add_frame(frame, rect)
+  :
+
+PlotFrame(dim: int = 2, axis_mode: str = "crosshair", ...arg, :::kwargs):
+  :Frame(:arg, :kwargs)
+  dim: dim
+  axis_mode: axis_mode
+  :
+
+PlotPanel(dim: int = 2, axis_mode: str = "crosshair", ...arg, :::kwargs):
+  :PlotFrame(:arg, dim: dim, axis_mode: axis_mode, :kwargs)
+  :
+
+CrossHair2D(plot, x_min: num = -1, x_max: num = 1, y_min: num = -1, y_max: num = 1):
+  :plot
+  x_min: x_min
+  x_max: x_max
+  y_min: y_min
+  y_max: y_max
+  axis2d: ui.axis_2d(
+    frame,
+    x_min: x_min,
+    x_max: x_max,
+    y_min: y_min,
+    y_max: y_max,
+    prefix: "plot_crosshair"
+  )
+  draw():
+    axis2d.crosshair(
+      x_tick_label_placement: "below",
+      y_tick_label_placement: "left",
+      x_label_placement: "below",
+      y_label_placement: "left",
+      grid: true,
+      grid_alpha: 0.16
+    )
+  :
+
+panel: PlotPanel(
+  dim: 2,
+  axis_mode: "crosshair",
+  title: "Spilled Plot Frame",
+  alpha: 0.92,
+  draggable: true,
+  dockable: true,
+  resizable: true,
+  closable: true,
+  dock_loc: "bl",
+  master: true
+)
+plot: CrossHair2D(panel, x_min: -1, x_max: 1, y_min: -1, y_max: 1)
+plot.mount((0.16, 0.18, 0.42, 0.32))
+plot.draw()

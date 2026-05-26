@@ -204,8 +204,8 @@ def test_catch_match_specific_error_beats_general_error() -> None:
 errors: .errors
 out: 0
 missing!?
-  errors.ERROR => out: 1
-  errors.EVAL_ERROR => out: 2
+  errors.Error => out: 1
+  errors.EvalError => out: 2
 :: out
 """
     assert _run(src) == "2"
@@ -216,9 +216,9 @@ def test_catch_match_binds_subject_in_dollar() -> None:
 errors: .errors
 out: 0
 missing!?
-  errors.ERROR =>
+  errors.Error =>
     $??
-      errors.EVAL_ERROR => out: 7
+      errors.EvalError => out: 7
 :: out
 """
     assert _run(src) == "7"
@@ -229,7 +229,7 @@ def test_catch_match_no_error_is_noop() -> None:
 errors: .errors
 out: 0
 1!?
-  errors.ERROR => out: 1
+  errors.Error => out: 1
 :: out
 """
     assert _run(src) == "0"
@@ -239,7 +239,7 @@ def test_catch_match_reraises_when_no_arm_matches() -> None:
     src = """
 errors: .errors
 missing!?
-  errors.TYPE_ERROR => :: 1
+  errors.TypeError => :: 1
 """
     with pytest.raises(EvalError, match="undefined name"):
         _run(src)
@@ -249,7 +249,7 @@ def test_errors_namespace_requires_import() -> None:
     src = """
 out: 0
 missing!?
-  errors.ERROR => out: 1
+  errors.Error => out: 1
 :: out
 """
     with pytest.raises(EvalError, match="undefined name: 'errors'"):
@@ -261,7 +261,7 @@ def test_errors_namespace_access_succeeds_when_imported() -> None:
 errors: .errors
 out: 0
 missing!?
-  errors.EVAL_ERROR => out: 1
+  errors.EvalError => out: 1
 :: out
 """
     assert _run(src) == "1"
@@ -270,12 +270,12 @@ missing!?
 def test_errors_namespace_exposes_primary_language_error_types() -> None:
     src = """
 errors: .errors
-:: errors.LEX_ERROR
-:: errors.PARSE_ERROR
-:: errors.EVAL_ERROR
-:: errors.ERROR
+:: (errors.LexError & "\\n")
+:: (errors.ParseError & "\\n")
+:: (errors.EvalError & "\\n")
+:: errors.Error
 """
-    assert _run(src).splitlines() == ["LEX_ERROR", "PARSE_ERROR", "EVAL_ERROR", "ERROR"]
+    assert _run(src).splitlines() == ["LexError", "ParseError", "EvalError", "Error"]
 
 
 def test_break_outside_pipe_errors() -> None:

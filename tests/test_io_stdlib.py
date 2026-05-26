@@ -87,7 +87,7 @@ class TestResolve:
         assert native_ns["sleep"] is seconds_ns["sleep"]
         assert seconds_ns["sleep"] is time_ns["sleep"]
         assert time_ns == clock_ns
-        assert set(full_ns.keys()) == set(file_ns.keys()) | set(clock_ns.keys())
+        assert set(full_ns.keys()) == set(file_ns.keys())
 
     def test_native_file_and_time_host_getters_match_preferred_surfaces(self) -> None:
         assert get_io_native_file_host() is get_io_file_host()

@@ -189,46 +189,33 @@ class ExitProgramSignal(ControlFlow):
         self.code = code
 
 
-ERROR = ErrorTypeValue("ERROR", 0b1)
-VEKTORFLOW_ERROR = ErrorTypeValue("VEKTORFLOW_ERROR", 0b11, (VektorFlowError,))
-LEX_ERROR_TYPE = ErrorTypeValue("LEX_ERROR", 0b111, (LexError,))
-PARSE_ERROR_TYPE = ErrorTypeValue("PARSE_ERROR", 0b1011, (ParseError,))
-EVAL_ERROR_TYPE = ErrorTypeValue("EVAL_ERROR", 0b10011, (EvalError,))
-ASSERTION_ERROR_TYPE = ErrorTypeValue("ASSERTION_ERROR", 0b1000011, (AssertionError,))
-PYTHON_ERROR = ErrorTypeValue("PYTHON_ERROR", 0b100001, (Exception,))
-TYPE_ERROR_TYPE = ErrorTypeValue("TYPE_ERROR", 0b1100001, (TypeError,))
-VALUE_ERROR_TYPE = ErrorTypeValue("VALUE_ERROR", 0b10100001, (ValueError,))
-KEY_ERROR_TYPE = ErrorTypeValue("KEY_ERROR", 0b100100001, (KeyError,))
-INDEX_ERROR_TYPE = ErrorTypeValue("INDEX_ERROR", 0b1000100001, (IndexError,))
-FILE_NOT_FOUND_ERROR_TYPE = ErrorTypeValue("FILE_NOT_FOUND", 0b10000100001, (FileNotFoundError,))
-RUNTIME_ERROR_TYPE = ErrorTypeValue("RUNTIME_ERROR", 0b100000100001, (RuntimeError,))
+ERROR = ErrorTypeValue("Error", 0b1)
+VEKTORFLOW_ERROR = ErrorTypeValue("VektorFlowError", 0b11, (VektorFlowError,))
+LEX_ERROR_TYPE = ErrorTypeValue("LexError", 0b111, (LexError,))
+PARSE_ERROR_TYPE = ErrorTypeValue("ParseError", 0b1011, (ParseError,))
+EVAL_ERROR_TYPE = ErrorTypeValue("EvalError", 0b10011, (EvalError,))
+ASSERTION_ERROR_TYPE = ErrorTypeValue("AssertionError", 0b1000011, (AssertionError,))
+PYTHON_ERROR = ErrorTypeValue("PythonError", 0b100001, (Exception,))
+TYPE_ERROR_TYPE = ErrorTypeValue("TypeError", 0b1100001, (TypeError,))
+VALUE_ERROR_TYPE = ErrorTypeValue("ValueError", 0b10100001, (ValueError,))
+KEY_ERROR_TYPE = ErrorTypeValue("KeyError", 0b100100001, (KeyError,))
+INDEX_ERROR_TYPE = ErrorTypeValue("IndexError", 0b1000100001, (IndexError,))
+FILE_NOT_FOUND_ERROR_TYPE = ErrorTypeValue("FileNotFoundError", 0b10000100001, (FileNotFoundError,))
+RUNTIME_ERROR_TYPE = ErrorTypeValue("RuntimeError", 0b100000100001, (RuntimeError,))
 
 ERROR_NAMESPACE: dict[str, ErrorTypeValue] = {
-    "ERROR": ERROR,
     "Error": ERROR,
-    "VEKTORFLOW_ERROR": VEKTORFLOW_ERROR,
-    "VektorflowError": VEKTORFLOW_ERROR,
-    "LEX_ERROR": LEX_ERROR_TYPE,
+    "VektorFlowError": VEKTORFLOW_ERROR,
     "LexError": LEX_ERROR_TYPE,
-    "PARSE_ERROR": PARSE_ERROR_TYPE,
     "ParseError": PARSE_ERROR_TYPE,
-    "EVAL_ERROR": EVAL_ERROR_TYPE,
     "EvalError": EVAL_ERROR_TYPE,
-    "ASSERTION_ERROR": ASSERTION_ERROR_TYPE,
     "AssertionError": ASSERTION_ERROR_TYPE,
-    "PYTHON_ERROR": PYTHON_ERROR,
     "PythonError": PYTHON_ERROR,
-    "TYPE_ERROR": TYPE_ERROR_TYPE,
     "TypeError": TYPE_ERROR_TYPE,
-    "VALUE_ERROR": VALUE_ERROR_TYPE,
     "ValueError": VALUE_ERROR_TYPE,
-    "KEY_ERROR": KEY_ERROR_TYPE,
     "KeyError": KEY_ERROR_TYPE,
-    "INDEX_ERROR": INDEX_ERROR_TYPE,
     "IndexError": INDEX_ERROR_TYPE,
-    "FILE_NOT_FOUND": FILE_NOT_FOUND_ERROR_TYPE,
-    "FileNotFound": FILE_NOT_FOUND_ERROR_TYPE,
-    "RUNTIME_ERROR": RUNTIME_ERROR_TYPE,
+    "FileNotFoundError": FILE_NOT_FOUND_ERROR_TYPE,
     "RuntimeError": RUNTIME_ERROR_TYPE,
 }
 

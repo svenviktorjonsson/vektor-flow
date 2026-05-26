@@ -21,6 +21,13 @@ def test_eval_long_option_executes_inline_snippet(capsys: pytest.CaptureFixture[
     assert captured.err == ""
 
 
+def test_eval_executes_semicolon_separated_top_level_snippet(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["-e", "points: (x:3, y:5); points.z: 9; :: points"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "(x:3, y:5, z:9)"
+    assert captured.err == ""
+
+
 def test_eval_reports_leading_indent_with_source_caret(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["-e", " ..5 >> :: $"]) == 1
     captured = capsys.readouterr()

@@ -100,6 +100,12 @@ def _widget_props(x: Any) -> dict[str, Any]:
 
     if isinstance(x, VMap):
         return dict(x._d)
+    if isinstance(x, tuple) and hasattr(x, "__vf_py_attrs__"):
+        return dict(vars(x))
+    if hasattr(x, "__dict__"):
+        raw = vars(x)
+        if isinstance(raw, dict) and raw:
+            return dict(raw)
     raise TypeError("widget props must be a map or struct dict")
 
 
@@ -114,21 +120,47 @@ def _normalize_grid_slot(slot: Any) -> list[int]:
     return vals
 
 
-def _apply_widget_meta(node: dict[str, Any], *, grid: Any = None) -> dict[str, Any]:
+def _apply_widget_meta(
+    node: dict[str, Any],
+    *,
+    grid: Any = None,
+    visible: Any = None,
+    align: Any = None,
+    compact: Any = None,
+) -> dict[str, Any]:
     out = dict(node)
     if grid is not None:
         out["grid"] = _normalize_grid_slot(grid)
+    if visible is not None:
+        out["visible"] = bool(visible)
+    if align is not None:
+        out["align"] = str(align)
+    if compact is not None:
+        out["compact"] = bool(compact)
     return out
 
 
-def _normalize_grid_layout(value: Any) -> dict[str, Any]:
-    if not isinstance(value, (VFVector, list, tuple)) or len(value) != 2:
-        raise TypeError("gridlayout must be a 2-tuple (rows, cols)")
-    rows = int(value[0])
-    cols = int(value[1])
+def _normalize_grid_layout(value: Any, *, columns: Any = None, row_heights: Any = None) -> dict[str, Any]:
+    if isinstance(value, (VFVector, list, tuple)):
+        if len(value) != 2:
+            raise TypeError("gridlayout must be a 2-tuple (rows, cols)")
+        rows = int(value[0])
+        cols = int(value[1])
+    elif isinstance(value, dict):
+        rows = int(value.get("rows", 0))
+        cols = int(value.get("cols", 0))
+        columns = value.get("columns", columns)
+        row_heights = value.get("row_heights", value.get("rows_template", row_heights))
+    else:
+        raise TypeError("gridlayout must be a 2-tuple (rows, cols) or a map")
     if rows <= 0 or cols <= 0:
         raise ValueError("gridlayout rows and cols must be > 0")
-    return {"type": "grid", "rows": rows, "cols": cols}
+    out: dict[str, Any] = {"type": "grid", "rows": rows, "cols": cols}
+    if columns is not None:
+        out["columns"] = str(columns)
+    if row_heights is not None:
+        out["row_heights"] = str(row_heights)
+    return out
 
 
 @dataclass
@@ -137,26 +169,35 @@ class _Widget:
 
     def label(self, id: str, text: str = "", **kwargs: Any) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"label() got unexpected keyword argument(s): {bad}")
         return _attach_widget_event_consts(
-            _apply_widget_meta({"id": str(id), "type": "label", "text": str(text)}, grid=grid)
+            _apply_widget_meta({"id": str(id), "type": "label", "text": str(text)}, grid=grid, visible=visible, align=align, compact=compact)
         )
 
     def button(self, id: str, label: str = "", **kwargs: Any) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"button() got unexpected keyword argument(s): {bad}")
         return _attach_widget_event_consts(
-            _apply_widget_meta({"id": str(id), "type": "button", "label": str(label)}, grid=grid)
+            _apply_widget_meta({"id": str(id), "type": "button", "label": str(label)}, grid=grid, visible=visible, align=align, compact=compact)
         )
 
     def checkbox(
         self, id: str, checked: bool = False, label: str = "", **kwargs: Any
     ) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"checkbox() got unexpected keyword argument(s): {bad}")
@@ -166,7 +207,7 @@ class _Widget:
                 "type": "checkbox",
                 "checked": bool(checked),
                 "label": str(label),
-            }, grid=grid)
+            }, grid=grid, visible=visible, align=align, compact=compact)
         )
 
     def slider(
@@ -180,6 +221,9 @@ class _Widget:
         **kwargs: Any,
     ) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"slider() got unexpected keyword argument(s): {bad}")
@@ -191,11 +235,14 @@ class _Widget:
                 "min": float(vmin),
                 "max": float(vmax),
                 "step": float(step),
-            }, grid=grid)
+            }, grid=grid, visible=visible, align=align, compact=compact)
         )
 
     def input_field(self, id: str, text: str = "", placeholder: str = "", **kwargs: Any) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"input_field() got unexpected keyword argument(s): {bad}")
@@ -205,7 +252,7 @@ class _Widget:
                 "type": "input",
                 "text": str(text),
                 "placeholder": str(placeholder),
-            }, grid=grid)
+            }, grid=grid, visible=visible, align=align, compact=compact)
         )
 
     def text_area(
@@ -218,6 +265,9 @@ class _Widget:
         **kwargs: Any,
     ) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"text_area() got unexpected keyword argument(s): {bad}")
@@ -227,13 +277,16 @@ class _Widget:
         if readonly:
             spec["readonly"] = True
         return _attach_widget_event_consts(
-            _apply_widget_meta(spec, grid=grid)
+            _apply_widget_meta(spec, grid=grid, visible=visible, align=align, compact=compact)
         )
 
     def dropdown(
-        self, id: str, options: Any | None = None, *, value: int = 0, **kwargs: Any
+        self, id: str, options: Any | None = None, *, value: int = 0, editable: bool = False, text: str = "", **kwargs: Any
     ) -> dict[str, Any]:
         grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
         if kwargs:
             bad = ", ".join(sorted(repr(k) for k in kwargs))
             raise TypeError(f"dropdown() got unexpected keyword argument(s): {bad}")
@@ -246,7 +299,47 @@ class _Widget:
             else:
                 raise TypeError("dropdown options must be a vector, tuple, or collections.list")
         return _attach_widget_event_consts(
-            _apply_widget_meta({"id": str(id), "type": "dropdown", "options": opts, "value": int(value)}, grid=grid)
+            _apply_widget_meta({
+                "id": str(id),
+                "type": "combobox" if editable else "dropdown",
+                "options": opts,
+                "value": int(value),
+                "text": str(text),
+                "editable": bool(editable),
+            }, grid=grid, visible=visible, align=align, compact=compact)
+        )
+
+    def combobox(
+        self, id: str, options: Any | None = None, *, text: str = "", value: int = 0, editable: bool = True, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.dropdown(id, options, value=value, editable=editable, text=text, **kwargs)
+
+    def color_picker(self, id: str, value: str = "#34db8f", **kwargs: Any) -> dict[str, Any]:
+        grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
+        if kwargs:
+            bad = ", ".join(sorted(repr(k) for k in kwargs))
+            raise TypeError(f"color_picker() got unexpected keyword argument(s): {bad}")
+        return _attach_widget_event_consts(
+            _apply_widget_meta({
+                "id": str(id),
+                "type": "color_picker",
+                "value": str(value),
+            }, grid=grid, visible=visible, align=align, compact=compact)
+        )
+
+    def plot_panel(self, id: str = "plot_panel", **kwargs: Any) -> dict[str, Any]:
+        grid = kwargs.pop("grid", None)
+        visible = kwargs.pop("visible", None)
+        align = kwargs.pop("align", None)
+        compact = kwargs.pop("compact", None)
+        if kwargs:
+            bad = ", ".join(sorted(repr(k) for k in kwargs))
+            raise TypeError(f"plot_panel() got unexpected keyword argument(s): {bad}")
+        return _attach_widget_event_consts(
+            _apply_widget_meta({"id": str(id), "type": "plot_panel"}, grid=grid, visible=visible, align=align, compact=compact)
         )
 
 
@@ -264,6 +357,8 @@ class PendingFrame:
     anchor: DockLocation = "tl"
     flags: FrameFlags = field(default_factory=FrameFlags)
     body_layout: dict[str, Any] | None = None
+    body_transparent: bool = False
+    aspect: str | None = None
     # Set by :meth:`Screen.add_frame` after a frame is placed (for relative layout).
     _placed_id: str | None = field(default=None, repr=False, compare=False)
     _placed_rect: NormRect | None = field(default=None, repr=False, compare=False)
@@ -308,6 +403,10 @@ class Screen:
         anchor: str = "tl",
         gridlayout: Any = None,
         grid_layout: Any = None,
+        columns: Any = None,
+        row_heights: Any = None,
+        body_transparent: bool = False,
+        aspect: str | None = None,
         **kwargs: Any,
     ) -> PendingFrame:
         """``__title=...`` (right-aligned) is taken from ``**kwargs`` (valid Python keyword at call site). ``dock_loc`` overrides ``dock_location`` when set."""
@@ -330,10 +429,16 @@ class Screen:
             dock_location=parse_dock_location(loc_str),
             anchor=parse_dock_location(str(anchor)),
             body_layout=(
-                _normalize_grid_layout(gridlayout if gridlayout is not None else grid_layout)
+                _normalize_grid_layout(
+                    gridlayout if gridlayout is not None else grid_layout,
+                    columns=columns,
+                    row_heights=row_heights,
+                )
                 if (gridlayout is not None or grid_layout is not None)
                 else None
             ),
+            body_transparent=bool(body_transparent),
+            aspect=str(aspect) if aspect is not None else None,
             flags=FrameFlags(
                 draggable=bool(draggable),
                 dockable=bool(dockable),
@@ -463,8 +568,10 @@ class Screen:
             dock_location=pending.dock_location,
             anchor=pending.anchor,
             body=body_tuple,
+            body_transparent=bool(pending.body_transparent),
             body_layout=dict(pending.body_layout) if pending.body_layout is not None else None,
             parent_id=parent_id,
+            aspect=pending.aspect,
         )
         append_frame_upsert(self._commands, frame_id=fid, spec=spec)
         pending._placed_id = fid
@@ -492,6 +599,24 @@ class Screen:
     def widget_set_text(self, frame_id: str, widget_id: str, text: Any) -> None:
         """Set the live text value for one widget without requiring a map literal."""
         self.widget_set(frame_id, widget_id, {"text": str(text)})
+
+    def widget_set_visible(self, frame_id: str, widget_id: str, visible: Any) -> None:
+        """Set one widget's visibility without requiring a map literal."""
+        self.widget_set(frame_id, widget_id, {"visible": bool(visible)})
+
+    def widget_set_options(self, frame_id: str, widget_id: str, options: Any) -> None:
+        """Set one widget's options list without requiring a map literal."""
+        if isinstance(options, (VFVector, list, tuple)):
+            opts = [str(x) for x in options]
+        elif isinstance(options, VFLinkedList):
+            opts = [str(x) for x in options]
+        else:
+            raise TypeError("widget options must be a vector, tuple, or collections.list")
+        self.widget_set(frame_id, widget_id, {"options": opts})
+
+    def widget_set_value(self, frame_id: str, widget_id: str, value: Any) -> None:
+        """Set one widget's live value without requiring a map literal."""
+        self.widget_set(frame_id, widget_id, {"value": value})
 
     def widget_append_text(self, frame_id: str, widget_id: str, text: Any) -> None:
         """Append text to a live text widget once, without replaying it on every state poll."""

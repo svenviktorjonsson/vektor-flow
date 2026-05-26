@@ -436,28 +436,40 @@ def build_field_mesh_geometry(
     vertex_size, edge_width = _overlay_size_policy(meta, manifold_dim_count)
     base_indices: list[int] = []
     topology = "point-list"
+    representation = str(meta.get("representation", meta.get("topology_mode", "")) or "").strip().lower()
+    if representation in ("vertex", "vertices", "points", "point-list", "point_list"):
+        representation = "vertices"
+    elif representation in ("edge", "edges", "wire", "wireframe", "line-list", "line_list"):
+        representation = "edges"
+    elif representation in ("face", "faces", "surface", "triangle-list", "triangle_list"):
+        representation = "faces"
+    else:
+        representation = ""
 
     def _idx(base: dict[str, int]) -> int:
         tup = tuple(base.get(d, 0) for d in sample_dims)
         return int(vindex[tup])
 
-    if len(manifold_dims) == 0:
+    if representation == "vertices":
         topology = "point-list"
         base_indices = list(range(len(points)))
-    elif len(manifold_dims) == 1:
+    elif representation == "edges" or (not representation and len(manifold_dims) == 1):
         topology = "line-list"
-        du = manifold_dims[0]
-        loop_dims = [d for d in sample_dims if d != du]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                base[du] = u
-                a = _idx(base)
-                base[du] = u + 1
-                b = _idx(base)
-                base_indices.extend([a, b])
+        for du in manifold_dims:
+            loop_dims = [d for d in sample_dims if d != du]
+            for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
+                base = {d: 0 for d in sample_dims}
+                for k, d in enumerate(loop_dims):
+                    base[d] = int(rest[k])
+                for u in range(dim_sizes[du] - 1):
+                    base[du] = u
+                    a = _idx(base)
+                    base[du] = u + 1
+                    b = _idx(base)
+                    base_indices.extend([a, b])
+    elif len(manifold_dims) == 0:
+        topology = "point-list"
+        base_indices = list(range(len(points)))
     elif len(manifold_dims) == 2:
         topology = "triangle-list"
         du, dv = manifold_dims
@@ -618,6 +630,11 @@ def _avg_rgba(samples: list[tuple[float, float, float, float]]) -> tuple[float, 
 
 
 def _overlay_size_policy(meta: dict[str, Any], manifold_dim_count: int) -> tuple[float, float]:
+    if str(meta.get("render_mode", "")).strip().lower() in {"line", "native_line", "line_list", "line-list"}:
+        return (
+            _nonnegative_float(meta.get("vertex_size", 0.0), "vertex_size"),
+            _nonnegative_float(meta.get("edge_width", 1.0), "edge_width"),
+        )
     if manifold_dim_count == 0:
         default_vertex_size = 4.0
         default_edge_width = 0.0
@@ -637,9 +654,11 @@ def _normalize_field_mesh_render_mode(value: Any) -> str:
     mode = str(value or "proxy_geometry").strip().lower()
     if mode in ("proxy_geometry", "proxy", "proxy_mesh", "geometry", "real_geometry"):
         return "proxy_geometry"
+    if mode in ("line", "native_line", "line_list", "line-list"):
+        return "line"
     if mode in ("marker", "impostor", "marker_impostor", "analytical_marker"):
         return "marker_impostor"
-    raise ValueError("render_mode must be 'proxy_geometry' or 'marker_impostor'")
+    raise ValueError("render_mode must be 'proxy_geometry', 'marker_impostor', or 'line'")
 
 
 def _normalize_field_mesh_marker_space(value: Any, render_mode: str) -> str:
@@ -735,6 +754,14 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "vertex_widths": geom["vertex_widths"],
         "render_mode": render_mode,
         "marker_space": marker_space,
+        "aspect": str(meta.get("aspect", "")),
+        "axis_full_frame": bool(meta.get("axis_full_frame", False)),
+        "axis_box": bool(meta.get("axis_box", False)),
+        "axis_screen_extend": bool(meta.get("axis_screen_extend", False)),
+        "axis_screen_inset_px": float(meta.get("axis_screen_inset_px", 20.0)),
+        "axis_margin_px": float(meta.get("axis_margin_px", 58.0)),
+        "axis_ticks": meta.get("axis_ticks"),
+        "mode3d": bool(meta.get("mode3d", True)),
         "casts_shadow": casts_shadow,
         "receives_lighting": receives_lighting,
         "depth_write": bool(meta.get("depth_write", False)),

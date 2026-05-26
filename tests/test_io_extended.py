@@ -68,12 +68,12 @@ class TestResolveIo:
     def test_io_keys_present(self) -> None:
         io = resolve_stdlib("io")
         assert {"read_text", "write_text", "read_bytes", "write_bytes",
-                "read_numbers", "sleep_ms"} <= set(io.keys())
+                "read_numbers"} <= set(io.keys())
 
     def test_all_callable(self) -> None:
         io = resolve_stdlib("io")
         for k in ("read_text", "write_text", "read_bytes", "write_bytes",
-                  "read_numbers", "sleep_ms"):
+                  "read_numbers"):
             assert callable(io[k])
 
 
@@ -326,25 +326,21 @@ class TestSleepMs:
         # Allow generous range to avoid flakiness in CI
         assert elapsed >= 0.03
 
-    def test_sleep_ms_via_namespace(self) -> None:
-        io = build_io_namespace()
-        start = time.monotonic()
-        io["sleep_ms"](10)
-        elapsed = time.monotonic() - start
-        assert elapsed < 1.0  # just shouldn't hang
-
     def test_sleep_seconds_via_public_api(self) -> None:
         start = time.monotonic()
         sleep(0.01)
         elapsed = time.monotonic() - start
         assert elapsed < 1.0  # just shouldn't hang
 
-    def test_io_namespace_has_sleep_and_sleep_ms(self) -> None:
+    def test_io_namespace_has_only_file_io(self) -> None:
         io = build_io_namespace()
-        assert "sleep" in io
-        assert "sleep_ms" in io
-        assert callable(io["sleep"])
-        assert callable(io["sleep_ms"])
+        assert set(io.keys()) == {
+            "read_text",
+            "write_text",
+            "read_bytes",
+            "write_bytes",
+            "read_numbers",
+        }
 
     def test_seconds_namespace_has_only_sleep(self) -> None:
         io = build_io_seconds_namespace()
@@ -581,7 +577,5 @@ io.write_text("{p}", "bound")
 
     def test_io_namespace_has_sleep_ms(self) -> None:
         io = resolve_stdlib("io")
-        assert "sleep" in io
-        assert "sleep_ms" in io
-        assert callable(io["sleep"])
-        assert callable(io["sleep_ms"])
+        assert "sleep" not in io
+        assert "sleep_ms" not in io

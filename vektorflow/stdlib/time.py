@@ -32,9 +32,15 @@ def time_stamp() -> str:
     return f"{_time.time():.6f}"
 
 
+def monotonic() -> float:
+    """Monotonic clock in fractional seconds, suitable for elapsed-time measurement."""
+    return float(_time.monotonic())
+
+
 def build_time_namespace() -> dict[str, Any]:
     return {
         "sleep": sleep,
         "current_time": current_time,
         "time_stamp": time_stamp,
+        "monotonic": monotonic,
     }

@@ -82,6 +82,10 @@ EVENT_NAME_TO_BASE: dict[str, int] = {
     "input_field.text_entered": 25,
     "dropdown.item_changed": 26,
     "text_area.text_changed": 27,
+    "combobox.text_changed": 28,
+    "combobox.text_entered": 29,
+    "combobox.item_changed": 30,
+    "color_picker.value_changed": 31,
 }
 
 EVENT_CONST_TO_NAME: dict[str, str] = {
@@ -104,6 +108,10 @@ EVENT_CONST_TO_NAME: dict[str, str] = {
     "INPUT_FIELD_TEXT_ENTERED": "input_field.text_entered",
     "DROPDOWN_ITEM_CHANGED": "dropdown.item_changed",
     "TEXT_AREA_TEXT_CHANGED": "text_area.text_changed",
+    "COMBOBOX_TEXT_CHANGED": "combobox.text_changed",
+    "COMBOBOX_TEXT_ENTERED": "combobox.text_entered",
+    "COMBOBOX_ITEM_CHANGED": "combobox.item_changed",
+    "COLOR_PICKER_VALUE_CHANGED": "color_picker.value_changed",
 }
 
 WIDGET_TYPE_EVENT_CONSTS: dict[str, tuple[str, ...]] = {
@@ -113,6 +121,8 @@ WIDGET_TYPE_EVENT_CONSTS: dict[str, tuple[str, ...]] = {
     "input": ("INPUT_FIELD_TEXT_CHANGED", "INPUT_FIELD_TEXT_ENTERED"),
     "dropdown": ("DROPDOWN_ITEM_CHANGED",),
     "textarea": ("TEXT_AREA_TEXT_CHANGED",),
+    "combobox": ("COMBOBOX_TEXT_CHANGED", "COMBOBOX_TEXT_ENTERED", "COMBOBOX_ITEM_CHANGED"),
+    "color_picker": ("COLOR_PICKER_VALUE_CHANGED",),
 }
 
 
@@ -467,6 +477,96 @@ class FrameResized(FrameEvent):
 
 
 @dataclass
+class WidgetEvent:
+    __vf_py_attrs__ = True
+    __vf_event_type_name__ = "WidgetEvent"
+
+    event: str
+    frame_id: str = ""
+    widget_id: str = ""
+    event_code: int = 0
+    ui_code: int = 0
+    frame_code: int = 0
+    widget_code: int = 0
+    index: int = 0
+    text: str = ""
+    value: str = ""
+    checked: bool = False
+    selected_index: int = -1
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "WidgetEvent":
+        ev = str(d.get("event", ""))
+        event_code, ui_code, frame_code, widget_code = _event_codes_from_payload(d)
+        event_cls = cls if cls is not WidgetEvent else _WIDGET_EVENT_CLASS_BY_NAME.get(ev, WidgetEvent)
+        data = d.get("data")
+        if not isinstance(data, dict):
+            data = {}
+        return event_cls(
+            event=ev,
+            frame_id=str(d.get("frame_id", d.get("frameId", "")) or ""),
+            widget_id=str(d.get("widget_id", d.get("widgetId", "")) or ""),
+            event_code=event_code,
+            ui_code=ui_code,
+            frame_code=frame_code,
+            widget_code=widget_code,
+            index=int(d.get("index", 0)),
+            text=str(data.get("text", d.get("text", "")) or ""),
+            value=str(data.get("value", d.get("value", "")) or ""),
+            checked=bool(data.get("checked", d.get("checked", False))),
+            selected_index=int(data.get("index", d.get("index", -1)) or -1),
+        )
+
+    @property
+    def type(self) -> str:
+        return self.event
+
+
+class ButtonPressedEvent(WidgetEvent):
+    __vf_event_type_name__ = "ButtonPressedEvent"
+
+
+class CheckboxToggledEvent(WidgetEvent):
+    __vf_event_type_name__ = "CheckboxToggledEvent"
+
+
+class SliderValueChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "SliderValueChangedEvent"
+
+
+class InputFieldTextChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "InputFieldTextChangedEvent"
+
+
+class InputFieldTextEnteredEvent(WidgetEvent):
+    __vf_event_type_name__ = "InputFieldTextEnteredEvent"
+
+
+class DropdownItemChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "DropdownItemChangedEvent"
+
+
+class TextAreaTextChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "TextAreaTextChangedEvent"
+
+
+class ComboboxTextChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "ComboboxTextChangedEvent"
+
+
+class ComboboxTextEnteredEvent(WidgetEvent):
+    __vf_event_type_name__ = "ComboboxTextEnteredEvent"
+
+
+class ComboboxItemChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "ComboboxItemChangedEvent"
+
+
+class ColorPickerValueChangedEvent(WidgetEvent):
+    __vf_event_type_name__ = "ColorPickerValueChangedEvent"
+
+
+@dataclass
 class KeyboardEvent:
     """A keyboard event received from the overlay."""
 
@@ -570,7 +670,22 @@ _FRAME_EVENT_CLASS_BY_NAME: dict[str, type[FrameEvent]] = {
 }
 
 
-def ui_event_from_payload(d: dict[str, Any]) -> MouseEvent | KeyboardEvent | FrameEvent | dict[str, Any]:
+_WIDGET_EVENT_CLASS_BY_NAME: dict[str, type[WidgetEvent]] = {
+    "button.pressed": ButtonPressedEvent,
+    "checkbox.toggled": CheckboxToggledEvent,
+    "slider.value_changed": SliderValueChangedEvent,
+    "input_field.text_changed": InputFieldTextChangedEvent,
+    "input_field.text_entered": InputFieldTextEnteredEvent,
+    "dropdown.item_changed": DropdownItemChangedEvent,
+    "text_area.text_changed": TextAreaTextChangedEvent,
+    "combobox.text_changed": ComboboxTextChangedEvent,
+    "combobox.text_entered": ComboboxTextEnteredEvent,
+    "combobox.item_changed": ComboboxItemChangedEvent,
+    "color_picker.value_changed": ColorPickerValueChangedEvent,
+}
+
+
+def ui_event_from_payload(d: dict[str, Any]) -> MouseEvent | KeyboardEvent | FrameEvent | WidgetEvent | dict[str, Any]:
     """Normalize a raw host payload into the most specific typed UI event."""
     payload = dict(d)
     ev = str(payload.get("event", ""))
@@ -582,6 +697,8 @@ def ui_event_from_payload(d: dict[str, Any]) -> MouseEvent | KeyboardEvent | Fra
             return KeyboardEvent.from_dict(payload)
     if ev in _FRAME_EVENT_CLASS_BY_NAME:
         return FrameEvent.from_dict(payload)
+    if ev in _WIDGET_EVENT_CLASS_BY_NAME:
+        return WidgetEvent.from_dict(payload)
     return payload
 
 

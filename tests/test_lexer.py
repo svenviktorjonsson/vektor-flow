@@ -550,7 +550,7 @@ class TestExampleFiles:
 
 class TestErrors:
     def test_bang_question_tokenizes(self) -> None:
-        toks = tokenize("x!?\n  errors.ERROR => y: 1\n", filename="<t>")
+        toks = tokenize("x!?\n  errors.Error => y: 1\n", filename="<t>")
         assert any(t.kind == "BANG_QUESTION" for t in toks)
 
     def test_unterminated_string(self) -> None:

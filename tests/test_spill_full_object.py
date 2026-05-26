@@ -109,3 +109,25 @@ a: Name(3)
 ::: add1(a)
 """
     assert _run(src) == "add1(a): 4"
+
+
+def test_untyped_constructor_param_preserves_spilled_wrapper_overrides() -> None:
+    src = """
+Base():
+  title: "base"
+  :
+
+Derived(base):
+  :base
+  title: "derived"
+  :
+
+View(spec):
+  :spec
+  seen: title
+  :
+
+view: View(Derived(Base()))
+::: view.seen
+"""
+    assert _run(src) == "view.seen: derived"

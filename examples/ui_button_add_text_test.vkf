@@ -1,0 +1,52 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene: (
+    kind: "widget_ui",
+    frame: (
+        id: "f1",
+        title: "Button Add Text Test",
+        rect: [0.25, 0.25, 0.5, 0.25]
+    ),
+    body_layout: (
+        type: "grid",
+        rows: 3,
+        cols: 4
+    ),
+    body: [
+        (
+            id: "text_field",
+            type: "input",
+            text: "Add not pressed yet",
+            grid: [0, 0, 1, 4]
+        ),
+        (
+            id: "add_button",
+            type: "button",
+            label: "Add",
+            grid: [1, 0, 1, 1],
+            align: "left"
+        ),
+        (
+            id: "status_label",
+            type: "label",
+            text: "waiting for button.pressed",
+            grid: [2, 0, 1, 4],
+            align: "left"
+        )
+    ],
+    event_program: (
+        rules: [
+            (
+                event: "button.pressed",
+                frame_id: "f1",
+                widget_id: "add_button",
+                actions: [
+                    (op: "increment", name: "click_count"),
+                    (op: "set_text", target: "text_field", text: "Add not pressed yet + add {click_count}"),
+                    (op: "set_text", target: "status_label", text: "received button.pressed #{click_count}")
+                ]
+            )
+        ]
+    )
+)

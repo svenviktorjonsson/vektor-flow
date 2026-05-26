@@ -204,6 +204,27 @@ def test_add_frame_with_gridlayout_and_widget_grid_slots() -> None:
     assert spec["body"][1]["grid"] == [1, 2, 2, 2]
 
 
+def test_gridlayout_accepts_column_and_row_templates() -> None:
+    d = build_ui_namespace()["ui"].display
+    f = d.frame(
+        title="Dense Grid",
+        gridlayout=(4, 6),
+        columns="max-content max-content 1fr 1fr 1fr 1fr",
+        row_heights="max-content max-content repeat(2, minmax(0, 1fr))",
+    )
+    d.add_frame(f, (0.1, 0.1, 0.4, 0.3), body=[d.widget.label("L", text="hi", grid=(0, 0, 1, 1))])
+
+    data = json.loads(d.dumps())
+    layout = data[0]["payload"]["spec"]["body_layout"]
+    assert layout == {
+        "type": "grid",
+        "rows": 4,
+        "cols": 6,
+        "columns": "max-content max-content 1fr 1fr 1fr 1fr",
+        "row_heights": "max-content max-content repeat(2, minmax(0, 1fr))",
+    }
+
+
 def test_widget_set_merges_state_without_touching_frame_command_log() -> None:
     s = build_screen_namespace()["screen"]()
     f = s.frame(title="Tools")

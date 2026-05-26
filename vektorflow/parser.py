@@ -490,18 +490,7 @@ class Parser:
             self._skip_trivia()
             if self._peek_raw() == EOF:
                 break
-            if (
-                self._peek_raw() == IDENT
-                and self.i + 1 < len(self.toks)
-                and self.toks[self.i + 1].kind == COLON
-                and not (self.i + 2 < len(self.toks) and self.toks[self.i + 2].kind == DOT)
-                and not (self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN)
-            ):
-                name = str(self._advance().value)
-                self._advance()
-                stmts.append(ast.Bind(ast.Ident(name), self._parse_bind_rhs(ast.Ident(name))))
-                continue
-            stmts.append(self.parse_stmt())
+            stmts.extend(self.parse_stmt_semicolon_chain())
         return ast.Module(stmts)
 
     def parse_stmt(self) -> Any:

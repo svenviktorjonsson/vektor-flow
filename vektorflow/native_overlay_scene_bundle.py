@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import re
 import time
@@ -239,6 +240,7 @@ class NativeOverlaySceneProgram:
     runtime_packets_text: str
     geom_transport_text: str = ""
     geom_state_text: str = ""
+    event_program_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -305,6 +307,7 @@ def _compile_native_scene_program(session_stem: str, declared: dict[str, Any]) -
         runtime_packets_text=compiler.render_runtime_packets(spec),
         geom_transport_text="" if compiler.render_geom_transport is None else compiler.render_geom_transport(spec),
         geom_state_text="" if compiler.render_geom_state is None else compiler.render_geom_state(spec),
+        event_program_text=str(spec.get("event_program_text", "")),
     )
 
 
@@ -1077,6 +1080,437 @@ def _normalize_dimension_mix_spec(declared: dict[str, Any]) -> dict[str, Any]:
             "camera": _optional_ocean_camera_value(volume),
             "light": _optional_ocean_light_value(volume),
         },
+    }
+
+
+def _normalize_widget_ui_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    frame_decl = _require_struct_value(declared, "frame")
+    body_decl = declared.get("body", [])
+    if not isinstance(body_decl, (list, tuple)):
+        raise ValueError("native_scene.body must be a list of widget maps")
+    layout = declared.get("body_layout", None)
+    if layout is not None and not isinstance(layout, dict):
+        layout = _require_struct_value(declared, "body_layout")
+    event_program = declared.get("event_program") or {"rules": []}
+    if isinstance(event_program, list):
+        event_program = {"rules": event_program}
+    return {
+        "frame_id": _require_string_value(frame_decl, "id"),
+        "title": _optional_string_value(frame_decl, "title", ""),
+        "rect": tuple(_require_number_list(frame_decl, "rect", length=4)),
+        "body_layout": layout,
+        "body": [_normalize_widget_ui_widget(item) for item in body_decl],
+        "event_program_text": json.dumps(event_program, ensure_ascii=False, indent=2) + "\n",
+    }
+
+
+def _normalize_widget_ui_widget(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        raise ValueError("native_scene.body entries must be widget maps")
+    out: dict[str, Any] = {}
+    for key, value in item.items():
+        if isinstance(value, dict):
+            out[str(key)] = {str(k): v for k, v in value.items()}
+        elif isinstance(value, (list, tuple)):
+            out[str(key)] = [
+                {str(k): v for k, v in x.items()} if isinstance(x, dict) else x
+                for x in value
+            ]
+        else:
+            out[str(key)] = value
+    out["id"] = str(out.get("id", ""))
+    out["type"] = str(out.get("type", "label"))
+    if not out["id"]:
+        raise ValueError("native_scene.body widget id must be non-empty")
+    return out
+
+
+_FUNCTION_PLOTTER_MATH_ENV: dict[str, Any] = {
+    name: getattr(math, name)
+    for name in dir(math)
+    if not name.startswith("_")
+}
+_FUNCTION_PLOTTER_MATH_ENV.update({"abs": abs, "min": min, "max": max, "pow": pow})
+
+
+def _function_plotter_linspace(vmin: float, vmax: float, count: int) -> list[float]:
+    n = max(2, int(count))
+    if n == 1:
+        return [float(vmin)]
+    step = (float(vmax) - float(vmin)) / float(n - 1)
+    return [float(vmin) + (float(i) * step) for i in range(n)]
+
+
+def _function_plotter_eval(expr: str, *, u: float, v: float = 0.0, w: float = 0.0, t: float = 0.0) -> Any:
+    source = str(expr or "").strip()
+    if not source:
+        source = "0"
+    source = source.replace("^", "**")
+    env = dict(_FUNCTION_PLOTTER_MATH_ENV)
+    env.update(
+        {
+            "u": float(u),
+            "v": float(v),
+            "w": float(w),
+            "t": float(t),
+            "x": float(u),
+            "y": float(v),
+            "z": float(w),
+        }
+    )
+    return eval(source, {"__builtins__": {}}, env)
+
+
+def _function_plotter_point(expr: str, *, u: float) -> tuple[float, float, float]:
+    value = _function_plotter_eval(expr, u=u)
+    if isinstance(value, (list, tuple)):
+        if len(value) == 2:
+            return (float(value[0]), float(value[1]), 0.02)
+        if len(value) >= 3:
+            return (float(value[0]), float(value[1]), float(value[2]))
+        raise ValueError("native_scene.function_plotter vector expression must return [x, y] or [x, y, z]")
+    return (float(u), float(value), 0.02)
+
+
+def _function_plotter_normalize_points(points: list[tuple[float, float, float]]) -> list[list[float]]:
+    xs = [float(point[0]) for point in points]
+    ys = [float(point[1]) for point in points]
+    extent = max(
+        1e-9,
+        max(abs(value) for value in xs),
+        max(abs(value) for value in ys),
+    )
+    scale = 0.42 / extent
+    # Canvas coordinates are y-down; keep mathematical origin at panel center.
+    return [
+        [
+            0.5 + (float(point[0]) * scale),
+            0.5 - (float(point[1]) * scale),
+        ]
+        for point in points
+    ]
+
+
+def _function_plotter_axis_ops(points: list[tuple[float, float, float]]) -> list[dict[str, Any]]:
+    xs = [float(point[0]) for point in points]
+    ys = [float(point[1]) for point in points]
+    min_x = min(xs)
+    max_x = max(xs)
+    min_y = min(ys)
+    max_y = max(ys)
+    span_x = max(1e-9, max_x - min_x)
+    span_y = max(1e-9, max_y - min_y)
+
+    def nx(value: float) -> float:
+        return 0.08 + (0.84 * ((float(value) - min_x) / span_x))
+
+    def ny(value: float) -> float:
+        return 0.08 + (0.84 * (1.0 - ((float(value) - min_y) / span_y)))
+
+    ops: list[dict[str, Any]] = []
+    if min_y <= 0.0 <= max_y:
+        y0 = ny(0.0)
+        ops.append({"op": "polyline", "points": [[0.06, y0], [0.94, y0]], "color": [0.20, 0.72, 1.0, 0.72], "width": 0.0025, "cap": "round"})
+    if min_x <= 0.0 <= max_x:
+        x0 = nx(0.0)
+        ops.append({"op": "polyline", "points": [[x0, 0.06], [x0, 0.94]], "color": [0.48, 0.95, 0.48, 0.72], "width": 0.0025, "cap": "round"})
+    return ops
+
+
+def _plotter_widget(widget_id: str, widget_type: str, grid: list[int], **props: Any) -> dict[str, Any]:
+    spec: dict[str, Any] = {
+        "id": widget_id,
+        "type": widget_type,
+        "grid": grid,
+        "align": props.pop("align", "left"),
+        "compact": props.pop("compact", True),
+    }
+    spec.update(props)
+    return spec
+
+
+def _function_plotter_body_widgets(
+    *,
+    expr: str,
+    panel_id: str,
+    u_min: float,
+    u_max: float,
+    u_count: int,
+    v_min: float,
+    v_max: float,
+    v_count: int,
+) -> list[dict[str, Any]]:
+    expr_vars = set(re.findall(r"\b([uvwxyzijkt])\b", expr))
+    has_y_axis = bool(expr_vars.intersection({"y", "v", "j", "k", "w"}))
+    has_time = "t" in expr_vars
+    return [
+        _plotter_widget("expr_label", "label", [0, 0, 1, 1], text="$f(x)$"),
+        _plotter_widget(
+            "expr_box",
+            "combobox",
+            [0, 1, 1, 3],
+            text=expr,
+            options=[expr, "sin(x)", "cos(x)", "sin(x*y)"],
+            debounce_ms=180,
+        ),
+        _plotter_widget("add_button", "button", [0, 4, 1, 1], label="Add"),
+        _plotter_widget("clear_button", "button", [0, 5, 1, 1], label="Clear"),
+        _plotter_widget("face_label", "label", [1, 0, 1, 1], text="faces"),
+        _plotter_widget("face_mode", "dropdown", [1, 1, 1, 1], options=["None", "Distributed", "Constant"], value=0),
+        _plotter_widget("face_colormap", "dropdown", [1, 2, 1, 1], options=["rgb", "jet"], value=0, visible=False),
+        _plotter_widget("edge_label", "label", [2, 0, 1, 1], text="edges"),
+        _plotter_widget("edge_mode", "dropdown", [2, 1, 1, 1], options=["None", "Distributed", "Constant"], value=2),
+        _plotter_widget("edge_colormap", "dropdown", [2, 2, 1, 1], options=["rgb", "jet"], value=0, visible=False),
+        _plotter_widget("edge_color", "color_picker", [2, 3, 1, 1], value="#ff941a"),
+        _plotter_widget("edge_scale", "slider", [2, 4, 1, 1], min=0.05, max=25.0, step=0.05, value=1.0),
+        _plotter_widget("vertex_label", "label", [3, 0, 1, 1], text="vertices"),
+        _plotter_widget("vertex_mode", "dropdown", [3, 1, 1, 1], options=["None", "Distributed", "Constant"], value=2),
+        _plotter_widget("vertex_colormap", "dropdown", [3, 2, 1, 1], options=["rgb", "jet"], value=0, visible=False),
+        _plotter_widget("vertex_color", "color_picker", [3, 3, 1, 1], value="#ffc25c"),
+        _plotter_widget("vertex_scale", "slider", [3, 4, 1, 1], min=0.05, max=25.0, step=0.05, value=1.0),
+        _plotter_widget("hdr_param", "label", [4, 0, 1, 1], text="param"),
+        _plotter_widget("hdr_min", "label", [4, 1, 1, 1], text="min"),
+        _plotter_widget("hdr_max", "label", [4, 2, 1, 1], text="max"),
+        _plotter_widget("hdr_count", "label", [4, 3, 1, 1], text="count"),
+        _plotter_widget("x_name", "label", [5, 0, 1, 1], text="x"),
+        _plotter_widget("x_min", "input", [5, 1, 1, 1], text=str(u_min), debounce_ms=180),
+        _plotter_widget("x_max", "input", [5, 2, 1, 1], text=str(u_max), debounce_ms=180),
+        _plotter_widget("x_count", "input", [5, 3, 1, 1], text=str(u_count), debounce_ms=180),
+        _plotter_widget("y_name", "label", [6, 0, 1, 1], text="y", visible=has_y_axis),
+        _plotter_widget("y_min", "input", [6, 1, 1, 1], text=str(v_min), debounce_ms=180, visible=has_y_axis),
+        _plotter_widget("y_max", "input", [6, 2, 1, 1], text=str(v_max), debounce_ms=180, visible=has_y_axis),
+        _plotter_widget("y_count", "input", [6, 3, 1, 1], text=str(v_count), debounce_ms=180, visible=has_y_axis),
+        _plotter_widget("t_name", "label", [7, 0, 1, 1], text="t", visible=has_time),
+        _plotter_widget("t_min", "input", [7, 1, 1, 1], text="0.0", debounce_ms=180, visible=has_time),
+        _plotter_widget("t_max", "input", [7, 2, 1, 1], text="6.283185307179586", debounce_ms=180, visible=has_time),
+        _plotter_widget("t_count", "input", [7, 3, 1, 1], text="90", debounce_ms=180, visible=has_time),
+        _plotter_widget("mode_label", "label", [8, 0, 1, 1], text="mode"),
+        _plotter_widget("plot_mode", "dropdown", [8, 1, 1, 1], options=["2D", "3D"], value=0),
+        _plotter_widget("status_line", "label", [8, 2, 1, 6], text="ready"),
+        _plotter_widget(
+            "plot_stack",
+            "stackframe",
+            [9, 0, 7, 12],
+            align="stretch",
+            compact=False,
+            active="2d",
+            children=[
+                _plotter_widget(panel_id, "plot_panel", [0, 0, 1, 1], key="2d", align="stretch", compact=False),
+                _plotter_widget(f"{panel_id}_3d", "plot_panel", [0, 0, 1, 1], key="3d", align="stretch", compact=False),
+            ],
+        ),
+    ]
+
+
+def _function_plotter_body_layout() -> dict[str, Any]:
+    return {
+        "type": "grid",
+        "rows": 16,
+        "cols": 12,
+        "columns": "max-content max-content max-content max-content max-content max-content max-content max-content 1fr 1fr 1fr 1fr",
+        "row_heights": "max-content max-content max-content max-content max-content max-content max-content max-content max-content repeat(7, minmax(0, 1fr))",
+    }
+
+
+def _normalize_function_plotter_spec(declared: dict[str, Any]) -> dict[str, Any]:
+    expr = _require_string_value(declared, "expr")
+    u_range = _optional_struct_value(declared, "u") or {}
+    u_min = _optional_number_value(u_range, "min", -1.0)
+    u_max = _optional_number_value(u_range, "max", 1.0)
+    u_count = _optional_positive_int_value(u_range, "count", 61, minimum=2)
+    v_range = _optional_struct_value(declared, "v") or {}
+    v_min = _optional_number_value(v_range, "min", -1.0)
+    v_max = _optional_number_value(v_range, "max", 1.0)
+    v_count = _optional_positive_int_value(v_range, "count", 41, minimum=2)
+    vertex_radius = _optional_number_value(declared, "vertex_size", 0.006)
+    panel_id = _optional_string_value(declared, "panel_id", "plot_panel")
+    frame_id = _require_string_value(declared, "frame_id")
+    stack_id = "plot_stack"
+    panel_3d_id = f"{panel_id}_3d"
+    plot_2d_target = f"{frame_id}:{panel_id}"
+    plot_3d_target = f"{frame_id}:{panel_3d_id}"
+    frame_rect = _optional_number_list(declared, "rect", [0.06, 0.06, 0.82, 0.82], length=4)
+
+    def _visibility_action(row: str, mode: str) -> dict[str, Any]:
+        return {
+            "op": "set_widget_state",
+            "state": {
+                f"{row}_colormap": {"visible": mode == "Distributed"},
+                f"{row}_color": {"visible": mode == "Constant"},
+                f"{row}_scale": {"visible": row in {"edge", "vertex"} and mode != "None"},
+            },
+        }
+
+    def _plot_action(event_name: str, widget_id: str, *, target: str, panel: str, plot_space: str) -> dict[str, Any]:
+        return {
+            "op": "plot_expr_to_frame_ops",
+            "target": target,
+            "panel_widget": panel,
+            "plot_space": plot_space,
+            "expr_widget": "expr_box",
+            "min_widget": "x_min",
+            "max_widget": "x_max",
+            "count_widget": "x_count",
+            "y_min_widget": "y_min",
+            "y_max_widget": "y_max",
+            "y_count_widget": "y_count",
+            "t_min_widget": "t_min",
+            "t_max_widget": "t_max",
+            "t_count_widget": "t_count",
+            "t_value_widget": panel,
+            "face_widget": "face_mode",
+            "edge_widget": "edge_mode",
+            "vertex_widget": "vertex_mode",
+            "edge_scale_widget": "edge_scale",
+            "vertex_scale_widget": "vertex_scale",
+            "face_colormap_widget": "face_colormap",
+            "edge_colormap_widget": "edge_colormap",
+            "vertex_colormap_widget": "vertex_colormap",
+            "face_mode": "None",
+            "edge_mode": "Constant",
+            "vertex_mode": "Constant",
+            "face_colormap": "rgb",
+            "edge_colormap": "rgb",
+            "vertex_colormap": "rgb",
+            "commit_plot": event_name == "button.pressed" and widget_id == "add_button",
+            "text": expr,
+            "min": u_min,
+            "max": u_max,
+            "count": u_count,
+            "y_min": v_min,
+            "y_max": v_max,
+            "y_count": v_count,
+            "t_min": 0.0,
+            "t_max": 6.283185307179586,
+            "t_count": 90,
+            "line_width": _optional_number_value(declared, "edge_width", 0.005),
+            "vertex_radius": vertex_radius,
+        }
+
+    event_rules: list[dict[str, Any]] = [
+        {
+            "event": event_name,
+            "frame_id": frame_id,
+            "widget_id": widget_id,
+            "actions": [
+                _plot_action(event_name, widget_id, target=plot_2d_target, panel=panel_id, plot_space="2d"),
+                _plot_action(event_name, widget_id, target=plot_3d_target, panel=panel_3d_id, plot_space="3d"),
+            ],
+        }
+        for event_name, widget_id in [
+            ("button.pressed", "add_button"),
+            ("combobox.text_changed", "expr_box"),
+            ("combobox.item_changed", "expr_box"),
+            ("input_field.text_changed", "x_min"),
+            ("input_field.text_changed", "x_max"),
+            ("input_field.text_changed", "x_count"),
+            ("input_field.text_changed", "y_min"),
+            ("input_field.text_changed", "y_max"),
+            ("input_field.text_changed", "y_count"),
+            ("input_field.text_changed", "t_min"),
+            ("input_field.text_changed", "t_max"),
+            ("input_field.text_changed", "t_count"),
+            ("dropdown.item_changed", "face_colormap"),
+            ("dropdown.item_changed", "edge_colormap"),
+            ("dropdown.item_changed", "vertex_colormap"),
+            ("slider.value_changed", "edge_scale"),
+            ("slider.value_changed", "vertex_scale"),
+        ]
+    ]
+    for row in ("face", "edge", "vertex"):
+        for mode in ("None", "Distributed", "Constant"):
+            event_rules.append(
+                {
+                    "event": "dropdown.item_changed",
+                    "frame_id": frame_id,
+                    "widget_id": f"{row}_mode",
+                    "when": {"text": mode},
+                    "actions": [
+                        _visibility_action(row, mode),
+                        _plot_action("dropdown.item_changed", f"{row}_mode", target=plot_2d_target, panel=panel_id, plot_space="2d"),
+                        _plot_action("dropdown.item_changed", f"{row}_mode", target=plot_3d_target, panel=panel_3d_id, plot_space="3d"),
+                    ],
+                }
+            )
+    for mode in ("2d", "3d"):
+        event_rules.append(
+            {
+                "event": "dropdown.item_changed",
+                "frame_id": frame_id,
+                "widget_id": "plot_mode",
+                "when": {"text": mode.upper()},
+                "actions": [
+                    {
+                        "op": "set_widget_state",
+                        "state": {
+                            stack_id: {"active": mode},
+                            "status_line": {"text": f"{mode.upper()} mode"},
+                        },
+                    }
+                ],
+            }
+        )
+    for tick_panel, tick_target, tick_space in [
+        (panel_id, plot_2d_target, "2d"),
+        (panel_3d_id, plot_3d_target, "3d"),
+    ]:
+        event_rules.append(
+            {
+                "event": "plot.time_tick",
+                "frame_id": frame_id,
+                "widget_id": tick_panel,
+                "actions": [_plot_action("plot.time_tick", tick_panel, target=tick_target, panel=tick_panel, plot_space=tick_space)],
+            }
+        )
+    event_rules.append(
+        {
+            "event": "button.pressed",
+            "frame_id": frame_id,
+            "widget_id": "clear_button",
+            "actions": [
+                {
+                    "op": "display_frame_ops",
+                    "target": f"{frame_id}:{panel_id}",
+                    "ops": [],
+                },
+                {
+                    "op": "display_frame_ops",
+                    "target": plot_3d_target,
+                    "ops": [],
+                },
+                {
+                    "op": "display_geom_empty",
+                    "target": plot_2d_target,
+                },
+                {
+                    "op": "display_geom_empty",
+                    "target": plot_3d_target,
+                },
+            ],
+        }
+    )
+    return {
+        "frame_id": frame_id,
+        "panel_id": panel_id,
+        "title": _optional_string_value(declared, "title", f"Function Plotter - {expr}"),
+        "rect": frame_rect,
+        "body": _function_plotter_body_widgets(
+            expr=expr,
+            panel_id=panel_id,
+            u_min=u_min,
+            u_max=u_max,
+            u_count=u_count,
+            v_min=v_min,
+            v_max=v_max,
+            v_count=v_count,
+        ),
+        "body_layout": _function_plotter_body_layout(),
+        "event_program_text": json.dumps(
+            {"rules": event_rules},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
     }
 
 
@@ -2806,6 +3240,422 @@ def _render_dimension_mix_packets(spec: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
+def _render_widget_ui_packets(spec: dict[str, Any]) -> str:
+    def _plot_panel_widgets(widgets: Any) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        if not isinstance(widgets, list):
+            return out
+        for widget in widgets:
+            if not isinstance(widget, dict):
+                continue
+            if widget.get("type") == "plot_panel" and widget.get("id"):
+                out.append(widget)
+            out.extend(_plot_panel_widgets(widget.get("children")))
+        return out
+
+    def _frame_specs() -> list[dict[str, Any]]:
+        frames = [spec]
+        frames.extend(frame for frame in spec.get("extra_frames", []) if isinstance(frame, dict))
+        return frames
+
+    commands: list[dict[str, Any]] = []
+    plot_frames: dict[str, list[Any]] = {}
+    for frame_spec in _frame_specs():
+        x, y, w, h = frame_spec["rect"]
+        frame_id = str(frame_spec["frame_id"])
+        for widget in _plot_panel_widgets(frame_spec.get("body", [])):
+            plot_frames[f"{frame_id}:{str(widget.get('id'))}"] = []
+        commands.append(
+            {
+                "kind": "frame_upsert",
+                "id": frame_id,
+                "payload": {
+                    "spec": {
+                        "id": frame_id,
+                        "title": str(frame_spec["title"]),
+                        "title_align": "left",
+                        "rect": {"x": x, "y": y, "w": w, "h": h},
+                        "flags": {
+                            "draggable": True,
+                            "dockable": True,
+                            "resizable": True,
+                            "closable": True,
+                            "use_browser": True,
+                        },
+                        "alpha": 1.0,
+                        "master": True,
+                        "exit_counted": True,
+                        "dock_location": "bl",
+                        "anchor": "tl",
+                        "body": frame_spec["body"],
+                        "body_layout": frame_spec.get("body_layout"),
+                        "parent_id": None,
+                    }
+                },
+            }
+        )
+    payload = [
+        {
+            "seq": 1,
+            "kind": "scene.replace",
+            "payload": {"commands": commands},
+        },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": plot_frames, "geom": {}}}},
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def _render_widget_ui_html(spec: dict[str, Any]) -> str:
+    asset_version = _runtime_asset_version()
+    return f"""<!DOCTYPE html>
+<html>
+  <body>
+    <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
+  </body>
+</html>
+"""
+
+
+def _render_function_plotter_packets(spec: dict[str, Any]) -> str:
+    x, y, w, h = spec["rect"]
+    frame_id = str(spec["frame_id"])
+    panel_id = str(spec.get("panel_id") or "plot_panel")
+    expr = str(spec.get("expr") or "")
+    u_min = spec.get("u_min", -1.0)
+    u_max = spec.get("u_max", 1.0)
+    u_count = spec.get("u_count", 61)
+    v_min = spec.get("v_min", -1.0)
+    v_max = spec.get("v_max", 1.0)
+    v_count = spec.get("v_count", 41)
+    payload = [
+        {
+            "seq": 1,
+            "kind": "scene.replace",
+            "payload": {
+                "commands": [
+                    {
+                        "kind": "frame_upsert",
+                        "id": frame_id,
+                        "payload": {
+                            "spec": {
+                                "id": frame_id,
+                                "title": str(spec["title"]),
+                                "title_align": "left",
+                                "rect": {"x": x, "y": y, "w": w, "h": h},
+                                "flags": {
+                                    "draggable": True,
+                                    "dockable": True,
+                                    "resizable": True,
+                                    "closable": True,
+                                    "use_browser": True,
+                                },
+                                "alpha": 1.0,
+                                "master": True,
+                                "exit_counted": True,
+                                "dock_location": "bl",
+                                "anchor": "tl",
+                                "body": [
+                                    {
+                                        "id": "expr_label",
+                                        "type": "label",
+                                        "text": "$f(x)$",
+                                        "grid": [0, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "expr_box",
+                                        "type": "combobox",
+                                        "text": expr,
+                                        "options": [expr, "sin(x)", "cos(x)", "sin(x*y)"],
+                                        "grid": [0, 1, 1, 3],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": "add_button",
+                                        "type": "button",
+                                        "label": "Add",
+                                        "grid": [0, 4, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "clear_button",
+                                        "type": "button",
+                                        "label": "Clear",
+                                        "grid": [0, 5, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "face_label",
+                                        "type": "label",
+                                        "text": "faces",
+                                        "grid": [1, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "face_mode",
+                                        "type": "dropdown",
+                                        "options": ["None", "Distributed", "Constant"],
+                                        "value": 0,
+                                        "grid": [1, 1, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "face_colormap",
+                                        "type": "dropdown",
+                                        "options": ["rgb", "jet"],
+                                        "value": 0,
+                                        "grid": [1, 2, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "visible": False,
+                                    },
+                                    {
+                                        "id": "edge_label",
+                                        "type": "label",
+                                        "text": "edges",
+                                        "grid": [2, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "edge_mode",
+                                        "type": "dropdown",
+                                        "options": ["None", "Distributed", "Constant"],
+                                        "value": 2,
+                                        "grid": [2, 1, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "edge_colormap",
+                                        "type": "dropdown",
+                                        "options": ["rgb", "jet"],
+                                        "value": 0,
+                                        "grid": [2, 2, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "visible": False,
+                                    },
+                                    {
+                                        "id": "edge_color",
+                                        "type": "color_picker",
+                                        "value": "#ff941a",
+                                        "grid": [2, 3, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "edge_scale",
+                                        "type": "slider",
+                                        "min": 0.1,
+                                        "max": 4.0,
+                                        "step": 0.05,
+                                        "value": 1.0,
+                                        "grid": [2, 4, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "vertex_label",
+                                        "type": "label",
+                                        "text": "vertices",
+                                        "grid": [3, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "vertex_mode",
+                                        "type": "dropdown",
+                                        "options": ["None", "Distributed", "Constant"],
+                                        "value": 2,
+                                        "grid": [3, 1, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "vertex_colormap",
+                                        "type": "dropdown",
+                                        "options": ["rgb", "jet"],
+                                        "value": 0,
+                                        "grid": [3, 2, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "visible": False,
+                                    },
+                                    {
+                                        "id": "vertex_color",
+                                        "type": "color_picker",
+                                        "value": "#ffc25c",
+                                        "grid": [3, 3, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "vertex_scale",
+                                        "type": "slider",
+                                        "min": 0.1,
+                                        "max": 4.0,
+                                        "step": 0.05,
+                                        "value": 1.0,
+                                        "grid": [3, 4, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "hdr_param",
+                                        "type": "label",
+                                        "text": "param",
+                                        "grid": [4, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "hdr_min",
+                                        "type": "label",
+                                        "text": "min",
+                                        "grid": [4, 1, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "hdr_max",
+                                        "type": "label",
+                                        "text": "max",
+                                        "grid": [4, 2, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "hdr_count",
+                                        "type": "label",
+                                        "text": "count",
+                                        "grid": [4, 3, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "x_name",
+                                        "type": "label",
+                                        "text": "x",
+                                        "grid": [5, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "x_min",
+                                        "type": "input",
+                                        "text": str(u_min),
+                                        "grid": [5, 1, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": "x_max",
+                                        "type": "input",
+                                        "text": str(u_max),
+                                        "grid": [5, 2, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": "x_count",
+                                        "type": "input",
+                                        "text": str(u_count),
+                                        "grid": [5, 3, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": "status_line",
+                                        "type": "label",
+                                        "text": "ready",
+                                        "grid": [7, 0, 1, 8],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "y_name",
+                                        "type": "label",
+                                        "text": "y",
+                                        "grid": [6, 0, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                    },
+                                    {
+                                        "id": "y_min",
+                                        "type": "input",
+                                        "text": str(v_min),
+                                        "grid": [6, 1, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": "y_max",
+                                        "type": "input",
+                                        "text": str(v_max),
+                                        "grid": [6, 2, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": "y_count",
+                                        "type": "input",
+                                        "text": str(v_count),
+                                        "grid": [6, 3, 1, 1],
+                                        "align": "left",
+                                        "compact": True,
+                                        "debounce_ms": 180,
+                                    },
+                                    {
+                                        "id": panel_id,
+                                        "type": "plot_panel",
+                                        "grid": [8, 0, 8, 8],
+                                        "align": "stretch",
+                                    },
+                                ],
+                                "body_layout": {
+                                    "type": "grid",
+                                    "rows": 16,
+                                    "cols": 12,
+                                    "columns": "max-content max-content max-content max-content max-content max-content max-content max-content 1fr 1fr 1fr 1fr",
+                                    "row_heights": "max-content max-content max-content max-content max-content max-content max-content max-content repeat(8, minmax(0, 1fr))",
+                                },
+                                "parent_id": None,
+                            }
+                        },
+                    }
+                ]
+            },
+        },
+        {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
+        {
+            "seq": 3,
+            "kind": "display.replace",
+            "payload": {
+                "display": {
+                    "screen": [],
+                    "frames": {f"{frame_id}:{panel_id}": []},
+                    "geom": {},
+                }
+            },
+        },
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
 def _render_scene_probe_html(spec: dict[str, Any]) -> str:
     config_json = json.dumps(spec.get("event_probe") or {}, ensure_ascii=False)
     asset_version = _runtime_asset_version()
@@ -3273,6 +4123,12 @@ _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
         render_html=_render_scene_3d_views_html,
         render_runtime_packets=_render_scene_3d_views_packets,
     ),
+    "function_plotter": _NativeSceneCompiler(
+        default_session_name="ui-function-plotter",
+        normalize_spec=_normalize_function_plotter_spec,
+        render_html=_render_widget_ui_html,
+        render_runtime_packets=_render_widget_ui_packets,
+    ),
     "face_edge_vertex_drag": _NativeSceneCompiler(
         default_session_name="ui-face-edge-vertex-drag",
         normalize_spec=_normalize_face_edge_vertex_drag_spec,
@@ -3304,6 +4160,12 @@ _NATIVE_SCENE_COMPILERS: dict[str, _NativeSceneCompiler] = {
         normalize_spec=_normalize_dimension_mix_spec,
         render_html=_render_dimension_mix_html,
         render_runtime_packets=_render_dimension_mix_packets,
+    ),
+    "widget_ui": _NativeSceneCompiler(
+        default_session_name="ui-widget-ui",
+        normalize_spec=_normalize_widget_ui_spec,
+        render_html=_render_widget_ui_html,
+        render_runtime_packets=_render_widget_ui_packets,
     ),
 }
 

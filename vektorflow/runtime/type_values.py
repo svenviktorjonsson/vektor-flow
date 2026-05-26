@@ -714,10 +714,10 @@ def infer_type(
 
 
 def coerce_value(val: Any, tname: str | None) -> Any:
-    if isinstance(val, dict) and struct_has_spill_base(val):
-        val = get_spill_base(val)
     if tname is None or tname == "any":
         return val
+    if isinstance(val, dict) and struct_has_spill_base(val):
+        val = get_spill_base(val)
     if tname == "int":
         if isinstance(val, bool):
             return 1 if val else 0

@@ -48,6 +48,23 @@ f(x):
     assert lines[-1] in ("6", "6.0")
 
 
+def test_semicolon_separates_top_level_statements() -> None:
+    src = """
+x:1; :: x
+"""
+    assert _run(src) == "1"
+
+
+def test_semicolon_separates_same_indent_block_statements() -> None:
+    src = """
+name:
+    first: "Viktor"; last: "Jonsson"
+    first & " " & last
+:: name
+"""
+    assert _run(src) == "Viktor Jonsson"
+
+
 def test_func_field_literal_value() -> None:
     src = """
 f(x): y:2; x*y

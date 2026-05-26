@@ -4,6 +4,7 @@ import pytest
 
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
+from vektorflow.stdlib.events import MouseDrag, MouseWheel
 
 
 def test_vkf_add_infers_geometry_indices_from_axis_tagged_channels() -> None:
@@ -131,3 +132,103 @@ mesh: d.add(x: u, y: v, z: height, color: "cyan", interpolation: true)
     mesh = display._geom[frame_id]["meshes"][0]
     assert mesh["time_count"] == 2
     assert mesh["topology"] == "triangle-list"
+
+
+def test_axis_2d_sugar_emits_transparent_2d_marker_geometry() -> None:
+    src = """
+ui:.ui
+math:.math
+d: ui.display
+d.set_auto_render(false)
+w: ui.widgets
+ticks: [-1, 0, 1]
+labels: ui.axis_2d_tick_labels(w, x_ticks: ticks, y_ticks: ticks, x_min: -1, x_max: 1, y_min: -1, y_max: 1)
+f: d.frame(gridlayout: (5, 5), body_transparent: true)
+d.add_frame(f, (0.1, 0.1, 0.5, 0.5), body: labels)
+axis: ui.axis_2d(f, x_min: -1, x_max: 1, y_min: -1, y_max: 1, prefix: "test_axis")
+axis.crosshair()
+axis.ticks(x: ticks, y: ticks)
+x: [-1, 0, 1] -> u
+y: math.sin(x)
+axis.plot(x: x, y: y, id: "sin")
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<test>"))
+
+    display = ip.globals["d"]
+    frame_id = ip.globals["f"]._frame_id
+    frame_spec = display._screen._commands[0].payload["spec"]
+    assert frame_spec["body_transparent"] is True
+    assert frame_spec["body"]
+    meshes = display._geom[frame_id]["meshes"]
+    assert {m["id"] for m in meshes} >= {"test_axis_crosshair", "test_axis_sin"}
+    for mesh in meshes:
+        assert mesh["mode3d"] is False
+        assert mesh["render_mode"] == "marker_impostor"
+        if mesh["id"] == "test_axis_crosshair":
+            assert mesh["axis_full_frame"] is True
+            assert mesh["indices"] == [0, 1, 2, 3]
+        coords = mesh["vertices"][0::10] + mesh["vertices"][1::10]
+        assert max(abs(float(v)) for v in coords) <= 1.000001
+
+
+def test_axis_3d_crosshair_emits_pixel_line_geometry() -> None:
+    src = """
+ui:.ui
+d: ui.display
+d.set_auto_render(false)
+f: d.Frame()
+d.add_frame(f, (0.1, 0.1, 0.6, 0.6))
+axis: ui.axis_3d(f, x_min: -2, x_max: 2, y_min: -3, y_max: 3, z_min: -4, z_max: 4, prefix: "test_axis3d")
+axis.crosshair(width: 1)
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<test>"))
+
+    display = ip.globals["d"]
+    frame_id = ip.globals["f"]._frame_id
+    assert display._geom[frame_id]["axis3d_controls"] is True
+    meshes = display._geom[frame_id]["meshes"]
+    assert {m["id"] for m in meshes} >= {"test_axis3d_crosshair"}
+    for mesh in meshes:
+        assert mesh["topology"] == "line-list"
+        assert mesh["render_mode"] == "line"
+        assert mesh["marker_space"] == "pixel"
+        assert mesh["edge_width"] == 1.0
+        assert mesh["axis_screen_extend"] is False
+        assert mesh["mode3d"] is True
+        assert mesh["manifold_dim_count"] == 1
+        assert mesh["depth_write"] is True
+        assert mesh["receives_lighting"] is False
+        if mesh["id"] == "test_axis3d_crosshair":
+            assert len(mesh["indices"]) // 2 == 35
+    texts = display._geom[frame_id]["texts"]
+    assert len(texts) == 35
+    assert any(t["text"] == "$x$" for t in texts)
+    assert any(t["text"] == "$y$" for t in texts)
+    assert any(t["text"] == "$z$" for t in texts)
+
+
+def test_axis_3d_handle_events_routes_to_camera() -> None:
+    src = """
+ui:.ui
+d: ui.display
+d.set_auto_render(false)
+f: d.Frame()
+d.add_frame(f, (0.1, 0.1, 0.6, 0.6))
+axis: ui.axis_3d(f)
+cam: f.add_camera(pos: [4, -5, 3], target: [0, 0, 0], fov: 42)
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<test>"))
+    axis = ip.globals["axis"]
+    cam = ip.globals["cam"]
+    start_pos = list(cam._data["pos"])
+
+    assert axis.handle_events(MouseWheel(event="wheel", x=0, y=0, step=-1), camera=cam)
+    zoom_pos = list(cam._data["pos"])
+    assert zoom_pos != start_pos
+
+    assert axis.handle_events(MouseDrag(event="drag", x=0, y=0, dx=8, dy=4, width=800, height=600), camera=cam)
+    assert list(cam._data["pos"]) != zoom_pos
+    assert list(cam._data["target"]) != [0.0, 0.0, 0.0]

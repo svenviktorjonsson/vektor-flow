@@ -138,28 +138,40 @@ def build_field_mesh_geometry(
     vertex_size, edge_width = _overlay_size_policy(meta, manifold_dim_count)
     base_indices: list[int] = []
     topology = "point-list"
+    representation = str(meta.get("representation", meta.get("topology_mode", "")) or "").strip().lower()
+    if representation in ("vertex", "vertices", "points", "point-list", "point_list"):
+        representation = "vertices"
+    elif representation in ("edge", "edges", "wire", "wireframe", "line-list", "line_list"):
+        representation = "edges"
+    elif representation in ("face", "faces", "surface", "triangle-list", "triangle_list"):
+        representation = "faces"
+    else:
+        representation = ""
 
     def _idx(base: dict[str, int]) -> int:
         tup = tuple(base.get(d, 0) for d in sample_dims)
         return int(vindex[tup])
 
-    if len(manifold_dims) == 0:
+    if representation == "vertices":
         topology = "point-list"
         base_indices = list(range(len(points)))
-    elif len(manifold_dims) == 1:
+    elif representation == "edges" or (not representation and len(manifold_dims) == 1):
         topology = "line-list"
-        du = manifold_dims[0]
-        loop_dims = [d for d in sample_dims if d != du]
-        for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
-            base = {d: 0 for d in sample_dims}
-            for k, d in enumerate(loop_dims):
-                base[d] = int(rest[k])
-            for u in range(dim_sizes[du] - 1):
-                base[du] = u
-                a = _idx(base)
-                base[du] = u + 1
-                b = _idx(base)
-                base_indices.extend([a, b])
+        for du in manifold_dims:
+            loop_dims = [d for d in sample_dims if d != du]
+            for rest in _iter_multi_index(tuple(dim_sizes[d] for d in loop_dims)):
+                base = {d: 0 for d in sample_dims}
+                for k, d in enumerate(loop_dims):
+                    base[d] = int(rest[k])
+                for u in range(dim_sizes[du] - 1):
+                    base[du] = u
+                    a = _idx(base)
+                    base[du] = u + 1
+                    b = _idx(base)
+                    base_indices.extend([a, b])
+    elif len(manifold_dims) == 0:
+        topology = "point-list"
+        base_indices = list(range(len(points)))
     elif len(manifold_dims) == 2:
         topology = "triangle-list"
         du, dv = manifold_dims

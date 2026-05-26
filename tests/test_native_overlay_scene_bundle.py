@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -1908,9 +1909,9 @@ def test_scene_3d_accepts_points_arrow_hi_hull_set_sugar(tmp_path: Path) -> None
 
     assert program is not None
     assert program.html_text.count('"kind": "convex_hull"') >= 2
-    assert '"id": "object_0"' in program.html_text
-    assert '"id": "object_1"' in program.html_text
-    assert '"occluders": ["object_0", "object_1"]' in program.html_text
+    assert '"id": "object_0_0"' in program.html_text
+    assert '"id": "object_0_1"' in program.html_text
+    assert '"occluders": ["object_0_0", "object_0_1"]' in program.html_text
     assert '[0.84, 0.92, 1.0, 1.0]' in program.html_text
 
 
@@ -2008,6 +2009,84 @@ native_scene: (
     assert '"kind": "field_mesh"' in program.html_text
     assert '"id": "wave_patch"' in program.html_text
     assert '"occluders": ["wave_patch", "cube_0"]' in program.html_text
+
+
+def test_function_plotter_lowers_x_squared_to_native_field_mesh(tmp_path: Path) -> None:
+    path = tmp_path / "ui_function_plotter.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "function_plotter",
+    frame_id: "plot_frame",
+    title: "Plot",
+    rect: [0.1, 0.1, 0.8, 0.8],
+    expr: "x^2",
+    u: (
+        min: -1.0,
+        max: 1.0,
+        count: 5
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    runtime_packets = json.loads(program.runtime_packets_text)
+    scene_packet = next(packet for packet in runtime_packets if packet["kind"] == "scene.replace")
+    frames = {command["id"]: command["payload"]["spec"] for command in scene_packet["payload"]["commands"]}
+    frame = frames["plot_frame"]
+    body_widgets = {widget["id"]: widget for widget in frame["body"]}
+
+    assert '"type": "plot_panel"' in program.runtime_packets_text
+    assert list(frames) == ["plot_frame"]
+    assert body_widgets["plot_stack"]["type"] == "stackframe"
+    assert [child["id"] for child in body_widgets["plot_stack"]["children"]] == ["plot_panel", "plot_panel_3d"]
+    assert body_widgets["plot_mode"]["options"] == ["2D", "3D"]
+    assert '"expr_box"' in program.runtime_packets_text
+    assert '"add_button"' in program.runtime_packets_text
+    assert '"face_mode"' in program.runtime_packets_text
+    assert '"edge_mode"' in program.runtime_packets_text
+    assert '"vertex_mode"' in program.runtime_packets_text
+    assert frame["body_layout"]["row_heights"] == "max-content max-content max-content max-content max-content max-content max-content max-content max-content repeat(7, minmax(0, 1fr))"
+    assert body_widgets["expr_box"]["grid"] == [0, 1, 1, 3]
+    assert body_widgets["add_button"]["grid"] == [0, 4, 1, 1]
+    assert body_widgets["plot_stack"]["grid"] == [9, 0, 7, 12]
+    assert body_widgets["edge_scale"]["max"] == 25.0
+    assert body_widgets["vertex_scale"]["max"] == 25.0
+    assert body_widgets["y_min"]["visible"] is False
+    assert body_widgets["t_min"]["visible"] is False
+    assert body_widgets["face_colormap"]["visible"] is False
+    assert body_widgets["edge_colormap"]["visible"] is False
+    assert body_widgets["vertex_colormap"]["visible"] is False
+    assert '"x_min"' in program.runtime_packets_text
+    assert '"y_min"' in program.runtime_packets_text
+    assert '"plot_frame:plot_panel": [' in program.runtime_packets_text
+    assert '"plot_frame:plot_panel_3d": [' in program.runtime_packets_text
+    assert '"op": "polyline"' not in program.runtime_packets_text
+    assert '"geom": {}' in program.runtime_packets_text
+    assert "vf-native-scene.js" not in program.html_text
+    assert '"widget_id": "add_button"' in program.event_program_text
+    assert '"widget_id": "clear_button"' in program.event_program_text
+    assert '"op": "set_widget_state"' in program.event_program_text
+    event_program = json.loads(program.event_program_text)
+    assert any(rule.get("when") == {"text": "Distributed"} for rule in event_program["rules"])
+    assert '"op": "plot_expr_to_frame_ops"' in program.event_program_text
+    assert '"plot_space": "2d"' in program.event_program_text
+    assert '"plot_space": "3d"' in program.event_program_text
+    assert '"panel_widget": "plot_panel_3d"' in program.event_program_text
+    assert '"op": "display_frame_ops"' in program.event_program_text
+    assert '"op": "display_geom_empty"' in program.event_program_text
+    assert '"target": "plot_frame:plot_panel"' in program.event_program_text
+    assert '"target": "plot_frame:plot_panel_3d"' in program.event_program_text
+    assert '"expr_widget": "expr_box"' in program.event_program_text
+    assert '"y_min_widget": "y_min"' in program.event_program_text
+    assert '"t_min_widget": "t_min"' in program.event_program_text
+    assert '"plot.time_tick"' in program.event_program_text
+    assert '"count": 5' in program.event_program_text
+    assert '"op": "polyline"' not in program.event_program_text
 
 
 def test_scene_3d_scene_ir_separates_properties_from_embedding(tmp_path: Path) -> None:

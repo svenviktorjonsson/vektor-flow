@@ -138,13 +138,13 @@ class UiFieldMesh:
     solid_volume: bool
     vertex_size: float
     edge_width: float
-    vertex_widths: tuple[float, ...] = ()
     center: tuple[float, float, float]
     scale: tuple[float, float, float]
     rotation: tuple[float, float, float]
     color: Any
     time_count: int
     time_index: int
+    vertex_widths: tuple[float, ...] = ()
     time_boundary: str = "stop"
     render_mode: str = "proxy_geometry"
     marker_space: str = "world"
@@ -466,6 +466,8 @@ _BROWSER_WIDGET_DISPATCH_POLICIES: tuple[UiBrowserWidgetDispatchPolicy, ...] = (
     UiBrowserWidgetDispatchPolicy(family="input_field.", route="host", should_queue=True),
     UiBrowserWidgetDispatchPolicy(family="slider.", route="host", should_queue=True),
     UiBrowserWidgetDispatchPolicy(family="dropdown.", route="host", should_queue=True),
+    UiBrowserWidgetDispatchPolicy(family="combobox.", route="host", should_queue=True),
+    UiBrowserWidgetDispatchPolicy(family="color_picker.", route="host", should_queue=True),
 )
 
 

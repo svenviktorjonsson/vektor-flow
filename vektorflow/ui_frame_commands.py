@@ -103,6 +103,7 @@ def build_frame_upsert_command(
     dock_location: str,
     anchor: str,
     body: Any = None,
+    body_transparent: bool = False,
     body_layout: dict[str, Any] | None = None,
     parent_id: str | None = None,
 ) -> UiFrameCommandPlan:
@@ -118,6 +119,7 @@ def build_frame_upsert_command(
         dock_location=dock_location,  # type: ignore[arg-type]
         anchor=anchor,  # type: ignore[arg-type]
         body=body_tuple,
+        body_transparent=bool(body_transparent),
         body_layout=dict(body_layout) if body_layout is not None else None,
         parent_id=parent_id,
     )

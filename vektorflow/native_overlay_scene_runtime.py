@@ -61,6 +61,10 @@ def _stage_program_session(program: NativeOverlaySceneProgram, *session_dirs: Pa
             write_text_if_changed(session_dir / "vf-geom-ledger-transport.json", program.geom_transport_text)
         if program.geom_state_text:
             write_text_if_changed(session_dir / "vf-geom-ledger-state.json", program.geom_state_text)
+        if program.event_program_text:
+            write_text_if_changed(session_dir / "vf-event-program.json", program.event_program_text)
+        else:
+            (session_dir / "vf-event-program.json").unlink(missing_ok=True)
 
 
 def launch_native_overlay_scene_program(
@@ -104,6 +108,12 @@ def launch_native_overlay_scene_program(
 
     _seed_runtime_dir(resolved_root / "web" / "vf-ui", program.runtime_packets_text)
     _seed_runtime_dir(overlay_web_dir, program.runtime_packets_text)
+    if program.event_program_text:
+        write_text_if_changed(resolved_root / "web" / "vf-ui" / "vf-event-program.json", program.event_program_text)
+        write_text_if_changed(overlay_web_dir / "vf-event-program.json", program.event_program_text)
+    else:
+        (resolved_root / "web" / "vf-ui" / "vf-event-program.json").unlink(missing_ok=True)
+        (overlay_web_dir / "vf-event-program.json").unlink(missing_ok=True)
 
     reset_overlay_port()
     previous_pid = read_overlay_pid()

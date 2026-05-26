@@ -650,6 +650,4 @@ def build_io_clock_namespace() -> dict[str, Any]:
 
 
 def build_io_namespace() -> dict[str, Any]:
-    ns = build_io_file_namespace()
-    ns.update(build_io_time_namespace())
-    return ns
+    return build_io_file_namespace()

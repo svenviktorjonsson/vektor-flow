@@ -18,6 +18,7 @@ from itertools import product
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..runtime.axis_tagged import AxisTaggedValue
 from ..runtime.vfvector import VFVector
 from ..runtime.struct_value import VF_TYPE_KEY, public_struct_items
 from ..ui.display_runtime import (
@@ -47,6 +48,10 @@ from .events import (
     UIMouse, UIKeyboard,
     MouseEvent, MouseMove, MouseHover, MouseDown, MouseUp, MouseWheel, MouseDrag,
     FrameEvent, FrameClosed, FrameDocked, FrameDragged, FrameResized,
+    WidgetEvent, ButtonPressedEvent, CheckboxToggledEvent, SliderValueChangedEvent,
+    InputFieldTextChangedEvent, InputFieldTextEnteredEvent, DropdownItemChangedEvent,
+    TextAreaTextChangedEvent, ComboboxTextChangedEvent, ComboboxTextEnteredEvent,
+    ComboboxItemChangedEvent, ColorPickerValueChangedEvent,
     TouchEvent, KeyboardEvent, KeyEvent, KeyDown, KeyUp,
     EVENT_NAME_TO_BASE,
     EVENT_CONST_TO_NAME,
@@ -76,6 +81,31 @@ def _ui_trace_line(msg: str) -> None:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         with p.open("a", encoding="utf-8") as f:
             f.write(f"{ts} {msg}\n")
+    except OSError:
+        pass
+
+
+class UISyncError(RuntimeError):
+    """Raised when the UI runtime cannot publish scene/display state."""
+
+
+def _plot_debug_enabled() -> bool:
+    raw = str(os.environ.get("VF_PLOT_DEBUG", "") or "").strip().lower()
+    return raw not in ("", "0", "false", "off", "no")
+
+
+def _plot_debug_line(msg: str) -> None:
+    if not _plot_debug_enabled():
+        return
+    try:
+        base = os.environ.get("LOCALAPPDATA", "")
+        if not base:
+            return
+        p = Path(base) / "vektor-flow" / "plot-debug.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"{ts} [plot-debug] {msg}\n")
     except OSError:
         pass
 
@@ -144,6 +174,545 @@ def _ui_monotonic() -> float:
 
 def _ui_sleep(seconds: float) -> None:
     _ui_timer_host.sleep(float(seconds))
+
+
+_PLOT_PARAM_ORDER: tuple[str, ...] = ("u", "v", "w", "t", "i", "j", "k")
+_PLOT_PARAM_TOKEN_RE = re.compile(r"\b([uvw tijk])\b".replace(" ", ""))
+_PLOT_AXIS_ALIAS_RE = re.compile(r"^\s*([xyzXYZ])\s*:\s*(.+?)\s*$")
+_PLOT_CARTESIAN_TOKEN_RE = re.compile(r"\b([xyzXYZ])\b")
+
+
+def _mapping_like(value: Any, *, ctx: str) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "_d") and isinstance(getattr(value, "_d"), dict):
+        return dict(getattr(value, "_d"))
+    if isinstance(value, tuple) and hasattr(value, "__vf_py_attrs__"):
+        return dict(vars(value))
+    if hasattr(value, "__dict__"):
+        raw = vars(value)
+        if isinstance(raw, dict) and raw:
+            return dict(raw)
+    raise TypeError(f"{ctx} must be a map/dict-like value")
+
+
+def _normalize_plot_param_specs(params: Any) -> dict[str, dict[str, float]]:
+    raw = _mapping_like(params, ctx="params")
+    out: dict[str, dict[str, float]] = {}
+    for name in _PLOT_PARAM_ORDER:
+        spec = _mapping_like(raw.get(name, {}), ctx=f"params.{name}")
+        lo = float(spec.get("min", 0.0))
+        hi = float(spec.get("max", lo))
+        count = max(1, int(spec.get("count", 1)))
+        out[name] = {"min": lo, "max": hi, "count": float(count)}
+    return out
+
+
+def _linspace(lo: float, hi: float, count: int) -> list[float]:
+    n = max(1, int(count))
+    if n <= 1:
+        return [float(lo)]
+    step = (float(hi) - float(lo)) / float(n - 1)
+    return [float(lo) + (step * float(i)) for i in range(n)]
+
+
+def _plot_scalar_sample(spec: dict[str, float]) -> float:
+    lo = float(spec.get("min", 0.0))
+    hi = float(spec.get("max", lo))
+    count = max(1, int(spec.get("count", 1.0)))
+    if count <= 1:
+        return lo
+    return lo + ((hi - lo) * 0.5)
+
+
+def _parse_plot_expr_source(expr_source: Any) -> dict[str, Any]:
+    text = str(expr_source or "")
+    parts = [str(part).strip() for part in text.split(";")]
+    aliases: dict[str, str] = {}
+    body_parts: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        match = _PLOT_AXIS_ALIAS_RE.match(part)
+        if match:
+            aliases[str(match.group(1)).lower()] = str(match.group(2)).strip()
+            continue
+        body_parts.append(part)
+    body = body_parts[-1] if body_parts else ""
+    auto_aliases: dict[str, str] = {}
+    used_cartesian = {str(m.group(1)).lower() for m in _PLOT_CARTESIAN_TOKEN_RE.finditer(body)}
+    if "x" in used_cartesian and "x" not in aliases:
+        auto_aliases["x"] = "u"
+    if "y" in used_cartesian and "y" not in aliases:
+        auto_aliases["y"] = "v" if "x" in used_cartesian else "u"
+    if "z" in used_cartesian and "z" not in aliases:
+        auto_aliases["z"] = "w" if "y" in used_cartesian else ("v" if "x" in used_cartesian else "u")
+    merged_aliases = dict(auto_aliases)
+    merged_aliases.update(aliases)
+    return {
+        "text": text,
+        "aliases": merged_aliases,
+        "body": body,
+    }
+
+
+def plot_expr_body(expr_source: Any) -> str:
+    return str(_parse_plot_expr_source(expr_source).get("body", "") or "")
+
+
+def plot_expr_axis(expr_source: Any, axis: Any) -> str:
+    spec = _parse_plot_expr_source(expr_source)
+    return str(spec.get("aliases", {}).get(str(axis or "").strip().lower(), "") or "")
+
+
+def plot_compile_body(expr_source: Any) -> str:
+    spec = _parse_plot_expr_source(expr_source)
+    body = str(spec.get("body", "") or "")
+    aliases = spec.get("aliases", {})
+    for axis in ("x", "y", "z"):
+        replacement = str(aliases.get(axis, "") or "")
+        if not replacement:
+            continue
+        body = re.sub(rf"\b{axis}\b", f"({replacement})", body)
+    return body
+
+
+def plot_signature_label(expr_source: Any) -> str:
+    spec = _parse_plot_expr_source(expr_source)
+    body = str(spec.get("body", "") or "").strip()
+    aliases = spec.get("aliases", {})
+    active = _plot_active_params(expr_source)
+    display_vars: list[str] = []
+    if aliases.get("x"):
+        display_vars.append("x")
+    if aliases.get("y"):
+        display_vars.append("y")
+    if aliases.get("z"):
+        display_vars.append("z")
+    if not display_vars:
+        display_vars = [str(name) for name in active]
+    mode = plot_mode(expr_source)
+    fname = "f"
+    if body.startswith("[") and body.endswith("]"):
+        fname = "c" if len(active) <= 1 else "s"
+    args = ",".join(display_vars)
+    if not args:
+        return f"$${fname}$$"
+    return f"$${fname}({args})$$"
+
+
+def _coerce_plot_vector_sample(value: Any) -> tuple[float, ...] | None:
+    if isinstance(value, VFVector):
+        seq = list(value)
+    elif isinstance(value, (list, tuple)):
+        seq = list(value)
+    else:
+        return None
+    if len(seq) not in (2, 3):
+        return None
+    try:
+        return tuple(float(item) for item in seq)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_function_curve_source_kwargs(
+    fn: Any,
+    params: Any,
+    *,
+    line_dim: str = "u",
+    color: Any = None,
+    interpolation: bool = True,
+    depth_write: bool = True,
+    id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    du = str(line_dim or "u").strip()
+    if du not in _PLOT_PARAM_ORDER:
+        raise ValueError(f"line_dim must be chosen from {_PLOT_PARAM_ORDER!r}")
+    specs = _normalize_plot_param_specs(params)
+    u_vals = _linspace(specs[du]["min"], specs[du]["max"], int(specs[du]["count"]))
+    axis_values = {name: _plot_scalar_sample(spec) for name, spec in specs.items()}
+    x_vals: list[float] = []
+    y_vals: list[float] = []
+    z_vals: list[float] = []
+    for u_val in u_vals:
+        axis_values[du] = float(u_val)
+        sample = fn(*(axis_values[name] for name in _PLOT_PARAM_ORDER))
+        vec = _coerce_plot_vector_sample(sample)
+        if vec is None:
+            x_vals.append(float(u_val))
+            y_vals.append(float(sample))
+            z_vals.append(0.0)
+        elif len(vec) == 2:
+            x_vals.append(float(vec[0]))
+            y_vals.append(float(vec[1]))
+            z_vals.append(0.0)
+        else:
+            x_vals.append(float(vec[0]))
+            y_vals.append(float(vec[1]))
+            z_vals.append(float(vec[2]))
+    out: dict[str, Any] = {
+        "x_u": x_vals,
+        "y_u": y_vals,
+        "z_u": z_vals,
+        "interpolation": bool(interpolation),
+        "depth_write": bool(depth_write),
+    }
+    if id is not None:
+        out["id"] = str(id)
+    if color is not None:
+        out["color"] = color
+    if extra:
+        out.update(extra)
+    return out
+
+
+def _sample_plot_colormap(name: Any, value: float) -> list[float]:
+    t = max(0.0, min(1.0, float(value)))
+    cmap = str(name or "rgb").strip().lower()
+    if cmap == "jet":
+        r = max(0.0, min(1.0, 1.5 - abs(4.0 * t - 3.0)))
+        g = max(0.0, min(1.0, 1.5 - abs(4.0 * t - 2.0)))
+        b = max(0.0, min(1.0, 1.5 - abs(4.0 * t - 1.0)))
+        return [r, g, b, 1.0]
+    if t < 0.5:
+        return [1.0 - (2.0 * t), 2.0 * t, 0.0, 1.0]
+    return [0.0, 2.0 - (2.0 * t), (2.0 * t) - 1.0, 1.0]
+
+
+def _nested_color_grid(dims: str, dim_sizes: dict[str, int], axis: str, colormap: Any) -> Any:
+    if not dims:
+        return _sample_plot_colormap(colormap, 0.0)
+    axis = str(axis or "").strip()
+    if axis not in dims:
+        axis = dims[0]
+
+    def build(depth: int, idxs: dict[str, int]) -> Any:
+        if depth >= len(dims):
+            count = max(1, int(dim_sizes.get(axis, 1)))
+            raw = float(idxs.get(axis, 0))
+            t = 0.0 if count <= 1 else raw / float(count - 1)
+            return _sample_plot_colormap(colormap, t)
+        dim = dims[depth]
+        return [build(depth + 1, {**idxs, dim: i}) for i in range(max(1, int(dim_sizes.get(dim, 1))))]
+
+    return build(0, {})
+
+
+def _apply_plot_color_policy(
+    out: dict[str, Any],
+    *,
+    color_mode: Any,
+    color: Any,
+    colormap: Any,
+    color_axis: Any,
+) -> dict[str, Any]:
+    mode = str(color_mode or "constant").strip().lower()
+    if mode in ("none", "hidden", "hide"):
+        out["color"] = [0.0, 0.0, 0.0, 0.0]
+        out["depth_write"] = False
+        return out
+    if mode not in ("distributed", "constant"):
+        mode = "constant"
+    if mode == "constant":
+        if color is not None:
+            out["color"] = color
+        return out
+    coord_keys = [k for k in out.keys() if isinstance(k, str) and re.match(r"^x_[uvwtijk]+$", k)]
+    if not coord_keys:
+        if color is not None:
+            out["color"] = color
+        return out
+    from ..ui.representation_runtime import _shape_of_nested
+
+    dims = str(coord_keys[0].split("_", 1)[1])
+    values = out[coord_keys[0]]
+    shape = _shape_of_nested(values)
+    dim_sizes = {dim: int(shape[i]) for i, dim in enumerate(dims) if i < len(shape)}
+    out[f"c_{dims}"] = _nested_color_grid(dims, dim_sizes, str(color_axis or ""), colormap)
+    return out
+
+
+def _nested_plot_values(dims: str, dim_sizes: dict[str, int], sample_fn: Any) -> tuple[Any, Any, Any]:
+    def build(depth: int, idxs: dict[str, int], channel: int) -> Any:
+        if depth >= len(dims):
+            point = sample_fn(idxs)
+            return float(point[channel])
+        dim = dims[depth]
+        return [build(depth + 1, {**idxs, dim: i}, channel) for i in range(max(1, int(dim_sizes[dim])))]
+
+    return build(0, {}, 0), build(0, {}, 1), build(0, {}, 2)
+
+
+def _build_function_surface_source_kwargs(
+    fn: Any,
+    params: Any,
+    *,
+    u_dim: str = "u",
+    v_dim: str = "v",
+    color: Any = None,
+    interpolation: bool = True,
+    depth_write: bool = True,
+    id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    ud = str(u_dim or "u").strip()
+    vd = str(v_dim or "v").strip()
+    if ud not in _PLOT_PARAM_ORDER or vd not in _PLOT_PARAM_ORDER:
+        raise ValueError(f"u_dim and v_dim must be chosen from {_PLOT_PARAM_ORDER!r}")
+    if ud == vd:
+        raise ValueError("u_dim and v_dim must be different")
+    specs = _normalize_plot_param_specs(params)
+    u_vals = _linspace(specs[ud]["min"], specs[ud]["max"], int(specs[ud]["count"]))
+    v_vals = _linspace(specs[vd]["min"], specs[vd]["max"], int(specs[vd]["count"]))
+    axis_values = {name: _plot_scalar_sample(spec) for name, spec in specs.items()}
+    x_rows: list[list[float]] = []
+    y_rows: list[list[float]] = []
+    z_rows: list[list[float]] = []
+    for u_val in u_vals:
+        x_row: list[float] = []
+        y_row: list[float] = []
+        z_row: list[float] = []
+        for v_val in v_vals:
+            axis_values[ud] = float(u_val)
+            axis_values[vd] = float(v_val)
+            sample = fn(*(axis_values[name] for name in _PLOT_PARAM_ORDER))
+            z_val = float(sample)
+            x_row.append(float(u_val))
+            y_row.append(float(v_val))
+            z_row.append(z_val)
+        x_rows.append(x_row)
+        y_rows.append(y_row)
+        z_rows.append(z_row)
+    dims = f"{ud}{vd}"
+    out: dict[str, Any] = {
+        f"x_{dims}": x_rows,
+        f"y_{dims}": y_rows,
+        f"z_{dims}": z_rows,
+        "interpolation": bool(interpolation),
+        "depth_write": bool(depth_write),
+    }
+    if id is not None:
+        out["id"] = str(id)
+    if color is not None:
+        out["color"] = color
+    if extra:
+        out.update(extra)
+    return out
+
+
+def _plot_active_params(expr_source: Any) -> list[str]:
+    spec = _parse_plot_expr_source(expr_source)
+    text = " ".join(
+        [str(spec.get("body", "") or "")]
+        + [str(v or "") for v in spec.get("aliases", {}).values()]
+    )
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for match in _PLOT_PARAM_TOKEN_RE.finditer(text):
+        name = match.group(1)
+        if name in seen:
+            continue
+        seen.add(name)
+        ordered.append(name)
+    return ordered
+
+
+def plot_active_params(expr_source: Any) -> list[str]:
+    return _plot_active_params(expr_source)
+
+
+def plot_param_active(expr_source: Any, name: Any) -> bool:
+    return str(name or "").strip() in _plot_active_params(expr_source)
+
+
+def plot_param_label(expr_source: Any, name: Any) -> str:
+    param = str(name or "").strip()
+    spec = _parse_plot_expr_source(expr_source)
+    aliases = spec.get("aliases", {})
+    for axis in ("x", "y", "z"):
+        if str(aliases.get(axis, "") or "").strip() == param:
+            return axis
+    return param
+
+
+def plot_mode(expr_source: Any) -> str:
+    spec = _parse_plot_expr_source(expr_source)
+    aliases = spec.get("aliases", {})
+    if aliases.get("x") and aliases.get("y"):
+        return "3d"
+    if aliases.get("x") or aliases.get("y"):
+        return "2d"
+    active = _plot_active_params(expr_source)
+    return "2d" if len(active) <= 1 else "3d"
+
+
+def _plot_spatial_params(expr_source: Any) -> list[str]:
+    return [name for name in _plot_active_params(expr_source) if name != "t"]
+
+
+def plot_time_active(expr_source: Any) -> bool:
+    return "t" in _plot_active_params(expr_source)
+
+
+def plot_faces_available(expr_source: Any) -> bool:
+    return len(_plot_spatial_params(expr_source)) >= 2
+
+
+def plot_axis_options(expr_source: Any) -> list[str]:
+    opts = _plot_active_params(expr_source)
+    return opts if opts else ["u"]
+
+
+def plot_axis_option(expr_source: Any, index: Any) -> str:
+    opts = plot_axis_options(expr_source)
+    try:
+        ix = int(index)
+    except (TypeError, ValueError):
+        ix = 0
+    if ix < 0 or ix >= len(opts):
+        ix = 0
+    return opts[ix]
+
+
+def plot_time_slider_count(expr_source: Any, params: Any) -> int:
+    if not plot_time_active(expr_source):
+        return 1
+    specs = _normalize_plot_param_specs(params)
+    return max(1, int(specs["t"]["count"]))
+
+
+def plot_colormap_label(name: Any) -> str:
+    cmap = str(name or "rgb").strip().lower()
+    if cmap == "jet":
+        return r"$\color{blue}{\rule{0.8em}{0.65em}}\color{cyan}{\rule{0.8em}{0.65em}}\color{yellow}{\rule{0.8em}{0.65em}}\color{red}{\rule{0.8em}{0.65em}}$"
+    return r"$\color{red}{\rule{0.8em}{0.65em}}\color{green}{\rule{0.8em}{0.65em}}\color{blue}{\rule{0.8em}{0.65em}}$"
+
+
+def plot_history_push(history: Any, text: Any, limit: Any = 16) -> list[str]:
+    src: list[str] = []
+    if isinstance(history, (VFVector, list, tuple)):
+        src = [str(x) for x in history]
+    elif history is not None:
+        src = [str(history)]
+    entry = str(text or "").strip()
+    if not entry:
+        return src
+    out = [entry]
+    for item in src:
+        if item != entry:
+            out.append(item)
+    lim = max(1, int(limit))
+    return out[:lim]
+
+
+def _build_function_plot_source_kwargs(
+    fn: Any,
+    expr_source: Any,
+    params: Any,
+    *,
+    x_fn: Any = None,
+    y_fn: Any = None,
+    z_fn: Any = None,
+    color: Any = None,
+    color_mode: Any = "constant",
+    color_axis: Any = "",
+    colormap: Any = "rgb",
+    interpolation: bool = True,
+    depth_write: bool = True,
+    id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    del z_fn
+    specs = _normalize_plot_param_specs(params)
+    active = _plot_active_params(expr_source)
+    spatial = [name for name in active if name != "t"]
+    dims = spatial[:2] if spatial else ["u"]
+    if "t" in active and "t" not in dims:
+        dims = ["t"] + dims
+    manifold_dims = [d for d in dims if d != "t"]
+    axis_values = {name: _plot_scalar_sample(spec) for name, spec in specs.items()}
+    sample = fn(*(axis_values[name] for name in _PLOT_PARAM_ORDER))
+    sample_vec = _coerce_plot_vector_sample(sample)
+    _plot_debug_line(
+        "build_function_plot start "
+        f"expr={str(expr_source)!r} active={active!r} dims={dims!r} "
+        f"manifold={manifold_dims!r} sample={sample!r} sample_vec={sample_vec!r} "
+        f"color_mode={str(color_mode)!r} color_axis={str(color_axis)!r} colormap={str(colormap)!r}"
+    )
+    dim_sizes = {d: max(1, int(specs[d]["count"])) for d in dims}
+    dim_values = {d: _linspace(specs[d]["min"], specs[d]["max"], int(specs[d]["count"])) for d in dims}
+
+    def sample_point(idxs: dict[str, int]) -> tuple[float, float, float]:
+        for d in dims:
+            axis_values[d] = float(dim_values[d][int(idxs.get(d, 0))])
+        body_value = fn(*(axis_values[name] for name in _PLOT_PARAM_ORDER))
+        point = _coerce_plot_vector_sample(body_value)
+        if point is not None:
+            return (
+                float(point[0]),
+                float(point[1]),
+                float(point[2] if len(point) >= 3 else 0.0),
+            )
+        scalar_value = float(body_value)
+        if x_fn is not None or y_fn is not None:
+            x_value = float(x_fn(*(axis_values[name] for name in _PLOT_PARAM_ORDER))) if x_fn is not None else float(axis_values.get(manifold_dims[0] if manifold_dims else "u", 0.0))
+            y_value = float(y_fn(*(axis_values[name] for name in _PLOT_PARAM_ORDER))) if y_fn is not None else float(axis_values.get(manifold_dims[1] if len(manifold_dims) > 1 else (manifold_dims[0] if manifold_dims else "u"), 0.0))
+            if x_fn is not None and y_fn is None:
+                return (x_value, scalar_value, 0.0)
+            if x_fn is None and y_fn is not None:
+                return (scalar_value, y_value, 0.0)
+            return (x_value, y_value, scalar_value)
+        if len(manifold_dims) <= 1:
+            du = manifold_dims[0] if manifold_dims else "u"
+            return (float(axis_values.get(du, 0.0)), scalar_value, 0.0)
+        return (float(axis_values[manifold_dims[0]]), float(axis_values[manifold_dims[1]]), scalar_value)
+
+    x_values, y_values, z_values = _nested_plot_values("".join(dims), dim_sizes, sample_point)
+    dims_key = "".join(dims)
+    out = {
+        f"x_{dims_key}": x_values,
+        f"y_{dims_key}": y_values,
+        f"z_{dims_key}": z_values,
+        "interpolation": bool(interpolation),
+        "depth_write": bool(depth_write),
+    }
+    if len(manifold_dims) <= 1:
+        # Plot curves should read as strokes.  The generic field-mesh line
+        # default is intentionally overlay-oriented, so choose a small
+        # world-space tube here to make function plots visible and stable.
+        out["edge_width"] = 0.035
+        out["edge_caps"] = True
+        out["render_mode"] = "proxy_geometry"
+        out["marker_space"] = "world"
+        out["receives_lighting"] = False
+        out["casts_shadow"] = False
+    if id is not None:
+        out["id"] = str(id)
+    _apply_plot_color_policy(
+        out,
+        color_mode=color_mode,
+        color=color,
+        colormap=colormap,
+        color_axis=color_axis,
+    )
+    if extra:
+        out.update(extra)
+    coord_keys = [k for k in out.keys() if isinstance(k, str) and re.match(r"^[xyzc]_[uvwtijk]+$", k)]
+    shapes: dict[str, Any] = {}
+    try:
+        from ..ui.representation_runtime import _shape_of_nested
+
+        shapes = {str(k): _shape_of_nested(out[k]) for k in coord_keys}
+    except Exception as exc:
+        shapes = {"shape_error": str(exc)}
+    _plot_debug_line(
+        "build_function_plot done "
+        f"id={str(id)!r} keys={coord_keys!r} shapes={shapes!r} "
+        f"color={out.get('color')!r} depth_write={out.get('depth_write')!r}"
+    )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -898,6 +1467,22 @@ class SceneBox:
         self._display._sync_all()
         return self
 
+    def remove(self) -> None:
+        """Remove this scene object from its frame."""
+        meshes = self._display._geom.get(self._frame_id, {}).get("meshes", [])
+        for index, mesh in enumerate(list(meshes)):
+            if mesh is self._data:
+                meshes.pop(index)
+                for key in list(self._display._scene_objects.keys()):
+                    if key[0] == self._frame_id:
+                        self._display._scene_objects.pop(key, None)
+                for i, item in enumerate(meshes):
+                    self._display._scene_objects[(self._frame_id, i)] = SceneBox(
+                        item, self._display, self._frame_id
+                    )
+                self._display._sync_all()
+                return
+
     # -- convenience ----------------------------------------------------------
 
     @property
@@ -1000,6 +1585,86 @@ class SceneFieldMesh(SceneBox):
         self._display._dirty = True
         return self
 
+    def set_source(self, props: Any | None = None, **kwargs: Any) -> "SceneFieldMesh":
+        """Merge source kwargs and rebuild the mesh."""
+        patch: dict[str, Any] = {}
+        if props is not None:
+            patch.update(_mapping_like(props, ctx="field mesh source props"))
+        patch.update(kwargs)
+        self._source_kwargs.update(patch)
+        return self._rebuild()
+
+    def set_function_surface(
+        self,
+        *,
+        fn: Any,
+        params: Any,
+        u_dim: str = "u",
+        v_dim: str = "v",
+        color: Any = None,
+        interpolation: Any | None = None,
+        depth_write: Any | None = None,
+    ) -> "SceneFieldMesh":
+        """Rebuild this mesh from a sampled runtime function over two chosen dimensions."""
+        extra: dict[str, Any] = {}
+        for key, value in self._source_kwargs.items():
+            if isinstance(key, str) and re.match(r"^[xyz]_[uvwtijk]+$", key):
+                continue
+            extra[key] = value
+        source = _build_function_surface_source_kwargs(
+            fn,
+            params,
+            u_dim=u_dim,
+            v_dim=v_dim,
+            color=self._source_kwargs.get("color") if color is None else color,
+            interpolation=bool(self._source_kwargs.get("interpolation", True)) if interpolation is None else bool(interpolation),
+            depth_write=bool(self._source_kwargs.get("depth_write", True)) if depth_write is None else bool(depth_write),
+            id=str(self._source_kwargs.get("id", self._data.get("id", "field_mesh"))),
+            extra=extra,
+        )
+        self._source_kwargs = source
+        return self._rebuild()
+
+    def set_function_plot(
+        self,
+        *,
+        fn: Any,
+        expr_source: Any,
+        params: Any,
+        x_fn: Any = None,
+        y_fn: Any = None,
+        z_fn: Any = None,
+        color: Any = None,
+        color_mode: Any = "constant",
+        color_axis: Any = "",
+        colormap: Any = "rgb",
+        interpolation: Any | None = None,
+        depth_write: Any | None = None,
+    ) -> "SceneFieldMesh":
+        extra: dict[str, Any] = {}
+        for key, value in self._source_kwargs.items():
+            if isinstance(key, str) and re.match(r"^[xyzc]_[uvwtijk]+$", key):
+                continue
+            extra[key] = value
+        source = _build_function_plot_source_kwargs(
+            fn,
+            expr_source,
+            params,
+            x_fn=x_fn,
+            y_fn=y_fn,
+            z_fn=z_fn,
+            color=self._source_kwargs.get("color") if color is None else color,
+            color_mode=color_mode,
+            color_axis=color_axis,
+            colormap=colormap,
+            interpolation=bool(self._source_kwargs.get("interpolation", True)) if interpolation is None else bool(interpolation),
+            depth_write=bool(self._source_kwargs.get("depth_write", True)) if depth_write is None else bool(depth_write),
+            id=str(self._source_kwargs.get("id", self._data.get("id", "field_mesh"))),
+            extra=extra,
+        )
+        self._source_kwargs = source
+        return self._rebuild()
+
     def __repr__(self) -> str:
         return (
             f"SceneFieldMesh(time_index={self._data.get('time_index', 0)}, "
@@ -1069,6 +1734,22 @@ class SceneCamera:
         self._display._sync_all()
         return self
 
+    def set_orthographic(self, scale: float | None = None) -> "SceneCamera":
+        """Use an orthographic projection. ``scale`` is half the vertical view span."""
+        self._data["projection"] = "orthographic"
+        if scale is not None:
+            self._data["ortho_scale"] = max(1e-6, float(scale))
+        elif "ortho_scale" not in self._data:
+            self._data["ortho_scale"] = 2.5
+        self._display._sync_all()
+        return self
+
+    def set_perspective(self) -> "SceneCamera":
+        """Use the perspective projection path."""
+        self._data["projection"] = "perspective"
+        self._display._sync_all()
+        return self
+
     def rotate_by(self, angle_deg: float, around: str = "z") -> "SceneCamera":
         """Orbit the camera around the target point by *angle_deg* degrees (one-shot).
 
@@ -1113,6 +1794,13 @@ class SceneCamera:
 
         p = self._data["pos"]
         t = self._data["target"]
+        if str(self._data.get("projection", "")).lower() == "orthographic":
+            scale = float(self._data.get("ortho_scale", 2.5))
+            factor = math.exp(float(step) * float(speed))
+            self._data["ortho_scale"] = max(1e-6, scale * factor)
+            self._display._sync_all()
+            return self
+
         vx = p[0] - t[0]
         vy = p[1] - t[1]
         vz = p[2] - t[2]
@@ -1143,6 +1831,53 @@ class SceneCamera:
     ) -> "SceneCamera":
         """Alias for :meth:`zoom_log` for wheel handlers."""
         return self.zoom_log(step=step, speed=speed, min_dist=min_dist, max_dist=max_dist)
+
+    def pan_pixels(
+        self,
+        dx: float,
+        dy: float,
+        *,
+        width: float = 0.0,
+        height: float = 0.0,
+    ) -> "SceneCamera":
+        """Translate camera and target in the camera plane by a pixel drag."""
+        px_h = max(1.0, float(height or width or 1.0))
+        p = self._data["pos"]
+        t = self._data["target"]
+        up_hint = _vec3(self._data.get("up", [0, 0, 1]), "up")
+        bx = p[0] - t[0]
+        by = p[1] - t[1]
+        bz = p[2] - t[2]
+        dist = math.sqrt(bx * bx + by * by + bz * bz)
+        if dist < 1e-9:
+            bx, by, bz = 0.0, 0.0, 1.0
+            dist = 1.0
+        bx, by, bz = bx / dist, by / dist, bz / dist
+
+        rx = up_hint[1] * bz - up_hint[2] * by
+        ry = up_hint[2] * bx - up_hint[0] * bz
+        rz = up_hint[0] * by - up_hint[1] * bx
+        rlen = math.sqrt(rx * rx + ry * ry + rz * rz)
+        if rlen < 1e-9:
+            rx, ry, rz = 1.0, 0.0, 0.0
+            rlen = 1.0
+        rx, ry, rz = rx / rlen, ry / rlen, rz / rlen
+        ux = by * rz - bz * ry
+        uy = bz * rx - bx * rz
+        uz = bx * ry - by * rx
+
+        if str(self._data.get("projection", "")).lower() == "orthographic":
+            world_per_px = (2.0 * float(self._data.get("ortho_scale", 2.5))) / px_h
+        else:
+            fov = math.radians(float(self._data.get("fov", 45.0)))
+            world_per_px = (2.0 * dist * math.tan(fov * 0.5)) / px_h
+        tx = ((-float(dx) * rx) + (float(dy) * ux)) * world_per_px
+        ty = ((-float(dx) * ry) + (float(dy) * uy)) * world_per_px
+        tz = ((-float(dx) * rz) + (float(dy) * uz)) * world_per_px
+        self._data["pos"] = [p[0] + tx, p[1] + ty, p[2] + tz]
+        self._data["target"] = [t[0] + tx, t[1] + ty, t[2] + tz]
+        self._display._sync_all()
+        return self
 
     # -- continuous animation -------------------------------------------------
 
@@ -1354,6 +2089,975 @@ class SceneLight:
 
 
 # ---------------------------------------------------------------------------
+# VKF-authored axis wrappers
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Axis2D:
+    """Small VKF axis wrapper that emits ordinary frame geometry.
+
+    The wrapper owns navigation/event state, but the visible axes and curves are
+    plain ``field_mesh`` entries in the target frame.  That keeps mirrors,
+    picking, and frame navigation on the same renderer path as any other VKF
+    geometry.
+    """
+
+    __vf_py_attrs__ = True
+
+    frame: "FrameRef"
+    x_min: float = -1.0
+    x_max: float = 1.0
+    y_min: float = -1.0
+    y_max: float = 1.0
+    x_label: str = "$x$"
+    y_label: str = "$y$"
+    prefix: str = "axis2d"
+
+    def _series(self, values: Any, idx: str = "u") -> AxisTaggedValue:
+        if isinstance(values, AxisTaggedValue):
+            return values
+        if isinstance(values, (VFVector, list, tuple)):
+            return AxisTaggedValue(tuple(float(v) for v in values), idx)
+        return AxisTaggedValue((float(values),), idx)
+
+    def _map_x(self, value: float) -> float:
+        span = self.x_max - self.x_min
+        if span == 0.0:
+            return 0.0
+        return -1.0 + (2.0 * ((float(value) - self.x_min) / span))
+
+    def _map_y(self, value: float) -> float:
+        span = self.y_max - self.y_min
+        if span == 0.0:
+            return 0.0
+        return -1.0 + (2.0 * ((float(value) - self.y_min) / span))
+
+    def _map_series_x(self, values: Any) -> AxisTaggedValue:
+        tagged = self._series(values)
+        return AxisTaggedValue(tuple(self._map_x(float(v)) for v in tagged.data), tagged.idx)
+
+    def _map_series_y(self, values: Any, idx: str = "u") -> AxisTaggedValue:
+        tagged = self._series(values, idx)
+        return AxisTaggedValue(tuple(self._map_y(float(v)) for v in tagged.data), tagged.idx)
+
+    def _zeros_like(self, values: Any, idx: str = "u") -> AxisTaggedValue:
+        tagged = self._series(values, idx)
+        data = tagged.data
+        if isinstance(data, tuple):
+            return AxisTaggedValue(tuple(0.0 for _ in data), tagged.idx)
+        return AxisTaggedValue((0.0,), tagged.idx)
+
+    def _optional_tick_values(self, values: Any) -> list[float] | None:
+        if values is None:
+            return None
+        return [float(v) for v in self._series(values).data]
+
+    def _optional_tick_labels(self, labels: Any) -> list[str] | None:
+        if labels is None:
+            return None
+        if isinstance(labels, AxisTaggedValue):
+            labels = labels.data
+        if isinstance(labels, (VFVector, list, tuple)):
+            return [str(v) for v in labels]
+        return [str(labels)]
+
+    def _line(
+        self,
+        name: str,
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        *,
+        color: Any,
+        width: float,
+    ) -> SceneFieldMesh:
+        ys = AxisTaggedValue((self._map_y(float(y0)), self._map_y(float(y1))), "u")
+        xs = AxisTaggedValue((self._map_x(float(x0)), self._map_x(float(x1))), "u")
+        zs = AxisTaggedValue((0.0, 0.0), "u")
+        return self.frame.add(
+            x=xs,
+            y=ys,
+            z=zs,
+            id=f"{self.prefix}_{name}",
+            color=color,
+            representation="edges",
+            edge_width=float(width),
+            render_mode="marker_impostor",
+            marker_space="pixel",
+            aspect="equal",
+            mode3d=False,
+            receives_lighting=False,
+            casts_shadow=False,
+            depth_write=False,
+        )
+
+    def crosshair(
+        self,
+        *,
+        color: Any = "white",
+        width: float = 1.0,
+        ticks: bool = True,
+        x_tick_mode: str = "linear",
+        y_tick_mode: str = "linear",
+        tick_hints: Any = (1, 2, 5),
+        tick_dist: float = 120.0,
+        tick_len: float = 7.0,
+        x_tick_alignment: str = "center",
+        y_tick_alignment: str = "center",
+        x_ticks: Any = None,
+        x_tick_labels: Any = None,
+        y_ticks: Any = None,
+        y_tick_labels: Any = None,
+        x_tick_label_placement: str = "below",
+        y_tick_label_placement: str = "left",
+        x_label_placement: str = "below",
+        y_label_placement: str = "left",
+        label_font_size: float = 13.0,
+        tick_label_font_size: float = 11.0,
+        label_frame_pad: float = 20.0,
+        label_axis_pad: float = 34.0,
+        grid: bool = False,
+        grid_alpha: float = 0.18,
+        grid_width: float = 1.0,
+        interactive: bool = True,
+    ) -> "Axis2D":
+        rows_x: list[tuple[float, float]] = []
+        rows_y: list[tuple[float, float]] = []
+        if self.y_min <= 0.0 <= self.y_max:
+            rows_x.append((self._map_x(self.x_min), self._map_x(self.x_max)))
+            rows_y.append((self._map_y(0.0), self._map_y(0.0)))
+        if self.x_min <= 0.0 <= self.x_max:
+            rows_x.append((self._map_x(0.0), self._map_x(0.0)))
+            rows_y.append((self._map_y(self.y_min), self._map_y(self.y_max)))
+        if rows_x:
+            tagged_x = AxisTaggedValue(tuple(rows_x), "iu")
+            tagged_y = AxisTaggedValue(tuple(rows_y), "iu")
+            tagged_z = AxisTaggedValue(tuple((0.0, 0.0) for _ in rows_x), "iu")
+            self.frame.add(
+                x=tagged_x,
+                y=tagged_y,
+                z=tagged_z,
+                id=f"{self.prefix}_crosshair",
+                color=color,
+                representation="edges",
+                edge_width=float(width),
+                render_mode="marker_impostor",
+                marker_space="pixel",
+                aspect="equal",
+                axis_full_frame=True,
+                axis_ticks={
+                    "enabled": bool(ticks),
+                    "x_mode": "linear",
+                    "y_mode": "linear",
+                    "x_min": float(self.x_min),
+                    "x_max": float(self.x_max),
+                    "y_min": float(self.y_min),
+                    "y_max": float(self.y_max),
+                    "hints": list(tick_hints),
+                    "dist": float(tick_dist),
+                    "len": float(tick_len),
+                    "x_alignment": str(x_tick_alignment),
+                    "y_alignment": str(y_tick_alignment),
+                    "x_ticks": self._optional_tick_values(x_ticks),
+                    "x_tick_labels": self._optional_tick_labels(x_tick_labels),
+                    "y_ticks": self._optional_tick_values(y_ticks),
+                    "y_tick_labels": self._optional_tick_labels(y_tick_labels),
+                    "x_tick_label_placement": str(x_tick_label_placement),
+                    "y_tick_label_placement": str(y_tick_label_placement),
+                    "x_label_placement": str(x_label_placement),
+                    "y_label_placement": str(y_label_placement),
+                    "x_label": str(self.x_label),
+                    "y_label": str(self.y_label),
+                    "label_font_size": float(label_font_size),
+                    "tick_label_font_size": float(tick_label_font_size),
+                    "label_frame_pad": float(label_frame_pad),
+                    "label_axis_pad": float(label_axis_pad),
+                    "grid": bool(grid),
+                    "grid_alpha": float(grid_alpha),
+                    "grid_width": float(grid_width),
+                },
+                axis_interactive=bool(interactive),
+                mode3d=False,
+                receives_lighting=False,
+                casts_shadow=False,
+                depth_write=False,
+            )
+        return self
+
+    def box(
+        self,
+        *,
+        color: Any = "white",
+        width: float = 1.0,
+        ticks: bool = True,
+        x_tick_mode: str = "linear",
+        y_tick_mode: str = "linear",
+        tick_hints: Any = (1, 2, 5),
+        tick_dist: float = 120.0,
+        tick_len: float = 7.0,
+        x_tick_alignment: str = "center",
+        y_tick_alignment: str = "center",
+        x_ticks: Any = None,
+        x_tick_labels: Any = None,
+        y_ticks: Any = None,
+        y_tick_labels: Any = None,
+        x_tick_label_placement: str = "below",
+        y_tick_label_placement: str = "left",
+        x_label_placement: str = "below",
+        y_label_placement: str = "left",
+        label_font_size: float = 13.0,
+        tick_label_font_size: float = 11.0,
+        label_frame_pad: float = 20.0,
+        label_axis_pad: float = 34.0,
+        margin_px: float = 58.0,
+        grid: bool = False,
+        grid_alpha: float = 0.18,
+        grid_width: float = 1.0,
+        interactive: bool = True,
+    ) -> "Axis2D":
+        rows_x = ((-1.0, 1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, -1.0))
+        rows_y = ((-1.0, -1.0), (-1.0, 1.0), (1.0, 1.0), (1.0, -1.0))
+        self.frame.add(
+            x=AxisTaggedValue(rows_x, "iu"),
+            y=AxisTaggedValue(rows_y, "iu"),
+            z=AxisTaggedValue(tuple((0.0, 0.0) for _ in rows_x), "iu"),
+            id=f"{self.prefix}_box",
+            color=color,
+            representation="edges",
+            edge_width=float(width),
+            render_mode="marker_impostor",
+            marker_space="pixel",
+            aspect="equal",
+            axis_box=True,
+            axis_margin_px=float(margin_px),
+            axis_ticks={
+                "enabled": bool(ticks),
+                "x_mode": str(x_tick_mode),
+                "y_mode": str(y_tick_mode),
+                "x_min": float(self.x_min),
+                "x_max": float(self.x_max),
+                "y_min": float(self.y_min),
+                "y_max": float(self.y_max),
+                "hints": list(tick_hints),
+                "dist": float(tick_dist),
+                "len": float(tick_len),
+                "x_alignment": str(x_tick_alignment),
+                "y_alignment": str(y_tick_alignment),
+                "x_ticks": self._optional_tick_values(x_ticks),
+                "x_tick_labels": self._optional_tick_labels(x_tick_labels),
+                "y_ticks": self._optional_tick_values(y_ticks),
+                "y_tick_labels": self._optional_tick_labels(y_tick_labels),
+                "x_tick_label_placement": str(x_tick_label_placement),
+                "y_tick_label_placement": str(y_tick_label_placement),
+                "x_label_placement": str(x_label_placement),
+                "y_label_placement": str(y_label_placement),
+                "x_label": str(self.x_label),
+                "y_label": str(self.y_label),
+                "label_font_size": float(label_font_size),
+                "tick_label_font_size": float(tick_label_font_size),
+                "label_frame_pad": float(label_frame_pad),
+                "label_axis_pad": float(label_axis_pad),
+                "grid": bool(grid),
+                "grid_alpha": float(grid_alpha),
+                "grid_width": float(grid_width),
+            },
+            axis_interactive=bool(interactive),
+            mode3d=False,
+            receives_lighting=False,
+            casts_shadow=False,
+            depth_write=False,
+        )
+        return self
+
+    def add_text(
+        self,
+        text: Any,
+        *,
+        x: Any,
+        y: Any,
+        font_size: float = 12.0,
+        ha: str = "center",
+        va: str = "center",
+        color: Any = "white",
+        id: str | None = None,
+    ) -> "Axis2D":
+        """Add KaTeX-capable overlay text in axis data coordinates."""
+
+        def _map_values(values: Any, mapper: Any) -> Any:
+            if isinstance(values, AxisTaggedValue):
+                return AxisTaggedValue(tuple(mapper(float(v)) for v in values.data), values.idx)
+            if isinstance(values, (VFVector, list, tuple)):
+                return [mapper(float(v)) for v in values]
+            return mapper(float(values))
+
+        self.frame.add_text(
+            text=text,
+            x=_map_values(x, self._map_x),
+            y=_map_values(y, self._map_y),
+            font_size=font_size,
+            ha=ha,
+            va=va,
+            color=color,
+            id=id,
+            aspect="equal",
+        )
+        return self
+
+    def ticks(
+        self,
+        *,
+        x: Any = None,
+        y: Any = None,
+        color: Any = [0.94, 0.94, 0.82, 0.82],
+        width: float = 1.4,
+        size: float = 0.035,
+    ) -> "Axis2D":
+        half = max(0.0, float(size))
+        y0 = 0.0 if self.y_min <= 0.0 <= self.y_max else self.y_min
+        x0 = 0.0 if self.x_min <= 0.0 <= self.x_max else self.x_min
+        if x is not None:
+            for n, xv in enumerate(self._series(x).data):
+                self._line(
+                    f"x_tick_{n}",
+                    float(xv),
+                    y0 - half * (self.y_max - self.y_min) * 0.5,
+                    float(xv),
+                    y0 + half * (self.y_max - self.y_min) * 0.5,
+                    color=color,
+                    width=width,
+                )
+        if y is not None:
+            for n, yv in enumerate(self._series(y).data):
+                self._line(
+                    f"y_tick_{n}",
+                    x0 - half * (self.x_max - self.x_min) * 0.5,
+                    float(yv),
+                    x0 + half * (self.x_max - self.x_min) * 0.5,
+                    float(yv),
+                    color=color,
+                    width=width,
+                )
+        return self
+
+    def plot(
+        self,
+        *,
+        x: Any,
+        y: Any,
+        color: Any = [1.0, 0.56, 0.08, 1.0],
+        width: float = 2.4,
+        id: str = "curve",
+    ) -> SceneFieldMesh:
+        xs = self._map_series_x(x)
+        ys = self._map_series_y(y, xs.idx)
+        return self.frame.add(
+            x=xs,
+            y=ys,
+            z=self._zeros_like(xs),
+            id=f"{self.prefix}_{id}",
+            color=color,
+            representation="edges",
+            edge_width=float(width),
+            render_mode="marker_impostor",
+            marker_space="pixel",
+            mode3d=False,
+            receives_lighting=False,
+            casts_shadow=False,
+            depth_write=False,
+        )
+
+    def handle_events(self, event: Any) -> bool:
+        """Pan/zoom the axis viewport when VKF routes mouse events here."""
+        name = str(getattr(event, "event", getattr(event, "name", "")) or "")
+        if name == "wheel" or isinstance(event, MouseWheel):
+            step = float(getattr(event, "step", 0.0) or 0.0)
+            if step == 0.0:
+                delta = float(getattr(event, "delta", 0.0) or 0.0)
+                step = 1.0 if delta > 0.0 else -1.0
+            self.zoom_by_wheel(step)
+            return True
+        if name == "drag" or isinstance(event, MouseDrag):
+            dx = float(getattr(event, "dx", 0.0) or 0.0)
+            dy = float(getattr(event, "dy", 0.0) or 0.0)
+            width = float(getattr(event, "width", 0.0) or 0.0)
+            height = float(getattr(event, "height", 0.0) or 0.0)
+            self.pan_pixels(dx, dy, width=width, height=height)
+            return True
+        return False
+
+    def pan_pixels(self, dx: float, dy: float, *, width: float = 0.0, height: float = 0.0) -> "Axis2D":
+        px_w = max(1.0, float(width or 1.0))
+        px_h = max(1.0, float(height or 1.0))
+        sx = self.x_max - self.x_min
+        sy = self.y_max - self.y_min
+        tx = -float(dx) * sx / px_w
+        ty = float(dy) * sy / px_h
+        self.x_min += tx
+        self.x_max += tx
+        self.y_min += ty
+        self.y_max += ty
+        return self
+
+    def zoom_by_wheel(self, step: float, *, speed: float = 0.12) -> "Axis2D":
+        factor = math.exp(float(step) * float(speed))
+        cx = (self.x_min + self.x_max) * 0.5
+        cy = (self.y_min + self.y_max) * 0.5
+        hx = (self.x_max - self.x_min) * 0.5 * factor
+        hy = (self.y_max - self.y_min) * 0.5 * factor
+        self.x_min = cx - hx
+        self.x_max = cx + hx
+        self.y_min = cy - hy
+        self.y_max = cy + hy
+        return self
+
+
+class Axis3D:
+    """3-D axis sugar that emits ordinary VKF geometry into a frame."""
+
+    __vf_py_attrs__ = True
+
+    def __init__(
+        self,
+        *,
+        frame: "FrameRef",
+        x_min: float = -1.0,
+        x_max: float = 1.0,
+        y_min: float = -1.0,
+        y_max: float = 1.0,
+        z_min: float = -1.0,
+        z_max: float = 1.0,
+        x_label: str = "$x$",
+        y_label: str = "$y$",
+        z_label: str = "$z$",
+        prefix: str = "axis3d",
+    ) -> None:
+        self.frame = frame
+        self.x_min = float(x_min)
+        self.x_max = float(x_max)
+        self.y_min = float(y_min)
+        self.y_max = float(y_max)
+        self.z_min = float(z_min)
+        self.z_max = float(z_max)
+        self.x_label = str(x_label)
+        self.y_label = str(y_label)
+        self.z_label = str(z_label)
+        self.prefix = str(prefix)
+        self._camera: SceneCamera | None = None
+
+    @staticmethod
+    def _line_u(axis: str, lo: float, hi: float) -> tuple[AxisTaggedValue, AxisTaggedValue, AxisTaggedValue]:
+        vals = (float(lo), float(hi))
+        zeros = (0.0, 0.0)
+        if axis == "x":
+            return AxisTaggedValue(vals, "u"), AxisTaggedValue(zeros, "u"), AxisTaggedValue(zeros, "u")
+        if axis == "y":
+            return AxisTaggedValue(zeros, "u"), AxisTaggedValue(vals, "u"), AxisTaggedValue(zeros, "u")
+        return AxisTaggedValue(zeros, "u"), AxisTaggedValue(zeros, "u"), AxisTaggedValue(vals, "u")
+
+    def bind_camera(self, camera: SceneCamera) -> "Axis3D":
+        self._camera = camera
+        return self
+
+    @staticmethod
+    def _nice_ticks(lo: float, hi: float, *, target_count: int = 5) -> list[float]:
+        span = float(hi) - float(lo)
+        if not math.isfinite(span) or span <= 0.0:
+            return []
+        raw = span / max(1, int(target_count))
+        step = Axis3D._nice_tick_step(raw)
+        start = math.ceil(float(lo) / step) * step
+        out: list[float] = []
+        value = start
+        guard = 0
+        eps = abs(step) * 1e-8
+        while value <= float(hi) + eps and guard < 1000:
+            if abs(value) < eps:
+                value = 0.0
+            out.append(value)
+            value += step
+            guard += 1
+        return out
+
+    @staticmethod
+    def _nice_tick_step(raw: float) -> float:
+        raw = abs(float(raw))
+        if not math.isfinite(raw) or raw <= 0.0:
+            return 1.0
+        power = 10.0 ** math.floor(math.log10(raw))
+        for hint in (1.0, 2.0, 5.0, 10.0):
+            candidate = hint * power
+            if raw <= candidate:
+                return candidate
+        return 10.0 * power
+
+    @staticmethod
+    def _ticks_with_step(lo: float, hi: float, step: float) -> list[float]:
+        step = abs(float(step))
+        if not math.isfinite(step) or step <= 0.0:
+            return []
+        start = math.ceil(float(lo) / step) * step
+        eps = abs(step) * 1e-8
+        out: list[float] = []
+        value = start
+        guard = 0
+        while value <= float(hi) + eps and guard < 1000:
+            if abs(value) < eps:
+                value = 0.0
+            out.append(value)
+            value += step
+            guard += 1
+        return out
+
+    @staticmethod
+    def _without_zero(values: list[float]) -> list[float]:
+        return [float(v) for v in values if abs(float(v)) > 1e-10]
+
+    @staticmethod
+    def _alignment_span(alignment: str) -> tuple[float, float]:
+        text = str(alignment or "center").strip().lower()
+        if text in {"positive", "right", "top", "above"}:
+            return 0.0, 1.0
+        if text in {"negative", "left", "bottom", "below"}:
+            return -1.0, 0.0
+        return -0.5, 0.5
+
+    @staticmethod
+    def _tick_label(value: float) -> str:
+        return f"${value:g}$"
+
+    @staticmethod
+    def _optional_tick_values(values: Any) -> list[float] | None:
+        if values is None:
+            return None
+        if isinstance(values, AxisTaggedValue):
+            values = values.data
+        if isinstance(values, (VFVector, list, tuple)):
+            return [float(v) for v in values]
+        return [float(values)]
+
+    def _tick_lines(
+        self,
+        axis: str,
+        values: list[float],
+        *,
+        length: float,
+        alignment: str,
+    ) -> tuple[AxisTaggedValue, AxisTaggedValue, AxisTaggedValue]:
+        a0, a1 = self._alignment_span(alignment)
+        rows_x: list[tuple[float, float]] = []
+        rows_y: list[tuple[float, float]] = []
+        rows_z: list[tuple[float, float]] = []
+        for value in values:
+            if axis == "x":
+                rows_x.append((float(value), float(value)))
+                rows_y.append((0.0, 0.0))
+                rows_z.append((a0 * length, a1 * length))
+            elif axis == "y":
+                rows_x.append((0.0, 0.0))
+                rows_y.append((float(value), float(value)))
+                rows_z.append((a0 * length, a1 * length))
+            else:
+                rows_x.append((0.0, 0.0))
+                rows_y.append((a0 * length, a1 * length))
+                rows_z.append((float(value), float(value)))
+        return (
+            AxisTaggedValue(tuple(rows_x), "iu"),
+            AxisTaggedValue(tuple(rows_y), "iu"),
+            AxisTaggedValue(tuple(rows_z), "iu"),
+        )
+
+    def _append_tick_line_rows(
+        self,
+        rows_x: list[tuple[float, float]],
+        rows_y: list[tuple[float, float]],
+        rows_z: list[tuple[float, float]],
+        axis: str,
+        values: list[float],
+        *,
+        length: float,
+        alignment: str,
+    ) -> None:
+        a0, a1 = self._alignment_span(alignment)
+        for value in values:
+            if axis == "x":
+                rows_x.append((float(value), float(value)))
+                rows_y.append((0.0, 0.0))
+                rows_z.append((a0 * length, a1 * length))
+            elif axis == "y":
+                rows_x.append((0.0, 0.0))
+                rows_y.append((float(value), float(value)))
+                rows_z.append((a0 * length, a1 * length))
+            else:
+                rows_x.append((0.0, 0.0))
+                rows_y.append((a0 * length, a1 * length))
+                rows_z.append((float(value), float(value)))
+
+    def _add_tick_labels(
+        self,
+        axis: str,
+        values: list[float],
+        *,
+        length: float,
+        placement: str,
+        font_size: float,
+        color: Any,
+    ) -> None:
+        text = [self._tick_label(v) for v in values]
+        pad = max(0.09, abs(length) * 2.25)
+        place = str(placement or "").strip().lower()
+        if axis in {"x", "y"}:
+            sign = -1.0 if place in {"below", "bottom", "negative"} else 1.0
+            x = values if axis == "x" else [0.0 for _ in values]
+            y = values if axis == "y" else [0.0 for _ in values]
+            z = [sign * (length + pad) for _ in values]
+        else:
+            sign = -1.0 if place in {"left", "below", "negative"} else 1.0
+            x = [0.0 for _ in values]
+            y = [sign * (length + pad) for _ in values]
+            z = values
+        self.frame.add_text(
+            text,
+            x=x,
+            y=y,
+            z=z,
+            world=True,
+            ha="center",
+            va="center",
+            color=color,
+            font_size=float(font_size),
+        )
+
+    def crosshair(
+        self,
+        *,
+        color: Any = "white",
+        width: float = 1.0,
+        ticks: bool = True,
+        tick_len: float = 0.04,
+        tick_extent: float | None = None,
+        tick_hints: Any = (1, 2, 5),
+        tick_dist: float = 120.0,
+        min_tick_dist: float = 72.0,
+        max_tick_dist: float = 180.0,
+        x_tick_alignment: str = "negative",
+        y_tick_alignment: str = "negative",
+        z_tick_alignment: str = "negative",
+        x_ticks: Any = None,
+        y_ticks: Any = None,
+        z_ticks: Any = None,
+        x_tick_label_placement: str = "below",
+        y_tick_label_placement: str = "below",
+        z_tick_label_placement: str = "left",
+        tick_label_font_size: float = 11.0,
+        labels: bool = True,
+        label_font_size: float = 14.0,
+        label_inset_px: float = 28.0,
+        label_offset_px: float = 28.0,
+        axis_inset_px: float = 0.0,
+        radius: float | None = None,
+        segments: int | None = None,
+        receives_lighting: bool = False,
+        casts_shadow: bool = False,
+    ) -> "Axis3D":
+        del radius, segments
+        display = getattr(self.frame, "_display", None)
+        restore_auto_render: bool | None = None
+        if display is not None:
+            restore_auto_render = bool(getattr(display, "_auto_render", True))
+            display._auto_render = False
+        try:
+            self.frame.set_geom_options(axis3d_controls=True)
+        except Exception:
+            pass
+        default_extent = max(
+            abs(float(self.x_max) - float(self.x_min)),
+            abs(float(self.y_max) - float(self.y_min)),
+            abs(float(self.z_max) - float(self.z_min)),
+            1.0,
+        )
+        try:
+            camera_data = self.frame._display._geom_for(self.frame._frame_id).get("camera", {})  # type: ignore[attr-defined]
+            if str(camera_data.get("projection", "")).lower() == "orthographic":
+                default_extent = max(default_extent, 4.0 * float(camera_data.get("ortho_scale", 2.5)))
+        except Exception:
+            pass
+        line_extent = abs(float(tick_extent)) if tick_extent is not None else default_extent
+        try:
+            geom = self.frame._display._geom_for(self.frame._frame_id)  # type: ignore[attr-defined]
+            geom["axis3d_runtime"] = {
+                "x_min": float(self.x_min),
+                "x_max": float(self.x_max),
+                "y_min": float(self.y_min),
+                "y_max": float(self.y_max),
+                "z_min": float(self.z_min),
+                "z_max": float(self.z_max),
+                "tick_extent": float(line_extent),
+                "tick_len": float(tick_len),
+                "tick_hints": list(tick_hints),
+                "tick_dist": float(tick_dist),
+                "min_tick_dist": float(min_tick_dist),
+                "max_tick_dist": float(max_tick_dist),
+                "width": float(width),
+                "ticks": bool(ticks),
+                "x_tick_alignment": str(x_tick_alignment),
+                "y_tick_alignment": str(y_tick_alignment),
+                "z_tick_alignment": str(z_tick_alignment),
+                "x_tick_label_placement": str(x_tick_label_placement),
+                "y_tick_label_placement": str(y_tick_label_placement),
+                "z_tick_label_placement": str(z_tick_label_placement),
+                "label_inset_px": float(label_inset_px),
+                "label_offset_px": float(label_offset_px),
+                "color": _color_to_payload(color),
+                "tick_label_font_size": float(tick_label_font_size),
+                "label_font_size": float(label_font_size),
+                "x_label": self.x_label,
+                "y_label": self.y_label,
+                "z_label": self.z_label,
+            }
+        except Exception:
+            pass
+        specs = (
+            ("x", -line_extent, line_extent),
+            ("y", -line_extent, line_extent),
+            ("z", -line_extent, line_extent),
+        )
+        axis_rows_x: list[tuple[float, float]] = []
+        axis_rows_y: list[tuple[float, float]] = []
+        axis_rows_z: list[tuple[float, float]] = []
+        for axis, lo, hi in specs:
+            x_line, y_line, z_line = self._line_u(axis, lo, hi)
+            axis_rows_x.append(tuple(float(v) for v in x_line.data))
+            axis_rows_y.append(tuple(float(v) for v in y_line.data))
+            axis_rows_z.append(tuple(float(v) for v in z_line.data))
+        if ticks:
+            x_base = self._optional_tick_values(x_ticks) or self._nice_ticks(self.x_min, self.x_max)
+            y_base = self._optional_tick_values(y_ticks) or self._nice_ticks(self.y_min, self.y_max)
+            z_base = self._optional_tick_values(z_ticks) or self._nice_ticks(self.z_min, self.z_max)
+            extent = line_extent
+            x_step = self._nice_tick_step((self.x_max - self.x_min) / 5.0)
+            y_step = self._nice_tick_step((self.y_max - self.y_min) / 5.0)
+            z_step = self._nice_tick_step((self.z_max - self.z_min) / 5.0)
+            x_line_values = self._ticks_with_step(-extent, extent, x_step)
+            y_line_values = self._ticks_with_step(-extent, extent, y_step)
+            z_line_values = self._ticks_with_step(-extent, extent, z_step)
+            tick_specs = (
+                ("x", self._without_zero(x_line_values), self._without_zero(x_line_values), str(x_tick_alignment), str(x_tick_label_placement)),
+                ("y", self._without_zero(y_line_values), self._without_zero(y_line_values), str(y_tick_alignment), str(y_tick_label_placement)),
+                ("z", self._without_zero(z_line_values), self._without_zero(z_line_values), str(z_tick_alignment), str(z_tick_label_placement)),
+            )
+            for axis, values, label_values, alignment, placement in tick_specs:
+                if not values:
+                    continue
+                self._append_tick_line_rows(
+                    axis_rows_x,
+                    axis_rows_y,
+                    axis_rows_z,
+                    axis,
+                    values,
+                    length=float(tick_len),
+                    alignment=alignment,
+                )
+                self._add_tick_labels(
+                    axis,
+                    label_values,
+                    length=float(tick_len),
+                    placement=placement,
+                    font_size=float(tick_label_font_size),
+                    color=color,
+                )
+        self.frame.add(
+            x=AxisTaggedValue(tuple(axis_rows_x), "iu"),
+            y=AxisTaggedValue(tuple(axis_rows_y), "iu"),
+            z=AxisTaggedValue(tuple(axis_rows_z), "iu"),
+            id=f"{self.prefix}_crosshair",
+            color=color,
+            representation="edges",
+            render_mode="line",
+            marker_space="pixel",
+            edge_width=float(width),
+            axis_screen_extend=False,
+            axis_screen_inset_px=float(axis_inset_px),
+            receives_lighting=bool(receives_lighting),
+            casts_shadow=bool(casts_shadow),
+            depth_write=True,
+        )
+        if labels:
+            self.frame.add_text(
+                self.x_label,
+                x=self.x_max,
+                y=0.0,
+                z=0.0,
+                world=True,
+                edge_anchor=True,
+                inset_px=float(label_inset_px),
+                offset_px=float(label_offset_px),
+                ha="center",
+                va="center",
+                color=color,
+                font_size=float(label_font_size),
+            )
+            self.frame.add_text(
+                self.y_label,
+                x=0.0,
+                y=self.y_max,
+                z=0.0,
+                world=True,
+                edge_anchor=True,
+                inset_px=float(label_inset_px),
+                offset_px=float(label_offset_px),
+                ha="center",
+                va="center",
+                color=color,
+                font_size=float(label_font_size),
+            )
+            self.frame.add_text(
+                self.z_label,
+                x=0.0,
+                y=0.0,
+                z=self.z_max,
+                world=True,
+                edge_anchor=True,
+                inset_px=float(label_inset_px),
+                offset_px=float(label_offset_px),
+                ha="center",
+                va="center",
+                color=color,
+                font_size=float(label_font_size),
+            )
+        if display is not None and restore_auto_render is not None:
+            display._auto_render = restore_auto_render
+            if restore_auto_render:
+                display.render()
+        return self
+
+    def handle_events(
+        self,
+        event: Any,
+        *,
+        camera: SceneCamera | None = None,
+        zoom_speed: float = 0.16,
+        rotate_speed: float = 0.35,
+    ) -> bool:
+        del rotate_speed
+        cam = camera if camera is not None else self._camera
+        if cam is None:
+            return False
+        name = str(getattr(event, "event", getattr(event, "name", "")) or "")
+        if name == "wheel" or isinstance(event, MouseWheel):
+            step = float(getattr(event, "step", 0.0) or 0.0)
+            if step == 0.0:
+                delta = float(getattr(event, "delta", 0.0) or 0.0)
+                step = 1.0 if delta > 0.0 else (-1.0 if delta < 0.0 else 0.0)
+            if step == 0.0:
+                return False
+            cam.zoom_by_wheel(step, speed=float(zoom_speed))
+            return True
+        if name == "drag" or isinstance(event, MouseDrag):
+            dx = float(getattr(event, "dx", 0.0) or 0.0)
+            dy = float(getattr(event, "dy", 0.0) or 0.0)
+            width = float(getattr(event, "width", 0.0) or 0.0)
+            height = float(getattr(event, "height", 0.0) or 0.0)
+            cam.pan_pixels(dx, dy, width=width, height=height)
+            return bool(dx or dy)
+        return False
+
+
+def axis_2d(frame: "FrameRef", **kwargs: Any) -> Axis2D:
+    allowed = {"x_min", "x_max", "y_min", "y_max", "x_label", "y_label", "prefix"}
+    bad = sorted(k for k in kwargs if k not in allowed)
+    if bad:
+        joined = ", ".join(repr(k) for k in bad)
+        raise TypeError(f"axis_2d() got unexpected keyword argument(s): {joined}")
+    return Axis2D(
+        frame=frame,
+        x_min=float(kwargs.get("x_min", -1.0)),
+        x_max=float(kwargs.get("x_max", 1.0)),
+        y_min=float(kwargs.get("y_min", -1.0)),
+        y_max=float(kwargs.get("y_max", 1.0)),
+        x_label=str(kwargs.get("x_label", "$x$")),
+        y_label=str(kwargs.get("y_label", "$y$")),
+        prefix=str(kwargs.get("prefix", "axis2d")),
+    )
+
+
+def axis_3d(frame: "FrameRef", **kwargs: Any) -> Axis3D:
+    allowed = {
+        "x_min", "x_max", "y_min", "y_max", "z_min", "z_max",
+        "x_label", "y_label", "z_label", "prefix",
+    }
+    bad = sorted(k for k in kwargs if k not in allowed)
+    if bad:
+        joined = ", ".join(repr(k) for k in bad)
+        raise TypeError(f"axis_3d() got unexpected keyword argument(s): {joined}")
+    return Axis3D(
+        frame=frame,
+        x_min=float(kwargs.get("x_min", -1.0)),
+        x_max=float(kwargs.get("x_max", 1.0)),
+        y_min=float(kwargs.get("y_min", -1.0)),
+        y_max=float(kwargs.get("y_max", 1.0)),
+        z_min=float(kwargs.get("z_min", -1.0)),
+        z_max=float(kwargs.get("z_max", 1.0)),
+        x_label=str(kwargs.get("x_label", "$x$")),
+        y_label=str(kwargs.get("y_label", "$y$")),
+        z_label=str(kwargs.get("z_label", "$z$")),
+        prefix=str(kwargs.get("prefix", "axis3d")),
+    )
+
+
+def _tick_label_text(value: Any) -> str:
+    x = float(value)
+    if abs(x) < 1e-12:
+        x = 0.0
+    if abs(x - round(x)) < 1e-12:
+        body = str(int(round(x)))
+    else:
+        body = f"{x:.3g}"
+    return f"${body}$"
+
+
+def axis_2d_tick_labels(widgets: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    allowed = {"x_ticks", "y_ticks", "x_min", "x_max", "y_min", "y_max", "rows", "cols", "x_label", "y_label"}
+    bad = sorted(k for k in kwargs if k not in allowed)
+    if bad:
+        joined = ", ".join(repr(k) for k in bad)
+        raise TypeError(f"axis_2d_tick_labels() got unexpected keyword argument(s): {joined}")
+    rows = max(3, int(kwargs.get("rows", 15)))
+    cols = max(3, int(kwargs.get("cols", 15)))
+    x_min = float(kwargs.get("x_min", -1.0))
+    x_max = float(kwargs.get("x_max", 1.0))
+    y_min = float(kwargs.get("y_min", -1.0))
+    y_max = float(kwargs.get("y_max", 1.0))
+    x_ticks = kwargs.get("x_ticks", [])
+    y_ticks = kwargs.get("y_ticks", [])
+
+    def col_for(x: float) -> int:
+        span = x_max - x_min
+        a = 0.5 if span == 0.0 else (float(x) - x_min) / span
+        return max(0, min(cols - 1, int(round(a * (cols - 1)))))
+
+    def row_for(y: float) -> int:
+        span = y_max - y_min
+        a = 0.5 if span == 0.0 else (float(y) - y_min) / span
+        return max(0, min(rows - 1, int(round((1.0 - a) * (rows - 1)))))
+
+    out: list[dict[str, Any]] = []
+    x_axis_row = min(rows - 1, row_for(0.0 if y_min <= 0.0 <= y_max else y_min) + 1)
+    y_axis_col = max(0, col_for(0.0 if x_min <= 0.0 <= x_max else x_min) - 1)
+    for n, xv in enumerate(x_ticks.data if isinstance(x_ticks, AxisTaggedValue) else list(x_ticks or [])):
+        out.append(widgets.label(f"x_tick_label_{n}", text=_tick_label_text(xv), grid=(x_axis_row, col_for(float(xv)), 1, 1), align="center", compact=True))
+    for n, yv in enumerate(y_ticks.data if isinstance(y_ticks, AxisTaggedValue) else list(y_ticks or [])):
+        out.append(widgets.label(f"y_tick_label_{n}", text=_tick_label_text(yv), grid=(row_for(float(yv)), y_axis_col, 1, 1), align="right", compact=True))
+    x_label = kwargs.get("x_label")
+    y_label = kwargs.get("y_label")
+    if x_label is not None:
+        out.append(widgets.label("x_axis_label", text=str(x_label), grid=(x_axis_row, cols - 1, 1, 1), align="right", compact=True))
+    if y_label is not None:
+        out.append(widgets.label("y_axis_label", text=str(y_label), grid=(0, y_axis_col, 1, 1), align="right", compact=True))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Placeholder dataclasses
 # ---------------------------------------------------------------------------
 
@@ -1432,6 +3136,46 @@ class FrameRef:
         self._display._sync_all()
 
     # -- 3-D ------------------------------------------------------------------
+
+    def add_text(
+        self,
+        text: Any,
+        *,
+        x: Any,
+        y: Any,
+        z: Any = 0.0,
+        font_size: float = 12.0,
+        ha: str = "center",
+        va: str = "center",
+        color: Any = "white",
+        id: str | None = None,
+        aspect: str = "",
+        pixel: bool = False,
+        world: bool = False,
+        edge_anchor: bool = False,
+        inset_px: float = 20.0,
+        offset_px: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        """Add overlay text to this frame's geometry/text layer."""
+        fid = self._get_placed_id()
+        return self._display._add_text(
+            fid,
+            text=text,
+            x=x,
+            y=y,
+            z=z,
+            font_size=font_size,
+            ha=ha,
+            va=va,
+            color=color,
+            id=id,
+            aspect=aspect,
+            pixel=pixel,
+            world=world,
+            edge_anchor=edge_anchor,
+            inset_px=inset_px,
+            offset_px=offset_px,
+        )
 
     def add_box(
         self,
@@ -1517,6 +3261,70 @@ class FrameRef:
             return self._display._add_graphics_representation(fid, value, embedding, view=view)
         return self._display._add_field_mesh(fid, **kwargs)
 
+    def add_function_surface(
+        self,
+        *,
+        fn: Any,
+        params: Any,
+        u_dim: str = "u",
+        v_dim: str = "v",
+        color: Any = None,
+        interpolation: bool = True,
+        depth_write: bool = True,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
+        fid = self._get_placed_id()
+        return self._display._add_function_surface(
+            fid,
+            fn=fn,
+            params=params,
+            u_dim=u_dim,
+            v_dim=v_dim,
+            color=color,
+            interpolation=interpolation,
+            depth_write=depth_write,
+            id=id,
+            **kwargs,
+        )
+
+    def add_function_plot(
+        self,
+        *,
+        fn: Any,
+        expr_source: Any,
+        params: Any,
+        x_fn: Any = None,
+        y_fn: Any = None,
+        z_fn: Any = None,
+        color: Any = None,
+        color_mode: Any = "constant",
+        color_axis: Any = "",
+        colormap: Any = "rgb",
+        interpolation: bool = True,
+        depth_write: bool = True,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
+        fid = self._get_placed_id()
+        return self._display._add_function_plot(
+            fid,
+            fn=fn,
+            expr_source=expr_source,
+            params=params,
+            x_fn=x_fn,
+            y_fn=y_fn,
+            z_fn=z_fn,
+            color=color,
+            color_mode=color_mode,
+            color_axis=color_axis,
+            colormap=colormap,
+            interpolation=interpolation,
+            depth_write=depth_write,
+            id=id,
+            **kwargs,
+        )
+
     def add_camera(
         self,
         *,
@@ -1524,10 +3332,12 @@ class FrameRef:
         target: Any = None,
         fov: float = 45.0,
         up: Any = None,
+        projection: str = "perspective",
+        ortho_scale: float | None = None,
     ) -> SceneCamera:
         """Set the camera. Returns a :class:`SceneCamera` you can mutate live."""
         fid = self._get_placed_id()
-        return self._display._add_camera(fid, pos=pos, target=target, fov=fov, up=up)
+        return self._display._add_camera(fid, pos=pos, target=target, fov=fov, up=up, projection=projection, ortho_scale=ortho_scale)
 
     def add_light(
         self,
@@ -1641,6 +3451,10 @@ class UIRoot:
     INPUT_FIELD_TEXT_ENTERED: int = encode_ui_pattern("input_field.text_entered")
     DROPDOWN_ITEM_CHANGED: int = encode_ui_pattern("dropdown.item_changed")
     TEXT_AREA_TEXT_CHANGED: int = encode_ui_pattern("text_area.text_changed")
+    COMBOBOX_TEXT_CHANGED: int = encode_ui_pattern("combobox.text_changed")
+    COMBOBOX_TEXT_ENTERED: int = encode_ui_pattern("combobox.text_entered")
+    COMBOBOX_ITEM_CHANGED: int = encode_ui_pattern("combobox.item_changed")
+    COLOR_PICKER_VALUE_CHANGED: int = encode_ui_pattern("color_picker.value_changed")
     cursor:   UIMouse    = field(default_factory=UIMouse)
     keyboard: UIKeyboard = field(default_factory=UIKeyboard)
     display:  "Display"  = field(default_factory=lambda: Display())
@@ -1681,6 +3495,10 @@ class UIRoot:
             payload["index"] = idx
             normalized = ui_event_from_payload(payload)
             _ui_trace_line(f"dispatch normalized cls={type(normalized).__name__} event={getattr(normalized, 'event', '')} frame={getattr(normalized, 'frame_id', '')}")
+
+            if isinstance(normalized, (WidgetEvent, FrameEvent)):
+                self._queue_event(normalized)
+                return
 
             t = evt.get("type")
             if t != "vf_event":
@@ -1932,6 +3750,15 @@ class Display:
     def widget_set_text(self, frame_id: str, widget_id: str, text: Any) -> None:
         self._screen.widget_set_text(frame_id, widget_id, text)
 
+    def widget_set_visible(self, frame_id: str, widget_id: str, visible: Any) -> None:
+        self._screen.widget_set_visible(frame_id, widget_id, visible)
+
+    def widget_set_options(self, frame_id: str, widget_id: str, options: Any) -> None:
+        self._screen.widget_set_options(frame_id, widget_id, options)
+
+    def widget_set_value(self, frame_id: str, widget_id: str, value: Any) -> None:
+        self._screen.widget_set_value(frame_id, widget_id, value)
+
     def widget_append_text(self, frame_id: str, widget_id: str, text: Any) -> None:
         self._screen.widget_append_text(frame_id, widget_id, text)
 
@@ -2072,6 +3899,70 @@ class Display:
         fid = self._last_placed_id("add")
         return self._add_field_mesh(fid, **kwargs)
 
+    def add_function_surface(
+        self,
+        *,
+        fn: Any,
+        params: Any,
+        u_dim: str = "u",
+        v_dim: str = "v",
+        color: Any = None,
+        interpolation: bool = True,
+        depth_write: bool = True,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
+        fid = self._last_placed_id("add_function_surface")
+        return self._add_function_surface(
+            fid,
+            fn=fn,
+            params=params,
+            u_dim=u_dim,
+            v_dim=v_dim,
+            color=color,
+            interpolation=interpolation,
+            depth_write=depth_write,
+            id=id,
+            **kwargs,
+        )
+
+    def add_function_plot(
+        self,
+        *,
+        fn: Any,
+        expr_source: Any,
+        params: Any,
+        x_fn: Any = None,
+        y_fn: Any = None,
+        z_fn: Any = None,
+        color: Any = None,
+        color_mode: Any = "constant",
+        color_axis: Any = "",
+        colormap: Any = "rgb",
+        interpolation: bool = True,
+        depth_write: bool = True,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
+        fid = self._last_placed_id("add_function_plot")
+        return self._add_function_plot(
+            fid,
+            fn=fn,
+            expr_source=expr_source,
+            params=params,
+            x_fn=x_fn,
+            y_fn=y_fn,
+            z_fn=z_fn,
+            color=color,
+            color_mode=color_mode,
+            color_axis=color_axis,
+            colormap=colormap,
+            interpolation=interpolation,
+            depth_write=depth_write,
+            id=id,
+            **kwargs,
+        )
+
     def add_camera(
         self,
         *,
@@ -2079,10 +3970,12 @@ class Display:
         target: Any = None,
         fov: float = 45.0,
         up: Any = None,
+        projection: str = "perspective",
+        ortho_scale: float | None = None,
     ) -> SceneCamera:
         """Set camera for last placed frame. Returns :class:`SceneCamera`."""
         fid = self._last_placed_id("add_camera")
-        return self._add_camera(fid, pos=pos, target=target, fov=fov, up=up)
+        return self._add_camera(fid, pos=pos, target=target, fov=fov, up=up, projection=projection, ortho_scale=ortho_scale)
 
     def add_light(
         self,
@@ -2120,10 +4013,123 @@ class Display:
         self._set_geom_options(fid, **kwargs)
         return self
 
+    def add_text(
+        self,
+        text: Any,
+        *,
+        x: Any,
+        y: Any,
+        z: Any = 0.0,
+        font_size: float = 12.0,
+        ha: str = "center",
+        va: str = "center",
+        color: Any = "white",
+        id: str | None = None,
+        aspect: str = "",
+        pixel: bool = False,
+        world: bool = False,
+        edge_anchor: bool = False,
+        inset_px: float = 20.0,
+        offset_px: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        """Add overlay text to the last placed frame."""
+        fid = self._last_placed_id("add_text")
+        return self._add_text(
+            fid,
+            text=text,
+            x=x,
+            y=y,
+            z=z,
+            font_size=font_size,
+            ha=ha,
+            va=va,
+            color=color,
+            id=id,
+            aspect=aspect,
+            pixel=pixel,
+            world=world,
+            edge_anchor=edge_anchor,
+            inset_px=inset_px,
+            offset_px=offset_px,
+        )
+
     # ---- internal 3-D builders (used by both Display and FrameRef) --------
 
+    def _add_text(
+        self,
+        fid: str,
+        *,
+        text: Any,
+        x: Any,
+        y: Any,
+        z: Any,
+        font_size: float,
+        ha: str,
+        va: str,
+        color: Any,
+        id: str | None,
+        aspect: str,
+        pixel: bool,
+        world: bool,
+        edge_anchor: bool,
+        inset_px: float,
+        offset_px: float,
+    ) -> list[dict[str, Any]]:
+        def _seq(value: Any) -> list[Any]:
+            if isinstance(value, AxisTaggedValue):
+                value = value.data
+            if isinstance(value, (VFVector, list, tuple)):
+                return list(value)
+            return [value]
+
+        ha_norm = str(ha or "center").lower()
+        va_norm = str(va or "center").lower()
+        if ha_norm not in {"left", "center", "right"}:
+            raise ValueError("add_text ha must be 'left', 'center', or 'right'")
+        if va_norm not in {"bottom", "center", "top"}:
+            raise ValueError("add_text va must be 'bottom', 'center', or 'top'")
+
+        texts = _seq(text)
+        xs = _seq(x)
+        ys = _seq(y)
+        zs = _seq(z)
+        n = max(len(texts), len(xs), len(ys), len(zs))
+
+        def _pick(values: list[Any], i: int) -> Any:
+            if len(values) == 1:
+                return values[0]
+            if i >= len(values):
+                raise ValueError("add_text vector arguments must have equal length or length 1")
+            return values[i]
+
+        specs: list[dict[str, Any]] = []
+        for i in range(n):
+            suffix = f"_{i}" if n > 1 and id is not None else ""
+            specs.append(
+                {
+                    "id": f"{id}{suffix}" if id is not None else "",
+                    "text": str(_pick(texts, i)),
+                    "x": float(_pick(xs, i)),
+                    "y": float(_pick(ys, i)),
+                    "z": float(_pick(zs, i)),
+                    "font_size": float(font_size),
+                    "ha": ha_norm,
+                    "va": va_norm,
+                    "color": _color_to_payload(color),
+                    "aspect": str(aspect or ""),
+                    "pixel": bool(pixel),
+                    "world": bool(world),
+                    "edge_anchor": bool(edge_anchor),
+                    "inset_px": float(inset_px),
+                    "offset_px": float(offset_px),
+                }
+            )
+        self._geom_for(fid).setdefault("texts", []).extend(specs)
+        self._sync_all()
+        return specs
+
     def _set_geom_options(self, fid: str, **kwargs: Any) -> None:
-        allowed = {"unified_renderer", "combine_transparent"}
+        allowed = {"unified_renderer", "combine_transparent", "axis3d_controls"}
         bad = sorted(k for k in kwargs if k not in allowed)
         if bad:
             joined = ", ".join(repr(k) for k in bad)
@@ -2133,6 +4139,8 @@ class Display:
             geom["unified_renderer"] = bool(kwargs["unified_renderer"])
         if "combine_transparent" in kwargs:
             geom["combine_transparent"] = bool(kwargs["combine_transparent"])
+        if "axis3d_controls" in kwargs:
+            geom["axis3d_controls"] = bool(kwargs["axis3d_controls"])
         self._sync_all()
 
     def _add_box(
@@ -2220,11 +4228,95 @@ class Display:
     def _add_field_mesh(self, fid: str, **kwargs: Any) -> SceneFieldMesh:
         data = _build_field_mesh_from_kwargs(kwargs)
         self._geom_for(fid)["meshes"].append(data)
+        try:
+            verts = data.get("vertices")
+            indices = data.get("indices")
+            _plot_debug_line(
+                "_add_field_mesh "
+                f"fid={fid!r} id={data.get('id')!r} type={data.get('type')!r} "
+                f"vertex_floats={len(verts) if hasattr(verts, '__len__') else 'n/a'} "
+                f"indices={len(indices) if hasattr(indices, '__len__') else 'n/a'} "
+                f"topology={data.get('topology')!r} edge_width={data.get('edge_width')!r} "
+                f"render_mode={data.get('render_mode')!r} marker_space={data.get('marker_space')!r} "
+                f"meshes={len(self._geom_for(fid).get('meshes', []))}"
+            )
+        except Exception as exc:
+            _plot_debug_line(f"_add_field_mesh log_error={exc!r}")
         self._sync_all()
         obj = SceneFieldMesh(data, self, fid, kwargs)
         idx = len(self._geom_for(fid)["meshes"]) - 1
         self._scene_objects[(fid, idx)] = obj
         return obj
+
+    def _add_function_surface(
+        self,
+        fid: str,
+        *,
+        fn: Any,
+        params: Any,
+        u_dim: str,
+        v_dim: str,
+        color: Any,
+        interpolation: bool,
+        depth_write: bool,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
+        source = _build_function_surface_source_kwargs(
+            fn,
+            params,
+            u_dim=u_dim,
+            v_dim=v_dim,
+            color=color,
+            interpolation=interpolation,
+            depth_write=depth_write,
+            id=id,
+            extra=dict(kwargs),
+        )
+        return self._add_field_mesh(fid, **source)
+
+    def _add_function_plot(
+        self,
+        fid: str,
+        *,
+        fn: Any,
+        expr_source: Any,
+        params: Any,
+        x_fn: Any,
+        y_fn: Any,
+        z_fn: Any,
+        color: Any,
+        color_mode: Any,
+        color_axis: Any,
+        colormap: Any,
+        interpolation: bool,
+        depth_write: bool,
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
+        _plot_debug_line(
+            "_add_function_plot "
+            f"fid={fid!r} expr={str(expr_source)!r} id={str(id)!r} "
+            f"x_fn={x_fn is not None} y_fn={y_fn is not None} color_mode={str(color_mode)!r}"
+        )
+        source = _build_function_plot_source_kwargs(
+            fn,
+            expr_source,
+            params,
+            x_fn=x_fn,
+            y_fn=y_fn,
+            z_fn=z_fn,
+            color=color,
+            color_mode=color_mode,
+            color_axis=color_axis,
+            colormap=colormap,
+            interpolation=interpolation,
+            depth_write=depth_write,
+            id=id,
+            extra=dict(kwargs),
+        )
+        _plot_debug_line(f"_add_function_plot source_keys={sorted(str(k) for k in source.keys())!r}")
+        return self._add_field_mesh(fid, **source)
 
     def _add_camera(
         self,
@@ -2234,13 +4326,21 @@ class Display:
         target: Any,
         fov: float,
         up: Any,
+        projection: str,
+        ortho_scale: float | None,
     ) -> SceneCamera:
+        projection_name = str(projection or "perspective").strip().lower()
+        if projection_name not in {"perspective", "orthographic"}:
+            raise ValueError("camera projection must be 'perspective' or 'orthographic'")
         data: dict[str, Any] = {
             "pos":    _vec3(pos, "pos"),
             "target": _vec3(target or [0, 0, 0], "target"),
             "fov":    float(fov),
             "up":     _vec3(up or [0, 0, 1], "up"),
+            "projection": projection_name,
         }
+        if projection_name == "orthographic" or ortho_scale is not None:
+            data["ortho_scale"] = max(1e-6, float(ortho_scale if ortho_scale is not None else 2.5))
         self._geom_for(fid)["camera"] = data
         self._sync_all()
         return SceneCamera(data, self, fid)
@@ -2325,7 +4425,7 @@ class Display:
 
     def _geom_for(self, fid: str) -> dict[str, Any]:
         if fid not in self._geom:
-            self._geom[fid] = {"meshes": [], "camera": None, "lights": []}
+            self._geom[fid] = {"meshes": [], "camera": None, "lights": [], "texts": []}
         return self._geom[fid]
 
     def _last_placed_id(self, op: str) -> str:
@@ -2399,11 +4499,12 @@ class Display:
         # migrate pending geom ops
         if pending_frame_id in self._geom:
             geom_data = self._geom.pop(pending_frame_id)
-            existing = self._geom.get(f._frame_id, {"meshes": [], "camera": None, "lights": []})
-            existing["meshes"].extend(geom_data["meshes"])
-            if geom_data["camera"] is not None:
+            existing = self._geom.get(f._frame_id, {"meshes": [], "camera": None, "lights": [], "texts": []})
+            existing.setdefault("meshes", []).extend(geom_data.get("meshes", []))
+            if geom_data.get("camera") is not None:
                 existing["camera"] = geom_data["camera"]
-            existing["lights"].extend(geom_data["lights"])
+            existing.setdefault("lights", []).extend(geom_data.get("lights", []))
+            existing.setdefault("texts", []).extend(geom_data.get("texts", []))
             self._geom[f._frame_id] = existing
         # migrate pending representation ops + ownership
         pending_rep_ops = self._frame_repr_ops.pop(pending_frame_id, None)
@@ -2558,8 +4659,15 @@ def _unwrap_frame_ref(a: Any) -> tuple[FrameRef | None, PendingFrame | None]:
     return None, None
 
 
-def _write_vf_display_json(payload: dict[str, Any]) -> None:
+def _sync_json_to_all_built_webs(payload: dict[str, Any]) -> None:
     publish_display_runtime_payload(payload)
+
+
+def _write_vf_display_json(payload: dict[str, Any]) -> None:
+    try:
+        _sync_json_to_all_built_webs(payload)
+    except OSError as exc:
+        raise UISyncError(str(exc)) from exc
 
 
 def build_ui_namespace() -> dict[str, Any]:
@@ -2572,6 +4680,11 @@ def build_ui_namespace() -> dict[str, Any]:
         "events": root.events,
         "widgets": root.widgets,
         "graphics": root.graphics,
+        "axis_2d": axis_2d,
+        "axis_3d": axis_3d,
+        "axis_2d_tick_labels": axis_2d_tick_labels,
+        "Axis2D": Axis2D,
+        "Axis3D": Axis3D,
         "poll": root.poll,
         "sleep": root.sleep,
         "next_event": root.next_event,
@@ -2592,6 +4705,18 @@ def build_ui_namespace() -> dict[str, Any]:
         "FrameDocked": FrameDocked,
         "FrameDragged": FrameDragged,
         "FrameResized": FrameResized,
+        "WidgetEvent": WidgetEvent,
+        "ButtonPressedEvent": ButtonPressedEvent,
+        "CheckboxToggledEvent": CheckboxToggledEvent,
+        "SliderValueChangedEvent": SliderValueChangedEvent,
+        "InputFieldTextChangedEvent": InputFieldTextChangedEvent,
+        "InputFieldTextEnteredEvent": InputFieldTextEnteredEvent,
+        "DropdownItemChangedEvent": DropdownItemChangedEvent,
+        "TextAreaTextChangedEvent": TextAreaTextChangedEvent,
+        "ComboboxTextChangedEvent": ComboboxTextChangedEvent,
+        "ComboboxTextEnteredEvent": ComboboxTextEnteredEvent,
+        "ComboboxItemChangedEvent": ComboboxItemChangedEvent,
+        "ColorPickerValueChangedEvent": ColorPickerValueChangedEvent,
         "TouchEvent": TouchEvent,
         "KeyboardEvent": KeyboardEvent,
         "KeyEvent": KeyEvent,
@@ -2616,6 +4741,10 @@ def build_ui_namespace() -> dict[str, Any]:
         "INPUT_FIELD_TEXT_ENTERED": root.INPUT_FIELD_TEXT_ENTERED,
         "DROPDOWN_ITEM_CHANGED": root.DROPDOWN_ITEM_CHANGED,
         "TEXT_AREA_TEXT_CHANGED": root.TEXT_AREA_TEXT_CHANGED,
+        "COMBOBOX_TEXT_CHANGED": root.COMBOBOX_TEXT_CHANGED,
+        "COMBOBOX_TEXT_ENTERED": root.COMBOBOX_TEXT_ENTERED,
+        "COMBOBOX_ITEM_CHANGED": root.COMBOBOX_ITEM_CHANGED,
+        "COLOR_PICKER_VALUE_CHANGED": root.COLOR_PICKER_VALUE_CHANGED,
         "ButtonPressed": root.BUTTON_PRESSED,
         "CheckboxToggled": root.CHECKBOX_TOGGLED,
         "SliderValueChanged": root.SLIDER_VALUE_CHANGED,
@@ -2623,4 +4752,23 @@ def build_ui_namespace() -> dict[str, Any]:
         "InputFieldTextEntered": root.INPUT_FIELD_TEXT_ENTERED,
         "DropdownItemChanged": root.DROPDOWN_ITEM_CHANGED,
         "TextAreaTextChanged": root.TEXT_AREA_TEXT_CHANGED,
+        "ComboboxTextChanged": root.COMBOBOX_TEXT_CHANGED,
+        "ComboboxTextEntered": root.COMBOBOX_TEXT_ENTERED,
+        "ComboboxItemChanged": root.COMBOBOX_ITEM_CHANGED,
+        "ColorPickerValueChanged": root.COLOR_PICKER_VALUE_CHANGED,
+        "plot_active_params": plot_active_params,
+        "plot_param_active": plot_param_active,
+        "plot_param_label": plot_param_label,
+        "plot_expr_body": plot_expr_body,
+        "plot_expr_axis": plot_expr_axis,
+        "plot_compile_body": plot_compile_body,
+        "plot_signature_label": plot_signature_label,
+        "plot_time_active": plot_time_active,
+        "plot_faces_available": plot_faces_available,
+        "plot_axis_options": plot_axis_options,
+        "plot_axis_option": plot_axis_option,
+        "plot_time_slider_count": plot_time_slider_count,
+        "plot_colormap_label": plot_colormap_label,
+        "plot_mode": plot_mode,
+        "plot_history_push": plot_history_push,
     }

@@ -1095,7 +1095,6 @@ class Interpreter:
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
-        self.builtin["errors"] = make_vmap(ERROR_NAMESPACE)
 
     def _merge_stdlibs(self) -> None:
         for name in ("math", "capture", "io", "collections", "stat"):
@@ -1182,6 +1181,30 @@ class Interpreter:
         if kind in {"list", "queue"}:
             return list(value)
         raise EvalError("positional call spread requires a tuple, vector, list, or queue value")
+
+    def _expand_call_spreads(
+        self,
+        pos: list[Any],
+        kw: dict[str, Any],
+        spreads: list[Any],
+        *,
+        callee_name: str,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        expanded_pos = list(pos)
+        expanded_kw = dict(kw)
+        named_started = bool(expanded_kw)
+        for spread_value in spreads:
+            if is_struct_dict(spread_value) or runtime_collection_kind(spread_value) == "map":
+                named_started = True
+                for key, value in self._iter_named_spread_items(spread_value):
+                    expanded_kw[key] = value
+                continue
+            if named_started:
+                raise EvalError(
+                    f"{callee_name}: positional spread cannot appear after named arguments"
+                )
+            expanded_pos.extend(self._iter_positional_spread_items(spread_value))
+        return expanded_pos, expanded_kw
 
     def _normalize_vkf_call_args(
         self,
@@ -1981,9 +2004,14 @@ class Interpreter:
             ):
                 return fn
             if kw or spreads:
-                if spreads:
-                    raise EvalError("this call does not support spread arguments")
                 if callable(fn):
+                    if spreads:
+                        pos, kw = self._expand_call_spreads(
+                            pos,
+                            kw,
+                            spreads,
+                            callee_name=getattr(fn, "__name__", "call"),
+                        )
                     return fn(*pos, **kw)
                 raise EvalError(
                     "this call does not accept keyword or spread arguments"
@@ -2892,6 +2920,8 @@ def _stringify(
         return _format_vstruct_ctor_display(v)
     if isinstance(v, OpCallable):
         return _stringify_op_callable(v)
+    if isinstance(v, ErrorTypeValue):
+        return v.name
     if isinstance(v, PrimType):
         return v.name
     if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
