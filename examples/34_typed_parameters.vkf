@@ -1,0 +1,4 @@
+add(a:num, b:num):
+    a + b
+
+:: add(3, 4)

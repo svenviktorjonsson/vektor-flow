@@ -136,16 +136,16 @@ Run these from inside the extracted or built bundle directory.
 
 ```powershell
 .\vkf.exe -e ':: "hello, world"'
-.\vkf.exe .\samples\hello.vkf
-.\vkf.exe .\samples\core_language_tour.vkf
+.\vkf.exe .\samples\01_hello.vkf
+.\vkf.exe .\samples\100_axis_4_panel.vkf
 ```
 
 ### macOS / Linux
 
 ```bash
 ./vkf -e ':: "hello, world"'
-./vkf ./samples/hello.vkf
-./vkf ./samples/core_language_tour.vkf
+./vkf ./samples/01_hello.vkf
+./vkf ./samples/100_axis_4_panel.vkf
 ```
 
 Expected signals:
@@ -160,7 +160,7 @@ If the bundle contains `extensions/*.vsix`:
 
 1. install that `.vsix`
 2. set `vektorflow.compilerPath` to the bundled `vkf`
-3. open `samples/hello.vkf`
+3. open `samples/01_hello.vkf`
 4. run `Run Vektor Flow File`
 
 Expected result:

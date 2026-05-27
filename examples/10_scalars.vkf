@@ -1,0 +1,9 @@
+n: 42
+label: "ready"
+flag: true
+missing: null
+
+:: n
+:: label
+:: flag
+:: missing

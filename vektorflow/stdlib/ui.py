@@ -2113,6 +2113,10 @@ class Axis2D:
     y_label: str = "$y$"
     prefix: str = "axis2d"
 
+    @property
+    def _axis_bind_id(self) -> str:
+        return f"{self.prefix}__axis2d_bind"
+
     def _series(self, values: Any, idx: str = "u") -> AxisTaggedValue:
         if isinstance(values, AxisTaggedValue):
             return values
@@ -2221,6 +2225,9 @@ class Axis2D:
         grid_alpha: float = 0.18,
         grid_width: float = 1.0,
         interactive: bool = True,
+        axis_lock_angle_deg: float = 5.0,
+        axis_lock_sample_count: int = 3,
+        rotation_deg: float = 0.0,
     ) -> "Axis2D":
         rows_x: list[tuple[float, float]] = []
         rows_y: list[tuple[float, float]] = []
@@ -2245,11 +2252,12 @@ class Axis2D:
                 render_mode="marker_impostor",
                 marker_space="pixel",
                 aspect="equal",
+                axis_bind_id=self._axis_bind_id,
                 axis_full_frame=True,
                 axis_ticks={
                     "enabled": bool(ticks),
-                    "x_mode": "linear",
-                    "y_mode": "linear",
+                    "x_mode": str(x_tick_mode),
+                    "y_mode": str(y_tick_mode),
                     "x_min": float(self.x_min),
                     "x_max": float(self.x_max),
                     "y_min": float(self.y_min),
@@ -2276,6 +2284,9 @@ class Axis2D:
                     "grid": bool(grid),
                     "grid_alpha": float(grid_alpha),
                     "grid_width": float(grid_width),
+                    "axis_lock_angle_deg": float(axis_lock_angle_deg),
+                    "axis_lock_sample_count": int(axis_lock_sample_count),
+                    "rotation_deg": float(rotation_deg),
                 },
                 axis_interactive=bool(interactive),
                 mode3d=False,
@@ -2283,6 +2294,30 @@ class Axis2D:
                 casts_shadow=False,
                 depth_write=False,
             )
+            self.frame.add_layer(
+                "axis",
+                id=f"{self.prefix}_crosshair_layer",
+                dim=2,
+                variant="crosshair",
+                geometry_ids=[f"{self.prefix}_crosshair"],
+                x_min=float(self.x_min),
+                x_max=float(self.x_max),
+                y_min=float(self.y_min),
+                y_max=float(self.y_max),
+                x_mode=str(x_tick_mode),
+                y_mode=str(y_tick_mode),
+                ticks=bool(ticks),
+                tick_hints=list(tick_hints),
+                tick_dist=float(tick_dist),
+                tick_len=float(tick_len),
+                grid=bool(grid),
+                grid_alpha=float(grid_alpha),
+                grid_width=float(grid_width),
+                interactive=bool(interactive),
+                rotation_deg=float(rotation_deg),
+            )
+            if interactive:
+                self.frame.register_default_event_handler(f"axis2d:{self.prefix}", self.handle_events)
         return self
 
     def box(
@@ -2315,6 +2350,9 @@ class Axis2D:
         grid_alpha: float = 0.18,
         grid_width: float = 1.0,
         interactive: bool = True,
+        axis_lock_angle_deg: float = 5.0,
+        axis_lock_sample_count: int = 3,
+        rotation_deg: float = 0.0,
     ) -> "Axis2D":
         rows_x = ((-1.0, 1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, -1.0))
         rows_y = ((-1.0, -1.0), (-1.0, 1.0), (1.0, 1.0), (1.0, -1.0))
@@ -2329,6 +2367,7 @@ class Axis2D:
             render_mode="marker_impostor",
             marker_space="pixel",
             aspect="equal",
+            axis_bind_id=self._axis_bind_id,
             axis_box=True,
             axis_margin_px=float(margin_px),
             axis_ticks={
@@ -2361,6 +2400,9 @@ class Axis2D:
                 "grid": bool(grid),
                 "grid_alpha": float(grid_alpha),
                 "grid_width": float(grid_width),
+                "axis_lock_angle_deg": float(axis_lock_angle_deg),
+                "axis_lock_sample_count": int(axis_lock_sample_count),
+                "rotation_deg": float(rotation_deg),
             },
             axis_interactive=bool(interactive),
             mode3d=False,
@@ -2368,6 +2410,31 @@ class Axis2D:
             casts_shadow=False,
             depth_write=False,
         )
+        self.frame.add_layer(
+            "axis",
+            id=f"{self.prefix}_box_layer",
+            dim=2,
+            variant="box",
+            geometry_ids=[f"{self.prefix}_box"],
+            x_min=float(self.x_min),
+            x_max=float(self.x_max),
+            y_min=float(self.y_min),
+            y_max=float(self.y_max),
+            x_mode=str(x_tick_mode),
+            y_mode=str(y_tick_mode),
+            ticks=bool(ticks),
+            tick_hints=list(tick_hints),
+            tick_dist=float(tick_dist),
+            tick_len=float(tick_len),
+            margin_px=float(margin_px),
+            grid=bool(grid),
+            grid_alpha=float(grid_alpha),
+            grid_width=float(grid_width),
+            interactive=bool(interactive),
+            rotation_deg=float(rotation_deg),
+        )
+        if interactive:
+            self.frame.register_default_event_handler(f"axis2d:{self.prefix}", self.handle_events)
         return self
 
     def add_text(
@@ -2449,8 +2516,10 @@ class Axis2D:
         width: float = 2.4,
         id: str = "curve",
     ) -> SceneFieldMesh:
-        xs = self._map_series_x(x)
-        ys = self._map_series_y(y, xs.idx)
+        source_xs = self._series(x)
+        source_ys = self._series(y, source_xs.idx)
+        xs = self._map_series_x(source_xs)
+        ys = self._map_series_y(source_ys, xs.idx)
         return self.frame.add(
             x=xs,
             y=ys,
@@ -2461,6 +2530,11 @@ class Axis2D:
             edge_width=float(width),
             render_mode="marker_impostor",
             marker_space="pixel",
+            axis_bind_id=self._axis_bind_id,
+            axis_plot2d={
+                "x_values": [float(v) for v in source_xs.data],
+                "y_values": [float(v) for v in source_ys.data],
+            },
             mode3d=False,
             receives_lighting=False,
             casts_shadow=False,
@@ -2544,6 +2618,10 @@ class Axis3D:
         self.z_label = str(z_label)
         self.prefix = str(prefix)
         self._camera: SceneCamera | None = None
+
+    @property
+    def _axis_bind_id(self) -> str:
+        return f"{self.prefix}__axis3d_bind"
 
     @staticmethod
     def _line_u(axis: str, lo: float, hi: float) -> tuple[AxisTaggedValue, AxisTaggedValue, AxisTaggedValue]:
@@ -2734,6 +2812,9 @@ class Axis3D:
         color: Any = "white",
         width: float = 1.0,
         ticks: bool = True,
+        x_tick_mode: str = "linear",
+        y_tick_mode: str = "linear",
+        z_tick_mode: str = "linear",
         tick_len: float = 0.04,
         tick_extent: float | None = None,
         tick_hints: Any = (1, 2, 5),
@@ -2755,6 +2836,11 @@ class Axis3D:
         label_inset_px: float = 28.0,
         label_offset_px: float = 28.0,
         axis_inset_px: float = 0.0,
+        axis_lock_angle_deg: float = 5.0,
+        axis_lock_sample_count: int = 3,
+        grid: bool = False,
+        grid_alpha: float = 0.16,
+        grid_width: float = 1.0,
         radius: float | None = None,
         segments: int | None = None,
         receives_lighting: bool = False,
@@ -2792,6 +2878,9 @@ class Axis3D:
                 "y_max": float(self.y_max),
                 "z_min": float(self.z_min),
                 "z_max": float(self.z_max),
+                "x_mode": str(x_tick_mode),
+                "y_mode": str(y_tick_mode),
+                "z_mode": str(z_tick_mode),
                 "tick_extent": float(line_extent),
                 "tick_len": float(tick_len),
                 "tick_hints": list(tick_hints),
@@ -2808,6 +2897,11 @@ class Axis3D:
                 "z_tick_label_placement": str(z_tick_label_placement),
                 "label_inset_px": float(label_inset_px),
                 "label_offset_px": float(label_offset_px),
+                "axis_lock_angle_deg": float(axis_lock_angle_deg),
+                "axis_lock_sample_count": int(axis_lock_sample_count),
+                "grid": bool(grid),
+                "grid_alpha": float(grid_alpha),
+                "grid_width": float(grid_width),
                 "color": _color_to_payload(color),
                 "tick_label_font_size": float(tick_label_font_size),
                 "label_font_size": float(label_font_size),
@@ -2876,11 +2970,45 @@ class Axis3D:
             render_mode="line",
             marker_space="pixel",
             edge_width=float(width),
+            axis_bind_id=self._axis_bind_id,
             axis_screen_extend=False,
             axis_screen_inset_px=float(axis_inset_px),
             receives_lighting=bool(receives_lighting),
             casts_shadow=bool(casts_shadow),
             depth_write=True,
+        )
+        self.frame.add_layer(
+            "axis",
+            id=f"{self.prefix}_crosshair_layer",
+            dim=3,
+            variant="crosshair",
+            geometry_ids=[f"{self.prefix}_crosshair"],
+            x_min=float(self.x_min),
+            x_max=float(self.x_max),
+            y_min=float(self.y_min),
+            y_max=float(self.y_max),
+            z_min=float(self.z_min),
+            z_max=float(self.z_max),
+            x_mode=str(x_tick_mode),
+            y_mode=str(y_tick_mode),
+            z_mode=str(z_tick_mode),
+            ticks=bool(ticks),
+            tick_hints=list(tick_hints),
+            tick_dist=float(tick_dist),
+            min_tick_dist=float(min_tick_dist),
+            max_tick_dist=float(max_tick_dist),
+            tick_len=float(tick_len),
+            tick_extent=float(line_extent),
+            grid=bool(grid),
+            grid_alpha=float(grid_alpha),
+            grid_width=float(grid_width),
+            interactive=True,
+            axis_lock_angle_deg=float(axis_lock_angle_deg),
+            axis_lock_sample_count=int(axis_lock_sample_count),
+        )
+        self.frame.register_default_event_handler(
+            f"axis3d:{self.prefix}",
+            lambda event, _self=self: _self.handle_events(event),
         )
         if labels:
             self.frame.add_text(
@@ -2925,6 +3053,180 @@ class Axis3D:
                 color=color,
                 font_size=float(label_font_size),
             )
+        if display is not None and restore_auto_render is not None:
+            display._auto_render = restore_auto_render
+            if restore_auto_render:
+                display.render()
+        return self
+
+    def box(
+        self,
+        *,
+        color: Any = "white",
+        width: float = 1.0,
+        ticks: bool = True,
+        x_tick_mode: str = "linear",
+        y_tick_mode: str = "linear",
+        z_tick_mode: str = "linear",
+        tick_len_px: float = 7.0,
+        tick_hints: Any = (1, 2, 5),
+        tick_dist: float = 120.0,
+        min_tick_dist: float = 72.0,
+        max_tick_dist: float = 180.0,
+        x_tick_alignment: str = "negative",
+        y_tick_alignment: str = "negative",
+        z_tick_alignment: str = "negative",
+        x_tick_label_placement: str = "below",
+        y_tick_label_placement: str = "left",
+        z_tick_label_placement: str = "left",
+        tick_label_font_size: float = 11.0,
+        labels: bool = True,
+        label_font_size: float = 14.0,
+        label_offset_px: float = 28.0,
+        aspect: str = "equal",
+        equal_aspect: bool = True,
+        axis_lock_angle_deg: float = 5.0,
+        axis_lock_sample_count: int = 3,
+        grid: bool = False,
+        grid_alpha: float = 0.16,
+        grid_width: float = 1.0,
+        receives_lighting: bool = False,
+        casts_shadow: bool = False,
+    ) -> "Axis3D":
+        display = getattr(self.frame, "_display", None)
+        restore_auto_render: bool | None = None
+        if display is not None:
+            restore_auto_render = bool(getattr(display, "_auto_render", True))
+            display._auto_render = False
+        try:
+            self.frame.set_geom_options(axis3d_controls=True)
+        except Exception:
+            pass
+        try:
+            geom = self.frame._display._geom_for(self.frame._frame_id)  # type: ignore[attr-defined]
+            geom["axis3d_runtime"] = {
+                "mode": "box",
+                "x_min": float(self.x_min),
+                "x_max": float(self.x_max),
+                "y_min": float(self.y_min),
+                "y_max": float(self.y_max),
+                "z_min": float(self.z_min),
+                "z_max": float(self.z_max),
+                "x_mode": str(x_tick_mode),
+                "y_mode": str(y_tick_mode),
+                "z_mode": str(z_tick_mode),
+                "tick_len_px": float(tick_len_px),
+                "tick_hints": list(tick_hints),
+                "tick_dist": float(tick_dist),
+                "min_tick_dist": float(min_tick_dist),
+                "max_tick_dist": float(max_tick_dist),
+                "width": float(width),
+                "ticks": bool(ticks),
+                "x_tick_alignment": str(x_tick_alignment),
+                "y_tick_alignment": str(y_tick_alignment),
+                "z_tick_alignment": str(z_tick_alignment),
+                "x_tick_label_placement": str(x_tick_label_placement),
+                "y_tick_label_placement": str(y_tick_label_placement),
+                "z_tick_label_placement": str(z_tick_label_placement),
+                "label_offset_px": float(label_offset_px),
+                "aspect": str(aspect),
+                "equal_aspect": bool(equal_aspect),
+                "axis_lock_angle_deg": float(axis_lock_angle_deg),
+                "axis_lock_sample_count": int(axis_lock_sample_count),
+                "grid": bool(grid),
+                "grid_alpha": float(grid_alpha),
+                "grid_width": float(grid_width),
+                "color": _color_to_payload(color),
+                "tick_label_font_size": float(tick_label_font_size),
+                "label_font_size": float(label_font_size),
+                "x_label": self.x_label if labels else "",
+                "y_label": self.y_label if labels else "",
+                "z_label": self.z_label if labels else "",
+            }
+        except Exception:
+            pass
+
+        xs = (float(self.x_min), float(self.x_max))
+        ys = (float(self.y_min), float(self.y_max))
+        zs = (float(self.z_min), float(self.z_max))
+        x_uvw = tuple(tuple(tuple(x for _w in zs) for _v in ys) for x in xs)
+        y_uvw = tuple(tuple(tuple(y for _w in zs) for y in ys) for _u in xs)
+        z_uvw = tuple(tuple(tuple(z for z in zs) for _v in ys) for _u in xs)
+        self.frame.add(
+            x=AxisTaggedValue(x_uvw, "uvw"),
+            y=AxisTaggedValue(y_uvw, "uvw"),
+            z=AxisTaggedValue(z_uvw, "uvw"),
+            id=f"{self.prefix}_box",
+            color=color,
+            representation="edges",
+            render_mode="line",
+            marker_space="pixel",
+            edge_width=float(width),
+            axis_bind_id=self._axis_bind_id,
+            axis3d_helper_lines=True,
+            axis_screen_extend=False,
+            receives_lighting=bool(receives_lighting),
+            casts_shadow=bool(casts_shadow),
+            depth_write=True,
+        )
+        tick_slots = max(2, len(self._nice_ticks(self.x_min, self.x_max)), len(self._nice_ticks(self.y_min, self.y_max)), len(self._nice_ticks(self.z_min, self.z_max)))
+        tick_x: list[list[tuple[float, float]]] = []
+        tick_y: list[list[tuple[float, float]]] = []
+        tick_z: list[list[tuple[float, float]]] = []
+        for _axis_group in range(3):
+            tick_x.append([(0.0, 0.0) for _j in range(tick_slots)])
+            tick_y.append([(0.0, 0.0) for _j in range(tick_slots)])
+            tick_z.append([(0.0, 0.0) for _j in range(tick_slots)])
+        self.frame.add(
+            x=AxisTaggedValue(tuple(tuple(row) for row in tick_x), "iju"),
+            y=AxisTaggedValue(tuple(tuple(row) for row in tick_y), "iju"),
+            z=AxisTaggedValue(tuple(tuple(row) for row in tick_z), "iju"),
+            id=f"{self.prefix}_box_ticks",
+            color=color,
+            representation="edges",
+            render_mode="line",
+            marker_space="pixel",
+            edge_width=float(width),
+            axis_bind_id=self._axis_bind_id,
+            axis3d_helper_lines=True,
+            receives_lighting=bool(receives_lighting),
+            casts_shadow=bool(casts_shadow),
+            depth_write=True,
+        )
+        self.frame.add_layer(
+            "axis",
+            id=f"{self.prefix}_box_layer",
+            dim=3,
+            variant="box",
+            geometry_ids=[f"{self.prefix}_box", f"{self.prefix}_box_ticks"],
+            x_min=float(self.x_min),
+            x_max=float(self.x_max),
+            y_min=float(self.y_min),
+            y_max=float(self.y_max),
+            z_min=float(self.z_min),
+            z_max=float(self.z_max),
+            x_mode=str(x_tick_mode),
+            y_mode=str(y_tick_mode),
+            z_mode=str(z_tick_mode),
+            ticks=bool(ticks),
+            tick_hints=list(tick_hints),
+            tick_dist=float(tick_dist),
+            min_tick_dist=float(min_tick_dist),
+            max_tick_dist=float(max_tick_dist),
+            tick_len_px=float(tick_len_px),
+            aspect=str(aspect),
+            equal_aspect=bool(equal_aspect),
+            grid=bool(grid),
+            grid_alpha=float(grid_alpha),
+            grid_width=float(grid_width),
+            interactive=True,
+            axis_lock_angle_deg=float(axis_lock_angle_deg),
+            axis_lock_sample_count=int(axis_lock_sample_count),
+        )
+        self.frame.register_default_event_handler(
+            f"axis3d:{self.prefix}",
+            lambda event, _self=self: _self.handle_events(event),
+        )
         if display is not None and restore_auto_render is not None:
             display._auto_render = restore_auto_render
             if restore_auto_render:
@@ -3080,6 +3382,9 @@ class FrameRef:
     _frame_id: str = field(default="", repr=False)
     _pending_key: int = field(default=0, repr=False)
     _graphics_defaults: dict[str, Any] = field(default_factory=dict, repr=False)
+    _default_event_handlers: dict[str, Callable[[Any], bool]] = field(default_factory=dict, repr=False)
+    _event_observers: list[Callable[[Any], Any]] = field(default_factory=list, repr=False)
+    _event_override: Callable[[Any], Any] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_pending_key", id(self))
@@ -3111,6 +3416,34 @@ class FrameRef:
         if not fid:
             return encode_ui_pattern(ev)
         return encode_frame_pattern(ev, fid)
+
+    def register_default_event_handler(self, key: str, fn: Callable[[Any], bool]) -> "FrameRef":
+        """Register a built-in frame handler used by sugar helpers."""
+        self._default_event_handlers[str(key)] = fn
+        return self
+
+    def on_event(self, fn: Callable[[Any], Any]) -> "FrameRef":
+        """Observe host events for this frame without replacing built-in handling."""
+        self._event_observers.append(fn)
+        return self
+
+    def set_event_handler(self, fn: Callable[[Any], Any] | None) -> "FrameRef":
+        """Override built-in frame handling; return ``None`` from ``fn`` to fall through."""
+        self._event_override = fn
+        return self
+
+    def handle_events(self, event: Any) -> bool:
+        """Dispatch one event through observers, override, then built-in sugar handlers."""
+        handled = False
+        for cb in list(self._event_observers):
+            cb(event)
+        if self._event_override is not None:
+            override_result = self._event_override(event)
+            if override_result is not None:
+                return bool(override_result)
+        for cb in list(self._default_event_handlers.values()):
+            handled = bool(cb(event)) or handled
+        return handled
 
     # -- 2-D ------------------------------------------------------------------
 
@@ -3375,6 +3708,12 @@ class FrameRef:
         self._display._set_geom_options(fid, **kwargs)
         return self
 
+    def add_layer(self, kind: str, **config: Any) -> "FrameRef":
+        """Attach a language-neutral UI-engine layer record to this frame."""
+        fid = self._get_placed_id()
+        self._display._add_frame_layer(fid, kind, **config)
+        return self
+
     def _get_placed_id(self) -> str:
         if self._placed and self._frame_id:
             return self._frame_id
@@ -3468,6 +3807,10 @@ class UIRoot:
     def __post_init__(self) -> None:
         q = UIEventQueue(self)
         object.__setattr__(self, "events", q)
+        try:
+            object.__setattr__(self.display, "_ui_root", self)
+        except Exception:
+            pass
         # Wire the global poller to push events into our mouse/keyboard queues
         def _dispatch(evt: dict) -> None:
             ev_name = str(evt.get("event", ""))
@@ -3495,6 +3838,17 @@ class UIRoot:
             payload["index"] = idx
             normalized = ui_event_from_payload(payload)
             _ui_trace_line(f"dispatch normalized cls={type(normalized).__name__} event={getattr(normalized, 'event', '')} frame={getattr(normalized, 'frame_id', '')}")
+
+            if frame_id:
+                try:
+                    frame_ref = self.display.get_frame(frame_id)
+                except Exception:
+                    frame_ref = None
+                if frame_ref is not None:
+                    try:
+                        frame_ref.handle_events(normalized)
+                    except Exception:
+                        pass
 
             if isinstance(normalized, (WidgetEvent, FrameEvent)):
                 self._queue_event(normalized)
@@ -3702,6 +4056,7 @@ class Display:
     _scene_objects: dict[tuple, Any] = field(default_factory=dict, repr=False)
     # All FrameRefs ever placed (for get_frame)
     _frame_refs: list[Any] = field(default_factory=list, repr=False)
+    _ui_root: Any = field(default=None, repr=False)
     # Scene command file (vkf-scene.json) changes only when command count changes.
     _last_scene_cmd_count: int = field(default=-1, repr=False)
     _next_representation_id: int = field(default=0, repr=False)
@@ -4143,6 +4498,12 @@ class Display:
             geom["axis3d_controls"] = bool(kwargs["axis3d_controls"])
         self._sync_all()
 
+    def _add_frame_layer(self, fid: str, kind: str, **config: Any) -> None:
+        layer = {"kind": str(kind)}
+        layer.update(config)
+        self._geom_for(fid).setdefault("frame_layers", []).append(layer)
+        self._sync_all()
+
     def _add_box(
         self,
         fid: str,
@@ -4425,7 +4786,7 @@ class Display:
 
     def _geom_for(self, fid: str) -> dict[str, Any]:
         if fid not in self._geom:
-            self._geom[fid] = {"meshes": [], "camera": None, "lights": [], "texts": []}
+            self._geom[fid] = {"meshes": [], "camera": None, "lights": [], "texts": [], "frame_layers": []}
         return self._geom[fid]
 
     def _last_placed_id(self, op: str) -> str:
@@ -4645,6 +5006,12 @@ class Display:
         if has_visible_display_content(commands=self._screen._commands, payload=payload):
             from vektorflow.ui.launch import maybe_launch_ui
             maybe_launch_ui()
+            ui_root = getattr(self, "_ui_root", None)
+            if ui_root is not None:
+                try:
+                    ui_root._ensure_poller()
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------

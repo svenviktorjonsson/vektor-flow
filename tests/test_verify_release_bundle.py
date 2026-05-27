@@ -19,7 +19,7 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
         "entrypoint": "vkf.cmd",
         "host_platform": "win32",
         "artifacts": {
-            "samples": ["samples/hello.vkf"],
+            "samples": ["samples/01_hello.vkf"],
             "extension_vsix_included": True,
             "ui_assets_included": True,
             "overlay_binary_included": True,
@@ -36,7 +36,7 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
     (bundle / "TESTING.md").write_text("ok", encoding="utf-8")
     samples = bundle / "samples"
     samples.mkdir()
-    (samples / "hello.vkf").write_text(':: "hello"', encoding="utf-8")
+    (samples / "01_hello.vkf").write_text(':: "hello"', encoding="utf-8")
     ext = bundle / "extensions"
     ext.mkdir()
     (ext / "vektorflow-0.0.8.vsix").write_text("ok", encoding="utf-8")

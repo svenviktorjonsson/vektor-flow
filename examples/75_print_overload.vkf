@@ -1,0 +1,6 @@
+Point: (x:num, y:num)
+
+::(value:Point):
+    :: "Point($value.x, $value.y)"
+
+:: (x: 1, y: 2)

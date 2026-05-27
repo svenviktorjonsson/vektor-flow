@@ -11,8 +11,9 @@
     4. Prints usage instructions.
 
     After a successful build you can run:
-        vkf examples\lit_box.vkf
-        vkf examples\hello.vkf
+        vkf examples\01_hello.vkf
+        vkf examples\100_axis_4_panel.vkf
+        vkf examples\110_mirror_showcase.vkf
 
 .PARAMETER SkipNative
     Skip building vf-overlay.exe (useful if you only changed Python / VKF files).
@@ -206,16 +207,16 @@ Write-Host "      .venv\Scripts\Activate.ps1" -ForegroundColor White
 Write-Host ""
 Write-Host "  Then run any .vkf file:"
 Write-Host ""
-Write-Host "      vkf examples\lit_box.vkf" -ForegroundColor White
-Write-Host "      vkf examples\hello.vkf" -ForegroundColor White
-Write-Host "      vkf examples\screen_demo.vkf" -ForegroundColor White
+Write-Host "      vkf examples\01_hello.vkf" -ForegroundColor White
+Write-Host "      vkf examples\100_axis_4_panel.vkf" -ForegroundColor White
+Write-Host "      vkf examples\110_mirror_showcase.vkf" -ForegroundColor White
 Write-Host "      vkf package examples\\benchmarks\\scalar_control.vkf -o dist\\scalar-control" -ForegroundColor White
 Write-Host "      .\\dist\\scalar-control\\run.bat" -ForegroundColor White
 Write-Host "      .\\dist\\scalar-control\\smoke-test.bat" -ForegroundColor White
 Write-Host ""
 Write-Host "  Or via Python module (works without venv activation):"
 Write-Host ""
-Write-Host "      python -m vektorflow examples\lit_box.vkf" -ForegroundColor White
+Write-Host "      python -m vektorflow examples\110_mirror_showcase.vkf" -ForegroundColor White
 Write-Host ""
 Write-Host "  Rebuild Python only (after editing .py / .vkf files):"
 Write-Host ""

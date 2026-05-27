@@ -20,8 +20,8 @@ Until that lands, the strongest real path is still:
 
 ```bash
 vkf -e ':: "hello, world"'
-vkf samples/hello.vkf
-vkf samples/core_language_tour.vkf
+vkf samples/01_hello.vkf
+vkf samples/100_axis_4_panel.vkf
 ```
 
 Then install the VS Code extension and point it at your packaged `vkf`.

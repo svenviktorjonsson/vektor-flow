@@ -126,6 +126,8 @@ class FrameSpec:
     parent_id: str | None = None
     # Optional aspect contract for content coordinates, e.g. "equal".
     aspect: str | None = None
+    # Frameless panels keep the frame body/canvas but omit titlebar/minimize/resize chrome.
+    frameless: bool = False
 
     def to_json_obj(self) -> dict[str, Any]:
         d = asdict(self)
@@ -143,6 +145,7 @@ class FrameSpec:
         d["anchor"] = self.anchor
         d["parent_id"] = self.parent_id
         d["aspect"] = self.aspect
+        d["frameless"] = bool(self.frameless)
         return d
 
 

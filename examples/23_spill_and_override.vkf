@@ -1,0 +1,11 @@
+Point(x, y):
+    x: x
+    y: y
+    :
+
+ColoredPoint(x, y, color):
+    : Point(x, y)
+    color: color
+    :
+
+:: ColoredPoint(3, 4, "red")

@@ -1,0 +1,9 @@
+kind: "edge"
+color: "gray"
+
+kind??
+    "face" => color: "red"
+    "edge" => color: "green"
+    "vertex" => color: "blue"
+
+:: color

@@ -1,0 +1,5 @@
+area(width:num, height:num):
+    """Return rectangle area."""
+    width * height
+
+:: area(3, 4)

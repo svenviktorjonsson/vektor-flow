@@ -3,8 +3,8 @@
 If you are trying a package build and want to help with debugging:
 
 1. run the inline smoke command
-2. run `samples/hello.vkf`
-3. run `samples/core_language_tour.vkf`
+2. run `samples/01_hello.vkf`
+3. run `samples/100_axis_4_panel.vkf`
 4. try the bundled VS Code extension
 
 ## Good bug reports include

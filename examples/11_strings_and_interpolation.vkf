@@ -1,0 +1,6 @@
+x: 4.2345
+y: 3
+greeting: "Hej världen"
+:: greeting
+:: "x rounded is $x.2f"
+:: "sum=$(x + y)"

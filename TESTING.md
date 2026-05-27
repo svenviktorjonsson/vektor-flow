@@ -30,8 +30,8 @@ From the extracted bundle folder:
 
 ```powershell
 .\vkf.exe -e ':: "hello, world"'
-.\vkf.exe .\samples\hello.vkf
-.\vkf.exe .\samples\core_language_tour.vkf
+.\vkf.exe .\samples\01_hello.vkf
+.\vkf.exe .\samples\100_axis_4_panel.vkf
 ```
 
 ### macOS / Linux
@@ -40,8 +40,8 @@ From the extracted bundle folder:
 
 ```bash
 ./vkf -e ':: "hello, world"'
-./vkf ./samples/hello.vkf
-./vkf ./samples/core_language_tour.vkf
+./vkf ./samples/01_hello.vkf
+./vkf ./samples/100_axis_4_panel.vkf
 ```
 
 ## UI Smoke Tests
@@ -115,7 +115,7 @@ If your bundle includes an `extensions/` folder:
 }
 ```
 
-4. Open `samples/hello.vkf`.
+4. Open `samples/01_hello.vkf`.
 5. Run `Run Vektor Flow File`.
 6. Confirm the terminal prints:
 

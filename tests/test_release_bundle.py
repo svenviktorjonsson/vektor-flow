@@ -49,7 +49,7 @@ def test_release_manifest_tracks_channel_contract() -> None:
         include_extension=True,
         include_overlay=True,
         include_ui_assets=True,
-        samples=("samples/hello.vkf",),
+        samples=("samples/01_hello.vkf",),
     )
     assert manifest["channel"] == "windows-overlay"
     assert manifest["entrypoint"] == "vkf.exe"
@@ -81,14 +81,14 @@ def test_release_sample_sources_point_at_user_facing_examples(tmp_path: Path) ->
     root = tmp_path
     examples = root / "examples"
     examples.mkdir()
-    (examples / "hello.vkf").write_text(':: "hello"', encoding="utf-8")
-    (examples / "core_language_tour.vkf").write_text(':: "tour"', encoding="utf-8")
-    (examples / "ui_polygon_hierarchy_interactive.vkf").write_text(':: "hierarchy"', encoding="utf-8")
+    (examples / "01_hello.vkf").write_text(':: "hello"', encoding="utf-8")
+    (examples / "100_axis_4_panel.vkf").write_text(':: "axis"', encoding="utf-8")
+    (examples / "110_mirror_showcase.vkf").write_text(':: "mirror"', encoding="utf-8")
     sample_names = [path.name for path in release_sample_sources(root)]
     assert sample_names == [
-        "hello.vkf",
-        "core_language_tour.vkf",
-        "ui_polygon_hierarchy_interactive.vkf",
+        "01_hello.vkf",
+        "100_axis_4_panel.vkf",
+        "110_mirror_showcase.vkf",
     ]
 
 

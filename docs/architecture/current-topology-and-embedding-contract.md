@@ -74,6 +74,16 @@ my_embedding(v, view):
     :
 ```
 
+This follows the broader VKF model:
+
+- a "constructor" is just a function
+- the function builds or spills local scope
+- overrides happen by rebinding names in that scope
+- returning `:` means "return the current struct/scope"
+
+So inheritance-style behavior is not a separate system here. It is ordinary
+function composition plus struct spill/override.
+
 Important:
 
 - `face_indices` here are draw instructions, not topology truth
@@ -98,15 +108,11 @@ The repo already has stable sub-entity selectors on graphics representations:
 - `.edge(i)`
 - `.face(i)`
 
-Example:
+Example selectors in practice:
 
-- [examples/ui_face_edge_vertex_drag.vkf](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\examples\ui_face_edge_vertex_drag.vkf)
-
-Important lines there:
-
-- `face_target: face_base_rep.face(0)`
-- `edge_targets: edge_base_reps >> $.edge(0)`
-- `vertex_targets: vertex_base_reps >> $.vertex(0)`
+- `face_rep.face(0)`
+- `edge_reps >> $.edge(0)`
+- `vertex_reps >> $.vertex(0)`
 
 This is important because the future system model should reuse this idea.
 

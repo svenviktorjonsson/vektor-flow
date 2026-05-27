@@ -1,0 +1,4 @@
+inclusive: [1..5]
+from_zero: [..3]
+:: inclusive
+:: from_zero

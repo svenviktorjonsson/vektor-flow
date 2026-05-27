@@ -19,8 +19,8 @@ hello, world
 Then try:
 
 ```powershell
-.\vkf.exe .\samples\hello.vkf
-.\vkf.exe .\samples\core_language_tour.vkf
+.\vkf.exe .\samples\01_hello.vkf
+.\vkf.exe .\samples\100_axis_4_panel.vkf
 ```
 
 ## macOS / Linux
@@ -36,8 +36,8 @@ Then try:
 Then try:
 
 ```bash
-./vkf ./samples/hello.vkf
-./vkf ./samples/core_language_tour.vkf
+./vkf ./samples/01_hello.vkf
+./vkf ./samples/100_axis_4_panel.vkf
 ```
 
 ## Need more detail?

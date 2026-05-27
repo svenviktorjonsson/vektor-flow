@@ -1,0 +1,5 @@
+volume(x, y, z):
+    x * y * z
+
+args: [2, 3, 4]
+:: volume(:args)

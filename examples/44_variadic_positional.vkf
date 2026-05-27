@@ -1,0 +1,6 @@
+show(x, ...rest):
+    ::: x
+    ::: rest.length()
+    ::: rest.0
+
+show(1, 2, 3, 4)

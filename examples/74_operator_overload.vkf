@@ -1,0 +1,8 @@
+Point: (x:num, y:num)
+
++(a:Point, b:Point):
+    (x: a.x + b.x, y: a.y + b.y)
+
+p: (x: 1, y: 2)
+q: (x: 3, y: 4)
+:: p + q

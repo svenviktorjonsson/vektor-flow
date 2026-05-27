@@ -40,7 +40,7 @@ from tests.token_stream_fixture_helper import (
 
 ROOT = Path(__file__).resolve().parent.parent
 ALL_EXAMPLE_VKF_FILES = sorted((ROOT / "examples").rglob("*.vkf"))
-HELLO = ROOT / "examples" / "hello.vkf"
+HELLO = ROOT / "examples" / "01_hello.vkf"
 FOLDER_REPO_MAIN = ROOT / "examples" / "folder_repo" / "main.vkf"
 NATIVE_CORE = ROOT / "examples" / "native_core"
 NATIVE_CORE_EXAMPLES = [
@@ -166,32 +166,30 @@ MINUS_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "ui_torus_hole_clickthrough.vkf",
 ]
 CARET_TOKEN_PARITY_EXAMPLES = [
-    ROOT / "examples" / "operators.vkf",
+    ROOT / "examples" / "70_arithmetic.vkf",
 ]
 DOLLAR_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "funcs" / "a.vkf",
-    ROOT / "examples" / "piping.vkf",
+    ROOT / "examples" / "62_pipes.vkf",
 ]
 SEMICOLON_TOKEN_PARITY_EXAMPLES = [
-    ROOT / "examples" / "readme_surface.vkf",
-    ROOT / "examples" / "branching.vkf",
+    ROOT / "examples" / "05_comments_and_semicolons.vkf",
+    ROOT / "examples" / "60_if.vkf",
 ]
 AT_FORM_TOKEN_PARITY_EXAMPLES = [
-    ROOT / "examples" / "interaction.vkf",
+    ROOT / "examples" / "04_early_return.vkf",
 ]
 PERCENT_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "ui_field_mesh_uv_landscape.vkf",
 ]
 UTF8_STRING_TOKEN_PARITY_EXAMPLES = [
-    ROOT / "examples" / "gui_event_loop.vkf",
-    ROOT / "examples" / "time_pause_demo.vkf",
+    ROOT / "examples" / "11_strings_and_interpolation.vkf",
 ]
 LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES = [
-    ROOT / "examples" / "branching.vkf",
-    ROOT / "examples" / "interaction.vkf",
+    ROOT / "examples" / "60_if.vkf",
+    ROOT / "examples" / "04_early_return.vkf",
     ROOT / "examples" / "ui_field_mesh_uv_landscape.vkf",
-    ROOT / "examples" / "gui_event_loop.vkf",
-    ROOT / "examples" / "time_pause_demo.vkf",
+    ROOT / "examples" / "11_strings_and_interpolation.vkf",
 ]
 NATIVE_CORE_EXECUTION_CONTRACT_EXAMPLES = [
     "hello_native.vkf",
@@ -832,8 +830,8 @@ class TestResolveVkfPath:
         assert resolve_vkf_path(str(HELLO)) == HELLO.resolve()
 
     def test_basename_without_extension(self) -> None:
-        # examples/hello resolves to examples/hello.vkf
-        assert resolve_vkf_path(str(ROOT / "examples" / "hello")) == HELLO.resolve()
+        # examples/01_hello resolves to examples/01_hello.vkf
+        assert resolve_vkf_path(str(ROOT / "examples" / "01_hello")) == HELLO.resolve()
 
     def test_missing_raises(self) -> None:
         with pytest.raises(FileNotFoundError):
@@ -845,7 +843,7 @@ class TestMain:
         assert main([str(HELLO)]) == 0
 
     def test_run_short_name(self) -> None:
-        assert main([str(ROOT / "examples" / "hello")]) == 0
+        assert main([str(ROOT / "examples" / "01_hello")]) == 0
 
     def test_run_supports_explicit_math_stdlib_namespace_import(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path

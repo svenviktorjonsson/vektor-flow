@@ -1,0 +1,10 @@
+collections: .collections
+
+buffer: collections.list(:[1, 2])
+buffer.push(3)
+
+state: collections.map(name: "alice", ok: true)
+state.name: "bob"
+
+:: buffer
+:: state

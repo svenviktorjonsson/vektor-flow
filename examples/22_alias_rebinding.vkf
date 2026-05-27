@@ -1,0 +1,6 @@
+original: (x: 1)
+alias: original
+original.x: 2
+
+:: original
+:: alias

@@ -1,0 +1,7 @@
+join(x:[num:n], y:[num:m]) -> [num:n+m]:
+    x & y
+
+[num:2] a: [1, 2]
+[num:3] b: [3, 4, 5]
+
+:: join(a, b)

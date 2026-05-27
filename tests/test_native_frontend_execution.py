@@ -19,7 +19,7 @@ from vektorflow.parser import parse_module
 
 ROOT = Path(__file__).resolve().parent.parent
 NATIVE_CORE = ROOT / "examples" / "native_core"
-HELLO = ROOT / "examples" / "hello.vkf"
+HELLO = ROOT / "examples" / "01_hello.vkf"
 INLINE_FUNCTION_SOURCE = "scale(x, k) : x * k\n:: scale(2, 10)\n"
 TYPED_INLINE_FUNCTION_SOURCE = "scale(x:num, k:num) -> num: x * k\n:: scale(2, 10)\n"
 TWO_TYPED_INLINE_HELPERS_SOURCE = (

@@ -1,0 +1,6 @@
+Point: (x:num, y:num)
+
+length2(p:Point):
+    p.x * p.x + p.y * p.y
+
+:: length2((x: 3, y: 4))

@@ -275,18 +275,18 @@ def try_extract_add_frame(
     positional = [arg for arg in node.args if not isinstance(arg, ast.NamedCallArg)]
     named = [arg for arg in node.args if isinstance(arg, ast.NamedCallArg)]
     if len(positional) < 2:
-        raise ValueError("screen.add_frame requires frame and rect")
+        return None
     frame_arg = positional[0]
     rect_arg = positional[1]
     if not isinstance(frame_arg, ast.Ident) or frame_arg.name not in frame_names:
-        raise ValueError("screen.add_frame frame must be a frame binding")
+        return None
     rect = require_rect(rect_arg, "screen.add_frame rect")
     body = None
     for arg in named:
         if arg.name == "body":
             body = require_body_widgets(arg.value, widget_aliases, bindings)
         else:
-            raise ValueError(f"screen.add_frame does not support native scene arg {arg.name!r}")
+            return None
     return {"name": frame_arg.name, "id": frame_arg.name, "rect": rect, "body": body}
 
 

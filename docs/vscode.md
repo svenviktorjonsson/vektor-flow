@@ -23,7 +23,7 @@ To get Vektor Flow syntax highlighting, commands, and diagnostics:
 
 Then:
 
-1. Open `samples/hello.vkf`
+1. Open `samples/01_hello.vkf`
 2. Run `Run Vektor Flow File`
 
 You should get:

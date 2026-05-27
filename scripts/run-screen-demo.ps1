@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  Single end-to-end command: vf-overlay build + run examples/screen_demo.vkf.
+  Single end-to-end command: vf-overlay build + run examples/110_mirror_showcase.vkf.
   Runtime execution uses native executables.
 
   From repo root you can also run:  .\rebuild-and-run-demo.ps1  (forwards here).
@@ -109,7 +109,7 @@ if (-not $SkipBuild) {
   Write-Warning "SkipBuild: vf-overlay's web/ folder may be stale. Use default or -Full for a reliable UI."
 }
 
-$demo = Join-Path $repo 'examples\screen_demo.vkf'
+$demo = Join-Path $repo 'examples\110_mirror_showcase.vkf'
 if (-not (Test-Path $demo)) {
   Write-Error "Demo missing: $demo"
 }

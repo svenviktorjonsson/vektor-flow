@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import sys
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -1095,6 +1096,8 @@ class Interpreter:
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
+        self._vf_call_depth: int = 0
+        self._vf_call_depth_limit: int = max(64, int(sys.getrecursionlimit()) - 64)
 
     def _merge_stdlibs(self) -> None:
         for name in ("math", "capture", "io", "collections", "stat"):
@@ -1103,6 +1106,21 @@ class Interpreter:
                     self.builtin[name] = resolve_stdlib(name)
                 except KeyError:
                     pass
+
+    def _raise_recursion_error(self, callee_name: str | None = None) -> None:
+        if callee_name:
+            raise RecursionError(f"infinite recursion or recursion depth exceeded in {callee_name!r}")
+        raise RecursionError("infinite recursion or recursion depth exceeded")
+
+    @contextmanager
+    def _call_depth_guard(self, callee_name: str | None = None):
+        self._vf_call_depth += 1
+        try:
+            if self._vf_call_depth > self._vf_call_depth_limit:
+                self._raise_recursion_error(callee_name)
+            yield
+        finally:
+            self._vf_call_depth -= 1
 
     def _resolve(self, name: str, env: dict[str, Any]) -> Any:
         if name in env:
@@ -1378,17 +1396,22 @@ class Interpreter:
         # A file/module is an outer callable `:` scope: top-level `@:` returns from the file.
         self._return_scope_depth += 1
         try:
-            for stmt in module.statements:
-                try:
-                    self.eval_stmt(stmt, env)
-                except ReturnSignal as r:
-                    return r.value
-                except ContinueSignal:
-                    raise EvalError("continue is not valid here (use `?>` / `??>` loops)")
-                except BreakSignal:
-                    raise EvalError("@| break outside >> pipe")
-                except ExitProgramSignal as e:
-                    sys.exit(e.code)
+            try:
+                for stmt in module.statements:
+                    try:
+                        self.eval_stmt(stmt, env)
+                    except ReturnSignal as r:
+                        return r.value
+                    except ContinueSignal:
+                        raise EvalError("continue is not valid here (use `?>` / `??>` loops)")
+                    except BreakSignal:
+                        raise EvalError("@| break outside >> pipe")
+                    except ExitProgramSignal as e:
+                        sys.exit(e.code)
+            except RecursionError as err:
+                if "infinite recursion or recursion depth exceeded" in str(err):
+                    raise
+                self._raise_recursion_error()
             return None
         finally:
             self._return_scope_depth -= 1
@@ -2142,56 +2165,60 @@ class Interpreter:
 
     def _call(self, fn: Any, args: list[Any], env: dict[str, Any]) -> Any:
         if isinstance(fn, VFunction):
-            if _contains_ast_nodes(args):
-                loc, size_bindings = self._bind_vkf_params(
-                    fn.params,
-                    args,
-                    env,
-                    callee_name=fn.name or "$",
-                    base_env=fn.closure,
-                )
-            else:
-                fixed = _fixed_params(fn.params)
-                var_pos = _variadic_positional_param(fn.params)
-                var_named = _variadic_named_param(fn.params)
-                if not _accepts_positional_arity(fn.params, len(args)):
-                    required = _required_fixed_param_count(fn.params)
-                    upper = "∞" if var_pos is not None else str(len(fixed))
-                    raise EvalError(
-                        f"{fn.name or '$'}: expected between {required} and {upper} positional argument(s), got {len(args)}"
-                    )
-                loc = dict(fn.closure)
-                size_bindings: dict[str, int] = {}
-                for index, p in enumerate(fixed):
-                    if index < len(args):
-                        a = args[index]
-                    elif p.default_expr is not None:
-                        a = self.eval_expr(p.default_expr, loc)
+            try:
+                with self._call_depth_guard(fn.name or "$"):
+                    if _contains_ast_nodes(args):
+                        loc, size_bindings = self._bind_vkf_params(
+                            fn.params,
+                            args,
+                            env,
+                            callee_name=fn.name or "$",
+                            base_env=fn.closure,
+                        )
                     else:
-                        raise EvalError(f"{fn.name or '$'}: missing argument {p.name!r}")
-                    if p.type_ref is not None:
-                        coerced, size_bindings = coerce_typed_value(a, p.type_ref, self.types, size_bindings)
-                        loc[p.name] = coerced
-                    else:
-                        loc[p.name] = self._coerce_param(a, p)
-                if var_pos is not None:
-                    rest_values: list[Any] = []
-                    for raw_value in args[len(fixed) :]:
-                        if var_pos.type_ref is not None:
-                            coerced, size_bindings = coerce_typed_value(
-                                raw_value, var_pos.type_ref, self.types, size_bindings
+                        fixed = _fixed_params(fn.params)
+                        var_pos = _variadic_positional_param(fn.params)
+                        var_named = _variadic_named_param(fn.params)
+                        if not _accepts_positional_arity(fn.params, len(args)):
+                            required = _required_fixed_param_count(fn.params)
+                            upper = "∞" if var_pos is not None else str(len(fixed))
+                            raise EvalError(
+                                f"{fn.name or '$'}: expected between {required} and {upper} positional argument(s), got {len(args)}"
                             )
-                        else:
-                            coerced = self._coerce_param(raw_value, var_pos)
-                        rest_values.append(coerced)
-                    loc[var_pos.name] = VFVector(rest_values)
-                if var_named is not None:
-                    loc[var_named.name] = with_type(None, {})
-            result = self._eval_function_body(fn.body, loc)
-            if fn.func_type is not None:
-                resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
-                result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
-            return result
+                        loc = dict(fn.closure)
+                        size_bindings: dict[str, int] = {}
+                        for index, p in enumerate(fixed):
+                            if index < len(args):
+                                a = args[index]
+                            elif p.default_expr is not None:
+                                a = self.eval_expr(p.default_expr, loc)
+                            else:
+                                raise EvalError(f"{fn.name or '$'}: missing argument {p.name!r}")
+                            if p.type_ref is not None:
+                                coerced, size_bindings = coerce_typed_value(a, p.type_ref, self.types, size_bindings)
+                                loc[p.name] = coerced
+                            else:
+                                loc[p.name] = self._coerce_param(a, p)
+                        if var_pos is not None:
+                            rest_values: list[Any] = []
+                            for raw_value in args[len(fixed) :]:
+                                if var_pos.type_ref is not None:
+                                    coerced, size_bindings = coerce_typed_value(
+                                        raw_value, var_pos.type_ref, self.types, size_bindings
+                                    )
+                                else:
+                                    coerced = self._coerce_param(raw_value, var_pos)
+                                rest_values.append(coerced)
+                            loc[var_pos.name] = VFVector(rest_values)
+                        if var_named is not None:
+                            loc[var_named.name] = with_type(None, {})
+                    result = self._eval_function_body(fn.body, loc)
+                    if fn.func_type is not None:
+                        resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
+                        result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
+                    return result
+            except RecursionError:
+                self._raise_recursion_error(fn.name or "$")
         if isinstance(fn, VStructCtor):
             return self._call_struct_ctor(fn, list(args), env)
         if callable(fn):
@@ -2204,56 +2231,60 @@ class Interpreter:
         raw_args: list[Any],
         env: dict[str, Any],
     ) -> Any:
-        if _contains_ast_nodes(raw_args):
-            loc, _ = self._bind_vkf_params(
-                fn.params,
-                raw_args,
-                env,
-                callee_name=fn.name,
-            )
-        else:
-            fixed = _fixed_params(fn.params)
-            var_pos = _variadic_positional_param(fn.params)
-            var_named = _variadic_named_param(fn.params)
-            required = _required_fixed_param_count(fn.params)
-            if not _accepts_positional_arity(fn.params, len(raw_args)):
-                upper = "∞" if var_pos is not None else str(len(fixed))
-                raise EvalError(
-                    f"{fn.name}: expected between {required} and {upper} positional argument(s), got {len(raw_args)}"
-                )
-            loc = dict(fn.closure)
-            for index, p in enumerate(fixed):
-                if index < len(raw_args):
-                    a = raw_args[index]
-                elif p.default_expr is not None:
-                    a = self.eval_expr(p.default_expr, loc)
+        try:
+            with self._call_depth_guard(fn.name):
+                if _contains_ast_nodes(raw_args):
+                    loc, _ = self._bind_vkf_params(
+                        fn.params,
+                        raw_args,
+                        env,
+                        callee_name=fn.name,
+                    )
                 else:
-                    raise EvalError(f"{fn.name}: missing argument {p.name!r}")
-                loc[p.name] = self._coerce_param(a, p)
-            if var_pos is not None:
-                rest_values: list[Any] = [self._coerce_param(a, var_pos) for a in raw_args[len(fixed) :]]
-                loc[var_pos.name] = VFVector(rest_values)
-            if var_named is not None:
-                loc[var_named.name] = with_type(None, {})
-        if fn.body is None:
-            return with_type(
-                fn.name,
-                {p.name: loc[p.name] for p in fn.params},
-            )
-        result = self._eval_function_body(fn.body, loc)
-        if isinstance(result, dict):
-            if struct_has_spill_base(result):
+                    fixed = _fixed_params(fn.params)
+                    var_pos = _variadic_positional_param(fn.params)
+                    var_named = _variadic_named_param(fn.params)
+                    required = _required_fixed_param_count(fn.params)
+                    if not _accepts_positional_arity(fn.params, len(raw_args)):
+                        upper = "∞" if var_pos is not None else str(len(fixed))
+                        raise EvalError(
+                            f"{fn.name}: expected between {required} and {upper} positional argument(s), got {len(raw_args)}"
+                        )
+                    loc = dict(fn.closure)
+                    for index, p in enumerate(fixed):
+                        if index < len(raw_args):
+                            a = raw_args[index]
+                        elif p.default_expr is not None:
+                            a = self.eval_expr(p.default_expr, loc)
+                        else:
+                            raise EvalError(f"{fn.name}: missing argument {p.name!r}")
+                        loc[p.name] = self._coerce_param(a, p)
+                    if var_pos is not None:
+                        rest_values: list[Any] = [self._coerce_param(a, var_pos) for a in raw_args[len(fixed) :]]
+                        loc[var_pos.name] = VFVector(rest_values)
+                    if var_named is not None:
+                        loc[var_named.name] = with_type(None, {})
+                if fn.body is None:
+                    return with_type(
+                        fn.name,
+                        {p.name: loc[p.name] for p in fn.params},
+                    )
+                result = self._eval_function_body(fn.body, loc)
+                if isinstance(result, dict):
+                    if struct_has_spill_base(result):
+                        return with_spill_base(
+                            fn.name,
+                            get_spill_base(result),
+                            public_struct_items(result),
+                        )
+                    return with_type(fn.name, public_struct_items(result))
                 return with_spill_base(
                     fn.name,
-                    get_spill_base(result),
-                    public_struct_items(result),
+                    result,
+                    {p.name: loc[p.name] for p in fn.params},
                 )
-            return with_type(fn.name, public_struct_items(result))
-        return with_spill_base(
-            fn.name,
-            result,
-            {p.name: loc[p.name] for p in fn.params},
-        )
+        except RecursionError:
+            self._raise_recursion_error(fn.name)
 
     def _eval_function_body(self, body: Any, env: dict[str, Any]) -> Any:
         """Implicit return: only the last *function-scope* statement counts.

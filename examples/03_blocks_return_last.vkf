@@ -1,0 +1,6 @@
+# Blocks evaluate to their last row.
+message:
+    name: "Ada"
+    "hello $name"
+
+:: message

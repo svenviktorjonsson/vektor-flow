@@ -1,0 +1,5 @@
+point: (x: 3, y: 4)
+values: [1, 2, 3]
+
+:: point.
+:: values.

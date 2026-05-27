@@ -815,15 +815,25 @@ class TestDisplayJson:
 
 
 # ---------------------------------------------------------------------------
-# lit_box.vkf example
+# inline lit/transform scene example
 # ---------------------------------------------------------------------------
 
 class TestLitBoxVkf:
     def _run(self):
         from vektorflow.interpreter import Interpreter
         from vektorflow.parser import parse_module
-        vkf = REPO / "examples" / "lit_box.vkf"
-        src = vkf.read_text(encoding="utf-8")
+        vkf = REPO / "tests" / "inline_lit_box_fixture.vkf"
+        src = (
+            "ui:.ui\n"
+            "d: ui.display\n"
+            "f: d.Frame()\n"
+            "d.add_frame(f, (0.1, 0.1, 0.6, 0.7))\n"
+            "box: d.add_box(center:[0,0,0], scale:[1,2,3], color:\"red\")\n"
+            "box.rotate_by(30, around:\"y\")\n"
+            "box.translate([0.5, 0, 0])\n"
+            "cam: d.add_camera(pos:[4,3,5], target:[0,0,0], fov:45)\n"
+            "light: d.add_light(pos:[6,8,6], model:\"blinn_phong\", color:\"white\")\n"
+        )
         ip = Interpreter(vkf)
         ip.run_module(parse_module(src, str(vkf)))
         return ip.globals
@@ -841,11 +851,11 @@ class TestLitBoxVkf:
     def test_box_has_rotation_from_rotate_by(self) -> None:
         g = self._run()
         box: SceneBox = g["box"]
-        # lit_box.vkf calls rotate_by(30, around:"y")
+        # The inline fixture rotates 30 degrees around y.
         assert box._data["rotation"][1] == pytest.approx(30.0)
 
     def test_box_translated(self) -> None:
         g = self._run()
         box: SceneBox = g["box"]
-        # lit_box.vkf calls translate([0.5, 0, 0]) after center=[0,0,0]
+        # The inline fixture translates [0.5, 0, 0] from the origin.
         assert box.center[0] == pytest.approx(0.5)

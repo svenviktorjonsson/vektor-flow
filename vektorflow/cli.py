@@ -634,7 +634,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         print(
             "usage: vkf <file> | vkf cpp <file> | vkf package <file> | vkf package-native-core <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet> | vkf -e <snippet>\n"
-            "       (omit .vkf: `vkf hello` finds `hello.vkf`)",
+            "       (omit .vkf: `vkf 01_hello` finds `01_hello.vkf`)",
             file=sys.stderr,
         )
         return 0

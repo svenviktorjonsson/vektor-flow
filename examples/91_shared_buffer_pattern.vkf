@@ -1,0 +1,8 @@
+collections: .collections
+
+points: [1, 2, 3]
+runtime_points: collections.list(:points)
+runtime_points.0: 9
+
+:: points
+:: runtime_points

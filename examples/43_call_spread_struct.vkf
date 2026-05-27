@@ -1,0 +1,5 @@
+point_sum(x, y):
+    x + y
+
+point: (y: 4, x: 3)
+:: point_sum(:point)

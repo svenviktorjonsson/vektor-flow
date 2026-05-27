@@ -526,12 +526,12 @@ class TestExampleFiles:
     @pytest.mark.parametrize(
         "rel_path",
         [
-            "hello.vkf",
-            "screen_demo.vkf",
+            "01_hello.vkf",
+            "100_axis_4_panel.vkf",
             "funcs/a.vkf",
             "funcs/b.vkf",
-            "piping.vkf",
-            "operators.vkf",
+            "62_pipes.vkf",
+            "70_arithmetic.vkf",
             "nested/app.vkf",
             "nested/lib/helpers.vkf",
             "folder_repo/main.vkf",

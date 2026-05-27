@@ -1,0 +1,166 @@
+ui:.ui
+math:.math
+ui.set_mode("overlay")
+
+d: ui.display
+
+curve_x: [-1.0, -0.875, -0.75, -0.625, -0.5, -0.375, -0.25, -0.125, 0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0] -> u
+sin_curve_y: math.sin(curve_x)
+curve_x_sq: curve_x * curve_x
+cos_bell_y: math.cos(curve_x) * math.exp(0 - curve_x_sq)
+
+surface_u: [-1.4, -1.225, -1.05, -0.875, -0.7, -0.525, -0.35, -0.175, 0.0, 0.175, 0.35, 0.525, 0.7, 0.875, 1.05, 1.225, 1.4] -> u
+surface_v: [-1.4, -1.225, -1.05, -0.875, -0.7, -0.525, -0.35, -0.175, 0.0, 0.175, 0.35, 0.525, 0.7, 0.875, 1.05, 1.225, 1.4] -> v
+saddle_z: (surface_u*surface_u) - (surface_v*surface_v)
+
+wave_u: [-3.0, -2.625, -2.25, -1.875, -1.5, -1.125, -0.75, -0.375, 0.0, 0.375, 0.75, 1.125, 1.5, 1.875, 2.25, 2.625, 3.0] -> u
+wave_v: [-2.0, -1.75, -1.5, -1.25, -1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0] -> v
+wave_z: math.sin(wave_u) * math.cos(wave_v)
+
+deck: d.frame(
+  id: "axis_deck",
+  title: "Axis Mode Test Deck",
+  alpha: 0.92,
+  draggable: true,
+  dockable: true,
+  resizable: true,
+  closable: true,
+  dock_loc: "bl",
+  gridlayout: (2, 12),
+  row_heights: "max-content minmax(0, 1fr)"
+)
+d.add_frame(
+  deck,
+  (0.05, 0.06, 0.90, 0.84),
+  body: [
+    (
+      id: "axis_mode_group",
+      type: "button_group",
+      active: "2d_crosshair",
+      grid: [0, 0, 1, 5],
+      align: "left",
+      options: [
+        (label: "2D crosshair", value: "2d_crosshair", target_frame: "axis_panel_2d_crosshair"),
+        (label: "2D box", value: "2d_box", target_frame: "axis_panel_2d_box"),
+        (label: "3D crosshair", value: "3d_crosshair", target_frame: "axis_panel_3d_crosshair"),
+        (label: "3D box", value: "3d_box", target_frame: "axis_panel_3d_box")
+      ]
+    ),
+    (id: "axis_log_x", type: "checkbox", label: "log x", grid: [0, 5, 1, 1], align: "left", axis: "x", axis_log_target_frames: ["axis_panel_2d_crosshair", "axis_panel_2d_box", "axis_panel_3d_crosshair", "axis_panel_3d_box"]),
+    (id: "axis_log_y", type: "checkbox", label: "log y", grid: [0, 6, 1, 1], align: "left", axis: "y", axis_log_target_frames: ["axis_panel_2d_crosshair", "axis_panel_2d_box", "axis_panel_3d_crosshair", "axis_panel_3d_box"]),
+    (id: "axis_log_z", type: "checkbox", label: "log z", grid: [0, 7, 1, 1], align: "left", axis: "z", axis_log_target_frames: ["axis_panel_3d_crosshair", "axis_panel_3d_box"]),
+    (id: "mode_status", type: "label", text: "Active: 2D crosshair", grid: [1, 0, 1, 12], align: "left")
+  ]
+)
+
+f2ch: d.frame(id: "axis_panel_2d_crosshair", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(f2ch, (0.0, 0.13, 1.0, 0.87), in_frame: deck)
+a2ch: ui.axis_2d(f2ch, x_min: -1, x_max: 1, y_min: -1, y_max: 1, prefix: "panel_2d_crosshair")
+a2ch.crosshair(
+  grid: true,
+  grid_alpha: 0.16,
+  x_tick_label_placement: "below",
+  y_tick_label_placement: "left",
+  x_label_placement: "below",
+  y_label_placement: "left"
+)
+a2ch.plot(
+  x: curve_x,
+  y: sin_curve_y,
+  id: "sin_curve",
+  color: [1.0, 0.58, 0.10, 1.0],
+  width: 2.2
+)
+
+f2box: d.frame(id: "axis_panel_2d_box", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(f2box, (0.0, 0.13, 1.0, 0.87), in_frame: deck)
+a2box: ui.axis_2d(f2box, x_min: -1, x_max: 1, y_min: -1, y_max: 1, prefix: "panel_2d_box")
+a2box.box(
+  margin_px: 64,
+  grid: true,
+  grid_alpha: 0.14,
+  x_tick_label_placement: "below",
+  y_tick_label_placement: "left",
+  x_label_placement: "below",
+  y_label_placement: "left"
+)
+a2box.plot(
+  x: curve_x,
+  y: cos_bell_y,
+  id: "cos_bell_curve",
+  color: [0.34, 0.92, 0.78, 1.0],
+  width: 2.2
+)
+
+f3ch: d.frame(id: "axis_panel_3d_crosshair", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(f3ch, (0.0, 0.13, 1.0, 0.87), in_frame: deck)
+a3ch: ui.axis_3d(f3ch, x_min: -2, x_max: 2, y_min: -2, y_max: 2, z_min: -2, z_max: 2, prefix: "panel_3d_crosshair")
+f3ch.add_camera(
+  pos: [4.0, 4.0, 5.657],
+  target: [0, 0, 0],
+  up: [0, 0, 1],
+  fov: 42,
+  projection: "orthographic",
+  ortho_scale: 3.2
+)
+a3ch.crosshair(
+  width: 1,
+  tick_len: 0.04,
+  grid: true,
+  grid_alpha: 0.12,
+  grid_width: 1
+)
+f3ch.add(
+  x: surface_u,
+  y: surface_v,
+  z: saddle_z,
+  id: "saddle_surface",
+  axis_bind_id: "panel_3d_crosshair__axis3d_bind",
+  axis_plot3d: (enabled: true),
+  color: [0.98, 0.72, 0.24, 1.0],
+  representation: "edges",
+  render_mode: "line",
+  marker_space: "pixel",
+  edge_width: 1.2,
+  interpolation: false,
+  receives_lighting: false,
+  casts_shadow: false,
+  depth_write: true
+)
+
+f3box: d.frame(id: "axis_panel_3d_box", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(f3box, (0.0, 0.13, 1.0, 0.87), in_frame: deck)
+a3box: ui.axis_3d(f3box, x_min: -3, x_max: 3, y_min: -2, y_max: 2, z_min: -1, z_max: 1, prefix: "panel_3d_box")
+f3box.add_camera(
+  pos: [4.0, 4.0, 5.657],
+  target: [0, 0, 0],
+  up: [0, 0, 1],
+  fov: 42,
+  projection: "orthographic",
+  ortho_scale: 3.9
+)
+a3box.box(
+  width: 1,
+  tick_len_px: 7,
+  aspect: "equal",
+  grid: true,
+  grid_alpha: 0.14,
+  grid_width: 1
+)
+f3box.add(
+  x: wave_u,
+  y: wave_v,
+  z: wave_z,
+  id: "wave_surface",
+  axis_bind_id: "panel_3d_box__axis3d_bind",
+  axis_plot3d: (enabled: true),
+  color: [0.18, 0.86, 1.0, 1.0],
+  representation: "edges",
+  render_mode: "line",
+  marker_space: "pixel",
+  edge_width: 1.2,
+  interpolation: false,
+  receives_lighting: false,
+  casts_shadow: false,
+  depth_write: true
+)

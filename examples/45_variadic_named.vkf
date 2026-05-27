@@ -1,0 +1,5 @@
+show(x, :::named):
+    ::: named.flag
+    ::: named.mode
+
+show(1, flag:true, mode:"fast")

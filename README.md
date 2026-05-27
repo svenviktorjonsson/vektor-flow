@@ -52,7 +52,7 @@ pip install -e .[dev]
 Run a file:
 
 ```bash
-vkf examples/hello.vkf
+vkf examples/01_hello.vkf
 ```
 
 Run a short snippet:
@@ -96,10 +96,107 @@ shell quoting.
 Useful commands:
 
 ```bash
-vkf examples/language_features.vkf
-vkf tokens examples/language_features.vkf --json
-vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
+vkf examples/01_hello.vkf
+vkf examples/23_spill_and_override.vkf
+vkf examples/100_axis_4_panel.vkf
 ```
+
+### Example Policy
+
+The repo should separate two kinds of examples:
+
+- curated hand-maintained examples in `examples/`
+- README-driven generated examples in `examples/generated/readme/`
+
+If a README example is meant to live as a file, the README should be the source
+of truth. That means:
+
+- the README block must be a complete runnable `.vkf` module
+- the file should be generated from the README, not maintained separately
+- partial snippets can stay in the README, but they should not pretend to be
+  standalone examples
+
+The intended workflow is:
+
+```bash
+python scripts/generate_readme_examples.py
+```
+
+That script extracts README blocks explicitly marked as runnable examples and
+writes them into `examples/generated/readme/`.
+
+### Learning Path
+
+The examples are intended to be read from low level to high level.
+
+Language foundations:
+
+- `examples/01_hello.vkf`
+- `examples/02_bindings.vkf`
+- `examples/03_blocks_return_last.vkf`
+- `examples/04_early_return.vkf`
+- `examples/05_comments_and_semicolons.vkf`
+
+Core values:
+
+- `examples/10_scalars.vkf`
+- `examples/11_strings_and_interpolation.vkf`
+- `examples/12_tuples.vkf`
+- `examples/13_structs.vkf`
+- `examples/14_vectors.vkf`
+- `examples/15_ranges.vkf`
+- `examples/16_multisets.vkf`
+
+Immutability and rebinding:
+
+- `examples/20_struct_field_rebind.vkf`
+- `examples/21_vector_index_rebind.vkf`
+- `examples/22_alias_rebinding.vkf`
+- `examples/23_spill_and_override.vkf`
+- `examples/24_immutable_values_mutable_resources.vkf`
+
+Functions and signatures:
+
+- `examples/30_functions_basic.vkf`
+- `examples/31_single_line_functions.vkf`
+- `examples/32_recursion.vkf`
+- `examples/33_docstrings.vkf`
+- `examples/34_typed_parameters.vkf`
+- `examples/40_default_args.vkf`
+- `examples/41_named_args.vkf`
+- `examples/42_call_spread_vector.vkf`
+- `examples/43_call_spread_struct.vkf`
+- `examples/44_variadic_positional.vkf`
+- `examples/45_variadic_named.vkf`
+
+Types, flow, and modules:
+
+- `examples/50_struct_types.vkf`
+- `examples/51_vector_shape_types.vkf`
+- `examples/52_compile_time_shape_params.vkf`
+- `examples/53_type_reflection.vkf`
+- `examples/60_if.vkf`
+- `examples/61_switch.vkf`
+- `examples/62_pipes.vkf`
+- `examples/63_pipe_with_functions.vkf`
+- `examples/64_axis_tags_and_broadcast.vkf`
+- `examples/70_arithmetic.vkf`
+- `examples/71_logic.vkf`
+- `examples/72_concat.vkf`
+- `examples/73_norm_and_abs.vkf`
+- `examples/74_operator_overload.vkf`
+- `examples/75_print_overload.vkf`
+- `examples/80_module_import.vkf`
+- `examples/81_scope_spill.vkf`
+- `examples/82_qualified_call_avoids_recursion.vkf`
+- `examples/83_file_module.vkf`
+- `examples/90_runtime_resources.vkf`
+- `examples/91_shared_buffer_pattern.vkf`
+
+UI showcases:
+
+- `examples/100_axis_4_panel.vkf`
+- `examples/110_mirror_showcase.vkf`
 
 On Windows, interactive UI examples use the native overlay executable. Build it
 when needed:
@@ -179,6 +276,46 @@ geometry:
 
 :: geometry.points
 ```
+
+### Constructors Are Just Functions Returning Structs
+
+VKF is fundamentally functional and scope-based.
+
+What looks like a constructor in another language is usually just a function
+that:
+
+- binds fields into local scope
+- optionally spills another struct first
+- overrides what it needs
+- returns the local scope with `@:` or a final lone `:`
+
+```vkf
+Point(x, y):
+    x: x
+    y: y
+    :
+```
+
+That means "class extension" is usually just struct composition plus override:
+
+```vkf
+ColoredPoint(x, y, color):
+    : Point(x, y)
+    color: color
+    :
+```
+
+So the mental model is:
+
+- constructors are ordinary functions
+- instances are ordinary structs
+- extension is struct spill plus local override
+- returning local scope is the bridge that makes this feel class-like without
+  needing a class system
+
+This is also the right model for higher-level UI helpers and VKF overrides:
+they should prefer returning structs/scopes and overriding fields, not building
+special constructor semantics when ordinary function composition is enough.
 
 ### Print With `::`
 
@@ -277,6 +414,19 @@ point.z: 5
 :: point
 ```
 
+Structs are immutable values. The dotted rebind syntax creates a new struct
+value and then rebinds the left-hand name. It does not mutate an existing
+struct in place.
+
+```vkf
+a: (x: 1)
+b: a
+a.x: 2
+
+:: a   # (x: 2)
+:: b   # (x: 1)
+```
+
 ### Vectors
 
 Vectors use square brackets.
@@ -298,6 +448,42 @@ numbers: [1..5]
 ```vkf
 zero_to_three: [..3]
 ```
+
+Vectors follow the same persistent-update rule as structs: `v.0: 4` means
+"create a new vector with index `0` replaced, then rebind `v`."
+
+```vkf
+v: [1, 2, 3]
+v.0: 4
+:: v
+```
+
+### Immutable Values, Mutable Resources
+
+Plain VKF values are immutable:
+
+- structs
+- vectors
+- tuples
+- multisets
+
+Bindings are rebindable, so updates look like assignment but behave like
+persistent replacement.
+
+Runtime resources are a separate concept. Explicit runtime containers such as
+`collections.list(...)`, `collections.map(...)`, queues, shared memory handles,
+and GPU-facing buffers may be mutable because they exist to drive effects,
+transport, and performance-sensitive systems.
+
+So the language model is:
+
+- values are immutable
+- names can be rebound
+- runtime resources may be mutable
+
+The implementation may still store immutable values on the heap and optimize
+updates with structural sharing or copy-on-write. The semantic rule remains
+"new value plus rebinding", not "in-place mutation".
 
 ### Axis Tags And Tensor-Style Operations
 
@@ -778,66 +964,44 @@ Current public modules:
 
 ## UI And Scene Runtime
 
-Vektor Flow's `ui` surface is now more than a widget API. It is a scene and
-display runtime for interactive 2D/3D work, with cameras, lights, shadows,
-textures, mirrors, screens, event routing, overlay chrome, and packaging for a
-native host.
+Vektor Flow's `ui` surface is a scene and display runtime for interactive 2D
+and 3D work. The same language that binds values and returns scopes also builds
+frames, cameras, lights, geometry, and runtime packets for the native/WebGPU
+host.
 
-You can author UI in two connected styles:
+The curated UI entry points are:
 
-- A display API around `ui.display`, `ui.Frame`, and helpers such as
-  `add_box`, `add_camera`, and `add_light`.
-- A deeper `native_scene` packet shape for advanced renderer features such as
-  planar mirrors, projected lights, timing-driven animation, and explicit scene
-  entities.
+- `examples/100_axis_4_panel.vkf` for 2D/3D crosshair and box axis interaction
+- `examples/110_mirror_showcase.vkf` for mirrors, hulls, impostors, reflections, and textured scene geometry
 
-### Quick Start
-
-Run a current 3D example:
+Run them directly:
 
 ```bash
-vkf examples/ui_scene_3d.vkf
+vkf examples/100_axis_4_panel.vkf
+vkf examples/110_mirror_showcase.vkf
 ```
 
-Package a native overlay bundle:
+Package the runtime:
 
 ```bash
-vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
+vkf package-runtime examples/110_mirror_showcase.vkf --with-overlay
 ```
-
-Good entry points today:
-
-- `examples/ui_scene_3d.vkf`: compact 3D hero scene with lighting and shadows.
-- `examples/ui_shadow_cube_test.vkf`: focused light and shadow setup.
-- `examples/ui_readme_mirror_showcase.vkf`: mirror showcase with reflected solids, impostors, and textured geometry.
-- `examples/ui_face_edge_vertex_drag.vkf`: interactive topology editing.
-- `examples/ui_surface_screen_shared_world_test.vkf`: screen-in-world rendering.
 
 ### Authoring Layers
 
 The UI stack is easiest to understand as three layers:
 
-1. VKF authoring code describes geometry, scene entities, frames, and event
-   behavior.
-2. The runtime turns that into scene and display payloads.
-3. The browser/native renderer owns drawing, picking, frame chrome, and GPU
-   execution.
+1. VKF authoring code describes geometry, frames, and event behavior.
+2. The runtime turns that into display payloads and scene/runtime packets.
+3. The browser/native renderer owns drawing, picking, frame chrome, and GPU execution.
 
-For topology-driven interactive scenes, a good mental model is:
-
-- `styles:` defines colors, widths, scales, alpha, and visual policy.
-- `reps:` defines how topology becomes renderable geometry.
-- `geometry:` defines points, simplices, surfaces, and source data.
-- `views:` derives render state from geometry and interaction state.
-- `targets:` defines what is hittable.
-- `motion:` applies updates from events and runtime state.
-
-That layout is still a strong default for editable geometry scenes such as
-`examples/ui_face_edge_vertex_drag.vkf`.
+The important idea is that this is not a separate language. UI code is still
+just VKF code returning values and scopes.
 
 ### Display API
 
-The smaller `ui.display` API is still the easiest way to build direct scenes.
+The smallest UI surface is still `ui.display` plus `ui.Frame` and helpers such
+as `add_box`, `add_camera`, and `add_light`.
 
 ```vkf
 ui:.ui
@@ -851,276 +1015,50 @@ cam: d.add_camera(pos: [4,3,5], target: [0,0,0], fov: 45)
 light: d.add_light(pos: [6,8,6], model: "blinn_phong", color: "white")
 ```
 
-This surface is good for direct scene construction, mutation, and small focused
-examples.
+This is the ergonomic authoring layer used by the axis showcase.
 
 ### Native Scene Packets
 
-The richer renderer surface is expressed through `native_scene`. That is where
-shadows, mirrors, timing, advanced lights, textures, and renderer-specific
-entities show up most clearly.
+The richer renderer surface is expressed through `native_scene`. This is where
+mirrors, reflections, proxy geometry, textures, runtime packets, and host-level
+scene details are made explicit.
 
-```vkf
-ui:.ui
-ui.set_mode("overlay")
+The mirror showcase is the canonical example:
 
-native_scene: (
-    kind: "scene_3d",
-    frame_id: "shadow_cube_test_frame",
-    title: "Shadow Cube Test",
-    rect: [0.08, 0.08, 0.72, 0.78],
-    cube: (
-        center: [0.0, 0.0, 1.0],
-        size: 2.0,
-        face_color: [0.92, 0.22, 0.18, 1.0]
-    ),
-    camera: (
-        pos: [3.8, -5.2, 3.4],
-        target: [0.0, 0.0, 0.9],
-        fov: 34.0,
-        up: [0.0, 0.0, 1.0]
-    )
-)
-```
-
-Use this style when you want to describe the renderer's world directly instead
-of constructing it piece by piece through higher-level helpers.
-
-### Cameras And Views
-
-Cameras define pose, target, field of view, and up-vector. Scenes may also
-carry timing-driven camera motion, multiple dependent views, and offscreen view
-rendering that is later reused by mirrors or screens.
-
-When explicit view or projection matrices are provided, they are the authority.
-Derived camera helpers like `pos`, `target`, `fov`, and `orbit_step_deg` are
-the ergonomic surface, but matrix-based paths are the escape hatch for exact
-control.
-
-### Lights
-
-Current scenes already use several lighting ideas:
-
-- Point lights for direct scene lighting.
-- Spot/projected-light style setups for directed illumination.
-- Light markers/flares to make light sources visible as scene actors.
-- Real and virtual light relationships, including reflected/projected cases.
-
-The most common shading model in examples is `blinn_phong`, which is enough to
-show depth, gloss, and directional response in current scenes.
-
-### Shadows
-
-The runtime supports shadow-enabled lights and explicit shadow configuration.
-Scenes can opt into shadow receivers, choose shadow color/lift, and use light
-settings such as source radius/spread to shape the result.
-
-Representative example:
-
-- `examples/ui_shadow_cube_test.vkf`
-
-<!-- readme-asset: ui-shadow-cube -->
-![ui-shadow-cube](docs/public/images/readme-ui/ui-shadow-cube-gallery.png)
-*`examples/ui_shadow_cube_test.vkf` — cube, floor receiver, light marker, and visible cast shadow.*
-
-### Mirrors, Reflections, And Screens
-
-Mirrors are part of the scene system, not a fake post-effect. The current
-surface already includes:
-
-- Planar mirror-style surfaces.
-- Screen surfaces that render another view into geometry.
-- Reflected cameras derived from a source camera.
-- Virtual/projected lights linked to reflected geometry.
-- Aperture-style control for where the reflected/projection view is valid.
-
-Representative examples:
-
-- `examples/ui_readme_mirror_showcase.vkf`
-- `examples/ui_floor_mirror_test.vkf`
-- `examples/ui_surface_screen_shared_world_test.vkf`
-
-<!-- readme-asset: ui-surface-mirror-demo -->
-![ui-surface-mirror-demo](docs/public/images/readme-ui/ui-mirror-gallery.png)
-*`examples/ui_readme_mirror_showcase.vkf` — planar mirror scene with textured solids, proxy geometry, and marker impostors.*
-
-<!-- readme-asset: ui-surface-screen-shared-world -->
-![ui-surface-screen-shared-world](docs/public/images/readme-ui/ui-screen-gallery.png)
-*`examples/ui_surface_screen_shared_world_test.vkf` — embedded screen surface rendering another scene view into world geometry.*
-
-### Textures And Materials
-
-Meshes and scene entities can be plain-colored or texture-backed. Existing
-examples already use procedural/material-like descriptors such as:
-
-- `checker`
-- `stripes`
-- `dice`
-
-This lets a short scene communicate much more than flat face color alone.
-
-Representative examples:
-
-- `examples/lit_box_texture.vkf`
-- `examples/ui_readme_mirror_showcase.vkf`
-
-<!-- readme-asset: lit-box-texture -->
-![lit-box-texture](docs/public/images/readme-ui/lit-box-texture.png)
-*`examples/lit_box_texture.vkf` — minimal lit textured box scene for materials and procedural textures.*
-
-### Impostors, Proxy Geometry, And Overlay Expansion
-
-The renderer also supports display modes that are not just raw triangle meshes.
-Examples in the repo already use:
-
-- Marker impostors for point/line style rendering.
-- Proxy geometry expansion for rounded or thicker visual forms.
-- Pixel-space and world-space sizing policies.
-- Overlay counts and expansion behavior for 0D/1D scene elements.
-
-This is important because a large part of the current UI surface is about
-controlling how abstract scene primitives become readable rendered objects.
-
-Representative source:
-
-- `examples/ui_field_mesh_0d_point_cloud.vkf`
-- `examples/ui_floor_mirror_test.vkf` for a larger stress/demo version
-
-<!-- readme-asset: ui-field-mesh-0d-point-cloud -->
-![ui-field-mesh-0d-point-cloud](docs/public/images/readme-ui/ui-impostor-gallery.png)
-*`examples/ui_field_mesh_0d_point_cloud.vkf` — point-style marker rendering inside the scene/runtime stack.*
-
-### Frames, Overlay Chrome, And Interaction
-
-`ui.Frame` still matters. Frames carry the application-facing window model:
-
-- draggable / dockable / resizable panels
-- alpha / title / close behavior
-- overlay-style placement on the display
-- event routing through `ui.events`
-
-The display system is therefore both a renderer and a frame host. Scene content
-can live inside movable overlay panels instead of a single monolithic canvas.
-
-### Runtime And Display Model
-
-At runtime, the system separates scene truth from display payloads. The host and
-renderer consume scene/display data, runtime packets, and session files such as
-`vf-display.json`.
-
-The current system already supports:
-
-- packet-style updates such as display replacement
-- browser and native overlay hosts
-- staged UI sessions
-- event ingress from host to VKF code
-- shared-world/offscreen view reuse
-
-This split is why the same authored scene can be inspected in tests, served in a
-browser harness, or packaged for the native overlay host.
-
-### Packaging And Host Modes
-
-The current execution tracks are:
-
-- Python interpreter as the broad language reference.
-- Native/bundled UI runtime as the packaging target.
-
-Native UI bundles package the overlay runtime, scene program, runtime packets,
-and shared geometry/runtime assets.
-
-```bash
-vkf package-runtime examples/ui_face_edge_vertex_drag.vkf --with-overlay
-```
-
-The produced runtime is intended to run without Python after packaging.
-
-The architecture is split into three systems:
-
-- `transparent-overlay`: minimal C++/Win32/WebView2 transparent overlay host.
-- `overlay-ui-engine`: language-neutral graphics, widgets, WebGPU, picking,
-  ledgers, and runtime protocol.
-- `vektor-flow`: VKF language, compiler, stdlib, and UI adapter layer.
-
-During migration this repo imports `transparent-overlay` at
-`native/VfOverlay` and `overlay-ui-engine` at `web/vf-ui` as Git submodules.
-The host should not own widgets or geometry, the UI engine should not know VKF
-syntax, and VKF should not carry the native overlay implementation.
-
-See `docs/adr/0002-split-overlay-host-ui-engine-vkf-plugin.md` for the recorded
-decision.
-
-### Examples By Capability
-
-- Basic 3D scene: `examples/ui_scene_3d.vkf`
-- Direct display API: `examples/lit_box.vkf`
-- Textures/materials: `examples/lit_box_texture.vkf`
-- Shadows: `examples/ui_shadow_cube_test.vkf`
-- Mirrors/reflections: `examples/ui_readme_mirror_showcase.vkf`
-- Screen-in-world rendering: `examples/ui_surface_screen_shared_world_test.vkf`
-- Interactive topology editing: `examples/ui_face_edge_vertex_drag.vkf`
-- Point cloud / marker-style rendering: `examples/ui_field_mesh_0d_point_cloud.vkf`
-- Animated orbit scene: `examples/ui_cube_white_color_orbit.vkf`
-- Larger integration/stress mirror demo: `examples/ui_floor_mirror_test.vkf`
-
-### Screenshots
-
-The README should eventually show rendered scenes, not just code. Planned image
-slots:
-
-<!-- readme-asset: ui-scene-3d-hero -->
-![ui-scene-3d-hero](docs/public/images/readme-ui/ui-scene-3d-hero.png)
-*`examples/ui_scene_3d.vkf` — compact 3D scene with two moving lights and cast shadows.*
-
-<!-- readme-asset: ui-shadow-cube-gallery -->
-![ui-shadow-cube-gallery](docs/public/images/readme-ui/ui-shadow-cube-gallery.png)
-*`examples/ui_shadow_cube_test.vkf` — focused shadow scene with floor receiver and visible light marker.*
+- `examples/110_mirror_showcase.vkf`
 
 <!-- readme-asset: ui-mirror-gallery -->
 ![ui-mirror-gallery](docs/public/images/readme-ui/ui-mirror-gallery.png)
-*`examples/ui_readme_mirror_showcase.vkf` — mirror showcase with textured solids, reflected geometry, and impostor accents.*
+*`examples/110_mirror_showcase.vkf` — mirror, hull, impostor, and reflection showcase.*
 
-<!-- readme-asset: ui-screen-gallery -->
-![ui-screen-gallery](docs/public/images/readme-ui/ui-screen-gallery.png)
-*`examples/ui_surface_screen_shared_world_test.vkf` — screen-in-world rendering on scene geometry.*
+### Runtime Model
 
-<!-- readme-asset: ui-impostor-gallery -->
-![ui-impostor-gallery](docs/public/images/readme-ui/ui-impostor-gallery.png)
-*`examples/ui_field_mesh_0d_point_cloud.vkf` — marker-style point rendering inside a UI frame.*
+At runtime, the system separates authored scene truth from the display payloads
+consumed by the renderer. That split is why the same VKF scene can be:
 
-### Animations
+- inspected in tests
+- served in the browser harness
+- packaged for the native overlay host
 
-Later we should also capture short GIF/MP4 loops for:
+The architecture is split into three systems:
 
-- light orbit / color animation
-- camera orbit
-- mirror behavior under motion
-- topology editing
-- point/impostor rendering in motion
+- `transparent-overlay`: minimal C++/Win32/WebView2 transparent overlay host
+- `overlay-ui-engine`: language-neutral graphics, widgets, WebGPU, picking, and runtime protocol
+- `vektor-flow`: VKF language, compiler, stdlib, and UI adapter layer
 
-<!-- readme-asset: ui-cube-white-color-orbit-animation -->
-![ui-cube-white-color-orbit-animation](docs/public/images/readme-ui/ui-cube-white-color-orbit-frame.png)
-*Representative still from `examples/ui_cube_white_color_orbit.vkf`. This slot can later be upgraded to GIF/MP4 generation.*
+See `docs/adr/0002-split-overlay-host-ui-engine-vkf-plugin.md` for the
+recorded decision.
 
 ### README Asset Workflow
 
-README scene assets can now be regenerated with:
+README scene assets can be regenerated with:
 
 ```powershell
 python scripts/render_readme_ui_assets.py
 ```
 
-The workflow is:
-
-1. Keep language-only snippets executable as text examples.
-2. Prefer full `.vkf` example files for scene screenshots.
-3. Mark screenshot targets with stable README asset comments such as
-   `readme-asset: ui-scene-3d-hero`.
-4. Resolve those examples through the existing scene/display extraction path.
-5. Stage capture sessions into the built overlay web runtime.
-6. Capture PNGs with the Edge/CDP scene harness after scene readiness.
-7. Write assets into a README-owned docs image folder and replace these
-   placeholders with real images.
+The README should stay tied to the curated examples rather than a drifting pile
+of one-off scene demos.
 
 ## VS Code
 
@@ -1143,16 +1081,17 @@ Select the `vscode` folder in this repository.
 ## Useful Examples
 
 ```text
-examples/hello.vkf
-examples/language_features.vkf
-examples/native_scene_probe.vkf
-examples/ui_event_probe.vkf
-examples/ui_face_edge_vertex_drag.vkf
+examples/01_hello.vkf
+examples/23_spill_and_override.vkf
+examples/52_compile_time_shape_params.vkf
+examples/82_qualified_call_avoids_recursion.vkf
+examples/100_axis_4_panel.vkf
+examples/110_mirror_showcase.vkf
 ```
 
-Start with `examples/language_features.vkf` if you want a non-UI tour with lots
-of printed output. Start with `examples/ui_face_edge_vertex_drag.vkf` if you
-want the current interactive geometry model.
+Start with `examples/01_hello.vkf` if you want the smallest possible entry
+point. Then walk the numbered examples upward until `examples/100_axis_4_panel.vkf`
+and `examples/110_mirror_showcase.vkf`.
 
 ## Status
 
@@ -1160,6 +1099,7 @@ The language and runtime are still moving quickly. The most stable way to learn
 the current surface is:
 
 1. Read this README top to bottom.
-2. Run `examples/language_features.vkf`.
-3. Inspect `examples/ui_face_edge_vertex_drag.vkf`.
+2. Run the numbered examples in order, starting at `examples/01_hello.vkf`.
+3. End with `examples/100_axis_4_panel.vkf` and `examples/110_mirror_showcase.vkf`.
 4. Use tests as executable documentation when behavior is unclear.
+

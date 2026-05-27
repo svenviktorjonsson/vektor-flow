@@ -150,6 +150,9 @@ class UiFieldMesh:
     marker_space: str = "world"
     casts_shadow: bool = True
     receives_lighting: bool = True
+    axis_bind_id: str = ""
+    axis_plot2d: Any = None
+    axis_plot3d: Any = None
     model_matrix: tuple[float, ...] | None = None
     type: Literal["field_mesh"] = "field_mesh"
 
@@ -171,6 +174,9 @@ class UiFieldMesh:
             "marker_space": self.marker_space,
             "casts_shadow": self.casts_shadow,
             "receives_lighting": self.receives_lighting,
+            "axis_bind_id": self.axis_bind_id,
+            "axis_plot2d": self.axis_plot2d,
+            "axis_plot3d": self.axis_plot3d,
             "center": [self.center[0], self.center[1], self.center[2]],
             "scale": [self.scale[0], self.scale[1], self.scale[2]],
             "rotation": [self.rotation[0], self.rotation[1], self.rotation[2]],
@@ -825,6 +831,9 @@ def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:
                     marker_space=str(mesh.get("marker_space", "world")),
                     casts_shadow=bool(mesh.get("casts_shadow", True)),
                     receives_lighting=bool(mesh.get("receives_lighting", True)),
+                    axis_bind_id=str(mesh.get("axis_bind_id", "")),
+                    axis_plot2d=mesh.get("axis_plot2d"),
+                    axis_plot3d=mesh.get("axis_plot3d"),
                     center=tuple(mesh["center"]),
                     scale=tuple(mesh["scale"]),
                     rotation=tuple(mesh["rotation"]),
@@ -905,6 +914,9 @@ def field_mesh_payload_from_geometry(
         marker_space=str(geom.get("marker_space", "world")),
         casts_shadow=bool(geom.get("casts_shadow", True)),
         receives_lighting=bool(geom.get("receives_lighting", True)),
+        axis_bind_id=str(geom.get("axis_bind_id", "")),
+        axis_plot2d=geom.get("axis_plot2d"),
+        axis_plot3d=geom.get("axis_plot3d"),
         center=center,
         scale=scale,
         rotation=rotation,
@@ -941,6 +953,9 @@ def apply_field_mesh_geometry_update(
     payload["marker_space"] = str(geom.get("marker_space", "world"))
     payload["casts_shadow"] = bool(geom.get("casts_shadow", True))
     payload["receives_lighting"] = bool(geom.get("receives_lighting", True))
+    payload["axis_bind_id"] = str(geom.get("axis_bind_id", ""))
+    payload["axis_plot2d"] = geom.get("axis_plot2d")
+    payload["axis_plot3d"] = geom.get("axis_plot3d")
 
 
 def build_scene_mesh_payload(

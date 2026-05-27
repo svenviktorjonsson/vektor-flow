@@ -27,6 +27,7 @@ from vektorflow.ui.scene_runtime import (
 )
 from vektorflow.runtime.vflist import VFLinkedList
 from vektorflow.runtime.vfvector import VFVector
+from vektorflow.runtime.struct_value import VF_TYPE_KEY, public_struct_items
 from .events import (
     EVENT_CONST_TO_NAME,
     WIDGET_TYPE_EVENT_CONSTS,
@@ -78,7 +79,16 @@ def _as_widget_node(x: Any) -> dict[str, Any]:
         raise TypeError("each body node must be a map/dict of widget properties")
     if "id" not in x or "type" not in x:
         raise ValueError("each widget must have 'id' and 'type'")
-    return dict(x)
+    return {str(k): _plain_widget_value(v) for k, v in x.items() if k != VF_TYPE_KEY}
+
+
+def _plain_widget_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        items = public_struct_items(value) if VF_TYPE_KEY in value else value
+        return {str(k): _plain_widget_value(v) for k, v in items.items() if k != VF_TYPE_KEY}
+    if isinstance(value, (VFVector, VFLinkedList, list, tuple)):
+        return [_plain_widget_value(v) for v in value]
+    return value
 
 
 def _attach_widget_event_consts(node: dict[str, Any]) -> dict[str, Any]:
@@ -359,6 +369,8 @@ class PendingFrame:
     body_layout: dict[str, Any] | None = None
     body_transparent: bool = False
     aspect: str | None = None
+    requested_id: str = ""
+    frameless: bool = False
     # Set by :meth:`Screen.add_frame` after a frame is placed (for relative layout).
     _placed_id: str | None = field(default=None, repr=False, compare=False)
     _placed_rect: NormRect | None = field(default=None, repr=False, compare=False)
@@ -388,6 +400,7 @@ class Screen:
     def frame(
         self,
         *,
+        id: str = "",
         title: str = "",
         name: str = "",
         title__: str | None = None,
@@ -407,6 +420,7 @@ class Screen:
         row_heights: Any = None,
         body_transparent: bool = False,
         aspect: str | None = None,
+        frameless: bool = False,
         **kwargs: Any,
     ) -> PendingFrame:
         """``__title=...`` (right-aligned) is taken from ``**kwargs`` (valid Python keyword at call site). ``dock_loc`` overrides ``dock_location`` when set."""
@@ -439,6 +453,8 @@ class Screen:
             ),
             body_transparent=bool(body_transparent),
             aspect=str(aspect) if aspect is not None else None,
+            requested_id=str(id or ""),
+            frameless=bool(frameless),
             flags=FrameFlags(
                 draggable=bool(draggable),
                 dockable=bool(dockable),
@@ -556,7 +572,7 @@ class Screen:
             parent_id = in_frame._placed_id
         body_list = _coerce_body(body)
         body_tuple = tuple(body_list) if body_list is not None else None
-        fid = self._alloc_id()
+        fid = str(pending.requested_id or self._alloc_id())
         spec = FrameSpec(
             id=fid,
             title=pending.title,
@@ -572,6 +588,7 @@ class Screen:
             body_layout=dict(pending.body_layout) if pending.body_layout is not None else None,
             parent_id=parent_id,
             aspect=pending.aspect,
+            frameless=bool(pending.frameless),
         )
         append_frame_upsert(self._commands, frame_id=fid, spec=spec)
         pending._placed_id = fid
