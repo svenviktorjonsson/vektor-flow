@@ -1,15 +1,60 @@
 # Vektor Flow
 
-Vektor Flow is a small computational language for shaping data, defining
-geometry, and driving interactive visual programs. It is built around a few
-ideas that repeat everywhere:
+Vektor Flow is a functional, scope-based language for shaping data, describing
+geometry, and driving interactive visual programs. The important thing is not
+just the syntax. The important thing is the model:
 
-- `:` binds names and builds scopes.
-- Blocks return their last row.
-- `[]` are vectors, `()` are tuples or structs, `{}` are multisets.
-- `>>` pipes values through `$`.
-- `::` prints.
-- UI geometry is authored in `.vkf` and rendered by the native/WebGPU runtime.
+- values are the default
+- scopes are first-class
+- functions return values or scopes
+- "constructors" are just functions returning scopes
+- extension happens by spill plus override, not by classes
+- plain language values are immutable, but names can be rebound
+- runtime resources such as UI buffers or shared memory may still be mutable
+
+That gives VKF a compact surface without making it vague. Most of the language
+falls out of a few principles.
+
+## Core Principles
+
+### 1. Bindings Build Scope
+
+`:` does more than assignment-style naming. It is the main way values and local
+scope are built.
+
+- `name: value` binds a value
+- `name:` opens a scope-producing block
+- later rows can reuse earlier names in that scope
+
+### 2. Blocks Are Expressions
+
+A block returns its last row unless it returns early with `@:`. That means you
+can build intermediate structure without leaving expression-oriented code.
+
+### 3. Values Are Immutable
+
+Structs, vectors, tuples, and multisets should be read as values.
+
+- `point.z: 5` means "make a new point and rebind `point`"
+- `v.0: 4` means "make a new vector and rebind `v`"
+- rebinding one name does not mutate another alias
+
+The runtime is still free to optimize this with structural sharing, copy-on-
+write, or lowered mutable buffers under the hood.
+
+### 4. Qualified Names Escape Shadowing
+
+Inside a function, calling its own name means recursion. If you want the
+library version instead, qualify it.
+
+- `sin(x): sin(x - 1)` is recursion
+- `sin(x): .math.sin(x)` explicitly calls the math module
+
+### 5. UI Is Not A Separate DSL
+
+The same language that builds vectors, structs, and functions also builds
+frames, widgets, geometry, and renderer packets. UI is a library surface, not a
+different language bolted on the side.
 
 File extension: `.vkf`.
 
