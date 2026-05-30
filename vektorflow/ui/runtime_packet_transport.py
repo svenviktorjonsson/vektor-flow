@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import time
 from typing import Any, Callable, Mapping, Protocol, Sequence
 import urllib.error
 import urllib.request
@@ -50,6 +51,14 @@ class RuntimePacketDirectPublisher(Protocol):
     ) -> tuple[bool, str | None, str | None]: ...
 
 
+@dataclass(frozen=True)
+class UIRuntimePageNavigateResult:
+    navigated: bool
+    endpoint: str | None = None
+    url: str | None = None
+    error: str | None = None
+
+
 def _default_direct_publish(
     packets: Sequence[Mapping[str, Any]],
 ) -> tuple[bool, str | None, str | None]:
@@ -60,8 +69,15 @@ def _default_direct_publish(
     except RuntimeError as exc:
         return False, None, str(exc)
 
-    endpoint = base.rstrip("/") + "/api/runtime-packets/append"
-    body = json.dumps({"packets": [dict(packet) for packet in packets]}).encode("utf-8")
+    endpoint_base = base.rstrip()
+    snapshot_endpoint = endpoint_base.rstrip("/") + "/api/runtime-packets"
+    endpoint = endpoint_base.rstrip("/") + "/api/runtime-packets/append"
+    try:
+        first_seq = _next_runtime_packet_seq(snapshot_endpoint)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        clear_base_cache()
+        return False, snapshot_endpoint, str(exc)
+    body = json.dumps({"packets": resequence_runtime_packets(packets, first_seq=first_seq)}).encode("utf-8")
     req = urllib.request.Request(  # noqa: S310
         endpoint,
         data=body,
@@ -82,6 +98,87 @@ def _default_direct_publish(
         return True, endpoint, None
     clear_base_cache()
     return False, endpoint, f"overlay runtime packet API returned HTTP {status}"
+
+
+def _next_runtime_packet_seq(snapshot_endpoint: str) -> int:
+    req = urllib.request.Request(  # noqa: S310
+        snapshot_endpoint,
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=0.75) as response:  # noqa: S310
+        snapshot = json.loads(response.read().decode("utf-8", errors="replace"))
+    packets = snapshot.get("packets") if isinstance(snapshot, dict) else None
+    if not isinstance(packets, list):
+        return 1
+    max_seq = 0
+    for packet in packets:
+        if not isinstance(packet, Mapping):
+            continue
+        seq = packet.get("seq")
+        if isinstance(seq, bool):
+            continue
+        if isinstance(seq, (int, float)) and int(seq) == seq and seq > max_seq:
+            max_seq = int(seq)
+    return max_seq + 1
+
+
+def resequence_runtime_packets(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    first_seq: int,
+) -> list[dict[str, Any]]:
+    seq = max(1, int(first_seq))
+    resequenced: list[dict[str, Any]] = []
+    for packet in packets:
+        next_packet = dict(packet)
+        next_packet["seq"] = seq
+        resequenced.append(next_packet)
+        seq += 1
+    return resequenced
+
+
+def navigate_overlay_runtime_page(page_rel: str) -> UIRuntimePageNavigateResult:
+    from vektorflow.ui.bridge import clear_base_cache, vf_base_url
+
+    try:
+        base = vf_base_url(wait_seconds=1.0, poll_interval=0.05)
+    except RuntimeError as exc:
+        return UIRuntimePageNavigateResult(navigated=False, error=str(exc))
+
+    endpoint = base.rstrip("/") + "/api/push"
+    clean_rel = _string_path(page_rel)
+    url = base.rstrip("/") + "/" + clean_rel + "?v=" + str(time.time_ns())
+    body = json.dumps({"op": "navigate", "url": url}).encode("utf-8")
+    req = urllib.request.Request(  # noqa: S310
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=0.75) as response:  # noqa: S310
+            status = int(getattr(response, "status", 200) or 200)
+            response.read()
+    except (OSError, urllib.error.URLError, ValueError) as exc:
+        clear_base_cache()
+        return UIRuntimePageNavigateResult(navigated=False, endpoint=endpoint, url=url, error=str(exc))
+    if 200 <= status < 300:
+        return UIRuntimePageNavigateResult(navigated=True, endpoint=endpoint, url=url)
+    clear_base_cache()
+    return UIRuntimePageNavigateResult(
+        navigated=False,
+        endpoint=endpoint,
+        url=url,
+        error=f"overlay push API returned HTTP {status}",
+    )
+
+
+def _string_path(page_rel: str) -> str:
+    return str(page_rel or "").replace("\\", "/").lstrip("/")
 
 
 class UIRuntimePacketTransport:

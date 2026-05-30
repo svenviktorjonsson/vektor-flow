@@ -83,6 +83,7 @@ def test_screen_surface_face_gate_uses_geometric_front_face() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fn screenSurfaceFrontMask(inputNormal: vec3<f32>) -> f32" in shader
     assert "let surfaceCenter = (sc.model * vec4f(0.0, 0.0, 0.0, 1.0)).xyz;" in shader
+    assert "let surfaceNormal = normalize(rawNormal);" in shader
     assert "let cameraSide = dot(surfaceNormal, sc.cam_pos - surfaceCenter);" in shader
     assert "let viewerDirWorld = normalize(sc.cam_pos - i.world_pos);" not in shader
 
@@ -90,27 +91,190 @@ def test_screen_surface_face_gate_uses_geometric_front_face() -> None:
 def test_screen_surface_backface_gets_ambient_only() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fn shadeAmbientBase(base: vec3<f32>, alpha: f32) -> vec4f" in shader
-    assert "if (frontMask < 0.5 && sc.surface_cam_up_pad.w > 0.5)" in shader
+    assert "if (frontMask < 0.5)" in shader
     assert "return shadeAmbientBase(i.color.rgb, i.color.a);" in shader
     assert "let suppressBackfaceLighting = backfaceSpecularOff && facing < 0.0;" in shader
     assert "if (!suppressBackfaceLighting && sc.light_count > 0u)" in shader
     assert "if (!suppressBackfaceLighting && sc.light_count > 1u)" in shader
 
 
-def test_screen_surface_reflection_keeps_received_shadow_lighting() -> None:
+def test_screen_surface_reflection_is_not_double_shadowed() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
-    screen_branch = shader[shader.index("if (sc.texture_params.x > 3.5)"):shader.index("let base = proceduralTexture")]
-    assert "fn receivedShadowVisibility(worldPos: vec3<f32>, inputNormal: vec3<f32>) -> f32" in shader
-    assert "let surfaceLit = shadeLitBase(i.color.rgb, i.color.a, i.world_pos, i.normal, false);" in screen_branch
-    assert "let composed = surfaceWorldSceneColor(i.color.rgb" in screen_branch
-    assert "let shadowVisibility = receivedShadowVisibility(i.world_pos, i.normal);" in screen_branch
-    assert "let shadowedComposed = composed * mix(0.38, 1.0, shadowVisibility);" in screen_branch
+    fs_start = shader.index("@fragment\nfn fs(i: Vout)")
+    fs_body = shader[fs_start:shader.index("@fragment\nfn fs_point_impostor", fs_start)]
+    screen_branch = fs_body[fs_body.index("if (sc.texture_params.x > 3.5)"):fs_body.index("let base = proceduralTexture")]
+    assert "let composed = screenSurfaceLayer(i.color.rgb, i.color.a * sc.alpha_mul" in screen_branch
+    assert "return vec4f(composed.rgb, composed.a);" in screen_branch
+    assert "shadeLitBase(" not in screen_branch
+    assert "receivedShadowVisibility(" not in screen_branch
+    assert "shadowedComposed" not in screen_branch
     assert "lightingFactor" not in screen_branch
     assert "surfaceWorldSceneColor(surfaceLit.rgb" not in screen_branch
 
 
-def test_mirror_plane_debug_logs_all_plane_consumers() -> None:
+def test_each_real_light_keeps_its_own_readable_shadow_step() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "fn readableShadowVisibility(visibility: f32) -> f32" in shader
+    assert "let vis0 = select(readableShadowVisibility(min(stableVis0, contactVis0)), 1.0" in shader
+    assert "let vis1 = select(readableShadowVisibility(min(stableVis1, contactVis1)), 1.0" in shader
+    assert "let litScale0 = vis0 * atten0 * spot0 * proj0;" in shader
+    assert "let litScale1 = vis1 * atten1 * spot1 * proj1;" in shader
+
+
+def test_shadow_passes_use_per_light_uniform_buffers() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "shadowUniformBuf0" in shader
+    assert "shadowUniformBuf1" in shader
+    assert "renderer._ensurePartShadowBindGroup(part, slot);" in shader
+    assert "slot === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0" in shader
+    assert "Encoded WebGPU draws read buffer contents at submit time" in shader
+    draw_shadow = shader[shader.index("var drawShadowPass = function"):shader.index("if (shadowState0.shadow", shader.index("var drawShadowPass = function"))]
+    assert "queue.writeBuffer(part.shadowUniformBuf, 0, shadowUb)" not in draw_shadow
+    assert "pass.setBindGroup(0, slot === 1 ? part.shadowBindGroup1 : part.shadowBindGroup0);" in draw_shadow
+
+
+def test_shadow_map_fit_includes_receivers_without_drawing_them() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "function shadowFitParts(casterParts, parts)" in shader
+    assert "if (mesh.receives_shadow === false) { continue; }" in shader
+    assert "var lightFitParts = shadowFitParts(lightCasterParts, renderer._parts);" in shader
+    assert "var worldPoints = collectShadowWorldPoints(lightFitParts, t, MmLocal);" in shader
+    collector = shader[shader.index("function collectShadowWorldPoints"):shader.index("function shadowCasterPartsForLight")]
+    assert "mesh.casts_shadow === false" not in collector
+    caster_filter = shader[shader.index("function shadowCasterParts"):shader.index("function planarContactParts")]
+    assert "if (mesh.casts_shadow === false) { continue; }" in caster_filter
+    assert "drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || [])" in shader
+    assert "drawShadowPass(this, 1, shadowState1.shadow, shadowState1.casterParts || [])" in shader
+
+
+def test_two_real_mirror_lights_get_independent_shadow_fits() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__shadowFitTest = {{ resolveSceneLights: resolveSceneLights, shadowCasterParts: shadowCasterParts, shadowCasterPartsForLight: shadowCasterPartsForLight, shadowFitParts: shadowFitParts, collectShadowWorldPoints: collectShadowWorldPoints, fitShadowViewProjection: fitShadowViewProjection }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w * 0.5;
+  const y = h * 0.5;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "showcase_mirror",
+  kind: "quad",
+  center: [0.74, 2.18, 1.20],
+  size: [3.10, 2.40],
+  rotation: [90.0, 0.0, 0.0],
+  vertices: quadVerts(3.10, 2.40),
+  casts_shadow: true,
+  receives_shadow: true,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const ground = {{
+  id: "ground_plane",
+  kind: "quad",
+  center: [0.0, 0.0, 0.0],
+  size: [8.0, 8.0],
+  rotation: [0.0, 0.0, 0.0],
+  vertices: quadVerts(8.0, 8.0),
+  casts_shadow: false,
+  receives_shadow: true
+}};
+const parts = [
+  {{ mesh: mirror, topology: "triangle-list", ibCount: 6 }},
+  {{ mesh: ground, topology: "triangle-list", ibCount: 6 }}
+];
+const scene = {{ parts: parts.map((part) => part.mesh) }};
+const lights = sandbox.__shadowFitTest.resolveSceneLights([
+  {{ id: "key_light", kind: "point", pos: [-0.85, -0.55, 5.18], target: [0.0, 0.25, 1.35], casts_shadow: true, reflect_mirror_mesh_id: "showcase_mirror" }},
+  {{ id: "fill_light", kind: "point", pos: [3.05, -0.55, 4.88], target: [0.8, 0.10, 1.45], casts_shadow: true, reflect_mirror_mesh_id: "showcase_mirror" }}
+], scene, 0);
+const casters = sandbox.__shadowFitTest.shadowCasterParts(parts, true);
+const Mm = sandbox.VfGeomMath;
+const perLight = lights.map((light) => {{
+  const lightCasters = sandbox.__shadowFitTest.shadowCasterPartsForLight(casters, light, 0);
+  const fitParts = sandbox.__shadowFitTest.shadowFitParts(lightCasters, parts);
+  const points = sandbox.__shadowFitTest.collectShadowWorldPoints(fitParts, 0, Mm);
+  const shadow = sandbox.__shadowFitTest.fitShadowViewProjection(light, points, Mm);
+  return {{
+    id: light.id,
+    casts: light.casts_shadow,
+    casterIds: lightCasters.map((part) => part.mesh.id),
+    fitIds: fitParts.map((part) => part.mesh.id),
+    pointCount: points.length,
+    hasShadow: !!(shadow && shadow.viewProjection && shadow.viewProjection.length === 16)
+  }};
+}});
+process.stdout.write(JSON.stringify(perLight));
+"""
+    payload = _run_node(script)
+    assert [entry["id"] for entry in payload] == ["key_light", "fill_light"]
+    assert [entry["casts"] for entry in payload] == [True, True]
+    assert [entry["casterIds"] for entry in payload] == [["showcase_mirror"], ["showcase_mirror"]]
+    assert [entry["fitIds"] for entry in payload] == [
+        ["showcase_mirror", "ground_plane"],
+        ["showcase_mirror", "ground_plane"],
+    ]
+    assert [entry["pointCount"] for entry in payload] == [8, 8]
+    assert [entry["hasShadow"] for entry in payload] == [True, True]
+
+
+def test_depth_written_impostors_use_depth_pipeline_and_early_pass() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "pipePointImpostorDepth" in shader
+    assert 'makeDesc("triangle-list", null, true, "vs_point_impostor", [vbufDesc, sphereInstDesc], null, "fs_point_impostor", true)' in shader
+    assert 'partMesh.depth_write === true && this._pipePointImpostorDepth' in shader
+    assert 'part.mesh.depth_write !== true' in shader
+
+
+def test_light_flares_are_depth_tested_against_scene_depth() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    flare_shader = shader[shader.index("var FLARE_SHADER = `"):shader.index("function segmentIntersectsAabb")]
+    assert "v.axis.z" in flare_shader
+    project_fn = shader[shader.index("function projectWorldToNdc"):shader.index("// Uniform buffer: scene + shadows")]
+    assert "var cz =" in project_fn
+    assert "return [cx / cw, cy / cw, cz / cw];" in project_fn
+    assert 'depthStencil: { depthWriteEnabled: false, depthCompare: "less-equal", format: "depth24plus" }' in shader
+    flare_draw = shader[shader.index("_drawGpuLightFlares: function"):shader.index("_frame: function")]
+    assert "Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0))" in flare_draw
+    assert "depthStencilAttachment:" in flare_draw
+    assert "view: this._depthTex.createView()" in flare_draw
+
+
+def test_offscreen_mirror_source_uses_direct_lights_without_reflection_apertures() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    offscreen_filter = shader[shader.index("function lightsForRenderer"):shader.index("function lightsForMesh")]
+    assert 'delete directOnly.reflect_mirror_mesh_id;' in offscreen_filter
+    assert 'String(light.reflect_of_light_id || "").trim()' in offscreen_filter
+
+
+def test_mirror_plane_debug_logs_are_gated_and_cover_plane_consumers() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "function wgpuDebugEnabled()" in shader
+    assert "if (!wgpuDebugEnabled()) { return; }" in shader
     assert "[DEBUG-MIRROR-PLANE]" in shader
     for label in (
         "light-reflect",
@@ -487,6 +651,72 @@ process.stdout.write(JSON.stringify({{
     assert payload["pos"] == pytest.approx([0.0, 0.0, -1.0])
     assert payload["planeNormal"] == pytest.approx([0.0, 0.0, 1.0])
     assert payload["planePoint"] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_real_lights_can_carry_mirror_reflection_apertures_without_becoming_virtual() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights, buildUniform: buildUniform }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const mirror = {{
+  id: "mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const mesh = {{ parts: [mirror] }};
+const lights = sandbox.__mirrorLightTest.resolveSceneLights([
+  {{ id: "a", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, reflect_mirror_mesh_id: "mirror" }},
+  {{ id: "b", kind: "point", pos: [1, 0, 4], target: [0, 2, 1], intensity: 3, reflect_mirror_mesh_id: "mirror" }}
+], mesh, 0);
+const identity = sandbox.VfGeomMath.mat4Identity();
+const ub = sandbox.__mirrorLightTest.buildUniform(identity, identity, [0, -4, 2], lights, 2, 1, {{ id: "receiver" }});
+const f32 = new Float32Array(ub.buffer);
+const light0Base = 356 + (192 * 4 * 4) + 16;
+const light1Base = light0Base + 20;
+
+process.stdout.write(JSON.stringify({{
+  count: lights.length,
+  kinds: lights.map((light) => light.kind),
+  positions: lights.map((light) => light.pos),
+  reflected: lights.map((light) => light.projected_aperture && light.projected_aperture.reflected_pos),
+  apertureCounts: [f32[light0Base + 18], f32[light1Base + 18]],
+  uniformReflected: [
+    [f32[light0Base + 3], f32[light0Base + 7], f32[light0Base + 11]],
+    [f32[light1Base + 3], f32[light1Base + 7], f32[light1Base + 11]]
+  ]
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["count"] == 2
+    assert payload["kinds"] == ["point", "point"]
+    assert payload["positions"] == [[0, 0, 3], [1, 0, 4]]
+    assert payload["reflected"][0] == pytest.approx([0.0, 4.0, 3.0])
+    assert payload["reflected"][1] == pytest.approx([1.0, 4.0, 4.0])
+    assert payload["apertureCounts"] == [4, 4]
+    assert payload["uniformReflected"][0] == pytest.approx([0.0, 4.0, 3.0])
+    assert payload["uniformReflected"][1] == pytest.approx([1.0, 4.0, 4.0])
 
 
 def test_wgpu_light_orbit_accepts_native_scene_radius_alias() -> None:
@@ -867,16 +1097,24 @@ def test_planar_mirror_uniform_packets_never_fallback_to_origin() -> None:
     assert "vec3Or(aperture.plane_point, [0.0, 0.0, 0.0])" not in shadow_fit_fn
 
 
-def test_reflected_light_shadow_fit_excludes_its_aperture_mesh() -> None:
+def test_real_light_with_reflection_aperture_still_casts_normal_shadows() -> None:
     wgpu_source = WGPU_JS.read_text(encoding="utf-8")
     helper_fn = wgpu_source[wgpu_source.index("function shadowCasterPartsForLight"):wgpu_source.index("function isPlanarScreenShadowSurface")]
+    assert 'var excludeApertureCaster = normalizeLightKind(light.kind) === "projected";' in helper_fn
     assert "light.projected_aperture.mesh_id" in helper_fn
     assert 'String(casterMesh.id || "") === apertureCasterId' in helper_fn
     assert "canPlanarSurfaceCastShadowForLight(casterMesh, light, t)" in helper_fn
 
+    shadow_fit_fn = wgpu_source[wgpu_source.index("function fitShadowViewProjection"):wgpu_source.index("function meshTiming")]
+    assert 'var aperture = normalizeLightKind(light.kind) === "projected" && light && light.projected_aperture' in shadow_fit_fn
+
     shadow_prepare_fn = wgpu_source[wgpu_source.index("var prepareLightShadow = function"):wgpu_source.index("var shadowState0 = prepareLightShadow")]
     assert "var lightCasterParts = shadowCasterPartsForLight(casterParts, light, t);" in shadow_prepare_fn
     assert "canPlanarSurfaceCastShadowForLight(casterPart && casterPart.mesh, light, t)" not in shadow_prepare_fn
+
+    shadow_draw_fn = wgpu_source[wgpu_source.index("var drawShadowPass = function"):wgpu_source.index("if (shadowState0.shadow")]
+    assert 'var excludeApertureCaster = normalizeLightKind(shadowLight && shadowLight.kind) === "projected";' in shadow_draw_fn
+    assert "excludeApertureCaster && shadowLight && shadowLight.projected_aperture" in shadow_draw_fn
 
 
 def test_surface_local_bounds_use_mesh_local_origin_space() -> None:
@@ -1601,20 +1839,26 @@ const mesh = sandbox.VfDisplay.__test.buildSingleMesh(
 let sumY = 0.0;
 let sumZ = 0.0;
 let count = 0;
+let minZ = Infinity;
+let maxZ = -Infinity;
 for (let i = 0; i < mesh.vertices.length; i += 10) {{
   sumY += Number(mesh.vertices[i + 1] || 0.0);
-  sumZ += Number(mesh.vertices[i + 2] || 0.0);
+  const z = Number(mesh.vertices[i + 2] || 0.0);
+  sumZ += z;
+  minZ = Math.min(minZ, z);
+  maxZ = Math.max(maxZ, z);
   count += 1;
 }}
 
 process.stdout.write(JSON.stringify({{
   centroidY: sumY / Math.max(1, count),
-  centroidZ: sumZ / Math.max(1, count)
+  centroidZ: sumZ / Math.max(1, count),
+  boundsCenterZ: (minZ + maxZ) * 0.5
 }}));
 """
     payload = _run_node(script)
     assert payload["centroidY"] == pytest.approx(3.5, abs=1e-3)
-    assert payload["centroidZ"] == pytest.approx(0.0, abs=1e-3)
+    assert payload["boundsCenterZ"] == pytest.approx(0.0, abs=1e-3)
 
 
 def test_aperture_camera_supports_quad_spec_without_vertex_buffer() -> None:

@@ -28,6 +28,7 @@ def build_scene_3d_state(
     timing: dict[str, Any] | None,
     shadow_spec: dict[str, Any],
     show_light_markers: bool,
+    light_flares: bool,
     light_marker_size: float,
     surface_worlds: dict[str, Any] | None = None,
     surface_cameras: dict[str, Any] | None = None,
@@ -80,6 +81,7 @@ def build_scene_3d_state(
         "surface_cameras": dict(surface_cameras or {}),
         "render_options": {
             "show_light_markers": bool(show_light_markers),
+            "light_flares": bool(light_flares),
             "light_marker_size": float(light_marker_size),
         },
     }

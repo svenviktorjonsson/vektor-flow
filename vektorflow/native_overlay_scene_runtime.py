@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, Sequence
 
 from .errors import EvalError, LexError, ParseError, format_source_diagnostic
 from .native_overlay_scene_bundle import NativeOverlaySceneProgram
@@ -67,6 +68,82 @@ def _stage_program_session(program: NativeOverlaySceneProgram, *session_dirs: Pa
             (session_dir / "vf-event-program.json").unlink(missing_ok=True)
 
 
+def _runtime_packets_from_text(packets_text: str) -> list[Mapping[str, Any]]:
+    parsed = json.loads(packets_text)
+    packets = parsed.get("packets") if isinstance(parsed, dict) else parsed
+    if not isinstance(packets, list):
+        raise ValueError("runtime packet text must be an array or object with packets[]")
+    out: list[Mapping[str, Any]] = []
+    for packet in packets:
+        if not isinstance(packet, Mapping):
+            raise ValueError("runtime packet entries must be JSON objects")
+        out.append(packet)
+    return out
+
+
+def _stage_program_runtime_files(
+    program: NativeOverlaySceneProgram,
+    *,
+    resolved_root: Path,
+    overlay_web_dir: Path,
+) -> None:
+    repo_session_dir = resolved_root / "web" / "vf-ui" / "sessions" / program.session_name
+    overlay_session_dir = overlay_web_dir / "sessions" / program.session_name
+    _stage_program_session(program, repo_session_dir, overlay_session_dir)
+
+    _seed_runtime_dir(resolved_root / "web" / "vf-ui", program.runtime_packets_text)
+    _seed_runtime_dir(overlay_web_dir, program.runtime_packets_text)
+    if program.event_program_text:
+        write_text_if_changed(resolved_root / "web" / "vf-ui" / "vf-event-program.json", program.event_program_text)
+        write_text_if_changed(overlay_web_dir / "vf-event-program.json", program.event_program_text)
+    else:
+        (resolved_root / "web" / "vf-ui" / "vf-event-program.json").unlink(missing_ok=True)
+        (overlay_web_dir / "vf-event-program.json").unlink(missing_ok=True)
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _publish_result_was_direct(result: object) -> bool:
+    if isinstance(result, bool):
+        return result
+    return bool(getattr(result, "direct_published", False))
+
+
+def _try_hot_publish_program(
+    program: NativeOverlaySceneProgram,
+    *,
+    resolved_root: Path,
+    overlay_web_dir: Path,
+    publish_runtime_packets: Callable[..., object],
+    navigate_overlay_page: Callable[[str], object],
+) -> bool:
+    if program.event_program_text:
+        return False
+    if (overlay_web_dir / "vf-event-program.json").exists():
+        return False
+    try:
+        packets = _runtime_packets_from_text(program.runtime_packets_text)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return False
+    if not packets:
+        return False
+
+    _stage_program_runtime_files(program, resolved_root=resolved_root, overlay_web_dir=overlay_web_dir)
+    result = publish_runtime_packets(
+        packets,
+        packets_text=program.runtime_packets_text,
+        keep_packet_mirror=True,
+    )
+    if not _publish_result_was_direct(result):
+        return False
+    navigate_result = navigate_overlay_page(program.page_rel)
+    if isinstance(navigate_result, bool):
+        return navigate_result
+    return bool(getattr(navigate_result, "navigated", False))
+
+
 def launch_native_overlay_scene_program(
     program: NativeOverlaySceneProgram,
     *,
@@ -81,6 +158,8 @@ def launch_native_overlay_scene_program(
     write_overlay_state: Callable[..., None],
     wait_for_overlay_ready: Callable[..., int],
     overlay_web_dir_for_exe: Callable[[Path], Path] | None = None,
+    hot_publish_runtime_packets: Callable[..., object] | None = None,
+    hot_navigate_overlay_page: Callable[[str], object] | None = None,
     popen: Callable[..., Any] = subprocess.Popen,
     trace_enabled: bool = False,
     use_terminal: bool = False,
@@ -102,21 +181,24 @@ def launch_native_overlay_scene_program(
             f"native scene asset(s): {missing}. Rebuild native/VfOverlay."
         )
 
-    repo_session_dir = resolved_root / "web" / "vf-ui" / "sessions" / program.session_name
-    overlay_session_dir = overlay_web_dir / "sessions" / program.session_name
-    _stage_program_session(program, repo_session_dir, overlay_session_dir)
+    previous_pid: int | None = None
+    force_relaunch = _env_flag_enabled("VF_NATIVE_SCENE_FORCE_RELAUNCH") or _env_flag_enabled("VF_OVERLAY_FORCE_RELAUNCH")
+    if hot_publish_runtime_packets is not None and hot_navigate_overlay_page is not None and not force_relaunch:
+        previous_pid = read_overlay_pid()
+        if previous_pid is not None and _try_hot_publish_program(
+            program,
+            resolved_root=resolved_root,
+            overlay_web_dir=overlay_web_dir,
+            publish_runtime_packets=hot_publish_runtime_packets,
+            navigate_overlay_page=hot_navigate_overlay_page,
+        ):
+            return 0
 
-    _seed_runtime_dir(resolved_root / "web" / "vf-ui", program.runtime_packets_text)
-    _seed_runtime_dir(overlay_web_dir, program.runtime_packets_text)
-    if program.event_program_text:
-        write_text_if_changed(resolved_root / "web" / "vf-ui" / "vf-event-program.json", program.event_program_text)
-        write_text_if_changed(overlay_web_dir / "vf-event-program.json", program.event_program_text)
-    else:
-        (resolved_root / "web" / "vf-ui" / "vf-event-program.json").unlink(missing_ok=True)
-        (overlay_web_dir / "vf-event-program.json").unlink(missing_ok=True)
+    _stage_program_runtime_files(program, resolved_root=resolved_root, overlay_web_dir=overlay_web_dir)
 
     reset_overlay_port()
-    previous_pid = read_overlay_pid()
+    if previous_pid is None:
+        previous_pid = read_overlay_pid()
     if previous_pid is not None:
         terminate_previous_overlay(previous_pid)
     clear_overlay_port_file(resolved_exe)
@@ -173,6 +255,7 @@ def try_run_native_overlay_scene(
             find_vf_overlay_exe,
         )
         from .ui.overlay_host_contract import overlay_web_dir_for_exe, write_overlay_state
+        from .ui.runtime_packet_transport import navigate_overlay_runtime_page, publish_runtime_packets
 
         root = find_vektorflow_repo_root()
         if root is None:
@@ -207,6 +290,8 @@ def try_run_native_overlay_scene(
             write_overlay_state=write_overlay_state,
             wait_for_overlay_ready=wait_for_overlay_ready,
             overlay_web_dir_for_exe=overlay_web_dir_for_exe,
+            hot_publish_runtime_packets=publish_runtime_packets,
+            hot_navigate_overlay_page=navigate_overlay_runtime_page,
             trace_enabled=_overlay_trace_enabled(),
             use_terminal=use_terminal,
         )
@@ -249,6 +334,7 @@ def try_run_native_overlay_scene_contract(
             find_vf_overlay_exe,
         )
         from .ui.overlay_host_contract import overlay_web_dir_for_exe, write_overlay_state
+        from .ui.runtime_packet_transport import navigate_overlay_runtime_page, publish_runtime_packets
 
         root = find_vektorflow_repo_root()
         if root is None:
@@ -283,6 +369,8 @@ def try_run_native_overlay_scene_contract(
             write_overlay_state=write_overlay_state,
             wait_for_overlay_ready=wait_for_overlay_ready,
             overlay_web_dir_for_exe=overlay_web_dir_for_exe,
+            hot_publish_runtime_packets=publish_runtime_packets,
+            hot_navigate_overlay_page=navigate_overlay_runtime_page,
             trace_enabled=_overlay_trace_enabled(),
             use_terminal=use_terminal,
         )

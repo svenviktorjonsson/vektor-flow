@@ -6125,6 +6125,119 @@
     return out;
   }
 
+  async function captureGeomFrameDataUrl(fid) {
+    var rec = frameRecs[String(fid)] || null;
+    if (!rec || !Array.isArray(rec.entries)) { return null; }
+    for (var i = 0; i < rec.entries.length; i += 1) {
+      var entry = rec.entries[i];
+      var renderer = entry && entry.renderer;
+      if (!renderer || typeof renderer._debugReadFrameTexture !== "function") { continue; }
+      var frame = await renderer._debugReadFrameTexture();
+      if (!frame || !frame.width || !frame.height || !frame.pixels) { continue; }
+      var sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = frame.width;
+      sourceCanvas.height = frame.height;
+      var sourceCtx = sourceCanvas.getContext("2d");
+      if (!sourceCtx) { return null; }
+      var image = sourceCtx.createImageData(frame.width, frame.height);
+      image.data.set(frame.pixels);
+      sourceCtx.putImageData(image, 0, 0);
+      if (!frame.flipU && !frame.flipV) {
+        return sourceCanvas.toDataURL("image/png");
+      }
+      var finalCanvas = document.createElement("canvas");
+      finalCanvas.width = frame.width;
+      finalCanvas.height = frame.height;
+      var finalCtx = finalCanvas.getContext("2d");
+      if (!finalCtx) { return sourceCanvas.toDataURL("image/png"); }
+      finalCtx.save();
+      finalCtx.translate(frame.flipU ? frame.width : 0, frame.flipV ? frame.height : 0);
+      finalCtx.scale(frame.flipU ? -1 : 1, frame.flipV ? -1 : 1);
+      finalCtx.drawImage(sourceCanvas, 0, 0);
+      finalCtx.restore();
+      return finalCanvas.toDataURL("image/png");
+    }
+    var frameEl = findFrameEl(geomTargetFrameId(fid));
+    if (!frameEl) { return null; }
+    var canvas = frameEl.querySelector("canvas.vf-geom-canvas");
+    if (!canvas || typeof canvas.toDataURL !== "function") { return null; }
+    try {
+      return canvas.toDataURL("image/png");
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function debugGeomFrameCaptureState(fid) {
+    var rec = frameRecs[String(fid)] || null;
+    if (!rec || !Array.isArray(rec.entries)) { return []; }
+    var out = [];
+    for (var i = 0; i < rec.entries.length; i += 1) {
+      var entry = rec.entries[i];
+      var renderer = entry && entry.renderer;
+      var frameRef = renderer && typeof renderer._debugGetFrameTextureRef === "function"
+        ? renderer._debugGetFrameTextureRef()
+        : null;
+      out.push({
+        index: i,
+        hasRenderer: !!renderer,
+        hasReadFrameTexture: !!(renderer && typeof renderer._debugReadFrameTexture === "function"),
+        hasFrameTextureRef: !!frameRef,
+        frameWidth: frameRef && frameRef.width || 0,
+        frameHeight: frameRef && frameRef.height || 0,
+        frameFormat: frameRef && frameRef.format || "",
+        running: !!(renderer && renderer._running),
+      });
+    }
+    return out;
+  }
+
+  function debugDynamicGeomFrameState(fid) {
+    var rec = frameRecs[String(fid)] || null;
+    if (!rec) { return null; }
+    var adapter = rec.dynamicAdapter || null;
+    var entry = rec.entries && rec.entries[0] ? rec.entries[0] : null;
+    var renderer = entry && entry.renderer ? entry.renderer : null;
+    var providerScene = null;
+    var providerError = "";
+    try {
+      providerScene = adapter && typeof adapter.currentScene === "function"
+        ? adapter.currentScene()
+        : null;
+    } catch (err) {
+      providerError = err && err.message ? String(err.message) : String(err);
+    }
+    return {
+      hasRec: true,
+      hasAdapter: !!adapter,
+      adapterDirty: !!(adapter && typeof adapter.isDirty === "function" && adapter.isDirty()),
+      adapterRevision: adapter && typeof adapter.revision === "function" ? Number(adapter.revision()) || 0 : 0,
+      hostSizeKey: adapter && typeof adapter.hostSizeKey === "function" ? String(adapter.hostSizeKey() || "") : "",
+      providerError: providerError,
+      providerScene: providerScene ? {
+        id: String(providerScene.id || ""),
+        revision: Number(providerScene.__revision || 0) || 0,
+        unified: providerScene.unified_renderer === true,
+        parts: Array.isArray(providerScene.parts) ? providerScene.parts.length : 0,
+        meshes: Array.isArray(providerScene.meshes) ? providerScene.meshes.length : 0,
+        firstPart: Array.isArray(providerScene.parts) && providerScene.parts[0] ? {
+          id: String(providerScene.parts[0].id || ""),
+          topology: String(providerScene.parts[0].topology || ""),
+          vertexValueCount: providerScene.parts[0].vertices && providerScene.parts[0].vertices.length || 0,
+          indexCount: providerScene.parts[0].indices && providerScene.parts[0].indices.length || 0
+        } : null
+      } : null,
+      renderer: renderer ? {
+        running: renderer._running === true,
+        hasVb: !!renderer._vb,
+        hasIb: !!renderer._ib,
+        partCount: Array.isArray(renderer._parts) ? renderer._parts.length : 0,
+        lastMeshRevision: Number(renderer._lastMeshRevision || 0) || 0,
+        runtimeError: String(renderer._runtimeError || "")
+      } : null
+    };
+  }
+
   function schedulePostGeomLayout() {
     if (_layoutDebounceTimer) { clearTimeout(_layoutDebounceTimer); }
     _layoutDebounceTimer = setTimeout(function() {
@@ -10209,7 +10322,10 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
       buildSingleMesh: buildSingleMesh,
       buildCombinedTriangleMesh: buildCombinedTriangleMesh,
       buildCombinedTransparentMesh: buildCombinedTransparentMesh,
-      analyzeSurfaceTextures: analyzeSurfaceTextures
+      analyzeSurfaceTextures: analyzeSurfaceTextures,
+      captureGeomFrameDataUrl: captureGeomFrameDataUrl,
+      debugGeomFrameCaptureState: debugGeomFrameCaptureState,
+      debugDynamicGeomFrameState: debugDynamicGeomFrameState
     }
   };
   ensureRuntimeShellLoaded();

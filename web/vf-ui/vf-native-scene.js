@@ -386,6 +386,12 @@
     if (Array.isArray(value)) {
       return value.map(cloneJsonValue);
     }
+    if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+      if (value instanceof DataView) {
+        return new DataView(value.buffer.slice(0), value.byteOffset, value.byteLength);
+      }
+      return new value.constructor(value);
+    }
     if (value && typeof value === "object") {
       var out = {};
       for (var key in value) {

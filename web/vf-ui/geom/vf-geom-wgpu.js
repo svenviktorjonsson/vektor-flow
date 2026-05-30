@@ -137,6 +137,7 @@
   }
 
   function maybeLogResolvedLights(renderer, label, lights) {
+    if (!wgpuDebugEnabled()) { return; }
     if (!renderer) { return; }
     var now = Date.now();
     if ((now - Number(renderer._debugLastResolvedLightLogAt || 0)) < 800) {
@@ -162,6 +163,7 @@
   }
 
   function maybeLogMirrorCamera(renderer, mesh) {
+    if (!wgpuDebugEnabled()) { return; }
     if (!renderer || !mesh || !mesh.camera || !mesh.camera._mirrorDebug) { return; }
     var now = Date.now();
     if ((now - Number(renderer._debugLastMirrorCameraLogAt || 0)) < 800) {
@@ -587,6 +589,22 @@ fn spotlightFactor(coneDir: vec3<f32>, pointDir: vec3<f32>, innerCos: f32, outer
   let inner = max(innerCos, outerCos);
   let outer = min(innerCos, outerCos);
   return smoothstep(outer, inner, c);
+}
+
+fn apertureReflectedLightPos0() -> vec3<f32> {
+  return vec3<f32>(
+    sc.light0_aperture_plane.w,
+    sc.light0_aperture_normal.w,
+    sc.light0_aperture_u.w
+  );
+}
+
+fn apertureReflectedLightPos1() -> vec3<f32> {
+  return vec3<f32>(
+    sc.light1_aperture_plane.w,
+    sc.light1_aperture_normal.w,
+    sc.light1_aperture_u.w
+  );
 }
 
 fn projectedApertureFactor0(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: f32) -> f32 {
@@ -1452,7 +1470,7 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
   if (!suppressBackfaceLighting && sc.light_count > 0u) {
     let stableVis0 = select(1.0, shadowMapVisibility0(worldPos, N), sc.receive_shadow != 0u);
     let contactVis0 = select(1.0, planarContactVisibility0(worldPos, sc.light0_pos), sc.receive_shadow != 0u);
-    let vis0 = select(min(stableVis0, contactVis0), 1.0, sc.light0_spot_params.w >= 1.5);
+    let vis0 = select(readableShadowVisibility(min(stableVis0, contactVis0)), 1.0, sc.light0_spot_params.w >= 1.5);
     let toLight0 = sc.light0_pos - worldPos;
     let dist0 = max(length(toLight0), 1e-6);
     let L0 = toLight0 / dist0;
@@ -1472,11 +1490,24 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
       let spec0 = pow(max(dot(N, H0), 0.0), 40.0);
       specular += (litScale0 * spec0) * lc0 * (1.8 * a);
     }
+    if (u32(sc.light0_aperture_meta.z + 0.5) >= 3u && sc.light0_spot_params.w < 1.5) {
+      let reflectedPos0 = apertureReflectedLightPos0();
+      let toReflected0 = reflectedPos0 - worldPos;
+      let reflectedDist0 = max(length(toReflected0), 1e-6);
+      let reflectedL0 = toReflected0 / reflectedDist0;
+      let reflectedProj0 = projectedApertureFactor0(worldPos, reflectedPos0, 2.0);
+      let reflectedAtten0 = lightAttenuation(reflectedDist0, sc.light0_dir_intensity.w, sc.light0_spot_params.z);
+      let reflectedDiff0 = max(dot(N, reflectedL0), 0.0);
+      diffuse += (reflectedAtten0 * reflectedProj0 * reflectedDiff0) * lc0 * base;
+      let reflectedH0 = normalize(reflectedL0 + V);
+      let reflectedSpec0 = pow(max(dot(N, reflectedH0), 0.0), 40.0);
+      specular += (reflectedAtten0 * reflectedProj0 * reflectedSpec0) * lc0 * (1.8 * a);
+    }
   }
   if (!suppressBackfaceLighting && sc.light_count > 1u) {
     let stableVis1 = select(1.0, shadowMapVisibility1(worldPos, N), sc.receive_shadow != 0u);
     let contactVis1 = select(1.0, planarContactVisibility1(worldPos, sc.light1_pos), sc.receive_shadow != 0u);
-    let vis1 = select(min(stableVis1, contactVis1), 1.0, sc.light1_spot_params.w >= 1.5);
+    let vis1 = select(readableShadowVisibility(min(stableVis1, contactVis1)), 1.0, sc.light1_spot_params.w >= 1.5);
     let toLight1 = sc.light1_pos - worldPos;
     let dist1 = max(length(toLight1), 1e-6);
     let L1 = toLight1 / dist1;
@@ -1496,6 +1527,19 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
       let spec1 = pow(max(dot(N, H1), 0.0), 40.0);
       specular += (litScale1 * spec1) * lc1 * (1.8 * a);
     }
+    if (u32(sc.light1_aperture_meta.z + 0.5) >= 3u && sc.light1_spot_params.w < 1.5) {
+      let reflectedPos1 = apertureReflectedLightPos1();
+      let toReflected1 = reflectedPos1 - worldPos;
+      let reflectedDist1 = max(length(toReflected1), 1e-6);
+      let reflectedL1 = toReflected1 / reflectedDist1;
+      let reflectedProj1 = projectedApertureFactor1(worldPos, reflectedPos1, 2.0);
+      let reflectedAtten1 = lightAttenuation(reflectedDist1, sc.light1_dir_intensity.w, sc.light1_spot_params.z);
+      let reflectedDiff1 = max(dot(N, reflectedL1), 0.0);
+      diffuse += (reflectedAtten1 * reflectedProj1 * reflectedDiff1) * lc1 * base;
+      let reflectedH1 = normalize(reflectedL1 + V);
+      let reflectedSpec1 = pow(max(dot(N, reflectedH1), 0.0), 40.0);
+      specular += (reflectedAtten1 * reflectedProj1 * reflectedSpec1) * lc1 * (1.8 * a);
+    }
   }
   if (sc.light_count == 0u) {
     return vec4f(base, a);
@@ -1503,6 +1547,12 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
   let ambient = 0.10 * base;
   let lit = (ambient + diffuse) * a + specular;
   return vec4f(lit, a);
+}
+
+fn readableShadowVisibility(visibility: f32) -> f32 {
+  let v = clamp(visibility, 0.0, 1.0);
+  let fullyLit = smoothstep(0.96, 1.0, v);
+  return mix(v * 0.72, v, fullyLit);
 }
 
 fn receivedShadowVisibility(worldPos: vec3<f32>, inputNormal: vec3<f32>) -> f32 {
@@ -1701,14 +1751,11 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
 fn fs(i: Vout) -> @location(0) vec4f {
   if (sc.texture_params.x > 3.5) {
     let frontMask = screenSurfaceFrontMask(i.normal);
-    if (frontMask < 0.5 && sc.surface_cam_up_pad.w > 0.5) {
+    if (frontMask < 0.5) {
       return shadeAmbientBase(i.color.rgb, i.color.a);
     }
-    let surfaceLit = shadeLitBase(i.color.rgb, i.color.a, i.world_pos, i.normal, false);
-    let composed = surfaceWorldSceneColor(i.color.rgb, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos, true);
-    let shadowVisibility = receivedShadowVisibility(i.world_pos, i.normal);
-    let shadowedComposed = composed * mix(0.38, 1.0, shadowVisibility);
-    return vec4f(mix(surfaceLit.rgb, shadowedComposed, frontMask), surfaceLit.a);
+    let composed = screenSurfaceLayer(i.color.rgb, i.color.a * sc.alpha_mul, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos);
+    return vec4f(composed.rgb, composed.a);
   }
   let base = proceduralTexture(i.color.rgb, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos);
   return shadeLitBase(base, i.color.a, i.world_pos, i.normal, sc.surface_cam_up_pad.w > 0.5);
@@ -1825,7 +1872,7 @@ fn vs_flare(v: FlareVIn) -> FlareVOut {
   o.clip = vec4<f32>(
     v.centerSize.x + (v.quad.x * v.centerSize.z),
     v.centerSize.y + (v.quad.y * v.centerSize.w),
-    0.0,
+    v.axis.z,
     1.0
   );
   o.uv = v.quad;
@@ -1957,10 +2004,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       (mvp[0] * x) + (mvp[4] * y) + (mvp[8] * z) + mvp[12];
     var cy =
       (mvp[1] * x) + (mvp[5] * y) + (mvp[9] * z) + mvp[13];
+    var cz =
+      (mvp[2] * x) + (mvp[6] * y) + (mvp[10] * z) + mvp[14];
     var cw =
       (mvp[3] * x) + (mvp[7] * y) + (mvp[11] * z) + mvp[15];
     if (!(cw > 1e-6)) { return null; }
-    return [cx / cw, cy / cw];
+    return [cx / cw, cy / cw, cz / cw];
   }
 
   // Uniform buffer: scene + shadows + procedural texture params.
@@ -2116,7 +2165,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var shadowPlLayout = device.createPipelineLayout({ bindGroupLayouts: [shadowBindLayout] });
         var flareLayout = device.createPipelineLayout({ bindGroupLayouts: [] });
 
-        var makeDesc = function (topo, cullMode, transparent, vertexEntry, buffers, blendMode, fragmentEntry) {
+        var makeDesc = function (topo, cullMode, transparent, vertexEntry, buffers, blendMode, fragmentEntry, depthWriteOverride) {
           var targets = [{ format: format }];
           if (blendMode === "multiply") {
             targets = [{
@@ -2150,7 +2199,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             primitive: { topology: topo },
             multisample: { count: SAMPLE_COUNT },
             depthStencil: {
-              depthWriteEnabled: (transparent || blendMode === "multiply" || blendMode === "additive") ? false : true,
+              depthWriteEnabled: depthWriteOverride === true ? true : ((transparent || blendMode === "multiply" || blendMode === "additive") ? false : true),
               depthCompare: "less",
               format: "depth24plus",
             },
@@ -2159,7 +2208,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           return d;
         };
 
-        var pipeTri, pipeLine, pipeTriAlpha, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipeLineImpostor, pipeFlare, pipeShadow0, pipeShadow1;
+        var pipeTri, pipeLine, pipeTriAlpha, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1;
         pipeTri  = device.createRenderPipeline(makeDesc("triangle-list"));
         pipeLine = device.createRenderPipeline(makeDesc("line-list"));
         pipeTriAlpha = device.createRenderPipeline(makeDesc("triangle-list", null, true));
@@ -2174,8 +2223,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         pipePointImpostor = device.createRenderPipeline(
           makeDesc("triangle-list", null, true, "vs_point_impostor", [vbufDesc, sphereInstDesc], null, "fs_point_impostor")
         );
+        pipePointImpostorDepth = device.createRenderPipeline(
+          makeDesc("triangle-list", null, true, "vs_point_impostor", [vbufDesc, sphereInstDesc], null, "fs_point_impostor", true)
+        );
         pipeLineImpostor = device.createRenderPipeline(
           makeDesc("triangle-list", null, true, "vs_line_impostor", [vbufDesc, cylinderInstDesc], null, "fs_line_impostor")
+        );
+        pipeLineImpostorDepth = device.createRenderPipeline(
+          makeDesc("triangle-list", null, true, "vs_line_impostor", [vbufDesc, cylinderInstDesc], null, "fs_line_impostor", true)
         );
         pipeFlare = device.createRenderPipeline({
           layout: flareLayout,
@@ -2188,7 +2243,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             }
           }]},
           primitive: { topology: "triangle-strip" },
-          multisample: { count: SAMPLE_COUNT }
+          multisample: { count: SAMPLE_COUNT },
+          depthStencil: { depthWriteEnabled: false, depthCompare: "less-equal", format: "depth24plus" }
         });
         pipeTriAlphaDepth = device.createRenderPipeline({
           layout: plLayout,
@@ -2313,7 +2369,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         sharedWgpu = {
           device, format, bindLayout,
           pipeTri, pipeLine, pipeTriAlpha, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
-          pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipeLineImpostor, pipeFlare, flareQuadBuf,
+          pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, shadowSampler, defaultShadowView,
           pipeShadow0, pipeShadow1, shadowBindLayout,
           pipePick, pickBindLayout,
@@ -2626,7 +2682,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       f32[base + 16] = Math.max(0.0, Number(lightValue && lightValue.source_radius || 0.0) || 0.0);
       f32[base + 17] = Math.max(0.0, Number(lightValue ? (lightValue.spread == null ? 1.0 : lightValue.spread) : 1.0) || 0.0);
-      if (!lightValue || lightValue.kind_code < 1.5 || !lightValue.projected_aperture) {
+      if (!lightValue || !lightValue.projected_aperture) {
         return;
       }
       var aperture = lightValue.projected_aperture;
@@ -2640,12 +2696,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[base + 0] = finiteComponent(planePoint, 0, 0.0);
       f32[base + 1] = finiteComponent(planePoint, 1, 0.0);
       f32[base + 2] = finiteComponent(planePoint, 2, 0.0);
+      f32[base + 3] = finiteComponent(aperture.reflected_pos, 0, finiteComponent(lightValue.pos, 0, 0.0));
       f32[base + 4] = finiteComponent(planeNormal, 0, 0.0);
       f32[base + 5] = finiteComponent(planeNormal, 1, 0.0);
       f32[base + 6] = finiteComponent(planeNormal, 2, 1.0);
+      f32[base + 7] = finiteComponent(aperture.reflected_pos, 1, finiteComponent(lightValue.pos, 1, 0.0));
       f32[base + 8] = finiteComponent(uAxis, 0, 0.0);
       f32[base + 9] = finiteComponent(uAxis, 1, 0.0);
       f32[base + 10] = finiteComponent(uAxis, 2, 0.0);
+      f32[base + 11] = finiteComponent(aperture.reflected_pos, 2, finiteComponent(lightValue.pos, 2, 0.0));
       f32[base + 12] = finiteComponent(vAxis, 0, 0.0);
       f32[base + 13] = finiteComponent(vAxis, 1, 0.0);
       f32[base + 14] = finiteComponent(vAxis, 2, 0.0);
@@ -3519,6 +3578,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     ];
   }
 
+  function wgpuDebugEnabled() {
+    return !!(
+      global.__vfGeomDebug === true ||
+      global.__vfMirrorDebug === true ||
+      global.__vfLightDebug === true
+    );
+  }
+
   function planarFrameCenter(frame) {
     if (!frame) { return [0.0, 0.0, 0.0]; }
     var midU = 0.5 * (Number(frame.minU || 0.0) + Number(frame.maxU == null ? (Number(frame.minU || 0.0) + Number(frame.spanU || 0.0)) : frame.maxU));
@@ -3534,6 +3601,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   }
 
   function debugMirrorPlane(label, meshLike, frame, extra) {
+    if (!wgpuDebugEnabled()) { return; }
     var meshId = String(meshLike && meshLike.id || "");
     if (meshId !== "back_mirror" && String(meshLike && meshLike.surface_system && meshLike.surface_system.kind || "").toLowerCase().trim() !== "screen") {
       return;
@@ -3567,6 +3635,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   }
 
   function debugSurfaceBind(label, meshLike, extra) {
+    if (!wgpuDebugEnabled()) { return; }
     var meshId = String(meshLike && meshLike.id || "");
     if (meshId !== "back_mirror" && String(meshLike && meshLike.surface_system && meshLike.surface_system.kind || "").toLowerCase().trim() !== "screen") {
       return;
@@ -3691,12 +3760,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     var reflectOfId = String(lightSpec && lightSpec.reflect_of_light_id || "").trim();
     var mirrorMeshId = String(lightSpec && lightSpec.reflect_mirror_mesh_id || "").trim();
     if (!reflectOfId && !mirrorMeshId) { return lightSpec; }
-    if (!reflectOfId || !mirrorMeshId) {
+    if (reflectOfId && !mirrorMeshId) {
       failFast("reflected light requires both reflect_of_light_id and reflect_mirror_mesh_id");
     }
-    var sourceLight = sourceLightsById && sourceLightsById[reflectOfId];
+    var sourceLight = reflectOfId ? sourceLightsById && sourceLightsById[reflectOfId] : lightSpec;
     var mirrorMesh = meshById && meshById[mirrorMeshId];
-    if (!sourceLight) {
+    if (reflectOfId && !sourceLight) {
       failFast('reflected light source "' + reflectOfId + '" was not found');
     }
     if (!mirrorMesh) {
@@ -3722,9 +3791,20 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     if (mirrorMesh.surface_system && typeof mirrorMesh.surface_system === "object") {
       reflectivity = Math.max(0.0, Math.min(1.0, Number(mirrorMesh.surface_system.reflectivity == null ? 1.0 : mirrorMesh.surface_system.reflectivity) || 0.0));
     }
+    var reflectedPos = reflectPointAcrossPlane(sourceLight.pos, planePoint, planeNormal);
+    var reflectedTarget = reflectPointAcrossPlane(sourceLight.target, planePoint, planeNormal);
+    if (!reflectOfId && normalizeLightKind(lightSpec.kind) !== "projected") {
+      var apertureResolved = Object.assign({}, lightSpec);
+      if (sourceSide > clipEpsilon && reflectivity > 1e-4) {
+        apertureResolved.projected_aperture = runtime.aperturePacket(mirrorMeshId, planeNormal, lightSpec.clip_epsilon_ratio, 1e-5);
+        apertureResolved.projected_aperture.reflected_pos = reflectedPos;
+        apertureResolved.projected_aperture.reflected_target = reflectedTarget;
+      }
+      return apertureResolved;
+    }
     var resolved = Object.assign({}, lightSpec, {
-      pos: reflectPointAcrossPlane(sourceLight.pos, planePoint, planeNormal),
-      target: reflectPointAcrossPlane(sourceLight.target, planePoint, planeNormal),
+      pos: reflectedPos,
+      target: reflectedTarget,
       motion: "linked_reflection"
     });
     if (resolved.intensity != null) {
@@ -3894,6 +3974,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (light && String(light.reflect_of_light_id || "").trim()) {
         continue;
       }
+      if (light && String(light.reflect_mirror_mesh_id || "").trim()) {
+        var directOnly = Object.assign({}, light);
+        delete directOnly.reflect_mirror_mesh_id;
+        filtered.push(directOnly);
+        continue;
+      }
       filtered.push(light);
     }
     return filtered;
@@ -3998,6 +4084,37 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     return out;
   }
 
+  function shadowFitParts(casterParts, parts) {
+    var out = [];
+    var seen = {};
+    function addPart(part) {
+      if (!part || typeof part !== "object") { return; }
+      var mesh = part.mesh;
+      if (!mesh || part.topology !== "triangle-list") { return; }
+      var id = String(mesh.id || "") || ("part@" + String(out.length));
+      if (seen[id]) { return; }
+      seen[id] = true;
+      out.push(part);
+    }
+    if (Array.isArray(casterParts)) {
+      for (var ci = 0; ci < casterParts.length; ci += 1) {
+        addPart(casterParts[ci]);
+      }
+    }
+    if (Array.isArray(parts)) {
+      for (var pi = 0; pi < parts.length; pi += 1) {
+        var part = parts[pi];
+        var mesh = part && part.mesh;
+        if (!mesh || mesh.visible === false) { continue; }
+        if (mesh.receives_shadow === false) { continue; }
+        if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
+        if (String(mesh.blend_mode || "") === "additive") { continue; }
+        addPart(part);
+      }
+    }
+    return out;
+  }
+
   function modelMatrixSignature(model) {
     var sig = "";
     for (var i = 0; i < 16; i += 1) {
@@ -4042,7 +4159,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var mesh = part && part.mesh;
       if (!mesh || part.topology !== "triangle-list") { continue; }
       if (mesh.visible === false) { continue; }
-      if (mesh.casts_shadow === false) { continue; }
       if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
       if (String(mesh.blend_mode || "") === "additive") { continue; }
       var model = resolveAnimatedModelMatrix(
@@ -4074,7 +4190,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   function shadowCasterPartsForLight(casterParts, light, t) {
     var out = [];
     if (!Array.isArray(casterParts) || !light) { return out; }
-    var apertureCasterId = light && light.projected_aperture && light.projected_aperture.mesh_id
+    var excludeApertureCaster = normalizeLightKind(light.kind) === "projected";
+    var apertureCasterId = excludeApertureCaster && light && light.projected_aperture && light.projected_aperture.mesh_id
       ? String(light.projected_aperture.mesh_id)
       : "";
     for (var cpi = 0; cpi < casterParts.length; cpi += 1) {
@@ -4137,7 +4254,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   function fitShadowViewProjection(light, worldPoints, MmLocal) {
     if (!light || !Array.isArray(worldPoints) || !worldPoints.length) { return null; }
     var eye = vec3Or(light.pos, [0.0, 0.0, 0.0]);
-    var aperture = light && light.projected_aperture && typeof light.projected_aperture === "object"
+    var aperture = normalizeLightKind(light.kind) === "projected" && light && light.projected_aperture && typeof light.projected_aperture === "object"
       ? light.projected_aperture
       : null;
     if (aperture) {
@@ -4745,7 +4862,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.ib) { try { part.ib.destroy(); } catch(_){} }
       if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
       if (part.uniformBuf) { try { part.uniformBuf.destroy(); } catch(_){} }
-      if (part.shadowUniformBuf) { try { part.shadowUniformBuf.destroy(); } catch(_){} }
+      if (part.shadowUniformBuf0) { try { part.shadowUniformBuf0.destroy(); } catch(_){} }
+      if (part.shadowUniformBuf1) { try { part.shadowUniformBuf1.destroy(); } catch(_){} }
+      if (part.shadowUniformBuf &&
+          part.shadowUniformBuf !== part.shadowUniformBuf0 &&
+          part.shadowUniformBuf !== part.shadowUniformBuf1) {
+        try { part.shadowUniformBuf.destroy(); } catch(_){}
+      }
       if (part.pickUb) { try { part.pickUb.destroy(); } catch(_){} }
       if (part.surfaceColorTex) { try { part.surfaceColorTex.destroy(); } catch(_){} }
       if (part.surfaceDepthTex) { try { part.surfaceDepthTex.destroy(); } catch(_){} }
@@ -4873,13 +4996,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       part._boundShadowView1 = shadowView1;
     },
 
-    _ensurePartShadowBindGroup: function (part) {
+    _ensurePartShadowBindGroup: function (part, slot) {
       if (!part || !this._device || !sharedWgpu || !sharedWgpu.shadowBindLayout) { return; }
-      if (part.shadowBindGroup) { return; }
-      part.shadowBindGroup = this._device.createBindGroup({
+      var slotIndex = slot === 1 ? 1 : 0;
+      var key = slotIndex === 1 ? "shadowBindGroup1" : "shadowBindGroup0";
+      var buf = slotIndex === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0;
+      if (!buf) { buf = part.shadowUniformBuf || part.uniformBuf; }
+      if (part[key]) { return; }
+      part[key] = this._device.createBindGroup({
         layout: sharedWgpu.shadowBindLayout,
         entries: [
-          { binding: 0, resource: { buffer: part.shadowUniformBuf || part.uniformBuf } }
+          { binding: 0, resource: { buffer: buf } }
         ]
       });
     },
@@ -5101,7 +5228,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             cacheSlot: slotName
           };
         }
-        var worldPoints = collectShadowWorldPoints(lightCasterParts, t, MmLocal);
+        var lightFitParts = shadowFitParts(lightCasterParts, renderer._parts);
+        var worldPoints = collectShadowWorldPoints(lightFitParts, t, MmLocal);
         var shadow = fitShadowViewProjection(light, worldPoints, MmLocal);
         var contact = resolvePlanarContactOccluderForLight(contactParts, light, t);
         if (shadow) {
@@ -5147,7 +5275,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         });
         pass.setPipeline(pipe);
         var shadowLight = slot === 1 ? activeLights[1] : activeLights[0];
-        var apertureCasterId = shadowLight && shadowLight.projected_aperture && shadowLight.projected_aperture.mesh_id
+        var excludeApertureCaster = normalizeLightKind(shadowLight && shadowLight.kind) === "projected";
+        var apertureCasterId = excludeApertureCaster && shadowLight && shadowLight.projected_aperture && shadowLight.projected_aperture.mesh_id
           ? String(shadowLight.projected_aperture.mesh_id)
           : "";
         for (var i = 0; i < partsForShadow.length; i += 1) {
@@ -5165,9 +5294,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           var shadowUb = slot === 1
             ? buildShadowUniform(model, null, shadowData && shadowData.viewProjection)
             : buildShadowUniform(model, shadowData && shadowData.viewProjection, null);
-          renderer._device.queue.writeBuffer(part.shadowUniformBuf, 0, shadowUb);
-          renderer._ensurePartShadowBindGroup(part);
-          pass.setBindGroup(0, part.shadowBindGroup);
+          // Encoded WebGPU draws read buffer contents at submit time, so each light
+          // needs an independent shadow uniform buffer.
+          var shadowUniformBuf = slot === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0;
+          if (!shadowUniformBuf) {
+            failFast("shadow pass part missing per-light uniform buffer");
+          }
+          renderer._device.queue.writeBuffer(shadowUniformBuf, 0, shadowUb);
+          renderer._ensurePartShadowBindGroup(part, slot);
+          pass.setBindGroup(0, slot === 1 ? part.shadowBindGroup1 : part.shadowBindGroup0);
           pass.setVertexBuffer(0, part.vb);
           pass.setIndexBuffer(part.ib, "uint32");
           pass.drawIndexed(part.ibCount, 1, 0, 0, 0);
@@ -5334,10 +5469,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
               ? this._pipeCylinderInst
               : (
                   part.instanceKind === "point-impostor"
-                    ? this._pipePointImpostor
+                    ? (partMesh.depth_write === true && this._pipePointImpostorDepth ? this._pipePointImpostorDepth : this._pipePointImpostor)
                     : (
                         part.instanceKind === "line-impostor"
-                          ? this._pipeLineImpostor
+                          ? (partMesh.depth_write === true && this._pipeLineImpostorDepth ? this._pipeLineImpostorDepth : this._pipeLineImpostor)
                           : (
                   isAdditivePart && this._pipeTriAdditive ? this._pipeTriAdditive :
                   isMultiplyPart && this._pipeTriMultiply ? this._pipeTriMultiply :
@@ -5385,7 +5520,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       function isLateTransparent(part) {
         var mesh = part && part.mesh;
         if (!mesh) { return false; }
-        if (part.instanceKind === "point-impostor" || part.instanceKind === "line-impostor") {
+        if ((part.instanceKind === "point-impostor" || part.instanceKind === "line-impostor") && part.mesh && part.mesh.depth_write !== true) {
           return true;
         }
         return !!mesh.transparent;
@@ -5772,6 +5907,47 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
+    _debugReadFrameTexture: async function () {
+      if (!this._device) { return null; }
+      var frameRef = this._debugGetFrameTextureRef();
+      if (!frameRef || !frameRef.texture || !frameRef.width || !frameRef.height) { return null; }
+      var bytesPerPixel = 4;
+      var width = frameRef.width;
+      var height = frameRef.height;
+      var unpaddedBytesPerRow = width * bytesPerPixel;
+      var bytesPerRow = Math.ceil(unpaddedBytesPerRow / 256) * 256;
+      var byteLength = bytesPerRow * height;
+      var readBuf = this._device.createBuffer({
+        size: byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      });
+      var enc = this._device.createCommandEncoder();
+      enc.copyTextureToBuffer(
+        { texture: frameRef.texture },
+        { buffer: readBuf, bytesPerRow: bytesPerRow, rowsPerImage: height },
+        { width: width, height: height, depthOrArrayLayers: 1 }
+      );
+      this._device.queue.submit([enc.finish()]);
+      await readBuf.mapAsync(GPUMapMode.READ);
+      var mapped = new Uint8Array(readBuf.getMappedRange());
+      var packed = new Uint8ClampedArray(width * height * bytesPerPixel);
+      for (var y = 0; y < height; y += 1) {
+        var srcRow = y * bytesPerRow;
+        var dstRow = y * unpaddedBytesPerRow;
+        packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+      }
+      readBuf.unmap();
+      readBuf.destroy();
+      return {
+        width: width,
+        height: height,
+        pixels: packed,
+        flipU: !!frameRef.flipU,
+        flipV: !!frameRef.flipV,
+        format: String(frameRef.format || this._format || "")
+      };
+    },
+
     _debugGetSurfaceTextureRef: function (meshId) {
       if (!this._parts || !this._parts.length) { return null; }
       var wantedMeshId = String(meshId == null ? "" : meshId);
@@ -5834,7 +6010,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         size: UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-      var shadowUniformBuf = dev.createBuffer({
+      var shadowUniformBuf0 = dev.createBuffer({
+        size: SHADOW_UB_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      var shadowUniformBuf1 = dev.createBuffer({
         size: SHADOW_UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
@@ -5858,7 +6038,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         ibCount: mesh.indices.length,
         topology: mesh.topology || "triangle-list",
         uniformBuf: uniformBuf,
-        shadowUniformBuf: shadowUniformBuf,
+        shadowUniformBuf: shadowUniformBuf0,
+        shadowUniformBuf0: shadowUniformBuf0,
+        shadowUniformBuf1: shadowUniformBuf1,
         bindGroup: null,
         pickUb: pickUb,
         pickBg: pickBg,
@@ -5868,7 +6050,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
     _canReuseScenePart: function (part, mesh, index) {
       if (!part || !mesh) { return false; }
-      if (!part.vb || !part.ib || !part.uniformBuf || !part.shadowUniformBuf || !part.pickUb || !part.pickBg || !part.bindGroup) { return false; }
+      if (!part.vb || !part.ib || !part.uniformBuf || !part.shadowUniformBuf0 || !part.shadowUniformBuf1 || !part.pickUb || !part.pickBg || !part.bindGroup) { return false; }
       if ((part.topology || "triangle-list") !== (mesh.topology || "triangle-list")) { return false; }
       if ((part.instanceKind || null) !== (mesh.instance_kind || null)) { return false; }
       if (Number(part.objectId || 0) !== (Number(mesh.object_id || (index + 1)) || (index + 1))) { return false; }
@@ -6379,7 +6561,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           ndc[0], ndc[1], sizeNdcX, sizeNdcY,
           Number((light.color_f32 || [1, 1, 1, 1])[0]), Number((light.color_f32 || [1, 1, 1, 1])[1]), Number((light.color_f32 || [1, 1, 1, 1])[2]), 1.0,
           pxSize, flareAlpha, facing, 1.0,
-          Math.cos(axisAngle), Math.sin(axisAngle), 0.0, 0.0
+          Math.cos(axisAngle), Math.sin(axisAngle), Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0)), 0.0
         );
       }
       var count = instances.length / 16;
@@ -6401,7 +6583,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           resolveTarget: resolveTargetView || this._ctx.getCurrentTexture().createView(),
           loadOp: "load",
           storeOp: "store"
-        }]
+        }],
+        depthStencilAttachment: {
+          view: this._depthTex.createView(),
+          depthLoadOp: "load",
+          depthStoreOp: "store"
+        }
       });
       flarePass.setPipeline(sharedWgpu.pipeFlare);
       flarePass.setVertexBuffer(0, sharedWgpu.flareQuadBuf);
@@ -6502,7 +6689,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeSphereInst = sg.pipeSphereInst || null;
     this._pipeCylinderInst = sg.pipeCylinderInst || null;
     this._pipePointImpostor = sg.pipePointImpostor || null;
+    this._pipePointImpostorDepth = sg.pipePointImpostorDepth || null;
     this._pipeLineImpostor = sg.pipeLineImpostor || null;
+    this._pipeLineImpostorDepth = sg.pipeLineImpostorDepth || null;
     this._ctx = c.getContext("webgpu");
     if (!this._ctx) { wlog("error", "getContext('webgpu') null"); return false; }
     try {

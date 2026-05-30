@@ -1017,7 +1017,7 @@ host.
 The curated UI entry points are:
 
 - `examples/100_axis_4_panel.vkf` for 2D/3D crosshair and box axis interaction
-- `examples/110_mirror_showcase.vkf` for mirrors, hulls, impostors, reflections, and textured scene geometry
+- `examples/110_mirror_showcase.vkf` for hulls, volume elements, impostors, ellipsoids, fixed lights, and the DNA helix showcase
 
 Run them directly:
 
@@ -1068,13 +1068,13 @@ The richer renderer surface is expressed through `native_scene`. This is where
 mirrors, reflections, proxy geometry, textures, runtime packets, and host-level
 scene details are made explicit.
 
-The mirror showcase is the canonical example:
+The rich-scene showcase is the canonical geometry example:
 
 - `examples/110_mirror_showcase.vkf`
 
 <!-- readme-asset: ui-mirror-gallery -->
 ![ui-mirror-gallery](docs/public/images/readme-ui/ui-mirror-gallery.png)
-*`examples/110_mirror_showcase.vkf` — mirror, hull, impostor, and reflection showcase.*
+*`examples/110_mirror_showcase.vkf` — hull, volume element, ellipsoid, impostor sphere, fixed-light, and DNA helix showcase.*
 
 ### Runtime Model
 

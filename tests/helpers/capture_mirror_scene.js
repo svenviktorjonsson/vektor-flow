@@ -137,6 +137,17 @@ async function main() {
   const runtime = await openScene(scenePath, port, frameId);
   try {
     await delay(1500);
+    await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
+      expression: `(() => {
+        if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
+          window.VfDisplay.redrawVisibleGeomFrames();
+          return true;
+        }
+        return false;
+      })()`,
+      returnByValue: true
+    });
+    await delay(500);
     if (zoomSteps !== 0) {
       const deltaY = zoomSteps > 0 ? 100 : -100;
       const count = Math.abs(zoomSteps);
@@ -153,11 +164,54 @@ async function main() {
       });
       await delay(2000);
     }
-    const screenshot = await sendCdp(runtime.pageWs, runtime.pageState, "Page.captureScreenshot", { format: "png" });
-    fs.writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
+    const framePng = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
+      expression: `(async () => {
+        const api = !!(window.VfDisplay && window.VfDisplay.__test);
+        const fn = !!(api && window.VfDisplay.__test.captureGeomFrameDataUrl);
+        if (!fn) {
+          return { ok: false, api, fn, reason: "captureGeomFrameDataUrl unavailable" };
+        }
+        try {
+          const dataUrl = await window.VfDisplay.__test.captureGeomFrameDataUrl(${JSON.stringify(frameId)});
+          return {
+            ok: typeof dataUrl === "string" && dataUrl.startsWith("data:image/png;base64,"),
+            api,
+            fn,
+            type: typeof dataUrl,
+            length: typeof dataUrl === "string" ? dataUrl.length : 0,
+            value: dataUrl
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            api,
+            fn,
+            reason: String(error && error.stack || error)
+          };
+        }
+      })()`,
+      returnByValue: true,
+      awaitPromise: true
+    });
+    const captureDebug = framePng && framePng.result ? framePng.result.value : null;
+    const frameDataUrl = captureDebug && typeof captureDebug.value === "string" ? captureDebug.value : null;
+    let captureMode = "page";
+    if (captureDebug && captureDebug.ok && typeof frameDataUrl === "string" && frameDataUrl.startsWith("data:image/png;base64,")) {
+      captureMode = "frame";
+      fs.writeFileSync(screenshotPath, Buffer.from(frameDataUrl.slice("data:image/png;base64,".length), "base64"));
+    } else {
+      const screenshot = await sendCdp(runtime.pageWs, runtime.pageState, "Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
+    }
     const status = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
       expression: `({
         status: window.VfDisplay && window.VfDisplay.geomFrameStatus ? window.VfDisplay.geomFrameStatus(${JSON.stringify(frameId)}) : null,
+        captureState: window.VfDisplay && window.VfDisplay.__test && window.VfDisplay.__test.debugGeomFrameCaptureState
+          ? window.VfDisplay.__test.debugGeomFrameCaptureState(${JSON.stringify(frameId)})
+          : null,
+        dynamicState: window.VfDisplay && window.VfDisplay.__test && window.VfDisplay.__test.debugDynamicGeomFrameState
+          ? window.VfDisplay.__test.debugDynamicGeomFrameState(${JSON.stringify(frameId)})
+          : null,
         logs: (window.__vfGeomWgpuLog || []).slice(-24),
         canvasRect: (() => {
           const canvas = document.querySelector('.vf-frame[data-vf-frame-id=${JSON.stringify(frameId)}] canvas.vf-geom-canvas');
@@ -193,6 +247,8 @@ async function main() {
       awaitPromise: true
     });
     const payload = status.result.value || {};
+    payload.captureMode = captureMode;
+    payload.captureDebug = captureDebug;
     payload.surfaceDebug = surfaceDebug.result ? surfaceDebug.result.value : null;
     process.stdout.write(JSON.stringify(payload));
   } finally {

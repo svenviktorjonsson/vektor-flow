@@ -22,11 +22,7 @@ from playwright.sync_api import sync_playwright
 
 REPO = Path(__file__).resolve().parents[1]
 README = REPO / "README.md"
-VF_UI = (
-    REPO / "native" / "VfOverlay" / "build" / "Release" / "web"
-    if (REPO / "native" / "VfOverlay" / "build" / "Release" / "web" / "vkf-scene.html").is_file()
-    else REPO / "web" / "vf-ui"
-)
+VF_UI = REPO / "web" / "vf-ui"
 OUT_DIR = REPO / "docs" / "public" / "images" / "readme-ui"
 INDEX_DOC = "vkf-scene.html"
 CAPTURE_HELPER = REPO / "tests" / "helpers" / "capture_mirror_scene.js"
@@ -36,6 +32,9 @@ EDGE_PATH = Path(
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     )
 )
+
+
+logging.basicConfig(level=logging.INFO, format="[readme-ui] %(message)s")
 
 
 @dataclass(frozen=True)
@@ -62,7 +61,7 @@ README_ASSETS: tuple[ReadmeAsset, ...] = (
         marker="ui-mirror-gallery",
         example=REPO / "examples" / "110_mirror_showcase.vkf",
         output_name="ui-mirror-gallery.png",
-        caption="`examples/110_mirror_showcase.vkf` — mirror, hull, impostor, and reflection showcase.",
+        caption="`examples/110_mirror_showcase.vkf` — hull, volume element, ellipsoid, impostor sphere, fixed-light, and DNA helix showcase.",
         wait_ms=1800,
     ),
 )
@@ -210,6 +209,44 @@ def _capture_png_via_edge(scene_html: Path, frame_id: str, out_path: Path) -> No
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Edge capture failed")
+    raw = (result.stdout or "").strip()
+    if not raw:
+        raise RuntimeError("Edge capture returned no diagnostics")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Edge capture returned invalid JSON: {exc}") from exc
+    capture_debug = payload.get("captureDebug") or {}
+    dynamic_state = payload.get("dynamicState") or {}
+    renderer_state = dynamic_state.get("renderer") or {}
+    provider_error = str(dynamic_state.get("providerError") or "").strip()
+    runtime_error = str(renderer_state.get("runtimeError") or "").strip()
+    last_wgpu_error = ""
+    status = payload.get("status") or {}
+    if isinstance(status, dict):
+        failures = status.get("runtimeFailures") or []
+        if failures:
+            last_wgpu_error = str(failures[-1] or "").strip()
+    capture_state = payload.get("captureState") or {}
+    if isinstance(capture_state, list):
+        capture_state = capture_state[0] if capture_state else {}
+    logging.info(
+        "capture ok marker=%s mode=%s frameTexture=%s parts=%s providerError=%s runtimeError=%s",
+        frame_id,
+        payload.get("captureMode") or "unknown",
+        bool(capture_state.get("hasFrameTextureRef")),
+        renderer_state.get("partCount"),
+        provider_error or "-",
+        runtime_error or last_wgpu_error or "-",
+    )
+    if capture_debug.get("ok") is not True:
+        raise RuntimeError(f"Frame capture failed: {capture_debug!r}")
+    if provider_error:
+        raise RuntimeError(f"Dynamic geom provider failed: {provider_error}")
+    if runtime_error:
+        raise RuntimeError(f"Geom renderer runtime failed: {runtime_error}")
+    if last_wgpu_error:
+        raise RuntimeError(f"Geom renderer reported runtime failure: {last_wgpu_error}")
 
 
 def _stage_display_capture_session(asset: ReadmeAsset, scene_json: str, display_json: str) -> tuple[Path, str]:
@@ -224,14 +261,8 @@ def _stage_display_capture_session(asset: ReadmeAsset, scene_json: str, display_
 
 
 def _stage_native_capture_session(asset: ReadmeAsset, program) -> tuple[Path, str]:
-    from vektorflow.ui.session_staging import discover_built_web_dirs
-
-    built_web_dirs = discover_built_web_dirs(REPO)
     session_name = f"readme-{asset.marker}"
-    if built_web_dirs:
-        session_dir = built_web_dirs[0] / "sessions" / session_name
-    else:
-        session_dir = REPO / "web" / "vf-ui" / "sessions" / session_name
+    session_dir = REPO / "web" / "vf-ui" / "sessions" / session_name
     session_dir.mkdir(parents=True, exist_ok=True)
     session_html = program.html_text.replace("?v=", f"?v={time.time_ns()}")
     (session_dir / "vkf-scene.html").write_text(session_html, encoding="utf-8")
@@ -292,26 +323,31 @@ def render_asset(asset: ReadmeAsset) -> Path:
     out_path = asset.output_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        logging.info("render %s via display runtime", asset.marker)
         scene_json, display_json = _scene_and_display_from_display_vkf(asset)
         scene_html, frame_id = _stage_display_capture_session(asset, scene_json, display_json)
         _capture_png_via_edge(scene_html, frame_id, out_path)
         return out_path
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.warning("display runtime failed for %s: %s", asset.marker, exc)
     try:
+        logging.info("render %s via native scene runtime", asset.marker)
         program = _native_overlay_program_from_vkf(asset)
         scene_html, frame_id = _stage_native_capture_session(asset, program)
         _capture_png_via_edge(scene_html, frame_id, out_path)
         return out_path
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.warning("native scene runtime failed for %s: %s", asset.marker, exc)
     with tempfile.TemporaryDirectory(prefix="vf-readme-ui-") as tmp:
         root = Path(tmp) / "vf"
         shutil.copytree(VF_UI, root, dirs_exist_ok=True)
         try:
+            logging.info("render %s via temporary display runtime", asset.marker)
             scene_json, display_json = _scene_and_display_from_display_vkf(asset)
             _seed_display_runtime(root, scene_json, display_json)
-        except Exception:
+        except Exception as exc:
+            logging.warning("temporary display runtime failed for %s: %s", asset.marker, exc)
+            logging.info("render %s via temporary native scene runtime", asset.marker)
             program = _native_overlay_program_from_vkf(asset)
             _seed_native_scene_runtime(root, program)
         _capture_png_from_root(root, asset.output_path, viewport=asset.viewport, wait_ms=asset.wait_ms)

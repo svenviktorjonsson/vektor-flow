@@ -73,6 +73,7 @@ def test_build_scene_3d_state_assembles_scene_ir() -> None:
         timing={"fps": 60, "boundary": "repeat"},
         shadow_spec=shadow_spec,
         show_light_markers=False,
+        light_flares=True,
         light_marker_size=0.18,
     )
 
@@ -85,6 +86,7 @@ def test_build_scene_3d_state_assembles_scene_ir() -> None:
     assert state["scene_ir"]["shadow"] == shadow_spec
     assert state["scene_ir"]["render_options"] == {
         "show_light_markers": False,
+        "light_flares": True,
         "light_marker_size": 0.18,
     }
     assert state["scene_ir"]["meshes"][0]["kind"] == "quad"
@@ -95,8 +97,8 @@ def test_build_scene_3d_state_assembles_scene_ir() -> None:
                 "receiver_mesh": "plane_0",
                 "occluders": ["object_0"],
                 "lights": ["light_0"],
-                "policy_kind": "projected_convex_hull",
-                "policy_softness": "area_light_penumbra",
+                "policy_kind": "light_camera_depth_map",
+                "policy_softness": "shadow_map_bias",
             },
             "embedding": {
                 "receiver_mesh": "receiver_mesh",
