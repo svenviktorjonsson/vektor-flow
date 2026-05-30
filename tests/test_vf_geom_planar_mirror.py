@@ -12,6 +12,7 @@ MATH_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-math.js"
 CORE_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-core.js"
 WGPU_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-wgpu.js"
 DISPLAY_JS = REPO / "web" / "vf-ui" / "vf-display.js"
+NATIVE_SCENE_JS = REPO / "web" / "vf-ui" / "vf-native-scene.js"
 
 
 def _run_node(script: str) -> dict:
@@ -76,6 +77,806 @@ process.stdout.write(JSON.stringify({{
     assert payload["spanU"] == pytest.approx(2.0)
     assert payload["spanV"] == pytest.approx(2.0)
     assert abs(payload["normal"][1]) == pytest.approx(1.0)
+
+
+def test_screen_surface_face_gate_uses_geometric_front_face() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "fn screenSurfaceFrontMask(inputNormal: vec3<f32>) -> f32" in shader
+    assert "let surfaceCenter = (sc.model * vec4f(0.0, 0.0, 0.0, 1.0)).xyz;" in shader
+    assert "let cameraSide = dot(surfaceNormal, sc.cam_pos - surfaceCenter);" in shader
+    assert "let viewerDirWorld = normalize(sc.cam_pos - i.world_pos);" not in shader
+
+
+def test_screen_surface_backface_gets_ambient_only() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "fn shadeAmbientBase(base: vec3<f32>, alpha: f32) -> vec4f" in shader
+    assert "if (frontMask < 0.5 && sc.surface_cam_up_pad.w > 0.5)" in shader
+    assert "return shadeAmbientBase(i.color.rgb, i.color.a);" in shader
+    assert "let suppressBackfaceLighting = backfaceSpecularOff && facing < 0.0;" in shader
+    assert "if (!suppressBackfaceLighting && sc.light_count > 0u)" in shader
+    assert "if (!suppressBackfaceLighting && sc.light_count > 1u)" in shader
+
+
+def test_screen_surface_reflection_keeps_received_shadow_lighting() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    screen_branch = shader[shader.index("if (sc.texture_params.x > 3.5)"):shader.index("let base = proceduralTexture")]
+    assert "fn receivedShadowVisibility(worldPos: vec3<f32>, inputNormal: vec3<f32>) -> f32" in shader
+    assert "let surfaceLit = shadeLitBase(i.color.rgb, i.color.a, i.world_pos, i.normal, false);" in screen_branch
+    assert "let composed = surfaceWorldSceneColor(i.color.rgb" in screen_branch
+    assert "let shadowVisibility = receivedShadowVisibility(i.world_pos, i.normal);" in screen_branch
+    assert "let shadowedComposed = composed * mix(0.38, 1.0, shadowVisibility);" in screen_branch
+    assert "lightingFactor" not in screen_branch
+    assert "surfaceWorldSceneColor(surfaceLit.rgb" not in screen_branch
+
+
+def test_mirror_plane_debug_logs_all_plane_consumers() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "[DEBUG-MIRROR-PLANE]" in shader
+    for label in (
+        "light-reflect",
+        "light-aperture",
+        "shadow-frame",
+        "analytic-shadow",
+        "shadow-gate",
+        "surface-render-camera",
+        "surface-aperture-camera",
+    ):
+        assert label in shader
+    assert "apertureStart" not in shader
+    assert "aperturePlanePoint" in shader
+
+
+def test_planar_mirror_geometry_is_single_runtime_seam() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "function resolvePlanarMirrorGeometry(meshLike, t, context)" in shader
+    assert "function createPlanarMirrorRuntime(meshLike, t, context)" in shader
+    assert "createPlanarMirrorRuntime: createPlanarMirrorRuntime" in shader
+    assert "resolvePlanarMirrorGeometry: resolvePlanarMirrorGeometry" in shader
+    assert shader.count("mirrorFrameForLightMesh(") == 2
+    for context in (
+        "mirror surface_system host",
+        "reflected light",
+        "projected light aperture",
+        "planar shadow frame",
+        "planar contact occluder",
+        "planar shadow light gate",
+        "surface render camera",
+        "surface aperture camera",
+        "mirror eye-locked camera",
+    ):
+        assert f'resolvePlanarMirrorGeometry(' in shader
+        assert context in shader
+
+
+def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    linked_fn = shader[shader.index("function resolveLinkedMirrorLight"):shader.index("function resolveProjectedLightFromMeshId")]
+    projected_fn = shader[shader.index("function resolveProjectedLightFromMeshId"):shader.index("function planarShadowPointsForMesh")]
+    contact_fn = shader[shader.index("function buildPlanarContactOccluder"):shader.index("function resolvePlanarContactOccluderForLight")]
+
+    assert "createPlanarMirrorRuntime(mirrorMesh, t, \"reflected light\")" in linked_fn
+    assert "resolved.projected_aperture = runtime.aperturePacket(" in linked_fn
+    assert "points: [" not in linked_fn
+
+    assert "createPlanarMirrorRuntime(apertureMesh, t, \"projected light aperture\")" in projected_fn
+    assert "projected_aperture: runtime.aperturePacket(" in projected_fn
+    assert "points: [" not in projected_fn
+
+    assert "createPlanarMirrorRuntime(meshLike, t, \"planar contact occluder\")" in contact_fn
+    assert "runtime.aperturePacket(" in contact_fn
+    assert "points: [" not in contact_fn
+
+
+def test_planar_mirror_geometry_uses_visible_vertices_before_authored_quad_spec() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const mesh = {{
+  id: "visible_vertices_win",
+  kind: "quad",
+  center: [0.0, 0.0, 0.0],
+  size: [20.0, 20.0],
+  rotation: [0.0, 0.0, 0.0],
+  vertices: new Float32Array([
+    -1.0, -2.0, 0.5,  0,0,1,  1,1,1,1,
+     1.0, -2.0, 0.5,  0,0,1,  1,1,1,1,
+     1.0,  2.0, 0.5,  0,0,1,  1,1,1,1,
+    -1.0,  2.0, 0.5,  0,0,1,  1,1,1,1
+  ])
+}};
+
+const geometry = sandbox.VfGeomWgpuUtil.resolvePlanarMirrorGeometry(mesh, 0, "test visible seam");
+
+process.stdout.write(JSON.stringify({{
+  center: geometry.center,
+  extent: geometry.extent,
+  spanU: geometry.frame.spanU,
+  spanV: geometry.frame.spanV
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["center"] == pytest.approx([0.0, 0.0, 0.5])
+    assert payload["extent"] == pytest.approx(4.0)
+    assert sorted([payload["spanU"], payload["spanV"]]) == pytest.approx([2.0, 4.0])
+
+
+def test_planar_mirror_geometry_prefers_uploaded_model_matrix() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const uploadedMatrix = sandbox.VfGeomMath.mat4ModelTRS(
+  [0.73, 2.17, 1.10],
+  [90.0, 0.0, 0.0],
+  [1.0, 1.0, 1.0]
+);
+const mesh = {{
+  id: "uploaded_transform_mirror",
+  kind: "quad",
+  center: [0.0, 0.0, 0.0],
+  size: [2.60, 2.20],
+  rotation: [0.0, 0.0, 0.0],
+  _modelMatrix: Array.prototype.slice.call(uploadedMatrix),
+  vertices: new Float32Array([
+    -1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30,  1.10, 0.0,  0,0,1,  1,1,1,1,
+    -1.30,  1.10, 0.0,  0,0,1,  1,1,1,1
+  ])
+}};
+
+const runtime = sandbox.VfGeomWgpuUtil.createPlanarMirrorRuntime(mesh, 0, "uploaded matrix test");
+process.stdout.write(JSON.stringify({{
+  center: runtime.center,
+  bottomLeft: runtime.corners.bottomLeft,
+  topRight: runtime.corners.topRight
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["center"] == pytest.approx([0.73, 2.17, 1.10], abs=1e-5)
+    assert payload["bottomLeft"][2] == pytest.approx(0.0, abs=1e-5)
+    assert payload["topRight"][2] == pytest.approx(2.20, abs=1e-5)
+
+
+def test_planar_mirror_geometry_ignores_identity_placeholder_model_matrix() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const mesh = {{
+  id: "identity_placeholder_mirror",
+  kind: "quad",
+  center: [0.73, 2.17, 1.10],
+  size: [2.60, 2.20],
+  rotation: [90.0, 0.0, 0.0],
+  _modelMatrix: Array.prototype.slice.call(sandbox.VfGeomMath.mat4Identity()),
+  vertices: new Float32Array([
+    -1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30,  1.10, 0.0,  0,0,1,  1,1,1,1,
+    -1.30,  1.10, 0.0,  0,0,1,  1,1,1,1
+  ])
+}};
+
+const runtime = sandbox.VfGeomWgpuUtil.createPlanarMirrorRuntime(mesh, 0, "identity placeholder test");
+process.stdout.write(JSON.stringify({{
+  center: runtime.center,
+  bottomLeft: runtime.corners.bottomLeft,
+  topRight: runtime.corners.topRight
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["center"] == pytest.approx([0.73, 2.17, 1.10], abs=1e-5)
+    assert payload["bottomLeft"][2] == pytest.approx(0.0, abs=1e-5)
+    assert payload["topRight"][2] == pytest.approx(2.20, abs=1e-5)
+
+
+def test_projected_light_uniform_preserves_zero_normal_components() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorUniformTest = {{ resolveSceneLights: resolveSceneLights, buildUniform: buildUniform }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const mirror = {{
+  id: "back_mirror",
+  kind: "quad",
+  center: [0.73, 2.17, 1.10],
+  size: [2.60, 2.20],
+  rotation: [90.0, 0.0, 0.0],
+  vertices: new Float32Array([
+    -1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30,  1.10, 0.0,  0,0,1,  1,1,1,1,
+    -1.30,  1.10, 0.0,  0,0,1,  1,1,1,1
+  ]),
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const ground = {{
+  id: "ground_plane",
+  kind: "quad",
+  center: [0, 0, 0],
+  size: [6, 6],
+  rotation: [0, 0, 0],
+  receives_shadow: true
+}};
+const lights = sandbox.__mirrorUniformTest.resolveSceneLights([
+  {{ id: "real", kind: "point", pos: [2.4, -3.2, 4.2], target: [0, 0.4, 0.9], intensity: 1 }},
+  {{
+    id: "virtual",
+    kind: "projected",
+    reflect_of_light_id: "real",
+    reflect_mirror_mesh_id: "back_mirror",
+    aperture_mesh_id: "back_mirror",
+    intensity: 1
+  }}
+], {{ parts: [mirror, ground] }}, 0);
+const identity = sandbox.VfGeomMath.mat4Identity();
+const ub = sandbox.__mirrorUniformTest.buildUniform(identity, identity, [0, -4, 2], lights, 2, 1, ground);
+const f32 = new Float32Array(ub.buffer);
+const light1Base = 356 + (192 * 4 * 4) + 16 + 20;
+
+process.stdout.write(JSON.stringify({{
+  planePoint: Array.from(f32.slice(light1Base, light1Base + 3)),
+  planeNormal: Array.from(f32.slice(light1Base + 4, light1Base + 7))
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["planePoint"] == pytest.approx([0.73, 2.17, 1.10], abs=1e-5)
+    assert payload["planeNormal"] == pytest.approx([0.0, -1.0, 0.0], abs=1e-5)
+
+
+def test_point_lights_do_not_use_target_as_planar_shadow_gate() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorShadowGateTest = {{ shadowCasterPartsForLight: shadowCasterPartsForLight }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const mirror = {{
+  id: "back_mirror",
+  kind: "quad",
+  center: [0.73, 2.17, 1.10],
+  size: [2.60, 2.20],
+  rotation: [90.0, 0.0, 0.0],
+  vertices: new Float32Array([
+    -1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30, -1.10, 0.0,  0,0,1,  1,1,1,1,
+     1.30,  1.10, 0.0,  0,0,1,  1,1,1,1,
+    -1.30,  1.10, 0.0,  0,0,1,  1,1,1,1
+  ]),
+  casts_shadow: true,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const light = {{
+  kind: "point",
+  pos: [2.4, -3.2, 4.2],
+  target: [0.0, 0.4, 0.9]
+}};
+const casters = sandbox.__mirrorShadowGateTest.shadowCasterPartsForLight([{{ mesh: mirror }}], light, 0);
+process.stdout.write(JSON.stringify({{ count: casters.length, id: casters[0] && casters[0].mesh.id }}));
+"""
+    payload = _run_node(script)
+    assert payload == {"count": 1, "id": "back_mirror"}
+
+
+def test_reflected_projected_light_starts_on_visible_side_of_mirror() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const lights = [
+  {{ id: "real", kind: "point", pos: [0, 0, 1], target: [0, 0, 0], intensity: 1 }},
+  {{
+    id: "virtual",
+    kind: "projected",
+    reflect_of_light_id: "real",
+    reflect_mirror_mesh_id: "mirror",
+    aperture_mesh_id: "mirror",
+    clip_epsilon_ratio: 0.001,
+    intensity: 1
+  }}
+];
+const mesh = {{
+  parts: [
+    {{ id: "mirror", kind: "quad", center: [0, 0, 0], size: [2, 2], rotation: [0, 0, 0] }}
+  ]
+}};
+
+const resolved = sandbox.__mirrorLightTest.resolveSceneLights(lights, mesh, 0)[1];
+process.stdout.write(JSON.stringify({{
+  pos: resolved.pos,
+  planePoint: resolved.projected_aperture.plane_point,
+  planeNormal: resolved.projected_aperture.plane_normal
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["pos"] == pytest.approx([0.0, 0.0, -1.0])
+    assert payload["planeNormal"] == pytest.approx([0.0, 0.0, 1.0])
+    assert payload["planePoint"] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_wgpu_light_orbit_accepts_native_scene_radius_alias() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const resolved = sandbox.__mirrorLightTest.resolveSceneLights([
+  {{
+    id: "real_light",
+    kind: "point",
+    motion: "orbit",
+    radius: 4.35,
+    height: 3.30,
+    theta: -0.98,
+    angular_velocity: 0.55,
+    target: [0.0, 0.4, 0.9],
+    intensity: 22.0
+  }}
+], {{ parts: [] }}, 0)[0];
+
+process.stdout.write(JSON.stringify({{ pos: resolved.pos }}));
+"""
+    payload = _run_node(script)
+    assert payload["pos"] == pytest.approx([2.423048078433045, -3.2126635616400714, 4.2])
+
+
+def test_wgpu_light_resolver_preserves_native_scene_per_frame_position() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const resolved = sandbox.__mirrorLightTest.resolveSceneLights([
+  {{
+    id: "real_light",
+    kind: "point",
+    motion: "orbit",
+    pos: [9.0, 8.0, 7.0],
+    radius: 4.35,
+    height: 3.30,
+    theta: -0.98,
+    angular_velocity: 0.55,
+    target: [0.0, 0.4, 0.9],
+    intensity: 22.0
+  }}
+], {{ parts: [] }}, 5000)[0];
+
+process.stdout.write(JSON.stringify({{ pos: resolved.pos }}));
+"""
+    payload = _run_node(script)
+    assert payload["pos"] == pytest.approx([9.0, 8.0, 7.0])
+
+
+def test_reflected_projected_light_does_not_reflect_from_backside() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const lights = [
+  {{ id: "real", kind: "point", pos: [0, 0, -1], target: [0, 0, 0], intensity: 1 }},
+  {{
+    id: "virtual",
+    kind: "projected",
+    reflect_of_light_id: "real",
+    reflect_mirror_mesh_id: "mirror",
+    aperture_mesh_id: "mirror",
+    clip_epsilon_ratio: 0.001,
+    intensity: 1,
+    power: 2
+  }}
+];
+const mesh = {{
+  parts: [
+    {{ id: "mirror", kind: "quad", center: [0, 0, 0], size: [2, 2], rotation: [0, 0, 0] }}
+  ]
+}};
+
+const resolved = sandbox.__mirrorLightTest.resolveSceneLights(lights, mesh, 0)[1];
+process.stdout.write(JSON.stringify({{
+  intensity: resolved.intensity,
+  power: resolved.power,
+  casts_shadow: resolved.casts_shadow,
+  planePoint: resolved.projected_aperture.plane_point,
+  planeNormal: resolved.projected_aperture.plane_normal
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["intensity"] == pytest.approx(0.0)
+    assert payload["power"] == pytest.approx(0.0)
+    assert payload["casts_shadow"] is False
+    assert payload["planeNormal"] == pytest.approx([0.0, 0.0, 1.0])
+    assert payload["planePoint"] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_reflected_light_uses_rendered_part_plane_over_source_spec() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const lights = [
+  {{ id: "real", kind: "point", pos: [0, 0, 1], target: [0, 1, 0], intensity: 1 }},
+  {{
+    id: "virtual",
+    kind: "projected",
+    reflect_of_light_id: "real",
+    reflect_mirror_mesh_id: "mirror",
+    aperture_mesh_id: "mirror",
+    clip_epsilon_ratio: 0.001,
+    intensity: 1
+  }}
+];
+const mesh = {{
+  source_specs: [
+    {{ id: "mirror", kind: "quad", center: [0, 0, 0], size: [2, 2], rotation: [90, 0, 0] }}
+  ],
+  parts: [
+    {{ id: "mirror", kind: "quad", center: [0, 2, 0], size: [2, 2], rotation: [90, 0, 0], surface_system: {{ kind: "screen", reverse_facing: true }} }}
+  ]
+}};
+
+const resolved = sandbox.__mirrorLightTest.resolveSceneLights(lights, mesh, 0)[1];
+process.stdout.write(JSON.stringify({{
+  intensity: resolved.intensity,
+  planePoint: resolved.projected_aperture.plane_point,
+  planeNormal: resolved.projected_aperture.plane_normal
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["intensity"] == pytest.approx(1.0)
+    assert payload["planeNormal"] == pytest.approx([0.0, -1.0, 0.0])
+    assert payload["planePoint"][1] == pytest.approx(2.0)
+
+
+def test_reflected_light_rejects_source_spec_only_mirror_plane() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__mirrorLightTest = {{ resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+const lights = [
+  {{ id: "real", kind: "point", pos: [0, -4, 1], target: [0, -1, 0], intensity: 1 }},
+  {{
+    id: "virtual",
+    kind: "projected",
+    reflect_of_light_id: "real",
+    reflect_mirror_mesh_id: "mirror",
+    aperture_mesh_id: "mirror",
+    clip_epsilon_ratio: 0.001,
+    intensity: 1
+  }}
+];
+const mesh = {{
+  source_specs: [
+    {{ id: "mirror", kind: "quad", center: [0, 0, 0], size: [2, 2], rotation: [90, 0, 0] }}
+  ],
+  parts: []
+}};
+
+try {{
+  sandbox.__mirrorLightTest.resolveSceneLights(lights, mesh, 0);
+  process.stdout.write(JSON.stringify({{ ok: false }}));
+}} catch (err) {{
+  process.stdout.write(JSON.stringify({{ ok: true, message: String(err && err.message || err) }}));
+}}
+"""
+    payload = _run_node(script)
+    assert payload["ok"] is True
+    assert "rendered scene parts" in payload["message"]
+
+
+def test_projected_light_does_not_illuminate_its_aperture_mesh() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "function lightsForMesh(rawLights, offscreenFrame, meshLike)" in shader
+    assert 'kind === "projected" && (apertureMeshId === meshId || mirrorMeshId === meshId)' in shader
+    assert "lightsForMesh((partMesh.lights || sceneMesh.lights || []), this._offscreenFrame === true, partMesh)" in shader
+
+
+def test_screen_surface_uses_depth_shadow_not_infinite_contact_shadow() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    contact_fn_start = shader.index("function planarContactParts(parts)")
+    contact_fn_end = shader.index("function modelMatrixSignature(model)")
+    contact_fn = shader[contact_fn_start:contact_fn_end]
+    assert "if (isPlanarScreenShadowSurface(mesh)) { continue; }" in contact_fn
+    occluder_fn = shader[shader.index("function buildPlanarContactOccluder"):shader.index("function resolvePlanarContactOccluderForLight")]
+    assert "if (isPlanarScreenShadowSurface(meshLike)) { return null; }" in occluder_fn
+    assert "1.0e6" not in occluder_fn
+
+
+def test_screen_surface_shadow_casting_is_gated_by_light_side() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "function isPlanarScreenShadowSurface(meshLike)" in shader
+    assert "function meshReverseFacing(meshLike)" in shader
+    assert "meshLike && meshLike.reverse_facing === true" in shader
+    assert "function canPlanarSurfaceCastShadowForLight(meshLike, light, t)" in shader
+    assert "meshLike.no_backface_specular === true && meshLike.receives_shadow === false" in shader
+    assert "return lightSide * targetSide < 0.0;" in shader
+    caster_fn = shader[shader.index("function shadowCasterParts"):shader.index("function planarContactParts")]
+    assert "if (isPlanarScreenShadowSurface(mesh))" not in caster_fn
+    assert "function shadowCasterPartsForLight(casterParts, light, t)" in shader
+    assert "canPlanarSurfaceCastShadowForLight(casterMesh, light, t)" in shader
+    assert "drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || [])" in shader
+
+
+def test_planar_shadow_frame_does_not_double_flip_reverse_facing() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    fn = shader[shader.index("function planarFrameForShadowMesh"):shader.index("function buildPlanarContactOccluder")]
+    assert 'createPlanarMirrorRuntime(meshLike, t, "planar shadow frame")' in fn
+    assert "meshReverseFacing(meshLike)" not in fn
+
+
+def test_planar_mirror_geometry_uses_rendered_surface_normal_not_reverse_facing_flag() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    fn = shader[shader.index("function mirrorFrameForLightMesh"):shader.index("function resolveLinkedMirrorLight")]
+    assert "meshReverseFacing(meshLike)" not in fn
+    assert "scaleVec3(frame.normal, -1.0)" not in fn
+
+
+def test_surface_camera_paths_use_rendered_part_not_authored_mesh() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    render_fn = shader[shader.index("_buildPlanarSurfaceRenderCamera: function"):shader.index("_ensureShadowTarget")]
+    assert "resolveSceneMeshById" not in render_fn
+    aperture_fn = shader[shader.index("_buildPlanarSurfaceApertureCamera: function"):shader.index("_buildMirrorEyeLockedCamera")]
+    assert "resolveSceneMeshById" not in aperture_fn
+    assert "part: part" in render_fn
+    assert "part: part" in aperture_fn
+
+
+def test_point_light_shadow_fit_aims_at_caster_bounds_not_light_target() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    fn = shader[shader.index("function fitShadowViewProjection"):shader.index("function meshTiming")]
+    assert 'if (normalizeLightKind(light.kind) === "point")' in fn
+    assert "for (var centerIndex = 0; centerIndex < worldPoints.length; centerIndex += 1)" in fn
+    assert "target = scaleVec3(target, 1.0 / Math.max(1, worldPoints.length));" in fn
+
+
+def test_native_linked_camera_uses_rendered_mirror_payload() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "function renderedMirrorPartForCamera" in source
+    assert "var mirrorPart = renderedMirrorPartForCamera(mirrorMesh, sourceCamera, \"linked reflected camera\");" in source
+    assert "var mirrorPart = renderedMirrorPartForCamera(mirrorMesh, baseCamera, \"aperture camera\");" in source
+    linked_fn = source[source.index("function resolveLinkedMirrorCamera"):source.index("function resolveMirrorApertureCamera")]
+    assert "part: { mesh: mirrorMesh }" not in linked_fn
+    assert "part: mirrorPart" in linked_fn
+
+
+def test_native_scene_does_not_precompute_mirror_light_planes() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "function quadApertureFrame(mesh)" not in source
+    assert "function resolveLinkedMirrorLight" not in source
+    assert "function resolveProjectedLightSpec" not in source
+    assert "projected_aperture" not in source
+
+
+def test_mirror_light_paths_fail_loudly_instead_of_falling_back() -> None:
+    native_source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "resolveProjectedLightSpec(resolveLinkedMirrorLight" not in native_source
+
+    wgpu_source = WGPU_JS.read_text(encoding="utf-8")
+    wgpu_light_fn = wgpu_source[wgpu_source.index("function resolveLinkedMirrorLight"):wgpu_source.index("function resolveProjectedLightFromMeshId")]
+    assert "reflected light requires both reflect_of_light_id and reflect_mirror_mesh_id" in wgpu_light_fn
+    assert 'reflected light source "' in wgpu_light_fn
+    geometry_fn = wgpu_source[wgpu_source.index("function resolvePlanarMirrorGeometry"):wgpu_source.index("function orientMirrorBasisForEye")]
+    assert 'did not produce a canonical planar frame' in geometry_fn
+    assert "if (!sourceLight) { return lightSpec; }" not in wgpu_light_fn
+    assert "if (!frame) { return lightSpec; }" not in wgpu_light_fn
+
+
+def test_planar_mirror_uniform_packets_never_fallback_to_origin() -> None:
+    wgpu_source = WGPU_JS.read_text(encoding="utf-8")
+    assert "function requirePlanarPacket(packet, label)" in wgpu_source
+
+    contact_fn = wgpu_source[wgpu_source.index("function writePlanarContactOccluder"):wgpu_source.index("writePlanarContactOccluder(76")]
+    assert 'requirePlanarPacket(occluder, "planar contact occluder")' in contact_fn
+    assert "occluder.plane_point) ? occluder.plane_point : [0.0, 0.0, 0.0]" not in contact_fn
+    assert "occluder.points) ? occluder.points : []" not in contact_fn
+
+    aperture_fn = wgpu_source[wgpu_source.index("function writeLightAperture"):wgpu_source.index("writeLightAperture(0")]
+    assert 'requirePlanarPacket(aperture, "projected light aperture")' in aperture_fn
+    assert "aperture.plane_point) ? aperture.plane_point : [0.0, 0.0, 0.0]" not in aperture_fn
+    assert "aperture.points) ? aperture.points : []" not in aperture_fn
+
+    shadow_fit_fn = wgpu_source[wgpu_source.index("function fitShadowViewProjection"):wgpu_source.index("function meshTiming")]
+    assert 'requirePlanarPacket(aperture, "projected shadow aperture")' in shadow_fit_fn
+    assert "vec3Or(aperture.plane_point, [0.0, 0.0, 0.0])" not in shadow_fit_fn
+
+
+def test_reflected_light_shadow_fit_excludes_its_aperture_mesh() -> None:
+    wgpu_source = WGPU_JS.read_text(encoding="utf-8")
+    helper_fn = wgpu_source[wgpu_source.index("function shadowCasterPartsForLight"):wgpu_source.index("function isPlanarScreenShadowSurface")]
+    assert "light.projected_aperture.mesh_id" in helper_fn
+    assert 'String(casterMesh.id || "") === apertureCasterId' in helper_fn
+    assert "canPlanarSurfaceCastShadowForLight(casterMesh, light, t)" in helper_fn
+
+    shadow_prepare_fn = wgpu_source[wgpu_source.index("var prepareLightShadow = function"):wgpu_source.index("var shadowState0 = prepareLightShadow")]
+    assert "var lightCasterParts = shadowCasterPartsForLight(casterParts, light, t);" in shadow_prepare_fn
+    assert "canPlanarSurfaceCastShadowForLight(casterPart && casterPart.mesh, light, t)" not in shadow_prepare_fn
 
 
 def test_surface_local_bounds_use_mesh_local_origin_space() -> None:
@@ -1007,6 +1808,78 @@ sandbox.__sceneTest.resolveLinkedMirrorCamera({{
     assert "requires both reflect_of_frame_id and reflect_mirror_mesh_id" in result.stderr
 
 
+def test_linked_reflected_camera_does_not_silently_use_base_camera() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    camera_fn = source[source.index("function resolveLinkedMirrorCamera"):source.index("function resolveMirrorApertureCamera")]
+    assert 'linked reflected camera source frame "' in camera_fn
+    assert "mirror surface_system camera lies on or behind the mirror plane" not in camera_fn
+    assert "return cloneCameraState(baseCamera, baseCamera);" not in camera_fn
+
+    aperture_fn = source[source.index("function resolveMirrorApertureCamera"):source.index("function cameraBehaviorProps")]
+    assert "mirror aperture camera lies on or behind the mirror plane" not in aperture_fn
+    assert "return cloneCameraState(baseCamera, baseCamera);" not in aperture_fn
+
+
+def test_native_clone_camera_preserves_mirror_metadata() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    clone_fn = source[source.index("function cloneCameraState"):source.index("function cameraOrbitStepRadians")]
+    assert "cloned._mirrorDebug = cloneJsonValue(source._mirrorDebug);" in clone_fn
+    assert "cloned._mirrorViewProjection = source._mirrorViewProjection.slice();" in clone_fn
+
+
+def test_offscreen_reflected_frame_waits_for_source_before_resolving_camera() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert 'dependent reflected frame "' in source
+    assert 'timed out waiting for source frame "' in source
+    assert "global.setTimeout(renderFrame, 16);" in source
+    assert "resolveLinkedMirrorCamera(authoredCamera, seconds)" in source
+    wait_index = source.index('timed out waiting for source frame "')
+    resolve_index = source.index("resolveLinkedMirrorCamera(authoredCamera, seconds)")
+    assert wait_index < resolve_index
+
+
+def test_native_scene_resets_stale_camera_controls_on_boot() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    boot_fn = source[source.index("function boot()"):source.index("function ensureGeomRendererReady")]
+    assert "controlState.zoomFactor = 1.0;" in boot_fn
+    assert "controlState.orbitPhi = 0.0;" in boot_fn
+    assert "controlState.orbitTheta = 0.0;" in boot_fn
+    assert "controlState.keyLeft = false;" in boot_fn
+    assert "controlState.apertureInitDone = false;" in boot_fn
+    assert "controlState.exactInitCamera = null;" in boot_fn
+    assert "if (controlState.configSignature !== configSignature)" not in boot_fn
+
+
+def test_native_scene_wheel_requires_frame_target_but_arrow_keys_allow_document_target() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    boot_fn = source[source.index("function boot()"):source.index("function ensureGeomRendererReady")]
+    assert "function eventFrameId(ev)" in boot_fn
+    assert "function keyEventAllowedForActiveFrame(ev, activeFrameId)" in boot_fn
+    assert "var fid = eventFrameId(ev);" in boot_fn
+    assert "if (!fid || fid !== activeFrameId) { return; }" in boot_fn
+    wheel_index = boot_fn.index('global.addEventListener("wheel"')
+    wheel_apply_index = boot_fn.index("applyWheelZoom(activeState, ev);")
+    wheel_gate_index = boot_fn.index("if (!fid || fid !== activeFrameId) { return; }", wheel_index)
+    assert wheel_index < wheel_gate_index < wheel_apply_index
+    key_index = boot_fn.index('global.addEventListener("keydown"')
+    prevent_index = boot_fn.index("ev.preventDefault();", key_index)
+    key_gate_index = boot_fn.index("if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }", key_index)
+    assert key_index < key_gate_index < prevent_index
+    allow_fn = boot_fn[boot_fn.index("function keyEventAllowedForActiveFrame"):boot_fn.index("if (useVisibleFrame)")]
+    assert "if (keyEventTargetsTextInput(ev)) { return false; }" in allow_fn
+    assert "return !fid || fid === activeFrameId;" in allow_fn
+
+
+def test_native_scene_light_markers_do_not_enable_screen_space_flare_ghosts() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    build_state_fn = source[source.index("function buildSceneState"):source.index("function renderPayload")]
+    render_payload_fn = source[source.index("function renderPayload"):source.index("function resolveMeshSpecById")]
+
+    assert "buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size)" in build_state_fn
+    assert "enabled: renderOptions.light_flares === true" in render_payload_fn
+    assert "enabled: renderOptions.show_light_markers === true" not in render_payload_fn
+
+
 def test_linked_reflected_camera_uses_planar_mirror_adapter_camera() -> None:
     script = f"""
 const fs = require("fs");
@@ -1100,4 +1973,110 @@ process.stdout.write(JSON.stringify({{
     payload = _run_node(script)
     assert payload["linkedPos"] == pytest.approx(payload["expectedPos"])
     assert payload["linkedTarget"] == pytest.approx(payload["expectedTarget"])
+
+
+def test_locked_linked_reflected_camera_still_applies_aperture_camera() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+sandbox.document = {{
+  readyState: "loading",
+  addEventListener() {{}},
+  querySelector() {{ return null; }}
+}};
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+let renderCalls = 0;
+let apertureCalls = 0;
+const originalFactory = sandbox.VfGeomWgpuUtil.createPlanarMirrorAdapter;
+sandbox.VfGeomWgpuUtil.createPlanarMirrorAdapter = function () {{
+  const adapter = originalFactory();
+  return {{
+    name: adapter.name,
+    targetDims: adapter.targetDims,
+    buildRenderCamera(args) {{
+      renderCalls += 1;
+      return adapter.buildRenderCamera(args);
+    }},
+    buildApertureCamera(args) {{
+      apertureCalls += 1;
+      return adapter.buildApertureCamera(args);
+    }}
+  }};
+}};
+
+let sceneSrc = fs.readFileSync({json.dumps(str(REPO / "web" / "vf-ui" / "vf-native-scene.js"))}, "utf8");
+sceneSrc = sceneSrc.replace(/\\}}\\)\\(typeof window !== "undefined" \\? window : this\\);\\s*$/, `
+global.__sceneTest = {{
+  resolveLinkedMirrorCamera: resolveLinkedMirrorCamera,
+  resolveMirrorApertureCamera: resolveMirrorApertureCamera
+}};
+}})(typeof window !== "undefined" ? window : this);
+`);
+
+sandbox.__vfNativeSceneLiveCameras = {{
+  main_frame: {{
+    pos: [0.0, -4.0, 2.5],
+    target: [0.0, 0.0, 1.0],
+    up: [0.0, 0.0, 1.0],
+    fov: 34.0
+  }}
+}};
+
+sandbox.__vfNativeSceneConfig = {{
+  scene_ir: {{
+    frame: {{ frame_id: "reflected_frame", rect: [0.0, 0.0, 1.0, 1.0] }},
+    camera: {{ properties: {{
+      reflect_of_frame_id: "main_frame",
+      reflect_mirror_mesh_id: "mirror",
+      aperture_mirror_mesh_id: "mirror",
+      lock_aperture_camera: true,
+      reflect_eye_only: true
+    }} }},
+    meshes: [{{
+      id: "mirror",
+      kind: "quad",
+      center: [0.0, 1.0, 1.0],
+      size: [2.0, 2.0],
+      rotation: [90.0, 0.0, 0.0],
+      surface_system: {{ kind: "screen", reverse_facing: true }}
+    }}],
+    timing: {{ fps: 60, duration_seconds: 1, boundary: "repeat" }}
+  }}
+}};
+
+vm.runInNewContext(sceneSrc, sandbox, {{ filename: "vf-native-scene.js" }});
+
+const linked = sandbox.__sceneTest.resolveLinkedMirrorCamera({{
+  pos: [0.0, -2.0, 2.0],
+  target: [0.0, 0.0, 1.0],
+  up: [0.0, 0.0, 1.0],
+  fov: 34.0
+}}, 0);
+const finalCamera = sandbox.__sceneTest.resolveMirrorApertureCamera(linked, 0, 1.0);
+
+process.stdout.write(JSON.stringify({{
+  renderCalls,
+  apertureCalls,
+  hasView: Array.isArray(finalCamera.view_matrix) && finalCamera.view_matrix.length === 16,
+  hasProjection: Array.isArray(finalCamera.projection_matrix) && finalCamera.projection_matrix.length === 16
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["renderCalls"] == 1
+    assert payload["apertureCalls"] == 1
+    assert payload["hasView"] is True
+    assert payload["hasProjection"] is True
 
