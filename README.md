@@ -1085,11 +1085,12 @@ consumed by the renderer. That split is why the same VKF scene can be:
 - served in the browser harness
 - packaged for the native overlay host
 
-The architecture is split into three systems:
+The architecture is split into two repositories with one clear host seam:
 
-- `transparent-overlay`: minimal C++/Win32/WebView2 transparent overlay host
-- `overlay-ui-engine`: language-neutral graphics, widgets, WebGPU, picking, and runtime protocol
-- `vektor-flow`: VKF language, compiler, stdlib, and UI adapter layer
+- `transparent-overlay`: generic C++/Win32/WebView2 host for windows,
+  packaged assets, input packets, and compiled modules
+- `vektor-flow`: VKF language, compiler, stdlib, examples, docs, tests, and
+  the `web/vf-ui` runtime that implements VKF UI and geometry semantics
 
 See `docs/adr/0002-split-overlay-host-ui-engine-vkf-plugin.md` for the
 recorded decision.

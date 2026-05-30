@@ -175,6 +175,27 @@ What is still missing is:
 So this workstream should treat the current native-core path as a useful base,
 not as the finished UI runtime contract.
 
+## Overlay Host Boundary
+
+`transparent-overlay` is a generic host. It may:
+
+- open a transparent native window
+- serve packaged assets
+- expose packet and compiled-module transport endpoints
+- load a compiled module by path or logical name
+- provide input snapshots and host diagnostics
+
+It must not:
+
+- parse VKF source
+- know VKF stdlib names or semantics
+- lower VKF declarations into runtime records
+- special-case VKF examples
+
+VKF-owned runtime assets live in `vektor-flow`. The overlay receives those
+assets as files, packets, arenas, or compiled modules. This keeps the host
+usable by another language later without importing VKF-specific behavior.
+
 ## Current Transitional Seam
 
 The repo now has a browser-side transitional seam in:
