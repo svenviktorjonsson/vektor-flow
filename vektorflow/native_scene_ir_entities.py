@@ -157,10 +157,12 @@ def normalize_scene_ir_light_entity(light: dict[str, Any]) -> dict[str, Any]:
             "aperture_mesh_id": "aperture_mesh_id",
             "reflect_of_light_id": "reflect_of_light_id",
             "reflect_mirror_mesh_id": "reflect_mirror_mesh_id",
-            "clip_epsilon": "clip_epsilon",
+            "clip_epsilon_ratio": "clip_epsilon_ratio",
         },
         path="native_scene.light",
     )
+    if "clip_epsilon" in props:
+        raise ValueError("native_scene light clip_epsilon is absolute; use clip_epsilon_ratio")
     tracks = _entities.normalize_native_named_tracks(
         light,
         props,
@@ -177,7 +179,7 @@ def normalize_scene_ir_light_entity(light: dict[str, Any]) -> dict[str, Any]:
             "color",
             "source_radius",
             "spread",
-            "clip_epsilon",
+            "clip_epsilon_ratio",
         ),
         path="native_scene.light",
     )
@@ -198,7 +200,7 @@ def normalize_scene_ir_light_entity(light: dict[str, Any]) -> dict[str, Any]:
     props.setdefault("range", 0.0)
     props.setdefault("source_radius", 0.0)
     props.setdefault("spread", 1.0)
-    props.setdefault("clip_epsilon", 1e-3)
+    props.setdefault("clip_epsilon_ratio", 1e-5)
     props.setdefault("reflect_of_light_id", None)
     props.setdefault("reflect_mirror_mesh_id", None)
     aperture_face_id = props.pop("aperture_face_id", None)

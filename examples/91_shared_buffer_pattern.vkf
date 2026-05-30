@@ -1,8 +1,8 @@
 collections: .collections
 
 points: [1, 2, 3]
-runtime_points: collections.list(:points)
-runtime_points.0: 9
+runtime_points: collections.map(current: points)
+runtime_points.("current"): [9, 2, 3]
 
 :: points
-:: runtime_points
+:: runtime_points.current

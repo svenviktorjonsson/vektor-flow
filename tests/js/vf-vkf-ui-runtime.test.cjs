@@ -1,10 +1,145 @@
 const assert = require("node:assert/strict");
 const shared = require("../../web/vf-ui/vf-shared-runtime.js");
 const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
+const wasmAdapterModule = require("../../web/vf-ui/vf-vkf-ui-wasm-kernel-adapter.js");
+const wasmFactoryModule = require("../../web/vf-ui/vf-vkf-ui-wasm-module-factory.js");
+
+const WASM_EXPORTS = wasmFactoryModule.EXPORT_NAMES;
 
 function assertApproxPoint(actual, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(actual[0] - expected[0]) <= epsilon, `${actual[0]} ~= ${expected[0]}`);
   assert.ok(Math.abs(actual[1] - expected[1]) <= epsilon, `${actual[1]} ~= ${expected[1]}`);
+}
+
+{
+  const wasm = wasmFactoryModule.instantiateRotateScaleModule();
+  const kernelAdapter = wasmAdapterModule.createWasmKernelAdapter({
+    memory: wasm.memory,
+    exports: wasm.instance.exports
+  });
+  const arena = shared.createTransformArena(4);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena, kernelAdapter });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add({
+    x: [-1, 1, 0],
+    y: [-1, -1, 1],
+    bounds: [100, 120, 80, 70]
+  });
+  mesh.add_vertices([0, 1, 2]);
+  mesh.add_edges([[0, 1], [1, 2], [2, 0]]);
+
+  const before = mesh.world_points().map((p) => p.slice());
+  const origin = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const anchor = mesh.world_point(0).slice(0, 2);
+  const cursor = [anchor[0] + 22, anchor[1] - 14];
+  const anchorVec = [anchor[0] - origin[0], anchor[1] - origin[1]];
+  const cursorVec = [cursor[0] - origin[0], cursor[1] - origin[1]];
+
+  mesh.rotate_scale_at_vertex({
+    vertex: 0,
+    origo: origin,
+    angle: Math.atan2(cursorVec[1], cursorVec[0]) - Math.atan2(anchorVec[1], anchorVec[0]),
+    scale: Math.hypot(cursorVec[0], cursorVec[1]) / Math.hypot(anchorVec[0], anchorVec[1])
+  });
+
+  assert.notDeepEqual(mesh.world_points(), before);
+  assertApproxPoint(mesh.world_point(0).slice(0, 2), cursor);
+}
+
+{
+  const wasm = wasmFactoryModule.instantiateScaleEdgeModule();
+  const kernelAdapter = wasmAdapterModule.createWasmKernelAdapter({
+    memory: wasm.memory,
+    exports: wasm.instance.exports
+  });
+  const arena = shared.createTransformArena(4);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena, kernelAdapter });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add({
+    x: [-1, 1, 1, -1],
+    y: [-1, -1, 1, 1],
+    bounds: [100, 120, 80, 70]
+  });
+  mesh.add_vertices([0, 1, 2, 3]);
+  mesh.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+
+  const edgeA = mesh._parent_point_from_inner([-1, -1, 0]).slice(0, 2);
+  const edgeB = mesh._parent_point_from_inner([1, -1, 0]).slice(0, 2);
+  const ex = edgeB[0] - edgeA[0];
+  const ey = edgeB[1] - edgeA[1];
+  const len = Math.sqrt(ex * ex + ey * ey);
+  const normal = [-ey / len, ex / len];
+  const edgeAnchor = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
+  const cursor = [edgeAnchor[0] + normal[0] * 18, edgeAnchor[1] + normal[1] * 18];
+  const origin = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const normalAnchor = (edgeAnchor[0] - origin[0]) * normal[0] + (edgeAnchor[1] - origin[1]) * normal[1];
+  const scale = ((cursor[0] - origin[0]) * normal[0] + (cursor[1] - origin[1]) * normal[1]) / normalAnchor;
+
+  mesh.scale_edge({
+    edge: 0,
+    origo: origin,
+    scale
+  });
+
+  assertApproxPoint(mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2), cursor);
+}
+
+{
+  const wasm = wasmFactoryModule.instantiateTransformModule();
+  const kernelAdapter = wasmAdapterModule.createWasmKernelAdapter({
+    memory: wasm.memory,
+    exports: wasm.instance.exports
+  });
+  const arena = shared.createTransformArena(4);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena, kernelAdapter });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add({
+    x: [-1, 1, 1, -1],
+    y: [-1, -1, 1, 1],
+    bounds: [100, 120, 80, 70]
+  });
+  mesh.add_vertices([0, 1, 2, 3]);
+  mesh.add_edges([[0, 1], [1, 2], [2, 3], [3, 0]]);
+
+  const origin = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const anchor = mesh.world_point(0).slice(0, 2);
+  const rotateCursor = [anchor[0] + 16, anchor[1] - 10];
+  const anchorVec = [anchor[0] - origin[0], anchor[1] - origin[1]];
+  const rotateVec = [rotateCursor[0] - origin[0], rotateCursor[1] - origin[1]];
+  mesh.rotate_scale_at_vertex({
+    vertex: 0,
+    origo: origin,
+    angle: Math.atan2(rotateVec[1], rotateVec[0]) - Math.atan2(anchorVec[1], anchorVec[0]),
+    scale: Math.hypot(rotateVec[0], rotateVec[1]) / Math.hypot(anchorVec[0], anchorVec[1])
+  });
+  assertApproxPoint(mesh.world_point(0).slice(0, 2), rotateCursor);
+
+  const edgeA = mesh._parent_point_from_inner([-1, -1, 0]).slice(0, 2);
+  const edgeB = mesh._parent_point_from_inner([1, -1, 0]).slice(0, 2);
+  const ex = edgeB[0] - edgeA[0];
+  const ey = edgeB[1] - edgeA[1];
+  const len = Math.sqrt(ex * ex + ey * ey);
+  const normal = [-ey / len, ex / len];
+  const edgeAnchor = mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2);
+  const edgeCursor = [edgeAnchor[0] + normal[0] * 14, edgeAnchor[1] + normal[1] * 14];
+  const origin2 = mesh.world_inner_point(mesh.origin).slice(0, 2);
+  const normalAnchor = (edgeAnchor[0] - origin2[0]) * normal[0] + (edgeAnchor[1] - origin2[1]) * normal[1];
+  const scale = ((edgeCursor[0] - origin2[0]) * normal[0] + (edgeCursor[1] - origin2[1]) * normal[1]) / normalAnchor;
+  mesh.scale_edge({
+    edge: 0,
+    origo: origin2,
+    scale
+  });
+  assertApproxPoint(mesh._parent_point_from_inner([0, -1, 0]).slice(0, 2), edgeCursor);
 }
 
 {
@@ -642,6 +777,58 @@ function assertApproxPoint(actual, expected, epsilon = 1e-6) {
     (bottomBefore[1] - origin[1]) * (bottomAfter[1] - origin[1]) < 0,
     "edge crossed to the opposite side of the origin"
   );
+}
+
+{
+  const memory = { buffer: new ArrayBuffer(64 * Float64Array.BYTES_PER_ELEMENT) };
+  const calls = [];
+  const kernelAdapter = wasmAdapterModule.createWasmKernelAdapter({
+    memory,
+    exports: {
+      [WASM_EXPORTS.moveVertexToLocalCursor](state) {
+        calls.push(["moveVertex", state.vertex, state.localCursor.slice()]);
+        return {
+          x: [-2, 3, 1],
+          y: [-1, 2, 4],
+          z: [0, 0, 0]
+        };
+      },
+      [WASM_EXPORTS.pickVertexIndex](ptr) {
+        const view = new Float64Array(memory.buffer);
+        calls.push(["pickVertex", ptr, view[2]]);
+        view[3 + Number(view[2]) * 3] = 1;
+      }
+    }
+  });
+
+  const arena = shared.createTransformArena(4);
+  const geometryArena = shared.createGeometryArena(16);
+  const eventArena = shared.createEventArena(4);
+  const runtime = vkfUi.createVkfUiRuntime({ arena, eventArena, geometryArena, kernelAdapter });
+  const panel = runtime.ui.display.frame();
+  runtime.ui.display.add_frame(panel, [0, 0, 1, 1]);
+
+  const mesh = panel.add({
+    x: [-1, 0, 1],
+    y: [0, 1, 0],
+    bounds: [100, 100, 100, 100]
+  });
+  mesh.add_vertices([0, 1, 2]);
+  mesh.add_edges([[0, 1], [1, 2]]);
+  mesh.add_faces([[0, 1, 2]]);
+
+  const picked = panel.pick([150, 150]);
+  assert.equal(picked.object, mesh);
+  assert.equal(picked.hover.vertex_id, 1);
+
+  mesh.move_vertex({ vertex: 1, local_cursor: [3, 2] });
+  assert.deepEqual(mesh.coords.x, [-2, 3, 1]);
+  assert.deepEqual(mesh.coords.y, [-1, 2, 4]);
+  assert.deepEqual(geometryArena.vertex(mesh.geometry_offset + 1), [3, 2, 0]);
+  assert.deepEqual(calls, [
+    ["pickVertex", 0, 3],
+    ["moveVertex", 1, [3, 2]]
+  ]);
 }
 
 console.log("vf-vkf-ui-runtime tests passed");

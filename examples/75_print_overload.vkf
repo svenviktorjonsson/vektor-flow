@@ -1,6 +1,7 @@
 Point: (x:num, y:num)
 
-::(value:Point):
-    :: "Point($value.x, $value.y)"
+show_point(value):
+    @: "Point($value.x, $value.y)"
 
-:: (x: 1, y: 2)
+p: (x: 1, y: 2)
+:: show_point(p)

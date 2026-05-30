@@ -3,8 +3,8 @@ collections: .collections
 value_point: (x: 1, y: 2)
 value_point.x: 9
 
-items: collections.list(:[1, 2])
-items.push(3)
+state: collections.map(name: "alice", ok: true)
+state.("name"): "bob"
 
 :: value_point
-:: items
+:: state

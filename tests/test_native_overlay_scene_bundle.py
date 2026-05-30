@@ -1672,13 +1672,24 @@ native_scene: (
     assert '"frame_ref":"main_mirror_frame__surface_source_0"' in compact
     assert '"reflect_of_frame_id":"main_mirror_frame"' in compact
     assert '"reflect_mirror_mesh_id":"mirror_face"' in compact
+    assert '"pos":[0.0,-4.8,2.2]' in compact
+    assert '"pos":[0.0,4.8,2.2]' not in compact
     assert '"visible":false' in compact
+    assert '"reverse_facing":true' in compact
     assert '"show_light_markers":false' in compact
     assert '"id":"main_mirror_frame__surface_source_0"' not in packets
     assert '"lock_aperture_camera":true' in compact
     assert '"controls_enabled":false' in compact
     assert '"flip_x":true' in compact
     assert compact.index('"frame_id":"main_mirror_frame__surface_source_0"') < compact.index('"frame_id":"main_mirror_frame"')
+
+
+def test_scene_3d_mirror_compiler_does_not_pre_reflect_camera() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    source = (repo / "vektorflow" / "native_overlay_scene_bundle.py").read_text(encoding="utf-8")
+    assert "_surface_plane_point_normal" not in source
+    assert "_reflect_point_across_plane" not in source
+    assert "_rotate_vec3_zyx_deg" not in source
 
 
 def test_scene_3d_shadow_receivers_use_declared_light_ids(tmp_path: Path) -> None:
@@ -1787,7 +1798,7 @@ native_scene: (
             source_radius: 0.18,
             spread: 1.0,
             aperture_face_id: "mirror_face",
-            clip_epsilon: 0.002
+            clip_epsilon_ratio: 0.0002
         )
     ],
     shadow: (
@@ -1806,7 +1817,103 @@ native_scene: (
     compact = "".join(program.html_text.split())
     assert '"kind":"projected"' in compact
     assert '"aperture_mesh_id":"mirror_face"' in compact
-    assert '"clip_epsilon":0.002' in compact
+    assert '"clip_epsilon_ratio":0.0002' in compact
+
+
+def test_scene_3d_projected_light_rejects_absolute_clip_epsilon(tmp_path: Path) -> None:
+    path = tmp_path / "projected_light_absolute_epsilon.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "projected_light_frame",
+    title: "Projected Light",
+    plane: (
+        center: [0.0, 0.0],
+        size: 8.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0]
+    ),
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    ),
+    surfaces: [
+        (
+            id: "mirror_face",
+            center: [0.0, 0.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [-90.0, 0.0, 0.0],
+            color: [0.24, 0.26, 0.30, 0.35]
+        )
+    ],
+    lights: [
+        (
+            kind: "projected",
+            pos: [-2.2, 2.8, 5.4],
+            target: [0.0, 0.0, 1.0],
+            aperture_face_id: "mirror_face",
+            clip_epsilon: 0.002
+        )
+    ]
+)
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="clip_epsilon is absolute; use clip_epsilon_ratio"):
+        try_build_native_overlay_scene_program(path)
+
+
+def test_scene_3d_surface_mirror_preserves_backface_lighting_flag(tmp_path: Path) -> None:
+    path = tmp_path / "ui_mirror_backface_flag.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "mirror_backface_frame",
+    title: "Mirror Backface",
+    rect: [0.10, 0.10, 0.72, 0.72],
+    plane: (
+        center: [0.0, 0.0],
+        size: 2.0,
+        z: 0.0,
+        color: [1.0, 1.0, 1.0, 1.0]
+    ),
+    surfaces: [
+        (
+            id: "mirror_face",
+            center: [0.0, 1.0, 1.0],
+            size: [2.0, 2.0],
+            rotation: [90.0, 0.0, 0.0],
+            color: [0.7, 0.76, 0.86, 1.0],
+            casts_shadow: true,
+            receives_shadow: false,
+            no_backface_specular: true,
+            surface_system: (
+                kind: "screen",
+                frame_ref: "mirror_source"
+            )
+        )
+    ],
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.0],
+        lift: 0.0
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"casts_shadow":true' in compact
+    assert '"receives_shadow":false' in compact
+    assert '"no_backface_specular":true' in compact
 
 
 def test_scene_3d_accepts_surfaces_and_rejects_quads_alias(tmp_path: Path) -> None:

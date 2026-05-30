@@ -1,6 +1,6 @@
-:.math
+math: .math
 
 sin_deg(x):
-    .math.sin(x * .math.pi / 180)
+    math.sin(x * math.pi / 180)
 
 :: sin_deg(90)

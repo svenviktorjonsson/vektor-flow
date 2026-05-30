@@ -29,78 +29,6 @@ _UNSUPPORTED = object()
 _NATIVE_AXIS_SUFFIX_CHARS = frozenset("tijkuvwh")
 
 
-def _dot3(a: list[float], b: list[float]) -> float:
-    return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
-
-
-def _normalize3(v: list[float]) -> list[float]:
-    length = (_dot3(v, v)) ** 0.5
-    if length <= 1e-9:
-        return [0.0, 0.0, 1.0]
-    inv = 1.0 / length
-    return [v[0] * inv, v[1] * inv, v[2] * inv]
-
-
-def _rotate_vec3_zyx_deg(v: list[float], rotation_deg: list[float]) -> list[float]:
-    import math
-
-    rx = math.radians(float(rotation_deg[0] if len(rotation_deg) > 0 else 0.0))
-    ry = math.radians(float(rotation_deg[1] if len(rotation_deg) > 1 else 0.0))
-    rz = math.radians(float(rotation_deg[2] if len(rotation_deg) > 2 else 0.0))
-
-    x, y, z = float(v[0]), float(v[1]), float(v[2])
-
-    cy = math.cos(rz)
-    sy = math.sin(rz)
-    x, y = (x * cy) - (y * sy), (x * sy) + (y * cy)
-
-    cy = math.cos(ry)
-    sy = math.sin(ry)
-    x, z = (x * cy) + (z * sy), (-x * sy) + (z * cy)
-
-    cx = math.cos(rx)
-    sx = math.sin(rx)
-    y, z = (y * cx) - (z * sx), (y * sx) + (z * cx)
-
-    return [x, y, z]
-
-
-def _surface_plane_point_normal(surface: dict[str, Any]) -> tuple[list[float], list[float]] | None:
-    center_value = surface.get("center")
-    if not isinstance(center_value, list):
-        return None
-    if len(center_value) == 3:
-        center = [float(center_value[0]), float(center_value[1]), float(center_value[2])]
-    elif len(center_value) == 2:
-        center = [float(center_value[0]), float(center_value[1]), 0.0]
-        if "z" in surface:
-            center[2] = float(surface.get("z") or 0.0)
-    else:
-        return None
-    rotation_value = surface.get("rotation")
-    rotation = (
-        [float(rotation_value[0]), float(rotation_value[1]), float(rotation_value[2])]
-        if isinstance(rotation_value, list) and len(rotation_value) == 3
-        else [0.0, 0.0, 0.0]
-    )
-    normal = _normalize3(_rotate_vec3_zyx_deg([0.0, 0.0, 1.0], rotation))
-    return center, normal
-
-
-def _reflect_point_across_plane(point: list[float], plane_point: list[float], plane_normal: list[float]) -> list[float]:
-    offset = [
-        float(point[0]) - float(plane_point[0]),
-        float(point[1]) - float(plane_point[1]),
-        float(point[2]) - float(plane_point[2]),
-    ]
-    dist = _dot3(offset, plane_normal)
-    return [
-        float(point[0]) - (2.0 * dist * plane_normal[0]),
-        float(point[1]) - (2.0 * dist * plane_normal[1]),
-        float(point[2]) - (2.0 * dist * plane_normal[2]),
-    ]
-
-
 def _lower_scene_3d_surface_camera_mirrors_to_views(declared: dict[str, Any]) -> dict[str, Any] | None:
     surfaces = declared.get("surfaces")
     if not isinstance(surfaces, list) or not surfaces:
@@ -155,40 +83,10 @@ def _lower_scene_3d_surface_camera_mirrors_to_views(declared: dict[str, Any]) ->
                 if field not in hidden_camera and field in visible_camera:
                     hidden_camera[field] = copy.deepcopy(visible_camera[field])
         hidden_decl["camera"] = hidden_camera
-        plane = _surface_plane_point_normal(surface)
-        if plane is not None and isinstance(hidden_camera, dict):
-            plane_point, plane_normal = plane
-            hidden_pos = hidden_camera.get("pos")
-            if isinstance(hidden_pos, list) and len(hidden_pos) == 3:
-                hidden_camera["pos"] = _reflect_point_across_plane(
-                    [float(hidden_pos[0]), float(hidden_pos[1]), float(hidden_pos[2])],
-                    plane_point,
-                    plane_normal,
-                )
-            target_seed = hidden_camera.get("target")
-            if isinstance(visible_camera, dict) and isinstance(visible_camera.get("target"), list):
-                target_seed = copy.deepcopy(visible_camera.get("target"))
-            reflect_eye_only = (
-                isinstance(mirror_of, dict)
-                and bool(mirror_of.get("reflect_eye_only", True))
-            )
-            if isinstance(target_seed, list) and len(target_seed) == 3:
-                if reflect_eye_only:
-                    hidden_camera["target"] = [
-                        float(target_seed[0]),
-                        float(target_seed[1]),
-                        float(target_seed[2]),
-                    ]
-                else:
-                    hidden_camera["target"] = _reflect_point_across_plane(
-                        [float(target_seed[0]), float(target_seed[1]), float(target_seed[2])],
-                        plane_point,
-                        plane_normal,
-                    )
-            else:
-                hidden_camera["target"] = plane_point
         hidden_surfaces = hidden_decl.get("surfaces")
         if isinstance(hidden_surfaces, list) and index < len(hidden_surfaces) and isinstance(hidden_surfaces[index], dict):
+            if bool(visible_system.get("reverse_facing", False)):
+                hidden_surfaces[index]["reverse_facing"] = True
             hidden_surfaces[index]["surface_system"] = None
             hidden_surfaces[index]["visible"] = False
         hidden_decls.append(hidden_decl)
@@ -747,6 +645,8 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 "color": "color",
                 "texture": "texture",
                 "surface_system": "surface_system",
+                "casts_shadow": "casts_shadow",
+                "receives_shadow": "receives_shadow",
             },
             path=cube_path,
         )
@@ -754,7 +654,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             cube_decl,
             cube_props,
             cube_embedding,
-            legacy_canonical_names=("center", "size", "rotation", "transform", "face_color", "color", "texture", "surface_system", "no_backface_specular"),
+            legacy_canonical_names=("center", "size", "rotation", "transform", "face_color", "color", "texture", "surface_system", "no_backface_specular", "casts_shadow", "receives_shadow"),
             path=cube_path,
         )
         cube_spec = {
@@ -769,6 +669,8 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             "texture": _embedded_named_property(cube_props, cube_embedding, "texture", None),
             "surface_system": _embedded_named_property(cube_props, cube_embedding, "surface_system", None),
             "no_backface_specular": _embedded_named_property(cube_props, cube_embedding, "no_backface_specular", False),
+            "casts_shadow": _embedded_named_property(cube_props, cube_embedding, "casts_shadow", True),
+            "receives_shadow": _embedded_named_property(cube_props, cube_embedding, "receives_shadow", True),
         }
         mesh_id = str(_embedded_named_property(cube_props, cube_embedding, "id", f"cube_{cube_index}"))
         cube_specs.append(cube_spec)
@@ -783,6 +685,8 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             "texture": cube_spec["texture"],
             "surface_system": cube_spec["surface_system"],
             "no_backface_specular": cube_spec["no_backface_specular"],
+            "casts_shadow": cube_spec["casts_shadow"],
+            "receives_shadow": cube_spec["receives_shadow"],
         })
         object_mesh_entities.append(
             _scene_ir_mesh_entity(
@@ -814,6 +718,10 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                     "texture": "texture",
                     "surface_system": "surface_system",
                     "visible": "visible",
+                    "casts_shadow": "casts_shadow",
+                    "receives_shadow": "receives_shadow",
+                    "no_backface_specular": "no_backface_specular",
+                    "reverse_facing": "reverse_facing",
                 },
                 path=quad_path,
             )
@@ -821,7 +729,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 quad_decl,
                 quad_props,
                 quad_embedding,
-                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "no_backface_specular"),
+                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "no_backface_specular", "reverse_facing"),
                 path=quad_path,
             )
             mesh_id = str(_embedded_named_property(quad_props, quad_embedding, "id", f"quad_{quad_index}"))
@@ -836,7 +744,10 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 "texture": _embedded_named_property(quad_props, quad_embedding, "texture", None),
                 "surface_system": _embedded_named_property(quad_props, quad_embedding, "surface_system", None),
                 "visible": _embedded_named_property(quad_props, quad_embedding, "visible", True),
+                "casts_shadow": _embedded_named_property(quad_props, quad_embedding, "casts_shadow", True),
+                "receives_shadow": _embedded_named_property(quad_props, quad_embedding, "receives_shadow", True),
                 "no_backface_specular": _embedded_named_property(quad_props, quad_embedding, "no_backface_specular", False),
+                "reverse_facing": _embedded_named_property(quad_props, quad_embedding, "reverse_facing", False),
             })
             object_mesh_entities.append(
                 _scene_ir_mesh_entity(
@@ -2121,9 +2032,11 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "aperture_mesh_id": None,
             "reflect_of_light_id": None,
             "reflect_mirror_mesh_id": None,
-            "clip_epsilon": 1e-3,
+            "clip_epsilon_ratio": 1e-5,
         }
     if "pos" in light:
+        if "clip_epsilon" in light:
+            raise ValueError("native_scene light clip_epsilon is absolute; use clip_epsilon_ratio")
         result = {
             "pos": _optional_number_list(light, "pos", [4.0, 5.0, 6.0], length=3),
             "pos_t": _optional_number_matrix(light, "pos_t", row_length=3),
@@ -2156,10 +2069,12 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "aperture_mesh_id": _optional_string_value(light, "aperture_mesh_id", None),
             "reflect_of_light_id": _optional_string_value(light, "reflect_of_light_id", None),
             "reflect_mirror_mesh_id": _optional_string_value(light, "reflect_mirror_mesh_id", None),
-            "clip_epsilon": _optional_number_value(light, "clip_epsilon", 1e-3),
-            "clip_epsilon_t": _optional_number_track(light, "clip_epsilon_t"),
+            "clip_epsilon_ratio": _optional_number_value(light, "clip_epsilon_ratio", 1e-5),
+            "clip_epsilon_ratio_t": _optional_number_track(light, "clip_epsilon_ratio_t"),
         }
     else:
+        if "clip_epsilon" in light:
+            raise ValueError("native_scene light clip_epsilon is absolute; use clip_epsilon_ratio")
         turns_per_cycle = _optional_number_value(light, "turns_per_cycle", 2.0)
         result = {
             "target": _optional_number_list(light, "target", [0.0, 0.0, 0.0], length=3),
@@ -2202,8 +2117,8 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
             "aperture_mesh_id": _optional_string_value(light, "aperture_mesh_id", None),
             "reflect_of_light_id": _optional_string_value(light, "reflect_of_light_id", None),
             "reflect_mirror_mesh_id": _optional_string_value(light, "reflect_mirror_mesh_id", None),
-            "clip_epsilon": _optional_number_value(light, "clip_epsilon", 1e-3),
-            "clip_epsilon_t": _optional_number_track(light, "clip_epsilon_t"),
+            "clip_epsilon_ratio": _optional_number_value(light, "clip_epsilon_ratio", 1e-5),
+            "clip_epsilon_ratio_t": _optional_number_track(light, "clip_epsilon_ratio_t"),
         }
     track_fields = [
         "pos",
@@ -2217,7 +2132,7 @@ def _normalize_ocean_light_spec(light: dict[str, Any] | None) -> dict[str, Any]:
         "color",
         "source_radius",
         "spread",
-        "clip_epsilon",
+        "clip_epsilon_ratio",
     ]
     tracks: dict[str, Any] = {}
     for field_name in track_fields:

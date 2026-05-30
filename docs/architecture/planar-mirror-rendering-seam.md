@@ -6,11 +6,27 @@ Planar mirror rendering is intentionally isolated behind a small Module seam in 
 
 `PlanarMirrorAdapter`
 
+`PlanarMirrorGeometry`
+
+`PlanarMirrorRuntime`
+
 ## Seam
 
 `createPlanarMirrorAdapter()`
 
 This is the only place a planar mirror algorithm should be installed. The renderer calls the adapter from `_mirrorTargetDimsForFrame()` and `_buildPlanarSurfaceRenderCamera()`; it should not contain mirror math inline in the surface render loop.
+
+`resolvePlanarMirrorGeometry(mesh, time, context)` is the only runtime seam that
+may turn a rendered mirror mesh into mirror geometry. Camera reflection, projected
+virtual light, aperture clipping, screen binding, and planar shadow gates must
+all consume this same geometry payload instead of deriving their own plane,
+center, corners, extent, or epsilon.
+
+`createPlanarMirrorRuntime(mesh, time, context)` is the only place that may turn
+that geometry into role-specific products such as aperture packets, contact
+occluders, shadow gates, and debug snapshots. Callers must not hand-build mirror
+planes, corners, or aperture point arrays. If a caller needs mirror data, it
+asks the runtime.
 
 ## Interface
 
@@ -19,6 +35,21 @@ The Adapter must provide:
 - `targetDims(frameWidth, frameHeight) -> { width, height }`
 - `buildRenderCamera({ part, surfaceCamera, timeMs, targetAspect, math }) -> renderCamera`
 - `buildApertureCamera({ part, surfaceCamera, timeMs, targetAspect, math }) -> apertureCamera`
+
+`PlanarMirrorGeometry` must provide:
+
+- `frame` — canonical planar frame from the rendered mirror mesh
+- `center` — planar center derived from `frame`
+- `corners` — mirror aperture rectangle from `frame`
+- `extent` — max planar span used for scale-relative tolerances
+- `epsilon(ratio, fallbackRatio)` — world epsilon derived from `extent * ratio`
+
+`PlanarMirrorRuntime` must provide:
+
+- `geometry` — the single `PlanarMirrorGeometry`
+- `aperturePacket(meshId, normal, ratio, fallbackRatio)` — the only aperture
+  packet builder
+- `debugSnapshot()` — the only structured mirror debug output
 
 The returned `renderCamera` must provide the same camera shape used by `_encodeScenePartsColorPass()`:
 
@@ -40,6 +71,14 @@ The returned `renderCamera` must provide the same camera shape used by `_encodeS
 - The contact line between the real floor and reflected floor must be numerically testable.
 - Mirror replacement work should add tests against this Interface before changing shader or render-loop code.
 - `view_matrix` and `projection_matrix` are the core truth. `pos/target/up/fov` are sugar and must not override an explicit matrix camera.
+- There must be no absolute mirror epsilon in authored lights or runtime mirror
+  callers. Authoring uses `clip_epsilon_ratio`; runtime derives world epsilon
+  from mirror extent.
+- There must be one rendered-mesh geometry truth. If a mirror bug needs checking
+  in multiple places, the module is too shallow.
+- There must be one runtime path from mirror geometry to derived rendering
+  products. If a caller hand-builds an aperture packet, contact packet, shadow
+  gate, or debug packet, the module is too shallow.
 
 ## Camera / Screen Model
 
@@ -228,4 +267,8 @@ Planar mirrors happen to collapse to a single derived camera. Curved mirrors gen
 
 ## Current Adapter
 
-The current Adapter is deliberately unimplemented. This removes the contaminated algorithm while preserving the seam where a correct implementation can be added.
+The current Adapter implements planar mirror cameras, but the larger invariant is
+the geometry seam: every camera, screen, virtual light, aperture, and planar
+shadow path must start from the same `PlanarMirrorGeometry` payload. This keeps
+locality around mirror bugs and prevents the old failure mode where visible
+surface, camera reflection, and solkatt used subtly different planes.

@@ -61,6 +61,7 @@ native_scene: (
             surface_system: (
                 kind: "screen",
                 reverse_facing: true,
+                flip_y: true,
                 scale: [1.0, 1.0],
                 camera: (
                     fov: 34.0,
@@ -220,11 +221,11 @@ native_scene: (
             color: [1.0, 0.94, 0.80, 1.0],
             intensity: 120.0,
             range: 24.0,
-            casts_shadow: true,
+            casts_shadow: false,
             source_radius: 0.18,
             spread: 1.0,
             aperture_face_id: "back_mirror",
-            clip_epsilon: 0.001
+            clip_epsilon_ratio: 0.00001
         )
     ],
     shadow: (

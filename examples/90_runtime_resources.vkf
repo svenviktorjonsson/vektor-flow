@@ -1,10 +1,12 @@
 collections: .collections
 
-buffer: collections.list(:[1, 2])
-buffer.push(3)
+buffer: collections.queue()
+buffer.put(1)
+buffer.put(2)
 
 state: collections.map(name: "alice", ok: true)
-state.name: "bob"
+state.("name"): "bob"
 
-:: buffer
+::: buffer.get()
+::: buffer.get()
 :: state
