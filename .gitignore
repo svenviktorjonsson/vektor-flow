@@ -11,6 +11,9 @@ build/
 dist/
 .pt-pkg*/
 .tmp/
+.tmp_*/
+.tmp_*.exe
+**/.vkfbuild/
 docs/.vitepress-preview*.log
 vscode/*.vsix
 .coverage
