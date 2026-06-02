@@ -1,0 +1,61 @@
+# Self-hosted VKF stdlib ownership seed.
+#
+# Source-visible native stdlib seam. This is fixture-driven and covers math
+# constants plus io.print for the native compiler smoke path.
+
+StdlibDependency: (name:str, path:str, sha256:str)
+StdlibModule: (name:str, path:str, exports:any)
+StdlibConstant: (module:str, name:str, type:str, value:num)
+StdlibFunction: (module:str, name:str, type:str)
+
+stdlib_dependency(name:str, path:str, sha256:str):
+    (name: name, path: path, sha256: sha256)
+
+stdlib_module(name:str, path:str, exports:any):
+    (name: name, path: path, exports: exports)
+
+stdlib_constant(module:str, name:str, type:str, value:num):
+    (module: module, name: name, type: type, value: value)
+
+stdlib_function(module:str, name:str, type:str):
+    (module: module, name: name, type: type)
+
+math_pi:
+    stdlib_constant("math", "pi", "num", 3.141592653589793)
+
+math_tau:
+    stdlib_constant("math", "tau", "num", 6.283185307179586)
+
+io_print:
+    stdlib_function("io", "print", "fn(any)->any")
+
+stdlib_dependency_capability:
+    name: "self_hosted_stdlib_seed"
+    driver_owned_dependencies: [
+        "native default-path sibling discovery keeps stdlib pipeline independent of Python-provided tool paths",
+        "vkf_driver_artifact_smoke recognizes math dependency",
+        "vkf_driver_artifact_smoke recognizes io dependency for io.print and bare print alias",
+        "math dependency path points to compiler/self_hosted/stdlib/math.vkf",
+        "io dependency path points to compiler/self_hosted/stdlib/io.vkf",
+        "manifest records dependencies with name path sha256",
+        "dependency hashes affect compiled/current status",
+        "unknown stdlib names fail hard"
+    ]
+    math_exports: [
+        "math.pi",
+        "math.tau"
+    ]
+    io_exports: [
+        "io.print",
+        "bare print remains compatibility alias for io.print"
+    ]
+    pipeline: [
+        "source uses math.pi or math.tau",
+        "source uses io.print or bare print alias",
+        "native typed IR resolves constant to num const",
+        "native typed IR records source-visible io.print as stdlib function",
+        "native artifact emits runnable script output"
+    ]
+    unsupported: ["no broad stdlib import system yet"]
+    percent: 65
+    :

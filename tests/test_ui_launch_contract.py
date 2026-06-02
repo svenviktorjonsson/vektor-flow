@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import pytest
 
 from vektorflow.ui.launch_contract import (
     build_browser_helper_launch,
+    find_vf_browser_server_exe,
     find_vf_overlay_exe,
     find_vektorflow_repo_root,
     is_vektorflow_repo,
@@ -27,6 +29,13 @@ def test_find_vf_overlay_exe_prefers_known_build_layout(tmp_path: Path) -> None:
     assert find_vf_overlay_exe(tmp_path) == exe.resolve()
 
 
+def test_find_vf_browser_server_exe_prefers_release_bundle_layout(tmp_path: Path) -> None:
+    exe = tmp_path / "vf-browser-server.exe"
+    exe.write_bytes(b"")
+
+    assert find_vf_browser_server_exe(tmp_path) == exe.resolve()
+
+
 def test_find_vektorflow_repo_root_uses_env_first(tmp_path: Path) -> None:
     ui = tmp_path / "web" / "vf-ui"
     ui.mkdir(parents=True)
@@ -44,30 +53,20 @@ def test_find_vektorflow_repo_root_uses_env_first(tmp_path: Path) -> None:
     assert root == tmp_path.resolve()
 
 
-def test_build_browser_helper_launch_windows_uses_detached_flags(tmp_path: Path) -> None:
+def test_build_browser_helper_launch_without_native_helper_raises(tmp_path: Path) -> None:
     serve_dir = tmp_path / "web" / "vf-ui"
     state_path = tmp_path / "browser-server.json"
 
-    command, kwargs = build_browser_helper_launch(
-        serve_dir=serve_dir,
-        port=43125,
-        state_path=state_path,
-        python_executable=Path("C:/Python/python.exe"),
-        platform_name="win32",
-        detached_process_flag=0x00000008,
-        new_process_group_flag=0x00000200,
-        no_window_flag=0x08000000,
-    )
-
-    assert Path(command[0]) == Path("C:/Python/python.exe")
-    assert command[1:3] == ["-u", "-c"]
-    assert str(serve_dir) in command
-    assert "43125" in command
-    assert str(state_path) in command
-    assert kwargs["stdin"] is not None
-    assert kwargs["stdout"] is not None
-    assert kwargs["stderr"] is not None
-    assert kwargs["creationflags"] == (0x00000008 | 0x00000200 | 0x08000000)
+    with pytest.raises(RuntimeError, match="Python http.server fallback has been removed"):
+        build_browser_helper_launch(
+            serve_dir=serve_dir,
+            port=43125,
+            state_path=state_path,
+            platform_name="win32",
+            detached_process_flag=0x00000008,
+            new_process_group_flag=0x00000200,
+            no_window_flag=0x08000000,
+        )
 
 
 def test_build_browser_helper_launch_windows_prefers_overlay_serve_only(tmp_path: Path) -> None:
@@ -81,7 +80,6 @@ def test_build_browser_helper_launch_windows_prefers_overlay_serve_only(tmp_path
         serve_dir=serve_dir,
         port=43125,
         state_path=state_path,
-        python_executable=Path("C:/Python/python.exe"),
         platform_name="win32",
         detached_process_flag=0x00000008,
         new_process_group_flag=0x00000200,
@@ -94,3 +92,31 @@ def test_build_browser_helper_launch_windows_prefers_overlay_serve_only(tmp_path
     assert kwargs["stdout"] is not None
     assert kwargs["stderr"] is not None
     assert kwargs["creationflags"] == (0x00000008 | 0x00000200 | 0x08000000)
+
+
+def test_build_browser_helper_launch_prefers_native_browser_server_when_available(tmp_path: Path) -> None:
+    serve_dir = tmp_path / "web" / "vf-ui"
+    state_path = tmp_path / "browser-server.json"
+    helper_exe = tmp_path / "vf-browser-server.exe"
+    helper_exe.write_bytes(b"")
+
+    command, kwargs = build_browser_helper_launch(
+        serve_dir=serve_dir,
+        port=43125,
+        state_path=state_path,
+        platform_name="linux",
+        browser_server_exe=helper_exe,
+    )
+
+    assert command == [
+        str(helper_exe.resolve()),
+        "--serve-dir",
+        str(serve_dir),
+        "--port",
+        "43125",
+        "--state-path",
+        str(state_path),
+    ]
+    assert kwargs["stdin"] is not None
+    assert kwargs["stdout"] is not None
+    assert kwargs["stderr"] is not None

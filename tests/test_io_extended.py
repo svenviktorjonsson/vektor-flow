@@ -8,7 +8,6 @@ import time
 from io import StringIO
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from vektorflow.interpreter import Interpreter
@@ -183,26 +182,26 @@ class TestReadNumbersMatrix:
         p = tmp_path / "m.txt"
         p.write_text("1 2\n3 4\n")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(out, np.array([[1, 2], [3, 4]], dtype=np.float64))
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
 
     def test_comma_separated(self, tmp_path: Path) -> None:
         p = tmp_path / "m.csv"
         p.write_text("1,2,3\n4,5,6\n")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(out, np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float64))
+        assert list(out) == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
 
     def test_tab_separated(self, tmp_path: Path) -> None:
         p = tmp_path / "m.tsv"
         p.write_text("1\t2\n3\t4\n")
         out = read_numbers(str(p), delimiter="\t", header=False)
-        np.testing.assert_array_equal(out, np.array([[1, 2], [3, 4]], dtype=np.float64))
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
 
     def test_single_row(self, tmp_path: Path) -> None:
         p = tmp_path / "r.txt"
         p.write_text("5 10 15\n")
         out = read_numbers(str(p), header=False)
         assert out.shape == (1, 3)
-        np.testing.assert_array_equal(out[0], [5.0, 10.0, 15.0])
+        assert list(out[0]) == [5.0, 10.0, 15.0]
 
     def test_single_column(self, tmp_path: Path) -> None:
         p = tmp_path / "c.txt"
@@ -214,32 +213,32 @@ class TestReadNumbersMatrix:
         p = tmp_path / "cmt.txt"
         p.write_text("# comment\n1 2\n3 4\n")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(out, [[1, 2], [3, 4]])
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
 
     def test_skips_ragged_rows(self, tmp_path: Path) -> None:
         p = tmp_path / "rag.txt"
         p.write_text("1 2\n3\n4 5\n")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(out, [[1, 2], [4, 5]])
+        assert list(out) == [[1.0, 2.0], [4.0, 5.0]]
 
     def test_empty_file_returns_0x0(self, tmp_path: Path) -> None:
         p = tmp_path / "empty.txt"
         p.write_text("")
         out = read_numbers(str(p), header=False)
         assert out.shape == (0, 0)
-        assert out.dtype == np.float64
+        assert out.dtype == "float64"
 
     def test_floats_preserved(self, tmp_path: Path) -> None:
         p = tmp_path / "f.txt"
         p.write_text("1.5 2.5\n3.5 4.5\n")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_allclose(out, [[1.5, 2.5], [3.5, 4.5]])
+        assert list(out) == [[1.5, 2.5], [3.5, 4.5]]
 
     def test_negative_numbers(self, tmp_path: Path) -> None:
         p = tmp_path / "neg.txt"
         p.write_text("-1 -2\n-3 -4\n")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(out, [[-1, -2], [-3, -4]])
+        assert list(out) == [[-1.0, -2.0], [-3.0, -4.0]]
 
 
 # ---------------------------------------------------------------------------
@@ -251,16 +250,16 @@ class TestReadNumbersHeader:
         p = tmp_path / "h.csv"
         p.write_text("x,y\n1,2\n3,4\n")
         out = read_numbers(str(p))
-        np.testing.assert_array_equal(out.x, [1.0, 3.0])
-        np.testing.assert_array_equal(out.y, [2.0, 4.0])
+        assert list(out.x) == [1.0, 3.0]
+        assert list(out.y) == [2.0, 4.0]
 
     def test_explicit_header_true(self, tmp_path: Path) -> None:
         p = tmp_path / "h.csv"
         p.write_text("a,b,c\n1,2,3\n4,5,6\n")
         out = read_numbers(str(p), header=True)
-        np.testing.assert_array_equal(out.a, [1.0, 4.0])
-        np.testing.assert_array_equal(out.b, [2.0, 5.0])
-        np.testing.assert_array_equal(out.c, [3.0, 6.0])
+        assert list(out.a) == [1.0, 4.0]
+        assert list(out.b) == [2.0, 5.0]
+        assert list(out.c) == [3.0, 6.0]
 
     def test_header_only_no_data(self, tmp_path: Path) -> None:
         p = tmp_path / "h.csv"
@@ -273,15 +272,15 @@ class TestReadNumbersHeader:
         p = tmp_path / "h.csv"
         p.write_text("x,y\n1,2\nbad_row\n3,4\n")
         out = read_numbers(str(p), header=True)
-        np.testing.assert_array_equal(out.x, [1.0, 3.0])
-        np.testing.assert_array_equal(out.y, [2.0, 4.0])
+        assert list(out.x) == [1.0, 3.0]
+        assert list(out.y) == [2.0, 4.0]
 
     def test_header_whitespace_separated(self, tmp_path: Path) -> None:
         p = tmp_path / "h.txt"
         p.write_text("alpha beta\n10 20\n30 40\n")
         out = read_numbers(str(p), header=True)
-        np.testing.assert_array_equal(out.alpha, [10.0, 30.0])
-        np.testing.assert_array_equal(out.beta, [20.0, 40.0])
+        assert list(out.alpha) == [10.0, 30.0]
+        assert list(out.beta) == [20.0, 40.0]
 
     def test_ambiguous_first_row_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "bad.csv"
@@ -305,7 +304,7 @@ class TestReadNumbersHeader:
         p = tmp_path / "dt.csv"
         p.write_text("v\n1\n2\n3\n")
         out = read_numbers(str(p), header=True)
-        assert out.v.dtype == np.float64
+        assert out.v.dtype == "float64"
 
 
 # ---------------------------------------------------------------------------

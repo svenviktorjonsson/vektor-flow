@@ -5,12 +5,15 @@
       require("./vf-shared-runtime.js"),
       require("./vf-vkf-ui-math.js"),
       require("./vf-vkf-ui-kernel.js"),
-      require("./vf-vkf-ui-kernel-adapter.js")
+      require("./vf-vkf-ui-kernel-adapter.js"),
+      require("./vf-compiled-runtime-bridge.js"),
+      require("./vf-vkf-ui-wasm-kernel-adapter.js"),
+      require("./vf-compiled-ui-module-registry.js")
     );
     return;
   }
-  root.VfVkfUiRuntime = factory(root || globalThis, root.VfSharedRuntime, root.VfVkfUiMath, root.VfVkfUiKernel, root.VfVkfUiKernelAdapter);
-})(typeof globalThis !== "undefined" ? globalThis : this, function(global, shared, math, kernel, kernelAdapterModule) {
+  root.VfVkfUiRuntime = factory(root || globalThis, root.VfSharedRuntime, root.VfVkfUiMath, root.VfVkfUiKernel, root.VfVkfUiKernelAdapter, root.VfCompiledRuntimeBridge, root.VfVkfUiWasmKernelAdapter, root.VfCompiledUiModuleRegistry);
+})(typeof globalThis !== "undefined" ? globalThis : this, function(global, shared, math, kernel, kernelAdapterModule, compiledRuntimeBridge, wasmKernelAdapterModule, compiledModuleRegistry) {
   "use strict";
 
   var HOVER_OBJECT = 1;
@@ -112,12 +115,36 @@
     };
   }
 
+  function resolveKernelAdapter(options) {
+    options = options || {};
+    if (options.kernelAdapter) {
+      return options.kernelAdapter;
+    }
+    var wantsCompiled = !!options.compiledKernelModule;
+    if (wantsCompiled &&
+        compiledModuleRegistry &&
+        typeof compiledModuleRegistry.instantiateBuiltinCompiledUiWasmModule === "function" &&
+        wasmKernelAdapterModule &&
+        typeof wasmKernelAdapterModule.createWasmKernelAdapter === "function") {
+      var moduleName = options.compiledKernelModule;
+      var wasmModule = compiledModuleRegistry.instantiateBuiltinCompiledUiWasmModule(moduleName);
+      if (wasmModule && wasmModule.memory && wasmModule.instance && wasmModule.instance.exports) {
+        return wasmKernelAdapterModule.createWasmKernelAdapter({
+          memory: wasmModule.memory,
+          exports: wasmModule.instance.exports,
+          fallbackKernel: kernel
+        });
+      }
+    }
+    return kernelAdapterModule.createJsKernelAdapter();
+  }
+
   function createVkfUiRuntime(options) {
     options = options || {};
     var arena = options.arena;
     var geometryArena = options.geometryArena || null;
     var eventArena = options.eventArena;
-    var kernelAdapter = options.kernelAdapter || kernelAdapterModule.createJsKernelAdapter();
+    var kernelAdapter = resolveKernelAdapter(options);
     var allocSlot = createAllocator(arena.capacity());
     var allocObjectId = createAllocator(1 << 30);
     var allocGeometry = geometryArena ? createAllocator(geometryArena.capacity()) : null;
@@ -704,6 +731,136 @@
       };
     }
 
+    function createMeshStateApplier(mesh, options) {
+      options = options || {};
+      var xFields = Array.isArray(options.xFields) ? options.xFields.slice() : [];
+      var yFields = Array.isArray(options.yFields) ? options.yFields.slice() : [];
+      var zFields = Array.isArray(options.zFields) ? options.zFields.slice() : [];
+      return function applyMeshState(state) {
+        if (!state || mesh.kind !== "mesh") { return; }
+        var dirty = false;
+        for (var i = 0; i < mesh.coords.x.length; i += 1) {
+          if (xFields[i] && Object.prototype.hasOwnProperty.call(state, xFields[i])) {
+            mesh.coords.x[i] = Number(state[xFields[i]]) || 0;
+            dirty = true;
+          }
+          if (yFields[i] && Object.prototype.hasOwnProperty.call(state, yFields[i])) {
+            mesh.coords.y[i] = Number(state[yFields[i]]) || 0;
+            dirty = true;
+          }
+          if (zFields[i] && Object.prototype.hasOwnProperty.call(state, zFields[i])) {
+            mesh.coords.z[i] = Number(state[zFields[i]]) || 0;
+            dirty = true;
+          }
+        }
+        if (!dirty) { return; }
+        mesh.geometry_version += 1;
+        writeGeometryAll(mesh);
+      };
+    }
+
+    function createEdgeStateApplier(mesh, edgeIndex, options) {
+      options = options || {};
+      var edge = mesh.edges[(edgeIndex | 0)] || [];
+      var xFields = Array.isArray(options.xFields) ? options.xFields.slice() : [];
+      var yFields = Array.isArray(options.yFields) ? options.yFields.slice() : [];
+      var zFields = Array.isArray(options.zFields) ? options.zFields.slice() : [];
+      return function applyEdgeState(state) {
+        if (!state || mesh.kind !== "mesh") { return; }
+        var dirtyVertices = [];
+        for (var i = 0; i < edge.length; i += 1) {
+          var vertexIndex = edge[i];
+          var dirty = false;
+          if (xFields[i] && Object.prototype.hasOwnProperty.call(state, xFields[i])) {
+            mesh.coords.x[vertexIndex] = Number(state[xFields[i]]) || 0;
+            dirty = true;
+          }
+          if (yFields[i] && Object.prototype.hasOwnProperty.call(state, yFields[i])) {
+            mesh.coords.y[vertexIndex] = Number(state[yFields[i]]) || 0;
+            dirty = true;
+          }
+          if (zFields[i] && Object.prototype.hasOwnProperty.call(state, zFields[i])) {
+            mesh.coords.z[vertexIndex] = Number(state[zFields[i]]) || 0;
+            dirty = true;
+          }
+          if (dirty) {
+            dirtyVertices.push(vertexIndex);
+          }
+        }
+        if (!dirtyVertices.length) { return; }
+        mesh.geometry_version += 1;
+        for (var j = 0; j < dirtyVertices.length; j += 1) {
+          writeGeometryVertex(mesh, dirtyVertices[j]);
+        }
+      };
+    }
+
+    function createRectStateApplier(object, options) {
+      options = options || {};
+      var offsetFields = Array.isArray(options.offsetFields) ? options.offsetFields.slice() : [];
+      var sizeFields = Array.isArray(options.sizeFields) ? options.sizeFields.slice() : [];
+      return function applyRectState(state) {
+        if (!state || !object || object.kind !== "rect") { return; }
+        var dirty = false;
+        for (var i = 0; i < 2; i += 1) {
+          if (offsetFields[i] && Object.prototype.hasOwnProperty.call(state, offsetFields[i])) {
+            object.offset[i] = Number(state[offsetFields[i]]) || 0;
+            dirty = true;
+          }
+          if (sizeFields[i] && Object.prototype.hasOwnProperty.call(state, sizeFields[i])) {
+            object.size[i] = Number(state[sizeFields[i]]) || 0;
+            dirty = true;
+          }
+        }
+        if (!dirty) { return; }
+        writeObjectTransform(object);
+      };
+    }
+
+    function composeStateAppliers(appliers) {
+      var list = Array.isArray(appliers) ? appliers.filter(function(applier) {
+        return typeof applier === "function";
+      }) : [];
+      return function applyComposedState(state) {
+        for (var i = 0; i < list.length; i += 1) {
+          list[i](state);
+        }
+      };
+    }
+
+    function createTransformStateApplier(object, options) {
+      options = options || {};
+      var matrixFields = Array.isArray(options.matrixFields) ? options.matrixFields.slice() : [];
+      var offsetFields = Array.isArray(options.offsetFields) ? options.offsetFields.slice() : [];
+      return function applyTransformState(state) {
+        if (!state || !object) { return; }
+        var dirty = false;
+        if (object.kind === "mesh") {
+          for (var i = 0; i < 4; i += 1) {
+            if (matrixFields[i] && Object.prototype.hasOwnProperty.call(state, matrixFields[i])) {
+              object.matrix[i] = Number(state[matrixFields[i]]) || 0;
+              dirty = true;
+            }
+          }
+          for (i = 0; i < 2; i += 1) {
+            if (offsetFields[i] && Object.prototype.hasOwnProperty.call(state, offsetFields[i])) {
+              object.offset[i] = Number(state[offsetFields[i]]) || 0;
+              dirty = true;
+            }
+          }
+        } else if (object.kind === "rect") {
+          for (var j = 0; j < 2; j += 1) {
+            if (offsetFields[j] && Object.prototype.hasOwnProperty.call(state, offsetFields[j])) {
+              object.offset[j] = Number(state[offsetFields[j]]) || 0;
+              dirty = true;
+            }
+          }
+        }
+        if (!dirty) { return; }
+        writeObjectTransform(object);
+      };
+    }
+
     var ui = {
       MOUSE_DRAG: "mouse_drag",
       MOUSE_MOVE: "mouse_move",
@@ -731,6 +888,60 @@
       events: {
         get: function() {
           return readLatestEvent();
+        }
+      },
+      compiled: {
+        load_wasm_runtime: function(spec) {
+          if (!compiledRuntimeBridge || typeof compiledRuntimeBridge.instantiateWasmRuntime !== "function") {
+            throw new Error("compiled wasm runtime bridge unavailable");
+          }
+          return compiledRuntimeBridge.instantiateWasmRuntime(spec || {});
+        },
+        attach_wasm_runtime_controller: function(spec) {
+          if (!compiledRuntimeBridge || typeof compiledRuntimeBridge.createWasmRuntimeController !== "function") {
+            throw new Error("compiled wasm runtime controller unavailable");
+          }
+          return compiledRuntimeBridge.createWasmRuntimeController(spec || {});
+        },
+        create_mesh_state_applier: function(mesh, spec) {
+          return createMeshStateApplier(mesh, spec || {});
+        },
+        create_edge_state_applier: function(mesh, edgeIndex, spec) {
+          return createEdgeStateApplier(mesh, edgeIndex, spec || {});
+        },
+        create_rect_state_applier: function(object, spec) {
+          return createRectStateApplier(object, spec || {});
+        },
+        compose_state_appliers: function(appliers) {
+          return composeStateAppliers(appliers);
+        },
+        create_transform_state_applier: function(object, spec) {
+          return createTransformStateApplier(object, spec || {});
+        },
+        create_webgpu_runtime_spec: function(spec) {
+          if (!compiledRuntimeBridge || typeof compiledRuntimeBridge.createWebGpuRuntimeSpec !== "function") {
+            throw new Error("compiled webgpu runtime bridge unavailable");
+          }
+          return compiledRuntimeBridge.createWebGpuRuntimeSpec(spec || {});
+        },
+        create_builtin_wasm_kernel_adapter: function(spec) {
+          spec = spec || {};
+          var moduleName = spec.module || "interaction-kernel";
+          if (!compiledModuleRegistry || typeof compiledModuleRegistry.instantiateBuiltinCompiledUiWasmModule !== "function") {
+            throw new Error("compiled ui module registry unavailable");
+          }
+          if (!wasmKernelAdapterModule || typeof wasmKernelAdapterModule.createWasmKernelAdapter !== "function") {
+            throw new Error("compiled wasm kernel adapter unavailable");
+          }
+          var wasmModule = compiledModuleRegistry.instantiateBuiltinCompiledUiWasmModule(moduleName);
+          if (!wasmModule || !wasmModule.memory || !wasmModule.instance || !wasmModule.instance.exports) {
+            throw new Error("compiled wasm kernel module unavailable: " + String(moduleName));
+          }
+          return wasmKernelAdapterModule.createWasmKernelAdapter({
+            memory: wasmModule.memory,
+            exports: wasmModule.instance.exports,
+            fallbackKernel: kernel
+          });
         }
       }
     };

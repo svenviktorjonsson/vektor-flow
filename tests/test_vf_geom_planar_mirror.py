@@ -11,6 +11,8 @@ REPO = Path(__file__).resolve().parents[1]
 MATH_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-math.js"
 CORE_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-core.js"
 WGPU_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-wgpu.js"
+MOUNT_JS = REPO / "web" / "vf-ui" / "geom" / "vf-geom-mount.js"
+FRAME_JS = REPO / "web" / "vf-ui" / "vf-frame.js"
 DISPLAY_JS = REPO / "web" / "vf-ui" / "vf-display.js"
 NATIVE_SCENE_JS = REPO / "web" / "vf-ui" / "vf-native-scene.js"
 
@@ -121,16 +123,74 @@ def test_each_real_light_keeps_its_own_readable_shadow_step() -> None:
     assert "let litScale1 = vis1 * atten1 * spot1 * proj1;" in shader
 
 
+def test_mirror_solkatt_uses_projected_light_path_not_shader_side_branch() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert 'motion: "mirror_solkatt"' in shader
+    assert 'if (resolvedItem && resolvedItem.motion === "mirror_solkatt")' in shader
+    assert "let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), sc.receive_shadow != 0u);" in shader
+    assert "let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), sc.receive_shadow != 0u);" in shader
+    assert "let vis2 = readableShadowVisibility(min(stableVis2, contactVis2));" in shader
+    assert "let proj2 = projectedApertureFactor2(worldPos, sc.light2_pos.xyz, sc.light2_spot_params.w);" in shader
+    assert "let litScale2 = vis2 * atten2 * spot2 * proj2;" in shader
+    assert "let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), sc.receive_shadow != 0u);" in shader
+    assert "let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), sc.receive_shadow != 0u);" in shader
+    assert "let vis3 = readableShadowVisibility(min(stableVis3, contactVis3));" in shader
+    assert "let proj3 = projectedApertureFactor3(worldPos, sc.light3_pos.xyz, sc.light3_spot_params.w);" in shader
+    assert "let litScale3 = vis3 * atten3 * spot3 * proj3;" in shader
+    assert "apertureReflectedLightPos" not in shader
+    assert "reflectedAtten" not in shader
+
+
+def test_projected_aperture_softness_fades_inward_only() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "smoothstep(minX - softness" not in shader
+    assert "smoothstep(minY - softness" not in shader
+    assert "smoothstep(maxX - softness, maxX + softness" not in shader
+    assert "smoothstep(maxY - softness, maxY + softness" not in shader
+    assert shader.count("smoothstep(minX, minX + softness, local.x)") == 4
+    assert shader.count("smoothstep(minY, minY + softness, local.y)") == 4
+    assert shader.count("smoothstep(maxX - softness, maxX, local.x)") == 4
+    assert shader.count("smoothstep(maxY - softness, maxY, local.y)") == 4
+
+
+def test_geom_canvas_presents_only_after_first_successful_frame() -> None:
+    mount = MOUNT_JS.read_text(encoding="utf-8")
+    renderer = WGPU_JS.read_text(encoding="utf-8")
+    frame = FRAME_JS.read_text(encoding="utf-8")
+    assert 'visibility:hidden;' in mount
+    assert 'host.setAttribute("data-vf-geom-present-pending", "1");' in mount
+    assert '"vf-geom-first-frame"' in mount
+    assert "contentReady: true" in mount
+    assert "_presentedFirstFrame = false;" in renderer
+    assert "_markPresentedFirstFrame: function ()" in renderer
+    assert 'host.getAttribute("data-vf-geom-present-pending") === "1"' in renderer
+    assert 'new CustomEvent("vf-geom-first-frame", { bubbles: true })' in renderer
+    assert renderer.count("this._markPresentedFirstFrame();") == 2
+    assert 'scope.querySelector(\'[data-vf-geom-present-pending="1"]\')' in frame
+    assert "contentReady," in frame
+
+
+def test_transparent_faces_opt_out_of_shadow_receiving_unless_explicit() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    uniform_fn = shader[shader.index("function buildUniform"):shader.index("function buildShadowUniform")]
+    assert "var receiveShadow = !(meshLike && meshLike.receives_shadow === false);" in uniform_fn
+    assert "meshLike.transparent === true && meshLike.receives_shadow !== true" in uniform_fn
+    assert "u32[71] = receiveShadow ? 1 : 0;" in uniform_fn
+
+
 def test_shadow_passes_use_per_light_uniform_buffers() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "shadowUniformBuf0" in shader
     assert "shadowUniformBuf1" in shader
+    assert "shadowUniformBuf2" in shader
+    assert "shadowUniformBuf3" in shader
     assert "renderer._ensurePartShadowBindGroup(part, slot);" in shader
-    assert "slot === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0" in shader
+    assert "slot === 3" in shader
+    assert "part.shadowUniformBuf3" in shader
     assert "Encoded WebGPU draws read buffer contents at submit time" in shader
     draw_shadow = shader[shader.index("var drawShadowPass = function"):shader.index("if (shadowState0.shadow", shader.index("var drawShadowPass = function"))]
     assert "queue.writeBuffer(part.shadowUniformBuf, 0, shadowUb)" not in draw_shadow
-    assert "pass.setBindGroup(0, slot === 1 ? part.shadowBindGroup1 : part.shadowBindGroup0);" in draw_shadow
+    assert 'pass.setBindGroup(0, part["shadowBindGroup" + String(Math.max(0, Math.min(3, Number(slot) | 0)))]);' in draw_shadow
 
 
 def test_shadow_map_fit_includes_receivers_without_drawing_them() -> None:
@@ -231,15 +291,108 @@ const perLight = lights.map((light) => {{
 process.stdout.write(JSON.stringify(perLight));
 """
     payload = _run_node(script)
-    assert [entry["id"] for entry in payload] == ["key_light", "fill_light"]
-    assert [entry["casts"] for entry in payload] == [True, True]
-    assert [entry["casterIds"] for entry in payload] == [["showcase_mirror"], ["showcase_mirror"]]
-    assert [entry["fitIds"] for entry in payload] == [
+    assert [entry["id"] for entry in payload] == [
+        "key_light",
+        "fill_light",
+        "key_light::solkatt",
+        "fill_light::solkatt",
+    ]
+    assert [entry["casts"] for entry in payload] == [True, True, True, True]
+    assert [entry["casterIds"] for entry in payload] == [
+        ["showcase_mirror"],
+        ["showcase_mirror"],
+        [],
+        [],
+    ]
+    assert [entry["fitIds"] for entry in payload[:2]] == [
         ["showcase_mirror", "ground_plane"],
         ["showcase_mirror", "ground_plane"],
     ]
-    assert [entry["pointCount"] for entry in payload] == [8, 8]
-    assert [entry["hasShadow"] for entry in payload] == [True, True]
+    assert [entry["pointCount"] for entry in payload[:2]] == [8, 8]
+    assert [entry["hasShadow"] for entry in payload[:2]] == [True, True]
+
+
+def test_mirror_solkatt_shadow_uses_generated_projected_light_casters() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__solkattShadowTest = {{ resolveSceneLights: resolveSceneLights, shadowCasterParts: shadowCasterParts, shadowCasterPartsForLight }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w * 0.5;
+  const y = h * 0.5;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  casts_shadow: true,
+  receives_shadow: true,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const blocker = {{
+  id: "blocker",
+  kind: "quad",
+  center: [0.2, 2.8, 0.55],
+  size: [0.8, 0.8],
+  rotation: [70, 0, 0],
+  vertices: quadVerts(0.8, 0.8),
+  casts_shadow: true,
+  receives_shadow: true
+}};
+const parts = [
+  {{ mesh: mirror, topology: "triangle-list", ibCount: 6 }},
+  {{ mesh: blocker, topology: "triangle-list", ibCount: 6 }}
+];
+const lights = sandbox.__solkattShadowTest.resolveSceneLights([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "mirror" }}
+], {{ parts: parts.map((part) => part.mesh) }}, 0);
+const casters = sandbox.__solkattShadowTest.shadowCasterParts(parts, true);
+const solkatt = lights.find((light) => light.id === "sun::solkatt");
+const solkattCasters = sandbox.__solkattShadowTest.shadowCasterPartsForLight(casters, solkatt, 0);
+
+process.stdout.write(JSON.stringify({{
+  ids: lights.map((light) => light.id),
+  kinds: lights.map((light) => light.kind),
+  solkattCasterIds: solkattCasters.map((part) => part.mesh.id),
+  solkattCasts: solkatt && solkatt.casts_shadow,
+  apertureMeshId: solkatt && solkatt.projected_aperture && solkatt.projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["kinds"] == ["point", "projected"]
+    assert payload["solkattCasterIds"] == ["blocker"]
+    assert payload["solkattCasts"] is True
+    assert payload["apertureMeshId"] == "mirror"
 
 
 def test_depth_written_impostors_use_depth_pipeline_and_early_pass() -> None:
@@ -653,7 +806,7 @@ process.stdout.write(JSON.stringify({{
     assert payload["planePoint"] == pytest.approx([0.0, 0.0, 0.0])
 
 
-def test_real_lights_can_carry_mirror_reflection_apertures_without_becoming_virtual() -> None:
+def test_mirror_reflection_generates_projected_solkatt_lights() -> None:
     script = f"""
 const fs = require("fs");
 const vm = require("vm");
@@ -693,30 +846,35 @@ const lights = sandbox.__mirrorLightTest.resolveSceneLights([
 const identity = sandbox.VfGeomMath.mat4Identity();
 const ub = sandbox.__mirrorLightTest.buildUniform(identity, identity, [0, -4, 2], lights, 2, 1, {{ id: "receiver" }});
 const f32 = new Float32Array(ub.buffer);
+const u32 = new Uint32Array(ub.buffer);
 const light0Base = 356 + (192 * 4 * 4) + 16;
 const light1Base = light0Base + 20;
+const lightAperturePointsBase = light0Base + (2 * 20);
+const shadowBase = lightAperturePointsBase + (2 * 8 * 4);
+const extraLightBase = shadowBase + 36;
+const extraLightApertureBase = extraLightBase + 32;
+const light2Base = extraLightApertureBase;
+const light3Base = extraLightApertureBase + 20;
 
 process.stdout.write(JSON.stringify({{
   count: lights.length,
+  uniformCount: u32[68],
   kinds: lights.map((light) => light.kind),
   positions: lights.map((light) => light.pos),
-  reflected: lights.map((light) => light.projected_aperture && light.projected_aperture.reflected_pos),
-  apertureCounts: [f32[light0Base + 18], f32[light1Base + 18]],
-  uniformReflected: [
-    [f32[light0Base + 3], f32[light0Base + 7], f32[light0Base + 11]],
-    [f32[light1Base + 3], f32[light1Base + 7], f32[light1Base + 11]]
-  ]
+  markers: lights.map((light) => light.show_marker),
+  apertureCounts: [f32[light0Base + 18], f32[light1Base + 18], f32[light2Base + 18], f32[light3Base + 18]]
 }}));
 """
     payload = _run_node(script)
-    assert payload["count"] == 2
-    assert payload["kinds"] == ["point", "point"]
-    assert payload["positions"] == [[0, 0, 3], [1, 0, 4]]
-    assert payload["reflected"][0] == pytest.approx([0.0, 4.0, 3.0])
-    assert payload["reflected"][1] == pytest.approx([1.0, 4.0, 4.0])
-    assert payload["apertureCounts"] == [4, 4]
-    assert payload["uniformReflected"][0] == pytest.approx([0.0, 4.0, 3.0])
-    assert payload["uniformReflected"][1] == pytest.approx([1.0, 4.0, 4.0])
+    assert payload["count"] == 4
+    assert payload["uniformCount"] == 4
+    assert payload["kinds"] == ["point", "point", "projected", "projected"]
+    assert payload["positions"][0] == [0, 0, 3]
+    assert payload["positions"][1] == [1, 0, 4]
+    assert payload["positions"][2] == pytest.approx([0.0, 4.0, 3.0])
+    assert payload["positions"][3] == pytest.approx([1.0, 4.0, 4.0])
+    assert payload["markers"] == [True, True, False, False]
+    assert payload["apertureCounts"] == [0, 0, 4, 4]
 
 
 def test_wgpu_light_orbit_accepts_native_scene_radius_alias() -> None:
@@ -988,15 +1146,45 @@ def test_projected_light_does_not_illuminate_its_aperture_mesh() -> None:
     assert "lightsForMesh((partMesh.lights || sceneMesh.lights || []), this._offscreenFrame === true, partMesh)" in shader
 
 
-def test_screen_surface_uses_depth_shadow_not_infinite_contact_shadow() -> None:
+def test_screen_surface_contact_seal_uses_world_bottom_edge_not_local_y_guess() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     contact_fn_start = shader.index("function planarContactParts(parts)")
     contact_fn_end = shader.index("function modelMatrixSignature(model)")
     contact_fn = shader[contact_fn_start:contact_fn_end]
-    assert "if (isPlanarScreenShadowSurface(mesh)) { continue; }" in contact_fn
+    assert "if (isPlanarScreenShadowSurface(mesh)) { continue; }" not in contact_fn
     occluder_fn = shader[shader.index("function buildPlanarContactOccluder"):shader.index("function resolvePlanarContactOccluderForLight")]
-    assert "if (isPlanarScreenShadowSurface(meshLike)) { return null; }" in occluder_fn
+    assert "if (isScreenSurface)" in occluder_fn
+    assert "cornerValues" in occluder_fn
+    assert "worldUpInPlane" in occluder_fn
+    assert "bottomA.local" in occluder_fn
+    assert "bottomB.local" in occluder_fn
+    assert "stripHeight" in occluder_fn
+    assert "stripTop" not in occluder_fn
+    assert "packet.contact_mode = 1.0;" in occluder_fn
+    assert "runtime.extent * 0.012" in occluder_fn
+    assert "runtime.extent * 0.025" in occluder_fn
+    assert "runtime.extent * (isScreenSurface ? 0.035 : 0.025)" not in occluder_fn
+    assert "Keep broad shadows in the depth map" not in occluder_fn
     assert "1.0e6" not in occluder_fn
+    assert "normalizeLightKind(light.kind) === \"projected\"" not in shader[shader.index("function resolvePlanarContactOccluderForLight"):shader.index("function resolveSceneLights")]
+    assert "planarContactVisibility2" in shader
+    assert "planarContactVisibility3" in shader
+    assert "shadow_contact2" in shader
+    assert "shadow_contact3" in shader
+    assert "let contactMode = sc.shadow2_pts[0u].w;" in shader
+    assert "if (contactMode > 0.5)" in shader
+    uniform_fn = shader[shader.index("function writePlanarContactOccluder"):shader.index("writePlanarContactOccluder(76")]
+    assert "f32[base + 3] = Math.max(0.0, Number(occluder.contact_mode || 0.0) || 0.0);" in uniform_fn
+
+
+def test_shadow_map_bias_keeps_acne_safety_margin() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "let refDepth = ndc.z - (sc.shadow_meta.y + 0.00125);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta.w + 0.00125);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta23.y + 0.00125);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta23.w + 0.00125);" in shader
+    assert "depthBias: 3" in shader
+    assert "depthBiasSlopeScale: 1.5" in shader
 
 
 def test_screen_surface_shadow_casting_is_gated_by_light_side() -> None:

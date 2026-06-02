@@ -4,17 +4,226 @@
       root || globalThis,
       require("./vf-shared-runtime.js"),
       require("./vf-gpu-runtime.js"),
-      require("./vf-wasm-demo-contract.js")
+      require("./vf-vkf-ui-runtime.js")
     );
     module.exports = api;
     (root || globalThis).VfSharedRectDemo = api;
     return;
   }
-  root.VfSharedRectDemo = factory(root || globalThis, root.VfSharedRuntime, root.VfGpuRuntime, root.VfWasmDemoContract);
-})(typeof globalThis !== "undefined" ? globalThis : this, function(global, shared, gpu, wasmDemo) {
+  root.VfSharedRectDemo = factory(root || globalThis, root.VfSharedRuntime, root.VfGpuRuntime, root.VfVkfUiRuntime);
+})(typeof globalThis !== "undefined" ? globalThis : this, function(global, shared, gpu, vkfUiRuntimeModule) {
   "use strict";
 
   var demoApi = null;
+  var PRIMARY_RECT_SLOT = 0;
+  var COMPILED_RECT_SLOTS = [0, 1, 2];
+
+  function encodeU32(value, bytes) {
+    value >>>= 0;
+    do {
+      var byte = value & 0x7f;
+      value >>>= 7;
+      if (value !== 0) {
+        byte |= 0x80;
+      }
+      bytes.push(byte);
+    } while (value !== 0);
+  }
+
+  function encodeI32(value, bytes) {
+    value |= 0;
+    var more = true;
+    while (more) {
+      var byte = value & 0x7f;
+      value >>= 7;
+      var signBit = (byte & 0x40) !== 0;
+      more = !((value === 0 && !signBit) || (value === -1 && signBit));
+      if (more) {
+        byte |= 0x80;
+      }
+      bytes.push(byte);
+    }
+  }
+
+  function encodeString(text, bytes) {
+    var utf8 = new TextEncoder().encode(text);
+    encodeU32(utf8.length, bytes);
+    for (var i = 0; i < utf8.length; i += 1) {
+      bytes.push(utf8[i]);
+    }
+  }
+
+  function makeSection(id, content, bytes) {
+    bytes.push(id);
+    encodeU32(content.length, bytes);
+    for (var i = 0; i < content.length; i += 1) {
+      bytes.push(content[i]);
+    }
+  }
+
+  function i32ConstBody(value) {
+    var body = [];
+    encodeU32(0, body);
+    body.push(0x41);
+    encodeI32(value, body);
+    body.push(0x0b);
+    return body;
+  }
+
+  function createInputSnapshot(sample) {
+    sample = sample || {};
+    return {
+      sequence: sample.sequence == null ? 0 : sample.sequence | 0,
+      timeMs: sample.timeMs == null ? 0 : Number(sample.timeMs) || 0,
+      pointerX: sample.pointerX == null ? 0 : Number(sample.pointerX) || 0,
+      pointerY: sample.pointerY == null ? 0 : Number(sample.pointerY) || 0,
+      pointerAnchorX: sample.pointerAnchorX == null ? 0 : Number(sample.pointerAnchorX) || 0,
+      pointerAnchorY: sample.pointerAnchorY == null ? 0 : Number(sample.pointerAnchorY) || 0,
+      pointerDown: sample.pointerDown ? 1 : 0,
+      buttons: sample.buttons == null ? 0 : sample.buttons | 0,
+      keyMask: sample.keyMask == null ? 0 : sample.keyMask | 0
+    };
+  }
+
+  function createCompiledRectRuntimeModuleBytes() {
+    var bytes = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+
+    var typeSection = [];
+    encodeU32(2, typeSection);
+    typeSection.push(0x60); encodeU32(0, typeSection); encodeU32(0, typeSection);
+    typeSection.push(0x60); encodeU32(0, typeSection); encodeU32(1, typeSection); typeSection.push(0x7f);
+    makeSection(1, typeSection, bytes);
+
+    var functionSection = [];
+    encodeU32(7, functionSection);
+    encodeU32(0, functionSection);
+    encodeU32(0, functionSection);
+    encodeU32(0, functionSection);
+    encodeU32(1, functionSection);
+    encodeU32(1, functionSection);
+    encodeU32(1, functionSection);
+    encodeU32(1, functionSection);
+    makeSection(3, functionSection, bytes);
+
+    var memorySection = [];
+    encodeU32(1, memorySection);
+    memorySection.push(0x00);
+    encodeU32(1, memorySection);
+    makeSection(5, memorySection, bytes);
+
+    var exportSection = [];
+    encodeU32(8, exportSection);
+    encodeString("memory", exportSection); exportSection.push(0x02); encodeU32(0, exportSection);
+    ["vkf_init", "vkf_update", "vkf_shutdown", "vkf_state_ptr", "vkf_state_size", "vkf_input_ptr", "vkf_input_size"].forEach(function(name, index) {
+      encodeString(name, exportSection);
+      exportSection.push(0x00);
+      encodeU32(index, exportSection);
+    });
+    makeSection(7, exportSection, bytes);
+
+    var codeSection = [];
+    encodeU32(7, codeSection);
+
+    var initBody = [];
+    encodeU32(0, initBody);
+    [0, 4, 8, 12, 16, 20, 24, 28, 32, 36].forEach(function(offset) {
+      initBody.push(0x41); encodeI32(offset, initBody);
+      initBody.push(0x41); encodeI32(0, initBody);
+      initBody.push(0x36); encodeU32(2, initBody); encodeU32(0, initBody);
+    });
+    initBody.push(0x0b);
+    encodeU32(initBody.length, codeSection); initBody.forEach(function(byte) { codeSection.push(byte); });
+
+    var updateBody = [];
+    encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(0, updateBody);
+    updateBody.push(0x41); encodeI32(24, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(32, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x6b);
+    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
+
+    updateBody.push(0x41); encodeI32(4, updateBody);
+    updateBody.push(0x41); encodeI32(28, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(36, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x6b);
+    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(8, updateBody);
+    updateBody.push(0x41); encodeI32(0, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(40, updateBody);
+    updateBody.push(0x6a);
+    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(12, updateBody);
+    updateBody.push(0x41); encodeI32(4, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(38, updateBody);
+    updateBody.push(0x6a);
+    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(16, updateBody);
+    updateBody.push(0x41); encodeI32(0, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(78, updateBody);
+    updateBody.push(0x6a);
+    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(20, updateBody);
+    updateBody.push(0x41); encodeI32(4, updateBody);
+    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x41); encodeI32(64, updateBody);
+    updateBody.push(0x6a);
+    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
+    updateBody.push(0x0b);
+    encodeU32(updateBody.length, codeSection); updateBody.forEach(function(byte) { codeSection.push(byte); });
+
+    var noopBody = [0x00, 0x0b];
+    encodeU32(noopBody.length, codeSection); noopBody.forEach(function(byte) { codeSection.push(byte); });
+
+    [0, 24, 24, 16].forEach(function(value) {
+      var body = i32ConstBody(value);
+      encodeU32(body.length, codeSection);
+      body.forEach(function(byte) { codeSection.push(byte); });
+    });
+
+    makeSection(10, codeSection, bytes);
+    return new Uint8Array(bytes);
+  }
+
+  function createCompiledRectRuntime(uiRuntime) {
+    if (!uiRuntime || !uiRuntime.ui || !uiRuntime.ui.compiled || typeof uiRuntime.ui.compiled.load_wasm_runtime !== "function") {
+      return null;
+    }
+    return uiRuntime.ui.compiled.load_wasm_runtime({
+      manifest: {
+        runtime_surface: {
+          state_ptr_export: "vkf_state_ptr",
+          state_size_export: "vkf_state_size",
+          input_ptr_export: "vkf_input_ptr",
+          input_size_export: "vkf_input_size",
+          init_export: "vkf_init",
+          update_export: "vkf_update",
+          shutdown_export: "vkf_shutdown",
+          state_fields: [
+            { name: "x", offset: 0, type: "num" },
+            { name: "y", offset: 4, type: "num" },
+            { name: "x1", offset: 8, type: "num" },
+            { name: "y1", offset: 12, type: "num" },
+            { name: "x2", offset: 16, type: "num" },
+            { name: "y2", offset: 20, type: "num" }
+          ],
+          input_fields: [
+            { name: "pointer_x", offset: 0, type: "num" },
+            { name: "pointer_y", offset: 4, type: "num" },
+            { name: "anchor_x", offset: 8, type: "num" },
+            { name: "anchor_y", offset: 12, type: "num" }
+          ]
+        }
+      },
+      bytes: createCompiledRectRuntimeModuleBytes()
+    });
+  }
 
   function rgba(color) {
     var r = Math.round((color[0] || 0) * 255);
@@ -108,6 +317,10 @@
   function createBrowserDemo() {
     var transformArena = shared.createTransformArena(12);
     var eventArena = shared.createEventArena(8);
+    var uiRuntime = vkfUiRuntimeModule && typeof vkfUiRuntimeModule.createVkfUiRuntime === "function"
+      ? vkfUiRuntimeModule.createVkfUiRuntime({ arena: transformArena, eventArena: eventArena })
+      : null;
+    var uiFrame = uiRuntime ? uiRuntime.ui.display.frame({ title: "shared-rect-demo" }) : null;
     var writeLog = [];
     var transformRenderer = gpu.createTransformRenderer({
       arena: transformArena,
@@ -134,6 +347,9 @@
       transformArena.setTranslate2D(slot, rect.x, rect.y);
     });
     transformRenderer.flushDirtyTransforms();
+    if (uiRuntime && uiFrame) {
+      uiRuntime.ui.display.add_frame(uiFrame, [0, 0, 1, 1]);
+    }
 
     var decorativeRects = [
       { x: 88, y: 72, w: 260, h: 172 },
@@ -169,27 +385,19 @@
     var meshes = meshRects.map(function(rect, slot) {
       return makeRectMesh(slot, rect);
     });
-
-    var demo = {
-      exports: {
-        init: function() { return 0; },
-        update: function(input, api) {
-          api.transforms.setAnchoredTranslate2D(0, input.pointerX, input.pointerY, input.pointerAnchorX, input.pointerAnchorY);
-          return input.sequence;
-        }
-      }
-    };
-
-    var contract = wasmDemo.createWasmDemoContract({
-      demo: demo,
-      arena: transformArena,
-      eventArena: eventArena
-    });
-    contract.init();
+    var compiledRuntime = createCompiledRectRuntime(uiRuntime);
+    var compiledController = null;
+    var compiledRectObjects = uiFrame ? COMPILED_RECT_SLOTS.map(function(slot) {
+      return uiFrame.add_rect(
+        [meshRects[slot].x, meshRects[slot].y, meshRects[slot].w, meshRects[slot].h],
+        { color: meshRects[slot].face }
+      );
+    }) : [];
+    var primaryRectObject = compiledRectObjects.length ? compiledRectObjects[PRIMARY_RECT_SLOT] : null;
 
     var canvas = null;
     var ctx = null;
-    var latestInput = wasmDemo.createInputSnapshot({});
+    var latestInput = createInputSnapshot({});
     var latestSample = eventArena.readerView().latestSample();
     var pointerActive = false;
     var pointerAnchor = [0, 0];
@@ -221,6 +429,35 @@
       });
     }
 
+    function syncCompiledRectsFromState(state) {
+      if (!state) { return; }
+      var keyPairs = [
+        ["x", "y"],
+        ["x1", "y1"],
+        ["x2", "y2"]
+      ];
+      for (var i = 0; i < COMPILED_RECT_SLOTS.length; i += 1) {
+        var slot = COMPILED_RECT_SLOTS[i];
+        var keys = keyPairs[i];
+        if (Object.prototype.hasOwnProperty.call(state, keys[0])) {
+          meshRects[slot].x = Number(state[keys[0]]) || 0;
+        }
+        if (Object.prototype.hasOwnProperty.call(state, keys[1])) {
+          meshRects[slot].y = Number(state[keys[1]]) || 0;
+        }
+        transformArena.setTranslate2D(slot, meshRects[slot].x, meshRects[slot].y);
+      }
+    }
+
+    function isPrimaryRectHit(point) {
+      if (uiFrame && typeof uiFrame.pick === "function") {
+        var hit = uiFrame.pick(point);
+        return hit === primaryRectObject;
+      }
+      var rect = meshRects[PRIMARY_RECT_SLOT];
+      return point[0] >= rect.x && point[0] <= rect.x + rect.w && point[1] >= rect.y && point[1] <= rect.y + rect.h;
+    }
+
     function updateFromPointer(sample) {
       sequence += 1;
       eventArena.writeInputSample({
@@ -233,7 +470,7 @@
         hover: { object: 0 }
       });
       latestSample = eventArena.readerView().latestSample();
-      latestInput = wasmDemo.createInputSnapshot({
+      latestInput = createInputSnapshot({
         sequence: sequence,
         timeMs: Date.now(),
         pointerX: sample.x,
@@ -243,7 +480,14 @@
         pointerDown: !!sample.down,
         buttons: sample.down ? 1 : 0
       });
-      contract.update();
+      if (compiledController) {
+        compiledController.step({
+          cursorPx: [sample.x, sample.y],
+          pointerAnchorPx: pointerAnchor.slice()
+        });
+      } else {
+        transformArena.setAnchoredTranslate2D(PRIMARY_RECT_SLOT, sample.x, sample.y, pointerAnchor[0], pointerAnchor[1]);
+      }
       transformRenderer.flushDirtyTransforms();
       render();
       postLayout();
@@ -258,12 +502,11 @@
       }
       canvas.addEventListener("pointerdown", function(ev) {
         var pos = pointerPos(ev);
-        var rect = meshRects[0];
-        if (pos[0] < rect.x || pos[0] > rect.x + rect.w || pos[1] < rect.y || pos[1] > rect.y + rect.h) {
+        if (!isPrimaryRectHit(pos)) {
           return;
         }
         pointerActive = true;
-        pointerAnchor = [pos[0] - rect.x, pos[1] - rect.y];
+        pointerAnchor = [pos[0] - meshRects[PRIMARY_RECT_SLOT].x, pos[1] - meshRects[PRIMARY_RECT_SLOT].y];
         updateFromPointer({ x: pos[0], y: pos[1], down: true });
       });
       canvas.addEventListener("pointermove", function(ev) {
@@ -281,8 +524,65 @@
       postLayout();
     }
 
+    if (uiRuntime && uiRuntime.ui && uiRuntime.ui.compiled && typeof uiRuntime.ui.compiled.attach_wasm_runtime_controller === "function" && compiledRuntime) {
+      var compiledRectStateApplier = null;
+      if (typeof uiRuntime.ui.compiled.create_rect_state_applier === "function" && typeof uiRuntime.ui.compiled.compose_state_appliers === "function") {
+        compiledRectStateApplier = uiRuntime.ui.compiled.compose_state_appliers(
+          compiledRectObjects.map(function(object, index) {
+            if (!object) { return null; }
+            var suffix = index === 0 ? "" : String(index);
+            return uiRuntime.ui.compiled.create_rect_state_applier(object, {
+              offsetFields: ["x" + suffix, "y" + suffix]
+            });
+          })
+        );
+      }
+      compiledController = uiRuntime.ui.compiled.attach_wasm_runtime_controller({
+        runtime: compiledRuntime,
+        mapInput: function(sample) {
+          sample = sample || {};
+          var cursorPx = sample.cursorPx || [0, 0];
+          var pointerAnchorPx = sample.pointerAnchorPx || [0, 0];
+          return {
+            pointer_x: Number(cursorPx[0]) || 0,
+            pointer_y: Number(cursorPx[1]) || 0,
+            anchor_x: Number(pointerAnchorPx[0]) || 0,
+            anchor_y: Number(pointerAnchorPx[1]) || 0
+          };
+        },
+        applyState: function(state) {
+          if (compiledRectStateApplier) {
+            compiledRectStateApplier(state);
+          }
+          syncCompiledRectsFromState(state);
+        }
+      });
+      compiledController.init({
+        x: meshRects[PRIMARY_RECT_SLOT].x,
+        y: meshRects[PRIMARY_RECT_SLOT].y,
+        x1: meshRects[1].x,
+        y1: meshRects[1].y,
+        x2: meshRects[2].x,
+        y2: meshRects[2].y
+      });
+    }
+
     return {
       bindCanvas: bindCanvas,
+      drivePointerSample: function(sample) {
+        sample = sample || {};
+        if (sample.anchor) {
+          pointerAnchor = sample.anchor.slice(0, 2);
+        }
+        if (sample.pointerActive != null) {
+          pointerActive = !!sample.pointerActive;
+        }
+        updateFromPointer({
+          x: Number(sample.x) || 0,
+          y: Number(sample.y) || 0,
+          down: sample.down !== false
+        });
+      },
       getMeshes: function() {
         return meshes.map(function(mesh) {
           return {
@@ -293,9 +593,33 @@
       getRects: function() {
         return decorativeRects.map(function(rect) { return { x: rect.x, y: rect.y, w: rect.w, h: rect.h }; });
       },
+      getPrimaryRect: function() {
+        return {
+          x: meshRects[PRIMARY_RECT_SLOT].x,
+          y: meshRects[PRIMARY_RECT_SLOT].y,
+          w: meshRects[PRIMARY_RECT_SLOT].w,
+          h: meshRects[PRIMARY_RECT_SLOT].h
+        };
+      },
+      getCompiledRects: function() {
+        return COMPILED_RECT_SLOTS.map(function(slot) {
+          return {
+            x: meshRects[slot].x,
+            y: meshRects[slot].y,
+            w: meshRects[slot].w,
+            h: meshRects[slot].h
+          };
+        });
+      },
+      hitTestPointer: function(point) {
+        return isPrimaryRectHit(point);
+      },
       getWrites: function() { return writeLog.slice(); },
       getLatestInput: function() { return latestSample; },
-      getLatestSnapshot: function() { return latestInput; }
+      getLatestSnapshot: function() { return latestInput; },
+      getCompiledState: function() {
+        return compiledController ? compiledController.readState() : (compiledRuntime ? compiledRuntime.readState() : null);
+      }
     };
   }
 

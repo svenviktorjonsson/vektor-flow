@@ -84,4 +84,17 @@ const axis3d = require("../../web/vf-ui/vf-axis3d-kernel.js");
   assert.ok(Math.abs(delta[1]) <= 1e-9);
 }
 
+{
+  const mesh = axis3d.buildCrosshairHelperLineMesh({
+    xRange: { lo: -2, hi: 3 },
+    yRange: { lo: -4, hi: 5 },
+    zRange: { lo: 1, hi: 7 },
+    base: [10, 20, 30],
+    color: [0.1, 0.2, 0.3, 0.4]
+  });
+  assert.equal(mesh.vertices.length, 60);
+  assert.deepEqual(mesh.indices, [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(mesh.vertices.slice(0, 10), [-2, 20, 30, 0, 0, 1, 0.1, 0.2, 0.3, 0.4]);
+}
+
 console.log("vf-axis3d-kernel tests passed");

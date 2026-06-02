@@ -1,0 +1,334 @@
+# Self-hosted VKF parser seed.
+#
+# This file is compiler source, not runtime example code. Bootstrap accepts it
+# as the source-level contract for the future VKF-owned parser.
+
+TOKEN_STREAM_SCHEMA: "vektorflow.token_stream"
+TOKEN_STREAM_VERSION: 1
+
+Location: (file:str, line:num, column:num)
+Span: (start:Location, stop:Location)
+Token: (kind:str, value:any, location:Location)
+TokenStreamEnvelope: (schema:str, version:num, tokens:any)
+Diagnostic: (code:str, message:str, file:str, line:num, column:num, span:Span)
+ParseCursor: (envelope:TokenStreamEnvelope, tokens:any, index:num, diagnostics:any)
+ParseResult: (module:any, diagnostics:any)
+
+ModuleNode: (kind:str, body:any, span:Span)
+BindNode: (kind:str, target:any, annotation:any, value:any, span:Span)
+NumberLiteralNode: (kind:str, value:num, span:Span)
+StringLiteralNode: (kind:str, value:str, raw:bool, span:Span)
+BoolLiteralNode: (kind:str, value:bool, span:Span)
+NullLiteralNode: (kind:str, span:Span)
+IdentifierNode: (kind:str, name:str, span:Span)
+CallNode: (kind:str, callee:any, args:any, span:Span)
+BinaryOpNode: (kind:str, op:str, left:any, right:any, span:Span)
+DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
+MatchArmNode: (kind:str, condition:any, body:any)
+MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bool, catch:bool)
+FunctionDefinitionNode: (kind:str, name:str, params:any, return_type:any, body:any, span:Span)
+BlockNode: (kind:str, statements:any, span:Span)
+TypeAnnotationNode: (kind:str, name:str, span:Span)
+
+location(file:str, line:num, column:num):
+    (file: file, line: line, column: column)
+
+span(start:Location, stop:Location):
+    (start: start, stop: stop)
+
+token(kind:str, value:any, location:Location):
+    (kind: kind, value: value, location: location)
+
+token_stream_envelope(schema:str, version:num, tokens:any):
+    (schema: schema, version: version, tokens: tokens)
+
+diagnostic(code:str, message:str, where:Location, stop:Location):
+    (
+        code: code,
+        message: message,
+        file: where.file,
+        line: where.line,
+        column: where.column,
+        span: span(where, stop)
+    )
+
+cursor(envelope:TokenStreamEnvelope):
+    (envelope: envelope, tokens: envelope.tokens, index: 0, diagnostics: [])
+
+peek(cursor:ParseCursor):
+    cursor.tokens.(cursor.index)
+
+peek_kind(cursor:ParseCursor):
+    peek(cursor).kind
+
+advance(cursor:ParseCursor):
+    (
+        envelope: cursor.envelope,
+        tokens: cursor.tokens,
+        index: cursor.index + 1,
+        diagnostics: cursor.diagnostics
+    )
+
+at_end(cursor:ParseCursor):
+    peek_kind(cursor) = "EOF"
+
+with_diagnostic(cursor:ParseCursor, issue:Diagnostic):
+    (
+        envelope: cursor.envelope,
+        tokens: cursor.tokens,
+        index: cursor.index,
+        diagnostics: cursor.diagnostics & [issue]
+    )
+
+expect(cursor:ParseCursor, kind:str):
+    current: peek(cursor)
+    current.kind??
+        kind => advance(cursor)
+        with_diagnostic(
+            cursor,
+            diagnostic(
+                "expected-token",
+                "expected token kind",
+                current.location,
+                current.location
+            )
+        )
+
+module_node(body:any, span:Span):
+    (kind: "module", body: body, span: span)
+
+bind_node(target:any, annotation:any, value:any, span:Span):
+    (kind: "bind", target: target, annotation: annotation, value: value, span: span)
+
+number_literal(value:num, span:Span):
+    (kind: "number_literal", value: value, span: span)
+
+string_literal(value:str, raw:bool, span:Span):
+    (kind: "string_literal", value: value, raw: raw, span: span)
+
+bool_literal(value:bool, span:Span):
+    (kind: "bool_literal", value: value, span: span)
+
+null_literal(span:Span):
+    (kind: "null_literal", span: span)
+
+identifier_node(name:str, span:Span):
+    (kind: "identifier", name: name, span: span)
+
+call_node(callee:any, args:any, span:Span):
+    (kind: "call", callee: callee, args: args, span: span)
+
+binary_op_node(op:str, left:any, right:any, span:Span):
+    (kind: "binary_op", op: op, left: left, right: right, span: span)
+
+dotted_index_node(base:any, indices:any, span:Span):
+    (kind: "dotted_index", base: base, indices: indices, span: span)
+
+match_arm_node(condition:any, body:any):
+    (kind: "match_arm", condition: condition, body: body)
+
+match_stmt_node(discriminant:any, arms:any):
+    (kind: "match_stmt", discriminant: discriminant, arms: arms, loop: false, catch: false)
+
+function_definition(name:str, params:any, return_type:any, body:any, span:Span):
+    (
+        kind: "function_definition",
+        name: name,
+        params: params,
+        return_type: return_type,
+        body: body,
+        span: span
+    )
+
+block_node(statements:any, span:Span):
+    (kind: "block", statements: statements, span: span)
+
+type_annotation(name:str, span:Span):
+    (kind: "type_annotation", name: name, span: span)
+
+validate_location_shape(value:any):
+    value.file /\ value.line /\ value.column
+
+validate_token_shape(value:any):
+    value.kind /\ value.location /\ validate_location_shape(value.location)
+
+validate_envelope_shape(envelope:TokenStreamEnvelope):
+    envelope.schema = TOKEN_STREAM_SCHEMA /\ envelope.version = TOKEN_STREAM_VERSION /\ envelope.tokens
+
+validate_eof(cursor:ParseCursor):
+    last: cursor.tokens.(len(cursor.tokens) - 1)
+    last.kind = "EOF"
+
+unsupported_syntax(cursor:ParseCursor, feature:str):
+    current: peek(cursor)
+    with_diagnostic(
+        cursor,
+        diagnostic(
+            "unsupported-syntax",
+            feature,
+            current.location,
+            current.location
+        )
+    )
+
+parse_literal(cursor:ParseCursor):
+    current: peek(cursor)
+    current.kind??
+        "NUMBER" => number_literal(current.value, span(current.location, current.location))
+        "STRING" => string_literal(current.value, false, span(current.location, current.location))
+        "STRING_RAW" => string_literal(current.value, true, span(current.location, current.location))
+        "TRUE" => bool_literal(true, span(current.location, current.location))
+        "FALSE" => bool_literal(false, span(current.location, current.location))
+        "NULL" => null_literal(span(current.location, current.location))
+        unsupported_syntax(cursor, "expected literal")
+
+parse_identifier(cursor:ParseCursor):
+    current: peek(cursor)
+    current.kind??
+        "IDENT" => identifier_node(current.value, span(current.location, current.location))
+        unsupported_syntax(cursor, "expected identifier")
+
+parse_type_annotation(cursor:ParseCursor):
+    current: peek(cursor)
+    current.kind??
+        "IDENT" => type_annotation(current.value, span(current.location, current.location))
+        unsupported_syntax(cursor, "expected type annotation")
+
+parse_call(cursor:ParseCursor, callee:any):
+    open: peek(cursor)
+    open.kind??
+        "LPAREN" => call_node(callee, [], span(callee.span.start, open.location))
+        unsupported_syntax(cursor, "expected call argument list")
+
+parse_block(cursor:ParseCursor):
+    current: peek(cursor)
+    current.kind??
+        "INDENT" => block_node([], span(current.location, current.location))
+        unsupported_syntax(cursor, "expected indented block")
+
+parse_bind(cursor:ParseCursor):
+    target: parse_identifier(cursor)
+    colon_cursor: advance(cursor)
+    value_cursor: expect(colon_cursor, "COLON")
+    bind_node(target, null, parse_literal(value_cursor), target.span)
+
+parse_function_definition(cursor:ParseCursor):
+    name: parse_identifier(cursor)
+    params_cursor: expect(advance(cursor), "LPAREN")
+    body_cursor: expect(params_cursor, "COLON")
+    function_definition(name.name, [], null, parse_block(body_cursor), name.span)
+
+parse_parameter(cursor:ParseCursor):
+    name: parse_identifier(cursor)
+    current: peek(cursor)
+    current.kind??
+        "COLON" => (name: name.name, type: parse_type_annotation(advance(cursor)))
+        (name: name.name, type: null)
+
+parse_return_type(cursor:ParseCursor):
+    current: peek(cursor)
+    current.kind??
+        "ARROW" => parse_type_annotation(advance(cursor))
+        null
+
+parse_statement(cursor:ParseCursor):
+    current: peek(cursor)
+    current.kind??
+        "IDENT" => parse_bind(cursor)
+        unsupported_syntax(cursor, "expected statement")
+
+native_parser_smoke_capability:
+    name: "vkf_parser_token_stream_smoke"
+    input: "versioned token stream json from stdin or argv"
+    validates: ["vektorflow.token_stream", "version", "tokens", "EOF"]
+    emits_ast_json: [
+        "module",
+        "bind",
+        "number_literal",
+        "string_literal",
+        "bool_literal",
+        "null_literal",
+        "identifier",
+        "call",
+        "binary_op"
+    ]
+    parses_statements: [
+        "answer: 42",
+        "name: string literal",
+        "flag: true",
+        "value: null",
+        "print(answer)",
+        "newline-separated module body"
+    ]
+    parses_functions: [
+        "function header name plus params",
+        "param type annotations",
+        "return type annotation after ARROW",
+        "INDENT DEDENT function body blocks",
+        "AT_COLON return statement"
+    ]
+    unsupported: ["bind annotation answer:num: 42 because bootstrap parser does not support that exact shape"]
+    errors: ["unsupported token diagnostic includes file line column"]
+    :
+
+parse_module_from_cursor(cursor:ParseCursor):
+    first: peek(cursor)
+    module_node([], span(first.location, first.location))
+
+parse_token_stream_json(json_text:str):
+    envelope: vkf_json_decode(json_text)
+    validate_envelope_shape(envelope)
+    start: cursor(envelope)
+    validate_eof(start)
+    parse_module_from_cursor(start)
+
+parser_capability:
+    name: "self_hosted_parser_seed"
+    consumes: [
+        "TOKEN_STREAM_SCHEMA",
+        "vektorflow.token_stream",
+        "version",
+        "tokens",
+        "location",
+        "EOF",
+        "parse_token_stream_json entrypoint"
+    ]
+    proven_native_smoke: [
+        "validates bad schema",
+        "validates bad version",
+        "validates missing EOF",
+        "parses native lexer smoke token stream for answer bind",
+        "matches normalized bootstrap parser AST for curated token streams",
+        "matches normalized bootstrap parser AST for function definitions",
+        "matches normalized bootstrap parser AST for blocks and return statements",
+        "matches normalized bootstrap parser AST for param and return annotations",
+        "matches normalized bootstrap parser AST for comparison and boolean operator chains"
+    ]
+    helpers: ["cursor", "peek", "peek_kind", "advance", "expect", "at_end"]
+    diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
+    ast_nodes: [
+        "module",
+        "bind",
+        "number_literal",
+        "string_literal",
+        "bool_literal",
+        "null_literal",
+        "identifier",
+        "call",
+        "binary_op",
+        "dotted_index",
+        "match_stmt",
+        "function_definition",
+        "block",
+        "type_annotation"
+    ]
+    missing: [
+        "json decoder binding",
+        "array indexing primitive",
+        "loop over statement tokens",
+        "parameter list parsing",
+        "argument list parsing",
+        "full expression precedence"
+    ]
+    percent: 58
+    :

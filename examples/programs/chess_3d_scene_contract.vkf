@@ -1,0 +1,87 @@
+Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
+CameraOrbit : (center_x:num, center_y:num, center_z:num, theta:num, phi:num, radius:num)
+ArrowControls : (theta_left:str, theta_right:str, phi_up:str, phi_down:str, step:num)
+BoardMaterial : (dark_color:str, light_color:str, checker_weight:num, mirror_weight:num, roughness:num)
+ClickState : (selected_side:str, selected_role:str, selected_file:num, selected_rank:num, has_selection:bool)
+ClickResult : (action:str, selected_file:num, selected_rank:num, to_file:num, to_rank:num)
+
+board_center_camera(theta:num, phi:num, radius:num) -> CameraOrbit:
+    @: (center_x:0, center_y:0, center_z:0, theta:theta, phi:phi, radius:radius)
+
+default_arrows() -> ArrowControls:
+    @: (theta_left:"theta-", theta_right:"theta+", phi_up:"phi+", phi_down:"phi-", step:15)
+
+rotate_theta(camera:CameraOrbit, delta:num) -> CameraOrbit:
+    @: (center_x:camera.center_x, center_y:camera.center_y, center_z:camera.center_z, theta:camera.theta + delta, phi:camera.phi, radius:camera.radius)
+
+rotate_phi(camera:CameraOrbit, delta:num) -> CameraOrbit:
+    @: (center_x:camera.center_x, center_y:camera.center_y, center_z:camera.center_z, theta:camera.theta, phi:camera.phi + delta, radius:camera.radius)
+
+apply_arrow(camera:CameraOrbit, arrows:ArrowControls, arrow:str) -> CameraOrbit:
+    arrow = arrows.theta_left? @: rotate_theta(camera, 0 - arrows.step)
+    arrow = arrows.theta_right? @: rotate_theta(camera, arrows.step)
+    arrow = arrows.phi_up? @: rotate_phi(camera, arrows.step)
+    arrow = arrows.phi_down? @: rotate_phi(camera, 0 - arrows.step)
+    @: camera
+
+checker_mirror_material(dark:str, light:str, mirror_weight:num) -> BoardMaterial:
+    @: (dark_color:dark, light_color:light, checker_weight:1 - mirror_weight, mirror_weight:mirror_weight, roughness:0.18)
+
+standard_board_material() -> BoardMaterial:
+    @: checker_mirror_material("#1b1b1b", "#f0d9b5", 0.2)
+
+select_piece(piece:Piece) -> ClickState:
+    @: (selected_side:piece.side, selected_role:piece.role, selected_file:piece.file, selected_rank:piece.rank, has_selection:true)
+
+clear_selection() -> ClickState:
+    @: (selected_side:"", selected_role:"", selected_file:0, selected_rank:0, has_selection:false)
+
+same_square(piece:Piece, file:num, rank:num) -> bool:
+    piece.captured? @: false
+    piece.file = file?
+        piece.rank = rank? @: true
+    @: false
+
+click_piece(state:ClickState, piece:Piece, legal_capture:bool) -> ClickResult:
+    state.has_selection?
+        piece.side = state.selected_side? @: (action:"select", selected_file:piece.file, selected_rank:piece.rank, to_file:piece.file, to_rank:piece.rank)
+        legal_capture? @: (action:"capture", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:piece.file, to_rank:piece.rank)
+        @: (action:"reject", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:piece.file, to_rank:piece.rank)
+    @: (action:"select", selected_file:piece.file, selected_rank:piece.rank, to_file:piece.file, to_rank:piece.rank)
+
+click_square(state:ClickState, file:num, rank:num, legal_move:bool) -> ClickResult:
+    state.has_selection?
+        legal_move? @: (action:"move", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:file, to_rank:rank)
+        @: (action:"reject", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:file, to_rank:rank)
+    @: (action:"noop", selected_file:0, selected_rank:0, to_file:file, to_rank:rank)
+
+white_knight: (side:"white", role:"knight", file:7, rank:1, captured:false, tray_rank:1)
+black_pawn: (side:"black", role:"pawn", file:5, rank:7, captured:false, tray_rank:1)
+white_rook: (side:"white", role:"rook", file:1, rank:1, captured:false, tray_rank:1)
+
+camera0: board_center_camera(45, 30, 10)
+arrows: default_arrows()
+camera_left: apply_arrow(camera0, arrows, "theta-")
+camera_up: apply_arrow(camera_left, arrows, "phi+")
+material: standard_board_material()
+selected_knight: select_piece(white_knight)
+capture_result: click_piece(selected_knight, black_pawn, true)
+friendly_result: click_piece(selected_knight, white_rook, true)
+move_result: click_square(selected_knight, 6, 3, true)
+reject_result: click_square(selected_knight, 6, 2, false)
+empty_click: click_square(clear_selection(), 4, 4, true)
+
+:: camera0.center_x
+:: camera0.center_z
+:: camera_left.theta
+:: camera_up.phi
+:: material.checker_weight
+:: material.mirror_weight
+:: capture_result.action
+:: capture_result.to_file
+:: friendly_result.action
+:: friendly_result.selected_file
+:: move_result.action
+:: move_result.to_rank
+:: reject_result.action
+:: empty_click.action

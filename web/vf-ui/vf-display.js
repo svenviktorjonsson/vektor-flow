@@ -19,6 +19,7 @@
   "use strict";
 
   var _vfDisplayScript = typeof document !== "undefined" ? document.currentScript : null;
+  var _vfAxis2DTicks = global.VfAxis2DTicks || null;
   var _vfAxis3DKernel = global.VfAxis3DKernelAdapter &&
     typeof global.VfAxis3DKernelAdapter.createJsAxis3DKernelAdapter === "function"
       ? global.VfAxis3DKernelAdapter.createJsAxis3DKernelAdapter()
@@ -46,6 +47,21 @@
 
   vlog("info", "vf-display.js loaded");
 
+  function truthyRuntimeAttr(value) {
+    var normalized = String(value || "").toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+  }
+
+  function strictPacketOnlyEnabled() {
+    try {
+      if (global.__vfRuntimeStrictPacketOnly === true) { return true; }
+      if (global.document && global.document.body) {
+        return truthyRuntimeAttr(global.document.body.getAttribute("data-vf-runtime-strict-packet-only"));
+      }
+    } catch (_) {}
+    return false;
+  }
+
   // ── State ─────────────────────────────────────────────────────────────────
   var ctxCache = new WeakMap();
   // frame_id -> { entries: [{renderer, ref}] }
@@ -70,6 +86,87 @@
     return _vfAxis3DKernel && typeof _vfAxis3DKernel[name] === "function"
       ? _vfAxis3DKernel[name]
       : null;
+  }
+
+  function axis2DTicksMethod(name) {
+    return _vfAxis2DTicks && typeof _vfAxis2DTicks[name] === "function"
+      ? _vfAxis2DTicks[name]
+      : null;
+  }
+
+  function buildAxisBoxTickState(spec) {
+    var external = axis2DTicksMethod("buildAxisBoxTickState");
+    if (external) { return external(spec); }
+    var cfg = spec || {};
+    var width = Math.max(1, Number(cfg.width) || 1);
+    var height = Math.max(1, Number(cfg.height) || 1);
+    var xMin = Number(cfg.x_min);
+    var xMax = Number(cfg.x_max);
+    var yMin = Number(cfg.y_min);
+    var yMax = Number(cfg.y_max);
+    var out = {};
+    if (xMax > xMin) {
+      var xStep = chooseAxisTickStep((xMax - xMin) / width, cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      xStep = chooseReadableLinearTickStep(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
+      var xValues = axisTickValuesForMode(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, false, cfg.hints, width, cfg.dist, cfg.min_dist, cfg.max_dist);
+      out.x = { step: xStep, values: xValues, offset: axisLabelOffset(xValues, xMin, xMax) };
+    }
+    if (yMax > yMin) {
+      var yStep = chooseAxisTickStep((yMax - yMin) / height, cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      var yValues = axisTickValuesForMode(yMin, yMax, yStep, cfg.y_ticks, cfg.y_mode, false, cfg.hints, height, cfg.dist, cfg.min_dist, cfg.max_dist);
+      out.y = { step: yStep, values: yValues, offset: axisLabelOffset(yValues, yMin, yMax) };
+    }
+    return out;
+  }
+
+  function buildAxisCrosshairTickState(spec) {
+    var external = axis2DTicksMethod("buildAxisCrosshairTickState");
+    if (external) { return external(spec); }
+    var cfg = spec || {};
+    var width = Math.max(1, Number(cfg.width) || 1);
+    var height = Math.max(1, Number(cfg.height) || 1);
+    var xVisibleMin = Number(cfg.x_visible_min);
+    var xVisibleMax = Number(cfg.x_visible_max);
+    var yVisibleMin = Number(cfg.y_visible_min);
+    var yVisibleMax = Number(cfg.y_visible_max);
+    var out = {};
+    if (xVisibleMax > xVisibleMin) {
+      var xStep = chooseAxisTickStep((xVisibleMax - xVisibleMin) / width, cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      xStep = chooseReadableLinearTickStep(xVisibleMin, xVisibleMax, xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
+      var xValues = axisCrosshairTickValuesForMode(xVisibleMin, xVisibleMax, xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, width, cfg.dist, cfg.min_dist, cfg.max_dist);
+      out.x = { step: xStep, values: xValues, offset: axisLabelOffset(xValues, xVisibleMin, xVisibleMax), visible_min: xVisibleMin, visible_max: xVisibleMax };
+    }
+    if (yVisibleMax > yVisibleMin) {
+      var yStep = chooseAxisTickStep((yVisibleMax - yVisibleMin) / height, cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      var yValues = axisCrosshairTickValuesForMode(yVisibleMin, yVisibleMax, yStep, cfg.y_ticks, cfg.y_mode, cfg.hints, height, cfg.dist, cfg.min_dist, cfg.max_dist);
+      out.y = { step: yStep, values: yValues, offset: axisLabelOffset(yValues, yVisibleMin, yVisibleMax), visible_min: yVisibleMin, visible_max: yVisibleMax };
+    }
+    return out;
+  }
+
+  function computeAxisCrosshairRenderState(mesh, cfg, w, h) {
+    var view = axisViewport(mesh, cfg, w, h);
+    if (!view) { return null; }
+    var localBounds = axis2DRotatedLocalBounds(mesh, cfg, w, h);
+    var xVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "x");
+    var yVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "y");
+    var tickState = buildAxisCrosshairTickState(Object.assign({}, cfg, {
+      width: Math.max(1, localBounds.width),
+      height: Math.max(1, localBounds.height),
+      x_visible_min: xVisible[0],
+      x_visible_max: xVisible[1],
+      y_visible_min: yVisible[0],
+      y_visible_max: yVisible[1]
+    }));
+    return {
+      view: view,
+      localBounds: localBounds,
+      xVisible: xVisible,
+      yVisible: yVisible,
+      tickState: tickState,
+      xAxisPx: view.dataToX(axisCrosshairBaseValue(cfg, "x")),
+      yAxisPx: view.dataToY(axisCrosshairBaseValue(cfg, "y"))
+    };
   }
 
   // ── Event forwarding ──────────────────────────────────────────────────────
@@ -4347,6 +4444,39 @@
     out.push(Number(x) || 0, Number(y) || 0, Number(z) || 0, 0, 0, 1, color[0], color[1], color[2], color[3]);
   }
 
+  function buildAxis3DCrosshairHelperMesh(fid, cfg, camera, target, color) {
+    var builder = axis3DKernelMethod("buildCrosshairHelperLineMesh");
+    var xRange = axis3DVisibleRange(String(fid), cfg, camera, target, "x");
+    var yRange = axis3DVisibleRange(String(fid), cfg, camera, target, "y");
+    var zRange = axis3DVisibleRange(String(fid), cfg, camera, target, "z");
+    var base = [
+      axisCrosshairBaseValue(cfg, "x"),
+      axisCrosshairBaseValue(cfg, "y"),
+      axisCrosshairBaseValue(cfg, "z")
+    ];
+    if (builder) {
+      return builder({
+        xRange: xRange,
+        yRange: yRange,
+        zRange: zRange,
+        base: base,
+        color: color
+      });
+    }
+    var verts = [];
+    var inds = [];
+    function addLine(a, b) {
+      var baseIndex = verts.length / 10;
+      pushAxis3DVertex(verts, a[0], a[1], a[2], color);
+      pushAxis3DVertex(verts, b[0], b[1], b[2], color);
+      inds.push(baseIndex, baseIndex + 1);
+    }
+    addLine([xRange.lo, base[1], base[2]], [xRange.hi, base[1], base[2]]);
+    addLine([base[0], yRange.lo, base[2]], [base[0], yRange.hi, base[2]]);
+    addLine([base[0], base[1], zRange.lo], [base[0], base[1], zRange.hi]);
+    return { vertices: verts, indices: inds };
+  }
+
   function rebuildAxis3DLocalField(fid, skipUpdate, geomOverride) {
     var geom = geomOverride || (_lastDisplayPayload && _lastDisplayPayload.geom ? _lastDisplayPayload.geom[String(fid)] : null);
     var cfg = axis3DRuntimeConfig(geom);
@@ -4367,26 +4497,10 @@
     var camera = geom.camera || {};
     var target = vec3Array(camera.target, [0, 0, 0]);
     var color = parseRuntimeColor(cfg.color || "white");
-    var verts = [];
-    var inds = [];
-    function addLine(a, b) {
-        var base = verts.length / 10;
-      pushAxis3DVertex(verts, a[0], a[1], a[2], color);
-      pushAxis3DVertex(verts, b[0], b[1], b[2], color);
-      inds.push(base, base + 1);
-    }
-    var xRange = axis3DVisibleRange(String(fid), cfg, camera, target, "x");
-    var yRange = axis3DVisibleRange(String(fid), cfg, camera, target, "y");
-    var zRange = axis3DVisibleRange(String(fid), cfg, camera, target, "z");
-    var baseX = axisCrosshairBaseValue(cfg, "x");
-    var baseY = axisCrosshairBaseValue(cfg, "y");
-    var baseZ = axisCrosshairBaseValue(cfg, "z");
-    addLine([xRange.lo, baseY, baseZ], [xRange.hi, baseY, baseZ]);
-    addLine([baseX, yRange.lo, baseZ], [baseX, yRange.hi, baseZ]);
-    addLine([baseX, baseY, zRange.lo], [baseX, baseY, zRange.hi]);
+    var helperMesh = buildAxis3DCrosshairHelperMesh(fid, cfg, camera, target, color);
     var mesh = geom.meshes[0];
-    mesh.vertices = verts;
-    mesh.indices = inds;
+    mesh.vertices = helperMesh.vertices;
+    mesh.indices = helperMesh.indices;
     mesh.axis3d_helper_lines = true;
     mesh.edge_width = Math.max(0.5, Number(cfg.width) || Number(mesh.edge_width) || 1);
     mesh.__dataRevision = Number(mesh.__dataRevision || 0) + 1;
@@ -6358,6 +6472,8 @@
   }
 
   function tickDistanceBand(tickDist, minTickDist, maxTickDist) {
+    var external = axis2DTicksMethod("tickDistanceBand");
+    if (external) { return external(tickDist, minTickDist, maxTickDist); }
     var target = Math.max(1, Number(tickDist) || 72);
     var lo = Number(minTickDist);
     var hi = Number(maxTickDist);
@@ -6367,6 +6483,8 @@
   }
 
   function tickSpacingScore(px, band) {
+    var external = axis2DTicksMethod("tickSpacingScore");
+    if (external) { return external(px, band); }
     var spacing = Math.max(1e-9, Number(px) || 0);
     if (spacing >= band.min && spacing <= band.max) {
       var center = Math.sqrt(band.min * band.max);
@@ -6379,6 +6497,8 @@
   }
 
   function chooseAxisTickStep(dataPerPixel, tickDist, hints, minTickDist, maxTickDist) {
+    var external = axis2DTicksMethod("chooseAxisTickStep");
+    if (external) { return external(dataPerPixel, tickDist, hints, minTickDist, maxTickDist); }
     var band = tickDistanceBand(tickDist, minTickDist, maxTickDist);
     var target = Math.max(1e-12, Math.abs(Number(dataPerPixel) || 0) * Math.max(1, Number(tickDist) || 72));
     var rawHints = Array.isArray(hints) && hints.length ? hints : [1, 2, 5];
@@ -6428,6 +6548,10 @@
   }
 
   function chooseReadableLinearTickStep(minValue, maxValue, step, explicitValues, mode, hints, pixelSpan, tickDist, minTickDist, maxTickDist, fontSize) {
+    var external = axis2DTicksMethod("chooseReadableLinearTickStep");
+    if (external) {
+      return external(minValue, maxValue, step, explicitValues, mode, hints, pixelSpan, tickDist, minTickDist, maxTickDist, fontSize);
+    }
     var current = Math.max(1e-12, Math.abs(Number(step) || 0));
     var span = Math.max(1, Number(pixelSpan) || 1);
     var dataPerPixel = (Number(maxValue) - Number(minValue)) / span;
@@ -6558,6 +6682,8 @@
   }
 
   function axisLabelOffset(values, minValue, maxValue) {
+    var external = axis2DTicksMethod("axisLabelOffset");
+    if (external) { return external(values, minValue, maxValue); }
     if (!Array.isArray(values) || values.length < 2) { return 0; }
     var lo = Number(minValue);
     var hi = Number(maxValue);
@@ -6576,6 +6702,8 @@
   }
 
   function axisTickLabelWithOffset(value, mode, minValue, maxValue, offset, step) {
+    var external = axis2DTicksMethod("axisTickLabelWithOffset");
+    if (external) { return external(value, mode, minValue, maxValue, offset, step); }
     var off = Number(offset) || 0;
     if (off !== 0) {
       var delta = Number(value) - off;
@@ -6611,6 +6739,8 @@
   }
 
   function isLogTickMode(mode) {
+    var external = axis2DTicksMethod("isLogTickMode");
+    if (external) { return external(mode); }
     return String(mode || "linear").toLowerCase() === "log";
   }
 
@@ -6812,6 +6942,10 @@
   }
 
   function axisTickValuesForMode(minValue, maxValue, step, explicitValues, mode, signedLog, hints, pixelSpan, tickDist, minTickDist, maxTickDist) {
+    var external = axis2DTicksMethod("axisTickValuesForMode");
+    if (external) {
+      return external(minValue, maxValue, step, explicitValues, mode, signedLog, hints, pixelSpan, tickDist, minTickDist, maxTickDist);
+    }
     if (isLogTickMode(mode)) {
       if (!signedLog && isSubDecadePositiveRange(minValue, maxValue)) {
         return axisTickValues(minValue, maxValue, step, explicitValues);
@@ -6836,10 +6970,16 @@
   }
 
   function axisTickLabelForMode(value, mode, minValue, maxValue) {
+    var external = axis2DTicksMethod("axisTickLabelForMode");
+    if (external) { return external(value, mode, minValue, maxValue); }
     return isLogTickMode(mode) ? formatLogAxisTickLabel(value, minValue, maxValue) : formatAxisTickLabel(value);
   }
 
   function axisCrosshairTickValuesForMode(minValue, maxValue, step, explicitValues, mode, hints, pixelSpan, tickDist, minTickDist, maxTickDist) {
+    var external = axis2DTicksMethod("axisCrosshairTickValuesForMode");
+    if (external) {
+      return external(minValue, maxValue, step, explicitValues, mode, hints, pixelSpan, tickDist, minTickDist, maxTickDist);
+    }
     var values = axisTickValuesNoZeroForMode(minValue, maxValue, step, explicitValues, mode, false, hints, pixelSpan, tickDist, minTickDist, maxTickDist);
     if (!isLogTickMode(mode)) { return values; }
     return values.filter(function (v) {
@@ -6889,6 +7029,8 @@
   }
 
   function axisValueToUnit(value, minValue, maxValue, mode) {
+    var external = axis2DTicksMethod("axisValueToUnit");
+    if (external) { return external(value, minValue, maxValue, mode); }
     var v = Number(value);
     var lo = Number(minValue);
     var hi = Number(maxValue);
@@ -6901,6 +7043,8 @@
   }
 
   function axisUnitToValue(unit, minValue, maxValue, mode) {
+    var external = axis2DTicksMethod("axisUnitToValue");
+    if (external) { return external(unit, minValue, maxValue, mode); }
     var u = Number(unit);
     var lo = Number(minValue);
     var hi = Number(maxValue);
@@ -7169,36 +7313,22 @@
       var labelAxisPad = Math.max(0, Number(cfg.label_axis_pad) || 34);
       var approxW = Math.max(1, w - 2 * m);
       var approxH = Math.max(1, h - 2 * m);
-      var xMin = Number(cfg.x_min);
-      var xMax = Number(cfg.x_max);
-      var yMin = Number(cfg.y_min);
-      var yMax = Number(cfg.y_max);
-      if (xMax > xMin) {
-        var frozen2DX = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || null;
-        var xStep = frozen2DX && Number(frozen2DX.step) > 0
-          ? Number(frozen2DX.step)
-          : chooseAxisTickStep((xMax - xMin) / approxW, cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-        if (!(frozen2DX && Number(frozen2DX.step) > 0)) {
-          xStep = chooseReadableLinearTickStep(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, approxW, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-        }
-        var xs = frozen2DX && Array.isArray(frozen2DX.values)
-          ? frozen2DX.values.slice()
-          : axisTickValuesForMode(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, false, cfg.hints, approxW, cfg.dist, cfg.min_dist, cfg.max_dist);
-        var xOffsetValue = axisLabelOffset(xs, xMin, xMax);
+      var computed = buildAxisBoxTickState(Object.assign({}, cfg, { width: approxW, height: approxH }));
+      var frozen2DX = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || null;
+      var frozen2DY = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || null;
+      var xState = frozen2DX || computed.x || null;
+      var yState = frozen2DY || computed.y || null;
+      if (xState) {
+        var xOffsetValue = Number(xState.offset) || 0;
         var xOffsetWidth = xOffsetValue ? estimateTickLabelWidthPx(formatOffsetLabel(xOffsetValue), fontSize) : 0;
         bottomMargin = Math.max(bottomMargin, tickLen + 10 + fontSize + labelAxisPad + labelFontSize);
         rightMargin = Math.max(rightMargin, xOffsetWidth + 8);
       }
-      if (yMax > yMin) {
-        var frozen2DY = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || null;
-        var yStep = frozen2DY && Number(frozen2DY.step) > 0
-          ? Number(frozen2DY.step)
-          : chooseAxisTickStep((yMax - yMin) / approxH, cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-        var ys = frozen2DY && Array.isArray(frozen2DY.values)
-          ? frozen2DY.values.slice()
-          : axisTickValuesForMode(yMin, yMax, yStep, cfg.y_ticks, cfg.y_mode, false, cfg.hints, approxH, cfg.dist, cfg.min_dist, cfg.max_dist);
-        var yOffsetValue = axisLabelOffset(ys, yMin, yMax);
-        var yLabelWidth = maxEstimatedTickLabelWidthPx(ys, cfg.y_mode, yMin, yMax, yOffsetValue, yStep, fontSize);
+      if (yState) {
+        var yOffsetValue = Number(yState.offset) || 0;
+        var yStep = Number(yState.step) || 0;
+        var ys = Array.isArray(yState.values) ? yState.values.slice() : [];
+        var yLabelWidth = maxEstimatedTickLabelWidthPx(ys, cfg.y_mode, Number(cfg.y_min), Number(cfg.y_max), yOffsetValue, yStep, fontSize);
         var yOffsetWidth = yOffsetValue ? estimateTickLabelWidthPx(formatOffsetLabel(yOffsetValue), fontSize) : 0;
         var yLabelGap = Math.max(8, Math.min(14, labelAxisPad));
         var yNeed = tickLen + 8 + Math.max(yLabelWidth, yOffsetWidth) + yLabelGap + (cfg.y_label ? labelFontSize : 0);
@@ -7242,27 +7372,7 @@
   function freezeAxis2DBoxTickPlacement(mesh, cfg, w, h) {
     if (!mesh || mesh.axis_box !== true || !cfg) { return; }
     var box = axisBoxRect(Object.assign({}, mesh, { axis_ticks: Object.assign({}, cfg, { __frozen_box_tick_state: null }) }), w, h);
-    var xMin = Number(cfg.x_min);
-    var xMax = Number(cfg.x_max);
-    var yMin = Number(cfg.y_min);
-    var yMax = Number(cfg.y_max);
-    var state = {};
-    if (xMax > xMin) {
-      var xStep = chooseAxisTickStep((xMax - xMin) / Math.max(1, box.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      xStep = chooseReadableLinearTickStep(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-      state.x = {
-        step: xStep,
-        values: axisTickValuesForMode(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, false, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist)
-      };
-    }
-    if (yMax > yMin) {
-      var yStep = chooseAxisTickStep((yMax - yMin) / Math.max(1, box.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      state.y = {
-        step: yStep,
-        values: axisTickValuesForMode(yMin, yMax, yStep, cfg.y_ticks, cfg.y_mode, false, cfg.hints, box.height, cfg.dist, cfg.min_dist, cfg.max_dist)
-      };
-    }
-    cfg.__frozen_box_tick_state = state;
+    cfg.__frozen_box_tick_state = buildAxisBoxTickState(Object.assign({}, cfg, { width: Math.max(1, box.width), height: Math.max(1, box.height) }));
   }
 
   function unfreezeAxis2DBoxTickPlacement(cfg) {
@@ -7301,21 +7411,13 @@
         drawAxisBoxTicks(mesh);
         return;
       }
-      var xMin = Number(cfg.x_min);
-      var xMax = Number(cfg.x_max);
-      var yMin = Number(cfg.y_min);
-      var yMax = Number(cfg.y_max);
-      if (!(xMax > xMin) || !(yMax > yMin)) { return; }
-      var view = axisViewport(mesh, cfg, w, h);
-      if (!view) { return; }
-      var localBounds = axis2DRotatedLocalBounds(mesh, cfg, w, h);
-      var vx0 = view.vx0, vx1 = view.vx1, vy0 = view.vy0, vy1 = view.vy1;
-      var xVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "x");
-      var yVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "y");
-      var dataToX = view.dataToX;
-      var dataToY = view.dataToY;
-      var yAxisPx = dataToY(axisCrosshairBaseValue(cfg, "y"));
-      var xAxisPx = dataToX(axisCrosshairBaseValue(cfg, "x"));
+      var state = computeAxisCrosshairRenderState(mesh, cfg, w, h);
+      if (!state) { return; }
+      var dataToX = state.view.dataToX;
+      var dataToY = state.view.dataToY;
+      var yAxisPx = state.yAxisPx;
+      var xAxisPx = state.xAxisPx;
+      var localBounds = state.localBounds;
       var tickLen = Math.max(0, Number(cfg.len) || 7);
       var xAlign = String(cfg.x_alignment || "center").toLowerCase();
       var yAlign = String(cfg.y_alignment || "center").toLowerCase();
@@ -7326,12 +7428,11 @@
         return [-tickLen * 0.5, tickLen * 0.5];
       }
 
-      var xStep = chooseAxisTickStep((xVisible[1] - xVisible[0]) / Math.max(1, localBounds.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      xStep = chooseReadableLinearTickStep(xVisible[0], xVisible[1], xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, localBounds.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-      var yStep = chooseAxisTickStep((yVisible[1] - yVisible[0]) / Math.max(1, localBounds.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      if (yAxisPx >= localBounds.top - tickLen && yAxisPx <= localBounds.bottom + tickLen && xStep > 0) {
+      var xState = state.tickState && state.tickState.x || null;
+      var yState = state.tickState && state.tickState.y || null;
+      if (yAxisPx >= localBounds.top - tickLen && yAxisPx <= localBounds.bottom + tickLen && xState && Number(xState.step) > 0) {
         var xo = tickOffsets(xAlign, "top", "bottom");
-        var xs = axisCrosshairTickValuesForMode(xVisible[0], xVisible[1], xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, localBounds.width, cfg.dist, cfg.min_dist, cfg.max_dist);
+        var xs = Array.isArray(xState.values) ? xState.values.slice() : [];
         for (var xi = 0; xi < xs.length; xi += 1) {
           var xv = xs[xi];
           var xp = dataToX(xv);
@@ -7339,9 +7440,9 @@
           ctx.lineTo(xp, yAxisPx + xo[1]);
         }
       }
-      if (xAxisPx >= localBounds.left - tickLen && xAxisPx <= localBounds.right + tickLen && yStep > 0) {
+      if (xAxisPx >= localBounds.left - tickLen && xAxisPx <= localBounds.right + tickLen && yState && Number(yState.step) > 0) {
         var yo = tickOffsets(yAlign, "left", "right");
-        var ys = axisCrosshairTickValuesForMode(yVisible[0], yVisible[1], yStep, cfg.y_ticks, cfg.y_mode, cfg.hints, localBounds.height, cfg.dist, cfg.min_dist, cfg.max_dist);
+        var ys = Array.isArray(yState.values) ? yState.values.slice() : [];
         for (var yi = 0; yi < ys.length; yi += 1) {
           var yv = ys[yi];
           var yp = dataToY(yv);
@@ -7354,17 +7455,9 @@
     function drawAxisBoxTicks(mesh) {
       var cfg = mesh.axis_ticks || null;
       var box = axisBoxRect(mesh, w, h);
-      var frozenX = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || null;
-      var frozenY = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || null;
-      var xStep = frozenX && Number(frozenX.step) > 0
-        ? Number(frozenX.step)
-        : chooseAxisTickStep((Number(cfg.x_max) - Number(cfg.x_min)) / Math.max(1, box.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      if (!(frozenX && Number(frozenX.step) > 0)) {
-        xStep = chooseReadableLinearTickStep(Number(cfg.x_min), Number(cfg.x_max), xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-      }
-      var yStep = frozenY && Number(frozenY.step) > 0
-        ? Number(frozenY.step)
-        : chooseAxisTickStep((Number(cfg.y_max) - Number(cfg.y_min)) / Math.max(1, box.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      var computed = buildAxisBoxTickState(Object.assign({}, cfg, { width: Math.max(1, box.width), height: Math.max(1, box.height) }));
+      var xState = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || computed.x || null;
+      var yState = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || computed.y || null;
       var tickLen = Math.max(0, Number(cfg.len) || 7);
       var xAlign = String(cfg.x_alignment || "center").toLowerCase();
       var yAlign = String(cfg.y_alignment || "center").toLowerCase();
@@ -7378,18 +7471,14 @@
       }
 
       var xo = tickOffsets(xAlign, "top", "bottom");
-      var xs = frozenX && Array.isArray(frozenX.values)
-        ? frozenX.values.slice()
-        : axisTickValuesForMode(Number(cfg.x_min), Number(cfg.x_max), xStep, cfg.x_ticks, cfg.x_mode, false, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist);
+      var xs = xState && Array.isArray(xState.values) ? xState.values.slice() : [];
       for (var xi = 0; xi < xs.length; xi += 1) {
         var xp = dataToX(xs[xi]);
         ctx.moveTo(xp, box.bottom + xo[0]);
         ctx.lineTo(xp, box.bottom + xo[1]);
       }
       var yo = tickOffsets(yAlign, "right", "left");
-      var ys = frozenY && Array.isArray(frozenY.values)
-        ? frozenY.values.slice()
-        : axisTickValuesForMode(Number(cfg.y_min), Number(cfg.y_max), yStep, cfg.y_ticks, cfg.y_mode, false, cfg.hints, box.height, cfg.dist, cfg.min_dist, cfg.max_dist);
+      var ys = yState && Array.isArray(yState.values) ? yState.values.slice() : [];
       for (var yi = 0; yi < ys.length; yi += 1) {
         var yp = dataToY(ys[yi]);
         ctx.moveTo(box.left + yo[0], yp);
@@ -7404,14 +7493,12 @@
         drawAxisBoxGrid(mesh);
         return;
       }
-      var view = axisViewport(mesh, cfg, w, h);
-      if (!view) { return; }
-      var localBounds = axis2DRotatedLocalBounds(mesh, cfg, w, h);
-      var xVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "x");
-      var yVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "y");
-      var xStep = chooseAxisTickStep((xVisible[1] - xVisible[0]) / Math.max(1, localBounds.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      xStep = chooseReadableLinearTickStep(xVisible[0], xVisible[1], xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, localBounds.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-      var yStep = chooseAxisTickStep((yVisible[1] - yVisible[0]) / Math.max(1, localBounds.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      var state = computeAxisCrosshairRenderState(mesh, cfg, w, h);
+      if (!state) { return; }
+      var view = state.view;
+      var localBounds = state.localBounds;
+      var xState = state.tickState && state.tickState.x || null;
+      var yState = state.tickState && state.tickState.y || null;
       var alpha = Math.max(0, Math.min(1, Number(cfg.grid_alpha) || 0.18));
       var gridColor = parseRuntimeColor(cfg.grid_color || mesh.color || "white");
       ctx.save();
@@ -7422,13 +7509,13 @@
         Math.max(0, Math.min(1, gridColor[3] * alpha)) + ")";
       ctx.lineWidth = Math.max(0.5, Number(cfg.grid_width) || 1);
       ctx.beginPath();
-      var xs = axisCrosshairTickValuesForMode(xVisible[0], xVisible[1], xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, localBounds.width, cfg.dist, cfg.min_dist, cfg.max_dist);
+      var xs = xState && Array.isArray(xState.values) ? xState.values.slice() : [];
       for (var xi = 0; xi < xs.length; xi += 1) {
         var xp = view.dataToX(xs[xi]);
         ctx.moveTo(xp, localBounds.top);
         ctx.lineTo(xp, localBounds.bottom);
       }
-      var ys = axisCrosshairTickValuesForMode(yVisible[0], yVisible[1], yStep, cfg.y_ticks, cfg.y_mode, cfg.hints, localBounds.height, cfg.dist, cfg.min_dist, cfg.max_dist);
+      var ys = yState && Array.isArray(yState.values) ? yState.values.slice() : [];
       for (var yi = 0; yi < ys.length; yi += 1) {
         var yp = view.dataToY(ys[yi]);
         ctx.moveTo(localBounds.left, yp);
@@ -7442,17 +7529,9 @@
     function drawAxisBoxGrid(mesh) {
       var cfg = mesh.axis_ticks || null;
       var box = axisBoxRect(mesh, w, h);
-      var frozenX = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || null;
-      var frozenY = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || null;
-      var xStep = frozenX && Number(frozenX.step) > 0
-        ? Number(frozenX.step)
-        : chooseAxisTickStep((Number(cfg.x_max) - Number(cfg.x_min)) / Math.max(1, box.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-      if (!(frozenX && Number(frozenX.step) > 0)) {
-        xStep = chooseReadableLinearTickStep(Number(cfg.x_min), Number(cfg.x_max), xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-      }
-      var yStep = frozenY && Number(frozenY.step) > 0
-        ? Number(frozenY.step)
-        : chooseAxisTickStep((Number(cfg.y_max) - Number(cfg.y_min)) / Math.max(1, box.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+      var computed = buildAxisBoxTickState(Object.assign({}, cfg, { width: Math.max(1, box.width), height: Math.max(1, box.height) }));
+      var xState = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || computed.x || null;
+      var yState = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || computed.y || null;
       var alpha = Math.max(0, Math.min(1, Number(cfg.grid_alpha) || 0.18));
       var gridColor = parseRuntimeColor(cfg.grid_color || mesh.color || "white");
       var dataToX = function (x) { return box.left + axisValueToUnit(x, cfg.x_min, cfg.x_max, cfg.x_mode) * box.width; };
@@ -7465,17 +7544,13 @@
         Math.max(0, Math.min(1, gridColor[3] * alpha)) + ")";
       ctx.lineWidth = Math.max(0.5, Number(cfg.grid_width) || 1);
       ctx.beginPath();
-      var xs = frozenX && Array.isArray(frozenX.values)
-        ? frozenX.values.slice()
-        : axisTickValuesForMode(Number(cfg.x_min), Number(cfg.x_max), xStep, cfg.x_ticks, cfg.x_mode, false, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist);
+      var xs = xState && Array.isArray(xState.values) ? xState.values.slice() : [];
       for (var xi = 0; xi < xs.length; xi += 1) {
         var xp = dataToX(xs[xi]);
         ctx.moveTo(xp, box.top);
         ctx.lineTo(xp, box.bottom);
       }
-      var ys = frozenY && Array.isArray(frozenY.values)
-        ? frozenY.values.slice()
-        : axisTickValuesForMode(Number(cfg.y_min), Number(cfg.y_max), yStep, cfg.y_ticks, cfg.y_mode, false, cfg.hints, box.height, cfg.dist, cfg.min_dist, cfg.max_dist);
+      var ys = yState && Array.isArray(yState.values) ? yState.values.slice() : [];
       for (var yi = 0; yi < ys.length; yi += 1) {
         var yp = dataToY(ys[yi]);
         ctx.moveTo(box.left, yp);
@@ -8617,32 +8692,29 @@
     if (mesh.axis_box === true) {
       return collectAxisBoxLabelSpecs(mesh, w, h);
     }
-    var view = axisViewport(mesh, cfg, w, h);
-    if (!view) { return []; }
-    var localBounds = axis2DRotatedLocalBounds(mesh, cfg, w, h);
-    var xVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "x");
-    var yVisible = axis2DVisibleDataRangeFromLocalBounds(view, cfg, w, h, localBounds, "y");
-    var vx0 = view.vx0, vx1 = view.vx1, vy0 = view.vy0, vy1 = view.vy1;
-    var dataToX = view.dataToX;
-    var dataToY = view.dataToY;
-    var yAxisPx = dataToY(axisCrosshairBaseValue(cfg, "y"));
-    var xAxisPx = dataToX(axisCrosshairBaseValue(cfg, "x"));
+    var state = computeAxisCrosshairRenderState(mesh, cfg, w, h);
+    if (!state) { return []; }
+    var localBounds = state.localBounds;
+    var dataToX = state.view.dataToX;
+    var dataToY = state.view.dataToY;
+    var yAxisPx = state.yAxisPx;
+    var xAxisPx = state.xAxisPx;
     var tickLen = Math.max(0, Number(cfg.len) || 7);
-    var xStep = chooseAxisTickStep((xVisible[1] - xVisible[0]) / Math.max(1, localBounds.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-    xStep = chooseReadableLinearTickStep(xVisible[0], xVisible[1], xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, localBounds.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-    var yStep = chooseAxisTickStep((yVisible[1] - yVisible[0]) / Math.max(1, localBounds.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+    var xState = state.tickState && state.tickState.x || null;
+    var yState = state.tickState && state.tickState.y || null;
+    var xStep = xState && Number(xState.step) > 0 ? Number(xState.step) : 0;
+    var yStep = yState && Number(yState.step) > 0 ? Number(yState.step) : 0;
     var out = [];
     var labelColor = mesh.color || "white";
-    var xOffsetValue = 0;
-    var yOffsetValue = 0;
+    var xOffsetValue = xState ? (Number(xState.offset) || 0) : 0;
+    var yOffsetValue = yState ? (Number(yState.offset) || 0) : 0;
 
     if (yAxisPx >= localBounds.top - tickLen && yAxisPx <= localBounds.bottom + tickLen && xStep > 0) {
       var xLabels = Array.isArray(cfg.x_tick_labels) ? cfg.x_tick_labels : null;
       var xTickPlacement = String(cfg.x_tick_label_placement || "below").toLowerCase();
       var xOffset = xTickPlacement === "above" ? -tickLen - 5 : tickLen + 5;
       var xVa = xTickPlacement === "above" ? "bottom" : "top";
-      var xs = axisCrosshairTickValuesForMode(xVisible[0], xVisible[1], xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, localBounds.width, cfg.dist, cfg.min_dist, cfg.max_dist);
-      xOffsetValue = axisLabelOffset(xs, xVisible[0], xVisible[1]);
+      var xs = xState && Array.isArray(xState.values) ? xState.values.slice() : [];
       for (var xi = 0; xi < xs.length; xi += 1) {
         var xv = xs[xi];
         out.push({
@@ -8653,7 +8725,7 @@
           axis_anchor_py: yAxisPx,
           x: dataToX(xv),
           y: yAxisPx + xOffset,
-          text: xLabels && xi < xLabels.length ? String(xLabels[xi]) : axisTickLabelWithOffset(xv, cfg.x_mode, xVisible[0], xVisible[1], xOffsetValue, xStep),
+          text: xLabels && xi < xLabels.length ? String(xLabels[xi]) : axisTickLabelWithOffset(xv, cfg.x_mode, xState.visible_min, xState.visible_max, xOffsetValue, xStep),
           font_size: Number(cfg.tick_label_font_size) || 11,
           ha: "center",
           va: xVa,
@@ -8666,8 +8738,7 @@
       var yTickPlacement = String(cfg.y_tick_label_placement || "left").toLowerCase();
       var yOffset = yTickPlacement === "right" ? tickLen + 5 : -tickLen - 5;
       var yHa = yTickPlacement === "right" ? "left" : "right";
-      var ys = axisCrosshairTickValuesForMode(yVisible[0], yVisible[1], yStep, cfg.y_ticks, cfg.y_mode, cfg.hints, localBounds.height, cfg.dist, cfg.min_dist, cfg.max_dist);
-      yOffsetValue = axisLabelOffset(ys, yVisible[0], yVisible[1]);
+      var ys = yState && Array.isArray(yState.values) ? yState.values.slice() : [];
       for (var yi = 0; yi < ys.length; yi += 1) {
         var yv = ys[yi];
         out.push({
@@ -8678,7 +8749,7 @@
           axis_anchor_py: dataToY(yv),
           x: xAxisPx + yOffset,
           y: dataToY(yv),
-          text: yLabels && yi < yLabels.length ? String(yLabels[yi]) : axisTickLabelWithOffset(yv, cfg.y_mode, yVisible[0], yVisible[1], yOffsetValue, yStep),
+          text: yLabels && yi < yLabels.length ? String(yLabels[yi]) : axisTickLabelWithOffset(yv, cfg.y_mode, yState.visible_min, yState.visible_max, yOffsetValue, yStep),
           font_size: Number(cfg.tick_label_font_size) || 11,
           ha: yHa,
           va: "center",
@@ -8774,17 +8845,11 @@
     var yMin = Number(cfg.y_min);
     var yMax = Number(cfg.y_max);
     if (!(xMax > xMin) || !(yMax > yMin)) { return []; }
-    var frozenX = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || null;
-    var frozenY = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || null;
-    var xStep = frozenX && Number(frozenX.step) > 0
-      ? Number(frozenX.step)
-      : chooseAxisTickStep((xMax - xMin) / Math.max(1, box.width), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
-    if (!(frozenX && Number(frozenX.step) > 0)) {
-      xStep = chooseReadableLinearTickStep(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist, cfg.tick_label_font_size);
-    }
-    var yStep = frozenY && Number(frozenY.step) > 0
-      ? Number(frozenY.step)
-      : chooseAxisTickStep((yMax - yMin) / Math.max(1, box.height), cfg.dist, cfg.hints, cfg.min_dist, cfg.max_dist);
+    var computed = buildAxisBoxTickState(Object.assign({}, cfg, { width: Math.max(1, box.width), height: Math.max(1, box.height) }));
+    var xState = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.x || computed.x || null;
+    var yState = cfg.__frozen_box_tick_state && cfg.__frozen_box_tick_state.y || computed.y || null;
+    var xStep = xState && Number(xState.step) > 0 ? Number(xState.step) : 0;
+    var yStep = yState && Number(yState.step) > 0 ? Number(yState.step) : 0;
     var tickLen = Math.max(0, Number(cfg.len) || 7);
     var labelColor = mesh.color || "white";
     var dataToX = function (x) { return box.left + axisValueToUnit(x, xMin, xMax, cfg.x_mode) * box.width; };
@@ -8795,10 +8860,8 @@
     var xTickPlacement = String(cfg.x_tick_label_placement || "below").toLowerCase();
     var xOffset = xTickPlacement === "above" ? -tickLen - 5 : tickLen + 5;
     var xVa = xTickPlacement === "above" ? "bottom" : "top";
-    var xs = frozenX && Array.isArray(frozenX.values)
-      ? frozenX.values.slice()
-      : axisTickValuesForMode(xMin, xMax, xStep, cfg.x_ticks, cfg.x_mode, false, cfg.hints, box.width, cfg.dist, cfg.min_dist, cfg.max_dist);
-    var xOffsetValue = axisLabelOffset(xs, xMin, xMax);
+    var xs = xState && Array.isArray(xState.values) ? xState.values.slice() : [];
+    var xOffsetValue = xState ? (Number(xState.offset) || 0) : 0;
     var xLabelAxisPad = Math.max(0, Number(cfg.label_axis_pad) || 34);
     for (var xi = 0; xi < xs.length; xi += 1) {
       out.push({
@@ -8817,10 +8880,8 @@
     var yTickPlacement = String(cfg.y_tick_label_placement || "left").toLowerCase();
     var yOffset = yTickPlacement === "right" ? tickLen + 5 : -tickLen - 5;
     var yHa = yTickPlacement === "right" ? "left" : "right";
-    var ys = frozenY && Array.isArray(frozenY.values)
-      ? frozenY.values.slice()
-      : axisTickValuesForMode(yMin, yMax, yStep, cfg.y_ticks, cfg.y_mode, false, cfg.hints, box.height, cfg.dist, cfg.min_dist, cfg.max_dist);
-    var yOffsetValue = axisLabelOffset(ys, yMin, yMax);
+    var ys = yState && Array.isArray(yState.values) ? yState.values.slice() : [];
+    var yOffsetValue = yState ? (Number(yState.offset) || 0) : 0;
     var yLabelAxisPad = Math.max(0, Number(cfg.label_axis_pad) || 34);
     var yTickLabelWidth = yLabels
       ? Math.max.apply(null, yLabels.map(function (label) { return estimateTickLabelWidthPx(label, Number(cfg.tick_label_font_size) || 11); }).concat([0]))
@@ -9534,6 +9595,98 @@
     return true;
   }
 
+  function invalidateAxis3DFrameCaches(fid) {
+    fid = String(fid || "");
+    var rec = frameRecs[fid] || null;
+    if (!rec) { return false; }
+    rec.axis3DHelperTickCache = null;
+    rec.axis3DHelperStepCache = null;
+    return true;
+  }
+
+  function redrawAxisFrame(fid, geomOverride) {
+    fid = String(fid || "");
+    var geom = geomOverride || (_lastDisplayPayload && _lastDisplayPayload.geom ? _lastDisplayPayload.geom[fid] : null);
+    if (!geom) { return false; }
+    var cfg3 = axis3DRuntimeConfig(geom);
+    var frameEl = findFrameEl(geomTargetFrameId(fid));
+    if (cfg3) {
+      repaintAxis3DHelperLines(fid);
+      return true;
+    }
+    if (!frameEl) { return false; }
+    var meshes = Array.isArray(geom.meshes) ? geom.meshes : [];
+    drawSimple2DMarkerLineMeshes(fid, frameEl, meshes);
+    renderGeomTextOverlay(fid, frameEl, geom);
+    return true;
+  }
+
+  function setAxisGridEnabled(fid, enabled) {
+    fid = String(fid || "");
+    var geom = _lastDisplayPayload && _lastDisplayPayload.geom ? _lastDisplayPayload.geom[fid] : null;
+    if (!geom) { return false; }
+    var nextEnabled = enabled !== false;
+    var changed = false;
+    var meshes = Array.isArray(geom.meshes) ? geom.meshes : [];
+    for (var mi = 0; mi < meshes.length; mi += 1) {
+      var cfg = meshes[mi] && meshes[mi].axis_ticks;
+      if (!cfg) { continue; }
+      if (cfg.grid !== nextEnabled) {
+        cfg.grid = nextEnabled;
+        changed = true;
+      }
+    }
+    var cfg3 = axis3DRuntimeConfig(geom);
+    if (cfg3 && cfg3.grid !== nextEnabled) {
+      cfg3.grid = nextEnabled;
+      invalidateAxis3DFrameCaches(fid);
+      changed = true;
+    }
+    if (!changed) { return false; }
+    redrawAxisFrame(fid, geom);
+    return true;
+  }
+
+  function createAxisVisualStateApplier(spec) {
+    spec = spec || {};
+    var axis = String(spec.axis || "").toLowerCase();
+    var modeField = spec.modeField != null ? String(spec.modeField) : "";
+    var checkedField = spec.checkedField != null ? String(spec.checkedField) : "";
+    var gridField = spec.gridField != null ? String(spec.gridField) : "";
+    var targets = Array.isArray(spec.targetFrames) ? spec.targetFrames.map(function (fid) {
+      return String(fid || "");
+    }).filter(function (fid) {
+      return !!fid;
+    }) : [];
+    return function applyAxisVisualState(state) {
+      if (!state || typeof state !== "object") { return false; }
+      var nextMode = "";
+      var hasMode = false;
+      if (modeField && Object.prototype.hasOwnProperty.call(state, modeField)) {
+        nextMode = String(state[modeField] || "");
+        hasMode = true;
+      } else if (checkedField && Object.prototype.hasOwnProperty.call(state, checkedField)) {
+        nextMode = state[checkedField] ? "log" : "linear";
+        hasMode = true;
+      }
+      var hasGrid = !!(gridField && Object.prototype.hasOwnProperty.call(state, gridField));
+      var changed = false;
+      for (var i = 0; i < targets.length; i += 1) {
+        if (hasMode && setAxisTickMode(targets[i], axis, nextMode)) {
+          changed = true;
+        }
+        if (hasGrid && setAxisGridEnabled(targets[i], !!state[gridField])) {
+          changed = true;
+        }
+      }
+      return changed;
+    };
+  }
+
+  function createAxisTickModeStateApplier(spec) {
+    return createAxisVisualStateApplier(spec);
+  }
+
   function mountOffscreenGeomFrame(fid, provider, width, height) {
     if (typeof provider !== "function") {
       throw new Error("mountOffscreenGeomFrame(" + String(fid) + "): provider must be a function");
@@ -10116,6 +10269,10 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
   var _fetchInFlight   = false;   // prevent fetch pile-up at 60 fps
 
   function loadAndRender() {
+    if (strictPacketOnlyEnabled()) {
+      vlog("info", "loadAndRender: strict packet-only mode suppressed legacy display file fetch");
+      return;
+    }
     if (typeof fetch === "undefined") {
       vlog("warn", "loadAndRender: fetch not available");
       return;
@@ -10318,7 +10475,15 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     geomFrameStatus: geomFrameStatus,
     geomFrameViewAspect: geomFrameViewAspect,
     setAxisTickMode: setAxisTickMode,
+    setAxisGridEnabled: setAxisGridEnabled,
+    createAxisVisualStateApplier: createAxisVisualStateApplier,
+    createAxisTickModeStateApplier: createAxisTickModeStateApplier,
     __test: {
+      invalidateAxis3DFrameCaches: invalidateAxis3DFrameCaches,
+      redrawAxisFrame: redrawAxisFrame,
+      setAxisGridEnabled: setAxisGridEnabled,
+      createAxisVisualStateApplier: createAxisVisualStateApplier,
+      createAxisTickModeStateApplier: createAxisTickModeStateApplier,
       buildSingleMesh: buildSingleMesh,
       buildCombinedTriangleMesh: buildCombinedTriangleMesh,
       buildCombinedTransparentMesh: buildCombinedTransparentMesh,

@@ -1,0 +1,57 @@
+{
+  "schema": "vektor-flow/compiler-bootstrap",
+  "version": 1,
+  "bootstrap_boundary": {
+    "parser": "native-bootstrap",
+    "scope": "self-hosted compiler source set",
+    "handoff_goal": "next compiler change parsed by VKF-owned native compiler path"
+  },
+  "sources": [
+    {
+      "path": "compiler/self_hosted/lexer.vkf",
+      "source_sha256": "1da0d9be7c798225e6826ce1fd4bb6baae893c8dcd0162e06bd6c952aaaae117",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/parser.vkf",
+      "source_sha256": "7e5e855cb34eddc2b2a256909f4783ca833f9ca2724a1b9caada75fc2d0964f3",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/typed_ir.vkf",
+      "source_sha256": "550f8ae80e90f2246293e70c11b1da79a6c6eb3ca8f918d5807c2b5e282f1864",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/compiler.vkf",
+      "source_sha256": "019a7515ed0ff1146dc58f7609c9a1ed1c1b47c5269bb031c0d81ff8aadc83e4",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/stdlib.vkf",
+      "source_sha256": "4731118f6dc9fc4a44023949465b9be918898ea9678b411ff4e0115d88f93c5b",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/stdlib/math.vkf",
+      "source_sha256": "b67a15de469ac0e12a81efbcbcda10e5866529ed184f1b98c3b4c66ea7c8cc68",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/stdlib/io.vkf",
+      "source_sha256": "ebd2878251589bbf3a0d62b5c0ef9084950c8aaafe64d4f621358f4a3855b414",
+      "parsed_with_native_parser": true
+    }
+  ],
+  "source_order": [
+    "compiler/self_hosted/lexer.vkf",
+    "compiler/self_hosted/parser.vkf",
+    "compiler/self_hosted/typed_ir.vkf",
+    "compiler/self_hosted/compiler.vkf",
+    "compiler/self_hosted/stdlib.vkf",
+    "compiler/self_hosted/stdlib/math.vkf",
+    "compiler/self_hosted/stdlib/io.vkf"
+  ],
+  "source_count": 7,
+  "bundle_sha256": "f80227fd1380b1342326074128f2cf1b96ad3477dd11897bc77dad92f4d2dbbf"
+}

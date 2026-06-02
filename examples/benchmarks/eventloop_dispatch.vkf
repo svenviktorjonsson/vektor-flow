@@ -1,0 +1,15 @@
+dispatch(code:num, state:num) -> num:
+    code??
+        0 => @: state + 1
+        1 => @: state + 3
+        @: state + 2
+
+pump(n:num) -> num:
+    i: 0
+    state: 0
+    i < n?>
+        state: dispatch(i, state)
+        i: i + 1
+    state
+
+:: pump(24000)

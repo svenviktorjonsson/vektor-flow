@@ -10,7 +10,16 @@ from __future__ import annotations
 from typing import Any
 
 from vektorflow.ui.ir import FrameSpec, UiCommand, dumps_scene
-from vektorflow.ui.payloads import write_scene_payload, write_ui_state_payload
+from vektorflow.ui.payloads import (
+    get_ui_payload_snapshot,
+    raise_on_failed_strict_packet_publish,
+    write_scene_payload,
+    write_ui_state_payload,
+)
+
+
+def _raise_on_failed_strict_publish(kind: str) -> None:
+    raise_on_failed_strict_packet_publish(kind, get_ui_payload_snapshot().last_publish_result)
 
 
 def append_frame_upsert(
@@ -32,9 +41,13 @@ def dump_scene_commands(commands: list[UiCommand]) -> str:
 
 def sync_scene_commands(commands: list[UiCommand]) -> str:
     """Publish the authoritative scene command log through the UI payload seam."""
-    return write_scene_payload(commands)
+    text = write_scene_payload(commands)
+    _raise_on_failed_strict_publish("scene")
+    return text
 
 
 def sync_ui_state(state: dict[str, dict[str, dict[str, Any]]]) -> str:
     """Publish widget state through the UI payload seam."""
-    return write_ui_state_payload(state)
+    text = write_ui_state_payload(state)
+    _raise_on_failed_strict_publish("ui-state")
+    return text

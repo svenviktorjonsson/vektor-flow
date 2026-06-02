@@ -1037,6 +1037,78 @@ class Parser:
         self._expect(LBRACKET)
         return self._parse_fixed_vector_type_after_lbracket()
 
+    def _type_surface_string(self, value: Any) -> str:
+        if isinstance(value, ast.PrimTypeRef):
+            return value.name
+        if isinstance(value, ast.TypeUnionExpr):
+            return "|".join(self._type_surface_string(member) for member in value.members)
+        if isinstance(value, ast.TypeIntersectionExpr):
+            return "&".join(self._type_surface_string(member) for member in value.members)
+        if isinstance(value, ast.TypeSizeConst):
+            return str(value.value)
+        if isinstance(value, ast.TypeSizeVar):
+            return value.name
+        if isinstance(value, ast.TypeSizeBinOp):
+            return f"{self._type_surface_string(value.left)}{value.op}{self._type_surface_string(value.right)}"
+        if isinstance(value, ast.TupleTypeExpr):
+            if not value.elements:
+                return "()"
+            if len(value.elements) == 1:
+                return "(" + self._type_surface_string(value.elements[0]) + ",)"
+            return "(" + ", ".join(self._type_surface_string(element) for element in value.elements) + ")"
+        if isinstance(value, ast.TypeExpr):
+            if not value.fields:
+                return "()"
+            return "(" + ", ".join(f"{name}:{self._type_surface_string(type_expr)}" for name, type_expr in value.fields) + ")"
+        if isinstance(value, ast.FixedVectorType):
+            return f"[{self._type_surface_string(value.element_type)}:{self._type_surface_string(value.size)}]"
+        if isinstance(value, ast.MultisetType):
+            return "{" + self._type_surface_string(value.element_type) + "}"
+        if isinstance(value, ast.MapValueType):
+            return "map(" + ", ".join(f"{name}:{self._type_surface_string(type_expr)}" for name, type_expr in value.fields) + ")"
+        if isinstance(value, ast.LinkedListValueType):
+            return "list(" + ", ".join(self._type_surface_string(element) for element in value.elements) + ")"
+        if isinstance(value, ast.NamedTypeSpec):
+            return f"{value.name}:{self._type_surface_string(value.type_expr)}"
+        if isinstance(value, ast.FuncType):
+            return f"{self._type_surface_string(value.domain)}->{self._type_surface_string(value.codomain)}"
+        raise ParseError("unsupported type surface stringification", self._loc_here())
+
+    def _collect_generic_type_suffix(self) -> str:
+        if self._peek_raw() != LT:
+            return ""
+        parts = ["<"]
+        self._advance()
+        depth = 1
+        while depth > 0:
+            tok = self._advance()
+            if tok.kind == LT:
+                depth += 1
+                parts.append("<")
+                continue
+            if tok.kind == GT:
+                depth -= 1
+                parts.append(">")
+                continue
+            if tok.kind == IDENT:
+                parts.append(str(tok.value))
+                continue
+            if tok.kind == COMMA:
+                parts.append(",")
+                continue
+            raise ParseError("unsupported token in generic type annotation", self._loc_here())
+        return "".join(parts)
+
+    def _colon_continues_type_annotation(self) -> bool:
+        if self._peek_raw() != COLON:
+            return False
+        j = self.i + 1
+        while j < len(self.toks) and self.toks[j].kind == NEWLINE:
+            j += 1
+        if j >= len(self.toks):
+            return False
+        return self.toks[j].kind not in (NEWLINE, INDENT, DEDENT, EOF)
+
     def _try_parse_match_arm_fixed_vector_type_pattern(self) -> ast.FixedVectorType | None:
         """In ``??`` arms only: ``[T:n]`` -> type pattern, not vector literal / repeat."""
         self._skip_trivia()
@@ -1143,6 +1215,13 @@ class Parser:
         if self._peek_raw() == LBRACE:
             return self._parse_multiset_type()
         if self._peek_raw() == IDENT:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LT:
+                ident = str(self._advance().value)
+                full_name = ident + self._collect_generic_type_suffix()
+                if self._colon_continues_type_annotation():
+                    self._advance()
+                    full_name += ":" + self._type_surface_string(self._parse_arrow_type())
+                return ast.PrimTypeRef(full_name)
             if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
                 ident = str(self.toks[self.i].value)
                 if ident == "map":
@@ -2007,10 +2086,39 @@ class Parser:
             )
         return ast.AxisAlign(left, label=name)
 
+    def _can_take_axis_suffix(self, left: Any) -> bool:
+        return isinstance(left, (ast.ListLit, ast.TupleLit, ast.MultisetLit))
+
+    def _parse_axis_suffix(self, left: Any) -> Any:
+        name = str(self._expect(IDENT).value)
+        if not name.startswith("_"):
+            raise ParseError("expected axis suffix identifier", self._loc_here())
+        if name == "_":
+            return ast.AxisAlign(left, label="_")
+        label = name[1:]
+        if not label:
+            return ast.AxisAlign(left, label="_")
+        if label in _PRIMITIVE_TYPE_IDENTS:
+            raise ParseError(
+                f"{label!r} cannot be used as an axis label (reserved like a primitive type name)",
+                self._loc_here(),
+            )
+        return ast.AxisAlign(left, label=label)
+
     def parse_postfix(self) -> Any:
         left = self.parse_atom()
         while True:
             k = self._peek_raw()
+            if k == IDENT:
+                tok = self.toks[self.i] if self.i < len(self.toks) else None
+                if (
+                    tok is not None
+                    and isinstance(tok.value, str)
+                    and tok.value.startswith("_")
+                    and self._can_take_axis_suffix(left)
+                ):
+                    left = self._parse_axis_suffix(left)
+                    continue
             if k == DOT:
                 self._advance()
                 lt, rt = self._dot_adjacency()
@@ -2071,6 +2179,16 @@ class Parser:
                     left = ast.Call(left, args)
                     continue
                 self.i = saved
+            if k == IDENT:
+                tok = self.toks[self.i] if self.i < len(self.toks) else None
+                if (
+                    tok is not None
+                    and isinstance(tok.value, str)
+                    and tok.value.startswith("_")
+                    and self._can_take_axis_suffix(left)
+                ):
+                    left = self._parse_axis_suffix(left)
+                    continue
             if k == BANG:
                 self._advance()
                 left = ast.RaiseExpr(left)

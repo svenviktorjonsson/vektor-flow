@@ -13,8 +13,6 @@ Covers:
 from __future__ import annotations
 
 import os
-import time
-import urllib.request
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -49,20 +47,12 @@ def _reset(monkeypatch):
     """Reset all launch state before each test."""
     monkeypatch.setattr(L, "_launched", False)
     monkeypatch.setattr(L, "_forced_mode", None)
-    monkeypatch.setattr(L, "_browser_server", None)
     monkeypatch.setattr(L, "_browser_thread", None)
     monkeypatch.setattr(L, "_browser_port", None)
     monkeypatch.setattr(L, "_suppress_ui_auto_launch", False)
     # Remove env var so auto-detect kicks in cleanly
     monkeypatch.delenv("VF_UI_MODE", raising=False)
     yield
-    # After test: kill any server that was started
-    if L._browser_server is not None:
-        try:
-            L._browser_server.shutdown()
-        except Exception:
-            pass
-        L._browser_server = None
 
 
 # ---------------------------------------------------------------------------
@@ -184,66 +174,96 @@ class TestMaybeLaunchUiDispatch:
 
 
 # ---------------------------------------------------------------------------
-# Browser mode: HTTP server actually works
+# Browser mode: native helper launch contract
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not _HAS_MARKERS, reason="web/vf-ui not present")
 class TestBrowserServer:
-    def test_server_starts_and_is_reachable(self) -> None:
+    def test_browser_launches_native_helper(self, monkeypatch) -> None:
         set_ui_mode("browser")
-        with patch("webbrowser.open"):  # don't actually open a browser
+        helper_exe = _REPO / "vf-browser-server.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
+        monkeypatch.setattr(L, "find_vf_browser_server_exe", lambda r: helper_exe)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: None)
+        monkeypatch.setattr(L, "_read_browser_state", lambda: None)
+        monkeypatch.setattr(L, "_probe_browser_server", lambda port: True)
+        seen: list[list[str]] = []
+
+        def fake_popen(command, **kwargs):
+            seen.append([str(part) for part in command])
+            proc = MagicMock()
+            proc.pid = 123
+            return proc
+
+        with (
+            patch("webbrowser.open"),
+            patch("vektorflow.ui.launch.subprocess.Popen", side_effect=fake_popen),
+        ):
             maybe_launch_browser()
 
-        time.sleep(0.15)
         port = get_browser_port()
-        assert port is not None, "Browser server did not start"
-
-        url = f"http://127.0.0.1:{port}/vf-display.json"
-        r = urllib.request.urlopen(url, timeout=3)
-        assert r.status == 200
+        assert port is not None
+        assert seen
+        assert seen[0][0] == str(helper_exe.resolve())
+        assert "--serve-dir" in seen[0]
 
     def test_server_not_started_twice(self) -> None:
         set_ui_mode("browser")
-        with patch("webbrowser.open"):
+        helper_exe = _REPO / "vf-browser-server.exe"
+        seen: list[list[str]] = []
+
+        def fake_popen(command, **kwargs):
+            seen.append([str(part) for part in command])
+            proc = MagicMock()
+            proc.pid = 123
+            return proc
+
+        with (
+            patch("webbrowser.open"),
+            patch("vektorflow.ui.launch.find_vektorflow_repo_root", lambda: _REPO),
+            patch("vektorflow.ui.launch.find_vf_browser_server_exe", lambda r: helper_exe),
+            patch("vektorflow.ui.launch.find_vf_overlay_exe", lambda r: None),
+            patch("vektorflow.ui.launch._read_browser_state", lambda: None),
+            patch("vektorflow.ui.launch._probe_browser_server", lambda port: True),
+            patch("vektorflow.ui.launch.subprocess.Popen", side_effect=fake_popen),
+        ):
             maybe_launch_browser()
             first_port = get_browser_port()
             maybe_launch_browser()  # second call is a no-op
             second_port = get_browser_port()
         assert first_port == second_port
+        assert len(seen) == 1
 
     def test_headless_does_not_start_server(self) -> None:
         set_ui_mode("headless")
         maybe_launch_ui()
         assert get_browser_port() is None
 
-    def test_browser_does_not_call_popen(self) -> None:
+    def test_browser_reuses_existing_helper_without_popen(self, monkeypatch) -> None:
         set_ui_mode("browser")
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
+        monkeypatch.setattr(L, "_read_browser_state", lambda: 43125)
+        monkeypatch.setattr(L, "_probe_browser_server", lambda port: port == 43125)
         with (
             patch("webbrowser.open"),
             patch("vektorflow.ui.launch.subprocess.Popen") as popen,
         ):
             maybe_launch_browser()
         popen.assert_not_called()
+        assert get_browser_port() == 43125
 
-    def test_index_html_served(self) -> None:
+    def test_browser_warns_without_native_helper(self, monkeypatch, capsys) -> None:
         set_ui_mode("browser")
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
+        monkeypatch.setattr(L, "find_vf_browser_server_exe", lambda r: None)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: None)
+        monkeypatch.setattr(L, "_read_browser_state", lambda: None)
+        monkeypatch.setattr(L, "_probe_browser_server", lambda port: False)
         with patch("webbrowser.open"):
             maybe_launch_browser()
-        time.sleep(0.1)
-        port = get_browser_port()
-        url = f"http://127.0.0.1:{port}/index.html"
-        r = urllib.request.urlopen(url, timeout=3)
-        assert r.status == 200
-
-    def test_vkf_scene_html_served(self) -> None:
-        set_ui_mode("browser")
-        with patch("webbrowser.open"):
-            maybe_launch_browser()
-        time.sleep(0.1)
-        port = get_browser_port()
-        url = f"http://127.0.0.1:{port}/vkf-scene.html"
-        r = urllib.request.urlopen(url, timeout=3)
-        assert r.status == 200
+        err = capsys.readouterr().err
+        assert "Python http.server fallback has been removed" in err
+        assert get_browser_port() is None
 
 
 # ---------------------------------------------------------------------------
@@ -341,12 +361,18 @@ class TestAddFrameTriggersMaybelaunchUi:
             ui.display.add_frame((0.1, 0.1, 0.8, 0.8))
         mu.assert_called()
 
-    def test_browser_add_frame_no_popen(self, monkeypatch) -> None:
+    def test_browser_add_frame_launches_native_helper(self, monkeypatch) -> None:
         set_ui_mode("browser")
+        helper_exe = _REPO / "vf-browser-server.exe"
+        monkeypatch.setattr(L, "find_vektorflow_repo_root", lambda: _REPO)
+        monkeypatch.setattr(L, "find_vf_browser_server_exe", lambda r: helper_exe)
+        monkeypatch.setattr(L, "find_vf_overlay_exe", lambda r: None)
+        monkeypatch.setattr(L, "_read_browser_state", lambda: None)
+        monkeypatch.setattr(L, "_probe_browser_server", lambda port: True)
         with (
             patch("webbrowser.open"),
             patch("vektorflow.ui.launch.subprocess.Popen") as popen,
         ):
             ui = build_ui_namespace()["ui"]
             ui.display.add_frame((0.1, 0.1, 0.8, 0.8))
-        popen.assert_not_called()
+        popen.assert_called_once()

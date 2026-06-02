@@ -3,7 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 
-from vektorflow.ui.display_runtime import _sync_display_runtime_assets
+import pytest
+
+from vektorflow.ui.display_runtime import _sync_display_runtime_assets, publish_display_runtime_payload
+from vektorflow.ui.payloads import reset_ui_payload_snapshot
+from vektorflow.ui.runtime_packet_transport import (
+    UIRuntimePacketTransport,
+    reset_ui_runtime_packet_transport,
+    set_ui_runtime_packet_transport,
+)
 
 
 def test_sync_display_runtime_assets_copies_tree_and_skips_sessions(tmp_path: Path) -> None:
@@ -68,3 +76,21 @@ def test_sync_display_runtime_assets_skips_unchanged_non_html_files(
     _sync_display_runtime_assets(root, strict=True)
 
     assert copied == []
+
+
+def test_publish_display_runtime_payload_hard_errors_on_failed_strict_direct_publish(
+    monkeypatch,
+) -> None:
+    reset_ui_payload_snapshot()
+    reset_ui_runtime_packet_transport()
+    monkeypatch.setenv("VF_UI_PACKET_ONLY_STRICT", "1")
+    set_ui_runtime_packet_transport(
+        UIRuntimePacketTransport(direct_publisher=lambda _packets: (False, "direct://fail", "offline"))
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="strict packet-only display publish failed"):
+            publish_display_runtime_payload({"screen": [], "frames": {}, "geom": {}})
+    finally:
+        reset_ui_runtime_packet_transport()
+        reset_ui_payload_snapshot()

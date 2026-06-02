@@ -15,11 +15,13 @@
       });
 
   var BUILTIN_MODULE_IDS = Object.freeze({
-    rectDemo: "rect-demo"
+    rectDemo: "rect-demo",
+    interactionKernel: "interaction-kernel"
   });
 
   var BUILTIN_NATIVE_LIBRARIES = Object.freeze({
-    rectDemo: "vf-compiled-ui-demo.dll"
+    rectDemo: "vf-compiled-ui-demo.dll",
+    interactionKernel: null
   });
 
   var BUILTIN_MODULES = Object.freeze([
@@ -27,6 +29,11 @@
       name: BUILTIN_MODULE_IDS.rectDemo,
       nativeLibrary: BUILTIN_NATIVE_LIBRARIES.rectDemo,
       wasmFactory: FACTORY_IDS.fullDemo
+    }),
+    Object.freeze({
+      name: BUILTIN_MODULE_IDS.interactionKernel,
+      nativeLibrary: BUILTIN_NATIVE_LIBRARIES.interactionKernel,
+      wasmFactory: FACTORY_IDS.interactionDemo
     })
   ]);
 

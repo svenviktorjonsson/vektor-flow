@@ -711,6 +711,62 @@ def build_host_event_effects(
     )
 
 
+def materialize_host_ui_event(dispatch: UiDispatchEvent) -> Any:
+    from vektorflow.stdlib.events import ui_event_from_payload
+
+    return ui_event_from_payload(dispatch.payload)
+
+
+def materialize_queued_host_event(event: Any) -> Any:
+    if isinstance(event, Mapping) and event.get("event") is not None:
+        from vektorflow.stdlib.events import ui_event_from_payload
+
+        return ui_event_from_payload(dict(event))
+    return event
+
+
+def notify_host_frame_event(
+    frame_id: str,
+    event: Any,
+    *,
+    resolve_frame: Callable[[str], Any | None],
+) -> bool:
+    if not frame_id:
+        return False
+    try:
+        frame_ref = resolve_frame(frame_id)
+    except Exception:
+        frame_ref = None
+    if frame_ref is None:
+        return False
+    try:
+        frame_ref.handle_events(event)
+    except Exception:
+        return False
+    return True
+
+
+def notify_host_frame_payload_event(
+    frame_id: str,
+    payload: Mapping[str, Any],
+    *,
+    resolve_frame: Callable[[str], Any | None],
+) -> bool:
+    if not frame_id:
+        return False
+    try:
+        frame_ref = resolve_frame(frame_id)
+    except Exception:
+        frame_ref = None
+    if frame_ref is None:
+        return False
+    return notify_host_frame_event(
+        frame_id,
+        materialize_queued_host_event(payload),
+        resolve_frame=lambda _fid: frame_ref,
+    )
+
+
 def dispatch_host_event(
     evt: Mapping[str, Any] | UiHostTransportEvent,
     *,
@@ -808,6 +864,102 @@ def pop_queued_host_event(event_queue: Any) -> Any | None:
     if event_queue:
         return event_queue.popleft()
     return None
+
+
+def _public_event_to_payload(event: Any) -> dict[str, Any] | None:
+    if isinstance(event, Mapping):
+        return dict(event)
+    to_payload = getattr(event, "to_payload", None)
+    if callable(to_payload):
+        payload = to_payload()
+        if isinstance(payload, Mapping):
+            return dict(payload)
+    to_dict = getattr(event, "to_dict", None)
+    if callable(to_dict):
+        payload = to_dict()
+        if isinstance(payload, Mapping):
+            return dict(payload)
+    if hasattr(event, "event"):
+        payload = {
+            key: value
+            for key in (
+                "event",
+                "frame_id",
+                "widget_id",
+                "object_id",
+                "simplex_id",
+                "x",
+                "y",
+                "dx",
+                "dy",
+                "dx_norm",
+                "dy_norm",
+                "button",
+                "buttons",
+                "width",
+                "height",
+                "key",
+                "code",
+                "dock",
+                "index",
+            )
+            for value in [getattr(event, key, None)]
+            if value not in (None, "")
+        }
+        if payload.get("event"):
+            payload.setdefault("type", "vf_event")
+            return payload
+    return None
+
+
+def enqueue_public_host_event_payload(event_queue: Any, event: Any) -> bool:
+    payload = _public_event_to_payload(event)
+    if payload is None:
+        event_queue.append(event)
+        return False
+    if coalesce_host_event_queue(event_queue, payload):
+        return True
+    event_queue.append(payload)
+    return True
+
+
+def enqueue_public_host_event(event_queue: Any, event: Any) -> bool:
+    from vektorflow.stdlib.events import MouseDrag, MouseHover, MouseMove
+
+    if isinstance(event, (MouseHover, MouseMove)):
+        frame_id = getattr(event, "frame_id", "")
+        for i in range(len(event_queue) - 1, -1, -1):
+            queued = event_queue[i]
+            if not isinstance(queued, (MouseHover, MouseMove)):
+                break
+            if getattr(queued, "frame_id", "") == frame_id:
+                event_queue[i] = event
+                return True
+        event_queue.append(event)
+        return True
+
+    if isinstance(event, MouseDrag):
+        frame_id = getattr(event, "frame_id", "")
+        object_id = getattr(event, "object_id", 0)
+        for i in range(len(event_queue) - 1, -1, -1):
+            queued = event_queue[i]
+            if not isinstance(queued, MouseDrag):
+                break
+            if getattr(queued, "frame_id", "") != frame_id or getattr(queued, "object_id", 0) != object_id:
+                continue
+            queued.dx += event.dx
+            queued.dy += event.dy
+            queued.dx_norm += event.dx_norm
+            queued.dy_norm += event.dy_norm
+            queued.x = event.x
+            queued.y = event.y
+            queued.buttons = event.buttons
+            return True
+        event_queue.append(event)
+        return True
+
+    event_queue.append(event)
+    return False
 
 
 def frame_scene_from_runtime_geom(data: dict[str, Any]) -> UiFrameScene:

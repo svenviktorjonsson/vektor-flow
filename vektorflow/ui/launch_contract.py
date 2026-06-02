@@ -74,6 +74,24 @@ def find_vf_overlay_exe(root: Path) -> Path | None:
     return None
 
 
+def find_vf_browser_server_exe(root: Path) -> Path | None:
+    names = ("vf-browser-server.exe", "vf-browser-server")
+    for name in names:
+        for rel in (
+            Path(name),
+            Path("native") / "VfOverlay" / "build" / "Release" / name,
+            Path("native") / "VfOverlay" / "build" / "Debug" / name,
+            Path("native") / "VfOverlay" / "build" / name,
+            Path("dist") / "releases" / "windows-overlay" / name,
+            Path("dist") / "releases" / "linux-browser" / name,
+            Path("dist") / "releases" / "macos-browser" / name,
+        ):
+            candidate = (root / rel).resolve()
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def find_free_port(prefer: int | None = None) -> int:
     if prefer is not None:
         try:
@@ -92,35 +110,13 @@ def build_browser_helper_launch(
     serve_dir: Path,
     port: int,
     state_path: Path,
-    python_executable: Path,
     platform_name: str,
     detached_process_flag: int = 0,
     new_process_group_flag: int = 0,
     no_window_flag: int = 0,
+    browser_server_exe: Path | None = None,
     overlay_exe: Path | None = None,
 ) -> tuple[list[str], dict[str, object]]:
-    helper = """
-import json
-import sys
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
-serve_dir = sys.argv[1]
-port = int(sys.argv[2])
-state_path = Path(sys.argv[3])
-
-class QuietHandler(SimpleHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
-    def log_error(self, format, *args):
-        pass
-
-handler = lambda *a, **kw: QuietHandler(*a, directory=serve_dir, **kw)
-server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-state_path.parent.mkdir(parents=True, exist_ok=True)
-state_path.write_text(json.dumps({"port": port}), encoding="utf-8")
-server.serve_forever()
-""".strip()
     kwargs: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -135,15 +131,27 @@ server.serve_forever()
         if overlay_exe is not None:
             resolved_overlay = Path(overlay_exe).resolve()
             return [str(resolved_overlay), "--serve-only", "--port", str(int(port))], kwargs
-    else:
-        kwargs["start_new_session"] = True
-    command = [str(python_executable), "-u", "-c", helper, str(serve_dir), str(port), str(state_path)]
-    return command, kwargs
+    if browser_server_exe is not None:
+        resolved_helper = Path(browser_server_exe).resolve()
+        return [
+            str(resolved_helper),
+            "--serve-dir",
+            str(serve_dir),
+            "--port",
+            str(int(port)),
+            "--state-path",
+            str(state_path),
+        ], kwargs
+    raise RuntimeError(
+        "browser mode requires a native browser helper or overlay serve-only host; "
+        "Python http.server fallback has been removed"
+    )
 
 
 __all__ = [
     "build_browser_helper_launch",
     "find_free_port",
+    "find_vf_browser_server_exe",
     "find_vf_overlay_exe",
     "find_vektorflow_repo_root",
     "is_vektorflow_repo",

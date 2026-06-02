@@ -1,0 +1,245 @@
+# Self-hosted VKF compiler artifact seed.
+#
+# Source-level contract for the first native compiler-artifact seam. The native
+# smoke consumes typed IR JSON from the parser/IR pipeline and owns the build
+# directory manifest without host fallback hooks.
+
+CompilerArtifactManifest: (
+    source_path:str,
+    source_sha256:str,
+    typed_ir_sha256:str,
+    compiler_version:str,
+    artifact_path:str,
+    artifact_content_sha256:str,
+    runtime_hash:str,
+    manifest_hash:str,
+    status:str
+)
+
+CompilerArtifactResult: (manifest_path:str, artifact_path:str, status:str)
+
+manifest(
+    source_path:str,
+    source_sha256:str,
+    typed_ir_sha256:str,
+    compiler_version:str,
+    artifact_path:str,
+    artifact_content_sha256:str,
+    runtime_hash:str,
+    manifest_hash:str,
+    status:str
+):
+    (
+        source_path: source_path,
+        source_sha256: source_sha256,
+        typed_ir_sha256: typed_ir_sha256,
+        compiler_version: compiler_version,
+        artifact_path: artifact_path,
+        artifact_content_sha256: artifact_content_sha256,
+        runtime_hash: runtime_hash,
+        manifest_hash: manifest_hash,
+        status: status
+    )
+
+artifact_result(manifest_path:str, artifact_path:str, status:str):
+    (manifest_path: manifest_path, artifact_path: artifact_path, status: status)
+
+compiler_artifact_smoke_capability:
+    name: "vkf_compiler_artifact_smoke"
+    input: [
+        "--source file.vkf",
+        "--typed-ir file.json"
+    ]
+    writes: [
+        ".vkfbuild/<stem>/manifest.json",
+        ".vkfbuild/<stem>/<stem>.artifact.cmd"
+    ]
+    manifest_fields: [
+        "source_path",
+        "source_sha256",
+        "typed_ir_sha256",
+        "compiler_version",
+        "artifact_path",
+        "artifact_content_sha256",
+        "runtime_hash",
+        "manifest_hash",
+        "status"
+    ]
+    statuses: [
+        "compiled when source hash or typed IR hash changed",
+        "compiled when artifact missing",
+        "current when manifest hash matches and artifact exists"
+    ]
+    artifact_emission: [
+        "store_binding const values into native-owned value table",
+        "load from prior store_binding",
+        "expr_stmt external print emits script output",
+        "manifest hash includes artifact content hash",
+        "tampered artifact recompiles"
+    ]
+    supported_ir_subset: [
+        "typed_module",
+        "store_binding",
+        "const",
+        "load",
+        "unknown external calls typed any"
+    ]
+    unsupported: [
+        "known calls are hard diagnostic until artifact emission supports call targets",
+        "unsupported typed IR writes no successful manifest"
+    ]
+    ownership: [
+        "native smoke owns build directory",
+        "no Python startup",
+        "no shell fallback",
+        "no source lexer fallback inside artifact smoke"
+    ]
+    percent: 82
+    :
+
+wasm_artifact_smoke_capability:
+    name: "vkf_wasm_artifact_smoke"
+    input: [
+        "--source file.vkf",
+        "--typed-ir file.json"
+    ]
+    writes: [
+        ".vkfbuild/<stem>/wasm-manifest.json",
+        ".vkfbuild/<stem>/<stem>.artifact.wasm"
+    ]
+    exports: [
+        "vkf_init",
+        "vkf_update",
+        "vkf_shutdown",
+        "vkf_state_ptr",
+        "vkf_state_size",
+        "vkf_input_ptr",
+        "vkf_input_size",
+        "vkf_get_<binding>",
+        "vkf_get_<binding>_ptr",
+        "vkf_get_<binding>_len"
+    ]
+    supported_ir_subset: [
+        "typed_module",
+        "store_binding const numeric boolean string values",
+        "expr_stmt no-op for wasm smoke validation"
+    ]
+    ownership: [
+        "typed IR lowers to real wasm bytes",
+        "no Python startup",
+        "no text-format wasm placeholder",
+        "unsupported typed IR fails hard"
+    ]
+    runtime_surface: [
+        "wasm manifest names runtime surface explicitly",
+        "state arena is exported through ptr and size functions",
+        "input arena is exported through ptr and size functions",
+        "default vkf_update consumes input memory and mutates state memory",
+        "optional typed IR function vkf_update(state:num, input:num) -> num owns update semantics for state slot zero",
+        "optional typed IR function vkf_update(state:record, input:record) -> state_record owns a first structured runtime state shape",
+        "record-mode wasm manifest lists named state and input fields with byte offsets"
+    ]
+    :
+
+webgpu_artifact_smoke_capability:
+    name: "vkf_webgpu_artifact_smoke"
+    input: [
+        "--source file.vkf",
+        "--typed-ir file.json"
+    ]
+    writes: [
+        ".vkfbuild/<stem>/webgpu-manifest.json",
+        ".vkfbuild/<stem>/<stem>.artifact.wgsl"
+    ]
+    exports: [
+        "wgsl compute entry vkf_update",
+        "state storage binding 0",
+        "input storage binding 1"
+    ]
+    supported_ir_subset: [
+        "typed_module",
+        "store_binding const i32 values",
+        "vkf_update(state:num, input:num) -> num",
+        "vkf_update(state:record<num>, input:record<num>) -> state_record"
+    ]
+    runtime_surface: [
+        "webgpu manifest names update mode scalar or record",
+        "record mode lists named state and input fields with byte offsets",
+        "const bindings lower to wgsl const declarations",
+        "update expression lowers through PLUS MINUS STAR load and field_access subset"
+    ]
+    ownership: [
+        "typed IR lowers to real wgsl compute source",
+        "no Python startup",
+        "unsupported typed IR fails hard"
+    ]
+    :
+
+compiler_capability:
+    name: "self_hosted_compiler_artifact_seed"
+    pipeline: [
+        "native lexer smoke token stream",
+        "native parser smoke AST JSON",
+        "native ast_to_ir smoke typed IR JSON",
+        "native compiler artifact smoke manifest and artifact",
+        "native wasm artifact smoke manifest and wasm artifact",
+        "native webgpu artifact smoke manifest and wgsl artifact",
+        "artifact script prints supported const and load values"
+    ]
+    driver_orchestration: [
+        "vkf_driver_artifact_smoke",
+        "native vkf file compile path",
+        "native default-path sibling discovery",
+        "driver invoked as vkf_driver_artifact_smoke --source file.vkf --run",
+        "discovers sibling vkf_lexer_cursor_smoke",
+        "discovers sibling vkf_parser_token_stream_smoke",
+        "discovers sibling vkf_ast_to_ir_smoke",
+        "discovers sibling vkf_compiler_artifact_smoke",
+        "source.vkf to token stream",
+        "token stream to AST",
+        "AST to typed IR",
+        "typed IR to artifact manifest",
+        "run current artifact with --run",
+        "JSON summary status manifest_path artifact_path ran stdout"
+    ]
+    default_run_policy: [
+        "VKF_RUNTIME_BACKEND auto classifies native-supported files before interpreter use",
+        "supported native subset has no Python fallback in default run path",
+        "native execution failure is a hard error for supported native files",
+        "unsupported files may use Python interpreter only after native subset says unsupported",
+        "VKF_DEV_ALLOW_PYTHON_FALLBACK=1 is development-only fallback hatch",
+        "development fallback hatch only works with VKF_RUNTIME_BACKEND auto",
+        "old VKF_ALLOW_PYTHON_FALLBACK does not enable fallback"
+    ]
+    package_contract: [
+        "supported native package metadata says python_required_to_build false",
+        "supported native package metadata says python_required_to_run false",
+        "supported native package runtime_contract default_entrypoint is vkf.exe",
+        "supported native package names native driver artifact vkf_driver_artifact_smoke",
+        "supported native package has empty python_fallback_launchers",
+        "legacy native-core package metadata remains separate",
+        "supported native runnable entries do not describe Python fallback",
+        "unsupported UI scene packages remain outside Python-free guarantee"
+    ]
+    stdlib_dependency_resolution: [
+        "driver recognizes math stdlib dependency",
+        "driver passes dependency path to artifact manifest",
+        "dependency hashes affect stale current decisions",
+        "math.pi and math.tau compile through native path"
+    ]
+    bootstrap_bundle_contract: [
+        "bootstrap manifest is the last Python-parser boundary",
+        "native bootstrap manifest smoke validates compiler source order",
+        "native bootstrap manifest smoke can emit bundle units in declared order",
+        "native bootstrap bundle lexer smoke tokenizes declared compiler bundle without Python runtime help",
+        "native bootstrap bundle parser smoke parses the full declared compiler bundle without Python runtime help",
+        "native bootstrap bundle artifact smoke emits placeholder artifacts for the full declared compiler bundle without Python runtime help",
+        "main artifact smoke now also compiles the full declared compiler bundle through source typed_ir artifact manifests",
+        "typed IR now also lowers through a first real wasm artifact smoke path with lifecycle exports const binding getters and explicit input state runtime surface",
+        "typed IR now also lowers through a first webgpu artifact smoke path with wgsl compute vkf_update and manifest-declared storage layouts",
+        "native driver smoke now compiles the full declared compiler bundle through source token ast typed_ir artifact outputs",
+        "native parser bundle takeover now covers lexer.vkf parser.vkf typed_ir.vkf compiler.vkf stdlib.vkf math.vkf io.vkf",
+        "compiled compiler takes declared compiler bundle instead of rediscovering files ad hoc"
+    ]
+    vkf_file_flow: "vkf <file> compile/run orchestration is native-owned at smoke level"
+    :

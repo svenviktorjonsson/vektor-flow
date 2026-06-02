@@ -23,7 +23,7 @@ from .cpp_dynamic import (
     emit_map_literal as _dyn_emit_map_literal,
     require_cpp_dynamic_value_supported,
 )
-from .native_intrinsics import intrinsic_uses_array_stats, intrinsic_uses_array_sum, resolve_native_intrinsic
+from .native_intrinsics import intrinsic_uses_array_stats, intrinsic_uses_array_sum, intrinsic_uses_file_io, resolve_native_intrinsic
 from .optimize_ir import eliminate_noop_coercions, optimize_module
 from .slot_ir import lower_slots
 from .typed_ir import TypedIRError, annotate_module, TypedModuleInfo
@@ -158,6 +158,7 @@ class NativePackageMode:
     name: str
     subset: str
     entrypoint: str
+    build_host_python_required: bool = True
 
 
 @dataclass(frozen=True)
@@ -663,6 +664,7 @@ class RuntimeFeatures:
     uses_dynamic: bool = False
     uses_match: bool = False
     uses_array_stats: bool = False
+    uses_file_io: bool = False
 
 
 CPP_STD_CONFLICT_NAMES: set[str] = {"advance"}
@@ -700,6 +702,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
     uses_dynamic = False
     uses_match = False
     uses_array_stats = False
+    uses_file_io = False
 
     def visit_type(t: Any) -> None:
         nonlocal uses_arrays, uses_multisets, uses_dynamic
@@ -735,7 +738,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             visit_type(t.codomain)
 
     def visit_expr(expr: Any) -> None:
-        nonlocal uses_arrays, uses_array_stats
+        nonlocal uses_arrays, uses_array_stats, uses_file_io
         if isinstance(expr, ir.CallExpr):
             intrinsic = resolve_native_intrinsic(expr.func)
             if intrinsic is not None:
@@ -744,6 +747,8 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
                 if intrinsic_uses_array_stats(intrinsic):
                     uses_arrays = True
                     uses_array_stats = True
+                if intrinsic_uses_file_io(intrinsic):
+                    uses_file_io = True
             visit_expr(expr.func)
             for arg in expr.args:
                 visit_expr(arg)
@@ -839,6 +844,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
         uses_dynamic=uses_dynamic,
         uses_match=uses_match,
         uses_array_stats=uses_array_stats,
+        uses_file_io=uses_file_io,
     )
 
 
@@ -860,6 +866,8 @@ def _emit_runtime_headers(features: RuntimeFeatures) -> list[str]:
         headers.insert(0, "#include <any>")
     if features.uses_multisets or features.uses_array_stats:
         headers.insert(0, "#include <algorithm>")
+    if features.uses_file_io:
+        headers.insert(0, "#include <fstream>")
     headers.append("")
     return headers
 
@@ -891,6 +899,23 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
         "    return vf_format_num(v);",
         "}",
     ]
+    if features.uses_file_io:
+        lines.extend(
+            [
+                "static std::string vf_read_file_bytes(const std::string& path) {",
+                "    std::ifstream in(path, std::ios::binary);",
+                "    if (!in) {",
+                '        throw std::runtime_error("io.read_bytes failed to open: " + path);',
+                "    }",
+                "    std::ostringstream oss;",
+                "    oss << in.rdbuf();",
+                "    return oss.str();",
+                "}",
+                "static std::string vf_read_file_text(const std::string& path) {",
+                "    return vf_read_file_bytes(path);",
+                "}",
+            ]
+        )
     if features.uses_match:
         lines.extend(
             [
@@ -1004,6 +1029,7 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
     lines.extend(
         [
             "static double vf_to_num(double v) { return v; }",
+            "static double vf_to_num(int v) { return static_cast<double>(v); }",
             "static double vf_to_num(long long v) { return static_cast<double>(v); }",
             "static double vf_to_num(bool v) { return v ? 1.0 : 0.0; }",
             "static long long vf_to_int(long long v) { return v; }",
@@ -1340,12 +1366,14 @@ def package_mode(name: str) -> NativePackageMode:
             name="native_core",
             subset="native_core",
             entrypoint="package-native-core",
+            build_host_python_required=True,
         )
     if name in {"supported_native", "package"}:
         return NativePackageMode(
             name="supported_native",
             subset="supported_native",
             entrypoint="package",
+            build_host_python_required=False,
         )
     raise CppEmitError(f"unknown package mode: {name}")
 
@@ -1401,7 +1429,11 @@ def _native_package_readme_text(
         f"- {layout.smoke_sh_name}: runs the packaged program and checks it exits cleanly\n\n"
         "Runtime contract:\n"
         "- Python is not required to execute the built program.\n"
-        "- Python is still required to produce this package today.\n"
+        + (
+            "- Python is still required to produce this legacy native-core package today.\n"
+            if spec.build_host_python_required
+            else "- This supported-subset package contract is Python-free to build and run by default.\n"
+        )
     )
 
 
@@ -1474,6 +1506,9 @@ def _native_package_runnable_contract(
     windows_target: str,
     posix_target: str,
     layout: NativePackageLayout,
+    *,
+    python_required_to_build: bool,
+    python_required_to_run: bool,
 ) -> dict[str, Any]:
     launch_windows_ps1 = ["powershell", "-ExecutionPolicy", "Bypass", "-File", layout.run_ps1_name]
     launch_windows_bat = ["cmd", "/c", layout.run_bat_name]
@@ -1482,8 +1517,9 @@ def _native_package_runnable_contract(
     smoke_windows_bat = ["cmd", "/c", layout.smoke_bat_name]
     smoke_posix = ["sh", f"./{layout.smoke_sh_name}"]
     return {
-        "python_required_to_build": True,
-        "python_required_to_run": False,
+        "python_required_to_build": python_required_to_build,
+        "python_required_to_run": python_required_to_run,
+        "default_entrypoint": "vkf.exe" if not python_required_to_build else executable_name,
         "entry_executable": executable_name,
         "launch": {
             "executables": {
@@ -1560,6 +1596,7 @@ def _native_package_runtime_contract_from_runnable(runnable_contract: dict[str, 
     return {
         "python_required_to_build": runnable_contract["python_required_to_build"],
         "python_required_to_run": runnable_contract["python_required_to_run"],
+        "default_entrypoint": runnable_contract["default_entrypoint"],
         "entry_executable": runnable_contract["entry_executable"],
         "launch_executables": runnable_contract["launch"]["executables"],
         "preferred_launchers": {
@@ -1627,6 +1664,26 @@ def _native_package_install_contract_from_runnable(runnable_contract: dict[str, 
             "windows": [entry["artifact"] for entry in smoke_windows_fallbacks],
             "posix": [f"./{entry['artifact']}" for entry in smoke_posix_fallbacks],
         },
+    }
+
+
+def _native_supported_subset_default_path_contract(spec: NativePackageSpec) -> dict[str, Any] | None:
+    if spec.subset != "supported_native":
+        return None
+    return {
+        "kind": "python_free_supported_subset",
+        "default_entrypoint": "vkf.exe",
+        "native_driver_artifact": "vkf_driver_artifact_smoke",
+        "native_pipeline": [
+            "vkf_lexer_cursor_smoke",
+            "vkf_parser_token_stream_smoke",
+            "vkf_ast_to_ir_smoke",
+            "vkf_compiler_artifact_smoke",
+        ],
+        "python_required_to_build": False,
+        "python_required_to_run": False,
+        "python_fallback_launchers": [],
+        "unsupported_ui_scene_excluded": True,
     }
 
 
@@ -1702,6 +1759,8 @@ def _native_package_manifest(
         windows_target,
         posix_target,
         layout,
+        python_required_to_build=spec.build_host_python_required,
+        python_required_to_run=spec.runtime_python_required,
     )
     runtime_contract = _native_package_runtime_contract_from_runnable(runnable_contract)
     install_contract = _native_package_install_contract_from_runnable(runnable_contract)
@@ -1712,7 +1771,7 @@ def _native_package_manifest(
         windows_target,
         posix_target,
     )
-    return {
+    manifest = {
         "format_version": 1,
         "kind": spec.kind,
         "subset": spec.subset,
@@ -1750,6 +1809,10 @@ def _native_package_manifest(
         "install": install_contract,
         "codegen_contract": codegen_contract,
     }
+    supported_contract = _native_supported_subset_default_path_contract(spec)
+    if supported_contract is not None:
+        manifest["supported_subset_default_path_contract"] = supported_contract
+    return manifest
 
 
 def load_native_package_manifest(manifest_path: Path) -> NativePackageManifestView:
@@ -2631,6 +2694,11 @@ def _emit_intrinsic_call(
             return f"std::max({args[1]}, std::min({args[2]}, {args[0]}))"
         if intrinsic.name == "sign":
             return f"(({args[0]} > 0) ? 1LL : (({args[0]} < 0) ? -1LL : 0LL))"
+    if intrinsic.kind == "io_file":
+        if intrinsic.name == "read_text":
+            return f"vf_read_file_text({args[0]})"
+        if intrinsic.name == "read_bytes":
+            return f"vf_read_file_bytes({args[0]})"
     raise CppEmitError(f"unsupported intrinsic {intrinsic.kind}.{intrinsic.name}")
 
 
@@ -2828,6 +2896,9 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         intrinsic = _emit_intrinsic_call(node, env, functions, state, typed)
         if intrinsic is not None:
             return intrinsic
+        if isinstance(node.func, ir.AttrExpr) and node.func.name == "length" and not node.args and not node.kwargs and not node.spreads:
+            base = _emit_expr(node.func.value, env, functions, state, typed)
+            return f"static_cast<long long>({base}.size())"
         if not isinstance(node.func, ir.LoadName):
             raise CppEmitError("only direct named calls are supported in C++ emission")
         fname = _cpp_name(node.func.name, state) if node.func.name not in functions and node.func.name not in {"int", "num", "bool", "str"} else node.func.name
@@ -3291,6 +3362,8 @@ def package_program(
             subset=resolved_mode.subset,
             source_input=package_source.source_input,
             source_label=package_source.source_label,
+            build_host_python_required=resolved_mode.build_host_python_required,
+            runtime_python_required=False,
         ),
     )
 

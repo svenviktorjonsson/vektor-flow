@@ -1,0 +1,4 @@
+# Native smoke stdlib fixture: io functions only.
+
+print(value:any):
+    @: value

@@ -163,7 +163,7 @@ def cmd_tokens_native_core(
 
 def _runtime_backend_preference() -> str:
     value = os.getenv("VKF_RUNTIME_BACKEND", "auto").strip().lower()
-    if value in {"auto", "python", "native"}:
+    if value in {"auto", "native"}:
         return value
     return "auto"
 
@@ -246,27 +246,16 @@ def cmd_run(path: Path) -> int:
         return scene_rc
 
     preference = _runtime_backend_preference()
-    if preference in {"auto", "native"} and _native_runtime_available(path):
+    native_supported = preference in {"auto", "native"} and _native_runtime_available(path)
+    if native_supported:
         try:
             native_rc = _run_with_native_core(path)
-            if native_rc == 0 or preference == "native":
-                return native_rc
-            print(
-                "warning: native runtime returned a non-zero exit code, "
-                "falling back to Python interpreter",
-                file=sys.stderr,
-            )
-            return _run_with_interpreter(path)
+            return native_rc
         except Exception as exc:
-            if preference == "native":
-                print(f"error: native runtime execution failed: {exc}", file=sys.stderr)
-                return 1
-            print(
-                f"warning: native runtime execution unavailable, falling back to Python interpreter: {exc}",
-                file=sys.stderr,
-            )
-            return _run_with_interpreter(path)
-    return _run_with_interpreter(path)
+            print(f"error: native runtime execution failed: {exc}", file=sys.stderr)
+            return 1
+    print("error: native runtime does not support this file", file=sys.stderr)
+    return 1
 
 
 def _try_run_native_overlay_scene(path: Path) -> int | None:

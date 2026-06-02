@@ -170,6 +170,35 @@
     ];
   }
 
+  function buildCrosshairHelperLineMesh(spec) {
+    spec = spec || {};
+    var color = Array.isArray(spec.color) ? spec.color.slice(0, 4) : [1, 1, 1, 1];
+    while (color.length < 4) { color.push(color.length === 3 ? 1 : 0); }
+    function pushVertex(out, x, y, z) {
+      out.push(
+        Number(x) || 0, Number(y) || 0, Number(z) || 0,
+        0, 0, 1,
+        Number(color[0]) || 0, Number(color[1]) || 0, Number(color[2]) || 0, Number(color[3]) || 0
+      );
+    }
+    function addLine(verts, inds, a, b) {
+      var base = verts.length / 10;
+      pushVertex(verts, a[0], a[1], a[2]);
+      pushVertex(verts, b[0], b[1], b[2]);
+      inds.push(base, base + 1);
+    }
+    var xRange = spec.xRange || { lo: 0, hi: 0 };
+    var yRange = spec.yRange || { lo: 0, hi: 0 };
+    var zRange = spec.zRange || { lo: 0, hi: 0 };
+    var base = spec.base || [0, 0, 0];
+    var verts = [];
+    var inds = [];
+    addLine(verts, inds, [Number(xRange.lo) || 0, Number(base[1]) || 0, Number(base[2]) || 0], [Number(xRange.hi) || 0, Number(base[1]) || 0, Number(base[2]) || 0]);
+    addLine(verts, inds, [Number(base[0]) || 0, Number(yRange.lo) || 0, Number(base[2]) || 0], [Number(base[0]) || 0, Number(yRange.hi) || 0, Number(base[2]) || 0]);
+    addLine(verts, inds, [Number(base[0]) || 0, Number(base[1]) || 0, Number(zRange.lo) || 0], [Number(base[0]) || 0, Number(base[1]) || 0, Number(zRange.hi) || 0]);
+    return { vertices: verts, indices: inds };
+  }
+
   return {
     rotationCenter: rotationCenter,
     screenBasis: screenBasis,
@@ -177,6 +206,7 @@
     cloneCamera: cloneCamera,
     alignAxisToViewSnap: alignAxisToViewSnap,
     dragWorldDelta: dragWorldDelta,
-    boxDragDataDelta: boxDragDataDelta
+    boxDragDataDelta: boxDragDataDelta,
+    buildCrosshairHelperLineMesh: buildCrosshairHelperLineMesh
   };
 });

@@ -27,9 +27,15 @@ phi: [
   3.1415926536
 ] -> v
 
+panel_u: [-3.00, -1.90] -> panel_u
+panel_v: [0.00, 2.40] -> panel_v
+
 ell_x: 0.55 * math.cos(theta) * math.sin(phi)
 ell_y: 0.42 * math.sin(theta) * math.sin(phi)
 ell_z: 0.62 * math.cos(phi)
+panel_x: panel_u
+panel_y: (panel_v * 0.0) + 2.18
+panel_z: panel_v
 
 native_scene: (
     kind: "scene_3d",
@@ -90,6 +96,18 @@ native_scene: (
         )
     ],
     objects: [
+        (
+            id: "regular_shadow_panel",
+            kind: "field_mesh",
+            x: panel_x,
+            y: panel_y,
+            z: panel_z,
+            color: [0.08, 0.46, 1.0, 1.0],
+            interpolation: true,
+            depth_write: true,
+            casts_shadow: true,
+            receives_lighting: true
+        ),
         (
             id: "green_ellipsoid",
             kind: "field_mesh",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +47,9 @@ def main() -> int:
     for sample in manifest.get("artifacts", {}).get("samples", []):
         _expect(bundle / sample, errors, f"sample {sample}")
 
+    for native_tool in manifest.get("artifacts", {}).get("native_pipeline_tools", []):
+        _expect(bundle / native_tool, errors, f"native pipeline tool {native_tool}")
+
     if manifest.get("artifacts", {}).get("extension_vsix_included"):
         ext_dir = bundle / "extensions"
         if not ext_dir.exists() or not any(ext_dir.glob("*.vsix")):
@@ -69,12 +73,17 @@ def main() -> int:
         print("\n".join(errors), file=sys.stderr)
         return 1
 
-    smoke = manifest.get("tester_onboarding", {}).get("smoke_command")
-    if not smoke:
+    tester_onboarding = manifest.get("tester_onboarding", {})
+    smoke_argv = tester_onboarding.get("smoke_argv")
+    smoke_command = tester_onboarding.get("smoke_command")
+    if not smoke_argv and not smoke_command:
         print("missing tester smoke command in manifest", file=sys.stderr)
         return 1
 
-    command = [str(entrypoint), "-e", ':: "hello, world"']
+    if smoke_argv:
+        command = [str(arg) for arg in smoke_argv]
+    else:
+        command = shlex.split(str(smoke_command), posix=manifest.get("host_platform") != "win32")
     probe = _run(command, cwd=bundle)
     if probe.returncode != 0:
         print(probe.stdout, end="")

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from vektorflow import ast
 from vektorflow.ir import AttrExpr, BinaryExpr, CallExpr, IndexExpr, StoreName, lower_module
 from vektorflow.parser import parse_module
-from vektorflow.typed_ir import annotate_module
+from vektorflow.typed_ir import AxisTaggedType, ImportedFunctionType, StdlibFunctionType, annotate_module
 
 
 def test_typed_ir_tracks_scalar_bind_and_call_types() -> None:
@@ -55,6 +57,175 @@ sum: a + b
     assert isinstance(sum_type, ast.FixedVectorType)
     assert isinstance(sum_type.size, ast.TypeSizeConst)
     assert sum_type.size.value == 2
+
+
+def test_typed_ir_tracks_vector_power_expression_types() -> None:
+    mod = parse_module(
+        """
+[num:2] a: [2,3]
+[num:2] b: [4,5]
+powed: a ^ b
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_powed = lowered.statements[2]
+    assert isinstance(bind_powed, StoreName)
+    assert isinstance(bind_powed.value, BinaryExpr)
+    pow_t = info.expr_type(bind_powed.value)
+    assert isinstance(pow_t, ast.FixedVectorType)
+    assert isinstance(pow_t.size, ast.TypeSizeConst)
+    assert pow_t.size.value == 2
+
+
+def test_typed_ir_tracks_empty_list_as_zero_length_any_vector() -> None:
+    mod = parse_module(
+        """
+empty: []
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_empty = lowered.statements[0]
+    empty_t = info.expr_type(bind_empty.value)
+    assert isinstance(empty_t, ast.FixedVectorType)
+    assert isinstance(empty_t.element_type, ast.PrimTypeRef)
+    assert empty_t.element_type.name == "any"
+    assert isinstance(empty_t.size, ast.TypeSizeConst)
+    assert empty_t.size.value == 0
+
+
+def test_typed_ir_tracks_empty_multiset_as_any_element_type() -> None:
+    mod = parse_module(
+        """
+empty: {}
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_empty = lowered.statements[0]
+    empty_t = info.expr_type(bind_empty.value)
+    assert isinstance(empty_t, ast.MultisetType)
+    assert isinstance(empty_t.element_type, ast.PrimTypeRef)
+    assert empty_t.element_type.name == "any"
+
+
+def test_typed_ir_tracks_heterogeneous_struct_list_as_any_element_type() -> None:
+    mod = parse_module(
+        """
+mixed: [1, [2]]
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_mixed = lowered.statements[0]
+    mixed_t = info.expr_type(bind_mixed.value)
+    assert isinstance(mixed_t, ast.FixedVectorType)
+    assert isinstance(mixed_t.element_type, ast.PrimTypeRef)
+    assert mixed_t.element_type.name == "any"
+    assert isinstance(mixed_t.size, ast.TypeSizeConst)
+    assert mixed_t.size.value == 2
+
+
+def test_typed_ir_tracks_axis_aligned_fixed_vector_type() -> None:
+    mod = parse_module(
+        """
+u: [-1, 0, 1] -> u
+axis_name: "v"
+v: [-1, 0, 1] -> (axis_name)
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_u = lowered.statements[0]
+    bind_v = lowered.statements[2]
+    u_t = info.expr_type(bind_u.value)
+    v_t = info.expr_type(bind_v.value)
+    assert isinstance(u_t, AxisTaggedType)
+    assert u_t.axis_key == "u"
+    assert isinstance(u_t.value_type, ast.FixedVectorType)
+    assert isinstance(v_t, AxisTaggedType)
+    assert v_t.axis_key is None
+    assert isinstance(v_t.value_type, ast.FixedVectorType)
+
+
+def test_typed_ir_tracks_disjoint_axis_outer_product_type() -> None:
+    mod = parse_module(
+        """
+u: [-1, 0, 1] -> u
+v: [-1, 0, 1] -> v
+z: u * v
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_z = lowered.statements[2]
+    z_t = info.expr_type(bind_z.value)
+    assert isinstance(z_t, AxisTaggedType)
+    assert z_t.axis_key == "uv"
+    assert isinstance(z_t.value_type, ast.FixedVectorType)
+    assert isinstance(z_t.value_type.size, ast.TypeSizeConst)
+    assert z_t.value_type.size.value == 3
+    assert isinstance(z_t.value_type.element_type, ast.FixedVectorType)
+    assert isinstance(z_t.value_type.element_type.size, ast.TypeSizeConst)
+    assert z_t.value_type.element_type.size.value == 3
+
+
+def test_typed_ir_tracks_same_axis_power_type() -> None:
+    mod = parse_module(
+        """
+u: [2, 3, 4] -> u
+v: [5, 6, 7] -> u
+z: u ^ v
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_z = lowered.statements[2]
+    z_t = info.expr_type(bind_z.value)
+    assert isinstance(z_t, AxisTaggedType)
+    assert z_t.axis_key == "u"
+    assert isinstance(z_t.value_type, ast.FixedVectorType)
+    assert isinstance(z_t.value_type.size, ast.TypeSizeConst)
+    assert z_t.value_type.size.value == 3
+
+
+def test_typed_ir_tracks_disjoint_axis_power_type() -> None:
+    mod = parse_module(
+        """
+u: [2, 3] -> u
+v: [4, 5, 6] -> v
+z: u ^ v
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_z = lowered.statements[2]
+    z_t = info.expr_type(bind_z.value)
+    assert isinstance(z_t, AxisTaggedType)
+    assert z_t.axis_key == "uv"
+    assert isinstance(z_t.value_type, ast.FixedVectorType)
+    assert isinstance(z_t.value_type.size, ast.TypeSizeConst)
+    assert z_t.value_type.size.value == 2
+    assert isinstance(z_t.value_type.element_type, ast.FixedVectorType)
+    assert isinstance(z_t.value_type.element_type.size, ast.TypeSizeConst)
+    assert z_t.value_type.element_type.size.value == 3
 
 
 def test_typed_ir_tracks_struct_and_attribute_types() -> None:
@@ -126,6 +297,32 @@ counted: stat.count([1,2,3])
     assert info.expr_type(bind_sigma.value).name == "num"
     assert isinstance(bind_counted, StoreName)
     assert info.expr_type(bind_counted.value).name == "int"
+
+
+def test_typed_ir_tracks_axis_tagged_math_intrinsics() -> None:
+    mod = parse_module(
+        """math: .math
+
+theta: [0, 1, 2] -> u
+wave: math.sin(theta)
+arc: math.cos(theta)
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    wave_t = info.expr_type(lowered.statements[1].value)
+    arc_t = info.expr_type(lowered.statements[2].value)
+    assert isinstance(wave_t, AxisTaggedType)
+    assert wave_t.axis_key == "u"
+    assert isinstance(wave_t.value_type, ast.FixedVectorType)
+    assert isinstance(wave_t.value_type.element_type, ast.PrimTypeRef)
+    assert wave_t.value_type.element_type.name == "num"
+    assert isinstance(arc_t, AxisTaggedType)
+    assert arc_t.axis_key == "u"
+    assert isinstance(arc_t.value_type, ast.FixedVectorType)
+    assert isinstance(arc_t.value_type.element_type, ast.PrimTypeRef)
+    assert arc_t.value_type.element_type.name == "num"
 
 
 def test_typed_ir_tracks_math_constants_and_vector_stats() -> None:
@@ -329,6 +526,253 @@ x: m.b
     assert x_t.name == "str"
 
 
+def test_typed_ir_tracks_vector_literal_spread_shape() -> None:
+    mod = parse_module(
+        """values: [: [1,2,3]]
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_values = lowered.statements[0]
+    values_t = info.expr_type(bind_values.value)
+    assert isinstance(values_t, ast.FixedVectorType)
+    assert isinstance(values_t.size, ast.TypeSizeConst)
+    assert values_t.size.value == 3
+    assert isinstance(values_t.element_type, ast.PrimTypeRef)
+    assert values_t.element_type.name == "num"
+
+
+def test_typed_ir_tracks_tuple_literal_and_spread_shape() -> None:
+    mod = parse_module(
+        """coords: (1, :[2,3], 4)
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_coords = lowered.statements[0]
+    coords_t = info.expr_type(bind_coords.value)
+    assert isinstance(coords_t, ast.TupleTypeExpr)
+    assert len(coords_t.elements) == 4
+    assert all(isinstance(elem, ast.PrimTypeRef) and elem.name == "num" for elem in coords_t.elements)
+
+
+def test_typed_ir_tracks_tuple_numeric_index_type() -> None:
+    mod = parse_module(
+        """point: (3, 4)
+first: point.0
+second: point.1
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_first = lowered.statements[1]
+    bind_second = lowered.statements[2]
+    assert isinstance(bind_first.value, IndexExpr)
+    assert isinstance(bind_second.value, IndexExpr)
+    first_t = info.expr_type(bind_first.value)
+    second_t = info.expr_type(bind_second.value)
+    assert isinstance(first_t, ast.PrimTypeRef)
+    assert isinstance(second_t, ast.PrimTypeRef)
+    assert first_t.name == "num"
+    assert second_t.name == "num"
+
+
+def test_typed_ir_tracks_finite_range_vector_shape() -> None:
+    mod = parse_module(
+        """values: [1..5]
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    values_t = info.expr_type(lowered.statements[0].value)
+    assert isinstance(values_t, ast.FixedVectorType)
+    assert isinstance(values_t.size, ast.TypeSizeConst)
+    assert values_t.size.value == 5
+
+
+def test_typed_ir_tracks_lazy_range_list_shape() -> None:
+    mod = parse_module(
+        """values: [1..]
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    values_t = info.expr_type(lowered.statements[0].value)
+    assert isinstance(values_t, ast.LinkedListValueType)
+    assert len(values_t.elements) == 1
+    assert isinstance(values_t.elements[0], ast.PrimTypeRef)
+    assert values_t.elements[0].name == "num"
+
+
+def test_typed_ir_tracks_struct_field_rebind_shape() -> None:
+    mod = parse_module(
+        """point: (x: 3, y: 4)
+point.z: 5
+out: point
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    out_t = info.expr_type(lowered.statements[2].value)
+    assert isinstance(out_t, ast.TypeExpr)
+    assert [name for name, _ in out_t.fields] == ["x", "y", "z"]
+
+
+def test_ir_lowering_can_reach_axis_panel_example_past_tuple_literals() -> None:
+    src = Path("examples/100_axis_4_panel.vkf").read_text(encoding="utf-8")
+    mod = parse_module(src, filename="examples/100_axis_4_panel.vkf")
+    lowered = lower_module(mod)
+    assert lowered.statements
+
+
+def test_ir_lowering_can_reach_resource_rebind_examples() -> None:
+    for name in [
+        "examples/20_struct_field_rebind.vkf",
+        "examples/21_vector_index_rebind.vkf",
+        "examples/24_immutable_values_mutable_resources.vkf",
+        "examples/91_shared_buffer_pattern.vkf",
+    ]:
+        src = Path(name).read_text(encoding="utf-8")
+        mod = parse_module(src, filename=name)
+        lowered = lower_module(mod)
+        assert lowered.statements
+
+
+def test_ir_lowering_can_reach_ranges_example() -> None:
+    src = Path("examples/15_ranges.vkf").read_text(encoding="utf-8")
+    mod = parse_module(src, filename="examples/15_ranges.vkf")
+    lowered = lower_module(mod)
+    assert lowered.statements
+
+
+def test_typed_ir_tracks_scope_expr_result_and_scope_identity_shape() -> None:
+    mod = parse_module(
+        """
+outer: 3
+message:
+    name: "Ada"
+    "hello $name"
+
+snapshot:
+    inner: 7
+    :
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    message_t = info.expr_type(lowered.statements[1].value)
+    snapshot_t = info.expr_type(lowered.statements[2].value)
+    assert isinstance(message_t, ast.PrimTypeRef)
+    assert message_t.name == "str"
+    assert isinstance(snapshot_t, ast.TypeExpr)
+    assert [name for name, _ in snapshot_t.fields] == ["outer", "message", "inner"]
+
+
+def test_ir_lowering_can_reach_scope_and_spill_examples() -> None:
+    for name in [
+        "examples/03_blocks_return_last.vkf",
+        "examples/23_spill_and_override.vkf",
+    ]:
+        src = Path(name).read_text(encoding="utf-8")
+        mod = parse_module(src, filename=name)
+        lowered = lower_module(mod)
+        assert lowered.statements
+
+
+def test_typed_ir_tracks_pipe_chain_result_shape() -> None:
+    mod = parse_module(
+        """
+square(x:num) -> num: x * x
+out: [1..5] >> square($)
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    out_t = info.expr_type(lowered.statements[1].value)
+    assert isinstance(out_t, ast.FixedVectorType)
+    assert isinstance(out_t.element_type, ast.PrimTypeRef)
+    assert out_t.element_type.name == "num"
+    assert isinstance(out_t.size, ast.TypeSizeConst)
+    assert out_t.size.value == 5
+
+
+def test_ir_lowering_can_reach_pipe_examples() -> None:
+    for name in [
+        "examples/62_pipes.vkf",
+        "examples/63_pipe_with_functions.vkf",
+    ]:
+        src = Path(name).read_text(encoding="utf-8")
+        mod = parse_module(src, filename=name)
+        lowered = lower_module(mod)
+        assert lowered.statements
+
+
+def test_ir_lowering_can_reach_typeof_and_abs_examples() -> None:
+    for name in [
+        "examples/53_type_reflection.vkf",
+        "examples/73_norm_and_abs.vkf",
+    ]:
+        src = Path(name).read_text(encoding="utf-8")
+        mod = parse_module(src, filename=name)
+        lowered = lower_module(mod)
+        assert lowered.statements
+
+
+def test_ir_lowering_can_reach_file_module_import_example() -> None:
+    name = "examples/83_file_module.vkf"
+    src = Path(name).read_text(encoding="utf-8")
+    mod = parse_module(src, filename=name)
+    lowered = lower_module(mod)
+    assert lowered.statements
+
+
+def test_typed_ir_tracks_imported_module_function_calls_as_any() -> None:
+    mod = parse_module(
+        """helpers: ."modules/83_file_module_helpers.vkf"
+
+out: helpers.scale(2, 10)
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_out = lowered.statements[1]
+    assert isinstance(bind_out, StoreName)
+    assert isinstance(bind_out.value, CallExpr)
+    assert isinstance(bind_out.value.func, AttrExpr)
+    func_t = info.expr_type(bind_out.value.func)
+    out_t = info.expr_type(bind_out.value)
+    assert isinstance(func_t, ImportedFunctionType)
+    assert func_t.name == "scale"
+    assert isinstance(out_t, ast.PrimTypeRef)
+    assert out_t.name == "any"
+
+
+def test_typed_ir_can_annotate_file_module_import_example() -> None:
+    name = "examples/83_file_module.vkf"
+    src = Path(name).read_text(encoding="utf-8")
+    mod = parse_module(src, filename=name)
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    import_stmt = lowered.statements[0]
+    print_stmt = lowered.statements[1]
+    assert import_stmt.alias == "helpers"
+    assert isinstance(print_stmt.value, CallExpr)
+    assert isinstance(print_stmt.value.func, AttrExpr)
+    assert isinstance(info.expr_type(print_stmt.value.func), ImportedFunctionType)
+    assert isinstance(info.expr_type(print_stmt.value), ast.PrimTypeRef)
+    assert info.expr_type(print_stmt.value).name == "any"
+
+
 def test_typed_ir_tracks_record_with_map_and_list_fields() -> None:
     mod = parse_module(
         """collections: .collections
@@ -462,3 +906,98 @@ item_name: out.payload.meta.name
     assert isinstance(fields["total"], ast.PrimTypeRef)
     assert isinstance(item_name_t, ast.PrimTypeRef)
     assert item_name_t.name == "str"
+
+
+def test_typed_ir_can_analyze_empty_scene_lists_in_real_example() -> None:
+    src = Path("examples/111_mirror_smoke.vkf").read_text(encoding="utf-8")
+    mod = parse_module(src, filename="examples/111_mirror_smoke.vkf")
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_scene = lowered.statements[1]
+    scene_t = info.expr_type(bind_scene.value)
+    assert isinstance(scene_t, ast.TypeExpr)
+    fields = dict(scene_t.fields)
+    assert isinstance(fields["cubes"], ast.FixedVectorType)
+    assert isinstance(fields["cubes"].element_type, ast.PrimTypeRef)
+    assert fields["cubes"].element_type.name == "any"
+    assert isinstance(fields["cubes"].size, ast.TypeSizeConst)
+    assert fields["cubes"].size.value == 0
+
+
+def test_typed_ir_can_analyze_axis_math_in_real_example() -> None:
+    src = Path("examples/110_mirror_showcase.vkf").read_text(encoding="utf-8")
+    mod = parse_module(src, filename="examples/110_mirror_showcase.vkf")
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_ell_x = lowered.statements[5]
+    ell_x_t = info.expr_type(bind_ell_x.value)
+    assert isinstance(ell_x_t, AxisTaggedType)
+    assert ell_x_t.axis_key == "uv"
+    assert isinstance(ell_x_t.value_type, ast.FixedVectorType)
+
+
+def test_typed_ir_tracks_stdlib_namespace_alias_bound_collection_constructors() -> None:
+    mod = parse_module(
+        """collections: .collections
+
+mkmap: collections.map
+mklist: collections.list
+m: mkmap(a:1, b:true)
+L: mklist(:[1,2,3])
+out: m.a
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_mkmap = lowered.statements[0]
+    bind_mklist = lowered.statements[1]
+    bind_m = lowered.statements[2]
+    bind_l = lowered.statements[3]
+    bind_out = lowered.statements[4]
+    assert isinstance(bind_mkmap, StoreName)
+    assert isinstance(bind_mklist, StoreName)
+    assert isinstance(bind_m, StoreName)
+    assert isinstance(bind_l, StoreName)
+    assert isinstance(bind_out, StoreName)
+    assert info.expr_type(bind_mkmap.value) == StdlibFunctionType("collections", "map")
+    assert info.expr_type(bind_mklist.value) == StdlibFunctionType("collections", "list")
+    m_t = info.expr_type(bind_m.value)
+    l_t = info.expr_type(bind_l.value)
+    out_t = info.expr_type(bind_out.value)
+    assert isinstance(m_t, ast.MapValueType)
+    assert [name for name, _ in m_t.fields] == ["a", "b"]
+    assert isinstance(l_t, ast.LinkedListValueType)
+    assert len(l_t.elements) == 3
+    assert isinstance(out_t, ast.PrimTypeRef)
+    assert out_t.name == "num"
+
+
+def test_typed_ir_tracks_stdlib_namespace_alias_bound_math_and_stat_calls() -> None:
+    mod = parse_module(
+        """math: .math
+stat: .stat
+
+mysin: math.sin
+mymean: stat.mean
+a: mysin(0)
+b: mymean([1,2,3])
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+    bind_mysin = lowered.statements[0]
+    bind_mymean = lowered.statements[1]
+    bind_a = lowered.statements[2]
+    bind_b = lowered.statements[3]
+    assert isinstance(bind_mysin, StoreName)
+    assert isinstance(bind_mymean, StoreName)
+    assert isinstance(bind_a, StoreName)
+    assert isinstance(bind_b, StoreName)
+    assert info.expr_type(bind_mysin.value) == StdlibFunctionType("math", "sin")
+    assert info.expr_type(bind_mymean.value) == StdlibFunctionType("stat", "mean")
+    assert info.expr_type(bind_a.value).name == "num"
+    assert info.expr_type(bind_b.value).name == "num"

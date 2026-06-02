@@ -15,7 +15,11 @@ from typing import Any, Mapping
 
 from vektorflow.ui.file_io import write_text_if_changed
 from vektorflow.ui.launch import _vf_warn, find_vektorflow_repo_root
-from vektorflow.ui.payloads import write_display_payload
+from vektorflow.ui.payloads import (
+    get_ui_payload_snapshot,
+    raise_on_failed_strict_packet_publish,
+    write_display_payload,
+)
 
 
 _VERSION_QUERY_RE = re.compile(r"\?v=\d+")
@@ -97,6 +101,7 @@ def publish_display_runtime_payload(payload: dict[str, Any]) -> None:
             )
 
         write_display_payload(payload, warn_missing_root=warn_missing_root)
+        raise_on_failed_strict_packet_publish("display", get_ui_payload_snapshot().last_publish_result)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"vektorflow: UI display payload is invalid: {exc}") from exc
     except OSError as exc:

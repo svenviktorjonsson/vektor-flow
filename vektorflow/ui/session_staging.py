@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import re
 import time
@@ -30,6 +31,7 @@ _VERSION_RE = re.compile(r"\?v=\d+")
 _ROOT_ASSET_RE = re.compile(
     r'((?:href|src)=["\'])(vf-frame\.css(?:\?[^"\']*)?|vf-frame\.js(?:\?[^"\']*)?|vf-widgets\.js(?:\?[^"\']*)?|vf-display\.js(?:\?[^"\']*)?|vf-browser-transport\.js(?:\?[^"\']*)?|vf-game-camera\.js(?:\?[^"\']*)?|vf-runtime-shell\.js(?:\?[^"\']*)?|vf-runtime-source\.js(?:\?[^"\']*)?|vf-runtime-scene\.js(?:\?[^"\']*)?|vf-runtime-flow\.js(?:\?[^"\']*)?|katex/[^"\']+|geom/[^"\']+)(["\'])'
 )
+_BODY_OPEN_RE = re.compile(r"<body\b([^>]*)>", re.IGNORECASE)
 
 
 def discover_built_web_dirs(root: Path) -> tuple[Path, ...]:
@@ -62,7 +64,17 @@ def render_session_html(source_html: str) -> str:
         asset = _VERSION_RE.sub("", asset)
         return f"{prefix}../../{asset}?v={version}{suffix}"
 
-    return _ROOT_ASSET_RE.sub(repl, stamped)
+    rendered = _ROOT_ASSET_RE.sub(repl, stamped)
+    if not strict_packet_only_session_mode_enabled():
+        return rendered
+
+    def body_repl(match: re.Match[str]) -> str:
+        attrs = match.group(1)
+        if "data-vf-runtime-strict-packet-only" in attrs:
+            return match.group(0)
+        return f'<body{attrs} data-vf-runtime-packet-only="true" data-vf-runtime-strict-packet-only="true">'
+
+    return _BODY_OPEN_RE.sub(body_repl, rendered, count=1)
 
 
 def _ensure_sessions_dir(base_dir: Path) -> None:
@@ -72,8 +84,22 @@ def _ensure_sessions_dir(base_dir: Path) -> None:
         pass
 
 
-def stage_overlay_session_host(session_dir: Path, session_html: str) -> None:
-    seed_payload_dir(session_dir, session_html=session_html)
+def strict_packet_only_session_mode_enabled() -> bool:
+    raw = str(os.environ.get("VF_UI_PACKET_ONLY_STRICT", "") or "").strip().lower()
+    return raw not in ("", "0", "false", "off", "no")
+
+
+def stage_overlay_session_host(
+    session_dir: Path,
+    session_html: str,
+    *,
+    seed_compatibility_payloads: bool = True,
+) -> None:
+    seed_payload_dir(
+        session_dir,
+        session_html=session_html,
+        seed_compatibility_payloads=seed_compatibility_payloads,
+    )
 
 
 def stage_ui_session(root: Path, *, session_id: str | None = None) -> UISessionArtifacts:
@@ -91,12 +117,21 @@ def stage_ui_session(root: Path, *, session_id: str | None = None) -> UISessionA
 
     source_html = (repo_web_dir / "vkf-scene.html").read_text(encoding="utf-8")
     session_html = render_session_html(source_html)
+    seed_compatibility_payloads = not strict_packet_only_session_mode_enabled()
 
-    seed_payload_dir(repo_session_dir, session_html=session_html)
+    seed_payload_dir(
+        repo_session_dir,
+        session_html=session_html,
+        seed_compatibility_payloads=seed_compatibility_payloads,
+    )
 
     for built_web_dir in built_web_dirs:
         built_session_dir = (built_web_dir / rel).resolve()
-        stage_overlay_session_host(built_session_dir, session_html)
+        stage_overlay_session_host(
+            built_session_dir,
+            session_html,
+            seed_compatibility_payloads=seed_compatibility_payloads,
+        )
 
     return UISessionArtifacts(
         session_id=resolved_session_id,
@@ -124,5 +159,6 @@ __all__ = [
     "render_session_html",
     "stage_overlay_session_host",
     "stage_ui_session",
+    "strict_packet_only_session_mode_enabled",
     "write_text_if_changed",
 ]

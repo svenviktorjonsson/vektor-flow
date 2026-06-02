@@ -27,6 +27,7 @@ from ..ui.display_runtime import (
     publish_display_runtime_payload,
 )
 from ..ui.payloads import publish_geom_color_patch
+from ..ui.event_ingress import get_ui_event_ingress
 from ..ui.representation_runtime import (
     build_embedding_scope_draw_ops,
     build_field_mesh_from_kwargs as _build_field_mesh_from_kwargs,
@@ -37,6 +38,16 @@ from ..ui.representation_runtime import (
     refresh_representation,
     refresh_representations_for_frame,
     resolve_field_mesh_time_index as _resolve_field_mesh_time_index,
+)
+from ..ui_display_ir import (
+    build_host_event_dispatch_from_state,
+    build_host_event_effects,
+    enqueue_public_host_event_payload,
+    ensure_host_event_poller_started,
+    has_queued_host_events,
+    materialize_queued_host_event,
+    notify_host_frame_payload_event,
+    pop_queued_host_event,
 )
 from .screen import (
     Screen,
@@ -53,14 +64,10 @@ from .events import (
     TextAreaTextChangedEvent, ComboboxTextChangedEvent, ComboboxTextEnteredEvent,
     ComboboxItemChangedEvent, ColorPickerValueChangedEvent,
     TouchEvent, KeyboardEvent, KeyEvent, KeyDown, KeyUp,
-    EVENT_NAME_TO_BASE,
     EVENT_CONST_TO_NAME,
-    encode_event_code,
     encode_ui_pattern,
     encode_frame_pattern,
-    encode_widget_pattern,
-    ui_event_from_payload,
-    start_event_poller, get_global_poller,
+    start_event_poller,
 )
 
 
@@ -76,7 +83,7 @@ def _ui_trace_line(msg: str) -> None:
         base = os.environ.get("LOCALAPPDATA", "")
         if not base:
             return
-        p = Path(base) / "vektor-flow" / "python-ui-events.log"
+        p = Path(base) / "vektor-flow" / "vf-ui-events.log"
         p.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         with p.open("a", encoding="utf-8") as f:
@@ -3726,7 +3733,7 @@ class FrameRef:
 
 @dataclass
 class UIEventQueue:
-    """Explicit event queue API for dispatch-style loops."""
+    """Authoritative event queue API for host interaction loops."""
 
     __vf_py_attrs__ = True
     _ui: "UIRoot"
@@ -3736,8 +3743,8 @@ class UIEventQueue:
         self._ui._ensure_poller()
         return bool(self._ui._event_queue)
 
-    def get(self) -> MouseEvent | KeyboardEvent | FrameEvent | dict[str, Any] | None:
-        """Pop one pending event (mouse first), or ``None``."""
+    def get(self) -> MouseEvent | KeyboardEvent | FrameEvent | WidgetEvent | dict[str, Any] | None:
+        """Pop one normalized host event, or ``None`` when the queue is empty."""
         return self._ui.next_event()
 
 
@@ -3751,8 +3758,9 @@ class UIRoot:
 
     Events
     ------
-    Call ``ui.poll()`` from your loop to drain incoming mouse/keyboard events
-    and fire registered callbacks.  The event poller background thread starts
+    ``ui.events.get()`` / ``ui.next_event()`` is the authoritative interaction
+    seam. Callbacks such as ``cursor.on_down(...)`` are compatibility helpers on
+    top of the same queue. The event poller background thread starts
     automatically when the first frame is placed.
 
     Example::
@@ -3762,11 +3770,9 @@ class UIRoot:
         f : Frame((0.1, 0.1, 0.8, 0.8))
         cam : d.add_camera(pos:[4,3,5])
 
-        cursor.on_wheel(fn(e) => cam.translate([0, 0, e.step * 0.3]))
-        cursor.on_down( fn(e) => print("click", e.object_id))
-
         loop:
-            poll()
+            e : events.get()
+            e ? handle(e)
     """
 
     __vf_py_attrs__ = True
@@ -3811,124 +3817,88 @@ class UIRoot:
             object.__setattr__(self.display, "_ui_root", self)
         except Exception:
             pass
-        # Wire the global poller to push events into our mouse/keyboard queues
+        # Subscribe to the canonical ingress bus. Overlay polling/browser posts
+        # are transport adapters that publish payloads into this queue-first seam.
         def _dispatch(evt: dict) -> None:
-            ev_name = str(evt.get("event", ""))
-            frame_id = str(evt.get("frame_id", evt.get("frameId", "")) or "")
-            widget_id = str(evt.get("widget_id", evt.get("widgetId", "")) or "")
+            dispatch = build_host_event_dispatch_from_state(
+                evt,
+                event_kind_count=self._event_kind_count,
+            )
+            payload = dispatch.payload
+            ev_name = str(payload.get("event", ""))
+            frame_id = str(payload.get("frame_id", ""))
+            widget_id = str(payload.get("widget_id", ""))
             _ui_trace_line(f"dispatch raw type={evt.get('type')} event={ev_name} frame={frame_id} widget={widget_id}")
-            base = int(EVENT_NAME_TO_BASE.get(ev_name, 0))
-            code = encode_event_code(ev_name, frame_id=frame_id, widget_id=widget_id)
-            ui_code = encode_ui_pattern(ev_name) if base else 0
-            frame_code = encode_frame_pattern(ev_name, frame_id) if (base and frame_id) else 0
-            widget_code = encode_widget_pattern(ev_name, widget_id) if (base and widget_id) else 0
-            idx = 0
-            if base:
-                idx = int(self._event_kind_count.get(base, 0)) + 1
-                self._event_kind_count[base] = idx
+            if dispatch.base:
+                self._event_kind_count[dispatch.base] = int(dispatch.next_kind_count)
+            notify_host_frame_payload_event(
+                frame_id,
+                payload,
+                resolve_frame=lambda fid: self.display.get_frame(fid),
+            )
 
-            payload = dict(evt)
-            payload["event"] = ev_name
-            payload["frame_id"] = frame_id
-            payload["widget_id"] = widget_id
-            payload["event_code"] = code
-            payload["ui_code"] = ui_code
-            payload["frame_code"] = frame_code
-            payload["widget_code"] = widget_code
-            payload["index"] = idx
-            normalized = ui_event_from_payload(payload)
-            _ui_trace_line(f"dispatch normalized cls={type(normalized).__name__} event={getattr(normalized, 'event', '')} frame={getattr(normalized, 'frame_id', '')}")
-
-            if frame_id:
-                try:
-                    frame_ref = self.display.get_frame(frame_id)
-                except Exception:
-                    frame_ref = None
-                if frame_ref is not None:
-                    try:
-                        frame_ref.handle_events(normalized)
-                    except Exception:
-                        pass
-
-            if isinstance(normalized, (WidgetEvent, FrameEvent)):
-                self._queue_event(normalized)
-                return
-
-            t = evt.get("type")
-            if t != "vf_event":
+            if dispatch.route == "host":
                 # Non-vf_event host events (frame lifecycle, widget payloads, etc.).
-                self._queue_event(normalized)
+                self._queue_event(payload)
                 return
-            if ev_name in ("move", "hover", "down", "up", "wheel", "drag"):
-                self.keyboard._observe_modifiers(evt)
-                self.cursor._push(payload)
-                self._queue_event(normalized)
-            elif ev_name in ("key_down", "key_up"):
+            if dispatch.route == "ignored":
+                return
+
+            is_modifier = False
+            if dispatch.route == "keyboard":
                 ke = KeyboardEvent.from_dict(payload)
                 is_modifier = self.keyboard._modifier_name(ke) is not None
+            effects = build_host_event_effects(
+                dispatch,
+                is_modifier_key=is_modifier,
+            )
+            if effects.should_observe_modifiers:
+                self.keyboard._observe_modifiers(payload)
+            if effects.should_push_cursor:
+                self.cursor._push(payload)
+            if effects.should_push_keyboard:
                 self.keyboard._push(payload)
-                if not is_modifier:
-                    self._queue_event(normalized)
-        p = get_global_poller()
-        p.subscribe(_dispatch)
+            if not effects.suppress_queue and dispatch.should_queue:
+                self._queue_event(payload)
+        get_ui_event_ingress().subscribe(_dispatch)
 
     def _queue_event(self, evt: Any) -> None:
-        if isinstance(evt, (MouseHover, MouseMove)):
-            frame_id = getattr(evt, "frame_id", "")
-            for i in range(len(self._event_queue) - 1, -1, -1):
-                queued = self._event_queue[i]
-                if not isinstance(queued, (MouseHover, MouseMove)):
-                    break
-                if getattr(queued, "frame_id", "") == frame_id:
-                    self._event_queue[i] = evt
-                    _ui_trace_line(
-                        "queue coalesced pointer "
-                        f"event={evt.event} frame={frame_id} object_id={getattr(evt, 'object_id', 0)}"
-                    )
-                    return
-            self._event_queue.append(evt)
+        before_len = len(self._event_queue)
+        handled = enqueue_public_host_event_payload(self._event_queue, evt)
+        if not handled:
             return
-        if isinstance(evt, MouseDrag):
-            frame_id = getattr(evt, "frame_id", "")
-            object_id = getattr(evt, "object_id", 0)
-            for i in range(len(self._event_queue) - 1, -1, -1):
-                queued = self._event_queue[i]
-                if not isinstance(queued, MouseDrag):
-                    break
-                if getattr(queued, "frame_id", "") != frame_id or getattr(queued, "object_id", 0) != object_id:
-                    continue
-                queued.dx += evt.dx
-                queued.dy += evt.dy
-                queued.dx_norm += evt.dx_norm
-                queued.dy_norm += evt.dy_norm
-                queued.x = evt.x
-                queued.y = evt.y
-                queued.buttons = evt.buttons
-                _ui_trace_line(f"queue coalesced drag frame={frame_id} object_id={object_id}")
-                return
-            self._event_queue.append(evt)
-            return
-        self._event_queue.append(evt)
+        if len(self._event_queue) == before_len:
+            if isinstance(evt, (MouseHover, MouseMove)):
+                _ui_trace_line(
+                    "queue coalesced pointer "
+                    f"event={evt.event} frame={getattr(evt, 'frame_id', '')} object_id={getattr(evt, 'object_id', 0)}"
+                )
+            elif isinstance(evt, MouseDrag):
+                _ui_trace_line(
+                    f"queue coalesced drag frame={getattr(evt, 'frame_id', '')} object_id={getattr(evt, 'object_id', 0)}"
+                )
 
     def _ensure_poller(self) -> None:
-        if not self._poller_started:
+        if ensure_host_event_poller_started(
+            self._poller_started,
+            start_poller=(lambda: None) if self.mode == "test" else start_event_poller,
+        ):
             object.__setattr__(self, "_poller_started", True)
-            if self.mode != "test":
-                start_event_poller()
 
-    def next_event(self) -> Any:
+    def next_event(self) -> MouseEvent | KeyboardEvent | FrameEvent | WidgetEvent | dict[str, Any] | None:
         """Return one pending queued event, or ``None`` when no event is queued."""
         self._ensure_poller()
-        if self._event_queue:
-            evt = self._event_queue.popleft()
+        if has_queued_host_events(self._event_queue):
+            evt = pop_queued_host_event(self._event_queue)
+            public_evt = materialize_queued_host_event(evt)
             _ui_trace_line(
-                f"next_event cls={type(evt).__name__} "
-                f"event={getattr(evt, 'event', '')} "
-                f"frame={getattr(evt, 'frame_id', '')} "
-                f"object_id={getattr(evt, 'object_id', '')} "
-                f"simplex_id={getattr(evt, 'simplex_id', '')}"
+                f"next_event cls={type(public_evt).__name__} "
+                f"event={getattr(public_evt, 'event', '')} "
+                f"frame={getattr(public_evt, 'frame_id', '')} "
+                f"object_id={getattr(public_evt, 'object_id', '')} "
+                f"simplex_id={getattr(public_evt, 'simplex_id', '')}"
             )
-            return evt
+            return public_evt
         return None
 
     def poll(self) -> None:

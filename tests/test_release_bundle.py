@@ -8,6 +8,7 @@ from vektorflow.release_bundle import (
     build_release_manifest,
     default_release_channel_for_platform,
     default_release_output_dir,
+    release_native_tool_sources,
     release_channel,
     release_channels,
     release_demo_launchers,
@@ -56,6 +57,14 @@ def test_release_manifest_tracks_channel_contract() -> None:
     assert manifest["ui_modes"] == ["overlay", "browser", "headless"]
     assert manifest["artifacts"]["overlay_binary_included"] is True
     assert manifest["artifacts"]["extension_vsix_included"] is True
+    assert manifest["artifacts"]["native_pipeline_tools"] == [
+        "vkf.exe",
+        "vf-browser-server.exe",
+        "vkf_lexer_cursor_smoke.exe",
+        "vkf_parser_token_stream_smoke.exe",
+        "vkf_ast_to_ir_smoke.exe",
+        "vkf_compiler_artifact_smoke.exe",
+    ]
     assert manifest["artifacts"]["testing_guide"] == "TESTING.md"
     assert manifest["artifacts"]["demo_launchers"] == [
         "run-shared-runtime-demo.ps1",
@@ -63,6 +72,11 @@ def test_release_manifest_tracks_channel_contract() -> None:
     ]
     assert manifest["tester_onboarding"]["vscode_supported"] is True
     assert "hello, world" in manifest["tester_onboarding"]["smoke_command"]
+    assert manifest["tester_onboarding"]["smoke_argv"] == [
+        ".\\vkf.exe",
+        "-e",
+        ':: "hello, world"',
+    ]
 
 
 def test_release_readme_text_mentions_bundle_manifest_and_ui_modes() -> None:
@@ -103,3 +117,16 @@ def test_release_demo_launchers_point_at_python_free_demo_scripts(tmp_path: Path
     (scripts / "run-shared-runtime-demo.sh").write_text("ok", encoding="utf-8")
     launcher_names = [path.name for path in release_demo_launchers(tmp_path)]
     assert launcher_names == ["run-shared-runtime-demo.ps1", "run-shared-runtime-demo.sh"]
+
+
+def test_release_native_tool_sources_tracks_native_bundle_contract(tmp_path: Path) -> None:
+    channel = release_channel("windows-overlay")
+    mapping = release_native_tool_sources(tmp_path, channel)
+    assert list(mapping) == [
+        "vkf.exe",
+        "vf-browser-server.exe",
+        "vkf_lexer_cursor_smoke.exe",
+        "vkf_parser_token_stream_smoke.exe",
+        "vkf_ast_to_ir_smoke.exe",
+        "vkf_compiler_artifact_smoke.exe",
+    ]

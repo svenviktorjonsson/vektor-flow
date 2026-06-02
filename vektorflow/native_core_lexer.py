@@ -34,7 +34,7 @@ def _native_core_lexer_cpp_source() -> str:
 
 struct Token {
     std::string kind;
-    enum class ValueKind { Null, String, Number, Dot } value_kind = ValueKind::Null;
+    enum class ValueKind { Null, String, Number, Adjacency } value_kind = ValueKind::Null;
     std::string string_value;
     double number_value = 0.0;
     bool dot_left_tight = true;
@@ -232,10 +232,10 @@ private:
         line_has_code_token_ = true;
     }
 
-    void emit_dot(bool left_tight, bool right_tight, int line, int column) {
+    void emit_adjacency(const std::string& kind, bool left_tight, bool right_tight, int line, int column) {
         Token tok;
-        tok.kind = "DOT";
-        tok.value_kind = Token::ValueKind::Dot;
+        tok.kind = kind;
+        tok.value_kind = Token::ValueKind::Adjacency;
         tok.dot_left_tight = left_tight;
         tok.dot_right_tight = right_tight;
         tok.line = line;
@@ -418,14 +418,18 @@ private:
             }
             throw std::runtime_error(std::string("Unsupported character in native-core lexer subset: ") + ch);
         case '-':
+        {
+            bool left_tight = pos_ > 0 && src_[pos_ - 1] != ' ' && src_[pos_ - 1] != '\t' && src_[pos_ - 1] != '\r';
             advance();
             if (peek() == '>') {
                 advance();
-                emit_at("ARROW", tok_line, tok_col);
+                bool right_tight = peek() != '\0' && !std::isspace(static_cast<unsigned char>(peek()));
+                emit_adjacency("ARROW", left_tight, right_tight, tok_line, tok_col);
                 return;
             }
             emit_at("MINUS", tok_line, tok_col);
             return;
+        }
         case '.': {
             bool left_tight = pos_ > 0 && src_[pos_ - 1] != ' ' && src_[pos_ - 1] != '\t' && src_[pos_ - 1] != '\r';
             advance();
@@ -435,7 +439,7 @@ private:
                 return;
             }
             bool right_tight = peek() != '\0' && !std::isspace(static_cast<unsigned char>(peek()));
-            emit_dot(left_tight, right_tight, tok_line, tok_col);
+            emit_adjacency("DOT", left_tight, right_tight, tok_line, tok_col);
             return;
         }
         default:
@@ -542,7 +546,7 @@ static std::string tokens_to_json(const std::vector<Token>& tokens) {
         case Token::ValueKind::Number:
             out << json_number(tok.number_value);
             break;
-        case Token::ValueKind::Dot:
+        case Token::ValueKind::Adjacency:
             out << "[" << (tok.dot_left_tight ? "true" : "false") << ", "
                 << (tok.dot_right_tight ? "true" : "false") << "]";
             break;

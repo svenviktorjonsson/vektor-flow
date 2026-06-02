@@ -80,7 +80,7 @@ def test_token_stream_roundtrip_preserves_dot_adjacency_payload() -> None:
 
 
 def test_parse_tokens_matches_parse_module_for_same_source() -> None:
-    src = "v : [1,2]\nv. value: [3,4]\n:: value.\n"
+    src = "v : [1,2]\nv.value: [3,4]\n:: value.\n"
     direct = parse_module(src, filename="<test>")
     via_tokens = parse_tokens(tokenize(src, filename="<test>"))
     assert repr(via_tokens) == repr(direct)
@@ -273,8 +273,8 @@ def test_parser_surface_strips_loader_prefix_for_malformed_entries(
 
 
 def test_versioned_payload_helper_matches_json_output() -> None:
-    toks = tokenize("v. value: [3,4]\n", filename="<test>")
-    payload = lex_to_payload("v. value: [3,4]\n", filename="<test>")
+    toks = tokenize("v.value: [3,4]\n", filename="<test>")
+    payload = lex_to_payload("v.value: [3,4]\n", filename="<test>")
     assert payload["schema"] == TOKEN_STREAM_SCHEMA
     assert payload["version"] == TOKEN_STREAM_VERSION
     assert payload["tokens"] == token_stream_payload_from_json(token_stream_to_json(toks))["tokens"]

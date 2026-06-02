@@ -1,0 +1,13 @@
+side,role,path,format,source
+white,bishop,assets/chess/models/gltf/Bishop_White.glb,glb,lyricsz-stylized-chess-pieces
+white,king,assets/chess/models/gltf/King_White.glb,glb,lyricsz-stylized-chess-pieces
+white,knight,assets/chess/models/gltf/Knight_White.glb,glb,lyricsz-stylized-chess-pieces
+white,pawn,assets/chess/models/gltf/Pawn_White.glb,glb,lyricsz-stylized-chess-pieces
+white,queen,assets/chess/models/gltf/Queen_White.glb,glb,lyricsz-stylized-chess-pieces
+white,rook,assets/chess/models/gltf/Rook_White.glb,glb,lyricsz-stylized-chess-pieces
+black,bishop,assets/chess/models/gltf/Bishop_Black.glb,glb,lyricsz-stylized-chess-pieces
+black,king,assets/chess/models/gltf/King_Black.glb,glb,lyricsz-stylized-chess-pieces
+black,knight,assets/chess/models/gltf/Knight_Black.glb,glb,lyricsz-stylized-chess-pieces
+black,pawn,assets/chess/models/gltf/Pawn_Black.glb,glb,lyricsz-stylized-chess-pieces
+black,queen,assets/chess/models/gltf/Queen_Black.glb,glb,lyricsz-stylized-chess-pieces
+black,rook,assets/chess/models/gltf/Rook_Black.glb,glb,lyricsz-stylized-chess-pieces

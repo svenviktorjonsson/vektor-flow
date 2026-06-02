@@ -252,10 +252,14 @@
           pushRectWithPad({ left: l, top: t, right: r, bottom: b, width: r - l, height: b - t }, 2);
         }
       }
+      const hasPendingGeomPresentation =
+        !!(scope && scope.querySelector && scope.querySelector('[data-vf-geom-present-pending="1"]'));
+      const contentReady = o.contentReady === true || (hitRegions.length > 0 && !hasPendingGeomPresentation);
       wv.postMessage({
         type: "layout",
         stageAlpha: sa,
         contentHidden: hitRegions.length === 0,
+        contentReady,
         toolbarPx: 160,
         hitRegions: hitRegions,
       });

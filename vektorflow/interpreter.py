@@ -1098,6 +1098,34 @@ class Interpreter:
         self.builtin["j"] = 1j
         self._vf_call_depth: int = 0
         self._vf_call_depth_limit: int = max(64, int(sys.getrecursionlimit()) - 64)
+        self.last_execution_engine: str | None = None
+        self.last_function_execution_engine: str | None = None
+        self.last_callable_execution_engine: str | None = None
+
+    def _module_is_safe_for_ir_dispatch(self, module: ast.Module) -> bool:
+        for stmt in module.statements:
+            if isinstance(stmt, ast.FuncDef):
+                if _is_struct_ctor_body(stmt.body, stmt.docstring):
+                    return False
+        return True
+
+    def _try_run_module_via_ir(self, module: ast.Module) -> tuple[bool, Any]:
+        if not self._module_is_safe_for_ir_dispatch(module):
+            return False, None
+        try:
+            from .ir import lower_module
+            from .ir_executor import IRExecutor
+
+            lowered = lower_module(module)
+            child = IRExecutor(self.file_path)
+            child.builtin = dict(self.builtin)
+            child.globals = self.globals
+            child.types = self.types
+            result = child.run_module(lowered)
+            self.last_execution_engine = "ir"
+            return True, result
+        except Exception:
+            return False, None
 
     def _merge_stdlibs(self) -> None:
         for name in ("math", "capture", "io", "collections", "stat"):
@@ -1392,6 +1420,11 @@ class Interpreter:
         raise EvalError("invalid bind target")
 
     def run_module(self, module: ast.Module) -> Any:
+        self.last_function_execution_engine = None
+        self.last_callable_execution_engine = None
+        ran_ir, ir_result = self._try_run_module_via_ir(module)
+        if ran_ir:
+            return ir_result
         env = self.globals
         # A file/module is an outer callable `:` scope: top-level `@:` returns from the file.
         self._return_scope_depth += 1
@@ -1401,6 +1434,7 @@ class Interpreter:
                     try:
                         self.eval_stmt(stmt, env)
                     except ReturnSignal as r:
+                        self.last_execution_engine = "ast"
                         return r.value
                     except ContinueSignal:
                         raise EvalError("continue is not valid here (use `?>` / `??>` loops)")
@@ -1412,6 +1446,7 @@ class Interpreter:
                 if "infinite recursion or recursion depth exceeded" in str(err):
                     raise
                 self._raise_recursion_error()
+            self.last_execution_engine = "ast"
             return None
         finally:
             self._return_scope_depth -= 1
@@ -2013,9 +2048,9 @@ class Interpreter:
                     cast_fn = _pick_best_overload([f for f in variants if len(f.params) == 1], pos, self.types)
                     if cast_fn is not None:
                         return self._call(cast_fn, pos, env)
-                return fn(*pos)
+                return self._call(fn, pos, env)
             if isinstance(fn, VStructCtor):
-                return self._call_struct_ctor(fn, node.args, env)
+                return self._call(fn, node.args, env)
             if isinstance(fn, VFunction):
                 return self._call(fn, node.args, env)
             if (
@@ -2212,7 +2247,29 @@ class Interpreter:
                             loc[var_pos.name] = VFVector(rest_values)
                         if var_named is not None:
                             loc[var_named.name] = with_type(None, {})
-                    result = self._eval_function_body(fn.body, loc)
+                    try:
+                        from .ir import lower_function_parts
+                        from .ir_executor import IRExecutor, IRReturnSignal
+
+                        ir_body, _param_types, _return_type = lower_function_parts(
+                            fn.params,
+                            fn.body,
+                            fn.func_type,
+                            self.types,
+                        )
+                        child = IRExecutor(self.file_path)
+                        child.builtin = dict(self.builtin)
+                        child.globals = loc
+                        child.types = self.types
+                        try:
+                            result = child.eval_block_result(ir_body, loc)
+                        except IRReturnSignal as signal:
+                            result = signal.value
+                        self.last_function_execution_engine = "ir"
+                    except Exception:
+                        result = self._eval_function_body(fn.body, loc)
+                        self.last_function_execution_engine = "ast"
+                    self.last_callable_execution_engine = "ir"
                     if fn.func_type is not None:
                         resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
                         result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
@@ -2220,8 +2277,10 @@ class Interpreter:
             except RecursionError:
                 self._raise_recursion_error(fn.name or "$")
         if isinstance(fn, VStructCtor):
+            self.last_callable_execution_engine = "runtime"
             return self._call_struct_ctor(fn, list(args), env)
         if callable(fn):
+            self.last_callable_execution_engine = "runtime"
             return fn(*args)
         raise EvalError(f"not callable: {type(fn).__name__}")
 

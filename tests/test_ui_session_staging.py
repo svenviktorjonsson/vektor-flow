@@ -13,6 +13,9 @@ def _write_minimal_web_tree(root: Path) -> Path:
     (repo_web_dir / "vkf-scene.html").write_text(
         "\n".join(
             [
+                "<!doctype html>",
+                "<html>",
+                "<body>",
                 '<link rel="stylesheet" href="vf-frame.css" />',
                 '<script src="vf-runtime-shell.js"></script>',
                 '<script src="vf-frame.js?v=1"></script>',
@@ -20,6 +23,8 @@ def _write_minimal_web_tree(root: Path) -> Path:
                 '<script src="vf-game-camera.js?v=1"></script>',
                 '<script src="vf-display.js?v=1"></script>',
                 '<script src="geom/vf-geom-core.js?v=1"></script>',
+                "</body>",
+                "</html>",
             ]
         ),
         encoding="utf-8",
@@ -43,6 +48,27 @@ def test_stage_ui_session_seeds_repo_and_built_session_dirs(tmp_path: Path) -> N
     html = (built_session_dir / "vkf-scene.html").read_text(encoding="utf-8")
     assert 'href="../../vf-frame.css?v=' in html
     assert 'src="../../vf-display.js?v=' in html
+
+
+def test_stage_ui_session_in_strict_packet_only_mode_skips_compatibility_payload_seeds(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    built_web_dir = _write_minimal_web_tree(tmp_path)
+    monkeypatch.setenv("VF_UI_PACKET_ONLY_STRICT", "1")
+
+    session = stage_ui_session(tmp_path, session_id="packet-session")
+
+    built_session_dir = built_web_dir / "sessions" / "packet-session"
+    for session_dir in (session.repo_session_dir, built_session_dir):
+        html = (session_dir / "vkf-scene.html").read_text(encoding="utf-8")
+        assert 'data-vf-runtime-packet-only="true"' in html
+        assert 'data-vf-runtime-strict-packet-only="true"' in html
+        assert (session_dir / "vkf-scene.html").is_file()
+        assert (session_dir / "vf-runtime-packets.json").is_file()
+        assert not (session_dir / "vkf-scene.json").exists()
+        assert not (session_dir / "vf-display.json").exists()
+        assert not (session_dir / "vf-ui-state.json").exists()
 
 
 def test_mirror_session_file_writes_repo_and_built_paths(tmp_path: Path) -> None:

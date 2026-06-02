@@ -477,6 +477,31 @@ struct Scene {
   shadow_vp0                : mat4x4<f32>,
   shadow_vp1                : mat4x4<f32>,
   shadow_meta               : vec4<f32>,
+  light2_pos                : vec4<f32>,
+  light2_color              : vec4<f32>,
+  light2_dir_intensity      : vec4<f32>,
+  light2_spot_params        : vec4<f32>,
+  light3_pos                : vec4<f32>,
+  light3_color              : vec4<f32>,
+  light3_dir_intensity      : vec4<f32>,
+  light3_spot_params        : vec4<f32>,
+  light2_aperture_plane     : vec4<f32>,
+  light2_aperture_normal    : vec4<f32>,
+  light2_aperture_u         : vec4<f32>,
+  light2_aperture_v         : vec4<f32>,
+  light2_aperture_meta      : vec4<f32>,
+  light3_aperture_plane     : vec4<f32>,
+  light3_aperture_normal    : vec4<f32>,
+  light3_aperture_u         : vec4<f32>,
+  light3_aperture_v         : vec4<f32>,
+  light3_aperture_meta      : vec4<f32>,
+  light2_aperture_pts       : array<vec4<f32>, 8>,
+  light3_aperture_pts       : array<vec4<f32>, 8>,
+  shadow_vp2                : mat4x4<f32>,
+  shadow_vp3                : mat4x4<f32>,
+  shadow_meta23             : vec4<f32>,
+  shadow2_pts               : array<vec4<f32>, 32>,
+  shadow3_pts               : array<vec4<f32>, 32>,
 }
 @group(0) @binding(0) var<uniform> sc: Scene;
 @group(0) @binding(1) var surfaceSampler: sampler;
@@ -484,6 +509,8 @@ struct Scene {
 @group(0) @binding(3) var shadowSampler: sampler_comparison;
 @group(0) @binding(4) var shadowTex0: texture_depth_2d;
 @group(0) @binding(5) var shadowTex1: texture_depth_2d;
+@group(0) @binding(6) var shadowTex2: texture_depth_2d;
+@group(0) @binding(7) var shadowTex3: texture_depth_2d;
 
 struct Vin {
   @location(0) pos   : vec3<f32>,
@@ -552,12 +579,28 @@ fn lightAperturePoint1(idx: u32) -> vec2<f32> {
   return sc.light1_aperture_pts[idx].xy;
 }
 
+fn lightAperturePoint2(idx: u32) -> vec2<f32> {
+  return sc.light2_aperture_pts[idx].xy;
+}
+
+fn lightAperturePoint3(idx: u32) -> vec2<f32> {
+  return sc.light3_aperture_pts[idx].xy;
+}
+
 fn contactOccluder0Point(idx: u32) -> vec2<f32> {
   return sc.shadow0_pts[5u + idx].xy;
 }
 
 fn contactOccluder1Point(idx: u32) -> vec2<f32> {
   return sc.shadow1_pts[5u + idx].xy;
+}
+
+fn contactOccluder2Point(idx: u32) -> vec2<f32> {
+  return sc.shadow2_pts[5u + idx].xy;
+}
+
+fn contactOccluder3Point(idx: u32) -> vec2<f32> {
+  return sc.shadow3_pts[5u + idx].xy;
 }
 
 fn edgeOcclusion(side: f32, edgeLen: f32, softness: f32) -> f32 {
@@ -589,22 +632,6 @@ fn spotlightFactor(coneDir: vec3<f32>, pointDir: vec3<f32>, innerCos: f32, outer
   let inner = max(innerCos, outerCos);
   let outer = min(innerCos, outerCos);
   return smoothstep(outer, inner, c);
-}
-
-fn apertureReflectedLightPos0() -> vec3<f32> {
-  return vec3<f32>(
-    sc.light0_aperture_plane.w,
-    sc.light0_aperture_normal.w,
-    sc.light0_aperture_u.w
-  );
-}
-
-fn apertureReflectedLightPos1() -> vec3<f32> {
-  return vec3<f32>(
-    sc.light1_aperture_plane.w,
-    sc.light1_aperture_normal.w,
-    sc.light1_aperture_u.w
-  );
 }
 
 fn projectedApertureFactor0(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: f32) -> f32 {
@@ -653,8 +680,8 @@ fn projectedApertureFactor0(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: 
       minY = min(minY, p.y);
       maxY = max(maxY, p.y);
     }
-    let insideX = smoothstep(minX - softness, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX + softness, local.x));
-    let insideY = smoothstep(minY - softness, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY + softness, local.y));
+    let insideX = smoothstep(minX, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX, local.x));
+    let insideY = smoothstep(minY, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY, local.y));
     return insideX * insideY;
   }
   var occPos = 1.0;
@@ -716,8 +743,8 @@ fn projectedApertureFactor1(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: 
       minY = min(minY, p.y);
       maxY = max(maxY, p.y);
     }
-    let insideX = smoothstep(minX - softness, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX + softness, local.x));
-    let insideY = smoothstep(minY - softness, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY + softness, local.y));
+    let insideX = smoothstep(minX, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX, local.x));
+    let insideY = smoothstep(minY, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY, local.y));
     return insideX * insideY;
   }
   var occPos = 1.0;
@@ -725,6 +752,132 @@ fn projectedApertureFactor1(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: 
   for (var i: u32 = 0u; i < apertureCount; i = i + 1u) {
     let a = lightAperturePoint1(i);
     let b = lightAperturePoint1((i + 1u) % apertureCount);
+    let side = cross2(a, b, local);
+    let edgeLen = length(b - a);
+    occPos = occPos * edgeOcclusion(side, edgeLen, softness);
+    occNeg = occNeg * edgeOcclusion(-side, edgeLen, softness);
+  }
+  return max(occPos, occNeg);
+}
+
+fn projectedApertureFactor2(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: f32) -> f32 {
+  if (kindCode < 1.5) {
+    return 1.0;
+  }
+  let apertureCount = u32(sc.light2_aperture_meta.z + 0.5);
+  if (apertureCount < 3u) {
+    return 0.0;
+  }
+  let planePoint = sc.light2_aperture_plane.xyz;
+  let planeNormal = normalize(sc.light2_aperture_normal.xyz);
+  let ray = worldPos - lightPos;
+  let denom = dot(planeNormal, ray);
+  if (abs(denom) <= 1e-6) {
+    return 0.0;
+  }
+  let t = dot(planePoint - lightPos, planeNormal) / denom;
+  if (t <= 1e-4 || t >= (1.0 - 1e-4)) {
+    return 0.0;
+  }
+  let hit = lightPos + (t * ray);
+  let rel = hit - planePoint;
+  let local = vec2<f32>(
+    dot(rel, normalize(sc.light2_aperture_u.xyz)),
+    dot(rel, normalize(sc.light2_aperture_v.xyz))
+  );
+  let lightToPlane = max(abs(dot(planePoint - lightPos, planeNormal)), 1e-4);
+  let lightSide = dot(lightPos - planePoint, planeNormal);
+  let pointSide = dot(worldPos - planePoint, planeNormal);
+  let receiverSide = -sign(lightSide) * pointSide;
+  if (receiverSide <= sc.light2_aperture_meta.w) {
+    return 0.0;
+  }
+  let receiverGap = max(0.0, receiverSide - sc.light2_aperture_meta.w);
+  let softness = sc.light2_aperture_meta.x * (receiverGap / lightToPlane) * sc.light2_aperture_meta.y;
+  if (apertureCount == 4u) {
+    var minX = 1e9;
+    var maxX = -1e9;
+    var minY = 1e9;
+    var maxY = -1e9;
+    for (var qi: u32 = 0u; qi < apertureCount; qi = qi + 1u) {
+      let p = lightAperturePoint2(qi);
+      minX = min(minX, p.x);
+      maxX = max(maxX, p.x);
+      minY = min(minY, p.y);
+      maxY = max(maxY, p.y);
+    }
+    let insideX = smoothstep(minX, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX, local.x));
+    let insideY = smoothstep(minY, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY, local.y));
+    return insideX * insideY;
+  }
+  var occPos = 1.0;
+  var occNeg = 1.0;
+  for (var i: u32 = 0u; i < apertureCount; i = i + 1u) {
+    let a = lightAperturePoint2(i);
+    let b = lightAperturePoint2((i + 1u) % apertureCount);
+    let side = cross2(a, b, local);
+    let edgeLen = length(b - a);
+    occPos = occPos * edgeOcclusion(side, edgeLen, softness);
+    occNeg = occNeg * edgeOcclusion(-side, edgeLen, softness);
+  }
+  return max(occPos, occNeg);
+}
+
+fn projectedApertureFactor3(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: f32) -> f32 {
+  if (kindCode < 1.5) {
+    return 1.0;
+  }
+  let apertureCount = u32(sc.light3_aperture_meta.z + 0.5);
+  if (apertureCount < 3u) {
+    return 0.0;
+  }
+  let planePoint = sc.light3_aperture_plane.xyz;
+  let planeNormal = normalize(sc.light3_aperture_normal.xyz);
+  let ray = worldPos - lightPos;
+  let denom = dot(planeNormal, ray);
+  if (abs(denom) <= 1e-6) {
+    return 0.0;
+  }
+  let t = dot(planePoint - lightPos, planeNormal) / denom;
+  if (t <= 1e-4 || t >= (1.0 - 1e-4)) {
+    return 0.0;
+  }
+  let hit = lightPos + (t * ray);
+  let rel = hit - planePoint;
+  let local = vec2<f32>(
+    dot(rel, normalize(sc.light3_aperture_u.xyz)),
+    dot(rel, normalize(sc.light3_aperture_v.xyz))
+  );
+  let lightToPlane = max(abs(dot(planePoint - lightPos, planeNormal)), 1e-4);
+  let lightSide = dot(lightPos - planePoint, planeNormal);
+  let pointSide = dot(worldPos - planePoint, planeNormal);
+  let receiverSide = -sign(lightSide) * pointSide;
+  if (receiverSide <= sc.light3_aperture_meta.w) {
+    return 0.0;
+  }
+  let receiverGap = max(0.0, receiverSide - sc.light3_aperture_meta.w);
+  let softness = sc.light3_aperture_meta.x * (receiverGap / lightToPlane) * sc.light3_aperture_meta.y;
+  if (apertureCount == 4u) {
+    var minX = 1e9;
+    var maxX = -1e9;
+    var minY = 1e9;
+    var maxY = -1e9;
+    for (var qi: u32 = 0u; qi < apertureCount; qi = qi + 1u) {
+      let p = lightAperturePoint3(qi);
+      minX = min(minX, p.x);
+      maxX = max(maxX, p.x);
+      minY = min(minY, p.y);
+      maxY = max(maxY, p.y);
+    }
+    let insideX = smoothstep(minX, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX, local.x));
+    let insideY = smoothstep(minY, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY, local.y));
+    return insideX * insideY;
+  }
+  var occPos = 1.0;
+  var occNeg = 1.0;
+  for (var i: u32 = 0u; i < apertureCount; i = i + 1u) {
+    let a = lightAperturePoint3(i);
+    let b = lightAperturePoint3((i + 1u) % apertureCount);
     let side = cross2(a, b, local);
     let edgeLen = length(b - a);
     occPos = occPos * edgeOcclusion(side, edgeLen, softness);
@@ -743,6 +896,7 @@ fn planarContactVisibility0(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
     return 1.0;
   }
   let planePoint = sc.shadow0_pts[0u].xyz;
+  let contactMode = sc.shadow0_pts[0u].w;
   let planeNormal = normalize(sc.shadow0_pts[1u].xyz);
   let uAxis = normalize(sc.shadow0_pts[2u].xyz);
   let vAxis = normalize(sc.shadow0_pts[3u].xyz);
@@ -759,18 +913,24 @@ fn planarContactVisibility0(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
   if (lightSide * pointSide > 0.0 && abs(pointSide) > clipEpsilon) {
     return 1.0;
   }
-  let ray = worldPos - lightPos;
-  let denom = dot(ray, planeNormal);
-  if (abs(denom) <= 1e-6) {
-    return 1.0;
+  var local: vec2<f32>;
+  if (contactMode > 0.5) {
+    let localVec = worldPos - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
+  } else {
+    let ray = worldPos - lightPos;
+    let denom = dot(ray, planeNormal);
+    if (abs(denom) <= 1e-6) {
+      return 1.0;
+    }
+    let hitT = dot(planePoint - lightPos, planeNormal) / denom;
+    if (hitT < 0.0 || hitT > 1.0) {
+      return 1.0;
+    }
+    let hitPoint = lightPos + (ray * hitT);
+    let localVec = hitPoint - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
   }
-  let hitT = dot(planePoint - lightPos, planeNormal) / denom;
-  if (hitT < 0.0 || hitT > 1.0) {
-    return 1.0;
-  }
-  let hitPoint = lightPos + (ray * hitT);
-  let localVec = hitPoint - planePoint;
-  let local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
   if (apertureCount == 4u) {
     var minX = 1e9;
     var maxX = -1e9;
@@ -814,6 +974,7 @@ fn planarContactVisibility1(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
     return 1.0;
   }
   let planePoint = sc.shadow1_pts[0u].xyz;
+  let contactMode = sc.shadow1_pts[0u].w;
   let planeNormal = normalize(sc.shadow1_pts[1u].xyz);
   let uAxis = normalize(sc.shadow1_pts[2u].xyz);
   let vAxis = normalize(sc.shadow1_pts[3u].xyz);
@@ -830,18 +991,24 @@ fn planarContactVisibility1(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
   if (lightSide * pointSide > 0.0 && abs(pointSide) > clipEpsilon) {
     return 1.0;
   }
-  let ray = worldPos - lightPos;
-  let denom = dot(ray, planeNormal);
-  if (abs(denom) <= 1e-6) {
-    return 1.0;
+  var local: vec2<f32>;
+  if (contactMode > 0.5) {
+    let localVec = worldPos - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
+  } else {
+    let ray = worldPos - lightPos;
+    let denom = dot(ray, planeNormal);
+    if (abs(denom) <= 1e-6) {
+      return 1.0;
+    }
+    let hitT = dot(planePoint - lightPos, planeNormal) / denom;
+    if (hitT < 0.0 || hitT > 1.0) {
+      return 1.0;
+    }
+    let hitPoint = lightPos + (ray * hitT);
+    let localVec = hitPoint - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
   }
-  let hitT = dot(planePoint - lightPos, planeNormal) / denom;
-  if (hitT < 0.0 || hitT > 1.0) {
-    return 1.0;
-  }
-  let hitPoint = lightPos + (ray * hitT);
-  let localVec = hitPoint - planePoint;
-  let local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
   if (apertureCount == 4u) {
     var minX = 1e9;
     var maxX = -1e9;
@@ -865,6 +1032,162 @@ fn planarContactVisibility1(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
   for (var i: u32 = 0u; i < apertureCount; i = i + 1u) {
     let a = contactOccluder1Point(i);
     let b = contactOccluder1Point((i + 1u) % apertureCount);
+    let side = cross2(a, b, local);
+    let insidePos = select(0.0, 1.0, side >= 0.0);
+    let insideNeg = select(0.0, 1.0, side <= 0.0);
+    occPos = occPos * insidePos;
+    occNeg = occNeg * insideNeg;
+  }
+  let proximity = 1.0 - smoothstep(clipEpsilon, contactBand, abs(pointSide));
+  return 1.0 - (max(occPos, occNeg) * proximity);
+}
+
+fn planarContactVisibility2(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
+  let enabled = sc.shadow2_pts[4u].x;
+  if (enabled < 0.5) {
+    return 1.0;
+  }
+  let apertureCount = u32(sc.shadow2_pts[4u].y + 0.5);
+  if (apertureCount < 3u) {
+    return 1.0;
+  }
+  let planePoint = sc.shadow2_pts[0u].xyz;
+  let contactMode = sc.shadow2_pts[0u].w;
+  let planeNormal = normalize(sc.shadow2_pts[1u].xyz);
+  let uAxis = normalize(sc.shadow2_pts[2u].xyz);
+  let vAxis = normalize(sc.shadow2_pts[3u].xyz);
+  let clipEpsilon = max(0.0, sc.shadow2_pts[4u].z);
+  let contactBand = max(clipEpsilon, sc.shadow2_pts[4u].w);
+  let lightSide = dot(lightPos - planePoint, planeNormal);
+  let pointSide = dot(worldPos - planePoint, planeNormal);
+  if (abs(lightSide) <= clipEpsilon) {
+    return 1.0;
+  }
+  if (abs(pointSide) > contactBand) {
+    return 1.0;
+  }
+  if (lightSide * pointSide > 0.0 && abs(pointSide) > clipEpsilon) {
+    return 1.0;
+  }
+  var local: vec2<f32>;
+  if (contactMode > 0.5) {
+    let localVec = worldPos - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
+  } else {
+    let ray = worldPos - lightPos;
+    let denom = dot(ray, planeNormal);
+    if (abs(denom) <= 1e-6) {
+      return 1.0;
+    }
+    let hitT = dot(planePoint - lightPos, planeNormal) / denom;
+    if (hitT < 0.0 || hitT > 1.0) {
+      return 1.0;
+    }
+    let hitPoint = lightPos + (ray * hitT);
+    let localVec = hitPoint - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
+  }
+  if (apertureCount == 4u) {
+    var minX = 1e9;
+    var maxX = -1e9;
+    var minY = 1e9;
+    var maxY = -1e9;
+    for (var qi: u32 = 0u; qi < apertureCount; qi = qi + 1u) {
+      let p = contactOccluder2Point(qi);
+      minX = min(minX, p.x);
+      maxX = max(maxX, p.x);
+      minY = min(minY, p.y);
+      maxY = max(maxY, p.y);
+    }
+    if (local.x < minX || local.x > maxX || local.y < minY || local.y > maxY) {
+      return 1.0;
+    }
+    let proximity = 1.0 - smoothstep(clipEpsilon, contactBand, abs(pointSide));
+    return 1.0 - proximity;
+  }
+  var occPos = 1.0;
+  var occNeg = 1.0;
+  for (var i: u32 = 0u; i < apertureCount; i = i + 1u) {
+    let a = contactOccluder2Point(i);
+    let b = contactOccluder2Point((i + 1u) % apertureCount);
+    let side = cross2(a, b, local);
+    let insidePos = select(0.0, 1.0, side >= 0.0);
+    let insideNeg = select(0.0, 1.0, side <= 0.0);
+    occPos = occPos * insidePos;
+    occNeg = occNeg * insideNeg;
+  }
+  let proximity = 1.0 - smoothstep(clipEpsilon, contactBand, abs(pointSide));
+  return 1.0 - (max(occPos, occNeg) * proximity);
+}
+
+fn planarContactVisibility3(worldPos: vec3<f32>, lightPos: vec3<f32>) -> f32 {
+  let enabled = sc.shadow3_pts[4u].x;
+  if (enabled < 0.5) {
+    return 1.0;
+  }
+  let apertureCount = u32(sc.shadow3_pts[4u].y + 0.5);
+  if (apertureCount < 3u) {
+    return 1.0;
+  }
+  let planePoint = sc.shadow3_pts[0u].xyz;
+  let contactMode = sc.shadow3_pts[0u].w;
+  let planeNormal = normalize(sc.shadow3_pts[1u].xyz);
+  let uAxis = normalize(sc.shadow3_pts[2u].xyz);
+  let vAxis = normalize(sc.shadow3_pts[3u].xyz);
+  let clipEpsilon = max(0.0, sc.shadow3_pts[4u].z);
+  let contactBand = max(clipEpsilon, sc.shadow3_pts[4u].w);
+  let lightSide = dot(lightPos - planePoint, planeNormal);
+  let pointSide = dot(worldPos - planePoint, planeNormal);
+  if (abs(lightSide) <= clipEpsilon) {
+    return 1.0;
+  }
+  if (abs(pointSide) > contactBand) {
+    return 1.0;
+  }
+  if (lightSide * pointSide > 0.0 && abs(pointSide) > clipEpsilon) {
+    return 1.0;
+  }
+  var local: vec2<f32>;
+  if (contactMode > 0.5) {
+    let localVec = worldPos - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
+  } else {
+    let ray = worldPos - lightPos;
+    let denom = dot(ray, planeNormal);
+    if (abs(denom) <= 1e-6) {
+      return 1.0;
+    }
+    let hitT = dot(planePoint - lightPos, planeNormal) / denom;
+    if (hitT < 0.0 || hitT > 1.0) {
+      return 1.0;
+    }
+    let hitPoint = lightPos + (ray * hitT);
+    let localVec = hitPoint - planePoint;
+    local = vec2<f32>(dot(localVec, uAxis), dot(localVec, vAxis));
+  }
+  if (apertureCount == 4u) {
+    var minX = 1e9;
+    var maxX = -1e9;
+    var minY = 1e9;
+    var maxY = -1e9;
+    for (var qi: u32 = 0u; qi < apertureCount; qi = qi + 1u) {
+      let p = contactOccluder3Point(qi);
+      minX = min(minX, p.x);
+      maxX = max(maxX, p.x);
+      minY = min(minY, p.y);
+      maxY = max(maxY, p.y);
+    }
+    if (local.x < minX || local.x > maxX || local.y < minY || local.y > maxY) {
+      return 1.0;
+    }
+    let proximity = 1.0 - smoothstep(clipEpsilon, contactBand, abs(pointSide));
+    return 1.0 - proximity;
+  }
+  var occPos = 1.0;
+  var occNeg = 1.0;
+  for (var i: u32 = 0u; i < apertureCount; i = i + 1u) {
+    let a = contactOccluder3Point(i);
+    let b = contactOccluder3Point((i + 1u) % apertureCount);
     let side = cross2(a, b, local);
     let insidePos = select(0.0, 1.0, side >= 0.0);
     let insideNeg = select(0.0, 1.0, side <= 0.0);
@@ -930,6 +1253,66 @@ fn shadowMapVisibility1(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
       let w = select(1.0, 2.0, abs(ox) + abs(oy) <= 1);
       let offset = vec2<f32>(f32(ox) * texel.x, f32(oy) * texel.y);
       vis = vis + (textureSampleCompareLevel(shadowTex1, shadowSampler, uv + offset, refDepth) * w);
+    }
+  }
+  return vis / 29.0;
+}
+
+fn shadowMapVisibility2(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+  if (sc.shadow_meta23.x < 0.5) {
+    return 1.0;
+  }
+  let lightDir = normalize(sc.light2_pos.xyz - worldPos);
+  let n = normalize(normal);
+  let cosNl = clamp(dot(n, lightDir), 0.0, 1.0);
+  let clip = sc.shadow_vp2 * vec4<f32>(worldPos, 1.0);
+  if (abs(clip.w) <= 1e-6) {
+    return 1.0;
+  }
+  let ndc = clip.xyz / clip.w;
+  let uv = vec2<f32>((ndc.x * 0.5) + 0.5, (-ndc.y * 0.5) + 0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
+    return 1.0;
+  }
+  let dims = vec2<f32>(textureDimensions(shadowTex2));
+  let texel = vec2<f32>(1.0 / max(dims.x, 1.0), 1.0 / max(dims.y, 1.0));
+  let refDepth = ndc.z - (sc.shadow_meta23.y + 0.00125);
+  var vis = 0.0;
+  for (var oy: i32 = -2; oy <= 2; oy = oy + 1) {
+    for (var ox: i32 = -2; ox <= 2; ox = ox + 1) {
+      let w = select(1.0, 2.0, abs(ox) + abs(oy) <= 1);
+      let offset = vec2<f32>(f32(ox) * texel.x, f32(oy) * texel.y);
+      vis = vis + (textureSampleCompareLevel(shadowTex2, shadowSampler, uv + offset, refDepth) * w);
+    }
+  }
+  return vis / 29.0;
+}
+
+fn shadowMapVisibility3(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+  if (sc.shadow_meta23.z < 0.5) {
+    return 1.0;
+  }
+  let lightDir = normalize(sc.light3_pos.xyz - worldPos);
+  let n = normalize(normal);
+  let cosNl = clamp(dot(n, lightDir), 0.0, 1.0);
+  let clip = sc.shadow_vp3 * vec4<f32>(worldPos, 1.0);
+  if (abs(clip.w) <= 1e-6) {
+    return 1.0;
+  }
+  let ndc = clip.xyz / clip.w;
+  let uv = vec2<f32>((ndc.x * 0.5) + 0.5, (-ndc.y * 0.5) + 0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
+    return 1.0;
+  }
+  let dims = vec2<f32>(textureDimensions(shadowTex3));
+  let texel = vec2<f32>(1.0 / max(dims.x, 1.0), 1.0 / max(dims.y, 1.0));
+  let refDepth = ndc.z - (sc.shadow_meta23.w + 0.00125);
+  var vis = 0.0;
+  for (var oy: i32 = -2; oy <= 2; oy = oy + 1) {
+    for (var ox: i32 = -2; ox <= 2; ox = ox + 1) {
+      let w = select(1.0, 2.0, abs(ox) + abs(oy) <= 1);
+      let offset = vec2<f32>(f32(ox) * texel.x, f32(oy) * texel.y);
+      vis = vis + (textureSampleCompareLevel(shadowTex3, shadowSampler, uv + offset, refDepth) * w);
     }
   }
   return vis / 29.0;
@@ -1490,19 +1873,6 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
       let spec0 = pow(max(dot(N, H0), 0.0), 40.0);
       specular += (litScale0 * spec0) * lc0 * (1.8 * a);
     }
-    if (u32(sc.light0_aperture_meta.z + 0.5) >= 3u && sc.light0_spot_params.w < 1.5) {
-      let reflectedPos0 = apertureReflectedLightPos0();
-      let toReflected0 = reflectedPos0 - worldPos;
-      let reflectedDist0 = max(length(toReflected0), 1e-6);
-      let reflectedL0 = toReflected0 / reflectedDist0;
-      let reflectedProj0 = projectedApertureFactor0(worldPos, reflectedPos0, 2.0);
-      let reflectedAtten0 = lightAttenuation(reflectedDist0, sc.light0_dir_intensity.w, sc.light0_spot_params.z);
-      let reflectedDiff0 = max(dot(N, reflectedL0), 0.0);
-      diffuse += (reflectedAtten0 * reflectedProj0 * reflectedDiff0) * lc0 * base;
-      let reflectedH0 = normalize(reflectedL0 + V);
-      let reflectedSpec0 = pow(max(dot(N, reflectedH0), 0.0), 40.0);
-      specular += (reflectedAtten0 * reflectedProj0 * reflectedSpec0) * lc0 * (1.8 * a);
-    }
   }
   if (!suppressBackfaceLighting && sc.light_count > 1u) {
     let stableVis1 = select(1.0, shadowMapVisibility1(worldPos, N), sc.receive_shadow != 0u);
@@ -1527,18 +1897,53 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
       let spec1 = pow(max(dot(N, H1), 0.0), 40.0);
       specular += (litScale1 * spec1) * lc1 * (1.8 * a);
     }
-    if (u32(sc.light1_aperture_meta.z + 0.5) >= 3u && sc.light1_spot_params.w < 1.5) {
-      let reflectedPos1 = apertureReflectedLightPos1();
-      let toReflected1 = reflectedPos1 - worldPos;
-      let reflectedDist1 = max(length(toReflected1), 1e-6);
-      let reflectedL1 = toReflected1 / reflectedDist1;
-      let reflectedProj1 = projectedApertureFactor1(worldPos, reflectedPos1, 2.0);
-      let reflectedAtten1 = lightAttenuation(reflectedDist1, sc.light1_dir_intensity.w, sc.light1_spot_params.z);
-      let reflectedDiff1 = max(dot(N, reflectedL1), 0.0);
-      diffuse += (reflectedAtten1 * reflectedProj1 * reflectedDiff1) * lc1 * base;
-      let reflectedH1 = normalize(reflectedL1 + V);
-      let reflectedSpec1 = pow(max(dot(N, reflectedH1), 0.0), 40.0);
-      specular += (reflectedAtten1 * reflectedProj1 * reflectedSpec1) * lc1 * (1.8 * a);
+  }
+  if (!suppressBackfaceLighting && sc.light_count > 2u) {
+    let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), sc.receive_shadow != 0u);
+    let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), sc.receive_shadow != 0u);
+    let vis2 = readableShadowVisibility(min(stableVis2, contactVis2));
+    let toLight2 = sc.light2_pos.xyz - worldPos;
+    let dist2 = max(length(toLight2), 1e-6);
+    let L2 = toLight2 / dist2;
+    let lc2 = sc.light2_color.rgb;
+    let atten2 = lightAttenuation(dist2, sc.light2_dir_intensity.w, sc.light2_spot_params.z);
+    let spot2 = select(
+      spotlightFactor(sc.light2_dir_intensity.xyz, -L2, sc.light2_spot_params.x, sc.light2_spot_params.y, sc.light2_spot_params.w),
+      1.0,
+      sc.light2_spot_params.w >= 1.5
+    );
+    let proj2 = projectedApertureFactor2(worldPos, sc.light2_pos.xyz, sc.light2_spot_params.w);
+    let litScale2 = vis2 * atten2 * spot2 * proj2;
+    let diff2 = max(dot(N, L2), 0.0);
+    diffuse += (litScale2 * diff2) * lc2 * base;
+    if (sc.light2_spot_params.w < 1.5) {
+      let H2 = normalize(L2 + V);
+      let spec2 = pow(max(dot(N, H2), 0.0), 40.0);
+      specular += (litScale2 * spec2) * lc2 * (1.8 * a);
+    }
+  }
+  if (!suppressBackfaceLighting && sc.light_count > 3u) {
+    let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), sc.receive_shadow != 0u);
+    let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), sc.receive_shadow != 0u);
+    let vis3 = readableShadowVisibility(min(stableVis3, contactVis3));
+    let toLight3 = sc.light3_pos.xyz - worldPos;
+    let dist3 = max(length(toLight3), 1e-6);
+    let L3 = toLight3 / dist3;
+    let lc3 = sc.light3_color.rgb;
+    let atten3 = lightAttenuation(dist3, sc.light3_dir_intensity.w, sc.light3_spot_params.z);
+    let spot3 = select(
+      spotlightFactor(sc.light3_dir_intensity.xyz, -L3, sc.light3_spot_params.x, sc.light3_spot_params.y, sc.light3_spot_params.w),
+      1.0,
+      sc.light3_spot_params.w >= 1.5
+    );
+    let proj3 = projectedApertureFactor3(worldPos, sc.light3_pos.xyz, sc.light3_spot_params.w);
+    let litScale3 = vis3 * atten3 * spot3 * proj3;
+    let diff3 = max(dot(N, L3), 0.0);
+    diffuse += (litScale3 * diff3) * lc3 * base;
+    if (sc.light3_spot_params.w < 1.5) {
+      let H3 = normalize(L3 + V);
+      let spec3 = pow(max(dot(N, H3), 0.0), 40.0);
+      specular += (litScale3 * spec3) * lc3 * (1.8 * a);
     }
   }
   if (sc.light_count == 0u) {
@@ -1570,6 +1975,16 @@ fn receivedShadowVisibility(worldPos: vec3<f32>, inputNormal: vec3<f32>) -> f32 
     let stableVis1 = shadowMapVisibility1(worldPos, N);
     let contactVis1 = planarContactVisibility1(worldPos, sc.light1_pos);
     visibility = min(visibility, min(stableVis1, contactVis1));
+  }
+  if (sc.light_count > 2u) {
+    let stableVis2 = shadowMapVisibility2(worldPos, N);
+    let contactVis2 = planarContactVisibility2(worldPos, sc.light2_pos.xyz);
+    visibility = min(visibility, min(stableVis2, contactVis2));
+  }
+  if (sc.light_count > 3u) {
+    let stableVis3 = shadowMapVisibility3(worldPos, N);
+    let contactVis3 = planarContactVisibility3(worldPos, sc.light3_pos.xyz);
+    visibility = min(visibility, min(stableVis3, contactVis3));
   }
   return visibility;
 }
@@ -2013,7 +2428,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   }
 
   // Uniform buffer: scene + shadows + procedural texture params.
-  var UB_SIZE = 14848;
+  var UB_SIZE = 16384;
   var SHADOW_UB_SIZE = 192;
 
   // Legacy names all normalize to the single renderer lighting path.
@@ -2149,6 +2564,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             },
             {
               binding: 5,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: "depth" },
+            },
+            {
+              binding: 6,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: "depth" },
+            },
+            {
+              binding: 7,
               visibility: GPUShaderStage.FRAGMENT,
               texture: { sampleType: "depth" },
             }
@@ -2442,11 +2867,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     f32[67] = lights && lights.length > 1 ? (Number(lights[1].kind_code) || 0) : 0;
 
     // light_count, light_model, alpha_mul
-    u32[68] = Math.min(2, lights && lights.length ? lights.length : 0);
+    u32[68] = Math.min(4, lights && lights.length ? lights.length : 0);
     u32[69] = lightModel;
     f32[70] = Number(alphaMul);
     if (!Number.isFinite(f32[70])) { f32[70] = 1.0; }
-    u32[71] = meshLike && meshLike.receives_shadow === false ? 0 : 1;
+    var receiveShadow = !(meshLike && meshLike.receives_shadow === false);
+    if (meshLike && meshLike.transparent === true && meshLike.receives_shadow !== true) {
+      receiveShadow = false;
+    }
+    u32[71] = receiveShadow ? 1 : 0;
     u32[72] = 0;
     f32[73] = 0.0;
     f32[74] = 0.0;
@@ -2465,6 +2894,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[base + 0] = Number(planePoint[0]) || 0.0;
       f32[base + 1] = Number(planePoint[1]) || 0.0;
       f32[base + 2] = Number(planePoint[2]) || 0.0;
+      f32[base + 3] = Math.max(0.0, Number(occluder.contact_mode || 0.0) || 0.0);
       f32[base + 4] = Number(planeNormal[0]) || 0.0;
       f32[base + 5] = Number(planeNormal[1]) || 0.0;
       f32[base + 6] = Number(planeNormal[2]) || 1.0;
@@ -2667,13 +3097,43 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     var lightApertureHeaderStride = 20;
     var lightAperturePointsStride = MAX_LIGHT_APERTURE_POINTS * 4;
     var lightAperturePointsBase = lightApertureBase + (2 * lightApertureHeaderStride);
+    var shadowBase = lightAperturePointsBase + (2 * lightAperturePointsStride);
+    var extraLightBase = shadowBase + 36;
+    var extraLightApertureBase = extraLightBase + 32;
+    var extraLightAperturePointsBase = extraLightApertureBase + (2 * lightApertureHeaderStride);
+    var extraShadowBase = extraLightAperturePointsBase + (2 * lightAperturePointsStride);
     function finiteComponent(values, index, fallback) {
       var n = Number(values && values[index]);
       return Number.isFinite(n) ? n : fallback;
     }
+    function writeExtraLight(lightIndex, lightValue) {
+      var extraIndex = lightIndex - 2;
+      var base = extraLightBase + (extraIndex * 16);
+      var lp = lightValue ? lightValue.pos : [0, 10, 10];
+      var lc = lightValue ? lightValue.color_f32 : [0, 0, 0, 1];
+      var ld = lightValue ? lightValue.direction_f32 : [0, 0, -1];
+      f32[base + 0] = finiteComponent(lp, 0, 0.0);
+      f32[base + 1] = finiteComponent(lp, 1, 10.0);
+      f32[base + 2] = finiteComponent(lp, 2, 10.0);
+      f32[base + 3] = 0.0;
+      f32[base + 4] = finiteComponent(lc, 0, 0.0);
+      f32[base + 5] = finiteComponent(lc, 1, 0.0);
+      f32[base + 6] = finiteComponent(lc, 2, 0.0);
+      f32[base + 7] = finiteComponent(lc, 3, 1.0);
+      f32[base + 8] = finiteComponent(ld, 0, 0.0);
+      f32[base + 9] = finiteComponent(ld, 1, 0.0);
+      f32[base + 10] = finiteComponent(ld, 2, -1.0);
+      f32[base + 11] = lightValue ? (Number(lightValue.intensity) || 0.0) : 0.0;
+      f32[base + 12] = lightValue ? (Number(lightValue.inner_cone_cos) || -1.0) : -1.0;
+      f32[base + 13] = lightValue ? (Number(lightValue.outer_cone_cos) || -1.0) : -1.0;
+      f32[base + 14] = lightValue ? (Number(lightValue.range) || 0.0) : 0.0;
+      f32[base + 15] = lightValue ? (Number(lightValue.kind_code) || 0.0) : 0.0;
+    }
     function writeLightAperture(lightIndex, lightValue) {
-      var base = lightApertureBase + (lightIndex * lightApertureHeaderStride);
-      var ptsBase = lightAperturePointsBase + (lightIndex * lightAperturePointsStride);
+      var isExtraLight = lightIndex >= 2;
+      var apertureIndex = isExtraLight ? (lightIndex - 2) : lightIndex;
+      var base = (isExtraLight ? extraLightApertureBase : lightApertureBase) + (apertureIndex * lightApertureHeaderStride);
+      var ptsBase = (isExtraLight ? extraLightAperturePointsBase : lightAperturePointsBase) + (apertureIndex * lightAperturePointsStride);
       for (var clear = 0; clear < lightApertureHeaderStride; clear += 1) {
         f32[base + clear] = 0.0;
       }
@@ -2717,9 +3177,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         f32[pointBase + 1] = finiteComponent(point, 1, 0.0);
       }
     }
+    writeExtraLight(2, lights && lights.length > 2 ? lights[2] : null);
+    writeExtraLight(3, lights && lights.length > 3 ? lights[3] : null);
     writeLightAperture(0, lights && lights.length ? lights[0] : null);
     writeLightAperture(1, lights && lights.length > 1 ? lights[1] : null);
-    var shadowBase = lightAperturePointsBase + (2 * lightAperturePointsStride);
+    writeLightAperture(2, lights && lights.length > 2 ? lights[2] : null);
+    writeLightAperture(3, lights && lights.length > 3 ? lights[3] : null);
     function writeShadowMatrix(offset, matrix) {
       for (var mi = 0; mi < 16; mi += 1) {
         f32[offset + mi] = matrix && matrix.length === 16 ? Number(matrix[mi]) || 0.0 : (mi % 5 === 0 ? 1.0 : 0.0);
@@ -2731,6 +3194,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     f32[shadowBase + 33] = Math.max(0.0, Number(meshLike && meshLike.shadow_bias0 || 0.0) || 0.0);
     f32[shadowBase + 34] = meshLike && meshLike.shadow_enabled1 ? 1.0 : 0.0;
     f32[shadowBase + 35] = Math.max(0.0, Number(meshLike && meshLike.shadow_bias1 || 0.0) || 0.0);
+    writeShadowMatrix(extraShadowBase + 0, meshLike && meshLike.shadow_viewproj2);
+    writeShadowMatrix(extraShadowBase + 16, meshLike && meshLike.shadow_viewproj3);
+    f32[extraShadowBase + 32] = meshLike && meshLike.shadow_enabled2 ? 1.0 : 0.0;
+    f32[extraShadowBase + 33] = Math.max(0.0, Number(meshLike && meshLike.shadow_bias2 || 0.0) || 0.0);
+    f32[extraShadowBase + 34] = meshLike && meshLike.shadow_enabled3 ? 1.0 : 0.0;
+    f32[extraShadowBase + 35] = Math.max(0.0, Number(meshLike && meshLike.shadow_bias3 || 0.0) || 0.0);
+    var extraContactBase = extraShadowBase + 36;
+    writePlanarContactOccluder(extraContactBase, meshLike && meshLike.shadow_contact2);
+    writePlanarContactOccluder(extraContactBase + 128, meshLike && meshLike.shadow_contact3);
 
     return f32;
   }
@@ -3794,13 +4266,29 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     var reflectedPos = reflectPointAcrossPlane(sourceLight.pos, planePoint, planeNormal);
     var reflectedTarget = reflectPointAcrossPlane(sourceLight.target, planePoint, planeNormal);
     if (!reflectOfId && normalizeLightKind(lightSpec.kind) !== "projected") {
-      var apertureResolved = Object.assign({}, lightSpec);
+      var directResolved = Object.assign({}, lightSpec, {
+        reflect_mirror_mesh_id: ""
+      });
       if (sourceSide > clipEpsilon && reflectivity > 1e-4) {
-        apertureResolved.projected_aperture = runtime.aperturePacket(mirrorMeshId, planeNormal, lightSpec.clip_epsilon_ratio, 1e-5);
-        apertureResolved.projected_aperture.reflected_pos = reflectedPos;
-        apertureResolved.projected_aperture.reflected_target = reflectedTarget;
+        var solkattAperture = runtime.aperturePacket(mirrorMeshId, planeNormal, lightSpec.clip_epsilon_ratio, 1e-5);
+        var solkatt = Object.assign({}, lightSpec, {
+          id: String(lightSpec.id || "") + "::solkatt",
+          kind: "projected",
+          kind_code: 2.0,
+          pos: reflectedPos,
+          target: reflectedTarget,
+          direction_f32: normalizeVec3(subVec3(reflectedTarget, reflectedPos), [0.0, 0.0, -1.0]),
+          intensity: clampPositiveNumber(lightSpec.intensity, 0.0) * reflectivity,
+          power: clampPositiveNumber(lightSpec.power, 0.0) * reflectivity,
+          casts_shadow: lightSpec.casts_shadow !== false,
+          show_marker: false,
+          reflect_mirror_mesh_id: mirrorMeshId,
+          projected_aperture: solkattAperture,
+          motion: "mirror_solkatt"
+        });
+        return [directResolved, solkatt];
       }
-      return apertureResolved;
+      return [directResolved];
     }
     var resolved = Object.assign({}, lightSpec, {
       pos: reflectedPos,
@@ -3891,16 +4379,59 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   function buildPlanarContactOccluder(meshLike, t) {
     var frame = planarFrameForShadowMesh(meshLike, t);
     if (!frame) { return null; }
-    if (isPlanarScreenShadowSurface(meshLike)) { return null; }
+    var isScreenSurface = isPlanarScreenShadowSurface(meshLike);
+    if (isScreenSurface) { return null; }
     debugMirrorPlane("analytic-shadow", meshLike, frame, "");
     var runtime = createPlanarMirrorRuntime(meshLike, t, "planar contact occluder");
     var packet = runtime.aperturePacket(meshLike && meshLike.id, frame.normal, null, 1e-5);
-    packet.contact_band = 0.08;
+    if (isScreenSurface) {
+      var cornerValues = [
+        runtime.corners.bottomLeft,
+        runtime.corners.bottomRight,
+        runtime.corners.topRight,
+        runtime.corners.topLeft
+      ].map(function (worldPoint) {
+        var rel = subVec3(worldPoint, runtime.center);
+        return {
+          world: worldPoint,
+          local: [dotVec3(rel, frame.uAxis), dotVec3(rel, frame.vAxis)],
+          z: Number(worldPoint && worldPoint[2] || 0.0) || 0.0
+        };
+      }).sort(function (a, b) {
+        return a.z - b.z;
+      });
+      var bottomA = cornerValues[0];
+      var bottomB = cornerValues[1];
+      var worldUpInPlane = subVec3([0.0, 0.0, 1.0], scaleVec3(frame.normal, dotVec3([0.0, 0.0, 1.0], frame.normal)));
+      var upLen = Math.sqrt(dotVec3(worldUpInPlane, worldUpInPlane));
+      if (!(upLen > 1e-6)) {
+        return null;
+      }
+      worldUpInPlane = scaleVec3(worldUpInPlane, 1.0 / upLen);
+      var stripHeight = Math.max(packet.clip_epsilon || 0.0, runtime.extent * 0.018);
+      var stripLocal = [
+        bottomA.local,
+        bottomB.local
+      ];
+      for (var stripIndex = 1; stripIndex >= 0; stripIndex -= 1) {
+        var raisedWorld = addVec3(cornerValues[stripIndex].world, scaleVec3(worldUpInPlane, stripHeight));
+        var raisedRel = subVec3(raisedWorld, runtime.center);
+        stripLocal.push([
+          dotVec3(raisedRel, frame.uAxis),
+          dotVec3(raisedRel, frame.vAxis)
+        ]);
+      }
+      packet.points = stripLocal;
+      packet.contact_mode = 1.0;
+      packet.contact_band = Math.max(packet.clip_epsilon || 0.0, runtime.extent * 0.012);
+      return packet;
+    }
+    packet.contact_band = Math.max(packet.clip_epsilon || 0.0, runtime.extent * 0.025);
     return packet;
   }
 
   function resolvePlanarContactOccluderForLight(parts, light, t) {
-    if (!Array.isArray(parts) || !light || normalizeLightKind(light.kind) === "projected") {
+    if (!Array.isArray(parts) || !light) {
       return null;
     }
     var best = null;
@@ -3947,11 +4478,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         meshById[String(partMesh.id)] = partMesh;
       }
     }
-    return baseLights.map(function (lightSpec, index) {
+    var directLights = [];
+    var apertureLights = [];
+    baseLights.forEach(function (lightSpec) {
       var resolved = resolveLinkedMirrorLight(lightSpec, sourceLightsById, meshById, t);
-      resolved = resolveProjectedLightFromMeshId(resolved, meshById, t);
-      return resolved;
+      var items = Array.isArray(resolved) ? resolved : [resolved];
+      for (var ri = 0; ri < items.length; ri += 1) {
+        var resolvedItem = resolveProjectedLightFromMeshId(items[ri], meshById, t);
+        if (resolvedItem && resolvedItem.motion === "mirror_solkatt") {
+          apertureLights.push(resolvedItem);
+        } else {
+          directLights.push(resolvedItem);
+        }
+      }
     });
+    return directLights.concat(apertureLights);
   }
 
   function sceneMeshForLightResolution(meshLike, parts) {
@@ -4078,7 +4619,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (mesh.casts_shadow === false) { continue; }
       if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
       if (String(mesh.blend_mode || "") === "additive") { continue; }
-      if (isPlanarScreenShadowSurface(mesh)) { continue; }
       out.push(part);
     }
     return out;
@@ -4654,6 +5194,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._running    = false;
     this._raf        = 0;
     this._resizeRaf  = 0;
+    this._presentedFirstFrame = false;
     // Picking
     this._objectId      = 0;       // set by display.js before init
     this._pickTex       = null;    // rg32uint render target
@@ -4668,6 +5209,25 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   }
 
   VfGeomWgpu.prototype = {
+    _markPresentedFirstFrame: function () {
+      if (this._presentedFirstFrame) { return; }
+      this._presentedFirstFrame = true;
+      var canvas = this._canvas;
+      if (canvas && canvas.style) {
+        canvas.style.visibility = "";
+      }
+      var host = canvas && canvas.parentElement;
+      if (host && host.getAttribute && host.getAttribute("data-vf-geom-present-pending") === "1") {
+        host.style.visibility = "";
+        host.removeAttribute("data-vf-geom-present-pending");
+      }
+      try {
+        if (typeof CustomEvent === "function") {
+          canvas.dispatchEvent(new CustomEvent("vf-geom-first-frame", { bubbles: true }));
+        }
+      } catch (_) {}
+    },
+
     _ensurePickTextures: function () {
       if (!this._device || !sharedWgpu) { return; }
       var c = this._canvas;
@@ -4864,9 +5424,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.uniformBuf) { try { part.uniformBuf.destroy(); } catch(_){} }
       if (part.shadowUniformBuf0) { try { part.shadowUniformBuf0.destroy(); } catch(_){} }
       if (part.shadowUniformBuf1) { try { part.shadowUniformBuf1.destroy(); } catch(_){} }
+      if (part.shadowUniformBuf2) { try { part.shadowUniformBuf2.destroy(); } catch(_){} }
+      if (part.shadowUniformBuf3) { try { part.shadowUniformBuf3.destroy(); } catch(_){} }
       if (part.shadowUniformBuf &&
           part.shadowUniformBuf !== part.shadowUniformBuf0 &&
-          part.shadowUniformBuf !== part.shadowUniformBuf1) {
+          part.shadowUniformBuf !== part.shadowUniformBuf1 &&
+          part.shadowUniformBuf !== part.shadowUniformBuf2 &&
+          part.shadowUniformBuf !== part.shadowUniformBuf3) {
         try { part.shadowUniformBuf.destroy(); } catch(_){}
       }
       if (part.pickUb) { try { part.pickUb.destroy(); } catch(_){} }
@@ -4976,10 +5540,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var surfaceView = part.surfaceExternalView || part.surfaceColorView || sharedWgpu.defaultSurfaceView;
       var shadowView0 = this._shadowDepthView0 || sharedWgpu.defaultShadowView;
       var shadowView1 = this._shadowDepthView1 || sharedWgpu.defaultShadowView;
+      var shadowView2 = this._shadowDepthView2 || sharedWgpu.defaultShadowView;
+      var shadowView3 = this._shadowDepthView3 || sharedWgpu.defaultShadowView;
       if (part.bindGroup &&
           part._boundSurfaceView === surfaceView &&
           part._boundShadowView0 === shadowView0 &&
-          part._boundShadowView1 === shadowView1) { return; }
+          part._boundShadowView1 === shadowView1 &&
+          part._boundShadowView2 === shadowView2 &&
+          part._boundShadowView3 === shadowView3) { return; }
       part.bindGroup = this._device.createBindGroup({
         layout: this._bindLayout,
         entries: [
@@ -4988,19 +5556,27 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           { binding: 2, resource: surfaceView },
           { binding: 3, resource: sharedWgpu.shadowSampler },
           { binding: 4, resource: shadowView0 },
-          { binding: 5, resource: shadowView1 }
+          { binding: 5, resource: shadowView1 },
+          { binding: 6, resource: shadowView2 },
+          { binding: 7, resource: shadowView3 }
         ]
       });
       part._boundSurfaceView = surfaceView;
       part._boundShadowView0 = shadowView0;
       part._boundShadowView1 = shadowView1;
+      part._boundShadowView2 = shadowView2;
+      part._boundShadowView3 = shadowView3;
     },
 
     _ensurePartShadowBindGroup: function (part, slot) {
       if (!part || !this._device || !sharedWgpu || !sharedWgpu.shadowBindLayout) { return; }
-      var slotIndex = slot === 1 ? 1 : 0;
-      var key = slotIndex === 1 ? "shadowBindGroup1" : "shadowBindGroup0";
-      var buf = slotIndex === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0;
+      var slotIndex = Math.max(0, Math.min(3, Number(slot) | 0));
+      var key = "shadowBindGroup" + String(slotIndex);
+      var buf = slotIndex === 3
+        ? part.shadowUniformBuf3
+        : (slotIndex === 2
+          ? part.shadowUniformBuf2
+          : (slotIndex === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0));
       if (!buf) { buf = part.shadowUniformBuf || part.uniformBuf; }
       if (part[key]) { return; }
       part[key] = this._device.createBindGroup({
@@ -5101,10 +5677,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!this._device) { return; }
       var w = Math.max(256, width | 0);
       var h = Math.max(256, height | 0);
-      var texKey = slot === 1 ? "_shadowDepthTex1" : "_shadowDepthTex0";
-      var viewKey = slot === 1 ? "_shadowDepthView1" : "_shadowDepthView0";
-      var wKey = slot === 1 ? "_shadowDepthW1" : "_shadowDepthW0";
-      var hKey = slot === 1 ? "_shadowDepthH1" : "_shadowDepthH0";
+      var suffix = String(Math.max(0, Math.min(3, Number(slot) | 0)));
+      var texKey = "_shadowDepthTex" + suffix;
+      var viewKey = "_shadowDepthView" + suffix;
+      var wKey = "_shadowDepthW" + suffix;
+      var hKey = "_shadowDepthH" + suffix;
       if (this[texKey] && this[wKey] === w && this[hKey] === h) { return; }
       if (this[texKey]) { try { this[texKey].destroy(); } catch (_) {} }
       this[wKey] = w;
@@ -5151,16 +5728,24 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
-    _applyShadowStateToPart: function (part, shadowData0, shadowData1, contactOccluder0, contactOccluder1) {
+    _applyShadowStateToPart: function (part, shadowData0, shadowData1, contactOccluder0, contactOccluder1, shadowData2, shadowData3, contactOccluder2, contactOccluder3) {
       if (!part || typeof part !== "object") { return; }
       part.shadow_viewproj0 = shadowData0 ? Array.prototype.slice.call(shadowData0.viewProjection) : null;
       part.shadow_viewproj1 = shadowData1 ? Array.prototype.slice.call(shadowData1.viewProjection) : null;
+      part.shadow_viewproj2 = shadowData2 ? Array.prototype.slice.call(shadowData2.viewProjection) : null;
+      part.shadow_viewproj3 = shadowData3 ? Array.prototype.slice.call(shadowData3.viewProjection) : null;
       part.shadow_enabled0 = !!shadowData0;
       part.shadow_enabled1 = !!shadowData1;
+      part.shadow_enabled2 = !!shadowData2;
+      part.shadow_enabled3 = !!shadowData3;
       part.shadow_bias0 = shadowData0 ? Number(shadowData0.bias || 0.001) : 0.0;
       part.shadow_bias1 = shadowData1 ? Number(shadowData1.bias || 0.001) : 0.0;
+      part.shadow_bias2 = shadowData2 ? Number(shadowData2.bias || 0.001) : 0.0;
+      part.shadow_bias3 = shadowData3 ? Number(shadowData3.bias || 0.001) : 0.0;
       part.shadow_contact0 = contactOccluder0 || null;
       part.shadow_contact1 = contactOccluder1 || null;
+      part.shadow_contact2 = contactOccluder2 || null;
+      part.shadow_contact3 = contactOccluder3 || null;
     },
 
     _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight) {
@@ -5173,7 +5758,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       );
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
       var activeLights = [];
-      for (var li = 0; li < sceneLights.length && activeLights.length < 2; li += 1) {
+      for (var li = 0; li < sceneLights.length && activeLights.length < 4; li += 1) {
         if (sceneLights[li] && sceneLights[li].casts_shadow !== false) {
           activeLights.push(sceneLights[li]);
         }
@@ -5183,6 +5768,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!casterParts.length || !activeLights.length) {
         this._shadowDepthView0 = null;
         this._shadowDepthView1 = null;
+        this._shadowDepthView2 = null;
+        this._shadowDepthView3 = null;
         for (var noShadowPi = 0; noShadowPi < this._parts.length; noShadowPi += 1) {
           this._applyShadowStateToPart(this._parts[noShadowPi], null, null, null, null);
         }
@@ -5202,17 +5789,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           Number(light && light.target && light.target[2] || 0).toFixed(4)
         ].join(",");
       }).join("|");
-      var lightCaches = this._shadowLightCaches || (this._shadowLightCaches = { slot0: null, slot1: null });
+      var lightCaches = this._shadowLightCaches || (this._shadowLightCaches = { slot0: null, slot1: null, slot2: null, slot3: null });
       var cacheHits = 0;
       var prepareLightShadow = function (renderer, slot, light) {
         if (!light) {
-          return { shadow: null, contact: null, view: null, casterParts: [], cacheHit: false, cacheKey: "", cacheSlot: slot === 1 ? "slot1" : "slot0" };
+          return { shadow: null, contact: null, view: null, casterParts: [], cacheHit: false, cacheKey: "", cacheSlot: "slot" + String(slot) };
         }
         var lightCasterParts = shadowCasterPartsForLight(casterParts, light, t);
         if (!lightCasterParts.length) {
-          return { shadow: null, contact: null, view: null, casterParts: [], cacheHit: false, cacheKey: "", cacheSlot: slot === 1 ? "slot1" : "slot0" };
+          return { shadow: null, contact: null, view: null, casterParts: [], cacheHit: false, cacheKey: "", cacheSlot: "slot" + String(slot) };
         }
-        var slotName = slot === 1 ? "slot1" : "slot0";
+        var slotName = "slot" + String(slot);
         var lightCasterSig = buildShadowCasterSignature(lightCasterParts, t, MmLocal);
         var cacheKey = lightCasterSig + "||" + lightSig + "||slot=" + String(slot) + "||" + String(shadowSize);
         var cacheEntry = lightCaches[slotName] || null;
@@ -5238,7 +5825,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         return {
           shadow: shadow,
           contact: contact,
-          view: slot === 1 ? renderer._shadowDepthView1 : renderer._shadowDepthView0,
+          view: renderer["_shadowDepthView" + String(slot)] || null,
           casterParts: lightCasterParts,
           cacheHit: false,
           cacheKey: cacheKey,
@@ -5247,21 +5834,29 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
       var shadowState0 = prepareLightShadow(this, 0, activeLights[0] || null);
       var shadowState1 = prepareLightShadow(this, 1, activeLights[1] || null);
+      var shadowState2 = prepareLightShadow(this, 2, activeLights[2] || null);
+      var shadowState3 = prepareLightShadow(this, 3, activeLights[3] || null);
       this._lastShadowCacheHit = activeLights.length ? (cacheHits / activeLights.length) : 0.0;
       this._shadowDepthView0 = shadowState0.view || null;
       this._shadowDepthView1 = shadowState1.view || null;
+      this._shadowDepthView2 = shadowState2.view || null;
+      this._shadowDepthView3 = shadowState3.view || null;
       for (var pi = 0; pi < this._parts.length; pi += 1) {
         this._applyShadowStateToPart(
           this._parts[pi],
           shadowState0.shadow,
           shadowState1.shadow,
           shadowState0.contact,
-          shadowState1.contact
+          shadowState1.contact,
+          shadowState2.shadow,
+          shadowState3.shadow,
+          shadowState2.contact,
+          shadowState3.contact
         );
       }
       var drawShadowPass = function (renderer, slot, shadowData, partsForShadow) {
         if (!shadowData) { return; }
-        var depthView = slot === 1 ? renderer._shadowDepthView1 : renderer._shadowDepthView0;
+        var depthView = renderer["_shadowDepthView" + String(slot)] || null;
         var pipe = slot === 1 ? sharedWgpu.pipeShadow1 : sharedWgpu.pipeShadow0;
         if (!depthView || !pipe) { return; }
         var pass = enc.beginRenderPass({
@@ -5274,7 +5869,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           }
         });
         pass.setPipeline(pipe);
-        var shadowLight = slot === 1 ? activeLights[1] : activeLights[0];
+        var shadowLight = activeLights[slot] || null;
         var excludeApertureCaster = normalizeLightKind(shadowLight && shadowLight.kind) === "projected";
         var apertureCasterId = excludeApertureCaster && shadowLight && shadowLight.projected_aperture && shadowLight.projected_aperture.mesh_id
           ? String(shadowLight.projected_aperture.mesh_id)
@@ -5296,13 +5891,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             : buildShadowUniform(model, shadowData && shadowData.viewProjection, null);
           // Encoded WebGPU draws read buffer contents at submit time, so each light
           // needs an independent shadow uniform buffer.
-          var shadowUniformBuf = slot === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0;
+          var shadowUniformBuf = slot === 3
+            ? part.shadowUniformBuf3
+            : (slot === 2
+              ? part.shadowUniformBuf2
+              : (slot === 1 ? part.shadowUniformBuf1 : part.shadowUniformBuf0));
           if (!shadowUniformBuf) {
             failFast("shadow pass part missing per-light uniform buffer");
           }
           renderer._device.queue.writeBuffer(shadowUniformBuf, 0, shadowUb);
           renderer._ensurePartShadowBindGroup(part, slot);
-          pass.setBindGroup(0, slot === 1 ? part.shadowBindGroup1 : part.shadowBindGroup0);
+          pass.setBindGroup(0, part["shadowBindGroup" + String(Math.max(0, Math.min(3, Number(slot) | 0)))]);
           pass.setVertexBuffer(0, part.vb);
           pass.setIndexBuffer(part.ib, "uint32");
           pass.drawIndexed(part.ibCount, 1, 0, 0, 0);
@@ -5327,7 +5926,25 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           view: this._shadowDepthView1 || null
         };
       }
-      return [shadowState0.shadow, shadowState1.shadow];
+      if (shadowState2.shadow && !shadowState2.cacheHit) {
+        drawShadowPass(this, 2, shadowState2.shadow, shadowState2.casterParts || []);
+        lightCaches[shadowState2.cacheSlot] = {
+          key: shadowState2.cacheKey,
+          shadow: shadowState2.shadow,
+          contact: shadowState2.contact,
+          view: this._shadowDepthView2 || null
+        };
+      }
+      if (shadowState3.shadow && !shadowState3.cacheHit) {
+        drawShadowPass(this, 3, shadowState3.shadow, shadowState3.casterParts || []);
+        lightCaches[shadowState3.cacheSlot] = {
+          key: shadowState3.cacheKey,
+          shadow: shadowState3.shadow,
+          contact: shadowState3.contact,
+          view: this._shadowDepthView3 || null
+        };
+      }
+      return [shadowState0.shadow, shadowState1.shadow, shadowState2.shadow, shadowState3.shadow];
     },
 
     _buildPlanarSurfaceApertureCamera: function (part, sceneMesh, surfaceCamera, t, targetAspect) {
@@ -5439,19 +6056,28 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var lmIntPart = LIGHT_MODELS[lmNamePart] !== undefined ? LIGHT_MODELS[lmNamePart] : 2;
       var meshForUniform = partMesh;
       if (part && (
-        part.shadow_viewproj0 || part.shadow_viewproj1 ||
+        part.shadow_viewproj0 || part.shadow_viewproj1 || part.shadow_viewproj2 || part.shadow_viewproj3 ||
         part.shadow_enabled0 !== undefined || part.shadow_enabled1 !== undefined ||
-        part.shadow_contact0 || part.shadow_contact1
+        part.shadow_enabled2 !== undefined || part.shadow_enabled3 !== undefined ||
+        part.shadow_contact0 || part.shadow_contact1 || part.shadow_contact2 || part.shadow_contact3
       )) {
         meshForUniform = Object.assign({}, partMesh, {
           shadow_viewproj0: part.shadow_viewproj0 || null,
           shadow_viewproj1: part.shadow_viewproj1 || null,
+          shadow_viewproj2: part.shadow_viewproj2 || null,
+          shadow_viewproj3: part.shadow_viewproj3 || null,
           shadow_enabled0: !!part.shadow_enabled0,
           shadow_enabled1: !!part.shadow_enabled1,
+          shadow_enabled2: !!part.shadow_enabled2,
+          shadow_enabled3: !!part.shadow_enabled3,
           shadow_bias0: Number(part.shadow_bias0 || 0.0) || 0.0,
           shadow_bias1: Number(part.shadow_bias1 || 0.0) || 0.0,
+          shadow_bias2: Number(part.shadow_bias2 || 0.0) || 0.0,
+          shadow_bias3: Number(part.shadow_bias3 || 0.0) || 0.0,
           shadow_contact0: part.shadow_contact0 || null,
-          shadow_contact1: part.shadow_contact1 || null
+          shadow_contact1: part.shadow_contact1 || null,
+          shadow_contact2: part.shadow_contact2 || null,
+          shadow_contact3: part.shadow_contact3 || null
         });
       }
       var ubPart = buildUniform(mvpPart, modelMatPart, posPart, lightsNormPart, lmIntPart, resolveAlphaMul(partMesh), meshForUniform);
@@ -6018,6 +6644,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         size: SHADOW_UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      var shadowUniformBuf2 = dev.createBuffer({
+        size: SHADOW_UB_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      var shadowUniformBuf3 = dev.createBuffer({
+        size: SHADOW_UB_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
       var pickUb = dev.createBuffer({
         size: PICK_UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -6041,6 +6675,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         shadowUniformBuf: shadowUniformBuf0,
         shadowUniformBuf0: shadowUniformBuf0,
         shadowUniformBuf1: shadowUniformBuf1,
+        shadowUniformBuf2: shadowUniformBuf2,
+        shadowUniformBuf3: shadowUniformBuf3,
         bindGroup: null,
         pickUb: pickUb,
         pickBg: pickBg,
@@ -6050,7 +6686,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
     _canReuseScenePart: function (part, mesh, index) {
       if (!part || !mesh) { return false; }
-      if (!part.vb || !part.ib || !part.uniformBuf || !part.shadowUniformBuf0 || !part.shadowUniformBuf1 || !part.pickUb || !part.pickBg || !part.bindGroup) { return false; }
+      if (!part.vb || !part.ib || !part.uniformBuf || !part.shadowUniformBuf0 || !part.shadowUniformBuf1 || !part.shadowUniformBuf2 || !part.shadowUniformBuf3 || !part.pickUb || !part.pickBg || !part.bindGroup) { return false; }
       if ((part.topology || "triangle-list") !== (mesh.topology || "triangle-list")) { return false; }
       if ((part.instanceKind || null) !== (mesh.instance_kind || null)) { return false; }
       if (Number(part.objectId || 0) !== (Number(mesh.object_id || (index + 1)) || (index + 1))) { return false; }
@@ -6322,6 +6958,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._blitFrameTargetToCanvas(encBatch, mesh);
         perfStageStart = perfNowMs();
         this._device.queue.submit([encBatch.finish()]);
+        this._markPresentedFirstFrame();
         perfSample.submit = perfNowMs() - perfStageStart;
         perfSample.total = perfNowMs() - perfTotalStart;
         var perfStats = ensurePerfStats(this);
@@ -6510,6 +7147,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       this._blitFrameTargetToCanvas(enc, mesh);
       this._device.queue.submit([enc.finish()]);
+      this._markPresentedFirstFrame();
 
       // Fire the callback after the combined visible+pick submit.
       if (fireSinglePickCallback && this._pickCallback) { this._pickCallback(); }
@@ -6649,8 +7287,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (this._flareInstBuf){ try { this._flareInstBuf.destroy(); } catch(_){} this._flareInstBuf = null; this._flareInstBufSize = 0; }
       if (this._shadowDepthTex0) { try { this._shadowDepthTex0.destroy(); } catch(_){} this._shadowDepthTex0 = null; }
       if (this._shadowDepthTex1) { try { this._shadowDepthTex1.destroy(); } catch(_){} this._shadowDepthTex1 = null; }
+      if (this._shadowDepthTex2) { try { this._shadowDepthTex2.destroy(); } catch(_){} this._shadowDepthTex2 = null; }
+      if (this._shadowDepthTex3) { try { this._shadowDepthTex3.destroy(); } catch(_){} this._shadowDepthTex3 = null; }
       this._shadowDepthView0 = null;
       this._shadowDepthView1 = null;
+      this._shadowDepthView2 = null;
+      this._shadowDepthView3 = null;
       if (this._ctx)       { try { this._ctx.unconfigure(); } catch(_){} }
       if (this._pickTex)      { try { this._pickTex.destroy();      } catch(_){} this._pickTex      = null; }
       if (this._pickDepthTex) { try { this._pickDepthTex.destroy(); } catch(_){} this._pickDepthTex = null; }
@@ -6713,7 +7355,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           { binding: 2, resource: sg.defaultSurfaceView },
           { binding: 3, resource: sg.shadowSampler },
           { binding: 4, resource: sg.defaultShadowView },
-          { binding: 5, resource: sg.defaultShadowView }
+          { binding: 5, resource: sg.defaultShadowView },
+          { binding: 6, resource: sg.defaultShadowView },
+          { binding: 7, resource: sg.defaultShadowView }
         ],
       });
       this._ensureDepth();

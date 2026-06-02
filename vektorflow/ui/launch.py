@@ -1,4 +1,4 @@
-"""UI launch — choose between overlay (native), browser (built-in HTTP server),
+"""UI launch — choose between overlay (native), browser (native static-file helper),
 headless (write JSON only), or test (mocked UI seams only).
 
 Mode selection (highest priority wins):
@@ -14,9 +14,9 @@ Repo root (for ``vf-display.json``, static assets, overlay exe):
     and ``web/vf-ui/vkf-scene.html``
 
 Browser mode
-  Starts a tiny stdlib http.server on a random free port (or ``VF_UI_PORT``),
-  serving ``web/vf-ui/``.  The URL is printed once and the default browser is
-  opened automatically.  The browser polls ``vf-display.json`` every 500 ms
+  Starts a native static-file helper on a random free port (or ``VF_UI_PORT``),
+  serving ``web/vf-ui/``. The URL is printed once and the default browser is
+  opened automatically. The browser polls ``vf-display.json`` every 500 ms
   (handled by vkf-scene.html / vf-display.js) — no WebSocket needed.
 
 Overlay mode (Windows only)
@@ -41,10 +41,8 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.request
 import webbrowser
 from datetime import datetime, timezone
-from http.server import SimpleHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Literal
 
@@ -61,6 +59,7 @@ from vektorflow.ui.host_process import (
 from vektorflow.ui.launch_contract import (
     build_browser_helper_launch as _contract_build_browser_helper_launch,
     find_free_port as _contract_find_free_port,
+    find_vf_browser_server_exe as _contract_find_vf_browser_server_exe,
     find_vf_overlay_exe as _contract_find_vf_overlay_exe,
     find_vektorflow_repo_root as _contract_find_vektorflow_repo_root,
     is_vektorflow_repo as _contract_is_vektorflow_repo,
@@ -94,7 +93,6 @@ UIMode = Literal["overlay", "browser", "headless", "test"]
 _launched = False
 _overlay_launch_in_progress = False
 _overlay_launch_failed: str | None = None
-_browser_server: HTTPServer | None = None
 _browser_thread: threading.Thread | None = None
 _browser_port: int | None = None
 
@@ -207,12 +205,12 @@ def _vf_info(msg: str) -> None:
 
 
 def _log_launch_line(msg: str) -> None:
-    """Append one line to %LOCALAPPDATA%\\vektor-flow\\python-vf-launch.log (diagnostics)."""
+    """Append one line to %LOCALAPPDATA%\\vektor-flow\\vf-launch.log (diagnostics)."""
     try:
         base = os.environ.get("LOCALAPPDATA", "")
         if not base:
             return
-        p = Path(base) / "vektor-flow" / "python-vf-launch.log"
+        p = Path(base) / "vektor-flow" / "vf-launch.log"
         p.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with p.open("a", encoding="utf-8") as f:
@@ -322,10 +320,6 @@ def _probe_browser_server(port: int) -> bool:
     return _process_probe_browser_server(port)
 
 
-def _running_under_pytest() -> bool:
-    return "PYTEST_CURRENT_TEST" in os.environ
-
-
 # ---------------------------------------------------------------------------
 # Repo / binary discovery (unchanged)
 # ---------------------------------------------------------------------------
@@ -365,40 +359,18 @@ def find_vf_overlay_exe(root: Path) -> Path | None:
     return _contract_find_vf_overlay_exe(root)
 
 
+def find_vf_browser_server_exe(root: Path) -> Path | None:
+    """Resolve the native browser helper from either local build tree or packaged bundle."""
+    return _contract_find_vf_browser_server_exe(root)
+
+
 # ---------------------------------------------------------------------------
-# Browser mode — built-in HTTP server
+# Browser mode — native static-file helper
 # ---------------------------------------------------------------------------
 
 def _find_free_port(prefer: int | None = None) -> int:
     """Return a free TCP port (prefer the given one if free)."""
     return _contract_find_free_port(prefer)
-
-
-class _QuietHandler(SimpleHTTPRequestHandler):
-    """HTTP handler that suppresses per-request log lines."""
-
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-        pass  # silence
-
-    def log_error(self, format: str, *args: object) -> None:  # noqa: A002
-        pass
-
-
-def _start_browser_server(serve_dir: Path) -> tuple[int, threading.Thread]:
-    """Start ``http.server`` in a daemon thread; return (port, thread)."""
-    env_port = (os.environ.get("VF_UI_PORT") or "").strip()
-    prefer = int(env_port) if env_port.isdigit() else None
-    port = _find_free_port(prefer)
-
-    handler = lambda *a, **kw: _QuietHandler(*a, directory=str(serve_dir), **kw)  # noqa: E731
-    server = HTTPServer(("127.0.0.1", port), handler)
-
-    t = threading.Thread(target=server.serve_forever, daemon=True, name="vf-browser-server")
-    t.start()
-
-    global _browser_server
-    _browser_server = server
-    return port, t
 
 
 def _spawn_browser_server_process(root: Path, serve_dir: Path) -> int:
@@ -407,17 +379,18 @@ def _spawn_browser_server_process(root: Path, serve_dir: Path) -> int:
     port = _find_free_port(prefer)
     state_path = _browser_state_path()
     overlay_exe = None
+    browser_server_exe = find_vf_browser_server_exe(root)
     if sys.platform == "win32":
         overlay_exe = find_vf_overlay_exe(root)
     command, popen_kwargs = _contract_build_browser_helper_launch(
         serve_dir=serve_dir,
         port=port,
         state_path=state_path,
-        python_executable=Path(sys.executable),
         platform_name=sys.platform,
         detached_process_flag=getattr(subprocess, "DETACHED_PROCESS", 0),
         new_process_group_flag=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
         no_window_flag=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        browser_server_exe=browser_server_exe,
         overlay_exe=overlay_exe,
     )
     subprocess.Popen(command, **popen_kwargs)
@@ -431,7 +404,7 @@ def _spawn_browser_server_process(root: Path, serve_dir: Path) -> int:
 
 
 def maybe_launch_browser() -> None:
-    """Start the built-in HTTP server and open the default browser (once per process)."""
+    """Start the native browser helper and open the default browser (once per process)."""
     global _launched, _browser_thread, _browser_port
 
     if _launched or not ui_auto_launch_enabled():
@@ -451,19 +424,14 @@ def maybe_launch_browser() -> None:
     from vektorflow.ui.session import ensure_ui_session
 
     session = ensure_ui_session(root)
-    if _running_under_pytest():
-        port, thread = _start_browser_server(serve_dir)
-        _browser_port = port
-        _browser_thread = thread
-    else:
-        port = _read_browser_state()
-        if port is None or not _probe_browser_server(port):
-            try:
-                port = _spawn_browser_server_process(root, serve_dir)
-            except RuntimeError as e:
-                _vf_warn(f"vektorflow [browser]: {e}")
-                return
-        _browser_port = port
+    port = _read_browser_state()
+    if port is None or not _probe_browser_server(port):
+        try:
+            port = _spawn_browser_server_process(root, serve_dir)
+        except RuntimeError as e:
+            _vf_warn(f"vektorflow [browser]: {e}")
+            return
+    _browser_port = port
     browser_plan = _boot_build_browser_launch_plan(root=root, session=session, port=port)
 
     url = browser_plan.url

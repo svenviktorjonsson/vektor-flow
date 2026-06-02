@@ -65,12 +65,23 @@
     host.style.cssText =
       "position:relative;z-index:1;width:100%;min-height:" +
       minH +
-      "px;flex:1 1 auto;overflow:hidden;box-sizing:border-box;";
+      "px;flex:1 1 auto;overflow:hidden;box-sizing:border-box;visibility:hidden;";
+    host.setAttribute("data-vf-geom-present-pending", "1");
 
     var canvas = document.createElement("canvas");
     canvas.setAttribute("aria-label", "vf-geom " + (presetId || "") + " view");
-    canvas.style.cssText = "display:block;width:100%;height:100%;";
+    canvas.style.cssText = "display:block;width:100%;height:100%;visibility:hidden;";
     host.appendChild(canvas);
+    canvas.addEventListener("vf-geom-first-frame", function () {
+      if (global.VfFrame && typeof global.VfFrame.postNativeHostLayout === "function") {
+        var layer = document.getElementById("layer");
+        if (layer) {
+          try {
+            global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 0, contentReady: true });
+          } catch (_) {}
+        }
+      }
+    }, { once: true });
 
     /* Sync canvas opacity to the nearest .vf-frame ancestor's alpha so the
        WebGPU content fades/shows correctly with the frame.  The WebGPU context
@@ -204,6 +215,8 @@
             resyncLayoutSoon();
             vfLog("info", "vf-geom: WebGPU OK, preset=" + (presetId || "") + " canvas=" + canvas.width + "x" + canvas.height);
           } else {
+            host.style.visibility = "";
+            host.removeAttribute("data-vf-geom-present-pending");
             var msg =
               "WebGPU is not available (navigator.gpu or adapter/context). Use a current WebView2/Edge; vf-overlay adds --enable-unsafe-webgpu.";
             vfLog("error", "vf-geom init false: " + msg + " navigator.gpu=" + hasGpu);
@@ -218,6 +231,8 @@
           }
         })
         .catch(function (e) {
+          host.style.visibility = "";
+          host.removeAttribute("data-vf-geom-present-pending");
           var st = e && e.stack ? String(e.stack) : "";
           vfLog("error", "vf-geom init rejected: " + (e && e.message ? e.message : e) + (st ? "\n" + st : ""));
           var p = document.createElement("p");

@@ -16,6 +16,7 @@ assert.ok(adapterCall < kernelCall, "adapter must be preferred before fallback k
 
 assert.ok(source.includes("function axis3DProjectionKernelDeps()"));
 assert.ok(source.includes("function axis3DKernelMethod(name)"));
+assert.ok(source.includes("function buildAxis3DCrosshairHelperMesh(fid, cfg, camera, target, color)"));
 assert.ok(source.includes("function ensureAxis3DProjectionKernel()"));
 assert.ok(source.includes("function axis3DProjectionKernelMethod(name)"));
 assert.ok(source.includes("rotationCenter: axis3DRotationCenter"));
@@ -24,8 +25,9 @@ assert.ok(source.includes("clipPixelLineToRect: clipPixelLineToRect"));
 assert.ok(source.includes("cloneCamera: axis3DCloneCamera"));
 assert.ok(source.includes("screenBasis: axis3DScreenBasis"));
 assert.ok(source.includes("applyWorldRotation: axis3DApplyWorldRotation"));
+assert.ok(source.includes("var builder = axis3DKernelMethod(\"buildCrosshairHelperLineMesh\");"));
 assert.equal((source.match(/axis3DProjectionKernelDeps\(\)/g) || []).length, 3);
-assert.equal((source.match(/axis3DKernelMethod\(/g) || []).length, 8);
+assert.equal((source.match(/axis3DKernelMethod\(/g) || []).length, 9);
 assert.equal((source.match(/axis3DProjectionKernelMethod\(/g) || []).length, 5);
 assert.equal((source.match(/typeof _vfAxis3DKernel\./g) || []).length, 0);
 assert.equal((source.match(/typeof _vfAxis3DProjectionKernel\./g) || []).length, 0);

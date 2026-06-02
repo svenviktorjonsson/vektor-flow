@@ -20,6 +20,14 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
         "host_platform": "win32",
         "artifacts": {
             "samples": ["samples/01_hello.vkf"],
+            "native_pipeline_tools": [
+                "vkf.cmd",
+                "vf-browser-server.exe",
+                "vkf_lexer_cursor_smoke.exe",
+                "vkf_parser_token_stream_smoke.exe",
+                "vkf_ast_to_ir_smoke.exe",
+                "vkf_compiler_artifact_smoke.exe",
+            ],
             "extension_vsix_included": True,
             "ui_assets_included": True,
             "overlay_binary_included": True,
@@ -27,6 +35,7 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
         },
         "tester_onboarding": {
             "smoke_command": '.\\vkf.cmd -e \':: "hello, world"\'',
+            "smoke_argv": ["cmd", "/c", ".\\vkf.cmd", "-e", ':: "hello, world"'],
         },
     }
     (bundle / "vektorflow-release.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -40,6 +49,11 @@ def test_verify_release_bundle_checks_smoke_and_required_files(tmp_path: Path) -
     ext = bundle / "extensions"
     ext.mkdir()
     (ext / "vektorflow-0.0.8.vsix").write_text("ok", encoding="utf-8")
+    (bundle / "vf-browser-server.exe").write_text("ok", encoding="utf-8")
+    (bundle / "vkf_lexer_cursor_smoke.exe").write_text("ok", encoding="utf-8")
+    (bundle / "vkf_parser_token_stream_smoke.exe").write_text("ok", encoding="utf-8")
+    (bundle / "vkf_ast_to_ir_smoke.exe").write_text("ok", encoding="utf-8")
+    (bundle / "vkf_compiler_artifact_smoke.exe").write_text("ok", encoding="utf-8")
     (bundle / "vf-ui").mkdir()
     (bundle / "vf-ui" / "vf-shared-rect-demo.html").write_text("ok", encoding="utf-8")
     (bundle / "vf-ui" / "vf-shared-rect-demo.js").write_text("ok", encoding="utf-8")

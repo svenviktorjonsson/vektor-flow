@@ -889,8 +889,8 @@ static std::vector<Token> lex_line(const std::string& line) {
             out.push_back({"MINUS", "-"});
             break;
         case '/':
-            if (pos + 1 < input.size() && input[pos + 1] == '/') {
-                out.push_back({"FLOOR_DIV", "//"});
+            if (pos + 1 < line.size() && line[pos + 1] == '/') {
+                out.push_back({"FLOORDIV", "//"});
                 pos += 1;
             } else {
                 out.push_back({"SLASH", "/"});

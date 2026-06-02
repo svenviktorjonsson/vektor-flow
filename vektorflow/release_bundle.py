@@ -87,6 +87,35 @@ def release_demo_launchers(root: Path) -> tuple[Path, ...]:
     )
 
 
+def release_native_tool_sources(root: Path, channel: ReleaseChannelSpec) -> dict[str, tuple[Path, ...]]:
+    json_source = root / "native" / "VfOverlay" / "vf" / "json.cpp"
+    exe_suffix = ".exe" if channel.host_platform == "win32" else ""
+    return {
+        f"{channel.executable_name}": (
+            root / "compiler" / "native" / "vkf_driver_artifact_smoke.cpp",
+            json_source,
+        ),
+        f"vf-browser-server{exe_suffix}": (
+            root / "compiler" / "native" / "vf_browser_server_smoke.cpp",
+        ),
+        f"vkf_lexer_cursor_smoke{exe_suffix}": (
+            root / "compiler" / "native" / "vkf_lexer_cursor_smoke.cpp",
+        ),
+        f"vkf_parser_token_stream_smoke{exe_suffix}": (
+            root / "compiler" / "native" / "vkf_parser_token_stream_smoke.cpp",
+            json_source,
+        ),
+        f"vkf_ast_to_ir_smoke{exe_suffix}": (
+            root / "compiler" / "native" / "vkf_ast_to_ir_smoke.cpp",
+            json_source,
+        ),
+        f"vkf_compiler_artifact_smoke{exe_suffix}": (
+            root / "compiler" / "native" / "vkf_compiler_artifact_smoke.cpp",
+            json_source,
+        ),
+    }
+
+
 def build_release_manifest(
     *,
     channel: ReleaseChannelSpec,
@@ -96,6 +125,11 @@ def build_release_manifest(
     include_ui_assets: bool,
     samples: tuple[str, ...],
 ) -> dict[str, Any]:
+    smoke_argv = (
+        [f".\\{channel.executable_name}", "-e", ':: "hello, world"']
+        if channel.host_platform == "win32"
+        else [f"./{channel.executable_name}", "-e", ':: "hello, world"']
+    )
     smoke_command = (
         f".\\{channel.executable_name} -e ':: \"hello, world\"'"
         if channel.host_platform == "win32"
@@ -118,6 +152,7 @@ def build_release_manifest(
         "ui_modes": list(channel.ui_modes),
         "artifacts": {
             "vkf": channel.executable_name,
+            "native_pipeline_tools": list(release_native_tool_sources(Path("."), channel).keys()),
             "extension_vsix_included": include_extension,
             "overlay_binary_included": include_overlay,
             "ui_assets_included": include_ui_assets,
@@ -128,6 +163,7 @@ def build_release_manifest(
         },
         "tester_onboarding": {
             "smoke_command": smoke_command,
+            "smoke_argv": smoke_argv,
             "sample_smoke_paths": list(samples),
             "vscode_supported": include_extension,
         },

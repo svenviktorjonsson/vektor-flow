@@ -373,6 +373,7 @@ class Lexer:
                 self._emit(NOT, None, loc)
             return
         if ch == "!":
+            left_tight = self.pos > 0 and self.src[self.pos - 1] not in (" ", "\t", "\r", "\n")
             self._advance()
             if self._peek() == "?":
                 self._advance()
@@ -382,6 +383,8 @@ class Lexer:
                 self._advance()
                 self._emit(NEQ, None, loc)
                 return
+            if not left_tight:
+                raise LexError("Unexpected character '!'", loc)
             self._emit(BANG, None, loc)
             return
         if ch == "<":

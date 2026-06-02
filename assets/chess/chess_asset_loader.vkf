@@ -1,0 +1,9 @@
+io: .io
+
+manifest: io.read_text("assets/chess/manifest.csv")
+white_pawn_glb: io.read_bytes("assets/chess/models/gltf/Pawn_White.glb")
+black_king_glb: io.read_bytes("assets/chess/models/gltf/King_Black.glb")
+
+:: manifest.length()
+:: white_pawn_glb.length()
+:: black_king_glb.length()

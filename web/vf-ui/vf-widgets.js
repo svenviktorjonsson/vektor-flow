@@ -384,8 +384,24 @@
     }
   }
 
+  function truthyRuntimeAttr(value) {
+    var normalized = String(value || "").toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+  }
+
+  function strictPacketOnlyEnabled() {
+    try {
+      if (global.__vfRuntimeStrictPacketOnly === true) return true;
+      if (global.document && global.document.body) {
+        return truthyRuntimeAttr(global.document.body.getAttribute("data-vf-runtime-strict-packet-only"));
+      }
+    } catch (_) {}
+    return false;
+  }
+
   function startStatePoll() {
     if (started) return;
+    if (strictPacketOnlyEnabled()) return;
     started = true;
     if (typeof window !== "undefined" && window.setInterval) {
       loadAndApplyState();
@@ -578,7 +594,17 @@
         });
       });
       setWidgetVisibility(row, spec.visible !== false);
-      storeWidget(frameId, w, { type: "checkbox", el: cb, caption: cap, root: row, id: w });
+      storeWidget(frameId, w, {
+        type: "checkbox",
+        el: cb,
+        caption: cap,
+        root: row,
+        id: w,
+        axis: spec.axis != null ? String(spec.axis) : "",
+        axisTargets: Array.isArray(spec.axis_log_target_frames)
+          ? spec.axis_log_target_frames.map(function (v) { return String(v); })
+          : (spec.axis_log_target_frame != null ? [String(spec.axis_log_target_frame)] : [])
+      });
       return row;
     }
     if (t === "slider") {
@@ -872,6 +898,160 @@
     }
   }
 
+  function composeStateAppliers(appliers) {
+    var list = Array.isArray(appliers) ? appliers.filter(function (applier) {
+      return typeof applier === "function";
+    }) : [];
+    return function applyComposedState(state) {
+      for (var i = 0; i < list.length; i += 1) {
+        list[i](state);
+      }
+    };
+  }
+
+  function createLabelStateApplier(frameId, widgetId, spec) {
+    spec = spec || {};
+    var textField = spec.textField != null ? String(spec.textField) : "";
+    var visibleField = spec.visibleField != null ? String(spec.visibleField) : "";
+    return function applyLabelState(state) {
+      if (!state || typeof state !== "object") { return; }
+      var patch = {};
+      var dirty = false;
+      if (textField && Object.prototype.hasOwnProperty.call(state, textField)) {
+        patch.text = state[textField];
+        dirty = true;
+      }
+      if (visibleField && Object.prototype.hasOwnProperty.call(state, visibleField)) {
+        patch.visible = !!state[visibleField];
+        dirty = true;
+      }
+      if (dirty) {
+        applyPropsToNode(String(frameId || ""), String(widgetId || ""), patch);
+      }
+    };
+  }
+
+  function createButtonGroupStateApplier(frameId, widgetId, spec) {
+    spec = spec || {};
+    var activeField = spec.activeField != null ? String(spec.activeField) : "";
+    var valueIndexField = spec.valueIndexField != null ? String(spec.valueIndexField) : "";
+    var visibleField = spec.visibleField != null ? String(spec.visibleField) : "";
+    return function applyButtonGroupState(state) {
+      if (!state || typeof state !== "object") { return; }
+      var patch = {};
+      var dirty = false;
+      if (activeField && Object.prototype.hasOwnProperty.call(state, activeField)) {
+        patch.active = state[activeField];
+        dirty = true;
+      } else if (valueIndexField && Object.prototype.hasOwnProperty.call(state, valueIndexField)) {
+        patch.value = state[valueIndexField];
+        dirty = true;
+      }
+      if (visibleField && Object.prototype.hasOwnProperty.call(state, visibleField)) {
+        patch.visible = !!state[visibleField];
+        dirty = true;
+      }
+      if (dirty) {
+        applyPropsToNode(String(frameId || ""), String(widgetId || ""), patch);
+      }
+    };
+  }
+
+  function createCheckboxStateApplier(frameId, widgetId, spec) {
+    spec = spec || {};
+    var checkedField = spec.checkedField != null ? String(spec.checkedField) : "";
+    var labelField = spec.labelField != null ? String(spec.labelField) : "";
+    var visibleField = spec.visibleField != null ? String(spec.visibleField) : "";
+    return function applyCheckboxState(state) {
+      if (!state || typeof state !== "object") { return; }
+      var patch = {};
+      var dirty = false;
+      if (checkedField && Object.prototype.hasOwnProperty.call(state, checkedField)) {
+        patch.checked = !!state[checkedField];
+        dirty = true;
+      }
+      if (labelField && Object.prototype.hasOwnProperty.call(state, labelField)) {
+        patch.label = state[labelField];
+        dirty = true;
+      }
+      if (visibleField && Object.prototype.hasOwnProperty.call(state, visibleField)) {
+        patch.visible = !!state[visibleField];
+        dirty = true;
+      }
+      if (dirty) {
+        applyPropsToNode(String(frameId || ""), String(widgetId || ""), patch);
+      }
+    };
+  }
+
+  function createAxisLogCheckboxStateApplier(frameId, widgetId, spec) {
+    spec = spec || {};
+    var checkedField = spec.checkedField != null ? String(spec.checkedField) : "";
+    var labelField = spec.labelField != null ? String(spec.labelField) : "";
+    var visibleField = spec.visibleField != null ? String(spec.visibleField) : "";
+    return function applyAxisLogCheckboxState(state) {
+      if (!state || typeof state !== "object") { return; }
+      var record = widgetRecord(String(frameId || ""), String(widgetId || ""));
+      if (!record || record.type !== "checkbox") { return; }
+      var displayAxisApplier = (
+        record.axis &&
+        Array.isArray(record.axisTargets) &&
+        global.VfDisplay &&
+        typeof global.VfDisplay.createAxisVisualStateApplier === "function"
+      ) ? global.VfDisplay.createAxisVisualStateApplier({
+        axis: record.axis,
+        checkedField: checkedField,
+        targetFrames: record.axisTargets
+      }) : (
+        record.axis &&
+        Array.isArray(record.axisTargets) &&
+        global.VfDisplay &&
+        typeof global.VfDisplay.createAxisTickModeStateApplier === "function"
+      ) ? global.VfDisplay.createAxisTickModeStateApplier({
+        axis: record.axis,
+        checkedField: checkedField,
+        targetFrames: record.axisTargets
+      }) : null;
+      var patch = {};
+      var dirty = false;
+      var checkedChanged = false;
+      var nextChecked = false;
+      if (checkedField && Object.prototype.hasOwnProperty.call(state, checkedField)) {
+        nextChecked = !!state[checkedField];
+        patch.checked = nextChecked;
+        dirty = true;
+        checkedChanged = true;
+      }
+      if (labelField && Object.prototype.hasOwnProperty.call(state, labelField)) {
+        patch.label = state[labelField];
+        dirty = true;
+      }
+      if (visibleField && Object.prototype.hasOwnProperty.call(state, visibleField)) {
+        patch.visible = !!state[visibleField];
+        dirty = true;
+      }
+      if (dirty) {
+        applyPropsToNode(String(frameId || ""), String(widgetId || ""), patch);
+      }
+      if (
+        checkedChanged &&
+        record.axis &&
+        Array.isArray(record.axisTargets) &&
+        global.VfDisplay &&
+        typeof global.VfDisplay.setAxisTickMode === "function"
+      ) {
+        if (displayAxisApplier) {
+          displayAxisApplier(state);
+        } else {
+          var mode = nextChecked ? "log" : "linear";
+          for (var i = 0; i < record.axisTargets.length; i += 1) {
+            global.VfDisplay.setAxisTickMode(String(record.axisTargets[i] || ""), String(record.axis), mode);
+          }
+        }
+      }
+    };
+  }
+
   function applyGridSlot(node, spec) {
     if (!node || !spec || !Array.isArray(spec.grid) || spec.grid.length !== 4) return;
     var row = Number(spec.grid[0]);
@@ -965,5 +1145,10 @@
     clearFrame: clearFrameWidgets,
     widgetRecord: widgetRecord,
     refreshButtonGroups: refreshButtonGroups,
+    composeStateAppliers: composeStateAppliers,
+    createLabelStateApplier: createLabelStateApplier,
+    createButtonGroupStateApplier: createButtonGroupStateApplier,
+    createCheckboxStateApplier: createCheckboxStateApplier,
+    createAxisLogCheckboxStateApplier: createAxisLogCheckboxStateApplier,
   };
 })(typeof window !== "undefined" ? window : this);

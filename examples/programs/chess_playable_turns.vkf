@@ -1,0 +1,116 @@
+Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
+GameState : (turn:str, move_count:num, history:str, selected_side:str, selected_file:num, selected_rank:num, has_selection:bool, status:str)
+FrameState : (title:str, moves:str, new_game_label:str)
+MoveIntent : (side:str, notation:str, from_file:num, from_rank:num, to_file:num, to_rank:num, is_capture:bool)
+MoveResult : (ok:bool, state:GameState, frame:FrameState)
+AnimationPlan : (kind:str, from_x:num, from_z:num, to_x:num, to_z:num, lift:num, duration_ms:num, easing:str, capture_at_ms:num)
+
+initial_state() -> GameState:
+    @: (turn:"white", move_count:0, history:"", selected_side:"", selected_file:0, selected_rank:0, has_selection:false, status:"ready")
+
+move_frame(state:GameState) -> FrameState:
+    @: (title:"Moves", moves:state.history, new_game_label:"New Game")
+
+next_turn(turn:str) -> str:
+    turn = "white"? @: "black"
+    @: "white"
+
+append_history(history:str, notation:str) -> str:
+    history = ""? @: notation
+    @: history & " " & notation
+
+select_piece(state:GameState, piece:Piece) -> GameState:
+    piece.side = state.turn? @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:piece.side, selected_file:piece.file, selected_rank:piece.rank, has_selection:true, status:"selected")
+    @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:state.selected_side, selected_file:state.selected_file, selected_rank:state.selected_rank, has_selection:state.has_selection, status:"wrong-turn")
+
+clear_selection(state:GameState, status:str) -> GameState:
+    @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:"", selected_file:0, selected_rank:0, has_selection:false, status:status)
+
+is_selected_piece(state:GameState, intent:MoveIntent) -> bool:
+    state.has_selection?
+        state.selected_side = intent.side?
+            state.selected_file = intent.from_file?
+                state.selected_rank = intent.from_rank? @: true
+    @: false
+
+apply_move(state:GameState, intent:MoveIntent, legal:bool) -> MoveResult:
+    intent.side = state.turn?
+        is_selected_piece(state, intent)?
+            legal?
+                next_state: (turn:next_turn(state.turn), move_count:state.move_count + 1, history:append_history(state.history, intent.notation), selected_side:"", selected_file:0, selected_rank:0, has_selection:false, status:"moved")
+                @: (ok:true, state:next_state, frame:move_frame(next_state))
+            rejected: clear_selection(state, "illegal-move")
+            @: (ok:false, state:rejected, frame:move_frame(rejected))
+        not_selected: clear_selection(state, "no-selected-piece")
+        @: (ok:false, state:not_selected, frame:move_frame(not_selected))
+    wrong_turn: clear_selection(state, "wrong-turn")
+    @: (ok:false, state:wrong_turn, frame:move_frame(wrong_turn))
+
+new_game() -> MoveResult:
+    reset: initial_state()
+    @: (ok:true, state:reset, frame:move_frame(reset))
+
+board_x(file:num) -> num:
+    @: file - 4.5
+
+board_z(rank:num) -> num:
+    @: rank - 4.5
+
+move_animation(intent:MoveIntent) -> AnimationPlan:
+    intent.is_capture? @: (kind:"capture", from_x:board_x(intent.from_file), from_z:board_z(intent.from_rank), to_x:board_x(intent.to_file), to_z:board_z(intent.to_rank), lift:0.55, duration_ms:360, easing:"smoothstep", capture_at_ms:180)
+    @: (kind:"move", from_x:board_x(intent.from_file), from_z:board_z(intent.from_rank), to_x:board_x(intent.to_file), to_z:board_z(intent.to_rank), lift:0.35, duration_ms:280, easing:"smoothstep", capture_at_ms:0)
+
+rejected_animation() -> AnimationPlan:
+    @: (kind:"none", from_x:0, from_z:0, to_x:0, to_z:0, lift:0, duration_ms:0, easing:"none", capture_at_ms:0)
+
+white_pawn_e2: (side:"white", role:"pawn", file:5, rank:2, captured:false, tray_rank:1)
+white_knight_g1: (side:"white", role:"knight", file:7, rank:1, captured:false, tray_rank:1)
+black_pawn_e7: (side:"black", role:"pawn", file:5, rank:7, captured:false, tray_rank:1)
+black_pawn_d5: (side:"black", role:"pawn", file:4, rank:5, captured:false, tray_rank:1)
+
+white_e4_intent: (side:"white", notation:"e4", from_file:5, from_rank:2, to_file:5, to_rank:4, is_capture:false)
+white_nf3_intent: (side:"white", notation:"Nf3", from_file:7, from_rank:1, to_file:6, to_rank:3, is_capture:false)
+black_d5_intent: (side:"black", notation:"d5", from_file:5, from_rank:7, to_file:4, to_rank:5, is_capture:false)
+white_exd5_intent: (side:"white", notation:"exd5", from_file:5, from_rank:4, to_file:4, to_rank:5, is_capture:true)
+
+game0: initial_state()
+game0_selected: select_piece(game0, white_pawn_e2)
+move1: apply_move(game0_selected, white_e4_intent, true)
+move1_animation: move_animation(white_e4_intent)
+illegal_white_select: select_piece(move1.state, white_knight_g1)
+illegal_white_move: apply_move(illegal_white_select, white_nf3_intent, true)
+illegal_animation: rejected_animation()
+black_selected: select_piece(move1.state, black_pawn_e7)
+move2: apply_move(black_selected, black_d5_intent, true)
+white_after_black: select_piece(move2.state, (side:"white", role:"pawn", file:5, rank:4, captured:false, tray_rank:1))
+move3: apply_move(white_after_black, white_exd5_intent, true)
+capture_animation: move_animation(white_exd5_intent)
+reset_game: new_game()
+
+:: game0.turn
+:: move1.ok
+:: move1.state.turn
+:: move1.frame.moves
+:: illegal_white_select.status
+:: illegal_white_move.ok
+:: illegal_white_move.state.turn
+:: illegal_white_move.frame.moves
+:: move2.ok
+:: move2.state.turn
+:: move2.frame.moves
+:: move3.ok
+:: move3.state.turn
+:: move3.frame.title
+:: move3.frame.moves
+:: move3.frame.new_game_label
+:: reset_game.state.turn
+:: reset_game.state.move_count
+:: reset_game.frame.moves
+:: move1_animation.kind
+:: move1_animation.from_x
+:: move1_animation.to_z
+:: move1_animation.duration_ms
+:: illegal_animation.kind
+:: capture_animation.kind
+:: capture_animation.lift
+:: capture_animation.capture_at_ms

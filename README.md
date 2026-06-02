@@ -243,6 +243,12 @@ UI showcases:
 - `examples/100_axis_4_panel.vkf`
 - `examples/110_mirror_showcase.vkf`
 
+Full program examples:
+
+- `examples/programs/chess_engine_core.vkf`
+- `examples/programs/chess_3d_scene_contract.vkf`
+- `examples/programs/chess_playable_turns.vkf`
+
 On Windows, interactive UI examples use the native overlay executable. Build it
 when needed:
 

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from vektorflow.native_lexer_fixtures import (
     DECLARED_FIXTURE_TOKEN_FAMILY_EXPECTATIONS,
@@ -18,6 +21,58 @@ from vektorflow.native_lexer_fixtures import (
 )
 from vektorflow.native_frontend import native_subset_capabilities
 from tests.token_stream_fixture_helper import TOKEN_FIXTURE_ROOT
+
+
+NATIVE_LEXER_CONTRACT_SOURCE = Path("compiler/native/vkf_lexer_cursor_smoke.cpp")
+
+
+def _native_lexer_compiler_command(source: Path, output: Path, repo: Path) -> list[str] | None:
+    for compiler in ("clang++", "g++", "c++"):
+        path = shutil.which(compiler)
+        if path is not None:
+            return [
+                path,
+                "-std=c++17",
+                "-I",
+                str(repo),
+                str(source),
+                "-o",
+                str(output),
+            ]
+
+    cl = shutil.which("cl")
+    if cl is not None:
+        return [
+            cl,
+            "/nologo",
+            "/EHsc",
+            "/std:c++17",
+            f"/I{repo}",
+            str(source),
+            f"/Fe:{output}",
+        ]
+
+    return None
+
+
+def _compile_native_lexer_contract(repo: Path, tmp_path: Path) -> Path:
+    source = repo / NATIVE_LEXER_CONTRACT_SOURCE
+    output = tmp_path / "vkf_native_lexer_contract.exe"
+    command = _native_lexer_compiler_command(source, output, repo)
+    if command is None:
+        pytest.skip("no C++ compiler found")
+    subprocess.run(command, cwd=repo, check=True, capture_output=True, text=True)
+    return output
+
+
+def _run_native_lexer_contract(exe: Path, source: str, filename_label: str) -> dict[str, object]:
+    proc = subprocess.run(
+        [str(exe), source, filename_label],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(proc.stdout)
 
 
 def _sha256_path(path: Path) -> str:
@@ -237,6 +292,60 @@ def test_declared_fixture_manifest_payload_exposes_pairing_contract_for_checked_
             "source_sha256": _sha256_path(repo / spec.source_rel),
             "fixture_sha256": _sha256_path(TOKEN_FIXTURE_ROOT / spec.fixture_name),
         }
+
+
+def test_native_lexer_contract_artifact_lexes_curated_sources_without_python_lexer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    contract_source = repo / NATIVE_LEXER_CONTRACT_SOURCE
+    source_text = contract_source.read_text(encoding="utf-8")
+
+    assert "vektorflow.token_stream" in source_text
+    assert "Python.h" not in source_text
+    assert "Py_Initialize" not in source_text
+    assert "python.exe" not in source_text
+    assert "tokenize(" not in source_text
+
+    import vektorflow.lexer as python_lexer
+
+    def fail_if_python_lexer_used(*_args, **_kwargs):
+        raise AssertionError("native lexer contract path must not call Python lexer")
+
+    monkeypatch.setattr(python_lexer, "tokenize", fail_if_python_lexer_used)
+
+    exe = _compile_native_lexer_contract(repo, tmp_path)
+
+    for spec in TOKEN_FIXTURE_SPECS:
+        source_path = repo / spec.source_rel
+        payload = _run_native_lexer_contract(
+            exe,
+            source_path.read_text(encoding="utf-8"),
+            spec.source_rel,
+        )
+        expected = json.loads((TOKEN_FIXTURE_ROOT / spec.fixture_name).read_text(encoding="utf-8"))
+        assert payload == expected
+
+    stress_sources = {
+        "stress/strings.vkf": '"hi" \'raw\' """a\nb"""',
+        "stress/operators.vkf": "@ @: @:: @> @| @! :: -> => .. ... == != ~= <= >= >> /\\ \\/ // >< !?",
+        "stress/indent.vkf": "a\n  b\nc",
+        "stress/brackets.vkf": "[a\nb]\n(x)->x",
+    }
+
+    for filename_label, source in stress_sources.items():
+        payload = _run_native_lexer_contract(exe, source, filename_label)
+        assert payload["schema"] == "vektorflow.token_stream"
+        assert payload["version"] == 1
+        assert payload["tokens"]
+        assert payload["tokens"][-1]["kind"] == "EOF"
+        assert {
+            "kind",
+            "value",
+            "location",
+        }.issubset(payload["tokens"][0])
+        assert payload["tokens"][0]["location"]["file"] == filename_label
 
 
 def test_declared_fixture_contract_summary_matches_checked_in_manifest() -> None:

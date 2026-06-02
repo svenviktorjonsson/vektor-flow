@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from vektorflow.stdlib import resolve_stdlib
 from vektorflow.stdlib import io as iolib
 from vektorflow.stdlib.io import (
+    PathIoFileHost,
+    SleepIoTimeHost,
+    PythonIoFileHost,
+    PythonIoTimeHost,
     build_io_clock_namespace,
     build_io_file_namespace,
     build_io_native_file_namespace,
@@ -49,6 +52,10 @@ def _reset_io_host() -> None:
 
 
 class TestResolve:
+    def test_host_neutral_default_host_classes_remain_compatible_with_old_aliases(self) -> None:
+        assert PythonIoFileHost is PathIoFileHost
+        assert PythonIoTimeHost is SleepIoTimeHost
+
     def test_io_in_resolve_stdlib(self) -> None:
         io = resolve_stdlib("io")
         assert set(io.keys()) >= {
@@ -185,8 +192,8 @@ class TestResolve:
         reset_io_native_file_host()
         reset_io_native_time_host()
 
-        assert get_io_native_file_host().__class__.__name__ == "PythonIoFileHost"
-        assert get_io_native_time_host().__class__.__name__ == "PythonIoTimeHost"
+        assert get_io_native_file_host().__class__.__name__ == "PathIoFileHost"
+        assert get_io_native_time_host().__class__.__name__ == "SleepIoTimeHost"
 
     def test_reset_io_seconds_host_restores_preferred_seconds_surface(self) -> None:
         class FakeTimeHost:
@@ -196,7 +203,7 @@ class TestResolve:
         set_io_seconds_host(FakeTimeHost())
         reset_io_seconds_host()
 
-        assert get_io_seconds_host().__class__.__name__ == "PythonIoTimeHost"
+        assert get_io_seconds_host().__class__.__name__ == "SleepIoTimeHost"
 
     def test_reset_io_native_hosts_restores_preferred_split_surfaces(self) -> None:
         class FakeFileHost:
@@ -220,8 +227,8 @@ class TestResolve:
         reset_io_native_hosts()
 
         file_host, time_host = get_io_native_hosts()
-        assert file_host.__class__.__name__ == "PythonIoFileHost"
-        assert time_host.__class__.__name__ == "PythonIoTimeHost"
+        assert file_host.__class__.__name__ == "PathIoFileHost"
+        assert time_host.__class__.__name__ == "SleepIoTimeHost"
 
 
 class TestTextBytes:
@@ -538,8 +545,8 @@ class TestTextBytes:
         native_host = get_io_native_host()
         assert native_host is not get_io_file_host()
         assert native_host is not get_io_time_host()
-        assert native_host._file_host.__class__.__name__ == "PythonIoFileHost"
-        assert native_host._time_host.__class__.__name__ == "PythonIoTimeHost"
+        assert native_host._file_host.__class__.__name__ == "PathIoFileHost"
+        assert native_host._time_host.__class__.__name__ == "SleepIoTimeHost"
 
     def test_get_io_native_host_round_trips_combined_host_identity(self) -> None:
         class FakeHost:
@@ -756,8 +763,8 @@ class TestTextBytes:
         reset_io_native_time_host()
 
         native_host = get_io_native_host()
-        assert native_host._file_host.__class__.__name__ == "PythonIoFileHost"
-        assert native_host._time_host.__class__.__name__ == "PythonIoTimeHost"
+        assert native_host._file_host.__class__.__name__ == "PathIoFileHost"
+        assert native_host._time_host.__class__.__name__ == "SleepIoTimeHost"
 
     def test_reset_io_native_hosts_feeds_default_combined_native_host(self) -> None:
         class FakeFileHost:
@@ -781,8 +788,8 @@ class TestTextBytes:
         reset_io_native_hosts()
 
         native_host = get_io_native_host()
-        assert native_host._file_host.__class__.__name__ == "PythonIoFileHost"
-        assert native_host._time_host.__class__.__name__ == "PythonIoTimeHost"
+        assert native_host._file_host.__class__.__name__ == "PathIoFileHost"
+        assert native_host._time_host.__class__.__name__ == "SleepIoTimeHost"
 
     def test_seconds_only_host_installs_through_preferred_setter(self) -> None:
         class FakeSecondsHost:
@@ -877,33 +884,29 @@ class TestReadNumbers:
         p = tmp_path / "d.csv"
         p.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
         out = read_numbers(str(p))
-        np.testing.assert_array_equal(out.a, np.array([1.0, 3.0]))
-        np.testing.assert_array_equal(out.b, np.array([2.0, 4.0]))
+        assert list(out.a) == [1.0, 3.0]
+        assert list(out.b) == [2.0, 4.0]
         assert isinstance(out, tuple)
 
     def test_no_header_matrix_2d_array(self, tmp_path: Path) -> None:
         p = tmp_path / "n.txt"
         p.write_text("1 2\n3 4\n", encoding="utf-8")
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(
-            out, np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
-        )
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
         assert out.ndim == 2
 
     def test_auto_all_numeric_first_row_is_matrix(self, tmp_path: Path) -> None:
         p = tmp_path / "d.txt"
         p.write_text("1,2\n3,4\n", encoding="utf-8")
         out = read_numbers(str(p))
-        np.testing.assert_array_equal(
-            out, np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
-        )
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
 
     def test_explicit_header_true(self, tmp_path: Path) -> None:
         p = tmp_path / "d.csv"
         p.write_text("x,y\n10,20\n", encoding="utf-8")
         out = read_numbers(str(p), header=True)
-        np.testing.assert_array_equal(out.x, np.array([10.0]))
-        np.testing.assert_array_equal(out.y, np.array([20.0]))
+        assert list(out.x) == [10.0]
+        assert list(out.y) == [20.0]
 
     def test_ambiguous_first_row_errors(self, tmp_path: Path) -> None:
         p = tmp_path / "bad.csv"
@@ -916,7 +919,7 @@ class TestReadNumbers:
         p.write_text("", encoding="utf-8")
         out = read_numbers(str(p))
         assert out.shape == (0, 0)
-        assert out.dtype == np.float64
+        assert out.dtype == "float64"
 
     def test_header_only_no_data_rows(self, tmp_path: Path) -> None:
         p = tmp_path / "h.csv"
@@ -930,9 +933,7 @@ class TestReadNumbers:
         p = tmp_path / "t.tsv"
         p.write_text("1\t2\n3\t4\n", encoding="utf-8")
         out = read_numbers(str(p), delimiter="\t", header=False)
-        np.testing.assert_array_equal(
-            out, np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
-        )
+        assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
 
     def test_matrix_skips_non_numeric_and_ragged_rows(self, tmp_path: Path) -> None:
         p = tmp_path / "m.txt"
@@ -945,31 +946,27 @@ class TestReadNumbers:
             encoding="utf-8",
         )
         out = read_numbers(str(p), header=False)
-        np.testing.assert_array_equal(
-            out, np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)
-        )
+        assert list(out) == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
 
     def test_header_mode_skips_bad_data_rows(self, tmp_path: Path) -> None:
         p = tmp_path / "h.csv"
         p.write_text("a,b\n1,2\noops\n3,4\n", encoding="utf-8")
         out = read_numbers(str(p), header=True)
-        np.testing.assert_array_equal(out.a, np.array([1.0, 3.0]))
-        np.testing.assert_array_equal(out.b, np.array([2.0, 4.0]))
+        assert list(out.a) == [1.0, 3.0]
+        assert list(out.b) == [2.0, 4.0]
 
-    def test_no_numpy_matrix_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_matrix_default_is_builtin_numeric_matrix(self, tmp_path: Path) -> None:
         p = tmp_path / "n.txt"
         p.write_text("1 2\n3 4\n", encoding="utf-8")
-        monkeypatch.setattr(iolib, "np", None)
         out = read_numbers(str(p), header=False)
         assert out.shape == (2, 2)
         assert out.ndim == 2
         assert out.dtype == "float64"
         assert list(out) == [[1.0, 2.0], [3.0, 4.0]]
 
-    def test_no_numpy_header_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_header_default_is_builtin_numeric_column(self, tmp_path: Path) -> None:
         p = tmp_path / "d.csv"
         p.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
-        monkeypatch.setattr(iolib, "np", None)
         out = read_numbers(str(p))
         assert list(out.a) == [1.0, 3.0]
         assert list(out.b) == [2.0, 4.0]
@@ -994,5 +991,5 @@ class TestReadNumbers:
 
         iolib.set_io_file_host(FakeFileHost())
         out = read_numbers("virtual.csv")
-        np.testing.assert_array_equal(out.x, np.array([1.0, 3.0]))
-        np.testing.assert_array_equal(out.y, np.array([2.0, 4.0]))
+        assert list(out.x) == [1.0, 3.0]
+        assert list(out.y) == [2.0, 4.0]

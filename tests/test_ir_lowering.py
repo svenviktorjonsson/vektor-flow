@@ -8,11 +8,12 @@ from vektorflow import ast
 from vektorflow.errors import EvalError
 from vektorflow.interpreter import _stringify
 from vektorflow.interpreter import Interpreter
-from vektorflow.ir import AttrExpr, BinaryExpr, Block, CallExpr, CoerceExpr, Const, FunctionDef, IfStmt, IndexExpr, LinkedListExpr, ListExpr, LoadName, MapExpr, MatchArm, MatchStmt, Module, MultisetExpr, StdlibImport, StoreName, StructExpr, UnaryExpr, WhileStmt, lower_module
+from vektorflow.ir import AttrExpr, AxisAlignExpr, BinaryExpr, Block, CallExpr, CoerceExpr, Const, FunctionDef, IfStmt, IndexExpr, LinkedListExpr, ListExpr, LoadName, MapExpr, MatchArm, MatchStmt, Module, MultisetExpr, RangeExpr, SpliceExpr, StdlibImport, StoreName, StructExpr, TupleExpr, UnaryExpr, WhileStmt, lower_module
 from vektorflow.ir_executor import IRExecutor
 from vektorflow.optimize_ir import optimize_module
 from vektorflow.parser import parse_module
 from vektorflow.runtime.type_values import PrimType
+from vektorflow.runtime.axis_tagged import axis_tagged_data, axis_tagged_idx
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
 
 
@@ -27,6 +28,14 @@ def _run_both(src: str) -> tuple[object, dict[str, object], object, dict[str, ob
     ir_ret = ir_ip.run_module(lowered)
 
     return ast_ret, ast_ip.globals, ir_ret, ir_ip.globals
+
+
+def _normalize_axis_shape(value: object) -> object:
+    if isinstance(value, tuple):
+        return [_normalize_axis_shape(item) for item in value]
+    if isinstance(value, list):
+        return [_normalize_axis_shape(item) for item in value]
+    return value
 
 
 def test_ir_parity_literals_binds_and_binops() -> None:
@@ -59,6 +68,32 @@ d: 6 & "w"
     assert ir_globals["d"] == ast_globals["d"] == "6w"
 
 
+def test_ir_parity_string_interpolation_subset() -> None:
+    src = """
+value: 4
+Point : (x:num, y:num)
+Point p: (x:3, y:4)
+msg: "x=$value p=$p.x,$p.y"
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["msg"] == ast_globals["msg"] == "x=4 p=3,4"
+
+
+def test_ir_executor_interpolates_struct_attr_paths_in_supported_subset() -> None:
+    src = """
+Point : (x:num, y:num)
+Point p: (x:3, y:4)
+msg: "x=$p.x y=$p.y"
+"""
+    mod = parse_module(src, filename="<ir-test>")
+    lowered = lower_module(mod)
+    ip = IRExecutor(Path(__file__))
+    ret = ip.run_module(lowered)
+    assert ret is None
+    assert ip.globals["msg"] == "x=3 y=4"
+
+
 def test_ir_parity_type_value_binary_fallbacks() -> None:
     src = """
 eq1: int = num
@@ -89,6 +124,144 @@ full? out: 2
     assert ir_globals["a"] == ast_globals["a"] is True
     assert ir_globals["b"] == ast_globals["b"] is False
     assert ir_globals["out"] == ast_globals["out"] == 2
+
+
+def test_ir_parity_ranges() -> None:
+    src = """
+inclusive: [1..5]
+from_zero: [..3]
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert list(ir_globals["inclusive"]) == list(ast_globals["inclusive"]) == [1, 2, 3, 4, 5]
+    assert list(ir_globals["from_zero"]) == list(ast_globals["from_zero"]) == [0, 1, 2, 3]
+
+
+def test_ir_parity_lazy_range_list_take() -> None:
+    src = """
+v: [1..]
+out: take(4, v)
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["out"] == ast_globals["out"] == (1, 2, 3, 4)
+
+
+def test_ir_parity_scope_expr_returns_last_row() -> None:
+    src = """
+message:
+    name: "Ada"
+    "hello $name"
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["message"] == ast_globals["message"] == "hello Ada"
+
+
+def test_ir_parity_pipe_chain_vector_square() -> None:
+    src = """
+squares: [1..5] >> $ * $
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert list(ir_globals["squares"]) == list(ast_globals["squares"]) == [1, 4, 9, 16, 25]
+
+
+def test_ir_parity_pipe_chain_function_segment() -> None:
+    src = """
+square(x): x * x
+out: [1..5] >> square($)
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert list(ir_globals["out"]) == list(ast_globals["out"]) == [1, 4, 9, 16, 25]
+
+
+def test_ir_parity_abs_and_typeof_subset() -> None:
+    src = """
+point: (x: 3, y: 4)
+values: [1, 2, 3]
+a: |-3|
+b: |[3, 4]|
+t1: point.
+t2: values.
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["a"] == ast_globals["a"] == 3.0
+    assert ir_globals["b"] == ast_globals["b"] == 5.0
+    assert _stringify(ir_globals["t1"], {}) == _stringify(ast_globals["t1"], {})
+    assert _stringify(ir_globals["t2"], {}) == _stringify(ast_globals["t2"], {})
+
+
+def test_ir_parity_file_module_import_example() -> None:
+    import contextlib
+    from io import StringIO
+
+    source_path = Path("examples/83_file_module.vkf")
+    source = source_path.read_text(encoding="utf-8")
+    mod = parse_module(source, filename=str(source_path))
+
+    ast_ip = Interpreter(source_path)
+    ast_buf = StringIO()
+    with contextlib.redirect_stdout(ast_buf):
+        ast_ret = ast_ip.run_module(mod)
+
+    lowered = lower_module(mod)
+    ir_ip = IRExecutor(source_path)
+    ir_buf = StringIO()
+    with contextlib.redirect_stdout(ir_buf):
+        ir_ret = ir_ip.run_module(lowered)
+
+    assert ir_ret == ast_ret
+    assert "helpers" in ir_ip.globals
+    assert ast_buf.getvalue() == ir_buf.getvalue() == "20"
+
+
+def test_ir_parity_scope_identity_and_spill_value_constructor_style() -> None:
+    src = """
+Point(x, y):
+    x: x
+    y: y
+    :
+
+ColoredPoint(x, y, color):
+    : Point(x, y)
+    color: color
+    :
+
+out: ColoredPoint(3, 4, "red")
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["out"]["x"] == ast_globals["out"]["x"] == 3
+    assert ir_globals["out"]["y"] == ast_globals["out"]["y"] == 4
+    assert ir_globals["out"]["color"] == ast_globals["out"]["color"] == "red"
+
+
+def test_ir_parity_tuple_literals_and_spread() -> None:
+    src = """
+t: (1, :[2,3], 4)
+mid: t.(2)
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["t"] == ast_globals["t"] == (1, 2, 3, 4)
+    assert ir_globals["mid"] == ast_globals["mid"] == 3
+
+
+def test_ir_lowers_tuple_literal_spread_as_tuple_expr() -> None:
+    mod = parse_module(
+        """
+t: (1, :[2,3], 4)
+""",
+        filename="<ir-test>",
+    )
+    lowered = lower_module(mod)
+    bind_t = lowered.statements[0]
+    assert isinstance(bind_t, StoreName)
+    assert isinstance(bind_t.value, TupleExpr)
+    assert isinstance(bind_t.value.elements[1], SpliceExpr)
 
 
 def test_ir_parity_typed_coercion_surface() -> None:
@@ -238,9 +411,6 @@ score: 0
 
 
 def test_ir_lowering_rejects_unsupported_nodes_for_now() -> None:
-    mod = parse_module('msg: "x=$y"', filename="<ir-test>")
-    with pytest.raises(NotImplementedError):
-        lower_module(mod)
     catch_mod = parse_module("missing!?\n  errors.Error => out: 1\n", filename="<ir-test>")
     with pytest.raises(NotImplementedError):
         lower_module(catch_mod)
@@ -285,6 +455,57 @@ out: mul(3)
     ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
     assert ir_ret == ast_ret
     assert ir_globals["out"] == ast_globals["out"] == 6
+
+
+def test_ir_parity_struct_field_rebind() -> None:
+    src = """
+point: (x: 3, y: 4)
+point.z: 5
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["point"] == ast_globals["point"] == {"x": 3, "y": 4, "z": 5}
+
+
+def test_ir_parity_vector_index_rebind() -> None:
+    src = """
+values: [1, 2, 3]
+values.0: 4
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["values"] == ast_globals["values"] == [4, 2, 3]
+
+
+def test_ir_parity_resource_style_rebinds() -> None:
+    src = """
+collections: .collections
+
+value_point: (x: 1, y: 2)
+value_point.x: 9
+
+state: collections.map(name: "alice", ok: true)
+state.("name"): "bob"
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["value_point"] == ast_globals["value_point"] == {"x": 9, "y": 2}
+    assert ir_globals["state"].get("name") == ast_globals["state"].get("name") == "bob"
+
+
+def test_ir_parity_stdio_label_print() -> None:
+    src = """
+show(x, ...rest):
+    ::: x
+    ::: rest.length()
+    ::: rest.0
+
+show(1, 2, 3, 4)
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["show"] is not None
+    assert ast_globals["show"] is not None
 
 
 def test_ir_preserves_symbolic_fixed_vector_function_metadata() -> None:
@@ -542,6 +763,15 @@ def test_ir_lowers_collection_constructor_calls_as_collection_exprs() -> None:
     assert lowered.statements[1].value.spread is not None
 
 
+def test_ir_lowers_vector_literal_spread_as_splice_expr() -> None:
+    mod = parse_module("values: [: [1,2,3]]\n", filename="<ir-test>")
+    lowered = lower_module(mod)
+    assert isinstance(lowered.statements[0], StoreName)
+    assert isinstance(lowered.statements[0].value, ListExpr)
+    assert len(lowered.statements[0].value.elements) == 1
+    assert isinstance(lowered.statements[0].value.elements[0], SpliceExpr)
+
+
 def test_ir_lowers_operator_callable_refs_as_call_exprs() -> None:
     mod = parse_module(
         """
@@ -560,6 +790,42 @@ out: +(p, 4)
     assert isinstance(lowered.statements[-1].value, CallExpr)
     assert isinstance(lowered.statements[-1].value.func, LoadName)
     assert lowered.statements[-1].value.func.name == "+"
+
+
+def test_ir_lowers_axis_aligned_vectors_as_axis_align_exprs() -> None:
+    mod = parse_module(
+        """
+u: [-1, 0, 1] -> u
+axis_name: "v"
+v: [-1, 0, 1] -> (axis_name)
+""",
+        filename="<ir-test>",
+    )
+    lowered = lower_module(mod)
+    assert isinstance(lowered.statements[0], StoreName)
+    assert isinstance(lowered.statements[0].value, AxisAlignExpr)
+    assert lowered.statements[0].value.key == Const("u")
+    assert isinstance(lowered.statements[0].value.value, ListExpr)
+    assert isinstance(lowered.statements[2], StoreName)
+    assert isinstance(lowered.statements[2].value, AxisAlignExpr)
+    assert isinstance(lowered.statements[2].value.key, LoadName)
+    assert lowered.statements[2].value.key.name == "axis_name"
+
+
+def test_ir_parity_axis_aligned_outer_product_subset() -> None:
+    src = """
+u: [-1, 0, 1] -> u
+v: [-1, 0, 1] -> v
+z: u * v
+    """
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert axis_tagged_idx(ir_globals["u"]) == axis_tagged_idx(ast_globals["u"]) == "u"
+    assert axis_tagged_idx(ir_globals["v"]) == axis_tagged_idx(ast_globals["v"]) == "v"
+    assert _normalize_axis_shape(axis_tagged_data(ir_globals["u"])) == _normalize_axis_shape(axis_tagged_data(ast_globals["u"]))
+    assert _normalize_axis_shape(axis_tagged_data(ir_globals["v"])) == _normalize_axis_shape(axis_tagged_data(ast_globals["v"]))
+    assert axis_tagged_idx(ir_globals["z"]) == axis_tagged_idx(ast_globals["z"]) == "uv"
+    assert _normalize_axis_shape(axis_tagged_data(ir_globals["z"])) == _normalize_axis_shape(axis_tagged_data(ast_globals["z"]))
 
 
 def test_ir_parity_map_and_linked_list_runtime_subset() -> None:
@@ -606,23 +872,32 @@ def test_interpreter_ir_execution_preserves_existing_globals() -> None:
 
 
 def test_interpreter_falls_back_to_ast_for_non_lowerable_module() -> None:
-    mod = parse_module('value: 4\nmsg: "x=$value"\n', filename="<ir-test>")
+    mod = parse_module(
+        """
+Point(x:num, y:num):
+
+p: Point(3, 4)
+out: p.x + p.y
+""",
+        filename="<ir-test>",
+    )
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
     assert ip.last_execution_engine == "ast"
-    assert ip.globals["msg"] == "x=4"
+    assert ip.globals["out"] == 7
 
 
 def test_interpreter_uses_ir_for_lowerable_function_inside_ast_module() -> None:
     mod = parse_module(
         """
-value: 4
-msg: "x=$value"
+Point(x:num, y:num):
+
 twice(x):
     x * 2
 
-out: twice(value + 3)
+base: Point(4, 5)
+out: twice(base.x + 3)
 """,
         filename="<ir-test>",
     )
@@ -631,15 +906,14 @@ out: twice(value + 3)
     assert ret is None
     assert ip.last_execution_engine == "ast"
     assert ip.last_function_execution_engine == "ir"
-    assert ip.globals["msg"] == "x=4"
     assert ip.globals["out"] == 14
 
 
 def test_interpreter_uses_ir_for_recursive_lowerable_function_calls_inside_ast_module() -> None:
     mod = parse_module(
         """
-seed: 3
-label: "seed=$seed"
+Point(x:num):
+
 count_down(n):
     n = 0? @: 0
     count_down(n - 1)
@@ -656,11 +930,13 @@ out: count_down(3)
     assert ip.globals["out"] == 0
 
 
-def test_interpreter_falls_back_to_ast_for_non_lowerable_function_body() -> None:
+def test_interpreter_uses_ir_for_vector_literal_spread_function_body() -> None:
     mod = parse_module(
         """
+Point(x:num):
+
 label(x):
-    "x=$x"
+    [: [1,2,3]]
 
 out: label(4)
 """,
@@ -670,8 +946,8 @@ out: label(4)
     ret = ip.run_module(mod)
     assert ret is None
     assert ip.last_execution_engine == "ast"
-    assert ip.last_function_execution_engine == "ast"
-    assert ip.globals["out"] == "x=4"
+    assert ip.last_function_execution_engine == "ir"
+    assert list(ip.globals["out"]) == [1, 2, 3]
 
 
 def test_interpreter_routes_struct_constructor_calls_through_execution_seam() -> None:
@@ -719,8 +995,8 @@ out: num(Point(3))
 def test_interpreter_routes_builtin_cast_fallback_through_callable_seam() -> None:
     mod = parse_module(
         """
-seed: 2
-label: "seed=$seed"
+Point(x:num):
+
 out: num(true)
 """,
         filename="<ir-test>",
@@ -770,8 +1046,7 @@ out: m.a
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
-    assert ip.last_callable_execution_engine == "runtime"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == 1
 
 
@@ -939,7 +1214,7 @@ out: m.a
     assert ip.globals["out"] == 7
 
 
-def test_interpreter_ast_fallback_uses_execution_seam_for_string_interpolation_paths() -> None:
+def test_interpreter_run_module_uses_ir_for_string_interpolation_paths() -> None:
     mod = parse_module(
         """
 Point : (x:num, y:num)
@@ -951,11 +1226,11 @@ msg: "x=$p.x y=$p.y"
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["msg"] == "x=3 y=4"
 
 
-def test_interpreter_ast_fallback_uses_dot_overload_path_for_string_interpolation() -> None:
+def test_interpreter_run_module_uses_ir_for_dot_overload_string_interpolation() -> None:
     mod = parse_module(
         """
 Pair : (x:num, y:num)
@@ -973,7 +1248,7 @@ msg: "left=$p.left right=$p.right"
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["msg"] == "left=3 right=4"
 
 

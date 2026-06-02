@@ -1,0 +1,163 @@
+# Self-hosted VKF typed IR seed.
+#
+# Source-level contract for the native AST-to-IR smoke seam. The executable
+# consumes normalized parser AST JSON and emits deterministic typed IR JSON.
+
+TypeName: (name:str)
+FunctionSignature: (params:any, return_type:str, type:str)
+TypedModule: (kind:str, body:any)
+TypedBlock: (kind:str, body:any)
+TypedConst: (kind:str, value:any, type:str)
+TypedLoad: (kind:str, name:str, type:str)
+TypedCall: (kind:str, callee:any, args:any, type:str)
+TypedStoreBinding: (kind:str, name:str, value:any, type:str)
+TypedFunction: (kind:str, name:str, params:any, return_type:str, signature:FunctionSignature, body:TypedBlock, type:str)
+TypedParam: (kind:str, name:str, type:str)
+TypedReturn: (kind:str, value:any, type:str)
+TypedExprStmt: (kind:str, expr:any)
+TypedList: (kind:str, items:any, element_type:str, type:str)
+TypedRecord: (kind:str, fields:any, type:str)
+TypedFieldAccess: (kind:str, object:any, field:str, object_type:str, type:str)
+FunctionSymbol: (name:str, param_types:any, return_type:str, signature:str)
+
+type_name(name:str):
+    (name: name)
+
+function_signature(params:any, return_type:str):
+    (
+        params: params,
+        return_type: return_type,
+        type: "function signature"
+    )
+
+typed_module(body:any):
+    (kind: "typed_module", body: body)
+
+typed_block(body:any):
+    (kind: "block", body: body)
+
+typed_const(value:any, type:str):
+    (kind: "const", value: value, type: type)
+
+typed_load(name:str, type:str):
+    (kind: "load", name: name, type: type)
+
+typed_call(callee:any, args:any):
+    (kind: "call", callee: callee, args: args, arg_types: [], callee_type: callee.type, type: "any")
+
+typed_store_binding(name:str, value:any, type:str):
+    (kind: "store_binding", name: name, value: value, type: type)
+
+typed_param(name:str, type:str):
+    (kind: "param", name: name, type: type)
+
+typed_function(name:str, params:any, return_type:str, signature:FunctionSignature, body:TypedBlock):
+    (
+        kind: "function",
+        name: name,
+        params: params,
+        return_type: return_type,
+        signature: signature,
+        body: body,
+        type: signature.type
+    )
+
+typed_return(value:any, type:str):
+    (kind: "return", value: value, type: type)
+
+typed_expr_stmt(expr:any):
+    (kind: "expr_stmt", expr: expr)
+
+typed_list(items:any, element_type:str):
+    (kind: "list", items: items, element_type: element_type, type: "list")
+
+typed_record(fields:any, type:str):
+    (kind: "record", fields: fields, type: type)
+
+typed_field_access(object:any, field:str, object_type:str, type:str):
+    (kind: "field_access", object: object, field: field, object_type: object_type, type: type)
+
+function_symbol(name:str, param_types:any, return_type:str, signature:str):
+    (name: name, param_types: param_types, return_type: return_type, signature: signature)
+
+infer_literal_type(kind:str):
+    kind??
+        "number_literal" => "num"
+        "string_literal" => "str"
+        "bool_literal" => "bool"
+        "null_literal" => "null"
+        "any"
+
+unknown_identifier_type:
+    "any"
+
+native_ast_to_ir_smoke_capability:
+    name: "vkf_ast_to_ir_smoke"
+    input: "normalized AST JSON from vkf_parser_token_stream_smoke"
+    output: "deterministic typed IR JSON"
+    lowers: [
+        "module",
+        "bind to store_binding with inferred value type",
+        "number literal to num const",
+        "string literal to str const",
+        "bool literal to bool const",
+        "null literal to null const",
+        "identifier to typed load",
+        "unknown identifier type any",
+        "simple call expression",
+        "function definition shell",
+        "params and param types",
+        "return type annotation",
+        "lowered function body",
+        "return statement"
+    ]
+    symbol_table: [
+        "register function definitions before lowering later module body statements",
+        "known function call typing uses declared return type",
+        "known function arity mismatch fails hard"
+    ]
+    collections: [
+        "native parser pipeline emits list literals",
+        "native parser pipeline emits record literals",
+        "list literal lowers with element_type and list element type",
+        "record literal lowers with record field types"
+    ]
+    field_access: [
+        "native parser pipeline emits attribute field access",
+        "attribute AST lowers to field_access",
+        "record field access returns known field type",
+        "unknown object field access returns any"
+    ]
+    stdlib_aliases: [
+        "stdlib import bindings seed namespace-aware typed IR env",
+        "collections.map alias call lowers to map field types",
+        "collections.list alias call lowers to linked list element types",
+        "math and stat function aliases preserve intrinsic return typing"
+    ]
+    pipeline: [
+        "lexer smoke token stream",
+        "parser smoke AST JSON",
+        "ast_to_ir smoke typed IR JSON"
+    ]
+    unsupported: ["unsupported AST kind fails hard nonzero"]
+    percent: 70
+    :
+
+typed_ir_capability:
+    name: "self_hosted_typed_ir_seed"
+    types: ["num", "str", "bool", "null", "any", "function signature"]
+    proven_native_smoke: [
+        "answer bind stores num",
+        "print call consumes loaded binding",
+        "function shell carries param type and return type",
+        "return statement lowers with value type",
+        "known function return type propagates through binding",
+        "wrong arity diagnostic for known functions",
+        "collection literal pipeline lowers with explicit element type",
+        "record field access pipeline lowers known str field",
+        "mixed collection pipeline lowers explicit any element type",
+        "stdlib namespace alias bindings keep collection and intrinsic typing",
+        "declared self-hosted compiler bundle lowers through lexer parser and ast_to_ir smoke path",
+        "unsupported AST nodes fail without fallback"
+    ]
+    :

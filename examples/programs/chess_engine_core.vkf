@@ -1,0 +1,329 @@
+Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
+VisualPiece : (side:str, role:str, asset:str, x:num, y:num, z:num, captured:bool, tray_slot:num)
+MoveRights : (king_moved:bool, queenside_rook_moved:bool, kingside_rook_moved:bool)
+MoveContext : (path_clear:bool, king_safe_after:bool, castle_path_safe:bool, en_passant_file:num, en_passant_rank:num, promotion_role:str)
+
+file_name(file:num) -> str:
+    file = 1? @: "a"
+    file = 2? @: "b"
+    file = 3? @: "c"
+    file = 4? @: "d"
+    file = 5? @: "e"
+    file = 6? @: "f"
+    file = 7? @: "g"
+    @: "h"
+
+piece_letter(role:str) -> str:
+    role = "king"? @: "K"
+    role = "queen"? @: "Q"
+    role = "rook"? @: "R"
+    role = "bishop"? @: "B"
+    role = "knight"? @: "N"
+    @: ""
+
+rank_name(rank:num) -> str:
+    rank = 1? @: "1"
+    rank = 2? @: "2"
+    rank = 3? @: "3"
+    rank = 4? @: "4"
+    rank = 5? @: "5"
+    rank = 6? @: "6"
+    rank = 7? @: "7"
+    @: "8"
+
+abs_num(value:num) -> num:
+    value < 0? @: 0 - value
+    @: value
+
+same_square(piece:Piece, file:num, rank:num) -> bool:
+    piece.captured? @: false
+    piece.file = file?
+        piece.rank = rank? @: true
+    @: false
+
+is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+    piece.side = "white"?
+        to_file = piece.file?
+            to_rank = piece.rank + 1? @: true
+        @: false
+    to_file = piece.file?
+        to_rank = piece.rank - 1? @: true
+    @: false
+
+is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+    piece.side = "white"?
+        piece.rank = 2?
+            to_file = piece.file?
+                to_rank = 4? @: true
+        @: false
+    piece.rank = 7?
+        to_file = piece.file?
+            to_rank = 5? @: true
+    @: false
+
+is_pawn_capture(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
+    target.captured? @: false
+    target.side = piece.side? @: false
+    piece.side = "white"?
+        abs_num(to_file - piece.file) = 1?
+            to_rank = piece.rank + 1?
+                same_square(target, to_file, to_rank)? @: true
+        @: false
+    abs_num(to_file - piece.file) = 1?
+        to_rank = piece.rank - 1?
+            same_square(target, to_file, to_rank)? @: true
+    @: false
+
+can_pawn_move(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
+    is_pawn_capture(piece, target, to_file, to_rank)? @: true
+    same_square(target, to_file, to_rank)? @: false
+    is_forward_pawn_move(piece, to_file, to_rank)? @: true
+    @: is_double_pawn_move(piece, to_file, to_rank)
+
+is_empty_square(target:Piece, to_file:num, to_rank:num) -> bool:
+    same_square(target, to_file, to_rank)? @: false
+    @: true
+
+is_same_destination(piece:Piece, to_file:num, to_rank:num) -> bool:
+    piece.file = to_file?
+        piece.rank = to_rank? @: true
+    @: false
+
+is_rook_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    is_same_destination(piece, to_file, to_rank)? @: false
+    piece.file = to_file? @: true
+    piece.rank = to_rank? @: true
+    @: false
+
+is_bishop_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    is_same_destination(piece, to_file, to_rank)? @: false
+    @: abs_num(to_file - piece.file) = abs_num(to_rank - piece.rank)
+
+is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    abs_num(to_file - piece.file) = 1?
+        abs_num(to_rank - piece.rank) = 2? @: true
+    abs_num(to_file - piece.file) = 2?
+        abs_num(to_rank - piece.rank) = 1? @: true
+    @: false
+
+is_king_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    is_same_destination(piece, to_file, to_rank)? @: false
+    abs_num(to_file - piece.file) > 1? @: false
+    abs_num(to_rank - piece.rank) > 1? @: false
+    @: true
+
+piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+    piece.role = "rook"? @: is_rook_shape(piece, to_file, to_rank)
+    piece.role = "bishop"? @: is_bishop_shape(piece, to_file, to_rank)
+    piece.role = "knight"? @: is_knight_shape(piece, to_file, to_rank)
+    piece.role = "king"? @: is_king_shape(piece, to_file, to_rank)
+    piece.role = "queen"?
+        is_rook_shape(piece, to_file, to_rank)? @: true
+        @: is_bishop_shape(piece, to_file, to_rank)
+    @: false
+
+can_piece_move(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
+    piece.role = "pawn"? @: can_pawn_move(piece, target, to_file, to_rank)
+    target.side = piece.side?
+        same_square(target, to_file, to_rank)? @: false
+    @: piece_shape_move(piece, to_file, to_rank)
+
+is_slider(piece:Piece) -> bool:
+    piece.role = "rook"? @: true
+    piece.role = "bishop"? @: true
+    piece.role = "queen"? @: true
+    @: false
+
+can_piece_move_with_path(piece:Piece, target:Piece, to_file:num, to_rank:num, path_clear:bool) -> bool:
+    can_piece_move(piece, target, to_file, to_rank)? 
+        is_slider(piece)?
+            path_clear? @: true
+            @: false
+        @: true
+    @: false
+
+is_promotion_rank(piece:Piece, to_rank:num) -> bool:
+    piece.role = "pawn"?
+        piece.side = "white"?
+            to_rank = 8? @: true
+            @: false
+        to_rank = 1? @: true
+    @: false
+
+is_promotion_role(role:str) -> bool:
+    role = "queen"? @: true
+    role = "rook"? @: true
+    role = "bishop"? @: true
+    role = "knight"? @: true
+    @: false
+
+promote_piece(piece:Piece, to_file:num, to_rank:num, role:str) -> Piece:
+    is_promotion_rank(piece, to_rank)?
+        is_promotion_role(role)? @: (side:piece.side, role:role, file:to_file, rank:to_rank, captured:false, tray_rank:piece.tray_rank)
+    @: (side:piece.side, role:piece.role, file:to_file, rank:to_rank, captured:false, tray_rank:piece.tray_rank)
+
+is_en_passant_capture(piece:Piece, to_file:num, to_rank:num, en_passant_file:num, en_passant_rank:num) -> bool:
+    piece.role = "pawn"?
+        abs_num(to_file - piece.file) = 1?
+            to_file = en_passant_file?
+                to_rank = en_passant_rank? @: true
+    @: false
+
+can_castle_kingside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, path_clear:bool, path_safe:bool) -> bool:
+    piece.role = "king"?
+        rights.king_moved? @: false
+        rights.kingside_rook_moved? @: false
+        path_clear?
+            path_safe?
+                piece.side = "white"?
+                    piece.file = 5?
+                        piece.rank = 1?
+                            to_file = 7?
+                                to_rank = 1? @: true
+                piece.file = 5?
+                    piece.rank = 8?
+                        to_file = 7?
+                            to_rank = 8? @: true
+    @: false
+
+can_castle_queenside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, path_clear:bool, path_safe:bool) -> bool:
+    piece.role = "king"?
+        rights.king_moved? @: false
+        rights.queenside_rook_moved? @: false
+        path_clear?
+            path_safe?
+                piece.side = "white"?
+                    piece.file = 5?
+                        piece.rank = 1?
+                            to_file = 3?
+                                to_rank = 1? @: true
+                piece.file = 5?
+                    piece.rank = 8?
+                        to_file = 3?
+                            to_rank = 8? @: true
+    @: false
+
+can_legal_move(piece:Piece, target:Piece, to_file:num, to_rank:num, rights:MoveRights, ctx:MoveContext) -> bool:
+    ctx.king_safe_after? 
+        can_piece_move_with_path(piece, target, to_file, to_rank, ctx.path_clear)? @: true
+        is_en_passant_capture(piece, to_file, to_rank, ctx.en_passant_file, ctx.en_passant_rank)? @: true
+        can_castle_kingside(piece, to_file, to_rank, rights, ctx.path_clear, ctx.castle_path_safe)? @: true
+        can_castle_queenside(piece, to_file, to_rank, rights, ctx.path_clear, ctx.castle_path_safe)? @: true
+    @: false
+
+move_notation(piece:Piece, target:Piece, to_file:num, to_rank:num) -> str:
+    is_pawn_capture(piece, target, to_file, to_rank)? @: file_name(piece.file) & "x" & file_name(to_file) & rank_name(to_rank)
+    same_square(target, to_file, to_rank)? @: piece_letter(piece.role) & "x" & file_name(to_file) & rank_name(to_rank)
+    @: piece_letter(piece.role) & file_name(to_file) & rank_name(to_rank)
+
+move_piece(piece:Piece, target:Piece, to_file:num, to_rank:num) -> Piece:
+    can_pawn_move(piece, target, to_file, to_rank)? @: (side:piece.side, role:piece.role, file:to_file, rank:to_rank, captured:false, tray_rank:piece.tray_rank)
+    @: piece
+
+capture_piece(piece:Piece, by:Piece, to_file:num, to_rank:num, tray_rank:num) -> Piece:
+    is_pawn_capture(by, piece, to_file, to_rank)? @: (side:piece.side, role:piece.role, file:piece.file, rank:piece.rank, captured:true, tray_rank:tray_rank)
+    @: piece
+
+piece_asset_path(piece:Piece) -> str:
+    piece.side = "white"?
+        piece.role = "pawn"? @: "assets/chess/models/gltf/Pawn_White.glb"
+        piece.role = "rook"? @: "assets/chess/models/gltf/Rook_White.glb"
+        piece.role = "knight"? @: "assets/chess/models/gltf/Knight_White.glb"
+        piece.role = "bishop"? @: "assets/chess/models/gltf/Bishop_White.glb"
+        piece.role = "queen"? @: "assets/chess/models/gltf/Queen_White.glb"
+        @: "assets/chess/models/gltf/King_White.glb"
+    piece.role = "pawn"? @: "assets/chess/models/gltf/Pawn_Black.glb"
+    piece.role = "rook"? @: "assets/chess/models/gltf/Rook_Black.glb"
+    piece.role = "knight"? @: "assets/chess/models/gltf/Knight_Black.glb"
+    piece.role = "bishop"? @: "assets/chess/models/gltf/Bishop_Black.glb"
+    piece.role = "queen"? @: "assets/chess/models/gltf/Queen_Black.glb"
+    @: "assets/chess/models/gltf/King_Black.glb"
+
+board_x(file:num) -> num:
+    @: file - 4.5
+
+board_z(rank:num) -> num:
+    @: rank - 4.5
+
+captured_tray_x(piece:Piece) -> num:
+    piece.side = "black"? @: 5.25
+    @: -5.25
+
+captured_tray_z(piece:Piece) -> num:
+    @: piece.tray_rank - 4.5
+
+visual_piece(piece:Piece) -> VisualPiece:
+    piece.captured? @: (side:piece.side, role:piece.role, asset:piece_asset_path(piece), x:captured_tray_x(piece), y:0, z:captured_tray_z(piece), captured:true, tray_slot:piece.tray_rank)
+    @: (side:piece.side, role:piece.role, asset:piece_asset_path(piece), x:board_x(piece.file), y:0, z:board_z(piece.rank), captured:false, tray_slot:0)
+
+white_pawn_e_start: (side:"white", role:"pawn", file:5, rank:2, captured:false, tray_rank:1)
+black_pawn_d_start: (side:"black", role:"pawn", file:4, rank:7, captured:false, tray_rank:1)
+black_pawn_e_start: (side:"black", role:"pawn", file:5, rank:7, captured:false, tray_rank:2)
+white_knight_g_start: (side:"white", role:"knight", file:7, rank:1, captured:false, tray_rank:1)
+white_bishop_c_start: (side:"white", role:"bishop", file:3, rank:1, captured:false, tray_rank:1)
+white_rook_a_start: (side:"white", role:"rook", file:1, rank:1, captured:false, tray_rank:1)
+white_queen_d_start: (side:"white", role:"queen", file:4, rank:1, captured:false, tray_rank:1)
+white_king_e_start: (side:"white", role:"king", file:5, rank:1, captured:false, tray_rank:1)
+white_pawn_e7: (side:"white", role:"pawn", file:5, rank:7, captured:false, tray_rank:1)
+black_pawn_d4: (side:"black", role:"pawn", file:4, rank:4, captured:false, tray_rank:1)
+white_rights_open: (king_moved:false, queenside_rook_moved:false, kingside_rook_moved:false)
+white_rights_king_moved: (king_moved:true, queenside_rook_moved:false, kingside_rook_moved:false)
+legal_open_context: (path_clear:true, king_safe_after:true, castle_path_safe:true, en_passant_file:4, en_passant_rank:6, promotion_role:"queen")
+blocked_context: (path_clear:false, king_safe_after:true, castle_path_safe:true, en_passant_file:4, en_passant_rank:6, promotion_role:"queen")
+unsafe_context: (path_clear:true, king_safe_after:false, castle_path_safe:true, en_passant_file:4, en_passant_rank:6, promotion_role:"queen")
+
+white_e4: move_piece(white_pawn_e_start, black_pawn_e_start, 5, 4)
+black_d5: move_piece(black_pawn_d_start, white_e4, 4, 5)
+captured_black_d: capture_piece(black_d5, white_e4, 4, 5, 1)
+white_exd5: move_piece(white_e4, black_d5, 4, 5)
+
+move_1: move_notation(white_pawn_e_start, black_pawn_e_start, 5, 4)
+move_2: move_notation(black_pawn_d_start, white_e4, 4, 5)
+move_3: move_notation(white_e4, black_d5, 4, 5)
+
+illegal_black_pawn_capture: can_pawn_move(black_pawn_e_start, white_pawn_e_start, 6, 6)
+knight_f3_valid: can_piece_move(white_knight_g_start, black_pawn_e_start, 6, 3)
+bishop_g5_valid: can_piece_move(white_bishop_c_start, black_pawn_e_start, 7, 5)
+rook_a4_valid: can_piece_move(white_rook_a_start, black_pawn_e_start, 1, 4)
+queen_h5_valid: can_piece_move(white_queen_d_start, black_pawn_e_start, 8, 5)
+king_e2_valid: can_piece_move(white_king_e_start, black_pawn_e_start, 5, 2)
+king_e4_illegal: can_piece_move(white_king_e_start, black_pawn_e_start, 5, 4)
+queen_capture_notation: move_notation(white_queen_d_start, black_pawn_e_start, 5, 7)
+white_knight_visual: visual_piece(white_knight_g_start)
+captured_black_visual: visual_piece(captured_black_d)
+rook_blocked_illegal: can_legal_move(white_rook_a_start, black_pawn_e_start, 1, 4, white_rights_open, blocked_context)
+kingside_castle_valid: can_legal_move(white_king_e_start, black_pawn_e_start, 7, 1, white_rights_open, legal_open_context)
+kingside_castle_king_moved_illegal: can_legal_move(white_king_e_start, black_pawn_e_start, 7, 1, white_rights_king_moved, legal_open_context)
+en_passant_valid: can_legal_move(white_pawn_e_start, black_pawn_d4, 4, 6, white_rights_open, legal_open_context)
+promotion_piece: promote_piece(white_pawn_e7, 5, 8, "queen")
+promotion_bad_role_piece: promote_piece(white_pawn_e7, 5, 8, "king")
+king_exposure_illegal: can_legal_move(white_queen_d_start, black_pawn_e_start, 8, 5, white_rights_open, unsafe_context)
+
+:: move_1
+:: move_2
+:: move_3
+:: white_exd5.file
+:: white_exd5.rank
+:: captured_black_d.captured
+:: captured_black_d.tray_rank
+:: illegal_black_pawn_capture
+:: knight_f3_valid
+:: bishop_g5_valid
+:: rook_a4_valid
+:: queen_h5_valid
+:: king_e2_valid
+:: king_e4_illegal
+:: queen_capture_notation
+:: white_knight_visual.asset
+:: white_knight_visual.x
+:: white_knight_visual.z
+:: captured_black_visual.asset
+:: captured_black_visual.x
+:: captured_black_visual.z
+:: rook_blocked_illegal
+:: kingside_castle_valid
+:: kingside_castle_king_moved_illegal
+:: en_passant_valid
+:: promotion_piece.role
+:: promotion_bad_role_piece.role
+:: king_exposure_illegal

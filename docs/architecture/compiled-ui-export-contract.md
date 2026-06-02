@@ -94,6 +94,7 @@ reconstruct browser or overlay event objects.
 The compiled module may:
 
 - read the input snapshot
+- consume the normalized host event queue
 - read existing runtime state from arenas
 - mutate widget/transform/geometry state
 - append setup commands when structure changes
@@ -117,9 +118,9 @@ That means:
 
 ## Backend Expectations
 
-### C++
+### Native Binary
 
-The `C++` backend should be able to emit:
+The native-binary backend should be able to emit:
 
 - a header for the runtime API and arena ABI
 - a compiled module exporting `vkf_init`, `vkf_update`, `vkf_shutdown`
@@ -130,6 +131,15 @@ The `WASM` backend should be able to export:
 
 - the same conceptual init/update/shutdown entrypoints
 - memory layout compatible with the arena ABI
+
+### WebGPU-Oriented Kernel Emission
+
+The compiler should also be able to lower typed-IR-owned compute/render work
+into `WebGPU`-oriented kernel and buffer-layout artifacts where GPU execution is
+the right target.
+
+That does not replace the language/runtime backend by itself. It complements the
+native-binary and `WASM` runtime targets.
 
 ### Browser Host
 

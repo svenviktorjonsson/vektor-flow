@@ -1,0 +1,4 @@
+# Native smoke stdlib fixture: math constants only.
+
+pi: 3.141592653589793
+tau: 6.283185307179586

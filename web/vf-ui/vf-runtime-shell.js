@@ -50,6 +50,8 @@
     overlayPacketUrl: "/api/runtime-packets",
     filePacketUrl: "vf-runtime-packets.json",
     sceneUrl: "vkf-scene.json",
+    packetOnly: false,
+    strictPacketOnly: false,
     sceneStyleDeps: [
       { href: "vf-frame.css" },
       { href: "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css", crossorigin: "anonymous" }
@@ -470,6 +472,23 @@
       return /(?:^|\/)vkf-scene\.html$/i.test(pathname);
     }
 
+    function truthyRuntimeAttr(value) {
+      var normalized = String(value || "").toLowerCase();
+      return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+    }
+
+    function applySceneRuntimeConfigFromBody(body) {
+      if (!body) { return; }
+      if (truthyRuntimeAttr(body.getAttribute("data-vf-runtime-packet-only"))) {
+        DEFAULT_RUNTIME_CONFIG.packetOnly = true;
+      }
+      if (truthyRuntimeAttr(body.getAttribute("data-vf-runtime-strict-packet-only"))) {
+        DEFAULT_RUNTIME_CONFIG.packetOnly = true;
+        DEFAULT_RUNTIME_CONFIG.strictPacketOnly = true;
+        global.__vfRuntimeStrictPacketOnly = true;
+      }
+    }
+
     function ensureSceneDocumentMeta() {
       if (typeof document === "undefined") { return null; }
       var docEl = document.documentElement;
@@ -628,6 +647,9 @@
     function applySceneCommands(data) {
       var adapter = getSceneAdapter();
       if (!adapter || !adapter.applySceneCommands) {
+        if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+          throw new Error("strict packet-only scene delivery failed: scene adapter unavailable");
+        }
         runtimeLog("warn", "applySceneCommands: scene adapter unavailable");
         return;
       }
@@ -636,19 +658,34 @@
 
     function routeRuntimePacket(packet) {
       var flow = getRuntimeFlow();
-      if (!flow || !flow.routeRuntimePacket) { return; }
+      if (!flow || !flow.routeRuntimePacket) {
+        if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+          throw new Error("strict packet-only runtime packet routing failed: runtime flow unavailable");
+        }
+        return;
+      }
       flow.routeRuntimePacket(packet);
     }
 
     function applyRuntimePayload(payload) {
       var flow = getRuntimeFlow();
-      if (!flow || !flow.applyRuntimePayload) { return false; }
+      if (!flow || !flow.applyRuntimePayload) {
+        if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+          throw new Error("strict packet-only runtime payload delivery failed: runtime flow unavailable");
+        }
+        return false;
+      }
       return flow.applyRuntimePayload(payload);
     }
 
     function loadRuntimePackets() {
       var flow = getRuntimeFlow();
-      if (!flow || !flow.loadRuntimePackets) { return; }
+      if (!flow || !flow.loadRuntimePackets) {
+        if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+          return Promise.reject(new Error("strict packet-only runtime packet source failed: runtime flow unavailable"));
+        }
+        return;
+      }
       return flow.loadRuntimePackets();
     }
 
@@ -690,7 +727,12 @@
         if (result && typeof result.then === "function") {
           result.then(function(outcome) {
             schedulePacketPoll(getNextPacketPollDelay(outcome));
-          }).catch(function() {
+          }).catch(function(err) {
+            if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+              state.strictPacketSourceFailed = true;
+              runtimeLog("error", "schedulePacketPoll: strict packet-only runtime packet source failed: " + (err && err.message ? err.message : String(err)));
+              return;
+            }
             schedulePacketPoll(getNextPacketPollDelay());
           });
           return;
@@ -713,6 +755,7 @@
     function resolveSceneBootOptions() {
       var body = document && document.body;
       if (!body || !isSceneDocument()) { return null; }
+      applySceneRuntimeConfigFromBody(body);
       var layerId = body.getAttribute("data-vf-runtime-layer") || DEFAULT_RUNTIME_CONFIG.layerId;
       var screenCanvasId = body.getAttribute("data-vf-runtime-screen-canvas") || DEFAULT_RUNTIME_CONFIG.screenCanvasId;
       ensureShellDom(layerId, screenCanvasId);
@@ -805,7 +848,12 @@
       if (initialPacketLoad && typeof initialPacketLoad.then === "function") {
         initialPacketLoad.then(function(result) {
           ensurePacketPolling(getNextPacketPollDelay(result));
-        }).catch(function() {
+        }).catch(function(err) {
+          if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+            state.strictPacketSourceFailed = true;
+            runtimeLog("error", "boot: strict packet-only runtime packet source failed: " + (err && err.message ? err.message : String(err)));
+            return;
+          }
           ensurePacketPolling();
         });
       } else {
@@ -813,6 +861,10 @@
       }
       global.setTimeout(function() {
         if (state.runtimePacketsSeen || state.packetFallbackStarted) { return; }
+        if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
+          runtimeLog("info", "boot: strict packet-only mode skipped legacy fallback bootstrap");
+          return;
+        }
         state.packetFallbackStarted = true;
         startLegacyFallback();
       }, DEFAULT_RUNTIME_CONFIG.packetFallbackDelayMs);

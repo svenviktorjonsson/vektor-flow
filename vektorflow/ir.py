@@ -65,6 +65,16 @@ class ListExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class TupleExpr:
+    elements: list[IRNode] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class SpliceExpr:
+    expr: IRNode
+
+
+@dataclass(frozen=True, slots=True)
 class MultisetExpr:
     pairs: list[tuple[IRNode, IRNode]] = field(default_factory=list)
 
@@ -98,6 +108,43 @@ class IndexExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class RangeExpr:
+    start: IRNode | None
+    end: IRNode | None
+
+
+@dataclass(frozen=True, slots=True)
+class PipeChainExpr:
+    source: IRNode
+    segments: list[IRNode | "Block"] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class AbsExpr:
+    inner: IRNode
+
+
+@dataclass(frozen=True, slots=True)
+class TypeOfExpr:
+    value: IRNode
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeExpr:
+    body: "Block"
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeIdentityExpr:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class SpillExpr:
+    value: IRNode
+
+
+@dataclass(frozen=True, slots=True)
 class MatchArm:
     condition: IRNode | None
     body: "Block"
@@ -113,6 +160,17 @@ class CoerceExpr:
 class BindExpr:
     target: IRNode
     value: IRNode
+
+
+@dataclass(frozen=True, slots=True)
+class AxisAlignExpr:
+    value: IRNode
+    key: IRNode
+
+
+@dataclass(frozen=True, slots=True)
+class InterpolatedStringExpr:
+    template: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +190,23 @@ class StoreSlot:
 
 @dataclass(frozen=True, slots=True)
 class PrintStmt:
+    value: IRNode
+
+
+@dataclass(frozen=True, slots=True)
+class LabelPrintStmt:
+    expr_text: str
+    value: IRNode
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleImportStmt:
+    path_segments: list[str] = field(default_factory=list)
+    alias: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SpillStmt:
     value: IRNode
 
 
@@ -305,12 +380,12 @@ def lower_stmt(
         type_registry = {}
     if isinstance(node, ast.SpillImport) and _try_record_stdlib_import(node, stdlib_imports, top_level=top_level):
         return None
+    if isinstance(node, ast.SpillImport):
+        if not isinstance(node.path, ast.DotModulePath):
+            raise NotImplementedError("IR lowering only supports dot-module spill imports")
+        return ModuleImportStmt(list(node.path.segments), node.alias)
     if isinstance(node, ast.Bind):
-        if not isinstance(node.target, ast.Ident):
-            raise NotImplementedError(
-                f"IR lowering does not yet support bind target {type(node.target).__name__}"
-            )
-        if node.declared_type is None and isinstance(node.value, ast.TypeExpr):
+        if isinstance(node.target, ast.Ident) and node.declared_type is None and isinstance(node.value, ast.TypeExpr):
             resolved_type = _resolve_type_refs(node.value, type_registry)
             type_registry[node.target.name] = resolved_type
             return TypeDef(node.target.name, resolved_type)
@@ -318,6 +393,8 @@ def lower_stmt(
         declared_type = None if node.declared_type is None else _resolve_type_refs(node.declared_type, type_registry)
         if declared_type is not None:
             value = CoerceExpr(value, declared_type)
+        if not isinstance(node.target, ast.Ident):
+            return ExprStmt(BindExpr(lower_expr(node.target), value))
         return StoreName(node.target.name, value, declared_type)
     if isinstance(node, ast.FuncDef):
         body, param_types, return_type = lower_function_parts(
@@ -344,6 +421,10 @@ def lower_stmt(
         return ExprStmt(lower_expr(node.expr))
     if isinstance(node, ast.StdioPrint):
         return PrintStmt(lower_expr(node.value))
+    if isinstance(node, ast.StdioLabelPrint):
+        return LabelPrintStmt(node.expr_text, lower_expr(node.value))
+    if isinstance(node, ast.SpillValue):
+        return SpillStmt(lower_expr(node.value))
     if isinstance(node, ast.ReturnStmt):
         return ReturnStmt(None if node.value is None else lower_expr(node.value))
     if isinstance(node, ast.ContinueStmt):
@@ -386,8 +467,32 @@ def lower_body_as_block(node: Any) -> Block:
 
 
 def lower_expr(node: Any) -> IRNode:
+    def _lower_pipe_segment(node: Any) -> IRNode | Block:
+        if isinstance(node, ast.Block):
+            return lower_block(node)
+        if isinstance(
+            node,
+            (
+                ast.Bind,
+                ast.ReturnStmt,
+                ast.ConditionalExpr,
+                ast.MatchStmt,
+                ast.ContinueStmt,
+                ast.BreakStmt,
+                ast.StdioPrint,
+                ast.StdioLabelPrint,
+                ast.SpillValue,
+            ),
+        ):
+            return lower_body_as_block(node)
+        if isinstance(node, ast.ExprStmt):
+            if isinstance(node.expr, (ast.ConditionalExpr, ast.MatchStmt)):
+                return lower_body_as_block(node)
+            return lower_expr(node.expr)
+        return lower_expr(node)
+
     def _fixed_vector_type_from_expr(expr: Any) -> Any | None:
-        if not isinstance(expr, ast.ListLit) or expr.axis_tag is not None or len(expr.elements) != 1:
+        if not isinstance(expr, ast.ListLit) or getattr(expr, "axis_tag", None) is not None or len(expr.elements) != 1:
             return None
         only = expr.elements[0]
         if not isinstance(only, ast.VectorRepeat):
@@ -422,7 +527,7 @@ def lower_expr(node: Any) -> IRNode:
         if node.raw:
             return Const(node.value)
         if "$" in node.value:
-            raise NotImplementedError("IR lowering does not yet support interpolated strings")
+            return InterpolatedStringExpr(node.value)
         return Const(node.value)
     if isinstance(node, ast.Ident):
         return LoadName(node.name)
@@ -468,25 +573,40 @@ def lower_expr(node: Any) -> IRNode:
             args.append(lower_expr(a))
         return CallExpr(lower_expr(node.func), args, kwargs, spreads)
     if isinstance(node, ast.ListLit):
-        if node.axis_tag is not None:
-            raise NotImplementedError("IR lowering does not yet support axis-tagged list literals")
         elements: list[IRNode] = []
         for e in node.elements:
-            if isinstance(e, (ast.MsetSpill, ast.SpreadArg)):
-                raise NotImplementedError("IR lowering does not yet support spread elements in list literals")
+            if isinstance(e, ast.MsetSpill):
+                elements.append(SpliceExpr(lower_expr(e.expr)))
+                continue
+            if isinstance(e, ast.SpreadArg):
+                raise NotImplementedError("IR lowering does not yet support tuple spread elements in list literals")
             elements.append(lower_expr(e))
         return ListExpr(elements)
+    if isinstance(node, ast.TupleLit):
+        elements: list[IRNode] = []
+        for e in node.elements:
+            if isinstance(e, ast.SpreadArg):
+                elements.append(SpliceExpr(lower_expr(e.expr)))
+                continue
+            elements.append(lower_expr(e))
+        return TupleExpr(elements)
     if isinstance(node, ast.MultisetLit):
-        if node.axis_tag is not None:
-            raise NotImplementedError("IR lowering does not yet support axis-tagged multiset literals")
         return MultisetExpr([(lower_expr(val), lower_expr(count)) for val, count in node.pairs])
-    if isinstance(node, ast.TypeKeySet):
+    type_key_set = getattr(ast, "TypeKeySet", None)
+    if type_key_set is not None and isinstance(node, type_key_set):
         raise NotImplementedError("IR lowering does not yet support type-key set spills")
-    if isinstance(node, ast.AxisTag):
-        raise NotImplementedError("IR lowering does not yet support arrow axis tags")
+    if isinstance(node, ast.AxisAlign):
+        if node.label is not None:
+            axis_key = "i" if node.label == "_" else node.label
+            return AxisAlignExpr(lower_expr(node.value), Const(axis_key))
+        indices = node.indices or []
+        if len(indices) != 1:
+            raise NotImplementedError("IR lowering only supports one axis access expression for arrow axis tags")
+        return AxisAlignExpr(lower_expr(node.value), lower_expr(indices[0]))
     if isinstance(node, ast.StructLit):
         return StructExpr([(name, lower_expr(val)) for name, val in node.fields])
-    if isinstance(node, ast.BindExpr):
+    bind_expr = getattr(ast, "BindExpr", None)
+    if (bind_expr is not None and isinstance(node, bind_expr)) or isinstance(node, ast.Bind):
         if not isinstance(node.target, ast.Ident):
             raise NotImplementedError(
                 f"IR lowering does not yet support bind expression target {type(node.target).__name__}"
@@ -496,6 +616,23 @@ def lower_expr(node: Any) -> IRNode:
         return AttrExpr(lower_expr(node.value), node.name)
     if isinstance(node, ast.DottedIndex):
         return IndexExpr(lower_expr(node.base), [lower_expr(idx) for idx in node.indices])
+    if isinstance(node, ast.RangeExpr):
+        return RangeExpr(
+            None if node.start is None else lower_expr(node.start),
+            None if node.end is None else lower_expr(node.end),
+        )
+    if isinstance(node, ast.PipeChain):
+        return PipeChainExpr(lower_expr(node.source), [_lower_pipe_segment(seg) for seg in node.segments])
+    if isinstance(node, ast.AbsExpr):
+        return AbsExpr(lower_expr(node.inner))
+    if isinstance(node, ast.TypeOf):
+        return TypeOfExpr(lower_expr(node.value))
+    if isinstance(node, ast.ScopeExpr):
+        return ScopeExpr(lower_block(node.body))
+    if isinstance(node, ast.StructIdentity):
+        return ScopeIdentityExpr()
+    if isinstance(node, ast.SpillExpr):
+        return SpillExpr(lower_expr(node.value))
     if isinstance(node, ast.ConditionalExpr):
         if node.loop:
             raise NotImplementedError("IR lowering does not support loop conditionals as value expressions")

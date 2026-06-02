@@ -9,13 +9,20 @@ const vkfUi = require("../../web/vf-ui/vf-vkf-ui-runtime.js");
 
 {
   const fullDemoId = factory.BUILTIN_WASM_FACTORY_IDS.fullDemo;
+  const interactionDemoId = factory.BUILTIN_WASM_FACTORY_IDS.interactionDemo;
   const rectDemoId = registry.BUILTIN_MODULE_IDS.rectDemo;
   const rectDemoLib = registry.BUILTIN_NATIVE_LIBRARIES.rectDemo;
+  const interactionKernelId = registry.BUILTIN_MODULE_IDS.interactionKernel;
+  const interactionKernelLib = registry.BUILTIN_NATIVE_LIBRARIES.interactionKernel;
   const builtins = registry.listBuiltinCompiledUiModules();
   assert.deepEqual(builtins, [{
     name: rectDemoId,
     nativeLibrary: rectDemoLib,
     wasmFactory: fullDemoId
+  }, {
+    name: interactionKernelId,
+    nativeLibrary: interactionKernelLib,
+    wasmFactory: interactionDemoId
   }]);
   assert.deepEqual(registry.getBuiltinCompiledUiModule(rectDemoId), builtins[0]);
   assert.equal(registry.resolveBuiltinCompiledUiWasmFactory("missing"), null);

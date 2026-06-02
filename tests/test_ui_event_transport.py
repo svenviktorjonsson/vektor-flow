@@ -4,8 +4,10 @@ import json
 from collections import deque
 from typing import Any
 
-from vektorflow.stdlib.events import OverlayPoller
+from vektorflow.stdlib.events import MouseDrag, MouseHover, OverlayPoller
 from vektorflow.ui import event_ingress
+from vektorflow.ui.runtime_packet_transport import OverlayPortResolver
+from vektorflow.ui.runtime_packet_transport import OverlayRuntimeEventService, RuntimePayloadIngress
 from vektorflow.ui_display_ir import (
     UiHostTransportEvent,
     build_browser_host_event_dispatch,
@@ -15,8 +17,112 @@ from vektorflow.ui_display_ir import (
     decode_browser_enqueue_body,
     dispatch_browser_host_event,
     dispatch_host_event,
+    enqueue_public_host_event,
+    enqueue_public_host_event_payload,
+    ensure_host_event_poller_started,
+    has_queued_host_events,
+    materialize_host_ui_event,
+    notify_host_frame_event,
+    notify_host_frame_payload_event,
     normalize_host_transport_event,
+    pop_queued_host_event,
 )
+
+
+def test_overlay_port_resolver_caches_then_resets(monkeypatch) -> None:
+    resolver = OverlayPortResolver()
+    seen: list[str] = []
+    values = iter([43125, 0, 43126])
+
+    monkeypatch.setattr(
+        resolver,
+        "_read_overlay_port_file",
+        lambda: (seen.append("read") or next(values)),
+    )
+
+    assert resolver.get_overlay_port() == 43125
+    assert resolver.get_overlay_port() == 43125
+    assert seen == ["read"]
+
+    resolver.reset_overlay_port()
+    assert resolver.get_overlay_port() == 0
+    assert seen == ["read", "read"]
+
+
+def test_runtime_payload_ingress_dedupes_repeated_payloads_and_keeps_snapshot() -> None:
+    ingress = RuntimePayloadIngress()
+    received: list[dict[str, Any]] = []
+    payload = {"type": "vf_event", "event": "hover", "frame_id": "f1"}
+
+    ingress.subscribe(lambda evt: received.append(evt))
+    ingress.publish(payload)
+    ingress.publish(payload)
+
+    assert received == [payload]
+    assert ingress.snapshot().published_payloads == (payload,)
+
+
+def test_runtime_payload_ingress_reports_subscriber_errors_and_keeps_fanout() -> None:
+    errors: list[str] = []
+    received: list[dict[str, Any]] = []
+    ingress = RuntimePayloadIngress(error_reporter=lambda exc: errors.append(type(exc).__name__))
+
+    ingress.subscribe(lambda _evt: (_ for _ in ()).throw(RuntimeError("boom")))
+    ingress.subscribe(lambda evt: received.append(evt))
+    ingress.publish({"type": "vf_event", "event": "down"})
+
+    assert errors == ["RuntimeError"]
+    assert received == [{"type": "vf_event", "event": "down"}]
+
+
+def test_runtime_payload_ingress_before_publish_runs_once_for_new_payload() -> None:
+    seen: list[dict[str, Any]] = []
+    ingress = RuntimePayloadIngress(before_publish=lambda evt: seen.append(evt))
+
+    ingress.publish({"event": "hover"})
+    ingress.publish({"event": "hover"})
+    ingress.publish({"event": "down"})
+
+    assert seen == [{"event": "hover"}, {"event": "down"}]
+
+
+def test_overlay_runtime_event_service_resets_global_poller_and_ingress() -> None:
+    created: list[object] = []
+    ingresses: list[RuntimePayloadIngress] = []
+
+    class _FakePoller:
+        def __init__(self) -> None:
+            self.stopped = False
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    def _make_ingress() -> RuntimePayloadIngress:
+        ingress = RuntimePayloadIngress()
+        ingresses.append(ingress)
+        return ingress
+
+    service = OverlayRuntimeEventService(
+        ingress_factory=_make_ingress,
+        error_reporter=lambda _exc: None,
+        poller_factory=lambda: (created.append(_FakePoller()) or created[-1]),  # type: ignore[return-value]
+    )
+
+    first_ingress = service.get_ingress()
+    service.publish_payload({"event": "hover"})
+    assert service.snapshot().published_payloads == ({"event": "hover"},)
+
+    poller = service.start_event_poller()
+    assert poller.started is True
+    service.reset_global_poller()
+
+    assert poller.stopped is True
+    assert service.get_ingress() is not first_ingress
+    assert service.snapshot().published_payloads == ()
 
 
 class _FakeCursor:
@@ -185,6 +291,100 @@ def test_drag_events_do_not_coalesce_across_targets() -> None:
     }
 
     assert coalesce_host_event_queue(queue, payload) is False
+
+
+def test_host_event_queue_helpers_cover_poller_start_and_pop() -> None:
+    started: list[str] = []
+    queue: deque[object] = deque(["a", "b"])
+
+    assert ensure_host_event_poller_started(False, start_poller=lambda: started.append("go")) is True
+    assert ensure_host_event_poller_started(True, start_poller=lambda: started.append("nope")) is False
+    assert started == ["go"]
+
+    assert has_queued_host_events(queue) is True
+    assert pop_queued_host_event(queue) == "a"
+    assert pop_queued_host_event(queue) == "b"
+    assert has_queued_host_events(queue) is False
+    assert pop_queued_host_event(queue) is None
+
+
+def test_materialize_host_ui_event_builds_public_event_object() -> None:
+    dispatch = build_host_event_dispatch(
+        {
+            "type": "vf_event",
+            "event": "hover",
+            "frameId": "f8",
+            "widgetId": "btn.help",
+            "x": 1,
+            "y": 2,
+        },
+        next_index=7,
+    )
+
+    event = materialize_host_ui_event(dispatch)
+
+    assert event.event == "hover"
+    assert event.frame_id == "f8"
+    assert event.widget_id == "btn.help"
+    assert event.index == 7
+
+
+def test_notify_host_frame_event_routes_to_frame_handler() -> None:
+    calls: list[object] = []
+
+    class _Frame:
+        def handle_events(self, event: object) -> None:
+            calls.append(event)
+
+    event = object()
+
+    assert notify_host_frame_event(
+        "f9",
+        event,
+        resolve_frame=lambda frame_id: _Frame() if frame_id == "f9" else None,
+    ) is True
+    assert calls == [event]
+
+
+def test_notify_host_frame_payload_event_materializes_only_after_frame_resolves() -> None:
+    calls: list[object] = []
+
+    class _Frame:
+        def handle_events(self, event: object) -> None:
+            calls.append(event)
+
+    assert notify_host_frame_payload_event(
+        "missing",
+        {"type": "vf_event", "event": "hover", "frame_id": "missing"},
+        resolve_frame=lambda _frame_id: None,
+    ) is False
+    assert calls == []
+
+    assert notify_host_frame_payload_event(
+        "f1",
+        {"type": "vf_event", "event": "hover", "frame_id": "f1", "x": 2, "y": 3},
+        resolve_frame=lambda _frame_id: _Frame(),
+    ) is True
+    assert calls
+    assert getattr(calls[0], "event", "") == "hover"
+    assert getattr(calls[0], "frame_id", "") == "f1"
+
+
+def test_notify_host_frame_event_absorbs_lookup_and_handler_failures() -> None:
+    class _Frame:
+        def handle_events(self, _event: object) -> None:
+            raise RuntimeError("boom")
+
+    assert notify_host_frame_event(
+        "f10",
+        object(),
+        resolve_frame=lambda _frame_id: _Frame(),
+    ) is False
+    assert notify_host_frame_event(
+        "f10",
+        object(),
+        resolve_frame=lambda _frame_id: (_ for _ in ()).throw(RuntimeError("lookup")),
+    ) is False
 
 
 def test_overlay_poller_emits_canonical_transport_payloads_from_pop_stream(monkeypatch) -> None:
@@ -552,3 +752,133 @@ def test_dispatch_browser_host_event_updates_kind_count_without_queueing_widget_
     assert keyboard.observed == []
     assert dispatch.base in counts
     assert counts[dispatch.base] == 1
+
+
+def test_enqueue_public_host_event_coalesces_pointer_samples_by_frame() -> None:
+    queue: deque[object] = deque()
+    first = MouseHover.from_dict({"type": "vf_event", "event": "hover", "frame_id": "f1", "x": 1, "y": 2})
+    second = MouseHover.from_dict({"type": "vf_event", "event": "hover", "frame_id": "f1", "x": 3, "y": 4})
+
+    assert enqueue_public_host_event(queue, first) is True
+    assert enqueue_public_host_event(queue, second) is True
+    assert len(queue) == 1
+    assert queue[0] is second
+
+
+def test_enqueue_public_host_event_coalesces_drag_samples_by_target() -> None:
+    queue: deque[object] = deque()
+    first = MouseDrag.from_dict(
+        {
+            "type": "vf_event",
+            "event": "drag",
+            "frame_id": "f2",
+            "object_id": 9,
+            "dx": 1.0,
+            "dy": 2.0,
+            "dx_norm": 0.1,
+            "dy_norm": 0.2,
+            "x": 5.0,
+            "y": 6.0,
+            "buttons": 1,
+        }
+    )
+    second = MouseDrag.from_dict(
+        {
+            "type": "vf_event",
+            "event": "drag",
+            "frame_id": "f2",
+            "object_id": 9,
+            "dx": 3.0,
+            "dy": -1.0,
+            "dx_norm": 0.3,
+            "dy_norm": -0.1,
+            "x": 8.0,
+            "y": 9.0,
+            "buttons": 1,
+        }
+    )
+
+    assert enqueue_public_host_event(queue, first) is True
+    assert enqueue_public_host_event(queue, second) is True
+    assert len(queue) == 1
+    merged = queue[0]
+    assert isinstance(merged, MouseDrag)
+    assert merged.dx == 4.0
+    assert merged.dy == 1.0
+    assert merged.dx_norm == 0.4
+    assert merged.dy_norm == 0.1
+    assert merged.x == 8.0
+    assert merged.y == 9.0
+
+
+def test_enqueue_public_host_event_payload_queues_plain_hover_mapping() -> None:
+    queue: deque[object] = deque()
+    event = MouseHover.from_dict({"type": "vf_event", "event": "hover", "frame_id": "f1", "x": 1, "y": 2})
+
+    assert enqueue_public_host_event_payload(queue, event) is True
+
+    assert list(queue) == [
+        {
+            "event": "hover",
+            "frame_id": "f1",
+            "object_id": 0,
+            "simplex_id": 0,
+            "x": 1.0,
+            "y": 2.0,
+            "dx": 0.0,
+            "dy": 0.0,
+            "dx_norm": 0.0,
+            "dy_norm": 0.0,
+            "button": -1,
+            "buttons": 0,
+            "width": 0.0,
+            "height": 0.0,
+            "index": 0,
+            "type": "vf_event",
+        }
+    ]
+
+
+def test_enqueue_public_host_event_payload_coalesces_drag_mappings() -> None:
+    queue: deque[object] = deque()
+    first = MouseDrag.from_dict(
+        {
+            "type": "vf_event",
+            "event": "drag",
+            "frame_id": "f2",
+            "object_id": 9,
+            "dx": 1.0,
+            "dy": 2.0,
+            "x": 5.0,
+            "y": 6.0,
+            "buttons": 1,
+        }
+    )
+    second = MouseDrag.from_dict(
+        {
+            "type": "vf_event",
+            "event": "drag",
+            "frame_id": "f2",
+            "object_id": 9,
+            "dx": 3.0,
+            "dy": -1.0,
+            "x": 8.0,
+            "y": 9.0,
+            "buttons": 1,
+        }
+    )
+
+    assert enqueue_public_host_event_payload(queue, first) is True
+    assert enqueue_public_host_event_payload(queue, second) is True
+
+    assert len(queue) == 1
+    merged = queue[0]
+    assert isinstance(merged, dict)
+    assert merged["event"] == "drag"
+    assert merged["frame_id"] == "f2"
+    assert merged["object_id"] == 9
+    assert merged["dx"] == 4.0
+    assert merged["dy"] == 1.0
+    assert merged["trans"] == [4.0, 1.0]
+    assert merged["x"] == 8.0
+    assert merged["y"] == 9.0

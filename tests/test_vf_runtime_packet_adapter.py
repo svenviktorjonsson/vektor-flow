@@ -17,6 +17,7 @@ const vm = require("vm");
 const source = fs.readFileSync({json.dumps(str(FLOW_JS))}, "utf8");
 const sandbox = {{
   console,
+  Array,
   Promise,
   fetch: function() {{}},
   setInterval: function() {{ return 1; }},
@@ -117,3 +118,67 @@ const flow = sandbox.VfRuntimeFlow.createFlow({{
     assert payload["packetModeActive"] is True
     assert payload["runtimePacketsSeen"] is True
     assert payload["lastRuntimePacketSeq"] == 2
+
+
+def test_strict_packet_only_display_refresh_never_loads_legacy_display_file() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const source = fs.readFileSync({json.dumps(str(FLOW_JS))}, "utf8");
+const sandbox = {{
+  console,
+  Array,
+  Promise,
+  setInterval: function() {{ return 1; }},
+  clearInterval: function() {{}}
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(source, sandbox, {{ filename: "vf-runtime-flow.js" }});
+
+let loadAndRenderCalls = 0;
+let redrawCalls = 0;
+const state = {{
+  packetModeActive: false,
+  legacyFallbackActive: true,
+  scenePollTimer: 0
+}};
+
+const flow = sandbox.VfRuntimeFlow.createFlow({{
+  config: {{ strictPacketOnly: true }},
+  createRuntimeDependencies: function() {{
+    return {{
+      display: {{
+        loadAndRender: function() {{ loadAndRenderCalls += 1; }},
+        redrawCurrentDisplay: function() {{ redrawCalls += 1; }}
+      }}
+    }};
+  }},
+  runtimeLog: function() {{}},
+  getRuntimeSource: function() {{ return null; }},
+  applySceneCommands: function() {{}},
+  state: state
+}});
+
+flow.displayRefresh();
+state.packetModeActive = true;
+flow.displayRefresh();
+
+process.stdout.write(JSON.stringify({{
+  loadAndRenderCalls,
+  redrawCalls
+}}));
+"""
+
+    result = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["loadAndRenderCalls"] == 0
+    assert payload["redrawCalls"] == 1

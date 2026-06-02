@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -15,12 +14,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from vektorflow import __version__
+from vektorflow.cpp_backend import cpp_compile_flags, discover_cpp_compiler
 from vektorflow.release_bundle import (
     build_release_manifest,
     default_release_channel_for_platform,
     default_release_output_dir,
     release_demo_launchers,
     release_channel,
+    release_native_tool_sources,
     release_readme_text,
     release_sample_sources,
 )
@@ -44,61 +45,37 @@ def _run(argv: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(argv, cwd=cwd, check=True)
 
 
-def _require_pyinstaller() -> None:
-    probe = subprocess.run(
-        [sys.executable, "-m", "PyInstaller", "--version"],
-        capture_output=True,
-        text=True,
-    )
-    if probe.returncode != 0:
-        raise RuntimeError(
-            "PyInstaller is required to build tester bundles. "
-            "Install it in the build environment with: "
-            f"{sys.executable} -m pip install pyinstaller"
-        )
+def _compile_native_executable(sources: tuple[Path, ...], output: Path) -> Path:
+    compiler = discover_cpp_compiler()
+    if compiler is None:
+        raise RuntimeError("A host C++ compiler is required to build native release bundles.")
+    argv = [
+        compiler.path,
+        *cpp_compile_flags(compiler),
+        "-I",
+        str(ROOT),
+        "-I",
+        str(ROOT / "native" / "VfOverlay"),
+        *[str(source) for source in sources],
+        "-o",
+        str(output),
+    ]
+    _run(argv, cwd=ROOT)
+    if not output.exists():
+        raise RuntimeError(f"native compiler did not produce expected executable: {output}")
+    return output
 
 
-def _build_vkf_executable(channel_name: str, executable_name: str, bundle_dir: Path) -> Path:
-    _require_pyinstaller()
-    with tempfile.TemporaryDirectory(prefix="vf-release-") as tmp_name:
-        tmp = Path(tmp_name)
-        entry = tmp / "vkf_entry.py"
-        entry.write_text(
-            "from vektorflow.cli import main\n"
-            "if __name__ == '__main__':\n"
-            "    raise SystemExit(main())\n",
-            encoding="utf-8",
-        )
-        work = tmp / "work"
-        spec = tmp / "spec"
-        dist = tmp / "dist"
-        exe_stem = executable_name[:-4] if executable_name.endswith(".exe") else executable_name
-        _run(
-            [
-                sys.executable,
-                "-m",
-                "PyInstaller",
-                "--noconfirm",
-                "--clean",
-                "--onefile",
-                "--name",
-                exe_stem,
-                "--distpath",
-                str(dist),
-                "--workpath",
-                str(work),
-                "--specpath",
-                str(spec),
-                str(entry),
-            ],
-            cwd=ROOT,
-        )
-        built = dist / executable_name
-        if not built.exists():
-            raise RuntimeError(f"PyInstaller did not produce expected executable: {built}")
-        target = bundle_dir / executable_name
-        shutil.copy2(built, target)
-        return target
+def _build_native_release_tools(channel_name: str, executable_name: str, bundle_dir: Path) -> Path:
+    channel = release_channel(channel_name)
+    entrypoint: Path | None = None
+    for artifact_name, sources in release_native_tool_sources(ROOT, channel).items():
+        built = _compile_native_executable(sources, bundle_dir / artifact_name)
+        if artifact_name == executable_name:
+            entrypoint = built
+    if entrypoint is None:
+        raise RuntimeError(f"native tool list did not include expected entrypoint {executable_name}")
+    return entrypoint
 
 
 def _package_extension(bundle_dir: Path) -> Path:
@@ -184,7 +161,7 @@ def main() -> int:
         shutil.rmtree(bundle_dir)
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
-    executable = _build_vkf_executable(channel.name, channel.executable_name, bundle_dir)
+    executable = _build_native_release_tools(channel.name, channel.executable_name, bundle_dir)
     samples = _copy_samples(bundle_dir)
     _copy_tester_docs(bundle_dir)
     _copy_demo_launchers(bundle_dir)

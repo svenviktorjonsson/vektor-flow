@@ -1,7 +1,10 @@
-"""vektorflow.stdlib.events — input event bus.
+"""vektorflow.stdlib.events — input event types plus callback compatibility helpers.
 
 Polls the vf-overlay runtime packet API for ``input.event`` payloads posted by
-the JS/native front-end. Events are dispatched to registered Python callbacks.
+the JS/native front-end. The authoritative interaction seam is the normalized
+event queue exposed by ``ui.events.get()`` / ``ui.next_event()``. Mouse and
+keyboard callback helpers remain available as compatibility adapters on top of
+that queue.
 
 Usage (VKF):
     :.ui
@@ -11,7 +14,8 @@ Usage (VKF):
     ui.keyboard.on_down( fn(e) => ... )
 
     loop:
-        ui.poll()   # drain the event queue, fire callbacks
+        e : ui.events.get()
+        e ? handle(e)
 
 The event dict ``e`` has:
     type        "vf_event"

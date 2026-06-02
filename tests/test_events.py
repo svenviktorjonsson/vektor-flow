@@ -11,6 +11,11 @@ from typing import Any
 
 import pytest
 
+from vektorflow.ui.event_ingress import (
+    get_ui_event_ingress,
+    publish_ui_event_payload,
+    reset_ui_event_ingress,
+)
 from vektorflow.stdlib.events import (
     MouseEvent, KeyEvent,
     UIMouse, UIKeyboard,
@@ -359,13 +364,16 @@ class TestDisplayGetObject:
 # ---------------------------------------------------------------------------
 
 class TestUIRoot:
+    def setup_method(self) -> None:
+        reset_ui_event_ingress()
+
     def test_poll_calls_mouse_and_keyboard(self) -> None:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
         received_m, received_k = [], []
-        root.mouse.on_hover(lambda e: received_m.append(e))
+        root.cursor.on_hover(lambda e: received_m.append(e))
         root.keyboard.on_down(lambda e: received_k.append(e))
-        root.mouse._push(dict(type="vf_event", event="hover", x=0, y=0))
+        root.cursor._push(dict(type="vf_event", event="hover", x=0, y=0))
         root.keyboard._push(dict(type="vf_event", event="key_down", key="a"))
         root.poll()
         assert len(received_m) == 1
@@ -373,21 +381,20 @@ class TestUIRoot:
 
     def test_poller_subscription_wired(self) -> None:
         from vektorflow.stdlib.ui import UIRoot
-        # Creating UIRoot subscribes to the global poller
-        p = get_global_poller()
-        initial_count = len(p._subs)
+        ingress = get_ui_event_ingress()
+        initial_count = len(ingress.subscribers)
+        poller_count = len(get_global_poller()._subs)
         root = UIRoot()
-        assert len(p._subs) == initial_count + 1
+        assert len(ingress.subscribers) == initial_count + 1
+        assert len(get_global_poller()._subs) == poller_count
 
     def test_dispatch_routes_to_mouse(self) -> None:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
         received = []
-        root.mouse.on_down(lambda e: received.append(e))
-        # Manually call the poller subscription we just registered
-        sub = get_global_poller()._subs[-1]  # last subscriber = this UIRoot
-        sub(dict(type="vf_event", event="down", x=5, y=5, button=0,
-                 object_id=1, simplex_id=0, frame_id="f1"))
+        root.cursor.on_down(lambda e: received.append(e))
+        publish_ui_event_payload(dict(type="vf_event", event="down", x=5, y=5, button=0,
+                                      object_id=1, simplex_id=0, frame_id="f1"))
         root.poll()
         assert len(received) == 1 and received[0].button == 0
 
@@ -396,33 +403,59 @@ class TestUIRoot:
         root = UIRoot()
         received = []
         root.keyboard.on_down(lambda e: received.append(e))
-        sub = get_global_poller()._subs[-1]
-        sub(dict(type="vf_event", event="key_down", key="Enter",
-                 code="Enter", ctrl=False, shift=False, alt=False))
+        publish_ui_event_payload(dict(type="vf_event", event="key_down", key="Enter",
+                                      code="Enter", ctrl=False, shift=False, alt=False))
         root.poll()
         assert len(received) == 1 and received[0].key == "Enter"
 
     def test_dispatch_queues_normalized_host_event_payload(self) -> None:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
-        sub = get_global_poller()._subs[-1]
-        sub(dict(type="vf_event", event="hover", x=5, y=6, frameId="f1", widgetId="btn.save"))
-        payload = root.next_event()
-        assert payload is not None
-        assert payload["event"] == "hover"
-        assert payload["frame_id"] == "f1"
-        assert payload["widget_id"] == "btn.save"
-        assert payload["ui_code"] != 0
-        assert payload["frame_code"] != 0
-        assert payload["widget_code"] != 0
-        assert payload["index"] == 1
+        publish_ui_event_payload(dict(type="vf_event", event="hover", x=5, y=6, frameId="f1", widgetId="btn.save"))
+        assert root._event_queue
+        assert isinstance(root._event_queue[0], dict)
+        assert root._event_queue[0]["event"] == "hover"
+        event = root.next_event()
+        assert event is not None
+        assert event.event == "hover"
+        assert event.frame_id == "f1"
+        assert event.widget_id == "btn.save"
+        assert event.ui_code != 0
+        assert event.frame_code != 0
+        assert event.widget_code != 0
+        assert event.index == 1
+
+    def test_dispatch_delays_event_object_materialization_until_next_event(self, monkeypatch) -> None:
+        from vektorflow.stdlib import events
+        from vektorflow.stdlib.ui import UIRoot
+
+        calls: list[dict[str, object]] = []
+        real_materialize = events.ui_event_from_payload
+
+        def _counting_materialize(payload: dict[str, object]) -> object:
+            calls.append(dict(payload))
+            return real_materialize(payload)
+
+        monkeypatch.setattr(events, "ui_event_from_payload", _counting_materialize)
+        root = UIRoot()
+
+        publish_ui_event_payload(dict(type="vf_event", event="hover", x=5, y=6, frameId="missing"))
+
+        assert calls == []
+        assert root._event_queue
+        assert isinstance(root._event_queue[0], dict)
+
+        event = root.next_event()
+
+        assert event is not None
+        assert event.event == "hover"
+        assert len(calls) == 1
 
     def test_non_vf_event_ignored(self) -> None:
         from vektorflow.stdlib.ui import UIRoot
         root = UIRoot()
         received = []
-        root.mouse.on_hover(lambda e: received.append(e))
-        sub = get_global_poller()._subs[-1]
-        sub(dict(type="print", line="hello"))   # not a vf_event
+        root.cursor.on_hover(lambda e: received.append(e))
+        publish_ui_event_payload(dict(type="print", line="hello"))   # not a vf_event
         root.poll()
         assert received == []

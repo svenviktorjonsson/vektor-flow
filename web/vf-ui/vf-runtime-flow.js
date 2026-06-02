@@ -25,6 +25,17 @@
       "ui_state.replace": true,
       "display.replace": true
     };
+    var STRICT_ROUTE_KINDS = {
+      "scene.replace": true,
+      "ui_state.replace": true,
+      "display.replace": true,
+      "geom.color.patch": true,
+      "widget.append_text": true
+    };
+
+    function strictPacketOnlyEnabled() {
+      return !!config.strictPacketOnly;
+    }
 
     function getPacketRuntimeState() {
       var value = String(state.packetRuntimeState || "");
@@ -80,7 +91,8 @@
         quiesceThreshold = steadyThreshold;
       }
       if (idlePolls >= quiesceThreshold) {
-        return Number(config.packetPollSteadyMs) || 400;
+        enterIdle("idle polls=" + idlePolls);
+        return null;
       }
       if (idlePolls >= steadyThreshold) {
         return Number(config.packetPollSteadyMs) || 400;
@@ -95,6 +107,10 @@
       var deps = createRuntimeDependencies();
       if (state.packetModeActive && deps.display && deps.display.redrawCurrentDisplay) {
         deps.display.redrawCurrentDisplay();
+        return;
+      }
+      if (strictPacketOnlyEnabled()) {
+        runtimeLog("info", "displayRefresh: strict packet-only mode suppressed legacy display file refresh");
         return;
       }
       if (state.legacyFallbackActive && deps.display && deps.display.loadAndRender) {
@@ -118,24 +134,75 @@
       }
     }
 
+    function strictPacketRouteError(message) {
+      return new Error("strict packet-only runtime packet routing failed: " + String(message || "unknown error"));
+    }
+
+    function validateStrictRoutePacket(packet, deps) {
+      if (!strictPacketOnlyEnabled()) { return; }
+      if (!packet || typeof packet !== "object") {
+        throw strictPacketRouteError("packet is not an object");
+      }
+      var seq = Number(packet.seq);
+      if (!Number.isFinite(seq) || seq <= Number(state.lastRuntimePacketSeq || 0)) {
+        throw strictPacketRouteError("stale or invalid packet seq");
+      }
+      var kind = String(packet.kind || "");
+      var payload = packet.payload;
+      if (!STRICT_ROUTE_KINDS[kind]) {
+        throw strictPacketRouteError("unsupported packet kind " + kind);
+      }
+      if (kind === "scene.replace" && (!payload || !Array.isArray(payload.commands))) {
+        throw strictPacketRouteError("scene.replace packet missing commands");
+      }
+      if (kind === "ui_state.replace" && (!payload || !payload.state || typeof payload.state !== "object")) {
+        throw strictPacketRouteError("ui_state.replace packet missing state");
+      }
+      if (kind === "display.replace" && (!payload || !payload.display || typeof payload.display !== "object")) {
+        throw strictPacketRouteError("display.replace packet missing display");
+      }
+      if (kind === "ui_state.replace" && (!deps.widgets || !deps.widgets.applyRuntimePacket)) {
+        throw strictPacketRouteError("ui_state.replace packet requires widget runtime adapter");
+      }
+      if ((kind === "display.replace" || kind === "geom.color.patch") && (!deps.display || !deps.display.applyRuntimePacket)) {
+        throw strictPacketRouteError(kind + " packet requires display runtime adapter");
+      }
+      if (kind === "widget.append_text" && (!deps.widgets || !deps.widgets.applyRuntimePacket)) {
+        throw strictPacketRouteError("widget.append_text packet requires widget runtime adapter");
+      }
+      if (
+        kind === "widget.append_text" &&
+        (!payload || !payload.frame_id || !payload.widget_id || payload.text == null || !Number.isFinite(Number(payload.append_seq)))
+      ) {
+        throw strictPacketRouteError("widget.append_text packet missing append payload");
+      }
+      if (
+        kind === "geom.color.patch" &&
+        (!payload || !payload.frame_id || !Number.isFinite(Number(payload.object_id)) || Number(payload.object_id) <= 0 || payload.color == null)
+      ) {
+        throw strictPacketRouteError("geom.color.patch packet missing color payload");
+      }
+    }
+
     function routeRuntimePacket(packet) {
       var deps = createRuntimeDependencies();
       if (!packet || typeof packet !== "object") { return; }
+      validateStrictRoutePacket(packet, deps);
       var seq = Number(packet.seq);
-      if (Number.isFinite(seq) && seq > Number(state.lastRuntimePacketSeq || 0)) {
-        state.lastRuntimePacketSeq = seq;
-      }
-      state.packetModeActive = true;
-      enterActiveStream("packet seq=" + String(packet.seq));
-      if (state.legacyFallbackActive) {
-        stopLegacyFallback();
-      }
       var kind = String(packet.kind || "");
       runtimeLog("info", "routeRuntimePacket: seq=" + String(packet.seq) + " kind=" + kind);
       var payload = packet.payload;
       if (kind === "scene.replace" && payload && Array.isArray(payload.commands)) {
         runtimeLog("info", "routeRuntimePacket: scene.replace commands=" + payload.commands.length);
         applySceneCommands(payload.commands);
+        if (Number.isFinite(seq) && seq > Number(state.lastRuntimePacketSeq || 0)) {
+          state.lastRuntimePacketSeq = seq;
+        }
+        state.packetModeActive = true;
+        enterActiveStream("packet seq=" + String(packet.seq));
+        if (state.legacyFallbackActive) {
+          stopLegacyFallback();
+        }
         return;
       }
       if (deps.widgets && deps.widgets.applyRuntimePacket) {
@@ -144,17 +211,31 @@
       if (deps.display && deps.display.applyRuntimePacket) {
         deps.display.applyRuntimePacket(packet);
       }
+      if (Number.isFinite(seq) && seq > Number(state.lastRuntimePacketSeq || 0)) {
+        state.lastRuntimePacketSeq = seq;
+      }
+      state.packetModeActive = true;
+      enterActiveStream("packet seq=" + String(packet.seq));
+      if (state.legacyFallbackActive) {
+        stopLegacyFallback();
+      }
     }
 
     function applyRuntimePayload(payload) {
       if (!payload || typeof payload !== "object") { return false; }
       if (Array.isArray(payload.packets)) {
+        if (strictPacketOnlyEnabled() && payload.packets.length <= 0) {
+          throw strictPacketRouteError("empty runtime payload packet stream");
+        }
         for (var i = 0; i < payload.packets.length; i++) {
           routeRuntimePacket(payload.packets[i]);
         }
         return true;
       }
       if (Array.isArray(payload.commands)) {
+        if (strictPacketOnlyEnabled()) {
+          throw strictPacketRouteError("legacy scene command payload is not allowed");
+        }
         applySceneCommands(payload.commands);
         return true;
       }
@@ -163,6 +244,7 @@
 
     function loadScene() {
       var runtimeSource = getRuntimeSource();
+      if (strictPacketOnlyEnabled()) { return Promise.resolve(null); }
       if (!state.legacyFallbackActive || state.sceneLoadInFlight || typeof fetch === "undefined" || !runtimeSource) { return; }
       state.sceneLoadInFlight = true;
       return runtimeSource.loadSceneCommands()
@@ -198,6 +280,10 @@
 
     function startLegacyFallback() {
       var deps = createRuntimeDependencies();
+      if (strictPacketOnlyEnabled()) {
+        runtimeLog("info", "startLegacyFallback: strict packet-only mode suppressed legacy fallback");
+        return;
+      }
       if (state.packetModeActive || state.legacyFallbackActive) { return; }
       state.legacyFallbackActive = true;
       if (deps.widgets && deps.widgets.startStatePoll) {
@@ -238,6 +324,11 @@
       if (latestByKind["display.replace"]) {
         ordered.push(latestByKind["display.replace"]);
       }
+      if (strictPacketOnlyEnabled()) {
+        ordered.sort(function(a, b) {
+          return Number(a && a.seq || 0) - Number(b && b.seq || 0);
+        });
+      }
       runtimeLog(
         "info",
         "coalesceBootstrapPackets: in=" + packets.length + " out=" + ordered.length
@@ -247,7 +338,13 @@
 
     function loadRuntimePackets() {
       var runtimeSource = getRuntimeSource();
-      if (state.runtimePacketsInFlight || typeof fetch === "undefined" || !runtimeSource) { return; }
+      if (state.runtimePacketsInFlight) { return; }
+      if (!runtimeSource) {
+        if (strictPacketOnlyEnabled()) {
+          return Promise.reject(new Error("strict packet-only runtime packet source failed: runtime source unavailable"));
+        }
+        return;
+      }
       state.runtimePacketsInFlight = true;
       return runtimeSource.loadPackets()
         .then(function(packets) {
@@ -263,10 +360,11 @@
           for (var i = 0; i < routedPackets.length; i++) {
             var packet = routedPackets[i];
             var seq = Number(packet && packet.seq);
-            if (!Number.isFinite(seq) || seq <= state.lastRuntimePacketSeq) { continue; }
-            state.packetModeActive = true;
-            if (state.legacyFallbackActive) {
-              stopLegacyFallback();
+            if (!Number.isFinite(seq) || seq <= state.lastRuntimePacketSeq) {
+              if (strictPacketOnlyEnabled()) {
+                throw strictPacketRouteError("stale or invalid packet seq at index " + i);
+              }
+              continue;
             }
             routeRuntimePacket(packet);
             state.lastRuntimePacketSeq = seq;
@@ -289,6 +387,7 @@
         })
         .catch(function(err) {
           runtimeLog("warn", "loadRuntimePackets: " + (err && err.message ? err.message : String(err)));
+          if (strictPacketOnlyEnabled()) { throw err; }
           return {
             applied: 0,
             nextPollDelayMs: getNextPacketPollDelay(),

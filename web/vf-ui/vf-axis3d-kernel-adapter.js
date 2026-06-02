@@ -16,7 +16,8 @@
       cloneCamera: overrides.cloneCamera || (kernel && kernel.cloneCamera),
       alignAxisToViewSnap: overrides.alignAxisToViewSnap || (kernel && kernel.alignAxisToViewSnap),
       dragWorldDelta: overrides.dragWorldDelta || (kernel && kernel.dragWorldDelta),
-      boxDragDataDelta: overrides.boxDragDataDelta || (kernel && kernel.boxDragDataDelta)
+      boxDragDataDelta: overrides.boxDragDataDelta || (kernel && kernel.boxDragDataDelta),
+      buildCrosshairHelperLineMesh: overrides.buildCrosshairHelperLineMesh || (kernel && kernel.buildCrosshairHelperLineMesh)
     };
   }
 

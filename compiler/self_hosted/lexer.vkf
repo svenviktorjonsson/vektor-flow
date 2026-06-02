@@ -1,0 +1,172 @@
+# Self-hosted VKF lexer seed.
+#
+# This file is compiler source, not runtime example code. Old parser compiles it
+# during bootstrap only. Target: replace old Python lexer with VKF-owned lexer.
+
+Token: (kind:str, value:any, line:num, column:num)
+Cursor: (source:str, file:str, index:num, line:num, column:num)
+LexResult: (tokens:any, errors:any)
+ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bool)
+CursorSlice: (start:Cursor, stop:Cursor, text:str)
+
+token(kind:str, value:any, line:num, column:num):
+    (kind: kind, value: value, line: line, column: column)
+
+cursor(source:str, file:str):
+    (source: source, file: file, index: 0, line: 1, column: 1)
+
+eof(cursor:Cursor):
+    vkf_string_eof(cursor.source, cursor.index)
+
+peek(cursor:Cursor):
+    vkf_string_peek_scalar(cursor.source, cursor.index)
+
+advance(cursor:Cursor):
+    vkf_cursor_advance_scalar(cursor)
+
+consume_while(cursor:Cursor, predicate_name:str):
+    consume_while_primitive(cursor, predicate_name)
+
+is_digit(ch:str):
+    ch >= "0" /\ ch <= "9"
+
+is_lower(ch:str):
+    ch >= "a" /\ ch <= "z"
+
+is_upper(ch:str):
+    ch >= "A" /\ ch <= "Z"
+
+is_alpha(ch:str):
+    is_lower(ch) \/ is_upper(ch) \/ ch = "_"
+
+is_ident_continue(ch:str):
+    is_alpha(ch) \/ is_digit(ch)
+
+is_whitespace(ch:str):
+    ch = " " \/ ch = "\t"
+
+is_newline(ch:str):
+    ch = "\n"
+
+is_comment_start(ch:str):
+    ch = "#"
+
+is_identifier_start(ch:str):
+    is_alpha(ch)
+
+is_number_start(ch:str):
+    is_digit(ch)
+
+is_number_continue(ch:str):
+    is_digit(ch) \/ ch = "." \/ ch = "e" \/ ch = "E" \/ ch = "+" \/ ch = "-"
+
+scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bool):
+    (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
+
+scan_whitespace_state:
+    scanner_state(
+        "scan_whitespace",
+        "WHITESPACE",
+        ["space", "tab", "newline"],
+        ["non-whitespace"],
+        false
+    )
+
+scan_comment_state:
+    scanner_state(
+        "scan_comment",
+        "COMMENT",
+        ["#"],
+        ["newline", "eof"],
+        false
+    )
+
+scan_identifier_state:
+    scanner_state(
+        "scan_identifier",
+        "IDENT",
+        ["alpha", "_"],
+        ["not alpha", "not digit", "not _"],
+        true
+    )
+
+scan_number_state:
+    scanner_state(
+        "scan_number",
+        "NUMBER",
+        ["digit"],
+        ["not digit", "not dot", "not exponent"],
+        true
+    )
+
+scanner_state_catalog:
+    whitespace: scan_whitespace_state
+    comments: scan_comment_state
+    identifiers: scan_identifier_state
+    numbers: scan_number_state
+    :
+
+identifier_number_parity_fixture:
+    name: "identifier_number_parity_minimal"
+    source: "alpha 123 beta45 6.7"
+    expected_tokens: ["IDENT:alpha", "NUMBER:123", "IDENT:beta45", "NUMBER:6.7", "EOF"]
+    notes: [
+        "fixture is a source-level contract until VKF string indexing and slicing exist",
+        "token stream should match old Python lexer for identifier and number tokens"
+    ]
+    :
+
+token_kind_catalog:
+    literals: ["NUMBER", "STRING", "STRING_RAW", "IDENT", "TRUE", "FALSE", "NULL"]
+    operators: ["PLUS", "MINUS", "STAR", "SLASH", "FLOORDIV", "CARET", "PERCENT", "AMPERSAND"]
+    relations: ["EQ", "EXACT_EQ", "NEQ", "STRUCT_NEQ", "LT", "LE", "GT", "GE"]
+    punctuation: ["COLON", "EMIT", "PIPE", "BAR", "DOT", "RANGE", "ELLIPSIS", "ARROW", "FAT_ARROW", "COMMA", "SEMICOLON"]
+    control: ["AT", "AT_COLON", "AT_EMIT", "AT_GT", "AT_BAR", "AT_BANG"]
+    brackets: ["LPAREN", "RPAREN", "LBRACKET", "RBRACKET", "LBRACE", "RBRACE"]
+    structural: ["NEWLINE", "INDENT", "DEDENT", "EOF"]
+    :
+
+lexer_capability:
+    name: "self_hosted_lexer_seed"
+    handles: [
+        "token data model",
+        "cursor data model",
+        "cursor helper shapes",
+        "character class helpers",
+        "token kind catalog",
+        "scan_whitespace",
+        "scan_comment",
+        "scan_identifier",
+        "scan_number",
+        "native cursor smoke emits IDENT NUMBER NEWLINE INDENT DEDENT EOF token records",
+        "native cursor smoke skips spaces tabs comments and blank lines",
+        "native cursor smoke emits operator and punctuation token records",
+        "native cursor smoke emits decoded STRING and STRING_RAW token records",
+        "native cursor smoke emits versioned token stream json payloads",
+        "native lexer contract artifact lexes curated fixtures without Python lexer fallback"
+    ]
+    missing: [
+        "vkf_string_byte_len primitive VKF binding",
+        "vkf_string_eof primitive VKF binding",
+        "vkf_string_peek_scalar primitive VKF binding",
+        "vkf_string_scalar_width primitive VKF binding",
+        "vkf_string_slice_bytes primitive VKF binding",
+        "vkf_cursor_advance_scalar primitive VKF binding",
+        "consume_while_primitive loop support",
+        "predicate dispatch by name",
+        "full VKF indent stack implementation",
+        "full VKF string scan implementation",
+        "full VKF operator scan implementation",
+        "full VKF token stream json implementation"
+    ]
+    language_pressure: [
+        "vkf_string_byte_len for O(1) source byte length",
+        "vkf_string_eof for cursor EOF checks",
+        "vkf_string_peek_scalar for Unicode scalar peek",
+        "vkf_string_scalar_width for byte offset advance",
+        "vkf_string_slice_bytes for token text capture",
+        "vkf_cursor_advance_scalar updates line and column",
+        "first-class predicate functions would replace predicate_name strings"
+    ]
+    percent: 96
+    :

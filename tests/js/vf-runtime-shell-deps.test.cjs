@@ -19,5 +19,20 @@ const projectionAdapterIndex = source.indexOf('"vf-axis3d-projection-kernel-adap
 
 assert.ok(kernelIndex >= 0 && kernelAdapterIndex > kernelIndex);
 assert.ok(projectionIndex >= 0 && projectionAdapterIndex > projectionIndex);
+assert.match(source, /packetOnly:\s*false/);
+assert.match(source, /strictPacketOnly:\s*false/);
+assert.match(source, /function applySceneRuntimeConfigFromBody/);
+assert.match(source, /data-vf-runtime-packet-only/);
+assert.match(source, /data-vf-runtime-strict-packet-only/);
+assert.match(source, /DEFAULT_RUNTIME_CONFIG\.strictPacketOnly = true/);
+assert.match(source, /__vfRuntimeStrictPacketOnly = true/);
+assert.match(source, /strict packet-only mode skipped legacy fallback bootstrap/);
+assert.match(source, /state\.strictPacketSourceFailed = true/);
+assert.match(source, /boot: strict packet-only runtime packet source failed/);
+assert.match(source, /schedulePacketPoll: strict packet-only runtime packet source failed/);
+assert.match(source, /strict packet-only runtime packet source failed: runtime flow unavailable/);
+assert.match(source, /strict packet-only scene delivery failed: scene adapter unavailable/);
+assert.match(source, /strict packet-only runtime packet routing failed: runtime flow unavailable/);
+assert.match(source, /strict packet-only runtime payload delivery failed: runtime flow unavailable/);
 
 console.log("vf-runtime-shell-deps tests passed");

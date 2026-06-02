@@ -7,11 +7,6 @@ from collections import namedtuple
 from pathlib import Path
 from typing import Any, Protocol
 
-try:
-    import numpy as np  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - exercised via fallback tests
-    np = None
-
 
 class IoFileHost(Protocol):
     """Filesystem host seam for stdlib ``io``.
@@ -46,8 +41,8 @@ class IoClockHost(IoTimeHost, Protocol):
     """Backward-compatible alias for the older clock-oriented name."""
 
 
-class PythonIoFileHost:
-    """Default filesystem host backed by Python ``pathlib``."""
+class PathIoFileHost:
+    """Default filesystem host backed by the local OS path layer."""
 
     def _as_path(self, path: str) -> Path:
         if not isinstance(path, str):
@@ -73,8 +68,8 @@ class PythonIoFileHost:
         self._as_path(path).write_text(text, encoding=encoding)
 
 
-class PythonIoTimeHost:
-    """Default time-oriented host backed by Python ``time.sleep``."""
+class SleepIoTimeHost:
+    """Default time-oriented host backed by the local sleep primitive."""
 
     def sleep(self, seconds: float) -> None:
         import time
@@ -85,8 +80,14 @@ class PythonIoTimeHost:
         self.sleep(float(ms) * 0.001)
 
 
-class PythonIoClockHost(PythonIoTimeHost):
+class SleepIoClockHost(SleepIoTimeHost):
     """Backward-compatible alias for the older clock-oriented name."""
+
+
+# Backward-compatible aliases while callers migrate to host-neutral names.
+PythonIoFileHost = PathIoFileHost
+PythonIoTimeHost = SleepIoTimeHost
+PythonIoClockHost = SleepIoClockHost
 
 
 class IoHost(IoFileHost, IoTimeHost, Protocol):
@@ -143,8 +144,8 @@ class _SplitIoNativeHostAdapter:
         self._time_host.sleep(float(seconds))
 
 
-_file_host: IoFileHost = PythonIoFileHost()
-_time_host: IoTimeHost = PythonIoTimeHost()
+_file_host: IoFileHost = PathIoFileHost()
+_time_host: IoTimeHost = SleepIoTimeHost()
 
 
 def set_io_host(host: IoHost | IoSecondsHost) -> None:
@@ -277,7 +278,7 @@ def get_io_clock_host() -> IoClockHost:
 
 
 def reset_io_host() -> None:
-    """Restore the default Python-backed host adapters."""
+    """Restore the default local host adapters."""
     reset_io_file_host()
     reset_io_time_host()
 
@@ -299,9 +300,9 @@ def reset_io_native_file_host() -> None:
 
 
 def reset_io_file_host() -> None:
-    """Restore the default Python-backed filesystem host adapter."""
+    """Restore the default local filesystem host adapter."""
     global _file_host
-    _file_host = PythonIoFileHost()
+    _file_host = PathIoFileHost()
 
 
 def reset_io_native_time_host() -> None:
@@ -315,9 +316,9 @@ def reset_io_seconds_host() -> None:
 
 
 def reset_io_time_host() -> None:
-    """Restore the default Python-backed time-oriented host adapter."""
+    """Restore the default local time-oriented host adapter."""
     global _time_host
-    _time_host = PythonIoTimeHost()
+    _time_host = SleepIoTimeHost()
 
 
 def reset_io_clock_host() -> None:
@@ -378,16 +379,10 @@ class NumericMatrix:
 
 
 def _make_matrix(rows: list[list[float]]) -> Any:
-    if np is not None:
-        if not rows:
-            return np.zeros((0, 0), dtype=np.float64)
-        return np.asarray(rows, dtype=np.float64)
     return NumericMatrix(rows)
 
 
 def _make_column(values: list[float]) -> Any:
-    if np is not None:
-        return np.asarray(values, dtype=np.float64)
     return NumericColumn(values)
 
 
@@ -525,17 +520,14 @@ def read_numbers(
 
     * **With header** (``header is True``, or auto-detected): returns a
       :func:`collections.namedtuple` whose fields are column names; each field is a
-      numeric column vector. When NumPy is installed this is a **1-D**
-      :class:`numpy.ndarray` ``dtype=float64``; otherwise it is a built-in
-      ``NumericColumn`` list-like fallback. Data rows that are not fully numeric or
-      whose width differs from the header are **skipped**.
+      built-in ``NumericColumn`` list-like value with ``dtype=float64`` metadata.
+      Data rows that are not fully numeric or whose width differs from the header
+      are **skipped**.
     * **Without header** (``header is False``, or auto-detected numeric first row):
-      returns a numeric matrix. When NumPy is installed this is a **2-D**
-      :class:`numpy.ndarray` ``dtype=float64`` with shape ``(n_rows, n_cols)``;
-      otherwise it is a built-in ``NumericMatrix`` fallback with the same
-      row/column shape metadata. The **first** row where every cell is numeric sets
-      the column count; leading non-numeric lines are skipped; later rows that do
-      not match width or are not all-numeric are skipped.
+      returns a built-in ``NumericMatrix`` with ``dtype=float64`` and shape
+      metadata. The **first** row where every cell is numeric sets the column
+      count; leading non-numeric lines are skipped; later rows that do not match
+      width or are not all-numeric are skipped.
     * ``header is None`` (default): auto-detect — if the first row looks like a
       header (no cell parses as a float), use header mode; otherwise matrix mode.
 

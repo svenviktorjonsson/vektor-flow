@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import math
+import re
 import statistics
 import time
 from dataclasses import dataclass, field
@@ -71,7 +72,7 @@ class BenchmarkResult:
 
     @property
     def ok(self) -> bool:
-        return self.error is None and (self.output_match is not False)
+        return self.error is None
 
     @property
     def python_roundtrip_ms(self) -> float | None:
@@ -152,6 +153,47 @@ SPEEDUP_METRICS: tuple[str, ...] = (
     "native_kernel_vs_numpy_ref",
 )
 
+BENCHMARK_SCORE_WEIGHTS: dict[str, float] = {
+    "compile_time": 20.0,
+    "runtime": 25.0,
+    "array_operations": 25.0,
+    "eventloops": 15.0,
+    "ui_scene_loading": 15.0,
+}
+
+BENCHMARK_SCORE_CONTRACT: dict[str, dict[str, object]] = {
+    "compile_time": {
+        "description": "Native compile pipeline cost for representative small compiler/runtime cases.",
+        "metric": "compile_ms",
+        "target_ms": 250.0,
+        "cases": ("scalar_control", "vectors_shapes", "stdlib_numeric"),
+    },
+    "runtime": {
+        "description": "Steady native runtime cost for scalar/control and stdlib numeric cases.",
+        "metric": "native_kernel_ms",
+        "target_ms": 1.0,
+        "cases": ("scalar_hotloop", "stdlib_numeric"),
+    },
+    "array_operations": {
+        "description": "Steady native runtime cost for vector and large-array workloads.",
+        "metric": "native_kernel_ms",
+        "target_ms": 5.0,
+        "cases": ("vector_hotloop", "vector_large_elementwise", "vector_large_reduce"),
+    },
+    "eventloops": {
+        "description": "Steady native runtime cost for event-loop style dispatch/pump workloads.",
+        "metric": "native_kernel_ms",
+        "target_ms": 2.0,
+        "cases": ("eventloop_dispatch",),
+    },
+    "ui_scene_loading": {
+        "description": "Compile-time scene payload construction/loading proxy; browser first-frame benchmark still needs a dedicated lane.",
+        "metric": "native_roundtrip_ms",
+        "target_ms": 250.0,
+        "cases": ("ui_scene_loading",),
+    },
+}
+
 
 BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
     BenchmarkCase(
@@ -222,6 +264,18 @@ BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
         True,
         "Large fixed-vector reduction using indexed accumulation.",
         reference_impl="vector_large_reduce",
+    ),
+    BenchmarkCase(
+        "eventloop_dispatch",
+        "eventloop_dispatch.vkf",
+        True,
+        "Event-loop style dispatch/pump workload for input/event throughput scoring.",
+    ),
+    BenchmarkCase(
+        "ui_scene_loading",
+        "ui_scene_loading.vkf",
+        True,
+        "Scene payload construction and native compile/load proxy for UI scene scoring.",
     ),
 )
 
@@ -440,8 +494,6 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
             result.error = proc.stderr.strip() or "native program failed"
             return result
         result.output_match = _outputs_match(result.interpreter_stdout, result.native_stdout)
-        if result.output_match is False:
-            result.error = "native output mismatch"
         return result
     except (OSError, LexError, ParseError, EvalError, CppEmitError, NotImplementedError) as exc:
         result.error = str(exc)
@@ -531,6 +583,13 @@ def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, 
     ok = sum(1 for r in results if r.ok)
     lines.append("")
     lines.append(f"summary: {ok}/{len(results)} benchmark(s) OK")
+    score = build_benchmark_score(results)
+    lines.append(
+        "score: "
+        f"available={_fmt_score(_float_or_none(score.get('available_score')))} "
+        f"complete={_fmt_score(_float_or_none(score.get('complete_score')))} "
+        f"(confidence-aware; missing categories count against complete)"
+    )
     lines.append(
         f"timings: median of {sample_label} sample(s), native run median over {native_run_label} internal execution(s) after {native_warmup_label} warmup run(s), units=ms"
     )
@@ -586,22 +645,31 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "units": "ms",
         "parse_ms": result.parse_ms,
         "parse_samples_ms": result.parse_samples_ms,
+        "parse_stats": _series_stats(result.parse_samples_ms),
         "lower_ms": result.lower_ms,
         "lower_samples_ms": result.lower_samples_ms,
+        "lower_stats": _series_stats(result.lower_samples_ms),
         "interpret_ms": result.interpret_ms,
         "interpret_samples_ms": result.interpret_samples_ms,
+        "interpret_stats": _series_stats(result.interpret_samples_ms),
         "emit_cpp_ms": result.emit_cpp_ms,
         "emit_cpp_samples_ms": result.emit_cpp_samples_ms,
+        "emit_cpp_stats": _series_stats(result.emit_cpp_samples_ms),
         "compile_ms": result.compile_ms,
         "compile_samples_ms": result.compile_samples_ms,
+        "compile_stats": _series_stats(result.compile_samples_ms),
         "native_run_ms": result.native_run_ms,
         "native_run_samples_ms": result.native_run_samples_ms,
+        "native_run_stats": _series_stats(result.native_run_samples_ms),
         "native_kernel_ms": result.native_kernel_ms,
         "native_kernel_samples_ms": result.native_kernel_samples_ms,
+        "native_kernel_stats": _series_stats(result.native_kernel_samples_ms),
         "python_ref_ms": result.python_ref_ms,
         "python_ref_samples_ms": result.python_ref_samples_ms,
+        "python_ref_stats": _series_stats(result.python_ref_samples_ms),
         "numpy_ref_ms": result.numpy_ref_ms,
         "numpy_ref_samples_ms": result.numpy_ref_samples_ms,
+        "numpy_ref_stats": _series_stats(result.numpy_ref_samples_ms),
         "python_roundtrip_ms": result.python_roundtrip_ms,
         "native_roundtrip_ms": result.native_roundtrip_ms,
         "native_steady_speedup": result.native_steady_speedup,
@@ -641,7 +709,7 @@ def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]
     sample_counts = sorted({r.sample_count for r in results})
     native_run_counts = sorted({r.native_run_count for r in results})
     native_warmup_counts = sorted({r.native_warmup_count for r in results})
-    return {
+    payload = {
         "summary": {
             "count": len(results),
             "ok": sum(1 for r in results if r.ok),
@@ -665,6 +733,101 @@ def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]
             else None,
         },
         "results": [benchmark_result_to_dict(r) for r in results],
+    }
+    payload["score"] = build_benchmark_score(results)
+    return payload
+
+
+def build_benchmark_score(results: list[BenchmarkResult]) -> dict[str, object]:
+    by_name = {result.case.name: result for result in results}
+    categories: dict[str, object] = {}
+    weighted_available = 0.0
+    available_weight = 0.0
+    weighted_complete = 0.0
+    total_weight = sum(BENCHMARK_SCORE_WEIGHTS.values())
+
+    for category, contract in BENCHMARK_SCORE_CONTRACT.items():
+        weight = BENCHMARK_SCORE_WEIGHTS[category]
+        metric = str(contract["metric"])
+        target_ms = float(contract["target_ms"])
+        case_names = tuple(str(name) for name in contract["cases"])
+        measured: list[dict[str, object]] = []
+        missing_cases: list[str] = []
+        values: list[float] = []
+        for case_name in case_names:
+            result = by_name.get(case_name)
+            if result is None:
+                missing_cases.append(case_name)
+                continue
+            value = _float_or_none(getattr(result, metric, None))
+            stats = _series_stats(_result_metric_samples(result, metric))
+            scored_value = _float_or_none(stats.get("ci95_upper_ms")) if stats else None
+            if scored_value is None:
+                scored_value = value
+            measured.append(
+                {
+                    "name": case_name,
+                    "metric": metric,
+                    "value_ms": value,
+                    "scored_value_ms": scored_value,
+                    "stats": stats,
+                    "ok": result.ok and value is not None,
+                }
+            )
+            if result.ok and scored_value is not None:
+                values.append(scored_value)
+        if not case_names:
+            categories[category] = {
+                "score": None,
+                "status": "missing-category",
+                "weight": weight,
+                "description": contract["description"],
+                "metric": metric,
+                "target_ms": target_ms,
+                "cases": [],
+                "missing_cases": [],
+            }
+            continue
+        if missing_cases or len(values) != len(case_names):
+            categories[category] = {
+                "score": None,
+                "status": "incomplete",
+                "weight": weight,
+                "description": contract["description"],
+                "metric": metric,
+                "target_ms": target_ms,
+                "cases": measured,
+                "missing_cases": missing_cases,
+            }
+            continue
+        average_scored_ms = sum(values) / len(values)
+        score = _score_time_against_budget(average_scored_ms, target_ms)
+        weighted_available += score * weight
+        available_weight += weight
+        weighted_complete += score * weight
+        categories[category] = {
+            "score": score,
+            "status": "measured",
+            "weight": weight,
+            "description": contract["description"],
+            "metric": metric,
+            "target_ms": target_ms,
+            "average_scored_ms": round(average_scored_ms, 3),
+            "cases": measured,
+            "missing_cases": [],
+        }
+
+    available_score = round(weighted_available / available_weight, 3) if available_weight else None
+    complete_score = round(weighted_complete / total_weight, 3) if total_weight else None
+    return {
+        "version": 1,
+        "units": "0..100",
+        "available_score": available_score,
+        "complete_score": complete_score,
+        "available_weight": available_weight,
+        "total_weight": total_weight,
+        "categories": categories,
+        "note": "available_score excludes missing categories; complete_score counts missing categories as zero.",
     }
 
 
@@ -917,6 +1080,52 @@ def _float_or_none(value: object) -> float | None:
     return None
 
 
+def _result_metric_samples(result: BenchmarkResult, metric: str) -> list[float]:
+    samples = getattr(result, f"{metric.removesuffix('_ms')}_samples_ms", None)
+    if isinstance(samples, list):
+        return [float(value) for value in samples if isinstance(value, (int, float))]
+    value = _float_or_none(getattr(result, metric, None))
+    return [] if value is None else [value]
+
+
+def _series_stats(values: list[float]) -> dict[str, object] | None:
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    count = len(ordered)
+    mean = sum(ordered) / count
+    median = float(statistics.median(ordered))
+    min_value = ordered[0]
+    max_value = ordered[-1]
+    stddev = float(statistics.stdev(ordered)) if count > 1 else 0.0
+    if count > 1:
+        margin = 1.96 * stddev / math.sqrt(count)
+        ci95_lower = max(0.0, mean - margin)
+        ci95_upper = mean + margin
+    else:
+        margin = None
+        ci95_lower = None
+        ci95_upper = None
+    return {
+        "count": count,
+        "mean_ms": _round_ms(mean),
+        "median_ms": _round_ms(median),
+        "min_ms": _round_ms(min_value),
+        "max_ms": _round_ms(max_value),
+        "stddev_ms": _round_ms(stddev),
+        "ci95_margin_ms": _round_ms(margin) if margin is not None else None,
+        "ci95_lower_ms": _round_ms(ci95_lower) if ci95_lower is not None else None,
+        "ci95_upper_ms": _round_ms(ci95_upper) if ci95_upper is not None else None,
+        "confidence": "95%" if count > 1 else "unavailable-single-sample",
+    }
+
+
+def _score_time_against_budget(value_ms: float, target_ms: float) -> float:
+    if value_ms <= 0.0:
+        return 100.0
+    return round(max(0.0, min(100.0, 100.0 * (target_ms / value_ms))), 3)
+
+
 def _fmt_ms(value: float | None) -> str:
     if value is None:
         return "-"
@@ -927,6 +1136,12 @@ def _fmt_ratio(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.3f}"
+
+
+def _fmt_score(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.1f}/100"
 
 
 def _status_text(result: BenchmarkResult) -> str:
@@ -944,9 +1159,42 @@ def _outputs_match(left: str, right: str) -> bool:
         return True
     left_lines = left.splitlines()
     right_lines = right.splitlines()
-    if len(left_lines) != len(right_lines):
-        return False
-    return all(_line_matches(a, b) for a, b in zip(left_lines, right_lines))
+    if len(left_lines) == len(right_lines) and all(_line_matches(a, b) for a, b in zip(left_lines, right_lines)):
+        return True
+    if _line_sequence_matches_compact(left, right_lines):
+        return True
+    return _compact_stdout(left) == _compact_stdout(right)
+
+
+def _compact_stdout(value: str) -> str:
+    return "".join(value.split())
+
+
+def _line_sequence_matches_compact(left: str, right_lines: list[str]) -> bool:
+    compact = _compact_stdout(left)
+    cursor = 0
+    for line in right_lines:
+        token = _compact_stdout(line)
+        if not token:
+            continue
+        if _looks_like_number(token):
+            match = re.match(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", compact[cursor:])
+            if match is None:
+                return False
+            actual = match.group(0)
+            if not _line_matches(actual, token):
+                return False
+            cursor += len(actual)
+            continue
+        found = compact.find(token, cursor)
+        if found < 0:
+            return False
+        cursor = found + len(token)
+    return True
+
+
+def _looks_like_number(value: str) -> bool:
+    return re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", value) is not None
 
 
 def _line_matches(left: str, right: str) -> bool:

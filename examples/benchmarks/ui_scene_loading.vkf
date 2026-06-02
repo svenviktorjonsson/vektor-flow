@@ -1,0 +1,21 @@
+scene: (
+    kind: "scene_3d",
+    frame_id: "bench_scene",
+    title: "Benchmark Scene",
+    camera: (
+        pos: [0, -5, 3],
+        target: [0, 0, 0],
+        fov: 45
+    ),
+    cubes: [
+        (id: "a", center: [0, 0, 1], size: 1.0),
+        (id: "b", center: [1, 0, 1], size: 0.5),
+        (id: "c", center: [-1, 0, 1], size: 0.75)
+    ],
+    lights: [
+        (id: "key", kind: "point", pos: [2, -3, 4], intensity: 12)
+    ]
+)
+
+:: scene.camera.fov
+:: scene.cubes.0.size

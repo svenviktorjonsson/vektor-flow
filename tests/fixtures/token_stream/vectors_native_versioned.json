@@ -472,7 +472,10 @@
     },
     {
       "kind": "ARROW",
-      "value": null,
+      "value": [
+        false,
+        false
+      ],
       "location": {
         "file": "examples/native_core/vectors_native.vkf",
         "line": 4,

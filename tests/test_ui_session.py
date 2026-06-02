@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from vektorflow.ui.payloads import reset_ui_payload_snapshot, write_display_payload, write_scene_payload
+from vektorflow.ui.payloads import get_ui_payload_snapshot, reset_ui_payload_snapshot, write_display_payload, write_scene_payload
+from vektorflow.ui.runtime_packet_transport import (
+    UIRuntimePacketTransport,
+    reset_ui_runtime_packet_transport,
+    set_ui_runtime_packet_transport,
+)
 from vektorflow.ui.session import ensure_ui_session, reset_ui_session, write_session_file
 
 
@@ -88,5 +93,124 @@ def test_runtime_packet_history_is_mirrored_after_session_creation(tmp_path, mon
         assert [packet["kind"] for packet in packets] == ["scene.replace", "display.replace"]
         assert packets[-1]["payload"]["display"]["geom"]["f1"]["meshes"][0]["type"] == "box"
     finally:
+        reset_ui_session()
+        reset_ui_payload_snapshot()
+
+
+def test_packet_only_mode_skips_scene_display_and_ui_state_file_mirrors_after_direct_publish(tmp_path, monkeypatch) -> None:
+    reset_ui_session()
+    reset_ui_payload_snapshot()
+    reset_ui_runtime_packet_transport()
+    built_web_dir = _write_minimal_web_tree(tmp_path)
+    monkeypatch.setenv("VF_UI_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("VF_UI_PACKET_ONLY", "1")
+    set_ui_runtime_packet_transport(
+        UIRuntimePacketTransport(direct_publisher=lambda _packets: (True, "direct://ok", None))
+    )
+
+    try:
+        session = ensure_ui_session(tmp_path)
+        built_session_dir = built_web_dir / "sessions" / session.session_id
+        initial_scene = (built_session_dir / "vkf-scene.json").read_text(encoding="utf-8")
+        initial_display = (built_session_dir / "vf-display.json").read_text(encoding="utf-8")
+        initial_ui_state = (built_session_dir / "vf-ui-state.json").read_text(encoding="utf-8")
+
+        scene_text = write_scene_payload([])
+        display_text, wrote_display = write_display_payload({"screen": [{"op": "rect"}], "frames": {}, "geom": {}})
+        from vektorflow.ui.payloads import write_ui_state_payload
+
+        ui_state_text = write_ui_state_payload({"f1": {"w1": {"text": "Hello"}}})
+
+        assert wrote_display is False
+        assert (built_session_dir / "vkf-scene.json").read_text(encoding="utf-8") == initial_scene
+        assert (built_session_dir / "vf-display.json").read_text(encoding="utf-8") == initial_display
+        assert (built_session_dir / "vf-ui-state.json").read_text(encoding="utf-8") == initial_ui_state
+        assert json.loads(scene_text) == []
+        assert json.loads(display_text)["screen"][0]["op"] == "rect"
+        assert json.loads(ui_state_text)["f1"]["w1"]["text"] == "Hello"
+
+        packet_path = built_web_dir / "sessions" / session.session_id / "vf-runtime-packets.json"
+        packets = json.loads(packet_path.read_text(encoding="utf-8"))
+        assert [packet["kind"] for packet in packets] == ["scene.replace", "display.replace", "ui_state.replace"]
+    finally:
+        reset_ui_runtime_packet_transport()
+        reset_ui_session()
+        reset_ui_payload_snapshot()
+
+
+def test_strict_packet_only_mode_skips_runtime_packet_file_mirror_after_direct_publish(tmp_path, monkeypatch) -> None:
+    reset_ui_session()
+    reset_ui_payload_snapshot()
+    reset_ui_runtime_packet_transport()
+    built_web_dir = _write_minimal_web_tree(tmp_path)
+    monkeypatch.setenv("VF_UI_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("VF_UI_PACKET_ONLY_STRICT", "1")
+    set_ui_runtime_packet_transport(
+        UIRuntimePacketTransport(direct_publisher=lambda _packets: (True, "direct://ok", None))
+    )
+
+    try:
+        session = ensure_ui_session(tmp_path)
+        built_session_dir = built_web_dir / "sessions" / session.session_id
+        initial_packets = (built_session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8")
+
+        scene_text = write_scene_payload([])
+        display_text, wrote_display = write_display_payload({"screen": [{"op": "rect"}], "frames": {}, "geom": {}})
+        from vektorflow.ui.payloads import write_ui_state_payload
+
+        ui_state_text = write_ui_state_payload({"f1": {"w1": {"text": "Hello"}}})
+
+        assert wrote_display is False
+        assert (built_session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == initial_packets
+        assert json.loads(scene_text) == []
+        assert json.loads(display_text)["screen"][0]["op"] == "rect"
+        assert json.loads(ui_state_text)["f1"]["w1"]["text"] == "Hello"
+    finally:
+        reset_ui_runtime_packet_transport()
+        reset_ui_session()
+        reset_ui_payload_snapshot()
+
+
+def test_strict_packet_only_mode_never_falls_back_to_file_mirrors_when_direct_publish_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    reset_ui_session()
+    reset_ui_payload_snapshot()
+    reset_ui_runtime_packet_transport()
+    built_web_dir = _write_minimal_web_tree(tmp_path)
+    monkeypatch.setenv("VF_UI_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("VF_UI_PACKET_ONLY_STRICT", "1")
+    set_ui_runtime_packet_transport(
+        UIRuntimePacketTransport(direct_publisher=lambda _packets: (False, "direct://fail", "offline"))
+    )
+
+    try:
+        session = ensure_ui_session(tmp_path)
+        built_session_dir = built_web_dir / "sessions" / session.session_id
+        initial_packets = (built_session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8")
+
+        scene_text = write_scene_payload([])
+        display_text, wrote_display = write_display_payload({"screen": [{"op": "rect"}], "frames": {}, "geom": {}})
+        from vektorflow.ui.payloads import write_ui_state_payload
+
+        ui_state_text = write_ui_state_payload({"f1": {"w1": {"text": "Hello"}}})
+
+        assert wrote_display is False
+        assert (built_session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == initial_packets
+        assert not (built_session_dir / "vkf-scene.json").exists()
+        assert not (built_session_dir / "vf-display.json").exists()
+        assert not (built_session_dir / "vf-ui-state.json").exists()
+        publish_result = get_ui_payload_snapshot().last_publish_result
+        assert publish_result is not None
+        assert publish_result.direct_published is False
+        assert publish_result.mirrored is False
+        assert publish_result.endpoint == "direct://fail"
+        assert publish_result.error == "offline"
+        assert json.loads(scene_text) == []
+        assert json.loads(display_text)["screen"][0]["op"] == "rect"
+        assert json.loads(ui_state_text)["f1"]["w1"]["text"] == "Hello"
+    finally:
+        reset_ui_runtime_packet_transport()
         reset_ui_session()
         reset_ui_payload_snapshot()

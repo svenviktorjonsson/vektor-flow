@@ -38,6 +38,7 @@ _STAT_VECTOR_NAMES = {"sum", "mean", "min", "max", "range", "count", "variance",
 _STAT_VECTOR_FLOAT_NAMES = {"median", "percentile", "iqr", "zscore", "normalize", "covariance", "correlation"}
 _STAT_SCALAR_NAMES = {"clamp", "sign"}
 _MATH_CONST_NAMES = {"pi", "e", "tau"}
+_IO_FILE_READ_NAMES = {"read_text", "read_bytes"}
 
 
 def resolve_native_intrinsic(func: Any) -> NativeIntrinsic | None:
@@ -53,6 +54,8 @@ def resolve_native_intrinsic(func: Any) -> NativeIntrinsic | None:
             return NativeIntrinsic("math", func.name, "math_const")
         if base == "stat" and (func.name in _STAT_VECTOR_NAMES or func.name in _STAT_VECTOR_FLOAT_NAMES or func.name in _STAT_SCALAR_NAMES):
             return NativeIntrinsic("stat", func.name, "stat")
+        if base == "io" and func.name in _IO_FILE_READ_NAMES:
+            return NativeIntrinsic("io", func.name, "io_file")
     return None
 
 
@@ -95,6 +98,12 @@ def infer_intrinsic_return_type(intrinsic: NativeIntrinsic, arg_types: list[Any]
         if intrinsic.name == "count":
             return ast.PrimTypeRef("int")
         return ast.PrimTypeRef("num")
+    if intrinsic.kind == "io_file":
+        _require_arity(intrinsic, len(arg_types), 1)
+        if not _is_string_like_type(arg_types[0]):
+            raise ValueError(f"{_intrinsic_label(intrinsic)} requires a string path")
+        # Native read_bytes is represented as a string-backed byte buffer for now.
+        return ast.PrimTypeRef("str")
     raise ValueError(f"unknown intrinsic kind {intrinsic.kind}")
 
 
@@ -117,6 +126,10 @@ def intrinsic_uses_array_stats(intrinsic: NativeIntrinsic) -> bool:
 
 def intrinsic_uses_array_sum(intrinsic: NativeIntrinsic) -> bool:
     return intrinsic.kind == "stat" and intrinsic.name in {"sum", "mean"}
+
+
+def intrinsic_uses_file_io(intrinsic: NativeIntrinsic) -> bool:
+    return intrinsic.kind == "io_file"
 
 
 def _intrinsic_label(intrinsic: NativeIntrinsic) -> str:
@@ -153,3 +166,8 @@ def _normalize_type(t: Any) -> Any:
 def _is_scalar_numeric_type(t: Any) -> bool:
     t = _normalize_type(t)
     return isinstance(t, ast.PrimTypeRef) and t.name in {"bool", "int", "num"}
+
+
+def _is_string_like_type(t: Any) -> bool:
+    t = _normalize_type(t)
+    return isinstance(t, ast.PrimTypeRef) and t.name in {"str", "bytes"}
