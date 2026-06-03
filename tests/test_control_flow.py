@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from vektorflow.errors import EvalError
+from vektorflow.errors import AssertionError as VfAssertionError, EvalError
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
 
@@ -276,6 +276,26 @@ errors: .errors
 :: errors.Error
 """
     assert _run(src).splitlines() == ["LexError", "ParseError", "EvalError", "Error"]
+
+
+def test_assertion_operator_passes_through_truthy_value() -> None:
+    assert _run(":: (3 > 1?! \"math broke\")") == "true"
+
+
+def test_assertion_operator_raises_clear_default_message() -> None:
+    with pytest.raises(VfAssertionError, match=r"assertion failed: 3 < 1"):
+        _run("3 < 1?!")
+
+
+def test_assertion_operator_message_can_be_caught_with_bang_question() -> None:
+    src = """
+errors: .errors
+out: ""
+(3 < 1?! "expected ordering")!?
+  errors.AssertionError => out: $.message
+:: out
+"""
+    assert _run(src) == "expected ordering"
 
 
 def test_break_outside_pipe_errors() -> None:

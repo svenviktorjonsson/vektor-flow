@@ -186,7 +186,8 @@ class IRExecutor:
             return self.eval_expr(node.expr, env)
         if isinstance(node, ir.PrintStmt):
             value = self.eval_expr(node.value, env)
-            print(_stringify(value, self.types), end="", flush=True)
+            text = _stringify(value, self.types)
+            print(text, end="" if text.endswith("\n") else "\n", flush=True)
             return None
         if isinstance(node, ir.LabelPrintStmt):
             value = self.eval_expr(node.value, env)
@@ -244,15 +245,15 @@ class IRExecutor:
                 chosen = chosen if chosen is not None else default_arm
                 if chosen is None:
                     return None
+                if not node.loop:
+                    self.eval_block_result(chosen.body, env)
+                    return None
                 try:
                     self.eval_block_result(chosen.body, env)
                 except IRContinueSignal:
                     if node.loop:
                         continue
-                    return None
                 except IRBreakSignal:
-                    return None
-                if not node.loop:
                     return None
             return None
         if isinstance(node, ir.ContinueStmt):
@@ -306,6 +307,10 @@ class IRExecutor:
                     if cast_fn is not None:
                         return self._call(cast_fn, args)
                 return fn(*args)
+            if isinstance(fn, IRFunctionValue):
+                if kwargs or spreads:
+                    raise EvalError("this IR call does not accept keyword or spread arguments")
+                return self._call(fn, args)
             if (
                 isinstance(node.func, ir.AttrExpr)
                 and not callable(fn)
@@ -672,8 +677,14 @@ class IRExecutor:
         e2 = dict(env)
         e2["$"] = dollar
         if isinstance(rhs, ir.Block):
-            return self.eval_block_result(rhs, e2)
-        return self.eval_expr(rhs, e2)
+            try:
+                return self.eval_block_result(rhs, e2)
+            except IRReturnSignal as ret:
+                return ret.value
+        try:
+            return self.eval_expr(rhs, e2)
+        except IRReturnSignal as ret:
+            return ret.value
 
     def _pipe_one_element_through_segments(self, el: Any, segs: list[Any], env: dict[str, Any]) -> Any:
         v = el
@@ -721,7 +732,12 @@ class IRExecutor:
                 return mapped
         if isinstance(left_v, LazyInfiniteIterator):
             for el in left_v:
-                self._pipe_one_element_through_segments(el, segs, env)
+                try:
+                    self._pipe_one_element_through_segments(el, segs, env)
+                except IRBreakSignal:
+                    break
+                except IRContinueSignal:
+                    continue
             return None
         return self._pipe_one_element_through_segments(left_v, segs, env)
 

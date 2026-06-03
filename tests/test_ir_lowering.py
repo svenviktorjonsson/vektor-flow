@@ -8,7 +8,7 @@ from vektorflow import ast
 from vektorflow.errors import EvalError
 from vektorflow.interpreter import _stringify
 from vektorflow.interpreter import Interpreter
-from vektorflow.ir import AttrExpr, AxisAlignExpr, BinaryExpr, Block, CallExpr, CoerceExpr, Const, FunctionDef, IfStmt, IndexExpr, LinkedListExpr, ListExpr, LoadName, MapExpr, MatchArm, MatchStmt, Module, MultisetExpr, RangeExpr, SpliceExpr, StdlibImport, StoreName, StructExpr, TupleExpr, UnaryExpr, WhileStmt, lower_module
+from vektorflow.ir import AttrExpr, AxisAlignExpr, BinaryExpr, Block, CallExpr, CoerceExpr, Const, FunctionDef, IfStmt, IndexExpr, LinkedListExpr, ListExpr, LoadName, MapExpr, MatchArm, MatchStmt, Module, MultisetExpr, PipeChainExpr, RangeExpr, SpliceExpr, StdlibImport, StoreName, StructExpr, TupleExpr, UnaryExpr, WhileStmt, lower_module
 from vektorflow.ir_executor import IRExecutor
 from vektorflow.optimize_ir import optimize_module
 from vektorflow.parser import parse_module
@@ -175,6 +175,37 @@ out: [1..5] >> square($)
     ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
     assert ir_ret == ast_ret
     assert list(ir_globals["out"]) == list(ast_globals["out"]) == [1, 4, 9, 16, 25]
+
+
+def test_ir_lowers_indented_pipe_block_segment() -> None:
+    mod = parse_module(
+        """
+out: [1..3] >>
+    x: 4
+    $ + x
+""",
+        filename="<ir-test>",
+    )
+    lowered = lower_module(mod)
+    pipe = lowered.statements[0].value
+
+    assert isinstance(pipe, PipeChainExpr)
+    assert isinstance(pipe.segments[0], Block)
+
+
+def test_ir_parity_pipe_block_last_row_and_local_return() -> None:
+    src = """
+out: (0..3) >>
+    local: $ + 100
+    $ < 2?
+        @: $ + 10
+    local + 20
+local: "outer"
+"""
+    ast_ret, ast_globals, ir_ret, ir_globals = _run_both(src)
+    assert ir_ret == ast_ret
+    assert ir_globals["out"] == ast_globals["out"] == (10, 11, 122, 123)
+    assert ir_globals["local"] == ast_globals["local"] == "outer"
 
 
 def test_ir_parity_abs_and_typeof_subset() -> None:

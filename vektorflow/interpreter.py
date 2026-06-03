@@ -22,7 +22,7 @@ from .errors import (
     ExitProgramSignal,
     ParseError,
     ReturnSignal,
-    error_type_match_specificity,
+    VektorFlowError,
 )
 from .runtime.multiset import (
     Multiset,
@@ -34,7 +34,8 @@ from .runtime.multiset import (
     multiset_union,
 )
 from .stdlib import STDLIB_MODULES, resolve_stdlib
-from .stdlib.events import MouseEvent, KeyboardEvent, KeyEvent, TouchEvent, matches_event_code, event_match_specificity
+from .stdlib.events import MouseEvent, KeyboardEvent, KeyEvent, TouchEvent, matches_event_code
+from .runtime.branch_dispatch import BranchCandidate, branch_match_specificity, select_branch
 from .use_resolve import resolve_dot_module, resolve_use_path
 from .runtime.struct_value import (
     VF_SPILL_BASE_KEY,
@@ -578,7 +579,7 @@ def _try_scalar_relational_derivation(op: str, a: Any, b: Any) -> Any:
         if lt_ab is not None and lt_ba is not None:
             return (not lt_ab) and (not lt_ba)
         return a == b
-    if op == "STRUCT_NEQ":
+    if op in ("NEQ", "STRUCT_NEQ"):
         return not _try_scalar_relational_derivation("EQ", a, b)
     if op == "LE":
         return _logical_scalar_binop(
@@ -740,6 +741,16 @@ def _expr_to_compact_string(expr: Any) -> str:
         parts = ", ".join(_expr_to_compact_string(i) for i in expr.indices)
         return f"{inner}->({parts})"
     return f"<{type(expr).__name__}>"
+
+
+def _expr_to_assertion_label(expr: Any) -> str:
+    """Readable condition snapshot for ``?!`` diagnostics."""
+    if isinstance(expr, ast.BinOp):
+        left = _expr_to_assertion_label(expr.left)
+        right = _expr_to_assertion_label(expr.right)
+        op = BINOP_KIND_TO_SYM.get(expr.op, expr.op)
+        return f"{left} {op} {right}"
+    return _expr_to_compact_string(expr)
 
 
 def _event_object_code(value: Any) -> int | None:
@@ -1104,6 +1115,10 @@ class Interpreter:
 
     def _module_is_safe_for_ir_dispatch(self, module: ast.Module) -> bool:
         for stmt in module.statements:
+            if isinstance(stmt, ast.SpillImport):
+                segments = getattr(stmt.path, "segments", [])
+                if segments and segments[0] == "ui":
+                    return False
             if isinstance(stmt, ast.FuncDef):
                 if _is_struct_ctor_body(stmt.body, stmt.docstring):
                     return False
@@ -1419,6 +1434,26 @@ class Interpreter:
             return
         raise EvalError("invalid bind target")
 
+    def _try_assign_update_in_place(self, target: Any, value: Any, env: dict[str, Any]) -> Any | None:
+        """Preserve aliasing for lowered ``x +: y``-style updates on vector storage."""
+        if (
+            not isinstance(target, ast.Ident)
+            or not isinstance(value, ast.BinOp)
+            or not isinstance(value.left, ast.Ident)
+            or value.left.name != target.name
+            or target.name not in env
+        ):
+            return None
+        current = env[target.name]
+        if not isinstance(current, VFVector):
+            return None
+        updated = self.eval_expr(value, env)
+        if not isinstance(updated, VFVector) or len(updated) != len(current):
+            return updated
+        for index, item in enumerate(updated):
+            current[index] = item
+        return current
+
     def run_module(self, module: ast.Module) -> Any:
         self.last_function_execution_engine = None
         self.last_callable_execution_engine = None
@@ -1494,6 +1529,9 @@ class Interpreter:
                 if tname in ("num", "str", "bool"):
                     env[node.target.name] = default_field_value(tname, self.types)
                     return env[node.target.name]
+            updated = self._try_assign_update_in_place(node.target, node.value, env)
+            if updated is not None:
+                return updated
             assigned = self.eval_expr(node.value, env)
             self._assign_bind(node.target, assigned, env)
             return assigned
@@ -1657,46 +1695,32 @@ class Interpreter:
 
     def _match_specificity(self, a: Any, b: Any) -> int | None:
         """Return match specificity for ``??`` arm selection, or ``None`` when not matched."""
-        if self._match_eq(a, b):
-            return 1_000_000
-        if isinstance(a, dict) and struct_has_spill_base(a):
-            delegated = self._match_specificity(get_spill_base(a), b)
-            if delegated is not None:
-                return delegated + 5
-        a_event_code = _event_object_code(a)
-        if a_event_code is not None and isinstance(b, int):
-            s = event_match_specificity(a_event_code, b)
-            if s is not None:
-                return s
-            s = event_match_specificity(b, a_event_code)
-            if s is not None:
-                return s
-            return None
-        b_event_code = _event_object_code(b)
-        if b_event_code is not None and isinstance(a, int):
-            s = event_match_specificity(a, b_event_code)
-            if s is not None:
-                return s
-            s = event_match_specificity(b_event_code, a)
-            if s is not None:
-                return s
-            return None
-        if isinstance(a, int) and isinstance(b, int):
-            s = event_match_specificity(a, b)
-            if s is not None:
-                return s
-            s = event_match_specificity(b, a)
-            if s is not None:
-                return s
-            return None
-        if isinstance(b, ErrorTypeValue) and isinstance(a, BaseException):
-            return error_type_match_specificity(a, b)
-        if is_type_value(b):
-            actual = infer_type(a, self.types)
-            s = _type_match_specificity(actual, b, self.types)
-            if s is not None:
-                return s
-        return None
+        return branch_match_specificity(
+            a,
+            b,
+            exact_match=self._match_eq,
+            type_registry=self.types,
+            event_object_code=_event_object_code,
+        )
+
+    def _select_match_arm(self, subject: Any, arms: list[ast.MatchArm], env: dict[str, Any]) -> ast.MatchArm | None:
+        candidates: list[BranchCandidate] = []
+        default_arm: ast.MatchArm | None = None
+        for index, arm in enumerate(arms):
+            if arm.condition is None:
+                if default_arm is None:
+                    default_arm = arm
+                continue
+            candidates.append(BranchCandidate(arm, self.eval_expr(arm.condition, env), index))
+        selection = select_branch(
+            subject,
+            candidates,
+            default_arm=default_arm,
+            exact_match=self._match_eq,
+            type_registry=self.types,
+            event_object_code=_event_object_code,
+        )
+        return selection.arm
 
     def _eval_match_body(self, body: Any, env: dict[str, Any]) -> None:
         if isinstance(body, ast.Block):
@@ -1720,22 +1744,7 @@ class Interpreter:
                 except BaseException as exc:
                     disc = exc
                 env["$"] = disc
-                best_arm: ast.MatchArm | None = None
-                best_spec = -1
-                default_arm: ast.MatchArm | None = None
-                for arm in node.arms:
-                    if arm.condition is None:
-                        if default_arm is None:
-                            default_arm = arm
-                        continue
-                    m = self.eval_expr(arm.condition, env)
-                    spec = self._match_specificity(disc, m)
-                    if spec is None:
-                        continue
-                    if spec > best_spec:
-                        best_spec = spec
-                        best_arm = arm
-                chosen = best_arm if best_arm is not None else default_arm
+                chosen = self._select_match_arm(disc, node.arms, env)
                 if chosen is not None:
                     self._eval_match_body(chosen.body, env)
                     return
@@ -1743,22 +1752,7 @@ class Interpreter:
             while True:
                 disc = self.eval_expr(node.discriminant, env)
                 env["$"] = disc
-                best_arm: ast.MatchArm | None = None
-                best_spec = -1
-                default_arm: ast.MatchArm | None = None
-                for arm in node.arms:
-                    if arm.condition is None:
-                        if default_arm is None:
-                            default_arm = arm
-                        continue
-                    m = self.eval_expr(arm.condition, env)
-                    spec = self._match_specificity(disc, m)
-                    if spec is None:
-                        continue
-                    if spec > best_spec:
-                        best_spec = spec
-                        best_arm = arm
-                chosen = best_arm if best_arm is not None else default_arm
+                chosen = self._select_match_arm(disc, node.arms, env)
                 if chosen is not None:
                     if node.loop:
                         try:
@@ -1857,6 +1851,9 @@ class Interpreter:
                 coerced, _ = coerce_typed_value(value, resolved_type, self.types)
                 self._assign_bind(node.target, coerced, env)
                 return coerced
+            updated = self._try_assign_update_in_place(node.target, node.value, env)
+            if updated is not None:
+                return updated
             assigned = self.eval_expr(node.value, env)
             self._assign_bind(node.target, assigned, env)
             return assigned
@@ -2053,6 +2050,13 @@ class Interpreter:
                 return self._call(fn, node.args, env)
             if isinstance(fn, VFunction):
                 return self._call(fn, node.args, env)
+            try:
+                from .ir_executor import IRFunctionValue
+
+                if isinstance(fn, IRFunctionValue):
+                    return self._call(fn, pos, env)
+            except ImportError:
+                pass
             if (
                 isinstance(node.func, ast.Attribute)
                 and not callable(fn)
@@ -2104,6 +2108,14 @@ class Interpreter:
                 raise EvalError(
                     f"function has no body binding {node.name!r}"
                 )
+            if isinstance(o, BaseException):
+                if node.name == "message":
+                    if isinstance(o, VektorFlowError):
+                        return o.message
+                    return str(o)
+                if node.name == "type":
+                    return type(o).__name__
+                raise EvalError(f"error has no field {node.name!r}")
             type_attr = runtime_type_member_callable(o, node.name)
             if type_attr is not None:
                 return type_attr
@@ -2157,7 +2169,7 @@ class Interpreter:
             if node.message is not None:
                 msg = self._stringify_for_display(self.eval_expr(node.message, env), env)
             else:
-                label = node.condition_text or _expr_to_compact_string(node.condition)
+                label = _expr_to_assertion_label(node.condition)
                 msg = f"assertion failed: {label}"
             raise VfAssertionError(msg)
         if isinstance(node, ast.DotModulePath):
@@ -2279,6 +2291,18 @@ class Interpreter:
         if isinstance(fn, VStructCtor):
             self.last_callable_execution_engine = "runtime"
             return self._call_struct_ctor(fn, list(args), env)
+        try:
+            from .ir_executor import IRExecutor, IRFunctionValue
+
+            if isinstance(fn, IRFunctionValue):
+                child = IRExecutor(self.file_path)
+                child.builtin = dict(self.builtin)
+                child.globals = self.globals
+                child.types = self.types
+                self.last_callable_execution_engine = "ir"
+                return child._call(fn, list(args))
+        except ImportError:
+            pass
         if callable(fn):
             self.last_callable_execution_engine = "runtime"
             return fn(*args)
@@ -2371,9 +2395,7 @@ class Interpreter:
 
     def _print_value(self, val: Any, env: dict[str, Any]) -> None:
         s = self._stringify_for_display(val, env)
-        # No implicit newline: ``:: expr`` prints exactly ``s``; use ``::: expr`` (sugar for
-        # ``:: (expr & "\\n")``) or embed ``\\n`` in the value for line-oriented output.
-        print(s, end="", flush=True)
+        print(s, end="" if s.endswith("\n") else "\n", flush=True)
 
     def _eval_runtime_source_text(self, source_expr: Any, env: dict[str, Any]) -> str:
         source = self.eval_expr(source_expr, env)
@@ -2470,12 +2492,22 @@ class Interpreter:
         """Pipe RHS is an expression or ``;``-separated stmts (``Block``): ``::$``, ``$? …``, etc."""
         e2 = dict(env)
         e2["$"] = dollar
-        if isinstance(rhs, ast.Block):
-            last: Any = None
-            for stmt in rhs.statements:
-                last = self.eval_stmt(stmt, e2)
-            return last
-        return self.eval_expr(rhs, e2)
+        self._return_scope_depth += 1
+        try:
+            if isinstance(rhs, ast.Block):
+                last: Any = None
+                try:
+                    for stmt in rhs.statements:
+                        last = self.eval_stmt(stmt, e2)
+                except ReturnSignal as ret:
+                    return ret.value
+                return last
+            try:
+                return self.eval_expr(rhs, e2)
+            except ReturnSignal as ret:
+                return ret.value
+        finally:
+            self._return_scope_depth -= 1
 
     def _pipe_one_element_through_segments(
         self, el: Any, segs: list[Any], env: dict[str, Any]
@@ -3510,10 +3542,14 @@ def _binop(op: str, a: Any, b: Any) -> Any:
     if op == "AMPERSAND":
         if isinstance(a, str) and isinstance(b, str):
             return a + b
+        if isinstance(a, list) and isinstance(b, list):
+            return a + b
         if isinstance(a, tuple) and isinstance(b, tuple):
             return a + b
         if isinstance(a, VFVector) and isinstance(b, VFVector):
             return _wrap_vector_result_if_typed(op, chain(a, b), a, b)
+        if isinstance(a, Multiset) and isinstance(b, Multiset):
+            return wrap_typed_multiset_result(multiset_union(a, b), combine_typed_multiset_types(a, b))
         if isinstance(a, dict) and isinstance(b, dict) and is_struct_dict(a) and is_struct_dict(b):
             return _struct_merge_concat(a, b)
         raise EvalError(
@@ -3619,7 +3655,7 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, VFVector) and isinstance(b, (int, float)):
             return _wrap_vector_result_if_typed(op, (x**float(b) for x in a), a, b)
         return a**b
-    if op in ("EQ", "STRUCT_NEQ", "LT", "LE", "GT", "GE"):
+    if op in ("EQ", "NEQ", "STRUCT_NEQ", "LT", "LE", "GT", "GE"):
         if isinstance(a, tuple) and isinstance(b, tuple):
             if len(a) != len(b):
                 raise EvalError("tuple length mismatch for relational op")

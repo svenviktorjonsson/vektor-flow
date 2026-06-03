@@ -1698,6 +1698,23 @@ class Parser:
         Each ``:: expr`` prints with a trailing newline unless ``expr`` stringifies to text
         that already ends with ``\\n`` (e.g. ``$ & "\\n"`` controls the line ending explicitly).
         """
+        if self._peek_raw() == NEWLINE:
+            self._consume_newline_raw()
+            self._skip_trivia()
+            if self._peek_raw() != INDENT:
+                raise ParseError(
+                    "expected indented pipe block after newline following `>>`",
+                    self._loc_here(),
+                )
+            self._expect(INDENT)
+            body_stmts: list[Any] = []
+            while True:
+                self._skip_trivia()
+                if self._peek_raw() in (DEDENT, EOF):
+                    break
+                body_stmts.extend(self.parse_stmt_semicolon_chain())
+            self._expect(DEDENT)
+            return self._func_body_from_stmts(body_stmts)
         stmts = self.parse_stmt_semicolon_chain()
         return self._func_body_from_stmts(stmts)
 
@@ -2501,7 +2518,9 @@ def parse_module(source: str, filename: str = "<stdin>") -> ast.Module:
 
     toks = tokenize(source, filename=filename)
     p = Parser(toks, source=source, filename=filename)
-    return p.parse_module()
+    module = p.parse_module()
+    setattr(module, "filename", filename)
+    return module
 
 
 def parse_tokens(tokens: list[Token]) -> ast.Module:
