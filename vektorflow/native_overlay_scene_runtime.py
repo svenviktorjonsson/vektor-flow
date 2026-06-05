@@ -9,12 +9,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .errors import EvalError, LexError, ParseError, format_source_diagnostic
 from .native_overlay_scene_bundle import NativeOverlaySceneProgram
-from .native_overlay_scene_frontend import (
-    try_build_native_overlay_scene_program,
-    try_build_native_overlay_scene_program_from_contract_path,
-)
+from .native_overlay_scene_frontend import try_build_native_overlay_scene_program_from_contract_path
 from .ui.file_io import write_text_if_changed
 
 
@@ -220,93 +216,6 @@ def launch_native_overlay_scene_program(
     return 0
 
 
-def try_run_native_overlay_scene(
-    path: Path,
-    *,
-    build_program: Callable[[Path], NativeOverlaySceneProgram | None] = try_build_native_overlay_scene_program,
-) -> int | None:
-    try:
-        program = build_program(path)
-    except (LexError, ParseError, EvalError) as exc:
-        try:
-            source = path.resolve().read_text(encoding="utf-8")
-        except OSError:
-            source = ""
-        print(format_source_diagnostic(source, exc), file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"error: native overlay scene build failed: {exc}", file=sys.stderr)
-        return 1
-
-    if program is None:
-        return None
-
-    try:
-        from .stdlib.events import reset_overlay_port
-        from .ui.display_runtime import _sync_display_runtime_assets
-        from .ui.host_process import terminate_previous_overlay, wait_for_overlay_ready
-        from .ui.launch import (
-            _clear_overlay_port_file,
-            _clear_overlay_state,
-            _overlay_trace_enabled,
-            _read_overlay_pid,
-            _vf_warn,
-            find_vektorflow_repo_root,
-            find_vf_overlay_exe,
-        )
-        from .ui.overlay_host_contract import overlay_web_dir_for_exe, write_overlay_state
-        from .ui.runtime_packet_transport import navigate_overlay_runtime_page, publish_runtime_packets
-
-        root = find_vektorflow_repo_root()
-        if root is None:
-            raise RuntimeError(
-                "UI not started: could not find vektor-flow tree "
-                "(expect web/vf-ui/index.html and web/vf-ui/vkf-scene.html). "
-                "Set VF_UI_REPO_ROOT explicitly."
-            )
-
-        exe = find_vf_overlay_exe(root)
-        if exe is None:
-            raise RuntimeError(
-                "UI not started: vf-overlay.exe not found. "
-                "Build native/VfOverlay (.\\scripts\\build-vf-overlay.ps1)."
-            )
-
-        use_terminal = (os.environ.get("VF_UI_TERMINAL") or "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        return launch_native_overlay_scene_program(
-            program,
-            root=root,
-            exe=exe,
-            sync_display_runtime_assets=lambda current_root: _sync_display_runtime_assets(current_root),
-            reset_overlay_port=reset_overlay_port,
-            read_overlay_pid=_read_overlay_pid,
-            terminate_previous_overlay=terminate_previous_overlay,
-            clear_overlay_port_file=_clear_overlay_port_file,
-            write_overlay_state=write_overlay_state,
-            wait_for_overlay_ready=wait_for_overlay_ready,
-            overlay_web_dir_for_exe=overlay_web_dir_for_exe,
-            hot_publish_runtime_packets=publish_runtime_packets,
-            hot_navigate_overlay_page=navigate_overlay_runtime_page,
-            trace_enabled=_overlay_trace_enabled(),
-            use_terminal=use_terminal,
-        )
-    except (OSError, RuntimeError) as exc:
-        try:
-            from .ui.launch import _clear_overlay_state, _vf_warn
-
-            _clear_overlay_state()
-            _vf_warn(f"vektorflow: {exc}")
-        except Exception:
-            pass
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-
-
 def try_run_native_overlay_scene_contract(
     path: Path,
     *,
@@ -390,5 +299,4 @@ __all__ = [
     "DEFAULT_REQUIRED_NATIVE_SCENE_ASSETS",
     "launch_native_overlay_scene_program",
     "try_run_native_overlay_scene_contract",
-    "try_run_native_overlay_scene",
 ]

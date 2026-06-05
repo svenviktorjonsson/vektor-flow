@@ -1,0 +1,114 @@
+ui:.ui
+math:.math
+: .types
+notation: .notation
+state_lib: .state
+
+ui.set_mode("overlay")
+
+piece_color(side:str) -> str:
+    """Choose the display color for a side."""
+    side = "white"? @: "#e8e4d8"
+    @: "#20242d"
+
+add_square(frame, file:num, rank:num):
+    """Add one pickable square mesh in board mesh order."""
+    is_light: ((file + rank) / 2) * 2 = file + rank
+    color: "#1f1b16"
+    is_light? 
+        color: "#f0d9b5"
+    frame.add_box(
+      center: [notation.board_x(file), -0.04, notation.board_z(rank)],
+      scale: [0.98, 0.08, 0.98],
+      color: color,
+      texture: (kind:"checker", scale:[1.0, 1.0], color_a:[0.95, 0.85, 0.68, 1.0], color_b:[0.08, 0.08, 0.08, 1.0])
+    )
+
+add_rank(frame, rank:num):
+    """Add one rank of pickable square meshes."""
+    add_square(frame, 1, rank)
+    add_square(frame, 2, rank)
+    add_square(frame, 3, rank)
+    add_square(frame, 4, rank)
+    add_square(frame, 5, rank)
+    add_square(frame, 6, rank)
+    add_square(frame, 7, rank)
+    add_square(frame, 8, rank)
+
+add_piece(frame, side:str, role:str, file:num, rank:num):
+    """Add exactly one mesh per piece so object ids map cleanly to chess pieces."""
+    role = "rook"?
+        frame.add_box(center:[notation.board_x(file), 0.54, notation.board_z(rank)], scale:[0.44, 0.88, 0.44], color:piece_color(side))
+        @
+    role = "knight"?
+        frame.add_box(center:[notation.board_x(file), 0.56, notation.board_z(rank)], scale:[0.34, 0.92, 0.46], color:piece_color(side))
+        @
+    role = "king"?
+        frame.add_box(center:[notation.board_x(file), 0.70, notation.board_z(rank)], scale:[0.38, 1.18, 0.38], color:piece_color(side))
+        @
+    role = "queen"?
+        frame.add_ellipsoid(center:[notation.board_x(file), 0.70, notation.board_z(rank)], scale:[0.40, 1.10, 0.40], color:piece_color(side))
+        @
+    role = "bishop"?
+        frame.add_ellipsoid(center:[notation.board_x(file), 0.62, notation.board_z(rank)], scale:[0.32, 0.96, 0.32], color:piece_color(side))
+        @
+    frame.add_ellipsoid(center:[notation.board_x(file), 0.46, notation.board_z(rank)], scale:[0.28, 0.72, 0.28], color:piece_color(side))
+
+add_back_rank(frame, side:str, rank:num):
+    """Add the non-pawn starting rank in deterministic mesh order."""
+    add_piece(frame, side, "rook", 1, rank)
+    add_piece(frame, side, "knight", 2, rank)
+    add_piece(frame, side, "bishop", 3, rank)
+    add_piece(frame, side, "queen", 4, rank)
+    add_piece(frame, side, "king", 5, rank)
+    add_piece(frame, side, "bishop", 6, rank)
+    add_piece(frame, side, "knight", 7, rank)
+    add_piece(frame, side, "rook", 8, rank)
+
+add_pawns(frame, side:str, rank:num):
+    """Add a pawn rank in deterministic mesh order."""
+    add_piece(frame, side, "pawn", 1, rank)
+    add_piece(frame, side, "pawn", 2, rank)
+    add_piece(frame, side, "pawn", 3, rank)
+    add_piece(frame, side, "pawn", 4, rank)
+    add_piece(frame, side, "pawn", 5, rank)
+    add_piece(frame, side, "pawn", 6, rank)
+    add_piece(frame, side, "pawn", 7, rank)
+    add_piece(frame, side, "pawn", 8, rank)
+
+build_chess_scene():
+    """Build the 3D chess board plus side controls using generic UI primitives."""
+    d: ui.display
+    d.set_auto_render(false)
+    board_frame: d.frame(id:"vkf_chess_board", title:"VKF Chess - source-owned game", alpha:0.96, draggable:true, dockable:true, resizable:true, closable:true, body_transparent:true)
+    d.add_frame(board_frame, (0.04, 0.05, 0.70, 0.86))
+    board_frame.add_camera(pos:[5.8, -8.0, 6.2], target:[0, 0, 0], up:[0, 1, 0], fov:44, projection:"orthographic", ortho_scale:9.2)
+    board_frame.add_light(pos:[-5.5, -4.0, 7.5], target:[0, 0, 0], model:"blinn_phong", color:"white", intensity:2.6)
+    board_frame.add_box(center:[0, -0.12, 0], scale:[8.6, 0.18, 8.6], color:"#0c0d10", texture:(kind:"checker", scale:[8.0, 8.0], color_a:[0.12, 0.10, 0.08, 1.0], color_b:[0.88, 0.76, 0.55, 1.0]))
+    add_rank(board_frame, 1)
+    add_rank(board_frame, 2)
+    add_rank(board_frame, 3)
+    add_rank(board_frame, 4)
+    add_rank(board_frame, 5)
+    add_rank(board_frame, 6)
+    add_rank(board_frame, 7)
+    add_rank(board_frame, 8)
+    add_back_rank(board_frame, "white", 1)
+    add_pawns(board_frame, "white", 2)
+    add_back_rank(board_frame, "black", 8)
+    add_pawns(board_frame, "black", 7)
+    moves_frame: d.frame(id:"vkf_chess_moves", title:"Moves", alpha:0.94, draggable:true, dockable:true, resizable:true, closable:true, gridlayout:(7, 2), row_heights:"max-content max-content max-content max-content max-content max-content minmax(0,1fr)")
+    d.add_frame(
+      moves_frame,
+      (0.76, 0.06, 0.20, 0.82),
+      body: [
+        (id:"new_game", type:"button", label:"New Game", grid:[0, 0, 1, 2], align:"stretch"),
+        (id:"theta_left", type:"button", label:"theta -", grid:[1, 0, 1, 1], align:"stretch"),
+        (id:"theta_right", type:"button", label:"theta +", grid:[1, 1, 1, 1], align:"stretch"),
+        (id:"phi_up", type:"button", label:"phi +", grid:[2, 0, 1, 1], align:"stretch"),
+        (id:"phi_down", type:"button", label:"phi -", grid:[2, 1, 1, 1], align:"stretch"),
+        (id:"turn_label", type:"label", text:"Turn: white", grid:[3, 0, 1, 2], align:"left"),
+        (id:"move_log", type:"label", text:"Moves will appear here", grid:[6, 0, 1, 2], align:"left")
+      ]
+    )
+    @: d

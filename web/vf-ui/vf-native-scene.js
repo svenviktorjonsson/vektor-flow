@@ -30,6 +30,29 @@
   var frameCount = Math.max(1, Math.round(fps * durationSeconds));
   var AXIS_TAGGED_KEY = "__vf_axis_tagged__";
 
+  function chessLagDebugEnabled() {
+    return !!(
+      global.__vfChessLagDebug === true ||
+      renderOptions.debug_lag === true ||
+      renderOptions.chess_lag_debug === true
+    );
+  }
+
+  function chessLagDebug(text) {
+    if (!chessLagDebugEnabled()) { return; }
+    var message = "[DEBUG-chess-lag] native_scene frame=" + String(frameSpec.frame_id || "") + " " + String(text || "");
+    try {
+      if (global.console && global.console.warn) {
+        global.console.warn(message);
+      }
+    } catch (_) {}
+    try {
+      if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+        global.chrome.webview.postMessage({ type: "vf_log", level: "warn", message: message, t: Date.now() });
+      }
+    } catch (_) {}
+  }
+
   function showFatalOverlay(text) {
     try {
       var doc = global.document;
@@ -248,6 +271,49 @@
     return fallback;
   }
 
+  function entityStateEmbeddings(entity) {
+    var states = entityProp(entity, "state_embeddings", null);
+    if (states && typeof states === "object" && !Array.isArray(states)) {
+      return states;
+    }
+    states = entityProp(entity, "visual_states", null);
+    if (states && typeof states === "object" && !Array.isArray(states)) {
+      return states;
+    }
+    return null;
+  }
+
+  function cloneEntityStateValue(value) {
+    if (Array.isArray(value)) {
+      return value.map(function (item) { return cloneEntityStateValue(item); });
+    }
+    if (value && typeof value === "object") {
+      var cloned = {};
+      var keys = Object.keys(value);
+      for (var i = 0; i < keys.length; i += 1) {
+        cloned[keys[i]] = cloneEntityStateValue(value[keys[i]]);
+      }
+      return cloned;
+    }
+    return value;
+  }
+
+  function applyEntityStateEmbedding(entity, stateName) {
+    var states = entityStateEmbeddings(entity);
+    var key = String(stateName || "");
+    var state = states && states[key];
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      return false;
+    }
+    setEntityProp(entity, "visual_state", key);
+    setEntityProp(entity, "active_state", key);
+    var fields = Object.keys(state);
+    for (var i = 0; i < fields.length; i += 1) {
+      setEntityProp(entity, fields[i], cloneEntityStateValue(state[fields[i]]));
+    }
+    return true;
+  }
+
   function makeCamera(cfg, fallback, seconds) {
     var camera = cfg || {};
     var framePos = animationFramePosition(seconds || 0.0);
@@ -422,7 +488,6 @@
       out.reflect_eye_only = mirrorOf.reflect_eye_only !== false;
       out.lock_aperture_camera = mirrorOf.lock_aperture_camera !== false;
       out.controls_enabled = mirrorOf.controls_enabled === true;
-      out.flip_x = true;
     }
     if (spec.reflect_of_frame_id !== undefined) { out.reflect_of_frame_id = String(spec.reflect_of_frame_id || ""); }
     if (spec.reflect_mirror_mesh_id !== undefined) { out.reflect_mirror_mesh_id = String(spec.reflect_mirror_mesh_id || ""); }
@@ -557,8 +622,10 @@
       world_ref: String(system.world_ref || ""),
       camera_ref: String(system.camera_ref || ""),
       frame_ref: String(system.frame_ref || ""),
-      flip_x: kind === "mirror" || system.flip_x === true,
+      flip_x: system.flip_x === true,
       flip_y: system.flip_y === true,
+      _renderFlipU: system._renderFlipU === true,
+      _mirror_surface: kind === "mirror" || system._mirror_surface === true,
       reverse_facing: system.reverse_facing === true,
       camera: camera,
       world: {
@@ -1344,6 +1411,235 @@
     );
   }
 
+  function fieldMeshFlatVertexArray(value) {
+    if (Array.isArray(value) || value instanceof Float32Array) { return value; }
+    return [];
+  }
+
+  function fieldMeshIndexArray(value) {
+    if (Array.isArray(value) || value instanceof Uint32Array) { return value; }
+    return [];
+  }
+
+  function fieldMeshVerticesWithMaterialColor(vertices, color, enabled) {
+    if (!enabled || !vertices || vertices.length < 10 || (vertices.length % 10) !== 0) {
+      return vertices;
+    }
+    var rgba = toRgba(color, [1.0, 1.0, 1.0, 1.0]);
+    if (!rgba) { return vertices; }
+    var out = vertices instanceof Float32Array ? new Float32Array(vertices) : vertices.slice();
+    for (var i = 0; i + 9 < out.length; i += 10) {
+      out[i + 6] = rgba[0];
+      out[i + 7] = rgba[1];
+      out[i + 8] = rgba[2];
+      out[i + 9] = rgba[3];
+    }
+    return out;
+  }
+
+  function fieldMeshIndicesWithConsistentWinding(vertices, indices, enabled) {
+    if (enabled === false) {
+      return indices;
+    }
+    if (!vertices || !indices || vertices.length < 30 || indices.length < 3 || (vertices.length % 10) !== 0) {
+      return indices;
+    }
+    var vertexCount = Math.floor(vertices.length / 10);
+    var out = [];
+    var changed = false;
+    for (var ii = 0; ii + 2 < indices.length; ii += 3) {
+      var ia = Number(indices[ii]) | 0;
+      var ib = Number(indices[ii + 1]) | 0;
+      var ic = Number(indices[ii + 2]) | 0;
+      if (ia < 0 || ib < 0 || ic < 0 || ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) {
+        continue;
+      }
+      var ba = ia * 10;
+      var bb = ib * 10;
+      var bc = ic * 10;
+      var abx = Number(vertices[bb] || 0.0) - Number(vertices[ba] || 0.0);
+      var aby = Number(vertices[bb + 1] || 0.0) - Number(vertices[ba + 1] || 0.0);
+      var abz = Number(vertices[bb + 2] || 0.0) - Number(vertices[ba + 2] || 0.0);
+      var acx = Number(vertices[bc] || 0.0) - Number(vertices[ba] || 0.0);
+      var acy = Number(vertices[bc + 1] || 0.0) - Number(vertices[ba + 1] || 0.0);
+      var acz = Number(vertices[bc + 2] || 0.0) - Number(vertices[ba + 2] || 0.0);
+      var gx = (aby * acz) - (abz * acy);
+      var gy = (abz * acx) - (abx * acz);
+      var gz = (abx * acy) - (aby * acx);
+      var nx = (
+        Number(vertices[ba + 3] || 0.0) +
+        Number(vertices[bb + 3] || 0.0) +
+        Number(vertices[bc + 3] || 0.0)
+      ) / 3.0;
+      var ny = (
+        Number(vertices[ba + 4] || 0.0) +
+        Number(vertices[bb + 4] || 0.0) +
+        Number(vertices[bc + 4] || 0.0)
+      ) / 3.0;
+      var nz = (
+        Number(vertices[ba + 5] || 0.0) +
+        Number(vertices[bb + 5] || 0.0) +
+        Number(vertices[bc + 5] || 0.0)
+      ) / 3.0;
+      var geomLen = Math.sqrt((gx * gx) + (gy * gy) + (gz * gz));
+      var normalLen = Math.sqrt((nx * nx) + (ny * ny) + (nz * nz));
+      if (geomLen > 1e-10 && normalLen > 1e-6 && (((gx * nx) + (gy * ny) + (gz * nz)) < -(geomLen * normalLen * 0.10))) {
+        out.push(ia, ic, ib);
+        changed = true;
+      } else {
+        out.push(ia, ib, ic);
+      }
+    }
+    if (!changed || out.length < 3) { return indices; }
+    return indices instanceof Uint32Array ? new Uint32Array(out) : out;
+  }
+
+  function smoothInterpolatedFieldMeshVertices(spec, vertices, indices, enabled) {
+    if (!enabled || !vertices || vertices.length < 10 || (vertices.length % 10) !== 0) {
+      return vertices;
+    }
+    if (spec && spec.__vfSmoothFieldMeshSource === vertices && spec.__vfSmoothFieldMeshVertices) {
+      return spec.__vfSmoothFieldMeshVertices;
+    }
+    if (!global.__vfSmoothFieldMeshVerticesByKey) {
+      global.__vfSmoothFieldMeshVerticesByKey = Object.create(null);
+    }
+    var cacheKey = spec
+      ? [
+          String(spec.id || entityProp(spec, "id", "field_mesh")),
+          String(entityProp(spec, "object_id", "")),
+          String(vertices.length),
+          String(indices && indices.length || 0)
+        ].join(":")
+      : "";
+    if (cacheKey && global.__vfSmoothFieldMeshVerticesByKey[cacheKey]) {
+      if (spec) {
+        spec.__vfSmoothFieldMeshSource = vertices;
+        spec.__vfSmoothFieldMeshIndices = indices || null;
+        spec.__vfSmoothFieldMeshVertices = global.__vfSmoothFieldMeshVerticesByKey[cacheKey];
+      }
+      return global.__vfSmoothFieldMeshVerticesByKey[cacheKey];
+    }
+    var vertexCount = Math.floor(vertices.length / 10);
+    function weldedKey(base) {
+      return [
+        Number(vertices[base] || 0.0).toFixed(5),
+        Number(vertices[base + 1] || 0.0).toFixed(5),
+        Number(vertices[base + 2] || 0.0).toFixed(5)
+      ].join(",");
+    }
+    function authoredNormalAt(index) {
+      var base = index * 10;
+      return normalize3([
+        Number(vertices[base + 3] || 0.0),
+        Number(vertices[base + 4] || 0.0),
+        Number(vertices[base + 5] || 0.0)
+      ], [0.0, 0.0, 1.0]);
+    }
+    var out = vertices instanceof Float32Array ? new Float32Array(vertices) : vertices.slice();
+    if (indices && indices.length >= 3) {
+      var facesByPosition = Object.create(null);
+      for (var ii = 0; ii + 2 < indices.length; ii += 3) {
+        var ia = Number(indices[ii]) | 0;
+        var ib = Number(indices[ii + 1]) | 0;
+        var ic = Number(indices[ii + 2]) | 0;
+        if (ia < 0 || ib < 0 || ic < 0 || ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) { continue; }
+        var ba = ia * 10;
+        var bb = ib * 10;
+        var bc = ic * 10;
+        var nFace = faceNormal(
+          [Number(vertices[ba] || 0.0), Number(vertices[ba + 1] || 0.0), Number(vertices[ba + 2] || 0.0)],
+          [Number(vertices[bb] || 0.0), Number(vertices[bb + 1] || 0.0), Number(vertices[bb + 2] || 0.0)],
+          [Number(vertices[bc] || 0.0), Number(vertices[bc + 1] || 0.0), Number(vertices[bc + 2] || 0.0)]
+        );
+        var ux = Number(vertices[bb] || 0.0) - Number(vertices[ba] || 0.0);
+        var uy = Number(vertices[bb + 1] || 0.0) - Number(vertices[ba + 1] || 0.0);
+        var uz = Number(vertices[bb + 2] || 0.0) - Number(vertices[ba + 2] || 0.0);
+        var vx = Number(vertices[bc] || 0.0) - Number(vertices[ba] || 0.0);
+        var vy = Number(vertices[bc + 1] || 0.0) - Number(vertices[ba + 1] || 0.0);
+        var vz = Number(vertices[bc + 2] || 0.0) - Number(vertices[ba + 2] || 0.0);
+        var cx = (uy * vz) - (uz * vy);
+        var cy = (uz * vx) - (ux * vz);
+        var cz = (ux * vy) - (uy * vx);
+        var areaWeight = Math.max(1e-6, Math.sqrt((cx * cx) + (cy * cy) + (cz * cz)));
+        var keys = [weldedKey(ba), weldedKey(bb), weldedKey(bc)];
+        for (var ki = 0; ki < keys.length; ki += 1) {
+          var faceList = facesByPosition[keys[ki]];
+          if (!faceList) {
+            faceList = facesByPosition[keys[ki]] = [];
+          }
+          faceList.push({ x: nFace[0], y: nFace[1], z: nFace[2], w: areaWeight });
+        }
+      }
+      for (var outIndex = 0; outIndex < vertexCount; outIndex += 1) {
+        var outBase = outIndex * 10;
+        var outKey = weldedKey(outBase);
+        var adjacentFaces = facesByPosition[outKey];
+        if (!adjacentFaces || adjacentFaces.length < 1) { continue; }
+        var authored = authoredNormalAt(outIndex);
+        var sx = 0.0;
+        var sy = 0.0;
+        var sz = 0.0;
+        var used = 0;
+        for (var fi = 0; fi < adjacentFaces.length; fi += 1) {
+          var face = adjacentFaces[fi];
+          var alignment = (face.x * authored[0]) + (face.y * authored[1]) + (face.z * authored[2]);
+          if (alignment < 0.42) { continue; }
+          sx += face.x * face.w;
+          sy += face.y * face.w;
+          sz += face.z * face.w;
+          used += 1;
+        }
+        if (used < 1) {
+          continue;
+        }
+        var smoothed = normalize3([sx, sy, sz], authored);
+        out[outBase + 3] = smoothed[0];
+        out[outBase + 4] = smoothed[1];
+        out[outBase + 5] = smoothed[2];
+      }
+    } else {
+      var sums = Object.create(null);
+      var order = [];
+      for (var vi = 0; vi < vertexCount; vi += 1) {
+        var base = vi * 10;
+        var key = weldedKey(base);
+        var entry = sums[key];
+        if (!entry) {
+          entry = sums[key] = { x: 0.0, y: 0.0, z: 0.0 };
+          order.push(key);
+        }
+        entry.x += Number(vertices[base + 3] || 0.0);
+        entry.y += Number(vertices[base + 4] || 0.0);
+        entry.z += Number(vertices[base + 5] || 0.0);
+      }
+      for (var oi = 0; oi < order.length; oi += 1) {
+        var normalEntry = sums[order[oi]];
+        var n = normalize3([normalEntry.x, normalEntry.y, normalEntry.z], [0.0, 0.0, 1.0]);
+        normalEntry.x = n[0];
+        normalEntry.y = n[1];
+        normalEntry.z = n[2];
+      }
+      for (var fallbackIndex = 0; fallbackIndex < vertexCount; fallbackIndex += 1) {
+        var fallbackBase = fallbackIndex * 10;
+        var fallbackSmoothed = sums[weldedKey(fallbackBase)];
+        if (!fallbackSmoothed) { continue; }
+        out[fallbackBase + 3] = fallbackSmoothed.x;
+        out[fallbackBase + 4] = fallbackSmoothed.y;
+        out[fallbackBase + 5] = fallbackSmoothed.z;
+      }
+    }
+    if (spec) {
+      spec.__vfSmoothFieldMeshSource = vertices;
+      spec.__vfSmoothFieldMeshIndices = indices || null;
+      spec.__vfSmoothFieldMeshVertices = out;
+    }
+    if (cacheKey) {
+      global.__vfSmoothFieldMeshVerticesByKey[cacheKey] = out;
+    }
+    return out;
+  }
+
   function faceNormal(a, b, c) {
     var ux = b[0] - a[0];
     var uy = b[1] - a[1];
@@ -1603,8 +1899,7 @@
       pos: reflectedPos,
       target: planePoint,
       up: [0.0, 0.0, 1.0],
-      fov: Number(viewerCamera && viewerCamera.fov || 34.0) || 34.0,
-      flip_x: (baseCamera && baseCamera.flip_x === true) || (viewerCamera && viewerCamera.flip_x === true)
+      fov: Number(viewerCamera && viewerCamera.fov || 34.0) || 34.0
     };
   }
 
@@ -1909,7 +2204,23 @@
   }
 
   function cubeMesh(cube, color) {
-    var vertices = makeCubeLocalVertices(cube.size);
+    var hasDynamicTransform = !!(cube.tracks && (cube.tracks.center || cube.tracks.rotation || cube.tracks.transform || cube.tracks.scale));
+    var localVertices = makeCubeLocalVertices(cube.size);
+    var vertices = localVertices;
+    var bakedStaticTransform = false;
+    if (!hasDynamicTransform) {
+      if (Array.isArray(cube.transform) && cube.transform.length === 16) {
+        vertices = transformVerticesByMatrix(localVertices, cube.transform);
+        bakedStaticTransform = true;
+      } else {
+        vertices = transformLocalVertices(
+          localVertices,
+          toVec3(cube.center, [0, 0, 0]),
+          toVec3(cube.rotation, [0, 0, 0])
+        );
+        bakedStaticTransform = true;
+      }
+    }
     var faces = [
       [4, 5, 6, 7],
       [0, 1, 2, 3],
@@ -1940,7 +2251,9 @@
     }
     var mesh = {
       type: "field_mesh",
+      kind: "cube",
       id: String(cube.id || "cube_body"),
+      object_id: Number(cube.object_id || 0) || undefined,
       topology: "triangle-list",
       vertices: verts,
       indices: indices,
@@ -1960,7 +2273,10 @@
       interpolation: false,
       depth_write: true
     };
-    if (Array.isArray(cube.transform) && cube.transform.length === 16) {
+    if (bakedStaticTransform) {
+      mesh.center = [0, 0, 0];
+      mesh.rotation = [0, 0, 0];
+    } else if (Array.isArray(cube.transform) && cube.transform.length === 16) {
       mesh._modelMatrix = cube.transform.slice();
     } else {
       mesh.center = toVec3(cube.center, [0, 0, 0]);
@@ -2268,6 +2584,7 @@
       type: "field_mesh",
       id: String(plane.id || "ground_plane"),
       kind: "quad",
+      object_id: Number(plane.object_id || 0) || undefined,
       topology: "triangle-list",
       vertices: verts,
       indices: [0, 1, 2, 0, 2, 3],
@@ -2285,7 +2602,7 @@
       light_model: "blinn_phong",
       interpolation: true,
       transparent: isTransparent,
-      depth_write: !isTransparent
+      depth_write: plane.depth_write === false ? false : !isTransparent
     };
   }
 
@@ -2299,30 +2616,44 @@
     }
     if (kind === "field_mesh") {
       var renderMode = String(entityProp(spec, "render_mode", "proxy_geometry"));
+      var fieldInterpolation = entityProp(spec, "interpolation", false) === true;
+      var fieldVertices = fieldMeshFlatVertexArray(entityProp(spec, "vertices", []));
+      var fieldIndices = fieldMeshIndexArray(entityProp(spec, "indices", []));
+      fieldIndices = fieldMeshIndicesWithConsistentWinding(fieldVertices, fieldIndices, entityProp(spec, "repair_winding", true) !== false);
+      fieldVertices = smoothInterpolatedFieldMeshVertices(spec, fieldVertices, fieldIndices, fieldInterpolation);
+      var fieldColor = toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]);
+      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, entityProp(spec, "use_vertex_color", false) !== true);
       return {
         id: String(spec.id || "field_mesh"),
         kind: "field_mesh",
-        vertices: Array.isArray(entityProp(spec, "vertices", [])) ? entityProp(spec, "vertices", []).slice() : [],
-        indices: Array.isArray(entityProp(spec, "indices", [])) ? entityProp(spec, "indices", []).slice() : [],
+        object_id: Number(entityProp(spec, "object_id", 0) || 0) || undefined,
+        vertices: fieldVertices,
+        indices: fieldIndices,
         topology: String(entityProp(spec, "topology", "triangle-list")),
-        interpolation: entityProp(spec, "interpolation", false) === true,
-        alpha: Math.max(0.0, Math.min(1.0, Number(entityProp(spec, "alpha", 1.0) || 1.0))),
+        interpolation: fieldInterpolation,
+        alpha: Math.max(0.0, Math.min(1.0, Number(entityProp(spec, "alpha", 1.0)))),
         center: resolveTrackedVec3(spec, "center", framePos, toVec3(entityProp(spec, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
         scale: resolveTrackedVec3(spec, "scale", framePos, toVec3(entityProp(spec, "scale", [1.0, 1.0, 1.0]), [1.0, 1.0, 1.0])),
         rotation: resolveTrackedVec3(spec, "rotation", framePos, toVec3(entityProp(spec, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
-        color: toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]),
+        color: fieldColor,
+        visible: entityProp(spec, "visible", true) !== false,
+        transparent: entityProp(spec, "transparent", false) === true,
         time_boundary: String(entityProp(spec, "time_boundary", "clamp")),
         time_count: Math.max(1, Number(entityProp(spec, "time_count", 1) || 1) | 0),
         time_index: Math.max(0, Number(entityProp(spec, "time_index", 0) || 0) | 0),
         manifold_dim_count: Math.max(0, Number(entityProp(spec, "manifold_dim_count", 0) || 0) | 0),
         solid_volume: entityProp(spec, "solid_volume", false) === true,
+        repair_winding: entityProp(spec, "repair_winding", true) !== false,
         vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.0) || 0.0)),
         edge_width: Math.max(0.0, Number(entityProp(spec, "edge_width", 0.0) || 0.0)),
         vertex_widths: Array.isArray(entityProp(spec, "vertex_widths", [])) ? entityProp(spec, "vertex_widths", []).slice() : [],
         render_mode: renderMode,
         marker_space: String(entityProp(spec, "marker_space", String(renderMode).toLowerCase() === "marker_impostor" ? "pixel" : "world")),
         casts_shadow: entityProp(spec, "casts_shadow", true) !== false,
+        receives_shadow: entityProp(spec, "receives_shadow", true) !== false,
         no_lighting: entityProp(spec, "receives_lighting", true) === false,
+        no_cull: entityProp(spec, "no_cull", false) === true,
+        specular_strength: Math.max(0.0, Math.min(4.0, Number(entityProp(spec, "specular_strength", 1.0) || 0.0))),
         depth_write: entityProp(spec, "depth_write", false) === true,
         tracks: spec && spec.tracks && typeof spec.tracks === "object" ? spec.tracks : null,
         animation_timing: {
@@ -2337,6 +2668,7 @@
       return {
         id: String(spec.id || "cube"),
         kind: "cube",
+        object_id: Number(entityProp(spec, "object_id", 0) || 0) || undefined,
         tracks: spec && spec.tracks && typeof spec.tracks === "object" ? spec.tracks : null,
         animation_timing: {
           fps: fps,
@@ -2468,6 +2800,7 @@
     return {
       id: String(spec.id || "plane"),
       kind: "quad",
+      object_id: Number(entityProp(spec, "object_id", 0) || 0) || undefined,
       tracks: spec && spec.tracks && typeof spec.tracks === "object" ? spec.tracks : null,
       animation_timing: {
         fps: fps,
@@ -2487,7 +2820,8 @@
         casts_shadow: entityProp(spec, "casts_shadow", quadCastsShadowDefault) !== false,
         receives_shadow: entityProp(spec, "receives_shadow", true) !== false,
         no_backface_specular: entityProp(spec, "no_backface_specular", false) === true,
-        reverse_facing: quadReverseFacing
+        reverse_facing: quadReverseFacing,
+        depth_write: entityProp(spec, "depth_write", null)
       };
   }
 
@@ -2517,11 +2851,12 @@
         var expanded = displayTest.buildSingleMesh({
           type: "field_mesh",
           id: String(mesh.id || "field_mesh"),
+          object_id: Number(mesh.object_id || 0) || undefined,
           topology: topology,
           vertices: Array.isArray(mesh.vertices) ? mesh.vertices.slice() : [],
           indices: Array.isArray(mesh.indices) ? mesh.indices.slice() : [],
           color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
-          alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha || 1.0) || 1.0)),
+          alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha == null ? 1.0 : mesh.alpha))),
           center: toVec3(mesh.center, [0.0, 0.0, 0.0]),
           scale: toVec3(mesh.scale, [1.0, 1.0, 1.0]),
           rotation: toVec3(mesh.rotation, [0.0, 0.0, 0.0]),
@@ -2532,6 +2867,7 @@
           marker_space: String(mesh.marker_space || (String(renderMode).toLowerCase() === "marker_impostor" ? "pixel" : "world")),
           interpolation: mesh.interpolation === true,
           depth_write: mesh.depth_write === true,
+          no_cull: mesh.no_cull === true,
           edge_caps: mesh.edge_caps === true,
           vertex_scale: Array.isArray(mesh.vertex_scale) ? mesh.vertex_scale.slice() : mesh.vertex_scale
         }, buildCamera, lights);
@@ -2539,6 +2875,7 @@
           return {
             type: "field_mesh",
             id: String(expanded.id || mesh.id || "field_mesh"),
+            object_id: Number(mesh.object_id || 0) || undefined,
             kind: String(mesh.kind || expanded.kind || "field_mesh"),
             topology: String(expanded.topology || "triangle-list"),
             vertices: expanded.vertices instanceof Float32Array
@@ -2560,7 +2897,8 @@
             static_indices: expanded.static_indices === true,
             transparent: expanded.transparent === true,
             color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
-            alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha || 1.0) || 1.0)),
+            visible: mesh.visible !== false,
+            alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha == null ? 1.0 : mesh.alpha))),
             center: Array.isArray(expanded.center) ? expanded.center.slice() : [0.0, 0.0, 0.0],
             scale: Array.isArray(expanded.scale) ? expanded.scale.slice() : [1.0, 1.0, 1.0],
             rotation: Array.isArray(expanded.rotation) ? expanded.rotation.slice() : [0.0, 0.0, 0.0],
@@ -2577,8 +2915,10 @@
             marker_space: String(mesh.marker_space || (String(renderMode).toLowerCase() === "marker_impostor" ? "pixel" : "world")),
             casts_shadow: mesh.casts_shadow !== false,
             receives_shadow: mesh.receives_shadow !== false,
+            specular_strength: Math.max(0.0, Math.min(4.0, Number(mesh.specular_strength == null ? 1.0 : mesh.specular_strength))),
             no_backface_specular: mesh.no_backface_specular === true,
             reverse_facing: mesh.reverse_facing === true,
+            no_cull: mesh.no_cull === true,
             no_lighting: mesh.no_lighting === true,
             interpolation: mesh.interpolation === true,
             depth_write: mesh.depth_write === true,
@@ -2593,12 +2933,17 @@
       return {
         type: "field_mesh",
         id: String(mesh.id || "field_mesh"),
+        object_id: Number(mesh.object_id || 0) || undefined,
         kind: String(mesh.kind || "field_mesh"),
         topology: topology,
-        vertices: Array.isArray(mesh.vertices) ? mesh.vertices.slice() : [],
-        indices: Array.isArray(mesh.indices) ? mesh.indices.slice() : [],
+        vertices: Array.isArray(mesh.vertices) ? mesh.vertices : [],
+        indices: Array.isArray(mesh.indices) ? mesh.indices : [],
+        static_vertices: true,
+        static_indices: true,
         color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
-        alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha || 1.0) || 1.0)),
+        visible: mesh.visible !== false,
+        transparent: mesh.transparent === true,
+        alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha == null ? 1.0 : mesh.alpha))),
         center: toVec3(mesh.center, [0.0, 0.0, 0.0]),
         scale: toVec3(mesh.scale, [1.0, 1.0, 1.0]),
         rotation: toVec3(mesh.rotation, [0.0, 0.0, 0.0]),
@@ -2615,8 +2960,10 @@
         marker_space: String(mesh.marker_space || (String(renderMode).toLowerCase() === "marker_impostor" ? "pixel" : "world")),
         casts_shadow: mesh.casts_shadow !== false,
         receives_shadow: mesh.receives_shadow !== false,
+        specular_strength: Math.max(0.0, Math.min(4.0, Number(mesh.specular_strength == null ? 1.0 : mesh.specular_strength))),
         no_backface_specular: mesh.no_backface_specular === true,
         reverse_facing: mesh.reverse_facing === true,
+        no_cull: mesh.no_cull === true,
         no_lighting: mesh.no_lighting === true,
         interpolation: mesh.interpolation === true,
         depth_write: mesh.depth_write === true,
@@ -3129,7 +3476,35 @@
     var lightSpecs = Array.isArray(config.lights)
       ? config.lights
       : (config.light ? [config.light] : []);
-    var meshSpecs = Array.isArray(config.meshes) ? config.meshes.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, camera); }) : [];
+    var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes : [];
+    var chessCfg = chessInteractionConfig();
+    var chessRuntime = global.__vfNativeChessRuntime || null;
+    var hasDeclaredHitRegions = declaredSceneHitRegions().length > 0;
+    if (chessCfg) {
+      rawMeshSpecs = rawMeshSpecs.filter(function (mesh) {
+        if (isChessSquareSourceMesh(mesh, chessCfg)) {
+          suppressChessSquareVisualMesh(mesh);
+          return false;
+        }
+        return true;
+      }).map(function (mesh) {
+        return attachChessBoardHighlights(mesh, chessRuntime);
+      });
+      if (!hasDeclaredHitRegions) {
+        var squareRegionMesh = buildChessSquareRegionMesh(chessCfg, chessRuntime);
+        if (squareRegionMesh) {
+          rawMeshSpecs = rawMeshSpecs.slice();
+          rawMeshSpecs.splice(Math.min(1, rawMeshSpecs.length), 0, squareRegionMesh);
+        }
+      }
+    }
+    rawMeshSpecs = syncChessRuntimePiecesIntoMeshes(rawMeshSpecs);
+    if (frameSpec.visible === false) {
+      rawMeshSpecs = rawMeshSpecs.filter(function (mesh) {
+        return entityProp(mesh, "visible", true) !== false;
+      });
+    }
+    var meshSpecs = rawMeshSpecs.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, camera); });
     var receivers = Array.isArray(config.shadow_receivers) ? config.shadow_receivers.map(normalizeShadowReceiverSpec) : [];
     var meshById = Object.create(null);
     for (var meshIndex = 0; meshIndex < meshSpecs.length; meshIndex += 1) {
@@ -3199,7 +3574,10 @@
     };
   }
 
-  function renderPayload(cameraOverride, seconds) {
+  function renderPayload(cameraOverride, seconds, options) {
+    if (!options || options.skipChessInteraction !== true) {
+      applyChessInteractionFrame(seconds);
+    }
     var state = buildSceneState(cameraOverride, seconds);
     if (!state.meshes || !state.meshes.length) {
       failFast("scene resolved zero visible meshes");
@@ -3217,9 +3595,694 @@
         lights: state.lights,
         occluders: state.flare_occluders
       },
+      hit_regions: declaredSceneHitRegions(),
       unified_renderer: true
     };
     return { payload: { screen: [], frames: {}, geom: geom }, state: state };
+  }
+
+  function chessInteractionConfig() {
+    var cfg = rootConfig && rootConfig.interaction ? rootConfig.interaction : (config && config.interaction ? config.interaction : null);
+    return cfg && String(cfg.kind || "") === "chess_board" ? cfg : null;
+  }
+
+  function declaredSceneHitRegions() {
+    if (rootConfig && Array.isArray(rootConfig.hit_regions)) { return cloneJsonValue(rootConfig.hit_regions); }
+    if (config && Array.isArray(config.hit_regions)) { return cloneJsonValue(config.hit_regions); }
+    var interaction = rootConfig && rootConfig.interaction ? rootConfig.interaction : (config && config.interaction ? config.interaction : null);
+    if (interaction && Array.isArray(interaction.hit_regions)) { return cloneJsonValue(interaction.hit_regions); }
+    return [];
+  }
+
+  function setEntityProp(entity, name, value) {
+    if (!entity || typeof entity !== "object") { return; }
+    var props = entity.properties && typeof entity.properties === "object" ? entity.properties : entity;
+    var embedding = entity.embedding && typeof entity.embedding === "object" ? entity.embedding : {};
+    props[String(embedding[name] || name)] = value;
+  }
+
+  function markChessSceneDirty(runtime) {
+    if (!runtime) { return; }
+    runtime.sceneDirtyVersion = (Number(runtime.sceneDirtyVersion || 0) || 0) + 1;
+    if (typeof runtime.requestInteractionFrame === "function") {
+      runtime.requestInteractionFrame();
+    }
+  }
+
+  function updateChessBoardHighlightsFast(runtime) {
+    if (
+      !runtime ||
+      !global.VfDisplay ||
+      typeof global.VfDisplay.updateDynamicGeomFrameSurfaceSystem !== "function"
+    ) {
+      return false;
+    }
+    return global.VfDisplay.updateDynamicGeomFrameSurfaceSystem(
+      runtime.frameId,
+      "board_reflection_overlay",
+      { square_highlights: chessSquareHighlightColors(runtime) }
+    ) === true;
+  }
+
+  function syncChessRuntimePiecesIntoMeshes(rawMeshSpecs) {
+    var runtime = global.__vfNativeChessRuntime || null;
+    if (!runtime || !runtime.piecesByObjectId || !Array.isArray(rawMeshSpecs)) { return rawMeshSpecs; }
+    for (var i = 0; i < rawMeshSpecs.length; i += 1) {
+      var mesh = rawMeshSpecs[i];
+      var objectId = Number(entityProp(mesh, "object_id", 0) || 0) || 0;
+      var piece = runtime.piecesByObjectId[String(objectId)] || null;
+      if (!piece || !piece.mesh) { continue; }
+      setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
+      setEntityProp(mesh, "visible", piece.captured !== true && entityProp(piece.mesh, "visible", true) !== false);
+      setEntityProp(mesh, "color", cloneEntityStateValue(entityProp(piece.mesh, "color", pieceBaseColor(piece))));
+      setEntityProp(mesh, "specular_strength", Number(entityProp(piece.mesh, "specular_strength", runtime.cfg.piece_specular_strength || 0.055)) || 0.055);
+      setEntityProp(mesh, "receives_shadow", entityProp(piece.mesh, "receives_shadow", true) !== false);
+    }
+    return rawMeshSpecs;
+  }
+
+  function currentChessSceneDirtyVersion() {
+    var runtime = global.__vfNativeChessRuntime || null;
+    return runtime ? (Number(runtime.sceneDirtyVersion || 0) || 0) : 0;
+  }
+
+  function runtimeMeshByObjectId(runtime, objectId) {
+    return runtime && runtime.meshByObjectId ? runtime.meshByObjectId[String(Number(objectId) || 0)] || null : null;
+  }
+
+  function chessSquareKey(file, rank) {
+    return String(file) + "," + String(rank);
+  }
+
+  function chessBoardX(file) {
+    return (Number(file) - 4.5);
+  }
+
+  function chessBoardY(rank) {
+    return (Number(rank) - 4.5);
+  }
+
+  function chessSquareFromObjectId(runtime, objectId) {
+    var oid = Number(objectId) || 0;
+    var first = Number(runtime.cfg.square_object_id_first || 2) || 2;
+    var last = Number(runtime.cfg.square_object_id_last || 65) || 65;
+    if (oid < first || oid > last) { return null; }
+    var index = oid - first;
+    return { file: (index % 8) + 1, rank: Math.floor(index / 8) + 1, object_id: oid };
+  }
+
+  function chessSquareObjectId(runtime, file, rank) {
+    return Number(runtime.cfg.square_object_id_first || 2) + ((Number(rank) - 1) * 8) + (Number(file) - 1);
+  }
+
+  function chessSquareRegionObjectId(cfg) {
+    return Number(cfg && cfg.square_region_object_id || cfg && cfg.square_object_id_first || 2) || 2;
+  }
+
+  function chessSquareFromSimplexId(runtime, simplexId) {
+    var sid = Number(simplexId || 0) | 0;
+    if (sid <= 0) { return null; }
+    var index = Math.floor((sid - 1) / 2);
+    if (index < 0 || index >= 64) { return null; }
+    return {
+      file: (index % 8) + 1,
+      rank: Math.floor(index / 8) + 1,
+      object_id: chessSquareObjectId(runtime, (index % 8) + 1, Math.floor(index / 8) + 1)
+    };
+  }
+
+  function chessSquareState(runtime, file, rank) {
+    if (!runtime.squareStates) { runtime.squareStates = Object.create(null); }
+    return runtime.squareStates[chessSquareKey(file, rank)] || {
+      state: "idle",
+      color: [0.2, 1.0, 0.2, 0.0]
+    };
+  }
+
+  function setChessSquareRegionState(runtime, file, rank, stateName, color) {
+    if (!runtime.squareStates) { runtime.squareStates = Object.create(null); }
+    runtime.squareRegionHasActiveState = true;
+    runtime.squareStates[chessSquareKey(file, rank)] = {
+      state: String(stateName || "idle"),
+      color: toRgba(color, [0.2, 1.0, 0.2, 0.0])
+    };
+  }
+
+  function clearChessSquareRegionStates(runtime) {
+    runtime.squareStates = Object.create(null);
+    runtime.squareRegionHasActiveState = false;
+  }
+
+  function isChessSquareSourceMesh(mesh, cfg) {
+    if (!cfg || !mesh) { return false; }
+    var oid = Number(entityProp(mesh, "object_id", 0) || 0);
+    var first = Number(cfg.square_object_id_first || 2) || 2;
+    var last = Number(cfg.square_object_id_last || 65) || 65;
+    if (oid >= first && oid <= last) { return true; }
+    return /^sq_[a-h][1-8]$/.test(String(entityProp(mesh, "id", mesh.id || "")));
+  }
+
+  function suppressChessSquareVisualMesh(mesh) {
+    if (!mesh || typeof mesh !== "object") { return mesh; }
+    setEntityProp(mesh, "visible", false);
+    setEntityProp(mesh, "alpha", 0.0);
+    setEntityProp(mesh, "depth_write", false);
+    return mesh;
+  }
+
+  function buildChessSquareRegionMesh(cfg, runtime) {
+    if (!cfg) { return null; }
+    var vertices = [];
+    var indices = [];
+    var normal = [0.0, 0.0, 1.0];
+    var z = 0.13;
+    for (var rank = 1; rank <= 8; rank += 1) {
+      for (var file = 1; file <= 8; file += 1) {
+        var color = [0.0, 0.0, 0.0, 0.0];
+        var x0 = chessBoardX(file) - 0.5;
+        var x1 = chessBoardX(file) + 0.5;
+        var y0 = chessBoardY(rank) - 0.5;
+        var y1 = chessBoardY(rank) + 0.5;
+        var base = vertices.length / 10;
+        pushVertex(vertices, [x0, y0, z], normal, color);
+        pushVertex(vertices, [x1, y0, z], normal, color);
+        pushVertex(vertices, [x1, y1, z], normal, color);
+        pushVertex(vertices, [x0, y1, z], normal, color);
+        indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+    }
+    return {
+      id: "vkf_chess_square_regions",
+      kind: "field_mesh",
+      object_id: chessSquareRegionObjectId(cfg),
+      vertices: vertices,
+      indices: indices,
+      topology: "triangle-list",
+      color: [1.0, 1.0, 1.0, 0.0],
+      alpha: 0.0,
+      visible: true,
+      transparent: true,
+      depth_write: false,
+      casts_shadow: false,
+      receives_shadow: false,
+      receives_lighting: false,
+      no_backface_specular: true,
+      interpolation: false,
+      pickable: true,
+      static_vertices: false,
+      static_indices: true
+    };
+  }
+
+  function chessSquareHighlightColors(runtime) {
+    var out = [];
+    for (var rank = 1; rank <= 8; rank += 1) {
+      for (var file = 1; file <= 8; file += 1) {
+        var state = runtime ? chessSquareState(runtime, file, rank) : null;
+        out.push(state ? state.color : [0.0, 0.0, 0.0, 0.0]);
+      }
+    }
+    return out;
+  }
+
+  function attachChessBoardHighlights(mesh, runtime) {
+    if (!mesh || !runtime || String(entityProp(mesh, "id", mesh.id || "")) !== "board_reflection_overlay") {
+      return mesh;
+    }
+    var next = Object.assign({}, mesh);
+    var surface = next.surface_system && typeof next.surface_system === "object"
+      ? Object.assign({}, next.surface_system)
+      : {};
+    surface.square_highlights = chessSquareHighlightColors(runtime);
+    next.surface_system = surface;
+    return next;
+  }
+
+  function chessPieceFromObjectId(runtime, objectId) {
+    var oid = Number(objectId) || 0;
+    return runtime && runtime.piecesByObjectId ? runtime.piecesByObjectId[String(oid)] || null : null;
+  }
+
+  function chessPieceAt(runtime, file, rank) {
+    return runtime.occupied[chessSquareKey(file, rank)] || null;
+  }
+
+  function chessPathClear(runtime, piece, toFile, toRank) {
+    var df = Math.sign(Number(toFile) - Number(piece.file));
+    var dr = Math.sign(Number(toRank) - Number(piece.rank));
+    var f = Number(piece.file) + df;
+    var r = Number(piece.rank) + dr;
+    while (f !== Number(toFile) || r !== Number(toRank)) {
+      if (chessPieceAt(runtime, f, r)) { return false; }
+      f += df;
+      r += dr;
+    }
+    return true;
+  }
+
+  function chessLegalMove(runtime, piece, toFile, toRank) {
+    if (!piece || piece.captured) { return false; }
+    if (toFile < 1 || toFile > 8 || toRank < 1 || toRank > 8) { return false; }
+    if (piece.side !== runtime.turn) { return false; }
+    var target = chessPieceAt(runtime, toFile, toRank);
+    if (target && target.side === piece.side) { return false; }
+    var df = Number(toFile) - Number(piece.file);
+    var dr = Number(toRank) - Number(piece.rank);
+    var adf = Math.abs(df);
+    var adr = Math.abs(dr);
+    if (df === 0 && dr === 0) { return false; }
+    var role = String(piece.role || "");
+    if (role === "pawn") {
+      var dir = piece.side === "white" ? 1 : -1;
+      var startRank = piece.side === "white" ? 2 : 7;
+      if (target) { return adf === 1 && dr === dir; }
+      if (df === 0 && dr === dir) { return true; }
+      if (df === 0 && Number(piece.rank) === startRank && dr === dir * 2) {
+        return !chessPieceAt(runtime, Number(piece.file), Number(piece.rank) + dir);
+      }
+      return false;
+    }
+    if (role === "knight") { return (adf === 1 && adr === 2) || (adf === 2 && adr === 1); }
+    if (role === "king") { return adf <= 1 && adr <= 1; }
+    if (role === "rook") { return (df === 0 || dr === 0) && chessPathClear(runtime, piece, toFile, toRank); }
+    if (role === "bishop") { return adf === adr && chessPathClear(runtime, piece, toFile, toRank); }
+    if (role === "queen") { return ((df === 0 || dr === 0) || adf === adr) && chessPathClear(runtime, piece, toFile, toRank); }
+    return false;
+  }
+
+  function chessNotation(piece, target, toFile, toRank) {
+    var role = String(piece.role || "pawn");
+    var prefix = role === "pawn" ? "" : role.charAt(0).toUpperCase();
+    var fileName = "abcdefgh".charAt(Math.max(0, Math.min(7, Number(toFile) - 1)));
+    return prefix + (target ? "x" : "") + fileName + String(toRank);
+  }
+
+  function setChessSquareVisualState(mesh, stateName, fallbackColor) {
+    if (!mesh) { return; }
+    if (applyEntityStateEmbedding(mesh, stateName)) { return; }
+    if (String(stateName || "") === "idle") {
+      setEntityProp(mesh, "color", [0.2, 1.0, 0.2, 0.0]);
+      setEntityProp(mesh, "visible", false);
+      return;
+    }
+    raiseChessHighlightMesh(mesh);
+    setEntityProp(mesh, "visible", true);
+    setEntityProp(mesh, "color", fallbackColor || [0.45, 1.0, 0.45, 0.36]);
+  }
+
+  function resetChessHighlights(runtime) {
+    clearChessSquareRegionStates(runtime);
+    refreshChessPieceSelectionPose(runtime);
+    if (runtime.hoverSquare) {
+      var sameAsSelected = runtime.selected &&
+        Number(runtime.selected.file) === Number(runtime.hoverSquare.file) &&
+        Number(runtime.selected.rank) === Number(runtime.hoverSquare.rank);
+      if (sameAsSelected) {
+        if (!updateChessBoardHighlightsFast(runtime)) {
+          markChessSceneDirty(runtime);
+        }
+        return;
+      }
+      var legal = runtime.selected ? chessLegalMove(runtime, runtime.selected, runtime.hoverSquare.file, runtime.hoverSquare.rank) : false;
+      var stateName = !runtime.selected || sameAsSelected ? "selectable" : (legal ? "legal" : "illegal");
+      var fallbackColor = sameAsSelected
+        ? (runtime.cfg.square_highlight_selected || [0.34, 0.66, 1.0, 0.74])
+        : (!runtime.selected
+        ? (runtime.cfg.square_highlight_hover || runtime.cfg.square_highlight_selected || [0.30, 0.58, 1.0, 0.56])
+        : (legal ? (runtime.cfg.square_highlight_legal || [0.42, 0.88, 0.36, 0.58]) : (runtime.cfg.square_highlight_illegal || [0.90, 0.20, 0.12, 0.62])));
+      setChessSquareRegionState(runtime, runtime.hoverSquare.file, runtime.hoverSquare.rank, stateName, fallbackColor);
+    }
+    if (!updateChessBoardHighlightsFast(runtime)) {
+      markChessSceneDirty(runtime);
+    }
+  }
+
+  function raiseChessHighlightMesh(mesh) {
+    var center = toVec3(entityProp(mesh, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    center[2] = Math.max(Number(center[2] || 0.0), 0.12);
+    setEntityProp(mesh, "center", center);
+  }
+
+  function pieceBoardCenter(piece, lift) {
+    var baseZ = Number(piece && piece.base_z != null ? piece.base_z : 0.065) || 0.065;
+    return [chessBoardX(piece.file), chessBoardY(piece.rank), baseZ + Math.max(0.0, Number(lift || 0.0) || 0.0)];
+  }
+
+  function targetPieceIsSelectable(runtime, piece) {
+    return !!(piece && piece.side === runtime.turn && !piece.captured);
+  }
+
+  function pieceBaseColor(piece) {
+    return piece && piece.side === "black"
+      ? [0.18, 0.11, 0.07, 1.0]
+      : [1.0, 0.96, 0.78, 1.0];
+  }
+
+  function blendRgba(base, tint, amount) {
+    var a = Math.max(0.0, Math.min(1.0, Number(amount || 0.0) || 0.0));
+    return [
+      (base[0] * (1.0 - a)) + (tint[0] * a),
+      (base[1] * (1.0 - a)) + (tint[1] * a),
+      (base[2] * (1.0 - a)) + (tint[2] * a),
+      base[3]
+    ];
+  }
+
+  function pieceInteractionColor(piece, hovered, selected) {
+    var color = pieceBaseColor(piece);
+    if (hovered) {
+      color = blendRgba(color, [0.46, 0.64, 0.95, 1.0], 0.18);
+    }
+    if (selected) {
+      color = blendRgba(color, [0.58, 0.78, 1.0, 1.0], 0.32);
+    }
+    return color;
+  }
+
+  function refreshChessPieceSelectionPose(runtime) {
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured || !piece.mesh) { continue; }
+      if (piece._animating === true) { continue; }
+      var selected = piece === runtime.selected;
+      var hovered = piece === runtime.hoverPiece;
+      setEntityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0));
+      setEntityProp(piece.mesh, "color", pieceInteractionColor(piece, hovered, selected));
+      setEntityProp(piece.mesh, "specular_strength", selected || hovered
+        ? Number(runtime.cfg.selected_piece_specular_strength || 0.08) || 0.08
+        : Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
+    }
+    markChessSceneDirty(runtime);
+  }
+
+  function updateChessPanel(runtime) {
+    if (!runtime.panel) { return; }
+    var panelRoot = runtime.panelBody || runtime.panel;
+    var turnEl = panelRoot.querySelector("[data-vf-chess-turn]");
+    var bodyEl = panelRoot.querySelector("[data-vf-chess-moves]");
+    if (turnEl) { turnEl.textContent = "Turn: " + runtime.turn; }
+    if (bodyEl) {
+      bodyEl.innerHTML = "";
+      for (var i = 0; i < runtime.moves.length; i += 2) {
+        var row = document.createElement("tr");
+        var nr = document.createElement("td");
+        var whiteMove = document.createElement("td");
+        var blackMove = document.createElement("td");
+        nr.textContent = String((i / 2) + 1);
+        whiteMove.textContent = runtime.moves[i] || "";
+        blackMove.textContent = runtime.moves[i + 1] || "";
+        nr.className = "vf-chess-move-no";
+        whiteMove.className = "vf-chess-move-white";
+        blackMove.className = "vf-chess-move-black";
+        row.appendChild(nr);
+        row.appendChild(whiteMove);
+        row.appendChild(blackMove);
+        bodyEl.appendChild(row);
+      }
+    }
+  }
+
+  function requestChessInteractionFrame(runtime) {
+    if (!runtime) { return; }
+    if (typeof runtime.requestInteractionFrame === "function") {
+      runtime.requestInteractionFrame();
+    }
+  }
+
+  function ensureChessPanel(runtime) {
+    if (runtime.panel || !global.document) { return; }
+    var controlsFrameId = String(runtime.cfg.controls_frame_id || "vkf_chess_controls");
+    var controlsFrameClass = String(runtime.cfg.controls_frame_class || "vf-chess-frame");
+    var controlsPanelClass = String(runtime.cfg.controls_panel_class || "vf-chess-panel");
+    var layer = document.body || document.documentElement;
+    var frameApi = null;
+    if (global.VfFrame && typeof global.VfFrame.mount === "function" && layer) {
+      frameApi = global.VfFrame.mount(layer, {
+        id: controlsFrameId,
+        title: "Moves",
+        titleAlign: "left",
+        inLayerDrag: true,
+        draggable: true,
+        dockable: true,
+        resizable: true,
+        closable: true,
+        exitWhenLastFrameClosed: false,
+        alpha: 1,
+        bodyTransparent: false,
+        dockLocation: "br",
+        zIndexBase: 1200
+      });
+      frameApi.root.setAttribute("data-vf-chess-panel", "1");
+      frameApi.root.classList.add(controlsFrameClass);
+    }
+    var panel = frameApi && frameApi.body ? frameApi.body : document.createElement("aside");
+    panel.classList.add(controlsPanelClass);
+    panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
+    panel.addEventListener("contextmenu", function (ev) {
+      if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
+      if (ev && typeof ev.stopPropagation === "function") { ev.stopPropagation(); }
+    }, { passive: false, capture: true });
+    if (!frameApi) {
+      panel.setAttribute("data-vf-chess-panel", "1");
+      panel.classList.add("vf-chess-panel--fallback");
+      document.body.appendChild(panel);
+    }
+    runtime.panelFrame = frameApi;
+    runtime.panel = frameApi && frameApi.root ? frameApi.root : panel;
+    runtime.panelBody = panel;
+    var button = panel.querySelector("[data-vf-chess-new-game]");
+    if (button) {
+      button.addEventListener("click", function () {
+        resetChessRuntime(runtime);
+      });
+    }
+  }
+
+  function rebuildChessOccupancy(runtime) {
+    runtime.occupied = Object.create(null);
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var p = runtime.piecesByObjectId[ids[i]];
+      if (!p.captured) { runtime.occupied[chessSquareKey(p.file, p.rank)] = p; }
+    }
+  }
+
+  function resetChessRuntime(runtime) {
+    runtime.turn = "white";
+    runtime.selected = null;
+    runtime.hoverSquare = null;
+    runtime.hoverPiece = null;
+    runtime.moves = [];
+    runtime.animations = [];
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var p = runtime.piecesByObjectId[ids[i]];
+      p.file = p.start_file;
+      p.rank = p.start_rank;
+      p.captured = false;
+      p._animating = false;
+      setEntityProp(p.mesh, "center", pieceBoardCenter(p, 0.0));
+      setEntityProp(p.mesh, "visible", true);
+      setEntityProp(p.mesh, "color", pieceBaseColor(p));
+      setEntityProp(p.mesh, "specular_strength", Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
+      setEntityProp(p.mesh, "receives_shadow", true);
+    }
+    rebuildChessOccupancy(runtime);
+    resetChessHighlights(runtime);
+    updateChessPanel(runtime);
+    markChessSceneDirty(runtime);
+    requestChessInteractionFrame(runtime);
+  }
+
+  function initChessRuntime() {
+    var cfg = chessInteractionConfig();
+    if (!cfg || !Array.isArray(config.meshes)) { return null; }
+    if (global.__vfNativeChessRuntime && global.__vfNativeChessRuntime.frameId === String(frameSpec.frame_id || config.frame_id || "")) {
+      return global.__vfNativeChessRuntime;
+    }
+    var runtime = {
+      cfg: cfg,
+      frameId: String(frameSpec.frame_id || config.frame_id || ""),
+      meshByObjectId: Object.create(null),
+      piecesByObjectId: Object.create(null),
+      squareRegionObjectId: chessSquareRegionObjectId(cfg),
+      squareStates: Object.create(null),
+      occupied: Object.create(null),
+      turn: "white",
+      selected: null,
+      hoverSquare: null,
+      hoverPiece: null,
+      moves: [],
+      animations: [],
+      panel: null,
+      sceneDirtyVersion: 1
+    };
+    for (var m = 0; m < config.meshes.length; m += 1) {
+      var mesh = config.meshes[m];
+      var oid = Number(entityProp(mesh, "object_id", 0) || 0);
+      if (oid > 0) {
+        runtime.meshByObjectId[String(oid)] = mesh;
+      }
+    }
+    var pieces = Array.isArray(cfg.pieces) ? cfg.pieces : [];
+    for (var i = 0; i < pieces.length; i += 1) {
+      var raw = pieces[i] || {};
+      var objectId = Number(raw.object_id || 0) || 0;
+      var piece = {
+        object_id: objectId,
+        mesh: runtimeMeshByObjectId(runtime, objectId),
+        side: String(raw.side || ""),
+        role: String(raw.role || "pawn"),
+        file: Number(raw.file || 0) || 0,
+        rank: Number(raw.rank || 0) || 0,
+        start_file: Number(raw.file || 0) || 0,
+        start_rank: Number(raw.rank || 0) || 0,
+        base_z: Number(raw.base_z != null ? raw.base_z : cfg.piece_base_z != null ? cfg.piece_base_z : 0.065) || 0.065,
+        captured: false
+      };
+      if (piece.mesh && piece.side && piece.file && piece.rank) {
+        setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
+        setEntityProp(piece.mesh, "specular_strength", Number(cfg.piece_specular_strength || 0.055) || 0.055);
+        setEntityProp(piece.mesh, "receives_shadow", true);
+        runtime.piecesByObjectId[String(objectId)] = piece;
+      }
+    }
+    rebuildChessOccupancy(runtime);
+    if (!global.__vfLocalOnlyFrameEvents) { global.__vfLocalOnlyFrameEvents = Object.create(null); }
+    global.__vfLocalOnlyFrameEvents[runtime.frameId] = true;
+    ensureChessPanel(runtime);
+    updateChessPanel(runtime);
+    global.__vfNativeChessRuntime = runtime;
+    return runtime;
+  }
+
+  function chessEventTarget(runtime, objectId, simplexId) {
+    var square = Number(objectId || 0) === Number(runtime.squareRegionObjectId || 0)
+      ? chessSquareFromSimplexId(runtime, simplexId)
+      : chessSquareFromObjectId(runtime, objectId);
+    if (square) { return { kind: "square", square: square, piece: chessPieceAt(runtime, square.file, square.rank) }; }
+    var piece = chessPieceFromObjectId(runtime, objectId);
+    if (piece) { return { kind: "piece", piece: piece, square: { file: piece.file, rank: piece.rank, object_id: 0 } }; }
+    return { kind: "empty" };
+  }
+
+  function selectChessPiece(runtime, piece) {
+    runtime.selected = targetPieceIsSelectable(runtime, piece) ? piece : null;
+    refreshChessPieceSelectionPose(runtime);
+    resetChessHighlights(runtime);
+    requestChessInteractionFrame(runtime);
+  }
+
+  function cancelChessSelection(runtime) {
+    if (!runtime) { return; }
+    runtime.selected = null;
+    refreshChessPieceSelectionPose(runtime);
+    resetChessHighlights(runtime);
+    requestChessInteractionFrame(runtime);
+  }
+
+  function moveChessPiece(runtime, piece, toFile, toRank) {
+    var target = chessPieceAt(runtime, toFile, toRank);
+    if (!chessLegalMove(runtime, piece, toFile, toRank)) { return false; }
+    delete runtime.occupied[chessSquareKey(piece.file, piece.rank)];
+    var fromCenter = toVec3(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
+    var toCenter = [chessBoardX(toFile), chessBoardY(toRank), Number(piece.base_z || 0.065) || 0.065];
+    var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now();
+    if (target) {
+      target.captured = true;
+      delete runtime.occupied[chessSquareKey(target.file, target.rank)];
+    }
+    piece.file = toFile;
+    piece.rank = toRank;
+    runtime.occupied[chessSquareKey(toFile, toRank)] = piece;
+    piece._animating = true;
+    runtime.animations.push({ piece: piece, captured: target || null, from: fromCenter, to: toCenter, start: now, progress: 0.0 });
+    runtime.moves.push(chessNotation(piece, target, toFile, toRank));
+    runtime.turn = runtime.turn === "white" ? "black" : "white";
+    runtime.selected = null;
+    refreshChessPieceSelectionPose(runtime);
+    resetChessHighlights(runtime);
+    updateChessPanel(runtime);
+    markChessSceneDirty(runtime);
+    requestChessInteractionFrame(runtime);
+    return true;
+  }
+
+  function handleChessEvent(runtime, evt) {
+    if (!evt || String(evt.frame_id || "") !== runtime.frameId) { return; }
+    var eventName = String(evt.event || "").toLowerCase();
+    var button = Number(evt.button || 0) || 0;
+    if ((eventName === "down" || eventName === "up" || eventName === "click") && button === 2) {
+      cancelChessSelection(runtime);
+      return;
+    }
+    var objectId = Number(evt.object_id || 0) || 0;
+    var target = chessEventTarget(runtime, objectId, Number(evt.simplex_id || 0) || 0);
+    if (eventName === "leave") {
+      runtime.hoverSquare = null;
+      runtime.hoverPiece = null;
+      resetChessHighlights(runtime);
+      return;
+    }
+    if (eventName === "hover" || eventName === "move") {
+      runtime.hoverPiece = target.kind === "piece" ? target.piece : null;
+      runtime.hoverSquare = target.kind === "square" ? target.square : null;
+      resetChessHighlights(runtime);
+      return;
+    }
+    if (eventName !== "down" && eventName !== "up" && eventName !== "click") { return; }
+    var selectablePiece = target.kind === "piece"
+      ? target.piece
+      : (target.kind === "square" ? target.piece : null);
+    if (targetPieceIsSelectable(runtime, selectablePiece)) {
+      selectChessPiece(runtime, selectablePiece);
+      return;
+    }
+    if (runtime.selected && (target.kind === "square" || target.kind === "piece")) {
+      var sq = target.kind === "square" ? target.square : { file: target.piece.file, rank: target.piece.rank };
+      if (!moveChessPiece(runtime, runtime.selected, sq.file, sq.rank)) {
+        resetChessHighlights(runtime);
+      }
+    }
+  }
+
+  function applyChessInteractionFrame(seconds) {
+    var runtime = initChessRuntime();
+    if (!runtime) { return false; }
+    var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : (Number(seconds || 0) * 1000.0);
+    var remaining = [];
+    var changed = false;
+    var hadAnimations = runtime.animations.length > 0;
+    var motionStep = Math.max(0.005, Number(runtime.cfg.piece_motion_step_per_frame || 0.06) || 0.06);
+    for (var i = 0; i < runtime.animations.length; i += 1) {
+      var anim = runtime.animations[i];
+      var dx = Number(anim.to[0] || 0.0) - Number(anim.from[0] || 0.0);
+      var dy = Number(anim.to[1] || 0.0) - Number(anim.from[1] || 0.0);
+      var dz = Number(anim.to[2] || 0.0) - Number(anim.from[2] || 0.0);
+      var distance = Math.max(0.0001, Math.sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+      var t = Math.max(0.0, Math.min(1.0, Number(anim.progress || 0.0) + (motionStep / distance)));
+      anim.progress = t;
+      var eased = t * t * (3.0 - (2.0 * t));
+      var center = [
+        anim.from[0] + ((anim.to[0] - anim.from[0]) * eased),
+        anim.from[1] + ((anim.to[1] - anim.from[1]) * eased),
+        anim.from[2] + ((anim.to[2] - anim.from[2]) * eased)
+      ];
+      setEntityProp(anim.piece.mesh, "center", center);
+      changed = true;
+      if (t < 1.0) {
+        remaining.push(anim);
+      } else {
+        anim.piece._animating = false;
+        setEntityProp(anim.piece.mesh, "center", anim.to);
+        if (anim.captured && anim.captured.mesh) { setEntityProp(anim.captured.mesh, "visible", false); }
+      }
+    }
+    runtime.animations = remaining;
+    if (hadAnimations && !remaining.length) { refreshChessPieceSelectionPose(runtime); }
+    if (changed) { markChessSceneDirty(runtime); }
+    return remaining.length > 0;
   }
 
   function resolveMeshSpecById(meshSpecs, meshId, purpose) {
@@ -3227,6 +4290,17 @@
     for (var i = 0; i < meshSpecs.length; i += 1) {
       if (String(meshSpecs[i] && meshSpecs[i].id || "") === targetId) {
         return meshSpecs[i];
+      }
+    }
+    failFast(String(purpose || "camera setup") + ': mesh id "' + targetId + '" was not found');
+  }
+
+  function resolveRawMeshById(rawMeshes, meshId, purpose) {
+    var targetId = String(meshId || "").trim();
+    for (var i = 0; i < rawMeshes.length; i += 1) {
+      var rawMesh = rawMeshes[i];
+      if (String(rawMesh && rawMesh.id || entityProp(rawMesh, "id", "")) === targetId) {
+        return rawMesh;
       }
     }
     failFast(String(purpose || "camera setup") + ': mesh id "' + targetId + '" was not found');
@@ -3291,10 +4365,8 @@
     if (!sourceCamera || !Array.isArray(sourceCamera.pos) || !Array.isArray(sourceCamera.target)) {
       failFast('linked reflected camera source frame "' + sourceFrameId + '" is not registered');
     }
-    var meshSpecs = Array.isArray(config.meshes)
-      ? config.meshes.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, sourceCamera); })
-      : [];
-    var mirrorMesh = resolveMeshSpecById(meshSpecs, mirrorMeshId, "linked reflected camera");
+    var rawMeshes = Array.isArray(config.meshes) ? config.meshes : [];
+    var mirrorMesh = normalizeMeshSpec(resolveRawMeshById(rawMeshes, mirrorMeshId, "linked reflected camera"), seconds, sourceCamera);
     try {
       var adapter = requirePlanarMirrorAdapterMethod("buildRenderCamera", "linked reflected camera");
       var mirrorPart = renderedMirrorPartForCamera(mirrorMesh, sourceCamera, "linked reflected camera");
@@ -3361,10 +4433,8 @@
       }
       debugMirrorCamera("aperture-force-existing-matrices", baseCamera, "mirror=" + mirrorMeshId);
     }
-    var meshSpecs = Array.isArray(config.meshes)
-      ? config.meshes.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, baseCamera); })
-      : [];
-    var mirrorMesh = resolveMeshSpecById(meshSpecs, mirrorMeshId, "aperture camera");
+    var rawMeshes = Array.isArray(config.meshes) ? config.meshes : [];
+    var mirrorMesh = normalizeMeshSpec(resolveRawMeshById(rawMeshes, mirrorMeshId, "aperture camera"), seconds, baseCamera);
     try {
       var adapter = requirePlanarMirrorAdapterMethod("buildApertureCamera", "aperture camera");
       var mirrorPart = renderedMirrorPartForCamera(mirrorMesh, baseCamera, "aperture camera");
@@ -3483,6 +4553,24 @@
       width = fit;
       height = fit;
     }
+    var explicitScale = renderOptions.offscreen_scale != null || renderOptions.mirror_source_scale != null;
+    var explicitMaxPx = renderOptions.offscreen_max_px != null || renderOptions.mirror_source_max_px != null;
+    var offscreenScale = explicitScale
+      ? Math.max(0.1, Math.min(1.0, Number(renderOptions.offscreen_scale || renderOptions.mirror_source_scale || 1.0) || 1.0))
+      : 1.0;
+    var offscreenMaxPx = explicitMaxPx
+      ? Math.max(128, Math.round(Number(renderOptions.offscreen_max_px || renderOptions.mirror_source_max_px || 4096) || 4096))
+      : 4096;
+    var scaledW = Math.max(1, Math.round(width * offscreenScale));
+    var scaledH = Math.max(1, Math.round(height * offscreenScale));
+    var longest = Math.max(scaledW, scaledH);
+    if (longest > offscreenMaxPx) {
+      var maxScale = offscreenMaxPx / Math.max(1, longest);
+      scaledW = Math.max(1, Math.round(scaledW * maxScale));
+      scaledH = Math.max(1, Math.round(scaledH * maxScale));
+    }
+    width = scaledW;
+    height = scaledH;
     return { width: width, height: height };
   }
 
@@ -3498,6 +4586,93 @@
       height = fit;
     }
     return { width: width, height: height };
+  }
+
+  function normalizeFrameRectSpec() {
+    var rect = frameSpec && Array.isArray(frameSpec.rect) ? frameSpec.rect : [0, 0, 1, 1];
+    function clamp01(v, fallback) {
+      var n = Number(v);
+      if (!isFinite(n)) { n = fallback; }
+      return Math.max(0, Math.min(1, n));
+    }
+    return {
+      x: clamp01(rect[0], 0),
+      y: clamp01(rect[1], 0),
+      w: Math.max(0.01, clamp01(rect[2], 1)),
+      h: Math.max(0.01, clamp01(rect[3], 1))
+    };
+  }
+
+  function applyVisibleFrameRect(panel) {
+    if (!panel || !panel.root) { return; }
+    var parent = panel.root.offsetParent || panel.root.parentElement || document.body;
+    var parentW = Math.max(1, Number(parent && parent.clientWidth || global.innerWidth || 1280) || 1280);
+    var parentH = Math.max(1, Number(parent && parent.clientHeight || global.innerHeight || 720) || 720);
+    var rect = normalizeFrameRectSpec();
+    var width = Math.max(1, Math.round(rect.w * parentW));
+    var height = Math.max(1, Math.round(rect.h * parentH));
+    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal") {
+      var header = panel.root.querySelector ? panel.root.querySelector(".vf-frame__header") : null;
+      var headerH = header && typeof header.getBoundingClientRect === "function"
+        ? Math.max(0, Math.round(header.getBoundingClientRect().height || 0))
+        : 34;
+      var fit = Math.max(1, Math.min(width, Math.max(1, height - headerH)));
+      width = fit;
+      height = fit + headerH;
+    }
+    panel.root.style.left = Math.round(rect.x * parentW) + "px";
+    panel.root.style.top = Math.round(rect.y * parentH) + "px";
+    panel.root.style.width = width + "px";
+    panel.root.style.height = height + "px";
+    panel.root.style.right = "auto";
+    panel.root.style.bottom = "auto";
+    panel.root.style.opacity = "1";
+  }
+
+  function ensureVisibleSceneFrameShell() {
+    if (!sceneFrameVisible()) { return null; }
+    var frameId = String(frameSpec.frame_id || config.frame_id || "").trim();
+    if (!frameId) { return null; }
+    var existing = document.querySelector('.vf-frame[data-vf-frame-id="' + frameId + '"]');
+    if (existing) { return existing; }
+    if (!global.VfFrame || typeof global.VfFrame.mount !== "function") {
+      return null;
+    }
+    var layer = document.body || document.documentElement;
+    if (!layer) { return null; }
+    var panel = global.VfFrame.mount(layer, {
+      id: frameId,
+      title: String(frameSpec.title || config.title || ""),
+      titleAlign: String(frameSpec.title_align || "left"),
+      aspect: frameSpec.aspect != null ? String(frameSpec.aspect) : null,
+      inLayerDrag: true,
+      draggable: true,
+      dockable: true,
+      resizable: true,
+      closable: true,
+      exitWhenLastFrameClosed: true,
+      alpha: 1,
+      bodyTransparent: false,
+      frameless: frameSpec.frameless === true,
+      dockLocation: "bl",
+      zIndexBase: 1000,
+      onFrameRemoved: function () {
+        var chessRuntime = global.__vfNativeChessRuntime || null;
+        if (chessRuntime && chessRuntime.panelFrame && typeof chessRuntime.panelFrame.destroy === "function") {
+          try { chessRuntime.panelFrame.destroy(); } catch (_) {}
+          chessRuntime.panelFrame = null;
+          chessRuntime.panel = null;
+          chessRuntime.panelBody = null;
+        } else if (chessRuntime && chessRuntime.panel && chessRuntime.panel.parentNode) {
+          try { chessRuntime.panel.parentNode.removeChild(chessRuntime.panel); } catch (_) {}
+          chessRuntime.panel = null;
+          chessRuntime.panelBody = null;
+        }
+      }
+    });
+    applyVisibleFrameRect(panel);
+    global.setTimeout(function () { applyVisibleFrameRect(panel); }, 0);
+    return panel && panel.root ? panel.root : null;
   }
 
   function frameCameraConfigSignature() {
@@ -3528,6 +4703,9 @@
   function boot() {
     requireRuntime();
     var frame = document.querySelector('.vf-frame[data-vf-frame-id="' + String(frameSpec.frame_id || config.frame_id) + '"]');
+    if (!frame && sceneFrameVisible()) {
+      frame = ensureVisibleSceneFrameShell();
+    }
     var body = frame ? frame.querySelector(".vf-frame__body") : null;
     var cameraFallback = { pos: [3.9, -5.6, 3.2], target: [0, 0, 0.9], fov: 34, up: [0, 0, 1], min_distance: 0.0 };
     var watchedFrameId = String(frameSpec.frame_id || config.frame_id);
@@ -3555,6 +4733,8 @@
           exactInitCamera: null,
           rendering: false,
           lastRenderTsMs: 0.0,
+          cameraFramePending: false,
+          continuationFramePending: false,
           keyLeft: false,
           keyRight: false,
           keyUp: false,
@@ -3563,6 +4743,16 @@
         };
       }
     var controlState = controlRegistry.states[watchedFrameId];
+    if (!global.__vfNativeScenePerf) {
+      global.__vfNativeScenePerf = Object.create(null);
+    }
+    if (!global.__vfNativeScenePerf[watchedFrameId]) {
+      global.__vfNativeScenePerf[watchedFrameId] = {
+        fullSceneUpdates: 0,
+        cameraOnlyUpdates: 0
+      };
+    }
+    var scenePerf = global.__vfNativeScenePerf[watchedFrameId];
     var configSignature = frameCameraConfigSignature();
     controlState.zoomFactor = 1.0;
     controlState.orbitPhi = 0.0;
@@ -3571,6 +4761,8 @@
     controlState.keyRight = false;
     controlState.keyUp = false;
     controlState.keyDown = false;
+    controlState.cameraFramePending = false;
+    controlState.continuationFramePending = false;
     controlState.apertureInitDone = false;
     controlState.userInteracted = false;
     controlState.linkedEyeKey = "";
@@ -3578,13 +4770,23 @@
     controlState.exactInitCamera = null;
     controlState.dependencyWaitStartMs = 0.0;
     controlState.configSignature = configSignature;
+    controlState.debugCameraRequestCount = 0;
+    controlState.debugCameraRequestCoalescedCount = 0;
+    controlState.debugRenderFrameCount = 0;
+    controlState.debugRenderFrameSkippedCount = 0;
     var useVisibleFrame = sceneFrameVisible();
     var dependencySourceFrameId = String(cameraBehaviorProps().reflect_of_frame_id || "").trim();
+    var cameraOnlyFastPathEnabled = !!chessInteractionConfig();
     var offscreenSpec = null;
     var offscreenMounted = false;
     var visibleSpec = null;
     var visibleMounted = false;
+    var visibleLastDirtyVersion = -1;
+    var offscreenLastDirtyVersion = -1;
     var offscreenPixels = null;
+    var dependentMirrorFramePending = false;
+    var dependentMirrorFrameTimer = 0;
+    var dependentMirrorLastRenderMs = 0.0;
     if (!useVisibleFrame) {
       if (!global.VfDisplay || typeof global.VfDisplay.mountOffscreenGeomFrame !== "function") {
         failFast("offscreen scene frame support is unavailable");
@@ -3592,8 +4794,21 @@
       offscreenPixels = offscreenFramePixels();
       if (dependencySourceFrameId) {
         registerFrameDependent(dependencySourceFrameId, watchedFrameId, function () {
-          if (controlState.rendering === true) { return; }
-          renderFrame();
+          if (dependentMirrorFramePending === true) { return; }
+          dependentMirrorFramePending = true;
+          function flushDependentMirrorFrame() {
+            dependentMirrorFrameTimer = 0;
+            if (controlState.rendering === true) {
+              dependentMirrorFrameTimer = global.setTimeout(flushDependentMirrorFrame, 8);
+              return;
+            }
+            dependentMirrorFramePending = false;
+            dependentMirrorLastRenderMs = global.performance && typeof global.performance.now === "function"
+              ? global.performance.now()
+              : Date.now();
+            renderFrame();
+          }
+          global.requestAnimationFrame(flushDependentMirrorFrame);
         });
       }
     }
@@ -3619,21 +4834,116 @@
         (payload.frames && typeof payload.frames === "object" && Object.keys(payload.frames).length > 0)
       );
       if (geomPayload && !has2dPayload) {
-        var nextVisibleSpec = cloneJsonValue(geomPayload);
+        var nextVisibleSpec = Object.assign({}, geomPayload);
         if (nextVisibleSpec && nextVisibleSpec.camera && frame && body) {
-          var fitRect = visibleFramePixels(frame, body);
-          nextVisibleSpec.camera = Object.assign({}, nextVisibleSpec.camera, {
-            viewport_width_px: Math.max(1, Math.round(fitRect.width || 1)),
-            viewport_height_px: Math.max(1, Math.round(fitRect.height || 1))
-          });
+          nextVisibleSpec.camera = visibleCameraWithViewport(nextVisibleSpec.camera);
         }
         visibleSpec = nextVisibleSpec;
         ensureVisibleGeomMount();
+        scenePerf.fullSceneUpdates += 1;
         global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId);
         return;
       }
       global.VfDisplay.renderFromJson(payload);
     }
+    function visibleCameraWithViewport(camera) {
+      var nextCamera = cloneJsonValue(camera || {});
+      if (nextCamera && frame && body) {
+        var fitRect = visibleFramePixels(frame, body);
+        nextCamera.viewport_width_px = Math.max(1, Math.round(fitRect.width || 1));
+        nextCamera.viewport_height_px = Math.max(1, Math.round(fitRect.height || 1));
+      }
+      return nextCamera;
+    }
+    function updateVisibleCameraOnly(camera) {
+      if (!useVisibleFrame || !visibleSpec || !global.VfDisplay || typeof global.VfDisplay.updateDynamicGeomFrameCamera !== "function") {
+        return false;
+      }
+      var nextCamera = visibleCameraWithViewport(camera);
+      visibleSpec.camera = nextCamera;
+      return global.VfDisplay.updateDynamicGeomFrameCamera(
+        watchedFrameId,
+        nextCamera,
+        visibleSpec.lights || [],
+        visibleSpec.light_flares || null
+      ) === true;
+    }
+    function updateOffscreenCameraOnly(camera) {
+      if (useVisibleFrame || !offscreenSpec || !global.VfDisplay || typeof global.VfDisplay.updateDynamicGeomFrameCamera !== "function") {
+        return false;
+      }
+      offscreenSpec.camera = camera;
+      return global.VfDisplay.updateDynamicGeomFrameCamera(
+        watchedFrameId,
+        camera,
+        offscreenSpec.lights || [],
+        offscreenSpec.light_flares || null
+      ) === true;
+    }
+    function cameraKeysActive() {
+      return controlState.keyLeft === true ||
+        controlState.keyRight === true ||
+        controlState.keyUp === true ||
+        controlState.keyDown === true;
+    }
+    function visibleRenderBackpressureActive() {
+      return useVisibleFrame &&
+        global.VfDisplay &&
+        typeof global.VfDisplay.dynamicGeomFrameHasRenderBackpressure === "function" &&
+        global.VfDisplay.dynamicGeomFrameHasRenderBackpressure(watchedFrameId) === true;
+    }
+    function scheduleNextFrameIfNeeded(animationActive) {
+      if (!useVisibleFrame && dependencySourceFrameId) { return; }
+      if (controlState.continuationFramePending === true) { return; }
+      if (cameraKeysActive() || animationActive === true) {
+        controlState.continuationFramePending = true;
+        global.requestAnimationFrame(function () {
+          controlState.continuationFramePending = false;
+          renderFrame();
+        });
+      }
+    }
+    function ensureCameraHoldLoop(state) {
+      if (!state || state.cameraHoldLoopPending === true) { return; }
+      if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
+      state.cameraHoldLoopPending = true;
+      global.requestAnimationFrame(function () {
+        state.cameraHoldLoopPending = false;
+        if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
+        if (typeof state.requestCameraFrame === "function") {
+          state.requestCameraFrame();
+        }
+        ensureCameraHoldLoop(state);
+      });
+    }
+    controlState.requestCameraFrame = function () {
+      controlState.debugCameraRequestCount = Number(controlState.debugCameraRequestCount || 0) + 1;
+      if (controlState.controlsEnabled === false || controlState.cameraFramePending === true) {
+        controlState.debugCameraRequestCoalescedCount = Number(controlState.debugCameraRequestCoalescedCount || 0) + 1;
+        controlState.cameraFrameDirty = true;
+        ensureCameraHoldLoop(controlState);
+        if (controlState.debugCameraRequestCoalescedCount <= 3 || controlState.debugCameraRequestCoalescedCount % 20 === 0) {
+          chessLagDebug(
+            "camera_request_coalesced requests=" + Number(controlState.debugCameraRequestCount || 0) +
+              " coalesced=" + Number(controlState.debugCameraRequestCoalescedCount || 0) +
+              " rendering=" + (controlState.rendering === true ? "1" : "0")
+          );
+        }
+        return;
+      }
+      controlState.cameraFramePending = true;
+      function flushCameraFrame(attempt) {
+        if (controlState.rendering === true && attempt < 30) {
+          controlState.cameraFrameDirty = true;
+          global.requestAnimationFrame(function () { flushCameraFrame(attempt + 1); });
+          return;
+        }
+        controlState.cameraFramePending = false;
+        controlState.cameraFrameDirty = false;
+        renderFrame();
+      }
+      global.requestAnimationFrame(function () { flushCameraFrame(0); });
+    };
     function markActiveFrame() {
       controlRegistry.activeFrameId = watchedFrameId;
     }
@@ -3650,6 +4960,9 @@
       var factor = direction > 0 ? (1.0 + step) : (1.0 / (1.0 + step));
       state.zoomFactor = Math.max(1e-6, Number(state.zoomFactor || 1.0) * factor);
       state.userInteracted = true;
+      if (typeof state.requestCameraFrame === "function") {
+        state.requestCameraFrame();
+      }
     }
     function handleWheelZoom(ev) {
       markActiveFrame();
@@ -3725,6 +5038,10 @@
         else if (key === "ArrowUp") { activeState.keyUp = true; }
         else if (key === "ArrowDown") { activeState.keyDown = true; }
         activeState.userInteracted = true;
+        ensureCameraHoldLoop(activeState);
+        if (typeof activeState.requestCameraFrame === "function") {
+          activeState.requestCameraFrame();
+        }
       }, true);
       global.addEventListener("keyup", function (ev) {
         var key = String(ev && ev.key || "");
@@ -3739,6 +5056,9 @@
         else if (key === "ArrowRight") { activeState.keyRight = false; }
         else if (key === "ArrowUp") { activeState.keyUp = false; }
         else if (key === "ArrowDown") { activeState.keyDown = false; }
+        if (typeof activeState.requestCameraFrame === "function") {
+          activeState.requestCameraFrame();
+        }
       }, true);
       global.addEventListener("blur", function () {
         var registry = global.__vfNativeSceneCameraControls;
@@ -3753,6 +5073,17 @@
           state.keyDown = false;
         }
       }, true);
+    }
+    var chessRuntime = initChessRuntime();
+    if (chessRuntime && !chessRuntime.eventsAttached) {
+      chessRuntime.eventsAttached = true;
+      global.addEventListener("vf_event", function (ev) {
+        try {
+          handleChessEvent(chessRuntime, ev && ev.detail ? ev.detail : null);
+        } catch (err) {
+          failFast("chess interaction failed: " + (err && err.message ? err.message : String(err)));
+        }
+      });
     }
 
     function ensureGeomRendererReady(attempt) {
@@ -3777,8 +5108,22 @@
     }
 
     function renderFrame() {
-        if (controlState.rendering === true) { return; }
+        if (controlState.rendering === true) {
+          controlState.debugRenderFrameSkippedCount = Number(controlState.debugRenderFrameSkippedCount || 0) + 1;
+          if (controlState.debugRenderFrameSkippedCount <= 3 || controlState.debugRenderFrameSkippedCount % 20 === 0) {
+            chessLagDebug(
+              "render_skipped_busy skipped=" + Number(controlState.debugRenderFrameSkippedCount || 0) +
+                " camera_requests=" + Number(controlState.debugCameraRequestCount || 0) +
+                " camera_coalesced=" + Number(controlState.debugCameraRequestCoalescedCount || 0)
+            );
+          }
+          return;
+        }
         controlState.rendering = true;
+        controlState.debugRenderFrameCount = Number(controlState.debugRenderFrameCount || 0) + 1;
+        var debugRenderStartMs = global.performance && typeof global.performance.now === "function"
+          ? global.performance.now()
+          : Date.now();
         try {
           var seconds = (global.performance && typeof global.performance.now === "function")
             ? (global.performance.now() * 0.001)
@@ -3800,7 +5145,7 @@
             controlState.dependencyWaitStartMs = 0.0;
           }
           var dtSec = controlState.lastRenderTsMs > 0
-            ? Math.max(0.0, Math.min(0.1, (nowMs - controlState.lastRenderTsMs) * 0.001))
+            ? Math.max(0.0, Math.min(1.0 / 30.0, (nowMs - controlState.lastRenderTsMs) * 0.001))
             : (1.0 / 60.0);
           controlState.lastRenderTsMs = nowMs;
           if (controlState.controlsEnabled !== false) {
@@ -3853,8 +5198,8 @@
             var zoomedBaseCamera = Math.abs(Number(controlState.zoomFactor || 1.0) - 1.0) > 1e-6
               ? zoomCamera(baseCamera, Number(controlState.zoomFactor || 1.0))
               : baseCamera;
-            userCamera = Math.abs(Number(controlState.orbitPhi || 0.0)) > 1e-9
-              ? rotateCameraLookAroundEye(zoomedBaseCamera, Number(controlState.orbitPhi || 0.0))
+            userCamera = (Math.abs(Number(controlState.orbitPhi || 0.0)) > 1e-9 || Math.abs(Number(controlState.orbitTheta || 0.0)) > 1e-9)
+              ? orbitCameraAroundTarget(zoomedBaseCamera, Number(controlState.orbitPhi || 0.0), Number(controlState.orbitTheta || 0.0))
               : zoomedBaseCamera;
           } else {
             var orbitCamera = (Math.abs(Number(controlState.orbitPhi || 0.0)) > 1e-9 || Math.abs(Number(controlState.orbitTheta || 0.0)) > 1e-9)
@@ -3917,9 +5262,6 @@
             liveCamera.projection_matrix = renderCamera.projection_matrix.slice();
           }
           global.__vfNativeSceneLiveCameras[String(frameSpec.frame_id || config.frame_id)] = liveCamera;
-        if (useVisibleFrame) {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));
-        }
         if (!useVisibleFrame && renderCamera && renderCamera._skip_render === true) {
           if (!dependencySourceFrameId) {
             global.requestAnimationFrame(renderFrame);
@@ -3927,9 +5269,42 @@
           controlState.rendering = false;
           return;
         }
-        var rendered = renderPayload(renderCamera, seconds);
+        var chessAnimationActive = applyChessInteractionFrame(seconds);
+        var dirtyVersion = currentChessSceneDirtyVersion();
+        if (useVisibleFrame) {
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));
+        }
+        if (cameraOnlyFastPathEnabled && useVisibleFrame && visibleSpec && dirtyVersion === visibleLastDirtyVersion && updateVisibleCameraOnly(renderCamera)) {
+          scenePerf.cameraOnlyUpdates += 1;
+          if (controlState.debugRenderFrameCount % 60 === 0) {
+            chessLagDebug(
+              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
+                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
+                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
+                " full=" + Number(scenePerf.fullSceneUpdates || 0)
+            );
+          }
+          controlState.rendering = false;
+          scheduleNextFrameIfNeeded(chessAnimationActive);
+          return;
+        }
+        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && updateOffscreenCameraOnly(renderCamera)) {
+          scenePerf.cameraOnlyUpdates += 1;
+          if (controlState.debugRenderFrameCount % 60 === 0) {
+            chessLagDebug(
+              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
+                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
+                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
+                " full=" + Number(scenePerf.fullSceneUpdates || 0)
+            );
+          }
+          controlState.rendering = false;
+          return;
+        }
+        var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });
         if (useVisibleFrame) {
           pushVisibleRender(rendered);
+          visibleLastDirtyVersion = dirtyVersion;
         } else {
           offscreenSpec = rendered.payload && rendered.payload.geom
             ? rendered.payload.geom[watchedFrameId] || null
@@ -3941,15 +5316,36 @@
             offscreenMounted = true;
           }
           global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId);
+          offscreenLastDirtyVersion = dirtyVersion;
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));
         }
+        chessLagDebug(
+          "render_full count=" + Number(controlState.debugRenderFrameCount || 0) +
+            " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
+            " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
+            " full=" + Number(scenePerf.fullSceneUpdates || 0) +
+            " dirty=" + Number(dirtyVersion || 0)
+        );
         controlState.rendering = false;
-        if (useVisibleFrame || !dependencySourceFrameId) {
-          global.requestAnimationFrame(renderFrame);
-        }
+        scheduleNextFrameIfNeeded(chessAnimationActive);
       } catch (err) {
         controlState.rendering = false;
         failFast("render loop failed: " + (err && err.message ? err.message : String(err)));
       }
+    }
+    if (chessRuntime) {
+      chessRuntime.requestInteractionFrame = function () {
+        if (controlState.interactionFramePending === true) { return; }
+        controlState.interactionFramePending = true;
+        global.requestAnimationFrame(function () {
+          controlState.interactionFramePending = false;
+          if (controlState.rendering === true) {
+            chessRuntime.requestInteractionFrame();
+            return;
+          }
+          renderFrame();
+        });
+      };
     }
     renderFrame();
     if (useVisibleFrame) {
@@ -3971,6 +5367,11 @@
     }
     var frame = document.querySelector('.vf-frame[data-vf-frame-id="' + String(frameSpec.frame_id || config.frame_id) + '"]');
     if (frame) {
+      boot();
+      return;
+    }
+    if (global.VfDisplay && typeof global.VfDisplay.mountDynamicGeomFrame === "function") {
+      ensureVisibleSceneFrameShell();
       boot();
       return;
     }

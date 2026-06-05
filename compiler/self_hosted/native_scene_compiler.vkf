@@ -1,0 +1,171 @@
+# Self-hosted native_scene compiler seed.
+#
+# This source owns the artifact contract that the native vkf launcher checks:
+# .vkfbuild/<stem>.manifest.json plus web/sessions/<stem>/vkf-scene.html.
+# A native host is expected to write the planned files; this compiler core only
+# constructs deterministic paths and contents.
+
+NativeSceneCompilerInput: (
+    source_path:str,
+    source_dir:str,
+    stem:str,
+    source_hash:str,
+    scene_config_json:str,
+    runtime_packets_json:str,
+    geom_transport_json:str,
+    geom_state_json:str,
+    event_program_json:str
+)
+
+NativeSceneCompilePlan: (
+    manifest_path:str,
+    page_rel:str,
+    session_html_path:str,
+    runtime_packets_path:str,
+    geom_transport_path:str,
+    geom_state_path:str,
+    event_program_path:str,
+    manifest_text:str,
+    html_text:str,
+    runtime_packets_text:str,
+    geom_transport_text:str,
+    geom_state_text:str,
+    event_program_text:str,
+    status:str
+)
+
+native_scene_compiler_version:
+    "vkf-native-scene-compiler-0.1"
+
+session_slug(stem:str) -> str:
+    """Return the stable session slug used by the native launcher."""
+    @: stem
+
+session_page_rel(stem:str) -> str:
+    """Return the overlay page path passed to vf-overlay.exe."""
+    @: "sessions/" & session_slug(stem) & "/vkf-scene.html"
+
+manifest_path(source_dir:str, stem:str) -> str:
+    """Return the launcher-visible artifact manifest path."""
+    @: source_dir & "/.vkfbuild/" & stem & ".manifest.json"
+
+overlay_session_dir(overlay_web_dir:str, stem:str) -> str:
+    """Return the overlay web session directory for staged files."""
+    @: overlay_web_dir & "/sessions/" & session_slug(stem)
+
+session_html_path(overlay_web_dir:str, stem:str) -> str:
+    """Return the staged native scene HTML path."""
+    @: overlay_session_dir(overlay_web_dir, stem) & "/vkf-scene.html"
+
+runtime_packets_path(overlay_web_dir:str, stem:str) -> str:
+    """Return the staged runtime packet path."""
+    @: overlay_session_dir(overlay_web_dir, stem) & "/vf-runtime-packets.json"
+
+geom_transport_path(overlay_web_dir:str, stem:str) -> str:
+    """Return the staged geometry transport path."""
+    @: overlay_session_dir(overlay_web_dir, stem) & "/vf-geom-ledger-transport.json"
+
+geom_state_path(overlay_web_dir:str, stem:str) -> str:
+    """Return the staged geometry state path."""
+    @: overlay_session_dir(overlay_web_dir, stem) & "/vf-geom-ledger-state.json"
+
+event_program_path(overlay_web_dir:str, stem:str) -> str:
+    """Return the staged event program path."""
+    @: overlay_session_dir(overlay_web_dir, stem) & "/vf-event-program.json"
+
+json_pair_str(name:str, value:str) -> str:
+    """Render a JSON string field from already-safe compiler text."""
+    @: "\"" & name & "\":\"" & value & "\""
+
+json_pair_raw(name:str, value:str) -> str:
+    """Render a JSON field whose value is already JSON."""
+    @: "\"" & name & "\":" & value
+
+launcher_manifest_text(input:NativeSceneCompilerInput) -> str:
+    """Render the minimal manifest accepted by native vkf.exe staleness checks."""
+    @: (
+        "{" &
+        json_pair_str("schema", "vektor-flow/native-scene-artifact") & "," &
+        json_pair_str("compiler", native_scene_compiler_version) & "," &
+        json_pair_str("source_path", input.source_path) & "," &
+        json_pair_str("source_hash", input.source_hash) & "," &
+        json_pair_str("page_rel", session_page_rel(input.stem)) & "," &
+        json_pair_str("status", "compiled") &
+        "}" & "\n"
+    )
+
+native_scene_html_text(input:NativeSceneCompilerInput) -> str:
+    """Render the WebGPU native scene page from a normalized scene config JSON blob."""
+    @: (
+        "<!DOCTYPE html>\n" &
+        "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>" &
+        "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-strict-packet-only=\"true\">" &
+        "<script src=\"../../vf-runtime-shell.js\"></script>" &
+        "<script>window.__vfNativeSceneConfig=" & input.scene_config_json & ";</script>" &
+        "<script>(function(){" &
+        "function fail(err){throw err;}" &
+        "function load(){var s=document.createElement('script');s.src='../../vf-native-scene.js';" &
+        "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};" &
+        "document.body.appendChild(s);}" &
+        "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){" &
+        "window.VfRuntimeShell.ensureSceneDependencies().then(load).catch(fail);" &
+        "}else{load();}" &
+        "})();</script>" &
+        "</body></html>\n"
+    )
+
+empty_json_object_when_blank(value:str) -> str:
+    """Normalize optional artifact content to a JSON object string."""
+    value = ""? @: "{}"
+    @: value
+
+compile_native_scene_plan(input:NativeSceneCompilerInput, overlay_web_dir:str) -> NativeSceneCompilePlan:
+    """Compile normalized native_scene data into launcher-ready artifact contents."""
+    @: (
+        manifest_path: manifest_path(input.source_dir, input.stem),
+        page_rel: session_page_rel(input.stem),
+        session_html_path: session_html_path(overlay_web_dir, input.stem),
+        runtime_packets_path: runtime_packets_path(overlay_web_dir, input.stem),
+        geom_transport_path: geom_transport_path(overlay_web_dir, input.stem),
+        geom_state_path: geom_state_path(overlay_web_dir, input.stem),
+        event_program_path: event_program_path(overlay_web_dir, input.stem),
+        manifest_text: launcher_manifest_text(input),
+        html_text: native_scene_html_text(input),
+        runtime_packets_text: input.runtime_packets_json,
+        geom_transport_text: empty_json_object_when_blank(input.geom_transport_json),
+        geom_state_text: empty_json_object_when_blank(input.geom_state_json),
+        event_program_text: empty_json_object_when_blank(input.event_program_json),
+        status: "compiled"
+    )
+
+native_scene_compiler_capability:
+    name: "self_hosted_native_scene_compiler_seed"
+    input: [
+        "normalized native_scene scene_config_json",
+        "runtime_packets_json",
+        "source path dir stem source_hash",
+        "overlay web directory"
+    ]
+    writes_planned: [
+        ".vkfbuild/<stem>.manifest.json",
+        "web/sessions/<stem>/vkf-scene.html",
+        "web/sessions/<stem>/vf-runtime-packets.json",
+        "web/sessions/<stem>/vf-geom-ledger-transport.json",
+        "web/sessions/<stem>/vf-geom-ledger-state.json",
+        "web/sessions/<stem>/vf-event-program.json"
+    ]
+    launcher_contract: [
+        "manifest contains source_hash for native vkf.exe staleness check",
+        "page_rel is sessions/<stem>/vkf-scene.html",
+        "session html loads vf-native-scene.js",
+        "scene config is embedded as window.__vfNativeSceneConfig",
+        "native host writes planned files without Python"
+    ]
+    ownership: [
+        "compiler core is VKF source",
+        "Python is allowed only in tests that verify the source behavior",
+        "no Python launch fallback",
+        "no chess-specific JavaScript sidecar"
+    ]
+    percent: 35
+    :

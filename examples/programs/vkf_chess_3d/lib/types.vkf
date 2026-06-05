@@ -1,0 +1,8 @@
+Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
+GameState : (turn:str, move_count:num, history:str, selected_side:str, selected_role:str, selected_file:num, selected_rank:num, has_selection:bool, status:str)
+CameraOrbit : (theta:num, phi:num, radius:num)
+BoardMaterial : (dark:str, light:str, checker_weight:num, mirror_weight:num, roughness:num)
+ClickTarget : (kind:str, file:num, rank:num, piece_side:str, piece_role:str)
+MoveIntent : (side:str, role:str, from_file:num, from_rank:num, to_file:num, to_rank:num, notation:str, capture:bool)
+MoveResult : (ok:bool, state:GameState, intent:MoveIntent)
+AnimationPlan : (kind:str, from_x:num, from_z:num, to_x:num, to_z:num, lift:num, duration_ms:num, capture_at_ms:num)

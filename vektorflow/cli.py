@@ -259,16 +259,17 @@ def cmd_run(path: Path) -> int:
 
 
 def _try_run_native_overlay_scene(path: Path) -> int | None:
-    """Launch recovered native overlay scenes through their generated GPU runtime."""
-    from .native_overlay_scene_runtime import (
-        try_run_native_overlay_scene,
-        try_run_native_overlay_scene_contract,
-    )
+    """Launch explicit native overlay scene contracts.
+
+    VKF sources must continue through the native compiler/runtime path; the
+    Python scene frontend is only a build utility now, not a launch fallback.
+    """
+    from .native_overlay_scene_runtime import try_run_native_overlay_scene_contract
 
     resolved = path.resolve()
     if resolved.name.endswith(".contract.json"):
         return try_run_native_overlay_scene_contract(resolved)
-    return try_run_native_overlay_scene(resolved)
+    return None
 
 
 def cmd_parse_tokens(payload: str) -> int:

@@ -184,6 +184,7 @@ compiler_capability:
         "native compiler artifact smoke manifest and artifact",
         "native wasm artifact smoke manifest and wasm artifact",
         "native webgpu artifact smoke manifest and wgsl artifact",
+        "native scene compiler source owns launcher manifest and session file artifact plan",
         "artifact script prints supported const and load values"
     ]
     driver_orchestration: [
@@ -220,6 +221,13 @@ compiler_capability:
         "legacy native-core package metadata remains separate",
         "supported native runnable entries do not describe Python fallback",
         "unsupported UI scene packages remain outside Python-free guarantee"
+    ]
+    native_scene_artifact_contract: [
+        "compiler/self_hosted/native_scene_compiler.vkf owns .vkfbuild/<stem>.manifest.json shape",
+        "compiler/self_hosted/native_scene_compiler.vkf owns web/sessions/<stem>/vkf-scene.html shape",
+        "manifest source_hash field matches native vkf.exe staleness check",
+        "compiler/native/vkf_native_scene_artifact_stager.cpp writes the planned files without Python",
+        "native host still needs to execute this VKF compiler source and write planned files without Python"
     ]
     stdlib_dependency_resolution: [
         "driver recognizes math stdlib dependency",

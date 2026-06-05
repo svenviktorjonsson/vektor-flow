@@ -1,0 +1,46 @@
+: .types
+
+board_x(file:num) -> num:
+    """Map a chess file to board-centered scene x coordinates."""
+    @: file - 4.5
+
+board_z(rank:num) -> num:
+    """Map a chess rank to board-centered scene z coordinates."""
+    @: rank - 4.5
+
+file_name(file:num) -> str:
+    """Return algebraic file text for a 1-based board file."""
+    file = 1? @: "a"
+    file = 2? @: "b"
+    file = 3? @: "c"
+    file = 4? @: "d"
+    file = 5? @: "e"
+    file = 6? @: "f"
+    file = 7? @: "g"
+    @: "h"
+
+rank_name(rank:num) -> str:
+    """Return algebraic rank text for a 1-based board rank."""
+    rank = 1? @: "1"
+    rank = 2? @: "2"
+    rank = 3? @: "3"
+    rank = 4? @: "4"
+    rank = 5? @: "5"
+    rank = 6? @: "6"
+    rank = 7? @: "7"
+    @: "8"
+
+piece_letter(role:str) -> str:
+    """Return the SAN piece prefix; pawns intentionally use no prefix."""
+    role = "king"? @: "K"
+    role = "queen"? @: "Q"
+    role = "rook"? @: "R"
+    role = "bishop"? @: "B"
+    role = "knight"? @: "N"
+    @: ""
+
+move_notation(piece:Piece, target_side:str, to_file:num, to_rank:num) -> str:
+    """Build compact algebraic notation for this app's legal move reducer."""
+    target_side = ""? @: piece_letter(piece.role) & file_name(to_file) & rank_name(to_rank)
+    piece.role = "pawn"? @: file_name(piece.file) & "x" & file_name(to_file) & rank_name(to_rank)
+    @: piece_letter(piece.role) & "x" & file_name(to_file) & rank_name(to_rank)

@@ -14,12 +14,14 @@ models an application rather than a single feature.
   alternating turns, same-side move rejection, side-frame move history, and a
   `New Game` reset contract. Accepted move/capture intents also emit animation
   plans for the browser renderer.
+- `vkf_chess_3d/main.vkf`: foldered VKF-only chess application with typed
+  modules for notation, rules, state, UI event reduction, and generic 3D scene
+  construction. It builds a pickable board, baked CC0 GLB piece meshes, side
+  camera controls, a move frame, and a deterministic smoke path.
 
-Next visual slice for chess:
+Current visual gaps for chess:
 
-- add `chess_3d_visual.vkf` once the native UI scene subset can consume the
-  `chess_3d_scene_contract.vkf` payload directly
-- render a controllable 3D checkerboard from any side
-- use side lighting, shadows, and a reflective checker material
-- add mesh-backed pieces from a licensed `assets/chess/` manifest
-- wire the move-history frame and `New Game` button to the browser/runtime UI
+- connect the bounded VKF `ui.events` reducer to a host-owned live pump
+- update side-frame labels from reducer state during live interaction
+- extend path-clear and king-safety checks from current reducer inputs into a
+  full board occupancy model

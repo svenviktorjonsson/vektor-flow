@@ -465,6 +465,19 @@ def test_planar_mirror_geometry_is_single_runtime_seam() -> None:
         assert context in shader
 
 
+def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "fixedSurfaceTextureKind = texture ? proceduralTextureKindCode(texture) : 0.0" in shader
+    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 8.0" in shader
+    assert "let baseTextureKind = floor(packedScreenFlags / 8.0)" in shader
+    assert "clamp(surfaceUv.x, 0.0, 1.0)" in shader
+    assert "clamp(surfaceUv.y, 0.0, 1.0)" in shader
+    assert "let materialBase = mix(base, fixedTextureLayer, hasBaseTexture)" in shader
+    assert "let litMaterial = shadeLitBase(materialBase" in shader
+    assert "let baseLayer = litMaterial.rgb" in shader
+    assert "return vec4<f32>(mix(backgroundLayer, reflectedLayer, reflectivity), finalAlpha)" in shader
+
+
 def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     linked_fn = shader[shader.index("function resolveLinkedMirrorLight"):shader.index("function resolveProjectedLightFromMeshId")]
@@ -1626,6 +1639,114 @@ const clip = mulPoint(camera._mirrorViewProjection, point);
     if (camera._mirrorFlipU === true) {{
       projectedUv[0] = 1.0 - projectedUv[0];
     }}
+
+const reflectedPoint = reflectPoint(point, frame.point, frame.normal);
+const ray = sub(reflectedPoint, eye);
+const t = dot(frame.normal, sub(frame.point, eye)) / dot(frame.normal, ray);
+const hit = add(eye, scale(ray, t));
+const rel = sub(hit, frame.point);
+const u = dot(rel, frame.uAxis);
+const v = dot(rel, frame.vAxis);
+const physicalUv = [
+  (u - frame.minU) / frame.spanU,
+  1.0 - ((v - frame.minV) / frame.spanV)
+];
+
+process.stdout.write(JSON.stringify({{
+  projectedUv,
+  physicalUv
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["projectedUv"][0] == pytest.approx(payload["physicalUv"][0], abs=1e-4)
+    assert payload["projectedUv"][1] == pytest.approx(payload["physicalUv"][1], abs=1e-4)
+
+
+def test_horizontal_planar_mirror_adapter_matches_physical_board_hit_mapping() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+const sandbox = {{
+  console,
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function mulPoint(m, p) {{
+  return [
+    (m[0] * p[0]) + (m[4] * p[1]) + (m[8] * p[2]) + m[12],
+    (m[1] * p[0]) + (m[5] * p[1]) + (m[9] * p[2]) + m[13],
+    (m[2] * p[0]) + (m[6] * p[1]) + (m[10] * p[2]) + m[14],
+    (m[3] * p[0]) + (m[7] * p[1]) + (m[11] * p[2]) + m[15]
+  ];
+}}
+
+function dot(a, b) {{
+  return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+}}
+
+function sub(a, b) {{
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}}
+
+function add(a, b) {{
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}}
+
+function scale(a, s) {{
+  return [a[0] * s, a[1] * s, a[2] * s];
+}}
+
+function reflectPoint(point, planePoint, planeNormal) {{
+  const delta = sub(point, planePoint);
+  const dist = dot(delta, planeNormal);
+  return sub(point, scale(planeNormal, 2.0 * dist));
+}}
+
+const util = sandbox.VfGeomWgpuUtil;
+const math = sandbox.VfGeomMath;
+const part = {{
+  mesh: {{
+    id: "board_reflection_overlay",
+    kind: "quad",
+    center: [0, 0, 0.065],
+    size: [8, 8],
+    rotation: [0, 0, 0],
+    scale: [1, 1, 1],
+    surface_system: {{ kind: "screen" }}
+  }}
+}};
+
+const frame = util.derivePlanarSurfaceWorldFrame(part, 0, math);
+const adapter = util.createPlanarMirrorAdapter();
+const eye = [6.8, -7.6, 12.0];
+const point = [2.0, 1.0, 1.0];
+const camera = adapter.buildRenderCamera({{
+  part,
+  surfaceCamera: {{
+    pos: eye,
+    target: [0.0, 0.0, 0.24],
+    up: [0.0, 0.0, 1.0],
+    fov: 70
+  }},
+  timeMs: 0,
+  targetAspect: 1.0,
+  math
+}});
+
+const clip = mulPoint(camera._mirrorViewProjection, point);
+const projectedUv = [
+  (clip[0] / clip[3]) * 0.5 + 0.5,
+  1.0 - (((clip[1] / clip[3]) * 0.5) + 0.5)
+];
 
 const reflectedPoint = reflectPoint(point, frame.point, frame.normal);
 const ray = sub(reflectedPoint, eye);

@@ -74,6 +74,7 @@ def _lower_scene_3d_surface_camera_mirrors_to_views(declared: dict[str, Any]) ->
         hidden_decl["rect"] = list(visible_rect)
         hidden_decl["visible"] = False
         hidden_decl["show_light_markers"] = False
+        hidden_decl.pop("interaction", None)
         if visible_aspect is not None:
             hidden_decl["aspect"] = visible_aspect
         hidden_camera = copy.deepcopy(camera)
@@ -83,12 +84,28 @@ def _lower_scene_3d_surface_camera_mirrors_to_views(declared: dict[str, Any]) ->
                 if field not in hidden_camera and field in visible_camera:
                     hidden_camera[field] = copy.deepcopy(visible_camera[field])
         hidden_decl["camera"] = hidden_camera
+        textured_mirror_surface = isinstance(surface.get("texture"), dict)
+        if textured_mirror_surface:
+            # A textured mirror blends its own material with the reflected scene.
+            # Keep the aperture mesh metadata, but render only objects into the
+            # source texture so the fixed texture is never reflected into itself.
+            hidden_plane = hidden_decl.get("plane")
+            if isinstance(hidden_plane, dict):
+                hidden_plane["visible"] = False
+                hidden_plane["color"] = [0.0, 0.0, 0.0, 0.0]
         hidden_surfaces = hidden_decl.get("surfaces")
-        if isinstance(hidden_surfaces, list) and index < len(hidden_surfaces) and isinstance(hidden_surfaces[index], dict):
-            if bool(visible_system.get("reverse_facing", False)):
-                hidden_surfaces[index]["reverse_facing"] = True
-            hidden_surfaces[index]["surface_system"] = None
-            hidden_surfaces[index]["visible"] = False
+        if isinstance(hidden_surfaces, list):
+            if textured_mirror_surface:
+                for hidden_surface in hidden_surfaces:
+                    if not isinstance(hidden_surface, dict):
+                        continue
+                    hidden_surface["surface_system"] = None
+                    hidden_surface["visible"] = False
+            if index < len(hidden_surfaces) and isinstance(hidden_surfaces[index], dict):
+                if bool(visible_system.get("reverse_facing", False)):
+                    hidden_surfaces[index]["reverse_facing"] = True
+                hidden_surfaces[index]["surface_system"] = None
+                hidden_surfaces[index]["visible"] = False
         hidden_decls.append(hidden_decl)
         changed = True
     if not changed:
@@ -375,10 +392,21 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
 
     field_mesh_defaults = {
         "id": "id",
+        "object_id": "object_id",
         "center": "center",
         "scale": "scale",
         "rotation": "rotation",
         "color": "color",
+        "vertices": "vertices",
+        "indices": "indices",
+        "topology": "topology",
+        "receives_lighting": "receives_lighting",
+        "casts_shadow": "casts_shadow",
+        "visible": "visible",
+        "no_cull": "no_cull",
+        "specular_strength": "specular_strength",
+        "render_mode": "render_mode",
+        "marker_space": "marker_space",
         "vertex_size": "vertex_size",
         "edge_width": "edge_width",
         "depth_write": "depth_write",
@@ -390,6 +418,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
     for axis_dims in ("t", "i", "j", "k", "u", "v", "w", "uv", "uvw"):
         for axis_name in ("x", "y", "z"):
             field_mesh_defaults[f"{axis_name}_{axis_dims}"] = f"{axis_name}_{axis_dims}"
+        field_mesh_defaults[f"c_{axis_dims}"] = f"c_{axis_dims}"
 
     for object_index, object_decl in enumerate(object_specs_raw):
         object_path = "native_scene.object" if len(object_specs_raw) == 1 and has_object else f"native_scene.objects[{object_index}]"
@@ -398,6 +427,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("native_scene.object.kind must be random_hull, convex_hull, simplices, quad, or field_mesh")
         object_defaults = {
             "id": "id",
+            "object_id": "object_id",
             "center": "center",
             "radius": "radius",
             "count": "count",
@@ -439,8 +469,45 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("native_scene.object points supports -> h, -> hi, or -> d only right now")
         object_kind = object_kind_declared or ("simplices" if embedded_simplices is not None or embedded_points_axis == "d" else ("convex_hull" if embedded_points_axis in {"h", "hi"} else "random_hull"))
         if object_kind == "field_mesh":
-            field_mesh_payload = _build_field_mesh_from_kwargs(dict(object_props))
-            mesh_id = str(field_mesh_payload.get("id") or f"object_{object_index}")
+            direct_vertices = _embedded_named_property(object_props, object_embedding, "vertices", None)
+            direct_indices = _embedded_named_property(object_props, object_embedding, "indices", None)
+            if direct_vertices is not None or direct_indices is not None:
+                if not isinstance(direct_vertices, list) or not isinstance(direct_indices, list):
+                    raise ValueError("native_scene field_mesh direct vertices and indices must be lists")
+                mesh_id = str(_embedded_named_property(object_props, object_embedding, "id", f"object_{object_index}"))
+                field_mesh_payload = {
+                    "type": "field_mesh",
+                    "id": mesh_id,
+                    "object_id": _embedded_named_property(object_props, object_embedding, "object_id", None),
+                    "vertices": [float(value) for value in direct_vertices],
+                    "indices": [int(value) for value in direct_indices],
+                    "topology": str(_embedded_named_property(object_props, object_embedding, "topology", "triangle-list")),
+                    "center": _embedded_named_property(object_props, object_embedding, "center", [0.0, 0.0, 0.0]),
+                    "scale": _embedded_named_property(object_props, object_embedding, "scale", [1.0, 1.0, 1.0]),
+                    "rotation": _embedded_named_property(object_props, object_embedding, "rotation", [0.0, 0.0, 0.0]),
+                    "color": _embedded_named_property(object_props, object_embedding, "color", [1.0, 1.0, 1.0, 1.0]),
+                    "alpha": 1.0,
+                    "interpolation": _embedded_named_property(object_props, object_embedding, "interpolation", True),
+                    "time_boundary": "stop",
+                    "time_count": 1,
+                    "time_index": 0,
+                    "manifold_dim_count": 2,
+                    "solid_volume": False,
+                    "vertex_size": _embedded_named_property(object_props, object_embedding, "vertex_size", 0.0),
+                    "edge_width": _embedded_named_property(object_props, object_embedding, "edge_width", 0.0),
+                    "vertex_widths": [],
+                    "render_mode": _embedded_named_property(object_props, object_embedding, "render_mode", "proxy_geometry"),
+                    "marker_space": _embedded_named_property(object_props, object_embedding, "marker_space", "world"),
+                    "casts_shadow": _embedded_named_property(object_props, object_embedding, "casts_shadow", True),
+                    "visible": _embedded_named_property(object_props, object_embedding, "visible", True),
+                    "receives_lighting": _embedded_named_property(object_props, object_embedding, "receives_lighting", True),
+                    "no_cull": _embedded_named_property(object_props, object_embedding, "no_cull", False),
+                    "specular_strength": _embedded_named_property(object_props, object_embedding, "specular_strength", 1.0),
+                    "depth_write": _embedded_named_property(object_props, object_embedding, "depth_write", False),
+                }
+            else:
+                field_mesh_payload = _build_field_mesh_from_kwargs(dict(object_props))
+                mesh_id = str(field_mesh_payload.get("id") or f"object_{object_index}")
             field_mesh_entity_props = {key: value for key, value in field_mesh_payload.items() if key != "type"}
             object_meshes.append({
                 **field_mesh_payload,
@@ -462,6 +529,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
             object_meshes.append({
                 "id": mesh_id,
                 "kind": "quad",
+                "object_id": _embedded_named_property(object_props, object_embedding, "object_id", None),
                 "center": _embedded_named_property(object_props, object_embedding, "center", [0.0, 0.0, 0.0]),
                 "size": _embedded_named_property(object_props, object_embedding, "size", [1.0, 1.0]),
                 "rotation": _embedded_named_property(object_props, object_embedding, "rotation", [0.0, 0.0, 0.0]),
@@ -645,6 +713,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 "color": "color",
                 "texture": "texture",
                 "surface_system": "surface_system",
+                "no_backface_specular": "no_backface_specular",
                 "casts_shadow": "casts_shadow",
                 "receives_shadow": "receives_shadow",
             },
@@ -718,10 +787,12 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                     "texture": "texture",
                     "surface_system": "surface_system",
                     "visible": "visible",
+                    "object_id": "object_id",
                     "casts_shadow": "casts_shadow",
                     "receives_shadow": "receives_shadow",
                     "no_backface_specular": "no_backface_specular",
                     "reverse_facing": "reverse_facing",
+                    "depth_write": "depth_write",
                 },
                 path=quad_path,
             )
@@ -729,13 +800,14 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 quad_decl,
                 quad_props,
                 quad_embedding,
-                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "no_backface_specular", "reverse_facing"),
+                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "no_backface_specular", "reverse_facing", "depth_write"),
                 path=quad_path,
             )
             mesh_id = str(_embedded_named_property(quad_props, quad_embedding, "id", f"quad_{quad_index}"))
             object_meshes.append({
                 "id": mesh_id,
                 "kind": "quad",
+                "object_id": _embedded_named_property(quad_props, quad_embedding, "object_id", None),
                 "center": _embedded_named_property(quad_props, quad_embedding, "center", [0.0, 0.0, 0.0]),
                 "size": _embedded_named_property(quad_props, quad_embedding, "size", [1.0, 1.0]),
                 "rotation": _embedded_named_property(quad_props, quad_embedding, "rotation", [0.0, 0.0, 0.0]),
@@ -748,6 +820,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 "receives_shadow": _embedded_named_property(quad_props, quad_embedding, "receives_shadow", True),
                 "no_backface_specular": _embedded_named_property(quad_props, quad_embedding, "no_backface_specular", False),
                 "reverse_facing": _embedded_named_property(quad_props, quad_embedding, "reverse_facing", False),
+                "depth_write": _embedded_named_property(quad_props, quad_embedding, "depth_write", None),
             })
             object_mesh_entities.append(
                 _scene_ir_mesh_entity(
@@ -795,6 +868,18 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "color": _optional_number_list(shadow, "color", [0.0, 0.0, 0.0, 0.30], length=4),
         "lift": _optional_number_value(shadow, "lift", 0.002),
     }
+
+    def scene_mesh_draw_order(mesh: dict[str, Any]) -> int:
+        kind = str(mesh.get("kind", ""))
+        if kind == "quad":
+            return 0
+        if kind == "cube":
+            return 2
+        return 1
+
+    object_meshes.sort(key=scene_mesh_draw_order)
+    object_mesh_entities.sort(key=scene_mesh_draw_order)
+
     scene_state = _ir_builder.build_scene_3d_state(
         frame_spec=frame_spec,
         plane_spec=plane_spec,
@@ -840,6 +925,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "shadow_receivers": shadow_receivers,
         "shadow": shadow_spec,
         "scene_ir": scene_ir,
+        "interaction": _optional_struct_value(declared, "interaction"),
     }
 
 
@@ -3945,7 +4031,13 @@ def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
         key=lambda view: 0 if not view.get("visible", True) else 1,
     )
     config_json = json.dumps(
-        [{"scene_ir": view.get("scene_ir", {})} for view in ordered_views],
+        [
+            {
+                "scene_ir": view.get("scene_ir", {}),
+                **({"interaction": view["interaction"]} if isinstance(view.get("interaction"), dict) else {}),
+            }
+            for view in ordered_views
+        ],
         ensure_ascii=False,
     )
     asset_version = _runtime_asset_version()

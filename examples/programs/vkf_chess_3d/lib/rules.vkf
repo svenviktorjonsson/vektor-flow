@@ -1,0 +1,112 @@
+: .types
+
+abs_num(value:num) -> num:
+    """Return an absolute scalar without depending on a host helper."""
+    value < 0? @: 0 - value
+    @: value
+
+same_square(piece:Piece, file:num, rank:num) -> bool:
+    """True when a live piece occupies the requested square."""
+    piece.captured? @: false
+    piece.file = file?
+        piece.rank = rank? @: true
+    @: false
+
+is_same_destination(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Reject no-op moves early."""
+    piece.file = to_file?
+        piece.rank = to_rank? @: true
+    @: false
+
+is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check a one-square pawn advance before board-occupancy validation."""
+    piece.side = "white"?
+        to_file = piece.file?
+            to_rank = piece.rank + 1? @: true
+        @: false
+    to_file = piece.file?
+        to_rank = piece.rank - 1? @: true
+    @: false
+
+is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check a starting two-square pawn advance."""
+    piece.side = "white"?
+        piece.rank = 2?
+            to_file = piece.file?
+                to_rank = 4? @: true
+        @: false
+    piece.rank = 7?
+        to_file = piece.file?
+            to_rank = 5? @: true
+    @: false
+
+is_pawn_capture_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check pawn diagonal capture geometry."""
+    piece.side = "white"?
+        abs_num(to_file - piece.file) = 1?
+            to_rank = piece.rank + 1? @: true
+        @: false
+    abs_num(to_file - piece.file) = 1?
+        to_rank = piece.rank - 1? @: true
+    @: false
+
+is_rook_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check rook movement geometry."""
+    is_same_destination(piece, to_file, to_rank)? @: false
+    piece.file = to_file? @: true
+    piece.rank = to_rank? @: true
+    @: false
+
+is_bishop_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check bishop movement geometry."""
+    is_same_destination(piece, to_file, to_rank)? @: false
+    @: abs_num(to_file - piece.file) = abs_num(to_rank - piece.rank)
+
+is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check knight movement geometry."""
+    abs_num(to_file - piece.file) = 1?
+        abs_num(to_rank - piece.rank) = 2? @: true
+    abs_num(to_file - piece.file) = 2?
+        abs_num(to_rank - piece.rank) = 1? @: true
+    @: false
+
+is_king_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Check king movement geometry, excluding castling."""
+    is_same_destination(piece, to_file, to_rank)? @: false
+    abs_num(to_file - piece.file) > 1? @: false
+    abs_num(to_rank - piece.rank) > 1? @: false
+    @: true
+
+piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+    """Dispatch movement geometry by role."""
+    piece.role = "pawn"? @: is_forward_pawn_move(piece, to_file, to_rank)
+    piece.role = "rook"? @: is_rook_shape(piece, to_file, to_rank)
+    piece.role = "bishop"? @: is_bishop_shape(piece, to_file, to_rank)
+    piece.role = "knight"? @: is_knight_shape(piece, to_file, to_rank)
+    piece.role = "king"? @: is_king_shape(piece, to_file, to_rank)
+    piece.role = "queen"?
+        is_rook_shape(piece, to_file, to_rank)? @: true
+        @: is_bishop_shape(piece, to_file, to_rank)
+    @: false
+
+legal_shape(piece:Piece, target_side:str, to_file:num, to_rank:num, path_clear:bool, king_safe_after:bool) -> bool:
+    """Validate the rule slice needed by the interactive event reducer."""
+    king_safe_after? 
+        target_side = piece.side? @: false
+        piece.role = "pawn"?
+            target_side = ""? 
+                is_forward_pawn_move(piece, to_file, to_rank)? @: true
+                is_double_pawn_move(piece, to_file, to_rank)? @: true
+                @: false
+            @: is_pawn_capture_shape(piece, to_file, to_rank)
+        piece.role = "rook"?
+            path_clear? @: is_rook_shape(piece, to_file, to_rank)
+            @: false
+        piece.role = "bishop"?
+            path_clear? @: is_bishop_shape(piece, to_file, to_rank)
+            @: false
+        piece.role = "queen"?
+            path_clear? @: piece_shape_move(piece, to_file, to_rank)
+            @: false
+        @: piece_shape_move(piece, to_file, to_rank)
+    @: false

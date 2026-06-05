@@ -1,0 +1,67 @@
+: .types
+rules: .rules
+notation: .notation
+
+initial_state() -> GameState:
+    """Return a fresh playable game state."""
+    @: (turn:"white", move_count:0, history:"", selected_side:"", selected_role:"", selected_file:0, selected_rank:0, has_selection:false, status:"ready")
+
+board_material() -> BoardMaterial:
+    """Describe the checker/mirror surface mix for the UI renderer."""
+    @: (dark:"#161616", light:"#f0d9b5", checker_weight:0.80, mirror_weight:0.20, roughness:0.18)
+
+next_turn(turn:str) -> str:
+    """Alternate active side after accepted moves."""
+    turn = "white"? @: "black"
+    @: "white"
+
+append_history(history:str, move_text:str) -> str:
+    """Append SAN-ish move text to the side-panel history string."""
+    history = ""? @: move_text
+    @: history & " " & move_text
+
+select_piece(state:GameState, piece:Piece) -> GameState:
+    """Select a piece only when it belongs to the active side."""
+    piece.side = state.turn? @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:piece.side, selected_role:piece.role, selected_file:piece.file, selected_rank:piece.rank, has_selection:true, status:"selected")
+    @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:state.selected_side, selected_role:state.selected_role, selected_file:state.selected_file, selected_rank:state.selected_rank, has_selection:state.has_selection, status:"wrong-turn")
+
+clear_selection(state:GameState, status:str) -> GameState:
+    """Clear selection while preserving turn and history."""
+    @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:"", selected_role:"", selected_file:0, selected_rank:0, has_selection:false, status:status)
+
+try_move_selected(state:GameState, to_file:num, to_rank:num, target_side:str, path_clear:bool, king_safe_after:bool) -> MoveResult:
+    """Apply a selected-piece move if the rules accept it."""
+    state.has_selection?
+        piece: (side:state.selected_side, role:state.selected_role, file:state.selected_file, rank:state.selected_rank, captured:false, tray_rank:0)
+        rules.legal_shape(piece, target_side, to_file, to_rank, path_clear, king_safe_after)?
+            move_text: notation.move_notation(piece, target_side, to_file, to_rank)
+            next_state: (turn:next_turn(state.turn), move_count:state.move_count + 1, history:append_history(state.history, move_text), selected_side:"", selected_role:"", selected_file:0, selected_rank:0, has_selection:false, status:"moved")
+            @: (ok:true, state:next_state, intent:(side:piece.side, role:piece.role, from_file:piece.file, from_rank:piece.rank, to_file:to_file, to_rank:to_rank, notation:move_text, capture:target_side != ""))
+        rejected: clear_selection(state, "illegal-move")
+        @: (ok:false, state:rejected, intent:(side:"", role:"", from_file:0, from_rank:0, to_file:to_file, to_rank:to_rank, notation:"", capture:false))
+    @: (ok:false, state:clear_selection(state, "no-selection"), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:to_file, to_rank:to_rank, notation:"", capture:false))
+
+reset_game() -> GameState:
+    """Reset the game state without requiring host-side mutable scaffolding."""
+    @: initial_state()
+
+move_animation(intent:MoveIntent) -> AnimationPlan:
+    """Describe the movement arc the generic renderer should animate."""
+    intent.capture? @: (kind:"capture", from_x:notation.board_x(intent.from_file), from_z:notation.board_z(intent.from_rank), to_x:notation.board_x(intent.to_file), to_z:notation.board_z(intent.to_rank), lift:0.55, duration_ms:360, capture_at_ms:180)
+    @: (kind:"move", from_x:notation.board_x(intent.from_file), from_z:notation.board_z(intent.from_rank), to_x:notation.board_x(intent.to_file), to_z:notation.board_z(intent.to_rank), lift:0.35, duration_ms:280, capture_at_ms:0)
+
+rotate_theta(camera:CameraOrbit, delta:num) -> CameraOrbit:
+    """Rotate the camera around the board center horizontally."""
+    @: (theta:camera.theta + delta, phi:camera.phi, radius:camera.radius)
+
+rotate_phi(camera:CameraOrbit, delta:num) -> CameraOrbit:
+    """Rotate the camera around the board center vertically."""
+    @: (theta:camera.theta, phi:camera.phi + delta, radius:camera.radius)
+
+apply_arrow(camera:CameraOrbit, widget_id:str) -> CameraOrbit:
+    """Apply side-panel camera arrow actions."""
+    widget_id = "theta_left"? @: rotate_theta(camera, -15)
+    widget_id = "theta_right"? @: rotate_theta(camera, 15)
+    widget_id = "phi_up"? @: rotate_phi(camera, 15)
+    widget_id = "phi_down"? @: rotate_phi(camera, -15)
+    @: camera

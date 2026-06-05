@@ -1,0 +1,105 @@
+ui:.ui
+: .types
+state_lib: .state
+
+square_file_from_object_id(object_id:num) -> num:
+    """Decode the file for one of the 64 square meshes."""
+    square_index: object_id - 2
+    @: (square_index - ((square_index / 8) * 8)) + 1
+
+square_rank_from_object_id(object_id:num) -> num:
+    """Decode the rank for one of the 64 square meshes."""
+    square_index: object_id - 2
+    @: (square_index / 8) + 1
+
+piece_side_from_object_id(object_id:num) -> str:
+    """Decode piece side from the scene mesh ordering contract."""
+    object_id < 66? @: ""
+    object_id < 82? @: "white"
+    object_id < 98? @: "black"
+    @: ""
+
+piece_role_from_slot(slot:num) -> str:
+    """Decode a starting-rank piece slot into a role."""
+    slot = 1? @: "rook"
+    slot = 2? @: "knight"
+    slot = 3? @: "bishop"
+    slot = 4? @: "queen"
+    slot = 5? @: "king"
+    slot = 6? @: "bishop"
+    slot = 7? @: "knight"
+    slot = 8? @: "rook"
+    @: "pawn"
+
+piece_file_from_object_id(object_id:num) -> num:
+    """Decode file for a piece mesh in the starting position."""
+    slot: object_id - 65
+    slot > 16? 
+        slot: slot - 16
+    slot < 9? @: slot
+    @: slot - 8
+
+piece_rank_from_object_id(object_id:num) -> num:
+    """Decode rank for a piece mesh in the starting position."""
+    side: piece_side_from_object_id(object_id)
+    slot: object_id - 65
+    side = "black"? 
+        slot: slot - 16
+        slot < 9? @: 8
+        @: 7
+    slot < 9? @: 1
+    @: 2
+
+click_target_from_object_id(object_id:num) -> ClickTarget:
+    """Convert a picked scene object into a chess click target."""
+    object_id > 1?
+        object_id < 66? @: (kind:"square", file:square_file_from_object_id(object_id), rank:square_rank_from_object_id(object_id), piece_side:"", piece_role:"")
+    side: piece_side_from_object_id(object_id)
+    side != ""?
+        slot: object_id - 65
+        side = "black"? 
+            slot: slot - 16
+        @: (kind:"piece", file:piece_file_from_object_id(object_id), rank:piece_rank_from_object_id(object_id), piece_side:side, piece_role:piece_role_from_slot(slot))
+    @: (kind:"empty", file:0, rank:0, piece_side:"", piece_role:"")
+
+reduce_click(state:GameState, target:ClickTarget, path_clear:bool, king_safe_after:bool) -> MoveResult:
+    """Apply select, move, capture, and reject behavior for a board click."""
+    target.kind = "piece"?
+        state.has_selection?
+            target.piece_side = state.selected_side? 
+                selected: (side:target.piece_side, role:target.piece_role, file:target.file, rank:target.rank, captured:false, tray_rank:0)
+                @: (ok:false, state:state_lib.select_piece(state, selected), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:target.file, to_rank:target.rank, notation:"", capture:false))
+            @: state_lib.try_move_selected(state, target.file, target.rank, target.piece_side, path_clear, king_safe_after)
+        selected_piece: (side:target.piece_side, role:target.piece_role, file:target.file, rank:target.rank, captured:false, tray_rank:0)
+        @: (ok:false, state:state_lib.select_piece(state, selected_piece), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:target.file, to_rank:target.rank, notation:"", capture:false))
+    target.kind = "square"? @: state_lib.try_move_selected(state, target.file, target.rank, "", path_clear, king_safe_after)
+    @: (ok:false, state:state_lib.clear_selection(state, "empty-click"), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:0, to_rank:0, notation:"", capture:false))
+
+reduce_button(state:GameState, camera:CameraOrbit, widget_id:str) -> GameState:
+    """Reduce side-panel button actions that affect game state."""
+    widget_id = "new_game"? @: state_lib.reset_game()
+    @: state
+
+event_kind(event_code:num) -> str:
+    """Map public UI bitmask event codes into readable program branches."""
+    event_code = ui.MOUSE_DOWN? @: "mouse"
+    event_code = ui.BUTTON_PRESSED? @: "button"
+    event_code = ui.KEY_DOWN? @: "key"
+    @: "other"
+
+poll_chess_events(current:GameState, camera:CameraOrbit, max_events:num) -> GameState:
+    """Bounded polling loop for tests and host-owned interactive pumps."""
+    orbit: camera
+    i: 0
+    i < max_events?>
+        e: ui.events.get()
+        e.event_code??
+            ui.MOUSE_DOWN =>
+                target: click_target_from_object_id(e.object_id)
+                click: reduce_click(current, target, true, true)
+                current: click.state
+            ui.BUTTON_PRESSED =>
+                current: reduce_button(current, orbit, e.widget_id)
+                orbit: state_lib.apply_arrow(orbit, e.widget_id)
+        i: i + 1
+    @: current

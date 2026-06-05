@@ -1,0 +1,346 @@
+: .types
+notation: .notation
+piece_meshes: .piece_meshes
+
+"""Native overlay adapter for the VKF chess program.
+
+This module is intentionally VKF-only. It describes the initial board as a
+native overlay scene contract so `vkf main.vkf` can target the bundled
+WebGPU/overlay launcher without a chess-specific JavaScript sidecar.
+"""
+
+square_file(index:num) -> num:
+    """Map a zero-based square index to a 1-based file."""
+    @: (index % 8) + 1
+
+square_rank(index:num) -> num:
+    """Map a zero-based square index to a 1-based rank."""
+    @: (index // 8) + 1
+
+is_light_square(file:num, rank:num) -> bool:
+    """Return true for light board squares."""
+    @: ((file + rank) % 2) = 0
+
+square_color(file:num, rank:num) -> list(num, num, num, num):
+    """Return RGBA for the checkerboard square."""
+    is_light_square(file, rank)? @: [0.92, 0.80, 0.58, 1.0]
+    @: [0.18, 0.11, 0.07, 1.0]
+
+square_id(file:num, rank:num) -> str:
+    """Return the stable mesh id for a square."""
+    @: "sq_" & notation.file_name(file) & notation.rank_name(rank)
+
+square_visual_state(center:list(num, num, num), visible:bool, color:list(num, num, num, num)):
+    """Return one selectable-square visual embedding state."""
+    @: (
+        center: center,
+        visible: visible,
+        color: color
+    )
+
+square_state_embeddings(file:num, rank:num):
+    """Return selectable-square visual embeddings keyed by interaction state."""
+    idle_center: [notation.board_x(file), notation.board_z(rank), 0.075]
+    active_center: [notation.board_x(file), notation.board_z(rank), 0.12]
+    @: (
+        idle: square_visual_state(idle_center, false, [0.2, 1.0, 0.2, 0.0]),
+        selected: square_visual_state(active_center, true, [0.35, 0.58, 0.92, 0.60]),
+        selectable: square_visual_state(active_center, true, [0.35, 0.58, 0.92, 0.40]),
+        legal: square_visual_state(active_center, true, [0.43, 0.78, 0.38, 0.20]),
+        illegal: square_visual_state(active_center, true, [0.82, 0.24, 0.16, 0.22])
+    )
+
+square_surface(index:num):
+    """Build one transparent selectable square overlay."""
+    file: square_file(index)
+    rank: square_rank(index)
+    @: (
+        id: square_id(file, rank),
+        kind: "quad",
+        object_id: index + 2,
+        center: [notation.board_x(file), notation.board_z(rank), 0.075],
+        size: [1.0, 1.0],
+        color: [0.2, 1.0, 0.2, 0.0],
+        visual_state: "idle",
+        active_state: "idle",
+        state_embeddings: square_state_embeddings(file, rank),
+        casts_shadow: false,
+        receives_shadow: false,
+        no_backface_specular: true,
+        depth_write: false
+    )
+
+board_reflection_overlay():
+    """Build one board-wide mirror blend layer above the checker colors."""
+    @: (
+        id: "board_reflection_overlay",
+        kind: "quad",
+        object_id: 1,
+        center: [0.0, 0.0, 0.065],
+        size: [8.0, 8.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        texture: (
+            kind: "checker",
+            color_a: [0.18, 0.11, 0.07, 1.0],
+            color_b: [0.92, 0.80, 0.58, 1.0],
+            scale: [8.0, 8.0]
+        ),
+        surface_system: (
+            kind: "mirror",
+            reflectivity: 0.20,
+            flip_y: true,
+            camera: (
+                fov: 70.0,
+                flip_x: false,
+                up: [0.0, 0.0, 1.0],
+                mirror_of: (
+                    frame_id: "vkf_chess_board",
+                    mesh_id: "board_reflection_overlay",
+                    reflect_eye_only: true,
+                    lock_aperture_camera: true,
+                    controls_enabled: false
+                )
+            )
+        ),
+        casts_shadow: false,
+        receives_shadow: true,
+        no_backface_specular: true
+    )
+
+piece_side(index:num) -> str:
+    """Return side for a one-based initial piece index."""
+    index <= 16? @: "white"
+    @: "black"
+
+piece_local_index(index:num) -> num:
+    """Return side-local one-based index for a starting piece."""
+    index <= 16? @: index
+    @: index - 16
+
+piece_file(local:num) -> num:
+    """Return the file for a side-local starting piece index."""
+    local <= 8? @: local
+    @: local - 8
+
+piece_rank(side:str, local:num) -> num:
+    """Return the rank for a side-local starting piece index."""
+    side = "white"?
+        local <= 8? @: 1
+        @: 2
+    local <= 8? @: 8
+    @: 7
+
+back_rank_role(file:num) -> str:
+    """Return the role for a back-rank file."""
+    file = 1? @: "rook"
+    file = 2? @: "knight"
+    file = 3? @: "bishop"
+    file = 4? @: "queen"
+    file = 5? @: "king"
+    file = 6? @: "bishop"
+    file = 7? @: "knight"
+    @: "rook"
+
+piece_role(local:num, file:num) -> str:
+    """Return the role for a side-local starting piece index."""
+    local <= 8? @: back_rank_role(file)
+    @: "pawn"
+
+piece_color(side:str) -> list(num, num, num, num):
+    """Return RGBA color for a chess side."""
+    side = "white"? @: [1.00, 0.96, 0.78, 1.0]
+    @: [0.18, 0.11, 0.07, 1.0]
+
+piece_size(role:str) -> num:
+    """Return primitive display size for one role."""
+    role = "pawn"? @: 0.56
+    role = "rook"? @: 0.66
+    role = "knight"? @: 0.70
+    role = "bishop"? @: 0.64
+    role = "queen"? @: 0.78
+    @: 0.74
+
+piece_height(role:str) -> num:
+    """Return primitive display center height for one role."""
+    @: 0.18 + (piece_size(role) * 0.5)
+
+piece_body_height(role:str) -> num:
+    """Return the visible hull height for one role."""
+    role = "pawn"? @: 0.46
+    role = "rook"? @: 0.62
+    role = "knight"? @: 0.70
+    role = "bishop"? @: 0.76
+    role = "queen"? @: 0.92
+    @: 0.98
+
+piece_base_z() -> num:
+    """Return the board contact height used by all visible piece hulls."""
+    @: 0.065
+
+piece_rotation(side:str, role:str) -> list(num, num, num):
+    """Return side-specific mesh orientation for baked chess geometry."""
+    side = "white"?
+        role = "knight"? @: [0.0, 0.0, 180.0]
+        @: [0.0, 0.0, 0.0]
+    @: [0.0, 0.0, 0.0]
+
+piece_id(side:str, role:str, file:num, rank:num) -> str:
+    """Return stable mesh id for a piece."""
+    @: side & "_" & role & "_" & notation.file_name(file) & notation.rank_name(rank)
+
+piece_cube(index:num):
+    """Build one native primitive for a starting piece."""
+    side: piece_side(index)
+    local: piece_local_index(index)
+    file: piece_file(local)
+    rank: piece_rank(side, local)
+    role: piece_role(local, file)
+    @: (
+        id: piece_id(side, role, file, rank),
+        center: [notation.board_x(file), notation.board_z(rank), piece_height(role)],
+        size: piece_size(role),
+        face_color: piece_color(side),
+        casts_shadow: true,
+        receives_shadow: true,
+        no_backface_specular: true
+    )
+
+initial_cubes():
+    """Return native piece primitives once mesh pieces are enabled."""
+    @: []
+
+piece_object(index:num):
+    """Build one visible native chess piece from baked GLB geometry."""
+    side: piece_side(index)
+    local: piece_local_index(index)
+    file: piece_file(local)
+    rank: piece_rank(side, local)
+    role: piece_role(local, file)
+    @: (
+        id: piece_id(side, role, file, rank),
+        kind: "field_mesh",
+        object_id: index + 65,
+        vertices: piece_meshes.piece_vertices(side, role),
+        indices: piece_meshes.piece_indices(role),
+        topology: "triangle-list",
+        center: [notation.board_x(file), notation.board_z(rank), piece_base_z()],
+        scale: [1.0, 1.0, 1.0],
+        rotation: piece_rotation(side, role),
+        color: piece_color(side),
+        use_vertex_color: false,
+        vertex_size: 0.0,
+        edge_width: 0.0,
+        interpolation: true,
+        casts_shadow: true,
+        receives_shadow: true,
+        receives_lighting: true,
+        specular_strength: 0.055,
+        repair_winding: true,
+        no_cull: false
+    )
+
+initial_objects():
+    """Return all standard starting pieces as native scene objects."""
+    @: ([1..32] >> piece_object($))
+
+board_surfaces():
+    """Return the single blended board material.
+
+    Selectable chess squares are declared as a planar hit-region contract in
+    VKF. The renderer can resolve pointer hits without adding extra proxy
+    geometry or special shaders to the visual board surface.
+    """
+    @: [board_reflection_overlay()]
+
+piece_descriptor(index:num):
+    """Return runtime metadata for one starting piece."""
+    side: piece_side(index)
+    local: piece_local_index(index)
+    file: piece_file(local)
+    rank: piece_rank(side, local)
+    role: piece_role(local, file)
+    @: (
+        object_id: index + 65,
+        id: piece_id(side, role, file, rank),
+        side: side,
+        role: role,
+        file: file,
+        rank: rank,
+        base_z: piece_base_z()
+    )
+
+chess_interaction():
+    """Describe the local chess interaction contract authored by VKF."""
+    @: (
+        kind: "chess_board",
+        controls_frame_id: "vkf_chess_controls",
+        controls_stylesheet: "vf-chess.css",
+        controls_frame_class: "vf-chess-frame",
+        controls_panel_class: "vf-chess-panel",
+        square_region_object_id: 2,
+        square_object_id_first: 2,
+        square_object_id_last: 65,
+        piece_object_id_first: 66,
+        piece_object_id_last: 97,
+        square_highlight_legal: [0.42, 0.88, 0.36, 0.58],
+        square_highlight_illegal: [0.90, 0.20, 0.12, 0.62],
+        square_highlight_hover: [0.30, 0.58, 1.00, 0.56],
+        square_highlight_selected: [0.34, 0.66, 1.00, 0.74],
+        piece_motion_step_per_frame: 0.06,
+        piece_base_z: piece_base_z(),
+        piece_specular_strength: 0.055,
+        selected_piece_specular_strength: 0.08,
+        hit_regions: [
+            (
+                id: "vkf_chess_board_squares",
+                kind: "plane_grid",
+                origin: [-4.0, -4.0, 0.13],
+                u_axis: [1.0, 0.0, 0.0],
+                v_axis: [0.0, 1.0, 0.0],
+                columns: 8,
+                rows: 8,
+                cell_size: [1.0, 1.0],
+                object_id_first: 2,
+                object_id_stride: 1,
+                pick_id_first: 2,
+                simplex_id_first: 1,
+                exclusive: true
+            )
+        ],
+        pieces: ([1..32] >> piece_descriptor($))
+    )
+
+overlay_scene():
+    """Return the production native overlay scene contract."""
+    @: (
+        kind: "scene_3d",
+        frame_id: "vkf_chess_board",
+        title: "VKF Chess 3D Native",
+        rect: [0.04, 0.06, 0.72, 0.84],
+        aspect: "equal",
+        camera: (
+            pos: [6.8, -7.6, 12.0],
+            target: [0.0, 0.0, 0.24],
+            fov: 70.0,
+            up: [0.0, 0.0, 1.0],
+            controls_mode: "look_only",
+            look_only_controls: true
+        ),
+        timing: (fps:60, duration_seconds:12.0, boundary:"repeat"),
+        plane: (
+            center: [0.0, 0.0],
+            size: 8.4,
+            z: -0.06,
+            color: [0.018, 0.020, 0.024, 1.0],
+            visible: true
+        ),
+        lights: [
+            (pos:[-4.8, -5.4, 6.8], target:[0.0, 0.0, 0.3], motion:"fixed", model:"blinn_phong", color:[1.0, 0.94, 0.78, 1.0], intensity:34.0, casts_shadow:true, source_radius:0.28, spread:1.0),
+            (pos:[4.6, 3.8, 3.2], target:[0.0, 0.0, 0.3], motion:"fixed", model:"blinn_phong", color:[0.36, 0.43, 0.62, 1.0], intensity:9.0, casts_shadow:false, source_radius:0.16, spread:0.75)
+        ],
+        surfaces: board_surfaces(),
+        objects: initial_objects(),
+        cubes: initial_cubes(),
+        shadow: (enabled:true, color:[0.0, 0.0, 0.0, 0.34], lift:0.003),
+        interaction: chess_interaction()
+    )
