@@ -380,7 +380,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "[1, 2], [1, -2], [-1, 2], [-1, -2]" in runtime
     assert "pivot: pivot" in runtime
     assert "axis: axis" in runtime
-    assert "angle_rad: Math.PI * 0.5" in runtime
+    assert "angle_rad: Math.PI * 0.58" in runtime
     assert "base_model: baseModel" in runtime
     assert "base_center: origin" in runtime
     assert "var pivot = chessPieceFallContactPivot(king, baseModel, dir, origin);" in runtime
@@ -388,6 +388,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function finiteVec3(value, fallback)" in runtime
     assert "function fallRotationFromAxis(axis, angleRad, fallback)" in runtime
     assert "function startChessMatedKingFall(runtime)" in runtime
+    assert "function chessPendingEndPieceAnimating(runtime)" in runtime
     assert "function startChessEndCenterAnimation(runtime)" in runtime
     assert "function advanceChessEndSequence(runtime, now)" in runtime
     assert "function chessAnimationEase(anim, t)" in runtime
@@ -400,6 +401,9 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "queueChessAnimation(runtime, matedKing, [fromCenter, fromCenter], null, {" in runtime
     assert "fall_pose: matedFallPose" in runtime
     assert 'easing: "king_fall"' in runtime
+    assert "startChessMatedKingFall(runtime);" in runtime
+    assert "runtime.pendingEndPieceObjectId = moveResult ? (Number(piece.object_id || 0) || 0) : 0;" in runtime
+    assert "runtime.pendingEndPieceObjectId = promotionResult ? (Number(piece.object_id || 0) || 0) : 0;" in runtime
     assert "return 1.0 + (Math.sin(bounceT * Math.PI) * 0.14 * (1.0 - bounceT));" in runtime
     assert 'transform: resolveTrackedMatrix4(spec, "transform"' in runtime
     assert 'setEntityProp(mesh, "transform", cloneEntityStateValue(entityProp(piece.mesh, "transform", null)))' in runtime

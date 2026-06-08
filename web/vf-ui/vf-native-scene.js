@@ -4614,7 +4614,7 @@
       direction: dir,
       pivot: pivot,
       axis: axis,
-      angle_rad: Math.PI * 0.5,
+      angle_rad: Math.PI * 0.58,
       base_model: baseModel,
       base_center: origin,
       base_rotation: toVec3(entityProp(king.mesh, "rotation", king.start_rotation || [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])
@@ -4639,12 +4639,12 @@
     if (!runtime || runtime.gameOver) { return; }
     runtime.gameOver = String(result || "draw");
     runtime.pendingEndResult = "";
+    runtime.pendingEndPieceObjectId = 0;
     runtime.selected = null;
     runtime.hoverSquare = null;
     runtime.hoverPiece = null;
     runtime.hoverPromotion = null;
     clearChessPromotionOptions(runtime);
-    runtime.animations = [];
     var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now();
     runtime.endSequence = {
       result: runtime.gameOver,
@@ -4654,7 +4654,22 @@
     resetChessHighlights(runtime, { skipPieceRefresh: true });
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
+    if (runtime.gameOver !== "draw") {
+      startChessMatedKingFall(runtime);
+    }
     requestChessInteractionFrame(runtime);
+  }
+
+  function chessPendingEndPieceAnimating(runtime) {
+    var oid = Number(runtime && runtime.pendingEndPieceObjectId || 0) || 0;
+    if (!oid || !Array.isArray(runtime.animations)) { return false; }
+    for (var i = 0; i < runtime.animations.length; i += 1) {
+      var anim = runtime.animations[i];
+      if (anim && anim.piece && Number(anim.piece.object_id || 0) === oid) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function startChessMatedKingFall(runtime) {
@@ -5068,6 +5083,7 @@
     runtime.turn = runtime.turn === "white" ? "black" : "white";
     runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
     runtime.pendingEndResult = promotionResult || "";
+    runtime.pendingEndPieceObjectId = promotionResult ? (Number(piece.object_id || 0) || 0) : 0;
     recordChessHistorySnapshot(runtime);
     runtime.promotion = null;
     refreshChessPieceSelectionPose(runtime);
@@ -5518,6 +5534,7 @@
       pendingAutoSwitchAfterAnimations: false,
       pendingAutoSwitchSide: "",
       pendingEndResult: "",
+      pendingEndPieceObjectId: 0,
       endSequence: null,
       animations: [],
       nextCaptureOrder: 0,
@@ -5672,6 +5689,7 @@
     runtime.turn = runtime.turn === "white" ? "black" : "white";
     runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
     runtime.pendingEndResult = moveResult || "";
+    runtime.pendingEndPieceObjectId = moveResult ? (Number(piece.object_id || 0) || 0) : 0;
     recordChessHistorySnapshot(runtime);
     runtime.selected = null;
     refreshChessPieceSelectionPose(runtime);
@@ -5759,12 +5777,20 @@
     var runtime = initChessRuntime();
     if (!runtime) { return false; }
     var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : (Number(seconds || 0) * 1000.0);
+    if (!runtime.gameOver && runtime.pendingEndResult && !chessPendingEndPieceAnimating(runtime)) {
+      var immediateEndResult = String(runtime.pendingEndResult || "");
+      runtime.pendingEndResult = "";
+      runtime.pendingEndPieceObjectId = 0;
+      startChessEndAnimation(runtime, immediateEndResult);
+      return true;
+    }
     if ((!Array.isArray(runtime.animations) || runtime.animations.length === 0) && advanceChessEndSequence(runtime, now)) {
       return true;
     }
     var remaining = [];
     var changed = false;
     var hadAnimations = runtime.animations.length > 0;
+    var finishedKingFall = false;
     for (var i = 0; i < runtime.animations.length; i += 1) {
       var anim = runtime.animations[i];
       var durationMs = Math.max(16.0, Number(anim.duration_ms || 0.0) || chessMotionDurationMs(runtime, anim.path));
@@ -5833,6 +5859,7 @@
           setEntityProp(anim.piece.mesh, "transform", finiteMat4(finalModel));
           setEntityProp(anim.piece.mesh, "center", [0.0, 0.0, 0.0]);
           setEntityProp(anim.piece.mesh, "rotation", [0.0, 0.0, 0.0]);
+          finishedKingFall = true;
         } else {
           anim.piece.mesh._modelMatrix = null;
           setEntityProp(anim.piece.mesh, "transform", null);
@@ -5843,6 +5870,19 @@
       }
     }
     runtime.animations = remaining;
+    if (!runtime.gameOver && runtime.pendingEndResult && !chessPendingEndPieceAnimating(runtime)) {
+      var pendingEndResult = String(runtime.pendingEndResult || "");
+      runtime.pendingEndResult = "";
+      runtime.pendingEndPieceObjectId = 0;
+      startChessEndAnimation(runtime, pendingEndResult);
+      return true;
+    }
+    if (finishedKingFall && runtime.endSequence && runtime.endSequence.stage === "falling") {
+      runtime.endSequence.stage = "wait_before_center";
+      runtime.endSequence.due_ms = now + 1000.0;
+      markChessSceneDirty(runtime);
+      return true;
+    }
     if (hadAnimations && !remaining.length) {
       if (runtime.endSequence && runtime.endSequence.stage === "falling") {
         runtime.endSequence.stage = "wait_before_center";

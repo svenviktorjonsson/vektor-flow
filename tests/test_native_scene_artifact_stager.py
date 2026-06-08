@@ -417,6 +417,9 @@ def test_native_scene_artifact_stager_writes_multi_view_scene_contract(tmp_path:
     assert len(config_files) == 1
     assert config_files[0].read_text(encoding="utf-8").strip() == scene_config
     assert "configs.sort(function(a,b){return (visible(b)?1:0)-(visible(a)?1:0);});" in html
+    assert "function assignArenaRef(holder,key,value,arena)" in html
+    assert "global.setTimeout(step,0)" in html
+    assert "(nowMs()-start)<6.0" in html
     assert "global.__vfNativeSceneConfig=configs[index]" in html
     assert "var delay=index===0?200:0;global.setTimeout(function(){loadAt(index+1);},delay);" in html
     assert "vf-native-scene.js?view=" in html
