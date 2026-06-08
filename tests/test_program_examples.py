@@ -450,14 +450,14 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "cameraKeysActive() || animationActive === true || cameraSwitchActive()" in runtime
     assert "cameraKeyLastTsMs" in runtime
     assert "cameraKeyStepPending" in runtime
-    assert "cameraKeyStepCount" in runtime
+    assert "cameraKeyStepCount" not in runtime
     assert "requestCameraHoldFrame" in runtime
     assert "state.requestCameraHoldFrame();" in runtime
     assert "activeState.requestCameraHoldFrame();" in runtime
     assert "if (visibleRenderBackpressureActive()) {\n        controlState.cameraFrameDirty = true;\n        return;\n      }" not in runtime
     assert "var keyHoldActive = cameraKeysActive();" in runtime
-    assert "controlState.cameraKeyStepCount = Math.min(8" in runtime
-    assert "var queuedKeySteps = Math.max(0, Number(controlState.cameraKeyStepCount || 0) || 0);" in runtime
+    assert "controlState.cameraKeyStepCount = Math.min(8" not in runtime
+    assert "var queuedKeySteps = Math.max(0, Number(controlState.cameraKeyStepCount || 0) || 0);" not in runtime
     assert "controlState.cameraKeyStepPending = true;" in runtime
     assert "if (keyHoldActive && controlState.cameraKeyStepPending === true && visibleRenderBackpressureActive())" not in runtime
     assert "? (1.0 / 30.0)" in runtime
