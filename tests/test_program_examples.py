@@ -462,6 +462,11 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "controlState.cameraKeyStepPending = true;" not in runtime
     assert "if (keyHoldActive && controlState.cameraKeyStepPending === true && visibleRenderBackpressureActive())" not in runtime
     assert "if (keyHoldActive) {" in runtime
+    assert "if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())" in runtime
+    backpressure_guard = runtime.index("if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())")
+    orbit_mutation = runtime.index("controlState.orbitPhi += deltaPhi;", backpressure_guard)
+    assert backpressure_guard < orbit_mutation
+    assert "controlState.cameraKeyLastTsMs = nowMs;\n            controlState.cameraKeyStepPending = false;\n            controlState.rendering = false;\n            ensureCameraHoldLoop(controlState);\n            return;" in runtime
     assert "var keyElapsedSec = controlState.cameraKeyLastTsMs > 0.0" in runtime
     assert "var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 120.0, keyElapsedSec || (1.0 / 120.0)))" in runtime
     assert "controlState.cameraKeyStepPending = false;" in runtime
