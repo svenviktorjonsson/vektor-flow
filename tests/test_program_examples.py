@@ -442,16 +442,17 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'typeof global.VfDisplay.mountDynamicGeomFrame === "function"' in runtime
     assert "function markChessSceneDirty(runtime)" in runtime
     assert "function updateVisibleCameraOnly(camera, options)" in runtime
-    assert "function updateOffscreenCameraOnly(camera)" in runtime
     assert "controlState.requestCameraFrame = function ()" in runtime
     assert "controlState.cameraFramePending = true" in runtime
     assert "continuationFramePending" in runtime
     assert "function scheduleNextFrameIfNeeded(animationActive)" in runtime
-    assert "cameraKeysActive() || animationActive === true || cameraSwitchActive()" in runtime
+    assert "if (cameraKeysActive()) {\n        ensureCameraHoldLoop(controlState);\n        return;\n      }" in runtime
+    assert "animationActive === true || cameraSwitchActive()" in runtime
     assert "cameraKeyLastTsMs" in runtime
     assert "cameraKeyStepPending" in runtime
     assert "cameraKeyStepCount" not in runtime
     assert "requestCameraHoldFrame" in runtime
+    assert "global.setTimeout(function () {\n        state.cameraHoldLoopPending = false;" in runtime
     assert "state.requestCameraHoldFrame();" in runtime
     assert "activeState.requestCameraHoldFrame();" in runtime
     assert "if (visibleRenderBackpressureActive()) {\n        controlState.cameraFrameDirty = true;\n        return;\n      }" not in runtime
@@ -509,7 +510,8 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "requestLinkedMirrorTextureFrameForSource(String(frameSpec.frame_id || config.frame_id));" not in runtime
     assert "_skip_render" not in runtime
     assert "updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })" in runtime
-    assert "dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)" in runtime
+    assert "function updateOffscreenCameraOnly(camera, options)" in runtime
+    assert "updateOffscreenCameraOnly(renderCamera, { immediate: dependencySourceFrameId ? true : heldCameraKeyActive })" in runtime
     assert "cameraOnlyUpdates" in runtime
     assert "fullSceneUpdates" in runtime
     assert "var nextVisibleSpec = Object.assign({}, geomPayload)" in runtime

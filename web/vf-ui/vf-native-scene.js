@@ -6127,7 +6127,8 @@
         { immediate: options.immediate === true }
       ) === true;
     }
-    function updateOffscreenCameraOnly(camera) {
+    function updateOffscreenCameraOnly(camera, options) {
+      options = options && typeof options === "object" ? options : {};
       if (useVisibleFrame || !offscreenSpec || !global.VfDisplay || typeof global.VfDisplay.updateDynamicGeomFrameCamera !== "function") {
         return false;
       }
@@ -6136,7 +6137,8 @@
         watchedFrameId,
         camera,
         offscreenSpec.lights || [],
-        offscreenSpec.light_flares || null
+        offscreenSpec.light_flares || null,
+        { immediate: options.immediate === true }
       ) === true;
     }
     function cameraKeysActive() {
@@ -6272,7 +6274,11 @@
     function scheduleNextFrameIfNeeded(animationActive) {
       if (!useVisibleFrame && dependencySourceFrameId) { return; }
       if (controlState.continuationFramePending === true) { return; }
-      if (cameraKeysActive() || animationActive === true || cameraSwitchActive()) {
+      if (cameraKeysActive()) {
+        ensureCameraHoldLoop(controlState);
+        return;
+      }
+      if (animationActive === true || cameraSwitchActive()) {
         controlState.continuationFramePending = true;
         global.requestAnimationFrame(function () {
           controlState.continuationFramePending = false;
@@ -6317,7 +6323,7 @@
       if (!state || state.cameraHoldLoopPending === true) { return; }
       if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
       state.cameraHoldLoopPending = true;
-      global.requestAnimationFrame(function () {
+      global.setTimeout(function () {
         state.cameraHoldLoopPending = false;
         if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
         if (typeof state.requestCameraHoldFrame === "function") {
@@ -6732,7 +6738,7 @@
           finishRenderFrame(worldAnimationActive, false);
           return;
         }
-        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)) {
+        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera, { immediate: dependencySourceFrameId ? true : heldCameraKeyActive })) {
           scenePerf.cameraOnlyUpdates += 1;
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
