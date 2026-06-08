@@ -1757,6 +1757,60 @@
     });
   }
 
+  function mat4MulColumnMajor(a, b) {
+    var out = new Array(16);
+    for (var col = 0; col < 4; col += 1) {
+      for (var row = 0; row < 4; row += 1) {
+        out[(col * 4) + row] =
+          (Number(a[row]) || 0.0) * (Number(b[col * 4]) || 0.0) +
+          (Number(a[4 + row]) || 0.0) * (Number(b[(col * 4) + 1]) || 0.0) +
+          (Number(a[8 + row]) || 0.0) * (Number(b[(col * 4) + 2]) || 0.0) +
+          (Number(a[12 + row]) || 0.0) * (Number(b[(col * 4) + 3]) || 0.0);
+      }
+    }
+    return out;
+  }
+
+  function mat4TranslationColumnMajor(x, y, z) {
+    return [
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      Number(x || 0.0), Number(y || 0.0), Number(z || 0.0), 1
+    ];
+  }
+
+  function mat4AxisAngleColumnMajor(axis, angleRad) {
+    var a = normalize3(toVec3(axis, [0.0, 1.0, 0.0]), [0.0, 1.0, 0.0]);
+    var x = a[0], y = a[1], z = a[2];
+    var c = Math.cos(Number(angleRad || 0.0));
+    var s = Math.sin(Number(angleRad || 0.0));
+    var t = 1.0 - c;
+    return [
+      (t * x * x) + c,       (t * x * y) + (s * z), (t * x * z) - (s * y), 0,
+      (t * x * y) - (s * z), (t * y * y) + c,       (t * y * z) + (s * x), 0,
+      (t * x * z) + (s * y), (t * y * z) - (s * x), (t * z * z) + c,       0,
+      0,                     0,                     0,                     1
+    ];
+  }
+
+  function mat4RotateAroundPoint(axis, angleRad, pivot, baseModel) {
+    var p = toVec3(pivot, [0.0, 0.0, 0.0]);
+    var base = Array.isArray(baseModel) && baseModel.length === 16 ? baseModel.slice() : [
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1
+    ];
+    return mat4MulColumnMajor(
+      mat4MulColumnMajor(
+        mat4MulColumnMajor(mat4TranslationColumnMajor(p[0], p[1], p[2]), mat4AxisAngleColumnMajor(axis, angleRad)),
+        mat4TranslationColumnMajor(-p[0], -p[1], -p[2])
+      ),
+      base
+    );
+  }
+
   function makeRng(seed) {
     var state = (Number(seed) || 0) >>> 0;
     return function () {
@@ -3706,6 +3760,7 @@
       if (!piece || !piece.mesh) { continue; }
         setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
       setEntityProp(mesh, "rotation", cloneEntityStateValue(entityProp(piece.mesh, "rotation", piece.start_rotation || [0.0, 0.0, 0.0])));
+      mesh._modelMatrix = Array.isArray(piece.mesh._modelMatrix) ? piece.mesh._modelMatrix.slice() : null;
       setEntityProp(mesh, "visible", (piece.captured !== true || piece.in_capture_tray === true) && entityProp(piece.mesh, "visible", true) !== false);
       setEntityProp(mesh, "color", cloneEntityStateValue(entityProp(piece.mesh, "color", pieceBaseColor(piece))));
       setEntityProp(mesh, "specular_strength", Number(entityProp(piece.mesh, "specular_strength", runtime.cfg.piece_specular_strength || 0.055)) || 0.055);
@@ -3837,6 +3892,7 @@
       setEntityProp(piece.mesh, "center", piece.in_capture_tray
         ? chessCapturedTrayCenter(runtime, piece, Math.max(0, Number(piece.capture_tray_index || 0) || 0))
         : pieceBoardCenter(piece, 0.0));
+      piece.mesh._modelMatrix = null;
       setEntityProp(piece.mesh, "rotation", cloneJsonValue(piece.start_rotation || entityProp(piece.start_mesh || piece.mesh, "rotation", [0.0, 0.0, 0.0])));
       setEntityProp(piece.mesh, "visible", piece.captured !== true || piece.in_capture_tray === true);
       setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
@@ -4034,6 +4090,7 @@
       path_length: chessPathLength(normalizedPath),
       duration_ms: Math.max(16.0, Number(options.duration_ms || 0.0) || chessMotionDurationMs(runtime, normalizedPath)),
       easing: String(options.easing || "linear"),
+      fall_pose: options.fall_pose && typeof options.fall_pose === "object" ? cloneJsonValue(options.fall_pose) : null,
       from: toVec3(normalizedPath[0], [0.0, 0.0, 0.0]),
       to: toVec3(normalizedPath[normalizedPath.length - 1], [0.0, 0.0, 0.0]),
       from_rotation: fromRotation,
@@ -4443,8 +4500,6 @@
   function chessMatedKingFallPose(runtime, king) {
     var origin = pieceBoardCenter(king, 0.0);
     var candidates = [
-      [1, 0], [-1, 0], [0, 1], [0, -1],
-      [1, 1], [1, -1], [-1, 1], [-1, -1],
       [2, 1], [2, -1], [-2, 1], [-2, -1],
       [1, 2], [1, -2], [-1, 2], [-1, -2]
     ];
@@ -4452,12 +4507,13 @@
     var best = null;
     var ids = runtime && runtime.piecesByObjectId ? Object.keys(runtime.piecesByObjectId) : [];
     var kingRadius = Math.max(0.22, chessPieceFootprintRadius(king));
+    var fallDistance = Math.max(0.74, kingRadius * 2.2);
     for (var i = 0; i < candidates.length; i += 1) {
       var cand = candidates[(i + Math.abs(seed)) % candidates.length];
       var len = Math.max(0.0001, Math.sqrt((cand[0] * cand[0]) + (cand[1] * cand[1])));
       var dx = cand[0] / len;
       var dy = cand[1] / len;
-      var distance = Math.min(0.82, Math.max(0.56, 0.62 + (((seed + i) % 5) * 0.04)));
+      var distance = fallDistance;
       var target = [
         Math.max(-3.72, Math.min(3.72, origin[0] + (dx * distance))),
         Math.max(-3.72, Math.min(3.72, origin[1] + (dy * distance))),
@@ -4479,14 +4535,25 @@
       }
     }
     var dir = best ? best.direction : [1.0, 0.0];
-    var baseRotation = toVec3(entityProp(king.mesh, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    var pivotRadius = Math.max(0.18, kingRadius * 0.82);
+    var pivot = [
+      origin[0] + (dir[0] * pivotRadius),
+      origin[1] + (dir[1] * pivotRadius),
+      origin[2]
+    ];
+    var axis = [-dir[1], dir[0], 0.0];
+    var baseModel = matrixForMesh({
+      center: toVec3(entityProp(king.mesh, "center", origin), origin),
+      rotation: toVec3(entityProp(king.mesh, "rotation", king.start_rotation || [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]),
+      scale: [1.0, 1.0, 1.0]
+    });
     return {
       center: best ? best.center : origin,
-      rotation: [
-        baseRotation[0] + (dir[1] * 1.42),
-        baseRotation[1] - (dir[0] * 1.42),
-        baseRotation[2]
-      ]
+      direction: dir,
+      pivot: pivot,
+      axis: axis,
+      angle_rad: Math.PI * 0.5,
+      base_model: baseModel
     };
   }
 
@@ -4536,8 +4603,8 @@
       return;
     }
     var fromCenter = toVec3(entityProp(matedKing.mesh, "center", pieceBoardCenter(matedKing, 0.0)), pieceBoardCenter(matedKing, 0.0));
-    queueChessAnimation(runtime, matedKing, [fromCenter, matedFallPose.center], null, {
-      to_rotation: matedFallPose.rotation,
+    queueChessAnimation(runtime, matedKing, [fromCenter, fromCenter], null, {
+      fall_pose: matedFallPose,
       duration_ms: 760.0,
       easing: "king_fall"
     });
@@ -4570,6 +4637,7 @@
       if (piece !== matedKing || result === "draw") {
         piece.file = piece.start_file;
         piece.rank = piece.start_rank;
+        piece.mesh._modelMatrix = null;
         setEntityProp(piece.mesh, "rotation", cloneJsonValue(piece.start_rotation || entityProp(piece.start_mesh || piece.mesh, "rotation", [0.0, 0.0, 0.0])));
         var toCenter = chessEndTargetCenter(runtime, piece, result);
         queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
@@ -4885,6 +4953,7 @@
     var center = toVec3(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
     setEntityProp(piece.mesh, "vertices", cloneJsonValue(entityProp(template, "vertices", [])));
     setEntityProp(piece.mesh, "indices", cloneJsonValue(entityProp(template, "indices", [])));
+    piece.mesh._modelMatrix = null;
     setEntityProp(piece.mesh, "rotation", cloneJsonValue(entityProp(template, "rotation", [0.0, 0.0, 0.0])));
     setEntityProp(piece.mesh, "center", center);
     piece.role = String(role || "queen");
@@ -5335,6 +5404,7 @@
       p.capture_tray_center = null;
       p.has_moved = false;
       p._animating = false;
+      p.mesh._modelMatrix = null;
       setEntityProp(p.mesh, "center", pieceBoardCenter(p, 0.0));
       setEntityProp(p.mesh, "rotation", cloneJsonValue(p.start_rotation || entityProp(p.start_mesh || p.mesh, "rotation", [0.0, 0.0, 0.0])));
       setEntityProp(p.mesh, "visible", true);
@@ -5662,8 +5732,16 @@
         from[1] + ((to[1] - from[1]) * localT),
         from[2] + ((to[2] - from[2]) * localT)
       ];
-      setEntityProp(anim.piece.mesh, "center", center);
-      if (Array.isArray(anim.from_rotation) && Array.isArray(anim.to_rotation)) {
+      if (anim.fall_pose && typeof anim.fall_pose === "object") {
+        var pose = anim.fall_pose;
+        var fallAngle = Math.max(0.0, Number(pose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5)) * easedT;
+        anim.piece.mesh._modelMatrix = mat4RotateAroundPoint(pose.axis || [0.0, 1.0, 0.0], fallAngle, pose.pivot || center, pose.base_model || null);
+        setEntityProp(anim.piece.mesh, "center", center);
+      } else {
+        anim.piece.mesh._modelMatrix = null;
+        setEntityProp(anim.piece.mesh, "center", center);
+      }
+      if (!anim.fall_pose && Array.isArray(anim.from_rotation) && Array.isArray(anim.to_rotation)) {
         setEntityProp(anim.piece.mesh, "rotation", [
           Number(anim.from_rotation[0] || 0.0) + ((Number(anim.to_rotation[0] || 0.0) - Number(anim.from_rotation[0] || 0.0)) * easedT),
           Number(anim.from_rotation[1] || 0.0) + ((Number(anim.to_rotation[1] || 0.0) - Number(anim.from_rotation[1] || 0.0)) * easedT),
@@ -5676,7 +5754,13 @@
       } else {
         anim.piece._animating = false;
         setEntityProp(anim.piece.mesh, "center", anim.to);
-        if (Array.isArray(anim.to_rotation)) {
+        if (anim.fall_pose && typeof anim.fall_pose === "object") {
+          var finalPose = anim.fall_pose;
+          anim.piece.mesh._modelMatrix = mat4RotateAroundPoint(finalPose.axis || [0.0, 1.0, 0.0], Math.max(0.0, Number(finalPose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5)), finalPose.pivot || anim.to, finalPose.base_model || null);
+        } else {
+          anim.piece.mesh._modelMatrix = null;
+        }
+        if (!anim.fall_pose && Array.isArray(anim.to_rotation)) {
           setEntityProp(anim.piece.mesh, "rotation", anim.to_rotation);
         }
       }

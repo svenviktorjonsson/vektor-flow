@@ -374,6 +374,13 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function finishChessMoveResult(runtime, moverSide)" in runtime
     assert "function chessEndMatedKing(runtime, result)" in runtime
     assert "function chessMatedKingFallPose(runtime, king)" in runtime
+    assert "function mat4RotateAroundPoint(axis, angleRad, pivot, baseModel)" in runtime
+    assert "[2, 1], [2, -1], [-2, 1], [-2, -1]" in runtime
+    assert "[1, 2], [1, -2], [-1, 2], [-1, -2]" in runtime
+    assert "pivot: pivot" in runtime
+    assert "axis: axis" in runtime
+    assert "angle_rad: Math.PI * 0.5" in runtime
+    assert "base_model: baseModel" in runtime
     assert "function startChessMatedKingFall(runtime)" in runtime
     assert "function startChessEndCenterAnimation(runtime)" in runtime
     assert "function advanceChessEndSequence(runtime, now)" in runtime
@@ -384,10 +391,13 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'runtime.endSequence.stage = "centering";' in runtime
     assert "runtime.endSequence.stage = \"wait_before_center\";\n        runtime.endSequence.due_ms = now + 1000.0;" in runtime
     assert "runtime.endSequence = null;" in runtime
-    assert "queueChessAnimation(runtime, matedKing, [fromCenter, matedFallPose.center], null, {" in runtime
-    assert "to_rotation: matedFallPose.rotation" in runtime
+    assert "queueChessAnimation(runtime, matedKing, [fromCenter, fromCenter], null, {" in runtime
+    assert "fall_pose: matedFallPose" in runtime
     assert 'easing: "king_fall"' in runtime
     assert "return 1.0 + (Math.sin(bounceT * Math.PI) * 0.14 * (1.0 - bounceT));" in runtime
+    assert 'mesh._modelMatrix = Array.isArray(piece.mesh._modelMatrix) ? piece.mesh._modelMatrix.slice() : null;' in runtime
+    assert "anim.piece.mesh._modelMatrix = mat4RotateAroundPoint" in runtime
+    assert "piece.mesh._modelMatrix = null;" in runtime
     assert "sceneWorldAnimationsPending()" in runtime
     assert "runtime.endSequence" in runtime
     assert "pendingEndResult" in runtime
@@ -439,6 +449,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "piece_motion_units_per_second" in runtime
     assert "duration_ms: Math.max(16.0, Number(options.duration_ms || 0.0) || chessMotionDurationMs(runtime, normalizedPath))" in runtime
     assert 'easing: String(options.easing || "linear")' in runtime
+    assert "fall_pose: options.fall_pose && typeof options.fall_pose === \"object\" ? cloneJsonValue(options.fall_pose) : null" in runtime
     assert "var durationMs = Math.max(16.0, Number(anim.duration_ms || 0.0) || chessMotionDurationMs(runtime, anim.path));" in runtime
     assert "anim.elapsed_ms = Math.max(0.0, Number(anim.elapsed_ms || 0.0) || 0.0) + dtMs;" in runtime
     assert "var t = Math.max(0.0, Math.min(1.0, anim.elapsed_ms / durationMs));" in runtime

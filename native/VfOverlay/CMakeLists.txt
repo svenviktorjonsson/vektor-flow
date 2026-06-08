@@ -84,12 +84,6 @@ set(TRANSPARENT_OVERLAY_HOST_EXE "")
 if(NOT TRANSPARENT_OVERLAY_SOURCE_DIR)
   if(DEFINED ENV{TRANSPARENT_OVERLAY_SOURCE_DIR})
     set(TRANSPARENT_OVERLAY_SOURCE_DIR "$ENV{TRANSPARENT_OVERLAY_SOURCE_DIR}")
-  else()
-    get_filename_component(
-      TRANSPARENT_OVERLAY_SOURCE_DIR
-      "${VF_REPO_ROOT}/../../tesseracs/packages/transparent-overlay"
-      ABSOLUTE
-    )
   endif()
 endif()
 if(EXISTS "${TRANSPARENT_OVERLAY_SOURCE_DIR}/CMakeLists.txt")
@@ -113,8 +107,8 @@ else()
   if(NOT EXISTS "${_vf_overlay_header}" OR NOT EXISTS "${_vf_overlay_dll}" OR NOT EXISTS "${_vf_overlay_lib}" OR NOT EXISTS "${_vf_overlay_host}")
     message(FATAL_ERROR
       "Transparent overlay runtime not found. Expected vendored artifacts under "
-      "${VF_VENDORED_TRANSPARENT_OVERLAY_PLATFORM_DIR}. Build tesseracs/packages/transparent-overlay "
-      "and copy TransparentOverlay.dll, TransparentOverlay.lib, and transparent-overlay-host.exe there.")
+      "${VF_VENDORED_TRANSPARENT_OVERLAY_PLATFORM_DIR}. Copy TransparentOverlay.dll, "
+      "TransparentOverlay.lib, and transparent-overlay-host.exe into the vendored runtime.")
   endif()
   add_library(TransparentOverlay SHARED IMPORTED GLOBAL)
   set_target_properties(TransparentOverlay PROPERTIES
