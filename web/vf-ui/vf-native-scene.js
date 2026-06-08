@@ -4036,6 +4036,40 @@
     return Math.max(0.20, Math.min(0.42, Math.max((maxX - minX) * 0.5, (maxY - minY) * 0.5)));
   }
 
+  function chessPieceFallContactPivot(piece, baseModel, direction, fallback) {
+    var mesh = piece && piece.mesh ? piece.mesh : null;
+    var verts = mesh ? entityProp(mesh, "vertices", []) : [];
+    var model = toMatrix4(baseModel, null);
+    if (!numericArrayLike(verts) || verts.length < 10 || !model) {
+      return finiteVec3(fallback, [0.0, 0.0, 0.0]);
+    }
+    var dir = normalize3([Number(direction && direction[0] || 0.0), Number(direction && direction[1] || 0.0), 0.0], [1.0, 0.0, 0.0]);
+    var world = [];
+    var minZ = Infinity;
+    for (var i = 0; i + 2 < verts.length; i += 10) {
+      var p = transformPointMat4(model, Number(verts[i] || 0.0), Number(verts[i + 1] || 0.0), Number(verts[i + 2] || 0.0));
+      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) { continue; }
+      world.push(p);
+      minZ = Math.min(minZ, p[2]);
+    }
+    if (!world.length || !Number.isFinite(minZ)) {
+      return finiteVec3(fallback, [0.0, 0.0, 0.0]);
+    }
+    var zTolerance = 0.012;
+    var best = null;
+    var bestDot = -Infinity;
+    for (var w = 0; w < world.length; w += 1) {
+      var wp = world[w];
+      if (wp[2] > minZ + zTolerance) { continue; }
+      var dot = (wp[0] * dir[0]) + (wp[1] * dir[1]);
+      if (!best || dot > bestDot) {
+        best = wp;
+        bestDot = dot;
+      }
+    }
+    return best ? best.slice() : finiteVec3(fallback, [0.0, 0.0, 0.0]);
+  }
+
   function assignChessCapturedTraySlots(runtime, capturerSide) {
     var pieces = chessCapturedPiecesForSide(runtime, capturerSide);
     var sideY = String(capturerSide || "") === "black" ? 4.82 : -4.82;
@@ -4568,18 +4602,13 @@
       }
     }
     var dir = best ? best.direction : [1.0, 0.0];
-    var pivotRadius = Math.max(0.18, kingRadius * 0.82);
-    var pivot = [
-      origin[0] + (dir[0] * pivotRadius),
-      origin[1] + (dir[1] * pivotRadius),
-      origin[2]
-    ];
     var axis = [-dir[1], dir[0], 0.0];
     var baseModel = matrixForMesh({
       center: toVec3(entityProp(king.mesh, "center", origin), origin),
       rotation: toVec3(entityProp(king.mesh, "rotation", king.start_rotation || [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]),
       scale: [1.0, 1.0, 1.0]
     });
+    var pivot = chessPieceFallContactPivot(king, baseModel, dir, origin);
     return {
       center: best ? best.center : origin,
       direction: dir,

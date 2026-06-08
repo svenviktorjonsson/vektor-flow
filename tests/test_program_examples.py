@@ -375,6 +375,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function chessEndMatedKing(runtime, result)" in runtime
     assert "function chessMatedKingFallPose(runtime, king)" in runtime
     assert "function mat4RotateAroundPoint(axis, angleRad, pivot, baseModel)" in runtime
+    assert "function chessPieceFallContactPivot(piece, baseModel, direction, fallback)" in runtime
     assert "[2, 1], [2, -1], [-2, 1], [-2, -1]" in runtime
     assert "[1, 2], [1, -2], [-1, 2], [-1, -2]" in runtime
     assert "pivot: pivot" in runtime
@@ -382,6 +383,8 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "angle_rad: Math.PI * 0.5" in runtime
     assert "base_model: baseModel" in runtime
     assert "base_center: origin" in runtime
+    assert "var pivot = chessPieceFallContactPivot(king, baseModel, dir, origin);" in runtime
+    assert "var pivotRadius = Math.max" not in runtime
     assert "function finiteVec3(value, fallback)" in runtime
     assert "function fallRotationFromAxis(axis, angleRad, fallback)" in runtime
     assert "function startChessMatedKingFall(runtime)" in runtime
