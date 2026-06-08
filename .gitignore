@@ -14,6 +14,16 @@ dist/
 .tmp_*/
 .tmp_*.exe
 **/.vkfbuild/
+examples/programs/**/main.exe
+examples/programs/**/*.exe.WebView2/
+examples/programs/**/TransparentOverlay.dll
+examples/programs/**/transparent-overlay-host.exe
+examples/programs/**/native_scene_config.json
+examples/programs/**/native_scene_config.json.source_hash
+examples/*.exe
+examples/*.exe.WebView2/
+examples/TransparentOverlay.dll
+examples/transparent-overlay-host.exe
 docs/.vitepress-preview*.log
 vscode/*.vsix
 .coverage

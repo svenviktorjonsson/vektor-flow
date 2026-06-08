@@ -10,6 +10,9 @@
   "use strict";
 
   var RUNTIME_ASSET_VERSION = String(global.__vfRuntimeAssetVersion || "");
+  var GEOM_SCRIPT_URL = (global.document && global.document.currentScript && global.document.currentScript.src)
+    ? String(global.document.currentScript.src)
+    : "";
   var _vfGeomLastLogKey = "";
   var _vfGeomLastLogTime = 0;
   var _vfGeomSuppressedCount = 0;
@@ -72,6 +75,48 @@
     setTimeout(function () {
       throw new Error("[vf-geom-wgpu] " + text);
     }, 0);
+  }
+
+  function runtimeAssetUrl(relativePath) {
+    var rel = String(relativePath || "");
+    if (GEOM_SCRIPT_URL) {
+      return new URL(rel, GEOM_SCRIPT_URL).toString();
+    }
+    return rel;
+  }
+
+  async function createChessFontAtlas(device) {
+    if (!global.fetch || !global.createImageBitmap) {
+      failFast("chess_board texture font requires fetch and createImageBitmap");
+    }
+    var atlasUrl = runtimeAssetUrl("../assets/fonts/NotoSans-Regular-chess-sdf.png");
+    var response = await global.fetch(atlasUrl, { cache: "force-cache" });
+    if (!response.ok) {
+      failFast("chess_board font atlas failed to load: " + atlasUrl + " (" + String(response.status) + ")");
+    }
+    var bitmap = await global.createImageBitmap(await response.blob());
+    var width = bitmap.width;
+    var height = bitmap.height;
+    if (width !== 512 || height !== 128) {
+      failFast("chess_board font atlas has invalid dimensions: " + String(width) + "x" + String(height));
+    }
+    var texture = device.createTexture({
+      size: { width: width, height: height, depthOrArrayLayers: 1 },
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    device.queue.copyExternalImageToTexture(
+      { source: bitmap },
+      { texture: texture },
+      { width: width, height: height, depthOrArrayLayers: 1 }
+    );
+    return {
+      texture: texture,
+      view: texture.createView(),
+      width: width,
+      height: height,
+      cell: 64
+    };
   }
 
   function perfNowMs() {
@@ -736,6 +781,8 @@ struct Scene {
 @group(0) @binding(5) var shadowTex1: texture_depth_2d;
 @group(0) @binding(6) var shadowTex2: texture_depth_2d;
 @group(0) @binding(7) var shadowTex3: texture_depth_2d;
+@group(0) @binding(8) var fontSampler: sampler;
+@group(0) @binding(9) var fontAtlas: texture_2d<f32>;
 
 struct Vin {
   @location(0) pos   : vec3<f32>,
@@ -1603,6 +1650,159 @@ fn graphLineMask(uv: vec2<f32>, a: vec2<f32>, b: vec2<f32>, widthPx: f32, uvPerP
   return 1.0 - smoothstep(max(0.0, halfWidth - softness), halfWidth + softness, d);
 }
 
+fn chessCoordStroke(uv: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+  let d = segmentDistance(uv, a, b);
+  return 1.0 - smoothstep(0.070, 0.110, d);
+}
+
+fn chessCoordGlyphMask(code: i32, uv: vec2<f32>) -> f32 {
+  if (abs(uv.x) > 0.55 || abs(uv.y) > 0.70) {
+    return 0.0;
+  }
+  var m = 0.0;
+  if (code == 1) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.03, -0.58), vec2<f32>(0.03, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.16, 0.36), vec2<f32>(0.03, 0.54)));
+  } else if (code == 2) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, 0.50), vec2<f32>(0.30, 0.50)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.30, 0.50), vec2<f32>(0.34, 0.10)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.34, 0.10), vec2<f32>(-0.34, -0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, -0.54), vec2<f32>(0.34, -0.54)));
+  } else if (code == 3) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.32, 0.52), vec2<f32>(0.32, 0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.32, 0.52), vec2<f32>(0.22, 0.03)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.04, 0.02), vec2<f32>(0.22, 0.03)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.22, 0.03), vec2<f32>(0.34, -0.50)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.34, -0.50), vec2<f32>(-0.34, -0.50)));
+  } else if (code == 4) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.24, -0.58), vec2<f32>(0.24, 0.58)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, 0.08), vec2<f32>(0.36, 0.08)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, 0.08), vec2<f32>(0.18, 0.58)));
+  } else if (code == 5) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.34, 0.52), vec2<f32>(-0.32, 0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.32, 0.52), vec2<f32>(-0.34, 0.06)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, 0.06), vec2<f32>(0.28, 0.03)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, 0.03), vec2<f32>(0.32, -0.50)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.32, -0.50), vec2<f32>(-0.34, -0.50)));
+  } else if (code == 6) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, 0.50), vec2<f32>(-0.28, 0.20)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.20), vec2<f32>(-0.30, -0.42)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, -0.42), vec2<f32>(0.22, -0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.22, -0.54), vec2<f32>(0.34, -0.08)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.34, -0.08), vec2<f32>(-0.28, 0.02)));
+  } else if (code == 7) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, 0.52), vec2<f32>(0.34, 0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.34, 0.52), vec2<f32>(-0.10, -0.58)));
+  } else if (code == 8) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.44), vec2<f32>(0.24, 0.44)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.24, 0.44), vec2<f32>(0.28, 0.05)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, 0.05), vec2<f32>(-0.28, 0.00)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.00), vec2<f32>(-0.28, 0.44)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, -0.02), vec2<f32>(0.28, -0.05)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, -0.05), vec2<f32>(0.28, -0.48)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, -0.48), vec2<f32>(-0.28, -0.48)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, -0.48), vec2<f32>(-0.28, -0.02)));
+  } else if (code == 11) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, -0.50), vec2<f32>(-0.08, 0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.30, -0.50), vec2<f32>(0.08, 0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.18, -0.02), vec2<f32>(0.18, -0.02)));
+  } else if (code == 12) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, -0.54), vec2<f32>(-0.28, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.54), vec2<f32>(0.20, 0.42)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.20, 0.42), vec2<f32>(0.22, 0.06)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.22, 0.06), vec2<f32>(-0.28, 0.00)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.00), vec2<f32>(0.28, -0.10)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, -0.10), vec2<f32>(0.18, -0.50)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.18, -0.50), vec2<f32>(-0.28, -0.54)));
+  } else if (code == 13) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, 0.44), vec2<f32>(-0.26, 0.48)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.26, 0.48), vec2<f32>(-0.34, -0.42)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, -0.42), vec2<f32>(0.24, -0.48)));
+  } else if (code == 14) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, -0.54), vec2<f32>(-0.28, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.54), vec2<f32>(0.20, 0.40)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.20, 0.40), vec2<f32>(0.30, -0.38)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.30, -0.38), vec2<f32>(-0.28, -0.54)));
+  } else if (code == 15) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, 0.50), vec2<f32>(-0.30, 0.50)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, 0.50), vec2<f32>(-0.30, -0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, 0.00), vec2<f32>(0.20, 0.00)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, -0.52), vec2<f32>(0.30, -0.52)));
+  } else if (code == 16) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, -0.54), vec2<f32>(-0.28, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.54), vec2<f32>(0.30, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.28, 0.02), vec2<f32>(0.22, 0.02)));
+  } else if (code == 17) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.28, 0.42), vec2<f32>(-0.24, 0.50)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.24, 0.50), vec2<f32>(-0.34, -0.40)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.34, -0.40), vec2<f32>(0.16, -0.52)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.16, -0.52), vec2<f32>(0.30, -0.08)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.30, -0.08), vec2<f32>(-0.02, -0.08)));
+  } else if (code == 18) {
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, -0.54), vec2<f32>(-0.30, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(0.30, -0.54), vec2<f32>(0.30, 0.54)));
+    m = max(m, chessCoordStroke(uv, vec2<f32>(-0.30, 0.02), vec2<f32>(0.30, 0.02)));
+  }
+  return clamp(m, 0.0, 1.0);
+}
+
+fn chessCoordCodeForFile(fileIndex: i32) -> i32 {
+  return 11 + clamp(fileIndex, 0, 7);
+}
+
+fn chessCoordAtlasMask(col: i32, row: i32, uv: vec2<f32>) -> f32 {
+  if (abs(uv.x) > 0.62 || abs(uv.y) > 0.72) {
+    return 0.0;
+  }
+  let cellUv = (uv * vec2<f32>(0.5, -0.5)) + vec2<f32>(0.5, 0.5);
+  if (cellUv.x < 0.0 || cellUv.x > 1.0 || cellUv.y < 0.0 || cellUv.y > 1.0) {
+    return 0.0;
+  }
+  let atlasUv = (vec2<f32>(f32(clamp(col, 0, 7)), f32(clamp(row, 0, 1))) + cellUv) / vec2<f32>(8.0, 2.0);
+  let distanceValue = textureSampleLevel(fontAtlas, fontSampler, atlasUv, 0.0).r;
+  return smoothstep(0.47, 0.54, distanceValue);
+}
+
+fn chessCoordLabelMask(localPos: vec3<f32>) -> f32 {
+  let p = localPos.xy;
+  let innerHalf = 4.0;
+  let outerHalf = 4.30;
+  let labelHalf = 0.22;
+  if (abs(p.x) <= innerHalf && abs(p.y) > innerHalf && abs(p.y) <= outerHalf) {
+    let fileIndex = clamp(i32(floor(p.x + 4.0)), 0, 7);
+    let cx = -3.5 + f32(fileIndex);
+    let cy = select(-4.15, 4.15, p.y > 0.0);
+    var uv = vec2<f32>((p.x - cx) / labelHalf, (p.y - cy) / labelHalf);
+    if (p.y > 0.0) {
+      uv = -uv;
+    }
+    return chessCoordAtlasMask(fileIndex, 0, uv);
+  }
+  if (abs(p.y) <= innerHalf && abs(p.x) > innerHalf && abs(p.x) <= outerHalf) {
+    let rankIndex = clamp(i32(floor(p.y + 4.0)), 0, 7);
+    let cy = -3.5 + f32(rankIndex);
+    let cx = select(-4.15, 4.15, p.x > 0.0);
+    var uv = vec2<f32>((p.x - cx) / labelHalf, (p.y - cy) / labelHalf);
+    if (p.x > 0.0) {
+      uv = -uv;
+    }
+    return chessCoordAtlasMask(rankIndex, 1, uv);
+  }
+  return 0.0;
+}
+
+fn chessBoardTextureColor(localPos: vec3<f32>, darkColor: vec3<f32>, lightColor: vec3<f32>) -> vec3<f32> {
+  let p = localPos.xy;
+  let innerHalf = 4.0;
+  var color = darkColor * 0.55;
+  if (abs(p.x) <= innerHalf && abs(p.y) <= innerHalf) {
+    let boardUv = p + vec2<f32>(innerHalf, innerHalf);
+    color = mix(darkColor, lightColor, checkerValue(boardUv));
+  }
+  let label = chessCoordLabelMask(localPos);
+  return mix(color, mix(lightColor, vec3<f32>(1.0, 0.90, 0.66), 0.64), label);
+}
+
 fn diceFaceMask(faceIndex: i32, uv: vec2<f32>) -> f32 {
   let d = 0.46;
   let r = 0.16;
@@ -2240,9 +2440,18 @@ fn shadeAmbientBase(base: vec3<f32>, alpha: f32) -> vec4f {
   return vec4f((0.10 * base) * a, a);
 }
 
-fn screenSquareHighlight(surfaceUv: vec2<f32>) -> vec4<f32> {
-  let sx = clamp(i32(floor(clamp(surfaceUv.x, 0.0, 0.9999) * 8.0)), 0, 7);
-  let sy = clamp(i32(floor(clamp(surfaceUv.y, 0.0, 0.9999) * 8.0)), 0, 7);
+fn screenSquareHighlight(localPos: vec3<f32>) -> vec4<f32> {
+  let boardSpan = max(sc.texture_params.yz, vec2<f32>(1e-4, 1e-4));
+  let boardHalf = boardSpan * 0.5;
+  if (abs(localPos.x) > boardHalf.x || abs(localPos.y) > boardHalf.y) {
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  }
+  let boardUv = vec2<f32>(
+    clamp((localPos.x / boardSpan.x) + 0.5, 0.0, 0.9999),
+    clamp((localPos.y / boardSpan.y) + 0.5, 0.0, 0.9999)
+  );
+  let sx = clamp(i32(floor(boardUv.x * 8.0)), 0, 7);
+  let sy = clamp(i32(floor(boardUv.y * 8.0)), 0, 7);
   let squareIndex = u32((sy * 8) + sx);
   return sc.square_highlight[squareIndex];
 }
@@ -2287,8 +2496,17 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   if (baseTextureKind > 2.5 && baseTextureKind < 3.5) {
     baseTextureMask = diceValue(localPos);
   }
-  let fixedTextureLayer = mix(sc.texture_color_a.rgb, sc.texture_color_b.rgb, clamp(baseTextureMask, 0.0, 1.0));
-  let materialBase = mix(base, fixedTextureLayer, hasBaseTexture);
+  var fixedTextureLayer = mix(sc.texture_color_a.rgb, sc.texture_color_b.rgb, clamp(baseTextureMask, 0.0, 1.0));
+  if (baseTextureKind > 4.5 && baseTextureKind < 5.5) {
+    fixedTextureLayer = chessBoardTextureColor(localPos, sc.texture_color_a.rgb, sc.texture_color_b.rgb);
+  }
+  let highlight = screenSquareHighlight(localPos);
+  let highlightedFixedTextureLayer = mix(
+    fixedTextureLayer,
+    highlight.rgb,
+    clamp(highlight.a, 0.0, 1.0)
+  );
+  let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture);
   let litMaterial = shadeLitBase(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5);
   let baseLayer = litMaterial.rgb;
   if (maxUv > 0.995) {
@@ -2308,13 +2526,13 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let reflectivity = clamp(sc.surface_cam_forward_count.w, 0.0, 1.0);
   let backgroundMix = clamp((bgAlpha + frameAlpha) * (1.0 - hasBaseTexture), 0.0, 1.0);
   let reflectionAlpha = clamp(reflectionSample.a, 0.0, 1.0);
+  let receiverShadow = readableShadowVisibility(receivedShadowVisibility(worldPos, hostNormal));
+  let shadowedReflection = reflectionSample.rgb * receiverShadow;
   let backgroundLayer = mix(baseLayer, frameTint, backgroundMix);
-  let reflectedLayer = mix(backgroundLayer, reflectionSample.rgb, reflectionAlpha);
+  let reflectedLayer = mix(backgroundLayer, shadowedReflection, reflectionAlpha);
   let finalAlpha = mix(litMaterial.a, mix(litMaterial.a, 1.0, reflectionAlpha), reflectivity);
   let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity);
-  let highlight = screenSquareHighlight(surfaceUv);
-  let highlightedComposite = mix(mirrorComposite, highlight.rgb, clamp(highlight.a, 0.0, 1.0));
-  return vec4<f32>(highlightedComposite, finalAlpha);
+  return vec4<f32>(mirrorComposite, finalAlpha);
 }
 
 @vertex
@@ -2846,6 +3064,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
               binding: 7,
               visibility: GPUShaderStage.FRAGMENT,
               texture: { sampleType: "depth" },
+            },
+            {
+              binding: 8,
+              visibility: GPUShaderStage.FRAGMENT,
+              sampler: { type: "filtering" },
+            },
+            {
+              binding: 9,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: "float" },
             }
           ],
         });
@@ -3035,6 +3263,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           { width: 1, height: 1, depthOrArrayLayers: 1 }
         );
         var defaultSurfaceView = defaultSurfaceTex.createView();
+        var fontSampler = device.createSampler({
+          magFilter: "linear",
+          minFilter: "linear",
+          mipmapFilter: "linear",
+          addressModeU: "clamp-to-edge",
+          addressModeV: "clamp-to-edge"
+        });
+        var chessFontAtlas = await createChessFontAtlas(device);
         var shadowSampler = device.createSampler({
           compare: "less-equal",
           magFilter: "linear",
@@ -3067,7 +3303,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           device, format, bindLayout,
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
           pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
-          surfaceSampler, defaultSurfaceView, shadowSampler, defaultShadowView,
+          surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
           pipeShadow0, pipeShadow1, shadowBindLayout,
           pipePick, pickBindLayout,
           frameBlitBindLayout, pipeFrameBlit
@@ -3207,12 +3443,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (rawKind === "checker") { return 1.0; }
       if (rawKind === "stripes") { return 2.0; }
       if (rawKind === "dice") { return 3.0; }
+      if (rawKind === "chess_board") { return 5.0; }
       return 0.0;
     }
     if (surfaceSystem) {
       var surfaceKind = String(surfaceSystem.kind || "").toLowerCase().trim();
-      var runtimeTextureReady = surfaceSystem._runtime_texture_ready !== false;
-      if (surfaceKind === "screen" && runtimeTextureReady && screenHostIsQuadLike) {
+      if (surfaceKind === "screen" && screenHostIsQuadLike) {
         fixedSurfaceTextureKind = texture ? proceduralTextureKindCode(texture) : 0.0;
         textureKind = 4.0;
       }
@@ -3222,7 +3458,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     surfaceTextureReady = textureKind > 3.5 && meshLike && meshLike._surfaceTextureReady === true;
     if (textureKind > 3.5 && !surfaceTextureReady) {
       if (surfaceSystem && String(surfaceSystem.kind || "").toLowerCase().trim() === "screen" && screenHostIsQuadLike) {
-        textureKind = fixedSurfaceTextureKind > 0.0 ? fixedSurfaceTextureKind : 0.0;
+        surfaceTextureReady = false;
       } else {
         failFast("surface_system requires a ready offscreen surface texture");
       }
@@ -3356,7 +3592,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         f32[colorBase + 2] = triColor[2];
         f32[colorBase + 3] = triColor[3];
       }
-    } else if (textureKind > 3.5 && surfaceTextureReady) {
+    } else if (textureKind > 3.5) {
       var surfaceBounds = surfaceLocalBounds(meshLike);
       f32[344] = surfaceBounds.minX;
       f32[345] = surfaceBounds.minY;
@@ -3365,7 +3601,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[348] = Number(surfaceBounds.uAxis && surfaceBounds.uAxis[0] || 0.0);
       f32[349] = Number(surfaceBounds.uAxis && surfaceBounds.uAxis[1] || 0.0);
       f32[350] = Number(surfaceBounds.uAxis && surfaceBounds.uAxis[2] || 0.0);
-      f32[351] = surfaceSystem ? Math.max(0.0, Math.min(1.0, Number(surfaceSystem.reflectivity == null ? 1.0 : surfaceSystem.reflectivity) || 0.0)) : 1.0;
+      f32[351] = surfaceTextureReady && surfaceSystem
+        ? Math.max(0.0, Math.min(1.0, Number(surfaceSystem.reflectivity == null ? 1.0 : surfaceSystem.reflectivity) || 0.0))
+        : 0.0;
       f32[352] = Number(surfaceBounds.vAxis && surfaceBounds.vAxis[0] || 0.0);
       f32[353] = Number(surfaceBounds.vAxis && surfaceBounds.vAxis[1] || 0.0);
       f32[354] = Number(surfaceBounds.vAxis && surfaceBounds.vAxis[2] || 0.0);
@@ -5919,7 +6157,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           { binding: 4, resource: shadowView0 },
           { binding: 5, resource: shadowView1 },
           { binding: 6, resource: shadowView2 },
-          { binding: 7, resource: shadowView3 }
+          { binding: 7, resource: shadowView3 },
+          { binding: 8, resource: sharedWgpu.fontSampler },
+          { binding: 9, resource: sharedWgpu.chessFontAtlas.view }
         ]
       });
       part._boundSurfaceView = surfaceView;
@@ -7836,7 +8076,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           { binding: 4, resource: sg.defaultShadowView },
           { binding: 5, resource: sg.defaultShadowView },
           { binding: 6, resource: sg.defaultShadowView },
-          { binding: 7, resource: sg.defaultShadowView }
+          { binding: 7, resource: sg.defaultShadowView },
+          { binding: 8, resource: sg.fontSampler },
+          { binding: 9, resource: sg.chessFontAtlas.view }
         ],
       });
       this._ensureDepth();

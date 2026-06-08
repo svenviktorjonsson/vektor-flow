@@ -77,9 +77,13 @@
     return [0, 0, 0];
   }
 
+  function preserveTargetOffsetOnRotate(cfg) {
+    return String(cfg && cfg.mode || "crosshair").toLowerCase() !== "box";
+  }
+
   function screenBasis(camera, center) {
     var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
-    var target = Array.isArray(center) ? center.slice() : vec3Array(camera && camera.target, [0, 0, 0]);
+    var target = vec3Array(camera && camera.target, Array.isArray(center) ? center : [0, 0, 0]);
     var upHint = normalizeVec3Local(camera && camera.up || [0, 0, 1], [0, 0, 1]);
     var forward = normalizeVec3Local([target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]], [0, 0, -1]);
     var right = normalizeVec3Local(crossVec3(forward, upHint), [1, 0, 0]);
@@ -87,15 +91,23 @@
     return { right: right, up: up, forward: forward };
   }
 
-  function applyWorldRotation(camera, center, worldAxis, angleRad) {
+  function applyWorldRotation(camera, center, worldAxis, angleRad, options) {
+    options = options && typeof options === "object" ? options : {};
     var axis = normalizeVec3Local(worldAxis, [0, 0, 1]);
     var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
-    var target = Array.isArray(center) ? center.slice() : [0, 0, 0];
-    var offset = [pos[0] - target[0], pos[1] - target[1], pos[2] - target[2]];
+    var pivot = Array.isArray(center) ? center.slice() : [0, 0, 0];
+    var target = vec3Array(camera && camera.target, pivot);
+    var offset = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
     var nextOffset = rotateVec3AroundAxis(offset, axis, angleRad);
     var nextUp = rotateVec3AroundAxis(vec3Array(camera && camera.up, [0, 0, 1]), axis, angleRad);
-    camera.pos = [target[0] + nextOffset[0], target[1] + nextOffset[1], target[2] + nextOffset[2]];
-    camera.target = target;
+    camera.pos = [pivot[0] + nextOffset[0], pivot[1] + nextOffset[1], pivot[2] + nextOffset[2]];
+    if (options.preserveTargetOffset === true) {
+      var targetOffset = [target[0] - pivot[0], target[1] - pivot[1], target[2] - pivot[2]];
+      var nextTargetOffset = rotateVec3AroundAxis(targetOffset, axis, angleRad);
+      camera.target = [pivot[0] + nextTargetOffset[0], pivot[1] + nextTargetOffset[1], pivot[2] + nextTargetOffset[2]];
+    } else {
+      camera.target = pivot;
+    }
     camera.up = normalizeVec3Local(nextUp, [0, 0, 1]);
     return camera;
   }
@@ -110,6 +122,7 @@
 
   function alignAxisToViewSnap(camera, cfg, axisIndex, sign) {
     var center = rotationCenter(cfg || {});
+    var preserveTargetOffset = preserveTargetOffsetOnRotate(cfg || {});
     var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
     var tgt = vec3Array(camera && camera.target, center);
     var forward = normalizeVec3Local([tgt[0] - pos[0], tgt[1] - pos[1], tgt[2] - pos[2]], [0, 0, -1]);
@@ -123,12 +136,18 @@
     var axis = crossVec3(forward, desired);
     var axisLen = Math.sqrt(dot3(axis, axis));
     if (!(axisLen > 1e-9)) {
-      var basis = screenBasis(camera, center);
+      var basis = screenBasis(camera, preserveTargetOffset ? null : center);
       axis = crossVec3(forward, basis.right);
       axisLen = Math.sqrt(dot3(axis, axis));
       if (!(axisLen > 1e-9)) { return false; }
     }
-    applyWorldRotation(camera, center, [axis[0] / axisLen, axis[1] / axisLen, axis[2] / axisLen], angle);
+    applyWorldRotation(
+      camera,
+      center,
+      [axis[0] / axisLen, axis[1] / axisLen, axis[2] / axisLen],
+      angle,
+      { preserveTargetOffset: preserveTargetOffset }
+    );
     return true;
   }
 
@@ -203,6 +222,7 @@
     rotationCenter: rotationCenter,
     screenBasis: screenBasis,
     applyWorldRotation: applyWorldRotation,
+    preserveTargetOffsetOnRotate: preserveTargetOffsetOnRotate,
     cloneCamera: cloneCamera,
     alignAxisToViewSnap: alignAxisToViewSnap,
     dragWorldDelta: dragWorldDelta,

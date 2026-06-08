@@ -66,14 +66,15 @@ reduce_click(state:GameState, target:ClickTarget, path_clear:bool, king_safe_aft
     """Apply select, move, capture, and reject behavior for a board click."""
     target.kind = "piece"?
         state.has_selection?
-            target.piece_side = state.selected_side? 
-                selected: (side:target.piece_side, role:target.piece_role, file:target.file, rank:target.rank, captured:false, tray_rank:0)
-                @: (ok:false, state:state_lib.select_piece(state, selected), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:target.file, to_rank:target.rank, notation:"", capture:false))
-            @: state_lib.try_move_selected(state, target.file, target.rank, target.piece_side, path_clear, king_safe_after)
-        selected_piece: (side:target.piece_side, role:target.piece_role, file:target.file, rank:target.rank, captured:false, tray_rank:0)
-        @: (ok:false, state:state_lib.select_piece(state, selected_piece), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:target.file, to_rank:target.rank, notation:"", capture:false))
-    target.kind = "square"? @: state_lib.try_move_selected(state, target.file, target.rank, "", path_clear, king_safe_after)
-    @: (ok:false, state:state_lib.clear_selection(state, "empty-click"), intent:(side:"", role:"", from_file:0, from_rank:0, to_file:0, to_rank:0, notation:"", capture:false))
+            target_piece: state_lib.piece_at(state.board, target.file, target.rank)
+            target_piece.side = state.selected_side? 
+                selected: target_piece
+                @: (ok:false, state:state_lib.select_piece(state, selected), intent:state_lib.empty_intent(target.file, target.rank))
+            @: state_lib.try_move_selected_from_board(state, target.file, target.rank, king_safe_after, false, "none")
+        selected_piece: state_lib.piece_at(state.board, target.file, target.rank)
+        @: (ok:false, state:state_lib.select_piece(state, selected_piece), intent:state_lib.empty_intent(target.file, target.rank))
+    target.kind = "square"? @: state_lib.try_move_selected_from_board(state, target.file, target.rank, king_safe_after, false, "none")
+    @: (ok:false, state:state_lib.clear_selection(state, "empty-click"), intent:state_lib.empty_intent(0, 0))
 
 reduce_button(state:GameState, camera:CameraOrbit, widget_id:str) -> GameState:
     """Reduce side-panel button actions that affect game state."""

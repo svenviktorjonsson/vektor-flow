@@ -421,9 +421,6 @@
     if (Array.isArray(source.projection_matrix) && source.projection_matrix.length === 16) {
       cloned.projection_matrix = source.projection_matrix.slice();
     }
-    if (source && source._skip_render === true) {
-      cloned._skip_render = true;
-    }
     if (source && source._mirrorDebug && typeof source._mirrorDebug === "object") {
       cloned._mirrorDebug = cloneJsonValue(source._mirrorDebug);
     }
@@ -645,6 +642,7 @@
     if (raw === "checker") { return 1; }
     if (raw === "stripes") { return 2; }
     if (raw === "dice") { return 3; }
+    if (raw === "chess_board") { return 5; }
     return 0;
   }
 
@@ -696,6 +694,26 @@
           color_a: proxyColor,
           color_b: proxyColor,
           face_color: proxyColor
+        });
+        continue;
+      }
+      if (mesh.kind === "field_mesh") {
+        var fieldVertices = meshVerticesForOccluder(mesh);
+        if (!Array.isArray(fieldVertices) || !fieldVertices.length) { continue; }
+        var fieldBounds = computeBounds(fieldVertices);
+        var fieldCenter = meshCenterFromBounds(fieldBounds);
+        var fieldSpanX = Math.max(0.0, Number(fieldBounds.max[0]) - Number(fieldBounds.min[0]));
+        var fieldSpanY = Math.max(0.0, Number(fieldBounds.max[1]) - Number(fieldBounds.min[1]));
+        var fieldSpanZ = Math.max(0.0, Number(fieldBounds.max[2]) - Number(fieldBounds.min[2]));
+        var fieldProxySize = Math.max(0.1, fieldSpanX, fieldSpanY, fieldSpanZ);
+        var fieldProxyColor = toRgba(mesh.face_color || mesh.color, [0.86, 0.88, 0.94, 1.0]);
+        objects.push({
+          center: fieldCenter,
+          size: fieldProxySize,
+          texture_kind: 0,
+          color_a: fieldProxyColor,
+          color_b: fieldProxyColor,
+          face_color: fieldProxyColor
         });
       }
     }
@@ -1421,6 +1439,17 @@
     return [];
   }
 
+  function numericArrayLike(value) {
+    return Array.isArray(value) || value instanceof Float32Array || value instanceof Uint32Array;
+  }
+
+  function numericArrayLikeCopy(value) {
+    if (value instanceof Float32Array) { return new Float32Array(value); }
+    if (value instanceof Uint32Array) { return new Uint32Array(value); }
+    if (Array.isArray(value)) { return value.slice(); }
+    return [];
+  }
+
   function fieldMeshVerticesWithMaterialColor(vertices, color, enabled) {
     if (!enabled || !vertices || vertices.length < 10 || (vertices.length % 10) !== 0) {
       return vertices;
@@ -2136,7 +2165,7 @@
   function meshVerticesForOccluder(mesh) {
     if (!mesh) { return []; }
     if (mesh.kind === "field_mesh") {
-      var rawVerts = Array.isArray(mesh.vertices) ? mesh.vertices : [];
+      var rawVerts = numericArrayLike(mesh.vertices) ? mesh.vertices : [];
       var localPositions = [];
       if (rawVerts.length && Array.isArray(rawVerts[0])) {
         for (var fv = 0; fv < rawVerts.length; fv += 1) {
@@ -2637,6 +2666,7 @@
         rotation: resolveTrackedVec3(spec, "rotation", framePos, toVec3(entityProp(spec, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
         color: fieldColor,
         visible: entityProp(spec, "visible", true) !== false,
+        pickable: entityProp(spec, "pickable", true) !== false,
         transparent: entityProp(spec, "transparent", false) === true,
         time_boundary: String(entityProp(spec, "time_boundary", "clamp")),
         time_count: Math.max(1, Number(entityProp(spec, "time_count", 1) || 1) | 0),
@@ -2644,6 +2674,8 @@
         manifold_dim_count: Math.max(0, Number(entityProp(spec, "manifold_dim_count", 0) || 0) | 0),
         solid_volume: entityProp(spec, "solid_volume", false) === true,
         repair_winding: entityProp(spec, "repair_winding", true) !== false,
+        static_vertices: entityProp(spec, "static_vertices", false) === true,
+        static_indices: entityProp(spec, "static_indices", false) === true,
         vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.0) || 0.0)),
         edge_width: Math.max(0.0, Number(entityProp(spec, "edge_width", 0.0) || 0.0)),
         vertex_widths: Array.isArray(entityProp(spec, "vertex_widths", [])) ? entityProp(spec, "vertex_widths", []).slice() : [],
@@ -2853,8 +2885,8 @@
           id: String(mesh.id || "field_mesh"),
           object_id: Number(mesh.object_id || 0) || undefined,
           topology: topology,
-          vertices: Array.isArray(mesh.vertices) ? mesh.vertices.slice() : [],
-          indices: Array.isArray(mesh.indices) ? mesh.indices.slice() : [],
+          vertices: numericArrayLikeCopy(mesh.vertices),
+          indices: numericArrayLikeCopy(mesh.indices),
           color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
           alpha: Math.max(0.0, Math.min(1.0, Number(mesh.alpha == null ? 1.0 : mesh.alpha))),
           center: toVec3(mesh.center, [0.0, 0.0, 0.0]),
@@ -2936,8 +2968,8 @@
         object_id: Number(mesh.object_id || 0) || undefined,
         kind: String(mesh.kind || "field_mesh"),
         topology: topology,
-        vertices: Array.isArray(mesh.vertices) ? mesh.vertices : [],
-        indices: Array.isArray(mesh.indices) ? mesh.indices : [],
+        vertices: numericArrayLike(mesh.vertices) ? mesh.vertices : [],
+        indices: numericArrayLike(mesh.indices) ? mesh.indices : [],
         static_vertices: true,
         static_indices: true,
         color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
@@ -3476,27 +3508,18 @@
     var lightSpecs = Array.isArray(config.lights)
       ? config.lights
       : (config.light ? [config.light] : []);
-    var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes : [];
+    var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes.slice() : [];
     var chessCfg = chessInteractionConfig();
     var chessRuntime = global.__vfNativeChessRuntime || null;
-    var hasDeclaredHitRegions = declaredSceneHitRegions().length > 0;
     if (chessCfg) {
-      rawMeshSpecs = rawMeshSpecs.filter(function (mesh) {
+      assertChessHitRegionContract(chessCfg);
+      rawMeshSpecs = rawMeshSpecs.map(function (mesh) {
         if (isChessSquareSourceMesh(mesh, chessCfg)) {
           suppressChessSquareVisualMesh(mesh);
-          return false;
+          return attachChessSquareVisualState(mesh, chessRuntime);
         }
-        return true;
-      }).map(function (mesh) {
         return attachChessBoardHighlights(mesh, chessRuntime);
       });
-      if (!hasDeclaredHitRegions) {
-        var squareRegionMesh = buildChessSquareRegionMesh(chessCfg, chessRuntime);
-        if (squareRegionMesh) {
-          rawMeshSpecs = rawMeshSpecs.slice();
-          rawMeshSpecs.splice(Math.min(1, rawMeshSpecs.length), 0, squareRegionMesh);
-        }
-      }
     }
     rawMeshSpecs = syncChessRuntimePiecesIntoMeshes(rawMeshSpecs);
     if (frameSpec.visible === false) {
@@ -3583,6 +3606,26 @@
       failFast("scene resolved zero visible meshes");
     }
     var sceneBackground = resolveSceneBackgroundFallback();
+    var hitRegions = declaredSceneHitRegions();
+    if (chessInteractionConfig() && !hitRegions.length) {
+      failFast("chess interaction requires declared hit_regions in geom payload");
+    }
+    var chessRuntime = global.__vfNativeChessRuntime || null;
+    var promotionActive = !!(
+      chessRuntime &&
+      (chessRuntime.promotion || (Array.isArray(chessRuntime.promotionOptions) && chessRuntime.promotionOptions.length > 0))
+    );
+    if (!global.__vfGeomPickContext) { global.__vfGeomPickContext = Object.create(null); }
+    global.__vfGeomPickContext[String(frameSpec.frame_id || config.frame_id)] = {
+      promotion_active: promotionActive
+    };
+    if (promotionActive) {
+      for (var hitRegionIndex = 0; hitRegionIndex < hitRegions.length; hitRegionIndex += 1) {
+        if (hitRegions[hitRegionIndex] && typeof hitRegions[hitRegionIndex] === "object") {
+          hitRegions[hitRegionIndex].pick_passthrough_when = "promotion_active";
+        }
+      }
+    }
     var geom = {};
     geom[String(frameSpec.frame_id || config.frame_id)] = {
       meshes: state.meshes,
@@ -3595,7 +3638,10 @@
         lights: state.lights,
         occluders: state.flare_occluders
       },
-      hit_regions: declaredSceneHitRegions(),
+      hit_regions: hitRegions,
+      pick_context: {
+        promotion_active: promotionActive
+      },
       unified_renderer: true
     };
     return { payload: { screen: [], frames: {}, geom: geom }, state: state };
@@ -3637,26 +3683,41 @@
     ) {
       return false;
     }
-    return global.VfDisplay.updateDynamicGeomFrameSurfaceSystem(
+    var updated = global.VfDisplay.updateDynamicGeomFrameSurfaceSystem(
       runtime.frameId,
       "board_reflection_overlay",
       { square_highlights: chessSquareHighlightColors(runtime) }
     ) === true;
+    if (!updated && runtime.selected && runtime.hoverSquare) {
+      failFast("chess square hover highlight patch failed for board_reflection_overlay");
+    }
+    return updated;
   }
 
   function syncChessRuntimePiecesIntoMeshes(rawMeshSpecs) {
     var runtime = global.__vfNativeChessRuntime || null;
     if (!runtime || !runtime.piecesByObjectId || !Array.isArray(rawMeshSpecs)) { return rawMeshSpecs; }
+    var seenObjectIds = Object.create(null);
     for (var i = 0; i < rawMeshSpecs.length; i += 1) {
       var mesh = rawMeshSpecs[i];
       var objectId = Number(entityProp(mesh, "object_id", 0) || 0) || 0;
+      if (objectId) { seenObjectIds[String(objectId)] = true; }
       var piece = runtime.piecesByObjectId[String(objectId)] || null;
       if (!piece || !piece.mesh) { continue; }
-      setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
-      setEntityProp(mesh, "visible", piece.captured !== true && entityProp(piece.mesh, "visible", true) !== false);
+        setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
+      setEntityProp(mesh, "visible", (piece.captured !== true || piece.in_capture_tray === true) && entityProp(piece.mesh, "visible", true) !== false);
       setEntityProp(mesh, "color", cloneEntityStateValue(entityProp(piece.mesh, "color", pieceBaseColor(piece))));
       setEntityProp(mesh, "specular_strength", Number(entityProp(piece.mesh, "specular_strength", runtime.cfg.piece_specular_strength || 0.055)) || 0.055);
       setEntityProp(mesh, "receives_shadow", entityProp(piece.mesh, "receives_shadow", true) !== false);
+    }
+    var options = Array.isArray(runtime.promotionOptions) ? runtime.promotionOptions : [];
+    for (var optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
+      var option = options[optionIndex];
+      if (!option || !option.mesh) { continue; }
+      var optionObjectId = Number(option.object_id || entityProp(option.mesh, "object_id", 0) || 0) || 0;
+      if (optionObjectId && seenObjectIds[String(optionObjectId)] === true) { continue; }
+      rawMeshSpecs.push(option.mesh);
+      if (optionObjectId) { seenObjectIds[String(optionObjectId)] = true; }
     }
     return rawMeshSpecs;
   }
@@ -3664,6 +3725,163 @@
   function currentChessSceneDirtyVersion() {
     var runtime = global.__vfNativeChessRuntime || null;
     return runtime ? (Number(runtime.sceneDirtyVersion || 0) || 0) : 0;
+  }
+
+  function currentSceneWorldDirtyVersion() {
+    return currentChessSceneDirtyVersion();
+  }
+
+  function chessAnimationsPending() {
+    var runtime = global.__vfNativeChessRuntime || null;
+    return !!(runtime && Array.isArray(runtime.animations) && runtime.animations.length > 0);
+  }
+
+  function sceneWorldAnimationsPending() {
+    return chessAnimationsPending();
+  }
+
+  function applySceneWorldFrame(seconds) {
+    return applyChessInteractionFrame(seconds);
+  }
+
+  function chessMeshStructureSignature() {
+    var runtime = global.__vfNativeChessRuntime || null;
+    var promotionIds = runtime && Array.isArray(runtime.promotionOptions)
+      ? runtime.promotionOptions.map(function (option) { return Number(option && option.object_id || 0) || 0; }).sort(function (a, b) { return a - b; }).join(",")
+      : "";
+    return String(Array.isArray(config.meshes) ? config.meshes.length : 0) + "|" + promotionIds;
+  }
+
+  function sceneWorldMeshStructureSignature() {
+    return chessMeshStructureSignature();
+  }
+
+  function truncateChessFuture(runtime) {
+    if (!runtime) { return; }
+    var currentIndex = Math.max(0, Number(runtime.currentMoveIndex || 0) || 0);
+    if (Array.isArray(runtime.moves) && currentIndex < runtime.moves.length) {
+      runtime.moves = runtime.moves.slice(0, currentIndex);
+    }
+    if (Array.isArray(runtime.historySnapshots) && currentIndex + 1 < runtime.historySnapshots.length) {
+      runtime.historySnapshots = runtime.historySnapshots.slice(0, currentIndex + 1);
+    }
+  }
+
+  function chessSnapshot(runtime) {
+    var pieces = [];
+    var ids = runtime && runtime.piecesByObjectId ? Object.keys(runtime.piecesByObjectId) : [];
+    ids.sort(function (a, b) { return (Number(a) || 0) - (Number(b) || 0); });
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece) { continue; }
+      pieces.push({
+        object_id: piece.object_id,
+        side: piece.side,
+        role: piece.role,
+        file: piece.file,
+        rank: piece.rank,
+        captured: piece.captured === true,
+        captured_by: String(piece.captured_by || ""),
+        in_capture_tray: piece.in_capture_tray === true,
+        capture_order: Number(piece.capture_order || 0) || 0,
+        capture_tray_index: Number(piece.capture_tray_index || -1),
+        has_moved: piece.has_moved === true
+      });
+    }
+    return {
+      turn: String(runtime && runtime.turn || "white"),
+      pieces: pieces
+    };
+  }
+
+  function restoreChessSnapshot(runtime, snapshot, moveIndex) {
+    if (!runtime || !snapshot || !Array.isArray(snapshot.pieces)) { return false; }
+    runtime.animations = [];
+    runtime.selected = null;
+    runtime.hoverSquare = null;
+    runtime.hoverPiece = null;
+    runtime.hoverPromotion = null;
+    runtime.promotion = null;
+    runtime.gameOver = null;
+    runtime.animations = [];
+    clearChessPromotionOptions(runtime);
+    var maxCaptureOrder = 0;
+    for (var i = 0; i < snapshot.pieces.length; i += 1) {
+      var saved = snapshot.pieces[i];
+      var piece = runtime.piecesByObjectId[String(saved.object_id)] || null;
+      if (!piece) { continue; }
+      if (piece.start_mesh && piece.mesh !== piece.start_mesh) {
+        removeMeshFromScene(piece.mesh);
+        if (Array.isArray(config.meshes) && config.meshes.indexOf(piece.start_mesh) < 0) {
+          config.meshes.push(piece.start_mesh);
+        }
+        piece.mesh = piece.start_mesh;
+      }
+      runtime.meshByObjectId[String(piece.object_id)] = piece.mesh;
+      piece.role = String(saved.role || piece.start_role || "pawn");
+      replaceChessPieceRoleMesh(runtime, piece, piece.role);
+      piece.file = Number(saved.file || 0) || 0;
+      piece.rank = Number(saved.rank || 0) || 0;
+      piece.captured = saved.captured === true;
+      piece.captured_by = String(saved.captured_by || "");
+      piece.in_capture_tray = saved.in_capture_tray === true;
+      piece.capture_order = Number(saved.capture_order || 0) || 0;
+      maxCaptureOrder = Math.max(maxCaptureOrder, Number(piece.capture_order || 0) || 0);
+      piece.capture_tray_index = Number(saved.capture_tray_index || -1);
+      piece.capture_tray_center = null;
+      piece.has_moved = saved.has_moved === true;
+      piece._animating = false;
+      setEntityProp(piece.mesh, "center", piece.in_capture_tray
+        ? chessCapturedTrayCenter(runtime, piece, Math.max(0, Number(piece.capture_tray_index || 0) || 0))
+        : pieceBoardCenter(piece, 0.0));
+      setEntityProp(piece.mesh, "visible", piece.captured !== true || piece.in_capture_tray === true);
+      setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
+      setEntityProp(piece.mesh, "specular_strength", Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
+      setEntityProp(piece.mesh, "receives_shadow", true);
+    }
+    runtime.nextCaptureOrder = maxCaptureOrder;
+    var capturers = ["white", "black"];
+    for (var sideIndex = 0; sideIndex < capturers.length; sideIndex += 1) {
+      var capturedForSide = assignChessCapturedTraySlots(runtime, capturers[sideIndex]);
+      for (var capturedIndex = 0; capturedIndex < capturedForSide.length; capturedIndex += 1) {
+        var trayPiece = capturedForSide[capturedIndex];
+        if (trayPiece && trayPiece.mesh) {
+          setEntityProp(trayPiece.mesh, "center", chessCapturedTrayCenter(runtime, trayPiece, capturedIndex));
+          setEntityProp(trayPiece.mesh, "visible", true);
+        }
+      }
+    }
+    runtime.turn = String(snapshot.turn || "white");
+    runtime.currentMoveIndex = Math.max(0, Number(moveIndex || 0) || 0);
+    rebuildChessOccupancy(runtime);
+    resetChessHighlights(runtime);
+    refreshChessPieceSelectionPose(runtime);
+    updateChessPanel(runtime);
+    markChessSceneDirty(runtime);
+    requestChessInteractionFrame(runtime);
+    return true;
+  }
+
+  function recordChessHistorySnapshot(runtime) {
+    if (!runtime) { return; }
+    var index = Math.max(0, Number(runtime.currentMoveIndex || 0) || 0);
+    runtime.historySnapshots = Array.isArray(runtime.historySnapshots) ? runtime.historySnapshots : [];
+    runtime.historySnapshots[index] = chessSnapshot(runtime);
+    runtime.historySnapshots = runtime.historySnapshots.slice(0, index + 1);
+  }
+
+  function restoreChessHistory(runtime, moveIndex) {
+    if (!runtime || runtime.promotion) { return false; }
+    var index = Math.max(0, Number(moveIndex || 0) || 0);
+    if (!Array.isArray(runtime.historySnapshots) || !runtime.historySnapshots[index]) { return false; }
+    return restoreChessSnapshot(runtime, runtime.historySnapshots[index], index);
+  }
+
+  function commitChessMove(runtime, notation) {
+    truncateChessFuture(runtime);
+    runtime.moves.push(String(notation || ""));
+    runtime.currentMoveIndex = runtime.moves.length;
+    runtime.pendingAutoSwitchAfterAnimations = runtime.autoSwitchView === true;
   }
 
   function runtimeMeshByObjectId(runtime, objectId) {
@@ -3680,6 +3898,173 @@
 
   function chessBoardY(rank) {
     return (Number(rank) - 4.5);
+  }
+
+  function chessPieceValue(piece) {
+    var role = String(piece && piece.role || "pawn");
+    if (role === "queen") { return 9; }
+    if (role === "rook") { return 5; }
+    if (role === "bishop" || role === "knight") { return 3; }
+    if (role === "king") { return 99; }
+    return 1;
+  }
+
+  function chessCapturedTrayCenter(runtime, piece, index) {
+    var capturerSide = String(piece && piece.captured_by || "");
+    var baseZ = Number(piece && piece.base_z != null ? piece.base_z : runtime && runtime.cfg && runtime.cfg.piece_base_z != null ? runtime.cfg.piece_base_z : 0.065) || 0.065;
+    if (piece && Array.isArray(piece.capture_tray_center) && piece.capture_tray_center.length >= 3) {
+      return [Number(piece.capture_tray_center[0] || 0.0), Number(piece.capture_tray_center[1] || 0.0), baseZ];
+    }
+    var safeIndex = Math.max(0, Number(index || 0) || 0);
+    var sideY = capturerSide === "black" ? 4.82 : -4.82;
+    var rowDir = capturerSide === "black" ? 1.0 : -1.0;
+    return [-3.7 + (safeIndex * 0.62), sideY + (Math.floor(safeIndex / 12) * rowDir * 0.74), baseZ];
+  }
+
+  function chessPieceFootprintRadius(piece) {
+    var mesh = piece && piece.mesh ? piece.mesh : null;
+    var verts = mesh ? entityProp(mesh, "vertices", []) : [];
+    if (!numericArrayLike(verts) || verts.length < 10) { return 0.31; }
+    var minX = Infinity;
+    var maxX = -Infinity;
+    var minY = Infinity;
+    var maxY = -Infinity;
+    for (var i = 0; i + 1 < verts.length; i += 10) {
+      var x = Number(verts[i] || 0.0);
+      var y = Number(verts[i + 1] || 0.0);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
+      return 0.31;
+    }
+    return Math.max(0.20, Math.min(0.42, Math.max((maxX - minX) * 0.5, (maxY - minY) * 0.5)));
+  }
+
+  function assignChessCapturedTraySlots(runtime, capturerSide) {
+    var pieces = chessCapturedPiecesForSide(runtime, capturerSide);
+    var sideY = String(capturerSide || "") === "black" ? 4.82 : -4.82;
+    var rowDir = String(capturerSide || "") === "black" ? 1.0 : -1.0;
+    var leftEdge = -3.95;
+    var rightEdge = 3.95;
+    var gap = 0.10;
+    var row = 0;
+    var x = leftEdge;
+    for (var i = 0; i < pieces.length; i += 1) {
+      var piece = pieces[i];
+      if (!piece) { continue; }
+      var radius = chessPieceFootprintRadius(piece);
+      if (i > 0 && x + (radius * 2.0) > rightEdge) {
+        row += 1;
+        x = leftEdge;
+      }
+      var centerX = x + radius;
+      piece.capture_tray_index = i;
+      piece.capture_tray_center = [centerX, sideY + (row * rowDir * 0.74), Number(piece.base_z || 0.065) || 0.065];
+      x = centerX + radius + gap;
+    }
+    return pieces;
+  }
+
+  function chessSortCapturedPieces(a, b) {
+    var valueDelta = chessPieceValue(a) - chessPieceValue(b);
+    if (valueDelta !== 0) { return valueDelta; }
+    var roleDelta = String(a && a.role || "").localeCompare(String(b && b.role || ""));
+    if (roleDelta !== 0) { return roleDelta; }
+    var orderDelta = (Number(a && a.capture_order || 0) || 0) - (Number(b && b.capture_order || 0) || 0);
+    if (orderDelta !== 0) { return orderDelta; }
+    return Number(a && a.object_id || 0) - Number(b && b.object_id || 0);
+  }
+
+  function chessCapturedPiecesForSide(runtime, capturerSide) {
+    var out = [];
+    var ids = runtime && runtime.piecesByObjectId ? Object.keys(runtime.piecesByObjectId) : [];
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (piece && piece.captured === true && String(piece.captured_by || "") === capturerSide) {
+        out.push(piece);
+      }
+    }
+    out.sort(chessSortCapturedPieces);
+    return out;
+  }
+
+  function chessPathLength(path) {
+    if (!Array.isArray(path) || path.length < 2) { return 0.0; }
+    var total = 0.0;
+    for (var i = 1; i < path.length; i += 1) {
+      var a = toVec3(path[i - 1], [0.0, 0.0, 0.0]);
+      var b = toVec3(path[i], [0.0, 0.0, 0.0]);
+      var dx = Number(b[0] || 0.0) - Number(a[0] || 0.0);
+      var dy = Number(b[1] || 0.0) - Number(a[1] || 0.0);
+      var dz = Number(b[2] || 0.0) - Number(a[2] || 0.0);
+      total += Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
+    return total;
+  }
+
+  function chessMotionDurationMs(runtime, path) {
+    var cfg = runtime && runtime.cfg ? runtime.cfg : {};
+    var minDurationMs = Math.max(16.0, Number(cfg.piece_motion_min_duration_ms || 80.0) || 80.0);
+    var unitsPerSecond = Math.max(0.1, Number(cfg.piece_motion_units_per_second || 4.8) || 4.8);
+    var pathLength = Math.max(0.0, chessPathLength(path));
+    return Math.max(minDurationMs, (pathLength / unitsPerSecond) * 1000.0);
+  }
+
+  function queueChessAnimation(runtime, piece, path, capturedPiece) {
+    if (!runtime || !piece || !piece.mesh || !Array.isArray(path) || path.length < 2) { return; }
+    var normalizedPath = path.map(function (point) { return toVec3(point, [0.0, 0.0, 0.0]); });
+    runtime.animations = Array.isArray(runtime.animations)
+      ? runtime.animations.filter(function (anim) { return !anim || anim.piece !== piece; })
+      : [];
+    piece._animating = true;
+    runtime.animations.push({
+      piece: piece,
+      captured: capturedPiece || null,
+      path: normalizedPath,
+      path_length: chessPathLength(normalizedPath),
+      duration_ms: chessMotionDurationMs(runtime, normalizedPath),
+      from: toVec3(normalizedPath[0], [0.0, 0.0, 0.0]),
+      to: toVec3(normalizedPath[normalizedPath.length - 1], [0.0, 0.0, 0.0]),
+      start: global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now(),
+      elapsed_ms: 0.0,
+      last_tick_ms: 0.0,
+      progress: 0.0,
+    });
+  }
+
+  function queueCapturedPieceAnimation(runtime, capturedPiece, capturerSide) {
+    if (!runtime || !capturedPiece || !capturedPiece.mesh) { return; }
+    var before = chessCapturedPiecesForSide(runtime, capturerSide);
+    capturedPiece.captured = true;
+    capturedPiece.captured_by = capturerSide;
+    capturedPiece.in_capture_tray = true;
+    runtime.nextCaptureOrder = Number(runtime.nextCaptureOrder || 0) || 0;
+    runtime.nextCaptureOrder += 1;
+    capturedPiece.capture_order = runtime.nextCaptureOrder;
+    setEntityProp(capturedPiece.mesh, "visible", true);
+    var capturedForSide = assignChessCapturedTraySlots(runtime, capturerSide);
+    var targetIndex = Math.max(0, capturedForSide.indexOf(capturedPiece));
+    for (var i = 0; i < capturedForSide.length; i += 1) {
+      var trayPiece = capturedForSide[i];
+      if (!trayPiece || trayPiece === capturedPiece || !trayPiece.mesh) { continue; }
+      var oldIndex = before.indexOf(trayPiece);
+      if (oldIndex >= 0 && i <= oldIndex) { continue; }
+      var currentCenter = toVec3(entityProp(trayPiece.mesh, "center", chessCapturedTrayCenter(runtime, trayPiece, Math.max(0, oldIndex))), chessCapturedTrayCenter(runtime, trayPiece, Math.max(0, oldIndex)));
+      var sortedCenter = chessCapturedTrayCenter(runtime, trayPiece, i);
+      queueChessAnimation(runtime, trayPiece, [currentCenter, sortedCenter], null);
+    }
+    var fromCenter = toVec3(entityProp(capturedPiece.mesh, "center", pieceBoardCenter(capturedPiece, 0.0)), pieceBoardCenter(capturedPiece, 0.0));
+    var trayCenter = chessCapturedTrayCenter(runtime, capturedPiece, targetIndex);
+    var liftZ = Math.max(Number(fromCenter[2] || 0.0), Number(trayCenter[2] || 0.0)) + 1.05;
+    queueChessAnimation(runtime, capturedPiece, [
+      fromCenter,
+      [fromCenter[0], fromCenter[1], liftZ],
+      [trayCenter[0], trayCenter[1], liftZ],
+      trayCenter
+    ], null);
   }
 
   function chessSquareFromObjectId(runtime, objectId) {
@@ -3702,7 +4087,7 @@
   function chessSquareFromSimplexId(runtime, simplexId) {
     var sid = Number(simplexId || 0) | 0;
     if (sid <= 0) { return null; }
-    var index = Math.floor((sid - 1) / 2);
+    var index = sid - 1;
     if (index < 0 || index >= 64) { return null; }
     return {
       file: (index % 8) + 1,
@@ -3722,10 +4107,12 @@
   function setChessSquareRegionState(runtime, file, rank, stateName, color) {
     if (!runtime.squareStates) { runtime.squareStates = Object.create(null); }
     runtime.squareRegionHasActiveState = true;
-    runtime.squareStates[chessSquareKey(file, rank)] = {
+    var key = chessSquareKey(file, rank);
+    var state = {
       state: String(stateName || "idle"),
       color: toRgba(color, [0.2, 1.0, 0.2, 0.0])
     };
+    runtime.squareStates[key] = state;
   }
 
   function clearChessSquareRegionStates(runtime) {
@@ -3747,51 +4134,37 @@
     setEntityProp(mesh, "visible", false);
     setEntityProp(mesh, "alpha", 0.0);
     setEntityProp(mesh, "depth_write", false);
+    setEntityProp(mesh, "transparent", true);
+    setEntityProp(mesh, "pickable", false);
     return mesh;
   }
 
-  function buildChessSquareRegionMesh(cfg, runtime) {
-    if (!cfg) { return null; }
-    var vertices = [];
-    var indices = [];
-    var normal = [0.0, 0.0, 1.0];
-    var z = 0.13;
-    for (var rank = 1; rank <= 8; rank += 1) {
-      for (var file = 1; file <= 8; file += 1) {
-        var color = [0.0, 0.0, 0.0, 0.0];
-        var x0 = chessBoardX(file) - 0.5;
-        var x1 = chessBoardX(file) + 0.5;
-        var y0 = chessBoardY(rank) - 0.5;
-        var y1 = chessBoardY(rank) + 0.5;
-        var base = vertices.length / 10;
-        pushVertex(vertices, [x0, y0, z], normal, color);
-        pushVertex(vertices, [x1, y0, z], normal, color);
-        pushVertex(vertices, [x1, y1, z], normal, color);
-        pushVertex(vertices, [x0, y1, z], normal, color);
-        indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  function assertChessHitRegionContract(cfg) {
+    var regions = cfg && Array.isArray(cfg.hit_regions) ? cfg.hit_regions : [];
+    var wantedId = String(cfg && cfg.hit_region_id || "vkf_chess_board_squares");
+    var found = null;
+    for (var i = 0; i < regions.length; i += 1) {
+      var region = regions[i] || {};
+      if (String(region.id || "") === wantedId || String(region.kind || "") === "plane_grid") {
+        found = region;
+        break;
       }
     }
-    return {
-      id: "vkf_chess_square_regions",
-      kind: "field_mesh",
-      object_id: chessSquareRegionObjectId(cfg),
-      vertices: vertices,
-      indices: indices,
-      topology: "triangle-list",
-      color: [1.0, 1.0, 1.0, 0.0],
-      alpha: 0.0,
-      visible: true,
-      transparent: true,
-      depth_write: false,
-      casts_shadow: false,
-      receives_shadow: false,
-      receives_lighting: false,
-      no_backface_specular: true,
-      interpolation: false,
-      pickable: true,
-      static_vertices: false,
-      static_indices: true
-    };
+    if (!found) {
+      failFast("chess interaction requires a plane_grid hit region named " + wantedId);
+    }
+    if (String(found.kind || "") !== "plane_grid") {
+      failFast("chess hit region " + wantedId + " must be kind=plane_grid");
+    }
+    if (Number(found.columns || 0) !== 8 || Number(found.rows || 0) !== 8) {
+      failFast("chess hit region " + wantedId + " must be an 8x8 grid");
+    }
+    if (Number(found.object_id_first || 0) !== Number(cfg.square_object_id_first || 2)) {
+      failFast("chess hit region object_id_first must match square_object_id_first");
+    }
+    if (found.exclusive !== true) {
+      failFast("chess hit region " + wantedId + " must be exclusive=true");
+    }
   }
 
   function chessSquareHighlightColors(runtime) {
@@ -3818,6 +4191,16 @@
     return next;
   }
 
+  function attachChessSquareVisualState(mesh, runtime) {
+    if (!mesh || !runtime) { return mesh; }
+    var square = chessSquareFromObjectId(runtime, Number(entityProp(mesh, "object_id", 0) || 0));
+    if (!square) { return mesh; }
+    var next = Object.assign({}, mesh);
+    var state = chessSquareState(runtime, square.file, square.rank);
+    setChessSquareVisualState(next, state.state, state.color);
+    return next;
+  }
+
   function chessPieceFromObjectId(runtime, objectId) {
     var oid = Number(objectId) || 0;
     return runtime && runtime.piecesByObjectId ? runtime.piecesByObjectId[String(oid)] || null : null;
@@ -3840,7 +4223,86 @@
     return true;
   }
 
-  function chessLegalMove(runtime, piece, toFile, toRank) {
+  function chessPieceAttacksSquare(runtime, piece, toFile, toRank) {
+    if (!piece || piece.captured) { return false; }
+    var df = Number(toFile) - Number(piece.file);
+    var dr = Number(toRank) - Number(piece.rank);
+    var adf = Math.abs(df);
+    var adr = Math.abs(dr);
+    if (df === 0 && dr === 0) { return false; }
+    var role = String(piece.role || "");
+    if (role === "pawn") {
+      return adf === 1 && dr === (piece.side === "white" ? 1 : -1);
+    }
+    if (role === "knight") { return (adf === 1 && adr === 2) || (adf === 2 && adr === 1); }
+    if (role === "king") { return adf <= 1 && adr <= 1; }
+    if (role === "rook") { return (df === 0 || dr === 0) && chessPathClear(runtime, piece, toFile, toRank); }
+    if (role === "bishop") { return adf === adr && chessPathClear(runtime, piece, toFile, toRank); }
+    if (role === "queen") { return ((df === 0 || dr === 0) || adf === adr) && chessPathClear(runtime, piece, toFile, toRank); }
+    return false;
+  }
+
+  function chessSquareAttackedBy(runtime, file, rank, side) {
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (piece && piece.side === side && chessPieceAttacksSquare(runtime, piece, file, rank)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function chessFindKing(runtime, side) {
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (piece && !piece.captured && piece.side === side && String(piece.role || "") === "king") {
+        return piece;
+      }
+    }
+    return null;
+  }
+
+  function chessKingInCheck(runtime, side) {
+    var king = chessFindKing(runtime, side);
+    if (!king) { return false; }
+    var enemySide = side === "white" ? "black" : "white";
+    return chessSquareAttackedBy(runtime, king.file, king.rank, enemySide);
+  }
+
+  function chessCastleInfo(runtime, piece, toFile, toRank) {
+    if (!piece || piece.captured || String(piece.role || "") !== "king") { return null; }
+    if (piece.has_moved === true) { return null; }
+    if (Number(piece.file) !== 5 || Number(piece.rank) !== Number(toRank)) { return null; }
+    var df = Number(toFile) - Number(piece.file);
+    if (Math.abs(df) !== 2) { return null; }
+    if (chessPieceAt(runtime, toFile, toRank)) { return null; }
+    var kingside = df > 0;
+    var rookFile = kingside ? 8 : 1;
+    var rookToFile = kingside ? 6 : 4;
+    var throughFile = kingside ? 6 : 4;
+    var rook = chessPieceAt(runtime, rookFile, toRank);
+    if (!rook || rook.side !== piece.side || String(rook.role || "") !== "rook" || rook.has_moved === true) {
+      return null;
+    }
+    var clearFiles = kingside ? [6, 7] : [4, 3, 2];
+    for (var i = 0; i < clearFiles.length; i += 1) {
+      if (chessPieceAt(runtime, clearFiles[i], toRank)) { return null; }
+    }
+    var enemySide = piece.side === "white" ? "black" : "white";
+    if (chessSquareAttackedBy(runtime, 5, toRank, enemySide)) { return null; }
+    if (chessSquareAttackedBy(runtime, throughFile, toRank, enemySide)) { return null; }
+    if (chessSquareAttackedBy(runtime, toFile, toRank, enemySide)) { return null; }
+    return {
+      rook: rook,
+      rookFromFile: rookFile,
+      rookToFile: rookToFile,
+      notation: kingside ? "O-O" : "O-O-O"
+    };
+  }
+
+  function chessPseudoLegalMove(runtime, piece, toFile, toRank) {
     if (!piece || piece.captured) { return false; }
     if (toFile < 1 || toFile > 8 || toRank < 1 || toRank > 8) { return false; }
     if (piece.side !== runtime.turn) { return false; }
@@ -3863,11 +4325,77 @@
       return false;
     }
     if (role === "knight") { return (adf === 1 && adr === 2) || (adf === 2 && adr === 1); }
-    if (role === "king") { return adf <= 1 && adr <= 1; }
+    if (role === "king") { return (adf <= 1 && adr <= 1) || !!chessCastleInfo(runtime, piece, toFile, toRank); }
     if (role === "rook") { return (df === 0 || dr === 0) && chessPathClear(runtime, piece, toFile, toRank); }
     if (role === "bishop") { return adf === adr && chessPathClear(runtime, piece, toFile, toRank); }
     if (role === "queen") { return ((df === 0 || dr === 0) || adf === adr) && chessPathClear(runtime, piece, toFile, toRank); }
     return false;
+  }
+
+  function chessWouldLeaveKingInCheck(runtime, piece, toFile, toRank) {
+    var fromFile = Number(piece.file);
+    var fromRank = Number(piece.rank);
+    var target = chessPieceAt(runtime, toFile, toRank);
+    var castle = chessCastleInfo(runtime, piece, toFile, toRank);
+    var rook = castle && castle.rook ? castle.rook : null;
+    var rookFromFile = castle ? castle.rookFromFile : 0;
+    var rookToFile = castle ? castle.rookToFile : 0;
+    var rookRank = Number(toRank);
+    delete runtime.occupied[chessSquareKey(fromFile, fromRank)];
+    if (target) {
+      target.captured = true;
+      delete runtime.occupied[chessSquareKey(toFile, toRank)];
+    }
+    piece.file = Number(toFile);
+    piece.rank = Number(toRank);
+    runtime.occupied[chessSquareKey(piece.file, piece.rank)] = piece;
+    if (rook) {
+      delete runtime.occupied[chessSquareKey(rookFromFile, rookRank)];
+      rook.file = rookToFile;
+      rook.rank = rookRank;
+      runtime.occupied[chessSquareKey(rook.file, rook.rank)] = rook;
+    }
+    var inCheck = chessKingInCheck(runtime, piece.side);
+    delete runtime.occupied[chessSquareKey(piece.file, piece.rank)];
+    piece.file = fromFile;
+    piece.rank = fromRank;
+    runtime.occupied[chessSquareKey(fromFile, fromRank)] = piece;
+    if (target) {
+      target.captured = false;
+      runtime.occupied[chessSquareKey(toFile, toRank)] = target;
+    }
+    if (rook) {
+      delete runtime.occupied[chessSquareKey(rook.file, rook.rank)];
+      rook.file = rookFromFile;
+      rook.rank = rookRank;
+      runtime.occupied[chessSquareKey(rook.file, rook.rank)] = rook;
+    }
+    return inCheck;
+  }
+
+  function chessLegalMove(runtime, piece, toFile, toRank) {
+    if (!chessPseudoLegalMove(runtime, piece, toFile, toRank)) { return false; }
+    return !chessWouldLeaveKingInCheck(runtime, piece, toFile, toRank);
+  }
+
+  function chessSideHasLegalMove(runtime, side) {
+    var previousTurn = runtime.turn;
+    runtime.turn = side;
+    try {
+      var ids = Object.keys(runtime.piecesByObjectId);
+      for (var i = 0; i < ids.length; i += 1) {
+        var piece = runtime.piecesByObjectId[ids[i]];
+        if (!piece || piece.captured || piece.side !== side) { continue; }
+        for (var rank = 1; rank <= 8; rank += 1) {
+          for (var file = 1; file <= 8; file += 1) {
+            if (chessLegalMove(runtime, piece, file, rank)) { return true; }
+          }
+        }
+      }
+      return false;
+    } finally {
+      runtime.turn = previousTurn;
+    }
   }
 
   function chessNotation(piece, target, toFile, toRank) {
@@ -3877,23 +4405,99 @@
     return prefix + (target ? "x" : "") + fileName + String(toRank);
   }
 
+  function chessMoveNotation(runtime, piece, target, toFile, toRank, castle) {
+    var notation = castle ? castle.notation : chessNotation(piece, target, toFile, toRank);
+    var enemySide = piece.side === "white" ? "black" : "white";
+    if (!chessKingInCheck(runtime, enemySide)) { return notation; }
+    return notation + (chessSideHasLegalMove(runtime, enemySide) ? "+" : "++");
+  }
+
+  function chessEndTargetCenter(runtime, piece, result) {
+    var side = String(piece && piece.side || "");
+    if (String(piece && piece.role || "") === "king") {
+      if (result === "white_win" && side === "white") { return [0.0, 0.0, Number(piece.base_z || 0.065) || 0.065]; }
+      if (result === "black_win" && side === "black") { return [0.0, 0.0, Number(piece.base_z || 0.065) || 0.065]; }
+      if (result === "draw") {
+        return side === "white"
+          ? [-0.45, 0.0, Number(piece.base_z || 0.065) || 0.065]
+          : [0.45, 0.0, Number(piece.base_z || 0.065) || 0.065];
+      }
+    }
+    return [chessBoardX(piece.start_file), chessBoardY(piece.start_rank), Number(piece.base_z || 0.065) || 0.065];
+  }
+
+  function startChessEndAnimation(runtime, result) {
+    if (!runtime || runtime.gameOver) { return; }
+    runtime.gameOver = String(result || "draw");
+    runtime.selected = null;
+    runtime.hoverSquare = null;
+    runtime.hoverPiece = null;
+    runtime.hoverPromotion = null;
+    clearChessPromotionOptions(runtime);
+    runtime.animations = [];
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || !piece.mesh) { continue; }
+      if (piece.start_role === "pawn" && piece.role !== "pawn") {
+        replaceChessPieceRoleMesh(runtime, piece, "pawn");
+      }
+      piece.captured = false;
+      piece.captured_by = "";
+      piece.in_capture_tray = false;
+      piece.capture_order = 0;
+      piece.capture_tray_index = -1;
+      piece.capture_tray_center = null;
+      piece.file = piece.start_file;
+      piece.rank = piece.start_rank;
+      setEntityProp(piece.mesh, "visible", true);
+      setEntityProp(piece.mesh, "pickable", true);
+      setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
+      var fromCenter = toVec3(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
+      var toCenter = chessEndTargetCenter(runtime, piece, runtime.gameOver);
+      queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
+    }
+    rebuildChessOccupancy(runtime);
+    resetChessHighlights(runtime, { skipPieceRefresh: true });
+    updateChessPanel(runtime);
+    markChessSceneDirty(runtime);
+    requestChessInteractionFrame(runtime);
+  }
+
+  function finishChessMoveResult(runtime, moverSide) {
+    var enemySide = moverSide === "white" ? "black" : "white";
+    if (chessSideHasLegalMove(runtime, enemySide)) { return ""; }
+    return chessKingInCheck(runtime, enemySide)
+      ? (moverSide === "white" ? "white_win" : "black_win")
+      : "draw";
+  }
+
   function setChessSquareVisualState(mesh, stateName, fallbackColor) {
     if (!mesh) { return; }
     if (applyEntityStateEmbedding(mesh, stateName)) { return; }
     if (String(stateName || "") === "idle") {
       setEntityProp(mesh, "color", [0.2, 1.0, 0.2, 0.0]);
       setEntityProp(mesh, "visible", false);
+      setEntityProp(mesh, "alpha", 0.0);
+      setEntityProp(mesh, "pickable", false);
       return;
     }
     raiseChessHighlightMesh(mesh);
     setEntityProp(mesh, "visible", true);
     setEntityProp(mesh, "color", fallbackColor || [0.45, 1.0, 0.45, 0.36]);
+    setEntityProp(mesh, "alpha", Number((fallbackColor || [0, 0, 0, 0.36])[3] || 0.36) || 0.36);
+    setEntityProp(mesh, "transparent", true);
+    setEntityProp(mesh, "depth_write", false);
+    setEntityProp(mesh, "pickable", false);
   }
 
-  function resetChessHighlights(runtime) {
+  function resetChessHighlights(runtime, options) {
+    options = options && typeof options === "object" ? options : {};
     clearChessSquareRegionStates(runtime);
-    refreshChessPieceSelectionPose(runtime);
-    if (runtime.hoverSquare) {
+    if (options.skipPieceRefresh !== true) {
+      refreshChessPieceSelectionPose(runtime);
+    }
+    if (runtime.hoverSquare && runtime.selected) {
       var sameAsSelected = runtime.selected &&
         Number(runtime.selected.file) === Number(runtime.hoverSquare.file) &&
         Number(runtime.selected.rank) === Number(runtime.hoverSquare.rank);
@@ -3903,13 +4507,11 @@
         }
         return;
       }
-      var legal = runtime.selected ? chessLegalMove(runtime, runtime.selected, runtime.hoverSquare.file, runtime.hoverSquare.rank) : false;
-      var stateName = !runtime.selected || sameAsSelected ? "selectable" : (legal ? "legal" : "illegal");
-      var fallbackColor = sameAsSelected
-        ? (runtime.cfg.square_highlight_selected || [0.34, 0.66, 1.0, 0.74])
-        : (!runtime.selected
-        ? (runtime.cfg.square_highlight_hover || runtime.cfg.square_highlight_selected || [0.30, 0.58, 1.0, 0.56])
-        : (legal ? (runtime.cfg.square_highlight_legal || [0.42, 0.88, 0.36, 0.58]) : (runtime.cfg.square_highlight_illegal || [0.90, 0.20, 0.12, 0.62])));
+      var legal = chessLegalMove(runtime, runtime.selected, runtime.hoverSquare.file, runtime.hoverSquare.rank);
+      var stateName = legal ? "legal" : "illegal";
+      var fallbackColor = legal
+        ? (runtime.cfg.square_highlight_legal || [0.42, 0.88, 0.36, 0.58])
+        : (runtime.cfg.square_highlight_illegal || [0.90, 0.20, 0.12, 0.62]);
       setChessSquareRegionState(runtime, runtime.hoverSquare.file, runtime.hoverSquare.rank, stateName, fallbackColor);
     }
     if (!updateChessBoardHighlightsFast(runtime)) {
@@ -3929,12 +4531,12 @@
   }
 
   function targetPieceIsSelectable(runtime, piece) {
-    return !!(piece && piece.side === runtime.turn && !piece.captured);
+    return !!(!runtime.gameOver && !runtime.promotion && piece && piece.side === runtime.turn && !piece.captured);
   }
 
   function pieceBaseColor(piece) {
     return piece && piece.side === "black"
-      ? [0.18, 0.11, 0.07, 1.0]
+      ? [0.34, 0.22, 0.13, 1.0]
       : [1.0, 0.96, 0.78, 1.0];
   }
 
@@ -3951,12 +4553,241 @@
   function pieceInteractionColor(piece, hovered, selected) {
     var color = pieceBaseColor(piece);
     if (hovered) {
-      color = blendRgba(color, [0.46, 0.64, 0.95, 1.0], 0.18);
+      color = blendRgba(color, [0.34, 0.70, 1.0, 1.0], 0.38);
     }
     if (selected) {
-      color = blendRgba(color, [0.58, 0.78, 1.0, 1.0], 0.32);
+      color = blendRgba(color, [0.28, 0.78, 1.0, 1.0], 0.56);
     }
     return color;
+  }
+
+  function applyChessPieceInteractionVisual(runtime, mesh, side, hovered, selected, baseCenter) {
+    if (!mesh) { return; }
+    var center = Array.isArray(baseCenter)
+      ? baseCenter.slice()
+      : toVec3(entityProp(mesh, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    setEntityProp(mesh, "center", center);
+    setEntityProp(mesh, "color", pieceInteractionColor({ side: side }, hovered, selected));
+    setEntityProp(mesh, "use_vertex_color", false);
+    setEntityProp(mesh, "static_vertices", false);
+    setEntityProp(mesh, "static_indices", false);
+    delete mesh.__vfSmoothFieldMeshSource;
+    delete mesh.__vfSmoothFieldMeshIndices;
+    delete mesh.__vfSmoothFieldMeshVertices;
+    setEntityProp(mesh, "specular_strength", (hovered || selected)
+      ? Number(runtime.cfg.selected_piece_specular_strength || 0.08) || 0.08
+      : Math.max(0.12, Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055));
+  }
+
+  function chessPromotionRoles() {
+    return ["queen", "rook", "bishop", "knight"];
+  }
+
+  function chessPieceLetter(role) {
+    role = String(role || "");
+    if (role === "queen") { return "Q"; }
+    if (role === "rook") { return "R"; }
+    if (role === "bishop") { return "B"; }
+    if (role === "knight") { return "N"; }
+    if (role === "king") { return "K"; }
+    return "";
+  }
+
+  function chessIsPromotionMove(piece, toRank) {
+    return !!(piece && String(piece.role || "") === "pawn" &&
+      ((piece.side === "white" && Number(toRank) === 8) || (piece.side === "black" && Number(toRank) === 1)));
+  }
+
+  function chessPromotionNotation(piece, target, toFile, toRank, promotionRole) {
+    var fileName = "abcdefgh".charAt(Math.max(0, Math.min(7, Number(toFile) - 1)));
+    var fromFileName = "abcdefgh".charAt(Math.max(0, Math.min(7, Number(piece && piece.file || 1) - 1)));
+    var prefix = target ? (fromFileName + "x") : "";
+    return prefix + fileName + String(toRank) + "=" + chessPieceLetter(promotionRole);
+  }
+
+  function chessRoleTemplateMesh(runtime, side, role) {
+    if (!runtime || !runtime.pieceTemplateMeshes) { return null; }
+    return runtime.pieceTemplateMeshes[String(side || "") + ":" + String(role || "")] || null;
+  }
+
+  function chessClonePromotionMesh(runtime, side, role, objectId, center) {
+    var template = chessRoleTemplateMesh(runtime, side, role);
+    if (!template) {
+      failFast("promotion option missing mesh template for " + String(side) + " " + String(role));
+    }
+    var mesh = cloneJsonValue(template);
+    setEntityProp(mesh, "id", "promotion_" + String(side) + "_" + String(role) + "_" + String(objectId));
+    setEntityProp(mesh, "object_id", objectId);
+    setEntityProp(mesh, "center", center);
+    setEntityProp(mesh, "visible", true);
+    setEntityProp(mesh, "color", pieceBaseColor({ side: side }));
+    setEntityProp(mesh, "specular_strength", Math.max(0.12, Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055));
+    setEntityProp(mesh, "casts_shadow", true);
+    setEntityProp(mesh, "receives_shadow", true);
+    setEntityProp(mesh, "pickable", true);
+    setEntityProp(mesh, "use_vertex_color", false);
+    setEntityProp(mesh, "static_vertices", false);
+    setEntityProp(mesh, "static_indices", false);
+    delete mesh.__vfSmoothFieldMeshSource;
+    delete mesh.__vfSmoothFieldMeshIndices;
+    delete mesh.__vfSmoothFieldMeshVertices;
+    return mesh;
+  }
+
+  function clearChessPromotionOptions(runtime) {
+    if (!runtime) { return; }
+    var options = Array.isArray(runtime.promotionOptions) ? runtime.promotionOptions : [];
+    if (Array.isArray(config.meshes) && options.length) {
+      config.meshes = config.meshes.filter(function (mesh) {
+        var oid = Number(entityProp(mesh, "object_id", 0) || 0);
+        return !runtime.promotionOptionsByObjectId || !runtime.promotionOptionsByObjectId[String(oid)];
+      });
+    }
+    runtime.promotionOptions = [];
+    runtime.promotionOptionsByObjectId = Object.create(null);
+    runtime.hoverPromotion = null;
+    if (runtime.meshByObjectId) {
+      for (var meshIdIndex = 0; meshIdIndex < options.length; meshIdIndex += 1) {
+        var optionObjectId = Number(options[meshIdIndex] && options[meshIdIndex].object_id || 0) || 0;
+        if (optionObjectId) { delete runtime.meshByObjectId[String(optionObjectId)]; }
+      }
+    }
+  }
+
+  function removeMeshFromScene(mesh) {
+    if (!mesh || !Array.isArray(config.meshes)) { return; }
+    config.meshes = config.meshes.filter(function (candidate) { return candidate !== mesh; });
+  }
+
+  function keepChosenPromotionMesh(runtime, chosenOption) {
+    if (!runtime) { return; }
+    var chosenMesh = chosenOption && chosenOption.mesh ? chosenOption.mesh : null;
+    var options = Array.isArray(runtime.promotionOptions) ? runtime.promotionOptions : [];
+    for (var i = 0; i < options.length; i += 1) {
+      var option = options[i];
+      if (!option || !option.mesh || option.mesh === chosenMesh) { continue; }
+      removeMeshFromScene(option.mesh);
+      if (runtime.meshByObjectId) {
+        delete runtime.meshByObjectId[String(option.object_id || 0)];
+      }
+    }
+    runtime.promotionOptions = [];
+    runtime.promotionOptionsByObjectId = Object.create(null);
+    runtime.hoverPromotion = null;
+  }
+
+  function refreshChessPromotionOptions(runtime) {
+    if (!runtime || !Array.isArray(runtime.promotionOptions)) { return; }
+    for (var i = 0; i < runtime.promotionOptions.length; i += 1) {
+      var option = runtime.promotionOptions[i];
+      var hovered = runtime.hoverPromotion === option;
+      var baseCenter = Array.isArray(option.base_center) ? option.base_center : toVec3(entityProp(option.mesh, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+      applyChessPieceInteractionVisual(runtime, option.mesh, option.side, hovered, false, baseCenter);
+    }
+  }
+
+  function startChessPromotion(runtime, piece, target, fromFile, fromRank, toFile, toRank) {
+    clearChessPromotionOptions(runtime);
+    var roles = chessPromotionRoles();
+    var baseY = chessBoardY(toRank);
+    var baseX = chessBoardX(toFile);
+    var boardZ = Number(piece.base_z || 0.065) || 0.065;
+    var promotionUnitHeight = 1.0;
+    var promotionSpacing = 0.82;
+    runtime.promotion = {
+      piece: piece,
+      target: target || null,
+      fromFile: Number(fromFile),
+      fromRank: Number(fromRank),
+      toFile: Number(toFile),
+      toRank: Number(toRank),
+      baseCenter: [baseX, baseY, boardZ + promotionUnitHeight]
+    };
+    runtime.promotionOptions = [];
+    runtime.promotionOptionsByObjectId = Object.create(null);
+    for (var i = 0; i < roles.length; i += 1) {
+      var role = roles[i];
+      var objectId = Number(runtime.nextPromotionObjectId || 900000) + i;
+      var center = [baseX + (i * promotionSpacing), baseY, boardZ + promotionUnitHeight];
+      var mesh = chessClonePromotionMesh(runtime, piece.side, role, objectId, center);
+      var option = { kind: "promotion", role: role, side: piece.side, object_id: objectId, mesh: mesh, base_center: center.slice() };
+      runtime.promotionOptions.push(option);
+      runtime.promotionOptionsByObjectId[String(objectId)] = option;
+      runtime.meshByObjectId[String(objectId)] = mesh;
+      config.meshes.push(mesh);
+    }
+    runtime.nextPromotionObjectId = Number(runtime.nextPromotionObjectId || 900000) + roles.length;
+    runtime.selected = null;
+    refreshChessPromotionOptions(runtime);
+    markChessSceneDirty(runtime);
+  }
+
+  function replaceChessPieceRoleMesh(runtime, piece, role) {
+    var template = chessRoleTemplateMesh(runtime, piece.side, role);
+    if (!template) {
+      failFast("promotion replacement missing mesh template for " + String(piece.side) + " " + String(role));
+    }
+    var center = toVec3(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
+    setEntityProp(piece.mesh, "vertices", cloneJsonValue(entityProp(template, "vertices", [])));
+    setEntityProp(piece.mesh, "indices", cloneJsonValue(entityProp(template, "indices", [])));
+    setEntityProp(piece.mesh, "rotation", cloneJsonValue(entityProp(template, "rotation", [0.0, 0.0, 0.0])));
+    setEntityProp(piece.mesh, "center", center);
+    piece.role = String(role || "queen");
+    setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
+  }
+
+  function completeChessPromotion(runtime, option) {
+    if (!runtime || !runtime.promotion || !option) { return false; }
+    var pending = runtime.promotion;
+    var piece = pending.piece;
+    var promotionRole = String(option.role || "queen");
+    var oldMesh = piece.mesh;
+    var chosenMesh = option.mesh;
+    if (!chosenMesh) {
+      failFast("promotion completion missing selected option mesh");
+    }
+    keepChosenPromotionMesh(runtime, option);
+    removeMeshFromScene(oldMesh);
+    delete runtime.meshByObjectId[String(option.object_id || 0)];
+    setEntityProp(chosenMesh, "object_id", piece.object_id);
+    setEntityProp(chosenMesh, "id", String(entityProp(oldMesh, "id", "piece_" + String(piece.object_id))));
+    setEntityProp(chosenMesh, "visible", true);
+    setEntityProp(chosenMesh, "pickable", true);
+    setEntityProp(chosenMesh, "color", pieceBaseColor({ side: piece.side }));
+    setEntityProp(chosenMesh, "specular_strength", Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
+    runtime.meshByObjectId[String(piece.object_id)] = chosenMesh;
+    piece.mesh = chosenMesh;
+    piece.role = promotionRole;
+    var fromCenter = toVec3(entityProp(chosenMesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
+    var abovePawnCenter = Array.isArray(pending.baseCenter) ? pending.baseCenter.slice() : [chessBoardX(pending.toFile), chessBoardY(pending.toRank), fromCenter[2]];
+    var toCenter = pieceBoardCenter(piece, 0.0);
+    queueChessAnimation(runtime, piece, [fromCenter, abovePawnCenter, toCenter], null);
+    var enemySide = piece.side === "white" ? "black" : "white";
+    var notation = chessPromotionNotation(
+      { side: piece.side, role: "pawn", file: pending.fromFile, rank: pending.fromRank },
+      pending.target,
+      pending.toFile,
+      pending.toRank,
+      promotionRole
+    );
+    if (chessKingInCheck(runtime, enemySide)) {
+      notation += chessSideHasLegalMove(runtime, enemySide) ? "+" : "++";
+    }
+    commitChessMove(runtime, notation);
+    var promotionResult = finishChessMoveResult(runtime, piece.side);
+    runtime.turn = runtime.turn === "white" ? "black" : "white";
+    runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
+    recordChessHistorySnapshot(runtime);
+    runtime.promotion = null;
+    refreshChessPieceSelectionPose(runtime);
+    resetChessHighlights(runtime);
+    updateChessPanel(runtime);
+    markChessSceneDirty(runtime);
+    requestChessInteractionFrame(runtime);
+    if (promotionResult) {
+      startChessEndAnimation(runtime, promotionResult);
+    }
+    return true;
   }
 
   function refreshChessPieceSelectionPose(runtime) {
@@ -3967,21 +4798,158 @@
       if (piece._animating === true) { continue; }
       var selected = piece === runtime.selected;
       var hovered = piece === runtime.hoverPiece;
-      setEntityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0));
-      setEntityProp(piece.mesh, "color", pieceInteractionColor(piece, hovered, selected));
-      setEntityProp(piece.mesh, "specular_strength", selected || hovered
-        ? Number(runtime.cfg.selected_piece_specular_strength || 0.08) || 0.08
-        : Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
+      applyChessPieceInteractionVisual(runtime, piece.mesh, piece.side, hovered, selected, pieceBoardCenter(piece, 0.0));
     }
     markChessSceneDirty(runtime);
+  }
+
+  function formatChessClock(ms) {
+    var total = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+    var minutes = Math.floor(total / 60);
+    var seconds = total % 60;
+    return String(minutes) + ":" + (seconds < 10 ? "0" : "") + String(seconds);
+  }
+
+  function parseChessClockText(text, fallbackMs) {
+    var raw = String(text || "").trim();
+    var parts = raw.split(":");
+    if (parts.length === 2) {
+      var minutes = Math.max(0, Number(parts[0]) || 0);
+      var seconds = Math.max(0, Math.min(59, Number(parts[1]) || 0));
+      return Math.round(((minutes * 60) + seconds) * 1000);
+    }
+    var numericMinutes = Number(raw);
+    if (Number.isFinite(numericMinutes) && numericMinutes >= 0) {
+      return Math.round(numericMinutes * 60 * 1000);
+    }
+    return Math.max(0, Number(fallbackMs || 0) || 0);
+  }
+
+  function beginInlineClockEdit(runtime, input) {
+    if (!runtime || !runtime.clock || !input) { return; }
+    if (runtime.clock.running === true) {
+      try { input.blur(); } catch (_) {}
+      return;
+    }
+    var sideName = String(input.getAttribute("data-vf-chess-clock-side") || "white") === "black" ? "black" : "white";
+    runtime.clock.editing_side = sideName;
+    runtime.clock.editing_value = String(input.value || "");
+    runtime.clock.last_tick_ms = 0.0;
+    try { input.select(); } catch (_) {}
+  }
+
+  function commitInlineClockEdit(runtime, input, commit) {
+    if (!runtime || !runtime.clock || !input) { return; }
+    var sideName = String(input.getAttribute("data-vf-chess-clock-side") || "white") === "black" ? "black" : "white";
+    var key = sideName + "_ms";
+    if (commit === true) {
+      runtime.clock[key] = parseChessClockText(input.value, runtime.clock[key]);
+      if (runtime.clock.running !== true && runtime.moves && runtime.moves.length === 0 && Number(runtime.currentMoveIndex || 0) === 0) {
+        runtime.clock["start_" + key] = runtime.clock[key];
+      }
+    } else if (runtime.clock.editing_value != null) {
+      input.value = String(runtime.clock.editing_value || "");
+    }
+    runtime.clock.editing_side = "";
+    runtime.clock.editing_value = "";
+    runtime.clock.last_tick_ms = 0.0;
+    updateChessPanel(runtime);
+  }
+
+  function attachInlineClockEditor(runtime, input) {
+    if (!input || input.__vfInlineClockEditorAttached === true) { return; }
+    input.__vfInlineClockEditorAttached = true;
+    input.addEventListener("focus", function () {
+      beginInlineClockEdit(runtime, input);
+    });
+    input.addEventListener("blur", function () {
+      commitInlineClockEdit(runtime, input, true);
+    });
+    input.addEventListener("keydown", function (ev) {
+      var key = String(ev && ev.key || "");
+      if (key === "Enter") {
+        if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
+        input.blur();
+      } else if (key === "Escape") {
+        if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
+        commitInlineClockEdit(runtime, input, false);
+        input.blur();
+      }
+    });
+  }
+
+  function chessClockFreshGame(runtime) {
+    return !!(runtime && Array.isArray(runtime.moves) && runtime.moves.length === 0 && Number(runtime.currentMoveIndex || 0) === 0 && !runtime.promotion);
+  }
+
+  function setChessClockRunning(runtime, running) {
+    if (!runtime || !runtime.clock) { return; }
+    runtime.clock.running = running === true;
+    runtime.clock.last_tick_ms = 0.0;
+    if (runtime.clock.running === true && chessClockFreshGame(runtime)) {
+      runtime.clock.start_white_ms = Number(runtime.clock.white_ms || 0) || 0;
+      runtime.clock.start_black_ms = Number(runtime.clock.black_ms || 0) || 0;
+    }
+    updateChessPanel(runtime);
+  }
+
+  function toggleChessClock(runtime) {
+    if (!runtime || !runtime.clock || runtime.gameOver) { return; }
+    setChessClockRunning(runtime, runtime.clock.running !== true);
+  }
+
+  function updateChessClock(runtime) {
+    if (!runtime || !runtime.clock || runtime.gameOver) { return; }
+    var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now();
+    if (runtime.clock.running !== true) {
+      runtime.clock.last_tick_ms = now;
+      return;
+    }
+    if (runtime.clock.editing_side) {
+      runtime.clock.last_tick_ms = now;
+      return;
+    }
+    var last = Number(runtime.clock.last_tick_ms || 0.0) || now;
+    runtime.clock.last_tick_ms = now;
+    var dt = Math.max(0.0, Math.min(1000.0, now - last));
+    var side = runtime.turn === "black" ? "black" : "white";
+    var key = side + "_ms";
+    runtime.clock[key] = Math.max(0.0, Number(runtime.clock[key] || 0.0) - dt);
+    updateChessPanel(runtime);
   }
 
   function updateChessPanel(runtime) {
     if (!runtime.panel) { return; }
     var panelRoot = runtime.panelBody || runtime.panel;
     var turnEl = panelRoot.querySelector("[data-vf-chess-turn]");
+    var whiteClockEl = panelRoot.querySelector('[data-vf-chess-clock-side="white"]');
+    var blackClockEl = panelRoot.querySelector('[data-vf-chess-clock-side="black"]');
     var bodyEl = panelRoot.querySelector("[data-vf-chess-moves]");
+    var autoSwitchEl = panelRoot.querySelector("[data-vf-chess-auto-switch]");
+    var startButtonEl = panelRoot.querySelector("[data-vf-chess-start-game]");
     if (turnEl) { turnEl.textContent = "Turn: " + runtime.turn; }
+    if (whiteClockEl && runtime.clock) {
+      if (runtime.clock.editing_side !== "white" && whiteClockEl !== document.activeElement) {
+        whiteClockEl.value = formatChessClock(runtime.clock.white_ms);
+      }
+      whiteClockEl.readOnly = runtime.clock.running === true;
+      whiteClockEl.setAttribute("aria-readonly", runtime.clock.running === true ? "true" : "false");
+      whiteClockEl.classList.toggle("vf-chess-clock-time--active", runtime.turn === "white");
+      whiteClockEl.classList.toggle("vf-chess-clock-time--locked", runtime.clock.running === true);
+    }
+    if (blackClockEl && runtime.clock) {
+      if (runtime.clock.editing_side !== "black" && blackClockEl !== document.activeElement) {
+        blackClockEl.value = formatChessClock(runtime.clock.black_ms);
+      }
+      blackClockEl.readOnly = runtime.clock.running === true;
+      blackClockEl.setAttribute("aria-readonly", runtime.clock.running === true ? "true" : "false");
+      blackClockEl.classList.toggle("vf-chess-clock-time--active", runtime.turn === "black");
+      blackClockEl.classList.toggle("vf-chess-clock-time--locked", runtime.clock.running === true);
+    }
+    if (startButtonEl && runtime.clock) {
+      startButtonEl.textContent = runtime.clock.running === true ? "Pause Game" : (chessClockFreshGame(runtime) ? "Start Game" : "Resume Game");
+    }
+    if (autoSwitchEl) { autoSwitchEl.checked = runtime.autoSwitchView === true; }
     if (bodyEl) {
       bodyEl.innerHTML = "";
       for (var i = 0; i < runtime.moves.length; i += 2) {
@@ -3989,12 +4957,30 @@
         var nr = document.createElement("td");
         var whiteMove = document.createElement("td");
         var blackMove = document.createElement("td");
+        var whiteIndex = i + 1;
+        var blackIndex = i + 2;
         nr.textContent = String((i / 2) + 1);
         whiteMove.textContent = runtime.moves[i] || "";
         blackMove.textContent = runtime.moves[i + 1] || "";
         nr.className = "vf-chess-move-no";
         whiteMove.className = "vf-chess-move-white";
         blackMove.className = "vf-chess-move-black";
+        if (runtime.moves[i]) {
+          whiteMove.classList.add("vf-chess-move-cell");
+          whiteMove.setAttribute("data-vf-chess-history-index", String(whiteIndex));
+          whiteMove.title = "Restore after " + whiteMove.textContent;
+        }
+        if (runtime.moves[i + 1]) {
+          blackMove.classList.add("vf-chess-move-cell");
+          blackMove.setAttribute("data-vf-chess-history-index", String(blackIndex));
+          blackMove.title = "Restore after " + blackMove.textContent;
+        }
+        if (Number(runtime.currentMoveIndex || 0) === whiteIndex) {
+          whiteMove.classList.add("vf-chess-move-cell--active");
+        }
+        if (Number(runtime.currentMoveIndex || 0) === blackIndex) {
+          blackMove.classList.add("vf-chess-move-cell--active");
+        }
         row.appendChild(nr);
         row.appendChild(whiteMove);
         row.appendChild(blackMove);
@@ -4010,14 +4996,69 @@
     }
   }
 
+  function chessSceneFrameId() {
+    return String(frameSpec.frame_id || config.frame_id || "").trim();
+  }
+
+  function chessSceneFrameElement() {
+    var sceneFrameId = chessSceneFrameId();
+    if (!sceneFrameId || !global.document) { return null; }
+    if (global.CSS && typeof global.CSS.escape === "function") {
+      return document.querySelector('.vf-frame[data-vf-frame-id="' + global.CSS.escape(sceneFrameId) + '"]');
+    }
+    return document.querySelector('.vf-frame[data-vf-frame-id="' + sceneFrameId.replace(/["\\]/g, "") + '"]');
+  }
+
+  function ensureChessBoardHost(sceneFrameBody) {
+    if (!sceneFrameBody || typeof sceneFrameBody.querySelector !== "function") { return null; }
+    var boardHost = sceneFrameBody.querySelector(".vf-chess-board-host");
+    if (!boardHost) {
+      boardHost = document.createElement("div");
+      boardHost.className = "vf-chess-board-host";
+      sceneFrameBody.insertBefore(boardHost, sceneFrameBody.firstChild || null);
+    }
+    return boardHost;
+  }
+
+  function attachChessPanelToSceneFrame(runtime, sceneFrame, sceneFrameBody, controlsFrameClass) {
+    if (!runtime || !runtime.panelBody || !sceneFrame || !sceneFrameBody) { return false; }
+    sceneFrame.setAttribute("data-vf-chess-board-frame", "1");
+    sceneFrame.classList.add(controlsFrameClass);
+    ensureChessBoardHost(sceneFrameBody);
+    if (runtime.panelBody.parentNode !== sceneFrameBody) {
+      sceneFrameBody.appendChild(runtime.panelBody);
+    }
+    runtime.panelBody.classList.remove("vf-chess-panel--fallback");
+    runtime.panelBody.classList.add("vf-chess-panel--in-frame");
+    if (runtime.panelFrame && runtime.panelFrame.root && runtime.panelFrame.root.parentNode) {
+      try { runtime.panelFrame.root.parentNode.removeChild(runtime.panelFrame.root); } catch (_) {}
+    }
+    runtime.panelFrame = null;
+    runtime.panel = runtime.panelBody;
+    return true;
+  }
+
   function ensureChessPanel(runtime) {
-    if (runtime.panel || !global.document) { return; }
+    if (!global.document) { return; }
     var controlsFrameId = String(runtime.cfg.controls_frame_id || "vkf_chess_controls");
     var controlsFrameClass = String(runtime.cfg.controls_frame_class || "vf-chess-frame");
     var controlsPanelClass = String(runtime.cfg.controls_panel_class || "vf-chess-panel");
     var layer = document.body || document.documentElement;
     var frameApi = null;
-    if (global.VfFrame && typeof global.VfFrame.mount === "function" && layer) {
+    var sceneFrame = chessSceneFrameElement();
+    if (!sceneFrame && sceneFrameVisible()) {
+      sceneFrame = ensureVisibleSceneFrameShell();
+    }
+    var sceneFrameBody = sceneFrame && sceneFrame.querySelector ? sceneFrame.querySelector(".vf-frame__body") : null;
+    if (runtime.panel) {
+      attachChessPanelToSceneFrame(runtime, sceneFrame, sceneFrameBody, controlsFrameClass);
+      return;
+    }
+    if (sceneFrame && sceneFrameBody) {
+      sceneFrame.setAttribute("data-vf-chess-board-frame", "1");
+      sceneFrame.classList.add(controlsFrameClass);
+      ensureChessBoardHost(sceneFrameBody);
+    } else if (global.VfFrame && typeof global.VfFrame.mount === "function" && layer) {
       frameApi = global.VfFrame.mount(layer, {
         id: controlsFrameId,
         title: "Moves",
@@ -4027,7 +5068,7 @@
         dockable: true,
         resizable: true,
         closable: true,
-        exitWhenLastFrameClosed: false,
+        exitWhenLastFrameClosed: true,
         alpha: 1,
         bodyTransparent: false,
         dockLocation: "br",
@@ -4038,25 +5079,55 @@
     }
     var panel = frameApi && frameApi.body ? frameApi.body : document.createElement("aside");
     panel.classList.add(controlsPanelClass);
-    panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
+    panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><div class="vf-chess-clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="white" inputmode="numeric" value="10:00" aria-label="White clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="black" inputmode="numeric" value="10:00" aria-label="Black clock"></div><div class="vf-chess-actions"><button class="vf-chess-start-game" data-vf-chess-start-game>Start Game</button><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button></div><label class="vf-chess-toggle"><input type="checkbox" data-vf-chess-auto-switch> Auto switch view</label><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
     panel.addEventListener("contextmenu", function (ev) {
       if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
       if (ev && typeof ev.stopPropagation === "function") { ev.stopPropagation(); }
     }, { passive: false, capture: true });
     if (!frameApi) {
       panel.setAttribute("data-vf-chess-panel", "1");
-      panel.classList.add("vf-chess-panel--fallback");
-      document.body.appendChild(panel);
+      if (sceneFrameBody) {
+        panel.classList.add("vf-chess-panel--in-frame");
+        sceneFrameBody.appendChild(panel);
+      } else {
+        panel.classList.add("vf-chess-panel--fallback");
+        document.body.appendChild(panel);
+      }
     }
     runtime.panelFrame = frameApi;
     runtime.panel = frameApi && frameApi.root ? frameApi.root : panel;
     runtime.panelBody = panel;
-    var button = panel.querySelector("[data-vf-chess-new-game]");
-    if (button) {
-      button.addEventListener("click", function () {
+    var startButton = panel.querySelector("[data-vf-chess-start-game]");
+    if (startButton) {
+      startButton.addEventListener("click", function () {
+        toggleChessClock(runtime);
+      });
+    }
+    var newGameButton = panel.querySelector("[data-vf-chess-new-game]");
+    if (newGameButton) {
+      newGameButton.addEventListener("click", function () {
         resetChessRuntime(runtime);
       });
     }
+    var autoSwitch = panel.querySelector("[data-vf-chess-auto-switch]");
+    if (autoSwitch) {
+      autoSwitch.checked = runtime.autoSwitchView === true;
+      autoSwitch.addEventListener("change", function () {
+        runtime.autoSwitchView = autoSwitch.checked === true;
+      });
+    }
+    var clockInputs = panel.querySelectorAll("[data-vf-chess-clock-side]");
+    for (var clockInputIndex = 0; clockInputIndex < clockInputs.length; clockInputIndex += 1) {
+      attachInlineClockEditor(runtime, clockInputs[clockInputIndex]);
+    }
+    panel.addEventListener("click", function (ev) {
+      var target = ev && ev.target && typeof ev.target.closest === "function"
+        ? ev.target.closest("[data-vf-chess-history-index]")
+        : null;
+      if (!target) { return; }
+      var index = Number(target.getAttribute("data-vf-chess-history-index") || 0) || 0;
+      restoreChessHistory(runtime, index);
+    });
   }
 
   function rebuildChessOccupancy(runtime) {
@@ -4070,17 +5141,45 @@
 
   function resetChessRuntime(runtime) {
     runtime.turn = "white";
+    runtime.gameOver = null;
+    runtime.clock.running = false;
+    runtime.clock.white_ms = Number(runtime.clock.start_white_ms || runtime.clock.default_ms || 600000);
+    runtime.clock.black_ms = Number(runtime.clock.start_black_ms || runtime.clock.default_ms || 600000);
+    runtime.clock.last_tick_ms = 0.0;
+    runtime.clock.editing_side = "";
+    runtime.clock.editing_value = "";
     runtime.selected = null;
     runtime.hoverSquare = null;
     runtime.hoverPiece = null;
+    runtime.hoverPromotion = null;
+    runtime.promotion = null;
+    clearChessPromotionOptions(runtime);
     runtime.moves = [];
+    runtime.currentMoveIndex = 0;
+    runtime.historySnapshots = [];
     runtime.animations = [];
+    runtime.nextCaptureOrder = 0;
     var ids = Object.keys(runtime.piecesByObjectId);
     for (var i = 0; i < ids.length; i += 1) {
       var p = runtime.piecesByObjectId[ids[i]];
+      if (p.start_mesh && p.mesh !== p.start_mesh) {
+        removeMeshFromScene(p.mesh);
+        if (Array.isArray(config.meshes) && config.meshes.indexOf(p.start_mesh) < 0) {
+          config.meshes.push(p.start_mesh);
+        }
+        p.mesh = p.start_mesh;
+        runtime.meshByObjectId[String(p.object_id)] = p.mesh;
+      }
+      p.role = String(p.start_role || p.role || "pawn");
       p.file = p.start_file;
       p.rank = p.start_rank;
       p.captured = false;
+      p.captured_by = "";
+      p.in_capture_tray = false;
+      p.capture_order = 0;
+      p.capture_tray_index = -1;
+      p.capture_tray_center = null;
+      p.has_moved = false;
       p._animating = false;
       setEntityProp(p.mesh, "center", pieceBoardCenter(p, 0.0));
       setEntityProp(p.mesh, "visible", true);
@@ -4089,6 +5188,7 @@
       setEntityProp(p.mesh, "receives_shadow", true);
     }
     rebuildChessOccupancy(runtime);
+    recordChessHistorySnapshot(runtime);
     resetChessHighlights(runtime);
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
@@ -4106,6 +5206,12 @@
       frameId: String(frameSpec.frame_id || config.frame_id || ""),
       meshByObjectId: Object.create(null),
       piecesByObjectId: Object.create(null),
+      pieceTemplateMeshes: Object.create(null),
+      promotionOptions: [],
+      promotionOptionsByObjectId: Object.create(null),
+      promotion: null,
+      hoverPromotion: null,
+      nextPromotionObjectId: 900000,
       squareRegionObjectId: chessSquareRegionObjectId(cfg),
       squareStates: Object.create(null),
       occupied: Object.create(null),
@@ -4114,7 +5220,26 @@
       hoverSquare: null,
       hoverPiece: null,
       moves: [],
+      currentMoveIndex: 0,
+      historySnapshots: [],
+      autoSwitchView: false,
+      pendingAutoSwitchAfterAnimations: false,
+      pendingAutoSwitchSide: "",
       animations: [],
+      nextCaptureOrder: 0,
+      gameOver: null,
+      clock: {
+        default_ms: 600000,
+        start_white_ms: 600000,
+        start_black_ms: 600000,
+        white_ms: 600000,
+        black_ms: 600000,
+        last_tick_ms: 0.0,
+        interval_id: 0,
+        running: false,
+        editing_side: "",
+        editing_value: ""
+      },
       panel: null,
       sceneDirtyVersion: 1
     };
@@ -4123,6 +5248,9 @@
       var oid = Number(entityProp(mesh, "object_id", 0) || 0);
       if (oid > 0) {
         runtime.meshByObjectId[String(oid)] = mesh;
+        if (isChessSquareSourceMesh(mesh, cfg)) {
+          suppressChessSquareVisualMesh(mesh);
+        }
       }
     }
     var pieces = Array.isArray(cfg.pieces) ? cfg.pieces : [];
@@ -4134,30 +5262,52 @@
         mesh: runtimeMeshByObjectId(runtime, objectId),
         side: String(raw.side || ""),
         role: String(raw.role || "pawn"),
+        start_role: String(raw.role || "pawn"),
         file: Number(raw.file || 0) || 0,
         rank: Number(raw.rank || 0) || 0,
         start_file: Number(raw.file || 0) || 0,
         start_rank: Number(raw.rank || 0) || 0,
         base_z: Number(raw.base_z != null ? raw.base_z : cfg.piece_base_z != null ? cfg.piece_base_z : 0.065) || 0.065,
-        captured: false
+        captured: false,
+        captured_by: "",
+        in_capture_tray: false,
+        capture_order: 0,
+        capture_tray_index: -1,
+        capture_tray_center: null,
+        has_moved: false
       };
       if (piece.mesh && piece.side && piece.file && piece.rank) {
+        piece.start_mesh = piece.mesh;
         setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
         setEntityProp(piece.mesh, "specular_strength", Number(cfg.piece_specular_strength || 0.055) || 0.055);
         setEntityProp(piece.mesh, "receives_shadow", true);
         runtime.piecesByObjectId[String(objectId)] = piece;
+        var templateKey = piece.side + ":" + piece.role;
+        if (!runtime.pieceTemplateMeshes[templateKey]) {
+          runtime.pieceTemplateMeshes[templateKey] = cloneJsonValue(piece.mesh);
+        }
       }
     }
     rebuildChessOccupancy(runtime);
+    recordChessHistorySnapshot(runtime);
     if (!global.__vfLocalOnlyFrameEvents) { global.__vfLocalOnlyFrameEvents = Object.create(null); }
     global.__vfLocalOnlyFrameEvents[runtime.frameId] = true;
     ensureChessPanel(runtime);
     updateChessPanel(runtime);
+    runtime.clock.interval_id = global.setInterval(function () {
+      updateChessClock(runtime);
+    }, 250);
     global.__vfNativeChessRuntime = runtime;
     return runtime;
   }
 
   function chessEventTarget(runtime, objectId, simplexId) {
+    var promotionOption = runtime && runtime.promotionOptionsByObjectId
+      ? runtime.promotionOptionsByObjectId[String(Number(objectId || 0) || 0)] || null
+      : null;
+    if (promotionOption) {
+      return { kind: "promotion", promotion: promotionOption };
+    }
     var square = Number(objectId || 0) === Number(runtime.squareRegionObjectId || 0)
       ? chessSquareFromSimplexId(runtime, simplexId)
       : chessSquareFromObjectId(runtime, objectId);
@@ -4170,7 +5320,7 @@
   function selectChessPiece(runtime, piece) {
     runtime.selected = targetPieceIsSelectable(runtime, piece) ? piece : null;
     refreshChessPieceSelectionPose(runtime);
-    resetChessHighlights(runtime);
+    resetChessHighlights(runtime, { skipPieceRefresh: true });
     requestChessInteractionFrame(runtime);
   }
 
@@ -4185,27 +5335,56 @@
   function moveChessPiece(runtime, piece, toFile, toRank) {
     var target = chessPieceAt(runtime, toFile, toRank);
     if (!chessLegalMove(runtime, piece, toFile, toRank)) { return false; }
+    truncateChessFuture(runtime);
+    var castle = chessCastleInfo(runtime, piece, toFile, toRank);
+    var fromFile = Number(piece.file);
+    var fromRank = Number(piece.rank);
     delete runtime.occupied[chessSquareKey(piece.file, piece.rank)];
     var fromCenter = toVec3(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
     var toCenter = [chessBoardX(toFile), chessBoardY(toRank), Number(piece.base_z || 0.065) || 0.065];
-    var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now();
     if (target) {
-      target.captured = true;
       delete runtime.occupied[chessSquareKey(target.file, target.rank)];
     }
     piece.file = toFile;
     piece.rank = toRank;
+    piece.has_moved = true;
     runtime.occupied[chessSquareKey(toFile, toRank)] = piece;
-    piece._animating = true;
-    runtime.animations.push({ piece: piece, captured: target || null, from: fromCenter, to: toCenter, start: now, progress: 0.0 });
-    runtime.moves.push(chessNotation(piece, target, toFile, toRank));
+    queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
+    if (target) {
+      queueCapturedPieceAnimation(runtime, target, piece.side);
+    }
+    if (castle && castle.rook) {
+      var rook = castle.rook;
+      delete runtime.occupied[chessSquareKey(castle.rookFromFile, toRank)];
+      var rookFromCenter = toVec3(entityProp(rook.mesh, "center", pieceBoardCenter(rook, 0.0)), pieceBoardCenter(rook, 0.0));
+      var rookToCenter = [chessBoardX(castle.rookToFile), chessBoardY(toRank), Number(rook.base_z || 0.065) || 0.065];
+      rook.file = castle.rookToFile;
+      rook.rank = toRank;
+      rook.has_moved = true;
+      runtime.occupied[chessSquareKey(rook.file, rook.rank)] = rook;
+      queueChessAnimation(runtime, rook, [rookFromCenter, rookToCenter], null);
+    }
+    if (chessIsPromotionMove(piece, toRank)) {
+      startChessPromotion(runtime, piece, target, fromFile, fromRank, toFile, toRank);
+      refreshChessPieceSelectionPose(runtime);
+      resetChessHighlights(runtime);
+      requestChessInteractionFrame(runtime);
+      return true;
+    }
+    commitChessMove(runtime, chessMoveNotation(runtime, piece, target, toFile, toRank, castle));
+    var moveResult = finishChessMoveResult(runtime, piece.side);
     runtime.turn = runtime.turn === "white" ? "black" : "white";
+    runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
+    recordChessHistorySnapshot(runtime);
     runtime.selected = null;
     refreshChessPieceSelectionPose(runtime);
     resetChessHighlights(runtime);
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
     requestChessInteractionFrame(runtime);
+    if (moveResult) {
+      startChessEndAnimation(runtime, moveResult);
+    }
     return true;
   }
 
@@ -4219,19 +5398,54 @@
     }
     var objectId = Number(evt.object_id || 0) || 0;
     var target = chessEventTarget(runtime, objectId, Number(evt.simplex_id || 0) || 0);
+    if (runtime.gameOver) { return; }
     if (eventName === "leave") {
       runtime.hoverSquare = null;
       runtime.hoverPiece = null;
+      runtime.hoverPromotion = null;
+      refreshChessPromotionOptions(runtime);
       resetChessHighlights(runtime);
       return;
     }
     if (eventName === "hover" || eventName === "move") {
-      runtime.hoverPiece = target.kind === "piece" ? target.piece : null;
-      runtime.hoverSquare = target.kind === "square" ? target.square : null;
-      resetChessHighlights(runtime);
+      var previousHoverPiece = runtime.hoverPiece || null;
+      var previousHoverPromotion = runtime.hoverPromotion || null;
+      var previousHoverSquareKey = runtime.hoverSquare
+        ? chessSquareKey(runtime.hoverSquare.file, runtime.hoverSquare.rank)
+        : "";
+      runtime.hoverPromotion = target.kind === "promotion" ? target.promotion : null;
+      var hoveredPieceCandidate = target.kind === "piece" ? target.piece : (target.kind === "square" ? target.piece : null);
+      runtime.hoverPiece = targetPieceIsSelectable(runtime, hoveredPieceCandidate) ? hoveredPieceCandidate : null;
+      runtime.hoverSquare = runtime.promotion ? null : (target.kind === "square" ? target.square : (target.kind === "piece" ? target.square : null));
+      var nextHoverSquareKey = runtime.hoverSquare
+        ? chessSquareKey(runtime.hoverSquare.file, runtime.hoverSquare.rank)
+        : "";
+      runtime.lastHoverTarget = {
+        kind: String(target.kind || "none"),
+        object_id: objectId,
+        simplex_id: Number(evt.simplex_id || 0) || 0,
+        square: runtime.hoverSquare ? { file: runtime.hoverSquare.file, rank: runtime.hoverSquare.rank } : null,
+        selected: runtime.selected ? { file: runtime.selected.file, rank: runtime.selected.rank, object_id: runtime.selected.object_id } : null
+      };
+      if (!runtime.selected && previousHoverPiece !== runtime.hoverPiece) {
+        refreshChessPieceSelectionPose(runtime);
+      }
+      if (previousHoverPromotion !== runtime.hoverPromotion) {
+        refreshChessPromotionOptions(runtime);
+        markChessSceneDirty(runtime);
+      }
+      resetChessHighlights(runtime, { skipPieceRefresh: true });
       return;
     }
     if (eventName !== "down" && eventName !== "up" && eventName !== "click") { return; }
+    if (runtime.promotion) {
+      if (target.kind === "promotion" && completeChessPromotion(runtime, target.promotion)) {
+        return;
+      }
+      refreshChessPromotionOptions(runtime);
+      requestChessInteractionFrame(runtime);
+      return;
+    }
     var selectablePiece = target.kind === "piece"
       ? target.piece
       : (target.kind === "square" ? target.piece : null);
@@ -4254,20 +5468,38 @@
     var remaining = [];
     var changed = false;
     var hadAnimations = runtime.animations.length > 0;
-    var motionStep = Math.max(0.005, Number(runtime.cfg.piece_motion_step_per_frame || 0.06) || 0.06);
     for (var i = 0; i < runtime.animations.length; i += 1) {
       var anim = runtime.animations[i];
-      var dx = Number(anim.to[0] || 0.0) - Number(anim.from[0] || 0.0);
-      var dy = Number(anim.to[1] || 0.0) - Number(anim.from[1] || 0.0);
-      var dz = Number(anim.to[2] || 0.0) - Number(anim.from[2] || 0.0);
-      var distance = Math.max(0.0001, Math.sqrt((dx * dx) + (dy * dy) + (dz * dz)));
-      var t = Math.max(0.0, Math.min(1.0, Number(anim.progress || 0.0) + (motionStep / distance)));
+      var durationMs = Math.max(16.0, Number(anim.duration_ms || 0.0) || chessMotionDurationMs(runtime, anim.path));
+      var lastTick = Number(anim.last_tick_ms || 0.0) || now;
+      var dtMs = Math.max(0.0, Math.min(34.0, now - lastTick));
+      anim.last_tick_ms = now;
+      anim.elapsed_ms = Math.max(0.0, Number(anim.elapsed_ms || 0.0) || 0.0) + dtMs;
+      var t = Math.max(0.0, Math.min(1.0, anim.elapsed_ms / durationMs));
       anim.progress = t;
-      var eased = t * t * (3.0 - (2.0 * t));
+      var path = Array.isArray(anim.path) && anim.path.length >= 2 ? anim.path : [anim.from, anim.to];
+      var totalLength = Math.max(0.0001, Number(anim.path_length || chessPathLength(path)) || chessPathLength(path) || 0.0001);
+      var remainingDistance = t * totalLength;
+      var from = path[0];
+      var to = path[1];
+      var localT = 0.0;
+      for (var pathIndex = 1; pathIndex < path.length; pathIndex += 1) {
+        from = path[pathIndex - 1];
+        to = path[pathIndex];
+        var dx = Number(to[0] || 0.0) - Number(from[0] || 0.0);
+        var dy = Number(to[1] || 0.0) - Number(from[1] || 0.0);
+        var dz = Number(to[2] || 0.0) - Number(from[2] || 0.0);
+        var segmentLength = Math.max(0.0001, Math.sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+        if (remainingDistance <= segmentLength || pathIndex === path.length - 1) {
+          localT = Math.max(0.0, Math.min(1.0, remainingDistance / segmentLength));
+          break;
+        }
+        remainingDistance -= segmentLength;
+      }
       var center = [
-        anim.from[0] + ((anim.to[0] - anim.from[0]) * eased),
-        anim.from[1] + ((anim.to[1] - anim.from[1]) * eased),
-        anim.from[2] + ((anim.to[2] - anim.from[2]) * eased)
+        from[0] + ((to[0] - from[0]) * localT),
+        from[1] + ((to[1] - from[1]) * localT),
+        from[2] + ((to[2] - from[2]) * localT)
       ];
       setEntityProp(anim.piece.mesh, "center", center);
       changed = true;
@@ -4276,11 +5508,20 @@
       } else {
         anim.piece._animating = false;
         setEntityProp(anim.piece.mesh, "center", anim.to);
-        if (anim.captured && anim.captured.mesh) { setEntityProp(anim.captured.mesh, "visible", false); }
       }
     }
     runtime.animations = remaining;
-    if (hadAnimations && !remaining.length) { refreshChessPieceSelectionPose(runtime); }
+    if (hadAnimations && !remaining.length) {
+      if (!runtime.gameOver) {
+        refreshChessPieceSelectionPose(runtime);
+      }
+      if (runtime.pendingAutoSwitchAfterAnimations === true) {
+        runtime.pendingAutoSwitchAfterAnimations = false;
+        if (runtime.autoSwitchView === true && typeof runtime.afterChessAnimationsComplete === "function") {
+          runtime.afterChessAnimationsComplete(runtime.pendingAutoSwitchSide || runtime.turn || "white");
+        }
+      }
+    }
     if (changed) { markChessSceneDirty(runtime); }
     return remaining.length > 0;
   }
@@ -4502,9 +5743,10 @@
     registry[key][depKey] = callback;
   }
 
-  function triggerFrameDependents(sourceFrameId) {
+  function triggerFrameDependents(sourceFrameId, options) {
     var key = String(sourceFrameId || "").trim();
     if (!key) { return; }
+    options = options && typeof options === "object" ? options : {};
     var registry = global.__vfNativeSceneFrameDependents;
     var deps = registry && registry[key];
     if (!deps || typeof deps !== "object") { return; }
@@ -4513,7 +5755,7 @@
       var fn = deps[keys[i]];
       if (typeof fn !== "function") { continue; }
       try {
-        fn();
+        fn(options);
       } catch (err) {
         failFast("dependent frame render failed for " + keys[i] + ": " + (err && err.message ? err.message : String(err)));
       }
@@ -4617,7 +5859,7 @@
         ? Math.max(0, Math.round(header.getBoundingClientRect().height || 0))
         : 34;
       var fit = Math.max(1, Math.min(width, Math.max(1, height - headerH)));
-      width = fit;
+      width = fit + (chessInteractionConfig() ? 260 : 0);
       height = fit + headerH;
     }
     panel.root.style.left = Math.round(rect.x * parentW) + "px";
@@ -4670,6 +5912,16 @@
         }
       }
     });
+    if (chessInteractionConfig() && panel && panel.root && panel.body) {
+      panel.root.setAttribute("data-vf-chess-board-frame", "1");
+      panel.root.classList.add(String((chessInteractionConfig() || {}).controls_frame_class || "vf-chess-frame"));
+      var boardHost = panel.body.querySelector(".vf-chess-board-host");
+      if (!boardHost) {
+        boardHost = document.createElement("div");
+        boardHost.className = "vf-chess-board-host";
+        panel.body.insertBefore(boardHost, panel.body.firstChild || null);
+      }
+    }
     applyVisibleFrameRect(panel);
     global.setTimeout(function () { applyVisibleFrameRect(panel); }, 0);
     return panel && panel.root ? panel.root : null;
@@ -4731,14 +5983,21 @@
           linkedEyeKey: "",
           baseCamera: null,
           exactInitCamera: null,
+          playerSideCameraStates: Object.create(null),
+          activePlayerSide: "white",
           rendering: false,
           lastRenderTsMs: 0.0,
           cameraFramePending: false,
           continuationFramePending: false,
+          cameraSwitch: null,
+          pendingAutoSwitchCamera: false,
+          pendingAutoSwitchSide: "white",
           keyLeft: false,
           keyRight: false,
           keyUp: false,
           keyDown: false,
+          cameraKeyLastTsMs: 0.0,
+          cameraKeyStepPending: false,
           dependencyWaitStartMs: 0.0
         };
       }
@@ -4761,8 +6020,13 @@
     controlState.keyRight = false;
     controlState.keyUp = false;
     controlState.keyDown = false;
+    controlState.cameraKeyLastTsMs = 0.0;
+    controlState.cameraKeyStepPending = false;
     controlState.cameraFramePending = false;
     controlState.continuationFramePending = false;
+    controlState.cameraSwitch = null;
+    controlState.pendingAutoSwitchCamera = false;
+    controlState.pendingAutoSwitchSide = "white";
     controlState.apertureInitDone = false;
     controlState.userInteracted = false;
     controlState.linkedEyeKey = "";
@@ -4782,33 +6046,25 @@
     var visibleSpec = null;
     var visibleMounted = false;
     var visibleLastDirtyVersion = -1;
+    var visibleLastMeshStructureSignature = "";
     var offscreenLastDirtyVersion = -1;
+    var offscreenLastMeshStructureSignature = "";
     var offscreenPixels = null;
-    var dependentMirrorFramePending = false;
-    var dependentMirrorFrameTimer = 0;
-    var dependentMirrorLastRenderMs = 0.0;
     if (!useVisibleFrame) {
       if (!global.VfDisplay || typeof global.VfDisplay.mountOffscreenGeomFrame !== "function") {
         failFast("offscreen scene frame support is unavailable");
       }
       offscreenPixels = offscreenFramePixels();
       if (dependencySourceFrameId) {
-        registerFrameDependent(dependencySourceFrameId, watchedFrameId, function () {
-          if (dependentMirrorFramePending === true) { return; }
-          dependentMirrorFramePending = true;
-          function flushDependentMirrorFrame() {
-            dependentMirrorFrameTimer = 0;
-            if (controlState.rendering === true) {
-              dependentMirrorFrameTimer = global.setTimeout(flushDependentMirrorFrame, 8);
-              return;
-            }
-            dependentMirrorFramePending = false;
-            dependentMirrorLastRenderMs = global.performance && typeof global.performance.now === "function"
-              ? global.performance.now()
-              : Date.now();
-            renderFrame();
+        registerFrameDependent(dependencySourceFrameId, watchedFrameId, function (dependencyOptions) {
+          dependencyOptions = dependencyOptions && typeof dependencyOptions === "object" ? dependencyOptions : {};
+          if (dependencyOptions.immediate !== true) {
+            failFast('dependent reflected frame "' + watchedFrameId + '" requires immediate source-synchronous rendering');
           }
-          global.requestAnimationFrame(flushDependentMirrorFrame);
+          if (controlState.rendering === true) {
+            failFast('dependent reflected frame "' + watchedFrameId + '" cannot render synchronously while already rendering');
+          }
+          renderFrame();
         });
       }
     }
@@ -4822,7 +6078,8 @@
       });
       visibleMounted = true;
     }
-    function pushVisibleRender(rendered) {
+    function pushVisibleRender(rendered, options) {
+      options = options && typeof options === "object" ? options : {};
       var payload = rendered && rendered.payload && typeof rendered.payload === "object"
         ? rendered.payload
         : { screen: [], frames: {}, geom: {} };
@@ -4841,7 +6098,7 @@
         visibleSpec = nextVisibleSpec;
         ensureVisibleGeomMount();
         scenePerf.fullSceneUpdates += 1;
-        global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId);
+        global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: options.immediate === true });
         return;
       }
       global.VfDisplay.renderFromJson(payload);
@@ -4855,7 +6112,8 @@
       }
       return nextCamera;
     }
-    function updateVisibleCameraOnly(camera) {
+    function updateVisibleCameraOnly(camera, options) {
+      options = options && typeof options === "object" ? options : {};
       if (!useVisibleFrame || !visibleSpec || !global.VfDisplay || typeof global.VfDisplay.updateDynamicGeomFrameCamera !== "function") {
         return false;
       }
@@ -4865,7 +6123,8 @@
         watchedFrameId,
         nextCamera,
         visibleSpec.lights || [],
-        visibleSpec.light_flares || null
+        visibleSpec.light_flares || null,
+        { immediate: options.immediate === true }
       ) === true;
     }
     function updateOffscreenCameraOnly(camera) {
@@ -4886,6 +6145,124 @@
         controlState.keyUp === true ||
         controlState.keyDown === true;
     }
+    function cameraSwitchActive() {
+      return !!(controlState.cameraSwitch && controlState.cameraSwitch.active === true);
+    }
+    function lerpNumber(a, b, t) {
+      return Number(a || 0.0) + ((Number(b || 0.0) - Number(a || 0.0)) * t);
+    }
+    function lerpVec3(a, b, t) {
+      a = toVec3(a, [0.0, 0.0, 0.0]);
+      b = toVec3(b, [0.0, 0.0, 0.0]);
+      return [lerpNumber(a[0], b[0], t), lerpNumber(a[1], b[1], t), lerpNumber(a[2], b[2], t)];
+    }
+    function smoothStep(t) {
+      t = Math.max(0.0, Math.min(1.0, Number(t || 0.0)));
+      return t * t * (3.0 - (2.0 * t));
+    }
+    function playerSideCamera(camera, side) {
+      var source = cloneCameraState(camera, cameraFallback);
+      var target = [0.0, 0.0, Number(toVec3(source.target, [0.0, 0.0, 0.9])[2] || 0.9)];
+      var pos = toVec3(source.pos, [3.9, -5.6, 3.2]);
+      var sideName = String(side || "white").toLowerCase();
+      var sideY = Math.max(0.1, Math.abs(Number(pos[1] || 0.0) || 5.6));
+      return {
+        pos: [pos[0], sideName === "black" ? sideY : -sideY, pos[2]],
+        target: target,
+        fov: Number(source.fov || 34.0) || 34.0,
+        up: toVec3(source.up, [0.0, 0.0, 1.0]),
+        min_distance: Number(source.min_distance || 0.0) || 0.0,
+        flip_x: source.flip_x === true
+      };
+    }
+    function normalizePlayerSide(side) {
+      return String(side || "white").toLowerCase() === "black" ? "black" : "white";
+    }
+    function cameraFromPlayerSideState(state, seedCamera) {
+      var base = cloneCameraState(state && state.baseCamera || seedCamera, cameraFallback);
+      var camera = cloneCameraState(base, cameraFallback);
+      if (cameraBehaviorProps().look_only_controls === true) {
+        camera = zoomCamera(camera, Math.max(0.35, Math.min(2.5, Number(state && state.zoomFactor || 1.0) || 1.0)));
+        camera = orbitCameraAroundTarget(camera, Number(state && state.orbitPhi || 0.0) || 0.0, Number(state && state.orbitTheta || 0.0) || 0.0);
+      }
+      return camera;
+    }
+    function ensurePlayerSideCameraState(side, seedCamera) {
+      var sideName = normalizePlayerSide(side);
+      if (!controlState.playerSideCameraStates) {
+        controlState.playerSideCameraStates = Object.create(null);
+      }
+      if (!controlState.playerSideCameraStates[sideName]) {
+        controlState.playerSideCameraStates[sideName] = {
+          baseCamera: playerSideCamera(seedCamera, sideName),
+          zoomFactor: 1.0,
+          orbitPhi: 0.0,
+          orbitTheta: 0.0
+        };
+      }
+      return controlState.playerSideCameraStates[sideName];
+    }
+    function storeActivePlayerSideCamera(camera) {
+      var sideName = normalizePlayerSide(controlState.activePlayerSide || "white");
+      if (!controlState.playerSideCameraStates) {
+        controlState.playerSideCameraStates = Object.create(null);
+      }
+      controlState.playerSideCameraStates[sideName] = {
+        baseCamera: cloneCameraState(controlState.baseCamera || camera, cameraFallback),
+        zoomFactor: Math.max(0.35, Math.min(2.5, Number(controlState.zoomFactor || 1.0) || 1.0)),
+        orbitPhi: Number(controlState.orbitPhi || 0.0) || 0.0,
+        orbitTheta: Number(controlState.orbitTheta || 0.0) || 0.0
+      };
+    }
+    function activatePlayerSideCameraState(side, seedCamera) {
+      var sideName = normalizePlayerSide(side);
+      var state = ensurePlayerSideCameraState(sideName, seedCamera);
+      controlState.activePlayerSide = sideName;
+      controlState.baseCamera = cloneCameraState(state.baseCamera, cameraFallback);
+      controlState.zoomFactor = Math.max(0.35, Math.min(2.5, Number(state.zoomFactor || 1.0) || 1.0));
+      controlState.orbitPhi = Number(state.orbitPhi || 0.0) || 0.0;
+      controlState.orbitTheta = Number(state.orbitTheta || 0.0) || 0.0;
+      controlState.exactInitCamera = null;
+      return cameraFromPlayerSideState(state, seedCamera);
+    }
+    function startAutoSwitchCamera(camera, side) {
+      var from = cloneCameraState(camera, cameraFallback);
+      storeActivePlayerSideCamera(from);
+      var sideName = normalizePlayerSide(side);
+      var toState = ensurePlayerSideCameraState(sideName, from);
+      var to = cameraFromPlayerSideState(toState, from);
+      controlState.cameraSwitch = {
+        active: true,
+        from: from,
+        to: to,
+        toSide: sideName,
+        toState: toState,
+        start_ms: global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now(),
+        duration_ms: 650.0
+      };
+      controlState.userInteracted = true;
+    }
+    function applyCameraSwitch(camera) {
+      var sw = controlState.cameraSwitch;
+      if (!sw || sw.active !== true) { return camera; }
+      var now = global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now();
+      var t = Math.max(0.0, Math.min(1.0, (now - Number(sw.start_ms || now)) / Math.max(1.0, Number(sw.duration_ms || 650.0))));
+      var eased = smoothStep(t);
+      var out = {
+        pos: lerpVec3(sw.from.pos, sw.to.pos, eased),
+        target: lerpVec3(sw.from.target, sw.to.target, eased),
+        up: lerpVec3(sw.from.up, sw.to.up, eased),
+        fov: lerpNumber(sw.from.fov, sw.to.fov, eased),
+        min_distance: lerpNumber(sw.from.min_distance, sw.to.min_distance, eased),
+        flip_x: sw.to.flip_x === true
+      };
+      if (t >= 1.0) {
+        sw.active = false;
+        controlState.cameraSwitch = null;
+        activatePlayerSideCameraState(sw.toSide || "white", sw.to);
+      }
+      return out;
+    }
     function visibleRenderBackpressureActive() {
       return useVisibleFrame &&
         global.VfDisplay &&
@@ -4895,13 +6272,36 @@
     function scheduleNextFrameIfNeeded(animationActive) {
       if (!useVisibleFrame && dependencySourceFrameId) { return; }
       if (controlState.continuationFramePending === true) { return; }
-      if (cameraKeysActive() || animationActive === true) {
+      if (cameraKeysActive() || animationActive === true || cameraSwitchActive()) {
         controlState.continuationFramePending = true;
         global.requestAnimationFrame(function () {
           controlState.continuationFramePending = false;
           renderFrame();
         });
       }
+    }
+    function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera) {
+      var liveCamera = {
+        pos: toVec3(renderCamera.pos, [0, 0, 0]),
+        target: toVec3(renderCamera.target, [0, 0, 0]),
+        up: toVec3(renderCamera.up, [0, 0, 1]),
+        fov: Number(renderCamera.fov || 34.0) || 34.0,
+        viewport_height_px: markerReferenceHeightPx,
+        viewport_marker_reference_height_px: markerReferenceHeightPx,
+        flip_x: renderCamera.flip_x === true
+      };
+      renderCamera.viewport_marker_reference_height_px = markerReferenceHeightPx;
+      renderCamera.viewport_height_px = markerReferenceHeightPx;
+      if (markerSizeCamera) {
+        renderCamera._marker_size_camera = markerSizeCamera;
+      }
+      if (Array.isArray(renderCamera.view_matrix) && renderCamera.view_matrix.length === 16) {
+        liveCamera.view_matrix = renderCamera.view_matrix.slice();
+      }
+      if (Array.isArray(renderCamera.projection_matrix) && renderCamera.projection_matrix.length === 16) {
+        liveCamera.projection_matrix = renderCamera.projection_matrix.slice();
+      }
+      global.__vfNativeSceneLiveCameras[String(frameSpec.frame_id || config.frame_id)] = liveCamera;
     }
     function ensureCameraHoldLoop(state) {
       if (!state || state.cameraHoldLoopPending === true) { return; }
@@ -4910,7 +6310,9 @@
       global.requestAnimationFrame(function () {
         state.cameraHoldLoopPending = false;
         if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
-        if (typeof state.requestCameraFrame === "function") {
+        if (typeof state.requestCameraHoldFrame === "function") {
+          state.requestCameraHoldFrame();
+        } else if (typeof state.requestCameraFrame === "function") {
           state.requestCameraFrame();
         }
         ensureCameraHoldLoop(state);
@@ -4943,6 +6345,16 @@
         renderFrame();
       }
       global.requestAnimationFrame(function () { flushCameraFrame(0); });
+    };
+    controlState.requestCameraHoldFrame = function () {
+      controlState.debugCameraRequestCount = Number(controlState.debugCameraRequestCount || 0) + 1;
+      if (controlState.controlsEnabled === false) { return; }
+      if (controlState.rendering === true || controlState.cameraFramePending === true) {
+        controlState.cameraFrameDirty = true;
+        return;
+      }
+      controlState.cameraKeyStepPending = true;
+      renderFrame();
     };
     function markActiveFrame() {
       controlRegistry.activeFrameId = watchedFrameId;
@@ -5033,13 +6445,21 @@
         if (activeState.controlsEnabled === false) { return; }
         if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }
         ev.preventDefault();
+        var wasActive = activeState.keyLeft === true || activeState.keyRight === true || activeState.keyUp === true || activeState.keyDown === true;
         if (key === "ArrowLeft") { activeState.keyLeft = true; }
         else if (key === "ArrowRight") { activeState.keyRight = true; }
         else if (key === "ArrowUp") { activeState.keyUp = true; }
         else if (key === "ArrowDown") { activeState.keyDown = true; }
+        if (!wasActive || Number(activeState.cameraKeyLastTsMs || 0.0) <= 0.0) {
+          activeState.cameraKeyLastTsMs = global.performance && typeof global.performance.now === "function"
+            ? global.performance.now()
+            : Date.now();
+        }
         activeState.userInteracted = true;
         ensureCameraHoldLoop(activeState);
-        if (typeof activeState.requestCameraFrame === "function") {
+        if (typeof activeState.requestCameraHoldFrame === "function") {
+          activeState.requestCameraHoldFrame();
+        } else if (typeof activeState.requestCameraFrame === "function") {
           activeState.requestCameraFrame();
         }
       }, true);
@@ -5056,6 +6476,10 @@
         else if (key === "ArrowRight") { activeState.keyRight = false; }
         else if (key === "ArrowUp") { activeState.keyUp = false; }
         else if (key === "ArrowDown") { activeState.keyDown = false; }
+        if (!(activeState.keyLeft === true || activeState.keyRight === true || activeState.keyUp === true || activeState.keyDown === true)) {
+          activeState.cameraKeyLastTsMs = 0.0;
+          activeState.cameraKeyStepPending = false;
+        }
         if (typeof activeState.requestCameraFrame === "function") {
           activeState.requestCameraFrame();
         }
@@ -5071,6 +6495,8 @@
           state.keyRight = false;
           state.keyUp = false;
           state.keyDown = false;
+          state.cameraKeyLastTsMs = 0.0;
+          state.cameraKeyStepPending = false;
         }
       }, true);
     }
@@ -5151,12 +6577,23 @@
           if (controlState.controlsEnabled !== false) {
             var orbitSpeed = Number(controlState.orbitSpeedRadPerSec || 0.0) || 0.0;
             if (orbitSpeed > 0.0) {
+              var keyHoldActive = cameraKeysActive();
+              var keyDtSec = controlState.cameraKeyStepPending === true
+                ? (1.0 / 30.0)
+                : dtSec;
               var deltaPhi = 0.0;
               var deltaTheta = 0.0;
-              if (controlState.keyLeft) { deltaPhi -= orbitSpeed * dtSec; }
-              if (controlState.keyRight) { deltaPhi += orbitSpeed * dtSec; }
-              if (controlState.keyUp) { deltaTheta += orbitSpeed * dtSec; }
-              if (controlState.keyDown) { deltaTheta -= orbitSpeed * dtSec; }
+              if (keyHoldActive && controlState.cameraKeyStepPending === true) {
+                if (controlState.keyLeft) { deltaPhi -= orbitSpeed * keyDtSec; }
+                if (controlState.keyRight) { deltaPhi += orbitSpeed * keyDtSec; }
+                if (controlState.keyUp) { deltaTheta += orbitSpeed * keyDtSec; }
+                if (controlState.keyDown) { deltaTheta -= orbitSpeed * keyDtSec; }
+                controlState.cameraKeyLastTsMs = nowMs;
+                controlState.cameraKeyStepPending = false;
+              } else if (!keyHoldActive) {
+                controlState.cameraKeyLastTsMs = 0.0;
+                controlState.cameraKeyStepPending = false;
+              }
               if (deltaPhi !== 0.0 || deltaTheta !== 0.0) {
                 controlState.orbitPhi += deltaPhi;
                 controlState.orbitTheta += deltaTheta;
@@ -5241,70 +6678,62 @@
               }
             }
           }
-          var liveCamera = {
-            pos: toVec3(renderCamera.pos, [0, 0, 0]),
-            target: toVec3(renderCamera.target, [0, 0, 0]),
-            up: toVec3(renderCamera.up, [0, 0, 1]),
-            fov: Number(renderCamera.fov || 34.0) || 34.0,
-            viewport_height_px: markerReferenceHeightPx,
-            viewport_marker_reference_height_px: markerReferenceHeightPx,
-            flip_x: renderCamera.flip_x === true
-          };
-          renderCamera.viewport_marker_reference_height_px = markerReferenceHeightPx;
-          renderCamera.viewport_height_px = markerReferenceHeightPx;
-          if (markerSizeCamera) {
-            renderCamera._marker_size_camera = markerSizeCamera;
+          publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
+        if (useVisibleFrame && sceneWorldAnimationsPending() && visibleRenderBackpressureActive()) {
+          controlState.rendering = false;
+          scheduleNextFrameIfNeeded(true);
+          return;
+        }
+        var worldAnimationActive = dependencySourceFrameId
+          ? sceneWorldAnimationsPending()
+          : applySceneWorldFrame(seconds);
+        if (controlState.pendingAutoSwitchCamera === true && worldAnimationActive !== true) {
+          controlState.pendingAutoSwitchCamera = false;
+          startAutoSwitchCamera(renderCamera, controlState.pendingAutoSwitchSide || "white");
+        }
+        renderCamera = applyCameraSwitch(renderCamera);
+        publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
+        var dirtyVersion = currentSceneWorldDirtyVersion();
+        var meshStructureSignature = sceneWorldMeshStructureSignature();
+        var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
+        if (canUseVisibleCameraOnly) {
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        }
+        if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: cameraKeysActive() })) {
+          scenePerf.cameraOnlyUpdates += 1;
+          if (controlState.debugRenderFrameCount % 60 === 0) {
+            chessLagDebug(
+              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
+                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
+                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
+                " full=" + Number(scenePerf.fullSceneUpdates || 0)
+            );
           }
-          if (Array.isArray(renderCamera.view_matrix) && renderCamera.view_matrix.length === 16) {
-            liveCamera.view_matrix = renderCamera.view_matrix.slice();
-          }
-          if (Array.isArray(renderCamera.projection_matrix) && renderCamera.projection_matrix.length === 16) {
-            liveCamera.projection_matrix = renderCamera.projection_matrix.slice();
-          }
-          global.__vfNativeSceneLiveCameras[String(frameSpec.frame_id || config.frame_id)] = liveCamera;
-        if (!useVisibleFrame && renderCamera && renderCamera._skip_render === true) {
-          if (!dependencySourceFrameId) {
-            global.requestAnimationFrame(renderFrame);
+          controlState.rendering = false;
+          scheduleNextFrameIfNeeded(worldAnimationActive);
+          return;
+        }
+        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)) {
+          scenePerf.cameraOnlyUpdates += 1;
+          if (controlState.debugRenderFrameCount % 60 === 0) {
+            chessLagDebug(
+              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
+                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
+                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
+                " full=" + Number(scenePerf.fullSceneUpdates || 0)
+            );
           }
           controlState.rendering = false;
           return;
         }
-        var chessAnimationActive = applyChessInteractionFrame(seconds);
-        var dirtyVersion = currentChessSceneDirtyVersion();
         if (useVisibleFrame) {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));
-        }
-        if (cameraOnlyFastPathEnabled && useVisibleFrame && visibleSpec && dirtyVersion === visibleLastDirtyVersion && updateVisibleCameraOnly(renderCamera)) {
-          scenePerf.cameraOnlyUpdates += 1;
-          if (controlState.debugRenderFrameCount % 60 === 0) {
-            chessLagDebug(
-              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
-                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
-                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
-                " full=" + Number(scenePerf.fullSceneUpdates || 0)
-            );
-          }
-          controlState.rendering = false;
-          scheduleNextFrameIfNeeded(chessAnimationActive);
-          return;
-        }
-        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && updateOffscreenCameraOnly(renderCamera)) {
-          scenePerf.cameraOnlyUpdates += 1;
-          if (controlState.debugRenderFrameCount % 60 === 0) {
-            chessLagDebug(
-              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
-                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
-                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
-                " full=" + Number(scenePerf.fullSceneUpdates || 0)
-            );
-          }
-          controlState.rendering = false;
-          return;
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
         }
         var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });
         if (useVisibleFrame) {
-          pushVisibleRender(rendered);
+          pushVisibleRender(rendered, { immediate: !!chessInteractionConfig() });
           visibleLastDirtyVersion = dirtyVersion;
+          visibleLastMeshStructureSignature = meshStructureSignature;
         } else {
           offscreenSpec = rendered.payload && rendered.payload.geom
             ? rendered.payload.geom[watchedFrameId] || null
@@ -5317,7 +6746,8 @@
           }
           global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId);
           offscreenLastDirtyVersion = dirtyVersion;
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));
+          offscreenLastMeshStructureSignature = meshStructureSignature;
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
         }
         chessLagDebug(
           "render_full count=" + Number(controlState.debugRenderFrameCount || 0) +
@@ -5327,13 +6757,20 @@
             " dirty=" + Number(dirtyVersion || 0)
         );
         controlState.rendering = false;
-        scheduleNextFrameIfNeeded(chessAnimationActive);
+        scheduleNextFrameIfNeeded(worldAnimationActive);
       } catch (err) {
         controlState.rendering = false;
         failFast("render loop failed: " + (err && err.message ? err.message : String(err)));
       }
     }
     if (chessRuntime) {
+      chessRuntime.afterChessAnimationsComplete = function (side) {
+        controlState.pendingAutoSwitchCamera = true;
+        controlState.pendingAutoSwitchSide = String(side || "white");
+        if (typeof chessRuntime.requestInteractionFrame === "function") {
+          chessRuntime.requestInteractionFrame();
+        }
+      };
       chessRuntime.requestInteractionFrame = function () {
         if (controlState.interactionFramePending === true) { return; }
         controlState.interactionFramePending = true;

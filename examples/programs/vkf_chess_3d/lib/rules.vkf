@@ -110,3 +110,44 @@ legal_shape(piece:Piece, target_side:str, to_file:num, to_rank:num, path_clear:b
             @: false
         @: piece_shape_move(piece, to_file, to_rank)
     @: false
+
+castle_side(piece:Piece, to_file:num, to_rank:num, path_clear:bool, king_safe_after:bool, castle_path_safe:bool, rook_available:bool, can_castle_king:bool, can_castle_queen:bool) -> str:
+    """Return the castling side accepted by state-owned castling rights."""
+    piece.role = "king"?
+        piece.has_moved? @: ""
+        piece.file = 5?
+            piece.rank = to_rank?
+                king_safe_after?
+                    castle_path_safe?
+                        path_clear?
+                            rook_available?
+                                to_file = 7?
+                                    can_castle_king? @: "king"
+                                to_file = 3?
+                                    can_castle_queen? @: "queen"
+        @: ""
+    @: ""
+
+is_en_passant(piece:Piece, target_side:str, to_file:num, to_rank:num, last_double_pawn_side:str, last_double_pawn_file:num, last_double_pawn_rank:num) -> bool:
+    """Validate en passant from the last double-pawn move stored in GameState."""
+    piece.role = "pawn"?
+        target_side = ""?
+            last_double_pawn_side != ""?
+                last_double_pawn_side != piece.side?
+                    abs_num(to_file - piece.file) = 1?
+                        to_file = last_double_pawn_file?
+                            piece.side = "white"?
+                                piece.rank = 5?
+                                    last_double_pawn_rank = 5?
+                                        to_rank = 6? @: true
+                            piece.rank = 4?
+                                last_double_pawn_rank = 4?
+                                    to_rank = 3? @: true
+    @: false
+
+legal_shape_ext(piece:Piece, target_side:str, to_file:num, to_rank:num, path_clear:bool, king_safe_after:bool, castle_path_safe:bool, rook_available:bool, can_castle_king:bool, can_castle_queen:bool, last_double_pawn_side:str, last_double_pawn_file:num, last_double_pawn_rank:num) -> bool:
+    """Validate normal moves plus state-owned castling and en passant cases."""
+    legal_shape(piece, target_side, to_file, to_rank, path_clear, king_safe_after)? @: true
+    castle_side(piece, to_file, to_rank, path_clear, king_safe_after, castle_path_safe, rook_available, can_castle_king, can_castle_queen) != ""? @: true
+    king_safe_after? @: is_en_passant(piece, target_side, to_file, to_rank, last_double_pawn_side, last_double_pawn_file, last_double_pawn_rank)
+    @: false

@@ -2,6 +2,9 @@ ui:.ui
 math:.math
 ui.set_mode("overlay")
 
+native_scene_config_json: '[]'
+native_scene_runtime_packets_path: "runtime-packets/100_axis_4_panel.vf-runtime-packets.json"
+
 d: ui.display
 
 curve_x: [-1.0, -0.875, -0.75, -0.625, -0.5, -0.375, -0.25, -0.125, 0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0] -> u

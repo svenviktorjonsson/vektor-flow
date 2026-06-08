@@ -77,10 +77,11 @@ board_reflection_overlay():
         kind: "quad",
         object_id: 1,
         center: [0.0, 0.0, 0.065],
-        size: [8.0, 8.0],
+        size: [8.6, 8.6],
         color: [1.0, 1.0, 1.0, 1.0],
         texture: (
-            kind: "checker",
+            kind: "chess_board",
+            font: "noto_sans",
             color_a: [0.18, 0.11, 0.07, 1.0],
             color_b: [0.92, 0.80, 0.58, 1.0],
             scale: [8.0, 8.0]
@@ -149,7 +150,7 @@ piece_role(local:num, file:num) -> str:
 piece_color(side:str) -> list(num, num, num, num):
     """Return RGBA color for a chess side."""
     side = "white"? @: [1.00, 0.96, 0.78, 1.0]
-    @: [0.18, 0.11, 0.07, 1.0]
+    @: [0.34, 0.22, 0.13, 1.0]
 
 piece_size(role:str) -> num:
     """Return primitive display size for one role."""
@@ -174,8 +175,8 @@ piece_body_height(role:str) -> num:
     @: 0.98
 
 piece_base_z() -> num:
-    """Return the board contact height used by all visible piece hulls."""
-    @: 0.065
+    """Return the slightly raised contact height used by visible piece hulls."""
+    @: 0.077
 
 piece_rotation(side:str, role:str) -> list(num, num, num):
     """Return side-specific mesh orientation for baked chess geometry."""
@@ -282,14 +283,15 @@ chess_interaction():
         square_object_id_last: 65,
         piece_object_id_first: 66,
         piece_object_id_last: 97,
-        square_highlight_legal: [0.42, 0.88, 0.36, 0.58],
-        square_highlight_illegal: [0.90, 0.20, 0.12, 0.62],
-        square_highlight_hover: [0.30, 0.58, 1.00, 0.56],
-        square_highlight_selected: [0.34, 0.66, 1.00, 0.74],
-        piece_motion_step_per_frame: 0.06,
+        square_highlight_legal: [0.08, 1.00, 0.18, 0.56],
+        square_highlight_illegal: [1.00, 0.12, 0.06, 0.56],
+        square_highlight_hover: [0.24, 0.62, 1.00, 0.78],
+        square_highlight_selected: [0.28, 0.72, 1.00, 0.92],
+        piece_motion_min_duration_ms: 80,
+        piece_motion_units_per_second: 4.8,
         piece_base_z: piece_base_z(),
         piece_specular_strength: 0.055,
-        selected_piece_specular_strength: 0.08,
+        selected_piece_specular_strength: 0.16,
         hit_regions: [
             (
                 id: "vkf_chess_board_squares",
@@ -327,6 +329,10 @@ overlay_scene():
             look_only_controls: true
         ),
         timing: (fps:60, duration_seconds:12.0, boundary:"repeat"),
+        render_options: (
+            mirror_source_scale: 0.5,
+            mirror_source_max_px: 1536
+        ),
         plane: (
             center: [0.0, 0.0],
             size: 8.4,

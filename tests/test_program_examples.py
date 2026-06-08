@@ -216,9 +216,10 @@ def test_foldered_vkf_chess_3d_exposes_native_overlay_contract() -> None:
     assert "window.__vfNativeSceneConfigs" in program.html_text
     assert '"kind": "screen"' in program.html_text
     assert '"reflectivity": 0.2' in program.html_text
-    assert '"kind": "checker"' in program.html_text
+    assert '"kind": "chess_board"' in program.html_text
+    assert '"font": "noto_sans"' in program.html_text
     assert '"scale": [8.0, 8.0]' in program.html_text
-    assert '"size": [8.0, 8.0]' in program.html_text
+    assert '"size": [8.6, 8.6]' in program.html_text
     assert "white_king_e1" in program.html_text
     assert "black_queen_d8" in program.html_text
     assert "sq_h8" not in program.html_text
@@ -245,7 +246,8 @@ def test_foldered_vkf_chess_3d_exposes_native_overlay_contract() -> None:
     assert "white_king_e1" in mesh_ids
     assert "black_queen_d8" in mesh_ids
     board_mesh = next(mesh for mesh in scene_config["scene_ir"]["meshes"] if mesh["id"] == "board_reflection_overlay")
-    assert board_mesh["properties"]["texture"]["kind"] == "checker"
+    assert board_mesh["properties"]["texture"]["kind"] == "chess_board"
+    assert board_mesh["properties"]["texture"]["font"] == "noto_sans"
     assert board_mesh["properties"]["surface_system"]["kind"] == "screen"
     assert board_mesh["properties"]["surface_system"]["reflectivity"] == 0.2
     assert board_mesh["properties"]["surface_system"]["flip_y"] is True
@@ -264,7 +266,8 @@ def test_foldered_vkf_chess_3d_exposes_native_overlay_contract() -> None:
     assert white_rook["properties"]["rotation"] == [0.0, 0.0, 0.0]
     assert white_rook["properties"]["object_id"] == 66
     assert white_rook["properties"]["specular_strength"] == 0.055
-    assert white_rook["properties"]["center"][2] == pytest.approx(board_mesh["properties"]["center"][2])
+    assert white_rook["properties"]["center"][2] > board_mesh["properties"]["center"][2]
+    assert white_rook["properties"]["center"][2] == pytest.approx(0.077)
     assert len(white_rook["properties"]["vertices"]) > 7000
     assert len(white_rook["properties"]["indices"]) > 1200
     white_knight = next(mesh for mesh in scene_config["scene_ir"]["meshes"] if mesh["id"] == "white_knight_b1")
@@ -276,6 +279,10 @@ def test_foldered_vkf_chess_3d_exposes_native_overlay_contract() -> None:
     assert scene_config["interaction"]["square_region_object_id"] == 2
     assert scene_config["interaction"]["square_object_id_first"] == 2
     assert scene_config["interaction"]["piece_object_id_first"] == 66
+    assert scene_config["interaction"]["square_highlight_hover"] == [0.24, 0.62, 1.0, 0.78]
+    assert scene_config["interaction"]["square_highlight_selected"] == [0.28, 0.72, 1.0, 0.92]
+    assert scene_config["interaction"]["selected_piece_specular_strength"] == pytest.approx(0.16)
+    assert scene_config["interaction"]["hit_regions"][0]["exclusive"] is True
     for light in scene_config["scene_ir"]["lights"]:
         assert light["properties"]["motion"] == "fixed"
         assert "angular_velocity" not in light["properties"]
@@ -286,26 +293,138 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
 
     assert "function entityStateEmbeddings(entity)" in runtime
     assert "function applyEntityStateEmbedding(entity, stateName)" in runtime
-    assert "function buildChessSquareRegionMesh(cfg, runtime)" in runtime
-    assert '"vkf_chess_square_regions"' in runtime
-    assert "alpha: 0.0" in runtime
-    assert "pickable: true" in runtime
+    assert "function assertChessHitRegionContract(cfg)" in runtime
+    assert "chess interaction requires a plane_grid hit region" in runtime
+    assert "chess interaction requires declared hit_regions in geom payload" in runtime
+    assert "must be exclusive=true" in runtime
     assert "surface.square_highlights = chessSquareHighlightColors(runtime)" in runtime
     assert "function chessSquareFromSimplexId(runtime, simplexId)" in runtime
     assert "primitive/simplex" not in runtime
-    assert 'var stateName = !runtime.selected || sameAsSelected ? "selectable" : (legal ? "legal" : "illegal");' in runtime
+    assert "if (runtime.hoverSquare && runtime.selected)" in runtime
+    assert "var previousHoverSquareKey = runtime.hoverSquare" in runtime
+    assert "var nextHoverSquareKey = runtime.hoverSquare" in runtime
+    assert 'var stateName = legal ? "legal" : "illegal";' in runtime
     assert "setChessSquareRegionState(runtime, runtime.hoverSquare.file, runtime.hoverSquare.rank, stateName, fallbackColor)" in runtime
+    assert "function attachChessSquareVisualState(mesh, runtime)" in runtime
+    assert "var hoveredPieceCandidate = target.kind === \"piece\" ? target.piece : (target.kind === \"square\" ? target.piece : null);" in runtime
+    assert "runtime.hoverPiece = targetPieceIsSelectable(runtime, hoveredPieceCandidate) ? hoveredPieceCandidate : null;" in runtime
+    assert "blendRgba(color, [0.34, 0.70, 1.0, 1.0], 0.38)" in runtime
+    assert "blendRgba(color, [0.28, 0.78, 1.0, 1.0], 0.56)" in runtime
+    assert "function chessCastleInfo(runtime, piece, toFile, toRank)" in runtime
+    assert "chessSquareAttackedBy(runtime, throughFile, toRank, enemySide)" in runtime
+    assert "function chessWouldLeaveKingInCheck(runtime, piece, toFile, toRank)" in runtime
+    assert "function chessKingInCheck(runtime, side)" in runtime
+    assert "function chessSideHasLegalMove(runtime, side)" in runtime
+    assert "return notation + (chessSideHasLegalMove(runtime, enemySide) ? \"+\" : \"++\")" in runtime
+    assert 'notation: kingside ? "O-O" : "O-O-O"' in runtime
+    assert "rook.has_moved = true" in runtime
     assert 'center[2] = Math.max(Number(center[2] || 0.0), 0.12)' in runtime
     assert 'eventName !== "down" && eventName !== "up" && eventName !== "click"' in runtime
     assert 'setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))))' in runtime
     assert 'piece._animating = true' in runtime
-    assert "runtime.animations.push({ piece: piece, captured: target || null, from: fromCenter, to: toCenter, start: now, progress: 0.0 })" in runtime
-    assert "var eased = t * t * (3.0 - (2.0 * t));" in runtime
+    assert "function queueChessAnimation(runtime, piece, path, capturedPiece)" in runtime
+    assert "queueChessAnimation(runtime, piece, [fromCenter, toCenter], null)" in runtime
+    assert "function queueCapturedPieceAnimation(runtime, capturedPiece, capturerSide)" in runtime
+    assert "function chessCapturedTrayCenter(runtime, piece, index)" in runtime
+    assert "function chessPieceFootprintRadius(piece)" in runtime
+    assert "function assignChessCapturedTraySlots(runtime, capturerSide)" in runtime
+    assert "var radius = chessPieceFootprintRadius(piece);" in runtime
+    assert "piece.capture_tray_center = [centerX, sideY + (row * rowDir * 0.74), Number(piece.base_z || 0.065) || 0.065];" in runtime
+    assert "capture_order: Number(piece.capture_order || 0) || 0" in runtime
+    assert "capture_tray_index: Number(piece.capture_tray_index || -1)" in runtime
+    assert "function chessSortCapturedPieces(a, b)" in runtime
+    assert "var orderDelta = (Number(a && a.capture_order || 0) || 0) - (Number(b && b.capture_order || 0) || 0);" in runtime
+    assert "function startChessPromotion(runtime, piece, target, fromFile, fromRank, toFile, toRank)" in runtime
+    assert "function completeChessPromotion(runtime, option)" in runtime
+    assert "runtime.promotionOptionsByObjectId[String(objectId)]" in runtime
+    assert "runtime.meshByObjectId[String(objectId)] = mesh" in runtime
+    assert "delete runtime.meshByObjectId[String(option.object_id || 0)]" in runtime
+    assert "function applyChessPieceInteractionVisual(runtime, mesh, side, hovered, selected, baseCenter)" in runtime
+    assert "applyChessPieceInteractionVisual(runtime, option.mesh, option.side, hovered, false, baseCenter)" in runtime
+    assert "applyChessPieceInteractionVisual(runtime, piece.mesh, piece.side, hovered, selected, pieceBoardCenter(piece, 0.0))" in runtime
+    assert "selected ? 0.18 : 0.0" not in runtime
+    assert "center[2] += 0.12" not in runtime
+    assert 'setEntityProp(mesh, "use_vertex_color", false)' in runtime
+    assert 'setEntityProp(mesh, "static_vertices", false)' in runtime
+    assert "delete mesh.__vfSmoothFieldMeshVertices" in runtime
+    assert "delete mesh.__vfSmoothFieldMeshVertices" in runtime
+    assert "config.meshes.push(mesh)" in runtime
+    assert "keepChosenPromotionMesh(runtime, option)" in runtime
+    assert "rawMeshSpecs.push(option.mesh)" in runtime
+    assert "baseCenter: [baseX, baseY, boardZ + promotionUnitHeight]" in runtime
+    assert "baseX + (i * promotionSpacing)" in runtime
+    assert "queueChessAnimation(runtime, piece, [fromCenter, abovePawnCenter, toCenter], null);" in runtime
+    assert "function formatChessClock(ms)" in runtime
+    assert "function setChessClockRunning(runtime, running)" in runtime
+    assert "function toggleChessClock(runtime)" in runtime
+    assert "runtime.clock.running !== true" in runtime
+    assert "data-vf-chess-start-game" in runtime
+    assert "data-vf-chess-clock-side=\"white\"" in runtime
+    assert "function attachInlineClockEditor(runtime, input)" in runtime
+    assert "beginInlineClockEdit(runtime, input)" in runtime
+    assert "commitInlineClockEdit(runtime, input, true)" in runtime
+    assert "runtime.clock.start_white_ms = Number(runtime.clock.white_ms || 0) || 0" in runtime
+    assert "runtime.clock.white_ms = Number(runtime.clock.start_white_ms || runtime.clock.default_ms || 600000)" in runtime
+    assert "default_ms: 600000" in runtime
+    assert 'value="10:00"' in runtime
+    assert "whiteClockEl.readOnly = runtime.clock.running === true" in runtime
+    assert "global.prompt" not in runtime
+    assert "runtime.clock.interval_id = global.setInterval" in runtime
+    assert "function startChessEndAnimation(runtime, result)" in runtime
+    assert "function finishChessMoveResult(runtime, moverSide)" in runtime
+    assert "replaceChessPieceRoleMesh(runtime, piece, \"pawn\")" in runtime
+    assert "if (!runtime.gameOver) {\n        refreshChessPieceSelectionPose(runtime);\n      }" in runtime
+    assert "white_win" in runtime
+    assert "black_win" in runtime
+    assert "draw" in runtime
+    assert "notation += chessSideHasLegalMove(runtime, enemySide) ? \"+\" : \"++\";" in runtime
+    assert "function restoreChessHistory(runtime, moveIndex)" in runtime
+    assert "runtime.historySnapshots[index] = chessSnapshot(runtime)" in runtime
+    assert 'data-vf-chess-history-index' in runtime
+    assert 'data-vf-chess-auto-switch' in runtime
+    assert "function playerSideCamera(camera, side)" in runtime
+    assert "playerSideCameraStates: Object.create(null)" in runtime
+    assert "function activatePlayerSideCameraState(side, seedCamera)" in runtime
+    assert "function applyCameraSwitch(camera)" in runtime
+    assert "runtime.pendingAutoSwitchAfterAnimations = runtime.autoSwitchView === true" in runtime
+    assert 'runtime.pendingAutoSwitchSide = String(runtime.turn || "white")' in runtime
+    assert "startAutoSwitchCamera(renderCamera, controlState.pendingAutoSwitchSide || \"white\")" in runtime
+    assert "applyChessPieceInteractionVisual(runtime, option.mesh, option.side, hovered, false, baseCenter)" in runtime
+    assert "var fieldProxySize = Math.max(0.1, fieldSpanX, fieldSpanY, fieldSpanZ)" in runtime
+    assert "pick_passthrough_when = \"promotion_active\"" in runtime
+    assert "pick_context: {" in runtime
+    assert "global.__vfGeomPickContext[String(frameSpec.frame_id || config.frame_id)]" in runtime
+    assert "promotion_active: promotionActive" in runtime
+    assert "function chessMeshStructureSignature()" in runtime
+    assert "meshStructureSignature === visibleLastMeshStructureSignature" in runtime
+    assert "runtime.animations.filter(function (anim) { return !anim || anim.piece !== piece; })" in runtime
+    assert "var before = chessCapturedPiecesForSide(runtime, capturerSide);" in runtime
+    assert "runtime.nextCaptureOrder += 1;" in runtime
+    assert "capturedPiece.capture_order = runtime.nextCaptureOrder;" in runtime
+    assert "var capturedForSide = assignChessCapturedTraySlots(runtime, capturerSide);" in runtime
+    assert "if (oldIndex >= 0 && i <= oldIndex) { continue; }" in runtime
+    assert "queueChessAnimation(runtime, trayPiece, [currentCenter, sortedCenter], null);" in runtime
+    assert "[trayCenter[0], trayCenter[1], liftZ]" in runtime
+    assert "piece.captured !== true || piece.in_capture_tray === true" in runtime
+    assert "function chessPathLength(path)" in runtime
+    assert "function chessMotionDurationMs(runtime, path)" in runtime
+    assert "piece_motion_units_per_second" in runtime
+    assert "duration_ms: chessMotionDurationMs(runtime, normalizedPath)" in runtime
+    assert "var durationMs = Math.max(16.0, Number(anim.duration_ms || 0.0) || chessMotionDurationMs(runtime, anim.path));" in runtime
+    assert "anim.elapsed_ms = Math.max(0.0, Number(anim.elapsed_ms || 0.0) || 0.0) + dtMs;" in runtime
+    assert "var t = Math.max(0.0, Math.min(1.0, anim.elapsed_ms / durationMs));" in runtime
+    assert "var path = Array.isArray(anim.path) && anim.path.length >= 2 ? anim.path : [anim.from, anim.to];" in runtime
+    assert "var remainingDistance = t * totalLength;" in runtime
+    assert "function currentSceneWorldDirtyVersion()" in runtime
+    assert "function sceneWorldAnimationsPending()" in runtime
+    assert "function applySceneWorldFrame(seconds)" in runtime
+    assert "var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes.slice() : [];" in runtime
+    assert "function sceneWorldMeshStructureSignature()" in runtime
+    assert "if (useVisibleFrame && sceneWorldAnimationsPending() && visibleRenderBackpressureActive())" in runtime
     assert "function chessLagDebugEnabled()" in runtime
     assert "if (!chessLagDebugEnabled()) { return; }" in runtime
     assert "camera_request_coalesced" in runtime
     assert "render_camera_only" in runtime
-    assert "dependentMirrorFramePending" in runtime
     assert "renderOptions.mirror_source_scale" in runtime
     assert "renderOptions.mirror_source_max_px" in runtime
     assert ": 1.0" in runtime
@@ -313,42 +432,98 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function ensureVisibleSceneFrameShell()" in runtime
     assert "global.VfFrame.mount(layer" in runtime
     assert "exitWhenLastFrameClosed: true" in runtime
+    assert 'sceneFrame.setAttribute("data-vf-chess-board-frame", "1")' in runtime
+    assert 'sceneFrameBody.appendChild(panel)' in runtime
+    assert 'panel.classList.add("vf-chess-panel--in-frame")' in runtime
+    assert "function attachChessPanelToSceneFrame(runtime, sceneFrame, sceneFrameBody, controlsFrameClass)" in runtime
+    assert "attachChessPanelToSceneFrame(runtime, sceneFrame, sceneFrameBody, controlsFrameClass)" in runtime
+    assert "ensureChessBoardHost(sceneFrameBody)" in runtime
+    assert 'runtime.panelBody.classList.remove("vf-chess-panel--fallback")' in runtime
     assert 'typeof global.VfDisplay.mountDynamicGeomFrame === "function"' in runtime
     assert "function markChessSceneDirty(runtime)" in runtime
-    assert "function updateVisibleCameraOnly(camera)" in runtime
+    assert "function updateVisibleCameraOnly(camera, options)" in runtime
     assert "function updateOffscreenCameraOnly(camera)" in runtime
     assert "controlState.requestCameraFrame = function ()" in runtime
     assert "controlState.cameraFramePending = true" in runtime
     assert "continuationFramePending" in runtime
     assert "function scheduleNextFrameIfNeeded(animationActive)" in runtime
-    assert "cameraKeysActive() || animationActive === true" in runtime
+    assert "cameraKeysActive() || animationActive === true || cameraSwitchActive()" in runtime
+    assert "cameraKeyLastTsMs" in runtime
+    assert "cameraKeyStepPending" in runtime
+    assert "requestCameraHoldFrame" in runtime
+    assert "state.requestCameraHoldFrame();" in runtime
+    assert "activeState.requestCameraHoldFrame();" in runtime
+    assert "if (visibleRenderBackpressureActive()) {\n        controlState.cameraFrameDirty = true;\n        return;\n      }" not in runtime
+    assert "var keyHoldActive = cameraKeysActive();" in runtime
+    assert "controlState.cameraKeyStepPending = true;" in runtime
+    assert "if (keyHoldActive && controlState.cameraKeyStepPending === true && visibleRenderBackpressureActive())" not in runtime
+    assert "? (1.0 / 30.0)" in runtime
+    assert "controlState.cameraKeyStepPending = false;" in runtime
+    assert "activeState.cameraKeyLastTsMs = global.performance" in runtime
     assert "Math.min(1.0 / 30.0" in runtime
-    assert "var chessAnimationActive = applyChessInteractionFrame(seconds)" in runtime
+    assert "var worldAnimationActive = dependencySourceFrameId" in runtime
+    assert "? sceneWorldAnimationsPending()\n          : applySceneWorldFrame(seconds);" in runtime
     assert 'typeof activeState.requestCameraFrame === "function"' in runtime
     assert 'typeof state.requestCameraFrame === "function"' in runtime
     assert "function smoothInterpolatedFieldMeshVertices(spec, vertices, indices, enabled)" in runtime
-    assert "var faceNormalsApplied = false" in runtime
     assert "var areaWeight = Math.max(1e-6, Math.sqrt((cx * cx) + (cy * cy) + (cz * cz)))" in runtime
     assert "global.__vfSmoothFieldMeshVerticesByKey[cacheKey]" in runtime
     assert "function resolveRawMeshById(rawMeshes, meshId, purpose)" in runtime
     assert "normalizeMeshSpec(resolveRawMeshById(rawMeshes, mirrorMeshId" in runtime
-    assert "rawMeshSpecs = rawMeshSpecs.filter(function (mesh)" in runtime
+    assert "rawMeshSpecs = rawMeshSpecs.map(function (mesh)" in runtime
+    assert "return attachChessSquareVisualState(mesh, chessRuntime)" in runtime
+    assert "updateChessBoardHighlightsFast(runtime)" in runtime
+    assert "setEntityProp(mesh, \"pickable\", false)" in runtime
     assert "spec.__vfSmoothFieldMeshVertices = out" in runtime
     assert "vertices: fieldVertices" in runtime
     assert "indices: fieldIndices" in runtime
-    assert "dirtyVersion === visibleLastDirtyVersion && updateVisibleCameraOnly(renderCamera)" in runtime
-    assert "dirtyVersion === offscreenLastDirtyVersion && updateOffscreenCameraOnly(renderCamera)" in runtime
+    assert 'pickable: entityProp(spec, "pickable", true) !== false' in runtime
+    assert 'static_vertices: entityProp(spec, "static_vertices", false) === true' in runtime
+    assert 'static_indices: entityProp(spec, "static_indices", false) === true' in runtime
+    assert "var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;" in runtime
+    assert "triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });" in runtime
+    assert 'requires immediate source-synchronous rendering' in runtime
+    assert "global.requestAnimationFrame(flushDependentMirrorFrame)" not in runtime
+    assert "dependentMirrorFramePending" not in runtime
+    assert "function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera)" in runtime
+    assert "renderCamera = applyCameraSwitch(renderCamera);\n        publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);" in runtime
+    camera_only_update = runtime.index("if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: cameraKeysActive() }))")
+    camera_only_trigger = runtime.rindex("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", 0, camera_only_update)
+    assert camera_only_trigger < camera_only_update
+    full_render_trigger = runtime.index("if (useVisibleFrame) {\n          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });\n        }\n        var rendered = renderPayload")
+    full_render_payload = runtime.index("var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });", full_render_trigger)
+    assert full_render_trigger < full_render_payload
+    assert "requestLinkedMirrorTextureFrameForSource(String(frameSpec.frame_id || config.frame_id));" not in runtime
+    assert "_skip_render" not in runtime
+    assert "canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: cameraKeysActive() })" in runtime
+    assert "dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)" in runtime
     assert "cameraOnlyUpdates" in runtime
     assert "fullSceneUpdates" in runtime
     assert "var nextVisibleSpec = Object.assign({}, geomPayload)" in runtime
-    assert "vertices: Array.isArray(mesh.vertices) ? mesh.vertices : []" in runtime
-    assert "indices: Array.isArray(mesh.indices) ? mesh.indices : []" in runtime
+    assert "vertices: numericArrayLike(mesh.vertices) ? mesh.vertices : []" in runtime
+    assert "indices: numericArrayLike(mesh.indices) ? mesh.indices : []" in runtime
     assert "static_vertices: true" in runtime
     assert "static_indices: true" in runtime
     display_runtime = (ROOT / "web" / "vf-ui" / "vf-display.js").read_text(encoding="utf-8")
-    assert "function updateDynamicGeomFrameCamera(fid, camera, lights, lightFlares)" in display_runtime
+    assert "pick_passthrough_when" in display_runtime
+    assert "geomSpec.pick_context" in display_runtime
+    assert "function geomPickContextFlag(fid, geomSpec, key)" in display_runtime
+    assert "global.__vfGeomPickContext" in display_runtime
+    assert "function declaredHitRegionsBlockMeshPick(geomSpec, fid)" in display_runtime
+    assert "declaredHitRegionsBlockMeshPick(liveGeomSpec, fid)" in display_runtime
+    assert "function updateDynamicGeomFrameCamera(fid, camera, lights, lightFlares, options)" in display_runtime
+    assert "(renderer._offscreenFrame === true || options.immediate === true)" in display_runtime
     assert "function dynamicGeomFrameHasRenderBackpressure(fid)" in display_runtime
     assert "dynamicGeomFrameHasRenderBackpressure: dynamicGeomFrameHasRenderBackpressure" in display_runtime
+    geom_runtime = (ROOT / "web" / "vf-ui" / "geom" / "vf-geom-wgpu.js").read_text(encoding="utf-8")
+    assert "function createChessFontAtlas(device)" in geom_runtime
+    assert "NotoSans-Regular-chess-sdf.png" in geom_runtime
+    assert "fn chessCoordLabelMask(localPos: vec3<f32>) -> f32" in geom_runtime
+    assert "textureSampleLevel(fontAtlas, fontSampler, atlasUv, 0.0).r" in geom_runtime
+    assert 'var chessBoardHost = body.querySelector(".vf-chess-board-host")' in display_runtime
+    assert "function currentGeomEventHost()" in display_runtime
+    assert "var eventHost = currentGeomEventHost()" in display_runtime
+    assert "var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, eventHost, req.clientX, req.clientY)" in display_runtime
     assert "var _vfPostedKeyDown = Object.create(null)" in display_runtime
     assert "_vfPostedKeyDown[keyId] === true" in display_runtime
     assert "scene.parts[partIndex].camera = camera" in display_runtime
@@ -383,25 +558,32 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "data-vf-last-perf-total-ms" in renderer_runtime
     assert "data-vf-last-perf-heavy-stage" in renderer_runtime
     assert "function maybeLogSlowFrame(renderer, sample)" in renderer_runtime
-    assert "fs_pick(@builtin(primitive_index) primitiveIndex: u32)" in renderer_runtime
-    assert "vec2<u32>(pk.object_id, primitiveIndex + 1u)" in renderer_runtime
-    assert "fn screenSquareHighlight(surfaceUv: vec2<f32>)" in renderer_runtime
+    assert "fn fs_pick() -> @location(0) vec2<u32>" in renderer_runtime
+    assert "return vec2<u32>(pk.object_id, 0u)" in renderer_runtime
+    assert "fn screenSquareHighlight(localPos: vec3<f32>)" in renderer_runtime
+    assert "let boardSpan = max(sc.texture_params.yz, vec2<f32>(1e-4, 1e-4));" in renderer_runtime
+    assert "let boardUv = vec2<f32>(" in renderer_runtime
+    assert "clamp((localPos.x / boardSpan.x) + 0.5, 0.0, 0.9999)" in renderer_runtime
     assert "surfaceSystem.square_highlights" in renderer_runtime
-    assert "mix(mirrorComposite, highlight.rgb" in renderer_runtime
+    assert "let highlightedFixedTextureLayer = mix(" in renderer_runtime
+    assert "let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture);" in renderer_runtime
     assert "surfaceSystem._runtime_texture_ready = !!part.surfaceExternalView" in renderer_runtime
     assert "if (surfaceSystem.flip_x === true) { screenFlags += 2.0; }" in renderer_runtime
     assert "surfaceSystem.flip_x === true || surfaceSystem._renderFlipU === true" not in renderer_runtime
     assert 'frame_ref "\' + sourceFrameId + \'" has no ready texture view' not in renderer_runtime
-    assert "textureKind = fixedSurfaceTextureKind > 0.0 ? fixedSurfaceTextureKind : 0.0" in renderer_runtime
+    assert "textureKind = 4.0" in renderer_runtime
+    assert "surfaceTextureReady && surfaceSystem" in renderer_runtime
+    assert "textureKind = fixedSurfaceTextureKind > 0.0 ? fixedSurfaceTextureKind : 0.0" not in renderer_runtime
     assert "(meshLike.alpha_mul == null ? meshLike.alpha : meshLike.alpha_mul)" in renderer_runtime
     assert "if (partMesh.visible === false) { return; }" in renderer_runtime
     assert "if (partMesh && partMesh.visible === false)" in renderer_runtime
     assert "if (sceneSourceBackups) {" in renderer_runtime
     assert "renderer._offscreenFrame === true" in display_runtime
     assert "renderer._renderContent(performance.now())" in display_runtime
+    assert "immediate render failed" in display_runtime
     assert "updateDynamicGeomFrameCamera offscreen render" in display_runtime
     assert "updateDynamicGeomFrameCamera: updateDynamicGeomFrameCamera" in display_runtime
-    assert "triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));" in runtime
+    assert "triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));" not in runtime
 
 
 def test_imported_typed_vkf_module_functions_remain_callable_from_interpreter() -> None:

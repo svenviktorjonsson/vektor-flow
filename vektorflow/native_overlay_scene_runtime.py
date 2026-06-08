@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -38,6 +39,28 @@ DEFAULT_REQUIRED_NATIVE_SCENE_ASSETS = (
 )
 
 _VERSION_QUERY_RE = re.compile(r"\?v=\d+")
+_NATIVE_SCENE_CONFIGS_RE = re.compile(
+    r"window\.__vfNativeSceneConfigs\s*=\s*(?P<json>\[.*?\]);",
+    re.DOTALL,
+)
+
+
+def _externalize_native_scene_configs(session_html: str) -> tuple[str, str | None, str | None]:
+    match = _NATIVE_SCENE_CONFIGS_RE.search(session_html)
+    if match is None:
+        return session_html, None, None
+    config_json = match.group("json")
+    digest = hashlib.sha256(config_json.encode("utf-8")).hexdigest()[:16]
+    filename = f"vf-native-scene-configs-{digest}.json"
+    replacement = (
+        "window.__vfNativeSceneConfigs = null;\n"
+        f"      window.__vfNativeSceneConfigsUrl = {json.dumps(filename)};"
+    )
+    return (
+        session_html[: match.start()] + replacement + session_html[match.end() :],
+        filename,
+        config_json + "\n",
+    )
 
 
 def _seed_runtime_dir(runtime_dir: Path, packets_text: str) -> None:
@@ -50,9 +73,12 @@ def _seed_runtime_dir(runtime_dir: Path, packets_text: str) -> None:
 
 def _stage_program_session(program: NativeOverlaySceneProgram, *session_dirs: Path) -> None:
     session_html = _VERSION_QUERY_RE.sub(f"?v={time.time_ns()}", program.html_text)
+    session_html, config_filename, config_text = _externalize_native_scene_configs(session_html)
     for session_dir in session_dirs:
         session_dir.mkdir(parents=True, exist_ok=True)
         write_text_if_changed(session_dir / "vkf-scene.html", session_html)
+        if config_filename and config_text is not None:
+            write_text_if_changed(session_dir / config_filename, config_text)
         write_text_if_changed(session_dir / "vf-runtime-packets.json", program.runtime_packets_text)
         if program.geom_transport_text:
             write_text_if_changed(session_dir / "vf-geom-ledger-transport.json", program.geom_transport_text)

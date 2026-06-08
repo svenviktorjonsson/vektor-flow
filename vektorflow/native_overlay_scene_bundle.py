@@ -4048,11 +4048,31 @@ def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
     <script>
       window.__vfNativeSceneConfigs = {config_json};
       (function (global) {{
-        var configs = Array.isArray(global.__vfNativeSceneConfigs) ? global.__vfNativeSceneConfigs.slice() : [];
         function fail(text) {{
           throw new Error("scene_3d_views: " + String(text));
         }}
-        function loadAt(index) {{
+        function configList() {{
+          if (Array.isArray(global.__vfNativeSceneConfigs)) {{
+            return Promise.resolve(global.__vfNativeSceneConfigs.slice());
+          }}
+          var url = String(global.__vfNativeSceneConfigsUrl || "");
+          if (!url) {{
+            fail("missing native scene configs");
+          }}
+          return fetch(url, {{ cache: "force-cache" }}).then(function (response) {{
+            if (!response.ok) {{
+              fail("failed to load native scene configs from " + url + " (" + String(response.status) + ")");
+            }}
+            return response.json();
+          }}).then(function (configs) {{
+            if (!Array.isArray(configs)) {{
+              fail("native scene configs must be a JSON array");
+            }}
+            global.__vfNativeSceneConfigs = configs;
+            return configs.slice();
+          }});
+        }}
+        function loadAt(configs, index) {{
           if (index >= configs.length) {{
             return;
           }}
@@ -4060,14 +4080,18 @@ def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
           var el = document.createElement("script");
           el.src = "../../vf-native-scene.js?v={asset_version}&view=" + String(index);
           el.onload = function () {{
-            loadAt(index + 1);
+            loadAt(configs, index + 1);
           }};
           el.onerror = function () {{
             fail("failed to load vf-native-scene.js for view " + String(index));
           }};
           document.body.appendChild(el);
         }}
-        loadAt(0);
+        configList().then(function (configs) {{
+          loadAt(configs, 0);
+        }}).catch(function (err) {{
+          fail(err && err.message ? err.message : err);
+        }});
       }})(typeof window !== "undefined" ? window : this);
     </script>
   </body>

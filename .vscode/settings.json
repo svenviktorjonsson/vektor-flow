@@ -1,5 +1,9 @@
 {
   "python.terminal.activateEnvironment": true,
+  "vektorflow.compilerPath": "${workspaceFolder}\\native\\VfOverlay\\build\\Release\\vkf.exe",
+  "terminal.integrated.env.windows": {
+    "PATH": "${workspaceFolder}\\native\\VfOverlay\\build\\Release;${env:PATH}"
+  },
   "files.associations": {
     "*.vkf": "vektorflow"
   },

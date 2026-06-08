@@ -100,7 +100,7 @@ def test_screen_surface_backface_gets_ambient_only() -> None:
     assert "if (!suppressBackfaceLighting && sc.light_count > 1u)" in shader
 
 
-def test_screen_surface_reflection_is_not_double_shadowed() -> None:
+def test_screen_surface_reflection_is_composited_inside_surface_shader() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     fs_start = shader.index("@fragment\nfn fs(i: Vout)")
     fs_body = shader[fs_start:shader.index("@fragment\nfn fs_point_impostor", fs_start)]
@@ -108,7 +108,6 @@ def test_screen_surface_reflection_is_not_double_shadowed() -> None:
     assert "let composed = screenSurfaceLayer(i.color.rgb, i.color.a * sc.alpha_mul" in screen_branch
     assert "return vec4f(composed.rgb, composed.a);" in screen_branch
     assert "shadeLitBase(" not in screen_branch
-    assert "receivedShadowVisibility(" not in screen_branch
     assert "shadowedComposed" not in screen_branch
     assert "lightingFactor" not in screen_branch
     assert "surfaceWorldSceneColor(surfaceLit.rgb" not in screen_branch
@@ -472,10 +471,12 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
     assert "let baseTextureKind = floor(packedScreenFlags / 8.0)" in shader
     assert "clamp(surfaceUv.x, 0.0, 1.0)" in shader
     assert "clamp(surfaceUv.y, 0.0, 1.0)" in shader
-    assert "let materialBase = mix(base, fixedTextureLayer, hasBaseTexture)" in shader
+    assert "let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture)" in shader
     assert "let litMaterial = shadeLitBase(materialBase" in shader
     assert "let baseLayer = litMaterial.rgb" in shader
-    assert "return vec4<f32>(mix(backgroundLayer, reflectedLayer, reflectivity), finalAlpha)" in shader
+    assert "let receiverShadow = readableShadowVisibility(receivedShadowVisibility(worldPos, hostNormal))" in shader
+    assert "let shadowedReflection = reflectionSample.rgb * receiverShadow" in shader
+    assert "let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity)" in shader
 
 
 def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:
@@ -701,7 +702,9 @@ const lights = sandbox.__mirrorUniformTest.resolveSceneLights([
 const identity = sandbox.VfGeomMath.mat4Identity();
 const ub = sandbox.__mirrorUniformTest.buildUniform(identity, identity, [0, -4, 2], lights, 2, 1, ground);
 const f32 = new Float32Array(ub.buffer);
-const light1Base = 356 + (192 * 4 * 4) + 16 + 20;
+const projectorBase = 356 + (192 * 4 * 4) + (64 * 4);
+const lightApertureBase = projectorBase + 16;
+const light1Base = lightApertureBase + 20;
 
 process.stdout.write(JSON.stringify({{
   planePoint: Array.from(f32.slice(light1Base, light1Base + 3)),
@@ -860,7 +863,8 @@ const identity = sandbox.VfGeomMath.mat4Identity();
 const ub = sandbox.__mirrorLightTest.buildUniform(identity, identity, [0, -4, 2], lights, 2, 1, {{ id: "receiver" }});
 const f32 = new Float32Array(ub.buffer);
 const u32 = new Uint32Array(ub.buffer);
-const light0Base = 356 + (192 * 4 * 4) + 16;
+const projectorBase = 356 + (192 * 4 * 4) + (64 * 4);
+const light0Base = projectorBase + 16;
 const light1Base = light0Base + 20;
 const lightAperturePointsBase = light0Base + (2 * 20);
 const shadowBase = lightAperturePointsBase + (2 * 8 * 4);
@@ -1192,10 +1196,10 @@ def test_screen_surface_contact_seal_uses_world_bottom_edge_not_local_y_guess() 
 
 def test_shadow_map_bias_keeps_acne_safety_margin() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
-    assert "let refDepth = ndc.z - (sc.shadow_meta.y + 0.00125);" in shader
-    assert "let refDepth = ndc.z - (sc.shadow_meta.w + 0.00125);" in shader
-    assert "let refDepth = ndc.z - (sc.shadow_meta23.y + 0.00125);" in shader
-    assert "let refDepth = ndc.z - (sc.shadow_meta23.w + 0.00125);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta.y + 0.002 + slopeBias);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta.w + 0.002 + slopeBias);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta23.y + 0.002 + slopeBias);" in shader
+    assert "let refDepth = ndc.z - (sc.shadow_meta23.w + 0.002 + slopeBias);" in shader
     assert "depthBias: 3" in shader
     assert "depthBiasSlopeScale: 1.5" in shader
 

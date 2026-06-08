@@ -150,6 +150,12 @@
     }
 
     function loadPackets() {
+      if (config.preferFilePackets) {
+        return loadFromFileMirror().then(function(packets) {
+          if (Array.isArray(packets)) { return validateStrictPackets(packets); }
+          return loadFromOverlayApi();
+        });
+      }
       return loadFromOverlayApi().then(function(packets) {
         if (Array.isArray(packets)) { return packets; }
         if (packetOnlyEnabled()) {

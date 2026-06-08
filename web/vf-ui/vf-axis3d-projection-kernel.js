@@ -35,6 +35,7 @@
     var cloneCamera = deps.cloneCamera;
     var screenBasis = deps.screenBasis;
     var applyWorldRotation = deps.applyWorldRotation;
+    var preserveTargetOffsetOnRotate = deps.preserveTargetOffsetOnRotate;
 
     function projectedAxisInfos(camera, rectLike, cfg) {
       var rect = rectLike || { width: 1, height: 1 };
@@ -99,19 +100,22 @@
       if (!(nearest.diffDeg > 1e-6)) { return false; }
       var magnitudeRad = nearest.diffDeg * Math.PI / 180;
       var best = null;
+      var preserveTargetOffset = typeof preserveTargetOffsetOnRotate === "function"
+        ? preserveTargetOffsetOnRotate(cfg || {})
+        : false;
       for (var si = 0; si < 2; si += 1) {
         var sign = si === 0 ? 1 : -1;
         var trial = cloneCamera(camera);
-        var basis = screenBasis(trial, projected.center);
-        applyWorldRotation(trial, projected.center, basis.forward, sign * magnitudeRad);
+        var basis = screenBasis(trial, preserveTargetOffset ? null : projected.center);
+        applyWorldRotation(trial, projected.center, basis.forward, sign * magnitudeRad, { preserveTargetOffset: preserveTargetOffset });
         var diff = projectedAxisDiffDeg(trial, rectLike, cfg, axisIndex, targetAngleDeg);
         if (!best || diff < best.diff) {
           best = { sign: sign, diff: diff };
         }
       }
       if (!best) { return false; }
-      var liveBasis = screenBasis(camera, projected.center);
-      applyWorldRotation(camera, projected.center, liveBasis.forward, best.sign * magnitudeRad);
+      var liveBasis = screenBasis(camera, preserveTargetOffset ? null : projected.center);
+      applyWorldRotation(camera, projected.center, liveBasis.forward, best.sign * magnitudeRad, { preserveTargetOffset: preserveTargetOffset });
       return true;
     }
 

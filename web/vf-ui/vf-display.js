@@ -404,6 +404,29 @@
     return false;
   }
 
+  function geomPickContextFlag(fid, geomSpec, key) {
+    var name = String(key || "").toLowerCase().trim();
+    if (!name) { return false; }
+    if (geomSpec && geomSpec.pick_context && geomSpec.pick_context[name] === true) { return true; }
+    var contexts = global.__vfGeomPickContext;
+    var frameContext = contexts && fid ? contexts[String(fid)] : null;
+    return !!(frameContext && frameContext[name] === true);
+  }
+
+  function declaredHitRegionsBlockMeshPick(geomSpec, fid) {
+    var regions = declaredHitRegions(geomSpec);
+    for (var i = 0; i < regions.length; i += 1) {
+      var region = regions[i] || {};
+      if (region.exclusive !== true) { continue; }
+      var passthroughWhen = String(region.pick_passthrough_when || "").toLowerCase().trim();
+      if (passthroughWhen && geomPickContextFlag(fid, geomSpec, passthroughWhen)) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
   function pickDeclaredHitRegion(fid, geomSpec, body, clientX, clientY) {
     var regions = declaredHitRegions(geomSpec);
     if (!regions.length || !body || typeof body.getBoundingClientRect !== "function") { return null; }
@@ -412,6 +435,13 @@
     var camera = geomSpec && geomSpec.camera ? geomSpec.camera : null;
     for (var i = regions.length - 1; i >= 0; i -= 1) {
       var region = regions[i] || {};
+      var passthroughWhen = String(region.pick_passthrough_when || "").toLowerCase().trim();
+      if (passthroughWhen && geomSpec && geomSpec.pick_context && geomSpec.pick_context[passthroughWhen] === true) {
+        continue;
+      }
+      if (passthroughWhen && geomPickContextFlag(fid, geomSpec, passthroughWhen)) {
+        continue;
+      }
       var kind = String(region.kind || "").toLowerCase().trim();
       var hit = kind === "plane_grid"
         ? pickPlaneGridHit(region, camera, rect, clientX, clientY, fid)
@@ -515,6 +545,10 @@
     if (!body || typeof body.querySelector !== "function") {
       return body || frameEl;
     }
+    var chessBoardHost = body.querySelector(".vf-chess-board-host");
+    if (chessBoardHost) {
+      return chessBoardHost;
+    }
     var widgetId = geomTargetWidgetId(fid);
     if (widgetId) {
       var widgets = global.VfWidgets;
@@ -562,6 +596,9 @@
       }
       return _lastDisplayPayload && _lastDisplayPayload.geom ? _lastDisplayPayload.geom[String(fid)] : null;
     }
+    function currentGeomEventHost() {
+      return geomFrameHost(frameEl, fid) || body;
+    }
     var geomSpecForEvents = currentGeomSpecForEvents();
     if (geomSpecForEvents && geomSpecForEvents.axis3d_controls === true) {
       body.__vfGeomFrameEventsAttached = true;
@@ -581,14 +618,17 @@
       cancelAnimationFrame: global.cancelAnimationFrame.bind(global),
       performPick: function (req, cb) {
         var rec = frameRecs[fid];
-        var frameRect = body ? body.getBoundingClientRect() : null;
+        var eventHost = currentGeomEventHost();
+        var frameRect = eventHost && typeof eventHost.getBoundingClientRect === "function"
+          ? eventHost.getBoundingClientRect()
+          : null;
         var liveGeomSpec = currentGeomSpecForEvents();
-        var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, body, req.clientX, req.clientY);
+        var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, eventHost, req.clientX, req.clientY);
         if (regionHit) {
           cb(regionHit);
           return;
         }
-        if ((req.evtType === "hover" || req.evtType === "move") && declaredHitRegionsAreExclusive(liveGeomSpec)) {
+        if ((req.evtType === "hover" || req.evtType === "move") && declaredHitRegionsBlockMeshPick(liveGeomSpec, fid)) {
           cb(_emptyGeomHit(
             (Number(req.clientX) || 0) - (frameRect ? frameRect.left : 0),
             (Number(req.clientY) || 0) - (frameRect ? frameRect.top : 0),
@@ -647,7 +687,7 @@
     }
 
     function currentFrameMetrics() {
-      return fittedFrameContentRect(frameEl, body);
+      return fittedFrameContentRect(frameEl, currentGeomEventHost());
     }
 
     function postDirectDrag(e) {
@@ -2687,6 +2727,28 @@
     nextCfg.__vf_live_mutated = true;
   }
 
+  function markAxis3DRuntimeLiveMutated(cfg) {
+    if (cfg) { cfg.__vf_live_mutated = true; }
+  }
+
+  function copyLiveAxis3DRuntimeState(nextCfg, prevCfg) {
+    if (!nextCfg || !prevCfg || prevCfg.__vf_live_mutated !== true) { return; }
+    var keys = [
+      "x_min", "x_max",
+      "y_min", "y_max",
+      "z_min", "z_max"
+    ];
+    for (var i = 0; i < keys.length; i += 1) {
+      if (Object.prototype.hasOwnProperty.call(prevCfg, keys[i])) {
+        nextCfg[keys[i]] = prevCfg[keys[i]];
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(prevCfg, "__frozen_tick_values")) {
+      nextCfg.__frozen_tick_values = prevCfg.__frozen_tick_values;
+    }
+    nextCfg.__vf_live_mutated = true;
+  }
+
   function carryForwardLiveGeomState(prevData, nextData) {
     if (!prevData || !nextData || !prevData.geom || !nextData.geom) { return; }
     var nextGeom = nextData.geom;
@@ -2700,6 +2762,7 @@
       if (nextFrameGeom.camera && prevFrameGeom.camera && prevFrameGeom.camera.__vf_live_mutated === true) {
         nextFrameGeom.camera = Object.assign({}, nextFrameGeom.camera, prevFrameGeom.camera, { __vf_live_mutated: true });
       }
+      copyLiveAxis3DRuntimeState(nextFrameGeom.axis3d_runtime, prevFrameGeom.axis3d_runtime);
       var prevMeshes = Array.isArray(prevFrameGeom.meshes) ? prevFrameGeom.meshes : [];
       var nextMeshes = Array.isArray(nextFrameGeom.meshes) ? nextFrameGeom.meshes : [];
       if (!prevMeshes.length || !nextMeshes.length) { continue; }
@@ -3468,6 +3531,7 @@
       cfg[axis + "_min"] = lo + d;
       cfg[axis + "_max"] = hi + d;
     }
+    markAxis3DRuntimeLiveMutated(cfg);
   }
 
   function axis3DTranslateBoxAxisRange(cfg, axisIndex, delta) {
@@ -3478,6 +3542,7 @@
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo)) { return; }
     cfg[axis + "_min"] = lo + d;
     cfg[axis + "_max"] = hi + d;
+    markAxis3DRuntimeLiveMutated(cfg);
   }
 
   function axis3DBoxRangeSnapshot(cfg) {
@@ -3510,6 +3575,7 @@
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo)) { return; }
     cfg[axis + "_min"] = lo + d;
     cfg[axis + "_max"] = hi + d;
+    markAxis3DRuntimeLiveMutated(cfg);
   }
 
   function axis3DScaleBoxRange(cfg, factor) {
@@ -3525,6 +3591,7 @@
       cfg[axis + "_min"] = c - half;
       cfg[axis + "_max"] = c + half;
     }
+    markAxis3DRuntimeLiveMutated(cfg);
   }
 
   function axis3DBoxRangePlan(cfg) {
@@ -3584,6 +3651,10 @@
     return [0, 0, 0];
   }
 
+  function axis3DPreserveTargetOffsetOnRotate(cfg) {
+    return String(cfg && cfg.mode || "crosshair").toLowerCase() !== "box";
+  }
+
   function axis3DTrackballPoint(px, py, cx, cy, radius) {
     var dx = (Number(px) || 0) - (Number(cx) || 0);
     var dy = (Number(py) || 0) - (Number(cy) || 0);
@@ -3604,7 +3675,7 @@
       return screenBasis(camera, center);
     }
     var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
-    var target = Array.isArray(center) ? center.slice() : vec3Array(camera && camera.target, [0, 0, 0]);
+    var target = vec3Array(camera && camera.target, Array.isArray(center) ? center : [0, 0, 0]);
     var upHint = normalizeVec3Local(camera && camera.up || [0, 0, 1], [0, 0, 1]);
     var forward = normalizeVec3Local([target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]], [0, 0, -1]);
     var right = normalizeVec3Local(crossVec3(forward, upHint), [1, 0, 0]);
@@ -3612,19 +3683,27 @@
     return { right: right, up: up, forward: forward };
   }
 
-  function axis3DApplyWorldRotation(camera, center, worldAxis, angleRad) {
+  function axis3DApplyWorldRotation(camera, center, worldAxis, angleRad, options) {
+    options = options && typeof options === "object" ? options : {};
     var applyWorldRotation = axis3DKernelMethod("applyWorldRotation");
     if (applyWorldRotation) {
-      return applyWorldRotation(camera, center, worldAxis, angleRad);
+      return applyWorldRotation(camera, center, worldAxis, angleRad, options);
     }
     var axis = normalizeVec3Local(worldAxis, [0, 0, 1]);
     var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
-    var target = Array.isArray(center) ? center.slice() : [0, 0, 0];
-    var offset = [pos[0] - target[0], pos[1] - target[1], pos[2] - target[2]];
+    var pivot = Array.isArray(center) ? center.slice() : [0, 0, 0];
+    var target = vec3Array(camera && camera.target, pivot);
+    var offset = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
     var nextOffset = rotateVec3AroundAxis(offset, axis, angleRad);
     var nextUp = rotateVec3AroundAxis(vec3Array(camera && camera.up, [0, 0, 1]), axis, angleRad);
-    camera.pos = [target[0] + nextOffset[0], target[1] + nextOffset[1], target[2] + nextOffset[2]];
-    camera.target = target;
+    camera.pos = [pivot[0] + nextOffset[0], pivot[1] + nextOffset[1], pivot[2] + nextOffset[2]];
+    if (options.preserveTargetOffset === true) {
+      var targetOffset = [target[0] - pivot[0], target[1] - pivot[1], target[2] - pivot[2]];
+      var nextTargetOffset = rotateVec3AroundAxis(targetOffset, axis, angleRad);
+      camera.target = [pivot[0] + nextTargetOffset[0], pivot[1] + nextTargetOffset[1], pivot[2] + nextTargetOffset[2]];
+    } else {
+      camera.target = pivot;
+    }
     camera.up = normalizeVec3Local(nextUp, [0, 0, 1]);
   }
 
@@ -3647,7 +3726,8 @@
       clipPixelLineToRect: clipPixelLineToRect,
       cloneCamera: axis3DCloneCamera,
       screenBasis: axis3DScreenBasis,
-      applyWorldRotation: axis3DApplyWorldRotation
+      applyWorldRotation: axis3DApplyWorldRotation,
+      preserveTargetOffsetOnRotate: axis3DPreserveTargetOffsetOnRotate
     };
   }
 
@@ -3765,19 +3845,20 @@
     if (!(nearest.diffDeg > 1e-6)) { return false; }
     var magnitudeRad = nearest.diffDeg * Math.PI / 180;
     var best = null;
+    var preserveTargetOffset = axis3DPreserveTargetOffsetOnRotate(cfg || {});
     for (var si = 0; si < 2; si += 1) {
       var sign = si === 0 ? 1 : -1;
       var trial = axis3DCloneCamera(camera);
-      var basis = axis3DScreenBasis(trial, projected.center);
-      axis3DApplyWorldRotation(trial, projected.center, basis.forward, sign * magnitudeRad);
+      var basis = axis3DScreenBasis(trial, preserveTargetOffset ? null : projected.center);
+      axis3DApplyWorldRotation(trial, projected.center, basis.forward, sign * magnitudeRad, { preserveTargetOffset: preserveTargetOffset });
       var diff = axis3DProjectedAxisDiffDeg(trial, body, cfg, axisIndex, targetAngleDeg);
       if (!best || diff < best.diff) {
         best = { sign: sign, diff: diff };
       }
     }
     if (!best) { return false; }
-    var liveBasis = axis3DScreenBasis(camera, projected.center);
-    axis3DApplyWorldRotation(camera, projected.center, liveBasis.forward, best.sign * magnitudeRad);
+    var liveBasis = axis3DScreenBasis(camera, preserveTargetOffset ? null : projected.center);
+    axis3DApplyWorldRotation(camera, projected.center, liveBasis.forward, best.sign * magnitudeRad, { preserveTargetOffset: preserveTargetOffset });
     return true;
   }
 
@@ -3799,13 +3880,14 @@
     if (!(angle > 1e-6)) { return false; }
     var axis = crossVec3(forward, desired);
     var axisLen = Math.sqrt(dot3(axis, axis));
+    var preserveTargetOffset = axis3DPreserveTargetOffsetOnRotate(cfg || {});
     if (!(axisLen > 1e-9)) {
-      var basis = axis3DScreenBasis(camera, center);
+      var basis = axis3DScreenBasis(camera, preserveTargetOffset ? null : center);
       axis = crossVec3(forward, basis.right);
       axisLen = Math.sqrt(dot3(axis, axis));
       if (!(axisLen > 1e-9)) { return false; }
     }
-    axis3DApplyWorldRotation(camera, center, [axis[0] / axisLen, axis[1] / axisLen, axis[2] / axisLen], angle);
+    axis3DApplyWorldRotation(camera, center, [axis[0] / axisLen, axis[1] / axisLen, axis[2] / axisLen], angle, { preserveTargetOffset: preserveTargetOffset });
     return true;
   }
 
@@ -3838,15 +3920,35 @@
     } catch (_) {}
   }
 
-  function axis3DApplySnapPostConstraint(camera, cfg, body, dx, dy, dragState) {
+  function axis3DLegacyRotationState(dragState, seedCamera) {
+    if (!dragState) { return null; }
+    var state = dragState.axis3DRotationState;
+    if (!state || state.controller_id !== "legacy") {
+      state = {
+        controller_id: "legacy",
+        rawCamera: seedCamera ? axis3DCloneCamera(seedCamera) : axis3DCloneCamera(dragState.axis3DRawCamera || {}),
+        lockedViewSnap: null,
+        projectedRawSnapState: null,
+        projectedSnapState: null,
+        rotateLockMode: null
+      };
+      dragState.axis3DRotationState = state;
+    } else if (!state.rawCamera && seedCamera) {
+      state.rawCamera = axis3DCloneCamera(seedCamera);
+    }
+    return state;
+  }
+
+  function axis3DApplySnapPostConstraint(camera, cfg, body, dx, dy, dragState, rawCamera) {
+    var rotationState = axis3DLegacyRotationState(dragState, rawCamera || camera);
     var projected = axis3DProjectedAxisInfos(camera, body, cfg);
     var snappedViewState = axis3DCrosshairSnapState(
       axis3DCrosshairCollapsedMarkerState(camera),
-      dragState ? dragState.axis3DLockedViewSnap || null : null,
+      rotationState ? rotationState.lockedViewSnap || null : null,
       cfg
     );
-    if (dragState) {
-      dragState.axis3DLockedViewSnap = snappedViewState.snapped;
+    if (rotationState) {
+      rotationState.lockedViewSnap = snappedViewState.snapped;
     }
     if (dragState && (Number(dragState.sampleCount || 0) % 12) === 0) {
       axis3DLogRotateDiag(
@@ -3864,50 +3966,63 @@
     projected = axis3DProjectedAxisInfos(camera, body, cfg);
     if (!projected) { return false; }
     var axisInfos = projected.axisInfos;
-    var projectedSnapState = axis3DProjectedAxisSnapState(
-      axisInfos,
-      dragState && Array.isArray(dragState.axis3DProjectedSnapRawAngles) ? dragState.axis3DProjectedSnapRawAngles : null,
+    var rawProjected = axis3DProjectedAxisInfos(rawCamera || camera, body, cfg);
+    var rawAxisInfos = rawProjected && rawProjected.axisInfos ? rawProjected.axisInfos : axisInfos;
+    var previousRawProjectedSnapState = rotationState && rotationState.projectedRawSnapState
+      ? rotationState.projectedRawSnapState
+      : null;
+    var rawProjectedSnapState = axis3DProjectedAxisSnapState(
+      rawAxisInfos,
+      previousRawProjectedSnapState,
       cfg
     );
-    if (dragState) {
-      dragState.axis3DProjectedSnapState = projectedSnapState;
+    var projectedSnapState = axis3DProjectedAxisSnapState(
+      axisInfos,
+      rawProjectedSnapState,
+      cfg
+    );
+    if (rotationState) {
+      rotationState.projectedRawSnapState = rawProjectedSnapState;
+      rotationState.projectedSnapState = projectedSnapState;
     }
     var bestCardinal = null;
-    for (var axisIndex = 0; axisIndex < axisInfos.length; axisIndex += 1) {
-      var info = axisInfos[axisIndex];
+    for (var axisIndex = 0; axisIndex < rawAxisInfos.length; axisIndex += 1) {
+      var info = rawAxisInfos[axisIndex];
       if (!info) { continue; }
-      if (projectedSnapState.cardinalSnaps[axisIndex] == null) { continue; }
+      if (rawProjectedSnapState.cardinalSnaps[axisIndex] == null) { continue; }
       var nx = -info.uy;
       var ny = info.ux;
       var component = (Number(dx) || 0) * nx + (Number(dy) || 0) * ny;
       if (!bestCardinal || Math.abs(component) > Math.abs(bestCardinal.component)) {
         bestCardinal = {
           axisIndex: axisIndex,
-          targetAngleDeg: projectedSnapState.cardinalSnaps[axisIndex],
+          targetAngleDeg: rawProjectedSnapState.cardinalSnaps[axisIndex],
           component: component
         };
       }
     }
-    if (!bestCardinal || Math.abs(bestCardinal.component) <= 1e-6) { return false; }
-    var aligned = axis3DAlignProjectedAxisToScreenSnap(camera, body, cfg, bestCardinal.axisIndex, bestCardinal.targetAngleDeg);
+    var aligned = false;
+    if (bestCardinal && Math.abs(bestCardinal.component) > 1e-6) {
+      aligned = axis3DAlignProjectedAxisToScreenSnap(camera, body, cfg, bestCardinal.axisIndex, bestCardinal.targetAngleDeg);
+    }
     projected = axis3DProjectedAxisInfos(camera, body, cfg);
     if (projected && projected.axisInfos) {
       projectedSnapState = axis3DProjectedAxisSnapState(
         projected.axisInfos,
-        dragState && dragState.axis3DProjectedSnapState ? dragState.axis3DProjectedSnapState : projectedSnapState,
+        rawProjectedSnapState,
         cfg
       );
-      if (dragState) {
-        dragState.axis3DProjectedSnapState = projectedSnapState;
+      if (rotationState) {
+        rotationState.projectedSnapState = projectedSnapState;
       }
       var bestPairFollower = null;
-      if (projectedSnapState && projectedSnapState.pairTargets) {
-        for (var pairFollowerKey in projectedSnapState.pairTargets) {
-          if (!Object.prototype.hasOwnProperty.call(projectedSnapState.pairTargets, pairFollowerKey)) { continue; }
+      if (rawProjectedSnapState && rawProjectedSnapState.pairTargets) {
+        for (var pairFollowerKey in rawProjectedSnapState.pairTargets) {
+          if (!Object.prototype.hasOwnProperty.call(rawProjectedSnapState.pairTargets, pairFollowerKey)) { continue; }
           var followerIndex = Number(pairFollowerKey);
-          var targetAngle = Number(projectedSnapState.pairTargets[pairFollowerKey]);
+          var targetAngle = Number(rawProjectedSnapState.pairTargets[pairFollowerKey]);
           if (!Number.isFinite(followerIndex) || !Number.isFinite(targetAngle)) { continue; }
-          var followerDelta = Math.abs(Number(projectedSnapState.deltas && projectedSnapState.deltas[followerIndex] || 0));
+          var followerDelta = Math.abs(Number(rawProjectedSnapState.deltas && rawProjectedSnapState.deltas[followerIndex] || 0));
           if (!bestPairFollower || followerDelta > bestPairFollower.delta) {
             bestPairFollower = {
               axisIndex: followerIndex,
@@ -3943,7 +4058,8 @@
     var h = Math.max(1, Number(rect.height) || 1);
     var scale = Math.PI / Math.max(120, Math.min(w, h));
     var center = axis3DRotationCenter(cfg || {});
-    var basis = axis3DScreenBasis(camera, center);
+    var preserveTargetOffset = axis3DPreserveTargetOffsetOnRotate(cfg || {});
+    var basis = axis3DScreenBasis(camera, preserveTargetOffset ? null : center);
     var moveX = Number(dx) || 0;
     var moveY = Number(dy) || 0;
     var sampleLen = Math.sqrt(moveX * moveX + moveY * moveY);
@@ -3997,6 +4113,7 @@
     return {
       scale: scale,
       center: center,
+      preserveTargetOffset: preserveTargetOffset,
       tangentialComponent: tangentialComponent,
       radialComponent: radialComponent,
       tangentialAxis: tangentialAxis,
@@ -4032,12 +4149,13 @@
   }
 
   function axis3DApplyRawDragRotation(rawCamera, cfg, dx, dy, body, dragState) {
+    var rotationState = axis3DLegacyRotationState(dragState, rawCamera);
     var comps = axis3DIncrementalRotateComponents(rawCamera, cfg || {}, dx, dy, body, dragState);
     if (!comps) { return; }
     if (
       dragState &&
       Number.isFinite(dragState.rotateStartAxisIndex) &&
-      dragState.rotateLockMode == null &&
+      (!rotationState || rotationState.rotateLockMode == null) &&
       Number(dragState.sampleCount || 0) < axisGestureSampleCount(cfg || {})
     ) {
       return;
@@ -4045,10 +4163,11 @@
     if (
       dragState &&
       Number.isFinite(dragState.rotateStartAxisIndex) &&
-      dragState.rotateLockMode == null &&
+      rotationState &&
+      rotationState.rotateLockMode == null &&
       Number(dragState.sampleCount || 0) >= axisGestureSampleCount(cfg || {})
     ) {
-      dragState.rotateLockMode = axis3DChooseLockedWorldAxis(
+      rotationState.rotateLockMode = axis3DChooseLockedWorldAxis(
         rawCamera,
         cfg || {},
         body,
@@ -4059,8 +4178,8 @@
       ) || { kind: "free", axisIndex: Number(dragState.rotateStartAxisIndex) };
     }
 
-    if (dragState && dragState.rotateLockMode && dragState.rotateLockMode.kind !== "free") {
-      var lockAxis = dragState.rotateLockMode;
+    if (rotationState && rotationState.rotateLockMode && rotationState.rotateLockMode.kind !== "free") {
+      var lockAxis = rotationState.rotateLockMode;
       var basisAxis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]][lockAxis.axisIndex];
       var angle = dot3([
         comps.tangentialAxis[0] * comps.tangentialComponent * comps.scale + comps.radialAxis[0] * comps.radialComponent * comps.scale,
@@ -4072,15 +4191,28 @@
         rawCamera,
         comps.center,
         basisAxis,
-        angle
+        angle,
+        { preserveTargetOffset: comps.preserveTargetOffset === true }
       );
       return;
     }
     if (Math.abs(comps.tangentialComponent) > 1e-6) {
-      axis3DApplyWorldRotation(rawCamera, comps.center, comps.tangentialAxis, comps.tangentialComponent * comps.scale);
+      axis3DApplyWorldRotation(
+        rawCamera,
+        comps.center,
+        comps.tangentialAxis,
+        comps.tangentialComponent * comps.scale,
+        { preserveTargetOffset: comps.preserveTargetOffset === true }
+      );
     }
     if (Math.abs(comps.radialComponent) > 1e-6 && (Math.abs(comps.radialAxis[0]) + Math.abs(comps.radialAxis[1]) + Math.abs(comps.radialAxis[2])) > 1e-9) {
-      axis3DApplyWorldRotation(rawCamera, comps.center, comps.radialAxis, comps.radialComponent * comps.scale);
+      axis3DApplyWorldRotation(
+        rawCamera,
+        comps.center,
+        comps.radialAxis,
+        comps.radialComponent * comps.scale,
+        { preserveTargetOffset: comps.preserveTargetOffset === true }
+      );
     }
   }
 
@@ -4089,23 +4221,59 @@
       dragState.rawYawRad = NaN;
       dragState.rawPitchRad = NaN;
     }
-    var rawCamera = dragState && dragState.axis3DRawCamera
-      ? axis3DCloneCamera(dragState.axis3DRawCamera)
+    var rotationState = axis3DLegacyRotationState(dragState, camera);
+    var rawCamera = rotationState && rotationState.rawCamera
+      ? axis3DCloneCamera(rotationState.rawCamera)
       : axis3DCloneCamera(camera);
     axis3DApplyRawDragRotation(rawCamera, cfg || {}, dx, dy, body, dragState);
     if (!axis3DCameraFinite(rawCamera)) {
       axis3DLogRotateDiag("nonfinite-after-raw-rotate", rawCamera, "dx=" + Number(dx || 0) + " dy=" + Number(dy || 0));
     }
-    if (dragState) {
-      dragState.axis3DRawCamera = axis3DCloneCamera(rawCamera);
+    if (rotationState) {
+      rotationState.rawCamera = axis3DCloneCamera(rawCamera);
     }
     camera.pos = rawCamera.pos.slice();
     camera.target = rawCamera.target.slice();
     camera.up = rawCamera.up.slice();
-    axis3DApplySnapPostConstraint(camera, cfg || {}, body, dx, dy, dragState);
+    axis3DApplySnapPostConstraint(camera, cfg || {}, body, dx, dy, dragState, rawCamera);
     if (!axis3DCameraFinite(camera)) {
       axis3DLogRotateDiag("nonfinite-after-rotate", camera, "dx=" + Number(dx || 0) + " dy=" + Number(dy || 0));
     }
+  }
+
+  function axis3DLegacyRotationController() {
+    return {
+      id: "legacy",
+      createState: function (camera) {
+        return {
+          controller_id: "legacy",
+          rawCamera: axis3DCloneCamera(camera || {}),
+          lockedViewSnap: null,
+          projectedRawSnapState: null,
+          projectedSnapState: null,
+          rotateLockMode: null
+        };
+      },
+      rotateDrag: function (camera, cfg, dx, dy, body, snap15, dragState) {
+        return axis3DRotateCameraDrag(camera, cfg, dx, dy, body, snap15, dragState);
+      }
+    };
+  }
+
+  var axis3DRotationControllers = {
+    legacy: axis3DLegacyRotationController()
+  };
+
+  function axis3DRotationControllerForConfig(cfg) {
+    var requested = String(cfg && cfg.rotation_controller || "legacy").toLowerCase().trim();
+    return axis3DRotationControllers[requested] || axis3DRotationControllers.legacy;
+  }
+
+  function axis3DRotationControllerForDrag(cfg, dragState) {
+    var activeId = dragState && dragState.axis3DRotationControllerId
+      ? String(dragState.axis3DRotationControllerId).toLowerCase().trim()
+      : "";
+    return axis3DRotationControllers[activeId] || axis3DRotationControllerForConfig(cfg);
   }
 
   function applyAxis3DSelectionZoom(fid, body, drag) {
@@ -5930,7 +6098,9 @@
             freezeAxis3DBoxTickPlacement(rotCfg, geom && geom.camera || {}, body);
           }
           mutateAxis3DCamera(fid, function (camera) {
-            axis3DRotateCameraDrag(camera, axis3DRuntimeConfig(geom) || {}, dx, dy, body, drag.shiftKey === true, drag);
+            var rotateCfgForController = axis3DRuntimeConfig(geom) || {};
+            var controller = axis3DRotationControllerForConfig(rotateCfgForController);
+            controller.rotateDrag(camera, rotateCfgForController, dx, dy, body, drag.shiftKey === true, drag);
           }, { skipTextOverlay: true });
           var rotateCfg = axis3DRuntimeConfig(geom);
           if (rotateCfg && String(rotateCfg.mode || "crosshair").toLowerCase() !== "box") {
@@ -6048,8 +6218,13 @@
       if (!drag) { return; }
       flushAxis3DDrag();
       var geom = _lastDisplayPayload && _lastDisplayPayload.geom ? _lastDisplayPayload.geom[fid] : null;
+      var boxCfg = axis3DBoxRuntime(geom);
       if (drag.action !== "rotate") {
-        unfreezeAxis3DBoxTickPlacement(axis3DBoxRuntime(geom));
+        unfreezeAxis3DBoxTickPlacement(boxCfg);
+      }
+      if (boxCfg && (drag.action === "pan" || drag.action === "scale")) {
+        repaintAxis3DHelperLines(fid);
+        return;
       }
       axis3DCommitAndRebuild(fid, body, drag);
       refreshAxis3DRuntimeFrame(fid, true);
@@ -6172,6 +6347,7 @@
       }
       cancelAxis3DWheelRaf(body.__vfAxis3DWheelState);
       body.__vfAxis3DWheelState = null;
+      var rotationController = axis3DRotationControllerForConfig(axis3DRuntimeConfig(geom) || {});
       body.__vfAxis3DDragState = {
         x: x,
         y: y,
@@ -6184,9 +6360,9 @@
         shiftKey: !!e.shiftKey,
         rawYawRad: NaN,
         rawPitchRad: NaN,
-        axis3DRawCamera: axis3DCloneCamera(geom && geom.camera || {}),
+        axis3DRotationControllerId: rotationController.id,
+        axis3DRotationState: rotationController.createState(geom && geom.camera || {}),
         rotateStartAxisIndex: action === "rotate" ? startAxisLock : null,
-        rotateLockMode: null,
         raf: 0,
         panMode: startAxisLock != null ? { kind: "axis", axisIndex: startAxisLock } : { kind: "free" },
         boxPanMode: startAxisLock != null ? { kind: "axis", axisIndex: startAxisLock } : { kind: "free" },
@@ -7997,6 +8173,97 @@
     ];
   }
 
+  function clipAxis3DDataSegmentToBox(a, b, cfg) {
+    if (!Array.isArray(a) || !Array.isArray(b) || !cfg) { return null; }
+    var bounds = [
+      [Number(cfg.x_min), Number(cfg.x_max)],
+      [Number(cfg.y_min), Number(cfg.y_max)],
+      [Number(cfg.z_min), Number(cfg.z_max)]
+    ];
+    if (!bounds.every(function (range) { return Number.isFinite(range[0]) && Number.isFinite(range[1]); })) {
+      return [a, b];
+    }
+    var t0 = 0;
+    var t1 = 1;
+    for (var axis = 0; axis < 3; axis += 1) {
+      var lo = Math.min(bounds[axis][0], bounds[axis][1]);
+      var hi = Math.max(bounds[axis][0], bounds[axis][1]);
+      var av = Number(a[axis]);
+      var bv = Number(b[axis]);
+      if (!Number.isFinite(av) || !Number.isFinite(bv)) { return null; }
+      var d = bv - av;
+      if (Math.abs(d) < 1e-12) {
+        if (av < lo - 1e-12 || av > hi + 1e-12) { return null; }
+        continue;
+      }
+      var enter = (lo - av) / d;
+      var exit = (hi - av) / d;
+      if (enter > exit) {
+        var swap = enter;
+        enter = exit;
+        exit = swap;
+      }
+      t0 = Math.max(t0, enter);
+      t1 = Math.min(t1, exit);
+      if (t0 > t1 + 1e-12) { return null; }
+    }
+    return [
+      [
+        Number(a[0]) + (Number(b[0]) - Number(a[0])) * t0,
+        Number(a[1]) + (Number(b[1]) - Number(a[1])) * t0,
+        Number(a[2]) + (Number(b[2]) - Number(a[2])) * t0
+      ],
+      [
+        Number(a[0]) + (Number(b[0]) - Number(a[0])) * t1,
+        Number(a[1]) + (Number(b[1]) - Number(a[1])) * t1,
+        Number(a[2]) + (Number(b[2]) - Number(a[2])) * t1
+      ]
+    ];
+  }
+
+  function convexHullPixelPoints(points) {
+    var pts = (Array.isArray(points) ? points : []).filter(function (p) {
+      return p && Number.isFinite(p[0]) && Number.isFinite(p[1]);
+    }).map(function (p) { return [Number(p[0]), Number(p[1])]; });
+    if (pts.length <= 3) { return pts; }
+    pts.sort(function (a, b) {
+      return a[0] === b[0] ? a[1] - b[1] : a[0] - b[0];
+    });
+    function cross(o, a, b) {
+      return ((a[0] - o[0]) * (b[1] - o[1])) - ((a[1] - o[1]) * (b[0] - o[0]));
+    }
+    var lower = [];
+    for (var i = 0; i < pts.length; i += 1) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 1e-9) {
+        lower.pop();
+      }
+      lower.push(pts[i]);
+    }
+    var upper = [];
+    for (var j = pts.length - 1; j >= 0; j -= 1) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[j]) <= 1e-9) {
+        upper.pop();
+      }
+      upper.push(pts[j]);
+    }
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper);
+  }
+
+  function applyPixelPolygonClip(ctx, points) {
+    var hull = convexHullPixelPoints(points);
+    if (!ctx || hull.length < 3) { return false; }
+    ctx.beginPath();
+    ctx.moveTo(hull[0][0], hull[0][1]);
+    for (var i = 1; i < hull.length; i += 1) {
+      ctx.lineTo(hull[i][0], hull[i][1]);
+    }
+    ctx.closePath();
+    ctx.clip();
+    return true;
+  }
+
   function renderGeomLineOverlay(fid, frameEl, geomSpec, w, h) {
     var canvas = ensureGeomLineOverlay(frameEl, fid);
     if (!canvas) { return; }
@@ -8011,8 +8278,9 @@
     var meshes = geomSpec && Array.isArray(geomSpec.meshes) ? geomSpec.meshes : [];
     var axis3DCfg = axis3DRuntimeConfig(geomSpec);
     if (geomSpec && axis3DCfg && camera && Array.isArray(camera.pos) && Array.isArray(camera.target)) {
-      function strokeAxis3DPlotMeshProjected(mesh, projector) {
+      function strokeAxis3DPlotMeshProjected(mesh, projector, options) {
         if (!mesh || !mesh.axis_plot3d || !Array.isArray(mesh.vertices) || !Array.isArray(mesh.indices) || typeof projector !== "function") { return; }
+        options = options && typeof options === "object" ? options : {};
         var lineColor = parseRuntimeColor(mesh.color || axis3DCfg.color || "white");
         ctx.save();
         ctx.strokeStyle = "rgba(" + Math.round(lineColor[0] * 255) + "," + Math.round(lineColor[1] * 255) + "," + Math.round(lineColor[2] * 255) + "," + Math.max(0, Math.min(1, lineColor[3])) + ")";
@@ -8022,8 +8290,16 @@
           var ia = (Number(mesh.indices[pi]) || 0) * 10;
           var ib = (Number(mesh.indices[pi + 1]) || 0) * 10;
           if (ia + 2 >= mesh.vertices.length || ib + 2 >= mesh.vertices.length) { continue; }
-          var pa = projector([mesh.vertices[ia], mesh.vertices[ia + 1], mesh.vertices[ia + 2]]);
-          var pb = projector([mesh.vertices[ib], mesh.vertices[ib + 1], mesh.vertices[ib + 2]]);
+          var a = [mesh.vertices[ia], mesh.vertices[ia + 1], mesh.vertices[ia + 2]];
+          var b = [mesh.vertices[ib], mesh.vertices[ib + 1], mesh.vertices[ib + 2]];
+          if (options.dataBoxClipCfg) {
+            var clippedData = clipAxis3DDataSegmentToBox(a, b, options.dataBoxClipCfg);
+            if (!clippedData) { continue; }
+            a = clippedData[0];
+            b = clippedData[1];
+          }
+          var pa = projector(a);
+          var pb = projector(b);
           if (!pa || !pb) { continue; }
           var seg = clipPixelSegmentToRect(pa, pb, 0, 0, w, h);
           if (!seg) { continue; }
@@ -8111,6 +8387,14 @@
             ctx.moveTo(clippedSeg[0][0], clippedSeg[0][1]);
             ctx.lineTo(clippedSeg[1][0], clippedSeg[1][1]);
           }
+          ctx.save();
+          applyPixelPolygonClip(ctx, boxPixels);
+          for (var boxMeshIndex = 0; boxMeshIndex < meshes.length; boxMeshIndex += 1) {
+            if (meshes[boxMeshIndex] && meshes[boxMeshIndex].axis_plot3d) {
+              strokeAxis3DPlotMeshProjected(meshes[boxMeshIndex], projectBoxPoint, { dataBoxClipCfg: cfg });
+            }
+          }
+          ctx.restore();
           ctx.beginPath();
           for (var be = 0; be < boxEdges.length; be += 1) {
             var ep = boxEdges[be];
@@ -8330,11 +8614,6 @@
           drawBoxTicks("x", 0, [xMin, yMin, zMin], [xMax, yMin, zMin]);
           drawBoxTicks("y", 1, [xMin, yMin, zMin], [xMin, yMax, zMin]);
           drawBoxTicks("z", 2, [xMin, yMin, zMin], [xMin, yMin, zMax]);
-          for (var boxMeshIndex = 0; boxMeshIndex < meshes.length; boxMeshIndex += 1) {
-            if (meshes[boxMeshIndex] && meshes[boxMeshIndex].axis_plot3d) {
-              strokeAxis3DPlotMeshProjected(meshes[boxMeshIndex], projectBoxPoint);
-            }
-          }
           geomSpec.texts = boxTextSpecs;
         }
         ctx.restore();
@@ -10399,7 +10678,8 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     });
   }
 
-  function requestDynamicGeomFrameUpdate(fid) {
+  function requestDynamicGeomFrameUpdate(fid, options) {
+    options = options && typeof options === "object" ? options : {};
     var rec = frameRecs[fid];
     if (!rec || !rec.dynamicAdapter) {
       vlog("warn", "requestDynamicGeomFrameUpdate [" + fid + "]: no dynamic geom frame mounted");
@@ -10408,19 +10688,28 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     rec.dynamicAdapter.markDirty();
     var entry = rec.entries && rec.entries[0];
     var renderer = entry && entry.renderer;
+    if (renderer) {
+      renderer._suppressLinkedTextureNotifyOnce = false;
+    }
     if (
       renderer &&
-      renderer._offscreenFrame === true &&
+      (renderer._offscreenFrame === true || options.immediate === true) &&
       renderer._device &&
       typeof renderer._renderContent === "function"
     ) {
-      try { renderer._renderContent(performance.now()); } catch (_) {}
+      try {
+        renderer._renderPending = false;
+        renderer._renderContent(performance.now());
+      } catch (err) {
+        throw new Error("requestDynamicGeomFrameUpdate(" + String(fid) + ") immediate render failed: " + (err && err.message ? err.message : String(err)));
+      }
     } else if (renderer && typeof renderer.requestFrame === "function") {
       renderer.requestFrame();
     }
   }
 
-  function updateDynamicGeomFrameCamera(fid, camera, lights, lightFlares) {
+  function updateDynamicGeomFrameCamera(fid, camera, lights, lightFlares, options) {
+    options = options && typeof options === "object" ? options : {};
     var rec = frameRecs[fid];
     if (!rec || !rec.dynamicAdapter || typeof rec.dynamicAdapter.currentScene !== "function") {
       return false;
@@ -10473,11 +10762,14 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     var renderer = entry && entry.renderer;
     if (
       renderer &&
-      renderer._offscreenFrame === true &&
+      (renderer._offscreenFrame === true || options.immediate === true) &&
       renderer._device &&
       typeof renderer._renderContent === "function"
     ) {
-      try { renderer._renderContent(performance.now()); } catch (err) {
+      try {
+        renderer._renderPending = false;
+        renderer._renderContent(performance.now());
+      } catch (err) {
         vlog("warn", "updateDynamicGeomFrameCamera offscreen render [" + fid + "]: " + (err && err.message ? err.message : String(err)));
       }
     } else if (renderer && typeof renderer.requestFrame === "function") {

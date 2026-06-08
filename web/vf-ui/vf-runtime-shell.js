@@ -488,6 +488,13 @@
         DEFAULT_RUNTIME_CONFIG.strictPacketOnly = true;
         global.__vfRuntimeStrictPacketOnly = true;
       }
+      var filePacketUrl = body.getAttribute("data-vf-runtime-file-packets");
+      if (filePacketUrl) {
+        DEFAULT_RUNTIME_CONFIG.filePacketUrl = String(filePacketUrl);
+      }
+      if (truthyRuntimeAttr(body.getAttribute("data-vf-runtime-prefer-file-packets"))) {
+        DEFAULT_RUNTIME_CONFIG.preferFilePackets = true;
+      }
     }
 
     function ensureSceneDocumentMeta() {
@@ -862,6 +869,10 @@
       }
       global.setTimeout(function() {
         if (state.runtimePacketsSeen || state.packetFallbackStarted) { return; }
+        if (DEFAULT_RUNTIME_CONFIG.packetOnly) {
+          runtimeLog("info", "boot: packet-only mode skipped legacy fallback bootstrap");
+          return;
+        }
         if (DEFAULT_RUNTIME_CONFIG.strictPacketOnly) {
           runtimeLog("info", "boot: strict packet-only mode skipped legacy fallback bootstrap");
           return;

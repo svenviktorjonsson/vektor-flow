@@ -33,6 +33,59 @@
     }
   }
 
+  function postWebViewMessage(message) {
+    const wv = typeof globalThis !== "undefined" && globalThis.chrome && globalThis.chrome.webview;
+    if (!wv || typeof wv.postMessage !== "function") return false;
+    wv.postMessage(message);
+    return true;
+  }
+
+  function geometrySignature(shapes, active) {
+    return JSON.stringify({ active: active || "none", shapes: shapes || [] });
+  }
+
+  function markManualTransparentOverlayGeometry() {
+    try {
+      if (typeof globalThis !== "undefined") {
+        globalThis.__transparentOverlayManualGeometry = true;
+      }
+    } catch (_) {}
+  }
+
+  function pushTransparentOverlayRect(shapes, id, left, top, right, bottom) {
+    const l = Number(left);
+    const t = Number(top);
+    const r = Number(right);
+    const b = Number(bottom);
+    if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(r) || !Number.isFinite(b)) return;
+    const width = r - l;
+    const height = b - t;
+    if (width <= 0 || height <= 0) return;
+    shapes.push({
+      kind: "rect",
+      id: String(id || "region"),
+      x: Math.floor(l),
+      y: Math.floor(t),
+      width: Math.ceil(width),
+      height: Math.ceil(height),
+    });
+  }
+
+  function setFrameDragCursorState(active, surfaces) {
+    const flag = active ? "1" : "0";
+    if (typeof document !== "undefined" && document && document.body && document.body.classList) {
+      document.body.classList.toggle("vf-frame-dragging", active);
+    }
+    if (Array.isArray(surfaces)) {
+      for (let i = 0; i < surfaces.length; i++) {
+        const el = surfaces[i];
+        if (!el || !el.setAttribute) continue;
+        if (active) el.setAttribute("data-vf-frame-dragging", flag);
+        else el.removeAttribute("data-vf-frame-dragging");
+      }
+    }
+  }
+
   const VfFrame = {
     /**
      * Parse frame alpha from JSON (number or numeric string). Default `fallback` if missing/invalid.
@@ -165,22 +218,21 @@
     },
 
     /**
-     * WebView2 vf-overlay: send ``layout`` (hit regions + stage alpha) to native. The HTTP server
-     * reads the scene from ``web/`` next to vf-overlay.exe, not only from the repo; without this
-     * message the host can stay in pass-through mode for the whole client.
+     * Publish overlay input geometry. The product UI owns visual rendering; native overlay hosts own
+     * transparent presentation and click-through from this explicit geometry stream.
      * @param {HTMLElement} layer
-     * @param {{ stageAlpha?: number }} o
+     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[] }} o
      */
     postNativeHostLayout(layer, o) {
       o = o || {};
-      const wv = typeof globalThis !== "undefined" && globalThis.chrome && globalThis.chrome.webview;
-      if (!wv || typeof wv.postMessage !== "function" || !layer) return;
+      if (!layer) return;
       const sa = typeof o.stageAlpha === "number" ? Math.max(0, Math.min(1, o.stageAlpha)) : 1;
       const scope = (typeof document !== "undefined" && document && document.querySelectorAll)
         ? document
         : layer;
       const nodes = scope ? scope.querySelectorAll(".vf-frame") : [];
       const hitRegions = [];
+      const overlayShapes = [];
       function paintPadDipForElement(el) {
         if (!(el instanceof HTMLElement)) return 2;
         let pad = 24;
@@ -204,12 +256,14 @@
       function pushRectWithPad(r, pad) {
         if (!r) return;
         if (r.width < 1 || r.height < 1) return;
-        hitRegions.push({
+        const region = {
           left: Math.floor(r.left - pad),
           top: Math.floor(r.top - pad),
           right: Math.ceil(r.right + pad),
           bottom: Math.ceil(r.bottom + pad),
-        });
+        };
+        hitRegions.push(region);
+        pushTransparentOverlayRect(overlayShapes, "vf-region-" + hitRegions.length, region.left, region.top, region.right, region.bottom);
       }
       for (let i = 0; i < nodes.length; i++) {
         const el = nodes[i];
@@ -237,6 +291,7 @@
             right: Math.ceil(r),
             bottom: Math.ceil(b),
           });
+          pushTransparentOverlayRect(overlayShapes, "vf-display-" + i, l, t, r, b);
         }
       }
       if (Array.isArray(o.hitRegions)) {
@@ -255,7 +310,7 @@
       const hasPendingGeomPresentation =
         !!(scope && scope.querySelector && scope.querySelector('[data-vf-geom-present-pending="1"]'));
       const contentReady = o.contentReady === true || (hitRegions.length > 0 && !hasPendingGeomPresentation);
-      wv.postMessage({
+      postWebViewMessage({
         type: "layout",
         stageAlpha: sa,
         contentHidden: hitRegions.length === 0,
@@ -263,6 +318,21 @@
         toolbarPx: 160,
         hitRegions: hitRegions,
       });
+      if (!overlayShapes.length && VfFrame._lastTransparentOverlayShapeCount > 0 && o.clearOverlayGeometry !== true) {
+        return;
+      }
+      const active = o.active != null ? String(o.active) : "none";
+      const signature = geometrySignature(overlayShapes, active);
+      if (signature !== VfFrame._lastTransparentOverlayGeometrySignature) {
+        VfFrame._lastTransparentOverlayGeometrySignature = signature;
+        VfFrame._lastTransparentOverlayShapeCount = overlayShapes.length;
+        markManualTransparentOverlayGeometry();
+        postWebViewMessage({
+          type: "transparent-overlay.geometry",
+          active,
+          shapes: overlayShapes,
+        });
+      }
     },
 
     /**
@@ -494,6 +564,7 @@
         /* Native side uses integer dx/dy; subpixel per-event motion must accumulate or small moves
          * round to 0 and the window lags the cursor. */
         drag = { pid: e.pointerId, lx: e.screenX, ly: e.screenY, accX: 0, accY: 0 };
+        setFrameDragCursorState(true, dragSurfaces);
         try {
           (e.currentTarget || e.target).setPointerCapture(e.pointerId);
         } catch (_) {}
@@ -532,6 +603,7 @@
           (e.currentTarget || e.target).releasePointerCapture(e.pointerId);
         } catch (_) {}
         drag = null;
+        setFrameDragCursorState(false, dragSurfaces);
       };
       for (let i = 0; i < dragSurfaces.length; i++) {
         const el = dragSurfaces[i];
@@ -574,6 +646,7 @@
           blockWheel = null;
         }
         drag = null;
+        setFrameDragCursorState(false, [header]);
         if (o.onDragEnd) o.onDragEnd();
       }
       header.addEventListener("pointerdown", (e) => {
@@ -594,6 +667,7 @@
           lastY: e.clientY,
           fixedPos: false,
         };
+        setFrameDragCursorState(true, [header]);
         blockWheel = function (ev) {
           if (!drag) return;
           if (ev && typeof ev.preventDefault === "function") ev.preventDefault();
@@ -716,15 +790,6 @@
       const head = document.createElement("div");
       head.className = "vf-frame__header vf-frame__header--title-" + titleAlign;
 
-      const dragHandle = document.createElement("div");
-      dragHandle.className = "vf-frame__drag-handle";
-      dragHandle.setAttribute("role", "button");
-      dragHandle.setAttribute("tabindex", "0");
-      dragHandle.setAttribute("aria-label", "Drag window");
-      dragHandle.setAttribute("title", "Drag window");
-      dragHandle.dataset.vfDragHandle = "1";
-      dragHandle.textContent = "::::";
-
       const titleEl = document.createElement("span");
       titleEl.className = "vf-frame__title";
 
@@ -756,7 +821,6 @@
       if (btnMin) headEnd.appendChild(btnMin);
       if (btnClose) headEnd.appendChild(btnClose);
 
-      head.appendChild(dragHandle);
       head.appendChild(titleEl);
       if (btnMin || btnClose) {
         head.appendChild(headEnd);
@@ -987,7 +1051,7 @@
       }
 
       if (useHostWindowDrag) {
-        VfFrame.attachHostWindowDrag([head, minibar, dragHandle], { onDragStart: bringToFront });
+        VfFrame.attachHostWindowDrag([head, minibar], { onDragStart: bringToFront });
       } else if (draggable && !frameless) {
         /* vf-overlay: keep region lock-step with pointer movement to avoid visible crop lag. */
         VfFrame.attachHeaderDrag({
