@@ -6280,6 +6280,16 @@
         });
       }
     }
+    function finishRenderFrame(animationActive, triggerDependentsAfter) {
+      controlState.rendering = false;
+      if (triggerDependentsAfter === true) {
+        triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      }
+      scheduleNextFrameIfNeeded(animationActive);
+    }
+    function renderFrameDependentsBeforePresent() {
+      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+    }
     function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera) {
       var liveCamera = {
         pos: toVec3(renderCamera.pos, [0, 0, 0]),
@@ -6696,16 +6706,21 @@
         var meshStructureSignature = sceneWorldMeshStructureSignature();
         var heldCameraKeyActive = cameraKeysActive();
         var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
-        if (heldCameraKeyActive && useVisibleFrame && visibleSpec && updateVisibleCameraOnly(renderCamera, { immediate: true })) {
+        if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {
+          renderFrameDependentsBeforePresent();
+          if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
+            failFast('held camera frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
+          }
           scenePerf.cameraOnlyUpdates += 1;
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-          controlState.rendering = false;
-          scheduleNextFrameIfNeeded(worldAnimationActive);
+          finishRenderFrame(worldAnimationActive, false);
           return;
         }
-        if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })) {
+        if (canUseVisibleCameraOnly) {
+          renderFrameDependentsBeforePresent();
+          if (!updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })) {
+            failFast('camera-only frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
+          }
           scenePerf.cameraOnlyUpdates += 1;
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
               "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
@@ -6714,8 +6729,7 @@
                 " full=" + Number(scenePerf.fullSceneUpdates || 0)
             );
           }
-          controlState.rendering = false;
-          scheduleNextFrameIfNeeded(worldAnimationActive);
+          finishRenderFrame(worldAnimationActive, false);
           return;
         }
         if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)) {
@@ -6728,7 +6742,7 @@
                 " full=" + Number(scenePerf.fullSceneUpdates || 0)
             );
           }
-          controlState.rendering = false;
+          finishRenderFrame(worldAnimationActive, true);
           return;
         }
         if (useVisibleFrame) {
@@ -6761,8 +6775,7 @@
             " full=" + Number(scenePerf.fullSceneUpdates || 0) +
             " dirty=" + Number(dirtyVersion || 0)
         );
-        controlState.rendering = false;
-        scheduleNextFrameIfNeeded(worldAnimationActive);
+        finishRenderFrame(worldAnimationActive, false);
       } catch (err) {
         controlState.rendering = false;
         failFast("render loop failed: " + (err && err.message ? err.message : String(err)));

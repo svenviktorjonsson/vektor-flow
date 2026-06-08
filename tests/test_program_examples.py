@@ -468,10 +468,13 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "var worldAnimationActive = dependencySourceFrameId" in runtime
     assert "? sceneWorldAnimationsPending()\n          : applySceneWorldFrame(seconds);" in runtime
     assert "var heldCameraKeyActive = cameraKeysActive();" in runtime
-    assert "if (heldCameraKeyActive && useVisibleFrame && visibleSpec && updateVisibleCameraOnly(renderCamera, { immediate: true }))" in runtime
-    held_camera_update = runtime.index("if (heldCameraKeyActive && useVisibleFrame && visibleSpec && updateVisibleCameraOnly(renderCamera, { immediate: true }))")
-    held_camera_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", held_camera_update)
-    assert held_camera_update < held_camera_trigger
+    assert "function renderFrameDependentsBeforePresent()" in runtime
+    assert "if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {" in runtime
+    held_camera_path = runtime.index("if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {")
+    held_camera_trigger = runtime.index("renderFrameDependentsBeforePresent();", held_camera_path)
+    held_camera_update = runtime.index("updateVisibleCameraOnly(renderCamera, { immediate: true })", held_camera_path)
+    assert held_camera_trigger < held_camera_update
+    assert 'could not present immediately' in runtime
     assert 'typeof activeState.requestCameraFrame === "function"' in runtime
     assert 'typeof state.requestCameraFrame === "function"' in runtime
     assert "function smoothInterpolatedFieldMeshVertices(spec, vertices, indices, enabled)" in runtime
@@ -496,15 +499,16 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "dependentMirrorFramePending" not in runtime
     assert "function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera)" in runtime
     assert "renderCamera = applyCameraSwitch(renderCamera);\n        publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);" in runtime
-    camera_only_update = runtime.index("if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive }))")
-    camera_only_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", camera_only_update)
-    assert camera_only_update < camera_only_trigger
+    camera_only_path = runtime.index("if (canUseVisibleCameraOnly) {")
+    camera_only_trigger = runtime.index("renderFrameDependentsBeforePresent();", camera_only_path)
+    camera_only_update = runtime.index("updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })", camera_only_path)
+    assert camera_only_trigger < camera_only_update
     full_render_trigger = runtime.index("if (useVisibleFrame) {\n          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });\n        }\n        var rendered = renderPayload")
     full_render_payload = runtime.index("var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });", full_render_trigger)
     assert full_render_trigger < full_render_payload
     assert "requestLinkedMirrorTextureFrameForSource(String(frameSpec.frame_id || config.frame_id));" not in runtime
     assert "_skip_render" not in runtime
-    assert "canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })" in runtime
+    assert "updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })" in runtime
     assert "dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)" in runtime
     assert "cameraOnlyUpdates" in runtime
     assert "fullSceneUpdates" in runtime
