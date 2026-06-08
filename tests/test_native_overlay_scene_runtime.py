@@ -12,6 +12,29 @@ from vektorflow.native_overlay_scene_runtime import (
 from vektorflow.ui.runtime_packet_transport import resequence_runtime_packets
 
 
+def test_overlay_static_server_uses_stable_origin_and_cacheable_scene_assets() -> None:
+    source = (Path(__file__).resolve().parent.parent / "native" / "VfOverlay" / "main.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "const int preferredPort = g_port > 0 ? g_port : 58461;" in source
+    assert "public, max-age=31536000, immutable" in source
+    assert 'rel.find("\\\\vf-native-scene-configs-")' in source
+    assert 'rel.find("\\\\vf-native-scene-arena-")' in source
+    assert 'rel == "vf-runtime-packets.json"' in source
+    assert "no-store, no-cache, must-revalidate" in source
+
+
+def test_vkf_launcher_does_not_invalidate_scene_cache_on_stager_mtime() -> None:
+    source = (Path(__file__).resolve().parent.parent / "native" / "VfOverlay" / "vkf_launcher.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs::path& stager)" in source
+    assert "NewerThan(stager, page)" not in source
+    assert "(void)stager;" in source
+
+
 class _FakeProc:
     def __init__(self, pid: int) -> None:
         self.pid = pid

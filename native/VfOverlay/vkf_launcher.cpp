@@ -488,9 +488,7 @@ bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs
     if (NewerThan(source, page)) {
         return false;
     }
-    if (!stager.empty() && NewerThan(stager, page)) {
-        return false;
-    }
+    (void)stager;
     const fs::path webRoot = page.parent_path().parent_path().parent_path();
     if (NewerThan(webRoot / L"vf-runtime-shell.js", page) ||
         NewerThan(webRoot / L"vf-native-scene.js", page)) {

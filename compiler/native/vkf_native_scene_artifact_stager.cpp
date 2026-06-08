@@ -50,6 +50,10 @@ std::string read_file_bytes(const std::filesystem::path& path) {
 
 void write_file(const std::filesystem::path& path, const std::string& text) {
     std::filesystem::create_directories(path.parent_path());
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec) && read_file_bytes(path) == text) {
+        return;
+    }
     std::ofstream output(path, std::ios::binary);
     if (!output) {
         throw StagerError("could not write " + path.string());
@@ -57,7 +61,7 @@ void write_file(const std::filesystem::path& path, const std::string& text) {
     output << text;
 }
 
-void remove_prior_generated_scene_artifacts(const std::filesystem::path& session_dir) {
+void remove_prior_generated_scene_artifacts(const std::filesystem::path& session_dir, const std::vector<std::string>& keep_names) {
     std::error_code ec;
     if (!std::filesystem::exists(session_dir, ec)) {
         return;
@@ -69,6 +73,9 @@ void remove_prior_generated_scene_artifacts(const std::filesystem::path& session
         const std::string name = it->path().filename().string();
         if (name.rfind("vf-native-scene-configs-", 0) == 0 ||
             name.rfind("vf-native-scene-arena-", 0) == 0) {
+            if (std::find(keep_names.begin(), keep_names.end(), name) != keep_names.end()) {
+                continue;
+            }
             std::filesystem::remove(it->path(), ec);
             if (ec) {
                 throw StagerError("could not remove stale generated scene artifact: " + it->path().string());
@@ -687,7 +694,14 @@ int run(int argc, char** argv) {
     const std::string arena_filename = !arena.arena_bytes.empty()
         ? "vf-native-scene-arena-" + fnv1a64_hex(arena.arena_bytes) + ".bin"
         : "";
-    remove_prior_generated_scene_artifacts(session_dir);
+    std::vector<std::string> generated_keep_names;
+    if (!config_filename.empty()) {
+        generated_keep_names.push_back(config_filename);
+    }
+    if (!arena_filename.empty()) {
+        generated_keep_names.push_back(arena_filename);
+    }
+    remove_prior_generated_scene_artifacts(session_dir, generated_keep_names);
     write_file(manifest_path, manifest_text(absolute_source, source_hash, page_rel));
     write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename));
     if (multi_view_scene) {

@@ -167,7 +167,7 @@ bool g_contentHidden = false;
 int g_toolbarPx = 160;
 std::vector<RECT> g_hitRegions;
 
-/* 0 = pick a free port (avoids bind failure if another process already uses a fixed default). */
+/* Prefer a stable origin so WebView can reuse its HTTP cache between launches. */
 int g_port = 0;
 std::atomic<bool> g_httpStop{false};
 std::atomic<bool> g_httpListenOk{false};
@@ -687,18 +687,41 @@ static const char* ContentTypeForWebPath(const std::wstring& path) {
     return "application/octet-stream";
 }
 
-void HttpRespondStatic(SOCKET s, int status, const char* statusText, const char* contentType, const std::string& body) {
+const char* StaticCacheControlForRelativePath(const std::string& rel) {
+    if (rel == "vf-runtime-packets.json" ||
+        rel.find("\\vf-runtime-packets.json") != std::string::npos ||
+        rel.find("\\vf-geom-ledger-transport.json") != std::string::npos ||
+        rel.find("\\vf-geom-ledger-state.json") != std::string::npos ||
+        rel.find("\\vf-event-program.json") != std::string::npos ||
+        rel.find("\\vf-api-port.txt") != std::string::npos) {
+        return "no-store, no-cache, must-revalidate";
+    }
+    if (rel.size() >= 4 && _stricmp(rel.c_str() + rel.size() - 4, ".bin") == 0) {
+        return "public, max-age=31536000, immutable";
+    }
+    if (rel.find("\\vf-native-scene-configs-") != std::string::npos ||
+        rel.find("\\vf-native-scene-arena-") != std::string::npos ||
+        rel.find("\\geom\\") != std::string::npos ||
+        rel.find("\\fonts\\") != std::string::npos) {
+        return "public, max-age=31536000, immutable";
+    }
+    if (rel == "index.html" || rel.find("\\vkf-scene.html") != std::string::npos) {
+        return "no-cache";
+    }
+    return "public, max-age=86400";
+}
+
+void HttpRespondStatic(SOCKET s, int status, const char* statusText, const char* contentType, const std::string& body, const char* cacheControl = "no-store, no-cache, must-revalidate") {
     char hdr[640];
     snprintf(hdr, sizeof(hdr),
         "HTTP/1.1 %d %s\r\n"
         "Access-Control-Allow-Origin: *\r\n"
-        "Cache-Control: no-store, no-cache, must-revalidate\r\n"
-        "Pragma: no-cache\r\n"
+        "Cache-Control: %s\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n"
         "\r\n",
-        status, statusText, contentType, body.size());
+        status, statusText, cacheControl, contentType, body.size());
     HttpSendAll(s, hdr, strlen(hdr));
     HttpSendAll(s, body.data(), body.size());
 }
@@ -2253,27 +2276,37 @@ void HttpThreadMain() {
         return;
     }
 
-    g_listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (g_listenSock == INVALID_SOCKET) {
-        ViewerDiagLogPrintf("HTTP listener failed: socket()");
-        WSACleanup();
-        HttpSignalReady(false);
-        return;
-    }
+    const int preferredPort = g_port > 0 ? g_port : 58461;
+    int bindAttempts[2] = {preferredPort, 0};
+    bool bound = false;
+    for (int attempt = 0; attempt < 2 && !bound; ++attempt) {
+        g_port = bindAttempts[attempt];
+        g_listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (g_listenSock == INVALID_SOCKET) {
+            ViewerDiagLogPrintf("HTTP listener failed: socket()");
+            WSACleanup();
+            HttpSignalReady(false);
+            return;
+        }
 
-    BOOL opt = TRUE;
-    setsockopt(g_listenSock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+        BOOL opt = TRUE;
+        setsockopt(g_listenSock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((u_short)g_port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons((u_short)g_port);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-    if (bind(g_listenSock, (sockaddr*)&addr, sizeof(addr)) != 0) {
-        ViewerDiagLogPrintf("HTTP listener failed: bind(127.0.0.1:%d) — port in use", g_port);
-        MessageBoxW(g_hwnd, L"Cannot bind localhost (dynamic port).", L"vf-overlay", MB_OK | MB_ICONERROR);
+        if (bind(g_listenSock, (sockaddr*)&addr, sizeof(addr)) == 0) {
+            bound = true;
+            break;
+        }
+        ViewerDiagLogPrintf("HTTP listener bind failed on 127.0.0.1:%d; trying fallback", g_port);
         closesocket(g_listenSock);
         g_listenSock = INVALID_SOCKET;
+    }
+    if (!bound) {
+        ViewerDiagLogPrintf("HTTP listener failed: bind fallback");
         WSACleanup();
         HttpSignalReady(false);
         return;
@@ -2411,7 +2444,7 @@ void HttpThreadMain() {
                 std::string body = ReadFileBinary(fpath);
                 if (!body.empty()) {
                     const char* ct = ContentTypeForWebPath(fpath);
-                    HttpRespondStatic(c, 200, "OK", ct, body);
+                    HttpRespondStatic(c, 200, "OK", ct, body, StaticCacheControlForRelativePath(rel));
                 } else {
                     HttpRespondStatic(c, 404, "Not Found", "text/plain; charset=utf-8", "not found");
                 }

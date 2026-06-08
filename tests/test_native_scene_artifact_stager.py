@@ -261,6 +261,42 @@ def test_native_scene_artifact_stager_externalizes_mesh_arrays_to_binary_arena(t
     assert arena_files[0].stat().st_size == (10 * 4) + (3 * 4)
 
 
+def test_native_scene_artifact_stager_preserves_current_hashed_artifacts(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    source_dir = tmp_path / "program"
+    source_dir.mkdir()
+    source = source_dir / "main.vkf"
+    scene_config = (
+        '[{"scene_ir":{"frame":{"frame_id":"vkf_chess_board","visible":true},'
+        '"meshes":[{"kind":"field_mesh","properties":{"id":"piece","vertices":[1.0,2.0,3.0,0.0,0.0,1.0,1.0,0.8,0.6,1.0],'
+        '"indices":[0,1,2]}}]}}]'
+    )
+    source.write_text(f"native_scene_config_json: '{scene_config}'\n", encoding="utf-8")
+    overlay_web = tmp_path / "web"
+
+    command = [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)]
+    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+
+    session_dir = overlay_web / "sessions" / "main"
+    stale_config = session_dir / "vf-native-scene-configs-old.json"
+    stale_config.write_text("stale", encoding="utf-8")
+    config_file = next(session_dir.glob("vf-native-scene-configs-*.json"))
+    arena_file = next(session_dir.glob("vf-native-scene-arena-*.bin"))
+    html_file = session_dir / "vkf-scene.html"
+    mtimes_before = {
+        config_file: config_file.stat().st_mtime_ns,
+        arena_file: arena_file.stat().st_mtime_ns,
+        html_file: html_file.stat().st_mtime_ns,
+    }
+
+    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+
+    assert not stale_config.exists()
+    assert config_file.stat().st_mtime_ns == mtimes_before[config_file]
+    assert arena_file.stat().st_mtime_ns == mtimes_before[arena_file]
+    assert html_file.stat().st_mtime_ns == mtimes_before[html_file]
+
+
 def test_native_scene_artifact_stager_rejects_stale_generated_scene_config(tmp_path: Path) -> None:
     exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
     source_dir = tmp_path / "program"
