@@ -374,9 +374,22 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function finishChessMoveResult(runtime, moverSide)" in runtime
     assert "function chessEndMatedKing(runtime, result)" in runtime
     assert "function chessMatedKingFallPose(runtime, king)" in runtime
-    assert "var matedKing = chessEndMatedKing(runtime, runtime.gameOver);" in runtime
-    assert "queueChessAnimation(runtime, piece, [fromCenter, matedFallPose.center], null, {" in runtime
+    assert "function startChessMatedKingFall(runtime)" in runtime
+    assert "function startChessEndCenterAnimation(runtime)" in runtime
+    assert "function advanceChessEndSequence(runtime, now)" in runtime
+    assert "function chessAnimationEase(anim, t)" in runtime
+    assert 'stage: runtime.gameOver === "draw" ? "wait_before_center" : "wait_before_fall"' in runtime
+    assert "due_ms: now + 1000.0" in runtime
+    assert 'runtime.endSequence.stage = "falling";' in runtime
+    assert 'runtime.endSequence.stage = "centering";' in runtime
+    assert "runtime.endSequence.stage = \"wait_before_center\";\n        runtime.endSequence.due_ms = now + 1000.0;" in runtime
+    assert "runtime.endSequence = null;" in runtime
+    assert "queueChessAnimation(runtime, matedKing, [fromCenter, matedFallPose.center], null, {" in runtime
     assert "to_rotation: matedFallPose.rotation" in runtime
+    assert 'easing: "king_fall"' in runtime
+    assert "return 1.0 + (Math.sin(bounceT * Math.PI) * 0.14 * (1.0 - bounceT));" in runtime
+    assert "sceneWorldAnimationsPending()" in runtime
+    assert "runtime.endSequence" in runtime
     assert "pendingEndResult" in runtime
     assert "runtime.pendingEndResult = moveResult || \"\";" in runtime
     assert "runtime.pendingEndResult = promotionResult || \"\";" in runtime
@@ -425,11 +438,13 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function chessMotionDurationMs(runtime, path)" in runtime
     assert "piece_motion_units_per_second" in runtime
     assert "duration_ms: Math.max(16.0, Number(options.duration_ms || 0.0) || chessMotionDurationMs(runtime, normalizedPath))" in runtime
+    assert 'easing: String(options.easing || "linear")' in runtime
     assert "var durationMs = Math.max(16.0, Number(anim.duration_ms || 0.0) || chessMotionDurationMs(runtime, anim.path));" in runtime
     assert "anim.elapsed_ms = Math.max(0.0, Number(anim.elapsed_ms || 0.0) || 0.0) + dtMs;" in runtime
     assert "var t = Math.max(0.0, Math.min(1.0, anim.elapsed_ms / durationMs));" in runtime
+    assert "var easedT = chessAnimationEase(anim, t);" in runtime
     assert "var path = Array.isArray(anim.path) && anim.path.length >= 2 ? anim.path : [anim.from, anim.to];" in runtime
-    assert "var remainingDistance = t * totalLength;" in runtime
+    assert "var remainingDistance = easedT * totalLength;" in runtime
     assert "function currentSceneWorldDirtyVersion()" in runtime
     assert "function sceneWorldAnimationsPending()" in runtime
     assert "function applySceneWorldFrame(seconds)" in runtime
