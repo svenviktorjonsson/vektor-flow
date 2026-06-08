@@ -1830,6 +1830,17 @@
     ];
   }
 
+  function finiteMat4(value) {
+    if (!Array.isArray(value) || value.length !== 16) { return null; }
+    var out = new Array(16);
+    for (var i = 0; i < 16; i += 1) {
+      var n = Number(value[i]);
+      if (!Number.isFinite(n)) { return null; }
+      out[i] = n;
+    }
+    return out;
+  }
+
   function makeRng(seed) {
     var state = (Number(seed) || 0) >>> 0;
     return function () {
@@ -2737,6 +2748,7 @@
         center: resolveTrackedVec3(spec, "center", framePos, toVec3(entityProp(spec, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
         scale: resolveTrackedVec3(spec, "scale", framePos, toVec3(entityProp(spec, "scale", [1.0, 1.0, 1.0]), [1.0, 1.0, 1.0])),
         rotation: resolveTrackedVec3(spec, "rotation", framePos, toVec3(entityProp(spec, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
+        transform: resolveTrackedMatrix4(spec, "transform", framePos, toMatrix4(entityProp(spec, "transform", null), null)),
         color: fieldColor,
         visible: entityProp(spec, "visible", true) !== false,
         pickable: entityProp(spec, "pickable", true) !== false,
@@ -3031,7 +3043,7 @@
             surface_system: mesh.surface_system || null,
             tracks: mesh.tracks || null,
             animation_timing: mesh.animation_timing || null,
-            _modelMatrix: Array.isArray(mesh._modelMatrix) ? mesh._modelMatrix.slice() : null
+            _modelMatrix: Array.isArray(mesh.transform) ? mesh.transform.slice() : (Array.isArray(mesh._modelMatrix) ? mesh._modelMatrix.slice() : null)
           };
         }
       }
@@ -3075,7 +3087,7 @@
         surface_system: mesh.surface_system || null,
         tracks: mesh.tracks || null,
         animation_timing: mesh.animation_timing || null,
-        _modelMatrix: Array.isArray(mesh._modelMatrix) ? mesh._modelMatrix.slice() : null
+        _modelMatrix: Array.isArray(mesh.transform) ? mesh.transform.slice() : (Array.isArray(mesh._modelMatrix) ? mesh._modelMatrix.slice() : null)
       };
     }
     if (mesh.kind === "cube") {
@@ -3777,8 +3789,9 @@
       if (objectId) { seenObjectIds[String(objectId)] = true; }
       var piece = runtime.piecesByObjectId[String(objectId)] || null;
       if (!piece || !piece.mesh) { continue; }
-        setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
+      setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
       setEntityProp(mesh, "rotation", cloneEntityStateValue(entityProp(piece.mesh, "rotation", piece.start_rotation || [0.0, 0.0, 0.0])));
+      setEntityProp(mesh, "transform", cloneEntityStateValue(entityProp(piece.mesh, "transform", null)));
       mesh._modelMatrix = null;
       setEntityProp(mesh, "visible", (piece.captured !== true || piece.in_capture_tray === true) && entityProp(piece.mesh, "visible", true) !== false);
       setEntityProp(mesh, "color", cloneEntityStateValue(entityProp(piece.mesh, "color", pieceBaseColor(piece))));
@@ -3912,6 +3925,7 @@
         ? chessCapturedTrayCenter(runtime, piece, Math.max(0, Number(piece.capture_tray_index || 0) || 0))
         : pieceBoardCenter(piece, 0.0));
       piece.mesh._modelMatrix = null;
+      setEntityProp(piece.mesh, "transform", null);
       setEntityProp(piece.mesh, "rotation", cloneJsonValue(piece.start_rotation || entityProp(piece.start_mesh || piece.mesh, "rotation", [0.0, 0.0, 0.0])));
       setEntityProp(piece.mesh, "visible", piece.captured !== true || piece.in_capture_tray === true);
       setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
@@ -4659,6 +4673,7 @@
         piece.file = piece.start_file;
         piece.rank = piece.start_rank;
         piece.mesh._modelMatrix = null;
+        setEntityProp(piece.mesh, "transform", null);
         setEntityProp(piece.mesh, "rotation", cloneJsonValue(piece.start_rotation || entityProp(piece.start_mesh || piece.mesh, "rotation", [0.0, 0.0, 0.0])));
         var toCenter = chessEndTargetCenter(runtime, piece, result);
         queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
@@ -4975,6 +4990,7 @@
     setEntityProp(piece.mesh, "vertices", cloneJsonValue(entityProp(template, "vertices", [])));
     setEntityProp(piece.mesh, "indices", cloneJsonValue(entityProp(template, "indices", [])));
     piece.mesh._modelMatrix = null;
+    setEntityProp(piece.mesh, "transform", null);
     setEntityProp(piece.mesh, "rotation", cloneJsonValue(entityProp(template, "rotation", [0.0, 0.0, 0.0])));
     setEntityProp(piece.mesh, "center", center);
     piece.role = String(role || "queen");
@@ -5426,6 +5442,7 @@
       p.has_moved = false;
       p._animating = false;
       p.mesh._modelMatrix = null;
+      setEntityProp(p.mesh, "transform", null);
       setEntityProp(p.mesh, "center", pieceBoardCenter(p, 0.0));
       setEntityProp(p.mesh, "rotation", cloneJsonValue(p.start_rotation || entityProp(p.start_mesh || p.mesh, "rotation", [0.0, 0.0, 0.0])));
       setEntityProp(p.mesh, "visible", true);
@@ -5757,12 +5774,13 @@
         var pose = anim.fall_pose;
         var fallAngle = Math.max(0.0, Number(pose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5)) * easedT;
         var fallModel = mat4RotateAroundPoint(pose.axis || [0.0, 1.0, 0.0], fallAngle, pose.pivot || center, pose.base_model || null);
-        var fallCenter = transformPointMat4(fallModel, 0.0, 0.0, 0.0);
         anim.piece.mesh._modelMatrix = null;
-        setEntityProp(anim.piece.mesh, "center", finiteVec3(fallCenter, pose.base_center || center));
-        setEntityProp(anim.piece.mesh, "rotation", fallRotationFromAxis(pose.axis || [0.0, 1.0, 0.0], fallAngle, pose.base_rotation || anim.from_rotation));
+        setEntityProp(anim.piece.mesh, "transform", finiteMat4(fallModel));
+        setEntityProp(anim.piece.mesh, "center", [0.0, 0.0, 0.0]);
+        setEntityProp(anim.piece.mesh, "rotation", [0.0, 0.0, 0.0]);
       } else {
         anim.piece.mesh._modelMatrix = null;
+        setEntityProp(anim.piece.mesh, "transform", null);
         setEntityProp(anim.piece.mesh, "center", center);
       }
       if (!anim.fall_pose && Array.isArray(anim.from_rotation) && Array.isArray(anim.to_rotation)) {
@@ -5783,10 +5801,12 @@
           var finalAngle = Math.max(0.0, Number(finalPose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5));
           var finalModel = mat4RotateAroundPoint(finalPose.axis || [0.0, 1.0, 0.0], finalAngle, finalPose.pivot || anim.to, finalPose.base_model || null);
           anim.piece.mesh._modelMatrix = null;
-          setEntityProp(anim.piece.mesh, "center", finiteVec3(transformPointMat4(finalModel, 0.0, 0.0, 0.0), finalPose.base_center || anim.to));
-          setEntityProp(anim.piece.mesh, "rotation", fallRotationFromAxis(finalPose.axis || [0.0, 1.0, 0.0], finalAngle, finalPose.base_rotation || anim.from_rotation));
+          setEntityProp(anim.piece.mesh, "transform", finiteMat4(finalModel));
+          setEntityProp(anim.piece.mesh, "center", [0.0, 0.0, 0.0]);
+          setEntityProp(anim.piece.mesh, "rotation", [0.0, 0.0, 0.0]);
         } else {
           anim.piece.mesh._modelMatrix = null;
+          setEntityProp(anim.piece.mesh, "transform", null);
         }
         if (!anim.fall_pose && Array.isArray(anim.to_rotation)) {
           setEntityProp(anim.piece.mesh, "rotation", anim.to_rotation);

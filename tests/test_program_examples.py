@@ -398,10 +398,17 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "fall_pose: matedFallPose" in runtime
     assert 'easing: "king_fall"' in runtime
     assert "return 1.0 + (Math.sin(bounceT * Math.PI) * 0.14 * (1.0 - bounceT));" in runtime
+    assert 'transform: resolveTrackedMatrix4(spec, "transform"' in runtime
+    assert 'setEntityProp(mesh, "transform", cloneEntityStateValue(entityProp(piece.mesh, "transform", null)))' in runtime
+    assert 'setEntityProp(anim.piece.mesh, "transform", finiteMat4(fallModel));' in runtime
+    assert 'setEntityProp(anim.piece.mesh, "transform", finiteMat4(finalModel));' in runtime
+    assert 'setEntityProp(anim.piece.mesh, "center", [0.0, 0.0, 0.0]);' in runtime
+    assert 'setEntityProp(anim.piece.mesh, "rotation", [0.0, 0.0, 0.0]);' in runtime
     assert "mesh._modelMatrix = null;" in runtime
     assert "var fallModel = mat4RotateAroundPoint" in runtime
-    assert "setEntityProp(anim.piece.mesh, \"center\", finiteVec3(fallCenter, pose.base_center || center));" in runtime
-    assert "setEntityProp(anim.piece.mesh, \"rotation\", fallRotationFromAxis" in runtime
+    assert "bake_vertices" not in runtime
+    assert "source_vertices" not in runtime
+    assert "transformedFieldMeshVertices" not in runtime
     assert "anim.piece.mesh._modelMatrix = mat4RotateAroundPoint" not in runtime
     assert "piece.mesh._modelMatrix = null;" in runtime
     assert "sceneWorldAnimationsPending()" in runtime
