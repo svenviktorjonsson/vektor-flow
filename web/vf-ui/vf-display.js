@@ -6099,7 +6099,7 @@
           }
           mutateAxis3DCamera(fid, function (camera) {
             var rotateCfgForController = axis3DRuntimeConfig(geom) || {};
-            var controller = axis3DRotationControllerForConfig(rotateCfgForController);
+            var controller = axis3DRotationControllerForDrag(rotateCfgForController, drag);
             controller.rotateDrag(camera, rotateCfgForController, dx, dy, body, drag.shiftKey === true, drag);
           }, { skipTextOverlay: true });
           var rotateCfg = axis3DRuntimeConfig(geom);
