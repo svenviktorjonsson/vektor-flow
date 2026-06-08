@@ -6349,12 +6349,12 @@
     controlState.requestCameraHoldFrame = function () {
       controlState.debugCameraRequestCount = Number(controlState.debugCameraRequestCount || 0) + 1;
       if (controlState.controlsEnabled === false) { return; }
-      if (controlState.rendering === true || controlState.cameraFramePending === true) {
+      if (controlState.rendering === true) {
         controlState.cameraFrameDirty = true;
         ensureCameraHoldLoop(controlState);
         return;
       }
-      controlState.cameraKeyStepPending = true;
+      controlState.cameraFramePending = false;
       renderFrame();
     };
     function markActiveFrame() {
@@ -6579,12 +6579,10 @@
             var orbitSpeed = Number(controlState.orbitSpeedRadPerSec || 0.0) || 0.0;
             if (orbitSpeed > 0.0) {
               var keyHoldActive = cameraKeysActive();
-              var keyDtSec = controlState.cameraKeyStepPending === true
-                ? (1.0 / 30.0)
-                : dtSec;
+              var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 30.0, dtSec || (1.0 / 60.0)));
               var deltaPhi = 0.0;
               var deltaTheta = 0.0;
-              if (keyHoldActive && controlState.cameraKeyStepPending === true) {
+              if (keyHoldActive) {
                 if (controlState.keyLeft) { deltaPhi -= orbitSpeed * keyDtSec; }
                 if (controlState.keyRight) { deltaPhi += orbitSpeed * keyDtSec; }
                 if (controlState.keyUp) { deltaTheta += orbitSpeed * keyDtSec; }
@@ -6696,12 +6694,18 @@
         publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
         var dirtyVersion = currentSceneWorldDirtyVersion();
         var meshStructureSignature = sceneWorldMeshStructureSignature();
+        var heldCameraKeyActive = cameraKeysActive();
         var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
-        if (canUseVisibleCameraOnly) {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-        }
-        if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: cameraKeysActive() })) {
+        if (heldCameraKeyActive && useVisibleFrame && visibleSpec && updateVisibleCameraOnly(renderCamera, { immediate: true })) {
           scenePerf.cameraOnlyUpdates += 1;
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+          controlState.rendering = false;
+          scheduleNextFrameIfNeeded(worldAnimationActive);
+          return;
+        }
+        if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })) {
+          scenePerf.cameraOnlyUpdates += 1;
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
               "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +

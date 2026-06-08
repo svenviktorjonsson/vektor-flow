@@ -458,14 +458,20 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "var keyHoldActive = cameraKeysActive();" in runtime
     assert "controlState.cameraKeyStepCount = Math.min(8" not in runtime
     assert "var queuedKeySteps = Math.max(0, Number(controlState.cameraKeyStepCount || 0) || 0);" not in runtime
-    assert "controlState.cameraKeyStepPending = true;" in runtime
+    assert "controlState.cameraKeyStepPending = true;" not in runtime
     assert "if (keyHoldActive && controlState.cameraKeyStepPending === true && visibleRenderBackpressureActive())" not in runtime
-    assert "? (1.0 / 30.0)" in runtime
+    assert "if (keyHoldActive) {" in runtime
+    assert "var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 30.0, dtSec || (1.0 / 60.0)))" in runtime
     assert "controlState.cameraKeyStepPending = false;" in runtime
     assert "activeState.cameraKeyLastTsMs = global.performance" in runtime
     assert "Math.min(1.0 / 30.0" in runtime
     assert "var worldAnimationActive = dependencySourceFrameId" in runtime
     assert "? sceneWorldAnimationsPending()\n          : applySceneWorldFrame(seconds);" in runtime
+    assert "var heldCameraKeyActive = cameraKeysActive();" in runtime
+    assert "if (heldCameraKeyActive && useVisibleFrame && visibleSpec && updateVisibleCameraOnly(renderCamera, { immediate: true }))" in runtime
+    held_camera_update = runtime.index("if (heldCameraKeyActive && useVisibleFrame && visibleSpec && updateVisibleCameraOnly(renderCamera, { immediate: true }))")
+    held_camera_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", held_camera_update)
+    assert held_camera_update < held_camera_trigger
     assert 'typeof activeState.requestCameraFrame === "function"' in runtime
     assert 'typeof state.requestCameraFrame === "function"' in runtime
     assert "function smoothInterpolatedFieldMeshVertices(spec, vertices, indices, enabled)" in runtime
@@ -490,15 +496,15 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "dependentMirrorFramePending" not in runtime
     assert "function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera)" in runtime
     assert "renderCamera = applyCameraSwitch(renderCamera);\n        publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);" in runtime
-    camera_only_update = runtime.index("if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: cameraKeysActive() }))")
-    camera_only_trigger = runtime.rindex("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", 0, camera_only_update)
-    assert camera_only_trigger < camera_only_update
+    camera_only_update = runtime.index("if (canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive }))")
+    camera_only_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", camera_only_update)
+    assert camera_only_update < camera_only_trigger
     full_render_trigger = runtime.index("if (useVisibleFrame) {\n          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });\n        }\n        var rendered = renderPayload")
     full_render_payload = runtime.index("var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });", full_render_trigger)
     assert full_render_trigger < full_render_payload
     assert "requestLinkedMirrorTextureFrameForSource(String(frameSpec.frame_id || config.frame_id));" not in runtime
     assert "_skip_render" not in runtime
-    assert "canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: cameraKeysActive() })" in runtime
+    assert "canUseVisibleCameraOnly && updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })" in runtime
     assert "dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera)" in runtime
     assert "cameraOnlyUpdates" in runtime
     assert "fullSceneUpdates" in runtime
