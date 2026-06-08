@@ -6595,7 +6595,10 @@
             var orbitSpeed = Number(controlState.orbitSpeedRadPerSec || 0.0) || 0.0;
             if (orbitSpeed > 0.0) {
               var keyHoldActive = cameraKeysActive();
-              var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 30.0, dtSec || (1.0 / 60.0)));
+              var keyElapsedSec = controlState.cameraKeyLastTsMs > 0.0
+                ? Math.max(0.0, (nowMs - controlState.cameraKeyLastTsMs) * 0.001)
+                : (1.0 / 120.0);
+              var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 120.0, keyElapsedSec || (1.0 / 120.0)));
               var deltaPhi = 0.0;
               var deltaTheta = 0.0;
               if (keyHoldActive) {
