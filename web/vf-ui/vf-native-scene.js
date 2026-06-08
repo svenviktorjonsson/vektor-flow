@@ -5998,6 +5998,7 @@
           keyDown: false,
           cameraKeyLastTsMs: 0.0,
           cameraKeyStepPending: false,
+          cameraKeyStepCount: 0,
           dependencyWaitStartMs: 0.0
         };
       }
@@ -6022,6 +6023,7 @@
     controlState.keyDown = false;
     controlState.cameraKeyLastTsMs = 0.0;
     controlState.cameraKeyStepPending = false;
+    controlState.cameraKeyStepCount = 0;
     controlState.cameraFramePending = false;
     controlState.continuationFramePending = false;
     controlState.cameraSwitch = null;
@@ -6349,11 +6351,13 @@
     controlState.requestCameraHoldFrame = function () {
       controlState.debugCameraRequestCount = Number(controlState.debugCameraRequestCount || 0) + 1;
       if (controlState.controlsEnabled === false) { return; }
+      controlState.cameraKeyStepCount = Math.min(8, Math.max(0, Number(controlState.cameraKeyStepCount || 0) || 0) + 1);
+      controlState.cameraKeyStepPending = true;
       if (controlState.rendering === true || controlState.cameraFramePending === true) {
         controlState.cameraFrameDirty = true;
+        ensureCameraHoldLoop(controlState);
         return;
       }
-      controlState.cameraKeyStepPending = true;
       renderFrame();
     };
     function markActiveFrame() {
@@ -6479,6 +6483,7 @@
         if (!(activeState.keyLeft === true || activeState.keyRight === true || activeState.keyUp === true || activeState.keyDown === true)) {
           activeState.cameraKeyLastTsMs = 0.0;
           activeState.cameraKeyStepPending = false;
+          activeState.cameraKeyStepCount = 0;
         }
         if (typeof activeState.requestCameraFrame === "function") {
           activeState.requestCameraFrame();
@@ -6497,6 +6502,7 @@
           state.keyDown = false;
           state.cameraKeyLastTsMs = 0.0;
           state.cameraKeyStepPending = false;
+          state.cameraKeyStepCount = 0;
         }
       }, true);
     }
@@ -6578,21 +6584,25 @@
             var orbitSpeed = Number(controlState.orbitSpeedRadPerSec || 0.0) || 0.0;
             if (orbitSpeed > 0.0) {
               var keyHoldActive = cameraKeysActive();
-              var keyDtSec = controlState.cameraKeyStepPending === true
+              var queuedKeySteps = Math.max(0, Number(controlState.cameraKeyStepCount || 0) || 0);
+              var keyStepPending = queuedKeySteps > 0 || controlState.cameraKeyStepPending === true;
+              var keyDtSec = keyStepPending
                 ? (1.0 / 30.0)
                 : dtSec;
               var deltaPhi = 0.0;
               var deltaTheta = 0.0;
-              if (keyHoldActive && controlState.cameraKeyStepPending === true) {
+              if (keyHoldActive && keyStepPending) {
                 if (controlState.keyLeft) { deltaPhi -= orbitSpeed * keyDtSec; }
                 if (controlState.keyRight) { deltaPhi += orbitSpeed * keyDtSec; }
                 if (controlState.keyUp) { deltaTheta += orbitSpeed * keyDtSec; }
                 if (controlState.keyDown) { deltaTheta -= orbitSpeed * keyDtSec; }
                 controlState.cameraKeyLastTsMs = nowMs;
-                controlState.cameraKeyStepPending = false;
+                controlState.cameraKeyStepCount = Math.max(0, queuedKeySteps - 1);
+                controlState.cameraKeyStepPending = controlState.cameraKeyStepCount > 0;
               } else if (!keyHoldActive) {
                 controlState.cameraKeyLastTsMs = 0.0;
                 controlState.cameraKeyStepPending = false;
+                controlState.cameraKeyStepCount = 0;
               }
               if (deltaPhi !== 0.0 || deltaTheta !== 0.0) {
                 controlState.orbitPhi += deltaPhi;
