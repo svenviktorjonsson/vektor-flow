@@ -3803,6 +3803,7 @@
     runtime.hoverPromotion = null;
     runtime.promotion = null;
     runtime.gameOver = null;
+    runtime.pendingEndResult = "";
     runtime.animations = [];
     clearChessPromotionOptions(runtime);
     var maxCaptureOrder = 0;
@@ -3834,6 +3835,7 @@
       setEntityProp(piece.mesh, "center", piece.in_capture_tray
         ? chessCapturedTrayCenter(runtime, piece, Math.max(0, Number(piece.capture_tray_index || 0) || 0))
         : pieceBoardCenter(piece, 0.0));
+      setEntityProp(piece.mesh, "rotation", cloneJsonValue(piece.start_rotation || entityProp(piece.start_mesh || piece.mesh, "rotation", [0.0, 0.0, 0.0])));
       setEntityProp(piece.mesh, "visible", piece.captured !== true || piece.in_capture_tray === true);
       setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
       setEntityProp(piece.mesh, "specular_strength", Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
@@ -4013,21 +4015,26 @@
     return Math.max(minDurationMs, (pathLength / unitsPerSecond) * 1000.0);
   }
 
-  function queueChessAnimation(runtime, piece, path, capturedPiece) {
+  function queueChessAnimation(runtime, piece, path, capturedPiece, options) {
     if (!runtime || !piece || !piece.mesh || !Array.isArray(path) || path.length < 2) { return; }
+    options = options && typeof options === "object" ? options : {};
     var normalizedPath = path.map(function (point) { return toVec3(point, [0.0, 0.0, 0.0]); });
     runtime.animations = Array.isArray(runtime.animations)
       ? runtime.animations.filter(function (anim) { return !anim || anim.piece !== piece; })
       : [];
     piece._animating = true;
+    var fromRotation = options.from_rotation ? toVec3(options.from_rotation, [0.0, 0.0, 0.0]) : toVec3(entityProp(piece.mesh, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    var toRotation = options.to_rotation ? toVec3(options.to_rotation, fromRotation) : fromRotation.slice();
     runtime.animations.push({
       piece: piece,
       captured: capturedPiece || null,
       path: normalizedPath,
       path_length: chessPathLength(normalizedPath),
-      duration_ms: chessMotionDurationMs(runtime, normalizedPath),
+      duration_ms: Math.max(16.0, Number(options.duration_ms || 0.0) || chessMotionDurationMs(runtime, normalizedPath)),
       from: toVec3(normalizedPath[0], [0.0, 0.0, 0.0]),
       to: toVec3(normalizedPath[normalizedPath.length - 1], [0.0, 0.0, 0.0]),
+      from_rotation: fromRotation,
+      to_rotation: toRotation,
       start: global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now(),
       elapsed_ms: 0.0,
       last_tick_ms: 0.0,
@@ -4412,6 +4419,74 @@
     return notation + (chessSideHasLegalMove(runtime, enemySide) ? "+" : "++");
   }
 
+  function chessEndWinningSide(result) {
+    if (result === "white_win") { return "white"; }
+    if (result === "black_win") { return "black"; }
+    return "";
+  }
+
+  function chessEndMatedKing(runtime, result) {
+    var winningSide = chessEndWinningSide(result);
+    if (!winningSide) { return null; }
+    return chessFindKing(runtime, winningSide === "white" ? "black" : "white");
+  }
+
+  function chessFallDirectionSeed(runtime, piece) {
+    var moveCount = runtime && Array.isArray(runtime.moves) ? runtime.moves.length : 0;
+    var oid = Number(piece && piece.object_id || 0) || 0;
+    return (moveCount * 37 + oid * 17 + Number(piece && piece.file || 0) * 11 + Number(piece && piece.rank || 0) * 7) | 0;
+  }
+
+  function chessMatedKingFallPose(runtime, king) {
+    var origin = pieceBoardCenter(king, 0.0);
+    var candidates = [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+      [1, 1], [1, -1], [-1, 1], [-1, -1],
+      [2, 1], [2, -1], [-2, 1], [-2, -1],
+      [1, 2], [1, -2], [-1, 2], [-1, -2]
+    ];
+    var seed = chessFallDirectionSeed(runtime, king);
+    var best = null;
+    var ids = runtime && runtime.piecesByObjectId ? Object.keys(runtime.piecesByObjectId) : [];
+    var kingRadius = Math.max(0.22, chessPieceFootprintRadius(king));
+    for (var i = 0; i < candidates.length; i += 1) {
+      var cand = candidates[(i + Math.abs(seed)) % candidates.length];
+      var len = Math.max(0.0001, Math.sqrt((cand[0] * cand[0]) + (cand[1] * cand[1])));
+      var dx = cand[0] / len;
+      var dy = cand[1] / len;
+      var distance = Math.min(0.82, Math.max(0.56, 0.62 + (((seed + i) % 5) * 0.04)));
+      var target = [
+        Math.max(-3.72, Math.min(3.72, origin[0] + (dx * distance))),
+        Math.max(-3.72, Math.min(3.72, origin[1] + (dy * distance))),
+        Number(origin[2] || 0.0)
+      ];
+      var clearance = 99.0;
+      for (var p = 0; p < ids.length; p += 1) {
+        var other = runtime.piecesByObjectId[ids[p]];
+        if (!other || other === king || other.captured || other.in_capture_tray || !other.mesh) { continue; }
+        var otherCenter = toVec3(entityProp(other.mesh, "center", pieceBoardCenter(other, 0.0)), pieceBoardCenter(other, 0.0));
+        var ox = Number(otherCenter[0] || 0.0) - target[0];
+        var oy = Number(otherCenter[1] || 0.0) - target[1];
+        clearance = Math.min(clearance, Math.sqrt((ox * ox) + (oy * oy)) - kingRadius - chessPieceFootprintRadius(other));
+      }
+      var edgePenalty = Math.abs(target[0] - (origin[0] + dx * distance)) + Math.abs(target[1] - (origin[1] + dy * distance));
+      var score = clearance - (edgePenalty * 2.0);
+      if (!best || score > best.score) {
+        best = { direction: [dx, dy], center: target, score: score };
+      }
+    }
+    var dir = best ? best.direction : [1.0, 0.0];
+    var baseRotation = toVec3(entityProp(king.mesh, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    return {
+      center: best ? best.center : origin,
+      rotation: [
+        baseRotation[0] + (dir[1] * 1.42),
+        baseRotation[1] - (dir[0] * 1.42),
+        baseRotation[2]
+      ]
+    };
+  }
+
   function chessEndTargetCenter(runtime, piece, result) {
     var side = String(piece && piece.side || "");
     if (String(piece && piece.role || "") === "king") {
@@ -4429,12 +4504,15 @@
   function startChessEndAnimation(runtime, result) {
     if (!runtime || runtime.gameOver) { return; }
     runtime.gameOver = String(result || "draw");
+    runtime.pendingEndResult = "";
     runtime.selected = null;
     runtime.hoverSquare = null;
     runtime.hoverPiece = null;
     runtime.hoverPromotion = null;
     clearChessPromotionOptions(runtime);
     runtime.animations = [];
+    var matedKing = chessEndMatedKing(runtime, runtime.gameOver);
+    var matedFallPose = matedKing ? chessMatedKingFallPose(runtime, matedKing) : null;
     var ids = Object.keys(runtime.piecesByObjectId);
     for (var i = 0; i < ids.length; i += 1) {
       var piece = runtime.piecesByObjectId[ids[i]];
@@ -4448,14 +4526,22 @@
       piece.capture_order = 0;
       piece.capture_tray_index = -1;
       piece.capture_tray_center = null;
-      piece.file = piece.start_file;
-      piece.rank = piece.start_rank;
       setEntityProp(piece.mesh, "visible", true);
       setEntityProp(piece.mesh, "pickable", true);
       setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
       var fromCenter = toVec3(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0)), pieceBoardCenter(piece, 0.0));
-      var toCenter = chessEndTargetCenter(runtime, piece, runtime.gameOver);
-      queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
+      if (piece === matedKing && matedFallPose) {
+        queueChessAnimation(runtime, piece, [fromCenter, matedFallPose.center], null, {
+          to_rotation: matedFallPose.rotation,
+          duration_ms: Math.max(420.0, chessMotionDurationMs(runtime, [fromCenter, matedFallPose.center]))
+        });
+      } else {
+        piece.file = piece.start_file;
+        piece.rank = piece.start_rank;
+        setEntityProp(piece.mesh, "rotation", cloneJsonValue(piece.start_rotation || entityProp(piece.start_mesh || piece.mesh, "rotation", [0.0, 0.0, 0.0])));
+        var toCenter = chessEndTargetCenter(runtime, piece, runtime.gameOver);
+        queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
+      }
     }
     rebuildChessOccupancy(runtime);
     resetChessHighlights(runtime, { skipPieceRefresh: true });
@@ -4777,6 +4863,7 @@
     var promotionResult = finishChessMoveResult(runtime, piece.side);
     runtime.turn = runtime.turn === "white" ? "black" : "white";
     runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
+    runtime.pendingEndResult = promotionResult || "";
     recordChessHistorySnapshot(runtime);
     runtime.promotion = null;
     refreshChessPieceSelectionPose(runtime);
@@ -4784,9 +4871,6 @@
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
     requestChessInteractionFrame(runtime);
-    if (promotionResult) {
-      startChessEndAnimation(runtime, promotionResult);
-    }
     return true;
   }
 
@@ -5182,6 +5266,7 @@
       p.has_moved = false;
       p._animating = false;
       setEntityProp(p.mesh, "center", pieceBoardCenter(p, 0.0));
+      setEntityProp(p.mesh, "rotation", cloneJsonValue(p.start_rotation || entityProp(p.start_mesh || p.mesh, "rotation", [0.0, 0.0, 0.0])));
       setEntityProp(p.mesh, "visible", true);
       setEntityProp(p.mesh, "color", pieceBaseColor(p));
       setEntityProp(p.mesh, "specular_strength", Number(runtime.cfg.piece_specular_strength || 0.055) || 0.055);
@@ -5225,6 +5310,7 @@
       autoSwitchView: false,
       pendingAutoSwitchAfterAnimations: false,
       pendingAutoSwitchSide: "",
+      pendingEndResult: "",
       animations: [],
       nextCaptureOrder: 0,
       gameOver: null,
@@ -5268,6 +5354,7 @@
         start_file: Number(raw.file || 0) || 0,
         start_rank: Number(raw.rank || 0) || 0,
         base_z: Number(raw.base_z != null ? raw.base_z : cfg.piece_base_z != null ? cfg.piece_base_z : 0.065) || 0.065,
+        start_rotation: null,
         captured: false,
         captured_by: "",
         in_capture_tray: false,
@@ -5278,6 +5365,7 @@
       };
       if (piece.mesh && piece.side && piece.file && piece.rank) {
         piece.start_mesh = piece.mesh;
+        piece.start_rotation = cloneJsonValue(entityProp(piece.mesh, "rotation", [0.0, 0.0, 0.0]));
         setEntityProp(piece.mesh, "color", pieceBaseColor(piece));
         setEntityProp(piece.mesh, "specular_strength", Number(cfg.piece_specular_strength || 0.055) || 0.055);
         setEntityProp(piece.mesh, "receives_shadow", true);
@@ -5375,6 +5463,7 @@
     var moveResult = finishChessMoveResult(runtime, piece.side);
     runtime.turn = runtime.turn === "white" ? "black" : "white";
     runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
+    runtime.pendingEndResult = moveResult || "";
     recordChessHistorySnapshot(runtime);
     runtime.selected = null;
     refreshChessPieceSelectionPose(runtime);
@@ -5382,9 +5471,6 @@
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
     requestChessInteractionFrame(runtime);
-    if (moveResult) {
-      startChessEndAnimation(runtime, moveResult);
-    }
     return true;
   }
 
@@ -5502,16 +5588,32 @@
         from[2] + ((to[2] - from[2]) * localT)
       ];
       setEntityProp(anim.piece.mesh, "center", center);
+      if (Array.isArray(anim.from_rotation) && Array.isArray(anim.to_rotation)) {
+        setEntityProp(anim.piece.mesh, "rotation", [
+          Number(anim.from_rotation[0] || 0.0) + ((Number(anim.to_rotation[0] || 0.0) - Number(anim.from_rotation[0] || 0.0)) * t),
+          Number(anim.from_rotation[1] || 0.0) + ((Number(anim.to_rotation[1] || 0.0) - Number(anim.from_rotation[1] || 0.0)) * t),
+          Number(anim.from_rotation[2] || 0.0) + ((Number(anim.to_rotation[2] || 0.0) - Number(anim.from_rotation[2] || 0.0)) * t)
+        ]);
+      }
       changed = true;
       if (t < 1.0) {
         remaining.push(anim);
       } else {
         anim.piece._animating = false;
         setEntityProp(anim.piece.mesh, "center", anim.to);
+        if (Array.isArray(anim.to_rotation)) {
+          setEntityProp(anim.piece.mesh, "rotation", anim.to_rotation);
+        }
       }
     }
     runtime.animations = remaining;
     if (hadAnimations && !remaining.length) {
+      if (!runtime.gameOver && runtime.pendingEndResult) {
+        var endResult = String(runtime.pendingEndResult || "");
+        runtime.pendingEndResult = "";
+        startChessEndAnimation(runtime, endResult);
+        return true;
+      }
       if (!runtime.gameOver) {
         refreshChessPieceSelectionPose(runtime);
       }

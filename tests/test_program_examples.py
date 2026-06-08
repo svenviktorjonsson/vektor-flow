@@ -322,7 +322,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'eventName !== "down" && eventName !== "up" && eventName !== "click"' in runtime
     assert 'setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))))' in runtime
     assert 'piece._animating = true' in runtime
-    assert "function queueChessAnimation(runtime, piece, path, capturedPiece)" in runtime
+    assert "function queueChessAnimation(runtime, piece, path, capturedPiece, options)" in runtime
     assert "queueChessAnimation(runtime, piece, [fromCenter, toCenter], null)" in runtime
     assert "function queueCapturedPieceAnimation(runtime, capturedPiece, capturerSide)" in runtime
     assert "function chessCapturedTrayCenter(runtime, piece, index)" in runtime
@@ -372,6 +372,21 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "runtime.clock.interval_id = global.setInterval" in runtime
     assert "function startChessEndAnimation(runtime, result)" in runtime
     assert "function finishChessMoveResult(runtime, moverSide)" in runtime
+    assert "function chessEndMatedKing(runtime, result)" in runtime
+    assert "function chessMatedKingFallPose(runtime, king)" in runtime
+    assert "var matedKing = chessEndMatedKing(runtime, runtime.gameOver);" in runtime
+    assert "queueChessAnimation(runtime, piece, [fromCenter, matedFallPose.center], null, {" in runtime
+    assert "to_rotation: matedFallPose.rotation" in runtime
+    assert "pendingEndResult" in runtime
+    assert "runtime.pendingEndResult = moveResult || \"\";" in runtime
+    assert "runtime.pendingEndResult = promotionResult || \"\";" in runtime
+    assert "if (!runtime.gameOver && runtime.pendingEndResult)" in runtime
+    assert "startChessEndAnimation(runtime, endResult);" in runtime
+    assert "if (moveResult) {\n      startChessEndAnimation(runtime, moveResult);\n    }" not in runtime
+    assert "if (promotionResult) {\n      startChessEndAnimation(runtime, promotionResult);\n    }" not in runtime
+    assert "from_rotation: fromRotation" in runtime
+    assert "to_rotation: toRotation" in runtime
+    assert "setEntityProp(anim.piece.mesh, \"rotation\", [" in runtime
     assert "replaceChessPieceRoleMesh(runtime, piece, \"pawn\")" in runtime
     assert "if (!runtime.gameOver) {\n        refreshChessPieceSelectionPose(runtime);\n      }" in runtime
     assert "white_win" in runtime
@@ -409,7 +424,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function chessPathLength(path)" in runtime
     assert "function chessMotionDurationMs(runtime, path)" in runtime
     assert "piece_motion_units_per_second" in runtime
-    assert "duration_ms: chessMotionDurationMs(runtime, normalizedPath)" in runtime
+    assert "duration_ms: Math.max(16.0, Number(options.duration_ms || 0.0) || chessMotionDurationMs(runtime, normalizedPath))" in runtime
     assert "var durationMs = Math.max(16.0, Number(anim.duration_ms || 0.0) || chessMotionDurationMs(runtime, anim.path));" in runtime
     assert "anim.elapsed_ms = Math.max(0.0, Number(anim.elapsed_ms || 0.0) || 0.0) + dtMs;" in runtime
     assert "var t = Math.max(0.0, Math.min(1.0, anim.elapsed_ms / durationMs));" in runtime
