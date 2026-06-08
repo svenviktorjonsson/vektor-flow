@@ -1811,6 +1811,25 @@
     );
   }
 
+  function finiteVec3(value, fallback) {
+    var v = toVec3(value, fallback || [0.0, 0.0, 0.0]);
+    for (var i = 0; i < 3; i += 1) {
+      if (!Number.isFinite(v[i])) { return (fallback || [0.0, 0.0, 0.0]).slice(); }
+    }
+    return v;
+  }
+
+  function fallRotationFromAxis(axis, angleRad, fallback) {
+    var a = finiteVec3(axis, [0.0, 1.0, 0.0]);
+    var angle = Number.isFinite(Number(angleRad)) ? Number(angleRad) : 0.0;
+    var base = finiteVec3(fallback, [0.0, 0.0, 0.0]);
+    return [
+      base[0] + (a[0] * angle),
+      base[1] + (a[1] * angle),
+      base[2] + (a[2] * angle)
+    ];
+  }
+
   function makeRng(seed) {
     var state = (Number(seed) || 0) >>> 0;
     return function () {
@@ -3760,7 +3779,7 @@
       if (!piece || !piece.mesh) { continue; }
         setEntityProp(mesh, "center", cloneEntityStateValue(entityProp(piece.mesh, "center", pieceBoardCenter(piece, 0.0))));
       setEntityProp(mesh, "rotation", cloneEntityStateValue(entityProp(piece.mesh, "rotation", piece.start_rotation || [0.0, 0.0, 0.0])));
-      mesh._modelMatrix = Array.isArray(piece.mesh._modelMatrix) ? piece.mesh._modelMatrix.slice() : null;
+      mesh._modelMatrix = null;
       setEntityProp(mesh, "visible", (piece.captured !== true || piece.in_capture_tray === true) && entityProp(piece.mesh, "visible", true) !== false);
       setEntityProp(mesh, "color", cloneEntityStateValue(entityProp(piece.mesh, "color", pieceBaseColor(piece))));
       setEntityProp(mesh, "specular_strength", Number(entityProp(piece.mesh, "specular_strength", runtime.cfg.piece_specular_strength || 0.055)) || 0.055);
@@ -4553,7 +4572,9 @@
       pivot: pivot,
       axis: axis,
       angle_rad: Math.PI * 0.5,
-      base_model: baseModel
+      base_model: baseModel,
+      base_center: origin,
+      base_rotation: toVec3(entityProp(king.mesh, "rotation", king.start_rotation || [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])
     };
   }
 
@@ -5735,8 +5756,11 @@
       if (anim.fall_pose && typeof anim.fall_pose === "object") {
         var pose = anim.fall_pose;
         var fallAngle = Math.max(0.0, Number(pose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5)) * easedT;
-        anim.piece.mesh._modelMatrix = mat4RotateAroundPoint(pose.axis || [0.0, 1.0, 0.0], fallAngle, pose.pivot || center, pose.base_model || null);
-        setEntityProp(anim.piece.mesh, "center", center);
+        var fallModel = mat4RotateAroundPoint(pose.axis || [0.0, 1.0, 0.0], fallAngle, pose.pivot || center, pose.base_model || null);
+        var fallCenter = transformPointMat4(fallModel, 0.0, 0.0, 0.0);
+        anim.piece.mesh._modelMatrix = null;
+        setEntityProp(anim.piece.mesh, "center", finiteVec3(fallCenter, pose.base_center || center));
+        setEntityProp(anim.piece.mesh, "rotation", fallRotationFromAxis(pose.axis || [0.0, 1.0, 0.0], fallAngle, pose.base_rotation || anim.from_rotation));
       } else {
         anim.piece.mesh._modelMatrix = null;
         setEntityProp(anim.piece.mesh, "center", center);
@@ -5756,7 +5780,11 @@
         setEntityProp(anim.piece.mesh, "center", anim.to);
         if (anim.fall_pose && typeof anim.fall_pose === "object") {
           var finalPose = anim.fall_pose;
-          anim.piece.mesh._modelMatrix = mat4RotateAroundPoint(finalPose.axis || [0.0, 1.0, 0.0], Math.max(0.0, Number(finalPose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5)), finalPose.pivot || anim.to, finalPose.base_model || null);
+          var finalAngle = Math.max(0.0, Number(finalPose.angle_rad || (Math.PI * 0.5)) || (Math.PI * 0.5));
+          var finalModel = mat4RotateAroundPoint(finalPose.axis || [0.0, 1.0, 0.0], finalAngle, finalPose.pivot || anim.to, finalPose.base_model || null);
+          anim.piece.mesh._modelMatrix = null;
+          setEntityProp(anim.piece.mesh, "center", finiteVec3(transformPointMat4(finalModel, 0.0, 0.0, 0.0), finalPose.base_center || anim.to));
+          setEntityProp(anim.piece.mesh, "rotation", fallRotationFromAxis(finalPose.axis || [0.0, 1.0, 0.0], finalAngle, finalPose.base_rotation || anim.from_rotation));
         } else {
           anim.piece.mesh._modelMatrix = null;
         }

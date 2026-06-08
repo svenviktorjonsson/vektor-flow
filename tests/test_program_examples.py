@@ -381,6 +381,9 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "axis: axis" in runtime
     assert "angle_rad: Math.PI * 0.5" in runtime
     assert "base_model: baseModel" in runtime
+    assert "base_center: origin" in runtime
+    assert "function finiteVec3(value, fallback)" in runtime
+    assert "function fallRotationFromAxis(axis, angleRad, fallback)" in runtime
     assert "function startChessMatedKingFall(runtime)" in runtime
     assert "function startChessEndCenterAnimation(runtime)" in runtime
     assert "function advanceChessEndSequence(runtime, now)" in runtime
@@ -395,8 +398,11 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "fall_pose: matedFallPose" in runtime
     assert 'easing: "king_fall"' in runtime
     assert "return 1.0 + (Math.sin(bounceT * Math.PI) * 0.14 * (1.0 - bounceT));" in runtime
-    assert 'mesh._modelMatrix = Array.isArray(piece.mesh._modelMatrix) ? piece.mesh._modelMatrix.slice() : null;' in runtime
-    assert "anim.piece.mesh._modelMatrix = mat4RotateAroundPoint" in runtime
+    assert "mesh._modelMatrix = null;" in runtime
+    assert "var fallModel = mat4RotateAroundPoint" in runtime
+    assert "setEntityProp(anim.piece.mesh, \"center\", finiteVec3(fallCenter, pose.base_center || center));" in runtime
+    assert "setEntityProp(anim.piece.mesh, \"rotation\", fallRotationFromAxis" in runtime
+    assert "anim.piece.mesh._modelMatrix = mat4RotateAroundPoint" not in runtime
     assert "piece.mesh._modelMatrix = null;" in runtime
     assert "sceneWorldAnimationsPending()" in runtime
     assert "runtime.endSequence" in runtime
