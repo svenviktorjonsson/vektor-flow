@@ -13,6 +13,7 @@ dist/
 .tmp/
 .tmp_*/
 .tmp_*.exe
+tmp/
 **/.vkfbuild/
 examples/programs/**/main.exe
 examples/programs/**/*.exe.WebView2/
