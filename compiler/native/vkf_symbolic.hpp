@@ -244,6 +244,24 @@ inline std::string vkf_sym_conditions(const VkfSymbolicExpr& expr) {
 
 inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNode>& node);
 
+inline void vkf_sym_collect_symbols(const std::shared_ptr<const VkfSymbolicNode>& node, std::vector<std::string>& out) {
+    if (!node) return;
+    if (node->kind == VkfSymbolicNodeKind::Symbol) {
+        out.push_back(node->text);
+        return;
+    }
+    for (const auto& child : node->children) vkf_sym_collect_symbols(child, out);
+}
+
+inline bool vkf_sym_uses_other_symbol(const std::shared_ptr<const VkfSymbolicNode>& node, const std::string& var) {
+    std::vector<std::string> symbols;
+    vkf_sym_collect_symbols(node, symbols);
+    for (const auto& symbol : symbols) {
+        if (symbol != var && symbol != "inf" && symbol != "-inf") return true;
+    }
+    return false;
+}
+
 inline std::string vkf_sym_latex_child(const std::shared_ptr<const VkfSymbolicNode>& node) {
     if (node && (node->kind == VkfSymbolicNodeKind::Binary || node->kind == VkfSymbolicNodeKind::Relation)) {
         return std::string("(") + vkf_sym_latex_node(node) + ")";
@@ -263,6 +281,35 @@ inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNod
         return vkf_sym_latex_node(node->children[0]) + node->op + vkf_sym_latex_node(node->children[1]);
     }
     if (node->kind == VkfSymbolicNodeKind::Call) {
+        if ((node->text == "derivative" || node->text == "differentiate" || node->text == "diff")
+            && (node->children.size() == 2 || node->children.size() == 3)) {
+            const std::string var = vkf_sym_render_node(node->children[1]);
+            const bool partial = vkf_sym_uses_other_symbol(node->children[0], var);
+            const std::string op = partial ? "\\partial" : "d";
+            const std::string denominator_var = partial ? std::string("\\partial ") + var : std::string("d") + var;
+            if (node->children.size() == 3) {
+                const std::string order = vkf_sym_latex_node(node->children[2]);
+                return "\\frac{" + op + "^{" + order + "}}{" + denominator_var + "^{" + order + "}} "
+                    + vkf_sym_latex_node(node->children[0]);
+            }
+            return "\\frac{" + op + "}{" + denominator_var + "} " + vkf_sym_latex_node(node->children[0]);
+        }
+        if ((node->text == "integrate" || node->text == "integral" || node->text == "integ")
+            && (node->children.size() == 2 || node->children.size() == 4)) {
+            const std::string var = vkf_sym_render_node(node->children[1]);
+            if (node->children.size() == 4) {
+                return "\\int_{" + vkf_sym_latex_node(node->children[2]) + "}^{" + vkf_sym_latex_node(node->children[3])
+                    + "} " + vkf_sym_latex_node(node->children[0]) + "\\,d" + var;
+            }
+            return "\\int " + vkf_sym_latex_node(node->children[0]) + "\\,d" + var;
+        }
+        if (node->text == "sum" && node->children.size() == 4) {
+            const std::string end = vkf_sym_render_node(node->children[3]) == "inf"
+                ? "\\infty"
+                : vkf_sym_latex_node(node->children[3]);
+            return "\\sum_{" + vkf_sym_render_node(node->children[1]) + "=" + vkf_sym_latex_node(node->children[2])
+                + "}^{" + end + "} " + vkf_sym_latex_node(node->children[0]);
+        }
         std::string out = node->text.size() > 1 ? "\\operatorname{" + node->text + "}\\left(" : node->text + "\\left(";
         for (std::size_t i = 0; i < node->children.size(); ++i) {
             if (i) out += ", ";
@@ -392,7 +439,9 @@ inline vf_symbolic vf_sym_solve_linear_diophantine2(const vf_symbolic& expr, con
 }
 
 inline std::vector<vf_symbolic> vf_sym_solve_linear_diophantine2_fields(const vf_symbolic& expr, const vf_symbolic& x, const vf_symbolic& y) {
-    const auto solved = vkf_sym_solve_linear_diophantine2(expr, x, y);
+    const auto ix = vkf_sym_symbol(vkf_sym_render(x), vkf_sym_domain_integer());
+    const auto iy = vkf_sym_symbol(vkf_sym_render(y), vkf_sym_domain_integer());
+    const auto solved = vkf_sym_solve_linear_diophantine2(expr, ix, iy);
     return {solved.x, solved.y};
 }
 
@@ -434,13 +483,23 @@ inline vf_symbolic vf_sym_sum(const vf_symbolic& expr, const vf_symbolic& var, c
 
 inline vf_symbolic vf_sym_mean(const vf_symbolic& expr, const vf_symbolic& var, const vf_symbolic& start, const vf_symbolic& end) { return vf_sym_range_aggregate("mean", expr, var, start, end); }
 inline vf_symbolic vf_sym_median(const vf_symbolic& expr, const vf_symbolic& var, const vf_symbolic& start, const vf_symbolic& end) { return vf_sym_range_aggregate("median", expr, var, start, end); }
-inline vf_symbolic vf_sym_derivative(const vf_symbolic& expr, const vf_symbolic& var) { return vkf_sym_diff(expr, var); }
+inline vf_symbolic vf_sym_derivative(const vf_symbolic& expr, const vf_symbolic& var) {
+    if (vkf_sym_render(expr) == vkf_sym_render(var)) return vkf_sym_integer(1);
+    if (expr.node->kind == VkfSymbolicNodeKind::IntegerLiteral) return vkf_sym_integer(0);
+    return vkf_sym_call("derivative", {expr, var});
+}
 inline vf_symbolic vf_sym_derivative_n(const vf_symbolic& expr, const vf_symbolic& var, const vf_symbolic& order) {
     if (vkf_sym_render(order) == "1") return vf_sym_derivative(expr, var);
     return vkf_sym_call("derivative", {expr, var, order});
 }
-inline vf_symbolic vf_sym_gradient(const vf_symbolic& expr, const vf_symbolic& var) { return vkf_sym_gradient(expr, var); }
-inline vf_symbolic vf_sym_integral(const vf_symbolic& expr, const vf_symbolic& var) { return vkf_sym_integ(expr, var); }
+inline vf_symbolic vf_sym_gradient(const vf_symbolic& expr, const vf_symbolic& var) { return vkf_sym_call("gradient", {expr, var}); }
+inline vf_symbolic vf_sym_integral(const vf_symbolic& expr, const vf_symbolic& var) {
+    if (vkf_sym_render(expr) == vkf_sym_render(var)) {
+        return vkf_sym_binary(vkf_sym_binary(var, "^", vkf_sym_integer(2)), "/", vkf_sym_integer(2));
+    }
+    if (expr.node->kind == VkfSymbolicNodeKind::IntegerLiteral) return vkf_sym_binary(expr, "*", var);
+    return vkf_sym_call("integrate", {expr, var});
+}
 inline vf_symbolic vf_sym_integral(const vf_symbolic& expr, const vf_symbolic& var, const vf_symbolic& start, const vf_symbolic& end) { return vf_sym_range_aggregate("integrate", expr, var, start, end); }
 
 inline std::string vkf_sym_compact(std::string text) {
