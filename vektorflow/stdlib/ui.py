@@ -726,15 +726,23 @@ def _build_function_plot_source_kwargs(
 # Low-level math helpers
 # ---------------------------------------------------------------------------
 
+def _real_float(v: Any, name: str) -> float:
+    if isinstance(v, complex):
+        if abs(v.imag) > 1e-12:
+            raise TypeError(f"{name} must be real, got complex value {v!r}")
+        return float(v.real)
+    return float(v)
+
+
 def _vec3(v: Any, name: str = "vec") -> list[float]:
     if isinstance(v, (VFVector, list, tuple)) and len(v) >= 3:
-        return [float(v[0]), float(v[1]), float(v[2])]
+        return [_real_float(v[0], name), _real_float(v[1], name), _real_float(v[2], name)]
     raise TypeError(f"{name} must be [x, y, z]")
 
 
 def _rect_from_tuple(t: Any) -> tuple[float, float, float, float]:
     if isinstance(t, (VFVector, list, tuple)) and len(t) == 4:
-        return (float(t[0]), float(t[1]), float(t[2]), float(t[3]))
+        return (_real_float(t[0], "rect"), _real_float(t[1], "rect"), _real_float(t[2], "rect"), _real_float(t[3], "rect"))
     raise TypeError("rect must be a 4-tuple (x, y, w, h) in normalized 0..1 coordinates")
 
 
@@ -764,7 +772,7 @@ def _coerce_frame_kw_for_screen(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 
 _DIM_ORDER = "tijkuvw"
-_MESH_CHANNEL_RE = re.compile(r"^([xyzc])(?:_([tijkuvw]+))?$")
+_MESH_CHANNEL_RE = re.compile(r"^(phi|[xyzcr])(?:_([tijkuvw]+))?$")
 _COLOR_NAMES: dict[str, tuple[float, float, float, float]] = {
     "white": (1.0, 1.0, 1.0, 1.0),
     "black": (0.0, 0.0, 0.0, 1.0),
@@ -1543,24 +1551,22 @@ class SceneFieldMesh(SceneBox):
     def _rebuild(self, *, time_value: Any | None = None) -> "SceneFieldMesh":
         count = max(1, self.t_count)
         raw_t = self._data.get("time_index", 0) if time_value is None else time_value
-        boundary = self._source_kwargs.get("time_boundary", self._source_kwargs.get("t_boundary", "stop"))
+        boundary = self._source_kwargs.get(
+            "time_boundary",
+            self._source_kwargs.get(
+                "t_boundary",
+                self._source_kwargs.get(
+                    "animation_finish",
+                    self._source_kwargs.get("animation_end", self._source_kwargs.get("on_animation_finish", self._source_kwargs.get("on_finish", "stop"))),
+                ),
+            ),
+        )
         idx = _resolve_field_mesh_time_index(raw_t, count, boundary=boundary)
-        channels, meta = _parse_field_mesh_channels_and_meta(self._source_kwargs)
-        geom = _build_field_mesh_geometry(channels, meta, time_index=idx)
-        self._data["vertices"] = geom["vertices"]
-        self._data["indices"] = geom["indices"]
-        self._data["topology"] = geom["topology"]
-        self._data["interpolation"] = geom["interpolation"]
-        self._data["alpha"] = geom["alpha"]
-        self._data["time_boundary"] = geom["time_boundary"]
-        self._data["time_count"] = geom["time_count"]
-        self._data["time_index"] = geom["time_index"]
-        self._data["manifold_dim_count"] = geom["manifold_dim_count"]
-        self._data["solid_volume"] = geom["solid_volume"]
-        self._data["vertex_size"] = geom["vertex_size"]
-        self._data["edge_width"] = geom["edge_width"]
-        self._data["color"] = _color_to_payload(self._source_kwargs.get("color"))
-        self._data["depth_write"] = bool(self._source_kwargs.get("depth_write", False))
+        source = dict(self._source_kwargs)
+        source["t"] = idx
+        rebuilt = _build_field_mesh_from_kwargs(source)
+        for key, value in rebuilt.items():
+            self._data[key] = value
         self._display._sync_all()
         return self
 
@@ -2444,6 +2450,140 @@ class Axis2D:
             self.frame.register_default_event_handler(f"axis2d:{self.prefix}", self.handle_events)
         return self
 
+    def _polar(
+        self,
+        variant: str,
+        *,
+        color: Any = "white",
+        width: float = 1.0,
+        ticks: bool = True,
+        tick_hints: Any = (1, 2, 5),
+        tick_dist: float = 120.0,
+        tick_len: float = 7.0,
+        margin_px: float = 58.0,
+        rings: int = 5,
+        spokes: int = 12,
+        theta_label_step_deg: float = 30.0,
+        r_min: float = 0.0,
+        r_max: float | None = None,
+        label_font_size: float = 13.0,
+        tick_label_font_size: float = 11.0,
+        grid: bool = True,
+        grid_alpha: float = 0.18,
+        grid_width: float = 1.0,
+        interactive: bool = True,
+        axis_lock_angle_deg: float = 5.0,
+        axis_lock_sample_count: int = 3,
+        rotation_deg: float = 0.0,
+    ) -> "Axis2D":
+        resolved_r_max = float(r_max) if r_max is not None else max(
+            abs(float(self.x_min)),
+            abs(float(self.x_max)),
+            abs(float(self.y_min)),
+            abs(float(self.y_max)),
+            1.0,
+        )
+        resolved_r_min = max(0.0, float(r_min))
+        if resolved_r_max <= resolved_r_min:
+            resolved_r_max = resolved_r_min + 1.0
+
+        rows_x: list[tuple[float, float]] = []
+        rows_y: list[tuple[float, float]] = []
+        segment_count = 72
+        for i in range(segment_count):
+            a0 = (math.tau * i) / segment_count
+            a1 = (math.tau * (i + 1)) / segment_count
+            rows_x.append((math.cos(a0), math.cos(a1)))
+            rows_y.append((math.sin(a0), math.sin(a1)))
+        for i in range(max(1, int(spokes))):
+            a = (math.tau * i) / max(1, int(spokes))
+            rows_x.append((0.0, math.cos(a)))
+            rows_y.append((0.0, math.sin(a)))
+
+        geometry_id = f"{self.prefix}_{variant}"
+        axis_ticks = {
+            "enabled": bool(ticks),
+            "polar": True,
+            "polar_variant": str(variant),
+            "x_mode": "linear",
+            "y_mode": "linear",
+            "x_min": float(self.x_min),
+            "x_max": float(self.x_max),
+            "y_min": float(self.y_min),
+            "y_max": float(self.y_max),
+            "r_min": float(resolved_r_min),
+            "r_max": float(resolved_r_max),
+            "rings": int(rings),
+            "spokes": int(spokes),
+            "theta_label_step_deg": float(theta_label_step_deg),
+            "hints": list(tick_hints),
+            "dist": float(tick_dist),
+            "len": float(tick_len),
+            "x_label": str(self.x_label),
+            "y_label": str(self.y_label),
+            "label_font_size": float(label_font_size),
+            "tick_label_font_size": float(tick_label_font_size),
+            "grid": bool(grid),
+            "grid_alpha": float(grid_alpha),
+            "grid_width": float(grid_width),
+            "axis_lock_angle_deg": float(axis_lock_angle_deg),
+            "axis_lock_sample_count": int(axis_lock_sample_count),
+            "rotation_deg": float(rotation_deg),
+        }
+        self.frame.add(
+            x=AxisTaggedValue(tuple(rows_x), "iu"),
+            y=AxisTaggedValue(tuple(rows_y), "iu"),
+            z=AxisTaggedValue(tuple((0.0, 0.0) for _ in rows_x), "iu"),
+            id=geometry_id,
+            color=color,
+            representation="edges",
+            edge_width=float(width),
+            render_mode="marker_impostor",
+            marker_space="pixel",
+            aspect="equal",
+            axis_bind_id=self._axis_bind_id,
+            axis_full_frame=False,
+            axis_box=True,
+            axis_polar=True,
+            axis_margin_px=float(margin_px),
+            axis_ticks=axis_ticks,
+            axis_interactive=bool(interactive),
+            mode3d=False,
+            receives_lighting=False,
+            casts_shadow=False,
+            depth_write=False,
+        )
+        self.frame.add_layer(
+            "axis",
+            id=f"{self.prefix}_{variant}_layer",
+            dim=2,
+            variant=variant,
+            geometry_ids=[geometry_id],
+            x_min=float(self.x_min),
+            x_max=float(self.x_max),
+            y_min=float(self.y_min),
+            y_max=float(self.y_max),
+            r_min=float(resolved_r_min),
+            r_max=float(resolved_r_max),
+            rings=int(rings),
+            spokes=int(spokes),
+            ticks=bool(ticks),
+            tick_hints=list(tick_hints),
+            tick_dist=float(tick_dist),
+            tick_len=float(tick_len),
+            grid=bool(grid),
+            grid_alpha=float(grid_alpha),
+            grid_width=float(grid_width),
+            interactive=bool(interactive),
+            rotation_deg=float(rotation_deg),
+        )
+        if interactive:
+            self.frame.register_default_event_handler(f"axis2d:{self.prefix}", self.handle_events)
+        return self
+
+    def polar_crosshair(self, **kwargs: Any) -> "Axis2D":
+        return self._polar("polar_crosshair", **kwargs)
+
     def add_text(
         self,
         text: Any,
@@ -2517,14 +2657,40 @@ class Axis2D:
     def plot(
         self,
         *,
-        x: Any,
-        y: Any,
+        x: Any = None,
+        y: Any = None,
+        r: Any = None,
+        phi: Any = None,
         color: Any = [1.0, 0.56, 0.08, 1.0],
         width: float = 2.4,
         id: str = "curve",
     ) -> SceneFieldMesh:
-        source_xs = self._series(x)
-        source_ys = self._series(y, source_xs.idx)
+        cartesian = x is not None or y is not None
+        polar = r is not None or phi is not None
+        if cartesian and polar:
+            raise ValueError("axis_2d.plot(...) accepts either x/y or r/phi, not both")
+        if polar:
+            if r is None or phi is None:
+                raise ValueError("axis_2d.plot(...) polar form requires both r and phi")
+            source_rs = self._series(r)
+            source_phis = self._series(phi, source_rs.idx)
+            if source_rs.idx != source_phis.idx:
+                raise ValueError("axis_2d.plot(...) r and phi indices must match")
+            source_xs = AxisTaggedValue(
+                tuple(float(rv) * math.cos(float(pv)) for rv, pv in zip(source_rs.data, source_phis.data)),
+                source_rs.idx,
+            )
+            source_ys = AxisTaggedValue(
+                tuple(float(rv) * math.sin(float(pv)) for rv, pv in zip(source_rs.data, source_phis.data)),
+                source_rs.idx,
+            )
+        else:
+            if x is None or y is None:
+                raise ValueError("axis_2d.plot(...) requires x/y or r/phi")
+            source_xs = self._series(x)
+            source_ys = self._series(y, source_xs.idx)
+            if source_xs.idx != source_ys.idx:
+                raise ValueError("axis_2d.plot(...) x and y indices must match")
         xs = self._map_series_x(source_xs)
         ys = self._map_series_y(source_ys, xs.idx)
         return self.frame.add(

@@ -23,14 +23,19 @@ from .cpp_dynamic import (
     emit_map_literal as _dyn_emit_map_literal,
     require_cpp_dynamic_value_supported,
 )
-from .native_intrinsics import intrinsic_uses_array_stats, intrinsic_uses_array_sum, intrinsic_uses_file_io, resolve_native_intrinsic
+from .native_intrinsics import NativeIntrinsic, intrinsic_uses_array_stats, intrinsic_uses_array_sum, intrinsic_uses_file_io, resolve_native_intrinsic
 from .optimize_ir import eliminate_noop_coercions, optimize_module
 from .slot_ir import lower_slots
-from .typed_ir import TypedIRError, annotate_module, TypedModuleInfo
+from .typed_ir import SYMBOLIC_STDLIB_EXPORTS, StdlibFunctionType, StdlibNamespaceType, TypedIRError, annotate_module, TypedModuleInfo
 
 
 class CppEmitError(Exception):
     pass
+
+
+LARGE_FIXED_VECTOR_HEAP_THRESHOLD = 65536
+SYMBOLIC_MATH_INTRINSIC_NAMES = frozenset({"sin", "cos", "tan", "sec", "cot", "csc", "exp", "ln", "sqrt"})
+SYMBOLIC_STAT_RANGE_NAMES = frozenset({"sum", "mean", "median"})
 
 
 @dataclass(frozen=True)
@@ -110,7 +115,7 @@ class NativePackageSpec:
     kind: str = "vektorflow-native-package"
     manifest_name: str = "vektorflow-package.json"
     readme_name: str = "README.txt"
-    build_host_python_required: bool = True
+    build_host_python_required: bool = False
     runtime_python_required: bool = False
 
 
@@ -158,7 +163,7 @@ class NativePackageMode:
     name: str
     subset: str
     entrypoint: str
-    build_host_python_required: bool = True
+    build_host_python_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -660,14 +665,21 @@ class PreparedNativeModule:
 @dataclass(frozen=True)
 class RuntimeFeatures:
     uses_arrays: bool = False
+    uses_fixed_arrays: bool = False
+    uses_heap_vectors: bool = False
+    uses_array_sum: bool = False
     uses_multisets: bool = False
     uses_dynamic: bool = False
     uses_match: bool = False
+    uses_value_format: bool = False
+    uses_fixed_array_format: bool = False
+    uses_heap_vector_format: bool = False
     uses_array_stats: bool = False
     uses_file_io: bool = False
 
 
 CPP_STD_CONFLICT_NAMES: set[str] = {"advance"}
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass(frozen=True)
@@ -698,17 +710,46 @@ def _prepare_native_module(module: ir.Module) -> PreparedNativeModule:
 
 def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> RuntimeFeatures:
     uses_arrays = False
+    uses_fixed_arrays = False
+    uses_heap_vectors = False
+    uses_array_sum = False
     uses_multisets = False
     uses_dynamic = False
     uses_match = False
+    uses_value_format = False
+    uses_fixed_array_format = False
+    uses_heap_vector_format = False
     uses_array_stats = False
     uses_file_io = False
 
+    def require_value_format_for_type(t: Any) -> None:
+        nonlocal uses_value_format, uses_fixed_array_format, uses_heap_vector_format
+        t = _normalize_type(t)
+        if isinstance(t, ast.FixedVectorType):
+            uses_value_format = True
+            if _fixed_vector_uses_heap(t):
+                uses_heap_vector_format = True
+            else:
+                uses_fixed_array_format = True
+            require_value_format_for_type(t.element_type)
+            return
+        if isinstance(t, ast.TypeExpr):
+            uses_value_format = True
+            for _, inner in t.fields:
+                require_value_format_for_type(inner)
+            return
+        if isinstance(t, (ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
+            uses_value_format = True
+
     def visit_type(t: Any) -> None:
-        nonlocal uses_arrays, uses_multisets, uses_dynamic
+        nonlocal uses_arrays, uses_fixed_arrays, uses_heap_vectors, uses_multisets, uses_dynamic
         t = _normalize_type(t)
         if isinstance(t, ast.FixedVectorType):
             uses_arrays = True
+            if _fixed_vector_uses_heap(t):
+                uses_heap_vectors = True
+            else:
+                uses_fixed_arrays = True
             visit_type(t.element_type)
             return
         if isinstance(t, ast.MultisetType):
@@ -726,6 +767,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
                 visit_type(inner)
             return
         if isinstance(t, ast.TypeExpr):
+            require_value_format_for_type(t)
             for _, inner in t.fields:
                 visit_type(inner)
             return
@@ -738,14 +780,16 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             visit_type(t.codomain)
 
     def visit_expr(expr: Any) -> None:
-        nonlocal uses_arrays, uses_array_stats, uses_file_io
+        nonlocal uses_arrays, uses_array_sum, uses_array_stats, uses_file_io
         if isinstance(expr, ir.CallExpr):
             intrinsic = resolve_native_intrinsic(expr.func)
             if intrinsic is not None:
                 if intrinsic_uses_array_sum(intrinsic):
                     uses_arrays = True
+                    uses_array_sum = True
                 if intrinsic_uses_array_stats(intrinsic):
                     uses_arrays = True
+                    uses_array_sum = True
                     uses_array_stats = True
                 if intrinsic_uses_file_io(intrinsic):
                     uses_file_io = True
@@ -755,6 +799,10 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             return
         if isinstance(expr, ir.CoerceExpr):
             visit_expr(expr.expr)
+            return
+        if isinstance(expr, ir.BindExpr):
+            visit_expr(expr.target)
+            visit_expr(expr.value)
             return
         if isinstance(expr, ir.AttrExpr):
             visit_expr(expr.value)
@@ -796,7 +844,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             return
 
     def visit_stmt(stmt: Any) -> None:
-        nonlocal uses_match
+        nonlocal uses_match, uses_value_format, uses_fixed_array_format, uses_heap_vector_format
         if isinstance(stmt, ir.TypeDef):
             visit_type(stmt.type_expr)
             return
@@ -824,6 +872,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
                 visit_block(arm.body)
         elif isinstance(stmt, ir.PrintStmt):
             visit_expr(stmt.value)
+            require_value_format_for_type(typed.expr_types.get(id(stmt.value)))
         elif isinstance(stmt, ir.ExprStmt):
             visit_expr(stmt.expr)
         elif isinstance(stmt, ir.ReturnStmt):
@@ -840,9 +889,15 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
         visit_stmt(stmt)
     return RuntimeFeatures(
         uses_arrays=uses_arrays,
+        uses_fixed_arrays=uses_fixed_arrays,
+        uses_heap_vectors=uses_heap_vectors,
+        uses_array_sum=uses_array_sum,
         uses_multisets=uses_multisets,
         uses_dynamic=uses_dynamic,
         uses_match=uses_match,
+        uses_value_format=uses_value_format,
+        uses_fixed_array_format=uses_fixed_array_format,
+        uses_heap_vector_format=uses_heap_vector_format,
         uses_array_stats=uses_array_stats,
         uses_file_io=uses_file_io,
     )
@@ -851,13 +906,18 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
 def _emit_runtime_headers(features: RuntimeFeatures) -> list[str]:
     headers = [
         "#include <cmath>",
-        "#include <iomanip>",
+        "#include <complex>",
+        "#include <cstdio>",
+        "#include <cctype>",
         "#include <iostream>",
-        "#include <sstream>",
+        "#include <numeric>",
         "#include <stdexcept>",
         "#include <string>",
+        "#include <vector>",
     ]
-    if features.uses_arrays:
+    if features.uses_value_format or features.uses_dynamic:
+        headers.insert(0, "#include <sstream>")
+    if features.uses_fixed_arrays:
         headers.insert(0, "#include <array>")
     if features.uses_multisets or features.uses_dynamic:
         headers.insert(0, "#include <map>")
@@ -872,33 +932,104 @@ def _emit_runtime_headers(features: RuntimeFeatures) -> list[str]:
     return headers
 
 
+def _emit_symbolic_runtime_support() -> list[str]:
+    return [
+        '#include "compiler/native/vkf_symbolic.hpp"',
+    ]
+
+
 def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
     lines = [
         "static std::string vf_format_num(double v) {",
         "    if (std::floor(v) == v) {",
-        "        std::ostringstream oss;",
-        "        oss << static_cast<long long>(v);",
-        "        return oss.str();",
+        "        return std::to_string(static_cast<long long>(v));",
         "    }",
-        "    std::ostringstream oss;",
-        "    oss << std::setprecision(15) << v;",
-        "    return oss.str();",
+        "    char buf[64];",
+        "    int n = std::snprintf(buf, sizeof(buf), \"%.15g\", v);",
+        "    if (n < 0 || static_cast<std::size_t>(n) >= sizeof(buf)) throw std::runtime_error(\"number formatting failed\");",
+        "    return std::string(buf, static_cast<std::size_t>(n));",
         "}",
-        "template <typename T>",
-        "static std::string vf_format_value(const T& v) {",
-        "    std::ostringstream oss;",
-        "    oss << v;",
-        "    return oss.str();",
+        "static std::string vf_format_num(const std::complex<double>& v) {",
+        "    if (v.imag() == 0.0) return vf_format_num(v.real());",
+        "    if (v.real() == 0.0) {",
+        "        if (v.imag() == 1.0) return \"i\";",
+        "        if (v.imag() == -1.0) return \"-i\";",
+        "        return vf_format_num(v.imag()) + std::string(\"i\");",
+        "    }",
+        "    std::string imag = std::abs(v.imag()) == 1.0 ? std::string(\"i\") : vf_format_num(std::abs(v.imag())) + std::string(\"i\");",
+        "    return vf_format_num(v.real()) + (v.imag() >= 0.0 ? \"+\" : \"-\") + imag;",
         "}",
-        "template <>",
-        "inline std::string vf_format_value<bool>(const bool& v) {",
-        '    return v ? "true" : "false";',
+        "struct vf_rational {",
+        "    long long n;",
+        "    long long d;",
+        "};",
+        "static vf_rational vf_make_rational(long long n, long long d) {",
+        "    if (d == 0) throw std::runtime_error(\"rational denominator must not be 0\");",
+        "    if (d < 0) { n = -n; d = -d; }",
+        "    long long g = std::gcd(n < 0 ? -n : n, d);",
+        "    return vf_rational{n / g, d / g};",
         "}",
-        "template <>",
-        "inline std::string vf_format_value<double>(const double& v) {",
-        "    return vf_format_num(v);",
+        "static vf_rational vf_to_rational(const vf_rational& v) { return v; }",
+        "static vf_rational vf_to_rational(long long v) { return vf_make_rational(v, 1); }",
+        "static vf_rational vf_to_rational(int v) { return vf_make_rational(static_cast<long long>(v), 1); }",
+        "static vf_rational vf_to_rational(bool v) { return vf_make_rational(v ? 1LL : 0LL, 1); }",
+        "static vf_rational vf_to_rational(double v) {",
+        "    if (std::floor(v) != v) throw std::runtime_error(\"rational: num cast requires an integer-valued real number\");",
+        "    return vf_make_rational(static_cast<long long>(v), 1);",
         "}",
+        "static vf_rational vf_to_rational(const std::complex<double>& v) {",
+        "    if (v.imag() != 0.0) throw std::runtime_error(\"rational: num cast requires a real number\");",
+        "    return vf_to_rational(v.real());",
+        "}",
+        "static vf_rational operator+(const vf_rational& a, const vf_rational& b) { return vf_make_rational(a.n * b.d + b.n * a.d, a.d * b.d); }",
+        "static vf_rational operator-(const vf_rational& a, const vf_rational& b) { return vf_make_rational(a.n * b.d - b.n * a.d, a.d * b.d); }",
+        "static vf_rational operator-(const vf_rational& a) { return vf_make_rational(-a.n, a.d); }",
+        "static vf_rational operator*(const vf_rational& a, const vf_rational& b) { return vf_make_rational(a.n * b.n, a.d * b.d); }",
+        "static vf_rational operator/(const vf_rational& a, const vf_rational& b) { return vf_make_rational(a.n * b.d, a.d * b.n); }",
+        "static bool operator==(const vf_rational& a, const vf_rational& b) { return a.n == b.n && a.d == b.d; }",
+        "static bool operator!=(const vf_rational& a, const vf_rational& b) { return !(a == b); }",
+        "static bool operator<(const vf_rational& a, const vf_rational& b) { return a.n * b.d < b.n * a.d; }",
+        "static bool operator<=(const vf_rational& a, const vf_rational& b) { return (a < b) || (a == b); }",
+        "static bool operator>(const vf_rational& a, const vf_rational& b) { return b < a; }",
+        "static bool operator>=(const vf_rational& a, const vf_rational& b) { return (b < a) || (a == b); }",
+        "static std::string vf_format_rational(const vf_rational& v) {",
+        "    if (v.d == 1) return std::to_string(v.n);",
+        "    return std::to_string(v.n) + std::string(\"/\") + std::to_string(v.d);",
+        "}",
+        "static std::complex<double> vf_to_num(const vf_rational& v) { return std::complex<double>(static_cast<double>(v.n) / static_cast<double>(v.d), 0.0); }",
+        *_emit_symbolic_runtime_support(),
     ]
+    if features.uses_value_format:
+        lines.extend(
+            [
+                "template <typename T>",
+                "static std::string vf_format_value(const T& v) {",
+                "    std::ostringstream oss;",
+                "    oss << v;",
+                "    return oss.str();",
+                "}",
+                "template <>",
+                "inline std::string vf_format_value<bool>(const bool& v) {",
+                '    return v ? "true" : "false";',
+                "}",
+                "template <>",
+                "inline std::string vf_format_value<double>(const double& v) {",
+                "    return vf_format_num(v);",
+                "}",
+                "template <>",
+                "inline std::string vf_format_value<std::complex<double>>(const std::complex<double>& v) {",
+                "    return vf_format_num(v);",
+                "}",
+                "template <>",
+                "inline std::string vf_format_value<vf_rational>(const vf_rational& v) {",
+                "    return vf_format_rational(v);",
+                "}",
+                "template <>",
+                "inline std::string vf_format_value<vf_symbolic>(const vf_symbolic& v) {",
+                "    return vf_format_symbolic(v);",
+                "}",
+            ]
+        )
     if features.uses_file_io:
         lines.extend(
             [
@@ -953,16 +1084,46 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "}",
             ]
         )
-    if features.uses_arrays:
+    if features.uses_fixed_array_format:
         lines.extend(
             [
                 "template <typename T, std::size_t N>",
                 "static std::string vf_format_value(const std::array<T, N>& v) {",
                 "    std::ostringstream oss;",
                 '    oss << "[";',
-                "    for (std::size_t i = 0; i < N; ++i) {",
+                "    auto emit_one = [&](std::size_t i) {",
                 '        if (i) oss << ", ";',
                 "        oss << vf_format_value(v[i]);",
+                "    };",
+                "    if constexpr (N <= 24) {",
+                "        for (std::size_t i = 0; i < N; ++i) emit_one(i);",
+                "    } else {",
+                "        for (std::size_t i = 0; i < 3; ++i) emit_one(i);",
+                '        oss << ", ...";',
+                "        for (std::size_t i = N - 3; i < N; ++i) emit_one(i);",
+                "    }",
+                '    oss << "]";',
+                "    return oss.str();",
+                "}",
+            ]
+        )
+    if features.uses_heap_vector_format:
+        lines.extend(
+            [
+                "template <typename T>",
+                "static std::string vf_format_value(const std::vector<T>& v) {",
+                "    std::ostringstream oss;",
+                '    oss << "[";',
+                "    auto emit_one = [&](std::size_t i) {",
+                '        if (i) oss << ", ";',
+                "        oss << vf_format_value(v[i]);",
+                "    };",
+                "    if (v.size() <= 24) {",
+                "        for (std::size_t i = 0; i < v.size(); ++i) emit_one(i);",
+                "    } else {",
+                "        for (std::size_t i = 0; i < 3; ++i) emit_one(i);",
+                '        oss << ", ...";',
+                "        for (std::size_t i = v.size() - 3; i < v.size(); ++i) emit_one(i);",
                 "    }",
                 '    oss << "]";',
                 "    return oss.str();",
@@ -1028,21 +1189,45 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
         )
     lines.extend(
         [
-            "static double vf_to_num(double v) { return v; }",
-            "static double vf_to_num(int v) { return static_cast<double>(v); }",
-            "static double vf_to_num(long long v) { return static_cast<double>(v); }",
-            "static double vf_to_num(bool v) { return v ? 1.0 : 0.0; }",
+            "static std::complex<double> vf_to_num(const std::complex<double>& v) { return v; }",
+            "static std::complex<double> vf_to_num(double v) { return std::complex<double>(v, 0.0); }",
+            "static std::complex<double> vf_to_num(int v) { return std::complex<double>(static_cast<double>(v), 0.0); }",
+            "static std::complex<double> vf_to_num(long long v) { return std::complex<double>(static_cast<double>(v), 0.0); }",
+            "static std::complex<double> vf_to_num(bool v) { return std::complex<double>(v ? 1.0 : 0.0, 0.0); }",
+            "static double vf_to_real(double v) { return v; }",
+            "static double vf_to_real(int v) { return static_cast<double>(v); }",
+            "static double vf_to_real(long long v) { return static_cast<double>(v); }",
+            "static double vf_to_real(bool v) { return v ? 1.0 : 0.0; }",
+            "static double vf_to_real(const vf_rational& v) { return static_cast<double>(v.n) / static_cast<double>(v.d); }",
+            "static double vf_to_real(const std::complex<double>& v) {",
+            "    if (v.imag() != 0.0) throw std::runtime_error(\"real-valued operation received complex num\");",
+            "    return v.real();",
+            "}",
+            "static long long vf_to_int(int v) { return static_cast<long long>(v); }",
             "static long long vf_to_int(long long v) { return v; }",
             "static long long vf_to_int(bool v) { return v ? 1LL : 0LL; }",
+            "static long long vf_to_int(const std::complex<double>& v) {",
+            "    if (v.imag() != 0.0 || std::floor(v.real()) != v.real()) throw std::runtime_error(\"int: explicit cast from num requires a real integer-valued number\");",
+            "    return static_cast<long long>(v.real());",
+            "}",
             "static long long vf_to_int(double v) {",
             "    if (std::floor(v) != v) throw std::runtime_error(\"int cast requires integer-valued number\");",
             "    return static_cast<long long>(v);",
             "}",
             "static bool vf_to_bool(bool v) { return v; }",
+            "static bool vf_to_bool(const std::complex<double>& v) { return v.real() != 0.0 || v.imag() != 0.0; }",
             "static std::string vf_to_str(const std::string& v) { return v; }",
+            "static std::string vf_to_str(const std::complex<double>& v) { return vf_format_num(v); }",
+            "static bool vf_num_lt(const std::complex<double>& a, const std::complex<double>& b) {",
+            "    if (a.imag() != 0.0 || b.imag() != 0.0) throw std::runtime_error(\"ordering is only defined for real num values\");",
+            "    return a.real() < b.real();",
+            "}",
+            "static bool vf_num_le(const std::complex<double>& a, const std::complex<double>& b) { return vf_num_lt(a, b) || a == b; }",
+            "static bool vf_num_gt(const std::complex<double>& a, const std::complex<double>& b) { return vf_num_lt(b, a); }",
+            "static bool vf_num_ge(const std::complex<double>& a, const std::complex<double>& b) { return vf_num_gt(a, b) || a == b; }",
         ]
     )
-    if features.uses_arrays:
+    if features.uses_fixed_arrays:
         lines.extend(
             [
                 "template <typename T, std::size_t N, typename U>",
@@ -1100,10 +1285,42 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "    for (std::size_t i = 0; i < N; ++i) out[i] = arr[i] * static_cast<T>(scalar);",
                 "    return out;",
                 "}",
+            ]
+        )
+    if features.uses_array_sum and features.uses_fixed_arrays:
+        lines.extend(
+            [
                 "template <typename T, std::size_t N>",
                 "static T vf_array_sum(const std::array<T, N>& arr) {",
                 "    T out{};",
                 "    for (std::size_t i = 0; i < N; ++i) out += arr[i];",
+                "    return out;",
+                "}",
+            ]
+        )
+    if features.uses_heap_vectors:
+        lines.extend(
+            [
+                "template <typename T>",
+                "static std::vector<T> vf_vector_iota(const T& start, const T& step, std::size_t n) {",
+                "    std::vector<T> out;",
+                "    out.resize(n);",
+                "    T cur = start;",
+                "    for (std::size_t i = 0; i < n; ++i) {",
+                "        out[i] = cur;",
+                "        cur = static_cast<T>(cur + step);",
+                "    }",
+                "    return out;",
+                "}",
+            ]
+        )
+    if features.uses_array_sum and features.uses_heap_vectors:
+        lines.extend(
+            [
+                "template <typename T>",
+                "static T vf_array_sum(const std::vector<T>& arr) {",
+                "    T out{};",
+                "    for (std::size_t i = 0; i < arr.size(); ++i) out += arr[i];",
                 "    return out;",
                 "}",
             ]
@@ -1114,21 +1331,21 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "template <typename T, std::size_t N>",
                 "static T vf_array_min(const std::array<T, N>& arr) {",
                 "    T out = arr[0];",
-                "    for (std::size_t i = 1; i < N; ++i) if (arr[i] < out) out = arr[i];",
+                "    for (std::size_t i = 1; i < N; ++i) if (vf_to_real(arr[i]) < vf_to_real(out)) out = arr[i];",
                 "    return out;",
                 "}",
                 "template <typename T, std::size_t N>",
                 "static T vf_array_max(const std::array<T, N>& arr) {",
                 "    T out = arr[0];",
-                "    for (std::size_t i = 1; i < N; ++i) if (arr[i] > out) out = arr[i];",
+                "    for (std::size_t i = 1; i < N; ++i) if (vf_to_real(arr[i]) > vf_to_real(out)) out = arr[i];",
                 "    return out;",
                 "}",
                 "template <typename T, std::size_t N>",
                 "static double vf_array_variance(const std::array<T, N>& arr) {",
-                "    double mu = static_cast<double>(vf_array_sum(arr)) / static_cast<double>(N);",
+                "    double mu = vf_to_real(vf_array_sum(arr)) / static_cast<double>(N);",
                 "    double out = 0.0;",
                 "    for (std::size_t i = 0; i < N; ++i) {",
-                "        double d = static_cast<double>(arr[i]) - mu;",
+                "        double d = vf_to_real(arr[i]) - mu;",
                 "        out += d * d;",
                 "    }",
                 "    return out / static_cast<double>(N);",
@@ -1141,7 +1358,7 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "static double vf_array_percentile(const std::array<T, N>& arr, double p) {",
                 "    if (!(0.0 <= p && p <= 100.0)) throw std::runtime_error(\"stat.percentile: p must be in [0, 100]\");",
                 "    std::array<double, N> sorted{};",
-                "    for (std::size_t i = 0; i < N; ++i) sorted[i] = static_cast<double>(arr[i]);",
+                "    for (std::size_t i = 0; i < N; ++i) sorted[i] = vf_to_real(arr[i]);",
                 "    std::sort(sorted.begin(), sorted.end());",
                 "    if constexpr (N == 1) return sorted[0];",
                 "    double idx = (p / 100.0) * static_cast<double>(N - 1);",
@@ -1164,26 +1381,26 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "    std::array<double, N> out{};",
                 "    double s = vf_array_std(arr);",
                 "    if (s == 0.0) return out;",
-                "    double mu = static_cast<double>(vf_array_sum(arr)) / static_cast<double>(N);",
-                "    for (std::size_t i = 0; i < N; ++i) out[i] = (static_cast<double>(arr[i]) - mu) / s;",
+                "    double mu = vf_to_real(vf_array_sum(arr)) / static_cast<double>(N);",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = (vf_to_real(arr[i]) - mu) / s;",
                 "    return out;",
                 "}",
                 "template <typename T, std::size_t N>",
                 "static std::array<double, N> vf_array_normalize(const std::array<T, N>& arr) {",
                 "    std::array<double, N> out{};",
-                "    double lo = static_cast<double>(vf_array_min(arr));",
-                "    double hi = static_cast<double>(vf_array_max(arr));",
+                "    double lo = vf_to_real(vf_array_min(arr));",
+                "    double hi = vf_to_real(vf_array_max(arr));",
                 "    if (hi == lo) return out;",
                 "    double span = hi - lo;",
-                "    for (std::size_t i = 0; i < N; ++i) out[i] = (static_cast<double>(arr[i]) - lo) / span;",
+                "    for (std::size_t i = 0; i < N; ++i) out[i] = (vf_to_real(arr[i]) - lo) / span;",
                 "    return out;",
                 "}",
                 "template <typename TX, typename TY, std::size_t N>",
                 "static double vf_array_covariance(const std::array<TX, N>& xs, const std::array<TY, N>& ys) {",
-                "    double mu_x = static_cast<double>(vf_array_sum(xs)) / static_cast<double>(N);",
-                "    double mu_y = static_cast<double>(vf_array_sum(ys)) / static_cast<double>(N);",
+                "    double mu_x = vf_to_real(vf_array_sum(xs)) / static_cast<double>(N);",
+                "    double mu_y = vf_to_real(vf_array_sum(ys)) / static_cast<double>(N);",
                 "    double out = 0.0;",
-                "    for (std::size_t i = 0; i < N; ++i) out += (static_cast<double>(xs[i]) - mu_x) * (static_cast<double>(ys[i]) - mu_y);",
+                "    for (std::size_t i = 0; i < N; ++i) out += (vf_to_real(xs[i]) - mu_x) * (vf_to_real(ys[i]) - mu_y);",
                 "    return out / static_cast<double>(N);",
                 "}",
                 "template <typename TX, typename TY, std::size_t N>",
@@ -1295,7 +1512,7 @@ def discover_cpp_compiler() -> CppCompiler | None:
 def cpp_compile_flags(compiler: CppCompiler) -> list[str]:
     if compiler.kind == "cl":
         raise CppEmitError("cl.exe is not yet supported by the automated compiler runner")
-    flags = ["-std=c++20", "-O3"]
+    flags = ["-std=c++20", "-O3", "-I", str(REPO_ROOT)]
     if compiler.kind in {"clang++", "g++"}:
         flags.append("-march=native")
     return flags
@@ -1366,7 +1583,7 @@ def package_mode(name: str) -> NativePackageMode:
             name="native_core",
             subset="native_core",
             entrypoint="package-native-core",
-            build_host_python_required=True,
+            build_host_python_required=False,
         )
     if name in {"supported_native", "package"}:
         return NativePackageMode(
@@ -1429,11 +1646,7 @@ def _native_package_readme_text(
         f"- {layout.smoke_sh_name}: runs the packaged program and checks it exits cleanly\n\n"
         "Runtime contract:\n"
         "- Python is not required to execute the built program.\n"
-        + (
-            "- Python is still required to produce this legacy native-core package today.\n"
-            if spec.build_host_python_required
-            else "- This supported-subset package contract is Python-free to build and run by default.\n"
-        )
+        "- This package contract is Python-free to build and run by default.\n"
     )
 
 
@@ -1916,6 +2129,18 @@ def _type_key(t: Any) -> str:
     t = _normalize_type(t)
     if isinstance(t, ast.PrimTypeRef):
         return f"prim:{t.name}"
+    if isinstance(t, ast.SymbolicValueType):
+        return "symbolic" if t.domain is None else f"symbolic<{_type_key(t.domain)}>"
+    if isinstance(t, ast.SymbolicDomainType):
+        return f"domain:{t.name}"
+    if isinstance(t, ast.TypePowerExpr):
+        return f"pow({_type_key(t.base)}^{_type_key(t.exponent)})"
+    if isinstance(t, ast.TypeSizeConst):
+        return f"size:{t.value}"
+    if isinstance(t, ast.TypeSizeVar):
+        return f"sizevar:{t.name}"
+    if isinstance(t, ast.TypeSizeBinOp):
+        return f"sizeop({_type_key(t.left)}{t.op}{_type_key(t.right)})"
     if isinstance(t, ast.FixedVectorType):
         return f"vec[{_type_key(t.element_type)}:{_size_key(t.size)}]"
     if isinstance(t, ast.TypeExpr):
@@ -1953,6 +2178,10 @@ def _struct_name(t: ast.TypeExpr) -> str:
 
 def _register_type(t: Any, state: EmitState) -> None:
     t = _normalize_type(t)
+    if isinstance(t, ast.SymbolicValueType):
+        if t.domain is not None:
+            _register_type(t.domain, state)
+        return
     if isinstance(t, ast.TypeExpr):
         name = _struct_name(t)
         if name not in state.struct_defs:
@@ -2008,9 +2237,24 @@ def _emit_size_expr(size: Any) -> str:
     raise CppEmitError(f"unsupported size expression {type(size).__name__}")
 
 
+def _fixed_vector_uses_heap(t: Any) -> bool:
+    t = _normalize_type(t)
+    return (
+        isinstance(t, ast.FixedVectorType)
+        and isinstance(t.size, ast.TypeSizeConst)
+        and int(t.size.value) > LARGE_FIXED_VECTOR_HEAP_THRESHOLD
+    )
+
+
 def _collect_size_vars(type_expr: Any, out: set[str]) -> None:
     type_expr = _normalize_type(type_expr)
-    if isinstance(type_expr, ast.FixedVectorType):
+    if isinstance(type_expr, ast.SymbolicValueType):
+        if type_expr.domain is not None:
+            _collect_size_vars(type_expr.domain, out)
+    elif isinstance(type_expr, ast.TypePowerExpr):
+        _collect_size_vars(type_expr.base, out)
+        _collect_size_vars(type_expr.exponent, out)
+    elif isinstance(type_expr, ast.FixedVectorType):
         _collect_size_vars_from_size(type_expr.size, out)
         _collect_size_vars(type_expr.element_type, out)
     elif isinstance(type_expr, ast.TypeExpr):
@@ -2036,7 +2280,7 @@ def _collect_size_vars_from_size(size: Any, out: set[str]) -> None:
 
 def _cpp_multiset_key_supported(t: Any) -> bool:
     t = _normalize_type(t)
-    return isinstance(t, ast.PrimTypeRef) and t.name in {"bool", "int", "num", "str"}
+    return isinstance(t, ast.PrimTypeRef) and t.name in {"bit", "int", "rational", "num", "chr", "str"}
 
 
 def _cpp_dynamic_value_supported(t: Any) -> bool:
@@ -2057,23 +2301,75 @@ def _dynamic_hooks() -> DynamicEmitHooks:
     )
 
 
-def _cpp_param_decl(name: str, type_expr: Any, state: EmitState) -> str:
+def _bind_targets_name(node: Any, name: str) -> bool:
+    if isinstance(node, (ir.LoadName, ir.LoadSlot)):
+        return node.name == name
+    if isinstance(node, (ir.AttrExpr, ir.IndexExpr)):
+        return _bind_targets_name(node.value, name)
+    return False
+
+
+def _function_mutates_param(fn: ir.FunctionDef, name: str) -> bool:
+    def visit_expr(expr: Any) -> bool:
+        if isinstance(expr, ir.BindExpr) and _bind_targets_name(expr.target, name):
+            return True
+        if isinstance(expr, ir.CoerceExpr):
+            return visit_expr(expr.expr)
+        if isinstance(expr, ir.CallExpr):
+            return visit_expr(expr.func) or any(visit_expr(arg) for arg in expr.args)
+        if isinstance(expr, (ir.AttrExpr, ir.IndexExpr)):
+            return visit_expr(expr.value) or any(visit_expr(idx) for idx in getattr(expr, "indices", []))
+        if isinstance(expr, ir.BinaryExpr):
+            return visit_expr(expr.left) or visit_expr(expr.right)
+        if isinstance(expr, ir.UnaryExpr):
+            return visit_expr(expr.operand)
+        if isinstance(expr, (ir.ListExpr, ir.TupleExpr)):
+            return any(visit_expr(elem) for elem in expr.elements)
+        if isinstance(expr, ir.StructExpr):
+            return any(visit_expr(value) for _name, value in expr.fields)
+        return False
+
+    def visit_stmt(stmt: Any) -> bool:
+        if isinstance(stmt, (ir.StoreName, ir.StoreSlot)):
+            return visit_expr(stmt.value)
+        if isinstance(stmt, ir.ExprStmt):
+            return visit_expr(stmt.expr)
+        if isinstance(stmt, (ir.IfStmt, ir.WhileStmt)):
+            return visit_expr(stmt.condition) or any(visit_stmt(inner) for inner in stmt.body.statements)
+        if isinstance(stmt, ir.ReturnStmt):
+            return stmt.value is not None and visit_expr(stmt.value)
+        if isinstance(stmt, ir.PrintStmt):
+            return visit_expr(stmt.value)
+        return False
+
+    return any(visit_stmt(stmt) for stmt in fn.body.statements)
+
+
+def _cpp_param_decl(name: str, type_expr: Any, state: EmitState, *, mutable_value: bool = False) -> str:
     cpp_t = _cpp_type(type_expr, state)
     t = _normalize_type(type_expr)
-    if isinstance(t, (ast.FixedVectorType, ast.TypeExpr, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
+    if not mutable_value and isinstance(t, (ast.FixedVectorType, ast.TypeExpr, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
         return f"const {cpp_t}& {name}"
     return f"{cpp_t} {name}"
 
 
 def _cpp_type(t: Any, state: EmitState | None = None) -> str:
     t = _normalize_type(t)
+    if isinstance(t, ast.SymbolicValueType):
+        return "vf_symbolic"
     if isinstance(t, ast.PrimTypeRef):
         if t.name == "int":
             return "long long"
+        if t.name == "rational":
+            return "vf_rational"
+        if t.name == "symbolic":
+            return "vf_symbolic"
         if t.name == "num":
-            return "double"
-        if t.name == "bool":
+            return "std::complex<double>"
+        if t.name == "bit":
             return "bool"
+        if t.name == "chr":
+            return "std::string"
         if t.name == "str":
             return "std::string"
     if isinstance(t, ast.TypeExpr):
@@ -2081,6 +2377,8 @@ def _cpp_type(t: Any, state: EmitState | None = None) -> str:
             _register_type(t, state)
         return _struct_name(t)
     if isinstance(t, ast.FixedVectorType):
+        if _fixed_vector_uses_heap(t):
+            return f"std::vector<{_cpp_type(t.element_type, state)}>"
         return f"std::array<{_cpp_type(t.element_type, state)}, {_emit_size_expr(t.size)}>"
     if isinstance(t, ast.MultisetType):
         # Multisets are defined as sorted collections, so the native subset
@@ -2101,7 +2399,7 @@ def _cpp_type(t: Any, state: EmitState | None = None) -> str:
 
 def _const_type(value: Any) -> Any:
     if isinstance(value, bool):
-        return ast.PrimTypeRef("bool")
+        return ast.PrimTypeRef("bit")
     if value is None:
         raise CppEmitError("null is not yet supported in C++ emission")
     if isinstance(value, (int, float)):
@@ -2116,13 +2414,15 @@ def _promote_numeric(a: Any, b: Any) -> Any:
     b = _normalize_type(b)
     if not isinstance(a, ast.PrimTypeRef) or not isinstance(b, ast.PrimTypeRef):
         raise CppEmitError("unsupported non-primitive numeric promotion")
+    if a.name == "rational" or b.name == "rational":
+        return ast.PrimTypeRef("rational")
     if a.name == "num" or b.name == "num":
         return ast.PrimTypeRef("num")
     if a.name == "int" and b.name == "int":
         return ast.PrimTypeRef("int")
-    if a.name == "bool" and b.name == "bool":
-        return ast.PrimTypeRef("bool")
-    if {a.name, b.name} <= {"bool", "int"}:
+    if a.name == "bit" and b.name == "bit":
+        return ast.PrimTypeRef("bit")
+    if {a.name, b.name} <= {"bit", "int"}:
         return ast.PrimTypeRef("int")
     raise CppEmitError(f"unsupported numeric promotion {a.name} vs {b.name}")
 
@@ -2133,9 +2433,74 @@ def _same_primitive_name(a: Any, b: Any) -> bool:
     return isinstance(a, ast.PrimTypeRef) and isinstance(b, ast.PrimTypeRef) and a.name == b.name
 
 
+def _is_symbolic_type(t: Any) -> bool:
+    t = _normalize_type(t)
+    return isinstance(t, ast.SymbolicValueType) or (isinstance(t, ast.PrimTypeRef) and t.name == "symbolic")
+
+
 def _is_scalar_numeric_type(t: Any) -> bool:
     t = _normalize_type(t)
-    return isinstance(t, ast.PrimTypeRef) and t.name in {"bool", "int", "num"}
+    return isinstance(t, ast.PrimTypeRef) and t.name in {"bit", "int", "rational", "num"}
+
+
+def _infer_cpp_symbolic_builtin(name: str, arg_types: list[Any]) -> Any | None:
+    has_symbolic_arg = any(_is_symbolic_type(t) for t in arg_types)
+    if name == "symbolic":
+        return ast.PrimTypeRef("symbolic")
+    if name == "same":
+        return ast.PrimTypeRef("bit") if has_symbolic_arg else None
+    if name == "conditions":
+        return ast.PrimTypeRef("str") if has_symbolic_arg else None
+    if not has_symbolic_arg:
+        return None
+    if name in {"latex", "trace"}:
+        return ast.PrimTypeRef("str")
+    if name in {
+        "assume",
+        "cancel",
+        "canonical",
+        "collect",
+        "complete_square",
+        "compute",
+        "delta",
+        "derivative",
+        "differentiate",
+        "diff",
+        "diff_n",
+        "difference",
+        "dsolve",
+        "expand",
+        "factor",
+        "grad",
+        "gradient",
+        "integ",
+        "integral",
+        "integrate",
+        "move",
+        "shift",
+        "solve",
+        "trig_compress",
+        "trig_expand",
+        *SYMBOLIC_MATH_INTRINSIC_NAMES,
+    }:
+        return ast.PrimTypeRef("symbolic")
+    return None
+
+
+def _stdlib_env(module: ir.Module) -> dict[str, Any]:
+    env: dict[str, Any] = {
+        stdlib_import.binding_name: StdlibNamespaceType(stdlib_import.module_name)
+        for stdlib_import in module.stdlib_imports
+    }
+    for stdlib_import in module.stdlib_imports:
+        if stdlib_import.module_name == "symbolic" and stdlib_import.spill_exports:
+            env.update(
+                {
+                    name: StdlibFunctionType("symbolic", name)
+                    for name in SYMBOLIC_STDLIB_EXPORTS
+                }
+            )
+    return env
 
 
 def _expr_type(node: Any, typed: TypedModuleInfo) -> Any:
@@ -2152,6 +2517,8 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
     if isinstance(node, ir.Const):
         return _const_type(node.value)
     if isinstance(node, ir.LoadName):
+        if node.name == "inf":
+            return ast.PrimTypeRef("symbolic")
         if node.name not in env:
             raise CppEmitError(f"unknown name in C++ emitter: {node.name}")
         return env[node.name]
@@ -2196,6 +2563,8 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
         if intrinsic is not None and intrinsic.kind == "math_const":
             return ast.PrimTypeRef("num")
         base_t = _normalize_type(_infer_expr_type(node.value, env, functions))
+        if isinstance(base_t, StdlibNamespaceType) and base_t.module_name == "symbolic" and node.name in SYMBOLIC_STDLIB_EXPORTS:
+            return StdlibFunctionType("symbolic", node.name)
         if not isinstance(base_t, ast.TypeExpr):
             if isinstance(base_t, ast.MapValueType):
                 for name, inner in base_t.fields:
@@ -2218,10 +2587,12 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
                 continue
             raise CppEmitError("index access currently requires a fixed-vector type in C++ emission")
         return current_t
+    if isinstance(node, ir.BindExpr):
+        return _infer_expr_type(node.value, env, functions)
     if isinstance(node, ir.UnaryExpr):
         t = _infer_expr_type(node.operand, env, functions)
         if node.op == "NOT":
-            return ast.PrimTypeRef("bool")
+            return ast.PrimTypeRef("bit")
         return t
     if isinstance(node, ir.BinaryExpr):
         lt = _infer_expr_type(node.left, env, functions)
@@ -2229,6 +2600,8 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
         if node.op == "AMPERSAND":
             lt_n = _normalize_type(lt)
             rt_n = _normalize_type(rt)
+            if _is_symbolic_type(lt_n) or _is_symbolic_type(rt_n):
+                return ast.PrimTypeRef("symbolic")
             if isinstance(lt_n, ast.FixedVectorType) and isinstance(rt_n, ast.FixedVectorType):
                 if not _same_primitive_name(lt_n.element_type, rt_n.element_type):
                     raise CppEmitError("vector concat requires matching element types")
@@ -2241,6 +2614,10 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
         if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT", "CARET"):
             lt_n = _normalize_type(lt)
             rt_n = _normalize_type(rt)
+            if _is_symbolic_type(lt_n) or _is_symbolic_type(rt_n):
+                if node.op not in ("PLUS", "MINUS", "STAR", "SLASH", "CARET"):
+                    raise CppEmitError("symbolic arithmetic supports +, -, *, /, and ^ in C++ emission")
+                return ast.PrimTypeRef("symbolic")
             if isinstance(lt_n, ast.FixedVectorType) and isinstance(rt_n, ast.FixedVectorType):
                 if node.op not in ("PLUS", "MINUS", "STAR", "SLASH"):
                     raise CppEmitError(f"unsupported vector op for C++ emitter: {node.op}")
@@ -2259,8 +2636,10 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
                     raise CppEmitError("multiset arithmetic requires matching element types")
                 return lt_n
             return _promote_numeric(lt, rt)
+        if node.op in ("EQ", "NEQ") and (_is_symbolic_type(_normalize_type(lt)) or _is_symbolic_type(_normalize_type(rt))):
+            return ast.PrimTypeRef("symbolic")
         if node.op in ("EQ", "NEQ", "LT", "LE", "GT", "GE", "AND", "OR", "XOR"):
-            return ast.PrimTypeRef("bool")
+            return ast.PrimTypeRef("bit")
         if node.op == "AMPERSAND":
             if isinstance(_normalize_type(lt), ast.PrimTypeRef) and _normalize_type(lt).name == "str":
                 return ast.PrimTypeRef("str")
@@ -2270,13 +2649,42 @@ def _infer_expr_type(node: Any, env: dict[str, Any], functions: dict[str, ir.Fun
     if isinstance(node, ir.CallExpr):
         if isinstance(node.func, ir.LoadName):
             fname = node.func.name
-            if fname in ("int", "num", "bool", "str"):
+            if fname in ("bit", "int", "rational", "num", "symbolic", "chr", "str"):
                 return ast.PrimTypeRef(fname)
+            if (
+                fname == "solve"
+                and isinstance(env.get(fname), StdlibFunctionType)
+                and env[fname].module_name == "symbolic"
+                and len(node.args) >= 3
+            ):
+                arg_types = [_infer_expr_type(arg, env, functions) for arg in node.args]
+                if _is_symbolic_type(arg_types[0]):
+                    fields: list[tuple[str, Any]] = []
+                    for arg, arg_t in zip(node.args[1:], arg_types[1:]):
+                        if isinstance(arg, (ir.LoadName, ir.LoadSlot)) and _is_symbolic_type(arg_t):
+                            fields.append((arg.name, ast.PrimTypeRef("symbolic")))
+                    if len(fields) == len(node.args) - 1:
+                        return ast.TypeExpr(fields)
+            if isinstance(env.get(fname), StdlibFunctionType) and env[fname].module_name == "symbolic":
+                symbolic_return = _infer_cpp_symbolic_builtin(fname, [_infer_expr_type(arg, env, functions) for arg in node.args])
+                if symbolic_return is not None:
+                    return symbolic_return
             if fname in functions:
                 r = functions[fname].return_type
                 if r is None:
                     raise CppEmitError(f"function {fname} missing return type for C++ emission")
                 return _normalize_type(r)
+        if isinstance(node.func, ir.AttrExpr):
+            func_t = _normalize_type(_infer_expr_type(node.func, env, functions))
+            if isinstance(func_t, StdlibFunctionType) and func_t.module_name == "symbolic":
+                symbolic_return = _infer_cpp_symbolic_builtin(func_t.name, [_infer_expr_type(arg, env, functions) for arg in node.args])
+                if symbolic_return is not None:
+                    return symbolic_return
+        intrinsic = resolve_native_intrinsic(node.func)
+        if intrinsic is not None and intrinsic.kind == "stat" and intrinsic.name in SYMBOLIC_STAT_RANGE_NAMES:
+            arg_types = [_infer_expr_type(arg, env, functions) for arg in node.args]
+            if len(arg_types) == 4 and any(_is_symbolic_type(t) for t in arg_types):
+                return ast.PrimTypeRef("symbolic")
         raise CppEmitError("unsupported call target for C++ emitter")
     raise CppEmitError(f"unsupported IR expr type {type(node).__name__}")
 
@@ -2381,6 +2789,8 @@ def _emit_list_literal(node: ir.ListExpr, env: dict[str, Any], functions: dict[s
     inferred = _expr_type(node, typed)
     if not isinstance(inferred, ast.FixedVectorType):
         raise CppEmitError("list literal did not infer a fixed-vector type")
+    if len(node.elements) == 1 and isinstance(node.elements[0], ir.RangeExpr):
+        return _emit_range_expr(node.elements[0], env, functions, state, typed)
     progression = _detect_numeric_progression(node)
     if progression is not None and len(node.elements) >= 16:
         start, step = progression
@@ -2389,6 +2799,28 @@ def _emit_list_literal(node: ir.ListExpr, env: dict[str, Any], functions: dict[s
         return f"vf_array_iota<{elem_type}, {size_expr}>({_emit_const(start)}, {_emit_const(step)})"
     elems = [_emit_expr(ir.CoerceExpr(elem, inferred.element_type), env, functions, state, typed) for elem in node.elements]
     return f"{_cpp_type(inferred, state)}{{{', '.join(elems)}}}"
+
+
+def _emit_range_expr(node: ir.RangeExpr, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
+    inferred = _expr_type(node, typed)
+    if not isinstance(inferred, ast.FixedVectorType):
+        raise CppEmitError("native range emission requires a constant finite range")
+    if node.end is None:
+        raise CppEmitError("native range emission requires an end value")
+    if node.start is not None and not isinstance(node.start, ir.Const):
+        raise CppEmitError("native range emission requires a constant start")
+    if not isinstance(node.end, ir.Const):
+        raise CppEmitError("native range emission requires a constant end")
+    start = 0 if node.start is None else node.start.value
+    end = node.end.value
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        raise CppEmitError("native range emission requires numeric bounds")
+    step = 1.0 if end >= start else -1.0
+    elem_type = _cpp_type(inferred.element_type, state)
+    size_expr = _emit_size_expr(inferred.size)
+    if _fixed_vector_uses_heap(inferred):
+        return f"vf_vector_iota<{elem_type}>({_emit_const(start)}, {_emit_const(step)}, static_cast<std::size_t>({size_expr}))"
+    return f"vf_array_iota<{elem_type}, {size_expr}>({_emit_const(start)}, {_emit_const(step)})"
 
 
 def _emit_multiset_literal(node: ir.MultisetExpr, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
@@ -2549,7 +2981,7 @@ def _emit_collection_binary(
         suffix = {
             "PLUS": "union",
             "MINUS": "difference",
-            "FLOOR_DIV": "floor_div",
+            "FLOORDIV": "floor_div",
             "PERCENT": "mod",
         }.get(node.op)
         if suffix is None:
@@ -2621,7 +3053,18 @@ def _emit_intrinsic_call(
         return None
     intrinsic = resolve_native_intrinsic(node.func)
     if intrinsic is None:
+        try:
+            func_t = _expr_type(node.func, typed)
+        except Exception:
+            func_t = None
+        if isinstance(func_t, StdlibFunctionType) and func_t.module_name in {"math", "stat"}:
+            intrinsic = NativeIntrinsic(func_t.module_name, func_t.name, "math" if func_t.module_name == "math" else "stat" if func_t.module_name == "stat" else func_t.module_name)
+    if intrinsic is None:
         return None
+    if intrinsic.kind == "stat" and intrinsic.name == "sum" and len(node.args) == 1:
+        range_sum = _emit_direct_range_sum(node.args[0], env, functions, state, typed)
+        if range_sum is not None:
+            return range_sum
     args = [_emit_expr(a, env, functions, state, typed) for a in node.args]
     if intrinsic.kind == "math_const":
         const_map = {
@@ -2631,8 +3074,16 @@ def _emit_intrinsic_call(
         }
         return const_map[intrinsic.name]
     if intrinsic.kind == "math":
+        arg_types = [_expr_type(a, typed) for a in node.args]
+        if any(_is_symbolic_type(t) for t in arg_types):
+            if len(args) != 1:
+                raise CppEmitError("symbolic math intrinsics currently require one argument")
+            return f"vf_sym_call(\"{intrinsic.name}\", vf_to_symbolic({args[0]}))"
+        num_args = [f"vf_to_num({arg})" for arg in args]
         if intrinsic.name == "log":
-            return f"(std::log({args[0]}) / std::log({args[1]}))"
+            return f"(std::log({num_args[0]}) / std::log({num_args[1]}))"
+        if intrinsic.name == "atan2":
+            return f"std::atan2({args[0]}, {args[1]})"
         name_map = {
             "sin": "std::sin",
             "cos": "std::cos",
@@ -2642,31 +3093,38 @@ def _emit_intrinsic_call(
             "asin": "std::asin",
             "acos": "std::acos",
             "atan": "std::atan",
-            "atan2": "std::atan2",
             "asinh": "std::asinh",
             "acosh": "std::acosh",
             "atanh": "std::atanh",
             "exp": "std::exp",
             "ln": "std::log",
             "lg": "std::log10",
-            "lg2": "std::log2",
             "sqrt": "std::sqrt",
         }
-        return f"{name_map[intrinsic.name]}({', '.join(args)})"
+        if intrinsic.name == "lg2":
+            return f"(std::log({num_args[0]}) / std::log(vf_to_num(2.0)))"
+        return f"{name_map[intrinsic.name]}({', '.join(num_args)})"
     if intrinsic.kind == "stat":
+        arg_types = [_expr_type(a, typed) for a in node.args]
+        if intrinsic.name in SYMBOLIC_STAT_RANGE_NAMES and len(args) == 4 and any(_is_symbolic_type(t) for t in arg_types):
+            helper = {"sum": "vf_sym_sum", "mean": "vf_sym_mean", "median": "vf_sym_median"}[intrinsic.name]
+            return (
+                f"{helper}(vf_to_symbolic({args[0]}), vf_to_symbolic({args[1]}), "
+                f"vf_to_symbolic({args[2]}), vf_to_symbolic({args[3]}))"
+            )
         if intrinsic.name == "sum":
             return f"vf_array_sum({args[0]})"
         if intrinsic.name == "mean":
             vector_t = _normalize_type(_expr_type(node.args[0], typed))
             if not isinstance(vector_t, ast.FixedVectorType):
                 raise CppEmitError("stat.mean requires a fixed vector argument")
-            return f"(static_cast<double>(vf_array_sum({args[0]})) / static_cast<double>({_emit_size_expr(vector_t.size)}))"
+            return f"(vf_to_real(vf_array_sum({args[0]})) / static_cast<double>({_emit_size_expr(vector_t.size)}))"
         if intrinsic.name == "min":
-            return f"static_cast<double>(vf_array_min({args[0]}))"
+            return f"vf_to_real(vf_array_min({args[0]}))"
         if intrinsic.name == "max":
-            return f"static_cast<double>(vf_array_max({args[0]}))"
+            return f"vf_to_real(vf_array_max({args[0]}))"
         if intrinsic.name == "range":
-            return f"static_cast<double>(vf_array_max({args[0]}) - vf_array_min({args[0]}))"
+            return f"(vf_to_real(vf_array_max({args[0]})) - vf_to_real(vf_array_min({args[0]})))"
         if intrinsic.name == "count":
             vector_t = _normalize_type(_expr_type(node.args[0], typed))
             if not isinstance(vector_t, ast.FixedVectorType):
@@ -2700,6 +3158,157 @@ def _emit_intrinsic_call(
         if intrinsic.name == "read_bytes":
             return f"vf_read_file_bytes({args[0]})"
     raise CppEmitError(f"unsupported intrinsic {intrinsic.kind}.{intrinsic.name}")
+
+
+def _emit_symbolic_builtin_call(
+    name: str,
+    args: list[Any],
+    env: dict[str, Any],
+    functions: dict[str, ir.FunctionDef],
+    state: EmitState,
+    typed: TypedModuleInfo,
+) -> str | None:
+    if name == "same" and len(args) == 2 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        b = _emit_expr(args[1], env, functions, state, typed)
+        return f"vf_sym_same(vf_to_symbolic({a}), vf_to_symbolic({b}))"
+    if name == "conditions" and len(args) == 1 and _is_symbolic_type(_expr_type(args[0], typed)):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        return f"vf_sym_conditions({a})"
+    if name in {"latex", "trace"} and args and _is_symbolic_type(_expr_type(args[0], typed)):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        if name == "latex":
+            return f"vf_sym_latex({a})"
+        if len(args) != 2:
+            raise CppEmitError("trace requires a symbolic expression and direction")
+        direction = _emit_expr(args[1], env, functions, state, typed)
+        return f"vf_sym_trace({a}, {direction})"
+    unary_moves = {
+        "cancel": "vf_sym_cancel",
+        "canonical": "vf_sym_compute",
+        "collect": "vf_sym_collect",
+        "complete_square": "vf_sym_complete_square",
+        "compute": "vf_sym_compute",
+        "expand": "vf_sym_expand",
+        "factor": "vf_sym_factor",
+        "trig_compress": "vf_sym_trig_compress",
+        "trig_expand": "vf_sym_trig_expand",
+    }
+    if name in unary_moves and len(args) == 1 and _is_symbolic_type(_expr_type(args[0], typed)):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        return f"{unary_moves[name]}({a})"
+    if name == "move" and len(args) == 2 and _is_symbolic_type(_expr_type(args[0], typed)):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        direction = _emit_expr(args[1], env, functions, state, typed)
+        return f"vf_make_symbolic(vf_sym_trace({a}, {direction}))"
+    if name == "assume" and len(args) == 2 and _is_symbolic_type(_expr_type(args[0], typed)):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        condition = _emit_expr(args[1], env, functions, state, typed)
+        return f"vf_sym_assume({a}, {condition})"
+    if name == "solve" and len(args) >= 3 and _is_symbolic_type(_expr_type(args[0], typed)):
+        fields: list[tuple[str, Any]] = []
+        for arg in args[1:]:
+            if isinstance(arg, (ir.LoadName, ir.LoadSlot)) and _is_symbolic_type(_expr_type(arg, typed)):
+                fields.append((arg.name, ast.PrimTypeRef("symbolic")))
+        if len(fields) == len(args) - 1:
+            record_t = ast.TypeExpr(fields)
+            _register_type(record_t, state)
+            expr = _emit_expr(args[0], env, functions, state, typed)
+            emitted_vars = [_emit_expr(arg, env, functions, state, typed) for arg in args[1:]]
+            if len(emitted_vars) == 2:
+                state.match_counter += 1
+                tmp = f"vf_solve_{state.match_counter}"
+                return (
+                    f"([&]() {{ auto {tmp} = vf_sym_solve_linear_diophantine2_fields(vf_to_symbolic({expr}), "
+                    f"vf_to_symbolic({emitted_vars[0]}), vf_to_symbolic({emitted_vars[1]})); "
+                    f"return {_cpp_type(record_t, state)}{{{tmp}[0], {tmp}[1]}}; }}())"
+                )
+            values = [
+                f"vf_make_symbolic(std::string(\"solve(\") + vf_to_symbolic({expr}).text + std::string(\", \") + vf_to_symbolic({var}).text + std::string(\")\"))"
+                for var in emitted_vars
+            ]
+            return f"{_cpp_type(record_t, state)}{{{', '.join(values)}}}"
+    if name == "shift" and len(args) == 3 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        expr = _emit_expr(args[0], env, functions, state, typed)
+        var = _emit_expr(args[1], env, functions, state, typed)
+        step = _emit_expr(args[2], env, functions, state, typed)
+        return f"vf_sym_shift(vf_to_symbolic({expr}), vf_to_symbolic({var}), vf_to_symbolic({step}))"
+    if name in {"difference", "delta"} and len(args) == 2 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        expr = _emit_expr(args[0], env, functions, state, typed)
+        var = _emit_expr(args[1], env, functions, state, typed)
+        return f"vf_sym_difference(vf_to_symbolic({expr}), vf_to_symbolic({var}))"
+    if name in {"integral", "integrate"} and len(args) == 4 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        expr = _emit_expr(args[0], env, functions, state, typed)
+        var = _emit_expr(args[1], env, functions, state, typed)
+        start = _emit_expr(args[2], env, functions, state, typed)
+        end = _emit_expr(args[3], env, functions, state, typed)
+        return f"vf_sym_integral(vf_to_symbolic({expr}), vf_to_symbolic({var}), vf_to_symbolic({start}), vf_to_symbolic({end}))"
+    if name == "integ" and len(args) == 4 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        expr = _emit_expr(args[0], env, functions, state, typed)
+        var = _emit_expr(args[1], env, functions, state, typed)
+        start = _emit_expr(args[2], env, functions, state, typed)
+        end = _emit_expr(args[3], env, functions, state, typed)
+        return f"vf_sym_integral(vf_to_symbolic({expr}), vf_to_symbolic({var}), vf_to_symbolic({start}), vf_to_symbolic({end}))"
+    if name in {"diff", "derivative", "differentiate", "diff_n"} and len(args) == 3 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        expr = _emit_expr(args[0], env, functions, state, typed)
+        var = _emit_expr(args[1], env, functions, state, typed)
+        order = _emit_expr(args[2], env, functions, state, typed)
+        return f"vf_sym_derivative_n(vf_to_symbolic({expr}), vf_to_symbolic({var}), vf_to_symbolic({order}))"
+    binary_calculus = {
+        "derivative": "vf_sym_derivative",
+        "differentiate": "vf_sym_derivative",
+        "diff": "vf_sym_derivative",
+        "grad": "vf_sym_gradient",
+        "gradient": "vf_sym_gradient",
+        "integ": "vf_sym_integral",
+        "integral": "vf_sym_integral",
+        "integrate": "vf_sym_integral",
+        "solve": "vf_sym_solve",
+        "dsolve": "vf_sym_dsolve",
+    }
+    if name in binary_calculus and len(args) == 2 and any(_is_symbolic_type(_expr_type(arg, typed)) for arg in args):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        b = _emit_expr(args[1], env, functions, state, typed)
+        return f"{binary_calculus[name]}(vf_to_symbolic({a}), vf_to_symbolic({b}))"
+    if name in SYMBOLIC_MATH_INTRINSIC_NAMES and len(args) == 1 and _is_symbolic_type(_expr_type(args[0], typed)):
+        a = _emit_expr(args[0], env, functions, state, typed)
+        return f"vf_sym_call(\"{name}\", vf_to_symbolic({a}))"
+    return None
+
+
+def _range_expr_from_direct_sum_arg(node: Any) -> ir.RangeExpr | None:
+    if isinstance(node, ir.RangeExpr):
+        return node
+    if isinstance(node, ir.ListExpr) and len(node.elements) == 1 and isinstance(node.elements[0], ir.RangeExpr):
+        return node.elements[0]
+    return None
+
+
+def _emit_direct_range_sum(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str | None:
+    range_expr = _range_expr_from_direct_sum_arg(node)
+    if range_expr is None or range_expr.end is None:
+        return None
+    if range_expr.start is not None and not isinstance(range_expr.start, ir.Const):
+        return None
+    if not isinstance(range_expr.end, ir.Const):
+        return None
+    start = 0 if range_expr.start is None else range_expr.start.value
+    end = range_expr.end.value
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        return None
+    step = 1 if end >= start else -1
+    cmp_op = "<=" if step > 0 else ">="
+    step_op = "++" if step > 0 else "--"
+    start_expr = _emit_const(start)
+    end_expr = _emit_const(end)
+    return (
+        "([&]() { "
+        "double vf_sum = 0.0; "
+        f"for (long long vf_i = static_cast<long long>({start_expr}); vf_i {cmp_op} static_cast<long long>({end_expr}); {step_op}vf_i) "
+        "vf_sum += static_cast<double>(vf_i); "
+        "return vf_sum; "
+        "}())"
+    )
 
 
 def _match_array_sum_function(fn: ir.FunctionDef, typed: TypedModuleInfo, state: EmitState) -> ArrayReducePattern | None:
@@ -2791,6 +3400,8 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
     if isinstance(node, ir.Const):
         return _emit_const(node.value)
     if isinstance(node, ir.LoadName):
+        if node.name == "inf":
+            return 'vf_make_symbolic("inf")'
         return _cpp_name(node.name, state)
     if isinstance(node, ir.LoadSlot):
         return _cpp_name(node.name, state)
@@ -2809,19 +3420,29 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             if isinstance(node.expr, ir.StructExpr):
                 return _emit_record_coercion(node, env, functions, state, typed)
             return inner
+        if isinstance(t, ast.SymbolicValueType):
+            return f"vf_to_symbolic({inner})"
         if not isinstance(t, ast.PrimTypeRef):
             raise CppEmitError("only primitive coercions are supported in C++ emission")
         if t.name == "num":
+            if isinstance(node.expr, ir.Const) and isinstance(node.expr.value, int) and not isinstance(node.expr.value, bool):
+                return f"vf_to_num({node.expr.value}.0)"
             return f"vf_to_num({inner})"
         if t.name == "int":
             return f"vf_to_int({inner})"
-        if t.name == "bool":
+        if t.name == "rational":
+            return f"vf_to_rational({inner})"
+        if t.name == "symbolic":
+            return f"vf_to_symbolic({inner})"
+        if t.name == "bit":
             return f"vf_to_bool({inner})"
         if t.name == "str":
             return f"vf_to_str({inner})"
         raise CppEmitError(f"unsupported coercion target {t.name}")
     if isinstance(node, ir.ListExpr):
         return _emit_list_literal(node, env, functions, state, typed)
+    if isinstance(node, ir.RangeExpr):
+        return _emit_range_expr(node, env, functions, state, typed)
     if isinstance(node, ir.MapExpr):
         return _emit_map_literal(node, env, functions, state, typed)
     if isinstance(node, ir.LinkedListExpr):
@@ -2852,9 +3473,19 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             expr = f"{expr}[static_cast<std::size_t>({idx_expr})]"
             current_t = _normalize_type(current_t.element_type) if isinstance(current_t, ast.FixedVectorType) else current_t
         return expr
+    if isinstance(node, ir.BindExpr):
+        return (
+            "([&]() -> decltype(auto) { "
+            f"{_emit_lvalue(node.target, env, functions, state, typed)} = "
+            f"{_emit_expr(node.value, env, functions, state, typed)}; "
+            f"return {_emit_lvalue(node.target, env, functions, state, typed)}; "
+            "}())"
+        )
     if isinstance(node, ir.UnaryExpr):
         inner = _emit_expr(node.operand, env, functions, state, typed)
         if node.op == "MINUS":
+            if _is_symbolic_type(_expr_type(node.operand, typed)):
+                return f"(-vf_to_symbolic({inner}))"
             return f"(-{inner})"
         if node.op == "NOT":
             return f"(!{inner})"
@@ -2867,6 +3498,20 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         coll = _emit_collection_binary(node, left, right, left_type, right_type, env, functions, state, typed)
         if coll is not None:
             return coll
+        lt_n = _normalize_type(left_type)
+        rt_n = _normalize_type(right_type)
+        if _is_symbolic_type(lt_n) or _is_symbolic_type(rt_n):
+            left = f"vf_to_symbolic({left})"
+            right = f"vf_to_symbolic({right})"
+            if node.op == "AMPERSAND":
+                return f"vf_sym_binop({left}, \"&\", {right})"
+            if node.op == "CARET":
+                return f"vf_sym_pow({left}, {right})"
+            if node.op in {"EQ", "NEQ"}:
+                return f"vf_sym_relation({left}, \"{'=' if node.op == 'EQ' else '!='}\", {right})"
+            if node.op in {"PLUS", "MINUS", "STAR", "SLASH"}:
+                return f"({left} { {'PLUS': '+', 'MINUS': '-', 'STAR': '*', 'SLASH': '/'}[node.op] } {right})"
+            raise CppEmitError(f"unsupported symbolic binary op {node.op}")
         if node.op == "CARET":
             return f"std::pow({left}, {right})"
         op_map = {
@@ -2887,6 +3532,30 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         }
         if node.op == "XOR":
             return f"(static_cast<bool>({left}) != static_cast<bool>({right}))"
+        if (
+            isinstance(lt_n, ast.PrimTypeRef)
+            and isinstance(rt_n, ast.PrimTypeRef)
+            and "rational" in {lt_n.name, rt_n.name}
+            and node.op in {"PLUS", "MINUS", "STAR", "SLASH", "EQ", "NEQ", "LT", "LE", "GT", "GE"}
+        ):
+            left = f"vf_to_rational({left})"
+            right = f"vf_to_rational({right})"
+        elif (
+            isinstance(lt_n, ast.PrimTypeRef)
+            and isinstance(rt_n, ast.PrimTypeRef)
+            and "num" in {lt_n.name, rt_n.name}
+            and node.op in {"PLUS", "MINUS", "STAR", "SLASH", "EQ", "NEQ"}
+        ):
+            left = f"vf_to_num({left})"
+            right = f"vf_to_num({right})"
+        if node.op in {"LT", "LE", "GT", "GE"}:
+            if (
+                isinstance(lt_n, ast.PrimTypeRef)
+                and isinstance(rt_n, ast.PrimTypeRef)
+                and "num" in {lt_n.name, rt_n.name}
+            ):
+                helper = {"LT": "vf_num_lt", "LE": "vf_num_le", "GT": "vf_num_gt", "GE": "vf_num_ge"}[node.op]
+                return f"{helper}(vf_to_num({left}), vf_to_num({right}))"
         if node.op == "AMPERSAND":
             return f"({left} + {right})"
         if node.op not in op_map:
@@ -2899,16 +3568,36 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         if isinstance(node.func, ir.AttrExpr) and node.func.name == "length" and not node.args and not node.kwargs and not node.spreads:
             base = _emit_expr(node.func.value, env, functions, state, typed)
             return f"static_cast<long long>({base}.size())"
+        if isinstance(node.func, ir.AttrExpr):
+            func_t = _expr_type(node.func, typed)
+            if isinstance(func_t, StdlibFunctionType) and func_t.module_name == "symbolic":
+                symbolic_call = _emit_symbolic_builtin_call(func_t.name, node.args, env, functions, state, typed)
+                if symbolic_call is not None:
+                    return symbolic_call
+            raise CppEmitError("only direct named calls are supported in C++ emission")
         if not isinstance(node.func, ir.LoadName):
             raise CppEmitError("only direct named calls are supported in C++ emission")
-        fname = _cpp_name(node.func.name, state) if node.func.name not in functions and node.func.name not in {"int", "num", "bool", "str"} else node.func.name
+        fname = _cpp_name(node.func.name, state) if node.func.name not in functions and node.func.name not in {"bit", "int", "rational", "num", "symbolic", "chr", "str"} else node.func.name
         args = ", ".join(_emit_expr(a, env, functions, state, typed) for a in node.args)
         if fname == "int":
             return f"vf_to_int({args})"
         if fname == "num":
             return f"vf_to_num({args})"
-        if fname == "bool":
+        if fname == "rational":
+            if len(node.args) == 2:
+                emitted_args = [_emit_expr(a, env, functions, state, typed) for a in node.args]
+                return f"vf_make_rational(vf_to_int({emitted_args[0]}), vf_to_int({emitted_args[1]}))"
+            return f"vf_to_rational({args})"
+        if fname == "symbolic":
+            return f"vf_to_symbolic({args})"
+        if isinstance(env.get(node.func.name), StdlibFunctionType) and env[node.func.name].module_name == "symbolic":
+            symbolic_call = _emit_symbolic_builtin_call(node.func.name, node.args, env, functions, state, typed)
+            if symbolic_call is not None:
+                return symbolic_call
+        if fname == "bit":
             return f"vf_to_bool({args})"
+        if fname == "chr":
+            return f"vf_to_str({args})"
         if fname == "str":
             return f"vf_to_str({args})"
         if node.func.name in functions and node.func.name in CPP_STD_CONFLICT_NAMES:
@@ -2922,17 +3611,46 @@ def _emit_print(expr: Any, env: dict[str, Any], functions: dict[str, ir.Function
     code = _emit_expr(expr, env, functions, state, typed)
     if isinstance(t, (ast.FixedVectorType, ast.TypeExpr, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType)):
         return f"std::cout << vf_format_value({code}) << \"\\n\";"
+    if isinstance(t, ast.SymbolicValueType):
+        return f"std::cout << vf_format_symbolic({code}) << \"\\n\";"
     if not isinstance(t, ast.PrimTypeRef):
         raise CppEmitError("only primitive print values are supported in C++ emission")
-    if t.name == "bool":
+    if t.name == "bit":
         return f'std::cout << ({code} ? "true" : "false") << "\\n";'
     if t.name == "int":
         return f"std::cout << {code} << \"\\n\";"
     if t.name == "num":
         return f"std::cout << vf_format_num({code}) << \"\\n\";"
-    if t.name == "str":
+    if t.name == "rational":
+        return f"std::cout << vf_format_rational({code}) << \"\\n\";"
+    if t.name == "symbolic":
+        return f"std::cout << vf_format_symbolic({code}) << \"\\n\";"
+    if t.name in {"chr", "str"}:
         return f"std::cout << {code} << \"\\n\";"
     raise CppEmitError(f"unsupported print type {t.name}")
+
+
+def _emit_lvalue(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], state: EmitState, typed: TypedModuleInfo) -> str:
+    if isinstance(node, (ir.LoadName, ir.LoadSlot)):
+        return _cpp_name(node.name, state)
+    if isinstance(node, ir.AttrExpr):
+        base = _emit_lvalue(node.value, env, functions, state, typed)
+        return f"{base}.{node.name}"
+    if isinstance(node, ir.IndexExpr):
+        base = _emit_lvalue(node.value, env, functions, state, typed)
+        current_t = _normalize_type(_expr_type(node.value, typed))
+        for idx in node.indices:
+            if not isinstance(current_t, ast.FixedVectorType):
+                raise CppEmitError("index assignment currently requires a fixed-vector lvalue in C++ emission")
+            idx_expr = _emit_expr(idx, env, functions, state, typed)
+            base = f"{base}[static_cast<std::size_t>({idx_expr})]"
+            current_t = _normalize_type(current_t.element_type)
+        return base
+    raise CppEmitError(f"unsupported assignment target for C++ emission: {type(node).__name__}")
+
+
+def _emit_bind_expr_stmt(node: ir.BindExpr, env: dict[str, Any], functions: dict[str, ir.FunctionDef], indent: str, state: EmitState, typed: TypedModuleInfo) -> str:
+    return f"{indent}{_emit_lvalue(node.target, env, functions, state, typed)} = {_emit_expr(node.value, env, functions, state, typed)};"
 
 
 def _emit_stmt(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionDef], indent: str, state: EmitState, typed: TypedModuleInfo) -> tuple[list[str], dict[str, Any]]:
@@ -2975,6 +3693,9 @@ def _emit_stmt(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
         lines.append(indent + _emit_print(node.value, env, functions, state, typed))
         return lines, env
     if isinstance(node, ir.ExprStmt):
+        if isinstance(node.expr, ir.BindExpr):
+            lines.append(_emit_bind_expr_stmt(node.expr, env, functions, indent, state, typed))
+            return lines, env
         lines.append(f"{indent}{_emit_expr(node.expr, env, functions, state, typed)};")
         return lines, env
     if isinstance(node, ir.IfStmt):
@@ -3074,6 +3795,9 @@ def _collect_types_from_expr(node: Any, env: dict[str, Any], functions: dict[str
     if isinstance(node, ir.CoerceExpr):
         _register_type(node.target_type, state)
         _collect_types_from_expr(node.expr, env, functions, state)
+    elif isinstance(node, ir.BindExpr):
+        _collect_types_from_expr(node.target, env, functions, state)
+        _collect_types_from_expr(node.value, env, functions, state)
     elif isinstance(node, ir.CallExpr):
         for arg in node.args:
             _collect_types_from_expr(arg, env, functions, state)
@@ -3238,11 +3962,11 @@ def emit_cpp_module(module: ir.Module) -> str:
             )
         ret_cpp = _cpp_type(fn.return_type, state)
         param_bits: list[str] = []
-        local_env: dict[str, Any] = {}
+        local_env: dict[str, Any] = _stdlib_env(module)
         for name, ptype in zip(fn.params, fn.param_types):
             if ptype is None:
                 raise CppEmitError(f"function {fn.name} parameter {name} needs an explicit type for C++ emission")
-            param_bits.append(_cpp_param_decl(name, ptype, state))
+            param_bits.append(_cpp_param_decl(name, ptype, state, mutable_value=_function_mutates_param(fn, name)))
             local_env[name] = _normalize_type(ptype)
         old_name_map = state.current_name_map
         fn_name_map: dict[str, str] = {name: name for name in fn.params}
@@ -3274,7 +3998,7 @@ def emit_cpp_module(module: ir.Module) -> str:
         fn_lines.append("")
         state.current_name_map = old_name_map
     main_lines = ["int main() {"] 
-    env: dict[str, Any] = {}
+    env: dict[str, Any] = _stdlib_env(module)
     for stmt in module.statements:
         if isinstance(stmt, (ir.FunctionDef, ir.TypeDef)):
             continue

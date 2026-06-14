@@ -59,6 +59,59 @@ const axis3d = require("../../web/vf-ui/vf-axis3d-kernel.js");
 }
 
 {
+  const center = axis3d.virtualTrackballPoint({ width: 400, height: 300 }, 200, 150, 20);
+  assert.equal(center.inside, true);
+  assert.ok(Math.abs(center.radius - 130) <= 1e-9);
+  assert.deepEqual(center.point, [0, 0, 1]);
+  const outside = axis3d.virtualTrackballPoint({ width: 400, height: 300 }, 400, 150, 20);
+  assert.equal(outside.inside, false);
+  assert.ok(Math.abs(outside.point[0] - 1) <= 1e-9);
+  assert.ok(Math.abs(outside.point[1]) <= 1e-9);
+  assert.ok(Math.abs(outside.point[2]) <= 1e-9);
+}
+
+{
+  const camera = {
+    pos: [0, -4, 0],
+    target: [0, 0, 0],
+    up: [0, 0, 1]
+  };
+  const ok = axis3d.virtualTrackballRotate(
+    camera,
+    { mode: "crosshair" },
+    { width: 400, height: 300 },
+    200,
+    150,
+    240,
+    150,
+    { marginPx: 20 }
+  );
+  assert.equal(ok, true);
+  assert.ok(camera.pos[0] > 0);
+  assert.ok(Math.abs(Math.sqrt(camera.pos[0] ** 2 + camera.pos[1] ** 2 + camera.pos[2] ** 2) - 4) <= 1e-6);
+}
+
+{
+  const camera = {
+    pos: [0, -4, 0],
+    target: [0, 0, 0],
+    up: [0, 0, 1]
+  };
+  const ok = axis3d.virtualTrackballRotate(
+    camera,
+    { mode: "crosshair" },
+    { width: 400, height: 300 },
+    330,
+    150,
+    330,
+    280,
+    { marginPx: 20 }
+  );
+  assert.equal(ok, true);
+  assert.ok(camera.up[0] !== 0 || camera.up[2] !== 1);
+}
+
+{
   const delta = axis3d.dragWorldDelta({
     pos: [0, -4, 0],
     target: [0, 0, 0],

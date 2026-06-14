@@ -55,9 +55,10 @@
     sceneStyleDeps: [
       { href: "vf-frame.css" },
       { href: "vf-chess.css" },
-      { href: "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css", crossorigin: "anonymous" }
+      { href: "katex/katex.min.css" }
     ],
     sceneScriptDeps: [
+      "vf-runtime-packet-contract.js",
       "vf-runtime-source.js",
       "vf-runtime-scene.js",
       "vf-runtime-flow.js",
@@ -90,6 +91,19 @@
     packetFallbackDelayMs: 1200,
     runtimeAssetVersion: _vfRuntimeAssetVersion
   };
+
+  function applyRuntimeShellConfigOverrides() {
+    var override = global.__vfRuntimeShellConfig;
+    if (!override || typeof override !== "object") { return; }
+    if (Array.isArray(override.sceneStyleDeps)) {
+      DEFAULT_RUNTIME_CONFIG.sceneStyleDeps = override.sceneStyleDeps.slice();
+    }
+    if (Array.isArray(override.sceneScriptDeps)) {
+      DEFAULT_RUNTIME_CONFIG.sceneScriptDeps = override.sceneScriptDeps.slice();
+    }
+  }
+
+  applyRuntimeShellConfigOverrides();
 
   function runtimeLog(level, text) {
     var s = "[vf-runtime-shell] " + String(text);
@@ -888,7 +902,23 @@
       if (!options) { return false; }
       ensureSceneDependencies().then(function() {
         boot(options);
-      }).catch(function() {});
+      }).catch(function(err) {
+        var message = err && err.message ? err.message : String(err || "unknown runtime boot error");
+        runtimeLog("error", "autoBootIfSceneDocument: " + message);
+        try {
+          if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+            global.chrome.webview.postMessage({ type: "vf_log", level: "error", message: "runtime boot failed: " + message, t: Date.now() });
+          }
+        } catch (_) {}
+        try {
+          if (document && document.body) {
+            var pre = document.createElement("pre");
+            pre.textContent = "Vektor Flow runtime boot failed:\n" + message;
+            pre.style.cssText = "position:fixed;left:24px;top:24px;z-index:2147483647;margin:0;padding:12px 14px;background:rgba(20,20,24,.94);color:#ffb4b4;border:1px solid rgba(255,120,120,.8);font:13px/1.4 Consolas,monospace;white-space:pre-wrap;max-width:72vw;pointer-events:none";
+            document.body.appendChild(pre);
+          }
+        } catch (_) {}
+      });
       return true;
     }
 

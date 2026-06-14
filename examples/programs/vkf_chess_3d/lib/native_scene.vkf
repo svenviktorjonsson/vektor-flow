@@ -17,7 +17,7 @@ square_rank(index:num) -> num:
     """Map a zero-based square index to a 1-based rank."""
     @: (index // 8) + 1
 
-is_light_square(file:num, rank:num) -> bool:
+is_light_square(file:num, rank:num) -> bit:
     """Return true for light board squares."""
     @: ((file + rank) % 2) = 0
 
@@ -30,7 +30,7 @@ square_id(file:num, rank:num) -> str:
     """Return the stable mesh id for a square."""
     @: "sq_" & notation.file_name(file) & notation.rank_name(rank)
 
-square_visual_state(center:list(num, num, num), visible:bool, color:list(num, num, num, num)):
+square_visual_state(center:list(num, num, num), visible:bit, color:list(num, num, num, num)):
     """Return one selectable-square visual embedding state."""
     @: (
         center: center,
@@ -108,10 +108,10 @@ board_reflection_overlay():
         no_backface_specular: true
     )
 
-piece_side(index:num) -> str:
+piece_side(index:num) -> num:
     """Return side for a one-based initial piece index."""
-    index <= 16? @: "white"
-    @: "black"
+    index <= 16? @: Side.white
+    @: Side.black
 
 piece_local_index(index:num) -> num:
     """Return side-local one-based index for a starting piece."""
@@ -123,71 +123,66 @@ piece_file(local:num) -> num:
     local <= 8? @: local
     @: local - 8
 
-piece_rank(side:str, local:num) -> num:
+piece_rank(side:num, local:num) -> num:
     """Return the rank for a side-local starting piece index."""
-    side = "white"?
+    side = Side.white?
         local <= 8? @: 1
         @: 2
     local <= 8? @: 8
     @: 7
 
-back_rank_role(file:num) -> str:
-    """Return the role for a back-rank file."""
-    file = 1? @: "rook"
-    file = 2? @: "knight"
-    file = 3? @: "bishop"
-    file = 4? @: "queen"
-    file = 5? @: "king"
-    file = 6? @: "bishop"
-    file = 7? @: "knight"
-    @: "rook"
+back_rank_roles: [PieceRole.rook, PieceRole.knight, PieceRole.bishop, PieceRole.queen, PieceRole.king, PieceRole.bishop, PieceRole.knight, PieceRole.rook]
 
-piece_role(local:num, file:num) -> str:
+back_rank_role(file:num) -> num:
+    """Return the role for a back-rank file."""
+    @: back_rank_roles.(file - 1)
+
+piece_role(local:num, file:num) -> num:
     """Return the role for a side-local starting piece index."""
     local <= 8? @: back_rank_role(file)
-    @: "pawn"
+    @: PieceRole.pawn
 
-piece_color(side:str) -> list(num, num, num, num):
+piece_color(side:num) -> list(num, num, num, num):
     """Return RGBA color for a chess side."""
-    side = "white"? @: [1.00, 0.96, 0.78, 1.0]
+    side = Side.white? @: [1.00, 0.96, 0.78, 1.0]
     @: [0.34, 0.22, 0.13, 1.0]
 
-piece_size(role:str) -> num:
+piece_size(role:num) -> num:
     """Return primitive display size for one role."""
-    role = "pawn"? @: 0.56
-    role = "rook"? @: 0.66
-    role = "knight"? @: 0.70
-    role = "bishop"? @: 0.64
-    role = "queen"? @: 0.78
+    role = PieceRole.pawn? @: 0.56
+    role = PieceRole.rook? @: 0.66
+    role = PieceRole.knight? @: 0.70
+    role = PieceRole.bishop? @: 0.64
+    role = PieceRole.queen? @: 0.78
     @: 0.74
 
-piece_height(role:str) -> num:
+piece_height(role:num) -> num:
     """Return primitive display center height for one role."""
     @: 0.18 + (piece_size(role) * 0.5)
 
-piece_body_height(role:str) -> num:
+piece_body_height(role:num) -> num:
     """Return the visible hull height for one role."""
-    role = "pawn"? @: 0.46
-    role = "rook"? @: 0.62
-    role = "knight"? @: 0.70
-    role = "bishop"? @: 0.76
-    role = "queen"? @: 0.92
+    role = PieceRole.pawn? @: 0.46
+    role = PieceRole.rook? @: 0.62
+    role = PieceRole.knight? @: 0.70
+    role = PieceRole.bishop? @: 0.76
+    role = PieceRole.queen? @: 0.92
     @: 0.98
 
 piece_base_z() -> num:
     """Return the slightly raised contact height used by visible piece hulls."""
     @: 0.077
 
-piece_rotation(side:str, role:str) -> list(num, num, num):
+piece_rotation(side:num, role:num) -> list(num, num, num):
     """Return side-specific mesh orientation for baked chess geometry."""
-    side = "white"?
-        role = "knight"? @: [0.0, 0.0, 180.0]
+    side = Side.white?
+        role = PieceRole.knight? @: [0.0, 0.0, 180.0]
         @: [0.0, 0.0, 0.0]
     @: [0.0, 0.0, 0.0]
 
-piece_id(side:str, role:str, file:num, rank:num) -> str:
+piece_id(side:num, role:num, file:num, rank:num) -> str:
     """Return stable mesh id for a piece."""
-    @: side & "_" & role & "_" & notation.file_name(file) & notation.rank_name(rank)
+    @: side_name(side) & "_" & role_name(role) & "_" & notation.file_name(file) & notation.rank_name(rank)
 
 piece_cube(index:num):
     """Build one native primitive for a starting piece."""
@@ -263,8 +258,8 @@ piece_descriptor(index:num):
     @: (
         object_id: index + 65,
         id: piece_id(side, role, file, rank),
-        side: side,
-        role: role,
+        side: side_name(side),
+        role: role_name(role),
         file: file,
         rank: rank,
         base_z: piece_base_z()
@@ -278,6 +273,13 @@ chess_interaction():
         controls_stylesheet: "vf-chess.css",
         controls_frame_class: "vf-chess-frame",
         controls_panel_class: "vf-chess-panel",
+        player_modes: [
+            (id:"human_human", label:"Human vs Human", white:"human", black:"human"),
+            (id:"human_bot", label:"Human vs Bot", white:"human", black:"bot"),
+            (id:"bot_human", label:"Bot vs Human", white:"bot", black:"human"),
+            (id:"bot_bot", label:"Bot vs Bot", white:"bot", black:"bot")
+        ],
+        default_player_mode: "human_human",
         square_region_object_id: 2,
         square_object_id_first: 2,
         square_object_id_last: 65,

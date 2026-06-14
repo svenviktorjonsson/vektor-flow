@@ -72,6 +72,7 @@ from .tokens import (
     OR,
     PERCENT,
     PIPE,
+    PRIME,
     PLUS,
     QUESTION,
     BANG_QUESTION,
@@ -85,6 +86,9 @@ from .tokens import (
     STRUCT_NEQ,
     STRING,
     STRING_RAW,
+    TRUE,
+    FALSE,
+    NULL,
     Token,
     AT_EMIT,
     XOR,
@@ -268,6 +272,10 @@ class Lexer:
             self._lex_string(loc)
             return
         if ch == "'":
+            if self._quote_is_prime_suffix():
+                self._advance()
+                self._emit(PRIME, None, loc)
+                return
             self._lex_string_single(loc)
             return
         if ch.isalpha() or ch == "_":
@@ -588,6 +596,28 @@ class Lexer:
             out.append(ch)
             self._advance()
         raise LexError("Unterminated single-quoted string literal", loc)
+
+    def _quote_is_prime_suffix(self) -> bool:
+        if self.pos == 0:
+            return False
+        prev = self.src[self.pos - 1]
+        if prev in {" ", "\t", "\r", "\n"}:
+            return False
+        if not self.tokens:
+            return False
+        return self.tokens[-1].kind in {
+            IDENT,
+            NUMBER,
+            STRING,
+            STRING_RAW,
+            TRUE,
+            FALSE,
+            NULL,
+            PRIME,
+            RPAREN,
+            RBRACKET,
+            RBRACE,
+        }
 
     def _lex_string_single_triple(self, loc: SourceLocation) -> None:
         self._advance()

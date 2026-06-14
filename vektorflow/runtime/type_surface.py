@@ -20,6 +20,7 @@ from .collections_runtime import (
     runtime_object_length,
     runtime_object_size_bits,
 )
+from .char_value import VFChr
 from .multiset import Multiset
 from .type_values import PrimType
 from .vfvector import VFVector
@@ -52,16 +53,16 @@ def _exemplar_for_type_value(value: Any) -> Any | None:
     type_expr = _type_expr_from_value(value)
     if isinstance(type_expr, ast.PrimTypeRef):
         name = type_expr.name
-        if name in {"int", "byte"}:
+        if name == "int":
             return 0
         if name == "num":
-            return 0.0
-        if name == "bool":
+            return 0j
+        if name == "bit":
             return False
+        if name == "chr":
+            return VFChr("\0")
         if name == "str":
             return ""
-        if name == "bytes":
-            return b""
         if name == "tuple":
             return ()
         if name == "vector":
@@ -97,7 +98,7 @@ def _size_return_type() -> Any:
 
 
 def _bool_return_type() -> Any:
-    return ast.PrimTypeRef("bool")
+    return ast.PrimTypeRef("bit")
 
 
 def _length_return_type() -> Any:

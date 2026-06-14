@@ -7,16 +7,28 @@ Functions mirror common mathematical notation: ``lg`` = log10, ``lg2`` = log2,
 from __future__ import annotations
 
 import math as _m
+import cmath as _cm
 from typing import Any, Callable
 
 
-def _log_base(x: float, base: float) -> float:
+def _clean_num(value: Any) -> Any:
+    if isinstance(value, complex) and value.imag == 0:
+        return float(value.real)
+    return value
+
+
+def _complex_unary(fn: Callable[[complex], complex]) -> Callable[[Any], Any]:
+    def _wrapped(value: Any) -> Any:
+        return _clean_num(fn(value))
+
+    return _wrapped
+
+
+def _log_base(x: Any, base: Any) -> Any:
     """``log_base(x, y)`` = log_y(x)."""
-    if base <= 0 or base == 1:
+    if base == 1:
         raise ValueError("log base must be positive and not 1")
-    if x <= 0:
-        raise ValueError("log argument must be positive")
-    return _m.log(x) / _m.log(base)
+    return _clean_num(_cm.log(x) / _cm.log(base))
 
 
 def _map_unary_numeric(value: Any, fn: Callable[[Any], Any]) -> Any:
@@ -47,24 +59,32 @@ def build_math_namespace() -> dict[str, Any]:
     from vektorflow.runtime.absnorm import abs_or_norm
 
     ns: dict[str, Any] = {
-        "sin": _lift_unary_numeric(_m.sin),
-        "cos": _lift_unary_numeric(_m.cos),
-        "tan": _lift_unary_numeric(_m.tan),
-        "sinh": _lift_unary_numeric(_m.sinh),
-        "cosh": _lift_unary_numeric(_m.cosh),
-        "tanh": _lift_unary_numeric(_m.tanh),
-        "asin": _lift_unary_numeric(_m.asin),
-        "acos": _lift_unary_numeric(_m.acos),
-        "atan": _lift_unary_numeric(_m.atan),
+        "sin": _lift_unary_numeric(lambda value: _clean_num(_cm.sin(value))),
+        "cos": _lift_unary_numeric(lambda value: _clean_num(_cm.cos(value))),
+        "tan": _lift_unary_numeric(lambda value: _clean_num(_cm.tan(value))),
+        "sec": _lift_unary_numeric(lambda value: 1 / _clean_num(_cm.cos(value))),
+        "cot": _lift_unary_numeric(lambda value: 1 / _clean_num(_cm.tan(value))),
+        "csc": _lift_unary_numeric(lambda value: 1 / _clean_num(_cm.sin(value))),
+        "sinh": _lift_unary_numeric(_complex_unary(_cm.sinh)),
+        "cosh": _lift_unary_numeric(_complex_unary(_cm.cosh)),
+        "tanh": _lift_unary_numeric(_complex_unary(_cm.tanh)),
+        "asin": _lift_unary_numeric(_complex_unary(_cm.asin)),
+        "acos": _lift_unary_numeric(_complex_unary(_cm.acos)),
+        "atan": _lift_unary_numeric(_complex_unary(_cm.atan)),
+        "acot": _lift_unary_numeric(lambda value: _clean_num(_cm.atan(1 / value))),
+        "asec": _lift_unary_numeric(lambda value: _clean_num(_cm.acos(1 / value))),
+        "acsc": _lift_unary_numeric(lambda value: _clean_num(_cm.asin(1 / value))),
         "atan2": _m.atan2,
-        "asinh": _lift_unary_numeric(_m.asinh),
-        "acosh": _lift_unary_numeric(_m.acosh),
-        "atanh": _lift_unary_numeric(_m.atanh),
-        "exp": _lift_unary_numeric(_m.exp),
-        "ln": _lift_unary_numeric(_m.log),
-        "lg": _lift_unary_numeric(_m.log10),
-        "lg2": _lift_unary_numeric(_m.log2),
-        "sqrt": _lift_unary_numeric(_m.sqrt),
+        "asinh": _lift_unary_numeric(_complex_unary(_cm.asinh)),
+        "acosh": _lift_unary_numeric(_complex_unary(_cm.acosh)),
+        "atanh": _lift_unary_numeric(_complex_unary(_cm.atanh)),
+        "exp": _lift_unary_numeric(lambda value: _clean_num(_cm.exp(value))),
+        "ln": _lift_unary_numeric(lambda value: _clean_num(_cm.log(value))),
+        "lg": _lift_unary_numeric(_complex_unary(_cm.log10)),
+        "lg2": _lift_unary_numeric(_complex_unary(lambda value: _cm.log(value, 2))),
+        "sqrt": _lift_unary_numeric(lambda value: _clean_num(_cm.sqrt(value))),
+        "gamma": _lift_unary_numeric(lambda value: _m.gamma(value)),
+        "erf": _lift_unary_numeric(lambda value: _m.erf(value)),
         "log": _log_base,
         "abs": abs_or_norm,
         "pi": _m.pi,

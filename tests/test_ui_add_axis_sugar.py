@@ -134,6 +134,36 @@ mesh: d.add(x: u, y: v, z: height, color: "cyan", interpolation: true)
     assert mesh["topology"] == "triangle-list"
 
 
+def test_vkf_add_accepts_polar_channels_and_animation_finish() -> None:
+    src = """
+ui:.ui
+math:.math
+d: ui.display
+d.set_auto_render(false)
+f: d.Frame()
+d.add_frame((0.1, 0.1, 0.5, 0.5))
+
+u: [0.0, 1.57079632679, 3.14159265359] -> u
+t: [0, 1, 2] -> t
+r: [1.0, 1.0, 2.0] -> u
+height: t + (u * 0.0)
+
+mesh: d.add(r: r, phi: u, z: height, animation_finish: "mirror", representation: "edges")
+mesh.set_t(3)
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<test>"))
+
+    display = ip.globals["d"]
+    frame_id = ip.globals["f"]._frame_id
+    mesh = display._geom[frame_id]["meshes"][0]
+    assert mesh["axis_polar"] is True
+    assert mesh["time_boundary"] == "mirror"
+    assert mesh["time_index"] == 1
+    assert mesh["vertices"][0] == pytest.approx(1.0)
+    assert mesh["vertices"][1] == pytest.approx(0.0)
+
+
 def test_axis_2d_sugar_emits_transparent_2d_marker_geometry() -> None:
     src = """
 ui:.ui
@@ -178,6 +208,65 @@ axis.plot(x: x, y: y, id: "sin")
             assert mesh["indices"] == [0, 1, 2, 3]
         coords = mesh["vertices"][0::10] + mesh["vertices"][1::10]
         assert max(abs(float(v)) for v in coords) <= 1.000001
+
+
+def test_axis_2d_polar_sugar_emits_polar_controller_geometry() -> None:
+    src = """
+ui:.ui
+d: ui.display
+d.set_auto_render(false)
+f: d.Frame()
+d.add_frame(f, (0.1, 0.1, 0.6, 0.6))
+polar_a: ui.axis_2d(f, x_min: -1.1, x_max: 1.1, y_min: -1.1, y_max: 1.1, prefix: "polar_a")
+polar_a.polar_crosshair(r_max: 1.0, rings: 5, spokes: 16)
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<test>"))
+
+    display = ip.globals["d"]
+    frame_id = ip.globals["f"]._frame_id
+    meshes = display._geom[frame_id]["meshes"]
+    polar_crosshair = next(m for m in meshes if m["id"] == "polar_a_polar_crosshair")
+    assert polar_crosshair["axis_polar"] is True
+    assert polar_crosshair["axis_full_frame"] is False
+    assert polar_crosshair["axis_box"] is True
+    assert polar_crosshair["axis_ticks"]["polar"] is True
+    assert polar_crosshair["axis_ticks"]["rings"] == 5
+    assert polar_crosshair["axis_ticks"]["spokes"] == 16
+    layers = display._geom[frame_id]["frame_layers"]
+    assert any(
+        layer["kind"] == "axis"
+        and layer["dim"] == 2
+        and layer["variant"] == "polar_crosshair"
+        and layer["geometry_ids"] == ["polar_a_polar_crosshair"]
+        for layer in layers
+    )
+
+
+def test_axis_2d_plot_accepts_polar_r_phi_channels() -> None:
+    src = """
+ui:.ui
+math:.math
+d: ui.display
+d.set_auto_render(false)
+f: d.Frame()
+d.add_frame(f, (0.1, 0.1, 0.6, 0.6))
+theta: [0.0, 1.57079632679, 3.14159265359] -> u
+radius: [1.0, 1.0, 2.0] -> u
+axis: ui.axis_2d(f, x_min: -2.1, x_max: 2.1, y_min: -2.1, y_max: 2.1, prefix: "polar_plot")
+axis.polar_crosshair(r_max: 2.0)
+axis.plot(r: radius, phi: theta, id: "curve")
+"""
+    ip = Interpreter(Path(__file__))
+    ip.run_module(parse_module(src, filename="<test>"))
+
+    display = ip.globals["d"]
+    frame_id = ip.globals["f"]._frame_id
+    mesh = next(m for m in display._geom[frame_id]["meshes"] if m["id"] == "polar_plot_curve")
+    assert mesh["axis_bind_id"] == "polar_plot__axis2d_bind"
+    assert mesh["axis_plot2d"]["x_values"][0] == pytest.approx(1.0)
+    assert mesh["axis_plot2d"]["y_values"][1] == pytest.approx(1.0)
+    assert mesh["axis_plot2d"]["x_values"][2] == pytest.approx(-2.0)
 
 
 def test_axis_3d_crosshair_emits_pixel_line_geometry() -> None:

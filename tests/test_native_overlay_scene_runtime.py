@@ -35,6 +35,18 @@ def test_vkf_launcher_does_not_invalidate_scene_cache_on_stager_mtime() -> None:
     assert "(void)stager;" in source
 
 
+def test_vkf_runner_embeds_compiled_scene_session_in_exe() -> None:
+    source = (Path(__file__).resolve().parent.parent / "native" / "VfOverlay" / "vkf_launcher.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'const char kSceneBundleHeader[] = "VKF_SCENE_BUNDLE_V1\\n";' in source
+    assert "int AppendCompiledSceneBundleToExe(" in source
+    assert "bool ExtractAppendedSceneBundle(" in source
+    assert "if (!ExtractAppendedSceneBundle(self, webRoot))" in source
+    assert "AppendCompiledSceneBundleToExe(target, bundle.webRoot, absoluteSource)" in source
+
+
 class _FakeProc:
     def __init__(self, pid: int) -> None:
         self.pid = pid

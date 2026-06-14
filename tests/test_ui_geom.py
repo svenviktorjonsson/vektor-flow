@@ -315,6 +315,42 @@ class TestFieldMeshTimeSlices:
         assert mesh.t == 1
         assert data["time_index"] == 1
 
+    def test_add_time_boundary_from_animation_finish_alias(self) -> None:
+        d, fid = _placed()
+        mesh = d.add(
+            x_u=[0, 1],
+            y=0,
+            z_tu=[
+                [0, 0],
+                [1, 1],
+                [2, 2],
+            ],
+            animation_finish="repeat",
+        )
+        data = _geom(d, fid)["meshes"][0]
+        assert mesh.time_boundary == "repeat"
+        mesh.set_t(4)
+        assert data["time_index"] == 1
+
+    def test_add_lowers_polar_r_phi_channels_to_cartesian_xy(self) -> None:
+        d, fid = _placed()
+        d.add(
+            r_u=[1.0, 1.0, 2.0],
+            phi_u=[0.0, math.pi / 2.0, math.pi],
+            representation="edges",
+            render_mode="marker_impostor",
+            marker_space="pixel",
+        )
+        data = _geom(d, fid)["meshes"][0]
+        vertices = data["vertices"]
+        assert data["axis_polar"] is True
+        assert vertices[0] == pytest.approx(1.0)
+        assert vertices[1] == pytest.approx(0.0)
+        assert vertices[10] == pytest.approx(0.0, abs=1e-12)
+        assert vertices[11] == pytest.approx(1.0)
+        assert vertices[20] == pytest.approx(-2.0)
+        assert vertices[21] == pytest.approx(0.0, abs=1e-12)
+
     def test_set_color_rebuilds_vertex_colors(self) -> None:
         mesh, data, *_ = self._mesh()
         before = data["vertices"][6:10]

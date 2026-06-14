@@ -1,9 +1,52 @@
-Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num, has_moved:bool)
-GameState : (turn:str, move_count:num, history:str, selected_side:str, selected_role:str, selected_file:num, selected_rank:num, has_selection:bool, status:str, white_can_castle_king:bool, white_can_castle_queen:bool, black_can_castle_king:bool, black_can_castle_queen:bool, last_double_pawn_side:str, last_double_pawn_file:num, last_double_pawn_rank:num, board:any)
+Side: (
+    none: 0,
+    white: 1,
+    black: 2
+)
+
+PieceRole: (
+    none: 0,
+    pawn: 1,
+    knight: 2,
+    bishop: 3,
+    rook: 4,
+    queen: 5,
+    king: 6
+)
+
+TargetKind: (
+    empty: 0,
+    square: 1,
+    piece: 2
+)
+
+CastleSide: (
+    none: 0,
+    king: 1,
+    queen: 2
+)
+
+MotionKind: (
+    move: 0,
+    capture: 1
+)
+
+RoleNames: ["none", "pawn", "knight", "bishop", "rook", "queen", "king"]
+SideNames: ["none", "white", "black"]
+
+role_name(role:num) -> str:
+    @: RoleNames.(role)
+
+side_name(side:num) -> str:
+    @: SideNames.(side)
+
+Piece : (side:num, role:num, file:num, rank:num, captured:bit, tray_rank:num, has_moved:bit)
+GameState : (turn:num, move_count:num, history:str, selected_side:num, selected_role:num, selected_file:num, selected_rank:num, has_selection:bit, status:str, white_can_castle_king:bit, white_can_castle_queen:bit, black_can_castle_king:bit, black_can_castle_queen:bit, last_double_pawn_side:num, last_double_pawn_file:num, last_double_pawn_rank:num, board:any)
 CameraOrbit : (theta:num, phi:num, radius:num)
 BoardMaterial : (dark:str, light:str, checker_weight:num, mirror_weight:num, roughness:num)
-ClickTarget : (kind:str, file:num, rank:num, piece_side:str, piece_role:str)
-MoveIntent : (side:str, role:str, from_file:num, from_rank:num, to_file:num, to_rank:num, notation:str, capture:bool, castle_side:str, en_passant:bool, check_suffix:str)
-MoveResult : (ok:bool, state:GameState, intent:MoveIntent)
-HoverIntent : (file:num, rank:num, state:str, legal:bool)
-AnimationPlan : (kind:str, from_x:num, from_z:num, to_x:num, to_z:num, lift:num, duration_ms:num, capture_at_ms:num)
+ClickTarget : (kind:num, file:num, rank:num, piece_side:num, piece_role:num)
+MoveIntent : (side:num, role:num, from_file:num, from_rank:num, to_file:num, to_rank:num, notation:str, capture:bit, castle_side:num, en_passant:bit, check_suffix:str)
+MoveResult : (ok:bit, state:GameState, intent:MoveIntent)
+BotChoice : (ok:bit, score:num, result:MoveResult)
+HoverIntent : (file:num, rank:num, state:str, legal:bit)
+AnimationPlan : (kind:num, from_x:num, from_z:num, to_x:num, to_z:num, lift:num, duration_ms:num, capture_at_ms:num)

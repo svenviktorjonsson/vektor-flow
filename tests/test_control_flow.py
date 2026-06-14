@@ -193,7 +193,7 @@ def test_switch_type_arm_matches_runtime_value_type() -> None:
 x: true
 out: 0
 x??
-  bool => out: 2
+  bit => out: 2
 :: out
 """
     assert _run(src) == "2"

@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -103,6 +104,13 @@ def test_native_scene_artifact_stager_writes_launcher_contract_without_python(tm
     assert manifest["source_hash"] == expected_hash
     assert manifest["page_rel"] == "sessions/main/vkf-scene.html"
     html = (session_dir / "vkf-scene.html").read_text(encoding="utf-8")
+    assert "window.__vfRuntimeShellConfig=" in html
+    assert '"geom/vf-geom-ledger.js"' in html
+    assert '"geom/vf-geom-parametric-surface.js"' in html
+    assert '"geom/vf-geom-wgpu.js"' in html
+    assert '"vf-display.js"' in html
+    assert "katex/katex.min.js" not in html
+    assert "vf-widgets.js" not in html
     assert '<script src="../../vf-runtime-shell.js"></script>' in html
     assert "window.__vfNativeSceneConfig=" + scene_config in html
     assert (session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == '{"frames":[]}'
@@ -183,6 +191,79 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_bindings(tmp_path: Pa
     assert (session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == '{"frames":[{"id":"vkf_chess_board"}]}'
 
 
+def test_native_scene_artifact_stager_records_runtime_packet_path_provenance(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    source_dir = tmp_path / "program"
+    source_dir.mkdir()
+    packets_dir = source_dir / "runtime-packets"
+    packets_dir.mkdir()
+    packets = packets_dir / "main.vf-runtime-packets.json"
+    packets.write_text('{"frames":[]}', encoding="utf-8")
+    source = source_dir / "main.vkf"
+    source.write_text(
+        "\n".join(
+            [
+                "native_scene_config_json: '{}'",
+                'native_scene_runtime_packets_path: "runtime-packets/main.vf-runtime-packets.json"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    packets.with_name(packets.name + ".source_hash").write_text(
+        _native_scene_source_tree_hash(source) + "\n",
+        encoding="utf-8",
+    )
+    overlay_web = tmp_path / "web"
+
+    proc = subprocess.run(
+        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    summary = json.loads(proc.stdout)
+    manifest = json.loads((source_dir / ".vkfbuild" / "main.manifest.json").read_text(encoding="utf-8"))
+    assert summary["runtime_packets_source"] == "path"
+    assert manifest["runtime_packets_source"] == "path"
+    assert manifest["runtime_packets_path"].endswith("runtime-packets/main.vf-runtime-packets.json")
+    assert manifest["runtime_packets_source_hash_checked"] is True
+
+
+def test_native_scene_artifact_stager_rejects_stale_runtime_packet_path_fingerprint(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    source_dir = tmp_path / "program"
+    source_dir.mkdir()
+    packets_dir = source_dir / "runtime-packets"
+    packets_dir.mkdir()
+    packets = packets_dir / "main.vf-runtime-packets.json"
+    packets.write_text('{"frames":[]}', encoding="utf-8")
+    source = source_dir / "main.vkf"
+    source.write_text(
+        "\n".join(
+            [
+                "native_scene_config_json: '{}'",
+                'native_scene_runtime_packets_path: "runtime-packets/main.vf-runtime-packets.json"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    packets.with_name(packets.name + ".source_hash").write_text("0000000000000000\n", encoding="utf-8")
+
+    proc = subprocess.run(
+        [str(exe), "--source", str(source), "--overlay-web", str(tmp_path / "web")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 1
+    assert "native_scene_runtime_packets_path source fingerprint mismatch" in proc.stderr
+
+
 def test_native_scene_artifact_stager_reads_vkf_scene_json_path(tmp_path: Path) -> None:
     exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
     source_dir = tmp_path / "program"
@@ -222,6 +303,36 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_path(tmp_path: Path) 
     config_files = list(session_dir.glob("vf-native-scene-configs-*.json"))
     assert len(config_files) == 1
     assert config_files[0].read_text(encoding="utf-8").strip() == scene_config
+
+
+def test_native_scene_artifact_stager_refreshes_unchanged_artifact_mtime(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    source_dir = tmp_path / "program"
+    source_dir.mkdir()
+    source = source_dir / "main.vkf"
+    source.write_text(
+        "\n".join(
+            [
+                'native_scene_config_json: \'{"kind":"scene_3d","frame_id":"vkf_chess_board"}\'',
+                'native_scene: (kind:"scene_3d", frame_id:"vkf_chess_board")',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    overlay_web = tmp_path / "web"
+
+    command = [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)]
+    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+    page = overlay_web / "sessions" / "main" / "vkf-scene.html"
+    first_page_mtime = page.stat().st_mtime_ns
+
+    time.sleep(0.05)
+    source.write_text(source.read_text(encoding="utf-8") + "# same staged scene\n", encoding="utf-8")
+    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+
+    assert page.stat().st_mtime_ns > first_page_mtime
+    assert page.stat().st_mtime_ns >= source.stat().st_mtime_ns
 
 
 def test_native_scene_artifact_stager_externalizes_mesh_arrays_to_binary_arena(tmp_path: Path) -> None:

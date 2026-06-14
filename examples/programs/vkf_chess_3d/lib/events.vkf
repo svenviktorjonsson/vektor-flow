@@ -12,24 +12,18 @@ square_rank_from_object_id(object_id:num) -> num:
     square_index: object_id - 2
     @: (square_index / 8) + 1
 
-piece_side_from_object_id(object_id:num) -> str:
+piece_side_from_object_id(object_id:num) -> num:
     """Decode piece side from the scene mesh ordering contract."""
-    object_id < 66? @: ""
-    object_id < 82? @: "white"
-    object_id < 98? @: "black"
-    @: ""
+    object_id < 66? @: Side.none
+    object_id < 82? @: Side.white
+    object_id < 98? @: Side.black
+    @: Side.none
 
-piece_role_from_slot(slot:num) -> str:
+piece_role_from_slot(slot:num) -> num:
     """Decode a starting-rank piece slot into a role."""
-    slot = 1? @: "rook"
-    slot = 2? @: "knight"
-    slot = 3? @: "bishop"
-    slot = 4? @: "queen"
-    slot = 5? @: "king"
-    slot = 6? @: "bishop"
-    slot = 7? @: "knight"
-    slot = 8? @: "rook"
-    @: "pawn"
+    back_rank_roles: [PieceRole.rook, PieceRole.knight, PieceRole.bishop, PieceRole.queen, PieceRole.king, PieceRole.bishop, PieceRole.knight, PieceRole.rook]
+    slot <= 8? @: back_rank_roles.(slot - 1)
+    @: PieceRole.pawn
 
 piece_file_from_object_id(object_id:num) -> num:
     """Decode file for a piece mesh in the starting position."""
@@ -43,7 +37,7 @@ piece_rank_from_object_id(object_id:num) -> num:
     """Decode rank for a piece mesh in the starting position."""
     side: piece_side_from_object_id(object_id)
     slot: object_id - 65
-    side = "black"? 
+    side = Side.black? 
         slot: slot - 16
         slot < 9? @: 8
         @: 7
@@ -53,18 +47,18 @@ piece_rank_from_object_id(object_id:num) -> num:
 click_target_from_object_id(object_id:num) -> ClickTarget:
     """Convert a picked scene object into a chess click target."""
     object_id > 1?
-        object_id < 66? @: (kind:"square", file:square_file_from_object_id(object_id), rank:square_rank_from_object_id(object_id), piece_side:"", piece_role:"")
+        object_id < 66? @: (kind:TargetKind.square, file:square_file_from_object_id(object_id), rank:square_rank_from_object_id(object_id), piece_side:Side.none, piece_role:PieceRole.none)
     side: piece_side_from_object_id(object_id)
-    side != ""?
+    side != Side.none?
         slot: object_id - 65
-        side = "black"? 
+        side = Side.black? 
             slot: slot - 16
-        @: (kind:"piece", file:piece_file_from_object_id(object_id), rank:piece_rank_from_object_id(object_id), piece_side:side, piece_role:piece_role_from_slot(slot))
-    @: (kind:"empty", file:0, rank:0, piece_side:"", piece_role:"")
+        @: (kind:TargetKind.piece, file:piece_file_from_object_id(object_id), rank:piece_rank_from_object_id(object_id), piece_side:side, piece_role:piece_role_from_slot(slot))
+    @: (kind:TargetKind.empty, file:0, rank:0, piece_side:Side.none, piece_role:PieceRole.none)
 
-reduce_click(state:GameState, target:ClickTarget, path_clear:bool, king_safe_after:bool) -> MoveResult:
+reduce_click(state:GameState, target:ClickTarget, path_clear:bit, king_safe_after:bit) -> MoveResult:
     """Apply select, move, capture, and reject behavior for a board click."""
-    target.kind = "piece"?
+    target.kind = TargetKind.piece?
         state.has_selection?
             target_piece: state_lib.piece_at(state.board, target.file, target.rank)
             target_piece.side = state.selected_side? 
@@ -73,7 +67,7 @@ reduce_click(state:GameState, target:ClickTarget, path_clear:bool, king_safe_aft
             @: state_lib.try_move_selected_from_board(state, target.file, target.rank, king_safe_after, false, "none")
         selected_piece: state_lib.piece_at(state.board, target.file, target.rank)
         @: (ok:false, state:state_lib.select_piece(state, selected_piece), intent:state_lib.empty_intent(target.file, target.rank))
-    target.kind = "square"? @: state_lib.try_move_selected_from_board(state, target.file, target.rank, king_safe_after, false, "none")
+    target.kind = TargetKind.square? @: state_lib.try_move_selected_from_board(state, target.file, target.rank, king_safe_after, false, "none")
     @: (ok:false, state:state_lib.clear_selection(state, "empty-click"), intent:state_lib.empty_intent(0, 0))
 
 reduce_button(state:GameState, camera:CameraOrbit, widget_id:str) -> GameState:

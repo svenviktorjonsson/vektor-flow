@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .. import ast
+from .char_value import VFChr
 
 VF_TYPE_KEY = "__vf_type__"
 VF_SPILL_BASE_KEY = "__vf_spill_base__"
@@ -249,9 +250,9 @@ def default_field_value(
         return 0.0
     if tname in ("str",):
         return ""
-    if tname in ("byte",):
-        return b""
-    if tname in ("bool",):
+    if tname in ("chr",):
+        return VFChr("\0")
+    if tname in ("bit",):
         return False
     if tname in seen:
         raise ValueError(f"circular type dependency involving {tname!r}")

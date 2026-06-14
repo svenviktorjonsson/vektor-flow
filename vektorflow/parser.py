@@ -52,6 +52,7 @@ from .tokens import (
     XOR,
     PERCENT,
     PIPE,
+    PRIME,
     PLUS,
     QUESTION,
     BANG_QUESTION,
@@ -164,9 +165,10 @@ UNARY_KIND_TO_SYM = {
     NOT: "~",
 }
 
-# ``x : num`` / ``s : str`` / ``b : bool`` — these identifiers are type names, not calls. A newline
-# before ``(`` must not become ``bool(…)`` and swallow the next line (see parse_postfix).
-_PRIMITIVE_TYPE_IDENTS = frozenset({"int", "float", "num", "str", "byte", "bytes", "bool", "any"})
+# ``x : num`` / ``s : str`` / ``b : bit`` — these identifiers are type names, not calls. A newline
+# before ``(`` must not become ``bit(…)`` and swallow the next line (see parse_postfix).
+_PRIMITIVE_TYPE_IDENTS = frozenset({"bit", "int", "rational", "num", "symbolic", "chr", "str", "any"})
+_SYMBOLIC_DOMAIN_TYPE_IDENTS = frozenset({"R", "N", "Z", "Q", "C"})
 
 _TOKEN_DISPLAY = {
     INDENT: "indented block",
@@ -189,6 +191,7 @@ _TOKEN_DISPLAY = {
     DOT: "`.`",
     ELLIPSIS: "`...`",
     QUESTION: "`?`",
+    PRIME: "`'`",
     BANG: "`!`",
     BANG_QUESTION: "`!?`",
     EMIT: "`::`",
@@ -206,6 +209,7 @@ class Parser:
         self.toks = tokens
         self.i = 0
         self._type_expr_relaxed_loose_dot_depth = 0
+        self._symbolic_domains_visible = False
         self.source = source
         self.filename = filename
         self._line_offsets: list[int] | None = None
@@ -492,6 +496,15 @@ class Parser:
                 break
             stmts.extend(self.parse_stmt_semicolon_chain())
         return ast.Module(stmts)
+
+    def _record_parser_visible_import(self, stmt: Any) -> None:
+        if (
+            isinstance(stmt, ast.SpillImport)
+            and stmt.alias is None
+            and isinstance(stmt.path, ast.DotModulePath)
+            and stmt.path.segments == ["symbolic"]
+        ):
+            self._symbolic_domains_visible = True
 
     def parse_stmt(self) -> Any:
         self._skip_trivia()
@@ -792,7 +805,9 @@ class Parser:
         """One or more statements separated by ``;`` (same logical indentation line)."""
         out: list[Any] = []
         while True:
-            out.append(self.parse_stmt())
+            stmt = self.parse_stmt()
+            self._record_parser_visible_import(stmt)
+            out.append(stmt)
             self._skip_trivia()
             if self._peek_raw() == SEMICOLON:
                 self._advance()
@@ -1040,6 +1055,10 @@ class Parser:
     def _type_surface_string(self, value: Any) -> str:
         if isinstance(value, ast.PrimTypeRef):
             return value.name
+        if isinstance(value, ast.SymbolicDomainType):
+            return value.name
+        if isinstance(value, ast.TypePowerExpr):
+            return f"{self._type_surface_string(value.base)}^{self._type_surface_string(value.exponent)}"
         if isinstance(value, ast.TypeUnionExpr):
             return "|".join(self._type_surface_string(member) for member in value.members)
         if isinstance(value, ast.TypeIntersectionExpr):
@@ -1229,6 +1248,10 @@ class Parser:
                 if ident == "list":
                     return self._parse_linked_list_value_type()
             ident = str(self.toks[self.i].value)
+            if ident in _SYMBOLIC_DOMAIN_TYPE_IDENTS:
+                if not self._symbolic_domains_visible:
+                    raise ParseError(f"symbolic domain `{ident}` requires `:.symbolic`", self._loc_here())
+                return ast.SymbolicDomainType(str(self._advance().value))
             if ident in _PRIMITIVE_TYPE_IDENTS or self._name_is_type_bind(ident):
                 return ast.PrimTypeRef(str(self._advance().value))
         raise ParseError("expected type atom", self._loc_here())
@@ -1289,14 +1312,23 @@ class Parser:
             out.append(right)
         return out
 
-    def _parse_type_intersection(self) -> Any:
+    def _parse_type_power(self) -> Any:
         left = self._parse_type_atom()
+        self._skip_trivia()
+        if self._peek_raw() == CARET:
+            self._advance()
+            exponent = self._parse_type_size_atom()
+            return ast.TypePowerExpr(left, exponent)
+        return left
+
+    def _parse_type_intersection(self) -> Any:
+        left = self._parse_type_power()
         while True:
             self._skip_trivia()
             if self._peek_raw() != AMPERSAND:
                 break
             self._advance()
-            right = self._parse_type_atom()
+            right = self._parse_type_power()
             left = ast.TypeIntersectionExpr(
                 self._flatten_type_members(ast.TypeIntersectionExpr, left, right)
             )
@@ -1478,7 +1510,7 @@ class Parser:
             self._advance()
             codomain = self._parse_return_type_spec()
             return ast.FuncType(domain, codomain)
-        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
+        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
             return domain
         raise ParseError(
             "tuple or bare type name requires '->' codomain (e.g. num -> num, (num,num) -> num)",
@@ -1506,6 +1538,7 @@ class Parser:
         eof_loc = self.toks[boundary].location if boundary < len(self.toks) else self._loc_here()
         eof_tok = Token(EOF, None, eof_loc)
         sub = Parser(self.toks[self.i:boundary] + [eof_tok])
+        sub._symbolic_domains_visible = self._symbolic_domains_visible
         out = sub._parse_type_definition()
         sub._skip_trivia()
         if sub._peek_raw() != EOF:
@@ -1620,7 +1653,43 @@ class Parser:
                     raise
                 self.i = saved
                 return self.parse_expr()
+        if isinstance(target, ast.Ident):
+            saved = self.i
+            try:
+                out = self._parse_type_definition_until_stmt_end()
+                if self._type_contains_symbolic_domain(out):
+                    return out
+                self.i = saved
+            except ParseError as e:
+                if "spaced ` -> `" in str(e) or "requires `:.symbolic`" in str(e):
+                    raise
+                self.i = saved
         return self.parse_expr()
+
+    def _type_contains_symbolic_domain(self, value: Any) -> bool:
+        if isinstance(value, ast.SymbolicDomainType):
+            return True
+        if isinstance(value, ast.TypePowerExpr):
+            return self._type_contains_symbolic_domain(value.base) or self._type_contains_symbolic_domain(value.exponent)
+        if isinstance(value, ast.FuncType):
+            return self._type_contains_symbolic_domain(value.domain) or self._type_contains_symbolic_domain(value.codomain)
+        if isinstance(value, ast.TypeUnionExpr) or isinstance(value, ast.TypeIntersectionExpr):
+            return any(self._type_contains_symbolic_domain(member) for member in value.members)
+        if isinstance(value, ast.TupleTypeExpr):
+            return any(self._type_contains_symbolic_domain(element) for element in value.elements)
+        if isinstance(value, ast.TypeExpr):
+            return any(self._type_contains_symbolic_domain(type_expr) for _, type_expr in value.fields)
+        if isinstance(value, ast.FixedVectorType):
+            return self._type_contains_symbolic_domain(value.element_type) or self._type_contains_symbolic_domain(value.size)
+        if isinstance(value, ast.MultisetType):
+            return self._type_contains_symbolic_domain(value.element_type)
+        if isinstance(value, ast.MapValueType):
+            return any(self._type_contains_symbolic_domain(type_expr) for _, type_expr in value.fields)
+        if isinstance(value, ast.LinkedListValueType):
+            return any(self._type_contains_symbolic_domain(element) for element in value.elements)
+        if isinstance(value, ast.NamedTypeSpec):
+            return self._type_contains_symbolic_domain(value.type_expr)
+        return False
 
     def _peek_update_bind_op(self) -> str | None:
         self._skip_trivia()
@@ -1835,6 +1904,11 @@ class Parser:
                     continue
                 self.i = saved
                 break
+            differential_var = self._peek_differential_var_name()
+            if differential_var is not None:
+                self._advance()
+                left = ast.Call(ast.Ident("integ"), [left, ast.Ident(differential_var)])
+                continue
             if self._implicit_mul_follows():
                 left = ast.BinOp(STAR, left, self.parse_power())
                 continue
@@ -1860,6 +1934,14 @@ class Parser:
 
     def parse_unary(self) -> Any:
         self._skip_trivia()
+        differential = self._try_parse_differential_operator()
+        if differential is not None:
+            var_name, order_expr = differential
+            operand = self.parse_mul_expr()
+            args: list[Any] = [operand, ast.Ident(var_name)]
+            if order_expr is not None:
+                args.append(order_expr)
+            return ast.Call(ast.Ident("diff"), args)
         if self._peek_raw() == MINUS:
             self._advance()
             return ast.UnaryOp(MINUS, self.parse_unary())
@@ -1871,6 +1953,45 @@ class Parser:
             self._advance()
             return ast.AbsExpr(inner)
         return self.parse_postfix()
+
+    def _peek_differential_var_name(self) -> str | None:
+        if self._peek_raw() != IDENT:
+            return None
+        tok = self.toks[self.i]
+        if not isinstance(tok.value, str):
+            return None
+        if len(tok.value) <= 1 or not tok.value.startswith("d"):
+            return None
+        return tok.value[1:]
+
+    def _try_parse_differential_operator(self) -> tuple[str, Any | None] | None:
+        saved = self.i
+        if self._peek_raw() != IDENT:
+            return None
+        first = self.toks[self.i]
+        if first.value != "d":
+            return None
+        self._advance()
+        order_expr: Any | None = None
+        if self._peek_raw() == CARET:
+            self._advance()
+            order_expr = self.parse_power()
+        if self._peek_raw() != SLASH:
+            self.i = saved
+            return None
+        self._advance()
+        var_name = self._peek_differential_var_name()
+        if var_name is None:
+            self.i = saved
+            return None
+        self._advance()
+        denominator_order: Any | None = None
+        if self._peek_raw() == CARET:
+            self._advance()
+            denominator_order = self.parse_power()
+        if order_expr is None:
+            order_expr = denominator_order
+        return (var_name, order_expr)
 
     def _call_may_continue_after_newline(self, left: Any) -> bool:
         """``f`` / ``obj.m`` / ``g(x)`` may be split across lines before ``(``; literals may not."""
@@ -2148,6 +2269,9 @@ class Parser:
                 lt, rt = self._arrow_adjacency()
                 left = self._parse_arrow_access_suffix(left, lt, rt)
                 continue
+            if k == PRIME:
+                left = self._parse_derivative_suffix(left)
+                continue
             if k == LPAREN:
                 self._advance()
                 args: list[Any] = []
@@ -2212,6 +2336,50 @@ class Parser:
                 continue
             break
         return left
+
+    def _parse_derivative_suffix(self, left: Any) -> Any:
+        prime_count = 0
+        while self._peek_raw() == PRIME:
+            self._advance()
+            prime_count += 1
+        if prime_count <= 0:
+            return left
+        variables: list[Any] = []
+        explicit_variable_count = 0
+        remaining = prime_count
+        while remaining > 0 and self._peek_raw() == IDENT:
+            name = str(self._advance().value)
+            if len(name) == remaining and remaining > 1:
+                variables.extend(ast.Ident(ch) for ch in name)
+                explicit_variable_count += remaining
+                remaining = 0
+                break
+            variables.append(ast.Ident(name))
+            explicit_variable_count += 1
+            remaining -= 1
+        call_args: list[Any] | None = None
+        if self._peek_raw() == LPAREN:
+            self._advance()
+            call_args = []
+            while True:
+                if self._peek_raw() == RPAREN:
+                    break
+                call_args.append(self._parse_call_argument())
+                self._emit_disallowed_in_value_expr("function derivative call argument")
+                if self._peek_raw() == COMMA:
+                    self._advance()
+                    continue
+                break
+            self._expect(RPAREN)
+            if remaining > 0 and explicit_variable_count == 0 and len(call_args) == 1:
+                variables.extend(call_args * remaining)
+                remaining = 0
+        if remaining > 0:
+            raise ParseError(
+                "derivative suffix requires one variable per prime before call arguments, e.g. f'phi(phi), f''phi phi(phi), or f''xy(x, y)",
+                self._loc_here(),
+            )
+        return ast.DerivativeExpr(left, variables, call_args=call_args)
 
     def parse_atom(self) -> Any:
         self._skip_trivia()
@@ -2339,7 +2507,7 @@ class Parser:
                         self._expect(RPAREN)
                         return ast.StructLit(fields)
                     self._expect(RPAREN)
-                    return ast.Bind(ast.Ident(name), value)
+                    return ast.BindExpr(ast.Ident(name), value)
                 self.i = saved
             e = self._parse_tuple_literal_element()
             self._emit_disallowed_in_value_expr("tuple literal")

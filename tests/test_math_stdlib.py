@@ -88,14 +88,20 @@ class TestExpLog:
         m = build_math_namespace()
         with pytest.raises(ValueError):
             m["log"](4.0, 1.0)
-        with pytest.raises(ValueError):
-            m["log"](-1.0, 2.0)
+
+    def test_complex_log_is_part_of_num_domain(self) -> None:
+        m = build_math_namespace()
+        assert m["log"](-1.0, 2.0).imag != 0
 
 
 class TestSqrtConstants:
     def test_sqrt(self) -> None:
         m = build_math_namespace()
         assert m["sqrt"](9.0) == 3.0
+
+    def test_sqrt_negative_returns_complex_num(self) -> None:
+        m = build_math_namespace()
+        assert m["sqrt"](-1.0) == 1j
 
     def test_constants(self) -> None:
         m = build_math_namespace()

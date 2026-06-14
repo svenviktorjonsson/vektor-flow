@@ -1,0 +1,34 @@
+Point : (x:num, y:num, weight:num)
+
+step(points:[Point:8]) -> [Point:8]:
+    points.0: (x: points.0.x + points.0.weight, y: points.0.y, weight: points.0.weight)
+    points.1: (x: points.1.x, y: points.1.y + points.1.weight, weight: points.1.weight)
+    points.2: (x: points.2.x + points.2.weight, y: points.2.y, weight: points.2.weight)
+    points.3: (x: points.3.x, y: points.3.y + points.3.weight, weight: points.3.weight)
+    points.4: (x: points.4.x + points.4.weight, y: points.4.y, weight: points.4.weight)
+    points.5: (x: points.5.x, y: points.5.y + points.5.weight, weight: points.5.weight)
+    points.6: (x: points.6.x + points.6.weight, y: points.6.y, weight: points.6.weight)
+    points.7: (x: points.7.x, y: points.7.y + points.7.weight, weight: points.7.weight)
+    points
+
+run(n:num) -> [Point:8]:
+    i: 0
+    points: [
+        (x:0, y:1, weight:1),
+        (x:2, y:3, weight:2),
+        (x:4, y:5, weight:3),
+        (x:6, y:7, weight:4),
+        (x:8, y:9, weight:5),
+        (x:10, y:11, weight:6),
+        (x:12, y:13, weight:7),
+        (x:14, y:15, weight:8)
+    ]
+    i < n?>
+        points: step(points)
+        i: i + 1
+    points
+
+out: run(500)
+:: out.0.x
+:: out.3.y
+:: out.7.y

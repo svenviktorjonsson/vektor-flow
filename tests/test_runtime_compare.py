@@ -58,7 +58,7 @@ def test_runtime_match_specificity_prefers_exact_non_event_match() -> None:
 def test_runtime_match_specificity_matches_runtime_type_value() -> None:
     specificity = runtime_match_specificity(
         True,
-        PrimType("bool"),
+        PrimType("bit"),
         {},
         lambda a, b: a == b,
     )

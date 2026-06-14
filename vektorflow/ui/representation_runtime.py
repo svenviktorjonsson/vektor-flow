@@ -714,9 +714,95 @@ def parse_field_mesh_channels_and_meta(kwargs: dict[str, Any]) -> tuple[dict[str
     return channels, meta
 
 
+def _channel_broadcast_size(channels: dict[str, dict[str, Any]], dim: str) -> int:
+    sizes: list[int] = []
+    for ch in channels.values():
+        dims = str(ch.get("dims", ""))
+        if dim not in dims:
+            continue
+        axis_i = dims.index(dim)
+        sizes.append(int(ch["shape"][axis_i]))
+    if not sizes:
+        return 1
+    target = max(sizes)
+    for size in sizes:
+        if size not in (1, target):
+            raise ValueError(f"incompatible polar broadcast for dim {dim!r}: sizes={sizes}")
+    return target
+
+
+def _sample_channel_for_dims(ch: dict[str, Any], out_dims: str, out_index: tuple[int, ...]) -> Any:
+    dims = str(ch.get("dims", ""))
+    if not dims:
+        return ch["data"]
+    out_map = {d: int(out_index[i]) for i, d in enumerate(out_dims)}
+    use_idxs: list[int] = []
+    for axis_i, dim in enumerate(dims):
+      size = int(ch["shape"][axis_i])
+      use_idxs.append(0 if size == 1 else out_map.get(dim, 0))
+    return _nested_get(ch["data"], tuple(use_idxs))
+
+
+def _build_nested_channel_data(out_dims: str, dim_sizes: dict[str, int], sample_fn: Any) -> Any:
+    def build(depth: int, prefix: tuple[int, ...]) -> Any:
+        if depth >= len(out_dims):
+            return sample_fn(prefix)
+        dim = out_dims[depth]
+        return [build(depth + 1, prefix + (i,)) for i in range(max(1, int(dim_sizes[dim])))]
+
+    return build(0, ())
+
+
+def _lower_polar_channels(channels: dict[str, dict[str, Any]], meta: dict[str, Any]) -> None:
+    has_r = "r" in channels
+    has_phi = "phi" in channels
+    if not has_r and not has_phi:
+        return
+    if not has_r or not has_phi:
+        raise ValueError("ui.add(...) polar channels require both r and phi")
+    if "x" in channels or "y" in channels:
+        raise ValueError("ui.add(...) cannot mix polar r/phi channels with x/y channels")
+    r_ch = channels["r"]
+    phi_ch = channels["phi"]
+    out_dims = "".join(d for d in _ui()._DIM_ORDER if d in str(r_ch["dims"]) or d in str(phi_ch["dims"]))
+    dim_sizes = {d: _channel_broadcast_size({"r": r_ch, "phi": phi_ch}, d) for d in out_dims}
+
+    def sample_x(index: tuple[int, ...]) -> float:
+        r = float(_sample_channel_for_dims(r_ch, out_dims, index))
+        phi = float(_sample_channel_for_dims(phi_ch, out_dims, index))
+        return r * math.cos(phi)
+
+    def sample_y(index: tuple[int, ...]) -> float:
+        r = float(_sample_channel_for_dims(r_ch, out_dims, index))
+        phi = float(_sample_channel_for_dims(phi_ch, out_dims, index))
+        return r * math.sin(phi)
+
+    x_data = _build_nested_channel_data(out_dims, dim_sizes, sample_x)
+    y_data = _build_nested_channel_data(out_dims, dim_sizes, sample_y)
+    channels["x"] = _parse_mesh_channel("x", out_dims, x_data)
+    channels["y"] = _parse_mesh_channel("y", out_dims, y_data)
+    channels.pop("r", None)
+    channels.pop("phi", None)
+    meta.setdefault("axis_polar", True)
+    meta.setdefault("polar_plot", True)
+
+
+def _normalize_animation_finish_aliases(meta: dict[str, Any]) -> None:
+    for alias in ("animation_finish", "animation_end", "on_animation_finish", "on_finish"):
+        if alias in meta:
+            if "time_boundary" in meta or "t_boundary" in meta or "time_mode" in meta or "t_mode" in meta:
+                raise ValueError(f"ui.add(...) {alias} cannot be combined with an explicit time boundary")
+            meta["time_boundary"] = normalize_field_mesh_time_boundary(meta.pop(alias))
+            break
+
+
 def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     ui_stdlib = _ui()
     channels, meta = parse_field_mesh_channels_and_meta(kwargs)
+    _normalize_animation_finish_aliases(meta)
+    _lower_polar_channels(channels, meta)
+    if "z" not in channels:
+        channels["z"] = _parse_mesh_channel("z", "", 0.0)
 
     missing = [a for a in ("x", "y", "z") if a not in channels]
     if missing:
@@ -757,6 +843,7 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "aspect": str(meta.get("aspect", "")),
         "axis_full_frame": bool(meta.get("axis_full_frame", False)),
         "axis_box": bool(meta.get("axis_box", False)),
+        "axis_polar": bool(meta.get("axis_polar", False)),
         "axis_screen_extend": bool(meta.get("axis_screen_extend", False)),
         "axis_screen_inset_px": float(meta.get("axis_screen_inset_px", 20.0)),
         "axis_margin_px": float(meta.get("axis_margin_px", 58.0)),

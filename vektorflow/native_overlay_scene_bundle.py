@@ -3313,7 +3313,7 @@ def _render_widget_ui_html(spec: dict[str, Any]) -> str:
     asset_version = _runtime_asset_version()
     return f"""<!DOCTYPE html>
 <html>
-  <body>
+  <body data-vf-runtime-packet-only="true" data-vf-runtime-file-packets="vf-runtime-packets.json" data-vf-runtime-prefer-file-packets="true">
     <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
   </body>
 </html>
@@ -4010,7 +4010,7 @@ def _render_cube_hover_html(spec: dict[str, Any]) -> str:
 def _render_scene_3d_html(spec: dict[str, Any]) -> str:
     if spec.get("kind") == "scene_3d_views":
         return _render_scene_3d_views_html(spec)
-    config_json = json.dumps({"scene_ir": spec.get("scene_ir", {})}, ensure_ascii=False)
+    config_json = json.dumps(_native_json_safe_value({"scene_ir": spec.get("scene_ir", {})}), ensure_ascii=False)
     asset_version = _runtime_asset_version()
     return f"""<!DOCTYPE html>
 <html>
@@ -4031,13 +4031,13 @@ def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
         key=lambda view: 0 if not view.get("visible", True) else 1,
     )
     config_json = json.dumps(
-        [
+        _native_json_safe_value([
             {
                 "scene_ir": view.get("scene_ir", {}),
                 **({"interaction": view["interaction"]} if isinstance(view.get("interaction"), dict) else {}),
             }
             for view in ordered_views
-        ],
+        ]),
         ensure_ascii=False,
     )
     asset_version = _runtime_asset_version()

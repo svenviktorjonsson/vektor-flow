@@ -10,6 +10,10 @@ from .lazy_range import LazyList
 def normalize_runtime_index(idx: Any, error_factory: Callable[[str], Exception]) -> Any:
     if isinstance(idx, bool):
         raise error_factory("index must be int or str")
+    if isinstance(idx, complex):
+        if idx.imag == 0 and idx.real == int(idx.real):
+            return int(idx.real)
+        raise error_factory("index must be int or str")
     if isinstance(idx, float) and idx == int(idx):
         return int(idx)
     if isinstance(idx, int):

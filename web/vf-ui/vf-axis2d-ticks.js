@@ -180,6 +180,10 @@
     return sign + String(mantissa) + " \\cdot 10^{" + String(exponent) + "}";
   }
 
+  function formatPlainAxisTickLabel(value) {
+    return String(value).replace(/^-/, "−");
+  }
+
   function formatAxisTickLabel(value, step) {
     var v = Number(value) || 0;
     var decimals = decimalPlacesForStep(step);
@@ -193,12 +197,12 @@
     }
     if (decimals !== null) {
       if (decimals === 0 || Math.abs(v - Math.round(v)) < 1e-12) {
-        return "$" + String(Math.round(v)) + "$";
+        return formatPlainAxisTickLabel(Math.round(v));
       }
-      return "$" + Number(v.toFixed(decimals)).toFixed(decimals).replace(/\.?0+$/, "") + "$";
+      return formatPlainAxisTickLabel(Number(v.toFixed(decimals)).toFixed(decimals).replace(/\.?0+$/, ""));
     }
-    if (Math.abs(v - Math.round(v)) < 1e-12) { return "$" + String(Math.round(v)) + "$"; }
-    return "$" + String(Number(v.toPrecision(6))) + "$";
+    if (Math.abs(v - Math.round(v)) < 1e-12) { return formatPlainAxisTickLabel(Math.round(v)); }
+    return formatPlainAxisTickLabel(Number(v.toPrecision(6)));
   }
 
   function formatOffsetLabel(offset) {
@@ -236,7 +240,7 @@
     }
     var av = Math.abs(v);
     if (av >= 0.01 && av < 1e4) {
-      return "$" + (v < 0 ? "-" : "") + String(Number(av.toPrecision(6))) + "$";
+      return formatPlainAxisTickLabel((v < 0 ? "-" : "") + String(Number(av.toPrecision(6))));
     }
     return "$" + formatScientificBody(v) + "$";
   }
@@ -512,6 +516,35 @@
     return lo + u * (hi - lo);
   }
 
+  function polarRadialRange(cfg) {
+    var rMin = Math.max(0, Number(cfg && cfg.r_min) || 0);
+    var rMax = Number(cfg && cfg.r_max);
+    if (!Number.isFinite(rMax) || !(rMax > rMin)) { rMax = rMin + 1; }
+    return { min: rMin, max: rMax, span: Math.max(1e-9, rMax - rMin) };
+  }
+
+  function applyPolarRadialRange(cfg, rMin, rMax) {
+    if (!cfg) { return false; }
+    rMin = Math.max(0, Number(rMin) || 0);
+    rMax = Number(rMax);
+    if (!Number.isFinite(rMax) || !(rMax > rMin + 1e-9)) { rMax = rMin + 1e-9; }
+    cfg.r_min = rMin;
+    cfg.r_max = rMax;
+    return true;
+  }
+
+  function polarThetaOffset(cfg) {
+    var theta = Number(cfg && cfg.theta_offset_rad);
+    return Number.isFinite(theta) ? theta : 0;
+  }
+
+  function setPolarThetaOffset(cfg, theta) {
+    if (!cfg) { return false; }
+    theta = Number(theta);
+    cfg.theta_offset_rad = Number.isFinite(theta) ? theta : 0;
+    return true;
+  }
+
   function buildAxisBoxTickState(spec) {
     var cfg = spec || {};
     var width = Math.max(1, Number(cfg.width) || 1);
@@ -578,6 +611,10 @@
     axisLabelOffset: axisLabelOffset,
     axisValueToUnit: axisValueToUnit,
     axisUnitToValue: axisUnitToValue,
+    polarRadialRange: polarRadialRange,
+    applyPolarRadialRange: applyPolarRadialRange,
+    polarThetaOffset: polarThetaOffset,
+    setPolarThetaOffset: setPolarThetaOffset,
     buildAxisBoxTickState: buildAxisBoxTickState,
     buildAxisCrosshairTickState: buildAxisCrosshairTickState,
     isLogTickMode: isLogTickMode,

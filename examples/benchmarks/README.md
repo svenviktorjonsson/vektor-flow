@@ -26,6 +26,8 @@ The benchmark output now reports:
 
 - raw phase timings in `ms`
 - medians when sampling is enabled with `--samples N`
+- text-report variability as `stddev / ci95_upper`; `ci95_upper` is only
+  available when at least two samples are collected
 - per-metric statistics: mean, median, min, max, standard deviation, and 95%
   confidence interval when at least two samples are available
 - compile-once/run-many native timing when `--native-runs N` is used
@@ -38,8 +40,10 @@ The benchmark output now reports:
 - optional runtime-only reference lanes:
   - `python_ref_ms`
   - `numpy_ref_ms`
+  - `std_ref_ms`
   - `native_vs_python_ref`
   - `native_vs_numpy_ref`
+  - `native_kernel_vs_std_ref`
 - raw per-sample arrays in JSON output
 - a benchmark score with two views:
   - `available_score`: weighted score over categories that have benchmark data
@@ -72,6 +76,9 @@ Current benchmark lanes:
 - `vector_hotloop.vkf`: heavier fixed-vector loop workload
 - `vector_large_elementwise.vkf`: large fixed-vector elementwise arithmetic, compared against pure Python and NumPy references
 - `vector_large_reduce.vkf`: large fixed-vector indexed reduction, compared against pure Python and NumPy references
+- `vector_index_rebind_hotloop.vkf`: repeated fixed-slot vector rebinding, compared against pure Python, NumPy, and C++ `std::array` references
+- `vector_append_builder_pressure.vkf`: repeated append rebinding, compared against pure Python, NumPy, and C++ `std::vector` references
+- `struct_vector_rebind_hotloop.vkf`: nested record-in-vector field rebinding, compared against pure Python, NumPy structured-array, and C++ `std::array<struct>` references
 - `eventloop_dispatch.vkf`: event-loop style dispatch/pump workload
 - `ui_scene_loading.vkf`: scene payload construction and native compile/load proxy
 

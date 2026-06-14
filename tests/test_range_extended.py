@@ -24,6 +24,10 @@ def test_implicit_start_list() -> None:
     assert _emit(":: [..3]") == "[0, 1, 2, 3]"
 
 
+def test_large_finite_range_prints_bounded_preview() -> None:
+    assert _emit(":: [..30]") == "[0, 1, 2, ..., 28, 29, 30]"
+
+
 def test_signed_step_down() -> None:
     assert _emit(":: [3..0]") == "[3, 2, 1, 0]"
 

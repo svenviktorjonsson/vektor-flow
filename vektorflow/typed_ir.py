@@ -66,13 +66,15 @@ def _promote_numeric(a: Any, b: Any) -> Any:
     b = _normalize_type(b)
     if not isinstance(a, ast.PrimTypeRef) or not isinstance(b, ast.PrimTypeRef):
         raise TypedIRError("unsupported non-primitive numeric promotion")
+    if a.name == "rational" or b.name == "rational":
+        return ast.PrimTypeRef("rational")
     if a.name == "num" or b.name == "num":
         return ast.PrimTypeRef("num")
     if a.name == "int" and b.name == "int":
         return ast.PrimTypeRef("int")
-    if a.name == "bool" and b.name == "bool":
-        return ast.PrimTypeRef("bool")
-    if {a.name, b.name} <= {"bool", "int"}:
+    if a.name == "bit" and b.name == "bit":
+        return ast.PrimTypeRef("bit")
+    if {a.name, b.name} <= {"bit", "int"}:
         return ast.PrimTypeRef("int")
     raise TypedIRError(f"unsupported numeric promotion {a.name} vs {b.name}")
 
@@ -85,11 +87,100 @@ def _same_primitive_name(a: Any, b: Any) -> bool:
 
 def _is_scalar_numeric_type(t: Any) -> bool:
     t = _normalize_type(t)
-    return isinstance(t, ast.PrimTypeRef) and t.name in {"bool", "int", "num"}
+    return isinstance(t, ast.PrimTypeRef) and t.name in {"bit", "int", "rational", "num"}
+
+
+def _is_symbolic_type(t: Any) -> bool:
+    t = _normalize_type(t)
+    return isinstance(t, ast.SymbolicValueType) or (isinstance(t, ast.PrimTypeRef) and t.name == "symbolic")
+
+
+SYMBOLIC_STDLIB_EXPORTS: frozenset[str] = frozenset({
+    "assume",
+    "cancel",
+    "canonical",
+    "collect",
+    "complete_square",
+    "compute",
+    "conditions",
+    "delta",
+    "derivative",
+    "differentiate",
+    "diff",
+    "difference",
+    "dsolve",
+    "expand",
+    "factor",
+    "grad",
+    "gradient",
+    "integ",
+    "integral",
+    "integrate",
+    "latex",
+    "move",
+    "same",
+    "shift",
+    "solve",
+    "trace",
+    "trig_compress",
+    "trig_expand",
+})
 
 
 def _same_type(a: Any, b: Any) -> bool:
     return _normalize_type(a) == _normalize_type(b)
+
+
+def _infer_symbolic_builtin(name: str, arg_types: list[Any]) -> Any | None:
+    has_symbolic_arg = any(_is_symbolic_type(t) for t in arg_types)
+    if name == "symbolic":
+        return ast.PrimTypeRef("symbolic")
+    if name == "same":
+        return ast.PrimTypeRef("bit") if has_symbolic_arg else None
+    if name == "conditions":
+        return ast.PrimTypeRef("str") if has_symbolic_arg else None
+    if not has_symbolic_arg:
+        return None
+    if name in {"latex", "trace"}:
+        return ast.PrimTypeRef("str")
+    if name in {
+        "assume",
+        "cancel",
+        "canonical",
+        "collect",
+        "complete_square",
+        "compute",
+        "delta",
+        "derivative",
+        "differentiate",
+        "diff",
+        "diff_n",
+        "difference",
+        "dsolve",
+        "expand",
+        "factor",
+        "grad",
+        "gradient",
+        "integ",
+        "integral",
+        "integrate",
+        "move",
+        "shift",
+        "solve",
+        "trig_compress",
+        "trig_expand",
+        "sin",
+        "cos",
+        "tan",
+        "sec",
+        "cot",
+        "csc",
+        "exp",
+        "ln",
+        "sqrt",
+    }:
+        return ast.PrimTypeRef("symbolic")
+    return None
 
 
 def _promote_value_type(a: Any, b: Any) -> Any:
@@ -130,11 +221,23 @@ class IRTypeAnalyzer:
         self.functions = {stmt.name: stmt for stmt in module.statements if isinstance(stmt, ir.FunctionDef)}
         self.info = TypedModuleInfo()
 
-    def analyze(self) -> TypedModuleInfo:
+    def _stdlib_env(self) -> dict[str, Any]:
         env: dict[str, Any] = {
             stdlib_import.binding_name: StdlibNamespaceType(stdlib_import.module_name)
             for stdlib_import in self.module.stdlib_imports
         }
+        for stdlib_import in self.module.stdlib_imports:
+            if stdlib_import.module_name == "symbolic" and stdlib_import.spill_exports:
+                env.update(
+                    {
+                        name: StdlibFunctionType("symbolic", name)
+                        for name in SYMBOLIC_STDLIB_EXPORTS
+                    }
+                )
+        return env
+
+    def analyze(self) -> TypedModuleInfo:
+        env: dict[str, Any] = self._stdlib_env()
         module_slots: dict[str, int] = {}
         for stmt in self.module.statements:
             if isinstance(stmt, ir.FunctionDef):
@@ -145,11 +248,12 @@ class IRTypeAnalyzer:
         return self.info
 
     def _analyze_function(self, fn: ir.FunctionDef) -> None:
-        env = {
+        env = self._stdlib_env()
+        env.update({
             name: _normalize_type(ptype)
             for name, ptype in zip(fn.params, fn.param_types)
             if ptype is not None
-        }
+        })
         slots = {name: idx for idx, name in enumerate(fn.params)}
         self.info.function_envs[fn.name] = dict(env)
         cur = dict(env)
@@ -273,7 +377,7 @@ class IRTypeAnalyzer:
     def _infer_expr(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ir.Const):
             if isinstance(node.value, bool):
-                return self._remember_expr(node, ast.PrimTypeRef("bool"))
+                return self._remember_expr(node, ast.PrimTypeRef("bit"))
             if node.value is None:
                 raise TypedIRError("null is not yet supported in typed IR analysis for native emission")
             if isinstance(node.value, (int, float)):
@@ -284,6 +388,8 @@ class IRTypeAnalyzer:
         if isinstance(node, ir.InterpolatedStringExpr):
             return self._remember_expr(node, ast.PrimTypeRef("str"))
         if isinstance(node, ir.LoadName):
+            if node.name == "inf":
+                return self._remember_expr(node, ast.PrimTypeRef("symbolic"))
             if node.name not in env:
                 raise TypedIRError(f"unknown name in typed IR analysis: {node.name}")
             return self._remember_expr(node, env[node.name])
@@ -485,7 +591,13 @@ class IRTypeAnalyzer:
             return self._remember_expr(node, ast.TypeExpr([(name, self._infer_expr(value, env)) for name, value in node.fields]))
         if isinstance(node, ir.AttrExpr):
             intrinsic = resolve_native_intrinsic(node)
-            if intrinsic is not None:
+            intrinsic_base_is_bound = not (
+                isinstance(node.value, ir.LoadName)
+                and node.value.name not in env
+                and intrinsic is not None
+                and intrinsic.module is not None
+            )
+            if intrinsic is not None and intrinsic_base_is_bound:
                 if intrinsic.kind == "math_const":
                     try:
                         return self._remember_expr(node, infer_intrinsic_return_type(intrinsic, []))
@@ -535,7 +647,7 @@ class IRTypeAnalyzer:
         if isinstance(node, ir.UnaryExpr):
             op_t = self._infer_expr(node.operand, env)
             if node.op == "NOT":
-                return self._remember_expr(node, ast.PrimTypeRef("bool"))
+                return self._remember_expr(node, ast.PrimTypeRef("bit"))
             return self._remember_expr(node, op_t)
         if isinstance(node, ir.BinaryExpr):
             lt = self._infer_expr(node.left, env)
@@ -545,6 +657,8 @@ class IRTypeAnalyzer:
             if isinstance(lt_n, AxisTaggedType) or isinstance(rt_n, AxisTaggedType):
                 return self._remember_expr(node, self._infer_axis_tagged_binary(node.op, lt_n, rt_n))
             if node.op == "AMPERSAND":
+                if _is_symbolic_type(lt_n) or _is_symbolic_type(rt_n):
+                    return self._remember_expr(node, ast.PrimTypeRef("symbolic"))
                 if isinstance(lt_n, ast.FixedVectorType) and isinstance(rt_n, ast.FixedVectorType):
                     if not _same_primitive_name(lt_n.element_type, rt_n.element_type):
                         raise TypedIRError("vector concat requires matching element types")
@@ -555,9 +669,13 @@ class IRTypeAnalyzer:
                     return self._remember_expr(node, ast.PrimTypeRef("str"))
                 if isinstance(rt_n, ast.PrimTypeRef) and rt_n.name == "str":
                     return self._remember_expr(node, ast.PrimTypeRef("str"))
-            if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "FLOOR_DIV", "PERCENT", "CARET"):
+            if node.op in ("PLUS", "MINUS", "STAR", "SLASH", "FLOORDIV", "PERCENT", "CARET"):
                 lt_n = _normalize_type(lt)
                 rt_n = _normalize_type(rt)
+                if _is_symbolic_type(lt_n) or _is_symbolic_type(rt_n):
+                    if node.op not in ("PLUS", "MINUS", "STAR", "SLASH", "CARET"):
+                        raise TypedIRError("symbolic arithmetic supports +, -, *, /, and ^ in typed IR analysis")
+                    return self._remember_expr(node, ast.PrimTypeRef("symbolic"))
                 if isinstance(lt_n, ast.FixedVectorType) and isinstance(rt_n, ast.FixedVectorType):
                     if node.op not in ("PLUS", "MINUS", "STAR", "SLASH", "CARET"):
                         raise TypedIRError(f"unsupported vector op for typed IR analysis: {node.op}")
@@ -570,14 +688,16 @@ class IRTypeAnalyzer:
                     if isinstance(rt_n, ast.FixedVectorType) and _is_scalar_numeric_type(lt_n):
                         return self._remember_expr(node, rt_n)
                 if isinstance(lt_n, ast.MultisetType) and isinstance(rt_n, ast.MultisetType):
-                    if node.op not in ("PLUS", "MINUS", "FLOOR_DIV", "PERCENT"):
+                    if node.op not in ("PLUS", "MINUS", "FLOORDIV", "PERCENT"):
                         raise TypedIRError("multisets support +, -, //, and % count operators")
                     if not _same_type(lt_n.element_type, rt_n.element_type):
                         raise TypedIRError("multiset arithmetic requires matching element types")
                     return self._remember_expr(node, lt_n)
                 return self._remember_expr(node, _promote_numeric(lt, rt))
+            if node.op in ("EQ", "NEQ") and (_is_symbolic_type(lt_n) or _is_symbolic_type(rt_n)):
+                return self._remember_expr(node, ast.PrimTypeRef("symbolic"))
             if node.op in ("EQ", "NEQ", "LT", "LE", "GT", "GE", "AND", "OR", "XOR"):
-                return self._remember_expr(node, ast.PrimTypeRef("bool"))
+                return self._remember_expr(node, ast.PrimTypeRef("bit"))
             raise TypedIRError(f"unsupported binary op for typed IR analysis: {node.op}")
         if isinstance(node, ir.CallExpr):
             arg_types = [self._infer_expr(arg, env) for arg in node.args]
@@ -585,8 +705,25 @@ class IRTypeAnalyzer:
             spread_types = [self._infer_expr(value, env) for value in node.spreads]
             if isinstance(node.func, ir.LoadName):
                 fname = node.func.name
-                if fname in ("int", "num", "bool", "str"):
+                if fname in ("bit", "int", "rational", "num", "symbolic", "chr", "str"):
                     return self._remember_expr(node, ast.PrimTypeRef(fname))
+                if (
+                    fname == "solve"
+                    and isinstance(env.get(fname), StdlibFunctionType)
+                    and env[fname].module_name == "symbolic"
+                    and len(node.args) >= 3
+                    and _is_symbolic_type(arg_types[0])
+                ):
+                    fields: list[tuple[str, Any]] = []
+                    for arg in node.args[1:]:
+                        if isinstance(arg, (ir.LoadName, ir.LoadSlot)) and _is_symbolic_type(self._infer_expr(arg, env)):
+                            fields.append((arg.name, ast.PrimTypeRef("symbolic")))
+                    if len(fields) == len(node.args) - 1:
+                        return self._remember_expr(node, ast.TypeExpr(fields))
+                if isinstance(env.get(fname), StdlibFunctionType) and env[fname].module_name == "symbolic":
+                    symbolic_return = _infer_symbolic_builtin(fname, arg_types)
+                    if symbolic_return is not None:
+                        return self._remember_expr(node, symbolic_return)
                 if fname in self.functions:
                     ret = self.functions[fname].return_type
                     if ret is None:
@@ -594,12 +731,25 @@ class IRTypeAnalyzer:
                     return self._remember_expr(node, ret)
             if isinstance(node.func, ir.AttrExpr) and node.func.name == "length" and not node.args and not node.kwargs and not node.spreads:
                 base_t = _normalize_type(self._infer_expr(node.func.value, env))
-                if isinstance(base_t, ast.PrimTypeRef) and base_t.name in {"str", "bytes"}:
+                if isinstance(base_t, ast.PrimTypeRef) and base_t.name in {"str"}:
                     return self._remember_expr(node, ast.PrimTypeRef("int"))
                 if isinstance(base_t, (ast.FixedVectorType, ast.LinkedListValueType)):
                     return self._remember_expr(node, ast.PrimTypeRef("int"))
             intrinsic = resolve_native_intrinsic(node.func)
-            if intrinsic is not None:
+            intrinsic_base_is_bound = not (
+                isinstance(node.func, ir.AttrExpr)
+                and isinstance(node.func.value, ir.LoadName)
+                and node.func.value.name not in env
+                and intrinsic is not None
+                and intrinsic.module is not None
+            )
+            if intrinsic is not None and intrinsic_base_is_bound:
+                if intrinsic.kind == "math":
+                    symbolic_return = _infer_symbolic_builtin(intrinsic.name, arg_types)
+                    if symbolic_return is not None:
+                        return self._remember_expr(node, symbolic_return)
+                if intrinsic.kind == "stat" and intrinsic.name in {"sum", "mean", "median"} and len(arg_types) == 4 and any(_is_symbolic_type(t) for t in arg_types):
+                    return self._remember_expr(node, ast.PrimTypeRef("symbolic"))
                 axis_intrinsic_t = self._infer_axis_tagged_intrinsic(intrinsic, arg_types)
                 if axis_intrinsic_t is not None:
                     return self._remember_expr(node, axis_intrinsic_t)
@@ -648,6 +798,8 @@ class IRTypeAnalyzer:
             return StdlibFunctionType(module_name, name)
         if module_name in {"stat", "io", "collections", "time", "capture", "errors", "ui"}:
             return StdlibFunctionType(module_name, name)
+        if module_name == "symbolic" and name in SYMBOLIC_STDLIB_EXPORTS:
+            return StdlibFunctionType(module_name, name)
         return None
 
     def _infer_stdlib_call(
@@ -668,6 +820,24 @@ class IRTypeAnalyzer:
                 return self._infer_collections_list_type(arg_types, spread_types)
         if func_t.module_name == "io" and func_t.name == "print":
             return ast.PrimTypeRef("any")
+        if func_t.module_name == "math":
+            symbolic_return = _infer_symbolic_builtin(func_t.name, arg_types)
+            if symbolic_return is not None:
+                return symbolic_return
+        if func_t.module_name == "symbolic":
+            if func_t.name == "solve" and len(arg_types) >= 3 and _is_symbolic_type(arg_types[0]):
+                fields: list[tuple[str, Any]] = []
+                for arg_type_index, arg_type in enumerate(arg_types[1:], start=1):
+                    if _is_symbolic_type(arg_type):
+                        fields.append((f"_{arg_type_index}", ast.PrimTypeRef("symbolic")))
+                if len(fields) == len(arg_types) - 1:
+                    return ast.TypeExpr(fields)
+            symbolic_return = _infer_symbolic_builtin(func_t.name, arg_types)
+            if symbolic_return is not None:
+                return symbolic_return
+        if func_t.module_name == "stat" and func_t.name in {"sum", "mean", "median"}:
+            if len(arg_types) == 4 and any(_is_symbolic_type(t) for t in arg_types):
+                return ast.PrimTypeRef("symbolic")
         intrinsic = self._stdlib_function_intrinsic(func_t)
         if intrinsic is not None:
             flat_arg_types = [*arg_types, *[value_type for _, value_type in kwarg_types], *spread_types]

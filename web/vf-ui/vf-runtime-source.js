@@ -6,6 +6,28 @@
 
   if (global.VfRuntimeSource) { return; }
 
+  var _packetContract = global.VfRuntimePacketContract || null;
+  var FALLBACK_PACKET_KINDS = {
+    "scene.replace": true,
+    "ui_state.replace": true,
+    "display.replace": true,
+    "geom.color.patch": true,
+    "widget.append_text": true
+  };
+
+  function validatePacketPayload(kind, payload) {
+    if (_packetContract && typeof _packetContract.validatePacketPayload === "function") {
+      return _packetContract.validatePacketPayload(kind, payload, "source");
+    }
+    if (!FALLBACK_PACKET_KINDS[kind]) { return "unsupported packet kind " + kind; }
+    if (kind === "scene.replace" && (!payload || !Array.isArray(payload.commands))) { return "malformed scene.replace packet"; }
+    if (kind === "ui_state.replace" && (!payload || !payload.state || typeof payload.state !== "object")) { return "malformed ui_state.replace packet"; }
+    if (kind === "display.replace" && (!payload || !payload.display || typeof payload.display !== "object")) { return "malformed display.replace packet"; }
+    if (kind === "widget.append_text" && (!payload || !payload.frame_id || !payload.widget_id || payload.text == null || !Number.isFinite(Number(payload.append_seq)))) { return "malformed widget.append_text packet"; }
+    if (kind === "geom.color.patch" && (!payload || !payload.frame_id || !Number.isFinite(Number(payload.object_id)) || Number(payload.object_id) <= 0 || payload.color == null)) { return "malformed geom.color.patch packet"; }
+    return "";
+  }
+
   function createSource(options) {
     options = options || {};
     var config = options.config || {};
@@ -22,14 +44,6 @@
     function parsePacketPayload(payload) {
       return payload && Array.isArray(payload.packets) ? payload.packets : null;
     }
-
-    var STRICT_SOURCE_KINDS = {
-      "scene.replace": true,
-      "ui_state.replace": true,
-      "display.replace": true,
-      "geom.color.patch": true,
-      "widget.append_text": true
-    };
 
     function validateStrictPackets(packets) {
       if (!strictPacketOnlyEnabled() || !Array.isArray(packets)) { return packets; }
@@ -57,29 +71,9 @@
         }
         previousSeq = seq;
         var payload = packet.payload;
-        if (!STRICT_SOURCE_KINDS[kind]) {
-          throw strictPacketSourceError("overlay packet API returned unsupported packet kind " + kind + " at index " + i);
-        }
-        if (kind === "scene.replace" && !Array.isArray(payload.commands)) {
-          throw strictPacketSourceError("overlay packet API returned malformed scene.replace packet at index " + i);
-        }
-        if (kind === "ui_state.replace" && (!payload.state || typeof payload.state !== "object")) {
-          throw strictPacketSourceError("overlay packet API returned malformed ui_state.replace packet at index " + i);
-        }
-        if (kind === "display.replace" && (!payload.display || typeof payload.display !== "object")) {
-          throw strictPacketSourceError("overlay packet API returned malformed display.replace packet at index " + i);
-        }
-        if (
-          kind === "widget.append_text" &&
-          (!payload.frame_id || !payload.widget_id || payload.text == null || !Number.isFinite(Number(payload.append_seq)))
-        ) {
-          throw strictPacketSourceError("overlay packet API returned malformed widget.append_text packet at index " + i);
-        }
-        if (
-          kind === "geom.color.patch" &&
-          (!payload.frame_id || !Number.isFinite(Number(payload.object_id)) || Number(payload.object_id) <= 0 || payload.color == null)
-        ) {
-          throw strictPacketSourceError("overlay packet API returned malformed geom.color.patch packet at index " + i);
+        var payloadError = validatePacketPayload(kind, payload);
+        if (payloadError) {
+          throw strictPacketSourceError("overlay packet API returned " + payloadError + " at index " + i);
         }
       }
       return packets;

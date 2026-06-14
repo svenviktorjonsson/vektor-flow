@@ -3,7 +3,7 @@
 This note defines the first compiled-runtime contract for UI execution.
 
 The goal is to replace "compiled VKF program with `main()`" with
-"compiled VKF runtime module with update hooks".
+"compiled VKF runtime module with explicit update entrypoints".
 
 See also:
 
@@ -31,14 +31,14 @@ The first export surface is:
 
 ```text
 vkf_init(VfRuntimeApi* api)
-vkf_update(const VfInputSnapshot* input, VfRuntimeApi* api)
+vkf_update(const VfEventSlice* events, VfRuntimeApi* api)
 vkf_shutdown(VfRuntimeApi* api)
 ```
 
 Rules:
 
 - `vkf_init` sets up persistent widget/geometry/transform state
-- `vkf_update` consumes current input snapshot and mutates arenas
+- `vkf_update` consumes the current typed event slice and mutates arenas
 - `vkf_shutdown` is optional in the first slice but should exist in the contract
 
 ## Runtime API Surface
@@ -61,10 +61,6 @@ struct VfRuntimeApi {
   GeometryArena* geometry;
   WidgetArena* widgets;
   CommandArena* commands;
-
-  void (*mark_transform_dirty)(u32 id);
-  void (*mark_geometry_dirty)(u32 id);
-  void (*append_command)(const VfCommandRecord*);
 }
 ```
 
@@ -72,29 +68,81 @@ The important thing is not the exact field names yet. The important thing is
 that the compiled core writes through a stable ABI instead of through host
 language object graphs.
 
-## Input Snapshot
+Dirty ranges and appended commands are arena state, not host callbacks. A
+compiled module marks a transform dirty by writing the transform arena header
+and record generation. It appends commands by writing command records into the
+command arena.
 
-The host passes one normalized snapshot into `vkf_update`.
+## Typed Event Slice
 
-The first shape should include:
+The host passes one ordered, typed event slice into `vkf_update`.
 
-- cursor position
-- drag delta
-- button state
-- modifiers
-- hover context
-- wheel step
-- active frame or widget id when known
+The host-owned UI event loop is still the single input pump. It collects raw
+platform events, normalizes them into typed ledger records, validates them
+against the compiled event manifest, and then calls the compiled update
+entrypoint.
 
-This snapshot is intentionally flat. The compiled runtime should not have to
-reconstruct browser or overlay event objects.
+The first built-in event family should include:
+
+- pointer move/down/up/cancel
+- wheel
+- key down/up
+- text edit/input
+- frame tick
+- window/frame close, drag, resize, focus
+
+Additional program/subsystem events are allowed when declared by the compiled
+event program. They use the same typed event record path as built-in events.
+
+This is intentionally not stringly typed. Event records carry numeric tags and
+fixed layouts generated from VKF event variants. Debug names may be present in
+manifest metadata, but program behavior must dispatch on the typed variant, not
+on a string field such as `event.kind`.
+
+VKF-facing source stays ordinary typed VKF:
+
+```vkf
+UiEvent : PointerMove | PointerDown | KeyDown | FrameTick | CustomEvent
+
+update(state:AppState, event:UiEvent) -> AppState:
+    event??
+        PointerMove => pointer_move(state, event)
+        PointerDown => pointer_down(state, event)
+        KeyDown => key_down(state, event)
+        FrameTick => frame_tick(state, event)
+        CustomEvent => custom_event(state, event)
+        state
+```
+
+Closed symbolic sets should stay ordinary VKF record values with numeric values
+rather than new keyword syntax:
+
+```vkf
+PointerButton: (
+    left: 0,
+    middle: 1,
+    right: 2
+)
+
+PointerDown : (
+    pointer_id:num,
+    button:num,
+    target_frame_id:num,
+    target_object_id:num,
+    x_px:num,
+    y_px:num,
+    time_ms:num
+)
+```
+
+The compiler may attach debug names for `PointerButton.left`, but the ABI value
+is numeric.
 
 ## What The Compiled Module May Do
 
 The compiled module may:
 
-- read the input snapshot
-- consume the normalized host event queue
+- consume the normalized typed host event queue
 - read existing runtime state from arenas
 - mutate widget/transform/geometry state
 - append setup commands when structure changes
@@ -104,6 +152,8 @@ The compiled module must not:
 - write files
 - perform JSON serialization in the hot path
 - depend on Python callbacks for ordinary interaction
+- dispatch UI behavior through host callbacks
+- dispatch event behavior through strings
 
 ## Language Boundary
 

@@ -1,0 +1,18 @@
+: .lib.types
+state: .lib.state
+bot: .lib.bot
+
+smoke_piece(index:num) -> Piece:
+    index = 1? @: (side:Side.white, role:PieceRole.king, file:5, rank:1, captured:false, tray_rank:0, has_moved:false)
+    index = 2? @: (side:Side.black, role:PieceRole.king, file:5, rank:8, captured:false, tray_rank:0, has_moved:false)
+    index = 3? @: (side:Side.white, role:PieceRole.knight, file:2, rank:1, captured:false, tray_rank:0, has_moved:false)
+    @: state.empty_piece()
+
+smoke_board: ([1..32] >> smoke_piece($))
+smoke_state: state.game_state(Side.white, 0, "", Side.none, PieceRole.none, 0, 0, false, "ready", false, false, false, false, Side.none, 0, 0, smoke_board)
+choice: bot.best_move_2ply(smoke_state)
+
+:: bot.evaluate_state(smoke_state, Side.white)
+:: choice.ok
+:: choice.result.intent.notation
+:: choice.result.state.turn

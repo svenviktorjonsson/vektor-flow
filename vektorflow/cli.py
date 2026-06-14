@@ -181,29 +181,6 @@ def _native_runtime_available(path: Path) -> bool:
     )
 
 
-def _run_with_interpreter(path: Path) -> int:
-    try:
-        from .interpreter import Interpreter
-        from .parser import parse_module
-
-        resolved = path.resolve()
-        source = resolved.read_text(encoding="utf-8")
-        module = parse_module(source, filename=str(resolved))
-        Interpreter(resolved).run_module(module)
-    except OSError as exc:
-        print(f"error: cannot read {path}: {exc}", file=sys.stderr)
-        return 1
-    except (LexError, ParseError, EvalError) as exc:
-        source = ""
-        try:
-            source = path.resolve().read_text(encoding="utf-8")
-        except OSError:
-            pass
-        print(format_source_diagnostic(source, exc), file=sys.stderr)
-        return 1
-    return 0
-
-
 def _run_with_native_core(path: Path) -> int:
     compiler = discover_cpp_compiler()
     if compiler is None:
@@ -286,16 +263,8 @@ def cmd_parse_tokens(payload: str) -> int:
 
 
 def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
-    try:
-        from .interpreter import Interpreter
-        from .parser import parse_module
-
-        module = parse_module(source, filename=filename)
-        Interpreter(Path(filename)).run_module(module)
-    except (LexError, ParseError, EvalError) as exc:
-        print(format_source_diagnostic(source, exc), file=sys.stderr)
-        return 1
-    return 0
+    print("error: eval requires a native compiled execution path; Python interpreter execution is disabled", file=sys.stderr)
+    return 1
 
 
 def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: str | None = None) -> int:

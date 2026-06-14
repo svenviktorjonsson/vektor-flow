@@ -17,7 +17,8 @@ from vektorflow.cpp_backend import (
     emit_cpp_from_source_file,
     run_cpp_executable,
 )
-from vektorflow.ir import IndexExpr, PrintStmt, TypeDef, lower_module
+from vektorflow.errors import ParseError
+from vektorflow.ir import IndexExpr, PrintStmt, StoreName, TypeDef, lower_module
 from vektorflow.lexer import tokenize
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
@@ -53,8 +54,8 @@ num a: 3
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
-    assert "double twice(double x)" in cpp
-    assert "double a = 3.0;" in cpp
+    assert "std::complex<double> twice(std::complex<double> x)" in cpp
+    assert "std::complex<double> a = 3.0;" in cpp
     assert 'std::cout << vf_format_num(twice(a)) << "\\n";' in cpp
     assert "#include <any>" not in cpp
     assert "#include <list>" not in cpp
@@ -62,6 +63,327 @@ num a: 3
     assert "vf_map_make" not in cpp
     assert "vf_list_make" not in cpp
     assert "vf_mset_make" not in cpp
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_num_uses_complex_domain_for_math() -> None:
+    src = """
+math: .math
+:: math.sqrt(-1)
+:: math.log(-1, 2)
+:: num(3)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    lines = res.stdout.strip().splitlines()
+    assert lines[0] == "i"
+    assert lines[1].endswith("i")
+    assert lines[2] == "3"
+
+
+def test_cpp_emits_rational_primitive_support() -> None:
+    src = """
+rational a: rational(1, 3)
+rational b: rational(2, 6)
+:: a
+:: a + b
+:: a + 1
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "struct vf_rational" in cpp
+    assert "vf_make_rational(vf_to_int(1), vf_to_int(3))" in cpp
+    assert "vf_to_rational(a) + vf_to_rational(b)" in cpp
+    assert "vf_to_rational(a) + vf_to_rational(1)" in cpp
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compiled_rational_primitive_keeps_exact_fraction_output() -> None:
+    src = """
+rational a: rational(1, 3)
+rational b: rational(2, 6)
+:: a
+:: b
+:: a + b
+:: a + 1
+:: rational(2, 4)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.stdout.strip().splitlines() == ["1/3", "1/3", "2/3", "4/3", "1/2"]
+
+
+def test_cpp_emits_native_symbolic_primitive_support() -> None:
+    src = """
+:.symbolic
+symbolic x: symbolic("x")
+symbolic expr: x + 1
+:: expr
+:: derivative(expr, x)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert '#include "compiler/native/vkf_symbolic.hpp"' in cpp
+    assert "struct vf_symbolic" not in cpp
+    assert "vf_to_symbolic" in cpp
+    assert "vf_sym_derivative" in cpp
+
+
+def test_typed_question_mark_symbolic_unknown_syntax_is_removed() -> None:
+    with pytest.raises(ParseError, match="unexpected `\\?` in expression"):
+        parse_module("int x: " + "?\n", filename="<cpp-test>")
+
+
+def test_symbolic_domains_require_symbolic_spill_import() -> None:
+    with pytest.raises(ParseError, match="symbolic domain `R` requires `:\\.symbolic`"):
+        parse_module("x: R\n", filename="<cpp-test>")
+
+
+def test_symbolic_spill_import_enables_domains_for_following_semicolon_stmt() -> None:
+    lowered = lower_module(parse_module(":.symbolic; x: R\n", filename="<cpp-test>"))
+    assert isinstance(lowered.statements[0], TypeDef) is False
+    assert isinstance(lowered.statements[0], StoreName)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compiled_native_symbolic_operations_are_python_free() -> None:
+    src = """
+:.symbolic
+math: .math
+symbolic x: symbolic("x")
+symbolic y: symbolic("y")
+expr: (x + 1)^2
+rel: expr = y
+guarded: assume(cancel((x^2 - 1) / (x - 1)), "x != 1")
+:: expr
+:: rel
+:: math.sin(x)
+:: derivative(x, x)
+:: derivative(expr, x)
+:: integral(x, x)
+:: trace(guarded, "cancel")
+:: conditions(guarded)
+:: same(x + 1, x + 1)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "(x + 1) ^ 2",
+        "((x + 1) ^ 2) = y",
+        "sin(x)",
+        "1",
+        "derivative((x + 1) ^ 2, x)",
+        "x ^ 2 / 2",
+        "(x ^ 2 - 1) / (x - 1) --cancel--> (x ^ 2 - 1) / (x - 1) when denominator != 0",
+        "[denominator != 0, x != 1]",
+        "true",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compiled_int_unknowns_and_linear_diophantine_solutions_are_native() -> None:
+    src = """
+:.symbolic
+x: Z
+y: Z
+eq: 2*x + 3*y = 7
+sys: eq & (x - y = 1)
+:: conditions(x)
+:: eq
+:: sys
+sol: solve(eq, x, y)
+none: solve(2*x + 4*y = 3, x, y)
+:: sol.x
+:: sol.y
+:: sol
+:: none.x
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "[x in Z]",
+        "(2 * x + 3 * y) = 7",
+        "((2 * x + 3 * y) = 7) & ((x - y) = 1)",
+        "-7 + 3*k",
+        "7 - 2*k",
+        "(x:-7 + 3*k, y:7 - 2*k)",
+        "no integer solution",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compiled_symbolic_domain_type_bindings_are_native() -> None:
+    src = """
+:.symbolic
+x: R
+n: N
+m: Z
+q: Q
+z: C
+f: R -> R
+v: R^n
+:: conditions(x)
+:: conditions(n)
+:: conditions(m)
+:: conditions(q)
+:: conditions(z)
+:: conditions(f)
+:: conditions(v)
+:: x + 1
+:: f
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "[x in R]",
+        "[n in N]",
+        "[m in Z]",
+        "[q in Q]",
+        "[z in C]",
+        "[f in R->R]",
+        "[v in R^n]",
+        "x + 1",
+        "f",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compiled_discrete_symbolic_calculus_primitives_are_native() -> None:
+    src = """
+:.symbolic
+stat: .stat
+n: Z
+expr: n + 1
+:: shift(n, n, 1)
+:: difference(n, n)
+:: difference(5, n)
+:: difference(expr, n)
+:: stat.sum(1, n, 1, n)
+:: stat.sum(n, n, 1, n)
+:: stat.sum(3, n, 1, n)
+:: stat.mean(expr, n, 1, inf)
+:: stat.median(expr, n, -inf, inf)
+:: diff(expr, n)
+:: differentiate(expr, n)
+:: grad(expr, n)
+:: integrate(expr, n)
+:: integ(expr, n)
+:: integrate(expr, n, 0, 1)
+:: integ(expr, n, 0, 1)
+:: latex(stat.sum(expr, n, 1, inf))
+:: latex(integrate(expr, n))
+:: latex(integrate(expr, n, 0, 1))
+:: latex(sqrt(n))
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "n + 1",
+        "1",
+        "0",
+        "(shift(n + 1, n, 1)) - (n + 1)",
+        "n",
+        "n * (n + 1) / 2",
+        "sum(3, n, 1, n)",
+        "mean(n + 1, n, 1, inf)",
+        "median(n + 1, n, -inf, inf)",
+        "derivative(n + 1, n)",
+        "derivative(n + 1, n)",
+        "gradient(n + 1, n)",
+        "integrate(n + 1, n)",
+        "integrate(n + 1, n)",
+        "integrate(n + 1, n, 0, 1)",
+        "integrate(n + 1, n, 0, 1)",
+        "\\sum_{n=1}^{\\infty} n+1",
+        "\\int n+1\\,dn",
+        "\\int_{0}^{1} n+1\\,dn",
+        "\\operatorname{sqrt}\\left(n\\right)",
+    ]
+
+
+def test_direct_symbolic_sum_requires_stat_import_surface() -> None:
+    src = """
+:.symbolic
+n: Z
+:: sum(n, n, 1, inf)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    with pytest.raises(CppEmitError, match="unknown name"):
+        emit_cpp_module(lowered)
+
+
+def test_stat_symbolic_sum_requires_imported_namespace() -> None:
+    src = """
+:.symbolic
+n: Z
+:: stat.sum(n, n, 1, inf)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    with pytest.raises(CppEmitError, match="unknown name"):
+        emit_cpp_module(lowered)
+
+
+def test_symbolic_short_aliases_require_symbolic_import_surface() -> None:
+    src = """
+symbolic n: symbolic("n")
+expr: n + 1
+:: diff(expr, n)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    with pytest.raises(CppEmitError, match="unsupported call target|unknown name"):
+        emit_cpp_module(lowered)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_symbolic_namespace_short_aliases_are_native() -> None:
+    src = """
+sym: .symbolic
+n: symbolic("n")
+expr: n + 1
+:: sym.diff(expr, n)
+:: sym.integ(expr, n)
+:: sym.grad(expr, n)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "derivative(n + 1, n)",
+        "integrate(n + 1, n)",
+        "gradient(n + 1, n)",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_symbolic_differential_operator_surface_is_native_and_latex_aware() -> None:
+    src = """
+:.symbolic
+x: R
+y: R
+:: d/dx x^2 + y
+:: d^2/dx^2 x
+:: x dx
+:: latex(d/dx x^2)
+:: latex(d/dx x*y)
+:: latex(d^2/dx^2 x)
+:: latex(x dx)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "derivative(x ^ 2, x) + y",
+        "derivative(x, x, 2)",
+        "x ^ 2 / 2",
+        "\\frac{d}{dx} x^{2}",
+        "\\frac{\\partial}{\\partial x} x\\,y",
+        "\\frac{d^{2}}{dx^{2}} x",
+        "\\frac{x^{2}}{2}",
+    ]
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
@@ -115,10 +437,40 @@ stat: .stat
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
-    assert "std::sin(0.0)" in cpp
+    assert "std::sin(0)" in cpp
     assert "vf_array_sum(" in cpp
     assert "vf_array_std(" in cpp
     assert "static_cast<long long>(3)" in cpp
+
+
+def test_cpp_streams_direct_stat_sum_of_constant_range() -> None:
+    src = """stat: .stat
+:: stat.sum([0..999])
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "for (long long vf_i = static_cast<long long>(0); vf_i <= static_cast<long long>(999); ++vf_i)" in cpp
+    assert "vf_array_iota<double, 1000>" not in cpp
+    assert "vf_format_num(vf_array_sum(" not in cpp
+
+
+def test_cpp_materializes_large_range_on_heap_and_prints_preview(tmp_path: Path) -> None:
+    src = """stat: .stat
+xs: [0..69999]
+:: stat.sum(xs)
+:: xs
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    cpp = emit_cpp_module(lowered)
+    assert "std::vector<double> xs = vf_vector_iota<double>" in cpp
+    assert "std::array<double, 70000>" not in cpp
+    exe = compile_cpp_source(cpp, tmp_path, exe_name="large_range_heap_preview")
+    proc = run_cpp_executable(exe)
+    assert proc.returncode == 0
+    assert proc.stdout.splitlines() == [
+        "2449965000",
+        "[0, 1, 2, ..., 69997, 69998, 69999]",
+    ]
 
 
 def test_cpp_emits_math_constants_and_extended_stat_intrinsics() -> None:
@@ -427,7 +779,7 @@ L: collections.list(v)
 def test_cpp_emits_record_with_map_and_list_fields() -> None:
     src = """collections: .collections
 
-make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
+make() -> (meta:map(name:str, ok:bit), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
 :: make()
@@ -450,7 +802,7 @@ make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
 def test_cpp_emits_transform_for_record_with_map_and_list_fields() -> None:
     src = """collections: .collections
 
-update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
+update(state:(meta:map(name:str, ok:bit), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bit), items:list(num, num, num), total:num):
     (meta:state.meta, items:state.items & collections.list(9), total:state.total + 1)
 
 :: update((meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), total:2))
@@ -465,7 +817,7 @@ update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> 
 def test_cpp_emits_nested_dynamic_map_and_list_program() -> None:
     src = """collections: .collections
 
-make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
+make() -> (payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),)
 
 :: make()
@@ -487,7 +839,7 @@ make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups
 def test_cpp_emits_transform_for_nested_dynamic_map_and_list_record() -> None:
     src = """collections: .collections
 
-update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
+update(state:(payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bit), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
     (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))),)
 
 :: update((payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),))
@@ -503,7 +855,7 @@ update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), gro
 def test_cpp_emits_transform_for_direct_dynamic_map_payload() -> None:
     src = """collections: .collections
 
-update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
+update(payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bit), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
 :: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
@@ -648,7 +1000,7 @@ sum_vec(x:[num:4]) -> num:
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
     assert "double sum_vec(const std::array<double, 4>& x)" in cpp
-    assert "for (std::size_t vf_s1_i = 0; vf_s1_i < static_cast<std::size_t>(4.0); ++vf_s1_i)" in cpp
+    assert "for (std::size_t vf_s1_i = 0; vf_s1_i < static_cast<std::size_t>(4); ++vf_s1_i)" in cpp
     assert "vf_s2_acc += x[vf_s1_i];" in cpp
 
 
@@ -932,7 +1284,7 @@ L: collections.list(:[1,2,3])
 def test_cpp_compile_and_run_record_with_map_and_list_fields() -> None:
     src = """collections: .collections
 
-make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
+make() -> (meta:map(name:str, ok:bit), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
 :: make()
@@ -955,7 +1307,7 @@ make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
 def test_cpp_compile_and_run_transform_record_with_map_and_list_fields() -> None:
     src = """collections: .collections
 
-update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
+update(state:(meta:map(name:str, ok:bit), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bit), items:list(num, num, num), total:num):
     (meta:state.meta, items:state.items & collections.list(9), total:state.total + 1)
 
 :: update((meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), total:2))
@@ -970,7 +1322,7 @@ update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> 
 def test_cpp_compile_and_run_nested_dynamic_map_and_list_program() -> None:
     src = """collections: .collections
 
-make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
+make() -> (payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),)
 
 :: make()
@@ -995,7 +1347,7 @@ make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups
 def test_cpp_compile_and_run_transform_nested_dynamic_map_and_list_record() -> None:
     src = """collections: .collections
 
-update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
+update(state:(payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str))))) -> (payload:map(meta:map(name:str, ok:bit), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str)))):
     (payload:collections.map(meta:state.payload.meta, items:state.payload.items & collections.list(9), groups:state.payload.groups & collections.list(collections.map(name:"c"))),)
 
 :: update((payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))),))
@@ -1010,7 +1362,7 @@ update(state:(payload:map(meta:map(name:str, ok:bool), items:list(num, num), gro
 def test_cpp_compile_and_run_transform_direct_dynamic_map_payload() -> None:
     src = """collections: .collections
 
-update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
+update(payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bit), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
 :: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))

@@ -32,6 +32,12 @@ struct ArenaExternalization {
     std::string arena_bytes;
 };
 
+struct ArtifactInputProvenance {
+    std::string source = "default";
+    std::string path;
+    bool source_hash_checked = false;
+};
+
 class StagerError : public std::runtime_error {
 public:
     explicit StagerError(const std::string& message)
@@ -52,6 +58,7 @@ void write_file(const std::filesystem::path& path, const std::string& text) {
     std::filesystem::create_directories(path.parent_path());
     std::error_code ec;
     if (std::filesystem::exists(path, ec) && read_file_bytes(path) == text) {
+        std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
         return;
     }
     std::ofstream output(path, std::ios::binary);
@@ -235,6 +242,38 @@ void require_generated_scene_config_current(
                 "; rebuild the VKF scene config before staging");
         }
     }
+}
+
+bool try_require_generated_artifact_current(
+    const std::filesystem::path& source,
+    const std::filesystem::path& artifact_path,
+    const std::string& expected_source_hash,
+    const std::string& label
+) {
+    const std::filesystem::path hash_path = std::filesystem::path(artifact_path.string() + ".source_hash");
+    if (!std::filesystem::exists(hash_path)) {
+        return false;
+    }
+    std::string actual_source_hash = read_file_bytes(hash_path);
+    while (!actual_source_hash.empty() && (actual_source_hash.back() == '\n' || actual_source_hash.back() == '\r' || actual_source_hash.back() == ' ' || actual_source_hash.back() == '\t')) {
+        actual_source_hash.pop_back();
+    }
+    if (actual_source_hash != expected_source_hash) {
+        throw StagerError(
+            label + " source fingerprint mismatch: " + artifact_path.string() +
+            " was built for " + actual_source_hash +
+            " but current source tree is " + expected_source_hash +
+            "; rebuild the VKF runtime packets before staging");
+    }
+    for (const std::filesystem::path& dependency : vkf_lib_dependencies(source)) {
+        if (newer_than(dependency, artifact_path)) {
+            throw StagerError(
+                label + " is stale: " + artifact_path.string() +
+                " is older than " + dependency.string() +
+                "; rebuild the VKF runtime packets before staging");
+        }
+    }
+    return true;
 }
 
 std::string slash_path(const std::filesystem::path& path) {
@@ -477,7 +516,9 @@ ArenaExternalization externalize_mesh_arenas(const std::string& scene_config_jso
 std::string manifest_text(
     const std::filesystem::path& source,
     const std::string& source_hash,
-    const std::string& page_rel
+    const std::string& page_rel,
+    const ArtifactInputProvenance& scene_config_provenance,
+    const ArtifactInputProvenance& runtime_packets_provenance
 ) {
     std::ostringstream out;
     out << "{\n"
@@ -486,6 +527,12 @@ std::string manifest_text(
         << "  \"source_path\": \"" << json_escape(slash_path(std::filesystem::absolute(source))) << "\",\n"
         << "  \"source_hash\": \"" << source_hash << "\",\n"
         << "  \"page_rel\": \"" << json_escape(page_rel) << "\",\n"
+        << "  \"scene_config_source\": \"" << json_escape(scene_config_provenance.source) << "\",\n"
+        << "  \"scene_config_path\": \"" << json_escape(scene_config_provenance.path) << "\",\n"
+        << "  \"scene_config_source_hash_checked\": " << (scene_config_provenance.source_hash_checked ? "true" : "false") << ",\n"
+        << "  \"runtime_packets_source\": \"" << json_escape(runtime_packets_provenance.source) << "\",\n"
+        << "  \"runtime_packets_path\": \"" << json_escape(runtime_packets_provenance.path) << "\",\n"
+        << "  \"runtime_packets_source_hash_checked\": " << (runtime_packets_provenance.source_hash_checked ? "true" : "false") << ",\n"
         << "  \"status\": \"compiled\"\n"
         << "}\n";
     return out.str();
@@ -496,12 +543,48 @@ std::string html_text(
     const std::string& scene_config_filename = "",
     const std::string& arena_filename = ""
 ) {
+    const std::string native_scene_runtime_config =
+        "<script>window.__vfRuntimeShellConfig={"
+        "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"},{href:\"katex/katex.min.css\"}],"
+        "sceneScriptDeps:["
+        "\"vf-runtime-packet-contract.js\","
+        "\"vf-runtime-source.js\","
+        "\"vf-runtime-scene.js\","
+        "\"vf-runtime-flow.js\","
+        "\"vf-render-clock.js\","
+        "\"katex/katex.min.js\","
+        "\"vf-frame.js\","
+        "\"vf-widgets.js\","
+        "\"vf-axis3d-kernel.js\","
+        "\"vf-axis3d-kernel-adapter.js\","
+        "\"vf-axis3d-projection-kernel.js\","
+        "\"vf-axis3d-projection-kernel-adapter.js\","
+        "\"geom/vf-geom-math.js\","
+        "\"geom/vf-geom-core.js\","
+        "\"geom/vf-geom-material-arena.js\","
+        "\"geom/vf-geom-ledger-layout.js\","
+        "\"geom/vf-geom-ledger-transport.js\","
+        "\"geom/vf-geom-ledger.js\","
+        "\"geom/vf-geom-parametric-surface.js\","
+        "\"geom/vf-geom-frame-adapter.js\","
+        "\"geom/vf-geom-wgpu.js\","
+        "\"vf-display.js\""
+        "]};</script>";
+    if (trim_left_copy(scene_config_json) == "[]") {
+        return std::string("<!DOCTYPE html>\n")
+            + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + native_scene_runtime_config
+            + "<script src=\"../../vf-runtime-shell.js\"></script>"
+            + "</body></html>\n";
+    }
     if (is_json_array_text(scene_config_json)) {
         const bool external_config = !scene_config_filename.empty();
         const bool external_arena = !arena_filename.empty();
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
             + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js\"></script>"
             + "<script>"
             + (external_config
@@ -538,6 +621,7 @@ std::string html_text(
     return std::string("<!DOCTYPE html>\n")
         + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
         + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+        + native_scene_runtime_config
         + "<script src=\"../../vf-runtime-shell.js\"></script>"
         + "<script>window.__vfNativeSceneConfig=" + scene_config_json + ";</script>"
         + "<script>(function(){"
@@ -643,6 +727,8 @@ int run(int argc, char** argv) {
     const std::string source_text = read_file_bytes(absolute_source);
     const std::string source_hash = fnv1a64_hex(native_scene_source_tree_bytes(absolute_source, source_text));
     Args effective = args;
+    ArtifactInputProvenance scene_config_provenance;
+    ArtifactInputProvenance runtime_packets_provenance;
     if (!effective.scene_config_supplied) {
         auto extracted_inline = extract_vkf_string_binding(source_text, "native_scene_config_json");
         auto extracted_path = extract_vkf_string_binding(source_text, "native_scene_config_path");
@@ -656,11 +742,17 @@ int run(int argc, char** argv) {
             }
             require_generated_scene_config_current(absolute_source, config_path, source_hash);
             effective.scene_config_json = read_file_bytes(config_path);
+            scene_config_provenance.source = "path";
+            scene_config_provenance.path = slash_path(config_path);
+            scene_config_provenance.source_hash_checked = true;
         } else if (extracted_inline.has_value()) {
             effective.scene_config_json = *extracted_inline;
+            scene_config_provenance.source = "inline";
         } else {
             throw StagerError("source does not expose native_scene_config_json or native_scene_config_path and --scene-config was not supplied");
         }
+    } else {
+        scene_config_provenance.source = "argument";
     }
     effective.scene_config_json = normalize_scene_config_json(effective.scene_config_json);
     ArenaExternalization arena = externalize_mesh_arenas(effective.scene_config_json);
@@ -676,10 +768,20 @@ int run(int argc, char** argv) {
             if (!std::filesystem::exists(packets_path)) {
                 throw StagerError("native_scene_runtime_packets_path not found: " + packets_path.string());
             }
+            runtime_packets_provenance.source_hash_checked = try_require_generated_artifact_current(
+                absolute_source,
+                packets_path,
+                source_hash,
+                "native_scene_runtime_packets_path");
             effective.runtime_packets_json = read_file_bytes(packets_path);
+            runtime_packets_provenance.source = "path";
+            runtime_packets_provenance.path = slash_path(packets_path);
         } else if (extracted_inline.has_value()) {
             effective.runtime_packets_json = *extracted_inline;
+            runtime_packets_provenance.source = "inline";
         }
+    } else {
+        runtime_packets_provenance.source = "argument";
     }
 
     const std::string raw_stem = absolute_source.stem().string().empty() ? "main" : absolute_source.stem().string();
@@ -703,7 +805,12 @@ int run(int argc, char** argv) {
         generated_keep_names.push_back(arena_filename);
     }
     remove_prior_generated_scene_artifacts(session_dir, generated_keep_names);
-    write_file(manifest_path, manifest_text(absolute_source, source_hash, page_rel));
+    write_file(manifest_path, manifest_text(
+        absolute_source,
+        source_hash,
+        page_rel,
+        scene_config_provenance,
+        runtime_packets_provenance));
     write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename));
     if (multi_view_scene) {
         write_file(session_dir / config_filename, effective.scene_config_json + "\n");
@@ -720,7 +827,9 @@ int run(int argc, char** argv) {
               << "\"status\":\"compiled\","
               << "\"manifest_path\":\"" << json_escape(slash_path(manifest_path)) << "\","
               << "\"page_rel\":\"" << json_escape(page_rel) << "\","
-              << "\"source_hash\":\"" << source_hash << "\""
+              << "\"source_hash\":\"" << source_hash << "\","
+              << "\"scene_config_source\":\"" << json_escape(scene_config_provenance.source) << "\","
+              << "\"runtime_packets_source\":\"" << json_escape(runtime_packets_provenance.source) << "\""
               << "}\n";
     return 0;
 }

@@ -1,8 +1,8 @@
-Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
+Piece : (side:str, role:str, file:num, rank:num, captured:bit, tray_rank:num)
 CameraOrbit : (center_x:num, center_y:num, center_z:num, theta:num, phi:num, radius:num)
 ArrowControls : (theta_left:str, theta_right:str, phi_up:str, phi_down:str, step:num)
 BoardMaterial : (dark_color:str, light_color:str, checker_weight:num, mirror_weight:num, roughness:num)
-ClickState : (selected_side:str, selected_role:str, selected_file:num, selected_rank:num, has_selection:bool)
+ClickState : (selected_side:str, selected_role:str, selected_file:num, selected_rank:num, has_selection:bit)
 ClickResult : (action:str, selected_file:num, selected_rank:num, to_file:num, to_rank:num)
 
 board_center_camera(theta:num, phi:num, radius:num) -> CameraOrbit:
@@ -36,20 +36,20 @@ select_piece(piece:Piece) -> ClickState:
 clear_selection() -> ClickState:
     @: (selected_side:"", selected_role:"", selected_file:0, selected_rank:0, has_selection:false)
 
-same_square(piece:Piece, file:num, rank:num) -> bool:
+same_square(piece:Piece, file:num, rank:num) -> bit:
     piece.captured? @: false
     piece.file = file?
         piece.rank = rank? @: true
     @: false
 
-click_piece(state:ClickState, piece:Piece, legal_capture:bool) -> ClickResult:
+click_piece(state:ClickState, piece:Piece, legal_capture:bit) -> ClickResult:
     state.has_selection?
         piece.side = state.selected_side? @: (action:"select", selected_file:piece.file, selected_rank:piece.rank, to_file:piece.file, to_rank:piece.rank)
         legal_capture? @: (action:"capture", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:piece.file, to_rank:piece.rank)
         @: (action:"reject", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:piece.file, to_rank:piece.rank)
     @: (action:"select", selected_file:piece.file, selected_rank:piece.rank, to_file:piece.file, to_rank:piece.rank)
 
-click_square(state:ClickState, file:num, rank:num, legal_move:bool) -> ClickResult:
+click_square(state:ClickState, file:num, rank:num, legal_move:bit) -> ClickResult:
     state.has_selection?
         legal_move? @: (action:"move", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:file, to_rank:rank)
         @: (action:"reject", selected_file:state.selected_file, selected_rank:state.selected_rank, to_file:file, to_rank:rank)

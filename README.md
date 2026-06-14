@@ -7,7 +7,8 @@ just the syntax. The important thing is the model:
 - values are the default
 - scopes are first-class
 - functions return values or scopes
-- "constructors" are just functions returning scopes
+- types are function handles, not a separate keyword system
+- making a value is just calling the function/type that produces it
 - extension happens by spill plus override, not by classes
 - plain language values are immutable, but names can be rebound
 - runtime resources such as UI buffers or shared memory may still be mutable
@@ -55,6 +56,23 @@ library version instead, qualify it.
 The same language that builds vectors, structs, and functions also builds
 frames, widgets, geometry, and renderer packets. UI is a library surface, not a
 different language bolted on the side.
+
+### 6. Types Are Functions
+
+VKF has no special `type` keyword. A type name is a function handle. Calling it
+casts or constructs a value, and reflecting it with `.` shows its callable
+shape.
+
+The primitive function/type handles are:
+
+- `bit`: one-bit truth value
+- `int`: integer value
+- `num`: mathematical number, including complex values
+- `chr`: one Unicode scalar character
+- `str`: text string
+
+`bool`, `byte`, `bytes`, and `float` are not primitive names. Use `bit`, `chr`,
+`[chr:n]` or `str`, and `num`.
 
 File extension: `.vkf`.
 
@@ -302,7 +320,7 @@ classify(n):
 
 Think of `@` as the return channel:
 
-- `@` returns `null`.
+- `@` returns the empty/no-value result, printed as `null`.
 - `@: value` returns `value`.
 - `@:` with no value returns the current local scope.
 
@@ -328,11 +346,11 @@ geometry:
 :: geometry.points
 ```
 
-### Constructors Are Just Functions Returning Structs
+### Value Makers Are Just Functions Returning Scopes
 
 VKF is fundamentally functional and scope-based.
 
-What looks like a constructor in another language is usually just a function
+What looks like a constructor in another language is just a function in VKF
 that:
 
 - binds fields into local scope
@@ -358,7 +376,7 @@ ColoredPoint(x, y, color):
 
 So the mental model is:
 
-- constructors are ordinary functions
+- value makers are ordinary functions
 - instances are ordinary structs
 - extension is struct spill plus local override
 - returning local scope is the bridge that makes this feel class-like without
@@ -366,7 +384,7 @@ So the mental model is:
 
 This is also the right model for higher-level UI helpers and VKF overrides:
 they should prefer returning structs/scopes and overriding fields, not building
-special constructor semantics when ordinary function composition is enough.
+special construction semantics when ordinary function composition is enough.
 
 ### Print With `::`
 
@@ -375,8 +393,8 @@ special constructor semantics when ordinary function composition is enough.
 :: (2 + 3)
 ```
 
-`::` is a print effect. It returns `null`, so a function whose last row is a
-print also returns `null`.
+`::` is a print effect. It returns the empty/no-value result, printed as
+`null`, so a function whose last row is a print also returns that empty result.
 
 ```vkf
 print_square(x):
@@ -401,15 +419,21 @@ answer: 42
 
 ## Values
 
-### Numbers, Strings, Booleans, Null
+### Numbers, Characters, Strings, Bits, Empty Result
 
 ```vkf
 n: 42
 pi: 3.1415
+unit: i
+letter: chr(65)
 name: "Ada"
 ready: true
 missing: null
 ```
+
+`true` and `false` are `bit` literals. `null` is the empty/no-value result, not
+one of the primitive function/type handles. Because `null` has no type,
+`null.` prints `null`.
 
 Double-quoted strings support interpolation:
 
@@ -767,25 +791,67 @@ Rules:
 - At most one `:::name` capture is allowed.
 - `...name` must appear before `:::name`.
 
-### Core Types And Type Reflection
+### Core Function/Types And Reflection
 
-Core scalar types are `num`, `int`, `str`, `bool`, and `null`. Containers add
-shape:
+The core scalar function/types are `bit`, `int`, `num`, `chr`, and `str`.
+They are ordinary values in the language model: names that refer to callable
+handles. There is no separate `type` keyword.
+
+Calling a primitive coerces or constructs a value:
+
+```vkf
+ready: bit(1)
+count: int(12.8)
+z: num(2, 3)
+letter: chr(65)
+name: str("Ada")
+
+:: ready      # true
+:: count      # 12
+:: z          # 2+3i
+:: letter     # A
+:: name       # Ada
+```
+
+`num` is complex-capable by design. A real number is a `num` whose imaginary
+part is zero. Both `i` and `j` can be used as the imaginary unit, and printing
+uses `i`:
+
+```vkf
+:: sqrt(-1)   # i
+:: 2 + i      # 2+i
+:: 4j         # 4i
+```
+
+Primitive handles reflect as function signatures:
+
+```vkf
+:: bit.       # (any) -> bit
+:: int.       # (any) -> int
+:: num.       # (any, any = 0) -> num
+:: chr.       # (any) -> chr
+:: str.       # (any) -> str
+```
+
+Containers add shape around those same function/types:
 
 ```vkf
 Point: (x:num, y:num)
 Pair: (num, num)
 Nums: [num:3]
 Bag: {str}
+Word4: [chr:4]
 ```
 
 A loose dot with no member asks for the type of a value.
 
 ```vkf
 point: (x:3, y:4)
+word: [chr(86), chr(75), chr(70)]
 
 :: point.       # (x:num, y:num)
 :: [1, 2, 3].   # [num:3]
+:: word.        # [chr:3]
 ```
 
 You can spill a type's members into different containers.

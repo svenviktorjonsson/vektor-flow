@@ -1,0 +1,12 @@
+build(n:num):
+    i: 0
+    xs: []
+    i < n?>
+        xs: xs & [i]
+        i: i + 1
+    xs
+
+out: build(512)
+:: out.0
+:: out.255
+:: out.511

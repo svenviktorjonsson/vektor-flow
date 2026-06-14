@@ -4,25 +4,20 @@ notation: .notation
 
 empty_piece() -> Piece:
     """Return a sentinel empty piece for board scans."""
-    @: (side:"", role:"", file:0, rank:0, captured:true, tray_rank:0, has_moved:true)
+    @: (side:Side.none, role:PieceRole.none, file:0, rank:0, captured:true, tray_rank:0, has_moved:true)
 
-back_rank_role(file:num) -> str:
+back_rank_roles: [PieceRole.rook, PieceRole.knight, PieceRole.bishop, PieceRole.queen, PieceRole.king, PieceRole.bishop, PieceRole.knight, PieceRole.rook]
+
+back_rank_role(file:num) -> num:
     """Return starting back-rank role by file."""
-    file = 1? @: "rook"
-    file = 2? @: "knight"
-    file = 3? @: "bishop"
-    file = 4? @: "queen"
-    file = 5? @: "king"
-    file = 6? @: "bishop"
-    file = 7? @: "knight"
-    @: "rook"
+    @: back_rank_roles.(file - 1)
 
 initial_piece(index:num) -> Piece:
     """Return one of the 32 initial pieces in object-id order."""
-    index <= 8? @: (side:"white", role:back_rank_role(index), file:index, rank:1, captured:false, tray_rank:0, has_moved:false)
-    index <= 16? @: (side:"white", role:"pawn", file:index - 8, rank:2, captured:false, tray_rank:0, has_moved:false)
-    index <= 24? @: (side:"black", role:back_rank_role(index - 16), file:index - 16, rank:8, captured:false, tray_rank:0, has_moved:false)
-    @: (side:"black", role:"pawn", file:index - 24, rank:7, captured:false, tray_rank:0, has_moved:false)
+    index <= 8? @: (side:Side.white, role:back_rank_role(index), file:index, rank:1, captured:false, tray_rank:0, has_moved:false)
+    index <= 16? @: (side:Side.white, role:PieceRole.pawn, file:index - 8, rank:2, captured:false, tray_rank:0, has_moved:false)
+    index <= 24? @: (side:Side.black, role:back_rank_role(index - 16), file:index - 16, rank:8, captured:false, tray_rank:0, has_moved:false)
+    @: (side:Side.black, role:PieceRole.pawn, file:index - 24, rank:7, captured:false, tray_rank:0, has_moved:false)
 
 initial_board() -> any:
     """Return all live pieces in fixed 32-slot board order."""
@@ -34,14 +29,14 @@ piece_at(board:any, file:num, rank:num) -> Piece:
     found: empty_piece()
     i < 32?>
         p: board.(i)
-        found.side = ""?
+        found.side = Side.none?
             p.captured = false?
                 rules.same_square(p, file, rank)?
                     found: p
         i: i + 1
     @: found
 
-target_side_at(state:GameState, file:num, rank:num) -> str:
+target_side_at(state:GameState, file:num, rank:num) -> num:
     """Return the side occupying a target square."""
     @: piece_at(state.board, file, rank).side
 
@@ -51,7 +46,7 @@ sign_num(value:num) -> num:
     value > 0? @: 1
     @: 0
 
-path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bool:
+path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when no board piece blocks a sliding move path."""
     df: sign_num(to_file - piece.file)
     dr: sign_num(to_rank - piece.rank)
@@ -64,7 +59,7 @@ path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bool:
             r = to_rank?
                 done: true
         done = false?
-            piece_at(board, f, r).side != ""?
+            piece_at(board, f, r).side != Side.none?
                 clear: false
                 done: true
         done = false?
@@ -72,64 +67,64 @@ path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bool:
             r: r + dr
     @: clear
 
-path_clear_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bool:
+path_clear_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when no board piece blocks a sliding move path."""
     @: path_clear_on_board(state.board, piece, to_file, to_rank)
 
-pawn_double_path_clear(board:any, piece:Piece, to_file:num, to_rank:num) -> bool:
+pawn_double_path_clear(board:any, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when a two-square pawn advance has an empty middle square."""
-    piece.role = "pawn"?
+    piece.role = PieceRole.pawn?
         rules.is_double_pawn_move(piece, to_file, to_rank)?
-            piece.side = "white"? @: piece_at(board, piece.file, 3).side = ""
-            @: piece_at(board, piece.file, 6).side = ""
+            piece.side = Side.white? @: piece_at(board, piece.file, 3).side = Side.none
+            @: piece_at(board, piece.file, 6).side = Side.none
     @: true
 
-castle_path_empty_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bool:
+castle_path_empty_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when every square between king and castling rook is empty."""
     to_file = 7?
-        piece_at(state.board, 6, to_rank).side = ""?
-            piece_at(state.board, 7, to_rank).side = ""? @: true
+        piece_at(state.board, 6, to_rank).side = Side.none?
+            piece_at(state.board, 7, to_rank).side = Side.none? @: true
         @: false
     to_file = 3?
-        piece_at(state.board, 4, to_rank).side = ""?
-            piece_at(state.board, 3, to_rank).side = ""?
-                piece_at(state.board, 2, to_rank).side = ""? @: true
+        piece_at(state.board, 4, to_rank).side = Side.none?
+            piece_at(state.board, 3, to_rank).side = Side.none?
+                piece_at(state.board, 2, to_rank).side = Side.none? @: true
         @: false
     @: false
 
-move_path_clear_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bool:
+move_path_clear_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return board-derived path clearance for normal and double-pawn moves."""
-    piece.role = "king"?
+    piece.role = PieceRole.king?
         piece.file = 5?
             piece.rank = to_rank?
                 to_file = 7? @: castle_path_empty_from_board(state, piece, to_file, to_rank)
                 to_file = 3? @: castle_path_empty_from_board(state, piece, to_file, to_rank)
         @: true
-    piece.role = "pawn"? @: pawn_double_path_clear(state.board, piece, to_file, to_rank)
-    piece.role = "rook"?
+    piece.role = PieceRole.pawn? @: pawn_double_path_clear(state.board, piece, to_file, to_rank)
+    piece.role = PieceRole.rook?
         rules.is_rook_shape(piece, to_file, to_rank)? @: path_clear_on_board(state.board, piece, to_file, to_rank)
         @: false
-    piece.role = "bishop"?
+    piece.role = PieceRole.bishop?
         rules.is_bishop_shape(piece, to_file, to_rank)? @: path_clear_on_board(state.board, piece, to_file, to_rank)
         @: false
-    piece.role = "queen"?
+    piece.role = PieceRole.queen?
         rules.piece_shape_move(piece, to_file, to_rank)? @: path_clear_on_board(state.board, piece, to_file, to_rank)
         @: false
     @: true
 
-castle_rook_available(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bool:
+castle_rook_available(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when the castling rook is present and unmoved."""
     to_file = 7?
         rook: piece_at(state.board, 8, to_rank)
         rook.side = piece.side?
-            rook.role = "rook"?
+            rook.role = PieceRole.rook?
                 rook.has_moved? @: false
                 @: true
         @: false
     to_file = 3?
         rook: piece_at(state.board, 1, to_rank)
         rook.side = piece.side?
-            rook.role = "rook"?
+            rook.role = PieceRole.rook?
                 rook.has_moved? @: false
                 @: true
         @: false
@@ -145,10 +140,10 @@ captured_piece(piece:Piece) -> Piece:
 
 en_passant_capture_rank(piece:Piece) -> num:
     """Return the rank of the pawn captured by en passant."""
-    piece.side = "white"? @: piece.rank
+    piece.side = Side.white? @: piece.rank
     @: piece.rank
 
-is_moving_piece(slot:Piece, piece:Piece) -> bool:
+is_moving_piece(slot:Piece, piece:Piece) -> bit:
     """Return true when a board slot is the selected moving piece."""
     slot.side = piece.side?
         slot.role = piece.role?
@@ -156,7 +151,7 @@ is_moving_piece(slot:Piece, piece:Piece) -> bool:
                 slot.rank = piece.rank? @: true
     @: false
 
-is_destination_piece(slot:Piece, to_file:num, to_rank:num) -> bool:
+is_destination_piece(slot:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when a board slot occupies a normal capture destination."""
     slot.file = to_file?
         slot.rank = to_rank?
@@ -164,37 +159,37 @@ is_destination_piece(slot:Piece, to_file:num, to_rank:num) -> bool:
             @: true
     @: false
 
-is_en_passant_captured_piece(slot:Piece, piece:Piece, to_file:num, to_rank:num, en_passant:bool) -> bool:
+is_en_passant_captured_piece(slot:Piece, piece:Piece, to_file:num, to_rank:num, en_passant:bit) -> bit:
     """Return true when a board slot is the pawn removed by en passant."""
     en_passant?
         slot.side != piece.side?
-            slot.role = "pawn"?
+            slot.role = PieceRole.pawn?
                 slot.file = to_file?
                     slot.rank = en_passant_capture_rank(piece)? @: true
     @: false
 
-rook_from_file_for_castle(castle_side:str) -> num:
+rook_from_file_for_castle(castle_side:num) -> num:
     """Return the rook source file for a castling move."""
-    castle_side = "king"? @: 8
-    castle_side = "queen"? @: 1
+    castle_side = CastleSide.king? @: 8
+    castle_side = CastleSide.queen? @: 1
     @: 0
 
-rook_to_file_for_castle(castle_side:str) -> num:
+rook_to_file_for_castle(castle_side:num) -> num:
     """Return the rook destination file for a castling move."""
-    castle_side = "king"? @: 6
-    castle_side = "queen"? @: 4
+    castle_side = CastleSide.king? @: 6
+    castle_side = CastleSide.queen? @: 4
     @: 0
 
-is_castling_rook(slot:Piece, piece:Piece, castle_side:str) -> bool:
+is_castling_rook(slot:Piece, piece:Piece, castle_side:num) -> bit:
     """Return true when a board slot is the rook moved by castling."""
-    castle_side != ""?
+    castle_side != CastleSide.none?
         slot.side = piece.side?
-            slot.role = "rook"?
+            slot.role = PieceRole.rook?
                 slot.file = rook_from_file_for_castle(castle_side)?
                     slot.rank = piece.rank? @: true
     @: false
 
-board_piece_after_move(slot:Piece, piece:Piece, to_file:num, to_rank:num, castle_side:str, en_passant:bool) -> Piece:
+board_piece_after_move(slot:Piece, piece:Piece, to_file:num, to_rank:num, castle_side:num, en_passant:bit) -> Piece:
     """Return one board slot after a normal, castle, capture, or en-passant move."""
     is_moving_piece(slot, piece)? @: moved_piece(piece, to_file, to_rank)
     is_castling_rook(slot, piece, castle_side)? @: moved_piece(slot, rook_to_file_for_castle(castle_side), piece.rank)
@@ -202,50 +197,50 @@ board_piece_after_move(slot:Piece, piece:Piece, to_file:num, to_rank:num, castle
     is_destination_piece(slot, to_file, to_rank)? @: captured_piece(slot)
     @: slot
 
-board_after_move(board:any, piece:Piece, to_file:num, to_rank:num, castle_side:str, en_passant:bool) -> any:
+board_after_move(board:any, piece:Piece, to_file:num, to_rank:num, castle_side:num, en_passant:bit) -> any:
     """Return a board vector updated after an accepted move."""
     @: ([1..32] >> board_piece_after_move(board.($ - 1), piece, to_file, to_rank, castle_side, en_passant))
 
-opponent_side(side:str) -> str:
+opponent_side(side:num) -> num:
     """Return the opposing chess side."""
-    side = "white"? @: "black"
-    @: "white"
+    side = Side.white? @: Side.black
+    @: Side.white
 
-king_piece_on_board(board:any, side:str) -> Piece:
+king_piece_on_board(board:any, side:num) -> Piece:
     """Return one side's live king from the board."""
     i: 0
     found: empty_piece()
     i < 32?>
         p: board.(i)
-        found.side = ""?
+        found.side = Side.none?
             p.captured = false?
                 p.side = side?
-                    p.role = "king"?
+                    p.role = PieceRole.king?
                         found: p
         i: i + 1
     @: found
 
-piece_attacks_square(board:any, attacker:Piece, file:num, rank:num) -> bool:
+piece_attacks_square(board:any, attacker:Piece, file:num, rank:num) -> bit:
     """Return true when one live piece attacks a square on this board."""
     attacker.captured? @: false
-    attacker.role = "pawn"? @: rules.is_pawn_capture_shape(attacker, file, rank)
-    attacker.role = "knight"? @: rules.is_knight_shape(attacker, file, rank)
-    attacker.role = "king"? @: rules.is_king_shape(attacker, file, rank)
-    attacker.role = "rook"?
+    attacker.role = PieceRole.pawn? @: rules.is_pawn_capture_shape(attacker, file, rank)
+    attacker.role = PieceRole.knight? @: rules.is_knight_shape(attacker, file, rank)
+    attacker.role = PieceRole.king? @: rules.is_king_shape(attacker, file, rank)
+    attacker.role = PieceRole.rook?
         rules.is_rook_shape(attacker, file, rank)?
             path_clear_on_board(board, attacker, file, rank)? @: true
         @: false
-    attacker.role = "bishop"?
+    attacker.role = PieceRole.bishop?
         rules.is_bishop_shape(attacker, file, rank)?
             path_clear_on_board(board, attacker, file, rank)? @: true
         @: false
-    attacker.role = "queen"?
+    attacker.role = PieceRole.queen?
         rules.piece_shape_move(attacker, file, rank)?
             path_clear_on_board(board, attacker, file, rank)? @: true
         @: false
     @: false
 
-square_attacked_by(board:any, side:str, file:num, rank:num) -> bool:
+square_attacked_by(board:any, side:num, file:num, rank:num) -> bit:
     """Return true when any live piece from side attacks a square."""
     i: 0
     attacked: false
@@ -259,19 +254,19 @@ square_attacked_by(board:any, side:str, file:num, rank:num) -> bool:
         i: i + 1
     @: attacked
 
-king_safe_on_board(board:any, side:str) -> bool:
+king_safe_on_board(board:any, side:num) -> bit:
     """Return true when side's king is not attacked on this board."""
     king: king_piece_on_board(board, side)
-    king.side = ""? @: false
+    king.side = Side.none? @: false
     @: square_attacked_by(board, opponent_side(side), king.file, king.rank) = false
 
-square_safe_for_side(board:any, side:str, file:num, rank:num) -> bool:
+square_safe_for_side(board:any, side:num, file:num, rank:num) -> bit:
     """Return true when one square is not attacked by the opposing side."""
     @: square_attacked_by(board, opponent_side(side), file, rank) = false
 
-castle_path_safe_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bool:
+castle_path_safe_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when the king's start, transit, and destination squares are safe."""
-    piece.role = "king"?
+    piece.role = PieceRole.king?
         piece.file = 5?
             piece.rank = to_rank?
                 to_file = 7?
@@ -286,30 +281,30 @@ castle_path_safe_from_board(state:GameState, piece:Piece, to_file:num, to_rank:n
                     @: false
     @: false
 
-king_safe_after_board_move(state:GameState, piece:Piece, to_file:num, to_rank:num, castle_side:str, en_passant:bool) -> bool:
+king_safe_after_board_move(state:GameState, piece:Piece, to_file:num, to_rank:num, castle_side:num, en_passant:bit) -> bit:
     """Return true when a candidate accepted move leaves the mover's king safe."""
     candidate: board_after_move(state.board, piece, to_file, to_rank, castle_side, en_passant)
     @: king_safe_on_board(candidate, piece.side)
 
-game_state(turn:str, move_count:num, history:str, selected_side:str, selected_role:str, selected_file:num, selected_rank:num, has_selection:bool, status:str, white_can_castle_king:bool, white_can_castle_queen:bool, black_can_castle_king:bool, black_can_castle_queen:bool, last_double_pawn_side:str, last_double_pawn_file:num, last_double_pawn_rank:num, board:any) -> GameState:
+game_state(turn:num, move_count:num, history:str, selected_side:num, selected_role:num, selected_file:num, selected_rank:num, has_selection:bit, status:str, white_can_castle_king:bit, white_can_castle_queen:bit, black_can_castle_king:bit, black_can_castle_queen:bit, last_double_pawn_side:num, last_double_pawn_file:num, last_double_pawn_rank:num, board:any) -> GameState:
     """Construct one complete board-state record."""
     @: (turn:turn, move_count:move_count, history:history, selected_side:selected_side, selected_role:selected_role, selected_file:selected_file, selected_rank:selected_rank, has_selection:has_selection, status:status, white_can_castle_king:white_can_castle_king, white_can_castle_queen:white_can_castle_queen, black_can_castle_king:black_can_castle_king, black_can_castle_queen:black_can_castle_queen, last_double_pawn_side:last_double_pawn_side, last_double_pawn_file:last_double_pawn_file, last_double_pawn_rank:last_double_pawn_rank, board:board)
 
 initial_state() -> GameState:
     """Return a fresh playable game state."""
-    @: game_state("white", 0, "", "", "", 0, 0, false, "ready", true, true, true, true, "", 0, 0, initial_board())
+    @: game_state(Side.white, 0, "", Side.none, PieceRole.none, 0, 0, false, "ready", true, true, true, true, Side.none, 0, 0, initial_board())
 
 empty_intent(to_file:num, to_rank:num) -> MoveIntent:
     """Return an empty move intent for rejected clicks."""
-    @: (side:"", role:"", from_file:0, from_rank:0, to_file:to_file, to_rank:to_rank, notation:"", capture:false, castle_side:"", en_passant:false, check_suffix:"")
+    @: (side:Side.none, role:PieceRole.none, from_file:0, from_rank:0, to_file:to_file, to_rank:to_rank, notation:"", capture:false, castle_side:CastleSide.none, en_passant:false, check_suffix:"")
 
-move_intent(piece:Piece, to_file:num, to_rank:num, notation_text:str, capture:bool, castle_side:str, en_passant:bool, check_suffix:str) -> MoveIntent:
+move_intent(piece:Piece, to_file:num, to_rank:num, notation_text:str, capture:bit, castle_side:num, en_passant:bit, check_suffix:str) -> MoveIntent:
     """Return a complete accepted move intent."""
     @: (side:piece.side, role:piece.role, from_file:piece.file, from_rank:piece.rank, to_file:to_file, to_rank:to_rank, notation:notation_text, capture:capture, castle_side:castle_side, en_passant:en_passant, check_suffix:check_suffix)
 
-capture_flag(target_side:str, en_passant:bool) -> bool:
+capture_flag(target_side:num, en_passant:bit) -> bit:
     """Return true when the move captures normally or by en passant."""
-    target_side != ""? @: true
+    target_side != Side.none? @: true
     en_passant? @: true
     @: false
 
@@ -317,10 +312,10 @@ board_material() -> BoardMaterial:
     """Describe the checker/mirror surface mix for the UI renderer."""
     @: (dark:"#161616", light:"#f0d9b5", checker_weight:0.80, mirror_weight:0.20, roughness:0.18)
 
-next_turn(turn:str) -> str:
+next_turn(turn:num) -> num:
     """Alternate active side after accepted moves."""
-    turn = "white"? @: "black"
-    @: "white"
+    turn = Side.white? @: Side.black
+    @: Side.white
 
 append_history(history:str, move_text:str) -> str:
     """Append SAN-ish move text to the side-panel history string."""
@@ -334,7 +329,7 @@ select_piece_unchecked(state:GameState, piece:Piece) -> GameState:
 
 clear_selection(state:GameState, status:str) -> GameState:
     """Clear selection while preserving turn and history."""
-    @: game_state(state.turn, state.move_count, state.history, "", "", 0, 0, false, status, state.white_can_castle_king, state.white_can_castle_queen, state.black_can_castle_king, state.black_can_castle_queen, state.last_double_pawn_side, state.last_double_pawn_file, state.last_double_pawn_rank, state.board)
+    @: game_state(state.turn, state.move_count, state.history, Side.none, PieceRole.none, 0, 0, false, status, state.white_can_castle_king, state.white_can_castle_queen, state.black_can_castle_king, state.black_can_castle_queen, state.last_double_pawn_side, state.last_double_pawn_file, state.last_double_pawn_rank, state.board)
 
 selected_piece(state:GameState) -> Piece:
     """Return the currently selected piece as a rule input."""
@@ -344,45 +339,45 @@ selected_piece_from_board(state:GameState) -> Piece:
     """Return the selected piece from the authoritative board vector."""
     @: piece_at(state.board, state.selected_file, state.selected_rank)
 
-side_can_castle_king(state:GameState, side:str) -> bool:
+side_can_castle_king(state:GameState, side:num) -> bit:
     """Return kingside castle right for one side."""
-    side = "white"? @: state.white_can_castle_king
+    side = Side.white? @: state.white_can_castle_king
     @: state.black_can_castle_king
 
-side_can_castle_queen(state:GameState, side:str) -> bool:
+side_can_castle_queen(state:GameState, side:num) -> bit:
     """Return queenside castle right for one side."""
-    side = "white"? @: state.white_can_castle_queen
+    side = Side.white? @: state.white_can_castle_queen
     @: state.black_can_castle_queen
 
-next_white_can_castle_king(state:GameState, piece:Piece) -> bool:
+next_white_can_castle_king(state:GameState, piece:Piece) -> bit:
     """Return updated white kingside castle right after a piece move."""
-    piece.side = "white"?
-        piece.role = "king"? @: false
-        piece.role = "rook"?
+    piece.side = Side.white?
+        piece.role = PieceRole.king? @: false
+        piece.role = PieceRole.rook?
             piece.file = 8? @: false
     @: state.white_can_castle_king
 
-next_white_can_castle_queen(state:GameState, piece:Piece) -> bool:
+next_white_can_castle_queen(state:GameState, piece:Piece) -> bit:
     """Return updated white queenside castle right after a piece move."""
-    piece.side = "white"?
-        piece.role = "king"? @: false
-        piece.role = "rook"?
+    piece.side = Side.white?
+        piece.role = PieceRole.king? @: false
+        piece.role = PieceRole.rook?
             piece.file = 1? @: false
     @: state.white_can_castle_queen
 
-next_black_can_castle_king(state:GameState, piece:Piece) -> bool:
+next_black_can_castle_king(state:GameState, piece:Piece) -> bit:
     """Return updated black kingside castle right after a piece move."""
-    piece.side = "black"?
-        piece.role = "king"? @: false
-        piece.role = "rook"?
+    piece.side = Side.black?
+        piece.role = PieceRole.king? @: false
+        piece.role = PieceRole.rook?
             piece.file = 8? @: false
     @: state.black_can_castle_king
 
-next_black_can_castle_queen(state:GameState, piece:Piece) -> bool:
+next_black_can_castle_queen(state:GameState, piece:Piece) -> bit:
     """Return updated black queenside castle right after a piece move."""
-    piece.side = "black"?
-        piece.role = "king"? @: false
-        piece.role = "rook"?
+    piece.side = Side.black?
+        piece.role = PieceRole.king? @: false
+        piece.role = PieceRole.rook?
             piece.file = 1? @: false
     @: state.black_can_castle_queen
 
@@ -392,19 +387,19 @@ clear_castle_rights_after_move(state:GameState, piece:Piece, to_file:num, to_ran
 
 record_last_double_pawn(state:GameState, piece:Piece, to_file:num, to_rank:num) -> GameState:
     """Store the latest double-pawn destination for en passant."""
-    piece.role = "pawn"?
+    piece.role = PieceRole.pawn?
         rules.abs_num(to_rank - piece.rank) = 2?
             @: game_state(state.turn, state.move_count, state.history, state.selected_side, state.selected_role, state.selected_file, state.selected_rank, state.has_selection, state.status, state.white_can_castle_king, state.white_can_castle_queen, state.black_can_castle_king, state.black_can_castle_queen, piece.side, to_file, to_rank, state.board)
-    @: game_state(state.turn, state.move_count, state.history, state.selected_side, state.selected_role, state.selected_file, state.selected_rank, state.has_selection, state.status, state.white_can_castle_king, state.white_can_castle_queen, state.black_can_castle_king, state.black_can_castle_queen, "", 0, 0, state.board)
+    @: game_state(state.turn, state.move_count, state.history, state.selected_side, state.selected_role, state.selected_file, state.selected_rank, state.has_selection, state.status, state.white_can_castle_king, state.white_can_castle_queen, state.black_can_castle_king, state.black_can_castle_queen, Side.none, 0, 0, state.board)
 
-accepted_state_after_move(state:GameState, piece:Piece, move_text:str, to_file:num, to_rank:num, castle_side:str, en_passant:bool) -> GameState:
+accepted_state_after_move(state:GameState, piece:Piece, move_text:str, to_file:num, to_rank:num, castle_side:num, en_passant:bit) -> GameState:
     """Build the next state after a legal move."""
     rights_state: clear_castle_rights_after_move(state, piece, to_file, to_rank)
     moved_board: board_after_move(rights_state.board, piece, to_file, to_rank, castle_side, en_passant)
-    moved_state: game_state(next_turn(state.turn), state.move_count + 1, append_history(state.history, move_text), "", "", 0, 0, false, "moved", rights_state.white_can_castle_king, rights_state.white_can_castle_queen, rights_state.black_can_castle_king, rights_state.black_can_castle_queen, rights_state.last_double_pawn_side, rights_state.last_double_pawn_file, rights_state.last_double_pawn_rank, moved_board)
+    moved_state: game_state(next_turn(state.turn), state.move_count + 1, append_history(state.history, move_text), Side.none, PieceRole.none, 0, 0, false, "moved", rights_state.white_can_castle_king, rights_state.white_can_castle_queen, rights_state.black_can_castle_king, rights_state.black_can_castle_queen, rights_state.last_double_pawn_side, rights_state.last_double_pawn_file, rights_state.last_double_pawn_rank, moved_board)
     @: record_last_double_pawn(moved_state, piece, to_file, to_rank)
 
-try_move_selected_ext(state:GameState, to_file:num, to_rank:num, target_side:str, path_clear:bool, king_safe_after:bool, castle_path_safe:bool, rook_available:bool, check_state:str) -> MoveResult:
+try_move_selected_ext(state:GameState, to_file:num, to_rank:num, target_side:num, path_clear:bit, king_safe_after:bit, castle_path_safe:bit, rook_available:bit, check_state:str) -> MoveResult:
     """Apply a selected-piece move with state-owned special move and notation facts."""
     state.has_selection?
         piece: selected_piece(state)
@@ -418,7 +413,7 @@ try_move_selected_ext(state:GameState, to_file:num, to_rank:num, target_side:str
         @: (ok:false, state:rejected, intent:empty_intent(to_file, to_rank))
     @: (ok:false, state:clear_selection(state, "no-selection"), intent:empty_intent(to_file, to_rank))
 
-move_legal_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bool:
+move_legal_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
     """Return true when a candidate move is legal from the current VKF board."""
     target_side: target_side_at(state, to_file, to_rank)
     target_side = piece.side? @: false
@@ -430,7 +425,7 @@ move_legal_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) ->
     king_safe: king_safe_after_board_move(state, piece, to_file, to_rank, castle, ep)
     @: rules.legal_shape_ext(piece, target_side, to_file, to_rank, path_clear, king_safe, castle_safe, rook_available, side_can_castle_king(state, piece.side), side_can_castle_queen(state, piece.side), state.last_double_pawn_side, state.last_double_pawn_file, state.last_double_pawn_rank)
 
-within_board(file:num, rank:num) -> bool:
+within_board(file:num, rank:num) -> bit:
     """Return true when a candidate square is on the chess board."""
     file < 1? @: false
     file > 8? @: false
@@ -438,7 +433,7 @@ within_board(file:num, rank:num) -> bool:
     rank > 8? @: false
     @: true
 
-direction_has_legal_move(state:GameState, piece:Piece, df:num, dr:num) -> bool:
+direction_has_legal_move(state:GameState, piece:Piece, df:num, dr:num) -> bit:
     """Scan one sliding-piece ray until blocked or a legal move is found."""
     f: piece.file + df
     r: piece.rank + dr
@@ -452,14 +447,14 @@ direction_has_legal_move(state:GameState, piece:Piece, df:num, dr:num) -> bool:
                 found: true
                 done: true
         done = false?
-            piece_at(state.board, f, r).side != ""?
+            piece_at(state.board, f, r).side != Side.none?
                 done: true
         done = false?
             f: f + df
             r: r + dr
     @: found
 
-rook_has_legal_move(state:GameState, piece:Piece) -> bool:
+rook_has_legal_move(state:GameState, piece:Piece) -> bit:
     """Return true when a rook-like piece has a legal move."""
     direction_has_legal_move(state, piece, 1, 0)? @: true
     direction_has_legal_move(state, piece, -1, 0)? @: true
@@ -467,7 +462,7 @@ rook_has_legal_move(state:GameState, piece:Piece) -> bool:
     direction_has_legal_move(state, piece, 0, -1)? @: true
     @: false
 
-bishop_has_legal_move(state:GameState, piece:Piece) -> bool:
+bishop_has_legal_move(state:GameState, piece:Piece) -> bit:
     """Return true when a bishop-like piece has a legal move."""
     direction_has_legal_move(state, piece, 1, 1)? @: true
     direction_has_legal_move(state, piece, 1, -1)? @: true
@@ -475,9 +470,9 @@ bishop_has_legal_move(state:GameState, piece:Piece) -> bool:
     direction_has_legal_move(state, piece, -1, -1)? @: true
     @: false
 
-pawn_has_legal_move(state:GameState, piece:Piece) -> bool:
+pawn_has_legal_move(state:GameState, piece:Piece) -> bit:
     """Return true when a pawn has a legal move."""
-    piece.side = "white"?
+    piece.side = Side.white?
         move_legal_from_board(state, piece, piece.file, piece.rank + 1)? @: true
         move_legal_from_board(state, piece, piece.file, piece.rank + 2)? @: true
         move_legal_from_board(state, piece, piece.file + 1, piece.rank + 1)? @: true
@@ -489,7 +484,7 @@ pawn_has_legal_move(state:GameState, piece:Piece) -> bool:
     move_legal_from_board(state, piece, piece.file - 1, piece.rank - 1)? @: true
     @: false
 
-knight_has_legal_move(state:GameState, piece:Piece) -> bool:
+knight_has_legal_move(state:GameState, piece:Piece) -> bit:
     """Return true when a knight has a legal move."""
     move_legal_from_board(state, piece, piece.file + 1, piece.rank + 2)? @: true
     move_legal_from_board(state, piece, piece.file + 2, piece.rank + 1)? @: true
@@ -501,7 +496,7 @@ knight_has_legal_move(state:GameState, piece:Piece) -> bool:
     move_legal_from_board(state, piece, piece.file - 1, piece.rank + 2)? @: true
     @: false
 
-king_has_legal_move(state:GameState, piece:Piece) -> bool:
+king_has_legal_move(state:GameState, piece:Piece) -> bit:
     """Return true when a king has a legal move or castle."""
     move_legal_from_board(state, piece, piece.file + 1, piece.rank)? @: true
     move_legal_from_board(state, piece, piece.file + 1, piece.rank + 1)? @: true
@@ -515,21 +510,21 @@ king_has_legal_move(state:GameState, piece:Piece) -> bool:
     move_legal_from_board(state, piece, 3, piece.rank)? @: true
     @: false
 
-piece_has_legal_move_from_board(state:GameState, piece:Piece) -> bool:
+piece_has_legal_move_from_board(state:GameState, piece:Piece) -> bit:
     """Return true when a side-to-move piece can legally move somewhere."""
     piece.side != state.turn? @: false
     piece.captured? @: false
-    piece.role = "pawn"? @: pawn_has_legal_move(state, piece)
-    piece.role = "knight"? @: knight_has_legal_move(state, piece)
-    piece.role = "king"? @: king_has_legal_move(state, piece)
-    piece.role = "rook"? @: rook_has_legal_move(state, piece)
-    piece.role = "bishop"? @: bishop_has_legal_move(state, piece)
-    piece.role = "queen"?
+    piece.role = PieceRole.pawn? @: pawn_has_legal_move(state, piece)
+    piece.role = PieceRole.knight? @: knight_has_legal_move(state, piece)
+    piece.role = PieceRole.king? @: king_has_legal_move(state, piece)
+    piece.role = PieceRole.rook? @: rook_has_legal_move(state, piece)
+    piece.role = PieceRole.bishop? @: bishop_has_legal_move(state, piece)
+    piece.role = PieceRole.queen?
         rook_has_legal_move(state, piece)? @: true
         @: bishop_has_legal_move(state, piece)
     @: false
 
-piece_selectable_from_board(state:GameState, piece:Piece) -> bool:
+piece_selectable_from_board(state:GameState, piece:Piece) -> bit:
     """Return true when a piece belongs to the turn and has at least one legal move."""
     piece.side = state.turn?
         piece_has_legal_move_from_board(state, piece)? @: true
@@ -556,7 +551,7 @@ hover_square_intent(state:GameState, file:num, rank:num) -> HoverIntent:
     hover_state: hover_square_state(state, file, rank)
     @: (file:file, rank:rank, state:hover_state, legal:hover_state = "legal")
 
-try_move_selected_from_board(state:GameState, to_file:num, to_rank:num, king_safe_after:bool, castle_path_safe:bool, check_state:str) -> MoveResult:
+try_move_selected_from_board(state:GameState, to_file:num, to_rank:num, king_safe_after:bit, castle_path_safe:bit, check_state:str) -> MoveResult:
     """Apply a move using target/path/rook facts derived from the VKF board."""
     state.has_selection?
         piece: selected_piece_from_board(state)
@@ -568,9 +563,9 @@ try_move_selected_from_board(state:GameState, to_file:num, to_rank:num, king_saf
         ep: rules.is_en_passant(piece, target_side, to_file, to_rank, state.last_double_pawn_side, state.last_double_pawn_file, state.last_double_pawn_rank)
         king_safe: king_safe_after_board_move(state, piece, to_file, to_rank, castle, ep)
         @: try_move_selected_ext(state, to_file, to_rank, target_side, path_clear, king_safe, board_castle_path_safe, rook_available, check_state)
-    @: try_move_selected_ext(state, to_file, to_rank, "", true, king_safe_after, castle_path_safe, false, check_state)
+    @: try_move_selected_ext(state, to_file, to_rank, Side.none, true, king_safe_after, castle_path_safe, false, check_state)
 
-try_move_selected(state:GameState, to_file:num, to_rank:num, target_side:str, path_clear:bool, king_safe_after:bool) -> MoveResult:
+try_move_selected(state:GameState, to_file:num, to_rank:num, target_side:num, path_clear:bit, king_safe_after:bit) -> MoveResult:
     """Apply a selected-piece move if the rules accept it."""
     @: try_move_selected_from_board(state, to_file, to_rank, king_safe_after, false, "none")
 
@@ -580,8 +575,8 @@ reset_game() -> GameState:
 
 move_animation(intent:MoveIntent) -> AnimationPlan:
     """Describe the movement arc the generic renderer should animate."""
-    intent.capture? @: (kind:"capture", from_x:notation.board_x(intent.from_file), from_z:notation.board_z(intent.from_rank), to_x:notation.board_x(intent.to_file), to_z:notation.board_z(intent.to_rank), lift:0.55, duration_ms:360, capture_at_ms:180)
-    @: (kind:"move", from_x:notation.board_x(intent.from_file), from_z:notation.board_z(intent.from_rank), to_x:notation.board_x(intent.to_file), to_z:notation.board_z(intent.to_rank), lift:0.35, duration_ms:280, capture_at_ms:0)
+    intent.capture? @: (kind:MotionKind.capture, from_x:notation.board_x(intent.from_file), from_z:notation.board_z(intent.from_rank), to_x:notation.board_x(intent.to_file), to_z:notation.board_z(intent.to_rank), lift:0.55, duration_ms:360, capture_at_ms:180)
+    @: (kind:MotionKind.move, from_x:notation.board_x(intent.from_file), from_z:notation.board_z(intent.from_rank), to_x:notation.board_x(intent.to_file), to_z:notation.board_z(intent.to_rank), lift:0.35, duration_ms:280, capture_at_ms:0)
 
 rotate_theta(camera:CameraOrbit, delta:num) -> CameraOrbit:
     """Rotate the camera around the board center horizontally."""

@@ -1,0 +1,61 @@
+[
+  {
+    "seq": 1,
+    "kind": "scene.replace",
+    "payload": {
+      "commands": [
+        {
+          "kind": "frame_upsert",
+          "id": "vkf_chess_board",
+          "payload": {
+            "spec": {
+              "id": "vkf_chess_board",
+              "title": "VKF Chess 3D Native",
+              "title_align": "left",
+              "rect": {
+                "x": 0.04,
+                "y": 0.06,
+                "w": 0.72,
+                "h": 0.84
+              },
+              "flags": {
+                "draggable": true,
+                "dockable": true,
+                "resizable": true,
+                "closable": true,
+                "use_browser": true
+              },
+              "alpha": 1.0,
+              "master": true,
+              "exit_counted": true,
+              "dock_location": "bl",
+              "anchor": "tl",
+              "body": null,
+              "body_layout": null,
+              "parent_id": null,
+              "aspect": "equal"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "seq": 2,
+    "kind": "ui_state.replace",
+    "payload": {
+      "state": {}
+    }
+  },
+  {
+    "seq": 3,
+    "kind": "display.replace",
+    "payload": {
+      "display": {
+        "screen": [],
+        "frames": {},
+        "geom": {}
+      }
+    }
+  }
+]

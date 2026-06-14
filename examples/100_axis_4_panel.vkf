@@ -3,7 +3,6 @@ math:.math
 ui.set_mode("overlay")
 
 native_scene_config_json: '[]'
-native_scene_runtime_packets_path: "runtime-packets/100_axis_4_panel.vf-runtime-packets.json"
 
 d: ui.display
 
@@ -12,6 +11,8 @@ sin_curve_y: math.sin(curve_x)
 curve_x_sq: curve_x * curve_x
 cos_bell_y: math.cos(curve_x) * math.exp(0 - curve_x_sq)
 
+polar_theta: [0.0, 0.196, 0.393, 0.589, 0.785, 0.982, 1.178, 1.374, 1.571, 1.767, 1.963, 2.16, 2.356, 2.553, 2.749, 2.945, 3.142, 3.338, 3.534, 3.731, 3.927, 4.123, 4.32, 4.516, 4.712, 4.909, 5.105, 5.301, 5.498, 5.694, 5.89, 6.087, 6.283] -> u
+polar_spiral_r: 0.08 + (polar_theta * 0.13)
 surface_u: [-1.4, -1.225, -1.05, -0.875, -0.7, -0.525, -0.35, -0.175, 0.0, 0.175, 0.35, 0.525, 0.7, 0.875, 1.05, 1.225, 1.4] -> u
 surface_v: [-1.4, -1.225, -1.05, -0.875, -0.7, -0.525, -0.35, -0.175, 0.0, 0.175, 0.35, 0.525, 0.7, 0.875, 1.05, 1.225, 1.4] -> v
 saddle_z: (surface_u*surface_u) - (surface_v*surface_v)
@@ -40,18 +41,19 @@ d.add_frame(
       id: "axis_mode_group",
       type: "button_group",
       active: "2d_crosshair",
-      grid: [0, 0, 1, 5],
+      grid: [0, 0, 1, 7],
       align: "left",
       options: [
         (label: "2D crosshair", value: "2d_crosshair", target_frame: "axis_panel_2d_crosshair"),
         (label: "2D box", value: "2d_box", target_frame: "axis_panel_2d_box"),
+        (label: "2D polar", value: "2d_polar_crosshair", target_frame: "axis_panel_2d_polar_crosshair"),
         (label: "3D crosshair", value: "3d_crosshair", target_frame: "axis_panel_3d_crosshair"),
         (label: "3D box", value: "3d_box", target_frame: "axis_panel_3d_box")
       ]
     ),
-    (id: "axis_log_x", type: "checkbox", label: "log x", grid: [0, 5, 1, 1], align: "left", axis: "x", axis_log_target_frames: ["axis_panel_2d_crosshair", "axis_panel_2d_box", "axis_panel_3d_crosshair", "axis_panel_3d_box"]),
-    (id: "axis_log_y", type: "checkbox", label: "log y", grid: [0, 6, 1, 1], align: "left", axis: "y", axis_log_target_frames: ["axis_panel_2d_crosshair", "axis_panel_2d_box", "axis_panel_3d_crosshair", "axis_panel_3d_box"]),
-    (id: "axis_log_z", type: "checkbox", label: "log z", grid: [0, 7, 1, 1], align: "left", axis: "z", axis_log_target_frames: ["axis_panel_3d_crosshair", "axis_panel_3d_box"]),
+    (id: "axis_log_x", type: "checkbox", label: "log x", grid: [0, 7, 1, 1], align: "left", axis: "x", axis_log_target_frames: ["axis_panel_2d_crosshair", "axis_panel_2d_box", "axis_panel_3d_crosshair", "axis_panel_3d_box"]),
+    (id: "axis_log_y", type: "checkbox", label: "log y", grid: [0, 8, 1, 1], align: "left", axis: "y", axis_log_target_frames: ["axis_panel_2d_crosshair", "axis_panel_2d_box", "axis_panel_3d_crosshair", "axis_panel_3d_box"]),
+    (id: "axis_log_z", type: "checkbox", label: "log z", grid: [0, 9, 1, 1], align: "left", axis: "z", axis_log_target_frames: ["axis_panel_3d_crosshair", "axis_panel_3d_box"]),
     (id: "mode_status", type: "label", text: "Active: 2D crosshair", grid: [1, 0, 1, 12], align: "left")
   ]
 )
@@ -92,6 +94,24 @@ a2box.plot(
   y: cos_bell_y,
   id: "cos_bell_curve",
   color: [0.34, 0.92, 0.78, 1.0],
+  width: 2.2
+)
+
+f2polar: d.frame(id: "axis_panel_2d_polar_crosshair", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(f2polar, (0.0, 0.13, 1.0, 0.87), in_frame: deck)
+a2polar: ui.axis_2d(f2polar, x_min: -1.05, x_max: 1.05, y_min: -1.05, y_max: 1.05, prefix: "panel_2d_polar_crosshair")
+a2polar.polar_crosshair(
+  r_max: 1.0,
+  rings: 5,
+  spokes: 16,
+  theta_label_step_deg: 45,
+  grid_alpha: 0.18
+)
+a2polar.plot(
+  r: polar_spiral_r,
+  phi: polar_theta,
+  id: "spiral_curve",
+  color: [1.0, 0.58, 0.10, 1.0],
   width: 2.2
 )
 

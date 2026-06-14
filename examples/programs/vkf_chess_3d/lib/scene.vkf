@@ -6,9 +6,9 @@ state_lib: .state
 
 ui.set_mode("overlay")
 
-piece_color(side:str) -> str:
+piece_color(side:num) -> str:
     """Choose the display color for a side."""
-    side = "white"? @: "#e8e4d8"
+    side = Side.white? @: "#e8e4d8"
     @: "#20242d"
 
 add_square(frame, file:num, rank:num):
@@ -35,46 +35,46 @@ add_rank(frame, rank:num):
     add_square(frame, 7, rank)
     add_square(frame, 8, rank)
 
-add_piece(frame, side:str, role:str, file:num, rank:num):
+add_piece(frame, side:num, role:num, file:num, rank:num):
     """Add exactly one mesh per piece so object ids map cleanly to chess pieces."""
-    role = "rook"?
+    role = PieceRole.rook?
         frame.add_box(center:[notation.board_x(file), 0.54, notation.board_z(rank)], scale:[0.44, 0.88, 0.44], color:piece_color(side))
         @
-    role = "knight"?
+    role = PieceRole.knight?
         frame.add_box(center:[notation.board_x(file), 0.56, notation.board_z(rank)], scale:[0.34, 0.92, 0.46], color:piece_color(side))
         @
-    role = "king"?
+    role = PieceRole.king?
         frame.add_box(center:[notation.board_x(file), 0.70, notation.board_z(rank)], scale:[0.38, 1.18, 0.38], color:piece_color(side))
         @
-    role = "queen"?
+    role = PieceRole.queen?
         frame.add_ellipsoid(center:[notation.board_x(file), 0.70, notation.board_z(rank)], scale:[0.40, 1.10, 0.40], color:piece_color(side))
         @
-    role = "bishop"?
+    role = PieceRole.bishop?
         frame.add_ellipsoid(center:[notation.board_x(file), 0.62, notation.board_z(rank)], scale:[0.32, 0.96, 0.32], color:piece_color(side))
         @
     frame.add_ellipsoid(center:[notation.board_x(file), 0.46, notation.board_z(rank)], scale:[0.28, 0.72, 0.28], color:piece_color(side))
 
-add_back_rank(frame, side:str, rank:num):
+add_back_rank(frame, side:num, rank:num):
     """Add the non-pawn starting rank in deterministic mesh order."""
-    add_piece(frame, side, "rook", 1, rank)
-    add_piece(frame, side, "knight", 2, rank)
-    add_piece(frame, side, "bishop", 3, rank)
-    add_piece(frame, side, "queen", 4, rank)
-    add_piece(frame, side, "king", 5, rank)
-    add_piece(frame, side, "bishop", 6, rank)
-    add_piece(frame, side, "knight", 7, rank)
-    add_piece(frame, side, "rook", 8, rank)
+    add_piece(frame, side, PieceRole.rook, 1, rank)
+    add_piece(frame, side, PieceRole.knight, 2, rank)
+    add_piece(frame, side, PieceRole.bishop, 3, rank)
+    add_piece(frame, side, PieceRole.queen, 4, rank)
+    add_piece(frame, side, PieceRole.king, 5, rank)
+    add_piece(frame, side, PieceRole.bishop, 6, rank)
+    add_piece(frame, side, PieceRole.knight, 7, rank)
+    add_piece(frame, side, PieceRole.rook, 8, rank)
 
-add_pawns(frame, side:str, rank:num):
+add_pawns(frame, side:num, rank:num):
     """Add a pawn rank in deterministic mesh order."""
-    add_piece(frame, side, "pawn", 1, rank)
-    add_piece(frame, side, "pawn", 2, rank)
-    add_piece(frame, side, "pawn", 3, rank)
-    add_piece(frame, side, "pawn", 4, rank)
-    add_piece(frame, side, "pawn", 5, rank)
-    add_piece(frame, side, "pawn", 6, rank)
-    add_piece(frame, side, "pawn", 7, rank)
-    add_piece(frame, side, "pawn", 8, rank)
+    add_piece(frame, side, PieceRole.pawn, 1, rank)
+    add_piece(frame, side, PieceRole.pawn, 2, rank)
+    add_piece(frame, side, PieceRole.pawn, 3, rank)
+    add_piece(frame, side, PieceRole.pawn, 4, rank)
+    add_piece(frame, side, PieceRole.pawn, 5, rank)
+    add_piece(frame, side, PieceRole.pawn, 6, rank)
+    add_piece(frame, side, PieceRole.pawn, 7, rank)
+    add_piece(frame, side, PieceRole.pawn, 8, rank)
 
 build_chess_scene():
     """Build the 3D chess board plus side controls using generic UI primitives."""
@@ -93,10 +93,10 @@ build_chess_scene():
     add_rank(board_frame, 6)
     add_rank(board_frame, 7)
     add_rank(board_frame, 8)
-    add_back_rank(board_frame, "white", 1)
-    add_pawns(board_frame, "white", 2)
-    add_back_rank(board_frame, "black", 8)
-    add_pawns(board_frame, "black", 7)
+    add_back_rank(board_frame, Side.white, 1)
+    add_pawns(board_frame, Side.white, 2)
+    add_back_rank(board_frame, Side.black, 8)
+    add_pawns(board_frame, Side.black, 7)
     moves_frame: d.frame(id:"vkf_chess_moves", title:"Moves", alpha:0.94, draggable:true, dockable:true, resizable:true, closable:true, gridlayout:(7, 2), row_heights:"max-content max-content max-content max-content max-content max-content minmax(0,1fr)")
     d.add_frame(
       moves_frame,

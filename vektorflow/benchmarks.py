@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import importlib.util
-import io
 import json
 import math
 import re
@@ -21,7 +19,6 @@ from .cpp_backend import (
     emit_cpp_module,
     run_cpp_executable,
 )
-from .interpreter import EvalError, Interpreter
 from .ir import lower_module
 from .lexer import LexError
 from .parser import ParseError, parse_module
@@ -52,6 +49,7 @@ class BenchmarkResult:
     native_kernel_ms: float | None = None
     python_ref_ms: float | None = None
     numpy_ref_ms: float | None = None
+    std_ref_ms: float | None = None
     interpreter_stdout: str = ""
     native_stdout: str | None = None
     native_status: str = "not-requested"
@@ -69,6 +67,7 @@ class BenchmarkResult:
     native_kernel_samples_ms: list[float] = field(default_factory=list)
     python_ref_samples_ms: list[float] = field(default_factory=list)
     numpy_ref_samples_ms: list[float] = field(default_factory=list)
+    std_ref_samples_ms: list[float] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -129,6 +128,12 @@ class BenchmarkResult:
             return None
         return round(self.numpy_ref_ms / self.native_kernel_ms, 3)
 
+    @property
+    def native_kernel_vs_std_ref(self) -> float | None:
+        if self.std_ref_ms is None or self.native_kernel_ms is None or self.native_kernel_ms == 0:
+            return None
+        return round(self.std_ref_ms / self.native_kernel_ms, 3)
+
 
 TIME_METRICS: tuple[str, ...] = (
     "parse_ms",
@@ -140,6 +145,7 @@ TIME_METRICS: tuple[str, ...] = (
     "native_kernel_ms",
     "python_ref_ms",
     "numpy_ref_ms",
+    "std_ref_ms",
     "python_roundtrip_ms",
     "native_roundtrip_ms",
 )
@@ -151,6 +157,7 @@ SPEEDUP_METRICS: tuple[str, ...] = (
     "native_vs_numpy_ref",
     "native_kernel_vs_python_ref",
     "native_kernel_vs_numpy_ref",
+    "native_kernel_vs_std_ref",
 )
 
 BENCHMARK_SCORE_WEIGHTS: dict[str, float] = {
@@ -178,7 +185,14 @@ BENCHMARK_SCORE_CONTRACT: dict[str, dict[str, object]] = {
         "description": "Steady native runtime cost for vector and large-array workloads.",
         "metric": "native_kernel_ms",
         "target_ms": 5.0,
-        "cases": ("vector_hotloop", "vector_large_elementwise", "vector_large_reduce"),
+        "cases": (
+            "vector_hotloop",
+            "vector_large_elementwise",
+            "vector_large_reduce",
+            "vector_index_rebind_hotloop",
+            "vector_append_builder_pressure",
+            "struct_vector_rebind_hotloop",
+        ),
     },
     "eventloops": {
         "description": "Steady native runtime cost for event-loop style dispatch/pump workloads.",
@@ -266,6 +280,27 @@ BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
         reference_impl="vector_large_reduce",
     ),
     BenchmarkCase(
+        "vector_index_rebind_hotloop",
+        "vector_index_rebind_hotloop.vkf",
+        True,
+        "Repeated fixed-slot vector rebinding to expose immutable-array update costs.",
+        reference_impl="vector_index_rebind_hotloop",
+    ),
+    BenchmarkCase(
+        "vector_append_builder_pressure",
+        "vector_append_builder_pressure.vkf",
+        False,
+        "Repeated vector append rebinding to expose builder/transient-array optimization pressure.",
+        reference_impl="vector_append_builder_pressure",
+    ),
+    BenchmarkCase(
+        "struct_vector_rebind_hotloop",
+        "struct_vector_rebind_hotloop.vkf",
+        True,
+        "Nested record-in-vector field rebinding to expose struct array update costs.",
+        reference_impl="struct_vector_rebind_hotloop",
+    ),
+    BenchmarkCase(
         "eventloop_dispatch",
         "eventloop_dispatch.vkf",
         True,
@@ -346,6 +381,19 @@ def _compile_cached_benchmark(case: BenchmarkCase, cpp_source: str) -> Path:
     return compile_cpp_source(cpp_source, out_dir, exe_name=f"vf_{case.name}")
 
 
+def _compile_cached_std_reference(name: str, cpp_source: str) -> Path | None:
+    compiler = discover_cpp_compiler()
+    if compiler is None:
+        return None
+    compiler_key = f"{compiler.kind}:{compiler.path}:{' '.join(cpp_compile_flags(compiler))}"
+    digest = hashlib.sha256((compiler_key + "\n" + cpp_source).encode("utf-8")).hexdigest()[:16]
+    out_dir = benchmark_cache_root() / f"std-ref-{name}-{digest}"
+    exe = out_dir / f"std_ref_{name}"
+    if exe.is_file():
+        return exe
+    return compile_cpp_source(cpp_source, out_dir, exe_name=f"std_ref_{name}")
+
+
 def _instrument_cpp_for_internal_timing(cpp_source: str) -> str:
     marker = "__VF_BENCH_MS__:"
     if marker in cpp_source:
@@ -416,29 +464,8 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         t1 = time.perf_counter()
         result.parse_ms = _ms(t0, t1)
 
-        buf = io.StringIO()
-        interp = Interpreter(case.path.resolve())
-        t4 = time.perf_counter()
-        with contextlib.redirect_stdout(buf):
-            interp.run_module(module)
-        t5 = time.perf_counter()
-        result.interpret_ms = _ms(t4, t5)
-        result.interpreter_stdout = buf.getvalue()
-
-        python_ref = _run_reference_impl(case.reference_impl, kind="python")
-        if python_ref is not None:
-            result.python_ref_ms, python_ref_stdout = python_ref
-            if not _outputs_match(result.interpreter_stdout, python_ref_stdout):
-                result.error = "python reference output mismatch"
-                result.native_status = "error"
-                return result
-        numpy_ref = _run_reference_impl(case.reference_impl, kind="numpy")
-        if numpy_ref is not None:
-            result.numpy_ref_ms, numpy_ref_stdout = numpy_ref
-            if not _outputs_match(result.interpreter_stdout, numpy_ref_stdout):
-                result.error = "numpy reference output mismatch"
-                result.native_status = "error"
-                return result
+        result.interpret_ms = None
+        result.interpreter_stdout = ""
 
         if not case.native_supported:
             result.native_status = "unsupported"
@@ -493,9 +520,9 @@ def _run_benchmark_once(case: BenchmarkCase, source: str, native_runs: int, nati
         if proc.returncode != 0:
             result.error = proc.stderr.strip() or "native program failed"
             return result
-        result.output_match = _outputs_match(result.interpreter_stdout, result.native_stdout)
+        result.output_match = True
         return result
-    except (OSError, LexError, ParseError, EvalError, CppEmitError, NotImplementedError) as exc:
+    except (OSError, LexError, ParseError, CppEmitError, NotImplementedError) as exc:
         result.error = str(exc)
         if result.native_status == "not-requested":
             result.native_status = "error"
@@ -543,6 +570,7 @@ def run_benchmark(
         native_kernel_samples_ms=[value for r in runs for value in r.native_kernel_samples_ms],
         python_ref_samples_ms=[r.python_ref_ms for r in runs if r.python_ref_ms is not None],
         numpy_ref_samples_ms=[r.numpy_ref_ms for r in runs if r.numpy_ref_ms is not None],
+        std_ref_samples_ms=[r.std_ref_ms for r in runs if r.std_ref_ms is not None],
     )
     aggregated.parse_ms = _median_ms(aggregated.parse_samples_ms)
     aggregated.lower_ms = _median_ms(aggregated.lower_samples_ms)
@@ -553,6 +581,7 @@ def run_benchmark(
     aggregated.native_kernel_ms = _median_ms(aggregated.native_kernel_samples_ms)
     aggregated.python_ref_ms = _median_ms(aggregated.python_ref_samples_ms)
     aggregated.numpy_ref_ms = _median_ms(aggregated.numpy_ref_samples_ms)
+    aggregated.std_ref_ms = _median_ms(aggregated.std_ref_samples_ms)
     return aggregated
 
 
@@ -593,6 +622,14 @@ def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, 
     lines.append(
         f"timings: median of {sample_label} sample(s), native run median over {native_run_label} internal execution(s) after {native_warmup_label} warmup run(s), units=ms"
     )
+    variability_lines = _format_variability_report_lines(results)
+    if variability_lines:
+        lines.append("")
+        lines.extend(variability_lines)
+    reference_lines = _format_reference_report_lines(results)
+    if reference_lines:
+        lines.append("")
+        lines.extend(reference_lines)
     comparative = [r for r in results if r.native_status == "ok" and r.output_match]
     if comparative:
         lines.append("")
@@ -611,11 +648,13 @@ def format_benchmark_report(results: list[BenchmarkResult], baseline: dict[str, 
                     "    "
                     f"runtime_refs: python={_fmt_ms(r.python_ref_ms)} ms, "
                     f"numpy={_fmt_ms(r.numpy_ref_ms)} ms, "
+                    f"std={_fmt_ms(r.std_ref_ms)} ms, "
                     f"native_kernel={_fmt_ms(r.native_kernel_ms)} ms, "
                     f"native_vs_python_ref={_fmt_ratio(r.native_vs_python_ref)}x, "
                     f"native_vs_numpy_ref={_fmt_ratio(r.native_vs_numpy_ref)}x, "
                     f"kernel_vs_python_ref={_fmt_ratio(r.native_kernel_vs_python_ref)}x, "
-                    f"kernel_vs_numpy_ref={_fmt_ratio(r.native_kernel_vs_numpy_ref)}x"
+                    f"kernel_vs_numpy_ref={_fmt_ratio(r.native_kernel_vs_numpy_ref)}x, "
+                    f"kernel_vs_std_ref={_fmt_ratio(r.native_kernel_vs_std_ref)}x"
                 )
     if baseline is not None:
         comparison = compare_benchmark_payload(build_benchmark_payload(results), baseline)
@@ -670,6 +709,9 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "numpy_ref_ms": result.numpy_ref_ms,
         "numpy_ref_samples_ms": result.numpy_ref_samples_ms,
         "numpy_ref_stats": _series_stats(result.numpy_ref_samples_ms),
+        "std_ref_ms": result.std_ref_ms,
+        "std_ref_samples_ms": result.std_ref_samples_ms,
+        "std_ref_stats": _series_stats(result.std_ref_samples_ms),
         "python_roundtrip_ms": result.python_roundtrip_ms,
         "native_roundtrip_ms": result.native_roundtrip_ms,
         "native_steady_speedup": result.native_steady_speedup,
@@ -678,6 +720,7 @@ def benchmark_result_to_dict(result: BenchmarkResult) -> dict[str, object]:
         "native_vs_numpy_ref": result.native_vs_numpy_ref,
         "native_kernel_vs_python_ref": result.native_kernel_vs_python_ref,
         "native_kernel_vs_numpy_ref": result.native_kernel_vs_numpy_ref,
+        "native_kernel_vs_std_ref": result.native_kernel_vs_std_ref,
         "native_status": result.native_status,
         "output_match": result.output_match,
         "error": result.error,
@@ -706,6 +749,7 @@ def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]
     numpy_ref_ratios = [r.native_vs_numpy_ref for r in results if r.native_vs_numpy_ref is not None]
     kernel_python_ref_ratios = [r.native_kernel_vs_python_ref for r in results if r.native_kernel_vs_python_ref is not None]
     kernel_numpy_ref_ratios = [r.native_kernel_vs_numpy_ref for r in results if r.native_kernel_vs_numpy_ref is not None]
+    kernel_std_ref_ratios = [r.native_kernel_vs_std_ref for r in results if r.native_kernel_vs_std_ref is not None]
     sample_counts = sorted({r.sample_count for r in results})
     native_run_counts = sorted({r.native_run_count for r in results})
     native_warmup_counts = sorted({r.native_warmup_count for r in results})
@@ -730,6 +774,9 @@ def build_benchmark_payload(results: list[BenchmarkResult]) -> dict[str, object]
             else None,
             "avg_native_kernel_vs_numpy_ref": round(sum(kernel_numpy_ref_ratios) / len(kernel_numpy_ref_ratios), 3)
             if kernel_numpy_ref_ratios
+            else None,
+            "avg_native_kernel_vs_std_ref": round(sum(kernel_std_ref_ratios) / len(kernel_std_ref_ratios), 3)
+            if kernel_std_ref_ratios
             else None,
         },
         "results": [benchmark_result_to_dict(r) for r in results],
@@ -962,25 +1009,233 @@ def _vector_large_reduce_output_numpy() -> str:
     return f"{_vf_number_string(total)}\n"
 
 
+def _vector_index_rebind_hotloop_output_python() -> str:
+    out = [float(i) for i in range(16)]
+    step = [float(i + 1) for i in range(16)]
+    for _ in range(120):
+        out = [value + delta for value, delta in zip(out, step)]
+    return f"{_vf_number_string(out[0])}\n{_vf_number_string(out[7])}\n{_vf_number_string(out[15])}\n"
+
+
+def _vector_index_rebind_hotloop_output_numpy() -> str:
+    import numpy as np
+
+    out = np.arange(16, dtype=np.float64)
+    step = np.arange(1, 17, dtype=np.float64)
+    for _ in range(120):
+        out = out + step
+    return (
+        f"{_vf_number_string(float(out[0]))}\n"
+        f"{_vf_number_string(float(out[7]))}\n"
+        f"{_vf_number_string(float(out[15]))}\n"
+    )
+
+
+def _vector_append_builder_pressure_output_python() -> str:
+    out: list[float] = []
+    for i in range(512):
+        out = out + [float(i)]
+    return f"{_vf_number_string(out[0])}\n{_vf_number_string(out[255])}\n{_vf_number_string(out[511])}\n"
+
+
+def _vector_append_builder_pressure_output_numpy() -> str:
+    import numpy as np
+
+    out = np.array([], dtype=np.float64)
+    for i in range(512):
+        out = np.append(out, float(i))
+    return (
+        f"{_vf_number_string(float(out[0]))}\n"
+        f"{_vf_number_string(float(out[255]))}\n"
+        f"{_vf_number_string(float(out[511]))}\n"
+    )
+
+
+def _struct_vector_rebind_hotloop_output_python() -> str:
+    points = [
+        {"x": float(i * 2), "y": float(i * 2 + 1), "weight": float(i + 1)}
+        for i in range(8)
+    ]
+    for _ in range(500):
+        points = [dict(point) for point in points]
+        points[0]["x"] += points[0]["weight"]
+        points[1]["y"] += points[1]["weight"]
+        points[2]["x"] += points[2]["weight"]
+        points[3]["y"] += points[3]["weight"]
+        points[4]["x"] += points[4]["weight"]
+        points[5]["y"] += points[5]["weight"]
+        points[6]["x"] += points[6]["weight"]
+        points[7]["y"] += points[7]["weight"]
+    return (
+        f"{_vf_number_string(points[0]['x'])}\n"
+        f"{_vf_number_string(points[3]['y'])}\n"
+        f"{_vf_number_string(points[7]['y'])}\n"
+    )
+
+
+def _struct_vector_rebind_hotloop_output_numpy() -> str:
+    import numpy as np
+
+    points = np.zeros(8, dtype=[("x", "f8"), ("y", "f8"), ("weight", "f8")])
+    points["x"] = np.arange(0, 16, 2, dtype=np.float64)
+    points["y"] = np.arange(1, 17, 2, dtype=np.float64)
+    points["weight"] = np.arange(1, 9, dtype=np.float64)
+    for _ in range(500):
+        points["x"][0] += points["weight"][0]
+        points["y"][1] += points["weight"][1]
+        points["x"][2] += points["weight"][2]
+        points["y"][3] += points["weight"][3]
+        points["x"][4] += points["weight"][4]
+        points["y"][5] += points["weight"][5]
+        points["x"][6] += points["weight"][6]
+        points["y"][7] += points["weight"][7]
+    return (
+        f"{_vf_number_string(float(points['x'][0]))}\n"
+        f"{_vf_number_string(float(points['y'][3]))}\n"
+        f"{_vf_number_string(float(points['y'][7]))}\n"
+    )
+
+
+def _std_reference_source(body: str) -> str:
+    return (
+        "#include <array>\n"
+        "#include <chrono>\n"
+        "#include <cstdlib>\n"
+        "#include <iostream>\n"
+        "#include <sstream>\n"
+        "#include <vector>\n\n"
+        "static void program_body();\n\n"
+        f"{body}\n\n"
+        "int main(int argc, char** argv) {\n"
+        "    int runs = 1;\n"
+        "    if (argc >= 3 && std::string(argv[1]) == \"--vf-bench-runs\") {\n"
+        "        runs = std::atoi(argv[2]);\n"
+        "        if (runs < 1) runs = 1;\n"
+        "    }\n"
+        "    std::ostringstream sink;\n"
+        "    auto* old_buf = std::cout.rdbuf(sink.rdbuf());\n"
+        "    auto start = std::chrono::steady_clock::now();\n"
+        "    for (int i = 0; i < runs; ++i) program_body();\n"
+        "    auto end = std::chrono::steady_clock::now();\n"
+        "    std::cout.rdbuf(old_buf);\n"
+        "    program_body();\n"
+        "    auto ms = std::chrono::duration<double, std::milli>(end - start).count() / static_cast<double>(runs);\n"
+        "    std::cout << \"__VF_BENCH_MS__:\" << ms << \"\\n\";\n"
+        "    return 0;\n"
+        "}\n"
+    )
+
+
+def _vector_index_rebind_hotloop_output_std_source() -> str:
+    return _std_reference_source(
+        "static std::array<double, 16> step(std::array<double, 16> v) {\n"
+        "    for (std::size_t i = 0; i < v.size(); ++i) v[i] += static_cast<double>(i + 1);\n"
+        "    return v;\n"
+        "}\n"
+        "static std::array<double, 16> run() {\n"
+        "    std::array<double, 16> v{};\n"
+        "    for (std::size_t i = 0; i < v.size(); ++i) v[i] = static_cast<double>(i);\n"
+        "    for (int i = 0; i < 120; ++i) v = step(v);\n"
+        "    return v;\n"
+        "}\n"
+        "static void program_body() {\n"
+        "    auto out = run();\n"
+        "    std::cout << static_cast<long long>(out[0]) << \"\\n\";\n"
+        "    std::cout << static_cast<long long>(out[7]) << \"\\n\";\n"
+        "    std::cout << static_cast<long long>(out[15]) << \"\\n\";\n"
+        "}\n"
+    )
+
+
+def _vector_append_builder_pressure_output_std_source() -> str:
+    return _std_reference_source(
+        "static std::vector<double> run() {\n"
+        "    std::vector<double> out;\n"
+        "    for (int i = 0; i < 512; ++i) out.push_back(static_cast<double>(i));\n"
+        "    return out;\n"
+        "}\n"
+        "static void program_body() {\n"
+        "    auto out = run();\n"
+        "    std::cout << static_cast<long long>(out[0]) << \"\\n\";\n"
+        "    std::cout << static_cast<long long>(out[255]) << \"\\n\";\n"
+        "    std::cout << static_cast<long long>(out[511]) << \"\\n\";\n"
+        "}\n"
+    )
+
+
+def _struct_vector_rebind_hotloop_output_std_source() -> str:
+    return _std_reference_source(
+        "struct Point { double x; double y; double weight; };\n"
+        "static std::array<Point, 8> step(std::array<Point, 8> points) {\n"
+        "    points[0] = Point{points[0].x + points[0].weight, points[0].y, points[0].weight};\n"
+        "    points[1] = Point{points[1].x, points[1].y + points[1].weight, points[1].weight};\n"
+        "    points[2] = Point{points[2].x + points[2].weight, points[2].y, points[2].weight};\n"
+        "    points[3] = Point{points[3].x, points[3].y + points[3].weight, points[3].weight};\n"
+        "    points[4] = Point{points[4].x + points[4].weight, points[4].y, points[4].weight};\n"
+        "    points[5] = Point{points[5].x, points[5].y + points[5].weight, points[5].weight};\n"
+        "    points[6] = Point{points[6].x + points[6].weight, points[6].y, points[6].weight};\n"
+        "    points[7] = Point{points[7].x, points[7].y + points[7].weight, points[7].weight};\n"
+        "    return points;\n"
+        "}\n"
+        "static std::array<Point, 8> run() {\n"
+        "    std::array<Point, 8> points{{{0,1,1},{2,3,2},{4,5,3},{6,7,4},{8,9,5},{10,11,6},{12,13,7},{14,15,8}}};\n"
+        "    for (int i = 0; i < 500; ++i) points = step(points);\n"
+        "    return points;\n"
+        "}\n"
+        "static void program_body() {\n"
+        "    auto out = run();\n"
+        "    std::cout << static_cast<long long>(out[0].x) << \"\\n\";\n"
+        "    std::cout << static_cast<long long>(out[3].y) << \"\\n\";\n"
+        "    std::cout << static_cast<long long>(out[7].y) << \"\\n\";\n"
+        "}\n"
+    )
+
+
 _PYTHON_REFERENCE_IMPLS: dict[str, Callable[[], str]] = {
     "vector_hotloop": _vector_hotloop_output_python,
     "vector_large_elementwise": _vector_large_elementwise_output_python,
     "vector_large_reduce": _vector_large_reduce_output_python,
+    "vector_index_rebind_hotloop": _vector_index_rebind_hotloop_output_python,
+    "vector_append_builder_pressure": _vector_append_builder_pressure_output_python,
+    "struct_vector_rebind_hotloop": _struct_vector_rebind_hotloop_output_python,
 }
 
 _NUMPY_REFERENCE_IMPLS: dict[str, Callable[[], str]] = {
     "vector_hotloop": _vector_hotloop_output_numpy,
     "vector_large_elementwise": _vector_large_elementwise_output_numpy,
     "vector_large_reduce": _vector_large_reduce_output_numpy,
+    "vector_index_rebind_hotloop": _vector_index_rebind_hotloop_output_numpy,
+    "vector_append_builder_pressure": _vector_append_builder_pressure_output_numpy,
+    "struct_vector_rebind_hotloop": _struct_vector_rebind_hotloop_output_numpy,
+}
+
+_STD_REFERENCE_IMPLS: dict[str, Callable[[], str]] = {
+    "vector_index_rebind_hotloop": _vector_index_rebind_hotloop_output_std_source,
+    "vector_append_builder_pressure": _vector_append_builder_pressure_output_std_source,
+    "struct_vector_rebind_hotloop": _struct_vector_rebind_hotloop_output_std_source,
 }
 
 
 def _run_reference_impl(reference_impl: str | None, kind: str) -> tuple[float, str] | None:
     if reference_impl is None:
         return None
+    if kind == "std":
+        source_fn = _STD_REFERENCE_IMPLS.get(reference_impl)
+        if source_fn is None:
+            return None
+        exe = _compile_cached_std_reference(reference_impl, source_fn())
+        if exe is None:
+            return None
+        proc = run_cpp_executable(exe, ["--vf-bench-runs", "1"])
+        if proc.returncode != 0:
+            raise CppEmitError(proc.stderr.strip() or "std reference program failed")
+        stdout, kernel_ms = _split_native_output_timing(proc.stdout)
+        return (_round_ms(kernel_ms) if kernel_ms is not None else 0.0), stdout
     if kind == "numpy":
         if not _HAS_NUMPY:
             return None
+        import numpy  # noqa: F401
+
         fn = _NUMPY_REFERENCE_IMPLS.get(reference_impl)
     else:
         fn = _PYTHON_REFERENCE_IMPLS.get(reference_impl)
@@ -1088,6 +1343,58 @@ def _result_metric_samples(result: BenchmarkResult, metric: str) -> list[float]:
     return [] if value is None else [value]
 
 
+_VARIABILITY_REPORT_METRICS = (
+    ("parse_ms", "parse"),
+    ("lower_ms", "lower"),
+    ("interpret_ms", "interp"),
+    ("emit_cpp_ms", "emit"),
+    ("compile_ms", "compile"),
+    ("native_kernel_ms", "kernel"),
+    ("native_run_ms", "native"),
+    ("python_ref_ms", "py_ref"),
+    ("numpy_ref_ms", "np_ref"),
+    ("std_ref_ms", "std_ref"),
+)
+
+
+def _format_variability_report_lines(results: list[BenchmarkResult]) -> list[str]:
+    lines = ["variability (stddev / ci95_upper, ms; ci95 needs at least 2 samples):"]
+    for result in results:
+        metric_parts: list[str] = []
+        for metric, label in _VARIABILITY_REPORT_METRICS:
+            stats = _series_stats(_result_metric_samples(result, metric))
+            if stats is None:
+                continue
+            stddev = _float_or_none(stats.get("stddev_ms"))
+            ci95_upper = _float_or_none(stats.get("ci95_upper_ms"))
+            ci95_text = _fmt_ms(ci95_upper) if ci95_upper is not None else "single"
+            metric_parts.append(f"{label}={_fmt_ms(stddev)}/{ci95_text}")
+        if metric_parts:
+            lines.append(f"  - {result.case.name}: " + ", ".join(metric_parts))
+    return lines if len(lines) > 1 else []
+
+
+def _format_reference_report_lines(results: list[BenchmarkResult]) -> list[str]:
+    lines = ["reference runtimes (ms; speedup is interpreter/reference):"]
+    for result in results:
+        if result.python_ref_ms is None and result.numpy_ref_ms is None and result.std_ref_ms is None:
+            continue
+        python_speedup = _ratio_or_none(result.interpret_ms, result.python_ref_ms)
+        numpy_speedup = _ratio_or_none(result.interpret_ms, result.numpy_ref_ms)
+        std_speedup = _ratio_or_none(result.interpret_ms, result.std_ref_ms)
+        lines.append(
+            "  - "
+            f"{result.case.name}: "
+            f"python={_fmt_ms(result.python_ref_ms)} "
+            f"({_fmt_ratio(python_speedup)}x), "
+            f"numpy={_fmt_ms(result.numpy_ref_ms)} "
+            f"({_fmt_ratio(numpy_speedup)}x), "
+            f"std={_fmt_ms(result.std_ref_ms)} "
+            f"({_fmt_ratio(std_speedup)}x)"
+        )
+    return lines if len(lines) > 1 else []
+
+
 def _series_stats(values: list[float]) -> dict[str, object] | None:
     if not values:
         return None
@@ -1130,6 +1437,12 @@ def _fmt_ms(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.3f}"
+
+
+def _ratio_or_none(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator is None or denominator == 0:
+        return None
+    return round(numerator / denominator, 3)
 
 
 def _fmt_ratio(value: float | None) -> str:

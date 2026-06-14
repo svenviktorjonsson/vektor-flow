@@ -6,6 +6,7 @@ from vektorflow.benchmarks import (
     compare_benchmark_payload,
     format_benchmark_json,
     format_benchmark_list_json,
+    format_benchmark_report,
     get_benchmark,
     list_benchmarks,
     load_benchmark_baseline,
@@ -26,6 +27,9 @@ def test_benchmark_registry_contains_expected_cases() -> None:
     assert "vector_hotloop" in names
     assert "vector_large_elementwise" in names
     assert "vector_large_reduce" in names
+    assert "vector_index_rebind_hotloop" in names
+    assert "vector_append_builder_pressure" in names
+    assert "struct_vector_rebind_hotloop" in names
     assert "eventloop_dispatch" in names
     assert "ui_scene_loading" in names
 
@@ -37,6 +41,9 @@ def test_select_benchmarks_filters_by_name() -> None:
         "vector_hotloop",
         "vector_large_elementwise",
         "vector_large_reduce",
+        "vector_index_rebind_hotloop",
+        "vector_append_builder_pressure",
+        "struct_vector_rebind_hotloop",
     ]
 
 
@@ -120,12 +127,34 @@ def test_benchmark_json_report_contains_summary_and_results() -> None:
     assert '"parse_samples_ms"' in payload
     assert '"python_ref_ms"' in payload
     assert '"numpy_ref_ms"' in payload
+    assert '"std_ref_ms"' in payload
     assert '"native_kernel_ms"' in payload
     assert '"native_kernel_vs_numpy_ref"' in payload
+    assert '"native_kernel_vs_std_ref"' in payload
     assert '"score"' in payload
     assert '"available_score"' in payload
     assert '"complete_score"' in payload
     assert '"compile_stats"' in payload
+
+
+def test_benchmark_text_report_includes_variability_stats() -> None:
+    results = [run_benchmark(get_benchmark("scalar_control"), samples=2)]
+    report = format_benchmark_report(results)
+    assert "variability (stddev / ci95_upper" in report
+    assert "scalar_control:" in report
+    assert "parse=" in report
+    assert "interp=" in report
+
+
+def test_benchmark_text_report_includes_reference_runtimes_for_interpreter_only_cases() -> None:
+    results = [run_benchmark(get_benchmark("vector_append_builder_pressure"))]
+    report = format_benchmark_report(results)
+    assert "reference runtimes" in report
+    assert "vector_append_builder_pressure:" in report
+    assert "python=" in report
+    assert "std=" in report
+    if results[0].numpy_ref_ms is not None:
+        assert "numpy=" in report
 
 
 def test_vector_hotloop_collects_reference_timings() -> None:
@@ -133,6 +162,30 @@ def test_vector_hotloop_collects_reference_timings() -> None:
     assert res.error is None
     assert res.python_ref_ms is not None
     assert res.case.reference_impl == "vector_hotloop"
+
+
+def test_array_mutability_pressure_benchmarks_run() -> None:
+    index_rebind = run_benchmark(get_benchmark("vector_index_rebind_hotloop"))
+    assert index_rebind.error is None
+    assert index_rebind.interpreter_stdout.splitlines() == ["120", "967", "1935"]
+    assert index_rebind.python_ref_ms is not None
+    assert index_rebind.std_ref_ms is not None
+
+    append_pressure = run_benchmark(get_benchmark("vector_append_builder_pressure"))
+    assert append_pressure.error is None
+    assert append_pressure.interpreter_stdout.splitlines() == ["0", "255", "511"]
+    assert append_pressure.python_ref_ms is not None
+    assert append_pressure.std_ref_ms is not None
+
+    struct_rebind = run_benchmark(get_benchmark("struct_vector_rebind_hotloop"))
+    assert struct_rebind.error is None
+    assert struct_rebind.interpreter_stdout.splitlines() == ["500", "2007", "4015"]
+    assert struct_rebind.python_ref_ms is not None
+    assert struct_rebind.std_ref_ms is not None
+
+    if index_rebind.numpy_ref_ms is not None:
+        assert append_pressure.numpy_ref_ms is not None
+        assert struct_rebind.numpy_ref_ms is not None
 
 
 def test_benchmark_baseline_roundtrip_and_compare(tmp_path) -> None:

@@ -234,7 +234,7 @@ def test_pipeline_lowers_binary_comparison_chain(
     body = bind["body"]["body"][0]["expr"]
     assert body["kind"] == "binary_op"
     assert body["op"] == "AND"
-    assert body["type"] == "bool"
+    assert body["type"] == "bit"
 
 
 def test_pipeline_lowers_dotted_index_expression(

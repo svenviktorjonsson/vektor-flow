@@ -325,6 +325,12 @@ def lower_function_parts(
 def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
     if isinstance(type_expr, ast.NamedTypeSpec):
         return ast.NamedTypeSpec(type_expr.name, _resolve_type_refs(type_expr.type_expr, type_registry))
+    if isinstance(type_expr, ast.SymbolicDomainType):
+        return type_expr
+    if isinstance(type_expr, ast.TypePowerExpr):
+        return ast.TypePowerExpr(_resolve_type_refs(type_expr.base, type_registry), _resolve_type_refs(type_expr.exponent, type_registry))
+    if isinstance(type_expr, ast.SymbolicValueType):
+        return ast.SymbolicValueType(None if type_expr.domain is None else _resolve_type_refs(type_expr.domain, type_registry))
     if isinstance(type_expr, ast.PrimTypeRef):
         return type_registry.get(type_expr.name, type_expr)
     if isinstance(type_expr, ast.TypeExpr):
@@ -345,6 +351,68 @@ def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
             _resolve_type_refs(type_expr.codomain, type_registry),
         )
     return type_expr
+
+
+def _type_contains_symbolic_domain(type_expr: Any) -> bool:
+    if isinstance(type_expr, ast.SymbolicDomainType):
+        return True
+    if isinstance(type_expr, ast.TypePowerExpr):
+        return _type_contains_symbolic_domain(type_expr.base) or _type_contains_symbolic_domain(type_expr.exponent)
+    if isinstance(type_expr, ast.FuncType):
+        return _type_contains_symbolic_domain(type_expr.domain) or _type_contains_symbolic_domain(type_expr.codomain)
+    if isinstance(type_expr, (ast.TypeUnionExpr, ast.TypeIntersectionExpr)):
+        return any(_type_contains_symbolic_domain(member) for member in type_expr.members)
+    if isinstance(type_expr, ast.TupleTypeExpr):
+        return any(_type_contains_symbolic_domain(element) for element in type_expr.elements)
+    if isinstance(type_expr, ast.TypeExpr):
+        return any(_type_contains_symbolic_domain(inner) for _, inner in type_expr.fields)
+    if isinstance(type_expr, ast.FixedVectorType):
+        return _type_contains_symbolic_domain(type_expr.element_type) or _type_contains_symbolic_domain(type_expr.size)
+    if isinstance(type_expr, ast.MultisetType):
+        return _type_contains_symbolic_domain(type_expr.element_type)
+    if isinstance(type_expr, ast.MapValueType):
+        return any(_type_contains_symbolic_domain(inner) for _, inner in type_expr.fields)
+    if isinstance(type_expr, ast.LinkedListValueType):
+        return any(_type_contains_symbolic_domain(inner) for inner in type_expr.elements)
+    if isinstance(type_expr, ast.NamedTypeSpec):
+        return _type_contains_symbolic_domain(type_expr.type_expr)
+    return False
+
+
+def _type_surface_string(type_expr: Any) -> str:
+    if isinstance(type_expr, ast.SymbolicDomainType):
+        return type_expr.name
+    if isinstance(type_expr, ast.TypePowerExpr):
+        return f"{_type_surface_string(type_expr.base)}^{_type_surface_string(type_expr.exponent)}"
+    if isinstance(type_expr, ast.TypeSizeConst):
+        return str(type_expr.value)
+    if isinstance(type_expr, ast.TypeSizeVar):
+        return type_expr.name
+    if isinstance(type_expr, ast.TypeSizeBinOp):
+        return f"{_type_surface_string(type_expr.left)}{type_expr.op}{_type_surface_string(type_expr.right)}"
+    if isinstance(type_expr, ast.PrimTypeRef):
+        return type_expr.name
+    if isinstance(type_expr, ast.FuncType):
+        return f"{_type_surface_string(type_expr.domain)}->{_type_surface_string(type_expr.codomain)}"
+    if isinstance(type_expr, ast.TupleTypeExpr):
+        return "(" + ", ".join(_type_surface_string(element) for element in type_expr.elements) + ")"
+    if isinstance(type_expr, ast.TypeExpr):
+        return "(" + ", ".join(f"{name}:{_type_surface_string(inner)}" for name, inner in type_expr.fields) + ")"
+    if isinstance(type_expr, ast.FixedVectorType):
+        return f"[{_type_surface_string(type_expr.element_type)}:{_type_surface_string(type_expr.size)}]"
+    if isinstance(type_expr, ast.TypeUnionExpr):
+        return "|".join(_type_surface_string(member) for member in type_expr.members)
+    if isinstance(type_expr, ast.TypeIntersectionExpr):
+        return "&".join(_type_surface_string(member) for member in type_expr.members)
+    if isinstance(type_expr, ast.MultisetType):
+        return "{" + _type_surface_string(type_expr.element_type) + "}"
+    if isinstance(type_expr, ast.MapValueType):
+        return "map(" + ", ".join(f"{name}:{_type_surface_string(inner)}" for name, inner in type_expr.fields) + ")"
+    if isinstance(type_expr, ast.LinkedListValueType):
+        return "list(" + ", ".join(_type_surface_string(inner) for inner in type_expr.elements) + ")"
+    if isinstance(type_expr, ast.NamedTypeSpec):
+        return f"{type_expr.name}:{_type_surface_string(type_expr.type_expr)}"
+    return str(type_expr)
 
 
 def _try_record_stdlib_import(
@@ -389,8 +457,20 @@ def lower_stmt(
             resolved_type = _resolve_type_refs(node.value, type_registry)
             type_registry[node.target.name] = resolved_type
             return TypeDef(node.target.name, resolved_type)
-        value = lower_expr(node.value)
         declared_type = None if node.declared_type is None else _resolve_type_refs(node.declared_type, type_registry)
+        if (
+            isinstance(node.target, ast.Ident)
+            and node.declared_type is None
+            and _type_contains_symbolic_domain(node.value)
+        ):
+            resolved_domain = _resolve_type_refs(node.value, type_registry)
+            value: IRNode = CallExpr(LoadName("symbolic"), [Const(node.target.name)])
+            value = CallExpr(
+                LoadName("assume"),
+                [value, Const(f"{node.target.name} in {_type_surface_string(resolved_domain)}")],
+            )
+            return StoreName(node.target.name, value, ast.SymbolicValueType(resolved_domain))
+        value = lower_expr(node.value)
         if declared_type is not None:
             value = CoerceExpr(value, declared_type)
         if not isinstance(node.target, ast.Ident):

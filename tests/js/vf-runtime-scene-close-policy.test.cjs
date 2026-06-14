@@ -20,5 +20,13 @@ assert.ok(sceneSource.includes('if (attr === "true") { return true; }'));
 assert.ok(sceneSource.includes("return !!(global.chrome && global.chrome.webview);"));
 assert.ok(displaySource.includes("function _setStandaloneDisplayContentPresent(present)"));
 assert.ok(displaySource.includes("global.__vfHasStandaloneDisplayContent = !!present;"));
+const frameSource = fs.readFileSync(
+  path.join(__dirname, "../../web/vf-ui/vf-frame.js"),
+  "utf8"
+);
+assert.ok(frameSource.includes("postEmptyNativeHostLayout(layer)"));
+assert.ok(frameSource.includes("forceEmpty: true"));
+assert.ok(frameSource.includes("clearOverlayGeometry: true"));
+assert.ok(frameSource.indexOf("api.destroy();") < frameSource.indexOf("wv.postMessage({ type: \"close\" });"));
 
 console.log("vf-runtime-scene-close-policy tests passed");

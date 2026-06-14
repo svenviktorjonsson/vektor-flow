@@ -230,7 +230,8 @@
       const scope = (typeof document !== "undefined" && document && document.querySelectorAll)
         ? document
         : layer;
-      const nodes = scope ? scope.querySelectorAll(".vf-frame") : [];
+      const forceEmpty = o.forceEmpty === true;
+      const nodes = forceEmpty ? [] : (scope ? scope.querySelectorAll(".vf-frame") : []);
       const hitRegions = [];
       const overlayShapes = [];
       function paintPadDipForElement(el) {
@@ -272,7 +273,7 @@
         const r = el.getBoundingClientRect();
         pushRectWithPad(r, paintPadDipForElement(el));
       }
-      const displayRegions = globalThis && Array.isArray(globalThis.__vfDisplayHitRegions)
+      const displayRegions = !forceEmpty && globalThis && Array.isArray(globalThis.__vfDisplayHitRegions)
         ? globalThis.__vfDisplayHitRegions
         : null;
       if (displayRegions && displayRegions.length) {
@@ -294,7 +295,7 @@
           pushTransparentOverlayRect(overlayShapes, "vf-display-" + i, l, t, r, b);
         }
       }
-      if (Array.isArray(o.hitRegions)) {
+      if (!forceEmpty && Array.isArray(o.hitRegions)) {
         for (let i = 0; i < o.hitRegions.length; i++) {
           const rr = o.hitRegions[i];
           if (!rr || typeof rr !== "object") continue;
@@ -333,6 +334,16 @@
           shapes: overlayShapes,
         });
       }
+    },
+
+    postEmptyNativeHostLayout(layer) {
+      if (!layer || typeof VfFrame.postNativeHostLayout !== "function") return;
+      VfFrame.postNativeHostLayout(layer, {
+        stageAlpha: 0,
+        hitRegions: [],
+        forceEmpty: true,
+        clearOverlayGeometry: true,
+      });
     },
 
     /**
@@ -998,10 +1009,13 @@
                 const p = el.__vfPanel;
                 if (p && typeof p.destroy === "function") p.destroy();
               }
+              api.destroy();
+              if (typeof VfFrame.postEmptyNativeHostLayout === "function") {
+                VfFrame.postEmptyNativeHostLayout(layer);
+              }
               if (wv && typeof wv.postMessage === "function") {
                 wv.postMessage({ type: "close" });
               }
-              api.destroy();
             } finally {
               layer._vfMasterTeardown = false;
             }
@@ -1103,6 +1117,19 @@
         root.classList.add("vf-frame--user-sized");
         root.style.width = Math.round(nw) + "px";
         root.style.height = Math.round(nh) + "px";
+        try {
+          window.dispatchEvent(new Event("resize"));
+        } catch (_) {}
+        try {
+          window.dispatchEvent(new CustomEvent("vf-frame-live-resize", {
+            detail: {
+              id: String(id),
+              frameId: String(id),
+              width: root.style.width || "",
+              height: root.style.height || "",
+            },
+          }));
+        } catch (_) {}
         postHitRegionsToHostImpl();
       }
       function onResizeEnd(e) {
@@ -1179,6 +1206,9 @@
             } catch (_) {}
           }
           root.remove();
+          if (typeof VfFrame.postEmptyNativeHostLayout === "function" && layer && layer.querySelectorAll(".vf-frame").length === 0) {
+            VfFrame.postEmptyNativeHostLayout(layer);
+          }
           if (dockable) {
             try {
               VfFrame.layoutMinimizedDock(layer);

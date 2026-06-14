@@ -19,7 +19,7 @@ class DynamicEmitHooks:
 def cpp_dynamic_value_supported(t: Any, normalize_type: Callable[[Any], Any]) -> bool:
     t = normalize_type(t)
     if isinstance(t, ast.PrimTypeRef):
-        return t.name in {"bool", "int", "num", "str"}
+        return t.name in {"bit", "int", "num", "chr", "str"}
     if isinstance(t, ast.MapValueType):
         return all(cpp_dynamic_value_supported(inner, normalize_type) for _, inner in t.fields)
     if isinstance(t, ast.LinkedListValueType):

@@ -92,36 +92,209 @@ Rules:
 
 Purpose:
 
-- current input truth
-- no history-heavy semantics in the first slice
+- ordered input truth for one UI/runtime pump
+- built-in host input and custom/subsystem input use the same path
+- no string dispatch in the hot path
 
-First record shape:
+The event arena is an append-only queue for the current pump slice. The host
+normalizes raw platform events into typed event records, appends them, and calls
+the compiled VKF update entrypoint. The compiled program consumes typed records
+and writes state/effects through arenas.
+
+Every event record starts with a small common header:
 
 ```text
-struct EventSnapshot {
+struct EventHeader {
+  u32 tag;
+  u32 byte_len;
+  u32 sequence;
   u32 frame_id;
-  u32 object_id;
-  u32 hover_kind;
-  u32 buttons_mask;
-  u32 modifiers_mask;
-  f32 cursor_px_x;
-  f32 cursor_px_y;
-  f32 cursor_norm_x;
-  f32 cursor_norm_y;
-  f32 cursor_data_x;
-  f32 cursor_data_y;
-  f32 wheel_step;
-  f32 drag_dx_px;
-  f32 drag_dy_px;
+  f64 time_ms;
 }
 ```
 
 Notes:
 
-- `cursor_px_*` is absolute screen or frame-local pixel position
-- `cursor_norm_*` is normalized frame-local position
-- `cursor_data_*` is data-space position when known
-- `hover_kind` is one of none/frame/object/face/edge/vertex
+- `tag` is generated from the compiled event variant schema
+- `tag` is not a user-facing string such as `"pointer.move"`
+- debug labels may exist in side metadata, but behavior must not branch on them
+- built-in tags occupy the low range; program/custom tags occupy compiler-owned
+  ranges declared by the event program manifest
+- the renderer/host validates record size and tag against the manifest before
+  appending
+
+Built-in event records are typed layouts, for example:
+
+```text
+struct PointerMoveEvent {
+  EventHeader header;
+  u32 pointer_id;
+  u32 buttons_mask;
+  u32 modifiers_mask;
+  u32 target_frame_id;
+  u32 target_object_id;
+  f32 x_px;
+  f32 y_px;
+  f32 x_norm;
+  f32 y_norm;
+  f32 x_data;
+  f32 y_data;
+}
+
+struct PointerDownEvent {
+  EventHeader header;
+  u32 pointer_id;
+  u32 button;
+  u32 buttons_mask;
+  u32 modifiers_mask;
+  u32 target_frame_id;
+  u32 target_object_id;
+  f32 x_px;
+  f32 y_px;
+  f32 x_norm;
+  f32 y_norm;
+  f32 x_data;
+  f32 y_data;
+}
+
+struct KeyDownEvent {
+  EventHeader header;
+  u32 key_code;
+  u32 scan_code;
+  u32 modifiers_mask;
+  u32 repeat_count;
+  u32 target_frame_id;
+}
+
+struct FrameTickEvent {
+  EventHeader header;
+  u32 tick_index;
+  f32 dt_ms;
+}
+```
+
+The VKF-facing source shape should stay type-driven:
+
+```vkf
+PointerMove : (
+    pointer_id:num,
+    buttons_mask:num,
+    modifiers_mask:num,
+    target_frame_id:num,
+    target_object_id:num,
+    x_px:num,
+    y_px:num,
+    x_norm:num,
+    y_norm:num,
+    x_data:num,
+    y_data:num,
+    time_ms:num
+)
+
+PointerDown : (
+    pointer_id:num,
+    button:num,
+    buttons_mask:num,
+    modifiers_mask:num,
+    target_frame_id:num,
+    target_object_id:num,
+    x_px:num,
+    y_px:num,
+    x_norm:num,
+    y_norm:num,
+    x_data:num,
+    y_data:num,
+    time_ms:num
+)
+
+FrameTick : (
+    tick_index:num,
+    frame_id:num,
+    time_ms:num,
+    dt_ms:num
+)
+
+UiEvent : PointerMove | PointerDown | FrameTick
+```
+
+Program logic must dispatch on the typed variant, not on string values:
+
+```vkf
+update(state:GameState, event:UiEvent) -> GameState:
+    event??
+        PointerMove => events.pointer_move(state, event)
+        PointerDown => events.pointer_down(state, event)
+        FrameTick => events.frame_tick(state, event)
+        state
+```
+
+Custom events follow the same rule: the VKF event program declares the event
+type, the compiler assigns the tag/layout, and the host appends only validated
+records. No callback or stringly typed side channel is part of the ABI.
+
+## Enum Lowering
+
+Closed symbolic sets should use ordinary VKF record values with named numeric
+values. This keeps the source language small, preserves dotted access, and
+makes the runtime representation explicit.
+
+Example:
+
+```vkf
+PieceRole: (
+    none: 0,
+    pawn: 1,
+    knight: 2,
+    bishop: 3,
+    rook: 4,
+    queen: 5,
+    king: 6
+)
+
+Side: (
+    none: 0,
+    white: 1,
+    black: 2
+)
+```
+
+Usage remains normal dotted scope access:
+
+```vkf
+piece: (
+    side: Side.white,
+    role: PieceRole.knight,
+    file0: 1,
+    rank0: 0
+)
+```
+
+Rules:
+
+- enum-like values are numbers in arenas and manifests
+- names are source/debug metadata, not hot-path dispatch strings
+- fixed lookup tables should prefer vectors over discriminant arms
+- `??` remains the right shape for real variant/control branching
+
+For example, fixed chess back-rank role lookup should be a vector:
+
+```vkf
+back_rank_roles: [
+    PieceRole.rook,
+    PieceRole.knight,
+    PieceRole.bishop,
+    PieceRole.queen,
+    PieceRole.king,
+    PieceRole.bishop,
+    PieceRole.knight,
+    PieceRole.rook
+]
+
+back_rank_role(file0:num) -> num:
+    @: back_rank_roles.(file0)
+```
+
+This avoids both string roles and switch-shaped logic for static tables.
 
 ## TransformArena
 

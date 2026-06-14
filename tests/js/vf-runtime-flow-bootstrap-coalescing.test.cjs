@@ -7,10 +7,9 @@ const source = fs.readFileSync(
   "utf8"
 );
 
-assert.ok(source.includes("var BOOTSTRAP_COALESCE_KINDS = {"));
-assert.ok(source.includes('"scene.replace": true'));
-assert.ok(source.includes('"ui_state.replace": true'));
-assert.ok(source.includes('"display.replace": true'));
+assert.ok(source.includes("var _packetContract = global.VfRuntimePacketContract || null;"));
+assert.ok(source.includes("var FALLBACK_BOOTSTRAP_COALESCE_KINDS = {"));
+assert.ok(source.includes("var BOOTSTRAP_COALESCE_KINDS = _packetContract && _packetContract.BOOTSTRAP_COALESCE_KINDS || FALLBACK_BOOTSTRAP_COALESCE_KINDS;"));
 assert.ok(source.includes("function coalesceBootstrapPackets(packets)"));
 assert.ok(source.includes("if (getPacketRuntimeState() !== PACKET_RUNTIME_STATES.BOOTSTRAP_ONLY) { return packets; }"));
 assert.ok(source.includes('ordered.push(latestByKind["scene.replace"]);'));

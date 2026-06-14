@@ -1,0 +1,322 @@
+: .types
+state_lib: .state
+rules: .rules
+notation: .notation
+
+side_sign(piece_side:num, perspective:num) -> num:
+    piece_side = perspective? @: 1
+    @: -1
+
+role_value(role:num) -> num:
+    """Return centipawn-style base material; knights are slightly preferred."""
+    role = PieceRole.pawn? @: 100
+    role = PieceRole.knight? @: 325
+    role = PieceRole.bishop? @: 315
+    role = PieceRole.rook? @: 500
+    role = PieceRole.queen? @: 900
+    role = PieceRole.king? @: 20000
+    @: 0
+
+center_distance(file:num, rank:num) -> num:
+    df: rules.abs_num((file * 2) - 9)
+    dr: rules.abs_num((rank * 2) - 9)
+    @: df + dr
+
+center_bonus(piece:Piece) -> num:
+    """Reward centralization; knights get the strongest version."""
+    dist: center_distance(piece.file, piece.rank)
+    piece.role = PieceRole.knight? @: 36 - (dist * 5)
+    piece.role = PieceRole.bishop? @: 18 - (dist * 2)
+    piece.role = PieceRole.queen? @: 10 - dist
+    piece.role = PieceRole.pawn? @: 8 - dist
+    @: 0
+
+pawn_advance_bonus(piece:Piece) -> num:
+    piece.role != PieceRole.pawn? @: 0
+    piece.side = Side.white? @: (piece.rank - 2) * 12
+    @: (7 - piece.rank) * 12
+
+developed_bonus(piece:Piece) -> num:
+    piece.role = PieceRole.pawn? @: 0
+    piece.role = PieceRole.king? @: 0
+    piece.has_moved? @: 18
+    piece.side = Side.white?
+        piece.rank > 1? @: 18
+        @: 0
+    piece.rank < 8? @: 18
+    @: 0
+
+protected_bonus(board:any, piece:Piece) -> num:
+    state_lib.square_attacked_by(board, piece.side, piece.file, piece.rank)? @: 12
+    @: 0
+
+castled_king_bonus(piece:Piece) -> num:
+    piece.role != PieceRole.king? @: 0
+    piece.side = Side.white?
+        piece.rank = 1?
+            piece.file = 7? @: 55
+            piece.file = 3? @: 45
+        @: 0
+    piece.rank = 8?
+        piece.file = 7? @: 55
+        piece.file = 3? @: 45
+    @: 0
+
+piece_score(board:any, piece:Piece, perspective:num) -> num:
+    piece.captured? @: 0
+    raw: role_value(piece.role) + center_bonus(piece) + pawn_advance_bonus(piece) + developed_bonus(piece) + protected_bonus(board, piece) + castled_king_bonus(piece)
+    @: raw * side_sign(piece.side, perspective)
+
+castle_rights_score(state:GameState, perspective:num) -> num:
+    white_score: 0
+    state.white_can_castle_king? white_score: white_score + 18
+    state.white_can_castle_queen? white_score: white_score + 12
+    black_score: 0
+    state.black_can_castle_king? black_score: black_score + 18
+    state.black_can_castle_queen? black_score: black_score + 12
+    perspective = Side.white? @: white_score - black_score
+    @: black_score - white_score
+
+tempo_score(state:GameState, perspective:num) -> num:
+    state.turn = perspective? @: 8
+    @: -8
+
+evaluate_state(state:GameState, perspective:num) -> num:
+    """Evaluate a position from one side using material plus dynamic terms."""
+    i: 0
+    score: castle_rights_score(state, perspective) + tempo_score(state, perspective)
+    i < 32?>
+        score: score + piece_score(state.board, state.board.(i), perspective)
+        i: i + 1
+    @: score
+
+empty_choice(state:GameState) -> BotChoice:
+    @: (ok:false, score:-9999999, result:(ok:false, state:state, intent:state_lib.empty_intent(0, 0)))
+
+candidate_move(state:GameState, piece:Piece, to_file:num, to_rank:num) -> MoveResult:
+    state_lib.move_legal_from_board(state, piece, to_file, to_rank) = false? @: (ok:false, state:state, intent:state_lib.empty_intent(to_file, to_rank))
+    target_side: state_lib.target_side_at(state, to_file, to_rank)
+    path_clear: state_lib.move_path_clear_from_board(state, piece, to_file, to_rank)
+    rook_available: state_lib.castle_rook_available(state, piece, to_file, to_rank)
+    castle_safe: state_lib.castle_path_safe_from_board(state, piece, to_file, to_rank)
+    castle: rules.castle_side(piece, to_file, to_rank, path_clear, true, castle_safe, rook_available, state_lib.side_can_castle_king(state, piece.side), state_lib.side_can_castle_queen(state, piece.side))
+    ep: rules.is_en_passant(piece, target_side, to_file, to_rank, state.last_double_pawn_side, state.last_double_pawn_file, state.last_double_pawn_rank)
+    move_text: notation.move_notation_ext(piece, target_side, to_file, to_rank, castle, ep, "none")
+    next_state: state_lib.accepted_state_after_move(state, piece, move_text, to_file, to_rank, castle, ep)
+    @: (ok:true, state:next_state, intent:state_lib.move_intent(piece, to_file, to_rank, move_text, state_lib.capture_flag(target_side, ep), castle, ep, ""))
+    @: (ok:false, state:state, intent:state_lib.empty_intent(to_file, to_rank))
+
+target_may_be_legal(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
+    state_lib.within_board(to_file, to_rank) = false? @: false
+    target_side: state_lib.target_side_at(state, to_file, to_rank)
+    target_side = piece.side? @: false
+    piece.role = PieceRole.pawn?
+        target_side = Side.none?
+            rules.is_forward_pawn_move(piece, to_file, to_rank)? @: true
+            rules.is_double_pawn_move(piece, to_file, to_rank)? @: true
+            rules.is_en_passant(piece, target_side, to_file, to_rank, state.last_double_pawn_side, state.last_double_pawn_file, state.last_double_pawn_rank)? @: true
+            @: false
+        @: rules.is_pawn_capture_shape(piece, to_file, to_rank)
+    @: true
+
+leaf_score_after_move(move:MoveResult, perspective:num) -> num:
+    move.ok? @: evaluate_state(move.state, perspective)
+    @: -9999999
+
+better_choice(current:BotChoice, candidate:MoveResult, score:num) -> BotChoice:
+    candidate.ok?
+        current.ok = false? @: (ok:true, score:score, result:candidate)
+        score > current.score? @: (ok:true, score:score, result:candidate)
+    @: current
+
+better_reply(current:BotChoice, candidate:MoveResult, perspective:num) -> BotChoice:
+    candidate.ok? @: better_choice(current, candidate, evaluate_state(candidate.state, perspective))
+    @: current
+
+consider_target_reply(state:GameState, best:BotChoice, piece:Piece, to_file:num, to_rank:num, perspective:num) -> BotChoice:
+    target_may_be_legal(state, piece, to_file, to_rank) = false? @: best
+    reply: candidate_move(state, piece, to_file, to_rank)
+    reply.ok? @: better_reply(best, reply, perspective)
+    @: best
+
+scan_ray_reply(state:GameState, best:BotChoice, piece:Piece, df:num, dr:num, perspective:num) -> BotChoice:
+    f: piece.file + df
+    r: piece.rank + dr
+    done: false
+    done = false?>
+        state_lib.within_board(f, r) = false?
+            done: true
+        done = false?
+            best: consider_target_reply(state, best, piece, f, r, perspective)
+            state_lib.piece_at(state.board, f, r).side != Side.none?
+                done: true
+        done = false?
+            f: f + df
+            r: r + dr
+    @: best
+
+best_piece_reply(state:GameState, piece:Piece, perspective:num) -> BotChoice:
+    best: empty_choice(state)
+    piece.role = PieceRole.pawn?
+        dir: -1
+        piece.side = Side.white? dir: 1
+        best: consider_target_reply(state, best, piece, piece.file, piece.rank + dir, perspective)
+        best: consider_target_reply(state, best, piece, piece.file, piece.rank + (dir * 2), perspective)
+        best: consider_target_reply(state, best, piece, piece.file + 1, piece.rank + dir, perspective)
+        @: consider_target_reply(state, best, piece, piece.file - 1, piece.rank + dir, perspective)
+    piece.role = PieceRole.knight?
+        best: consider_target_reply(state, best, piece, piece.file + 1, piece.rank + 2, perspective)
+        best: consider_target_reply(state, best, piece, piece.file + 2, piece.rank + 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file + 2, piece.rank - 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file + 1, piece.rank - 2, perspective)
+        best: consider_target_reply(state, best, piece, piece.file - 1, piece.rank - 2, perspective)
+        best: consider_target_reply(state, best, piece, piece.file - 2, piece.rank - 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file - 2, piece.rank + 1, perspective)
+        @: consider_target_reply(state, best, piece, piece.file - 1, piece.rank + 2, perspective)
+    piece.role = PieceRole.king?
+        best: consider_target_reply(state, best, piece, piece.file + 1, piece.rank, perspective)
+        best: consider_target_reply(state, best, piece, piece.file + 1, piece.rank + 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file, piece.rank + 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file - 1, piece.rank + 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file - 1, piece.rank, perspective)
+        best: consider_target_reply(state, best, piece, piece.file - 1, piece.rank - 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file, piece.rank - 1, perspective)
+        best: consider_target_reply(state, best, piece, piece.file + 1, piece.rank - 1, perspective)
+        best: consider_target_reply(state, best, piece, 7, piece.rank, perspective)
+        @: consider_target_reply(state, best, piece, 3, piece.rank, perspective)
+    piece.role = PieceRole.rook?
+        best: scan_ray_reply(state, best, piece, 1, 0, perspective)
+        best: scan_ray_reply(state, best, piece, -1, 0, perspective)
+        best: scan_ray_reply(state, best, piece, 0, 1, perspective)
+        @: scan_ray_reply(state, best, piece, 0, -1, perspective)
+    piece.role = PieceRole.bishop?
+        best: scan_ray_reply(state, best, piece, 1, 1, perspective)
+        best: scan_ray_reply(state, best, piece, 1, -1, perspective)
+        best: scan_ray_reply(state, best, piece, -1, 1, perspective)
+        @: scan_ray_reply(state, best, piece, -1, -1, perspective)
+    piece.role = PieceRole.queen?
+        best: scan_ray_reply(state, best, piece, 1, 0, perspective)
+        best: scan_ray_reply(state, best, piece, -1, 0, perspective)
+        best: scan_ray_reply(state, best, piece, 0, 1, perspective)
+        best: scan_ray_reply(state, best, piece, 0, -1, perspective)
+        best: scan_ray_reply(state, best, piece, 1, 1, perspective)
+        best: scan_ray_reply(state, best, piece, 1, -1, perspective)
+        best: scan_ray_reply(state, best, piece, -1, 1, perspective)
+        @: scan_ray_reply(state, best, piece, -1, -1, perspective)
+    @: best
+
+opponent_best_reply_score(state:GameState, perspective:num) -> num:
+    """Return the best score the opponent can force, still measured for perspective."""
+    i: 0
+    found: false
+    worst_for_perspective: 9999999
+    i < 32?>
+        piece: state.board.(i)
+        piece.captured = false?
+            piece.side = state.turn?
+                choice: best_piece_reply(state, piece, perspective)
+                choice.ok?
+                    found = false?
+                        worst_for_perspective: choice.score
+                        found: true
+                    choice.score < worst_for_perspective?
+                        worst_for_perspective: choice.score
+        i: i + 1
+    found? @: worst_for_perspective
+    @: evaluate_state(state, perspective)
+
+score_two_ply(move:MoveResult, perspective:num) -> num:
+    move.ok? @: opponent_best_reply_score(move.state, perspective)
+    @: -9999999
+
+consider_target_2ply(state:GameState, best:BotChoice, piece:Piece, to_file:num, to_rank:num, perspective:num) -> BotChoice:
+    target_may_be_legal(state, piece, to_file, to_rank) = false? @: best
+    move: candidate_move(state, piece, to_file, to_rank)
+    move.ok? @: better_choice(best, move, score_two_ply(move, perspective))
+    @: best
+
+scan_ray_2ply(state:GameState, best:BotChoice, piece:Piece, df:num, dr:num, perspective:num) -> BotChoice:
+    f: piece.file + df
+    r: piece.rank + dr
+    done: false
+    done = false?>
+        state_lib.within_board(f, r) = false?
+            done: true
+        done = false?
+            best: consider_target_2ply(state, best, piece, f, r, perspective)
+            state_lib.piece_at(state.board, f, r).side != Side.none?
+                done: true
+        done = false?
+            f: f + df
+            r: r + dr
+    @: best
+
+best_piece_2ply(state:GameState, piece:Piece, perspective:num) -> BotChoice:
+    best: empty_choice(state)
+    piece.role = PieceRole.pawn?
+        dir: -1
+        piece.side = Side.white? dir: 1
+        best: consider_target_2ply(state, best, piece, piece.file, piece.rank + dir, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file, piece.rank + (dir * 2), perspective)
+        best: consider_target_2ply(state, best, piece, piece.file + 1, piece.rank + dir, perspective)
+        @: consider_target_2ply(state, best, piece, piece.file - 1, piece.rank + dir, perspective)
+    piece.role = PieceRole.knight?
+        best: consider_target_2ply(state, best, piece, piece.file + 1, piece.rank + 2, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file + 2, piece.rank + 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file + 2, piece.rank - 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file + 1, piece.rank - 2, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file - 1, piece.rank - 2, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file - 2, piece.rank - 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file - 2, piece.rank + 1, perspective)
+        @: consider_target_2ply(state, best, piece, piece.file - 1, piece.rank + 2, perspective)
+    piece.role = PieceRole.king?
+        best: consider_target_2ply(state, best, piece, piece.file + 1, piece.rank, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file + 1, piece.rank + 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file, piece.rank + 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file - 1, piece.rank + 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file - 1, piece.rank, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file - 1, piece.rank - 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file, piece.rank - 1, perspective)
+        best: consider_target_2ply(state, best, piece, piece.file + 1, piece.rank - 1, perspective)
+        best: consider_target_2ply(state, best, piece, 7, piece.rank, perspective)
+        @: consider_target_2ply(state, best, piece, 3, piece.rank, perspective)
+    piece.role = PieceRole.rook?
+        best: scan_ray_2ply(state, best, piece, 1, 0, perspective)
+        best: scan_ray_2ply(state, best, piece, -1, 0, perspective)
+        best: scan_ray_2ply(state, best, piece, 0, 1, perspective)
+        @: scan_ray_2ply(state, best, piece, 0, -1, perspective)
+    piece.role = PieceRole.bishop?
+        best: scan_ray_2ply(state, best, piece, 1, 1, perspective)
+        best: scan_ray_2ply(state, best, piece, 1, -1, perspective)
+        best: scan_ray_2ply(state, best, piece, -1, 1, perspective)
+        @: scan_ray_2ply(state, best, piece, -1, -1, perspective)
+    piece.role = PieceRole.queen?
+        best: scan_ray_2ply(state, best, piece, 1, 0, perspective)
+        best: scan_ray_2ply(state, best, piece, -1, 0, perspective)
+        best: scan_ray_2ply(state, best, piece, 0, 1, perspective)
+        best: scan_ray_2ply(state, best, piece, 0, -1, perspective)
+        best: scan_ray_2ply(state, best, piece, 1, 1, perspective)
+        best: scan_ray_2ply(state, best, piece, 1, -1, perspective)
+        best: scan_ray_2ply(state, best, piece, -1, 1, perspective)
+        @: scan_ray_2ply(state, best, piece, -1, -1, perspective)
+    @: best
+
+best_move_2ply(state:GameState) -> BotChoice:
+    """Choose a legal move using one bot move plus one opponent reply."""
+    perspective: state.turn
+    best: empty_choice(state)
+    i: 0
+    i < 32?>
+        piece: state.board.(i)
+        piece.captured = false?
+            piece.side = state.turn?
+                piece_choice: best_piece_2ply(state, piece, perspective)
+                piece_choice.ok?
+                    best: better_choice(best, piece_choice.result, piece_choice.score)
+        i: i + 1
+    @: best
+
+apply_best_move_2ply(state:GameState) -> MoveResult:
+    choice: best_move_2ply(state)
+    choice.ok? @: choice.result
+    @: (ok:false, state:state, intent:state_lib.empty_intent(0, 0))

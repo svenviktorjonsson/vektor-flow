@@ -30,19 +30,19 @@ rank_name(rank:num) -> str:
     rank = 7? @: "7"
     @: "8"
 
-piece_letter(role:str) -> str:
+piece_letter(role:num) -> str:
     """Return the SAN piece prefix; pawns intentionally use no prefix."""
-    role = "king"? @: "K"
-    role = "queen"? @: "Q"
-    role = "rook"? @: "R"
-    role = "bishop"? @: "B"
-    role = "knight"? @: "N"
+    role = PieceRole.king? @: "K"
+    role = PieceRole.queen? @: "Q"
+    role = PieceRole.rook? @: "R"
+    role = PieceRole.bishop? @: "B"
+    role = PieceRole.knight? @: "N"
     @: ""
 
-move_notation(piece:Piece, target_side:str, to_file:num, to_rank:num) -> str:
+move_notation(piece:Piece, target_side:num, to_file:num, to_rank:num) -> str:
     """Build compact algebraic notation for this app's legal move reducer."""
-    target_side = ""? @: piece_letter(piece.role) & file_name(to_file) & rank_name(to_rank)
-    piece.role = "pawn"? @: file_name(piece.file) & "x" & file_name(to_file) & rank_name(to_rank)
+    target_side = Side.none? @: piece_letter(piece.role) & file_name(to_file) & rank_name(to_rank)
+    piece.role = PieceRole.pawn? @: file_name(piece.file) & "x" & file_name(to_file) & rank_name(to_rank)
     @: piece_letter(piece.role) & "x" & file_name(to_file) & rank_name(to_rank)
 
 check_suffix(check_state:str) -> str:
@@ -51,10 +51,10 @@ check_suffix(check_state:str) -> str:
     check_state = "check"? @: "+"
     @: ""
 
-move_notation_ext(piece:Piece, target_side:str, to_file:num, to_rank:num, castle_side:str, en_passant:bool, check_state:str) -> str:
+move_notation_ext(piece:Piece, target_side:num, to_file:num, to_rank:num, castle_side:num, en_passant:bit, check_state:str) -> str:
     """Build move text including castling, en passant captures, and check suffix."""
     suffix: check_suffix(check_state)
-    castle_side = "king"? @: "O-O" & suffix
-    castle_side = "queen"? @: "O-O-O" & suffix
+    castle_side = CastleSide.king? @: "O-O" & suffix
+    castle_side = CastleSide.queen? @: "O-O-O" & suffix
     en_passant? @: file_name(piece.file) & "x" & file_name(to_file) & rank_name(to_rank) & suffix
     @: move_notation(piece, target_side, to_file, to_rank) & suffix

@@ -311,7 +311,7 @@ def _assert_typed_package_surface_contract(
     entrypoint: str,
     source_input: str,
     source_label: str,
-    python_required_to_build: bool = True,
+    python_required_to_build: bool = False,
 ) -> None:
     view = surface.manifest
     build = surface.build
@@ -567,7 +567,7 @@ def _assert_package_native_core_contract(
     artifacts = surface.artifacts
     view = surface.manifest
     assert manifest["kind"] == "vektorflow-native-package"
-    assert manifest["runtime_contract"]["python_required_to_build"] is True
+    assert manifest["runtime_contract"]["python_required_to_build"] is False
     assert manifest["runtime_contract"]["python_required_to_run"] is False
     assert "supported_subset_default_path_contract" not in manifest
     _assert_typed_package_surface_contract(
@@ -576,6 +576,7 @@ def _assert_package_native_core_contract(
         entrypoint="package-native-core",
         source_input=path.as_posix(),
         source_label=path.as_posix(),
+        python_required_to_build=False,
     )
     _assert_codegen_projection(surface, manifest)
     _assert_artifact_surface_projection(surface, manifest)
@@ -905,16 +906,10 @@ class TestMain:
             print("native-run")
             return 0
 
-        def _run_with_interpreter(path: Path) -> int:
-            called.append(Path("interpreter"))
-            print("interpreter-run")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_probe.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "auto")
         assert main([str(src)]) == 0
         assert called == [src]
@@ -933,24 +928,15 @@ class TestMain:
             calls.append("native")
             raise RuntimeError("native backend not ready")
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            print("interpreter-back")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_fallback.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "auto")
-        monkeypatch.delenv("VKF_ALLOW_PYTHON_FALLBACK", raising=False)
-        monkeypatch.delenv("VKF_DEV_ALLOW_PYTHON_FALLBACK", raising=False)
         assert main([str(src)]) == 1
         assert calls == ["native"]
         err = capsys.readouterr().err
         assert "native runtime execution failed" in err
-        assert "falling back to Python interpreter" not in err
 
     def test_runtime_backend_auto_unsupported_file_fails_without_interpreter(
         self,
@@ -966,19 +952,12 @@ class TestMain:
             calls.append("native")
             return 0
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_unsupported.vkf"
         src.write_text('scene Main:\n    :: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._try_run_native_overlay_scene", lambda path: None)
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "auto")
-        monkeypatch.delenv("VKF_ALLOW_PYTHON_FALLBACK", raising=False)
-        monkeypatch.delenv("VKF_DEV_ALLOW_PYTHON_FALLBACK", raising=False)
         assert main([str(src)]) == 1
         assert calls == []
         assert "native runtime does not support this file" in capsys.readouterr().err
@@ -993,21 +972,16 @@ class TestMain:
         def _native_runtime_available(path: Path) -> bool:
             return False
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_backend_unsupported.vkf"
         src.write_text('scene Main:\n    :: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._try_run_native_overlay_scene", lambda path: None)
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "native")
         assert main([str(src)]) == 1
         assert calls == []
         assert "native runtime does not support this file" in capsys.readouterr().err
 
-    def test_run_auto_ignores_old_python_fallback_env(
+    def test_run_auto_has_no_python_fallback_env(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
@@ -1021,18 +995,11 @@ class TestMain:
             calls.append("native")
             raise RuntimeError("native backend not ready")
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_old_fallback_env.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "auto")
-        monkeypatch.setenv("VKF_ALLOW_PYTHON_FALLBACK", "1")
-        monkeypatch.delenv("VKF_DEV_ALLOW_PYTHON_FALLBACK", raising=False)
         assert main([str(src)]) == 1
         assert calls == ["native"]
         assert "native runtime execution failed" in capsys.readouterr().err
@@ -1050,20 +1017,15 @@ class TestMain:
             calls.append("native")
             return 0
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_old_python_backend.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "python")
         assert main([str(src)]) == 0
         assert calls == ["native"]
 
-    def test_run_auto_ignores_development_python_fallback_env(
+    def test_run_auto_has_no_development_python_fallback_env(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
@@ -1077,24 +1039,16 @@ class TestMain:
             calls.append("native")
             raise RuntimeError("native backend not ready")
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            print("interpreter-back")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_explicit_fallback.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "auto")
-        monkeypatch.delenv("VKF_ALLOW_PYTHON_FALLBACK", raising=False)
-        monkeypatch.setenv("VKF_DEV_ALLOW_PYTHON_FALLBACK", "1")
         assert main([str(src)]) == 1
         assert calls == ["native"]
         assert "native runtime execution failed" in capsys.readouterr().err
 
-    def test_run_native_backend_ignores_development_python_fallback(
+    def test_run_native_backend_has_no_development_python_fallback(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
@@ -1108,17 +1062,11 @@ class TestMain:
             calls.append("native")
             raise RuntimeError("forced native path failed")
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_dev_fallback_native_mode.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "native")
-        monkeypatch.setenv("VKF_DEV_ALLOW_PYTHON_FALLBACK", "1")
         assert main([str(src)]) == 1
         assert calls == ["native"]
         assert "native runtime execution failed" in capsys.readouterr().err
@@ -1162,16 +1110,10 @@ class TestMain:
             calls.append("native")
             raise RuntimeError("forced native path failed")
 
-        def _run_with_interpreter(path: Path) -> int:
-            calls.append("interpreter")
-            print("interpreter-back")
-            return 0
-
         src = FOLDER_REPO_MAIN.parent / "native_preference_strict.vkf"
         src.write_text(':: "ok"\n', encoding="utf-8")
         monkeypatch.setattr("vektorflow.cli._native_runtime_available", _native_runtime_available)
         monkeypatch.setattr("vektorflow.cli._run_with_native_core", _run_with_native_core)
-        monkeypatch.setattr("vektorflow.cli._run_with_interpreter", _run_with_interpreter)
         monkeypatch.setenv("VKF_RUNTIME_BACKEND", "native")
         assert main([str(src)]) == 1
         assert calls == ["native"]

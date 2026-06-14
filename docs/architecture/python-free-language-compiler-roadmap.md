@@ -339,16 +339,14 @@ Status: **done for supported-subset default-path purposes**. Moved **92% -> 99%*
 - unsupported files are now hard errors in the default run path after native
   subset classification; neither `auto` nor `native` mode falls through to the
   Python interpreter
-- supported native files no longer honor `VKF_DEV_ALLOW_PYTHON_FALLBACK=1`:
-  once the CLI classifies a file as native-supported, failure stays on the
-  native path instead of retrying the Python interpreter
+- supported native files have no fallback hatch: once the CLI classifies a file
+  as native-supported, failure stays on the native path instead of retrying the
+  Python interpreter
 - `VKF_RUNTIME_BACKEND=python` is no longer a supported selector either: the
   CLI now treats that old value like `auto`, so it cannot be used to force a
   native-supported file back onto the Python interpreter path
-- supported-subset package metadata now records `python_required_to_build=false`
-  and `python_required_to_run=false`; legacy `package-native-core` metadata is
-  intentionally separate and may still record Python as build-time bootstrap
-  tooling
+- supported-subset and native-core package metadata now record
+  `python_required_to_build=false` and `python_required_to_run=false`
 - compiler-source hardening now treats canonical VKF syntax as part of the
   compiler contract: self-hosted compiler files use real `??` / `=>` forms with
   direct default arms, and contributor rules/tests forbid invented keyword

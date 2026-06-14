@@ -165,19 +165,19 @@ def test_foldered_vkf_chess_3d_program_builds_scene_and_reduces_events() -> None
     move = interpreter.globals["move_e4"]
     assert move["ok"] is True
     assert move["intent"]["notation"] == "e4"
-    assert move["state"]["turn"] == "black"
+    assert move["state"]["turn"] == 2
     assert interpreter.globals["selected_e2"]["state"]["status"] == "selected"
     assert interpreter.globals["target_e2"] == {
-        "kind": "piece",
+        "kind": 2,
         "file": 5,
         "rank": 2,
-        "piece_side": "white",
-        "piece_role": "pawn",
+        "piece_side": 1,
+        "piece_role": 1,
     }
-    assert interpreter.globals["anim_e4"]["kind"] == "move"
+    assert interpreter.globals["anim_e4"]["kind"] == 0
     assert interpreter.globals["anim_e4"]["duration_ms"] == 280
     assert interpreter.globals["camera_after_arrow"]["theta"] == 60
-    assert interpreter.globals["reset_state"]["turn"] == "white"
+    assert interpreter.globals["reset_state"]["turn"] == 1
     assert interpreter.globals["loop_probe"]["status"] == "ready"
 
     display = interpreter.globals["d"]
@@ -193,6 +193,18 @@ def test_foldered_vkf_chess_3d_program_builds_scene_and_reduces_events() -> None
         "cols": 2,
         "row_heights": "max-content max-content max-content max-content max-content max-content minmax(0,1fr)",
     }
+
+
+def test_foldered_vkf_chess_3d_bot_selects_two_ply_move() -> None:
+    source = ROOT / "examples" / "programs" / "vkf_chess_3d" / "bot_smoke.vkf"
+    interpreter = Interpreter(source)
+    interpreter.run_module(parse_module(source.read_text(encoding="utf-8"), filename=str(source)))
+
+    choice = interpreter.globals["choice"]
+    assert choice["ok"] is True
+    assert choice["result"]["ok"] is True
+    assert choice["result"]["intent"]["notation"]
+    assert choice["result"]["state"]["turn"] == 2
 
 
 def test_foldered_vkf_chess_3d_exposes_native_overlay_contract() -> None:
@@ -282,6 +294,19 @@ def test_foldered_vkf_chess_3d_exposes_native_overlay_contract() -> None:
     assert scene_config["interaction"]["square_highlight_hover"] == [0.24, 0.62, 1.0, 0.78]
     assert scene_config["interaction"]["square_highlight_selected"] == [0.28, 0.72, 1.0, 0.92]
     assert scene_config["interaction"]["selected_piece_specular_strength"] == pytest.approx(0.16)
+    assert [mode["id"] for mode in scene_config["interaction"]["player_modes"]] == [
+        "human_human",
+        "human_bot",
+        "bot_human",
+        "bot_bot",
+    ]
+    assert scene_config["interaction"]["default_player_mode"] == "human_human"
+    first_piece = scene_config["interaction"]["pieces"][0]
+    black_piece = next(piece for piece in scene_config["interaction"]["pieces"] if piece["id"] == "black_rook_a8")
+    assert first_piece["side"] == "white"
+    assert first_piece["role"] == "rook"
+    assert black_piece["side"] == "black"
+    assert black_piece["role"] == "rook"
     assert scene_config["interaction"]["hit_regions"][0]["exclusive"] is True
     for light in scene_config["scene_ir"]["lights"]:
         assert light["properties"]["motion"] == "fixed"
@@ -311,6 +336,17 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "blendRgba(color, [0.34, 0.70, 1.0, 1.0], 0.38)" in runtime
     assert "blendRgba(color, [0.28, 0.78, 1.0, 1.0], 0.56)" in runtime
     assert "function chessCastleInfo(runtime, piece, toFile, toRank)" in runtime
+    assert "function chessEnPassantCapturedPiece(runtime, piece, toFile, toRank)" in runtime
+    assert "function recordChessLastDoublePawn(runtime, piece, fromRank, toFile, toRank)" in runtime
+    assert "runtime.lastDoublePawn = null" in runtime
+    assert "lastDoublePawn: runtime && runtime.lastDoublePawn ? {" in runtime
+    assert "if (adf === 1 && dr === dir && chessEnPassantCapturedPiece(runtime, piece, toFile, toRank)) { return true; }" in runtime
+    assert "var enPassantCaptured = chessEnPassantCapturedPiece(runtime, piece, toFile, toRank);" in runtime
+    assert "delete runtime.occupied[chessSquareKey(enPassantCaptured.file, enPassantCaptured.rank)];" in runtime
+    assert "queueCapturedPieceAnimation(runtime, enPassantCaptured, piece.side);" in runtime
+    assert "recordChessLastDoublePawn(runtime, piece, fromRank, toFile, toRank);" in runtime
+    assert "chessMoveNotation(runtime, piece, target, toFile, toRank, castle, enPassantCaptured, fromFile)" in runtime
+    assert "var fromFileName = \"abcdefgh\".charAt(Math.max(0, Math.min(7, Number(fromFile || piece.file) - 1)))" in runtime
     assert "chessSquareAttackedBy(runtime, throughFile, toRank, enemySide)" in runtime
     assert "function chessWouldLeaveKingInCheck(runtime, piece, toFile, toRank)" in runtime
     assert "function chessKingInCheck(runtime, side)" in runtime
@@ -372,6 +408,11 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "runtime.clock.interval_id = global.setInterval" in runtime
     assert "function startChessEndAnimation(runtime, result)" in runtime
     assert "function finishChessMoveResult(runtime, moverSide)" in runtime
+    assert "function chessPositionKey(runtime)" in runtime
+    assert "function updateChessDrawCountersAfterMove(runtime, movedPiece, capturedPiece)" in runtime
+    assert "function chessDrawRuleResult(runtime)" in runtime
+    assert 'if ((Number(runtime.halfmoveClock || 0) || 0) >= 100) { return "draw"; }' in runtime
+    assert "runtime.positionCounts[key]" in runtime
     assert "function chessEndMatedKing(runtime, result)" in runtime
     assert "function chessMatedKingFallPose(runtime, king)" in runtime
     assert "function mat4RotateAroundPoint(axis, angleRad, pivot, baseModel)" in runtime
@@ -421,6 +462,9 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "sceneWorldAnimationsPending()" in runtime
     assert "runtime.endSequence" in runtime
     assert "pendingEndResult" in runtime
+    assert "endResult: String(runtime && (runtime.pendingEndResult || runtime.gameOver) || \"\")" in runtime
+    assert "runtime.pendingEndResult = String(snapshot.endResult || \"\");" in runtime
+    assert "runtime.pendingEndPieceObjectId = 0;" in runtime
     assert "runtime.pendingEndResult = moveResult || \"\";" in runtime
     assert "runtime.pendingEndResult = promotionResult || \"\";" in runtime
     assert "if (!runtime.gameOver && runtime.pendingEndResult)" in runtime
@@ -448,6 +492,9 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'runtime.pendingAutoSwitchSide = String(runtime.turn || "white")' in runtime
     assert "startAutoSwitchCamera(renderCamera, controlState.pendingAutoSwitchSide || \"white\")" in runtime
     assert "applyChessPieceInteractionVisual(runtime, option.mesh, option.side, hovered, false, baseCenter)" in runtime
+    assert "var hoverVisualChanged = false;" in runtime
+    assert "if (previousHoverPromotion !== runtime.hoverPromotion)" in runtime
+    assert "if (hoverVisualChanged) {\n        requestChessInteractionFrame(runtime);\n      }" in runtime
     assert "var fieldProxySize = Math.max(0.1, fieldSpanX, fieldSpanY, fieldSpanZ)" in runtime
     assert "pick_passthrough_when = \"promotion_active\"" in runtime
     assert "pick_context: {" in runtime
@@ -492,7 +539,41 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function visibleRenderBackpressureActive()" in runtime
     assert "function ensureVisibleSceneFrameShell()" in runtime
     assert "global.VfFrame.mount(layer" in runtime
+    assert "function chessPlayerModes(runtime)" in runtime
+    assert 'failFast("chess interaction requires player_modes in the VKF contract")' in runtime
+    assert "data-vf-chess-player-mode" in runtime
+    assert "runtime.playerModeSpec = chessPlayerModeById(runtime, runtime.playerMode);" in runtime
+    assert "function scheduleChessBotTurn(runtime, delayMs)" in runtime
+    assert "Math.max(2000, Number(cfg.bot_min_think_ms || 2000) || 2000)" in runtime
+    assert "function chessBotBestMove(runtime)" in runtime
+    assert "function chessBotMinimaxScore(runtime, depth, perspective, alpha, beta)" in runtime
+    assert "var maxDepth = Math.max(1, Math.min(6, Number(cfg.bot_search_plies || 4) || 4));" in runtime
+    assert "function chessBotSearchTimedOut(context)" in runtime
+    assert "function chessBotStaticExchangeScore(runtime, move)" in runtime
+    assert "function chessBotQuiescenceScore(runtime, perspective, alpha, beta, context, qDepth)" in runtime
+    assert "function chessBotPieceSafetyScore(runtime, piece)" in runtime
+    assert "function chessBotBishopPairScore(runtime, side)" in runtime
+    assert "function chessBotMatingNetScore(runtime, side)" in runtime
+    assert "function chessBotKingTropismScore(runtime, side)" in runtime
+    assert "function chessBotChooseEquivalentBestMove(runtime, scoredMoves)" in runtime
+    assert "bot_random_equal_cp" in runtime
+    assert "if (equivalents.length > 10) { equivalents = equivalents.slice(0, 10); }" in runtime
+    assert "function chessBotPreMoveStrategicAdjustment(runtime, move, perspective)" in runtime
+    assert "function chessBotPostMoveStrategicAdjustment(runtime, movedPiece, perspective, wasInCheck)" in runtime
+    assert "function chessBotOpeningPieceScore(runtime, piece)" in runtime
+    assert "runtime.botPendingPromotionRole = String(move.promotionRole || \"\");" in runtime
+    assert "scheduleChessBotTurn(runtime, chessBotDelayMs(runtime));" in runtime
+    assert "var shellAspect = chessInteractionConfig() ? null : (frameSpec.aspect != null ? String(frameSpec.aspect) : null);" in runtime
+    assert 'String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal" && !chessInteractionConfig()' in runtime
     assert "exitWhenLastFrameClosed: true" in runtime
+    assert "function ensureChessRuntimeEventsAttached()" in runtime
+    assert "function scheduleVisibleInitialSceneRender()" in runtime
+    assert "function mountResponsiveVisibleShell()" in runtime
+    assert "postVisibleShellLayout();" in runtime
+    assert runtime.index("mountResponsiveVisibleShell();") < runtime.index("global.requestAnimationFrame(startInitialSceneRender);")
+    assert 'if (typeof global.requestIdleCallback === "function")' in runtime
+    assert "global.requestIdleCallback(start, { timeout: 600 });" in runtime
+    assert "global.setTimeout(start, 120);" in runtime
     assert 'sceneFrame.setAttribute("data-vf-chess-board-frame", "1")' in runtime
     assert 'sceneFrameBody.appendChild(panel)' in runtime
     assert 'panel.classList.add("vf-chess-panel--in-frame")' in runtime
@@ -503,6 +584,9 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'typeof global.VfDisplay.mountDynamicGeomFrame === "function"' in runtime
     assert "function markChessSceneDirty(runtime)" in runtime
     assert "function updateVisibleCameraOnly(camera, options)" in runtime
+    assert "function chessViewportElement(bodyEl)" in runtime
+    assert "function resizeChessViewportToFit(bodyEl)" in runtime
+    assert 'global.addEventListener("vf-frame-live-resize"' in runtime
     assert "controlState.requestCameraFrame = function ()" in runtime
     assert "controlState.cameraFramePending = true" in runtime
     assert "continuationFramePending" in runtime
@@ -602,10 +686,37 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "NotoSans-Regular-chess-sdf.png" in geom_runtime
     assert "fn chessCoordLabelMask(localPos: vec3<f32>) -> f32" in geom_runtime
     assert "textureSampleLevel(fontAtlas, fontSampler, atlasUv, 0.0).r" in geom_runtime
+    assert "return smoothstep(0.42, 0.58, distanceValue);" in geom_runtime
     assert 'var chessBoardHost = body.querySelector(".vf-chess-board-host")' in display_runtime
+    assert "function resizeChessBoardHostToFit(hostEl)" in display_runtime
+    assert "var hostEl = resizeChessBoardHostToFit(canvas.parentElement || canvas);" in display_runtime
+    assert 'global.addEventListener("vf-frame-live-resize"' in display_runtime
+    assert 'var liveFrameId = String(detail.frameId || detail.id || "");' in display_runtime
+    assert 'var liveFrameId = String(detail.frameId || detail.id || "");' in runtime
+    assert "liveFrameId !== String(geomTargetFrameId(fid)) && liveFrameId !== String(fid)" in display_runtime
+    assert "entry.resizeRaf = requestAnimationFrame" not in display_runtime
+    assert 'data-vf-geom-resize-pending' not in display_runtime
+    assert 'data-vf-geom-resize-pending' not in geom_runtime
+    assert "options.forceResize !== true" in geom_runtime
+    assert "this._renderContent(performance.now(), { forceResize: true })" in geom_runtime
+    assert 'id: String(id),' in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
+    assert "function frameContentAspectMode(frameEl)" in display_runtime
+    assert "dataset.vfContentAspect" in display_runtime
+    assert 'hostOwnsViewport = !!(hostEl && hostEl.classList && hostEl.classList.contains("vf-chess-board-host"))' in display_runtime
+    assert 'if (!hostOwnsViewport && frameContentAspectMode(frameEl) === "equal")' in display_runtime
+    assert "frameAspectMode(frameEl) === \"equal\"" not in display_runtime
+    assert "self._resizeRaf = requestAnimationFrame" not in geom_runtime
+    assert "function cameraProjectionMatrixMatchesRenderAspect(camera, renderAspect)" in geom_runtime
+    assert "projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(cam, asp)" in geom_runtime
+    assert "projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(camPart, aspect)" in geom_runtime
+    assert "delete nextCamera.projection_matrix;" in runtime
+    assert display_runtime.count("ensureGeomCanvas(frameEl, 0, fid)") >= 3
+    assert "ensureGeomCanvas(frameEl, 0);" not in display_runtime
     assert "function currentGeomEventHost()" in display_runtime
     assert "var eventHost = currentGeomEventHost()" in display_runtime
-    assert "var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, eventHost, req.clientX, req.clientY)" in display_runtime
+    assert "function geomLiveCanvasPickRect(rec, fallbackRect)" in display_runtime
+    assert "var pickRect = geomLiveCanvasPickRect(rec, frameRect)" in display_runtime
+    assert "var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, eventHost, req.clientX, req.clientY, pickRect)" in display_runtime
     assert "var _vfPostedKeyDown = Object.create(null)" in display_runtime
     assert "_vfPostedKeyDown[keyId] === true" in display_runtime
     assert "scene.parts[partIndex].camera = camera" in display_runtime

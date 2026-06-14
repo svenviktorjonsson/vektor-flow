@@ -77,6 +77,21 @@
     }, 0);
   }
 
+  function projectionMatrixAspect(matrix) {
+    if (!matrix || typeof matrix.length !== "number" || matrix.length !== 16) { return 0; }
+    var sx = Math.abs(Number(matrix[0] || 0));
+    var sy = Math.abs(Number(matrix[5] || 0));
+    if (!(sx > 1e-9) || !(sy > 1e-9)) { return 0; }
+    return sy / sx;
+  }
+
+  function cameraProjectionMatrixMatchesRenderAspect(camera, renderAspect) {
+    var matrixAspect = projectionMatrixAspect(camera && camera.projection_matrix);
+    if (!(matrixAspect > 0)) { return false; }
+    var aspect = Math.max(1e-6, Number(renderAspect || 1) || 1);
+    return Math.abs(matrixAspect - aspect) <= Math.max(0.01, aspect * 0.01);
+  }
+
   function runtimeAssetUrl(relativePath) {
     var rel = String(relativePath || "");
     if (GEOM_SCRIPT_URL) {
@@ -1760,7 +1775,7 @@ fn chessCoordAtlasMask(col: i32, row: i32, uv: vec2<f32>) -> f32 {
   }
   let atlasUv = (vec2<f32>(f32(clamp(col, 0, 7)), f32(clamp(row, 0, 1))) + cellUv) / vec2<f32>(8.0, 2.0);
   let distanceValue = textureSampleLevel(fontAtlas, fontSampler, atlasUv, 0.0).r;
-  return smoothstep(0.47, 0.54, distanceValue);
+  return smoothstep(0.42, 0.58, distanceValue);
 }
 
 fn chessCoordLabelMask(localPos: vec3<f32>) -> f32 {
@@ -5809,12 +5824,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
   VfGeomWgpu.prototype = {
     _markPresentedFirstFrame: function () {
-      if (this._presentedFirstFrame) { return; }
-      this._presentedFirstFrame = true;
       var canvas = this._canvas;
       if (canvas && canvas.style) {
         canvas.style.visibility = "";
       }
+      if (this._presentedFirstFrame) { return; }
+      this._presentedFirstFrame = true;
       var host = canvas && canvas.parentElement;
       if (host && host.getAttribute && host.getAttribute("data-vf-geom-present-pending") === "1") {
         host.style.visibility = "";
@@ -6632,7 +6647,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         projMatPart = MmBatch.mat4OrthoZ01(-1, 1, -1, 1, 0, 1);
         mvpPart = projMatPart;
       } else {
-        if (camPart && Array.isArray(camPart.projection_matrix) && camPart.projection_matrix.length === 16) {
+        if (camPart && Array.isArray(camPart.projection_matrix) && camPart.projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(camPart, aspect)) {
           projMatPart = new Float32Array(camPart.projection_matrix);
         } else {
           var fovRadPart = fovPart * Math.PI / 180;
@@ -7405,9 +7420,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._topology = mesh.topology || "triangle-list";
     },
 
-    _renderContent: function (t) {
+    _renderContent: function (t, options) {
       if (!this._device) { return; }
-      if (isGpuWorkPending(this)) {
+      options = options && typeof options === "object" ? options : {};
+      if (isGpuWorkPending(this) && options.forceResize !== true) {
         var scheduler = gpuSchedulerState(this);
         this._debugGpuBlockedCount = Number(this._debugGpuBlockedCount || 0) + 1;
         queueRendererForGpuDrain(this, scheduler);
@@ -7684,7 +7700,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         mvp     = projMat;
       } else {
         var fovRad = fov * Math.PI / 180;
-        if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16) {
+        if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(cam, asp)) {
           projMat = new Float32Array(cam.projection_matrix);
         } else if (String(cam && cam.projection || "").toLowerCase() === "orthographic") {
           var orthoScale = Math.max(1e-6, Number(cam.ortho_scale || 2.5) || 2.5);
@@ -8020,15 +8036,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     },
 
     onResize: function () {
-      var self = this;
-      if (self._resizeRaf) { cancelAnimationFrame(self._resizeRaf); }
-      self._resizeRaf = requestAnimationFrame(function () {
-        self._resizeRaf = 0;
-        if (!self._running || !self._device || !self._vb || !self._ib) { return; }
-        self._ensureDepth();
-        self._ensurePickTextures();
-        try { self._renderContent(performance.now()); } catch(e) {}
-      });
+      if (this._resizeRaf) {
+        cancelAnimationFrame(this._resizeRaf);
+        this._resizeRaf = 0;
+      }
+      if (!this._running || !this._device || !this._vb || !this._ib) { return; }
+      this._ensureDepth();
+      this._ensurePickTextures();
+      try { this._renderContent(performance.now(), { forceResize: true }); } catch(e) {}
     },
   };
 

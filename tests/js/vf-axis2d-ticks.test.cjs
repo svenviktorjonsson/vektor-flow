@@ -20,7 +20,7 @@ const axis2d = require("../../web/vf-ui/vf-axis2d-ticks.js");
 
 {
   const label = axis2d.axisTickLabelWithOffset(1000005, "linear", 1000000, 1000010, 1000000, 1);
-  assert.equal(label, "$5$");
+  assert.equal(label, "5");
 }
 
 {
@@ -73,6 +73,20 @@ const axis2d = require("../../web/vf-ui/vf-axis2d-ticks.js");
   assert.equal(state.x.offset, 0);
   assert.ok(state.y.step > 0);
   assert.ok(Array.isArray(state.y.values));
+}
+
+{
+  const cfg = { r_min: -2, r_max: 4, theta_offset_rad: Math.PI };
+  const range = axis2d.polarRadialRange(cfg);
+  assert.equal(range.min, 0);
+  assert.equal(range.max, 4);
+  assert.equal(range.span, 4);
+  assert.equal(axis2d.polarThetaOffset(cfg), Math.PI);
+  assert.equal(axis2d.applyPolarRadialRange(cfg, 1, 3), true);
+  assert.equal(cfg.r_min, 1);
+  assert.equal(cfg.r_max, 3);
+  assert.equal(axis2d.setPolarThetaOffset(cfg, "bad"), true);
+  assert.equal(cfg.theta_offset_rad, 0);
 }
 
 console.log("vf-axis2d-ticks tests passed");

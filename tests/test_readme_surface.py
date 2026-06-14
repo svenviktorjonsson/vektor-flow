@@ -49,7 +49,7 @@ p : (x:0, y:0)
         src = """
 n : num
 s : str
-b : bool
+b : bit
 :: n
 :: s
 :: b
@@ -71,7 +71,7 @@ class TestPrimitiveDefaults:
         src = r"""
 n : num
 s : str
-b : bool
+b : bit
 :: (n = 0) /\ (s = "") /\ (~ b)
 """
         assert _emit(src) == "true"

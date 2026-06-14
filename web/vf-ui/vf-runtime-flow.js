@@ -6,6 +6,38 @@
 
   if (global.VfRuntimeFlow) { return; }
 
+  var _packetContract = global.VfRuntimePacketContract || null;
+  var FALLBACK_PACKET_KINDS = {
+    "scene.replace": true,
+    "ui_state.replace": true,
+    "display.replace": true,
+    "geom.color.patch": true,
+    "widget.append_text": true
+  };
+  var FALLBACK_BOOTSTRAP_COALESCE_KINDS = {
+    "scene.replace": true,
+    "ui_state.replace": true,
+    "display.replace": true
+  };
+
+  function validatePacketPayload(kind, payload) {
+    if (_packetContract && typeof _packetContract.validatePacketPayload === "function") {
+      return _packetContract.validatePacketPayload(kind, payload, "route");
+    }
+    if (!FALLBACK_PACKET_KINDS[kind]) { return "unsupported packet kind " + kind; }
+    if (kind === "scene.replace" && (!payload || !Array.isArray(payload.commands))) { return "scene.replace packet missing commands"; }
+    if (kind === "ui_state.replace" && (!payload || !payload.state || typeof payload.state !== "object")) { return "ui_state.replace packet missing state"; }
+    if (kind === "display.replace" && (!payload || !payload.display || typeof payload.display !== "object")) { return "display.replace packet missing display"; }
+    if (kind === "widget.append_text" && (!payload || !payload.frame_id || !payload.widget_id || payload.text == null || !Number.isFinite(Number(payload.append_seq)))) { return "widget.append_text packet missing append payload"; }
+    if (kind === "geom.color.patch" && (!payload || !payload.frame_id || !Number.isFinite(Number(payload.object_id)) || Number(payload.object_id) <= 0 || payload.color == null)) { return "geom.color.patch packet missing color payload"; }
+    return "";
+  }
+
+  function isRuntimePacketKind(kind) {
+    var kinds = _packetContract && _packetContract.PACKET_KINDS || FALLBACK_PACKET_KINDS;
+    return !!kinds[String(kind || "")];
+  }
+
   var PACKET_RUNTIME_STATES = {
     BOOTSTRAP_ONLY: "bootstrap-only",
     ACTIVE_STREAM: "active-stream",
@@ -20,18 +52,7 @@
     var getRuntimeSource = options.getRuntimeSource || function() { return null; };
     var applySceneCommands = options.applySceneCommands || function() {};
     var state = options.state || {};
-    var BOOTSTRAP_COALESCE_KINDS = {
-      "scene.replace": true,
-      "ui_state.replace": true,
-      "display.replace": true
-    };
-    var STRICT_ROUTE_KINDS = {
-      "scene.replace": true,
-      "ui_state.replace": true,
-      "display.replace": true,
-      "geom.color.patch": true,
-      "widget.append_text": true
-    };
+    var BOOTSTRAP_COALESCE_KINDS = _packetContract && _packetContract.BOOTSTRAP_COALESCE_KINDS || FALLBACK_BOOTSTRAP_COALESCE_KINDS;
 
     function strictPacketOnlyEnabled() {
       return !!config.strictPacketOnly;
@@ -149,17 +170,12 @@
       }
       var kind = String(packet.kind || "");
       var payload = packet.payload;
-      if (!STRICT_ROUTE_KINDS[kind]) {
+      if (!isRuntimePacketKind(kind)) {
         throw strictPacketRouteError("unsupported packet kind " + kind);
       }
-      if (kind === "scene.replace" && (!payload || !Array.isArray(payload.commands))) {
-        throw strictPacketRouteError("scene.replace packet missing commands");
-      }
-      if (kind === "ui_state.replace" && (!payload || !payload.state || typeof payload.state !== "object")) {
-        throw strictPacketRouteError("ui_state.replace packet missing state");
-      }
-      if (kind === "display.replace" && (!payload || !payload.display || typeof payload.display !== "object")) {
-        throw strictPacketRouteError("display.replace packet missing display");
+      if (kind === "scene.replace" || kind === "ui_state.replace" || kind === "display.replace") {
+        var replacePayloadError = validatePacketPayload(kind, payload);
+        if (replacePayloadError) { throw strictPacketRouteError(replacePayloadError); }
       }
       if (kind === "ui_state.replace" && (!deps.widgets || !deps.widgets.applyRuntimePacket)) {
         throw strictPacketRouteError("ui_state.replace packet requires widget runtime adapter");
@@ -170,17 +186,9 @@
       if (kind === "widget.append_text" && (!deps.widgets || !deps.widgets.applyRuntimePacket)) {
         throw strictPacketRouteError("widget.append_text packet requires widget runtime adapter");
       }
-      if (
-        kind === "widget.append_text" &&
-        (!payload || !payload.frame_id || !payload.widget_id || payload.text == null || !Number.isFinite(Number(payload.append_seq)))
-      ) {
-        throw strictPacketRouteError("widget.append_text packet missing append payload");
-      }
-      if (
-        kind === "geom.color.patch" &&
-        (!payload || !payload.frame_id || !Number.isFinite(Number(payload.object_id)) || Number(payload.object_id) <= 0 || payload.color == null)
-      ) {
-        throw strictPacketRouteError("geom.color.patch packet missing color payload");
+      if (kind === "widget.append_text" || kind === "geom.color.patch") {
+        var patchPayloadError = validatePacketPayload(kind, payload);
+        if (patchPayloadError) { throw strictPacketRouteError(patchPayloadError); }
       }
     }
 

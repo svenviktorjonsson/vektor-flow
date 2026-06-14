@@ -3853,6 +3853,7 @@
     if (Array.isArray(runtime.historySnapshots) && currentIndex + 1 < runtime.historySnapshots.length) {
       runtime.historySnapshots = runtime.historySnapshots.slice(0, currentIndex + 1);
     }
+    rebuildChessPositionCounts(runtime);
   }
 
   function chessSnapshot(runtime) {
@@ -3878,6 +3879,14 @@
     }
     return {
       turn: String(runtime && runtime.turn || "white"),
+      endResult: String(runtime && (runtime.pendingEndResult || runtime.gameOver) || ""),
+      halfmoveClock: Number(runtime && runtime.halfmoveClock || 0) || 0,
+      positionKey: runtime ? chessPositionKey(runtime) : "",
+      lastDoublePawn: runtime && runtime.lastDoublePawn ? {
+        side: String(runtime.lastDoublePawn.side || ""),
+        file: Number(runtime.lastDoublePawn.file || 0) || 0,
+        rank: Number(runtime.lastDoublePawn.rank || 0) || 0
+      } : null,
       pieces: pieces
     };
   }
@@ -3891,7 +3900,9 @@
     runtime.hoverPromotion = null;
     runtime.promotion = null;
     runtime.gameOver = null;
-    runtime.pendingEndResult = "";
+    runtime.pendingEndResult = String(snapshot.endResult || "");
+    runtime.halfmoveClock = Number(snapshot.halfmoveClock || 0) || 0;
+    runtime.pendingEndPieceObjectId = 0;
     runtime.endSequence = null;
     runtime.animations = [];
     clearChessPromotionOptions(runtime);
@@ -3933,6 +3944,11 @@
       setEntityProp(piece.mesh, "receives_shadow", true);
     }
     runtime.nextCaptureOrder = maxCaptureOrder;
+    runtime.lastDoublePawn = snapshot.lastDoublePawn && typeof snapshot.lastDoublePawn === "object" ? {
+      side: String(snapshot.lastDoublePawn.side || ""),
+      file: Number(snapshot.lastDoublePawn.file || 0) || 0,
+      rank: Number(snapshot.lastDoublePawn.rank || 0) || 0
+    } : null;
     var capturers = ["white", "black"];
     for (var sideIndex = 0; sideIndex < capturers.length; sideIndex += 1) {
       var capturedForSide = assignChessCapturedTraySlots(runtime, capturers[sideIndex]);
@@ -3947,6 +3963,7 @@
     runtime.turn = String(snapshot.turn || "white");
     runtime.currentMoveIndex = Math.max(0, Number(moveIndex || 0) || 0);
     rebuildChessOccupancy(runtime);
+    rebuildChessPositionCounts(runtime);
     resetChessHighlights(runtime);
     refreshChessPieceSelectionPose(runtime);
     updateChessPanel(runtime);
@@ -3977,6 +3994,71 @@
     runtime.pendingAutoSwitchAfterAnimations = runtime.autoSwitchView === true;
   }
 
+  function chessCastleRightsKey(runtime) {
+    var whiteKing = chessPieceAt(runtime, 5, 1);
+    var blackKing = chessPieceAt(runtime, 5, 8);
+    var whiteKingRook = chessPieceAt(runtime, 8, 1);
+    var whiteQueenRook = chessPieceAt(runtime, 1, 1);
+    var blackKingRook = chessPieceAt(runtime, 8, 8);
+    var blackQueenRook = chessPieceAt(runtime, 1, 8);
+    var out = "";
+    if (whiteKing && whiteKing.side === "white" && String(whiteKing.role || "") === "king" && whiteKing.has_moved !== true) {
+      if (whiteKingRook && whiteKingRook.side === "white" && String(whiteKingRook.role || "") === "rook" && whiteKingRook.has_moved !== true) { out += "K"; }
+      if (whiteQueenRook && whiteQueenRook.side === "white" && String(whiteQueenRook.role || "") === "rook" && whiteQueenRook.has_moved !== true) { out += "Q"; }
+    }
+    if (blackKing && blackKing.side === "black" && String(blackKing.role || "") === "king" && blackKing.has_moved !== true) {
+      if (blackKingRook && blackKingRook.side === "black" && String(blackKingRook.role || "") === "rook" && blackKingRook.has_moved !== true) { out += "k"; }
+      if (blackQueenRook && blackQueenRook.side === "black" && String(blackQueenRook.role || "") === "rook" && blackQueenRook.has_moved !== true) { out += "q"; }
+    }
+    return out || "-";
+  }
+
+  function chessPositionKey(runtime) {
+    var ids = runtime && runtime.piecesByObjectId ? Object.keys(runtime.piecesByObjectId) : [];
+    var pieces = [];
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured) { continue; }
+      pieces.push(String(piece.side || "") + ":" + String(piece.role || "") + ":" + String(Number(piece.file || 0) || 0) + ":" + String(Number(piece.rank || 0) || 0));
+    }
+    pieces.sort();
+    var ep = runtime && runtime.lastDoublePawn
+      ? String(runtime.lastDoublePawn.side || "") + ":" + String(Number(runtime.lastDoublePawn.file || 0) || 0) + ":" + String(Number(runtime.lastDoublePawn.rank || 0) || 0)
+      : "-";
+    return String(runtime && runtime.turn || "white") + "|" + chessCastleRightsKey(runtime) + "|" + ep + "|" + pieces.join(",");
+  }
+
+  function rebuildChessPositionCounts(runtime) {
+    if (!runtime) { return; }
+    runtime.positionCounts = Object.create(null);
+    var snapshots = Array.isArray(runtime.historySnapshots) ? runtime.historySnapshots : [];
+    var limit = Math.min(Math.max(0, Number(runtime.currentMoveIndex || 0) || 0), Math.max(0, snapshots.length - 1));
+    for (var i = 0; i <= limit; i += 1) {
+      var key = String(snapshots[i] && snapshots[i].positionKey || "");
+      if (!key) { continue; }
+      runtime.positionCounts[key] = (Number(runtime.positionCounts[key] || 0) || 0) + 1;
+    }
+  }
+
+  function updateChessDrawCountersAfterMove(runtime, movedPiece, capturedPiece) {
+    if (!runtime) { return; }
+    var pawnMove = String(movedPiece && movedPiece.role || "") === "pawn";
+    runtime.halfmoveClock = (pawnMove || capturedPiece)
+      ? 0
+      : (Number(runtime.halfmoveClock || 0) || 0) + 1;
+    var key = chessPositionKey(runtime);
+    if (!runtime.positionCounts) { runtime.positionCounts = Object.create(null); }
+    runtime.positionCounts[key] = (Number(runtime.positionCounts[key] || 0) || 0) + 1;
+  }
+
+  function chessDrawRuleResult(runtime) {
+    if (!runtime) { return ""; }
+    if ((Number(runtime.halfmoveClock || 0) || 0) >= 100) { return "draw"; }
+    var key = chessPositionKey(runtime);
+    if (runtime.positionCounts && (Number(runtime.positionCounts[key] || 0) || 0) >= 3) { return "draw"; }
+    return "";
+  }
+
   function runtimeMeshByObjectId(runtime, objectId) {
     return runtime && runtime.meshByObjectId ? runtime.meshByObjectId[String(Number(objectId) || 0)] || null : null;
   }
@@ -4000,6 +4082,23 @@
     if (role === "bishop" || role === "knight") { return 3; }
     if (role === "king") { return 99; }
     return 1;
+  }
+
+  function chessBotControllerForSide(runtime, side) {
+    if (!runtime) { return "human"; }
+    var spec = runtime.playerModeSpec || chessPlayerModeById(runtime, runtime.playerMode);
+    return String(side) === "black" ? String(spec.black || "human") : String(spec.white || "human");
+  }
+
+  function chessBotActiveForTurn(runtime) {
+    return !!(runtime && chessBotControllerForSide(runtime, runtime.turn) === "bot");
+  }
+
+  function cancelChessBotTimer(runtime) {
+    if (!runtime || !runtime.botTimerId) { return; }
+    global.clearTimeout(runtime.botTimerId);
+    runtime.botTimerId = 0;
+    runtime.botThinkingSide = "";
   }
 
   function chessCapturedTrayCenter(runtime, piece, index) {
@@ -4436,6 +4535,34 @@
     };
   }
 
+  function chessEnPassantCapturedPiece(runtime, piece, toFile, toRank) {
+    if (!runtime || !piece || piece.captured || String(piece.role || "") !== "pawn") { return null; }
+    var last = runtime.lastDoublePawn || null;
+    if (!last || !last.side || last.side === piece.side) { return null; }
+    var dir = piece.side === "white" ? 1 : -1;
+    if (Math.abs(Number(toFile) - Number(piece.file)) !== 1) { return null; }
+    if (Number(toRank) - Number(piece.rank) !== dir) { return null; }
+    if (Number(toFile) !== Number(last.file)) { return null; }
+    if (Number(last.rank) !== Number(piece.rank)) { return null; }
+    if (chessPieceAt(runtime, toFile, toRank)) { return null; }
+    var captured = chessPieceAt(runtime, last.file, last.rank);
+    if (!captured || captured.side !== last.side || String(captured.role || "") !== "pawn") { return null; }
+    return captured;
+  }
+
+  function recordChessLastDoublePawn(runtime, piece, fromRank, toFile, toRank) {
+    if (!runtime) { return; }
+    if (piece && String(piece.role || "") === "pawn" && Math.abs(Number(toRank) - Number(fromRank)) === 2) {
+      runtime.lastDoublePawn = {
+        side: String(piece.side || ""),
+        file: Number(toFile) || 0,
+        rank: Number(toRank) || 0
+      };
+      return;
+    }
+    runtime.lastDoublePawn = null;
+  }
+
   function chessPseudoLegalMove(runtime, piece, toFile, toRank) {
     if (!piece || piece.captured) { return false; }
     if (toFile < 1 || toFile > 8 || toRank < 1 || toRank > 8) { return false; }
@@ -4452,6 +4579,7 @@
       var dir = piece.side === "white" ? 1 : -1;
       var startRank = piece.side === "white" ? 2 : 7;
       if (target) { return adf === 1 && dr === dir; }
+      if (adf === 1 && dr === dir && chessEnPassantCapturedPiece(runtime, piece, toFile, toRank)) { return true; }
       if (df === 0 && dr === dir) { return true; }
       if (df === 0 && Number(piece.rank) === startRank && dr === dir * 2) {
         return !chessPieceAt(runtime, Number(piece.file), Number(piece.rank) + dir);
@@ -4470,6 +4598,7 @@
     var fromFile = Number(piece.file);
     var fromRank = Number(piece.rank);
     var target = chessPieceAt(runtime, toFile, toRank);
+    var enPassantCaptured = chessEnPassantCapturedPiece(runtime, piece, toFile, toRank);
     var castle = chessCastleInfo(runtime, piece, toFile, toRank);
     var rook = castle && castle.rook ? castle.rook : null;
     var rookFromFile = castle ? castle.rookFromFile : 0;
@@ -4479,6 +4608,10 @@
     if (target) {
       target.captured = true;
       delete runtime.occupied[chessSquareKey(toFile, toRank)];
+    }
+    if (enPassantCaptured) {
+      enPassantCaptured.captured = true;
+      delete runtime.occupied[chessSquareKey(enPassantCaptured.file, enPassantCaptured.rank)];
     }
     piece.file = Number(toFile);
     piece.rank = Number(toRank);
@@ -4498,6 +4631,10 @@
       target.captured = false;
       runtime.occupied[chessSquareKey(toFile, toRank)] = target;
     }
+    if (enPassantCaptured) {
+      enPassantCaptured.captured = false;
+      runtime.occupied[chessSquareKey(enPassantCaptured.file, enPassantCaptured.rank)] = enPassantCaptured;
+    }
     if (rook) {
       delete runtime.occupied[chessSquareKey(rook.file, rook.rank)];
       rook.file = rookFromFile;
@@ -4510,6 +4647,734 @@
   function chessLegalMove(runtime, piece, toFile, toRank) {
     if (!chessPseudoLegalMove(runtime, piece, toFile, toRank)) { return false; }
     return !chessWouldLeaveKingInCheck(runtime, piece, toFile, toRank);
+  }
+
+  function chessBotSideSign(pieceSide, perspective) {
+    return String(pieceSide) === String(perspective) ? 1 : -1;
+  }
+
+  function chessBotRoleValue(role) {
+    role = String(role || "pawn");
+    if (role === "king") { return 20000; }
+    if (role === "queen") { return 900; }
+    if (role === "rook") { return 500; }
+    if (role === "knight") { return 325; }
+    if (role === "bishop") { return 315; }
+    return 100;
+  }
+
+  function chessBotCenterDistance(file, rank) {
+    return Math.abs((Number(file) * 2) - 9) + Math.abs((Number(rank) * 2) - 9);
+  }
+
+  function chessBotCenterBonus(piece) {
+    var dist = chessBotCenterDistance(piece.file, piece.rank);
+    var role = String(piece.role || "");
+    if (role === "knight") { return 36 - (dist * 5); }
+    if (role === "bishop") { return 18 - (dist * 2); }
+    if (role === "queen") { return 10 - dist; }
+    if (role === "pawn") { return 8 - dist; }
+    return 0;
+  }
+
+  function chessBotPawnAdvanceBonus(piece) {
+    if (String(piece.role || "") !== "pawn") { return 0; }
+    return String(piece.side) === "white" ? (Number(piece.rank) - 2) * 12 : (7 - Number(piece.rank)) * 12;
+  }
+
+  function chessBotDevelopedBonus(piece) {
+    var role = String(piece.role || "");
+    if (role === "pawn" || role === "king") { return 0; }
+    if (piece.has_moved === true) { return 18; }
+    if (String(piece.side) === "white") { return Number(piece.rank) > 1 ? 18 : 0; }
+    return Number(piece.rank) < 8 ? 18 : 0;
+  }
+
+  function chessBotProtectedBonus(runtime, piece) {
+    return chessSquareAttackedBy(runtime, piece.file, piece.rank, piece.side) ? 12 : 0;
+  }
+
+  function chessBotOpponentSide(side) {
+    return String(side) === "white" ? "black" : "white";
+  }
+
+  function chessBotLeastValuableAttacker(runtime, side, file, rank) {
+    var best = null;
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured || piece.side !== side) { continue; }
+      if (!chessPieceAttacksSquare(runtime, piece, file, rank)) { continue; }
+      if (!best || chessBotRoleValue(piece.role) < chessBotRoleValue(best.role)) {
+        best = piece;
+      }
+    }
+    return best;
+  }
+
+  function chessBotPieceSafetyScore(runtime, piece) {
+    if (!piece || piece.captured || String(piece.role || "") === "king") { return 0; }
+    var enemySide = chessBotOpponentSide(piece.side);
+    var attacked = chessSquareAttackedBy(runtime, piece.file, piece.rank, enemySide);
+    var defended = chessSquareAttackedBy(runtime, piece.file, piece.rank, piece.side);
+    if (!attacked) { return defended ? 8 : 0; }
+    var leastEnemy = chessBotLeastValuableAttacker(runtime, enemySide, piece.file, piece.rank);
+    var enemyValue = leastEnemy ? chessBotRoleValue(leastEnemy.role) : 0;
+    var pieceValue = chessBotRoleValue(piece.role);
+    var penalty = defended ? Math.round(pieceValue * 0.14) : Math.round(pieceValue * 0.55);
+    if (enemyValue > 0 && enemyValue < pieceValue) {
+      penalty += Math.round((pieceValue - enemyValue) * (defended ? 0.16 : 0.34));
+    }
+    return -penalty;
+  }
+
+  function chessBotBishopPairScore(runtime, side) {
+    var bishops = 0;
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (piece && !piece.captured && piece.side === side && String(piece.role || "") === "bishop") {
+        bishops += 1;
+      }
+    }
+    return bishops >= 2 ? 55 : 0;
+  }
+
+  function chessBotKingEscapeCount(runtime, side) {
+    var king = chessFindKing(runtime, side);
+    if (!king) { return 0; }
+    var previousTurn = runtime.turn;
+    var count = 0;
+    runtime.turn = side;
+    try {
+      for (var df = -1; df <= 1; df += 1) {
+        for (var dr = -1; dr <= 1; dr += 1) {
+          if (df === 0 && dr === 0) { continue; }
+          if (chessLegalMove(runtime, king, Number(king.file) + df, Number(king.rank) + dr)) {
+            count += 1;
+          }
+        }
+      }
+    } finally {
+      runtime.turn = previousTurn;
+    }
+    return count;
+  }
+
+  function chessBotKingTropismScore(runtime, side) {
+    var enemySide = chessBotOpponentSide(side);
+    var enemyKing = chessFindKing(runtime, enemySide);
+    if (!enemyKing) { return 0; }
+    var score = 0;
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured || piece.side !== side) { continue; }
+      var role = String(piece.role || "");
+      if (role === "king" || role === "pawn") { continue; }
+      var dist = Math.abs(Number(piece.file) - Number(enemyKing.file)) + Math.abs(Number(piece.rank) - Number(enemyKing.rank));
+      var closeness = Math.max(0, 9 - dist);
+      var weight = role === "queen" ? 8 : role === "rook" ? 5 : 3;
+      score += closeness * weight;
+    }
+    return score;
+  }
+
+  function chessBotMatingNetScore(runtime, side) {
+    var material = chessBotMaterialBalanceForSide(runtime, side);
+    if (material < 360) { return 0; }
+    var enemySide = chessBotOpponentSide(side);
+    var enemyKing = chessFindKing(runtime, enemySide);
+    var ownKing = chessFindKing(runtime, side);
+    if (!enemyKing) { return 0; }
+    var edgeDistance = Math.min(
+      Number(enemyKing.file) - 1,
+      8 - Number(enemyKing.file),
+      Number(enemyKing.rank) - 1,
+      8 - Number(enemyKing.rank)
+    );
+    var escapeCount = chessBotKingEscapeCount(runtime, enemySide);
+    var score = Math.max(0, 4 - edgeDistance) * 24 + Math.max(0, 8 - escapeCount) * 14;
+    if (ownKing) {
+      var kingDist = Math.abs(Number(ownKing.file) - Number(enemyKing.file)) + Math.abs(Number(ownKing.rank) - Number(enemyKing.rank));
+      score += Math.max(0, 8 - kingDist) * 5;
+    }
+    return score + chessBotKingTropismScore(runtime, side);
+  }
+
+  function chessBotCastledBonus(piece) {
+    if (String(piece.role || "") !== "king") { return 0; }
+    if (String(piece.side) === "white" && Number(piece.rank) === 1) {
+      if (Number(piece.file) === 7) { return 55; }
+      if (Number(piece.file) === 3) { return 45; }
+    }
+    if (String(piece.side) === "black" && Number(piece.rank) === 8) {
+      if (Number(piece.file) === 7) { return 55; }
+      if (Number(piece.file) === 3) { return 45; }
+    }
+    return 0;
+  }
+
+  function chessBotSideCastleRightsScore(runtime, side) {
+    var kingRank = side === "white" ? 1 : 8;
+    var king = chessPieceAt(runtime, 5, kingRank);
+    if (!king || king.side !== side || String(king.role || "") !== "king" || king.has_moved === true) { return 0; }
+    var score = 0;
+    var kingRook = chessPieceAt(runtime, 8, kingRank);
+    var queenRook = chessPieceAt(runtime, 1, kingRank);
+    if (kingRook && kingRook.side === side && String(kingRook.role || "") === "rook" && kingRook.has_moved !== true) { score += 76; }
+    if (queenRook && queenRook.side === side && String(queenRook.role || "") === "rook" && queenRook.has_moved !== true) { score += 48; }
+    return score;
+  }
+
+  function chessBotOpeningPhase(runtime) {
+    var moveCount = runtime && Array.isArray(runtime.moves) ? runtime.moves.length : 0;
+    var nonPawnMaterial = 0;
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured) { continue; }
+      var role = String(piece.role || "");
+      if (role !== "pawn" && role !== "king") { nonPawnMaterial += chessBotRoleValue(role); }
+    }
+    if (moveCount < 12) { return 1.0; }
+    if (moveCount > 28 || nonPawnMaterial < 3600) { return 0.0; }
+    return Math.max(0.0, Math.min(1.0, (28 - moveCount) / 16));
+  }
+
+  function chessBotPseudoMobilityForPiece(runtime, piece) {
+    if (!piece || piece.captured) { return 0; }
+    var count = 0;
+    var previousTurn = runtime.turn;
+    runtime.turn = piece.side;
+    try {
+      for (var rank = 1; rank <= 8; rank += 1) {
+        for (var file = 1; file <= 8; file += 1) {
+          if (chessPseudoLegalMove(runtime, piece, file, rank)) { count += 1; }
+        }
+      }
+    } finally {
+      runtime.turn = previousTurn;
+    }
+    return count;
+  }
+
+  function chessBotControlScoreForPiece(runtime, piece) {
+    if (!piece || piece.captured) { return 0; }
+    var score = 0;
+    var mobility = 0;
+    for (var rank = 1; rank <= 8; rank += 1) {
+      for (var file = 1; file <= 8; file += 1) {
+        if (!chessPieceAttacksSquare(runtime, piece, file, rank)) { continue; }
+        mobility += 1;
+        var centerWeight = 7 - Math.min(6, chessBotCenterDistance(file, rank));
+        score += 2 + centerWeight;
+        var target = chessPieceAt(runtime, file, rank);
+        if (target && target.side !== piece.side) {
+          score += Math.min(80, Math.floor(chessBotRoleValue(target.role) / 8));
+        }
+        if ((file === 4 || file === 5) && (rank === 4 || rank === 5)) { score += 18; }
+      }
+    }
+    return score + (mobility * 3);
+  }
+
+  function chessBotKingSafetyScore(runtime, side) {
+    var king = chessFindKing(runtime, side);
+    if (!king) { return -20000; }
+    var enemySide = side === "white" ? "black" : "white";
+    var score = chessKingInCheck(runtime, side) ? -120 : 0;
+    var homeRank = side === "white" ? 1 : 8;
+    if (Number(king.rank) === homeRank && (Number(king.file) === 7 || Number(king.file) === 3)) {
+      score += 44;
+    }
+    var pawnDir = side === "white" ? 1 : -1;
+    for (var df = -1; df <= 1; df += 1) {
+      var shield = chessPieceAt(runtime, Number(king.file) + df, Number(king.rank) + pawnDir);
+      if (shield && shield.side === side && String(shield.role || "") === "pawn") { score += 13; }
+    }
+    for (var rank = Math.max(1, Number(king.rank) - 1); rank <= Math.min(8, Number(king.rank) + 1); rank += 1) {
+      for (var file = Math.max(1, Number(king.file) - 1); file <= Math.min(8, Number(king.file) + 1); file += 1) {
+        if (chessSquareAttackedBy(runtime, file, rank, enemySide)) { score -= 18; }
+        if (chessSquareAttackedBy(runtime, file, rank, side)) { score += 5; }
+      }
+    }
+    return score;
+  }
+
+  function chessBotOpeningPieceScore(runtime, piece) {
+    if (!piece || piece.captured) { return 0; }
+    var phase = chessBotOpeningPhase(runtime);
+    if (phase <= 0.0) { return 0; }
+    var side = String(piece.side || "");
+    var role = String(piece.role || "");
+    var score = 0;
+    if (role === "pawn") {
+      if ((Number(piece.file) === 4 || Number(piece.file) === 5) && (Number(piece.rank) === 4 || Number(piece.rank) === 5)) { score += 34; }
+      if ((Number(piece.file) === 3 || Number(piece.file) === 6) && (Number(piece.rank) === 4 || Number(piece.rank) === 5)) { score += 12; }
+    }
+    if (role === "knight") {
+      if ((side === "white" && Number(piece.rank) > 1) || (side === "black" && Number(piece.rank) < 8)) { score += 42; }
+      if (Number(piece.file) === 3 || Number(piece.file) === 6) { score += 18; }
+    }
+    if (role === "bishop") {
+      if ((side === "white" && Number(piece.rank) > 1) || (side === "black" && Number(piece.rank) < 8)) { score += 34; }
+    }
+    if (role === "rook") {
+      var homeRank = side === "white" ? 1 : 8;
+      var onHomeCorner = Number(piece.rank) === homeRank && (Number(piece.file) === 1 || Number(piece.file) === 8);
+      if (!onHomeCorner && piece.has_moved === true) { score -= 58; }
+    }
+    if (role === "queen") {
+      var queenHomeRank = side === "white" ? 1 : 8;
+      if (Number(piece.rank) !== queenHomeRank || Number(piece.file) !== 4) { score -= 22; }
+    }
+    return Math.round(score * phase);
+  }
+
+  function chessBotEvaluate(runtime, perspective) {
+    var score = runtime.turn === perspective ? 8 : -8;
+    score += (chessBotSideCastleRightsScore(runtime, perspective) - chessBotSideCastleRightsScore(runtime, perspective === "white" ? "black" : "white"));
+    score += (chessBotKingSafetyScore(runtime, perspective) - chessBotKingSafetyScore(runtime, perspective === "white" ? "black" : "white"));
+    score += (chessBotBishopPairScore(runtime, perspective) - chessBotBishopPairScore(runtime, perspective === "white" ? "black" : "white"));
+    score += (chessBotMatingNetScore(runtime, perspective) - chessBotMatingNetScore(runtime, perspective === "white" ? "black" : "white"));
+    var ids = Object.keys(runtime.piecesByObjectId);
+    var whiteMaterial = 0;
+    var blackMaterial = 0;
+    var whiteQueen = false;
+    var blackQueen = false;
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured) { continue; }
+      var roleValue = chessBotRoleValue(piece.role);
+      if (String(piece.role || "") !== "king") {
+        if (piece.side === "white") { whiteMaterial += roleValue; } else { blackMaterial += roleValue; }
+      }
+      if (String(piece.role || "") === "queen") {
+        if (piece.side === "white") { whiteQueen = true; } else { blackQueen = true; }
+      }
+      var raw = chessBotRoleValue(piece.role) +
+        chessBotCenterBonus(piece) +
+        chessBotPawnAdvanceBonus(piece) +
+        chessBotDevelopedBonus(piece) +
+        chessBotProtectedBonus(runtime, piece) +
+        chessBotCastledBonus(piece) +
+        chessBotOpeningPieceScore(runtime, piece) +
+        chessBotControlScoreForPiece(runtime, piece) +
+        chessBotPieceSafetyScore(runtime, piece);
+      score += raw * chessBotSideSign(piece.side, perspective);
+    }
+    var materialBalance = perspective === "white" ? whiteMaterial - blackMaterial : blackMaterial - whiteMaterial;
+    var ownQueen = perspective === "white" ? whiteQueen : blackQueen;
+    var enemyQueen = perspective === "white" ? blackQueen : whiteQueen;
+    if (materialBalance < -220 && ownQueen && enemyQueen) { score += 120; }
+    if (materialBalance < -220 && !ownQueen && !enemyQueen) { score -= 120; }
+    if (materialBalance > 220 && !ownQueen && !enemyQueen) { score += 80; }
+    if (materialBalance > 220 && ownQueen && enemyQueen) { score -= 40; }
+    return score;
+  }
+
+  function chessBotMoveList(runtime, side) {
+    var previousTurn = runtime.turn;
+    var moves = [];
+    runtime.turn = side;
+    try {
+      var ids = Object.keys(runtime.piecesByObjectId).sort(function (a, b) { return (Number(a) || 0) - (Number(b) || 0); });
+      for (var i = 0; i < ids.length; i += 1) {
+        var piece = runtime.piecesByObjectId[ids[i]];
+        if (!piece || piece.captured || piece.side !== side) { continue; }
+        for (var rank = 1; rank <= 8; rank += 1) {
+          for (var file = 1; file <= 8; file += 1) {
+            if (chessLegalMove(runtime, piece, file, rank)) {
+              if (chessIsPromotionMove(piece, rank)) {
+                var roles = chessPromotionRoles();
+                for (var pr = 0; pr < roles.length; pr += 1) {
+                  moves.push({ piece: piece, toFile: file, toRank: rank, promotionRole: roles[pr] });
+                }
+              } else {
+                moves.push({ piece: piece, toFile: file, toRank: rank, promotionRole: "" });
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      runtime.turn = previousTurn;
+    }
+    return moves;
+  }
+
+  function chessBotStateSnapshot(runtime) {
+    var pieces = [];
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece) { continue; }
+      pieces.push({
+        object_id: piece.object_id,
+        role: piece.role,
+        file: piece.file,
+        rank: piece.rank,
+        captured: piece.captured === true,
+        has_moved: piece.has_moved === true
+      });
+    }
+    return {
+      turn: runtime.turn,
+      lastDoublePawn: runtime.lastDoublePawn ? {
+        side: runtime.lastDoublePawn.side,
+        file: runtime.lastDoublePawn.file,
+        rank: runtime.lastDoublePawn.rank
+      } : null,
+      pieces: pieces
+    };
+  }
+
+  function restoreChessBotState(runtime, snapshot) {
+    if (!snapshot) { return; }
+    for (var i = 0; i < snapshot.pieces.length; i += 1) {
+      var saved = snapshot.pieces[i];
+      var piece = runtime.piecesByObjectId[String(saved.object_id)] || null;
+      if (!piece) { continue; }
+      piece.file = saved.file;
+      piece.rank = saved.rank;
+      piece.role = saved.role;
+      piece.captured = saved.captured === true;
+      piece.has_moved = saved.has_moved === true;
+    }
+    runtime.turn = snapshot.turn;
+    runtime.lastDoublePawn = snapshot.lastDoublePawn ? {
+      side: snapshot.lastDoublePawn.side,
+      file: snapshot.lastDoublePawn.file,
+      rank: snapshot.lastDoublePawn.rank
+    } : null;
+    rebuildChessOccupancy(runtime);
+  }
+
+  function applyChessBotMoveState(runtime, move) {
+    var piece = move && move.piece;
+    if (!piece) { return false; }
+    var toFile = Number(move.toFile);
+    var toRank = Number(move.toRank);
+    if (!chessLegalMove(runtime, piece, toFile, toRank)) { return false; }
+    var target = chessPieceAt(runtime, toFile, toRank);
+    var enPassantCaptured = chessEnPassantCapturedPiece(runtime, piece, toFile, toRank);
+    var castle = chessCastleInfo(runtime, piece, toFile, toRank);
+    var fromRank = Number(piece.rank);
+    delete runtime.occupied[chessSquareKey(piece.file, piece.rank)];
+    if (target) {
+      target.captured = true;
+      delete runtime.occupied[chessSquareKey(target.file, target.rank)];
+    }
+    if (enPassantCaptured) {
+      enPassantCaptured.captured = true;
+      delete runtime.occupied[chessSquareKey(enPassantCaptured.file, enPassantCaptured.rank)];
+    }
+    piece.file = toFile;
+    piece.rank = toRank;
+    piece.has_moved = true;
+    if (String(piece.role || "") === "pawn" && (toRank === 1 || toRank === 8)) {
+      piece.role = String(move.promotionRole || "queen");
+    }
+    runtime.occupied[chessSquareKey(piece.file, piece.rank)] = piece;
+    if (castle && castle.rook) {
+      var rook = castle.rook;
+      delete runtime.occupied[chessSquareKey(castle.rookFromFile, toRank)];
+      rook.file = castle.rookToFile;
+      rook.rank = toRank;
+      rook.has_moved = true;
+      runtime.occupied[chessSquareKey(rook.file, rook.rank)] = rook;
+    }
+    recordChessLastDoublePawn(runtime, piece, fromRank, toFile, toRank);
+    runtime.turn = runtime.turn === "white" ? "black" : "white";
+    return true;
+  }
+
+  function chessBotTerminalScore(runtime, perspective, sideToMove) {
+    if (chessKingInCheck(runtime, sideToMove)) {
+      return sideToMove === perspective ? -1000000 : 1000000;
+    }
+    return 0;
+  }
+
+  function chessBotMoveOrderingScore(runtime, move) {
+    var score = 0;
+    var piece = move && move.piece ? move.piece : null;
+    if (!piece) { return score; }
+    var target = chessPieceAt(runtime, move.toFile, move.toRank) || chessEnPassantCapturedPiece(runtime, piece, move.toFile, move.toRank);
+    var see = chessBotStaticExchangeScore(runtime, move);
+    if (target) { score += (chessBotRoleValue(target.role) * 10) - chessBotRoleValue(piece.role) + (see * 3); }
+    if (move.promotionRole) { score += chessBotRoleValue(move.promotionRole); }
+    if (see < -80) { score -= 1200; }
+    score += Math.max(0, 7 - chessBotCenterDistance(move.toFile, move.toRank));
+    return score;
+  }
+
+  function chessBotMaterialBalanceForSide(runtime, side) {
+    var own = 0;
+    var enemy = 0;
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (!piece || piece.captured || String(piece.role || "") === "king") { continue; }
+      if (piece.side === side) { own += chessBotRoleValue(piece.role); }
+      else { enemy += chessBotRoleValue(piece.role); }
+    }
+    return own - enemy;
+  }
+
+  function chessBotPreMoveStrategicAdjustment(runtime, move, perspective) {
+    var piece = move && move.piece ? move.piece : null;
+    if (!piece) { return 0; }
+    var target = chessPieceAt(runtime, move.toFile, move.toRank) || chessEnPassantCapturedPiece(runtime, piece, move.toFile, move.toRank);
+    var adjustment = 0;
+    var materialBalance = chessBotMaterialBalanceForSide(runtime, perspective);
+    if (materialBalance < -220 && String(piece.role || "") === "queen" && target && String(target.role || "") === "queen") {
+      adjustment -= Math.min(260, 90 + Math.round(Math.abs(materialBalance) * 0.08));
+    }
+    if (target) {
+      var see = chessBotStaticExchangeScore(runtime, move);
+      if (see < 0) { adjustment += see * 3; }
+    }
+    return adjustment;
+  }
+
+  function chessBotFindQueen(runtime, side) {
+    var ids = Object.keys(runtime.piecesByObjectId);
+    for (var i = 0; i < ids.length; i += 1) {
+      var piece = runtime.piecesByObjectId[ids[i]];
+      if (piece && !piece.captured && piece.side === side && String(piece.role || "") === "queen") {
+        return piece;
+      }
+    }
+    return null;
+  }
+
+  function chessBotPostMoveStrategicAdjustment(runtime, movedPiece, perspective, wasInCheck) {
+    var adjustment = 0;
+    var queen = chessBotFindQueen(runtime, perspective);
+    var enemySide = chessBotOpponentSide(perspective);
+    if (queen) {
+      var queenAttacked = chessSquareAttackedBy(runtime, queen.file, queen.rank, enemySide);
+      var queenDefended = chessSquareAttackedBy(runtime, queen.file, queen.rank, perspective);
+      if (queenAttacked && !queenDefended) { adjustment -= wasInCheck ? 760 : 520; }
+      else if (queenAttacked) { adjustment -= wasInCheck ? 340 : 220; }
+      var leastEnemy = chessBotLeastValuableAttacker(runtime, enemySide, queen.file, queen.rank);
+      if (leastEnemy && chessBotRoleValue(leastEnemy.role) < chessBotRoleValue("queen")) {
+        adjustment -= Math.round((chessBotRoleValue("queen") - chessBotRoleValue(leastEnemy.role)) * (queenDefended ? 0.25 : 0.55));
+      }
+    } else {
+      adjustment -= 900;
+    }
+    if (wasInCheck && movedPiece && String(movedPiece.role || "") === "king") {
+      adjustment += 80;
+    }
+    return adjustment;
+  }
+
+  function chessBotOrderedMoveList(runtime, side) {
+    return chessBotMoveList(runtime, side).sort(function (a, b) {
+      return chessBotMoveOrderingScore(runtime, b) - chessBotMoveOrderingScore(runtime, a);
+    });
+  }
+
+  function chessBotSearchTimedOut(context) {
+    return !!(context &&
+      ((context.deadlineMs && Date.now() >= context.deadlineMs) ||
+        (context.nodeLimit && context.nodes >= context.nodeLimit)));
+  }
+
+  function chessBotStaticExchangeScore(runtime, move) {
+    var piece = move && move.piece ? move.piece : null;
+    if (!piece) { return 0; }
+    var target = chessPieceAt(runtime, move.toFile, move.toRank) || chessEnPassantCapturedPiece(runtime, piece, move.toFile, move.toRank);
+    var gain0 = target ? chessBotRoleValue(target.role) : 0;
+    if (move.promotionRole) {
+      gain0 += chessBotRoleValue(move.promotionRole) - chessBotRoleValue("pawn");
+    }
+    if (!target && !move.promotionRole) { return 0; }
+    var snapshot = chessBotStateSnapshot(runtime);
+    var gains = [gain0];
+    if (!applyChessBotMoveState(runtime, move)) {
+      restoreChessBotState(runtime, snapshot);
+      return gain0;
+    }
+    var side = runtime.turn;
+    var capturedValue = chessBotRoleValue(piece.role);
+    for (var depth = 1; depth <= 8; depth += 1) {
+      var attacker = chessBotLeastValuableAttacker(runtime, side, move.toFile, move.toRank);
+      if (!attacker) { break; }
+      gains[depth] = capturedValue - gains[depth - 1];
+      capturedValue = chessBotRoleValue(attacker.role);
+      attacker.captured = true;
+      delete runtime.occupied[chessSquareKey(attacker.file, attacker.rank)];
+      side = chessBotOpponentSide(side);
+    }
+    for (var i = gains.length - 1; i > 0; i -= 1) {
+      gains[i - 1] = -Math.max(-gains[i - 1], gains[i]);
+    }
+    restoreChessBotState(runtime, snapshot);
+    return gains[0] || 0;
+  }
+
+  function chessBotTacticalMoveList(runtime, side) {
+    var moves = chessBotMoveList(runtime, side).filter(function (move) {
+      return !!(
+        chessPieceAt(runtime, move.toFile, move.toRank) ||
+        chessEnPassantCapturedPiece(runtime, move.piece, move.toFile, move.toRank) ||
+        move.promotionRole
+      );
+    });
+    return moves.sort(function (a, b) {
+      return chessBotMoveOrderingScore(runtime, b) - chessBotMoveOrderingScore(runtime, a);
+    });
+  }
+
+  function chessBotQuiescenceScore(runtime, perspective, alpha, beta, context, qDepth) {
+    if (context) { context.nodes = Number(context.nodes || 0) + 1; }
+    var standPat = chessBotEvaluate(runtime, perspective);
+    if (chessBotSearchTimedOut(context) || qDepth <= 0) { return standPat; }
+    var side = runtime.turn;
+    var maximizing = side === perspective;
+    var best = standPat;
+    var a = Number(alpha);
+    var b = Number(beta);
+    if (maximizing) {
+      if (best >= b) { return best; }
+      a = Math.max(a, best);
+    } else {
+      if (best <= a) { return best; }
+      b = Math.min(b, best);
+    }
+    var moves = chessBotTacticalMoveList(runtime, side);
+    for (var i = 0; i < moves.length; i += 1) {
+      var see = chessBotStaticExchangeScore(runtime, moves[i]);
+      if (see < -70 && !moves[i].promotionRole) { continue; }
+      var snapshot = chessBotStateSnapshot(runtime);
+      if (!applyChessBotMoveState(runtime, moves[i])) {
+        restoreChessBotState(runtime, snapshot);
+        continue;
+      }
+      var score = chessBotQuiescenceScore(runtime, perspective, a, b, context, qDepth - 1);
+      restoreChessBotState(runtime, snapshot);
+      if (maximizing) {
+        best = Math.max(best, score);
+        a = Math.max(a, best);
+      } else {
+        best = Math.min(best, score);
+        b = Math.min(b, best);
+      }
+      if (b <= a || chessBotSearchTimedOut(context)) { break; }
+    }
+    return best;
+  }
+
+  function chessBotMinimaxScore(runtime, depth, perspective, alpha, beta, context) {
+    if (context) { context.nodes = Number(context.nodes || 0) + 1; }
+    if (chessBotSearchTimedOut(context)) { return chessBotEvaluate(runtime, perspective); }
+    if (depth <= 0) { return chessBotQuiescenceScore(runtime, perspective, alpha, beta, context, 3); }
+    var side = runtime.turn;
+    var moves = chessBotOrderedMoveList(runtime, side);
+    if (!moves.length) { return chessBotTerminalScore(runtime, perspective, side); }
+    var maximizing = side === perspective;
+    var best = maximizing ? -Infinity : Infinity;
+    var a = Number(alpha);
+    var b = Number(beta);
+    for (var i = 0; i < moves.length; i += 1) {
+      var snapshot = chessBotStateSnapshot(runtime);
+      if (!applyChessBotMoveState(runtime, moves[i])) {
+        restoreChessBotState(runtime, snapshot);
+        continue;
+      }
+      var score = chessBotMinimaxScore(runtime, depth - 1, perspective, a, b, context);
+      restoreChessBotState(runtime, snapshot);
+      if (maximizing) {
+        best = Math.max(best, score);
+        a = Math.max(a, best);
+      } else {
+        best = Math.min(best, score);
+        b = Math.min(b, best);
+      }
+      if (b <= a) { break; }
+      if (chessBotSearchTimedOut(context)) { break; }
+    }
+    return best;
+  }
+
+  function chessBotRandomJitter(runtime, move) {
+    var cfg = runtime && runtime.cfg ? runtime.cfg : {};
+    var amount = Math.max(0, Number(cfg.bot_random_cp || 10) || 10);
+    if (amount <= 0) { return 0; }
+    var oid = Number(move && move.piece && move.piece.object_id || 0) || 0;
+    var seed = ((Date.now() & 0xffff) ^ (oid * 1103) ^ (Number(move && move.toFile || 0) * 97) ^ (Number(move && move.toRank || 0) * 193)) >>> 0;
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return ((seed / 4294967295) * 2.0 - 1.0) * amount;
+  }
+
+  function chessBotChooseEquivalentBestMove(runtime, scoredMoves) {
+    if (!Array.isArray(scoredMoves) || !scoredMoves.length) { return null; }
+    var cfg = runtime && runtime.cfg ? runtime.cfg : {};
+    var margin = Math.max(0, Number(cfg.bot_random_equal_cp || 18) || 18);
+    var bestScore = scoredMoves[0].score;
+    for (var i = 1; i < scoredMoves.length; i += 1) {
+      bestScore = Math.max(bestScore, Number(scoredMoves[i].score || -Infinity));
+    }
+    var equivalents = [];
+    for (var j = 0; j < scoredMoves.length; j += 1) {
+      if (bestScore - Number(scoredMoves[j].score || -Infinity) <= margin) {
+        equivalents.push(scoredMoves[j]);
+      }
+    }
+    equivalents.sort(function (a, b) { return Number(b.score || 0) - Number(a.score || 0); });
+    if (equivalents.length > 10) { equivalents = equivalents.slice(0, 10); }
+    if (equivalents.length <= 1) { return equivalents[0] ? equivalents[0].move : scoredMoves[0].move; }
+    var index = Math.floor(Math.random() * equivalents.length);
+    return equivalents[Math.max(0, Math.min(equivalents.length - 1, index))].move;
+  }
+
+  function chessBotBestMove(runtime) {
+    var perspective = runtime.turn;
+    var rootWasInCheck = chessKingInCheck(runtime, perspective);
+    var moves = chessBotOrderedMoveList(runtime, perspective);
+    var cfg = runtime && runtime.cfg ? runtime.cfg : {};
+    var maxDepth = Math.max(1, Math.min(6, Number(cfg.bot_search_plies || 4) || 4));
+    var thinkMs = Math.max(120, Math.min(1400, Number(cfg.bot_search_ms || 900) || 900));
+    var context = {
+      deadlineMs: Date.now() + thinkMs,
+      nodeLimit: Math.max(800, Number(cfg.bot_node_limit || 12000) || 12000),
+      nodes: 0
+    };
+    var best = moves.length ? { score: -Infinity, move: moves[0] } : null;
+    var bestDepthScores = best ? [best] : [];
+    for (var depth = 1; depth <= maxDepth; depth += 1) {
+      var depthBest = null;
+      var depthScores = [];
+      for (var i = 0; i < moves.length; i += 1) {
+        var preAdjustment = chessBotPreMoveStrategicAdjustment(runtime, moves[i], perspective);
+        var snapshot = chessBotStateSnapshot(runtime);
+        var movingPiece = moves[i] && moves[i].piece ? moves[i].piece : null;
+        if (!applyChessBotMoveState(runtime, moves[i])) {
+          restoreChessBotState(runtime, snapshot);
+          continue;
+        }
+        var score = chessBotMinimaxScore(runtime, depth - 1, perspective, -Infinity, Infinity, context) +
+          preAdjustment +
+          chessBotPostMoveStrategicAdjustment(runtime, movingPiece, perspective, rootWasInCheck);
+        restoreChessBotState(runtime, snapshot);
+        depthScores.push({ score: score, move: moves[i] });
+        if (!depthBest || score > depthBest.score) {
+          depthBest = { score: score, move: moves[i] };
+        }
+        if (chessBotSearchTimedOut(context)) { break; }
+      }
+      if (depthBest) {
+        best = depthBest;
+        bestDepthScores = depthScores;
+      }
+      if (chessBotSearchTimedOut(context)) { break; }
+      if (depth >= 3 && Date.now() + 120 >= context.deadlineMs) { break; }
+      }
+    return chessBotChooseEquivalentBestMove(runtime, bestDepthScores) || (best ? best.move : null);
   }
 
   function chessSideHasLegalMove(runtime, side) {
@@ -4532,15 +5397,19 @@
     }
   }
 
-  function chessNotation(piece, target, toFile, toRank) {
+  function chessNotation(piece, target, toFile, toRank, enPassantCaptured, fromFile) {
     var role = String(piece.role || "pawn");
     var prefix = role === "pawn" ? "" : role.charAt(0).toUpperCase();
     var fileName = "abcdefgh".charAt(Math.max(0, Math.min(7, Number(toFile) - 1)));
+    if (role === "pawn" && (target || enPassantCaptured)) {
+      var fromFileName = "abcdefgh".charAt(Math.max(0, Math.min(7, Number(fromFile || piece.file) - 1)));
+      return fromFileName + "x" + fileName + String(toRank);
+    }
     return prefix + (target ? "x" : "") + fileName + String(toRank);
   }
 
-  function chessMoveNotation(runtime, piece, target, toFile, toRank, castle) {
-    var notation = castle ? castle.notation : chessNotation(piece, target, toFile, toRank);
+  function chessMoveNotation(runtime, piece, target, toFile, toRank, castle, enPassantCaptured, fromFile) {
+    var notation = castle ? castle.notation : chessNotation(piece, target, toFile, toRank, enPassantCaptured, fromFile);
     var enemySide = piece.side === "white" ? "black" : "white";
     if (!chessKingInCheck(runtime, enemySide)) { return notation; }
     return notation + (chessSideHasLegalMove(runtime, enemySide) ? "+" : "++");
@@ -4768,6 +5637,8 @@
   }
 
   function finishChessMoveResult(runtime, moverSide) {
+    var drawByRule = chessDrawRuleResult(runtime);
+    if (drawByRule) { return drawByRule; }
     var enemySide = moverSide === "white" ? "black" : "white";
     if (chessSideHasLegalMove(runtime, enemySide)) { return ""; }
     return chessKingInCheck(runtime, enemySide)
@@ -5079,8 +5950,9 @@
       notation += chessSideHasLegalMove(runtime, enemySide) ? "+" : "++";
     }
     commitChessMove(runtime, notation);
-    var promotionResult = finishChessMoveResult(runtime, piece.side);
     runtime.turn = runtime.turn === "white" ? "black" : "white";
+    updateChessDrawCountersAfterMove(runtime, { role: "pawn" }, pending.target || null);
+    var promotionResult = finishChessMoveResult(runtime, piece.side);
     runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
     runtime.pendingEndResult = promotionResult || "";
     runtime.pendingEndPieceObjectId = promotionResult ? (Number(piece.object_id || 0) || 0) : 0;
@@ -5091,6 +5963,7 @@
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
     requestChessInteractionFrame(runtime);
+    scheduleChessBotTurn(runtime, chessBotDelayMs(runtime));
     return true;
   }
 
@@ -5190,11 +6063,17 @@
     if (!runtime || !runtime.clock) { return; }
     runtime.clock.running = running === true;
     runtime.clock.last_tick_ms = 0.0;
+    if (runtime.clock.running !== true) {
+      cancelChessBotTimer(runtime);
+    }
     if (runtime.clock.running === true && chessClockFreshGame(runtime)) {
       runtime.clock.start_white_ms = Number(runtime.clock.white_ms || 0) || 0;
       runtime.clock.start_black_ms = Number(runtime.clock.black_ms || 0) || 0;
     }
     updateChessPanel(runtime);
+    if (runtime.clock.running === true) {
+      scheduleChessBotTurn(runtime, chessBotDelayMs(runtime));
+    }
   }
 
   function toggleChessClock(runtime) {
@@ -5230,8 +6109,12 @@
     var blackClockEl = panelRoot.querySelector('[data-vf-chess-clock-side="black"]');
     var bodyEl = panelRoot.querySelector("[data-vf-chess-moves]");
     var autoSwitchEl = panelRoot.querySelector("[data-vf-chess-auto-switch]");
+    var playerModeEl = panelRoot.querySelector("[data-vf-chess-player-mode]");
     var startButtonEl = panelRoot.querySelector("[data-vf-chess-start-game]");
-    if (turnEl) { turnEl.textContent = "Turn: " + runtime.turn; }
+    if (turnEl) {
+      var thinking = runtime.botTimerId ? " · bot thinking" : "";
+      turnEl.textContent = "Turn: " + runtime.turn + thinking;
+    }
     if (whiteClockEl && runtime.clock) {
       if (runtime.clock.editing_side !== "white" && whiteClockEl !== document.activeElement) {
         whiteClockEl.value = formatChessClock(runtime.clock.white_ms);
@@ -5253,6 +6136,7 @@
     if (startButtonEl && runtime.clock) {
       startButtonEl.textContent = runtime.clock.running === true ? "Pause Game" : (chessClockFreshGame(runtime) ? "Start Game" : "Resume Game");
     }
+    if (playerModeEl && playerModeEl.value !== runtime.playerMode) { playerModeEl.value = runtime.playerMode; }
     if (autoSwitchEl) { autoSwitchEl.checked = runtime.autoSwitchView === true; }
     if (bodyEl) {
       bodyEl.innerHTML = "";
@@ -5342,6 +6226,145 @@
     return true;
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function chessPlayerModes(runtime) {
+    var cfg = runtime && runtime.cfg ? runtime.cfg : {};
+    var declared = Array.isArray(cfg.player_modes) ? cfg.player_modes : [];
+    var modes = [];
+    for (var i = 0; i < declared.length; i += 1) {
+      var m = declared[i] || {};
+      var id = String(m.id || "").trim();
+      if (!id) { continue; }
+      modes.push({
+        id: id,
+        label: String(m.label || id),
+        white: String(m.white || "human"),
+        black: String(m.black || "human")
+      });
+    }
+    if (!modes.length) {
+      failFast("chess interaction requires player_modes in the VKF contract");
+    }
+    return modes;
+  }
+
+  function chessPlayerModeById(runtime, id) {
+    var modes = chessPlayerModes(runtime);
+    var wanted = String(id || "");
+    for (var i = 0; i < modes.length; i += 1) {
+      if (modes[i].id === wanted) { return modes[i]; }
+    }
+    return modes[0];
+  }
+
+  function chessBotDelayMs(runtime) {
+    var cfg = runtime && runtime.cfg ? runtime.cfg : {};
+    return Math.max(2000, Number(cfg.bot_min_think_ms || 2000) || 2000);
+  }
+
+  function chessBotCanActNow(runtime) {
+    return !!(runtime &&
+      runtime.clock &&
+      runtime.clock.running === true &&
+      !runtime.gameOver &&
+      !runtime.endSequence &&
+      (!Array.isArray(runtime.animations) || runtime.animations.length === 0));
+  }
+
+  function chooseChessBotPromotionOption(runtime) {
+    var options = Array.isArray(runtime && runtime.promotionOptions) ? runtime.promotionOptions : [];
+    if (!options.length) { return null; }
+    var wantedRole = String(runtime && runtime.botPendingPromotionRole || "");
+    if (wantedRole) {
+      for (var wantedIndex = 0; wantedIndex < options.length; wantedIndex += 1) {
+        if (String(options[wantedIndex] && options[wantedIndex].role || "") === wantedRole) {
+          runtime.botPendingPromotionRole = "";
+          return options[wantedIndex];
+        }
+      }
+    }
+    var pending = runtime && runtime.promotion ? runtime.promotion : null;
+    var piece = pending && pending.piece ? pending.piece : null;
+    if (piece) {
+      var perspective = String(piece.side || runtime.turn || "white");
+      var snapshot = chessBotStateSnapshot(runtime);
+      var previousTurn = runtime.turn;
+      var best = null;
+      for (var i = 0; i < options.length; i += 1) {
+        piece.role = String(options[i] && options[i].role || "queen");
+        runtime.turn = perspective === "white" ? "black" : "white";
+        rebuildChessOccupancy(runtime);
+        var score = chessBotMinimaxScore(runtime, 5, perspective, -Infinity, Infinity) + chessBotRandomJitter(runtime, { piece: piece, toFile: piece.file, toRank: piece.rank, promotionRole: piece.role });
+        if (!best || score > best.score) { best = { score: score, option: options[i] }; }
+      }
+      restoreChessBotState(runtime, snapshot);
+      runtime.turn = previousTurn;
+      return best ? best.option : options[0];
+    }
+    for (var i = 0; i < options.length; i += 1) {
+      if (String(options[i] && options[i].role || "") === "queen") { return options[i]; }
+    }
+    return options[0] || null;
+  }
+
+  function scheduleChessBotTurn(runtime, delayMs) {
+    if (!runtime) { return; }
+    if (!runtime.clock || runtime.clock.running !== true) { cancelChessBotTimer(runtime); return; }
+    if (runtime.gameOver || runtime.endSequence) { cancelChessBotTimer(runtime); return; }
+    var promotionSide = runtime.promotion ? String(runtime.promotion.side || "") : "";
+    var activeSide = promotionSide || String(runtime.turn || "white");
+    if (chessBotControllerForSide(runtime, activeSide) !== "bot") { cancelChessBotTimer(runtime); return; }
+    if (runtime.botTimerId) { return; }
+    runtime.botThinkingSide = activeSide;
+    runtime.botTimerId = global.setTimeout(function () {
+      runtime.botTimerId = 0;
+      runtime.botThinkingSide = "";
+      runChessBotTurn(runtime);
+    }, Math.max(chessBotDelayMs(runtime), Number(delayMs || 0) || 0));
+    updateChessPanel(runtime);
+  }
+
+  function runChessBotTurn(runtime) {
+    if (!runtime) { return; }
+    if (!chessBotCanActNow(runtime) && !runtime.promotion) {
+      scheduleChessBotTurn(runtime, 100);
+      return;
+    }
+    if (runtime.promotion) {
+      var option = chooseChessBotPromotionOption(runtime);
+      if (option) {
+        completeChessPromotion(runtime, option);
+      }
+      return;
+    }
+    if (!chessBotActiveForTurn(runtime)) { updateChessPanel(runtime); return; }
+    var move = chessBotBestMove(runtime);
+    if (!move) {
+      updateChessPanel(runtime);
+      return;
+    }
+    runtime.botPendingPromotionRole = String(move.promotionRole || "");
+    moveChessPiece(runtime, move.piece, move.toFile, move.toRank);
+  }
+
+  function renderChessPlayerModeOptions(runtime) {
+    var modes = chessPlayerModes(runtime);
+    var out = "";
+    for (var i = 0; i < modes.length; i += 1) {
+      var m = modes[i];
+      var selected = m.id === runtime.playerMode ? " selected" : "";
+      out += '<option value="' + escapeHtml(m.id) + '"' + selected + '>' + escapeHtml(m.label) + '</option>';
+    }
+    return out;
+  }
+
   function ensureChessPanel(runtime) {
     if (!global.document) { return; }
     var controlsFrameId = String(runtime.cfg.controls_frame_id || "vkf_chess_controls");
@@ -5383,7 +6406,7 @@
     }
     var panel = frameApi && frameApi.body ? frameApi.body : document.createElement("aside");
     panel.classList.add(controlsPanelClass);
-    panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><div class="vf-chess-clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="white" inputmode="numeric" value="10:00" aria-label="White clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="black" inputmode="numeric" value="10:00" aria-label="Black clock"></div><div class="vf-chess-actions"><button class="vf-chess-start-game" data-vf-chess-start-game>Start Game</button><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button></div><label class="vf-chess-toggle"><input type="checkbox" data-vf-chess-auto-switch> Auto switch view</label><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
+    panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><label class="vf-chess-mode"><span>Mode</span><select data-vf-chess-player-mode>' + renderChessPlayerModeOptions(runtime) + '</select></label><div class="vf-chess-clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="white" inputmode="numeric" value="10:00" aria-label="White clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="black" inputmode="numeric" value="10:00" aria-label="Black clock"></div><div class="vf-chess-actions"><button class="vf-chess-start-game" data-vf-chess-start-game>Start Game</button><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button></div><label class="vf-chess-toggle"><input type="checkbox" data-vf-chess-auto-switch> Auto switch view</label><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
     panel.addEventListener("contextmenu", function (ev) {
       if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
       if (ev && typeof ev.stopPropagation === "function") { ev.stopPropagation(); }
@@ -5420,6 +6443,17 @@
         runtime.autoSwitchView = autoSwitch.checked === true;
       });
     }
+    var playerMode = panel.querySelector("[data-vf-chess-player-mode]");
+    if (playerMode) {
+      playerMode.value = runtime.playerMode;
+      playerMode.addEventListener("change", function () {
+        cancelChessBotTimer(runtime);
+        runtime.playerMode = chessPlayerModeById(runtime, playerMode.value).id;
+        runtime.playerModeSpec = chessPlayerModeById(runtime, runtime.playerMode);
+        updateChessPanel(runtime);
+        scheduleChessBotTurn(runtime, chessBotDelayMs(runtime));
+      });
+    }
     var clockInputs = panel.querySelectorAll("[data-vf-chess-clock-side]");
     for (var clockInputIndex = 0; clockInputIndex < clockInputs.length; clockInputIndex += 1) {
       attachInlineClockEditor(runtime, clockInputs[clockInputIndex]);
@@ -5444,6 +6478,7 @@
   }
 
   function resetChessRuntime(runtime) {
+    cancelChessBotTimer(runtime);
     runtime.turn = "white";
     runtime.gameOver = null;
     runtime.endSequence = null;
@@ -5458,6 +6493,10 @@
     runtime.hoverPiece = null;
     runtime.hoverPromotion = null;
     runtime.promotion = null;
+    runtime.botPendingPromotionRole = "";
+    runtime.lastDoublePawn = null;
+    runtime.halfmoveClock = 0;
+    runtime.positionCounts = Object.create(null);
     clearChessPromotionOptions(runtime);
     runtime.moves = [];
     runtime.currentMoveIndex = 0;
@@ -5497,6 +6536,7 @@
     }
     rebuildChessOccupancy(runtime);
     recordChessHistorySnapshot(runtime);
+    rebuildChessPositionCounts(runtime);
     resetChessHighlights(runtime);
     updateChessPanel(runtime);
     markChessSceneDirty(runtime);
@@ -5530,11 +6570,19 @@
       moves: [],
       currentMoveIndex: 0,
       historySnapshots: [],
+      playerMode: String(cfg.default_player_mode || "human_human"),
+      playerModeSpec: null,
+      botTimerId: 0,
+      botThinkingSide: "",
+      botPendingPromotionRole: "",
       autoSwitchView: false,
       pendingAutoSwitchAfterAnimations: false,
       pendingAutoSwitchSide: "",
       pendingEndResult: "",
       pendingEndPieceObjectId: 0,
+      lastDoublePawn: null,
+      halfmoveClock: 0,
+      positionCounts: Object.create(null),
       endSequence: null,
       animations: [],
       nextCaptureOrder: 0,
@@ -5554,6 +6602,8 @@
       panel: null,
       sceneDirtyVersion: 1
     };
+    runtime.playerModeSpec = chessPlayerModeById(runtime, runtime.playerMode);
+    runtime.playerMode = runtime.playerModeSpec.id;
     for (var m = 0; m < config.meshes.length; m += 1) {
       var mesh = config.meshes[m];
       var oid = Number(entityProp(mesh, "object_id", 0) || 0);
@@ -5603,6 +6653,7 @@
     }
     rebuildChessOccupancy(runtime);
     recordChessHistorySnapshot(runtime);
+    rebuildChessPositionCounts(runtime);
     if (!global.__vfLocalOnlyFrameEvents) { global.__vfLocalOnlyFrameEvents = Object.create(null); }
     global.__vfLocalOnlyFrameEvents[runtime.frameId] = true;
     ensureChessPanel(runtime);
@@ -5647,6 +6698,7 @@
 
   function moveChessPiece(runtime, piece, toFile, toRank) {
     var target = chessPieceAt(runtime, toFile, toRank);
+    var enPassantCaptured = chessEnPassantCapturedPiece(runtime, piece, toFile, toRank);
     if (!chessLegalMove(runtime, piece, toFile, toRank)) { return false; }
     truncateChessFuture(runtime);
     var castle = chessCastleInfo(runtime, piece, toFile, toRank);
@@ -5658,6 +6710,9 @@
     if (target) {
       delete runtime.occupied[chessSquareKey(target.file, target.rank)];
     }
+    if (enPassantCaptured) {
+      delete runtime.occupied[chessSquareKey(enPassantCaptured.file, enPassantCaptured.rank)];
+    }
     piece.file = toFile;
     piece.rank = toRank;
     piece.has_moved = true;
@@ -5665,6 +6720,9 @@
     queueChessAnimation(runtime, piece, [fromCenter, toCenter], null);
     if (target) {
       queueCapturedPieceAnimation(runtime, target, piece.side);
+    }
+    if (enPassantCaptured) {
+      queueCapturedPieceAnimation(runtime, enPassantCaptured, piece.side);
     }
     if (castle && castle.rook) {
       var rook = castle.rook;
@@ -5678,15 +6736,18 @@
       queueChessAnimation(runtime, rook, [rookFromCenter, rookToCenter], null);
     }
     if (chessIsPromotionMove(piece, toRank)) {
+      recordChessLastDoublePawn(runtime, piece, fromRank, toFile, toRank);
       startChessPromotion(runtime, piece, target, fromFile, fromRank, toFile, toRank);
       refreshChessPieceSelectionPose(runtime);
       resetChessHighlights(runtime);
       requestChessInteractionFrame(runtime);
       return true;
     }
-    commitChessMove(runtime, chessMoveNotation(runtime, piece, target, toFile, toRank, castle));
-    var moveResult = finishChessMoveResult(runtime, piece.side);
+    recordChessLastDoublePawn(runtime, piece, fromRank, toFile, toRank);
+    commitChessMove(runtime, chessMoveNotation(runtime, piece, target, toFile, toRank, castle, enPassantCaptured, fromFile));
     runtime.turn = runtime.turn === "white" ? "black" : "white";
+    updateChessDrawCountersAfterMove(runtime, piece, target || enPassantCaptured || null);
+    var moveResult = finishChessMoveResult(runtime, piece.side);
     runtime.pendingAutoSwitchSide = String(runtime.turn || "white");
     runtime.pendingEndResult = moveResult || "";
     runtime.pendingEndPieceObjectId = moveResult ? (Number(piece.object_id || 0) || 0) : 0;
@@ -5739,17 +6800,28 @@
         square: runtime.hoverSquare ? { file: runtime.hoverSquare.file, rank: runtime.hoverSquare.rank } : null,
         selected: runtime.selected ? { file: runtime.selected.file, rank: runtime.selected.rank, object_id: runtime.selected.object_id } : null
       };
+      var hoverVisualChanged = false;
       if (!runtime.selected && previousHoverPiece !== runtime.hoverPiece) {
         refreshChessPieceSelectionPose(runtime);
+        hoverVisualChanged = true;
       }
       if (previousHoverPromotion !== runtime.hoverPromotion) {
         refreshChessPromotionOptions(runtime);
         markChessSceneDirty(runtime);
+        hoverVisualChanged = true;
       }
       resetChessHighlights(runtime, { skipPieceRefresh: true });
+      if (hoverVisualChanged) {
+        requestChessInteractionFrame(runtime);
+      }
       return;
     }
     if (eventName !== "down" && eventName !== "up" && eventName !== "click") { return; }
+    var activeInputSide = runtime.promotion ? String(runtime.promotion.side || "") : String(runtime.turn || "white");
+    if (chessBotControllerForSide(runtime, activeInputSide) === "bot") {
+      scheduleChessBotTurn(runtime, chessBotDelayMs(runtime));
+      return;
+    }
     if (runtime.promotion) {
       if (target.kind === "promotion" && completeChessPromotion(runtime, target.promotion)) {
         return;
@@ -5908,6 +6980,7 @@
           runtime.afterChessAnimationsComplete(runtime.pendingAutoSwitchSide || runtime.turn || "white");
         }
       }
+      scheduleChessBotTurn(runtime, chessBotDelayMs(runtime));
     }
     if (changed) { markChessSceneDirty(runtime); }
     return remaining.length > 0;
@@ -6159,12 +7232,41 @@
     } catch (err) {
       failFast("frame aspect lookup failed: " + (err && err.message ? err.message : String(err)));
     }
-    var rect = bodyEl && typeof bodyEl.getBoundingClientRect === "function"
-      ? bodyEl.getBoundingClientRect()
+    var viewportEl = chessViewportElement(bodyEl) || bodyEl;
+    var rect = viewportEl && typeof viewportEl.getBoundingClientRect === "function"
+      ? viewportEl.getBoundingClientRect()
       : { width: 1, height: 1 };
     var width = Math.max(1, Number(rect.width || 1));
     var height = Math.max(1, Number(rect.height || 1));
     return Math.max(1e-4, width / Math.max(1, height));
+  }
+
+  function chessViewportElement(bodyEl) {
+    if (!chessInteractionConfig() || !bodyEl || typeof bodyEl.querySelector !== "function") { return null; }
+    return bodyEl.querySelector(".vf-chess-board-host") || null;
+  }
+
+  function resizeChessViewportToFit(bodyEl) {
+    var host = chessViewportElement(bodyEl);
+    if (!host) { return null; }
+    host.style.width = "100%";
+    host.style.height = "100%";
+    host.style.maxWidth = "none";
+    host.style.maxHeight = "none";
+    return host;
+  }
+
+  function visibleViewportRect(bodyEl) {
+    var viewportEl = resizeChessViewportToFit(bodyEl) || chessViewportElement(bodyEl) || bodyEl;
+    return viewportEl && typeof viewportEl.getBoundingClientRect === "function"
+      ? viewportEl.getBoundingClientRect()
+      : { width: 1, height: 1 };
+  }
+
+  function legacyVisibleFrameRect(bodyEl) {
+    return bodyEl && typeof bodyEl.getBoundingClientRect === "function"
+      ? bodyEl.getBoundingClientRect()
+      : { width: 1, height: 1 };
   }
 
   function sceneFrameVisible() {
@@ -6177,7 +7279,7 @@
     var viewportH = Math.max(1, Number(global.innerHeight || 720) || 720);
     var width = Math.max(1, Math.round(viewportW * Math.max(0.01, Number(rect[2] || 1.0))));
     var height = Math.max(1, Math.round(viewportH * Math.max(0.01, Number(rect[3] || 1.0))));
-    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal") {
+    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal" && !chessInteractionConfig()) {
       var fit = Math.max(1, Math.min(width, height));
       width = fit;
       height = fit;
@@ -6204,12 +7306,10 @@
   }
 
   function visibleFramePixels(frameEl, bodyEl) {
-    var rect = bodyEl && typeof bodyEl.getBoundingClientRect === "function"
-      ? bodyEl.getBoundingClientRect()
-      : { width: 1, height: 1 };
+    var rect = chessInteractionConfig() ? visibleViewportRect(bodyEl) : legacyVisibleFrameRect(bodyEl);
     var width = Math.max(1, Number(rect.width || 1) || 1);
     var height = Math.max(1, Number(rect.height || 1) || 1);
-    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal") {
+    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal" && !chessInteractionConfig()) {
       var fit = Math.max(1, Math.min(width, height));
       width = fit;
       height = fit;
@@ -6240,13 +7340,13 @@
     var rect = normalizeFrameRectSpec();
     var width = Math.max(1, Math.round(rect.w * parentW));
     var height = Math.max(1, Math.round(rect.h * parentH));
-    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal") {
+    if (String(frameSpec && frameSpec.aspect || "").toLowerCase() === "equal" && !chessInteractionConfig()) {
       var header = panel.root.querySelector ? panel.root.querySelector(".vf-frame__header") : null;
       var headerH = header && typeof header.getBoundingClientRect === "function"
         ? Math.max(0, Math.round(header.getBoundingClientRect().height || 0))
         : 34;
       var fit = Math.max(1, Math.min(width, Math.max(1, height - headerH)));
-      width = fit + (chessInteractionConfig() ? 260 : 0);
+      width = fit;
       height = fit + headerH;
     }
     panel.root.style.left = Math.round(rect.x * parentW) + "px";
@@ -6269,11 +7369,12 @@
     }
     var layer = document.body || document.documentElement;
     if (!layer) { return null; }
+    var shellAspect = chessInteractionConfig() ? null : (frameSpec.aspect != null ? String(frameSpec.aspect) : null);
     var panel = global.VfFrame.mount(layer, {
       id: frameId,
       title: String(frameSpec.title || config.title || ""),
       titleAlign: String(frameSpec.title_align || "left"),
-      aspect: frameSpec.aspect != null ? String(frameSpec.aspect) : null,
+      aspect: shellAspect,
       inLayerDrag: true,
       draggable: true,
       dockable: true,
@@ -6496,6 +7597,9 @@
         var fitRect = visibleFramePixels(frame, body);
         nextCamera.viewport_width_px = Math.max(1, Math.round(fitRect.width || 1));
         nextCamera.viewport_height_px = Math.max(1, Math.round(fitRect.height || 1));
+        if (chessInteractionConfig() && Array.isArray(nextCamera.projection_matrix)) {
+          delete nextCamera.projection_matrix;
+        }
       }
       return nextCamera;
     }
@@ -6533,6 +7637,20 @@
         controlState.keyRight === true ||
         controlState.keyUp === true ||
         controlState.keyDown === true;
+    }
+    if (useVisibleFrame && chessInteractionConfig() && global.addEventListener) {
+      global.addEventListener("vf-frame-live-resize", function (ev) {
+        var detail = ev && ev.detail ? ev.detail : {};
+        var liveFrameId = String(detail.frameId || detail.id || "");
+        if (liveFrameId !== String(watchedFrameId || "")) { return; }
+        resizeChessViewportToFit(body);
+        if (visibleSpec && controlState.baseCamera) {
+          var resizeCamera = controlState.exactInitCamera
+            ? cloneCameraState(controlState.exactInitCamera, cameraFallback)
+            : cloneCameraState(controlState.baseCamera, cameraFallback);
+          updateVisibleCameraOnly(resizeCamera, { immediate: true });
+        }
+      }, true);
     }
     function cameraSwitchActive() {
       return !!(controlState.cameraSwitch && controlState.cameraSwitch.active === true);
@@ -6904,16 +8022,20 @@
         }
       }, true);
     }
-    var chessRuntime = initChessRuntime();
-    if (chessRuntime && !chessRuntime.eventsAttached) {
-      chessRuntime.eventsAttached = true;
-      global.addEventListener("vf_event", function (ev) {
-        try {
-          handleChessEvent(chessRuntime, ev && ev.detail ? ev.detail : null);
-        } catch (err) {
-          failFast("chess interaction failed: " + (err && err.message ? err.message : String(err)));
-        }
-      });
+    var chessRuntime = null;
+    function ensureChessRuntimeEventsAttached() {
+      chessRuntime = initChessRuntime();
+      if (chessRuntime && !chessRuntime.eventsAttached) {
+        chessRuntime.eventsAttached = true;
+        global.addEventListener("vf_event", function (ev) {
+          try {
+            handleChessEvent(chessRuntime, ev && ev.detail ? ev.detail : null);
+          } catch (err) {
+            failFast("chess interaction failed: " + (err && err.message ? err.message : String(err)));
+          }
+        });
+      }
+      return chessRuntime;
     }
 
     function ensureGeomRendererReady(attempt) {
@@ -6948,6 +8070,9 @@
             );
           }
           return;
+        }
+        if (chessInteractionConfig()) {
+          ensureChessRuntimeEventsAttached();
         }
         controlState.rendering = true;
         controlState.debugRenderFrameCount = Number(controlState.debugRenderFrameCount || 0) + 1;
@@ -7184,30 +8309,75 @@
         failFast("render loop failed: " + (err && err.message ? err.message : String(err)));
       }
     }
-    if (chessRuntime) {
-      chessRuntime.afterChessAnimationsComplete = function (side) {
+    function wireChessRuntimeRenderCallbacks() {
+      var runtimeForCallbacks = ensureChessRuntimeEventsAttached();
+      if (!runtimeForCallbacks || runtimeForCallbacks.renderCallbacksAttached === true) { return; }
+      runtimeForCallbacks.renderCallbacksAttached = true;
+      runtimeForCallbacks.afterChessAnimationsComplete = function (side) {
         controlState.pendingAutoSwitchCamera = true;
         controlState.pendingAutoSwitchSide = String(side || "white");
-        if (typeof chessRuntime.requestInteractionFrame === "function") {
-          chessRuntime.requestInteractionFrame();
+        if (typeof runtimeForCallbacks.requestInteractionFrame === "function") {
+          runtimeForCallbacks.requestInteractionFrame();
         }
       };
-      chessRuntime.requestInteractionFrame = function () {
+      runtimeForCallbacks.requestInteractionFrame = function () {
         if (controlState.interactionFramePending === true) { return; }
         controlState.interactionFramePending = true;
         global.requestAnimationFrame(function () {
           controlState.interactionFramePending = false;
           if (controlState.rendering === true) {
-            chessRuntime.requestInteractionFrame();
+            runtimeForCallbacks.requestInteractionFrame();
             return;
           }
           renderFrame();
         });
       };
     }
-    renderFrame();
+
+    function startInitialSceneRender() {
+      wireChessRuntimeRenderCallbacks();
+      renderFrame();
+      if (useVisibleFrame) {
+        ensureGeomRendererReady(0);
+      }
+    }
+
+    function postVisibleShellLayout() {
+      if (!useVisibleFrame || !global.VfFrame || typeof global.VfFrame.postNativeHostLayout !== "function") {
+        return;
+      }
+      var layer = document.body || document.documentElement;
+      if (layer) {
+        global.VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+      }
+    }
+
+    function mountResponsiveVisibleShell() {
+      if (!useVisibleFrame) { return; }
+      ensureVisibleSceneFrameShell();
+      postVisibleShellLayout();
+    }
+
+    function scheduleVisibleInitialSceneRender() {
+      mountResponsiveVisibleShell();
+      var start = function () {
+        mountResponsiveVisibleShell();
+        global.requestAnimationFrame(function () {
+          mountResponsiveVisibleShell();
+          global.requestAnimationFrame(startInitialSceneRender);
+        });
+      };
+      if (typeof global.requestIdleCallback === "function") {
+        global.requestIdleCallback(start, { timeout: 600 });
+        return;
+      }
+      global.setTimeout(start, 120);
+    }
+
     if (useVisibleFrame) {
-      ensureGeomRendererReady(0);
+      scheduleVisibleInitialSceneRender();
+    } else {
+      startInitialSceneRender();
     }
   }
 

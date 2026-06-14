@@ -427,11 +427,11 @@
     return false;
   }
 
-  function pickDeclaredHitRegion(fid, geomSpec, body, clientX, clientY) {
+  function pickDeclaredHitRegion(fid, geomSpec, body, clientX, clientY, pickRect) {
     var regions = declaredHitRegions(geomSpec);
     if (!regions.length || !body || typeof body.getBoundingClientRect !== "function") { return null; }
     var frameEl = findFrameEl(geomTargetFrameId(fid));
-    var rect = frameEl ? fittedFrameContentRect(frameEl, body) : body.getBoundingClientRect();
+    var rect = pickRect || (frameEl ? fittedFrameContentRect(frameEl, body) : body.getBoundingClientRect());
     var camera = geomSpec && geomSpec.camera ? geomSpec.camera : null;
     for (var i = regions.length - 1; i >= 0; i -= 1) {
       var region = regions[i] || {};
@@ -476,9 +476,9 @@
     drawCanvas.style.pointerEvents = "none";
   }
 
-  function frameAspectMode(frameEl) {
+  function frameContentAspectMode(frameEl) {
     try {
-      return String(frameEl && frameEl.dataset && frameEl.dataset.vfAspect ? frameEl.dataset.vfAspect : "").trim().toLowerCase();
+      return String(frameEl && frameEl.dataset && frameEl.dataset.vfContentAspect ? frameEl.dataset.vfContentAspect : "").trim().toLowerCase();
     } catch (_) {
       return "";
     }
@@ -492,7 +492,8 @@
     var height = Math.max(1, rect.height || 1);
     var localLeft = 0;
     var localTop = 0;
-    if (frameAspectMode(frameEl) === "equal") {
+    var hostOwnsViewport = !!(hostEl && hostEl.classList && hostEl.classList.contains("vf-chess-board-host"));
+    if (!hostOwnsViewport && frameContentAspectMode(frameEl) === "equal") {
       var fitSize = Math.max(1, Math.min(width, height));
       localLeft = (width - fitSize) * 0.5;
       localTop = (height - fitSize) * 0.5;
@@ -526,6 +527,19 @@
       localTop: fit.localTop - pad,
       overscan: pad
     };
+  }
+
+  function geomLiveCanvasPickRect(rec, fallbackRect) {
+    var entries = rec && Array.isArray(rec.entries) ? rec.entries : [];
+    for (var i = entries.length - 1; i >= 0; i -= 1) {
+      var canvas = entries[i] && entries[i].canvas;
+      if (!canvas || typeof canvas.getBoundingClientRect !== "function") { continue; }
+      var rect = canvas.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        return rect;
+      }
+    }
+    return fallbackRect || null;
   }
 
   function geomTargetFrameId(fid) {
@@ -571,6 +585,17 @@
       return panel;
     }
     return body;
+  }
+
+  function resizeChessBoardHostToFit(hostEl) {
+    if (!hostEl || !hostEl.classList || !hostEl.classList.contains("vf-chess-board-host")) { return hostEl; }
+    if (hostEl.style) {
+      hostEl.style.width = "100%";
+      hostEl.style.height = "100%";
+      hostEl.style.maxWidth = "none";
+      hostEl.style.maxHeight = "none";
+    }
+    return hostEl;
   }
 
   function ensureGeomFrameEvents(fid) {
@@ -622,16 +647,17 @@
         var frameRect = eventHost && typeof eventHost.getBoundingClientRect === "function"
           ? eventHost.getBoundingClientRect()
           : null;
+        var pickRect = geomLiveCanvasPickRect(rec, frameRect);
         var liveGeomSpec = currentGeomSpecForEvents();
-        var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, eventHost, req.clientX, req.clientY);
+        var regionHit = pickDeclaredHitRegion(fid, liveGeomSpec, eventHost, req.clientX, req.clientY, pickRect);
         if (regionHit) {
           cb(regionHit);
           return;
         }
         if ((req.evtType === "hover" || req.evtType === "move") && declaredHitRegionsBlockMeshPick(liveGeomSpec, fid)) {
           cb(_emptyGeomHit(
-            (Number(req.clientX) || 0) - (frameRect ? frameRect.left : 0),
-            (Number(req.clientY) || 0) - (frameRect ? frameRect.top : 0),
+            (Number(req.clientX) || 0) - (pickRect ? pickRect.left : 0),
+            (Number(req.clientY) || 0) - (pickRect ? pickRect.top : 0),
             fid
           ));
           return;
@@ -641,7 +667,7 @@
           entries: rec && rec.entries ? rec.entries : [],
           clientX: req.clientX,
           clientY: req.clientY,
-          frameRect: frameRect
+          frameRect: pickRect
         }, cb);
       },
       emit: function (hit, req) {
@@ -687,7 +713,8 @@
     }
 
     function currentFrameMetrics() {
-      return fittedFrameContentRect(frameEl, currentGeomEventHost());
+      var rec = frameRecs[fid];
+      return geomLiveCanvasPickRect(rec, fittedFrameContentRect(frameEl, currentGeomEventHost()));
     }
 
     function postDirectDrag(e) {
@@ -1245,7 +1272,7 @@
   function syncCanvasSize(canvas) {
     if (!canvas) { return null; }
     var frameEl = canvas.closest ? canvas.closest(".vf-frame") : null;
-    var hostEl = canvas.parentElement || canvas;
+    var hostEl = resizeChessBoardHostToFit(canvas.parentElement || canvas);
     var fid = frameEl && frameEl.getAttribute ? frameEl.getAttribute("data-vf-frame-id") : "";
     var fit = geomFrameRenderRect(frameEl, hostEl, fid);
     var w = Math.max(1, Math.floor(fit.width));
@@ -2633,7 +2660,7 @@
 
   function ensureGeomCanvas(frameEl, idx, fid) {
     if (!frameEl) { return null; }
-    var body = geomFrameHost(frameEl, fid);
+    var body = resizeChessBoardHostToFit(geomFrameHost(frameEl, fid));
     var cls  = "vf-geom-canvas-" + idx;
     var existing = body.querySelector("canvas." + cls);
     if (existing) {
@@ -2653,7 +2680,7 @@
 
   function layoutGeomCanvas(frameEl, canvas, fid) {
     if (!frameEl || !canvas) { return; }
-    var body = geomFrameHost(frameEl, fid);
+    var body = resizeChessBoardHostToFit(geomFrameHost(frameEl, fid));
     var rect = geomFrameRenderRect(frameEl, body, fid);
     if (body && body.style) { body.style.overflow = "hidden"; }
     canvas.style.left = Math.round(rect.localLeft || 0) + "px";
@@ -2715,6 +2742,15 @@
     nextCfg.x_max = prevCfg.x_max;
     nextCfg.y_min = prevCfg.y_min;
     nextCfg.y_max = prevCfg.y_max;
+    if (Object.prototype.hasOwnProperty.call(prevCfg, "r_min")) {
+      nextCfg.r_min = prevCfg.r_min;
+    }
+    if (Object.prototype.hasOwnProperty.call(prevCfg, "r_max")) {
+      nextCfg.r_max = prevCfg.r_max;
+    }
+    if (Object.prototype.hasOwnProperty.call(prevCfg, "theta_offset_rad")) {
+      nextCfg.theta_offset_rad = prevCfg.theta_offset_rad;
+    }
     if (Object.prototype.hasOwnProperty.call(prevCfg, "rotation_deg")) {
       nextCfg.rotation_deg = prevCfg.rotation_deg;
     }
@@ -3344,11 +3380,11 @@
     var unsnapAngleDeg = Math.max(snapAngleDeg, Number(cfg && cfg.axis_projected_unsnap_angle_deg) || (snapAngleDeg + 3));
     var pairSnapAngleDeg = Math.max(
       snapAngleDeg,
-      Number(cfg && cfg.axis_projected_pair_snap_angle_deg) || Math.max(snapAngleDeg + 4, 12)
+      Number(cfg && cfg.axis_projected_pair_snap_angle_deg) || 5
     );
     var pairUnsnapAngleDeg = Math.max(
       pairSnapAngleDeg,
-      Number(cfg && cfg.axis_projected_pair_unsnap_angle_deg) || Math.max(unsnapAngleDeg + 3, pairSnapAngleDeg + 2)
+      Number(cfg && cfg.axis_projected_pair_unsnap_angle_deg) || pairSnapAngleDeg
     );
     var previousRawAngles = Array.isArray(previousState)
       ? previousState
@@ -3426,12 +3462,46 @@
     };
   }
 
-  function axis3DProjectedAxisSideSign(projectedSnapState, axisIndex, defaultSide) {
+  function axis3DProjectedAxisSideSign(projectedSnapState, axisInfos, axisIndex, defaultSide) {
     var base = Number(defaultSide) || 0;
     if (!projectedSnapState || !projectedSnapState.sideSigns) { return base; }
     var forced = Number(projectedSnapState.sideSigns[axisIndex]);
-    if (forced === 1 || forced === -1) { return forced; }
+    var paired = projectedSnapState.pairedAxes ? Number(projectedSnapState.pairedAxes[axisIndex]) : NaN;
+    if (Number.isFinite(paired) && Array.isArray(axisInfos)) {
+      var canonicalIndex = Math.min(Number(axisIndex), paired);
+      var info = axisInfos[axisIndex] || null;
+      var canonicalInfo = axisInfos[canonicalIndex] || null;
+      if (info && canonicalInfo) {
+        var nx = -Number(info.uy || 0);
+        var ny = Number(info.ux || 0);
+        var cnx = -Number(canonicalInfo.uy || 0);
+        var cny = Number(canonicalInfo.ux || 0);
+        var normalDot = (nx * cnx) + (ny * cny);
+        var desiredCanonicalSide = Number(axisIndex) === canonicalIndex ? -1 : 1;
+        var localSide = desiredCanonicalSide * (normalDot < 0 ? -1 : 1);
+        return localSide;
+      }
+    }
+    if (forced === 1 || forced === -1) {
+      return forced;
+    }
     return base;
+  }
+
+  function axis3DObjectHasOwnKeys(obj) {
+    if (!obj || typeof obj !== "object") { return false; }
+    for (var key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) { return true; }
+    }
+    return false;
+  }
+
+  function axis3DRotationSnapActive(state) {
+    if (!state) { return false; }
+    if (state.lockedViewSnap) { return true; }
+    if (axis3DObjectHasOwnKeys(state.projectedPairRawSnapState && state.projectedPairRawSnapState.pairedAxes)) { return true; }
+    if (axis3DObjectHasOwnKeys(state.projectedRawSnapState && state.projectedRawSnapState.cardinalSnaps)) { return true; }
+    return false;
   }
 
   function drawAxisCollapsedMarker(ctx, cfg, px, py, snappedOrientation, color3) {
@@ -3717,6 +3787,50 @@
     out.target = vec3Array(camera && camera.target, [0, 0, 0]);
     out.up = vec3Array(camera && camera.up, [0, 0, 1]);
     return out;
+  }
+
+  function axis3DVirtualTrackballRotate(camera, cfg, body, prevPx, prevPy, curPx, curPy) {
+    var virtualTrackballRotate = axis3DKernelMethod("virtualTrackballRotate");
+    var rect = body && body.getBoundingClientRect ? body.getBoundingClientRect() : { width: 1, height: 1 };
+    var localPrevX = (Number(prevPx) || 0) - (Number(rect.left) || 0);
+    var localPrevY = (Number(prevPy) || 0) - (Number(rect.top) || 0);
+    var localCurX = (Number(curPx) || 0) - (Number(rect.left) || 0);
+    var localCurY = (Number(curPy) || 0) - (Number(rect.top) || 0);
+    if (virtualTrackballRotate) {
+      return virtualTrackballRotate(camera, cfg || {}, rect, localPrevX, localPrevY, localCurX, localCurY, { marginPx: 20 });
+    }
+    var w = Math.max(1, Number(rect.width) || 1);
+    var h = Math.max(1, Number(rect.height) || 1);
+    var radius = Math.max(1, Math.min(w, h) * 0.5 - 20);
+    var cx = w * 0.5;
+    var cy = h * 0.5;
+    function point(px, py) {
+      var x = (px - cx) / radius;
+      var y = (cy - py) / radius;
+      var r2 = x * x + y * y;
+      if (r2 <= 1.0) { return [x, y, Math.sqrt(Math.max(0, 1.0 - r2))]; }
+      var len = Math.sqrt(r2);
+      return [x / len, y / len, 0.0];
+    }
+    var a = point(localPrevX, localPrevY);
+    var b = point(localCurX, localCurY);
+    var dot = Math.max(-1.0, Math.min(1.0, dot3(a, b)));
+    var angle = Math.acos(dot);
+    if (!(angle > 1e-7)) { return false; }
+    var axisView = crossVec3(a, b);
+    var axisLen = Math.sqrt(dot3(axisView, axisView));
+    if (!(axisLen > 1e-9)) { return false; }
+    axisView = [axisView[0] / axisLen, axisView[1] / axisLen, axisView[2] / axisLen];
+    var center = axis3DRotationCenter(cfg || {});
+    var preserveTargetOffset = axis3DPreserveTargetOffsetOnRotate(cfg || {});
+    var basis = axis3DScreenBasis(camera, preserveTargetOffset ? null : center);
+    var worldAxis = normalizeVec3Local([
+      basis.right[0] * axisView[0] + basis.up[0] * axisView[1] + basis.forward[0] * axisView[2],
+      basis.right[1] * axisView[0] + basis.up[1] * axisView[1] + basis.forward[1] * axisView[2],
+      basis.right[2] * axisView[0] + basis.up[2] * axisView[1] + basis.forward[2] * axisView[2]
+    ], basis.forward);
+    axis3DApplyWorldRotation(camera, center, worldAxis, angle, { preserveTargetOffset: preserveTargetOffset });
+    return true;
   }
 
   function axis3DProjectionKernelDeps() {
@@ -4052,6 +4166,128 @@
     return aligned;
   }
 
+  function axis3DApplyViewDirectionSnap(camera, cfg, dragState) {
+    var rotationState = dragState && dragState.axis3DRotationState ? dragState.axis3DRotationState : null;
+    var snappedViewState = axis3DCrosshairSnapState(
+      axis3DCrosshairCollapsedMarkerState(camera),
+      rotationState ? rotationState.lockedViewSnap || null : null,
+      cfg
+    );
+    if (rotationState) {
+      rotationState.lockedViewSnap = snappedViewState.snapped;
+    }
+    if (snappedViewState && snappedViewState.snapped) {
+      axis3DAlignAxisToViewSnap(camera, cfg, snappedViewState.snapped.axisIndex, snappedViewState.snapped.sign);
+      return true;
+    }
+    return false;
+  }
+
+  function axis3DApplyProjectedAngleSnap(camera, cfg, body, dragState, snapTargets) {
+    var rotationState = dragState && dragState.axis3DRotationState ? dragState.axis3DRotationState : null;
+    var projected = axis3DProjectedAxisInfos(camera, body, cfg);
+    if (!projected || !projected.axisInfos) { return false; }
+    var rawState = {
+      cardinalSnaps: Object.create(null),
+      pairTargets: Object.create(null),
+      sideSigns: Object.create(null),
+      deltas: Object.create(null)
+    };
+    var best = null;
+    var thresholdDeg = Math.max(0, Number(cfg && cfg.axis_projected_snap_angle_deg) || 5);
+    var unsnapDeg = Math.max(thresholdDeg, Number(cfg && cfg.axis_projected_unsnap_angle_deg) || (thresholdDeg + 3));
+    var previous = rotationState && rotationState.projectedRawSnapState ? rotationState.projectedRawSnapState : null;
+    for (var axisIndex = 0; axisIndex < projected.axisInfos.length; axisIndex += 1) {
+      var info = projected.axisInfos[axisIndex];
+      if (!info) { continue; }
+      var angleDeg = axis3DProjectedAxisAngleDeg(info);
+      var nearest = nearestAxisSnapAngleDeg(angleDeg, snapTargets);
+      var previousTarget = previous && previous.cardinalSnaps ? previous.cardinalSnaps[axisIndex] : null;
+      var samePrevious = previousTarget != null && Math.abs(Number(previousTarget) - Number(nearest.target)) <= 1e-6;
+      var allowed = nearest.diffDeg <= (samePrevious ? unsnapDeg : thresholdDeg);
+      rawState.deltas[axisIndex] = nearest.diffDeg;
+      if (!allowed) { continue; }
+      rawState.cardinalSnaps[axisIndex] = nearest.target;
+      rawState.sideSigns[axisIndex] = info.centerValue >= 0 ? 1 : -1;
+      if (!best || nearest.diffDeg < best.diffDeg) {
+        best = { axisIndex: axisIndex, targetAngleDeg: nearest.target, diffDeg: nearest.diffDeg };
+      }
+    }
+    if (rotationState) {
+      rotationState.projectedRawSnapState = rawState;
+      rotationState.projectedSnapState = rawState;
+    }
+    if (!best) { return false; }
+    return axis3DAlignProjectedAxisToScreenSnap(camera, body, cfg, best.axisIndex, best.targetAngleDeg);
+  }
+
+  function axis3DApplyProjectedPairSnap(camera, cfg, body, dragState, rawCamera) {
+    var rotationState = dragState && dragState.axis3DRotationState ? dragState.axis3DRotationState : null;
+    var rawProjected = axis3DProjectedAxisInfos(rawCamera || camera, body, cfg);
+    if (!rawProjected || !rawProjected.axisInfos) { return false; }
+    var previous = rotationState && rotationState.projectedPairRawSnapState ? rotationState.projectedPairRawSnapState : null;
+    var rawPairState = axis3DProjectedAxisSnapState(rawProjected.axisInfos, previous, cfg);
+    if (rotationState) {
+      rotationState.projectedPairRawSnapState = rawPairState;
+    }
+    var bestPair = null;
+    if (rawPairState && rawPairState.pairTargets) {
+      for (var pairFollowerKey in rawPairState.pairTargets) {
+        if (!Object.prototype.hasOwnProperty.call(rawPairState.pairTargets, pairFollowerKey)) { continue; }
+        var followerIndex = Number(pairFollowerKey);
+        var leaderIndex = Number(rawPairState.pairLeaders && rawPairState.pairLeaders[pairFollowerKey]);
+        if (!Number.isFinite(followerIndex) || !Number.isFinite(leaderIndex)) { continue; }
+        var followerDelta = Math.abs(Number(rawPairState.deltas && rawPairState.deltas[followerIndex] || 0));
+        if (!bestPair || followerDelta > bestPair.delta) {
+          bestPair = {
+            followerIndex: followerIndex,
+            leaderIndex: leaderIndex,
+            delta: followerDelta
+          };
+        }
+      }
+    }
+    if (!bestPair) { return false; }
+    var aligned = axis3DSnapViewToAxisPairOverlap(camera, cfg, bestPair.leaderIndex, bestPair.followerIndex);
+    if (rotationState) {
+      var projected = axis3DProjectedAxisInfos(camera, body, cfg);
+      rotationState.projectedPairSnapState = projected && projected.axisInfos
+        ? axis3DProjectedAxisSnapState(projected.axisInfos, rawPairState, cfg)
+        : rawPairState;
+    }
+    return aligned;
+  }
+
+  function axis3DSnapViewToAxisPairOverlap(camera, cfg, axisAIndex, axisBIndex) {
+    var axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    var axisA = axes[Number(axisAIndex)];
+    var axisB = axes[Number(axisBIndex)];
+    if (!axisA || !axisB || Number(axisAIndex) === Number(axisBIndex)) { return false; }
+    var pairPlaneNormal = normalizeVec3Local(crossVec3(axisA, axisB), [0, 0, 1]);
+    var center = axis3DRotationCenter(cfg || {});
+    var preserveTargetOffset = axis3DPreserveTargetOffsetOnRotate(cfg || {});
+    var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
+    var target = vec3Array(camera && camera.target, center);
+    var forward = normalizeVec3Local([target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]], [0, 0, -1]);
+    var normalComponent = dot3(forward, pairPlaneNormal);
+    var projectedForward = [
+      forward[0] - pairPlaneNormal[0] * normalComponent,
+      forward[1] - pairPlaneNormal[1] * normalComponent,
+      forward[2] - pairPlaneNormal[2] * normalComponent
+    ];
+    var projectedLen = Math.sqrt(dot3(projectedForward, projectedForward));
+    if (!(projectedLen > 1e-9)) { return false; }
+    var snappedForward = [projectedForward[0] / projectedLen, projectedForward[1] / projectedLen, projectedForward[2] / projectedLen];
+    if (Math.abs(dot3(forward, snappedForward)) > 0.999999) { return false; }
+    var rotationAxis = crossVec3(forward, snappedForward);
+    var axisLen = Math.sqrt(dot3(rotationAxis, rotationAxis));
+    if (!(axisLen > 1e-9)) { return false; }
+    rotationAxis = [rotationAxis[0] / axisLen, rotationAxis[1] / axisLen, rotationAxis[2] / axisLen];
+    var angle = Math.acos(Math.max(-1, Math.min(1, dot3(forward, snappedForward))));
+    axis3DApplyWorldRotation(camera, center, rotationAxis, angle, { preserveTargetOffset: preserveTargetOffset });
+    return true;
+  }
+
   function axis3DIncrementalRotateComponents(camera, cfg, dx, dy, body, dragState) {
     var rect = body && body.getBoundingClientRect ? body.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
     var w = Math.max(1, Number(rect.width) || 1);
@@ -4260,12 +4496,65 @@
     };
   }
 
+  function axis3DVirtualTrackballRotationController() {
+    return {
+      id: "virtual_trackball",
+      createState: function (camera) {
+        return {
+          controller_id: "virtual_trackball",
+          rawCamera: axis3DCloneCamera(camera || {}),
+          snappedCamera: axis3DCloneCamera(camera || {}),
+          lockedViewSnap: null,
+          projectedRawSnapState: null,
+          projectedSnapState: null,
+          projectedPairRawSnapState: null,
+          projectedPairSnapState: null
+        };
+      },
+      rotateDrag: function (camera, cfg, dx, dy, body, snap15, dragState) {
+        var state = dragState && dragState.axis3DRotationState ? dragState.axis3DRotationState : null;
+        if (!state || state.controller_id !== "virtual_trackball") {
+          state = this.createState(camera || {});
+          if (dragState) { dragState.axis3DRotationState = state; }
+        }
+        var rawCamera = state.rawCamera ? axis3DCloneCamera(state.rawCamera) : axis3DCloneCamera(camera || {});
+        var curX = Number(dragState && dragState.x) || 0;
+        var curY = Number(dragState && dragState.y) || 0;
+        var prevX = curX - (Number(dx) || 0);
+        var prevY = curY - (Number(dy) || 0);
+        var snapGain = axis3DRotationSnapActive(state)
+          ? Math.max(1.0, Number(cfg && cfg.axis_snap_rotation_gain) || 1.45)
+          : 1.0;
+        var effectiveCurX = prevX + ((curX - prevX) * snapGain);
+        var effectiveCurY = prevY + ((curY - prevY) * snapGain);
+        axis3DVirtualTrackballRotate(rawCamera, cfg || {}, body, prevX, prevY, effectiveCurX, effectiveCurY);
+        state.rawCamera = axis3DCloneCamera(rawCamera);
+        var snappedCamera = axis3DCloneCamera(rawCamera);
+        if (snap15 === true) {
+          axis3DApplyViewDirectionSnap(snappedCamera, cfg || {}, dragState);
+          axis3DApplyProjectedAngleSnap(snappedCamera, cfg || {}, body, dragState, [0, 45, 90, 135]);
+        } else {
+          state.projectedRawSnapState = null;
+          state.projectedSnapState = null;
+          axis3DApplyViewDirectionSnap(snappedCamera, cfg || {}, dragState);
+        }
+        axis3DApplyProjectedPairSnap(snappedCamera, cfg || {}, body, dragState, rawCamera);
+        state.snappedCamera = axis3DCloneCamera(snappedCamera);
+        camera.pos = snappedCamera.pos.slice();
+        camera.target = snappedCamera.target.slice();
+        camera.up = snappedCamera.up.slice();
+        return true;
+      }
+    };
+  }
+
   var axis3DRotationControllers = {
+    virtual_trackball: axis3DVirtualTrackballRotationController(),
     legacy: axis3DLegacyRotationController()
   };
 
   function axis3DRotationControllerForConfig(cfg) {
-    var requested = String(cfg && cfg.rotation_controller || "legacy").toLowerCase().trim();
+    var requested = String(cfg && cfg.rotation_controller || "virtual_trackball").toLowerCase().trim();
     return axis3DRotationControllers[requested] || axis3DRotationControllers.legacy;
   }
 
@@ -5579,7 +5868,10 @@
       x_min: Number(cfg.x_min),
       x_max: Number(cfg.x_max),
       y_min: Number(cfg.y_min),
-      y_max: Number(cfg.y_max)
+      y_max: Number(cfg.y_max),
+      r_min: Number(cfg.r_min),
+      r_max: Number(cfg.r_max),
+      theta_offset_rad: Number(cfg.theta_offset_rad)
     };
   }
 
@@ -5593,6 +5885,97 @@
       cfg.y_min = snapshot.y_min;
       cfg.y_max = snapshot.y_max;
     }
+    if (activeAxis !== "r" && Number.isFinite(snapshot.r_min) && Number.isFinite(snapshot.r_max)) {
+      cfg.r_min = snapshot.r_min;
+      cfg.r_max = snapshot.r_max;
+    }
+    if (activeAxis !== "theta" && Number.isFinite(snapshot.theta_offset_rad)) {
+      cfg.theta_offset_rad = snapshot.theta_offset_rad;
+    }
+  }
+
+  function polarRadialRange(cfg) {
+    var external = axis2DTicksMethod("polarRadialRange");
+    if (external) { return external(cfg); }
+    var rMin = Math.max(0, Number(cfg && cfg.r_min) || 0);
+    var rMax = Number(cfg && cfg.r_max);
+    if (!Number.isFinite(rMax) || !(rMax > rMin)) { rMax = rMin + 1; }
+    return { min: rMin, max: rMax, span: Math.max(1e-9, rMax - rMin) };
+  }
+
+  function applyPolarRadialRange(cfg, rMin, rMax) {
+    var external = axis2DTicksMethod("applyPolarRadialRange");
+    if (external) { return external(cfg, rMin, rMax); }
+    if (!cfg) { return false; }
+    rMin = Math.max(0, Number(rMin) || 0);
+    rMax = Number(rMax);
+    if (!Number.isFinite(rMax) || !(rMax > rMin + 1e-9)) { rMax = rMin + 1e-9; }
+    cfg.r_min = rMin;
+    cfg.r_max = rMax;
+    return true;
+  }
+
+  function polarThetaOffset(cfg) {
+    var external = axis2DTicksMethod("polarThetaOffset");
+    if (external) { return external(cfg); }
+    var theta = Number(cfg && cfg.theta_offset_rad);
+    return Number.isFinite(theta) ? theta : 0;
+  }
+
+  function setPolarThetaOffset(cfg, theta) {
+    var external = axis2DTicksMethod("setPolarThetaOffset");
+    if (external) { return external(cfg, theta); }
+    if (!cfg) { return; }
+    theta = Number(theta);
+    cfg.theta_offset_rad = Number.isFinite(theta) ? theta : 0;
+  }
+
+  function axis2DPolarMetrics(mesh, w, h) {
+    var cfg = mesh && mesh.axis_ticks || null;
+    if (!cfg) { return null; }
+    var range = polarRadialRange(cfg);
+    var bounds = { left: 0, top: 0, right: w, bottom: h, width: w, height: h };
+    if (mesh.axis_box === true) {
+      bounds = axisBoxRect(mesh, w, h);
+    }
+    var cx = (bounds.left + bounds.right) * 0.5;
+    var cy = (bounds.top + bounds.bottom) * 0.5;
+    var tickLen = Math.max(0, Number(cfg.len) || 7);
+    var fontSize = Math.max(8, Number(cfg.tick_label_font_size) || 11);
+    var labelPad = cfg.enabled === false ? 4 : Math.max(18, tickLen + fontSize + 10);
+    var radius = Math.max(1, (Math.min(bounds.width, bounds.height) * 0.5) - labelPad);
+    return { cx: cx, cy: cy, radius: radius, rMin: range.min, rMax: range.max, rSpan: range.span, bounds: bounds, labelPad: labelPad, tickLen: tickLen, fontSize: fontSize };
+  }
+
+  function axis2DPolarRadiusAtPixel(mesh, w, h, px, py) {
+    var metrics = axis2DPolarMetrics(mesh, w, h);
+    if (!metrics) { return 0; }
+    var dx = Number(px) - metrics.cx;
+    var dy = Number(py) - metrics.cy;
+    var unit = Math.max(0, Math.min(1, Math.sqrt(dx * dx + dy * dy) / Math.max(1, metrics.radius)));
+    return metrics.rMin + unit * metrics.rSpan;
+  }
+
+  function axis2DPolarRadialTickValues(cfg, metrics, includeOuter) {
+    if (!cfg || !metrics) { return []; }
+    var rings = Math.max(1, Math.min(64, Math.floor(Number(cfg.rings) || 5)));
+    var hints = Array.isArray(cfg.hints) ? cfg.hints : [1, 2, 5];
+    var step = chooseNiceAxisStepNear(metrics.rSpan / rings, hints);
+    var values = axisTickValues(metrics.rMin, metrics.rMax, step, cfg.r_values);
+    var eps = Math.max(1e-9, Math.abs(metrics.rSpan) * 1e-9);
+    var out = [];
+    for (var vi = 0; vi < values.length; vi += 1) {
+      var v = Number(values[vi]);
+      if (!Number.isFinite(v)) { continue; }
+      if (v <= metrics.rMin + eps) { continue; }
+      if (includeOuter) {
+        if (v > metrics.rMax + eps) { continue; }
+      } else if (v >= metrics.rMax - eps) {
+        continue;
+      }
+      out.push(v);
+    }
+    return out;
   }
 
   function applyAxis2DSelectionZoom(fid, body, drag) {
@@ -5612,6 +5995,27 @@
       var mesh = meshes[i];
       var cfg = mesh && mesh.axis_ticks;
       if (!cfg || mesh.axis_interactive === false) { continue; }
+      if (mesh.axis_polar === true) {
+        var polarMetrics = axis2DPolarMetrics(mesh, w, h);
+        if (!polarMetrics) { continue; }
+        var selectCx = (x0 + x1) * 0.5;
+        var selectCy = (y0 + y1) * 0.5;
+        var radialAnchor = axis2DPolarRadiusAtPixel(mesh, w, h, selectCx, selectCy);
+        var scale = Math.max(0.02, Math.min(1, Math.max(x1 - x0, y1 - y0) / Math.max(1, polarMetrics.radius * 2)));
+        var startPolar = axis2DRangeSnapshot(cfg);
+        var nextSpan = polarMetrics.rSpan * scale;
+        var anchorUnit = polarMetrics.rSpan > 0 ? (radialAnchor - polarMetrics.rMin) / polarMetrics.rSpan : 0.5;
+        plans.push({
+          cfg: cfg,
+          start: startPolar,
+          target: {
+            r_min: Math.max(0, radialAnchor - anchorUnit * nextSpan),
+            r_max: Math.max(0, radialAnchor - anchorUnit * nextSpan) + nextSpan
+          },
+          polar: true
+        });
+        continue;
+      }
       if (mesh.axis_box === true) { unfreezeAxis2DBoxTickPlacement(cfg); }
       var view = axisViewport(mesh, cfg, w, h);
       if (!view) { continue; }
@@ -5641,6 +6045,15 @@
     animateAxisRanges(260, function (a) {
       for (var pi = 0; pi < plans.length; pi += 1) {
         var p = plans[pi];
+        if (p.polar === true) {
+          applyPolarRadialRange(
+            p.cfg,
+            p.start.r_min + (p.target.r_min - p.start.r_min) * a,
+            p.start.r_max + (p.target.r_max - p.start.r_max) * a
+          );
+          p.cfg.__vf_live_mutated = true;
+          continue;
+        }
         p.cfg.x_min = p.start.x_min + (p.target.x_min - p.start.x_min) * a;
         p.cfg.x_max = p.start.x_max + (p.target.x_max - p.start.x_max) * a;
         p.cfg.y_min = p.start.y_min + (p.target.y_min - p.start.y_min) * a;
@@ -5711,6 +6124,15 @@
         var yMin = Number(cfg.y_min);
         var yMax = Number(cfg.y_max);
         if (!(xMax > xMin) || !(yMax > yMin)) { return; }
+        if (mesh && mesh.axis_polar === true) {
+          var polarRange = polarRadialRange(cfg);
+          var polarAnchor = axis2DPolarRadiusAtPixel(mesh, w, h, px, py);
+          var polarUnit = polarRange.span > 0 ? (polarAnchor - polarRange.min) / polarRange.span : 0.5;
+          var polarSpan = polarRange.span * factor;
+          var nextRMin = polarAnchor - polarUnit * polarSpan;
+          applyPolarRadialRange(cfg, nextRMin, nextRMin + polarSpan);
+          return;
+        }
         var view = axisViewport(mesh, cfg, w, h);
         if (!view) { return; }
         var box = axisBoxRect(mesh, w, h);
@@ -5860,7 +6282,15 @@
         return;
       }
       if (drag.action === "scale") {
-        mutateAxisViewport(fid, function (cfg) {
+        mutateAxisViewport(fid, function (cfg, mesh) {
+          if (mesh && mesh.axis_polar === true) {
+            var polarRange = polarRadialRange(cfg);
+            var polarFactor = Math.exp((dx - dy) * 0.004);
+            var polarCenter = (polarRange.min + polarRange.max) * 0.5;
+            var polarHalf = polarRange.span * polarFactor * 0.5;
+            applyPolarRadialRange(cfg, polarCenter - polarHalf, polarCenter + polarHalf);
+            return;
+          }
           unfreezeAxis2DBoxTickPlacement(cfg);
           var axis = drag.panMode && drag.panMode.kind === "axis" ? drag.panMode.axis : null;
           var factor = Math.exp((axis === "y" ? dy : dx) * 0.006);
@@ -5916,7 +6346,7 @@
         return;
       }
       e.stopPropagation();
-      var rect = body.getBoundingClientRect ? body.getBoundingClientRect() : { width: 1, height: 1 };
+      var rect = body.getBoundingClientRect ? body.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
       var w = Math.max(1, Number(rect.width) || 1);
       var h = Math.max(1, Number(rect.height) || 1);
       drag.__axis2DSnapshotIndex = 0;
@@ -5940,6 +6370,42 @@
           var snapIndex = Number(drag.__axis2DSnapshotIndex || 0);
           axis2DRestoreUnlockedRange(cfg, drag.rangeSnapshots[snapIndex], activeAxis);
           drag.__axis2DSnapshotIndex = snapIndex + 1;
+        }
+        if (mesh && mesh.axis_polar === true) {
+          var metrics = axis2DPolarMetrics(mesh, w, h);
+          if (metrics) {
+            var rectLeft = Number(rect.left) || 0;
+            var rectTop = Number(rect.top) || 0;
+            var curPx = (Number(drag.x) || 0) - rectLeft;
+            var curPy = (Number(drag.y) || 0) - rectTop;
+            var prevPx = curPx - dx;
+            var prevPy = curPy - dy;
+            var prevDx = prevPx - metrics.cx;
+            var prevDy = metrics.cy - prevPy;
+            var curDx = curPx - metrics.cx;
+            var curDy = metrics.cy - curPy;
+            var prevA = Math.atan2(prevDy, prevDx);
+            var curA = Math.atan2(curDy, curDx);
+            var prevRpx = Math.sqrt(prevDx * prevDx + prevDy * prevDy);
+            var curRpx = Math.sqrt(curDx * curDx + curDy * curDy);
+            var dTheta = curA - prevA;
+            while (dTheta > Math.PI) { dTheta -= Math.PI * 2; }
+            while (dTheta < -Math.PI) { dTheta += Math.PI * 2; }
+            var tangentialPx = Math.abs(dTheta) * Math.max(1, (prevRpx + curRpx) * 0.5);
+            var radialPx = curRpx - prevRpx;
+            if (!drag.polarPanMode && drag.sampleCount >= axisGestureSampleCount(cfg)) {
+              drag.polarPanMode = Math.abs(radialPx) > tangentialPx * 1.15 ? "radial" : "theta";
+            }
+            if (drag.polarPanMode === "radial") {
+              var polarRange = polarRadialRange(cfg);
+              var unitsPerPxR = polarRange.span / Math.max(1, metrics.radius);
+              var dr = -radialPx * unitsPerPxR;
+              applyPolarRadialRange(cfg, polarRange.min + dr, polarRange.max + dr);
+            } else if (Number.isFinite(dTheta)) {
+              setPolarThetaOffset(cfg, polarThetaOffset(cfg) + dTheta);
+            }
+          }
+          return;
         }
         if (mesh && mesh.axis_box === true && drag.action !== "rotate") {
           unfreezeAxis2DBoxTickPlacement(cfg);
@@ -6808,6 +7274,10 @@
       try { cancelAnimationFrame(rec.simple2DResizeRaf); } catch (_) {}
       rec.simple2DResizeRaf = 0;
     }
+    if (rec.simple2DLiveResizeHandler) {
+      try { global.removeEventListener("vf-frame-live-resize", rec.simple2DLiveResizeHandler); } catch (_) {}
+      rec.simple2DLiveResizeHandler = null;
+    }
   }
 
   function tickDistanceBand(tickDist, minTickDist, maxTickDist) {
@@ -6973,6 +7443,10 @@
     return Math.round(v / s) * s;
   }
 
+  function formatPlainAxisTickLabel(value) {
+    return String(value).replace(/^-/, "−");
+  }
+
   function formatAxisTickLabel(value, step) {
     var v = Number(value) || 0;
     var decimals = decimalPlacesForStep(step);
@@ -6986,12 +7460,12 @@
     }
     if (decimals !== null) {
       if (decimals === 0 || Math.abs(v - Math.round(v)) < 1e-12) {
-        return "$" + String(Math.round(v)) + "$";
+        return formatPlainAxisTickLabel(Math.round(v));
       }
-      return "$" + Number(v.toFixed(decimals)).toFixed(decimals).replace(/\.?0+$/, "") + "$";
+      return formatPlainAxisTickLabel(Number(v.toFixed(decimals)).toFixed(decimals).replace(/\.?0+$/, ""));
     }
-    if (Math.abs(v - Math.round(v)) < 1e-12) { return "$" + String(Math.round(v)) + "$"; }
-    return "$" + String(Number(v.toPrecision(6))) + "$";
+    if (Math.abs(v - Math.round(v)) < 1e-12) { return formatPlainAxisTickLabel(Math.round(v)); }
+    return formatPlainAxisTickLabel(Number(v.toPrecision(6)));
   }
 
   function formatScientificBody(value) {
@@ -7066,7 +7540,7 @@
     }
     var av = Math.abs(v);
     if (av >= 0.01 && av < 1e4) {
-      return "$" + (v < 0 ? "-" : "") + String(Number(av.toPrecision(6))) + "$";
+      return formatPlainAxisTickLabel((v < 0 ? "-" : "") + String(Number(av.toPrecision(6))));
     }
     return "$" + formatScientificBody(v) + "$";
   }
@@ -7746,6 +8220,10 @@
     function drawAxisTicks(mesh) {
       var cfg = mesh.axis_ticks || null;
       if (!cfg || cfg.enabled === false) { return; }
+      if (mesh.axis_polar === true) {
+        drawAxisPolarTicks(mesh);
+        return;
+      }
       if (mesh.axis_box === true) {
         drawAxisBoxTicks(mesh);
         return;
@@ -7828,6 +8306,10 @@
     function drawAxisGrid(mesh, baseColor) {
       var cfg = mesh.axis_ticks || null;
       if (!cfg || cfg.enabled === false || cfg.grid !== true) { return; }
+      if (mesh.axis_polar === true) {
+        drawAxisPolarGrid(mesh);
+        return;
+      }
       if (mesh.axis_box === true) {
         drawAxisBoxGrid(mesh);
         return;
@@ -7899,6 +8381,131 @@
       ctx.restore();
     }
 
+    function axisPolarMetrics(mesh) {
+      return axis2DPolarMetrics(mesh, w, h);
+    }
+
+    function axisPolarRadiusPx(metrics, rValue) {
+      if (!metrics) { return 0; }
+      var ratio = (Number(rValue) - metrics.rMin) / Math.max(1e-9, metrics.rSpan);
+      return Math.max(0, Math.min(metrics.radius, ratio * metrics.radius));
+    }
+
+    function axisPolarRadialTickValues(cfg, metrics, includeOuter) {
+      return axis2DPolarRadialTickValues(cfg, metrics, includeOuter);
+    }
+
+    function axisPolarCardinalAngles(cfg) {
+      var theta = polarThetaOffset(cfg);
+      return [theta, theta + Math.PI * 0.5, theta + Math.PI, theta + Math.PI * 1.5];
+    }
+
+    function axisPolarClip(ctx, metrics) {
+      if (!ctx || !metrics) { return; }
+      ctx.beginPath();
+      ctx.arc(metrics.cx, metrics.cy, metrics.radius, 0, Math.PI * 2);
+      ctx.clip();
+    }
+
+    function axis2DPolarPlotPointPx(mesh, controller, index) {
+      var meta = mesh && mesh.axis_plot2d || null;
+      var xs = meta && Array.isArray(meta.x_values) ? meta.x_values : null;
+      var ys = meta && Array.isArray(meta.y_values) ? meta.y_values : null;
+      var ix = Number(index) || 0;
+      if (!xs || !ys || ix < 0 || ix >= xs.length || ix >= ys.length) { return null; }
+      var xVal = Number(xs[ix]);
+      var yVal = Number(ys[ix]);
+      if (!Number.isFinite(xVal) || !Number.isFinite(yVal)) { return null; }
+      var metrics = axisPolarMetrics(controller);
+      if (!metrics) { return null; }
+      var r = Math.sqrt(xVal * xVal + yVal * yVal);
+      if (r < metrics.rMin || r > metrics.rMax) { return null; }
+      var rp = ((r - metrics.rMin) / Math.max(1e-9, metrics.rSpan)) * metrics.radius;
+      var scale = r > 1e-12 ? rp / r : 0;
+      var theta = polarThetaOffset(controller && controller.axis_ticks || null);
+      var cosT = Math.cos(theta);
+      var sinT = Math.sin(theta);
+      var rx = xVal * cosT - yVal * sinT;
+      var ry = xVal * sinT + yVal * cosT;
+      return [
+        metrics.cx + rx * scale,
+        metrics.cy - ry * scale
+      ];
+    }
+
+    function drawAxisPolarGrid(mesh) {
+      var cfg = mesh.axis_ticks || null;
+      var metrics = axisPolarMetrics(mesh);
+      if (!cfg || !metrics) { return; }
+      var spokes = Math.max(1, Math.min(180, Math.floor(Number(cfg.spokes) || 12)));
+      var radialTicks = axisPolarRadialTickValues(cfg, metrics, true);
+      var thetaOffset = polarThetaOffset(cfg);
+      var alpha = Math.max(0, Math.min(1, Number(cfg.grid_alpha) || 0.18));
+      var gridColor = parseRuntimeColor(cfg.grid_color || mesh.color || "white");
+      ctx.save();
+      axisPolarClip(ctx, metrics);
+      ctx.strokeStyle = "rgba(" +
+        Math.round(gridColor[0] * 255) + "," +
+        Math.round(gridColor[1] * 255) + "," +
+        Math.round(gridColor[2] * 255) + "," +
+        Math.max(0, Math.min(1, gridColor[3] * alpha)) + ")";
+      ctx.lineWidth = Math.max(0.5, Number(cfg.grid_width) || 1);
+      ctx.beginPath();
+      for (var ri = 0; ri < radialTicks.length; ri += 1) {
+        var rp = axisPolarRadiusPx(metrics, radialTicks[ri]);
+        ctx.moveTo(metrics.cx + rp, metrics.cy);
+        ctx.arc(metrics.cx, metrics.cy, rp, 0, Math.PI * 2);
+      }
+      for (var si = 0; si < spokes; si += 1) {
+        var a = thetaOffset + (Math.PI * 2 * si) / spokes;
+        ctx.moveTo(metrics.cx, metrics.cy);
+        ctx.lineTo(metrics.cx + Math.cos(a) * metrics.radius, metrics.cy - Math.sin(a) * metrics.radius);
+      }
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawAxisPolarTicks(mesh) {
+      var cfg = mesh.axis_ticks || null;
+      var metrics = axisPolarMetrics(mesh);
+      if (!cfg || !metrics) { return; }
+      var radialTicks = axisPolarRadialTickValues(cfg, metrics, false);
+      var cardinalAngles = axisPolarCardinalAngles(cfg);
+      var spokes = Math.max(1, Math.min(180, Math.floor(Number(cfg.spokes) || 12)));
+      var thetaOffset = polarThetaOffset(cfg);
+      var color = parseRuntimeColor(mesh.color || "white");
+      var tickLen = metrics.tickLen;
+      ctx.save();
+      ctx.strokeStyle = "rgba(" +
+        Math.round(color[0] * 255) + "," +
+        Math.round(color[1] * 255) + "," +
+        Math.round(color[2] * 255) + "," +
+        Math.max(0, Math.min(1, color[3])) + ")";
+      ctx.lineWidth = Math.max(0.5, Number(mesh.edge_width || 1));
+      ctx.beginPath();
+      for (var si = 0; si < spokes; si += 1) {
+        var spokeA = thetaOffset + (Math.PI * 2 * si) / spokes;
+        ctx.moveTo(metrics.cx + Math.cos(spokeA) * metrics.radius, metrics.cy - Math.sin(spokeA) * metrics.radius);
+        ctx.lineTo(metrics.cx + Math.cos(spokeA) * (metrics.radius + tickLen), metrics.cy - Math.sin(spokeA) * (metrics.radius + tickLen));
+      }
+      for (var ri = 0; ri < radialTicks.length; ri += 1) {
+        var rp = axisPolarRadiusPx(metrics, radialTicks[ri]);
+        for (var ai = 0; ai < cardinalAngles.length; ai += 1) {
+          var a = cardinalAngles[ai];
+          var px = metrics.cx + Math.cos(a) * rp;
+          var py = metrics.cy - Math.sin(a) * rp;
+          var nx = Math.sin(a);
+          var ny = Math.cos(a);
+          ctx.moveTo(px - nx * tickLen * 0.5, py - ny * tickLen * 0.5);
+          ctx.lineTo(px + nx * tickLen * 0.5, py + ny * tickLen * 0.5);
+        }
+      }
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
     function drawAxisBoxFrame(mesh) {
       if (mesh.axis_box !== true) { return false; }
       var box = axisBoxRect(mesh, w, h);
@@ -7907,6 +8514,40 @@
       ctx.lineTo(box.right, box.top);
       ctx.lineTo(box.left, box.top);
       ctx.lineTo(box.left, box.bottom);
+      return true;
+    }
+
+    function drawAxisPolarFrame(mesh) {
+      if (mesh.axis_polar !== true) { return false; }
+      var metrics = axisPolarMetrics(mesh);
+      if (!metrics) { return false; }
+      var cfg = mesh.axis_ticks || null;
+      var rimWidth = Math.max(
+        2.5,
+        Number(mesh.edge_width || 1) * 2,
+        Number(cfg && cfg.frame_width) || 0,
+        Number(cfg && cfg.rim_width) || 0
+      );
+      ctx.save();
+      ctx.lineWidth = rimWidth;
+      ctx.beginPath();
+      ctx.moveTo(metrics.cx + metrics.radius, metrics.cy);
+      ctx.arc(metrics.cx, metrics.cy, metrics.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.beginPath();
+      if (!cfg || cfg.grid !== true) {
+        var thetaOffset = polarThetaOffset(cfg);
+        var ca = Math.cos(thetaOffset);
+        var sa = Math.sin(thetaOffset);
+        var cb = Math.cos(thetaOffset + Math.PI * 0.5);
+        var sb = Math.sin(thetaOffset + Math.PI * 0.5);
+        ctx.moveTo(metrics.cx - ca * metrics.radius, metrics.cy + sa * metrics.radius);
+        ctx.lineTo(metrics.cx + ca * metrics.radius, metrics.cy - sa * metrics.radius);
+        ctx.moveTo(metrics.cx - cb * metrics.radius, metrics.cy + sb * metrics.radius);
+        ctx.lineTo(metrics.cx + cb * metrics.radius, metrics.cy - sb * metrics.radius);
+      }
       return true;
     }
 
@@ -7944,6 +8585,14 @@
       ctx.lineCap = "butt";
       ctx.lineJoin = "miter";
       applyAxis2DRotationTransform(ctx, drawController, drawCfg, w, h);
+      if (boundController && drawController && drawController.axis_polar === true) {
+        var clipPolar = axisPolarMetrics(drawController);
+        if (clipPolar) {
+          ctx.beginPath();
+          ctx.arc(clipPolar.cx, clipPolar.cy, clipPolar.radius, 0, Math.PI * 2);
+          ctx.clip();
+        }
+      }
       if (boundController && drawController && drawController.axis_box === true) {
         var clipBox = axisBoxRect(drawController, w, h);
         ctx.beginPath();
@@ -7954,12 +8603,20 @@
         drawAxisGrid(mesh, color);
       }
       ctx.beginPath();
-      if (!(mesh.axis_box === true && drawAxisBoxFrame(mesh)) && !(mesh.axis_full_frame === true && drawAxisFullFrameLines(mesh))) {
+      if (!(mesh.axis_polar === true && drawAxisPolarFrame(mesh)) && !(mesh.axis_box === true && drawAxisBoxFrame(mesh)) && !(mesh.axis_full_frame === true && drawAxisFullFrameLines(mesh))) {
         for (var i = 0; i + 1 < mesh.indices.length; i += 2) {
           var ia = Number(mesh.indices[i]) || 0;
           var ib = Number(mesh.indices[i + 1]) || 0;
-          var a = boundController ? axis2DPlotPointPx(mesh, boundController, drawCfg, w, h, ia) : null;
-          var b = boundController ? axis2DPlotPointPx(mesh, boundController, drawCfg, w, h, ib) : null;
+          var a = boundController
+            ? (drawController && drawController.axis_polar === true
+              ? axis2DPolarPlotPointPx(mesh, drawController, ia)
+              : axis2DPlotPointPx(mesh, boundController, drawCfg, w, h, ia))
+            : null;
+          var b = boundController
+            ? (drawController && drawController.axis_polar === true
+              ? axis2DPolarPlotPointPx(mesh, drawController, ib)
+              : axis2DPlotPointPx(mesh, boundController, drawCfg, w, h, ib))
+            : null;
           if (!a || !b) {
             var ao = ia * 10;
             var bo = ib * 10;
@@ -7993,6 +8650,20 @@
     var doc = frameEl && frameEl.ownerDocument || document;
     var root = doc && doc.body ? doc.body : geomFrameHost(frameEl, fid);
     if (!root) { return null; }
+    if (doc && doc.head && !doc.getElementById("vf-geom-text-overlay-style")) {
+      var style = doc.createElement("style");
+      style.id = "vf-geom-text-overlay-style";
+      style.textContent = [
+        ".vf-geom-text-overlay .katex .katex-mathml{",
+        "position:absolute!important;clip:rect(1px,1px,1px,1px)!important;",
+        "padding:0!important;border:0!important;height:1px!important;width:1px!important;",
+        "overflow:hidden!important;",
+        "}",
+        ".vf-geom-text-overlay .katex .katex-html{display:inline-block!important;}",
+        ".vf-geom-text-overlay__item{contain:layout style;}"
+      ].join("");
+      doc.head.appendChild(style);
+    }
     var layer = null;
     var existing = root.querySelectorAll ? root.querySelectorAll(".vf-geom-text-overlay") : [];
     for (var li = 0; li < existing.length; li += 1) {
@@ -8009,6 +8680,7 @@
       layer.style.zIndex = "2147483000";
       layer.style.pointerEvents = "none";
       layer.style.overflow = "hidden";
+      layer.style.visibility = "hidden";
       root.appendChild(layer);
     }
     if (!layer.__vfGeomTextContent) {
@@ -8062,6 +8734,10 @@
     if (rec.w !== w || rec.h !== h) {
       rec.w = w;
       rec.h = h;
+      var frameRec = frameRecs[String(fid)] || null;
+      if (frameRec && frameRec.simple2DMeshes) {
+        drawSimple2DMarkerLineMeshes(fid, frameRec.simple2DFrameEl || rec.frameEl, frameRec.simple2DMeshes);
+      }
       renderGeomTextOverlay(fid, rec.frameEl, rec.geomSpec);
     }
   }
@@ -8850,7 +9526,7 @@
             var align = String(cfg[alignKey] || "negative").toLowerCase();
             var side = align === "positive" ? 1 : align === "center" || align === "centre" ? 0 : -1;
             if (side === 0) { side = -1; }
-            side = axis3DProjectedAxisSideSign(projectedSnapState, axisIndex, side);
+            side = axis3DProjectedAxisSideSign(projectedSnapState, axisInfos, axisIndex, side);
             var normalDx = -info.uy * side * labelAxisPad;
             var normalDy = info.ux * side * labelAxisPad;
             var boundaryInfo = axis2DBoundaryAnchorInfo(axisBoundaryPoint[0], axisBoundaryPoint[1], p0[0], p0[1], labelFramePad, w, h);
@@ -8929,7 +9605,7 @@
             var alignKey = ti === 0 ? "x_tick_alignment" : ti === 1 ? "y_tick_alignment" : "z_tick_alignment";
             var align = String(cfg[alignKey] || "negative").toLowerCase();
             var side = align === "positive" ? 1 : align === "center" || align === "centre" ? 0 : -1;
-            side = axis3DProjectedAxisSideSign(projectedSnapState, ti, side);
+            side = axis3DProjectedAxisSideSign(projectedSnapState, axisInfos, ti, side);
             for (var vi = 0; vi < tickValues.length; vi += 1) {
               var rawTick = tickValues[vi];
               var coord = rawTick && typeof rawTick === "object" ? Number(rawTick.coord) : Number(rawTick);
@@ -9011,6 +9687,7 @@
     el.innerHTML = "";
     var s = raw != null ? String(raw) : "";
     if (!s) { return; }
+    el.style.fontStyle = "";
     var katex = typeof global !== "undefined" ? global.katex : null;
     if (!katex || s.indexOf("$") < 0) {
       el.textContent = s;
@@ -9128,9 +9805,72 @@
     return [((x + 1.0) * 0.5) * w, (1.0 - ((y + 1.0) * 0.5)) * h];
   }
 
+  function axisMathText(text) {
+    var raw = text != null ? String(text) : "";
+    if (!raw || raw.indexOf("$") >= 0) { return raw; }
+    return "$" + raw.replace(/\u2212/g, "-") + "$";
+  }
+
+  function collectAxisPolarLabelSpecs(mesh, w, h) {
+    var cfg = mesh && mesh.axis_ticks || null;
+    if (!cfg || cfg.enabled === false) { return []; }
+    var metrics = axis2DPolarMetrics(mesh, w, h);
+    if (!metrics) { return []; }
+    var out = [];
+    var fontSize = Math.max(8, Number(cfg.tick_label_font_size) || 11);
+    var tickLen = metrics.tickLen;
+    var labelColor = mesh.color || cfg.color || "white";
+    var thetaOffset = polarThetaOffset(cfg);
+    var cardinalAngles = [thetaOffset, thetaOffset + Math.PI * 0.5, thetaOffset + Math.PI, thetaOffset + Math.PI * 1.5];
+    var radialTicks = axis2DPolarRadialTickValues(cfg, metrics, false);
+    for (var ri = 0; ri < radialTicks.length; ri += 1) {
+      var rv = radialTicks[ri];
+      var rp = ((rv - metrics.rMin) / Math.max(1e-9, metrics.rSpan)) * metrics.radius;
+      for (var ai = 0; ai < cardinalAngles.length; ai += 1) {
+        var a = cardinalAngles[ai];
+        var px = metrics.cx + Math.cos(a) * rp;
+        var py = metrics.cy - Math.sin(a) * rp;
+        var nx = Math.sin(a);
+        var ny = Math.cos(a);
+        var side = (ai === 0 || ai === 1) ? 1 : -1;
+        out.push({
+          pixel: true,
+          x: px + nx * side * (tickLen + 5),
+          y: py + ny * side * (tickLen + 5),
+          text: axisMathText(formatAxisTickLabel(rv)),
+          font_size: fontSize,
+          ha: "center",
+          va: "center",
+          color: labelColor
+        });
+      }
+    }
+    if (cfg.grid === true) {
+      var labelStep = Math.max(1, Number(cfg.theta_label_step_deg) || 30);
+      var labelCount = Math.max(1, Math.floor(360 / labelStep));
+      var angleRadius = metrics.radius + tickLen + fontSize * 0.8;
+      for (var li = 0; li < labelCount; li += 1) {
+        var deg = li * labelStep;
+        var la = thetaOffset + deg * Math.PI / 180;
+        out.push({
+          pixel: true,
+          x: metrics.cx + Math.cos(la) * angleRadius,
+          y: metrics.cy - Math.sin(la) * angleRadius,
+          text: "$" + String(Math.round(deg)) + "^\\circ$",
+          font_size: fontSize,
+          ha: "center",
+          va: "center",
+          color: labelColor
+        });
+      }
+    }
+    return out;
+  }
+
   function collectAxisTickLabelSpecs(mesh, w, h) {
     var cfg = mesh && mesh.axis_ticks || null;
     if (!cfg || cfg.enabled === false) { return []; }
+    if (mesh.axis_polar === true) { return collectAxisPolarLabelSpecs(mesh, w, h); }
     if (mesh.axis_box === true) {
       return collectAxisBoxLabelSpecs(mesh, w, h);
     }
@@ -9435,6 +10175,7 @@
       var used = 0;
       var firstPos = null;
       var keepAllAxis3DLabels = !!(geomSpec && geomSpec.axis3d_controls === true);
+      var seen2DTextItems = Object.create(null);
       for (var i = 0; i < items.length; i += 1) {
         var item = items[i] || {};
         var edgeInfo = item && item.world === true && item.edge_anchor === true
@@ -9443,6 +10184,15 @@
         var p = edgeInfo ? edgeInfo.point : geomTextToPx(item, w, h, geomSpec && geomSpec.camera || null);
         if (!p) { continue; }
         if (!keepAllAxis3DLabels && !textPointIsNearViewport(p, w, h, 112)) { continue; }
+        var textValue = item.text != null ? String(item.text) : "";
+        var rotation = Number(item.rotate) || 0;
+        var ha = String(item.ha || "center").toLowerCase();
+        var va = String(item.va || "center").toLowerCase();
+        if (!keepAllAxis3DLabels) {
+          var dedupeKey = textValue + "\x1f" + String(Math.round(p[0] / 2)) + "\x1f" + String(Math.round(p[1] / 2)) + "\x1f" + ha + "\x1f" + va + "\x1f" + String(Math.round(rotation));
+          if (seen2DTextItems[dedupeKey]) { continue; }
+          seen2DTextItems[dedupeKey] = true;
+        }
         if (!firstPos) { firstPos = p.slice ? p.slice(0, 2) : p; }
         var color = parseRuntimeColor(item.color || "white");
         var el = pool[used];
@@ -9466,9 +10216,6 @@
         }
         el.style.color = "rgba(" + Math.round(color[0] * 255) + "," + Math.round(color[1] * 255) + "," + Math.round(color[2] * 255) + "," + Math.max(0, Math.min(1, color[3])) + ")";
         el.style.fontSize = String(Math.max(1, Number(item.font_size) || 12)) + "px";
-        var rotation = Number(item.rotate) || 0;
-        var ha = String(item.ha || "center").toLowerCase();
-        var va = String(item.va || "center").toLowerCase();
         if (edgeInfo && geomSpec && geomSpec.axis3d_controls === true) {
           if (edgeInfo.side === "left") {
             ha = "left";
@@ -9489,7 +10236,6 @@
           "," +
           (va === "top" ? "0" : va === "bottom" ? "-100%" : "-50%") +
           ")" + (rotation ? " rotate(" + String(rotation) + "deg)" : "");
-        var textValue = item.text != null ? String(item.text) : "";
         if (el.dataset.vfGeomTextValue !== textValue) {
           renderMathText(el, textValue);
           el.dataset.vfGeomTextValue = textValue;
@@ -9498,6 +10244,7 @@
       for (var pi = used; pi < pool.length; pi += 1) {
         if (pool[pi]) { pool[pi].style.display = "none"; }
       }
+      layer.style.visibility = used > 0 ? "visible" : "hidden";
       updateAxis3DBoundaryLabels(fid);
     } catch (err) {
       vlog("error", "renderGeomTextOverlay [" + fid + "] failed: " + (err && err.stack ? err.stack : err && err.message ? err.message : String(err)));
@@ -9516,6 +10263,13 @@
       return false;
     }
     renderGeomTextOverlay(fid, frameEl, geomSpec);
+    rec.simple2DLiveResizeHandler = function (evt) {
+      var detail = evt && evt.detail || {};
+      if (String(detail.frameId || "") !== String(geomTargetFrameId(fid))) { return; }
+      drawSimple2DMarkerLineMeshes(fid, rec.simple2DFrameEl || frameEl, rec.simple2DMeshes || specs);
+      renderGeomTextOverlay(fid, rec.simple2DFrameEl || frameEl, rec.simple2DGeomSpec || geomSpec);
+    };
+    try { global.addEventListener("vf-frame-live-resize", rec.simple2DLiveResizeHandler); } catch (_) {}
     if (typeof ResizeObserver === "function") {
       var host = geomFrameHost(frameEl, fid) || frameEl;
       rec.simple2DResizeObserver = new ResizeObserver(function () {
@@ -9674,15 +10428,11 @@
               if (typeof ResizeObserver === "function") {
                 var host = cv.parentElement || cv;
                 entry.resizeObserver = new ResizeObserver(function () {
-                  if (entry.resizeRaf) { return; }
-                  entry.resizeRaf = requestAnimationFrame(function () {
-                    entry.resizeRaf = 0;
-                    layoutGeomCanvas(frameEl, cv, fid);
-                    syncCanvasSize(cv);
-                    if (r && typeof r.onResize === "function") {
-                      r.onResize();
-                    }
-                  });
+                  layoutGeomCanvas(frameEl, cv, fid);
+                  syncCanvasSize(cv);
+                  if (r && typeof r.onResize === "function") {
+                    r.onResize();
+                  }
                 });
                 entry.resizeObserver.observe(host);
               }
@@ -9922,7 +10672,7 @@
       return;
     }
 
-    var canvas = ensureGeomCanvas(frameEl, 0);
+    var canvas = ensureGeomCanvas(frameEl, 0, fid);
     if (!canvas) {
       throw new Error("mountDynamicGeomFrame(" + String(fid) + "): could not create geom canvas");
     }
@@ -9960,22 +10710,34 @@
       if (typeof ResizeObserver === "function") {
         var host = canvas.parentElement || canvas;
         entry.resizeObserver = new ResizeObserver(function () {
-          if (entry.resizeRaf) { return; }
-          entry.resizeRaf = requestAnimationFrame(function () {
-            entry.resizeRaf = 0;
-            syncCanvasSize(canvas);
-            if (rec.dynamicAdapter) {
-              rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
-            }
-            if (r && typeof r.onResize === "function") {
-              r.onResize();
-            }
-          });
+          syncCanvasSize(canvas);
+          if (rec.dynamicAdapter) {
+            rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
+          }
+          if (r && typeof r.onResize === "function") {
+            r.onResize();
+          }
         });
         entry.resizeObserver.observe(host);
         if (rec.dynamicAdapter) {
           rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
         }
+      }
+      if (!entry.liveResizeAttached && global.addEventListener) {
+        entry.liveResizeAttached = true;
+        global.addEventListener("vf-frame-live-resize", function (ev) {
+          var detail = ev && ev.detail ? ev.detail : {};
+          var liveFrameId = String(detail.frameId || detail.id || "");
+          if (liveFrameId !== String(geomTargetFrameId(fid)) && liveFrameId !== String(fid)) { return; }
+          syncCanvasSize(canvas);
+          if (rec.dynamicAdapter) {
+            var liveHost = canvas.parentElement || canvas;
+            rec.dynamicAdapter.onHostResize(liveHost.clientWidth || 0, liveHost.clientHeight || 0);
+          }
+          if (r && typeof r.onResize === "function") {
+            r.onResize();
+          }
+        }, true);
       }
       ensureGeomFrameEvents(fid);
       schedulePostGeomLayout();
@@ -10313,7 +11075,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     global.__vfGeomFrameIds[String(fid)] = true;
     disableFrameCanvasEvents(fid);
     var rec = frameRecs[fid];
-    var canvas = ensureGeomCanvas(frameEl, 0);
+    var canvas = ensureGeomCanvas(frameEl, 0, fid);
     if (!canvas) {
       throw new Error("mountLinkedMirrorTextureFrame(" + String(fid) + "): could not create canvas");
     }
@@ -10531,11 +11293,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     if (typeof ResizeObserver === "function") {
       var host = canvas.parentElement || canvas;
       entry.resizeObserver = new ResizeObserver(function () {
-        if (entry.resizeRaf) { return; }
-        entry.resizeRaf = requestAnimationFrame(function () {
-          entry.resizeRaf = 0;
-          syncCanvasSize(canvas);
-        });
+        syncCanvasSize(canvas);
       });
       entry.resizeObserver.observe(host);
     }
@@ -10616,7 +11374,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
       return;
     }
 
-    var canvas = ensureGeomCanvas(frameEl, 0);
+    var canvas = ensureGeomCanvas(frameEl, 0, fid);
     if (!canvas) {
       throw new Error("mountLedgerGeomFrame(" + String(fid) + "): could not create geom canvas");
     }
@@ -10653,17 +11411,13 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
       if (typeof ResizeObserver === "function") {
         var host = canvas.parentElement || canvas;
         entry.resizeObserver = new ResizeObserver(function () {
-          if (entry.resizeRaf) { return; }
-          entry.resizeRaf = requestAnimationFrame(function () {
-            entry.resizeRaf = 0;
-            syncCanvasSize(canvas);
-            if (rec.dynamicAdapter) {
-              rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
-            }
-            if (r && typeof r.onResize === "function") {
-              r.onResize();
-            }
-          });
+          syncCanvasSize(canvas);
+          if (rec.dynamicAdapter) {
+            rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
+          }
+          if (r && typeof r.onResize === "function") {
+            r.onResize();
+          }
         });
         entry.resizeObserver.observe(host);
         if (rec.dynamicAdapter) {

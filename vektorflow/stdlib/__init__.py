@@ -27,6 +27,7 @@ STDLIB_MODULES: dict[str, StdlibFactory] = {
     "io": iolib.build_io_namespace,
     "collections": collectionslib.build_collections_namespace,
     "stat": statlib.build_stat_namespace,
+    "symbolic": lambda: {},
     "time": timelib.build_time_namespace,
     "ui": uilib.build_ui_namespace,
 }

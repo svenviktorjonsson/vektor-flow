@@ -1,7 +1,7 @@
-Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
-VisualPiece : (side:str, role:str, asset:str, x:num, y:num, z:num, captured:bool, tray_slot:num)
-MoveRights : (king_moved:bool, queenside_rook_moved:bool, kingside_rook_moved:bool)
-MoveContext : (path_clear:bool, king_safe_after:bool, castle_path_safe:bool, en_passant_file:num, en_passant_rank:num, promotion_role:str)
+Piece : (side:str, role:str, file:num, rank:num, captured:bit, tray_rank:num)
+VisualPiece : (side:str, role:str, asset:str, x:num, y:num, z:num, captured:bit, tray_slot:num)
+MoveRights : (king_moved:bit, queenside_rook_moved:bit, kingside_rook_moved:bit)
+MoveContext : (path_clear:bit, king_safe_after:bit, castle_path_safe:bit, en_passant_file:num, en_passant_rank:num, promotion_role:str)
 
 file_name(file:num) -> str:
     file = 1? @: "a"
@@ -35,13 +35,13 @@ abs_num(value:num) -> num:
     value < 0? @: 0 - value
     @: value
 
-same_square(piece:Piece, file:num, rank:num) -> bool:
+same_square(piece:Piece, file:num, rank:num) -> bit:
     piece.captured? @: false
     piece.file = file?
         piece.rank = rank? @: true
     @: false
 
-is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bit:
     piece.side = "white"?
         to_file = piece.file?
             to_rank = piece.rank + 1? @: true
@@ -50,7 +50,7 @@ is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
         to_rank = piece.rank - 1? @: true
     @: false
 
-is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bit:
     piece.side = "white"?
         piece.rank = 2?
             to_file = piece.file?
@@ -61,7 +61,7 @@ is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
             to_rank = 5? @: true
     @: false
 
-is_pawn_capture(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
+is_pawn_capture(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bit:
     target.captured? @: false
     target.side = piece.side? @: false
     piece.side = "white"?
@@ -74,45 +74,45 @@ is_pawn_capture(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
             same_square(target, to_file, to_rank)? @: true
     @: false
 
-can_pawn_move(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
+can_pawn_move(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bit:
     is_pawn_capture(piece, target, to_file, to_rank)? @: true
     same_square(target, to_file, to_rank)? @: false
     is_forward_pawn_move(piece, to_file, to_rank)? @: true
     @: is_double_pawn_move(piece, to_file, to_rank)
 
-is_empty_square(target:Piece, to_file:num, to_rank:num) -> bool:
+is_empty_square(target:Piece, to_file:num, to_rank:num) -> bit:
     same_square(target, to_file, to_rank)? @: false
     @: true
 
-is_same_destination(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_same_destination(piece:Piece, to_file:num, to_rank:num) -> bit:
     piece.file = to_file?
         piece.rank = to_rank? @: true
     @: false
 
-is_rook_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_rook_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     is_same_destination(piece, to_file, to_rank)? @: false
     piece.file = to_file? @: true
     piece.rank = to_rank? @: true
     @: false
 
-is_bishop_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_bishop_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     is_same_destination(piece, to_file, to_rank)? @: false
     @: abs_num(to_file - piece.file) = abs_num(to_rank - piece.rank)
 
-is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     abs_num(to_file - piece.file) = 1?
         abs_num(to_rank - piece.rank) = 2? @: true
     abs_num(to_file - piece.file) = 2?
         abs_num(to_rank - piece.rank) = 1? @: true
     @: false
 
-is_king_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_king_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     is_same_destination(piece, to_file, to_rank)? @: false
     abs_num(to_file - piece.file) > 1? @: false
     abs_num(to_rank - piece.rank) > 1? @: false
     @: true
 
-piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bit:
     piece.role = "rook"? @: is_rook_shape(piece, to_file, to_rank)
     piece.role = "bishop"? @: is_bishop_shape(piece, to_file, to_rank)
     piece.role = "knight"? @: is_knight_shape(piece, to_file, to_rank)
@@ -122,19 +122,19 @@ piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bool:
         @: is_bishop_shape(piece, to_file, to_rank)
     @: false
 
-can_piece_move(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bool:
+can_piece_move(piece:Piece, target:Piece, to_file:num, to_rank:num) -> bit:
     piece.role = "pawn"? @: can_pawn_move(piece, target, to_file, to_rank)
     target.side = piece.side?
         same_square(target, to_file, to_rank)? @: false
     @: piece_shape_move(piece, to_file, to_rank)
 
-is_slider(piece:Piece) -> bool:
+is_slider(piece:Piece) -> bit:
     piece.role = "rook"? @: true
     piece.role = "bishop"? @: true
     piece.role = "queen"? @: true
     @: false
 
-can_piece_move_with_path(piece:Piece, target:Piece, to_file:num, to_rank:num, path_clear:bool) -> bool:
+can_piece_move_with_path(piece:Piece, target:Piece, to_file:num, to_rank:num, path_clear:bit) -> bit:
     can_piece_move(piece, target, to_file, to_rank)? 
         is_slider(piece)?
             path_clear? @: true
@@ -142,7 +142,7 @@ can_piece_move_with_path(piece:Piece, target:Piece, to_file:num, to_rank:num, pa
         @: true
     @: false
 
-is_promotion_rank(piece:Piece, to_rank:num) -> bool:
+is_promotion_rank(piece:Piece, to_rank:num) -> bit:
     piece.role = "pawn"?
         piece.side = "white"?
             to_rank = 8? @: true
@@ -150,7 +150,7 @@ is_promotion_rank(piece:Piece, to_rank:num) -> bool:
         to_rank = 1? @: true
     @: false
 
-is_promotion_role(role:str) -> bool:
+is_promotion_role(role:str) -> bit:
     role = "queen"? @: true
     role = "rook"? @: true
     role = "bishop"? @: true
@@ -162,14 +162,14 @@ promote_piece(piece:Piece, to_file:num, to_rank:num, role:str) -> Piece:
         is_promotion_role(role)? @: (side:piece.side, role:role, file:to_file, rank:to_rank, captured:false, tray_rank:piece.tray_rank)
     @: (side:piece.side, role:piece.role, file:to_file, rank:to_rank, captured:false, tray_rank:piece.tray_rank)
 
-is_en_passant_capture(piece:Piece, to_file:num, to_rank:num, en_passant_file:num, en_passant_rank:num) -> bool:
+is_en_passant_capture(piece:Piece, to_file:num, to_rank:num, en_passant_file:num, en_passant_rank:num) -> bit:
     piece.role = "pawn"?
         abs_num(to_file - piece.file) = 1?
             to_file = en_passant_file?
                 to_rank = en_passant_rank? @: true
     @: false
 
-can_castle_kingside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, path_clear:bool, path_safe:bool) -> bool:
+can_castle_kingside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, path_clear:bit, path_safe:bit) -> bit:
     piece.role = "king"?
         rights.king_moved? @: false
         rights.kingside_rook_moved? @: false
@@ -186,7 +186,7 @@ can_castle_kingside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, pa
                             to_rank = 8? @: true
     @: false
 
-can_castle_queenside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, path_clear:bool, path_safe:bool) -> bool:
+can_castle_queenside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, path_clear:bit, path_safe:bit) -> bit:
     piece.role = "king"?
         rights.king_moved? @: false
         rights.queenside_rook_moved? @: false
@@ -203,7 +203,7 @@ can_castle_queenside(piece:Piece, to_file:num, to_rank:num, rights:MoveRights, p
                             to_rank = 8? @: true
     @: false
 
-can_legal_move(piece:Piece, target:Piece, to_file:num, to_rank:num, rights:MoveRights, ctx:MoveContext) -> bool:
+can_legal_move(piece:Piece, target:Piece, to_file:num, to_rank:num, rights:MoveRights, ctx:MoveContext) -> bit:
     ctx.king_safe_after? 
         can_piece_move_with_path(piece, target, to_file, to_rank, ctx.path_clear)? @: true
         is_en_passant_capture(piece, to_file, to_rank, ctx.en_passant_file, ctx.en_passant_rank)? @: true

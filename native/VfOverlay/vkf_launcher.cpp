@@ -26,6 +26,8 @@ namespace fs = std::filesystem;
 namespace {
 
 std::string ReadFileBytes(const fs::path& path);
+const char kSceneBundleHeader[] = "VKF_SCENE_BUNDLE_V1\n";
+const char kSceneBundleFooter[] = "VKF_SCENE_BUNDLE_END_V1";
 
 std::wstring Quote(const std::wstring& value) {
     std::wstring out = L"\"";
@@ -419,6 +421,209 @@ std::string ReadFileBytes(const fs::path& path) {
     return out.str();
 }
 
+bool WriteFileBytesIfChanged(const fs::path& path, const std::string& bytes) {
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) {
+        return false;
+    }
+    if (fs::exists(path, ec) && ReadFileBytes(path) == bytes) {
+        fs::last_write_time(path, fs::file_time_type::clock::now(), ec);
+        return true;
+    }
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        return false;
+    }
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return static_cast<bool>(out);
+}
+
+void AppendU32(std::string& out, std::uint32_t value) {
+    out.push_back(static_cast<char>(value & 0xffu));
+    out.push_back(static_cast<char>((value >> 8u) & 0xffu));
+    out.push_back(static_cast<char>((value >> 16u) & 0xffu));
+    out.push_back(static_cast<char>((value >> 24u) & 0xffu));
+}
+
+void AppendU64(std::string& out, std::uint64_t value) {
+    for (int shift = 0; shift < 64; shift += 8) {
+        out.push_back(static_cast<char>((value >> shift) & 0xffu));
+    }
+}
+
+bool ReadU32(const std::string& bytes, size_t* pos, std::uint32_t* value) {
+    if (!pos || !value || *pos + 4 > bytes.size()) { return false; }
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(bytes.data() + *pos);
+    *value = static_cast<std::uint32_t>(p[0]) |
+             (static_cast<std::uint32_t>(p[1]) << 8u) |
+             (static_cast<std::uint32_t>(p[2]) << 16u) |
+             (static_cast<std::uint32_t>(p[3]) << 24u);
+    *pos += 4;
+    return true;
+}
+
+bool ReadU64(const std::string& bytes, size_t* pos, std::uint64_t* value) {
+    if (!pos || !value || *pos + 8 > bytes.size()) { return false; }
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(bytes.data() + *pos);
+    std::uint64_t out = 0;
+    for (int shift = 0; shift < 64; shift += 8) {
+        out |= static_cast<std::uint64_t>(p[shift / 8]) << shift;
+    }
+    *value = out;
+    *pos += 8;
+    return true;
+}
+
+bool SafeBundleRelativePath(const std::string& relUtf8, fs::path* out) {
+    if (relUtf8.empty() || relUtf8.find('\\') != std::string::npos || !out) {
+        return false;
+    }
+    fs::path result;
+    size_t start = 0;
+    while (start <= relUtf8.size()) {
+        const size_t slash = relUtf8.find('/', start);
+        const std::string part = relUtf8.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+        if (part.empty() || part == "." || part == ".." || part.find(':') != std::string::npos) {
+            return false;
+        }
+        const std::wstring wide = Utf8ToWide(part);
+        if (wide.empty()) {
+            return false;
+        }
+        result /= wide;
+        if (slash == std::string::npos) {
+            break;
+        }
+        start = slash + 1;
+    }
+    *out = result;
+    return true;
+}
+
+std::string AppendedSceneBundlePayload(const std::string& exeBytes) {
+    const std::string footerMagic(kSceneBundleFooter, sizeof(kSceneBundleFooter) - 1);
+    if (exeBytes.size() < footerMagic.size() + 8) {
+        return {};
+    }
+    if (exeBytes.compare(exeBytes.size() - footerMagic.size(), footerMagic.size(), footerMagic) != 0) {
+        return {};
+    }
+    const size_t sizeOffset = exeBytes.size() - footerMagic.size() - 8;
+    size_t pos = sizeOffset;
+    std::uint64_t payloadSize = 0;
+    if (!ReadU64(exeBytes, &pos, &payloadSize)) {
+        return {};
+    }
+    if (payloadSize > sizeOffset) {
+        return {};
+    }
+    const size_t payloadStart = sizeOffset - static_cast<size_t>(payloadSize);
+    return exeBytes.substr(payloadStart, static_cast<size_t>(payloadSize));
+}
+
+bool HasAppendedSceneBundle(const fs::path& exe) {
+    return !AppendedSceneBundlePayload(ReadFileBytes(exe)).empty();
+}
+
+std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& source) {
+    const std::wstring slug = Slugify(source.stem().wstring());
+    const fs::path sessionDir = webRoot / L"sessions" / slug;
+    std::error_code ec;
+    if (!fs::exists(sessionDir, ec) || !fs::is_directory(sessionDir, ec)) {
+        return {};
+    }
+    std::vector<fs::path> files;
+    for (fs::recursive_directory_iterator it(sessionDir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (ec || !it->is_regular_file(ec)) { continue; }
+        files.push_back(it->path());
+    }
+    if (files.empty()) {
+        return {};
+    }
+    std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+        return a.generic_string() < b.generic_string();
+    });
+
+    std::string payload(kSceneBundleHeader, sizeof(kSceneBundleHeader) - 1);
+    AppendU32(payload, static_cast<std::uint32_t>(files.size()));
+    for (const fs::path& file : files) {
+        const fs::path rel = fs::relative(file, webRoot, ec);
+        if (ec) { return {}; }
+        const std::string relUtf8 = rel.generic_string();
+        const std::string data = ReadFileBytes(file);
+        AppendU32(payload, static_cast<std::uint32_t>(relUtf8.size()));
+        AppendU64(payload, static_cast<std::uint64_t>(data.size()));
+        payload += relUtf8;
+        payload += data;
+    }
+    return payload;
+}
+
+int AppendCompiledSceneBundleToExe(const fs::path& exe, const fs::path& webRoot, const fs::path& source) {
+    if (HasAppendedSceneBundle(exe)) {
+        return 0;
+    }
+    const std::string payload = BuildCompiledSceneBundle(webRoot, source);
+    if (payload.empty()) {
+        return Fail(L"native compile failed: staged scene bundle is empty and cannot be embedded");
+    }
+    std::ofstream out(exe, std::ios::binary | std::ios::app);
+    if (!out) {
+        return Fail(L"native compile failed while appending scene bundle to " + exe.wstring());
+    }
+    out.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    std::string footer;
+    AppendU64(footer, static_cast<std::uint64_t>(payload.size()));
+    footer.append(kSceneBundleFooter, sizeof(kSceneBundleFooter) - 1);
+    out.write(footer.data(), static_cast<std::streamsize>(footer.size()));
+    if (!out) {
+        return Fail(L"native compile failed while finalizing embedded scene bundle in " + exe.wstring());
+    }
+    return 0;
+}
+
+bool ExtractAppendedSceneBundle(const fs::path& exe, const fs::path& webRoot) {
+    const std::string payload = AppendedSceneBundlePayload(ReadFileBytes(exe));
+    if (payload.empty()) {
+        return true;
+    }
+    const std::string header(kSceneBundleHeader, sizeof(kSceneBundleHeader) - 1);
+    if (payload.compare(0, header.size(), header) != 0) {
+        return false;
+    }
+    size_t pos = header.size();
+    std::uint32_t count = 0;
+    if (!ReadU32(payload, &pos, &count)) {
+        return false;
+    }
+    for (std::uint32_t index = 0; index < count; index += 1) {
+        std::uint32_t pathLen = 0;
+        std::uint64_t dataLen = 0;
+        if (!ReadU32(payload, &pos, &pathLen) || !ReadU64(payload, &pos, &dataLen)) {
+            return false;
+        }
+        if (pos + pathLen > payload.size()) {
+            return false;
+        }
+        const std::string relUtf8 = payload.substr(pos, pathLen);
+        pos += pathLen;
+        if (dataLen > payload.size() - pos) {
+            return false;
+        }
+        const std::string data = payload.substr(pos, static_cast<size_t>(dataLen));
+        pos += static_cast<size_t>(dataLen);
+        fs::path rel;
+        if (!SafeBundleRelativePath(relUtf8, &rel)) {
+            return false;
+        }
+        if (!WriteFileBytesIfChanged(webRoot / rel, data)) {
+            return false;
+        }
+    }
+    return pos == payload.size();
+}
+
 std::string Fnv1a64Hex(const std::string& bytes) {
     std::uint64_t hash = 14695981039346656037ull;
     for (unsigned char byte : bytes) {
@@ -598,15 +803,24 @@ int StageNativeSceneArtifacts(const fs::path& source, const fs::path& self) {
     return LaunchProcess(stager, args, stager.parent_path(), true);
 }
 
-int EnsureExampleExeCurrent(const fs::path& self, const fs::path& source, const fs::path& target) {
+fs::path RunnerTemplateForCompiledScene(const fs::path& self) {
+    std::error_code ec;
+    const fs::path guiRunner = self.parent_path() / L"vkf-runner.exe";
+    if (fs::exists(guiRunner, ec) && fs::is_regular_file(guiRunner, ec)) {
+        return guiRunner;
+    }
+    return self;
+}
+
+int EnsureExampleExeCurrent(const fs::path& runnerTemplate, const fs::path& source, const fs::path& target) {
     std::error_code ec;
     const bool targetMissing = !fs::exists(target, ec);
-    const bool targetStale = targetMissing || NewerThan(source, target) || NewerThan(self, target);
+    const bool targetStale = targetMissing || NewerThan(source, target) || NewerThan(runnerTemplate, target);
     if (!targetStale) {
         return 0;
     }
 
-    fs::copy_file(self, target, fs::copy_options::overwrite_existing, ec);
+    fs::copy_file(runnerTemplate, target, fs::copy_options::overwrite_existing, ec);
     if (ec) {
         const std::string detail = ec.message();
         return Fail(
@@ -620,6 +834,12 @@ int EnsureExampleExeCurrent(const fs::path& self, const fs::path& source, const 
 }
 
 int EnsureOverlayRuntimeDependency(const fs::path& self, const fs::path& source, const fs::path& target) {
+#if defined(VF_TRANSPARENT_OVERLAY_STATIC)
+    (void)self;
+    (void)source;
+    (void)target;
+    return 0;
+#else
     fs::path repoRoot = FindRepoRootFrom(source);
     if (repoRoot.empty()) {
         repoRoot = FindRepoRootFrom(self);
@@ -627,10 +847,6 @@ int EnsureOverlayRuntimeDependency(const fs::path& self, const fs::path& source,
     const fs::path dll = FindTransparentOverlayDll(repoRoot, self);
     if (dll.empty()) {
         return Fail(L"TransparentOverlay.dll not found next to vkf.exe; rebuild native/VfOverlay");
-    }
-    const fs::path host = FindTransparentOverlayHost(repoRoot, self);
-    if (host.empty()) {
-        return Fail(L"transparent-overlay-host.exe not found next to vkf.exe; rebuild native/VfOverlay");
     }
     std::error_code ec;
     const fs::path destination = target.parent_path() / L"TransparentOverlay.dll";
@@ -643,17 +859,8 @@ int EnsureOverlayRuntimeDependency(const fs::path& self, const fs::path& source,
             L": " +
             std::wstring(detail.begin(), detail.end()));
     }
-    const fs::path hostDestination = target.parent_path() / L"transparent-overlay-host.exe";
-    fs::copy_file(host, hostDestination, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        const std::string detail = ec.message();
-        return Fail(
-            std::wstring(L"failed to copy transparent-overlay-host.exe to ") +
-            hostDestination.wstring() +
-            L": " +
-            std::wstring(detail.begin(), detail.end()));
-    }
     return 0;
+#endif
 }
 
 struct NativeSceneBundle {
@@ -663,11 +870,16 @@ struct NativeSceneBundle {
     fs::path page;
 };
 
-bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, NativeSceneBundle* bundle) {
+bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, NativeSceneBundle* bundle, bool reportErrors = true) {
+    auto report = [&](const std::wstring& message) {
+        if (reportErrors) {
+            Fail(message);
+        }
+    };
     std::error_code ec;
     const fs::path absoluteSource = fs::absolute(source, ec);
     if (ec || !fs::exists(absoluteSource, ec)) {
-        Fail(L"source not found: " + source.wstring());
+        report(L"source not found: " + source.wstring());
         return false;
     }
 
@@ -676,13 +888,17 @@ bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, 
         repoRoot = FindRepoRootFrom(self);
     }
     if (repoRoot.empty()) {
-        Fail(L"could not locate repository root for native runtime assets");
+        report(L"could not locate repository root for native runtime assets");
         return false;
     }
 
     const fs::path webRoot = FindRuntimeWebRoot(repoRoot, self);
     if (webRoot.empty()) {
-        Fail(L"overlay web assets not found; build native/VfOverlay first");
+        report(L"overlay web assets not found; build native/VfOverlay first");
+        return false;
+    }
+    if (!ExtractAppendedSceneBundle(self, webRoot)) {
+        report(L"embedded compiled scene bundle is invalid in " + self.wstring());
         return false;
     }
 
@@ -690,14 +906,14 @@ bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, 
     const fs::path manifest = ManifestPathForSource(absoluteSource);
     const std::string sourceHash = Fnv1a64Hex(NativeSceneSourceTreeBytes(absoluteSource));
     if (!ManifestContainsSourceHash(manifest, sourceHash)) {
-        Fail(
+        report(
             L"compiled artifact manifest missing or stale: " + manifest.wstring() +
             L"\n     Native staleness check did not start Python. Compile with the native VKF compiler, then run again.");
         return false;
     }
     const fs::path stager = FindNativeSceneStager(repoRoot, self);
     if (!SessionBundleCurrent(absoluteSource, page, stager)) {
-        Fail(
+        report(
             L"compiled scene bundle missing or stale: " + page.wstring() +
             L"\n     Native staleness check did not start Python. Build the VKF scene with the native compiler/stager, then run again.");
         return false;
@@ -744,7 +960,7 @@ int BuildOrRun(const fs::path& source) {
     const fs::path target = TargetExeForSource(absoluteSource);
 
     NativeSceneBundle bundle{};
-    if (!TryResolveCurrentSceneBundle(absoluteSource, self, &bundle)) {
+    if (!TryResolveCurrentSceneBundle(absoluteSource, self, &bundle, false)) {
         const int stageResult = StageNativeSceneArtifacts(absoluteSource, self);
         if (stageResult != 0) {
             return stageResult;
@@ -754,11 +970,15 @@ int BuildOrRun(const fs::path& source) {
         }
     }
 
-    int compileResult = EnsureExampleExeCurrent(self, absoluteSource, target);
+    int compileResult = EnsureExampleExeCurrent(RunnerTemplateForCompiledScene(self), absoluteSource, target);
     if (compileResult != 0) {
         return compileResult;
     }
     compileResult = EnsureOverlayRuntimeDependency(self, absoluteSource, target);
+    if (compileResult != 0) {
+        return compileResult;
+    }
+    compileResult = AppendCompiledSceneBundleToExe(target, bundle.webRoot, absoluteSource);
     if (compileResult != 0) {
         return compileResult;
     }

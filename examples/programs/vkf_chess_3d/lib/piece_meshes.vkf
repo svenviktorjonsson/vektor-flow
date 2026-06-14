@@ -5,6 +5,8 @@ Downloaded from https://opengameart.org/content/3d-chess-pieces
 The GLB source files live under ../assets/source/chess_pieces/gltf.
 """
 
+: .types
+
 white_pawn_vertices() -> list(num):
     """Return baked white pawn vertices as position, normal, RGBA tuples."""
     @: [
@@ -8501,30 +8503,30 @@ king_indices() -> list(num):
         655, 650, 702, 655, 702, 706, 624, 621, 683, 624, 683, 685
     ]
 
-piece_vertices(side:str, role:str) -> list(num):
+piece_vertices(side:num, role:num) -> list(num):
     """Return side-colored baked vertices for a chess role."""
-    side = "white"?
-        role = "pawn"? @: white_pawn_vertices()
-        role = "rook"? @: white_rook_vertices()
-        role = "knight"? @: white_knight_vertices()
-        role = "bishop"? @: white_bishop_vertices()
-        role = "queen"? @: white_queen_vertices()
-        role = "king"? @: white_king_vertices()
-    side = "black"?
-        role = "pawn"? @: black_pawn_vertices()
-        role = "rook"? @: black_rook_vertices()
-        role = "knight"? @: black_knight_vertices()
-        role = "bishop"? @: black_bishop_vertices()
-        role = "queen"? @: black_queen_vertices()
-        role = "king"? @: black_king_vertices()
+    side = Side.white?
+        role = PieceRole.pawn? @: white_pawn_vertices()
+        role = PieceRole.rook? @: white_rook_vertices()
+        role = PieceRole.knight? @: white_knight_vertices()
+        role = PieceRole.bishop? @: white_bishop_vertices()
+        role = PieceRole.queen? @: white_queen_vertices()
+        role = PieceRole.king? @: white_king_vertices()
+    side = Side.black?
+        role = PieceRole.pawn? @: black_pawn_vertices()
+        role = PieceRole.rook? @: black_rook_vertices()
+        role = PieceRole.knight? @: black_knight_vertices()
+        role = PieceRole.bishop? @: black_bishop_vertices()
+        role = PieceRole.queen? @: black_queen_vertices()
+        role = PieceRole.king? @: black_king_vertices()
     @: white_pawn_vertices()
 
-piece_indices(role:str) -> list(num):
+piece_indices(role:num) -> list(num):
     """Return indexed triangles for a chess role."""
-    role = "pawn"? @: pawn_indices()
-    role = "rook"? @: rook_indices()
-    role = "knight"? @: knight_indices()
-    role = "bishop"? @: bishop_indices()
-    role = "queen"? @: queen_indices()
-    role = "king"? @: king_indices()
+    role = PieceRole.pawn? @: pawn_indices()
+    role = PieceRole.rook? @: rook_indices()
+    role = PieceRole.knight? @: knight_indices()
+    role = PieceRole.bishop? @: bishop_indices()
+    role = PieceRole.queen? @: queen_indices()
+    role = PieceRole.king? @: king_indices()
     @: pawn_indices()

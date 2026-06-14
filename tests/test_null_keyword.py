@@ -23,6 +23,10 @@ def test_emit_null() -> None:
     assert _run(":: null") == "null"
 
 
+def test_null_reflection_has_no_type() -> None:
+    assert _run(":: null.") == "null"
+
+
 def test_tuple_with_null() -> None:
     assert _run(":: (true, null, false)") == "(true, null, false)"
 

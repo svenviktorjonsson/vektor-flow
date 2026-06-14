@@ -11,6 +11,7 @@ from typing import Any, Iterable
 
 from ..errors import EvalError
 from .multiset import Multiset
+from .char_value import VFChr
 from .typed_vector import TypedVector
 from .vflist import VFLinkedList
 from .vfqueue import VFQueue
@@ -350,6 +351,8 @@ def runtime_object_size_bits(value: Any) -> int:
         return 0
     if isinstance(value, bool):
         return 1
+    if isinstance(value, VFChr):
+        return len(value.encode("utf-8")) * 8
     if isinstance(value, int) and not isinstance(value, bool):
         return 64
     if isinstance(value, float):

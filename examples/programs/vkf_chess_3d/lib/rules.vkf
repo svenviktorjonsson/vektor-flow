@@ -5,22 +5,22 @@ abs_num(value:num) -> num:
     value < 0? @: 0 - value
     @: value
 
-same_square(piece:Piece, file:num, rank:num) -> bool:
+same_square(piece:Piece, file:num, rank:num) -> bit:
     """True when a live piece occupies the requested square."""
     piece.captured? @: false
     piece.file = file?
         piece.rank = rank? @: true
     @: false
 
-is_same_destination(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_same_destination(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Reject no-op moves early."""
     piece.file = to_file?
         piece.rank = to_rank? @: true
     @: false
 
-is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check a one-square pawn advance before board-occupancy validation."""
-    piece.side = "white"?
+    piece.side = Side.white?
         to_file = piece.file?
             to_rank = piece.rank + 1? @: true
         @: false
@@ -28,9 +28,9 @@ is_forward_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
         to_rank = piece.rank - 1? @: true
     @: false
 
-is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check a starting two-square pawn advance."""
-    piece.side = "white"?
+    piece.side = Side.white?
         piece.rank = 2?
             to_file = piece.file?
                 to_rank = 4? @: true
@@ -40,9 +40,9 @@ is_double_pawn_move(piece:Piece, to_file:num, to_rank:num) -> bool:
             to_rank = 5? @: true
     @: false
 
-is_pawn_capture_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_pawn_capture_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check pawn diagonal capture geometry."""
-    piece.side = "white"?
+    piece.side = Side.white?
         abs_num(to_file - piece.file) = 1?
             to_rank = piece.rank + 1? @: true
         @: false
@@ -50,19 +50,19 @@ is_pawn_capture_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
         to_rank = piece.rank - 1? @: true
     @: false
 
-is_rook_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_rook_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check rook movement geometry."""
     is_same_destination(piece, to_file, to_rank)? @: false
     piece.file = to_file? @: true
     piece.rank = to_rank? @: true
     @: false
 
-is_bishop_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_bishop_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check bishop movement geometry."""
     is_same_destination(piece, to_file, to_rank)? @: false
     @: abs_num(to_file - piece.file) = abs_num(to_rank - piece.rank)
 
-is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check knight movement geometry."""
     abs_num(to_file - piece.file) = 1?
         abs_num(to_rank - piece.rank) = 2? @: true
@@ -70,51 +70,51 @@ is_knight_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
         abs_num(to_rank - piece.rank) = 1? @: true
     @: false
 
-is_king_shape(piece:Piece, to_file:num, to_rank:num) -> bool:
+is_king_shape(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Check king movement geometry, excluding castling."""
     is_same_destination(piece, to_file, to_rank)? @: false
     abs_num(to_file - piece.file) > 1? @: false
     abs_num(to_rank - piece.rank) > 1? @: false
     @: true
 
-piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bool:
+piece_shape_move(piece:Piece, to_file:num, to_rank:num) -> bit:
     """Dispatch movement geometry by role."""
-    piece.role = "pawn"? @: is_forward_pawn_move(piece, to_file, to_rank)
-    piece.role = "rook"? @: is_rook_shape(piece, to_file, to_rank)
-    piece.role = "bishop"? @: is_bishop_shape(piece, to_file, to_rank)
-    piece.role = "knight"? @: is_knight_shape(piece, to_file, to_rank)
-    piece.role = "king"? @: is_king_shape(piece, to_file, to_rank)
-    piece.role = "queen"?
+    piece.role = PieceRole.pawn? @: is_forward_pawn_move(piece, to_file, to_rank)
+    piece.role = PieceRole.rook? @: is_rook_shape(piece, to_file, to_rank)
+    piece.role = PieceRole.bishop? @: is_bishop_shape(piece, to_file, to_rank)
+    piece.role = PieceRole.knight? @: is_knight_shape(piece, to_file, to_rank)
+    piece.role = PieceRole.king? @: is_king_shape(piece, to_file, to_rank)
+    piece.role = PieceRole.queen?
         is_rook_shape(piece, to_file, to_rank)? @: true
         @: is_bishop_shape(piece, to_file, to_rank)
     @: false
 
-legal_shape(piece:Piece, target_side:str, to_file:num, to_rank:num, path_clear:bool, king_safe_after:bool) -> bool:
+legal_shape(piece:Piece, target_side:num, to_file:num, to_rank:num, path_clear:bit, king_safe_after:bit) -> bit:
     """Validate the rule slice needed by the interactive event reducer."""
     king_safe_after? 
         target_side = piece.side? @: false
-        piece.role = "pawn"?
-            target_side = ""? 
+        piece.role = PieceRole.pawn?
+            target_side = Side.none? 
                 is_forward_pawn_move(piece, to_file, to_rank)? @: true
                 is_double_pawn_move(piece, to_file, to_rank)? @: true
                 @: false
             @: is_pawn_capture_shape(piece, to_file, to_rank)
-        piece.role = "rook"?
+        piece.role = PieceRole.rook?
             path_clear? @: is_rook_shape(piece, to_file, to_rank)
             @: false
-        piece.role = "bishop"?
+        piece.role = PieceRole.bishop?
             path_clear? @: is_bishop_shape(piece, to_file, to_rank)
             @: false
-        piece.role = "queen"?
+        piece.role = PieceRole.queen?
             path_clear? @: piece_shape_move(piece, to_file, to_rank)
             @: false
         @: piece_shape_move(piece, to_file, to_rank)
     @: false
 
-castle_side(piece:Piece, to_file:num, to_rank:num, path_clear:bool, king_safe_after:bool, castle_path_safe:bool, rook_available:bool, can_castle_king:bool, can_castle_queen:bool) -> str:
+castle_side(piece:Piece, to_file:num, to_rank:num, path_clear:bit, king_safe_after:bit, castle_path_safe:bit, rook_available:bit, can_castle_king:bit, can_castle_queen:bit) -> num:
     """Return the castling side accepted by state-owned castling rights."""
-    piece.role = "king"?
-        piece.has_moved? @: ""
+    piece.role = PieceRole.king?
+        piece.has_moved? @: CastleSide.none
         piece.file = 5?
             piece.rank = to_rank?
                 king_safe_after?
@@ -122,21 +122,21 @@ castle_side(piece:Piece, to_file:num, to_rank:num, path_clear:bool, king_safe_af
                         path_clear?
                             rook_available?
                                 to_file = 7?
-                                    can_castle_king? @: "king"
+                                    can_castle_king? @: CastleSide.king
                                 to_file = 3?
-                                    can_castle_queen? @: "queen"
-        @: ""
-    @: ""
+                                    can_castle_queen? @: CastleSide.queen
+        @: CastleSide.none
+    @: CastleSide.none
 
-is_en_passant(piece:Piece, target_side:str, to_file:num, to_rank:num, last_double_pawn_side:str, last_double_pawn_file:num, last_double_pawn_rank:num) -> bool:
+is_en_passant(piece:Piece, target_side:num, to_file:num, to_rank:num, last_double_pawn_side:num, last_double_pawn_file:num, last_double_pawn_rank:num) -> bit:
     """Validate en passant from the last double-pawn move stored in GameState."""
-    piece.role = "pawn"?
-        target_side = ""?
-            last_double_pawn_side != ""?
+    piece.role = PieceRole.pawn?
+        target_side = Side.none?
+            last_double_pawn_side != Side.none?
                 last_double_pawn_side != piece.side?
                     abs_num(to_file - piece.file) = 1?
                         to_file = last_double_pawn_file?
-                            piece.side = "white"?
+                            piece.side = Side.white?
                                 piece.rank = 5?
                                     last_double_pawn_rank = 5?
                                         to_rank = 6? @: true
@@ -145,9 +145,9 @@ is_en_passant(piece:Piece, target_side:str, to_file:num, to_rank:num, last_doubl
                                     to_rank = 3? @: true
     @: false
 
-legal_shape_ext(piece:Piece, target_side:str, to_file:num, to_rank:num, path_clear:bool, king_safe_after:bool, castle_path_safe:bool, rook_available:bool, can_castle_king:bool, can_castle_queen:bool, last_double_pawn_side:str, last_double_pawn_file:num, last_double_pawn_rank:num) -> bool:
+legal_shape_ext(piece:Piece, target_side:num, to_file:num, to_rank:num, path_clear:bit, king_safe_after:bit, castle_path_safe:bit, rook_available:bit, can_castle_king:bit, can_castle_queen:bit, last_double_pawn_side:num, last_double_pawn_file:num, last_double_pawn_rank:num) -> bit:
     """Validate normal moves plus state-owned castling and en passant cases."""
     legal_shape(piece, target_side, to_file, to_rank, path_clear, king_safe_after)? @: true
-    castle_side(piece, to_file, to_rank, path_clear, king_safe_after, castle_path_safe, rook_available, can_castle_king, can_castle_queen) != ""? @: true
+    castle_side(piece, to_file, to_rank, path_clear, king_safe_after, castle_path_safe, rook_available, can_castle_king, can_castle_queen) != CastleSide.none? @: true
     king_safe_after? @: is_en_passant(piece, target_side, to_file, to_rank, last_double_pawn_side, last_double_pawn_file, last_double_pawn_rank)
     @: false

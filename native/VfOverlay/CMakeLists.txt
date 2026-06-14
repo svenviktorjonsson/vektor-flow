@@ -95,7 +95,9 @@ if(EXISTS "${TRANSPARENT_OVERLAY_SOURCE_DIR}/CMakeLists.txt")
     "${CMAKE_BINARY_DIR}/transparent-overlay"
   )
   set(TRANSPARENT_OVERLAY_INCLUDE_DIR "${TRANSPARENT_OVERLAY_SOURCE_DIR}/include")
-  set(TRANSPARENT_OVERLAY_RUNTIME_DLL "$<TARGET_FILE:TransparentOverlay>")
+  set(TRANSPARENT_OVERLAY_RUNTIME_DLL "")
+  set(TRANSPARENT_OVERLAY_LINK_TARGET transparent_overlay)
+  set(TRANSPARENT_OVERLAY_LINK_MODE_DEFINE VF_TRANSPARENT_OVERLAY_STATIC)
   if(TARGET transparent-overlay-host)
     set(TRANSPARENT_OVERLAY_HOST_EXE "$<TARGET_FILE:transparent-overlay-host>")
   endif()
@@ -118,6 +120,8 @@ else()
   )
   set(TRANSPARENT_OVERLAY_INCLUDE_DIR "${VF_VENDORED_TRANSPARENT_OVERLAY_DIR}/include")
   set(TRANSPARENT_OVERLAY_RUNTIME_DLL "${_vf_overlay_dll}")
+  set(TRANSPARENT_OVERLAY_LINK_TARGET TransparentOverlay)
+  set(TRANSPARENT_OVERLAY_LINK_MODE_DEFINE "")
   set(TRANSPARENT_OVERLAY_HOST_EXE "${_vf_overlay_host}")
 endif()
 
@@ -233,30 +237,46 @@ target_include_directories(vkf PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${TRANSPARENT_OVERLAY_INCLUDE_DIR}"
 )
-target_compile_definitions(vkf PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST)
+target_compile_definitions(vkf PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST ${TRANSPARENT_OVERLAY_LINK_MODE_DEFINE})
 target_link_libraries(vkf PRIVATE
-  TransparentOverlay
+  ${TRANSPARENT_OVERLAY_LINK_TARGET}
   kernel32
 )
 if(MSVC)
   target_compile_options(vkf PRIVATE /Zi)
   target_link_options(vkf PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
-add_custom_command(TARGET vkf POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-  "${TRANSPARENT_OVERLAY_RUNTIME_DLL}"
-  "$<TARGET_FILE_DIR:vkf>"
-  COMMENT "Copy TransparentOverlay runtime next to vkf"
-)
-if(TRANSPARENT_OVERLAY_HOST_EXE)
+if(TRANSPARENT_OVERLAY_RUNTIME_DLL)
   add_custom_command(TARGET vkf POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${TRANSPARENT_OVERLAY_HOST_EXE}"
+    "${TRANSPARENT_OVERLAY_RUNTIME_DLL}"
     "$<TARGET_FILE_DIR:vkf>"
-    COMMENT "Copy transparent overlay host next to vkf"
+    COMMENT "Copy TransparentOverlay runtime next to vkf"
   )
 endif()
 add_dependencies(vkf vkf-embedded-vf-ui-assets)
+
+add_executable(vkf-runner WIN32
+  vkf_launcher.cpp
+  "${VF_EMBEDDED_VF_UI_CPP}"
+  "${VF_EMBEDDED_VF_UI_RC}"
+)
+target_include_directories(vkf-runner PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated"
+  "${TRANSPARENT_OVERLAY_INCLUDE_DIR}"
+)
+target_compile_definitions(vkf-runner PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST ${TRANSPARENT_OVERLAY_LINK_MODE_DEFINE})
+target_link_libraries(vkf-runner PRIVATE
+  ${TRANSPARENT_OVERLAY_LINK_TARGET}
+  kernel32
+)
+if(MSVC)
+  target_compile_options(vkf-runner PRIVATE /Zi)
+  target_link_options(vkf-runner PRIVATE /DEBUG /INCREMENTAL:NO /ENTRY:wmainCRTStartup)
+endif()
+add_dependencies(vkf-runner vkf-embedded-vf-ui-assets)
+add_dependencies(vkf vkf-runner)
 
 add_executable(vkf-native-scene-artifact-stager
   ../../compiler/native/vkf_native_scene_artifact_stager.cpp

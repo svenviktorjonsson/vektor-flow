@@ -52,7 +52,7 @@ def test_prefix_typed_bind_coerces_values() -> None:
     src = """
 num a: 3
 int b: true
-bytes raw: "hej"
+chr raw: "h"
 :: a
 :: b
 :: raw.
@@ -60,7 +60,7 @@ bytes raw: "hej"
     lines = _run(src).splitlines()
     assert lines[0] in ("3", "3.0")
     assert lines[1] == "1"
-    assert lines[2] == "bytes"
+    assert lines[2] == "chr"
 
 
 def test_trailing_dot_type_can_drive_prefix_typed_bind() -> None:
@@ -139,7 +139,7 @@ def test_imaginary_constants() -> None:
 :: i * i
 """
     lines = _run(src).splitlines()
-    assert lines[0] == "1j"
-    assert lines[1] == "1j"
-    assert lines[2] == "(-1+0j)"
+    assert lines[0] == "i"
+    assert lines[1] == "i"
+    assert lines[2] == "-1"
 

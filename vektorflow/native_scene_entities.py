@@ -126,6 +126,10 @@ def native_json_safe_value(value: Any) -> Any:
         return [native_json_safe_value(v) for v in value]
     if isinstance(value, tuple):
         return [native_json_safe_value(v) for v in value]
+    if isinstance(value, complex):
+        if value.imag != 0:
+            raise ValueError("native scene JSON values must be real numbers; got non-real num")
+        return value.real
     return value
 
 

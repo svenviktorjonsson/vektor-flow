@@ -165,9 +165,9 @@ def _normalize_type(t: Any) -> Any:
 
 def _is_scalar_numeric_type(t: Any) -> bool:
     t = _normalize_type(t)
-    return isinstance(t, ast.PrimTypeRef) and t.name in {"bool", "int", "num"}
+    return isinstance(t, ast.PrimTypeRef) and t.name in {"bit", "int", "num"}
 
 
 def _is_string_like_type(t: Any) -> bool:
     t = _normalize_type(t)
-    return isinstance(t, ast.PrimTypeRef) and t.name in {"str", "bytes"}
+    return isinstance(t, ast.PrimTypeRef) and t.name in {"chr", "str"}

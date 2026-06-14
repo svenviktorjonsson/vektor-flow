@@ -81,12 +81,14 @@ from .runtime.lazy_range import LazyInfiniteIterator, LazyList
 from .runtime.type_values import (
     combine_typed_multiset_types,
     PrimType,
+    PrimitiveSignature,
     combine_typed_vector_types,
     coerce_value,
     coerce_typed_value,
     infer_type,
     is_type_value,
     normalize_type_expr,
+    primitive_signature,
     resolve_return_type,
     type_match_specificity,
     types_equal,
@@ -129,8 +131,11 @@ OPERATOR_SYMBOLS = frozenset(
 # Built-in value types: overloads on ordinary values may mention these, but at least
 # one relevant parameter must still be custom / constructed.
 _PRIMITIVE_VALUE_TYPES_FOR_OVERLOAD = frozenset(
-    {"int", "num", "str", "bool", "byte", "bytes", "any", "vector"}
+    {"bit", "int", "num", "chr", "str", "any", "vector"}
 )
+
+DISPLAY_FULL_SEQUENCE_LIMIT = 24
+DISPLAY_EDGE_ITEMS = 3
 
 
 def _param_is_custom_typed(p: ast.Param) -> bool:
@@ -557,6 +562,17 @@ def _logical_structure_binop(op: str, a: Any, b: Any) -> Any:
 
 
 def _try_scalar_relational_derivation(op: str, a: Any, b: Any) -> Any:
+    if op in {"LT", "LE", "GT", "GE"}:
+        ordered_values: list[Any] = []
+        for value in (a, b):
+            if isinstance(value, complex) and value.imag != 0:
+                raise EvalError("ordering is only defined for real num values")
+            if isinstance(value, complex):
+                ordered_values.append(value.real)
+            else:
+                ordered_values.append(value)
+        a, b = ordered_values
+
     def _try_lt(x: Any, y: Any) -> bool | None:
         try:
             return bool(x < y)
@@ -1103,7 +1119,7 @@ class Interpreter:
         self.builtin["take"] = _builtin_take
         self.builtin["to_list"] = _builtin_to_list
         self.builtin["to_multiset"] = _builtin_to_multiset
-        for _tn in ("int", "num", "str", "byte", "bytes", "bool", "any"):
+        for _tn in ("bit", "int", "num", "chr", "str", "any"):
             self.builtin[_tn] = PrimType(_tn)
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
@@ -1146,7 +1162,10 @@ class Interpreter:
         for name in ("math", "capture", "io", "collections", "stat"):
             if name in STDLIB_MODULES:
                 try:
-                    self.builtin[name] = resolve_stdlib(name)
+                    namespace = resolve_stdlib(name)
+                    self.builtin[name] = namespace
+                    if name == "math":
+                        self.builtin.update(namespace)
                 except KeyError:
                     pass
 
@@ -1526,7 +1545,7 @@ class Interpreter:
                 node.value, ast.Ident
             ):
                 tname = node.value.name
-                if tname in ("num", "str", "bool"):
+                if tname in ("num", "str", "bit"):
                     env[node.target.name] = default_field_value(tname, self.types)
                     return env[node.target.name]
             updated = self._try_assign_update_in_place(node.target, node.value, env)
@@ -1668,7 +1687,7 @@ class Interpreter:
             if node.name == "display" and len(node.params) == 1:
                 _validate_custom_unary_overload(node.params, "display(value: T)")
                 self.display_overloads.append(vf)
-            elif node.name in ("num", "str", "bool", "byte") and len(node.params) == 1:
+            elif node.name in ("num", "str", "bit", "chr") and len(node.params) == 1:
                 _validate_custom_unary_overload(node.params, f"{node.name}(value: T)")
                 self.cast_overloads.setdefault(node.name, []).append(vf)
             elif node.name in OPERATOR_SYMBOLS:
@@ -1917,6 +1936,11 @@ class Interpreter:
             return self._eval_axis_align(
                 self.eval_expr(node.value, env), node, env
             )
+        if isinstance(node, ast.DerivativeExpr):
+            value = self.eval_expr(node.expr, env)
+            if isinstance(value, VFunction):
+                return self._eval_function_derivative(value, node, env)
+            raise EvalError("symbolic derivative expressions are native-compiler features; the Python interpreter must not implement them")
         if isinstance(node, ast.TupleLit):
             out: list[Any] = []
             for e in node.elements:
@@ -2178,6 +2202,12 @@ class Interpreter:
             return node
         if isinstance(node, ast.TypeOf):
             v = self.eval_expr(node.value, env)
+            if v is None:
+                return None
+            if isinstance(v, PrimType):
+                return primitive_signature(v.name)
+            if isinstance(v, ast.PrimTypeRef) and v.name in {"bit", "int", "num", "chr", "str"}:
+                return primitive_signature(v.name)
             return infer_type(v, self.types)
         raise EvalError(f"unknown expr {type(node).__name__}")
 
@@ -2308,6 +2338,17 @@ class Interpreter:
             return fn(*args)
         raise EvalError(f"not callable: {type(fn).__name__}")
 
+    def _eval_function_derivative(self, fn: VFunction, node: ast.DerivativeExpr, env: dict[str, Any]) -> Any:
+        raise EvalError("function derivatives are native-compiler features; the Python interpreter must not implement them")
+
+    def _resolve_derivative_variable(
+        self,
+        var_expr: Any,
+        param_symbols: dict[str, Any],
+        order_index: int,
+    ) -> Any:
+        raise EvalError("function derivatives are native-compiler features; the Python interpreter must not implement them")
+
     def _call_struct_ctor(
         self,
         fn: VStructCtor,
@@ -2428,7 +2469,7 @@ class Interpreter:
             return line
         resolved_type = self._resolve_runtime_type_expr(declared_type, env)
         base_value: Any = line
-        if isinstance(resolved_type, ast.PrimTypeRef) and resolved_type.name in {"str", "bytes"}:
+        if isinstance(resolved_type, ast.PrimTypeRef) and resolved_type.name in {"str"}:
             base_value = line if resolved_type.name == "str" else line.encode("utf-8")
         else:
             try:
@@ -2453,6 +2494,8 @@ class Interpreter:
         return best_fn
 
     def _stringify_for_display(self, val: Any, env: dict[str, Any]) -> str:
+        if isinstance(val, PrimitiveSignature):
+            return _stringify(val, self.types)
         if self.display_overloads:
             best_fn = self._pick_unary_overload(self.display_overloads, val)
             if best_fn is not None:
@@ -2981,6 +3024,10 @@ def _dotted_set_one(container: Any, k: Any, val: Any) -> None:
 def _normalize_index(idx: Any) -> Any:
     if isinstance(idx, bool):
         raise EvalError("index must be int or str")
+    if isinstance(idx, complex):
+        if idx.imag == 0 and idx.real == int(idx.real):
+            return int(idx.real)
+        raise EvalError("index must be int or str")
     if isinstance(idx, float) and idx == int(idx):
         return int(idx)
     if isinstance(idx, int):
@@ -3032,6 +3079,24 @@ def _stringify_op_callable(o: OpCallable) -> str:
     return f"{o.symbol}(…)"
 
 
+def _stringify_sequence_preview(
+    values: Any,
+    types: dict[str, ast.TypeExpr | ast.FuncType] | None,
+    *,
+    open_bracket: str,
+    close_bracket: str,
+    singleton_tuple: bool = False,
+) -> str:
+    count = len(values)
+    if singleton_tuple and count == 1:
+        return f"({_stringify(values[0], types)},)"
+    if count <= DISPLAY_FULL_SEQUENCE_LIMIT:
+        return open_bracket + ", ".join(_stringify(item, types) for item in values) + close_bracket
+    head = [_stringify(values[i], types) for i in range(DISPLAY_EDGE_ITEMS)]
+    tail = [_stringify(values[count - DISPLAY_EDGE_ITEMS + i], types) for i in range(DISPLAY_EDGE_ITEMS)]
+    return open_bracket + ", ".join([*head, "...", *tail]) + close_bracket
+
+
 def _stringify(
     v: Any,
     types: dict[str, ast.TypeExpr | ast.FuncType] | None = None,
@@ -3046,6 +3111,8 @@ def _stringify(
         return v.name
     if isinstance(v, PrimType):
         return v.name
+    if isinstance(v, PrimitiveSignature):
+        return _format_primitive_signature(v.name)
     if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
         return _format_type_ast_for_stringify(v)
     if isinstance(v, dict) and is_struct_dict(v):
@@ -3054,16 +3121,22 @@ def _stringify(
         return _format_untagged_dict_as_record(v, types)
     if isinstance(v, AxisTaggedValue):
         return _stringify(v.data, types)
+    if isinstance(v, LazyInfiniteIterator):
+        return f"range from {v.start}"
+    if isinstance(v, LazyList):
+        return f"lazy list from {v._it.start}"
+    if isinstance(v, VFVector):
+        return _stringify_sequence_preview(v, types, open_bracket="[", close_bracket="]")
+    if isinstance(v, tuple):
+        return _stringify_sequence_preview(v, types, open_bracket="(", close_bracket=")", singleton_tuple=True)
+    if isinstance(v, list):
+        return _stringify_sequence_preview(v, types, open_bracket="[", close_bracket="]")
     runtime_string = runtime_collection_stringify(
         v,
         lambda item: _stringify(item, types),
     )
     if runtime_string is not None:
         return runtime_string
-    if isinstance(v, LazyInfiniteIterator):
-        return f"range from {v.start}"
-    if isinstance(v, LazyList):
-        return f"lazy list from {v._it.start}"
     if isinstance(v, bool):
         return _vf_bool_display(v)
     if v is None:
@@ -3071,7 +3144,19 @@ def _stringify(
     if isinstance(v, float) and v == int(v):
         return str(int(v))
     if isinstance(v, complex):
-        return str(v)
+        if v.imag == 0:
+            return _stringify(float(v.real), types)
+        if v.real == 0:
+            imag = float(v.imag)
+            if imag == 1:
+                return "i"
+            if imag == -1:
+                return "-i"
+            return f"{_stringify(imag, types)}i"
+        sign = "+" if v.imag >= 0 else "-"
+        imag_abs = abs(float(v.imag))
+        imag_text = "i" if imag_abs == 1 else f"{_stringify(imag_abs, types)}i"
+        return f"{_stringify(float(v.real), types)}{sign}{imag_text}"
     if isinstance(v, int):
         return str(v)
     if isinstance(v, float):
@@ -3083,12 +3168,6 @@ def _stringify(
         if len(hx) > 64:
             return f"byte(len {len(v)})"
         return f"byte[{hx}]"
-    if isinstance(v, VFVector):
-        return "[" + ", ".join(_stringify(x, types) for x in v) + "]"
-    if isinstance(v, tuple):
-        if len(v) == 1:
-            return f"({_stringify(v[0], types)},)"
-        return "(" + ", ".join(_stringify(x, types) for x in v) + ")"
     if isinstance(v, (set, frozenset)):
         if not v:
             return "{}"
@@ -3107,6 +3186,14 @@ def _stringify(
             return "(" + ", ".join(parts) + ")"
         return str(v)
     return "…"
+
+
+def _format_primitive_signature(name: str) -> str:
+    if name == "num":
+        return "(any, any = 0) -> num"
+    if name in {"bit", "int", "chr", "str"}:
+        return f"(any) -> {name}"
+    return f"(...) -> {name}"
 
 
 def _disallow_vector_truthiness(v: Any, what: str) -> None:

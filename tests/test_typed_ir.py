@@ -38,6 +38,40 @@ out: twice(a)
     assert info.module_slots["out"] == 1
 
 
+def test_typed_ir_preserves_symbolic_domain_types() -> None:
+    mod = parse_module(
+        """
+:.symbolic
+x: R
+f: R -> R
+v: R^n
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    bind_x = lowered.statements[0]
+    bind_f = lowered.statements[1]
+    bind_v = lowered.statements[2]
+    assert isinstance(bind_x, StoreName)
+    assert isinstance(bind_f, StoreName)
+    assert isinstance(bind_v, StoreName)
+
+    assert isinstance(bind_x.declared_type, ast.SymbolicValueType)
+    assert isinstance(bind_x.declared_type.domain, ast.SymbolicDomainType)
+    assert bind_x.declared_type.domain.name == "R"
+    assert isinstance(bind_f.declared_type, ast.SymbolicValueType)
+    assert isinstance(bind_f.declared_type.domain, ast.FuncType)
+    assert isinstance(bind_v.declared_type, ast.SymbolicValueType)
+    assert isinstance(bind_v.declared_type.domain, ast.TypePowerExpr)
+
+    out_env = info.stmt_output_envs[id(bind_v)]
+    assert isinstance(out_env["x"], ast.SymbolicValueType)
+    assert isinstance(out_env["f"], ast.SymbolicValueType)
+    assert isinstance(out_env["v"], ast.SymbolicValueType)
+
+
 def test_typed_ir_tracks_vector_and_struct_expression_types() -> None:
     mod = parse_module(
         """
@@ -777,7 +811,7 @@ def test_typed_ir_tracks_record_with_map_and_list_fields() -> None:
     mod = parse_module(
         """collections: .collections
 
-make() -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
+make() -> (meta:map(name:str, ok:bit), items:list(num, num, num), total:num):
     (meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2,3]), total:3)
 
 out: make()
@@ -804,7 +838,7 @@ def test_typed_ir_tracks_transformed_record_with_map_and_list_fields() -> None:
     mod = parse_module(
         """collections: .collections
 
-update(state:(meta:map(name:str, ok:bool), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bool), items:list(num, num, num), total:num):
+update(state:(meta:map(name:str, ok:bit), items:list(num, num), total:num)) -> (meta:map(name:str, ok:bit), items:list(num, num, num), total:num):
     (meta:state.meta, items:state.items & collections.list(9), total:state.total + 1)
 
 out: update((meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), total:2))
@@ -827,7 +861,7 @@ def test_typed_ir_tracks_nested_dynamic_map_and_list_fields() -> None:
     mod = parse_module(
         """collections: .collections
 
-make() -> (payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))):
+make() -> (payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str)))):
     (payload:collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))
 
 out: make()
@@ -856,7 +890,7 @@ def test_typed_ir_tracks_transform_for_direct_dynamic_map_payload() -> None:
     mod = parse_module(
         """collections: .collections
 
-update(payload:map(meta:map(name:str, ok:bool), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bool), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
+update(payload:map(meta:map(name:str, ok:bit), items:list(num, num), groups:list(map(name:str), map(name:str)))) -> map(meta:map(name:str, ok:bit), items:list(num, num, num), groups:list(map(name:str), map(name:str), map(name:str))):
     collections.map(meta:payload.meta, items:payload.items & collections.list(9), groups:payload.groups & collections.list(collections.map(name:"c")))
 
 out: update(collections.map(meta:collections.map(name:"alice", ok:true), items:collections.list(:[1,2]), groups:collections.list(collections.map(name:"a"), collections.map(name:"b"))))

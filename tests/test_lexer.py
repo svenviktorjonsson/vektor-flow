@@ -43,6 +43,7 @@ from vektorflow.tokens import (
     OR,
     PERCENT,
     PIPE,
+    PRIME,
     PLUS,
     QUESTION,
     RANGE,
@@ -116,6 +117,11 @@ class TestLiterals:
 
     def test_string_single_quoted_doubled_quote(self) -> None:
         assert values(r"'it''s ok'") == [(STRING_RAW, "it's ok")]
+
+    def test_prime_suffix_after_expression_does_not_start_raw_string(self) -> None:
+        assert kinds("f'(x)")[:5] == [IDENT, PRIME, LPAREN, IDENT, RPAREN]
+        assert kinds("f''xy")[:4] == [IDENT, PRIME, PRIME, IDENT]
+        assert values("f 'abc'") == [(IDENT, "f"), (STRING_RAW, "abc")]
 
     def test_identifier(self) -> None:
         assert values("foo") == [(IDENT, "foo")]

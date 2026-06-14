@@ -151,6 +151,62 @@
     return true;
   }
 
+  function virtualTrackballPoint(rectLike, px, py, marginPx) {
+    var w = Math.max(1, Number(rectLike && rectLike.width) || 1);
+    var h = Math.max(1, Number(rectLike && rectLike.height) || 1);
+    var margin = Math.max(0, Number(marginPx != null ? marginPx : 20) || 0);
+    var radius = Math.max(1, (Math.min(w, h) * 0.5) - margin);
+    var cx = w * 0.5;
+    var cy = h * 0.5;
+    var x = ((Number(px) || 0) - cx) / radius;
+    var y = (cy - (Number(py) || 0)) / radius;
+    var r2 = x * x + y * y;
+    if (r2 <= 1.0) {
+      return {
+        inside: true,
+        radius: radius,
+        center: [cx, cy],
+        point: [x, y, Math.sqrt(Math.max(0, 1.0 - r2))]
+      };
+    }
+    var len = Math.sqrt(r2);
+    return {
+      inside: false,
+      radius: radius,
+      center: [cx, cy],
+      point: [x / len, y / len, 0.0]
+    };
+  }
+
+  function virtualTrackballRotate(camera, cfg, rectLike, prevPx, prevPy, curPx, curPy, options) {
+    options = options && typeof options === "object" ? options : {};
+    var prev = virtualTrackballPoint(rectLike, prevPx, prevPy, options.marginPx);
+    var cur = virtualTrackballPoint(rectLike, curPx, curPy, options.marginPx);
+    var a = prev.point;
+    var b = cur.point;
+    var dot = Math.max(-1.0, Math.min(1.0, dot3(a, b)));
+    var angle = Math.acos(dot);
+    if (!(angle > 1e-7)) {
+      return false;
+    }
+    var axisView = crossVec3(a, b);
+    var axisLen = Math.sqrt(dot3(axisView, axisView));
+    if (!(axisLen > 1e-9)) {
+      return false;
+    }
+    axisView = [axisView[0] / axisLen, axisView[1] / axisLen, axisView[2] / axisLen];
+    var center = rotationCenter(cfg || {});
+    var preserveTargetOffset = preserveTargetOffsetOnRotate(cfg || {});
+    var basis = screenBasis(camera, preserveTargetOffset ? null : center);
+    var worldAxis = normalizeVec3Local([
+      basis.right[0] * axisView[0] + basis.up[0] * axisView[1] + basis.forward[0] * axisView[2],
+      basis.right[1] * axisView[0] + basis.up[1] * axisView[1] + basis.forward[1] * axisView[2],
+      basis.right[2] * axisView[0] + basis.up[2] * axisView[1] + basis.forward[2] * axisView[2]
+    ], basis.forward);
+    applyWorldRotation(camera, center, worldAxis, angle, { preserveTargetOffset: preserveTargetOffset });
+    return true;
+  }
+
   function dragWorldDelta(camera, width, height, dx, dy) {
     var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
     var target = vec3Array(camera && camera.target, [0, 0, 0]);
@@ -225,6 +281,8 @@
     preserveTargetOffsetOnRotate: preserveTargetOffsetOnRotate,
     cloneCamera: cloneCamera,
     alignAxisToViewSnap: alignAxisToViewSnap,
+    virtualTrackballPoint: virtualTrackballPoint,
+    virtualTrackballRotate: virtualTrackballRotate,
     dragWorldDelta: dragWorldDelta,
     boxDragDataDelta: boxDragDataDelta,
     buildCrosshairHelperLineMesh: buildCrosshairHelperLineMesh

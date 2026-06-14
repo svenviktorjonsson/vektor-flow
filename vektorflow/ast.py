@@ -74,6 +74,15 @@ class BinOp:
 
 
 @dataclass
+class DerivativeExpr:
+    """Symbolic derivative suffix, e.g. ``f'(x)``, ``f'phi(phi)``, ``f''xy(x, y)``."""
+
+    expr: Any
+    variables: list[Any]
+    call_args: list[Any] | None = None
+
+
+@dataclass
 class PipeChain:
     """``src >> rhs1 >> rhs2`` — **pipe**: one value at a time through each segment (streaming).
 
@@ -240,6 +249,28 @@ class PrimTypeRef:
 
 
 @dataclass
+class SymbolicDomainType:
+    """Mathematical symbolic domain type, e.g. ``R`` / ``N`` / ``Z`` / ``Q`` / ``C``."""
+
+    name: str
+
+
+@dataclass
+class TypePowerExpr:
+    """Power type expression, e.g. ``R^n``."""
+
+    base: Any
+    exponent: Any
+
+
+@dataclass
+class SymbolicValueType:
+    """Compile-time type for a symbolic value with a mathematical domain."""
+
+    domain: Any | None = None
+
+
+@dataclass
 class TypeUnionExpr:
     """Type union ``A|B``."""
 
@@ -325,6 +356,11 @@ class Bind:
     value: Any
     declared_type: Any | None = None
     docstring: str | None = field(default=None, repr=False)
+
+
+@dataclass
+class BindExpr(Bind):
+    """Parenthesized binding expression ``(name: value)``."""
 
 
 @dataclass

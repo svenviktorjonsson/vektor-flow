@@ -207,10 +207,9 @@ compiler_capability:
         "VKF_RUNTIME_BACKEND auto classifies native-supported files before interpreter use",
         "supported native subset has no Python fallback in default run path",
         "native execution failure is a hard error for supported native files",
-        "unsupported files may use Python interpreter only after native subset says unsupported",
-        "VKF_DEV_ALLOW_PYTHON_FALLBACK=1 is development-only fallback hatch",
-        "development fallback hatch only works with VKF_RUNTIME_BACKEND auto",
-        "old VKF_ALLOW_PYTHON_FALLBACK does not enable fallback"
+        "unsupported files fail before interpreter execution",
+        "runtime backend selector cannot choose Python",
+        "native runtime failure never retries through interpreter"
     ]
     package_contract: [
         "supported native package metadata says python_required_to_build false",
@@ -218,7 +217,7 @@ compiler_capability:
         "supported native package runtime_contract default_entrypoint is vkf.exe",
         "supported native package names native driver artifact vkf_driver_artifact_smoke",
         "supported native package has empty python_fallback_launchers",
-        "legacy native-core package metadata remains separate",
+        "native-core package metadata is Python-free",
         "supported native runnable entries do not describe Python fallback",
         "unsupported UI scene packages remain outside Python-free guarantee"
     ]

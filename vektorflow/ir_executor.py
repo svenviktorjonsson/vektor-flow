@@ -42,7 +42,7 @@ from .runtime import (
     runtime_collection_preserves_pipe_result,
     runtime_collection_read_attr,
 )
-from .runtime.type_values import PrimType, coerce_typed_value, is_type_value, resolve_return_type
+from .runtime.type_values import PrimType, coerce_typed_value, is_type_value, primitive_signature, resolve_return_type
 from .runtime.type_surface import runtime_type_surface_metadata
 from .runtime.absnorm import abs_or_norm
 from .runtime.type_values import infer_type
@@ -100,7 +100,7 @@ class IRExecutor:
         self.builtin["take"] = _builtin_take
         self.builtin["to_list"] = _builtin_to_list
         self.builtin["to_multiset"] = _builtin_to_multiset
-        for _tn in ("int", "num", "str", "byte", "bytes", "bool", "any"):
+        for _tn in ("bit", "int", "num", "chr", "str", "any"):
             self.builtin[_tn] = PrimType(_tn)
 
     def _merge_stdlibs(self) -> None:
@@ -174,7 +174,7 @@ class IRExecutor:
                 list(node.param_specs),
             )
             fn.closure[node.name] = fn
-            if node.name in ("num", "str", "bool", "byte") and len(node.param_specs) == 1:
+            if node.name in ("num", "str", "bit", "chr") and len(node.param_specs) == 1:
                 self.cast_overloads.setdefault(node.name, []).append(fn)
             elif node.name in OPERATOR_SYMBOLS:
                 self.op_overloads.setdefault(node.name, []).append(fn)
@@ -411,8 +411,10 @@ class IRExecutor:
             base = self.eval_expr(node.value, env)
             for idx in node.indices:
                 key = self.eval_expr(idx, env)
-                if isinstance(base, (list, tuple, str)):
-                    base = base[int(key)]
+                if isinstance(base, (list, tuple, str)) or (
+                    not isinstance(base, dict) and hasattr(base, "__getitem__") and hasattr(base, "__len__")
+                ):
+                    base = base[_ir_normalize_index(key)]
                     continue
                 if isinstance(base, dict):
                     if key in base:
@@ -447,7 +449,12 @@ class IRExecutor:
         if isinstance(node, ir.AbsExpr):
             return abs_or_norm(self.eval_expr(node.inner, env))
         if isinstance(node, ir.TypeOfExpr):
-            return infer_type(self.eval_expr(node.value, env), self.types)
+            value = self.eval_expr(node.value, env)
+            if value is None:
+                return None
+            if isinstance(value, PrimType):
+                return primitive_signature(value.name)
+            return infer_type(value, self.types)
         if isinstance(node, ir.ScopeExpr):
             loc = dict(env)
             try:
@@ -770,6 +777,10 @@ def _ir_dict_set_path(d: dict[str, Any], keys: list[str], value: Any) -> dict[st
 
 def _ir_normalize_index(idx: Any) -> Any:
     if isinstance(idx, bool):
+        raise EvalError("index must be int or str")
+    if isinstance(idx, complex):
+        if idx.imag == 0 and idx.real == int(idx.real):
+            return int(idx.real)
         raise EvalError("index must be int or str")
     if isinstance(idx, float) and idx == int(idx):
         return int(idx)

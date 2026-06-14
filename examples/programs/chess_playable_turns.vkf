@@ -1,8 +1,8 @@
-Piece : (side:str, role:str, file:num, rank:num, captured:bool, tray_rank:num)
-GameState : (turn:str, move_count:num, history:str, selected_side:str, selected_file:num, selected_rank:num, has_selection:bool, status:str)
+Piece : (side:str, role:str, file:num, rank:num, captured:bit, tray_rank:num)
+GameState : (turn:str, move_count:num, history:str, selected_side:str, selected_file:num, selected_rank:num, has_selection:bit, status:str)
 FrameState : (title:str, moves:str, new_game_label:str)
-MoveIntent : (side:str, notation:str, from_file:num, from_rank:num, to_file:num, to_rank:num, is_capture:bool)
-MoveResult : (ok:bool, state:GameState, frame:FrameState)
+MoveIntent : (side:str, notation:str, from_file:num, from_rank:num, to_file:num, to_rank:num, is_capture:bit)
+MoveResult : (ok:bit, state:GameState, frame:FrameState)
 AnimationPlan : (kind:str, from_x:num, from_z:num, to_x:num, to_z:num, lift:num, duration_ms:num, easing:str, capture_at_ms:num)
 
 initial_state() -> GameState:
@@ -26,14 +26,14 @@ select_piece(state:GameState, piece:Piece) -> GameState:
 clear_selection(state:GameState, status:str) -> GameState:
     @: (turn:state.turn, move_count:state.move_count, history:state.history, selected_side:"", selected_file:0, selected_rank:0, has_selection:false, status:status)
 
-is_selected_piece(state:GameState, intent:MoveIntent) -> bool:
+is_selected_piece(state:GameState, intent:MoveIntent) -> bit:
     state.has_selection?
         state.selected_side = intent.side?
             state.selected_file = intent.from_file?
                 state.selected_rank = intent.from_rank? @: true
     @: false
 
-apply_move(state:GameState, intent:MoveIntent, legal:bool) -> MoveResult:
+apply_move(state:GameState, intent:MoveIntent, legal:bit) -> MoveResult:
     intent.side = state.turn?
         is_selected_piece(state, intent)?
             legal?

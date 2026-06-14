@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 from . import ast
-from .interpreter import Interpreter
 from .runtime.axis_tagged import axis_tagged_data, axis_tagged_idx, axis_tagged_wrap, is_axis_tagged_value
 
 _DEFAULT_INPUT_TITLE = "Input Surface"
@@ -35,20 +34,10 @@ def _materialize_interpreter_value(value: Any) -> Any:
 
 def find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
     prefix: list[Any] = []
-    filename = str(getattr(module, "filename", "") or "__native_scene_extract__.vkf")
-    interpreter_path = Path(filename) if filename not in {"<stdin>", "<expr>"} else Path.cwd() / "__native_scene_extract__.vkf"
     for stmt in module.statements:
         prefix.append(stmt)
         if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
-            interp = Interpreter(interpreter_path)
-            prefix_module = ast.Module(statements=list(prefix))
-            setattr(prefix_module, "filename", filename)
-            interp.run_module(prefix_module)
-            value = interp.globals.get(name, _UNSUPPORTED)
-            if value is _UNSUPPORTED:
-                value = eval_native_scene_literal(stmt.value, f"{name}")
-            else:
-                value = _materialize_interpreter_value(value)
+            value = eval_native_scene_literal(stmt.value, f"{name}")
             if not isinstance(value, dict):
                 raise ValueError(f"{name} must be a struct value")
             return value

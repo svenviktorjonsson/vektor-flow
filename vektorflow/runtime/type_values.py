@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from .. import ast
 from ..errors import ErrorTypeValue, EvalError, error_type_for_exception
 from .axis_tagged import AxisTaggedValue
+from .char_value import VFChr
 from .collections_runtime import runtime_collection_kind
 from .struct_value import (
     VF_SPILL_BASE_KEY,
@@ -25,7 +27,7 @@ from .vmap import VMap
 
 
 class PrimType:
-    """Builtin type object: ``int``, ``num``, ``str``, ``byte``, ``bytes``, ``bool``, ``any``."""
+    """Builtin type/function object: ``bit``, ``int``, ``num``, ``chr``, ``str``, ``any``."""
 
     __slots__ = ("name",)
 
@@ -37,9 +39,9 @@ class PrimType:
             if len(args) == 1:
                 v = args[0]
                 if isinstance(v, bool):
-                    return 1.0 if v else 0.0
+                    return complex(1.0 if v else 0.0, 0.0)
                 if isinstance(v, (int, float)):
-                    return float(v)
+                    return complex(float(v), 0.0)
                 if isinstance(v, complex):
                     return v
                 if isinstance(v, str):
@@ -65,36 +67,43 @@ class PrimType:
                 if v != int(v):
                     raise EvalError("int: explicit cast from num requires an integer-valued number")
                 return int(v)
+            if isinstance(v, complex):
+                if v.imag != 0 or v.real != int(v.real):
+                    raise EvalError("int: explicit cast from num requires a real integer-valued number")
+                return int(v.real)
             if isinstance(v, str):
                 return _parse_int_string(v)
-            raise EvalError("int: expected bool, int, or integer-valued num")
+            raise EvalError("int: expected bit, int, or integer-valued num")
         if self.name == "str":
             if len(args) != 1:
                 raise EvalError("str: expected 1 argument")
             v = args[0]
             if isinstance(v, str):
                 return v
-            if isinstance(v, bytes):
-                return v.decode("utf-8")
             return str(v)
-        if self.name == "bool":
+        if self.name == "bit":
             if len(args) != 1:
-                raise EvalError("bool: expected 1 argument")
+                raise EvalError("bit: expected 1 argument")
             v = args[0]
             if isinstance(v, bool):
                 return v
             if isinstance(v, str):
-                return _parse_bool_string(v)
-            raise EvalError("bool: explicit cast only accepts bool or str")
-        if self.name == "bytes":
+                return _parse_bit_string(v)
+            raise EvalError("bit: explicit cast only accepts bit or str")
+        if self.name == "chr":
             if len(args) != 1:
-                raise EvalError("bytes: expected 1 argument")
+                raise EvalError("chr: expected 1 argument")
             v = args[0]
-            if isinstance(v, (bytes, bytearray)):
-                return bytes(v)
             if isinstance(v, str):
-                return v.encode("utf-8")
-            raise EvalError("bytes: expected bytes or str")
+                if len(v) == 1:
+                    return VFChr(v)
+                raise EvalError("chr: str argument must contain exactly one character")
+            if isinstance(v, int) and not isinstance(v, bool):
+                try:
+                    return VFChr(chr(v))
+                except ValueError as exc:
+                    raise EvalError("chr: int argument must be a valid Unicode code point") from exc
+            raise EvalError("chr: expected str or int code point")
         raise EvalError(f"type {self.name!r} is not callable")
 
     def __eq__(self, other: object) -> bool:
@@ -111,12 +120,21 @@ class PrimType:
         return f"PrimType({self.name!r})"
 
 
+@dataclass(frozen=True)
+class PrimitiveSignature:
+    name: str
+
+
+def primitive_signature(name: str) -> PrimitiveSignature:
+    return PrimitiveSignature(name)
+
+
 def _parse_num_string(text: str) -> float | complex:
     stripped = text.strip()
     if not stripped:
         raise EvalError("cannot coerce empty str to num")
     try:
-        return float(stripped)
+        return complex(float(stripped), 0.0)
     except ValueError:
         try:
             return complex(stripped)
@@ -140,13 +158,13 @@ def _parse_int_string(text: str) -> int:
         return int(as_num)
 
 
-def _parse_bool_string(text: str) -> bool:
+def _parse_bit_string(text: str) -> bool:
     stripped = text.strip().lower()
     if stripped == "true":
         return True
     if stripped == "false":
         return False
-    raise EvalError("bool: explicit cast from str requires 'true' or 'false'")
+    raise EvalError("bit: explicit cast from str requires 'true' or 'false'")
 
 
 def is_type_value(v: Any) -> bool:
@@ -154,7 +172,7 @@ def is_type_value(v: Any) -> bool:
         return True
     if isinstance(v, type) and isinstance(getattr(v, "__vf_event_type_name__", None), str):
         return True
-    return isinstance(v, (PrimType, ErrorTypeValue))
+    return isinstance(v, (PrimType, PrimitiveSignature, ErrorTypeValue))
 
 
 def _type_field_equal(ta: Any, tb: Any) -> bool:
@@ -581,15 +599,15 @@ def _is_host_vector_input(v: Any) -> bool:
 
 def _infer_field_type(v: Any) -> str:
     if isinstance(v, bool):
-        return "bool"
+        return "bit"
+    if isinstance(v, VFChr):
+        return "chr"
     if isinstance(v, int) and not isinstance(v, bool):
         return "int"
     if isinstance(v, float):
         return "num"
     if isinstance(v, complex):
         return "num"
-    if isinstance(v, (bytes, bytearray)):
-        return "bytes"
     if isinstance(v, str):
         return "str"
     if isinstance(v, Multiset):
@@ -642,7 +660,9 @@ def infer_type(
     if isinstance(v, AxisTaggedValue):
         return infer_type(v.data, type_registry)
     if isinstance(v, bool):
-        return ast.PrimTypeRef("bool")
+        return ast.PrimTypeRef("bit")
+    if isinstance(v, VFChr):
+        return ast.PrimTypeRef("chr")
     if isinstance(v, int) and not isinstance(v, bool):
         return ast.PrimTypeRef("int")
     if isinstance(v, float):
@@ -651,8 +671,6 @@ def infer_type(
         return ast.PrimTypeRef("num")
     if isinstance(v, BaseException):
         return error_type_for_exception(v)
-    if isinstance(v, (bytes, bytearray)):
-        return ast.PrimTypeRef("bytes")
     if isinstance(v, str):
         return ast.PrimTypeRef("str")
     host_event_name = getattr(type(v), "__vf_event_type_name__", None)
@@ -726,9 +744,9 @@ def coerce_value(val: Any, tname: str | None) -> Any:
         raise EvalError(f"cannot implicitly coerce {type(val).__name__} to int")
     if tname == "num":
         if isinstance(val, bool):
-            return 1.0 if val else 0.0
+            return complex(1.0 if val else 0.0, 0.0)
         if isinstance(val, (int, float, complex)):
-            return float(val) if isinstance(val, (int, float)) else val
+            return complex(float(val), 0.0) if isinstance(val, (int, float)) else val
         if isinstance(val, str):
             return _parse_num_string(val)
         raise EvalError(f"cannot coerce {type(val).__name__} to num")
@@ -736,22 +754,19 @@ def coerce_value(val: Any, tname: str | None) -> Any:
         if isinstance(val, str):
             return val
         raise EvalError(f"cannot implicitly coerce {type(val).__name__} to str")
-    if tname == "byte":
+    if tname == "chr":
+        if isinstance(val, str) and len(val) == 1:
+            return VFChr(val)
         if isinstance(val, int) and not isinstance(val, bool):
-            if 0 <= val <= 255:
-                return int(val)
-            raise EvalError("cannot coerce int outside 0..255 to byte")
-        raise EvalError(f"cannot coerce {type(val).__name__} to byte")
-    if tname == "bytes":
-        if isinstance(val, (bytes, bytearray)):
-            return bytes(val)
-        if isinstance(val, str):
-            return val.encode("utf-8")
-        raise EvalError(f"cannot coerce {type(val).__name__} to bytes")
-    if tname == "bool":
+            try:
+                return VFChr(chr(val))
+            except ValueError as exc:
+                raise EvalError("cannot coerce int outside Unicode scalar range to chr") from exc
+        raise EvalError(f"cannot coerce {type(val).__name__} to chr")
+    if tname == "bit":
         if isinstance(val, bool):
             return val
-        raise EvalError(f"cannot implicitly coerce {type(val).__name__} to bool")
+        raise EvalError(f"cannot implicitly coerce {type(val).__name__} to bit")
     return val
 
 

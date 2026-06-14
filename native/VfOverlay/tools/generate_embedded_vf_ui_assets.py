@@ -13,6 +13,50 @@ def cpp_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def should_embed(rel: str) -> bool:
+    parts = rel.split("/")
+    if parts and parts[0] == "sessions":
+        return False
+    if len(parts) == 3 and parts[0] == "katex" and parts[1] == "fonts":
+        return True
+    native_scene_assets = {
+        ".gitignore",
+        ".vf-ui-version",
+        "index.html",
+        "vkf-scene.html",
+        "vf-log.js",
+        "vf-runtime-shell.js",
+        "vf-runtime-packet-contract.js",
+        "vf-runtime-source.js",
+        "vf-runtime-scene.js",
+        "vf-runtime-flow.js",
+        "vf-render-clock.js",
+        "vf-frame.css",
+        "vf-frame.js",
+        "vf-widgets.js",
+        "vf-axis3d-kernel.js",
+        "vf-axis3d-kernel-adapter.js",
+        "vf-axis3d-projection-kernel.js",
+        "vf-axis3d-projection-kernel-adapter.js",
+        "vf-chess.css",
+        "vf-display.js",
+        "vf-native-scene.js",
+        "katex/katex.min.css",
+        "katex/katex.min.js",
+        "geom/vf-geom-math.js",
+        "geom/vf-geom-core.js",
+        "geom/vf-geom-ledger-layout.js",
+        "geom/vf-geom-ledger-transport.js",
+        "geom/vf-geom-ledger.js",
+        "geom/vf-geom-parametric-surface.js",
+        "geom/vf-geom-material-arena.js",
+        "geom/vf-geom-frame-adapter.js",
+        "geom/vf-geom-wgpu.js",
+        "assets/fonts/NotoSans-Regular-chess-sdf.png",
+    }
+    return rel in native_scene_assets
+
+
 def main() -> int:
     if len(sys.argv) != 5:
         print(
@@ -34,6 +78,8 @@ def main() -> int:
         if not path.is_file():
             continue
         rel = path.relative_to(source_dir).as_posix()
+        if not should_embed(rel):
+            continue
         files.append((rel, path))
 
     digest = hashlib.sha256()
