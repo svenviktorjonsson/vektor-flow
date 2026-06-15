@@ -6367,62 +6367,35 @@
 
   function ensureChessPanel(runtime) {
     if (!global.document) { return; }
-    var controlsFrameId = String(runtime.cfg.controls_frame_id || "vkf_chess_controls");
     var controlsFrameClass = String(runtime.cfg.controls_frame_class || "vf-chess-frame");
     var controlsPanelClass = String(runtime.cfg.controls_panel_class || "vf-chess-panel");
-    var layer = document.body || document.documentElement;
-    var frameApi = null;
     var sceneFrame = chessSceneFrameElement();
     if (!sceneFrame && sceneFrameVisible()) {
       sceneFrame = ensureVisibleSceneFrameShell();
     }
     var sceneFrameBody = sceneFrame && sceneFrame.querySelector ? sceneFrame.querySelector(".vf-frame__body") : null;
+    if (!sceneFrame || !sceneFrameBody) {
+      failFast("chess controls require the scene frame shell before panel mount");
+    }
     if (runtime.panel) {
       attachChessPanelToSceneFrame(runtime, sceneFrame, sceneFrameBody, controlsFrameClass);
       return;
     }
-    if (sceneFrame && sceneFrameBody) {
-      sceneFrame.setAttribute("data-vf-chess-board-frame", "1");
-      sceneFrame.classList.add(controlsFrameClass);
-      ensureChessBoardHost(sceneFrameBody);
-    } else if (global.VfFrame && typeof global.VfFrame.mount === "function" && layer) {
-      frameApi = global.VfFrame.mount(layer, {
-        id: controlsFrameId,
-        title: "Moves",
-        titleAlign: "left",
-        inLayerDrag: true,
-        draggable: true,
-        dockable: true,
-        resizable: true,
-        closable: true,
-        exitWhenLastFrameClosed: true,
-        alpha: 1,
-        bodyTransparent: false,
-        dockLocation: "br",
-        zIndexBase: 1200
-      });
-      frameApi.root.setAttribute("data-vf-chess-panel", "1");
-      frameApi.root.classList.add(controlsFrameClass);
-    }
-    var panel = frameApi && frameApi.body ? frameApi.body : document.createElement("aside");
+    sceneFrame.setAttribute("data-vf-chess-board-frame", "1");
+    sceneFrame.classList.add(controlsFrameClass);
+    ensureChessBoardHost(sceneFrameBody);
+    var panel = document.createElement("aside");
     panel.classList.add(controlsPanelClass);
     panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><label class="vf-chess-mode"><span>Mode</span><select data-vf-chess-player-mode>' + renderChessPlayerModeOptions(runtime) + '</select></label><div class="vf-chess-clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="white" inputmode="numeric" value="10:00" aria-label="White clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="black" inputmode="numeric" value="10:00" aria-label="Black clock"></div><div class="vf-chess-actions"><button class="vf-chess-start-game" data-vf-chess-start-game>Start Game</button><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button></div><label class="vf-chess-toggle"><input type="checkbox" data-vf-chess-auto-switch> Auto switch view</label><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
     panel.addEventListener("contextmenu", function (ev) {
       if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
       if (ev && typeof ev.stopPropagation === "function") { ev.stopPropagation(); }
     }, { passive: false, capture: true });
-    if (!frameApi) {
-      panel.setAttribute("data-vf-chess-panel", "1");
-      if (sceneFrameBody) {
-        panel.classList.add("vf-chess-panel--in-frame");
-        sceneFrameBody.appendChild(panel);
-      } else {
-        panel.classList.add("vf-chess-panel--fallback");
-        document.body.appendChild(panel);
-      }
-    }
-    runtime.panelFrame = frameApi;
-    runtime.panel = frameApi && frameApi.root ? frameApi.root : panel;
+    panel.setAttribute("data-vf-chess-panel", "1");
+    panel.classList.add("vf-chess-panel--in-frame");
+    sceneFrameBody.appendChild(panel);
+    runtime.panelFrame = null;
+    runtime.panel = panel;
     runtime.panelBody = panel;
     var startButton = panel.querySelector("[data-vf-chess-start-game]");
     if (startButton) {
@@ -7644,12 +7617,6 @@
         var liveFrameId = String(detail.frameId || detail.id || "");
         if (liveFrameId !== String(watchedFrameId || "")) { return; }
         resizeChessViewportToFit(body);
-        if (visibleSpec && controlState.baseCamera) {
-          var resizeCamera = controlState.exactInitCamera
-            ? cloneCameraState(controlState.exactInitCamera, cameraFallback)
-            : cloneCameraState(controlState.baseCamera, cameraFallback);
-          updateVisibleCameraOnly(resizeCamera, { immediate: true });
-        }
       }, true);
     }
     function cameraSwitchActive() {
@@ -8080,9 +8047,21 @@
           ? global.performance.now()
           : Date.now();
         try {
-          var seconds = (global.performance && typeof global.performance.now === "function")
-            ? (global.performance.now() * 0.001)
-            : (Date.now() * 0.001);
+          var rawNowMs = (global.performance && typeof global.performance.now === "function")
+            ? global.performance.now()
+            : Date.now();
+          var pauseActive = global.__vfFrameResizeClockPaused === true;
+          if (pauseActive && !(controlState.resizeClockPauseStartMs > 0.0)) {
+            controlState.resizeClockPauseStartMs = rawNowMs;
+          } else if (!pauseActive && controlState.resizeClockPauseStartMs > 0.0) {
+            controlState.resizeClockPausedTotalMs = Number(controlState.resizeClockPausedTotalMs || 0.0) + Math.max(0.0, rawNowMs - controlState.resizeClockPauseStartMs);
+            controlState.resizeClockPauseStartMs = 0.0;
+          }
+          var pausedTotalMs = Number(controlState.resizeClockPausedTotalMs || 0.0);
+          var effectiveNowMs = pauseActive && controlState.resizeClockPauseStartMs > 0.0
+            ? controlState.resizeClockPauseStartMs - pausedTotalMs
+            : rawNowMs - pausedTotalMs;
+          var seconds = effectiveNowMs * 0.001;
           var nowMs = seconds * 1000.0;
           if (!useVisibleFrame && dependencySourceFrameId) {
             var dependencyCamera = global.__vfNativeSceneLiveCameras && global.__vfNativeSceneLiveCameras[dependencySourceFrameId];

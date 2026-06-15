@@ -8,12 +8,15 @@
 #include <iomanip>
 #include <iostream>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace {
+
+constexpr const char* kNativeSceneStagerContractVersion = "vkf-native-scene-artifact-stager-0.2-launch-manifest";
 
 struct Args {
     std::filesystem::path source;
@@ -54,11 +57,13 @@ std::string read_file_bytes(const std::filesystem::path& path) {
     return buffer.str();
 }
 
-void write_file(const std::filesystem::path& path, const std::string& text) {
+void write_file(const std::filesystem::path& path, const std::string& text, bool refresh_unchanged = false) {
     std::filesystem::create_directories(path.parent_path());
     std::error_code ec;
     if (std::filesystem::exists(path, ec) && read_file_bytes(path) == text) {
-        std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+        if (refresh_unchanged) {
+            std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+        }
         return;
     }
     std::ofstream output(path, std::ios::binary);
@@ -325,6 +330,61 @@ std::string trim_left_copy(const std::string& text) {
     return text.substr(pos);
 }
 
+std::optional<std::string> regex_first_group(const std::string& text, const std::string& pattern) {
+    try {
+        std::smatch match;
+        if (std::regex_search(text, match, std::regex(pattern)) && match.size() > 1) {
+            return match[1].str();
+        }
+    } catch (const std::regex_error&) {
+    }
+    return std::nullopt;
+}
+
+std::string native_scene_launch_manifest_json(const std::string& scene_config_json) {
+    std::vector<std::string> frames;
+    try {
+        std::regex frame_regex("\\\"frame\\\"\\s*:\\s*\\{([^{}]*)\\}");
+        for (std::sregex_iterator it(scene_config_json.begin(), scene_config_json.end(), frame_regex), end; it != end; ++it) {
+            const std::string candidate = (*it)[1].str();
+            if (candidate.find("\"visible\":false") != std::string::npos ||
+                candidate.find("\"visible\": false") != std::string::npos) {
+                continue;
+            }
+            const auto frame_id = regex_first_group(candidate, "\\\"frame_id\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+            if (!frame_id.has_value() || frame_id->empty()) {
+                continue;
+            }
+            const auto title = regex_first_group(candidate, "\\\"title\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+            const auto rect = regex_first_group(candidate, "\\\"rect\\\"\\s*:\\s*\\[([^\\]]+)\\]");
+            const auto aspect = regex_first_group(candidate, "\\\"aspect\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+            std::ostringstream frame;
+            frame << "{"
+                  << "\"id\":\"" << json_escape(*frame_id) << "\","
+                  << "\"title\":\"" << json_escape(title.value_or("")) << "\","
+                  << "\"rect\":[" << rect.value_or("0.04,0.06,0.72,0.84") << "],"
+                  << "\"aspect\":\"" << json_escape(aspect.value_or("")) << "\","
+                  << "\"visible\":true"
+                  << "}";
+            frames.push_back(frame.str());
+        }
+    } catch (const std::regex_error&) {
+    }
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"schema\": \"vektor-flow/launch-manifest\",\n"
+        << "  \"frames\": [";
+    for (size_t i = 0; i < frames.size(); ++i) {
+        if (i != 0) {
+            out << ",";
+        }
+        out << frames[i];
+    }
+    out << "]\n"
+        << "}\n";
+    return out.str();
+}
+
 std::optional<std::string> extract_js_json_assignment(const std::string& text, const std::string& marker) {
     const std::size_t marker_pos = text.find(marker);
     if (marker_pos == std::string::npos) {
@@ -523,7 +583,7 @@ std::string manifest_text(
     std::ostringstream out;
     out << "{\n"
         << "  \"schema\": \"vektor-flow/native-scene-artifact\",\n"
-        << "  \"compiler\": \"vkf-native-scene-artifact-stager-0.1\",\n"
+        << "  \"compiler\": \"" << kNativeSceneStagerContractVersion << "\",\n"
         << "  \"source_path\": \"" << json_escape(slash_path(std::filesystem::absolute(source))) << "\",\n"
         << "  \"source_hash\": \"" << source_hash << "\",\n"
         << "  \"page_rel\": \"" << json_escape(page_rel) << "\",\n"
@@ -545,16 +605,15 @@ std::string html_text(
 ) {
     const std::string native_scene_runtime_config =
         "<script>window.__vfRuntimeShellConfig={"
-        "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"},{href:\"katex/katex.min.css\"}],"
+        "launchManifestUrl:\"vf-launch-manifest.json\","
+        "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"}],"
         "sceneScriptDeps:["
         "\"vf-runtime-packet-contract.js\","
         "\"vf-runtime-source.js\","
         "\"vf-runtime-scene.js\","
         "\"vf-runtime-flow.js\","
         "\"vf-render-clock.js\","
-        "\"katex/katex.min.js\","
         "\"vf-frame.js\","
-        "\"vf-widgets.js\","
         "\"vf-axis3d-kernel.js\","
         "\"vf-axis3d-kernel-adapter.js\","
         "\"vf-axis3d-projection-kernel.js\","
@@ -573,7 +632,7 @@ std::string html_text(
     if (trim_left_copy(scene_config_json) == "[]") {
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
             + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js\"></script>"
             + "</body></html>\n";
@@ -583,7 +642,7 @@ std::string html_text(
         const bool external_arena = !arena_filename.empty();
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
             + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js\"></script>"
             + "<script>"
@@ -613,14 +672,14 @@ std::string html_text(
             + "document.body.appendChild(s);}"
             + "var configs=[];function load(){configList().then(hydrateConfigs).then(function(list){configs=list;configs.sort(function(a,b){return (visible(b)?1:0)-(visible(a)?1:0);});loadAt(0);}).catch(fail);}"
             + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
-            + "window.VfRuntimeShell.ensureSceneDependencies().then(load).catch(fail);"
+            + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(load).catch(fail);"
             + "}else{load();}"
             + "})(window);</script>"
             + "</body></html>\n";
     }
     return std::string("<!DOCTYPE html>\n")
         + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-        + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+        + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
         + native_scene_runtime_config
         + "<script src=\"../../vf-runtime-shell.js\"></script>"
         + "<script>window.__vfNativeSceneConfig=" + scene_config_json + ";</script>"
@@ -630,7 +689,7 @@ std::string html_text(
         + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};"
         + "document.body.appendChild(s);}"
         + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
-        + "window.VfRuntimeShell.ensureSceneDependencies().then(load).catch(fail);"
+        + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(load).catch(fail);"
         + "}else{load();}"
         + "})();</script>"
         + "</body></html>\n";
@@ -805,23 +864,30 @@ int run(int argc, char** argv) {
         generated_keep_names.push_back(arena_filename);
     }
     remove_prior_generated_scene_artifacts(session_dir, generated_keep_names);
+    bool source_hash_changed = true;
+    if (std::filesystem::exists(manifest_path)) {
+        const std::string prior_manifest = read_file_bytes(manifest_path);
+        const std::string expected_source_hash_field = std::string("\"source_hash\": \"") + source_hash + "\"";
+        source_hash_changed = prior_manifest.find(expected_source_hash_field) == std::string::npos;
+    }
     write_file(manifest_path, manifest_text(
         absolute_source,
         source_hash,
         page_rel,
         scene_config_provenance,
         runtime_packets_provenance));
-    write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename));
+    write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename), source_hash_changed);
+    write_file(session_dir / "vf-launch-manifest.json", native_scene_launch_manifest_json(effective.scene_config_json), source_hash_changed);
     if (multi_view_scene) {
         write_file(session_dir / config_filename, effective.scene_config_json + "\n");
     }
     if (!arena_filename.empty()) {
         write_file(session_dir / arena_filename, arena.arena_bytes);
     }
-    write_file(session_dir / "vf-runtime-packets.json", effective.runtime_packets_json);
-    write_file(session_dir / "vf-geom-ledger-transport.json", effective.geom_transport_json);
-    write_file(session_dir / "vf-geom-ledger-state.json", effective.geom_state_json);
-    write_file(session_dir / "vf-event-program.json", effective.event_program_json);
+    write_file(session_dir / "vf-runtime-packets.json", effective.runtime_packets_json, source_hash_changed);
+    write_file(session_dir / "vf-geom-ledger-transport.json", effective.geom_transport_json, source_hash_changed);
+    write_file(session_dir / "vf-geom-ledger-state.json", effective.geom_state_json, source_hash_changed);
+    write_file(session_dir / "vf-event-program.json", effective.event_program_json, source_hash_changed);
 
     std::cout << "{"
               << "\"status\":\"compiled\","

@@ -210,6 +210,11 @@ body.vf-frame-dragging .vf-frame__header[data-vf-frame-dragging="1"] * {
   border-radius: 0 0 8px 8px;
 }
 
+canvas.vf-geom-canvas {
+  object-fit: contain;
+  object-position: center center;
+}
+
 .vf-frame__body.vf-w-stack > *:not(.vf-frame__draw-canvas) {
   position: relative;
   z-index: 1;

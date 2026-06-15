@@ -7,7 +7,6 @@ project(vf-overlay CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 get_filename_component(VF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 
@@ -197,8 +196,21 @@ if(MSVC)
   target_link_options(vf-overlay PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
 
-file(GLOB_RECURSE VF_EMBEDDED_VF_UI_INPUTS CONFIGURE_DEPENDS
-  "${VF_REPO_ROOT}/web/vf-ui/*"
+file(GLOB VF_EMBEDDED_VF_UI_ROOT_INPUTS CONFIGURE_DEPENDS
+  "${VF_REPO_ROOT}/web/vf-ui/*.css"
+  "${VF_REPO_ROOT}/web/vf-ui/*.html"
+  "${VF_REPO_ROOT}/web/vf-ui/*.js"
+  "${VF_REPO_ROOT}/web/vf-ui/.gitignore"
+  "${VF_REPO_ROOT}/web/vf-ui/.vf-ui-version"
+)
+file(GLOB_RECURSE VF_EMBEDDED_VF_UI_ASSET_INPUTS CONFIGURE_DEPENDS
+  "${VF_REPO_ROOT}/web/vf-ui/assets/*"
+  "${VF_REPO_ROOT}/web/vf-ui/geom/*"
+  "${VF_REPO_ROOT}/web/vf-ui/katex/*"
+)
+set(VF_EMBEDDED_VF_UI_INPUTS
+  ${VF_EMBEDDED_VF_UI_ROOT_INPUTS}
+  ${VF_EMBEDDED_VF_UI_ASSET_INPUTS}
 )
 set(VF_EMBEDDED_VF_UI_RC "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_vf_ui_assets.rc")
 set(VF_EMBEDDED_VF_UI_CPP "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_vf_ui_assets.cpp")
@@ -208,14 +220,14 @@ add_custom_command(
     "${VF_EMBEDDED_VF_UI_RC}"
     "${VF_EMBEDDED_VF_UI_CPP}"
     "${VF_EMBEDDED_VF_UI_HPP}"
-  COMMAND "${Python3_EXECUTABLE}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.py"
-    "${VF_REPO_ROOT}/web/vf-ui"
-    "${VF_EMBEDDED_VF_UI_RC}"
-    "${VF_EMBEDDED_VF_UI_CPP}"
-    "${VF_EMBEDDED_VF_UI_HPP}"
+  COMMAND "${CMAKE_COMMAND}"
+    "-DVF_UI_SOURCE_DIR=${VF_REPO_ROOT}/web/vf-ui"
+    "-DVF_UI_OUT_RC=${VF_EMBEDDED_VF_UI_RC}"
+    "-DVF_UI_OUT_CPP=${VF_EMBEDDED_VF_UI_CPP}"
+    "-DVF_UI_OUT_HPP=${VF_EMBEDDED_VF_UI_HPP}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.cmake"
   DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.cmake"
     ${VF_EMBEDDED_VF_UI_INPUTS}
   COMMENT "Embed web/vf-ui into vkf resources"
   VERBATIM

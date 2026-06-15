@@ -28,6 +28,7 @@ namespace {
 std::string ReadFileBytes(const fs::path& path);
 const char kSceneBundleHeader[] = "VKF_SCENE_BUNDLE_V1\n";
 const char kSceneBundleFooter[] = "VKF_SCENE_BUNDLE_END_V1";
+const char kNativeSceneStagerContractVersion[] = "vkf-native-scene-artifact-stager-0.2-launch-manifest";
 
 std::wstring Quote(const std::wstring& value) {
     std::wstring out = L"\"";
@@ -561,9 +562,6 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
 }
 
 int AppendCompiledSceneBundleToExe(const fs::path& exe, const fs::path& webRoot, const fs::path& source) {
-    if (HasAppendedSceneBundle(exe)) {
-        return 0;
-    }
     const std::string payload = BuildCompiledSceneBundle(webRoot, source);
     if (payload.empty()) {
         return Fail(L"native compile failed: staged scene bundle is empty and cannot be embedded");
@@ -672,7 +670,7 @@ std::string NativeSceneSourceTreeBytes(const fs::path& source) {
     return bytes;
 }
 
-bool ManifestContainsSourceHash(const fs::path& manifest, const std::string& sourceHash) {
+bool ManifestCurrentForSource(const fs::path& manifest, const std::string& sourceHash) {
     std::error_code ec;
     if (!fs::exists(manifest, ec)) {
         return false;
@@ -681,8 +679,13 @@ bool ManifestContainsSourceHash(const fs::path& manifest, const std::string& sou
     if (text.empty()) {
         return false;
     }
-    return text.find("\"source_hash\":\"" + sourceHash + "\"") != std::string::npos ||
-           text.find("\"source_hash\": \"" + sourceHash + "\"") != std::string::npos;
+    const bool sourceMatches =
+        text.find("\"source_hash\":\"" + sourceHash + "\"") != std::string::npos ||
+        text.find("\"source_hash\": \"" + sourceHash + "\"") != std::string::npos;
+    const bool contractMatches =
+        text.find("\"compiler\":\"" + std::string(kNativeSceneStagerContractVersion) + "\"") != std::string::npos ||
+        text.find("\"compiler\": \"" + std::string(kNativeSceneStagerContractVersion) + "\"") != std::string::npos;
+    return sourceMatches && contractMatches;
 }
 
 bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs::path& stager) {
@@ -693,7 +696,9 @@ bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs
     if (NewerThan(source, page)) {
         return false;
     }
-    (void)stager;
+    if (!stager.empty() && NewerThan(stager, page)) {
+        return false;
+    }
     const fs::path webRoot = page.parent_path().parent_path().parent_path();
     if (NewerThan(webRoot / L"vf-runtime-shell.js", page) ||
         NewerThan(webRoot / L"vf-native-scene.js", page)) {
@@ -814,11 +819,7 @@ fs::path RunnerTemplateForCompiledScene(const fs::path& self) {
 
 int EnsureExampleExeCurrent(const fs::path& runnerTemplate, const fs::path& source, const fs::path& target) {
     std::error_code ec;
-    const bool targetMissing = !fs::exists(target, ec);
-    const bool targetStale = targetMissing || NewerThan(source, target) || NewerThan(runnerTemplate, target);
-    if (!targetStale) {
-        return 0;
-    }
+    (void)source;
 
     fs::copy_file(runnerTemplate, target, fs::copy_options::overwrite_existing, ec);
     if (ec) {
@@ -905,7 +906,7 @@ bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, 
     const fs::path page = SessionPageForWebRoot(webRoot, absoluteSource);
     const fs::path manifest = ManifestPathForSource(absoluteSource);
     const std::string sourceHash = Fnv1a64Hex(NativeSceneSourceTreeBytes(absoluteSource));
-    if (!ManifestContainsSourceHash(manifest, sourceHash)) {
+    if (!ManifestCurrentForSource(manifest, sourceHash)) {
         report(
             L"compiled artifact manifest missing or stale: " + manifest.wstring() +
             L"\n     Native staleness check did not start Python. Compile with the native VKF compiler, then run again.");

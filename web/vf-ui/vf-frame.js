@@ -1115,6 +1115,8 @@
         nw = Math.max(resizeState.minW, nw);
         nh = Math.max(resizeState.minH, nh);
         root.classList.add("vf-frame--user-sized");
+        root.dataset.vfFrameResizing = "1";
+        window.__vfFrameResizeClockPaused = true;
         root.style.width = Math.round(nw) + "px";
         root.style.height = Math.round(nh) + "px";
         try {
@@ -1125,6 +1127,7 @@
             detail: {
               id: String(id),
               frameId: String(id),
+              phase: "move",
               width: root.style.width || "",
               height: root.style.height || "",
             },
@@ -1138,6 +1141,19 @@
           resizeGrip.releasePointerCapture(e.pointerId);
         } catch (_) {}
         resizeState = null;
+        delete root.dataset.vfFrameResizing;
+        window.__vfFrameResizeClockPaused = false;
+        try {
+          window.dispatchEvent(new CustomEvent("vf-frame-live-resize", {
+            detail: {
+              id: String(id),
+              frameId: String(id),
+              phase: "end",
+              width: root.style.width || "",
+              height: root.style.height || "",
+            },
+          }));
+        } catch (_) {}
         flushPostHitRegionsToHost();
         enqueueFrameEvent({
           frameId: String(id),
@@ -1169,6 +1185,8 @@
             minW,
             minH,
           };
+          root.dataset.vfFrameResizing = "1";
+          window.__vfFrameResizeClockPaused = true;
           try {
             resizeGrip.setPointerCapture(e.pointerId);
           } catch (_) {}

@@ -1269,7 +1269,8 @@
     }, true);
   }
 
-  function syncCanvasSize(canvas) {
+  function syncCanvasSize(canvas, options) {
+    options = options && typeof options === "object" ? options : {};
     if (!canvas) { return null; }
     var frameEl = canvas.closest ? canvas.closest(".vf-frame") : null;
     var hostEl = resizeChessBoardHostToFit(canvas.parentElement || canvas);
@@ -1277,7 +1278,10 @@
     var fit = geomFrameRenderRect(frameEl, hostEl, fid);
     var w = Math.max(1, Math.floor(fit.width));
     var h = Math.max(1, Math.floor(fit.height));
-    if (canvas.style) {
+    if (canvas.width  !== w) { canvas.width  = w; }
+    if (canvas.height !== h) { canvas.height = h; }
+    if (canvas.style && options.deferStyle !== true) {
+      canvas.style.visibility = "";
       canvas.style.left = Math.round(fit.localLeft) + "px";
       canvas.style.top = Math.round(fit.localTop) + "px";
       canvas.style.width = w + "px";
@@ -1286,9 +1290,25 @@
       canvas.style.bottom = "auto";
       canvas.style.inset = "auto";
     }
-    if (canvas.width  !== w) { canvas.width  = w; }
-    if (canvas.height !== h) { canvas.height = h; }
     return { w: w, h: h, left: fit.left, top: fit.top };
+  }
+
+  function syncCanvasStyle(canvas, size) {
+    if (!canvas || !canvas.style) { return; }
+    var frameEl = canvas.closest ? canvas.closest(".vf-frame") : null;
+    var hostEl = resizeChessBoardHostToFit(canvas.parentElement || canvas);
+    var fid = frameEl && frameEl.getAttribute ? frameEl.getAttribute("data-vf-frame-id") : "";
+    var fit = geomFrameRenderRect(frameEl, hostEl, fid);
+    var w = Math.max(1, Math.floor(size && size.w || fit.width));
+    var h = Math.max(1, Math.floor(size && size.h || fit.height));
+    canvas.style.visibility = "";
+    canvas.style.left = Math.round(fit.localLeft) + "px";
+    canvas.style.top = Math.round(fit.localTop) + "px";
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.style.right = "auto";
+    canvas.style.bottom = "auto";
+    canvas.style.inset = "auto";
   }
 
   function findWidgetCanvas(fid, wid) {
@@ -2669,7 +2689,7 @@
     }
     var c = document.createElement("canvas");
     c.className = "vf-geom-canvas " + cls;
-    c.style.cssText = "display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:" + (10 + idx) + ";pointer-events:auto;background:transparent;";
+    c.style.cssText = "display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:" + (10 + idx) + ";pointer-events:auto;background:transparent;object-fit:contain;object-position:center center;";
     body.style.position = "relative";
     body.style.pointerEvents = "auto";
     body.appendChild(c);
@@ -10429,10 +10449,11 @@
                 var host = cv.parentElement || cv;
                 entry.resizeObserver = new ResizeObserver(function () {
                   layoutGeomCanvas(frameEl, cv, fid);
-                  syncCanvasSize(cv);
+                  var resizeSize = syncCanvasSize(cv, { deferStyle: true });
                   if (r && typeof r.onResize === "function") {
                     r.onResize();
                   }
+                  syncCanvasStyle(cv, resizeSize);
                 });
                 entry.resizeObserver.observe(host);
               }
@@ -10710,13 +10731,14 @@
       if (typeof ResizeObserver === "function") {
         var host = canvas.parentElement || canvas;
         entry.resizeObserver = new ResizeObserver(function () {
-          syncCanvasSize(canvas);
+          var resizeSize = syncCanvasSize(canvas, { deferStyle: true });
           if (rec.dynamicAdapter) {
             rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
           }
           if (r && typeof r.onResize === "function") {
             r.onResize();
           }
+          syncCanvasStyle(canvas, resizeSize);
         });
         entry.resizeObserver.observe(host);
         if (rec.dynamicAdapter) {
@@ -10729,7 +10751,7 @@
           var detail = ev && ev.detail ? ev.detail : {};
           var liveFrameId = String(detail.frameId || detail.id || "");
           if (liveFrameId !== String(geomTargetFrameId(fid)) && liveFrameId !== String(fid)) { return; }
-          syncCanvasSize(canvas);
+          var liveSize = syncCanvasSize(canvas, { deferStyle: true });
           if (rec.dynamicAdapter) {
             var liveHost = canvas.parentElement || canvas;
             rec.dynamicAdapter.onHostResize(liveHost.clientWidth || 0, liveHost.clientHeight || 0);
@@ -10737,6 +10759,7 @@
           if (r && typeof r.onResize === "function") {
             r.onResize();
           }
+          syncCanvasStyle(canvas, liveSize);
         }, true);
       }
       ensureGeomFrameEvents(fid);
@@ -11411,13 +11434,14 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
       if (typeof ResizeObserver === "function") {
         var host = canvas.parentElement || canvas;
         entry.resizeObserver = new ResizeObserver(function () {
-          syncCanvasSize(canvas);
+          var resizeSize = syncCanvasSize(canvas, { deferStyle: true });
           if (rec.dynamicAdapter) {
             rec.dynamicAdapter.onHostResize(host.clientWidth || 0, host.clientHeight || 0);
           }
           if (r && typeof r.onResize === "function") {
             r.onResize();
           }
+          syncCanvasStyle(canvas, resizeSize);
         });
         entry.resizeObserver.observe(host);
         if (rec.dynamicAdapter) {

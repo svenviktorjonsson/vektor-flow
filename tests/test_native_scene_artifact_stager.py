@@ -160,7 +160,7 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_bindings(tmp_path: Pa
     source.write_text(
         "\n".join(
             [
-                "native_scene_config_json: '{\"kind\":\"scene_3d\",\"frame_id\":\"vkf_chess_board\"}'",
+                "native_scene_config_json: '[{\"scene_ir\":{\"frame\":{\"frame_id\":\"vkf_chess_board\",\"title\":\"Board\",\"rect\":[0.1,0.2,0.3,0.4],\"aspect\":\"equal\",\"visible\":true}}}]'",
                 "native_scene_runtime_packets_json: '{\"frames\":[{\"id\":\"vkf_chess_board\"}]}'",
                 "native_scene: (kind:\"scene_3d\", frame_id:\"vkf_chess_board\")",
                 "",
@@ -187,7 +187,20 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_bindings(tmp_path: Pa
     session_dir = overlay_web / "sessions" / "main"
     html = (session_dir / "vkf-scene.html").read_text(encoding="utf-8")
     assert '<script src="../../vf-runtime-shell.js"></script>' in html
-    assert 'window.__vfNativeSceneConfig={"kind":"scene_3d","frame_id":"vkf_chess_board"};' in html
+    assert 'window.__vfNativeSceneConfigsUrl="vf-native-scene-configs-' in html
+    assert "launchManifestUrl:\"vf-launch-manifest.json\"" in html
+    assert "mountLaunchFramesFromUrl" in html
+    launch_manifest = json.loads((session_dir / "vf-launch-manifest.json").read_text(encoding="utf-8"))
+    assert launch_manifest["schema"] == "vektor-flow/launch-manifest"
+    assert launch_manifest["frames"] == [
+        {
+            "id": "vkf_chess_board",
+            "title": "Board",
+            "rect": [0.1, 0.2, 0.3, 0.4],
+            "aspect": "equal",
+            "visible": True,
+        }
+    ]
     assert (session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == '{"frames":[{"id":"vkf_chess_board"}]}'
 
 
