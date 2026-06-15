@@ -1,0 +1,16 @@
+:.symbolic
+
+phi: R
+theta: R
+
+phi.repr: "\\phi"
+theta.repr: "\\theta"
+old: phi + theta
+
+phi.repr: "\\varphi"
+
+:: old
+:: latex(old)
+:: latex(phi + theta)
+:: latex(phi * theta)
+:: same(old, phi + theta)

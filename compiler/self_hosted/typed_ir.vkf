@@ -19,6 +19,8 @@ TypedList: (kind:str, items:any, element_type:str, type:str)
 TypedRecord: (kind:str, fields:any, type:str)
 TypedFieldAccess: (kind:str, object:any, field:str, object_type:str, type:str)
 FunctionSymbol: (name:str, param_types:any, return_type:str, signature:str)
+SymbolicTypeFacts: (symbolic:bit, shape:str, surface:str, scalar_domain:str, base_surface:str, exponent_surface:str, domain_surface:str, codomain_surface:str)
+TypedExpressionFacts: (mode:str, value_type:str, symbolic_type:SymbolicTypeFacts, symbolic_node_kind:str, free_variables:any)
 
 type_name(name:str):
     (name: name)
@@ -82,9 +84,9 @@ function_symbol(name:str, param_types:any, return_type:str, signature:str):
 
 infer_literal_type(kind:str):
     kind??
-        "number_literal" => "num"
+        "number_literal" => "int"
         "string_literal" => "str"
-        "bool_literal" => "bool"
+        "bool_literal" => "bit"
         "null_literal" => "null"
         "any"
 
@@ -98,9 +100,10 @@ native_ast_to_ir_smoke_capability:
     lowers: [
         "module",
         "bind to store_binding with inferred value type",
-        "number literal to num const",
+        "integer-surface number literal to int const",
+        "decimal-surface number literal to num const",
         "string literal to str const",
-        "bool literal to bool const",
+        "bool literal to bit const",
         "null literal to null const",
         "identifier to typed load",
         "unknown identifier type any",
@@ -145,7 +148,13 @@ native_ast_to_ir_smoke_capability:
 
 typed_ir_capability:
     name: "self_hosted_typed_ir_seed"
-    types: ["num", "str", "bool", "null", "any", "function signature"]
+    types: ["int", "num", "str", "bit", "null", "any", "function signature"]
+    symbolic_expression_contract: [
+        "regular and symbolic expressions share AST shape",
+        "typed expression facts choose value lowering or symbolic node lowering",
+        "symbolic domains are compile-time type facts",
+        "native compiler lowering uses symbolic_node mode instead of Python fallback"
+    ]
     proven_native_smoke: [
         "answer bind stores num",
         "print call consumes loaded binding",

@@ -238,6 +238,16 @@ Types, flow, and modules:
 - `examples/51_vector_shape_types.vkf`
 - `examples/52_compile_time_shape_params.vkf`
 - `examples/53_type_reflection.vkf`
+
+Symbolic math:
+
+- `examples/symbolic/01_domains_and_types.vkf`
+- `examples/symbolic/02_latex_display_names.vkf`
+- `examples/symbolic/03_calculus_and_sums.vkf`
+- `examples/symbolic/04_relations_and_integer_solve.vkf`
+
+Flow, operators, and modules:
+
 - `examples/60_if.vkf`
 - `examples/61_switch.vkf`
 - `examples/62_pipes.vkf`
@@ -864,6 +874,147 @@ point: (x:3, y:4)
 :: {:point.}    # {x:1, y:1}     member keys
 ```
 
+## Built-In Symbolic Math
+
+VKF has a native symbolic track built into the language and compiler. Symbolic
+values are expression trees, not strings. Printing an expression shows its
+current representation; `latex(expr)` walks the same AST and emits LaTeX.
+
+Import the symbolic namespace before using symbolic domains directly:
+
+```vkf
+:.symbolic
+
+x: R
+n: Z
+f: R -> R
+v: R^n
+
+:: conditions(x)   # [x in R]
+:: conditions(n)   # [n in Z]
+:: conditions(f)   # [f in R->R]
+:: conditions(v)   # [v in R^n]
+```
+
+The symbolic domain names are:
+
+- `N`: natural-number symbolic domain
+- `Z`: integer symbolic domain
+- `Q`: rational symbolic domain
+- `R`: real symbolic domain
+- `C`: complex symbolic domain
+- `R -> R`: symbolic function domain
+- `R^n`: symbolic vector or power-shaped domain
+
+These names are not global by default. Use `:.symbolic` to pour the symbolic
+namespace into scope before declaring symbolic values with `R`, `Z`, and the
+other domain names.
+
+### Representation Matters
+
+Symbolic expressions preserve representation. `x + 1` and `1 + x` may be
+mathematically equivalent, but they are distinct nodes until you explicitly move
+through the equivalence graph.
+
+```vkf
+:.symbolic
+
+x: R
+expr: x + 1
+
+:: expr
+:: same(expr, x + 1)
+```
+
+The current symbolic system keeps plain rendering and LaTeX rendering separate.
+You can give a variable a display name without changing its identity:
+
+```vkf
+:.symbolic
+
+phi: R
+phi.repr: "\\phi"
+
+:: phi
+:: latex(phi)
+:: latex(phi + 1)
+```
+
+Changing `.repr` only affects future nodes that use that variable. Existing
+expressions keep the display metadata they already hold.
+
+### Relations And Solving
+
+`=` creates a relation. Relations are made from expressions, and relation
+solving can return a record when you ask for multiple variables.
+
+```vkf
+:.symbolic
+
+x: Z
+y: Z
+
+eq: 2*x + 3*y = 7
+sol: solve(eq, x, y)
+
+:: eq
+:: sol.x
+:: sol.y
+```
+
+For integer domains, `solve(eq, x, y)` treats the request as a Diophantine
+solution and returns a record with `.x` and `.y` fields when the current solver
+can solve it.
+
+### Calculus And Discrete Operators
+
+Differentiation and integration are ordinary symbolic operations. The short
+aliases are available from the symbolic namespace:
+
+- `diff` for `differentiate`
+- `integ` for `integrate`
+- `grad` for `gradient`
+
+VKF also accepts differential notation:
+
+```vkf
+:.symbolic
+
+x: R
+y: R
+
+:: d/dx x^2 + y
+:: x dx
+:: latex(d/dx x*y)
+```
+
+`d/dx` consumes the expression to its right until the next top-level `+` or `-`.
+When the expression involves other free variables, LaTeX uses partial
+derivatives.
+
+Symbolic range operations live on the existing `stat` namespace. They are the
+same functions used for numeric arrays, with the running variable and bounds
+made explicit:
+
+```vkf
+:.symbolic
+stat: .stat
+
+n: Z
+
+:: stat.sum(n, n, 1, inf)
+:: latex(stat.sum(n, n, 1, inf))
+```
+
+`inf` and `-inf` are symbolic infinity values. Infinite sums remain symbolic;
+finite sums may simplify when the rule is known.
+
+### Native Runtime Contract
+
+The symbolic runtime used by compiled programs is native C++ and lives in
+`compiler/native/vkf_symbolic.hpp`. Tests may use Python as orchestration, but a
+compiled VKF symbolic program runs as a native executable.
+
 ## Control Flow
 
 ### If With `?`
@@ -1077,6 +1228,7 @@ Current public modules:
 - `collections`: mutable runtime containers: `map`, `list`, `queue`.
 - `capture`: regex helpers: `regex`, `groups`.
 - `errors`: catchable error types such as `ParseError`, `EvalError`, `TypeError`.
+- `symbolic`: symbolic domains, expression transforms, LaTeX, solving, `diff`, `integ`, and `grad`.
 - `ui`: interactive display namespace. `sleep` is not in `ui`; import `time` for delays.
 
 ## UI And Scene Runtime

@@ -6,7 +6,7 @@
 Token: (kind:str, value:any, line:num, column:num)
 Cursor: (source:str, file:str, index:num, line:num, column:num)
 LexResult: (tokens:any, errors:any)
-ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bool)
+ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bit)
 CursorSlice: (start:Cursor, stop:Cursor, text:str)
 
 token(kind:str, value:any, line:num, column:num):
@@ -60,7 +60,7 @@ is_number_start(ch:str):
 is_number_continue(ch:str):
     is_digit(ch) \/ ch = "." \/ ch = "e" \/ ch = "E" \/ ch = "+" \/ ch = "-"
 
-scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bool):
+scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
 scan_whitespace_state:

@@ -28,6 +28,7 @@ import json
 
 
 NATIVE_CORE = Path(__file__).resolve().parent.parent / "examples" / "native_core"
+SYMBOLIC_EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "symbolic"
 
 
 def _compile_native_core_example(tmp_path: Path, filename: str) -> subprocess.CompletedProcess[str]:
@@ -39,10 +40,36 @@ def _compile_native_core_example(tmp_path: Path, filename: str) -> subprocess.Co
     return proc
 
 
+SYMBOLIC_EXAMPLE_EXPECTATIONS = {
+    "01_domains_and_types.vkf": "[x in R]\n[n in N]\n[m in Z]\n[q in Q]\n[z in C]\n[f in R->R]\n[v in R^n]\nx + 1\nf",
+    "02_latex_display_names.vkf": "phi + theta\n\\phi+\\theta\n\\varphi+\\theta\n\\varphi\\,\\theta\ntrue",
+    "03_calculus_and_sums.vkf": "derivative(x ^ 2, x) + y\nx ^ 2 / 2\nintegrate(x, x, 0, 1)\nsum(n, n, 1, inf)\n\\frac{\\partial}{\\partial x} x\\,y\n\\int_{0}^{1} x\\,dx\n\\sum_{n=1}^{\\infty} n",
+    "04_relations_and_integer_solve.vkf": "(2 * x + 3 * y) = 7\n((2 * x + 3 * y) = 7) & ((x - y) = 1)\n(x:-7 + 3*k, y:7 - 2*k)\n-7 + 3*k\n7 - 2*k\nno integer solution",
+}
+
+
 def test_cpp_lowering_includes_print_stmt() -> None:
     mod = parse_module(":: 3", filename="<cpp-test>")
     lowered = lower_module(mod)
     assert isinstance(lowered.statements[0], PrintStmt)
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+@pytest.mark.parametrize(("filename", "expected"), sorted(SYMBOLIC_EXAMPLE_EXPECTATIONS.items()))
+def test_symbolic_examples_compile_and_run_natively(tmp_path: Path, filename: str, expected: str) -> None:
+    source = SYMBOLIC_EXAMPLES / filename
+    cpp = emit_cpp_from_source_file(source)
+    exe = compile_cpp_source(cpp, tmp_path, exe_name=source.stem)
+    proc = run_cpp_executable(exe)
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.rstrip("\r\n") == expected
+
+
+def test_symbolic_examples_readme_lists_all_examples() -> None:
+    readme = (SYMBOLIC_EXAMPLES / "README.md").read_text(encoding="utf-8")
+    for filename in SYMBOLIC_EXAMPLE_EXPECTATIONS:
+        assert filename in readme
 
 
 def test_cpp_emits_simple_typed_program() -> None:

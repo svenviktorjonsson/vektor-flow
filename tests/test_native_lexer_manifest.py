@@ -75,6 +75,13 @@ def _run_native_lexer_contract(exe: Path, source: str, filename_label: str) -> d
     return json.loads(proc.stdout)
 
 
+def _without_native_raw_number_metadata(payload: dict[str, object]) -> dict[str, object]:
+    clone = json.loads(json.dumps(payload))
+    for token in clone.get("tokens", []):
+        token.pop("raw", None)
+    return clone
+
+
 def _sha256_path(path: Path) -> str:
     return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
 
@@ -325,7 +332,7 @@ def test_native_lexer_contract_artifact_lexes_curated_sources_without_python_lex
             spec.source_rel,
         )
         expected = json.loads((TOKEN_FIXTURE_ROOT / spec.fixture_name).read_text(encoding="utf-8"))
-        assert payload == expected
+        assert _without_native_raw_number_metadata(payload) == expected
 
     stress_sources = {
         "stress/strings.vkf": '"hi" \'raw\' """a\nb"""',

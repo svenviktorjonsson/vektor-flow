@@ -1,5 +1,7 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "compiler/native/vkf_symbolic_lowering.hpp"
 
+#include <cctype>
 #include <map>
 #include <fstream>
 #include <iostream>
@@ -192,9 +194,14 @@ std::string format_label_expr(const vf::JsonValue& ast) {
 
 vf::JsonValue bool_const(bool value) {
     auto out = node("const");
-    out["type"] = vf::JsonValue("bool");
+    out["type"] = vf::JsonValue("bit");
     out["value"] = vf::JsonValue(value);
     return vf::JsonValue(std::move(out));
+}
+
+bool optional_bool_field(const vf::JsonValue::Object& object, const std::string& name) {
+    const auto found = object.find(name);
+    return found != object.end() && found->second.is_boolean() && found->second.as_boolean();
 }
 
 bool starts_with(const std::string& text, const std::string& prefix);
@@ -213,6 +220,8 @@ bool try_fold_pipe_chain_expr(
     const FunctionTable& functions,
     vf::JsonValue& out_value
 );
+vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& target_type, const std::string& context);
+std::string merge_nullable_type(const std::string& current, const std::string& incoming);
 
 std::string type_annotation_name(const vf::JsonValue& value) {
     if (value.is_null()) {
@@ -224,6 +233,109 @@ std::string type_annotation_name(const vf::JsonValue& value) {
         throw IRFailure("unsupported type annotation kind " + kind);
     }
     return string_field(object, "name", "type annotation");
+}
+
+vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& target_type, const std::string& context) {
+    if (target_type == "any") {
+        return value;
+    }
+    auto& object = const_cast<vf::JsonValue::Object&>(object_of(value, context));
+    const std::string source_type = string_field(object, "type", context);
+    if (source_type == target_type || source_type == "null") {
+        return value;
+    }
+    if (source_type == "any") {
+        object["type"] = vf::JsonValue(target_type);
+        return value;
+    }
+    if (target_type == "num" && source_type == "int") {
+        object["type"] = vf::JsonValue("num");
+        return value;
+    }
+    if (!target_type.empty()
+        && std::isupper(static_cast<unsigned char>(target_type.front()))
+        && starts_with(source_type, "record{")) {
+        object["type"] = vf::JsonValue(target_type);
+        return value;
+    }
+    if (target_type == "bit" && source_type == "num") {
+        const vf::JsonValue& raw = field(object, "value", context);
+        if (raw.is_number() && (raw.as_number() == 0.0 || raw.as_number() == 1.0)) {
+            object["type"] = vf::JsonValue("bit");
+            object["value"] = vf::JsonValue(raw.as_number() == 1.0);
+            return value;
+        }
+    }
+    if (target_type == "bit" && source_type == "int") {
+        const vf::JsonValue& raw = field(object, "value", context);
+        if (raw.is_number() && (raw.as_number() == 0.0 || raw.as_number() == 1.0)) {
+            object["type"] = vf::JsonValue("bit");
+            object["value"] = vf::JsonValue(raw.as_number() == 1.0);
+            return value;
+        }
+    }
+    throw IRFailure("cannot coerce " + source_type + " to " + target_type + " in " + context);
+}
+
+std::string merge_nullable_type(const std::string& current, const std::string& incoming) {
+    if (current == "null") return incoming;
+    if (incoming == "null") return current;
+    if (current == incoming) return current;
+    return "any";
+}
+
+std::string symbolic_type_surface_from_value(const vf::JsonValue& value) {
+    const auto& object = object_of(value, "symbolic type value");
+    if (string_field(object, "kind", "symbolic type value") != "load") {
+        return "";
+    }
+    const std::string name = string_field(object, "name", "symbolic type value");
+    return vkf_symbolic_surface_is_scalar_domain(name) ? name : "";
+}
+
+vf::JsonValue symbolic_type_facts_json(const VkfSymbolicTypeFacts& facts) {
+    auto out = node("symbolic_type_facts");
+    out["symbolic"] = vf::JsonValue(facts.symbolic);
+    std::string shape = "none";
+    if (facts.shape == VkfSymbolicTypeShape::ScalarDomain) shape = "scalar_domain";
+    if (facts.shape == VkfSymbolicTypeShape::FunctionDomain) shape = "function_domain";
+    if (facts.shape == VkfSymbolicTypeShape::PowerDomain) shape = "power_domain";
+    out["shape"] = vf::JsonValue(shape);
+    out["surface"] = vf::JsonValue(facts.surface);
+    out["scalar_domain"] = vf::JsonValue(vkf_sym_domain_surface(facts.scalar_domain));
+    out["base_surface"] = vf::JsonValue(facts.base_surface);
+    out["exponent_surface"] = vf::JsonValue(facts.exponent_surface);
+    out["domain_surface"] = vf::JsonValue(facts.domain_surface);
+    out["codomain_surface"] = vf::JsonValue(facts.codomain_surface);
+    return vf::JsonValue(std::move(out));
+}
+
+void attach_expression_facts(
+    vf::JsonValue::Object& out,
+    VkfExpressionLoweringMode mode,
+    const std::string& value_type,
+    VkfSymbolicCompilerNodeKind node_kind,
+    const std::vector<std::string>& free_variables = {}
+) {
+    out["expression_mode"] = vf::JsonValue(mode == VkfExpressionLoweringMode::SymbolicNode ? "symbolic_node" : "value");
+    if (mode != VkfExpressionLoweringMode::SymbolicNode) {
+        return;
+    }
+    std::string kind = "literal";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Symbol) kind = "symbol";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Binary) kind = "binary";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Call) kind = "call";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Relation) kind = "relation";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Derivative) kind = "derivative";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Integral) kind = "integral";
+    if (node_kind == VkfSymbolicCompilerNodeKind::Sum) kind = "sum";
+    out["symbolic_node_kind"] = vf::JsonValue(kind);
+    out["symbolic_type"] = symbolic_type_facts_json(vkf_symbolic_type_facts(value_type));
+    vf::JsonValue::Array vars;
+    for (const auto& variable : free_variables) {
+        vars.push_back(vf::JsonValue(variable));
+    }
+    out["free_variables"] = vf::JsonValue(std::move(vars));
 }
 
 class Lowerer {
@@ -281,7 +393,30 @@ private:
             if (target_kind == "identifier") {
                 const std::string name = string_field(target, "name", "bind.target");
                 vf::JsonValue value = lower_expr(field(object, "value", "bind"), env);
-                const std::string value_type = string_field(value.as_object(), "type", "IR value");
+                std::string value_type = string_field(value.as_object(), "type", "IR value");
+                const auto type_it = object.find("type");
+                if (type_it != object.end() && !type_it->second.is_null()) {
+                    const std::string declared_type = type_annotation_name(type_it->second);
+                    value = coerce_value_to_type(std::move(value), declared_type, "declared bind");
+                    value_type = declared_type;
+                } else if (symbolic_imported_) {
+                    const std::string symbolic_surface = symbolic_type_surface_from_value(value);
+                    if (!symbolic_surface.empty()) {
+                        auto symbolic_value = node("symbolic_var");
+                        symbolic_value["name"] = vf::JsonValue(name);
+                        symbolic_value["domain"] = vf::JsonValue(symbolic_surface);
+                        symbolic_value["type"] = vf::JsonValue("symbolic");
+                        attach_expression_facts(
+                            symbolic_value,
+                            VkfExpressionLoweringMode::SymbolicNode,
+                            symbolic_surface,
+                            VkfSymbolicCompilerNodeKind::Symbol,
+                            {name}
+                        );
+                        value = vf::JsonValue(std::move(symbolic_value));
+                        value_type = "symbolic";
+                    }
+                }
                 env.set(name, value_type);
 
                 auto out = node("store_binding");
@@ -324,6 +459,18 @@ private:
             auto out = node("module_import");
             out["path"] = field(object, "path", "spill_import");
             out["alias"] = field(object, "alias", "spill_import");
+            const auto& path_object = object_of(field(object, "path", "spill_import"), "spill_import.path");
+            if (string_field(path_object, "kind", "spill_import.path") == "dot_module_path") {
+                const auto& segments = array_of(field(path_object, "segments", "spill_import.path"), "spill_import.path.segments");
+                if (segments.size() == 1 && segments[0].is_string() && segments[0].as_string() == "symbolic") {
+                    symbolic_imported_ = true;
+                    env.set("N", "symbolic_domain");
+                    env.set("Z", "symbolic_domain");
+                    env.set("Q", "symbolic_domain");
+                    env.set("R", "symbolic_domain");
+                    env.set("C", "symbolic_domain");
+                }
+            }
             return vf::JsonValue(std::move(out));
         }
         if (kind == "spill_value") {
@@ -359,7 +506,12 @@ private:
         }
         if (kind == "return") {
             vf::JsonValue value = lower_expr(field(object, "value", "return"), env);
-            const std::string value_type = string_field(value.as_object(), "type", "return value");
+            std::string value_type = string_field(value.as_object(), "type", "return value");
+            const std::string declared_return_type = env.get("$return");
+            if (declared_return_type != "any") {
+                value = coerce_value_to_type(std::move(value), declared_return_type, "return value");
+                value_type = declared_return_type;
+            }
             auto out = node("return");
             out["type"] = vf::JsonValue(value_type);
             out["value"] = std::move(value);
@@ -404,13 +556,13 @@ private:
             if (default_it == param.end() || default_it->second.is_null()) {
                 param_defaults.push_back(vf::JsonValue(nullptr));
             } else {
-                param_defaults.push_back(lower_expr(default_it->second, function_env));
+                param_defaults.push_back(coerce_value_to_type(lower_expr(default_it->second, function_env), param_type, "param default"));
             }
             variadic_positional.push_back(
-                field(param, "variadic_positional", "param").is_boolean() && field(param, "variadic_positional", "param").as_boolean()
+                optional_bool_field(param, "variadic_positional")
             );
             variadic_named.push_back(
-                field(param, "variadic_named", "param").is_boolean() && field(param, "variadic_named", "param").as_boolean()
+                optional_bool_field(param, "variadic_named")
             );
 
             auto ir_param = node("param");
@@ -426,6 +578,7 @@ private:
         const std::string signature = function_signature_type(param_types, return_type);
         functions_.set({name, param_names, param_types, param_defaults, variadic_positional, variadic_named, return_type, signature, field(object, "body", "function_definition")});
         env.set(name, signature);
+        function_env.set("$return", return_type);
 
         auto out = node("function");
         out["body"] = lower_body(field(object, "body", "function_definition"), function_env);
@@ -466,7 +619,11 @@ private:
         const std::string kind = string_field(object, "kind", "expression");
         if (kind == "number_literal") {
             auto out = node("const");
-            out["type"] = vf::JsonValue("num");
+            const auto integer_it = object.find("is_integer_surface");
+            const bool is_integer_surface = integer_it != object.end()
+                && integer_it->second.is_boolean()
+                && integer_it->second.as_boolean();
+            out["type"] = vf::JsonValue(is_integer_surface ? "int" : "num");
             out["value"] = field(object, "value", "number_literal");
             return vf::JsonValue(std::move(out));
         }
@@ -478,7 +635,7 @@ private:
         }
         if (kind == "bool_literal") {
             auto out = node("const");
-            out["type"] = vf::JsonValue("bool");
+            out["type"] = vf::JsonValue("bit");
             out["value"] = field(object, "value", "bool_literal");
             return vf::JsonValue(std::move(out));
         }
@@ -547,6 +704,14 @@ private:
                                 + std::to_string(args.size())
                             );
                         }
+                        for (std::size_t i = 0; i < args.size() && i < function->param_types.size(); ++i) {
+                            const bool is_variadic = (i < function->variadic_positional.size() && function->variadic_positional[i])
+                                || (i < function->variadic_named.size() && function->variadic_named[i]);
+                            if (!is_variadic) {
+                                args[i] = coerce_value_to_type(std::move(args[i]), function->param_types[i], "call arg");
+                                arg_types[i] = vf::JsonValue(function->param_types[i]);
+                            }
+                        }
                     }
                     call_type = function->return_type;
                 }
@@ -569,7 +734,7 @@ private:
             out["op"] = vf::JsonValue(op);
             out["operand"] = std::move(operand);
             out["operand_type"] = vf::JsonValue(operand_type);
-            out["type"] = vf::JsonValue(op == "NOT" ? "bool" : operand_type);
+            out["type"] = vf::JsonValue(op == "NOT" ? "bit" : operand_type);
             return vf::JsonValue(std::move(out));
         }
         if (kind == "range_expr") {
@@ -604,8 +769,8 @@ private:
             const std::string left_type = string_field(left.as_object(), "type", "binary_op.left");
             const std::string right_type = string_field(right.as_object(), "type", "binary_op.right");
             const std::string op = string_field(object, "op", "binary_op");
-            const bool scalar_builtin = (left_type == "num" && right_type == "num")
-                || (left_type == "bool" && right_type == "bool")
+            const bool scalar_builtin = ((left_type == "num" || left_type == "int") && (right_type == "num" || right_type == "int"))
+                || (left_type == "bit" && right_type == "bit")
                 || (left_type == "str" && right_type == "str");
             if (const FunctionInfo* function = functions_.get(op);
                 function != nullptr && !scalar_builtin && left_type != "any" && right_type != "any") {
@@ -634,7 +799,18 @@ private:
             out["right"] = std::move(right);
             out["left_type"] = vf::JsonValue(left_type);
             out["right_type"] = vf::JsonValue(right_type);
-            out["type"] = vf::JsonValue(binary_result_type(op, left_type, right_type));
+            const std::string result_type = binary_result_type(op, left_type, right_type);
+            out["type"] = vf::JsonValue(result_type);
+            if (result_type == "symbolic") {
+                attach_expression_facts(
+                    out,
+                    VkfExpressionLoweringMode::SymbolicNode,
+                    "R",
+                    op == "EQ" || op == "EXACT_EQ" || op == "NEQ"
+                        ? VkfSymbolicCompilerNodeKind::Relation
+                        : VkfSymbolicCompilerNodeKind::Binary
+                );
+            }
             return vf::JsonValue(std::move(out));
         }
         if (kind == "type_of") {
@@ -695,8 +871,8 @@ private:
                         if (first) {
                             element_type = range_type;
                             first = false;
-                        } else if (element_type != range_type) {
-                            element_type = "any";
+                        } else {
+                            element_type = merge_nullable_type(element_type, range_type);
                         }
                         items.push_back(range_item);
                     }
@@ -707,8 +883,8 @@ private:
                 if (first) {
                     element_type = item_type;
                     first = false;
-                } else if (element_type != item_type) {
-                    element_type = "any";
+                } else {
+                    element_type = merge_nullable_type(element_type, item_type);
                 }
                 items.push_back(std::move(lowered_item));
             }
@@ -751,8 +927,8 @@ private:
                 if (first) {
                     element_type = key_type;
                     first = false;
-                } else if (element_type != key_type) {
-                    element_type = "any";
+                } else {
+                    element_type = merge_nullable_type(element_type, key_type);
                 }
                 auto lowered_pair = node("multiset_pair");
                 lowered_pair["key"] = std::move(lowered_key);
@@ -901,6 +1077,9 @@ private:
         std::string right_value_type;
         const bool left_is_axis = parse_axis_tagged_type(left_type, left_axis, left_value_type);
         const bool right_is_axis = parse_axis_tagged_type(right_type, right_axis, right_value_type);
+        if (left_type == "symbolic" || right_type == "symbolic") {
+            return "symbolic";
+        }
         if (left_is_axis && right_is_axis) {
             if (left_axis == right_axis) {
                 return axis_tagged_type(left_axis, binary_result_type(op, left_value_type, right_value_type));
@@ -914,13 +1093,20 @@ private:
         if (op == "EQ" || op == "EXACT_EQ" || op == "NEQ" || op == "STRUCT_NEQ"
             || op == "LT" || op == "LE" || op == "GT" || op == "GE"
             || op == "AND" || op == "OR" || op == "XOR") {
-            return "bool";
+            return "bit";
         }
         if (op == "AMPERSAND") {
             return "str";
         }
         if (op == "PLUS" || op == "MINUS" || op == "STAR" || op == "SLASH"
             || op == "FLOORDIV" || op == "PERCENT" || op == "CARET") {
+            if ((op == "PLUS" || op == "MINUS" || op == "STAR" || op == "FLOORDIV" || op == "PERCENT")
+                && left_type == "int" && right_type == "int") {
+                return "int";
+            }
+            if ((left_type == "int" || left_type == "num") && (right_type == "int" || right_type == "num")) {
+                return "num";
+            }
             if (left_type == "num" && right_type == "num") {
                 return "num";
             }
@@ -966,6 +1152,7 @@ private:
 
     FunctionTable functions_;
     TypeEnv module_env_;
+    bool symbolic_imported_ = false;
 };
 
 double require_const_number(const vf::JsonValue& value, const std::string& context) {

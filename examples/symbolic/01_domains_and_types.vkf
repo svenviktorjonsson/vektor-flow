@@ -1,0 +1,19 @@
+:.symbolic
+
+x: R
+n: N
+m: Z
+q: Q
+z: C
+f: R -> R
+v: R^n
+
+:: conditions(x)
+:: conditions(n)
+:: conditions(m)
+:: conditions(q)
+:: conditions(z)
+:: conditions(f)
+:: conditions(v)
+:: x + 1
+:: f
