@@ -334,16 +334,15 @@ class TestOverlayMode:
 
         assert calls == [("terminate", 777), ("sync", True)]
 
-    def test_exec_root_fallback(self, monkeypatch, tmp_path) -> None:
+    def test_cwd_root_fallback(self, monkeypatch, tmp_path) -> None:
         bundle_root = tmp_path / "bundle"
         web_root = bundle_root / "web" / "vf-ui"
         (web_root / "index.html").parent.mkdir(parents=True, exist_ok=True)
         (web_root / "index.html").write_text("<!doctype html>", encoding="utf-8")
         (web_root / "vkf-scene.html").write_text("<!doctype html>", encoding="utf-8")
-        exe = bundle_root / "vf-overlay.exe"
-        exe.write_bytes(b"")
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(sys, "executable", str(exe))
+        work_dir = bundle_root / "examples"
+        work_dir.mkdir()
+        monkeypatch.chdir(work_dir)
         monkeypatch.setattr(L, "__file__", str((tmp_path / "fake_launch.py").resolve()))
         root = L.find_vektorflow_repo_root()
         assert root == bundle_root

@@ -17,7 +17,6 @@ def find_vektorflow_repo_root(
     env_root: str,
     cwd: Path,
     module_file: Path,
-    sys_executable: Path,
     package_file: Path | None,
 ) -> Path | None:
     env = (env_root or "").strip()
@@ -25,13 +24,6 @@ def find_vektorflow_repo_root(
         p = Path(env).expanduser().resolve()
         if is_vektorflow_repo(p):
             return p
-    try:
-        exe_root = Path(sys_executable).resolve().parent
-        for base in (exe_root, *exe_root.parents):
-            if is_vektorflow_repo(base):
-                return base
-    except Exception:
-        pass
     cur = Path(cwd).resolve()
     for _ in range(40):
         if is_vektorflow_repo(cur):

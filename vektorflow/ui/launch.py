@@ -337,7 +337,6 @@ def find_vektorflow_repo_root() -> Path | None:
         env_root=os.environ.get("VF_UI_REPO_ROOT") or "",
         cwd=Path.cwd(),
         module_file=Path(__file__),
-        sys_executable=Path(sys.executable),
         package_file=package_file,
     )
     env = (os.environ.get("VF_UI_REPO_ROOT") or "").strip()

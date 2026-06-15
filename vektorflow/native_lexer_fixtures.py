@@ -1599,7 +1599,7 @@ def regenerate_token_fixtures(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m vektorflow.native_lexer_fixtures",
+        prog="vkf-native-lexer-fixtures",
         description="Regenerate or verify checked-in versioned token-stream fixtures.",
     )
     parser.add_argument(

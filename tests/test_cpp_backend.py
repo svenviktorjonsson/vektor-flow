@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+import vektorflow.cpp_backend as cpp_backend
 from vektorflow.cpp_backend import (
     build_cpp_from_source_file,
     build_cpp_from_token_stream_json,
@@ -54,8 +55,8 @@ num a: 3
 """
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     cpp = emit_cpp_module(lowered)
-    assert "std::complex<double> twice(std::complex<double> x)" in cpp
-    assert "std::complex<double> a = 3.0;" in cpp
+    assert "double twice(double x)" in cpp
+    assert "double a = 3.0;" in cpp
     assert 'std::cout << vf_format_num(twice(a)) << "\\n";' in cpp
     assert "#include <any>" not in cpp
     assert "#include <list>" not in cpp
@@ -65,8 +66,54 @@ num a: 3
     assert "vf_mset_make" not in cpp
 
 
+def test_run_cpp_executable_launches_only_the_built_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    exe = tmp_path / "program.exe"
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, *, capture_output, text):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    res = run_cpp_executable(exe, ["--flag"])
+
+    assert res.returncode == 0
+    assert calls == [[str(exe), "--flag"]]
+    assert all("python" not in part.lower() and "py.exe" not in part.lower() for part in calls[0])
+
+
+def test_compile_and_run_module_uses_native_build_then_executable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    module = lower_module(parse_module(":: 1", filename="<cpp-test>"))
+    exe = tmp_path / "vf_program.exe"
+    calls: list[str] = []
+
+    class Build:
+        executable_path = exe
+
+    def fake_build_cpp_module_view(arg_module, out_dir, exe_name="vf_program"):
+        calls.append(f"build:{exe_name}")
+        assert arg_module is module
+        assert Path(out_dir).name.startswith("vf_cpp_")
+        return Build()
+
+    def fake_run_cpp_executable(path, args=None):
+        calls.append(f"run:{Path(path).name}")
+        assert path == exe
+        assert args is None
+        return subprocess.CompletedProcess([str(path)], 0, stdout="1\n", stderr="")
+
+    monkeypatch.setattr(cpp_backend, "build_cpp_module_view", fake_build_cpp_module_view)
+    monkeypatch.setattr(cpp_backend, "run_cpp_executable", fake_run_cpp_executable)
+
+    res = compile_and_run_module(module)
+
+    assert res.stdout == "1\n"
+    assert calls == ["build:vf_program", "run:vf_program.exe"]
+
+
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
-def test_cpp_num_uses_complex_domain_for_math() -> None:
+def test_cpp_num_stays_real_for_math() -> None:
     src = """
 math: .math
 :: math.sqrt(-1)
@@ -76,8 +123,8 @@ math: .math
     lowered = lower_module(parse_module(src, filename="<cpp-test>"))
     res = compile_and_run_module(lowered)
     lines = res.stdout.strip().splitlines()
-    assert lines[0] == "i"
-    assert lines[1].endswith("i")
+    assert "nan" in lines[0].lower()
+    assert "nan" in lines[1].lower()
     assert lines[2] == "3"
 
 
@@ -263,6 +310,7 @@ expr: n + 1
 :: difference(expr, n)
 :: stat.sum(1, n, 1, n)
 :: stat.sum(n, n, 1, n)
+:: stat.sum(n, n, 1, inf)
 :: stat.sum(3, n, 1, n)
 :: stat.mean(expr, n, 1, inf)
 :: stat.median(expr, n, -inf, inf)
@@ -288,6 +336,7 @@ expr: n + 1
         "(shift(n + 1, n, 1)) - (n + 1)",
         "n",
         "n * (n + 1) / 2",
+        "sum(n, n, 1, inf)",
         "sum(3, n, 1, n)",
         "mean(n + 1, n, 1, inf)",
         "median(n + 1, n, -inf, inf)",
@@ -383,6 +432,67 @@ y: R
         "\\frac{\\partial}{\\partial x} x\\,y",
         "\\frac{d^{2}}{dx^{2}} x",
         "\\frac{x^{2}}{2}",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_symbolic_variable_repr_sets_ast_latex_display_name() -> None:
+    src = """
+:.symbolic
+phi: R
+phi.repr: "\\\\phi"
+:: phi
+:: conditions(phi)
+:: latex(phi)
+:: latex(phi + 1)
+:: latex(d/dphi phi^2)
+:: latex(phi dphi)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "phi",
+        "[phi in R]",
+        "\\phi",
+        "\\phi+1",
+        "\\frac{d}{d\\phi} \\phi^{2}",
+        "\\frac{\\phi^{2}}{2}",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_symbolic_repr_propagates_through_latex_nodes_without_rewriting_identity() -> None:
+    src = """
+:.symbolic
+stat: .stat
+phi: R
+theta: R
+phi.repr: "\\\\phi"
+theta.repr: "\\\\theta"
+old: phi + theta
+phi.repr: "\\\\varphi"
+:: old
+:: latex(old)
+:: latex(phi + theta)
+:: latex(phi * theta)
+:: latex(d/dphi phi*theta)
+:: latex(integrate(theta, theta))
+:: latex(stat.sum(phi, phi, 1, inf))
+:: same(old, phi + theta)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "phi + theta",
+        "\\phi+\\theta",
+        "\\varphi+\\theta",
+        "\\varphi\\,\\theta",
+        "\\frac{\\partial}{\\partial \\varphi} \\varphi\\,\\theta",
+        "\\frac{\\theta^{2}}{2}",
+        "\\sum_{\\varphi=1}^{\\infty} \\varphi",
+        "true",
     ]
 
 

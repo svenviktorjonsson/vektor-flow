@@ -58,4 +58,8 @@ def test_native_symbolic_core_carries_domains_nodes_latex_and_diophantine_solve(
         "1",
         "x ^ 2 / 2",
         "grad(x + 1, x)",
+        "\\phi+\\theta",
+        "\\frac{\\partial}{\\partial \\phi} \\phi\\,\\theta",
+        "\\int \\phi\\,d\\phi",
+        "\\sum_{\\phi=1}^{\\infty} \\phi",
     ]

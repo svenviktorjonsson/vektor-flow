@@ -304,6 +304,37 @@ def _assert_entry_surface_projection(surface, manifest: dict[str, object], kind:
     assert execution.preferred.argv == tuple(preferred_manifest["argv"])
 
 
+def _assert_package_has_no_python_runtime_launch_path(surface) -> None:
+    manifest = surface.manifest.data
+    assert manifest["runtime_contract"]["python_required_to_run"] is False
+    assert manifest["runnable_contract"]["python_required_to_run"] is False
+    assert manifest["runtime_contract"]["python_required_to_build"] is False
+    assert manifest["runnable_contract"]["python_required_to_build"] is False
+
+    for family in ("launch", "smoke_test"):
+        for section in ("preferred", "fallbacks"):
+            entries = manifest["runnable_contract"][family][section]
+            platform_entries = entries.values() if section == "preferred" else (
+                item for platform in entries.values() for item in platform
+            )
+            for entry in platform_entries:
+                command = " ".join(entry["argv"]).lower()
+                assert "python" not in command
+                assert "py.exe" not in command
+
+    for artifact in (
+        surface.artifacts.launchers.artifact_for("windows").path,
+        surface.artifacts.launchers.artifact_for("windows_powershell").path,
+        surface.artifacts.launchers.artifact_for("posix").path,
+        surface.artifacts.smoke_tests.artifact_for("windows").path,
+        surface.artifacts.smoke_tests.artifact_for("windows_powershell").path,
+        surface.artifacts.smoke_tests.artifact_for("posix").path,
+    ):
+        text = artifact.read_text(encoding="utf-8").lower()
+        assert "python" not in text
+        assert "py.exe" not in text
+
+
 def _assert_typed_package_surface_contract(
     surface,
     *,
@@ -329,6 +360,7 @@ def _assert_typed_package_surface_contract(
     assert view.source_label == source_label
     assert view.python_required_to_build is python_required_to_build
     assert view.python_required_to_run is False
+    _assert_package_has_no_python_runtime_launch_path(surface)
 
     assert surface.manifest_path == artifacts.manifest_path
     assert surface.readme_path == artifacts.readme_path

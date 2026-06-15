@@ -977,10 +977,6 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
         "    if (std::floor(v) != v) throw std::runtime_error(\"rational: num cast requires an integer-valued real number\");",
         "    return vf_make_rational(static_cast<long long>(v), 1);",
         "}",
-        "static vf_rational vf_to_rational(const std::complex<double>& v) {",
-        "    if (v.imag() != 0.0) throw std::runtime_error(\"rational: num cast requires a real number\");",
-        "    return vf_to_rational(v.real());",
-        "}",
         "static vf_rational operator+(const vf_rational& a, const vf_rational& b) { return vf_make_rational(a.n * b.d + b.n * a.d, a.d * b.d); }",
         "static vf_rational operator-(const vf_rational& a, const vf_rational& b) { return vf_make_rational(a.n * b.d - b.n * a.d, a.d * b.d); }",
         "static vf_rational operator-(const vf_rational& a) { return vf_make_rational(-a.n, a.d); }",
@@ -996,7 +992,7 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
         "    if (v.d == 1) return std::to_string(v.n);",
         "    return std::to_string(v.n) + std::string(\"/\") + std::to_string(v.d);",
         "}",
-        "static std::complex<double> vf_to_num(const vf_rational& v) { return std::complex<double>(static_cast<double>(v.n) / static_cast<double>(v.d), 0.0); }",
+        "static double vf_to_num(const vf_rational& v) { return static_cast<double>(v.n) / static_cast<double>(v.d); }",
         *_emit_symbolic_runtime_support(),
     ]
     if features.uses_value_format:
@@ -1189,42 +1185,30 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
         )
     lines.extend(
         [
-            "static std::complex<double> vf_to_num(const std::complex<double>& v) { return v; }",
-            "static std::complex<double> vf_to_num(double v) { return std::complex<double>(v, 0.0); }",
-            "static std::complex<double> vf_to_num(int v) { return std::complex<double>(static_cast<double>(v), 0.0); }",
-            "static std::complex<double> vf_to_num(long long v) { return std::complex<double>(static_cast<double>(v), 0.0); }",
-            "static std::complex<double> vf_to_num(bool v) { return std::complex<double>(v ? 1.0 : 0.0, 0.0); }",
+            "static double vf_to_num(double v) { return v; }",
+            "static double vf_to_num(int v) { return static_cast<double>(v); }",
+            "static double vf_to_num(long long v) { return static_cast<double>(v); }",
+            "static double vf_to_num(bool v) { return v ? 1.0 : 0.0; }",
             "static double vf_to_real(double v) { return v; }",
             "static double vf_to_real(int v) { return static_cast<double>(v); }",
             "static double vf_to_real(long long v) { return static_cast<double>(v); }",
             "static double vf_to_real(bool v) { return v ? 1.0 : 0.0; }",
             "static double vf_to_real(const vf_rational& v) { return static_cast<double>(v.n) / static_cast<double>(v.d); }",
-            "static double vf_to_real(const std::complex<double>& v) {",
-            "    if (v.imag() != 0.0) throw std::runtime_error(\"real-valued operation received complex num\");",
-            "    return v.real();",
-            "}",
             "static long long vf_to_int(int v) { return static_cast<long long>(v); }",
             "static long long vf_to_int(long long v) { return v; }",
             "static long long vf_to_int(bool v) { return v ? 1LL : 0LL; }",
-            "static long long vf_to_int(const std::complex<double>& v) {",
-            "    if (v.imag() != 0.0 || std::floor(v.real()) != v.real()) throw std::runtime_error(\"int: explicit cast from num requires a real integer-valued number\");",
-            "    return static_cast<long long>(v.real());",
-            "}",
             "static long long vf_to_int(double v) {",
             "    if (std::floor(v) != v) throw std::runtime_error(\"int cast requires integer-valued number\");",
             "    return static_cast<long long>(v);",
             "}",
             "static bool vf_to_bool(bool v) { return v; }",
-            "static bool vf_to_bool(const std::complex<double>& v) { return v.real() != 0.0 || v.imag() != 0.0; }",
+            "static bool vf_to_bool(double v) { return v != 0.0; }",
             "static std::string vf_to_str(const std::string& v) { return v; }",
-            "static std::string vf_to_str(const std::complex<double>& v) { return vf_format_num(v); }",
-            "static bool vf_num_lt(const std::complex<double>& a, const std::complex<double>& b) {",
-            "    if (a.imag() != 0.0 || b.imag() != 0.0) throw std::runtime_error(\"ordering is only defined for real num values\");",
-            "    return a.real() < b.real();",
-            "}",
-            "static bool vf_num_le(const std::complex<double>& a, const std::complex<double>& b) { return vf_num_lt(a, b) || a == b; }",
-            "static bool vf_num_gt(const std::complex<double>& a, const std::complex<double>& b) { return vf_num_lt(b, a); }",
-            "static bool vf_num_ge(const std::complex<double>& a, const std::complex<double>& b) { return vf_num_gt(a, b) || a == b; }",
+            "static std::string vf_to_str(double v) { return vf_format_num(v); }",
+            "static bool vf_num_lt(double a, double b) { return a < b; }",
+            "static bool vf_num_le(double a, double b) { return a <= b; }",
+            "static bool vf_num_gt(double a, double b) { return a > b; }",
+            "static bool vf_num_ge(double a, double b) { return a >= b; }",
         ]
     )
     if features.uses_fixed_arrays:
@@ -2365,7 +2349,7 @@ def _cpp_type(t: Any, state: EmitState | None = None) -> str:
         if t.name == "symbolic":
             return "vf_symbolic"
         if t.name == "num":
-            return "std::complex<double>"
+            return "double"
         if t.name == "bit":
             return "bool"
         if t.name == "chr":
@@ -3079,7 +3063,13 @@ def _emit_intrinsic_call(
             if len(args) != 1:
                 raise CppEmitError("symbolic math intrinsics currently require one argument")
             return f"vf_sym_call(\"{intrinsic.name}\", vf_to_symbolic({args[0]}))"
-        num_args = [f"vf_to_num({arg})" for arg in args]
+        num_args = []
+        for expr, arg in zip(node.args, args):
+            expr_t = _normalize_type(_expr_type(expr, typed))
+            if isinstance(expr_t, ast.PrimTypeRef) and expr_t.name == "num":
+                num_args.append(arg)
+            else:
+                num_args.append(f"vf_to_num({arg})")
         if intrinsic.name == "log":
             return f"(std::log({num_args[0]}) / std::log({num_args[1]}))"
         if intrinsic.name == "atan2":
@@ -3102,7 +3092,7 @@ def _emit_intrinsic_call(
             "sqrt": "std::sqrt",
         }
         if intrinsic.name == "lg2":
-            return f"(std::log({num_args[0]}) / std::log(vf_to_num(2.0)))"
+            return f"(std::log({num_args[0]}) / std::log(2.0))"
         return f"{name_map[intrinsic.name]}({', '.join(num_args)})"
     if intrinsic.kind == "stat":
         arg_types = [_expr_type(a, typed) for a in node.args]
@@ -3546,16 +3536,20 @@ def _emit_expr(node: Any, env: dict[str, Any], functions: dict[str, ir.FunctionD
             and "num" in {lt_n.name, rt_n.name}
             and node.op in {"PLUS", "MINUS", "STAR", "SLASH", "EQ", "NEQ"}
         ):
-            left = f"vf_to_num({left})"
-            right = f"vf_to_num({right})"
+            if lt_n.name != "num":
+                left = f"vf_to_num({left})"
+            if rt_n.name != "num":
+                right = f"vf_to_num({right})"
         if node.op in {"LT", "LE", "GT", "GE"}:
             if (
                 isinstance(lt_n, ast.PrimTypeRef)
                 and isinstance(rt_n, ast.PrimTypeRef)
                 and "num" in {lt_n.name, rt_n.name}
             ):
-                helper = {"LT": "vf_num_lt", "LE": "vf_num_le", "GT": "vf_num_gt", "GE": "vf_num_ge"}[node.op]
-                return f"{helper}(vf_to_num({left}), vf_to_num({right}))"
+                if lt_n.name != "num":
+                    left = f"vf_to_num({left})"
+                if rt_n.name != "num":
+                    right = f"vf_to_num({right})"
         if node.op == "AMPERSAND":
             return f"({left} + {right})"
         if node.op not in op_map:
@@ -3650,6 +3644,12 @@ def _emit_lvalue(node: Any, env: dict[str, Any], functions: dict[str, ir.Functio
 
 
 def _emit_bind_expr_stmt(node: ir.BindExpr, env: dict[str, Any], functions: dict[str, ir.FunctionDef], indent: str, state: EmitState, typed: TypedModuleInfo) -> str:
+    if isinstance(node.target, ir.AttrExpr) and node.target.name == "repr":
+        base_t = _expr_type(node.target.value, typed)
+        if _is_symbolic_type(base_t):
+            base = _emit_lvalue(node.target.value, env, functions, state, typed)
+            value = _emit_expr(node.value, env, functions, state, typed)
+            return f"{indent}{base} = vf_sym_set_repr({base}, {value});"
     return f"{indent}{_emit_lvalue(node.target, env, functions, state, typed)} = {_emit_expr(node.value, env, functions, state, typed)};"
 
 

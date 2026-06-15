@@ -46,7 +46,6 @@ def test_find_vektorflow_repo_root_uses_env_first(tmp_path: Path) -> None:
         env_root=str(tmp_path),
         cwd=tmp_path / "child",
         module_file=tmp_path / "pkg" / "launch.py",
-        sys_executable=tmp_path / "python.exe",
         package_file=None,
     )
 

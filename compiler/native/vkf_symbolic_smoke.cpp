@@ -36,6 +36,20 @@ int main() {
     if (vkf_sym_render(vkf_sym_integ(x, x)) != "x ^ 2 / 2") return 14;
     if (vkf_sym_render(vkf_sym_grad(expr, x)) != "grad(x + 1, x)") return 15;
 
+    const auto phi = vkf_sym_set_repr(vkf_sym_symbol("phi", vkf_sym_domain_real()), "\\phi");
+    const auto theta = vkf_sym_set_repr(vkf_sym_symbol("theta", vkf_sym_domain_real()), "\\theta");
+    const auto trig_arg = vkf_sym_binary(phi, "+", theta);
+    const auto product = vkf_sym_binary(phi, "*", theta);
+    const auto partial = vkf_sym_call("derivative", {product, phi});
+    const auto integral = vkf_sym_call("integrate", {phi, phi});
+    const auto sum = vkf_sym_call("sum", {phi, phi, vkf_sym_integer(1), vkf_sym_symbol("inf")});
+    if (vkf_sym_render(phi) != "phi") return 16;
+    if (vkf_sym_latex(phi) != "\\phi") return 17;
+    if (vkf_sym_latex(trig_arg) != "\\phi+\\theta") return 18;
+    if (vkf_sym_latex(partial) != "\\frac{\\partial}{\\partial \\phi} \\phi\\,\\theta") return 19;
+    if (vkf_sym_latex(integral) != "\\int \\phi\\,d\\phi") return 20;
+    if (vkf_sym_latex(sum) != "\\sum_{\\phi=1}^{\\infty} \\phi") return 21;
+
     std::cout << vkf_sym_render(expr) << "\n";
     std::cout << vkf_sym_latex(expr) << "\n";
     std::cout << vkf_sym_render(solved.x) << "\n";
@@ -43,5 +57,9 @@ int main() {
     std::cout << vkf_sym_render(vkf_sym_diff(x, x)) << "\n";
     std::cout << vkf_sym_render(vkf_sym_integ(x, x)) << "\n";
     std::cout << vkf_sym_render(vkf_sym_grad(expr, x)) << "\n";
+    std::cout << vkf_sym_latex(trig_arg) << "\n";
+    std::cout << vkf_sym_latex(partial) << "\n";
+    std::cout << vkf_sym_latex(integral) << "\n";
+    std::cout << vkf_sym_latex(sum) << "\n";
     return 0;
 }

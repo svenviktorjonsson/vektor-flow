@@ -66,7 +66,7 @@ def write_fixture_for_source(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m vektorflow.native_lexer_proto",
+        prog="vkf-native-lexer-proto",
         description="Emit the versioned Vektor Flow token-stream JSON payload.",
     )
     parser.add_argument(

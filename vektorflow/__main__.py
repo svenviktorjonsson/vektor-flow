@@ -1,4 +1,4 @@
-"""Allow ``python -m vektorflow`` as an alias for the ``vkf`` CLI."""
+"""Module entrypoint that delegates to the ``vkf`` CLI."""
 
 from __future__ import annotations
 

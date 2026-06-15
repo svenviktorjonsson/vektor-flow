@@ -73,6 +73,7 @@ enum class VkfSymbolicNodeKind {
 struct VkfSymbolicNode {
     VkfSymbolicNodeKind kind = VkfSymbolicNodeKind::Symbol;
     std::string text;
+    std::string latex_text;
     std::string op;
     VkfSymbolicDomain domain;
     std::vector<std::shared_ptr<const VkfSymbolicNode>> children;
@@ -89,23 +90,29 @@ inline VkfSymbolicExpr vkf_sym_make_expr(
     std::string op,
     VkfSymbolicDomain domain,
     std::vector<std::shared_ptr<const VkfSymbolicNode>> children,
-    std::vector<std::string> conditions = {}
+    std::vector<std::string> conditions = {},
+    std::string latex_text = ""
 ) {
     auto node = std::make_shared<VkfSymbolicNode>();
     const_cast<VkfSymbolicNode&>(*node).kind = kind;
     const_cast<VkfSymbolicNode&>(*node).text = std::move(text);
+    const_cast<VkfSymbolicNode&>(*node).latex_text = std::move(latex_text);
     const_cast<VkfSymbolicNode&>(*node).op = std::move(op);
     const_cast<VkfSymbolicNode&>(*node).domain = domain;
     const_cast<VkfSymbolicNode&>(*node).children = std::move(children);
     return {node, std::move(conditions)};
 }
 
-inline VkfSymbolicExpr vkf_sym_symbol(const std::string& name, VkfSymbolicDomain domain = vkf_sym_domain_unknown()) {
+inline VkfSymbolicExpr vkf_sym_symbol(
+    const std::string& name,
+    VkfSymbolicDomain domain = vkf_sym_domain_unknown(),
+    const std::string& latex_text = ""
+) {
     std::vector<std::string> conditions;
     if (domain.kind != VkfSymbolicDomainKind::Unknown) {
         conditions.push_back(name + std::string(" in ") + vkf_sym_domain_surface(domain));
     }
-    return vkf_sym_make_expr(VkfSymbolicNodeKind::Symbol, name, "", domain, {}, conditions);
+    return vkf_sym_make_expr(VkfSymbolicNodeKind::Symbol, name, "", domain, {}, conditions, latex_text);
 }
 
 inline VkfSymbolicExpr vkf_sym_integer(long long value) {
@@ -163,6 +170,13 @@ inline VkfSymbolicExpr vkf_sym_call(const std::string& name, const std::vector<V
 inline VkfSymbolicExpr vkf_sym_assume(VkfSymbolicExpr expr, const std::string& condition) {
     expr.conditions.push_back(condition);
     return expr;
+}
+
+inline VkfSymbolicExpr vkf_sym_set_repr(const VkfSymbolicExpr& expr, const std::string& latex_text) {
+    if (!expr.node) return expr;
+    auto node = std::make_shared<VkfSymbolicNode>(*expr.node);
+    node->latex_text = latex_text;
+    return {node, expr.conditions};
 }
 
 inline bool vkf_sym_render_needs_parens(const std::string& text) {
@@ -271,7 +285,9 @@ inline std::string vkf_sym_latex_child(const std::shared_ptr<const VkfSymbolicNo
 
 inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNode>& node) {
     if (!node) return "";
-    if (node->kind == VkfSymbolicNodeKind::Symbol || node->kind == VkfSymbolicNodeKind::IntegerLiteral) return node->text;
+    if (node->kind == VkfSymbolicNodeKind::Symbol || node->kind == VkfSymbolicNodeKind::IntegerLiteral) {
+        return node->latex_text.empty() ? node->text : node->latex_text;
+    }
     if (node->kind == VkfSymbolicNodeKind::Binary || node->kind == VkfSymbolicNodeKind::Relation) {
         if (node->children.size() != 2) throw std::runtime_error("symbolic binary node must have two children");
         if (node->op == "*") return vkf_sym_latex_child(node->children[0]) + "\\," + vkf_sym_latex_child(node->children[1]);
@@ -284,9 +300,10 @@ inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNod
         if ((node->text == "derivative" || node->text == "differentiate" || node->text == "diff")
             && (node->children.size() == 2 || node->children.size() == 3)) {
             const std::string var = vkf_sym_render_node(node->children[1]);
+            const std::string latex_var = vkf_sym_latex_node(node->children[1]);
             const bool partial = vkf_sym_uses_other_symbol(node->children[0], var);
             const std::string op = partial ? "\\partial" : "d";
-            const std::string denominator_var = partial ? std::string("\\partial ") + var : std::string("d") + var;
+            const std::string denominator_var = partial ? std::string("\\partial ") + latex_var : std::string("d") + latex_var;
             if (node->children.size() == 3) {
                 const std::string order = vkf_sym_latex_node(node->children[2]);
                 return "\\frac{" + op + "^{" + order + "}}{" + denominator_var + "^{" + order + "}} "
@@ -296,7 +313,7 @@ inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNod
         }
         if ((node->text == "integrate" || node->text == "integral" || node->text == "integ")
             && (node->children.size() == 2 || node->children.size() == 4)) {
-            const std::string var = vkf_sym_render_node(node->children[1]);
+            const std::string var = vkf_sym_latex_node(node->children[1]);
             if (node->children.size() == 4) {
                 return "\\int_{" + vkf_sym_latex_node(node->children[2]) + "}^{" + vkf_sym_latex_node(node->children[3])
                     + "} " + vkf_sym_latex_node(node->children[0]) + "\\,d" + var;
@@ -307,7 +324,7 @@ inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNod
             const std::string end = vkf_sym_render_node(node->children[3]) == "inf"
                 ? "\\infty"
                 : vkf_sym_latex_node(node->children[3]);
-            return "\\sum_{" + vkf_sym_render_node(node->children[1]) + "=" + vkf_sym_latex_node(node->children[2])
+            return "\\sum_{" + vkf_sym_latex_node(node->children[1]) + "=" + vkf_sym_latex_node(node->children[2])
                 + "}^{" + end + "} " + vkf_sym_latex_node(node->children[0]);
         }
         std::string out = node->text.size() > 1 ? "\\operatorname{" + node->text + "}\\left(" : node->text + "\\left(";
@@ -393,6 +410,7 @@ inline vf_symbolic vf_sym_relation(const vf_symbolic& a, const std::string& op, 
 inline vf_symbolic vf_sym_call_many(const std::string& name, const std::vector<vf_symbolic>& args) { return vkf_sym_call(name, args); }
 inline vf_symbolic vf_sym_call(const std::string& name, const vf_symbolic& arg) { return vkf_sym_call(name, {arg}); }
 inline vf_symbolic vf_sym_assume(vf_symbolic expr, const std::string& condition) { return vkf_sym_assume(std::move(expr), condition); }
+inline vf_symbolic vf_sym_set_repr(const vf_symbolic& expr, const std::string& latex_text) { return vkf_sym_set_repr(expr, latex_text); }
 inline std::string vf_sym_conditions(const vf_symbolic& expr) { return vkf_sym_conditions(expr); }
 inline std::string vf_format_symbolic(const vf_symbolic& expr) { return vkf_sym_render(expr); }
 inline std::string vf_sym_latex(const vf_symbolic& expr) { return vkf_sym_latex(expr); }
@@ -476,6 +494,7 @@ inline vf_symbolic vf_sym_range_aggregate(const std::string& name, const vf_symb
 }
 
 inline vf_symbolic vf_sym_sum(const vf_symbolic& expr, const vf_symbolic& var, const vf_symbolic& start, const vf_symbolic& end) {
+    if (vkf_sym_render(end) == "inf" || vkf_sym_render(end) == "-inf") return vf_sym_range_aggregate("sum", expr, var, start, end);
     if (vkf_sym_render(start) == "1" && vkf_sym_render(expr) == "1") return end;
     if (vkf_sym_render(start) == "1" && vkf_sym_render(expr) == vkf_sym_render(var)) return vf_make_symbolic(vkf_sym_render(end) + std::string(" * (") + vkf_sym_render(end) + std::string(" + 1) / 2"));
     return vf_sym_range_aggregate("sum", expr, var, start, end);
