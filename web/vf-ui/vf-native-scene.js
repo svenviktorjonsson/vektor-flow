@@ -8372,23 +8372,25 @@
       startupDebugMark(watchedFrameId, "scheduleVisibleInitialSceneRender");
       mountResponsiveVisibleShell();
       var started = false;
-      var start = function () {
+      var runInitial = function () {
         if (started) { return; }
         started = true;
+        startInitialSceneRender();
+      };
+      var start = function () {
+        if (started) { return; }
         mountResponsiveVisibleShell();
         global.requestAnimationFrame(function () {
+          if (started) { return; }
           mountResponsiveVisibleShell();
-          global.requestAnimationFrame(startInitialSceneRender);
+          global.requestAnimationFrame(runInitial);
         });
+        global.setTimeout(runInitial, 80);
       };
       var forceStart = function () {
         if (started) { return; }
         mountResponsiveVisibleShell();
-        global.setTimeout(function () {
-          if (started) { return; }
-          started = true;
-          startInitialSceneRender();
-        }, 0);
+        global.setTimeout(runInitial, 0);
       };
       if (typeof global.requestIdleCallback === "function") {
         global.requestIdleCallback(start, { timeout: 600 });
