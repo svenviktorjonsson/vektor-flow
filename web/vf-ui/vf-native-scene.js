@@ -8339,18 +8339,32 @@
 
     function scheduleVisibleInitialSceneRender() {
       mountResponsiveVisibleShell();
+      var started = false;
       var start = function () {
+        if (started) { return; }
+        started = true;
         mountResponsiveVisibleShell();
         global.requestAnimationFrame(function () {
           mountResponsiveVisibleShell();
           global.requestAnimationFrame(startInitialSceneRender);
         });
       };
+      var forceStart = function () {
+        if (started) { return; }
+        mountResponsiveVisibleShell();
+        global.setTimeout(function () {
+          if (started) { return; }
+          started = true;
+          startInitialSceneRender();
+        }, 0);
+      };
       if (typeof global.requestIdleCallback === "function") {
         global.requestIdleCallback(start, { timeout: 600 });
+        global.setTimeout(forceStart, 700);
         return;
       }
       global.setTimeout(start, 120);
+      global.setTimeout(forceStart, 260);
     }
 
     if (useVisibleFrame) {
