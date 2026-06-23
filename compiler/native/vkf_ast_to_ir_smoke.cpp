@@ -469,6 +469,9 @@ private:
                     env.set("Q", "symbolic_domain");
                     env.set("R", "symbolic_domain");
                     env.set("C", "symbolic_domain");
+                    env.set("path_status", "fn(symbolic,symbolic)->symbolic");
+                    env.set("transform_path_status", "fn(symbolic)->symbolic");
+                    env.set("transform_path_beam_status", "fn(symbolic,int)->symbolic");
                 }
             }
             return vf::JsonValue(std::move(out));
@@ -714,6 +717,12 @@ private:
                         }
                     }
                     call_type = function->return_type;
+                }
+            }
+            if (call_type == "any") {
+                const std::size_t arrow = callee_type.find("->");
+                if (arrow != std::string::npos && arrow + 2 < callee_type.size()) {
+                    call_type = callee_type.substr(arrow + 2);
                 }
             }
             auto out = node("call");
