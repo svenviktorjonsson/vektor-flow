@@ -6639,9 +6639,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         return null;
       }
       var reflectedCamera = this._buildPlanarSurfaceRenderCamera(part, sceneMesh, sourceCamera, t, targetAspect);
-      if (surfaceCamera.lock_aperture_camera === true) {
-        reflectedCamera = this._buildPlanarSurfaceApertureCamera(part, sceneMesh, reflectedCamera, t, targetAspect);
-      }
       if (reflectedCamera && typeof reflectedCamera === "object" && surfaceCamera.flip_x === true) {
         reflectedCamera.flip_x = true;
       }
