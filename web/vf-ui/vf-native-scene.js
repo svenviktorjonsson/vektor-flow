@@ -617,13 +617,6 @@
     if (Object.prototype.hasOwnProperty.call(system, "camera_mode")) {
       failFast("surface_system.camera_mode is removed; use a reflected camera frame plus screen.frame_ref");
     }
-    if (system.camera && typeof system.camera === "object") {
-      var directMirrorCamera = system.camera.mirror_of && typeof system.camera.mirror_of === "object";
-      var directReflectMesh = String(system.camera.reflect_mirror_mesh_id || "").trim();
-      if (directMirrorCamera || directReflectMesh) {
-        failFast("surface_system.camera mirror path is removed; use a reflected source frame plus screen.frame_ref");
-      }
-    }
     var camera = resolveSurfaceCamera(system, viewerCamera);
     var world = resolveSurfaceWorld(system);
     var runtimeKind = kind === "mirror" ? "screen" : kind;
