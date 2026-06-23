@@ -8212,13 +8212,16 @@
           }
           publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
         if (useVisibleFrame && sceneWorldAnimationsPending() && visibleRenderBackpressureActive()) {
+          startupDebugMark(watchedFrameId, "visibleBackpressureReturn");
           controlState.rendering = false;
           scheduleNextFrameIfNeeded(true);
           return;
         }
+        startupDebugMark(watchedFrameId, "beforeApplySceneWorldFrame");
         var worldAnimationActive = dependencySourceFrameId
           ? sceneWorldAnimationsPending()
           : applySceneWorldFrame(seconds);
+        startupDebugMark(watchedFrameId, "afterApplySceneWorldFrame");
         if (controlState.pendingAutoSwitchCamera === true && worldAnimationActive !== true) {
           controlState.pendingAutoSwitchCamera = false;
           startAutoSwitchCamera(renderCamera, controlState.pendingAutoSwitchSide || "white");
@@ -8271,7 +8274,9 @@
         if (useVisibleFrame) {
           triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
         }
+        startupDebugMark(watchedFrameId, "beforeRenderPayload");
         var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });
+        startupDebugMark(watchedFrameId, "afterRenderPayload");
         if (useVisibleFrame) {
           pushVisibleRender(rendered, { immediate: !!chessInteractionConfig() });
           visibleLastDirtyVersion = dirtyVersion;
