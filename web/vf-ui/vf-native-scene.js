@@ -30,6 +30,20 @@
   var frameCount = Math.max(1, Math.round(fps * durationSeconds));
   var AXIS_TAGGED_KEY = "__vf_axis_tagged__";
 
+  function startupDebugMark(frameId, mark) {
+    if (!global.__vfNativeSceneStartupDebug) {
+      global.__vfNativeSceneStartupDebug = Object.create(null);
+    }
+    var key = String(frameId || config.frame_id || frameSpec.frame_id || "");
+    if (!global.__vfNativeSceneStartupDebug[key]) {
+      global.__vfNativeSceneStartupDebug[key] = [];
+    }
+    global.__vfNativeSceneStartupDebug[key].push({
+      mark: String(mark || ""),
+      t: global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()
+    });
+  }
+
   function chessLagDebugEnabled() {
     return !!(
       global.__vfChessLagDebug === true ||
@@ -7540,6 +7554,7 @@
       visibleMounted = true;
     }
     function pushVisibleRender(rendered, options) {
+      startupDebugMark(watchedFrameId, "pushVisibleRender");
       options = options && typeof options === "object" ? options : {};
       var payload = rendered && rendered.payload && typeof rendered.payload === "object"
         ? rendered.payload
@@ -8027,7 +8042,8 @@
     }
 
     function renderFrame() {
-        if (controlState.rendering === true) {
+      startupDebugMark(watchedFrameId, "renderFrame");
+      if (controlState.rendering === true) {
           controlState.debugRenderFrameSkippedCount = Number(controlState.debugRenderFrameSkippedCount || 0) + 1;
           if (controlState.debugRenderFrameSkippedCount <= 3 || controlState.debugRenderFrameSkippedCount % 20 === 0) {
             chessLagDebug(
@@ -8314,6 +8330,7 @@
     }
 
     function startInitialSceneRender() {
+      startupDebugMark(watchedFrameId, "startInitialSceneRender");
       wireChessRuntimeRenderCallbacks();
       renderFrame();
       if (useVisibleFrame) {
@@ -8338,6 +8355,7 @@
     }
 
     function scheduleVisibleInitialSceneRender() {
+      startupDebugMark(watchedFrameId, "scheduleVisibleInitialSceneRender");
       mountResponsiveVisibleShell();
       var started = false;
       var start = function () {
