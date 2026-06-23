@@ -98,10 +98,10 @@ native_scene: (
     objects: [
         (
             id: "regular_shadow_panel",
-            kind: "field_mesh",
-            x: panel_x,
-            y: panel_y,
-            z: panel_z,
+            kind: "quad",
+            center: [-2.45, 2.18, 1.20],
+            size: [1.10, 2.40],
+            rotation: [90.0, 0.0, 0.0],
             color: [0.08, 0.46, 1.0, 1.0],
             interpolation: true,
             depth_write: true,
@@ -110,14 +110,17 @@ native_scene: (
         ),
         (
             id: "green_ellipsoid",
-            kind: "field_mesh",
-            x: ell_x,
-            y: ell_y,
-            z: ell_z,
+            kind: "random_hull",
             center: [-2.15, -0.45, 1.08],
-            color: [0.18, 0.76, 0.34, 1.0],
-            interpolation: false,
-            depth_write: true
+            radius: 0.62,
+            count: 40,
+            seed: 29,
+            stretch: [1.00, 0.76, 1.13],
+            jitter: 0.02,
+            face_color: [0.18, 0.76, 0.34, 1.0],
+            edge_width: 0.0,
+            show_edges: false,
+            show_vertices: false
         ),
         (
             id: "volume_element",

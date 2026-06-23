@@ -2762,17 +2762,49 @@
       var fieldInterpolation = entityProp(spec, "interpolation", false) === true;
       var fieldVertices = fieldMeshFlatVertexArray(entityProp(spec, "vertices", []));
       var fieldIndices = fieldMeshIndexArray(entityProp(spec, "indices", []));
+      var authoredPointXs = entityProp(spec, "x_i", null);
+      var authoredPointYs = entityProp(spec, "y_i", null);
+      var authoredPointZs = entityProp(spec, "z_i", null);
+      var usesAuthoredPointColors = false;
+      if (
+        fieldVertices.length === 0 &&
+        Array.isArray(authoredPointXs) &&
+        Array.isArray(authoredPointYs) &&
+        Array.isArray(authoredPointZs)
+      ) {
+        var pointCount = Math.min(authoredPointXs.length, authoredPointYs.length, authoredPointZs.length);
+        var pointColors = Array.isArray(entityProp(spec, "c_i", null)) ? entityProp(spec, "c_i", null) : [];
+        var pointColorFallback = toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]);
+        fieldVertices = new Float32Array(pointCount * 10);
+        fieldIndices = new Uint32Array(pointCount);
+        for (var pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+          var pointOffset = pointIndex * 10;
+          var pointColor = toRgba(pointColors[pointIndex], pointColorFallback);
+          fieldVertices[pointOffset] = Number(authoredPointXs[pointIndex] || 0.0);
+          fieldVertices[pointOffset + 1] = Number(authoredPointYs[pointIndex] || 0.0);
+          fieldVertices[pointOffset + 2] = Number(authoredPointZs[pointIndex] || 0.0);
+          fieldVertices[pointOffset + 3] = 0.0;
+          fieldVertices[pointOffset + 4] = 0.0;
+          fieldVertices[pointOffset + 5] = 1.0;
+          fieldVertices[pointOffset + 6] = pointColor[0];
+          fieldVertices[pointOffset + 7] = pointColor[1];
+          fieldVertices[pointOffset + 8] = pointColor[2];
+          fieldVertices[pointOffset + 9] = pointColor[3];
+          fieldIndices[pointIndex] = pointIndex;
+        }
+        usesAuthoredPointColors = true;
+      }
       fieldIndices = fieldMeshIndicesWithConsistentWinding(fieldVertices, fieldIndices, entityProp(spec, "repair_winding", true) !== false);
       fieldVertices = smoothInterpolatedFieldMeshVertices(spec, fieldVertices, fieldIndices, fieldInterpolation);
       var fieldColor = toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]);
-      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, entityProp(spec, "use_vertex_color", false) !== true);
+      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, !usesAuthoredPointColors && entityProp(spec, "use_vertex_color", false) !== true);
       return {
         id: String(spec.id || "field_mesh"),
         kind: "field_mesh",
         object_id: Number(entityProp(spec, "object_id", 0) || 0) || undefined,
         vertices: fieldVertices,
         indices: fieldIndices,
-        topology: String(entityProp(spec, "topology", "triangle-list")),
+        topology: String(entityProp(spec, "topology", fieldIndices.length > 0 && fieldVertices.length === fieldIndices.length * 10 ? "point-list" : "triangle-list")),
         interpolation: fieldInterpolation,
         alpha: Math.max(0.0, Math.min(1.0, Number(entityProp(spec, "alpha", 1.0)))),
         center: resolveTrackedVec3(spec, "center", framePos, toVec3(entityProp(spec, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
