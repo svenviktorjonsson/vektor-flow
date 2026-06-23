@@ -2502,8 +2502,8 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let frameTint = mix(sc.texture_color_a.rgb, sc.texture_color_b.rgb, smoothstep(0.70, 0.92, maxUv) * 0.55);
   let surfaceAlpha = clamp(baseAlpha, 0.0, 1.0);
   let packedScreenFlags = max(sc.texture_params.w, 0.0);
-  let baseTextureKind = floor(packedScreenFlags / 8.0);
-  let screenFlags = i32(packedScreenFlags - (baseTextureKind * 8.0) + 0.5);
+  let baseTextureKind = floor(packedScreenFlags / 16.0);
+  let screenFlags = i32(packedScreenFlags - (baseTextureKind * 16.0) + 0.5);
   var baseTextureMask = checkerMask;
   if (baseTextureKind > 1.5 && baseTextureKind < 2.5) {
     baseTextureMask = stripesValue(surfaceUv * max(textureScale, vec2<f32>(1.0, 1.0)));
@@ -2531,6 +2531,13 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
     clamp(surfaceUv.x, 0.0, 1.0),
     clamp(surfaceUv.y, 0.0, 1.0)
   );
+  if ((screenFlags & 8) != 0 && abs(surfaceProjPos.w) > 1e-6) {
+    let projected = (surfaceProjPos.xy / surfaceProjPos.w) * 0.5 + vec2<f32>(0.5, 0.5);
+    uv = vec2<f32>(
+      clamp(projected.x, 0.0, 1.0),
+      clamp(1.0 - projected.y, 0.0, 1.0)
+    );
+  }
   if ((screenFlags & 2) != 0) {
     uv.x = 1.0 - uv.x;
   }
@@ -3556,7 +3563,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         if (surfaceSystem.reverse_facing === true) { screenFlags += 1.0; }
         if (surfaceSystem.flip_x === true) { screenFlags += 2.0; }
         if (surfaceSystem.flip_y === true || surfaceSystem._renderFlipV === true) { screenFlags += 4.0; }
-        screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 8.0;
+        if (surfaceSystem._projective_texture === true) { screenFlags += 8.0; }
+        screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 16.0;
         f32[343] = screenFlags;
       }
     var squareHighlights = surfaceSystem && Array.isArray(surfaceSystem.square_highlights)
@@ -7063,11 +7071,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           surfaceSystem._runtime_texture_ready = false;
           part.surfaceExternalView = null;
           partMesh._surfaceTextureReady = false;
+          partMesh._surfaceProjectorMatrix = null;
+          surfaceSystem._projective_texture = false;
           this._ensurePartBindGroup(part);
           continue;
         }
         this._ensureSurfaceTarget(part, targetDims.width, targetDims.height);
         partMesh._surfaceTextureReady = true;
+        partMesh._surfaceProjectorMatrix = Array.isArray(renderCamera._mirrorViewProjection)
+          ? renderCamera._mirrorViewProjection
+          : null;
+        surfaceSystem._projective_texture = !!partMesh._surfaceProjectorMatrix;
         var surfaceClear = this._sceneBackgroundClear(sceneMesh);
         this._encodeScenePartsColorPass(
           enc,
