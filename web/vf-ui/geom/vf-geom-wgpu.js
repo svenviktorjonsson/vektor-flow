@@ -7238,10 +7238,23 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       await readBuf.mapAsync(GPUMapMode.READ);
       var mapped = new Uint8Array(readBuf.getMappedRange());
       var packed = new Uint8ClampedArray(width * height * bytesPerPixel);
+      var sourceFormat = String(frameRef.format || this._format || "").toLowerCase();
+      var swapBgra = sourceFormat.indexOf("bgra") === 0;
       for (var y = 0; y < height; y += 1) {
         var srcRow = y * bytesPerRow;
         var dstRow = y * unpaddedBytesPerRow;
-        packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+        if (!swapBgra) {
+          packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+          continue;
+        }
+        for (var x = 0; x < width; x += 1) {
+          var src = srcRow + (x * bytesPerPixel);
+          var dst = dstRow + (x * bytesPerPixel);
+          packed[dst] = mapped[src + 2];
+          packed[dst + 1] = mapped[src + 1];
+          packed[dst + 2] = mapped[src];
+          packed[dst + 3] = mapped[src + 3];
+        }
       }
       readBuf.unmap();
       readBuf.destroy();
