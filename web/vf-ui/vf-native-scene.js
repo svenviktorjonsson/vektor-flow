@@ -745,7 +745,7 @@
     pushAll(config.cubes, "cube");
     pushAll(config.objects, null);
     if (config.plane && typeof config.plane === "object") {
-      out.push(Object.assign({ id: "ground_plane", kind: "plane" }, config.plane));
+      out.push(Object.assign({ id: "ground_plane", kind: "quad" }, config.plane));
     }
     return out;
   }
