@@ -6670,7 +6670,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         projMatPart = MmBatch.mat4OrthoZ01(-1, 1, -1, 1, 0, 1);
         mvpPart = projMatPart;
       } else {
-        if (camPart && Array.isArray(camPart.projection_matrix) && camPart.projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(camPart, aspect)) {
+        if (camPart && Array.isArray(camPart.projection_matrix) && camPart.projection_matrix.length === 16 && (camPart._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(camPart, aspect))) {
           projMatPart = new Float32Array(camPart.projection_matrix);
         } else {
           var fovRadPart = fovPart * Math.PI / 180;
@@ -7723,7 +7723,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         mvp     = projMat;
       } else {
         var fovRad = fov * Math.PI / 180;
-        if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(cam, asp)) {
+        if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && (cam._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(cam, asp))) {
           projMat = new Float32Array(cam.projection_matrix);
         } else if (String(cam && cam.projection || "").toLowerCase() === "orthographic") {
           var orthoScale = Math.max(1e-6, Number(cam.ortho_scale || 2.5) || 2.5);
