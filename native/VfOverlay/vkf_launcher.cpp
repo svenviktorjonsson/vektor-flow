@@ -940,6 +940,7 @@ int RunCompiledScene(const fs::path& source) {
     TransparentOverlayRunOptions options = TransparentOverlayDefaultRunOptions();
     options.web_root_utf8 = webRootUtf8.c_str();
     options.entry_url_utf8 = entryUtf8.c_str();
+    options.close_on_empty_geometry = false;
     const int validation = TransparentOverlayValidateRunOptions(&options);
     if (validation != TRANSPARENT_OVERLAY_OK) {
         return Fail(L"TransparentOverlay options invalid: " + std::to_wstring(validation));
