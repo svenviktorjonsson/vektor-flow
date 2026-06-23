@@ -2814,7 +2814,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let sizePx = max(i.params0.x, 1.0);
   let alpha = i.params0.y;
   let facing = i.params0.z;
-  let edgeFade = i.params0.w;
+  let sourceRadiusPx = max(i.params0.w, 0.0);
   let p = i.uv * sizePx;
   let r = length(p);
   let sigmaGlow = sizePx * 0.18;
@@ -2842,15 +2842,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let rays = ray0 + ray1 + ray2 + ray3;
 
   let core = 1.30 * gaussian(r, sigmaCore);
+  let discEdge = max(1.0, min(4.0, sourceRadiusPx * 0.16));
+  let sourceDisc = smoothstep(sourceRadiusPx + discEdge, sourceRadiusPx - discEdge, r);
   let glow = 0.26 * gaussian(r, sigmaGlow);
   let rings =
     0.060 * gaussian(r - ring1, ringW1) +
     0.038 * gaussian(r - ring2, ringW2) +
     0.018 * gaussian(r - ring3, ringW3);
 
-  let globalScale = alpha * edgeFade;
-  let whiteA = globalScale * (core + glow + (0.72 * rays));
-  let tintA = globalScale * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
+  let whiteA = alpha * (max(core, sourceDisc) + glow + (0.72 * rays));
+  let tintA = alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
   let white = vec3<f32>(1.0, 1.0, 1.0) * whiteA;
   let tint = i.color.rgb * tintA;
   return vec4<f32>(white + tint, max(whiteA, tintA));
@@ -2928,6 +2929,32 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       (mvp[3] * x) + (mvp[7] * y) + (mvp[11] * z) + mvp[15];
     if (!(cw > 1e-6)) { return null; }
     return [cx / cw, cy / cw, cz / cw];
+  }
+
+  function projectedWorldRadiusPx(mvp, center, radiusWorld, width, height) {
+    var radius = Math.max(0.0, Number(radiusWorld || 0.0) || 0.0);
+    if (!(radius > 0.0)) { return 0.0; }
+    var base = projectWorldToNdc(mvp, center);
+    if (!base) { return 0.0; }
+    var axes = [
+      [radius, 0.0, 0.0],
+      [0.0, radius, 0.0],
+      [0.0, 0.0, radius]
+    ];
+    var best = 0.0;
+    for (var i = 0; i < axes.length; i += 1) {
+      var axis = axes[i];
+      var p = projectWorldToNdc(mvp, [
+        Number(center[0]) + axis[0],
+        Number(center[1]) + axis[1],
+        Number(center[2]) + axis[2]
+      ]);
+      if (!p) { continue; }
+      var dx = (p[0] - base[0]) * 0.5 * Number(width || 0);
+      var dy = (p[1] - base[1]) * 0.5 * Number(height || 0);
+      best = Math.max(best, Math.sqrt((dx * dx) + (dy * dy)));
+    }
+    return best;
   }
 
   // Uniform buffer: scene + shadows + procedural texture params.
@@ -7884,6 +7911,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var flareAlpha = Math.max(0.0, Math.min(1.0, baseAlpha * (0.30 + (0.70 * facing))));
         if (!(flareAlpha > 0.001)) { continue; }
         var pxSize = Math.max(72, 96 + (intensity * 0.55) + (72 * facing));
+        var sourceRadiusWorld = light.source_radius !== undefined ? light.source_radius : baseSizeWorld;
+        var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);
         var sizeNdcX = (pxSize / Math.max(1, width));
         var sizeNdcY = (pxSize / Math.max(1, height));
         var dx = (ndc[0] * 0.5 * width);
@@ -7892,7 +7921,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         instances.push(
           ndc[0], ndc[1], sizeNdcX, sizeNdcY,
           Number((light.color_f32 || [1, 1, 1, 1])[0]), Number((light.color_f32 || [1, 1, 1, 1])[1]), Number((light.color_f32 || [1, 1, 1, 1])[2]), 1.0,
-          pxSize, flareAlpha, facing, 1.0,
+          pxSize, flareAlpha, facing, sourceRadiusPx,
           Math.cos(axisAngle), Math.sin(axisAngle), Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0)), 0.0
         );
       }
