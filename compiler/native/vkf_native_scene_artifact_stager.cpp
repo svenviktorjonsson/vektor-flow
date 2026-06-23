@@ -677,21 +677,30 @@ std::string html_text(
             + "})(window);</script>"
             + "</body></html>\n";
     }
+    const bool external_arena = !arena_filename.empty();
     return std::string("<!DOCTYPE html>\n")
         + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
         + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
         + native_scene_runtime_config
         + "<script src=\"../../vf-runtime-shell.js\"></script>"
-        + "<script>window.__vfNativeSceneConfig=" + scene_config_json + ";</script>"
-        + "<script>(function(){"
+        + "<script>window.__vfNativeSceneConfig=" + scene_config_json + ";"
+        + (external_arena
+            ? std::string("window.__vfNativeSceneArenaUrl=\"") + json_escape(arena_filename) + "\";"
+            : std::string("window.__vfNativeSceneArenaUrl=\"\";"))
+        + "</script>"
+        + "<script>(function(global){"
         + "function fail(err){var msg=err&&err.message?err.message:String(err);window.__vfLastError=msg;if(document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');document.body.textContent='VKF native scene error: '+msg;}throw err;}"
+        + "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
+        + "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
+        + "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
+        + "function hydrateConfig(config){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(config);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[[{root:config},'root',config]];function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(config);}}catch(err){reject(err);}}step();});});}"
         + "function load(){var s=document.createElement('script');s.src='../../vf-native-scene.js';"
         + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};"
         + "document.body.appendChild(s);}"
         + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
-        + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(load).catch(fail);"
-        + "}else{load();}"
-        + "})();</script>"
+        + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(function(){return hydrateConfig(global.__vfNativeSceneConfig);}).then(load).catch(fail);"
+        + "}else{hydrateConfig(global.__vfNativeSceneConfig).then(load).catch(fail);}"
+        + "})(window);</script>"
         + "</body></html>\n";
 }
 

@@ -6646,7 +6646,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!sourceCamera || !Array.isArray(sourceCamera.pos) || !Array.isArray(sourceCamera.target)) {
         return null;
       }
-      var reflectedCamera = this._buildPlanarSurfaceRenderCamera(part, sceneMesh, sourceCamera, t, targetAspect);
+      var cameraSeed = sourceCamera;
+      if (surfaceCamera.reflect_eye_only === true || surfaceCamera.lock_aperture_camera === true) {
+        cameraSeed = this._buildMirrorEyeLockedCamera(sourceCamera, part.mesh, surfaceCamera, t);
+      }
+      var reflectedCamera = this._buildPlanarSurfaceRenderCamera(part, sceneMesh, cameraSeed, t, targetAspect);
+      if (surfaceCamera.lock_aperture_camera === true) {
+        reflectedCamera = this._buildPlanarSurfaceApertureCamera(part, sceneMesh, reflectedCamera, t, targetAspect);
+      }
       if (reflectedCamera && typeof reflectedCamera === "object" && surfaceCamera.flip_x === true) {
         reflectedCamera.flip_x = true;
       }
@@ -7078,7 +7085,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         }
         this._ensureSurfaceTarget(part, targetDims.width, targetDims.height);
         partMesh._surfaceTextureReady = true;
-        partMesh._surfaceProjectorMatrix = Array.isArray(renderCamera._mirrorViewProjection)
+        var apertureLockedMirrorTexture = surfaceCamera && surfaceCamera.lock_aperture_camera === true && !!renderCamera._mirrorDebug;
+        partMesh._surfaceProjectorMatrix = !apertureLockedMirrorTexture && Array.isArray(renderCamera._mirrorViewProjection)
           ? renderCamera._mirrorViewProjection
           : null;
         surfaceSystem._projective_texture = !!partMesh._surfaceProjectorMatrix;

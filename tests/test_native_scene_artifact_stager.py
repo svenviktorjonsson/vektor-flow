@@ -385,6 +385,41 @@ def test_native_scene_artifact_stager_externalizes_mesh_arrays_to_binary_arena(t
     assert arena_files[0].stat().st_size == (10 * 4) + (3 * 4)
 
 
+def test_native_scene_artifact_stager_hydrates_single_scene_binary_arena(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    source_dir = tmp_path / "program"
+    source_dir.mkdir()
+    scene_config = (
+        '{"kind":"scene_3d","frame_id":"mirror_frame",'
+        '"objects":[{"id":"piece","kind":"field_mesh",'
+        '"vertices":[1.0,2.0,3.0,0.0,0.0,1.0,1.0,0.8,0.6,1.0],'
+        '"indices":[0,1,2]}]}'
+    )
+    source = source_dir / "main.vkf"
+    source.write_text(f"native_scene_config_json: '{scene_config}'\n", encoding="utf-8")
+    overlay_web = tmp_path / "web"
+
+    subprocess.run(
+        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    session_dir = overlay_web / "sessions" / "main"
+    html = (session_dir / "vkf-scene.html").read_text(encoding="utf-8")
+    arena_files = list(session_dir.glob("vf-native-scene-arena-*.bin"))
+    assert len(arena_files) == 1
+    assert "__vfNativeSceneArenaUrl" in html
+    assert "hydrateConfig(global.__vfNativeSceneConfig)" in html
+    assert "assignArenaRef(holder,key,value,arena)" in html
+    assert "__vf_mesh_arena" in html
+    assert '"vertices":[' not in html
+    assert '"indices":[' not in html
+    assert arena_files[0].stat().st_size == (10 * 4) + (3 * 4)
+
+
 def test_native_scene_artifact_stager_preserves_current_hashed_artifacts(tmp_path: Path) -> None:
     exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
     source_dir = tmp_path / "program"
