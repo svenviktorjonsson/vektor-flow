@@ -2535,7 +2535,7 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
     let projected = (surfaceProjPos.xy / surfaceProjPos.w) * 0.5 + vec2<f32>(0.5, 0.5);
     uv = vec2<f32>(
       clamp(projected.x, 0.0, 1.0),
-      clamp(1.0 - projected.y, 0.0, 1.0)
+      clamp(projected.y, 0.0, 1.0)
     );
   }
   if ((screenFlags & 2) != 0) {
