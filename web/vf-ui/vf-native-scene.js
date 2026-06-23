@@ -735,6 +735,28 @@
     return objects;
   }
 
+  function authoredSceneMeshSpecs() {
+    var out = Array.isArray(config.meshes) ? config.meshes.slice() : [];
+    function pushAll(items, kind) {
+      if (!Array.isArray(items)) { return; }
+      for (var i = 0; i < items.length; i += 1) {
+        var item = items[i];
+        if (!item || typeof item !== "object") { continue; }
+        if (kind && item.kind == null) {
+          item = Object.assign({}, item, { kind: kind });
+        }
+        out.push(item);
+      }
+    }
+    pushAll(config.surfaces, "quad");
+    pushAll(config.cubes, "cube");
+    pushAll(config.objects, null);
+    if (config.plane && typeof config.plane === "object") {
+      out.push(Object.assign({ id: "ground_plane", kind: "plane" }, config.plane));
+    }
+    return out;
+  }
+
   function currentFrameViewportHeight() {
     try {
       var frame = global.document && global.document.querySelector(
@@ -3609,7 +3631,7 @@
     var lightSpecs = Array.isArray(config.lights)
       ? config.lights
       : (config.light ? [config.light] : []);
-    var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes.slice() : [];
+    var rawMeshSpecs = authoredSceneMeshSpecs();
     var chessCfg = chessInteractionConfig();
     var chessRuntime = global.__vfNativeChessRuntime || null;
     if (chessCfg) {
