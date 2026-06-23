@@ -309,7 +309,7 @@ native_scene: (
         (
             id: "key_light",
             kind: "point",
-            pos: [-0.85, -0.55, 5.18],
+            pos: [-1.42, -1.35, 4.25],
             target: [0.0, 0.25, 1.35],
             model: "blinn_phong",
             color: [1.0, 0.94, 0.80, 1.0],
@@ -324,7 +324,7 @@ native_scene: (
         (
             id: "fill_light",
             kind: "point",
-            pos: [3.05, -0.55, 4.88],
+            pos: [1.75, -1.20, 4.05],
             target: [0.8, 0.10, 1.45],
             model: "blinn_phong",
             color: [0.72, 0.84, 1.0, 1.0],
