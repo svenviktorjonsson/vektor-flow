@@ -175,6 +175,7 @@
 
   function failFast(message) {
     var text = "native_scene: " + String(message);
+    try { global.__vfLastError = text; } catch (_) {}
     try { console.error(text); } catch (_) {}
     try {
       if (global.chrome && global.chrome.webview && global.chrome.webview.postMessage) {
@@ -3603,6 +3604,7 @@
   }
 
   function buildSceneState(cameraOverride, seconds) {
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:start");
     var camera = cameraOverride || makeCamera(config.camera || {}, { pos: [3.9, -5.6, 3.2], target: [0, 0, 0.9], fov: 34, up: [0, 0, 1], min_distance: 0.0 }, seconds);
     var lightSpecs = Array.isArray(config.lights)
       ? config.lights
@@ -3626,13 +3628,17 @@
         return entityProp(mesh, "visible", true) !== false;
       });
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeMeshes");
     var meshSpecs = rawMeshSpecs.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, camera); });
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterNormalizeMeshes");
     var receivers = Array.isArray(config.shadow_receivers) ? config.shadow_receivers.map(normalizeShadowReceiverSpec) : [];
     var meshById = Object.create(null);
     for (var meshIndex = 0; meshIndex < meshSpecs.length; meshIndex += 1) {
       meshById[meshSpecs[meshIndex].id] = meshSpecs[meshIndex];
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeLights");
     var lights = lightSpecs.map(function (entry) { return normalizeLight(entry, seconds); });
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterNormalizeLights");
     for (var mirrorIndex = 0; mirrorIndex < meshSpecs.length; mirrorIndex += 1) {
       var mirrorMesh = meshSpecs[mirrorIndex];
       var surfaceSystem = mirrorMesh && mirrorMesh.surface_system && typeof mirrorMesh.surface_system === "object"
@@ -3669,6 +3675,7 @@
         meshes.push(receiverPayload);
       }
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeBuildMeshes");
     for (var i = 0; i < meshSpecs.length; i += 1) {
       var mesh = meshSpecs[i];
       if (mesh.visible === false) { continue; }
@@ -3682,12 +3689,14 @@
         meshes.push(meshPayload);
       }
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterBuildMeshes");
     if (renderOptions.show_light_markers === true) {
       var markerMeshes = buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size);
       for (var markerIndex = 0; markerIndex < markerMeshes.length; markerIndex += 1) {
         meshes.push(markerMeshes[markerIndex]);
       }
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:return");
     return {
       camera: camera,
       lights: lights,
