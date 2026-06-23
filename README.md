@@ -76,6 +76,178 @@ The primitive function/type handles are:
 
 File extension: `.vkf`.
 
+### 7. Symbolic Math Is Built In
+
+Symbolic expressions are ordinary VKF expressions with symbolic domains carried
+by the type system. Import the symbolic library before using symbolic domain
+names directly:
+
+```vkf
+:.symbolic
+
+x: R
+n: Z
+f: R -> R
+v: R^n
+
+expr: x^2 + 1
+rel: x^2 = 4
+
+:: latex(d/dx expr)
+:: solve(rel, x)
+```
+
+Symbolic operations preserve representation unless an explicit operation moves
+the expression. That means `x + 1` and `1 + x` can be equivalent without being
+the same representation. Use operations such as `expand`, `factor`,
+`integrate`, `diff`, and status calls to move through or inspect the symbolic
+space.
+
+The status surface is structured so UI and tracing tools can inspect searches
+without parsing human text:
+
+```vkf
+:.symbolic
+
+x: R
+
+:: path_status(x, x)
+:: transform_path_status(integrate(x, x))
+```
+
+These return record-shaped symbolic values with fields such as `found`,
+`capped`, `steps`, `expanded`, `reached`, `residual_before`,
+`residual_after`, `max_steps`, `beam`, and `reason`.
+
+## Symbolic Math Track
+
+VKF is growing an inbuilt symbolic system as part of the language, not as a
+separate interpreter bolted onto the side. The goal is that the same compiler
+that understands ordinary expressions also understands symbolic expressions,
+relations, transforms, and typed mathematical domains.
+
+This track follows the native compiler direction from
+`docs/adr/0003-self-hosted-vkf-compiler.md`: compiled programs and compiler
+runtime paths must not depend on Python. Python can still orchestrate tests or
+benchmarks, but symbolic program execution belongs to the native path.
+
+### Symbolic Domains
+
+Symbolic variables use domain types:
+
+```vkf
+:.symbolic
+
+x: R      # real
+n: N      # natural
+m: Z      # integer
+q: Q      # rational
+z: C      # complex
+f: R -> R # symbolic function
+v: R^n    # symbolic vector domain
+```
+
+The symbolic domain is a compile-time fact on the expression. This matters for
+rules such as inequalities, integer solving, and future matrix/non-commutative
+algebra.
+
+### Expressions And Relations
+
+Relations are symbolic expressions too:
+
+```vkf
+:.symbolic
+
+x: Z
+y: Z
+
+eq: 2*x + 3*y = 7
+sys: eq & (x - y = 1)
+
+:: solve(eq, x, y)
+```
+
+Solvers return values shaped for use in the language. For two-variable integer
+relations, the result exposes fields such as `.x` and `.y` rather than forcing
+users through stringly names.
+
+### Representation Is Explicit
+
+The symbolic engine does not silently canonicalize every expression. `x + 1`
+and `1 + x` can be equivalent, but their representations are different until
+an operation moves between them. This is intentional: representation matters
+for teaching, tracing, animation, and exact LaTeX output.
+
+Display names are local to symbols:
+
+```vkf
+:.symbolic
+
+phi: R
+phi.repr: "\\phi"
+
+:: latex(phi)
+```
+
+Numbers after symbol names are rendered as indices in LaTeX where appropriate,
+and multi-letter functions render as operators.
+
+### Equivalence And Transform Search
+
+The symbolic track separates equivalence movement from transforms.
+
+Equivalence movement keeps mathematical meaning in the same class:
+
+- expand and factor
+- compute literal subexpressions
+- apply reversible algebraic movement
+- reorder where a rule permits it
+
+Transforms create a new mathematical object:
+
+- `diff`
+- `integrate`
+- sums
+- Fourier/Laplace/Z/wavelet-style transforms as they land
+
+Status functions expose what the engine did or why it stopped:
+
+```vkf
+:.symbolic
+
+x: R
+
+:: path_status(x, x)
+:: transform_path_status(integrate(x, x))
+:: transform_path_beam_status(integrate(x, x), 1)
+```
+
+The status value is a record-shaped symbolic value:
+
+```text
+{found: true, capped: false, steps: 0, expanded: 0, reached: 1, score: 0, residual_before: 0, residual_after: 0, max_steps: 8, beam: 0, reason: same expression}
+```
+
+Those fields are the stable interface for tracing and future UI animation. The
+implementation can deepen behind that seam from small native moves to a fuller
+equivalence graph without changing the caller's shape.
+
+### Current Examples
+
+The symbolic examples are the best runnable overview:
+
+- `examples/symbolic/01_domains_and_types.vkf`
+- `examples/symbolic/02_latex_display_names.vkf`
+- `examples/symbolic/03_calculus_and_sums.vkf`
+- `examples/symbolic/04_relations_and_integer_solve.vkf`
+- `examples/symbolic/05_symbolic_status.vkf`
+
+Run them like any other VKF program:
+
+```bash
+vkf examples/symbolic/01_domains_and_types.vkf
+```
+
 ## First Look
 
 ```vkf
@@ -245,6 +417,7 @@ Symbolic math:
 - `examples/symbolic/02_latex_display_names.vkf`
 - `examples/symbolic/03_calculus_and_sums.vkf`
 - `examples/symbolic/04_relations_and_integer_solve.vkf`
+- `examples/symbolic/05_symbolic_status.vkf`
 
 Flow, operators, and modules:
 
