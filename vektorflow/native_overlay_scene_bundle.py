@@ -3976,7 +3976,7 @@ def _render_scene_3d_html(spec: dict[str, Any]) -> str:
 def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
     ordered_views = sorted(
         spec.get("views", []),
-        key=lambda view: 0 if not view.get("visible", True) else 1,
+        key=lambda view: 0 if view.get("visible", True) else 1,
     )
     config_json = json.dumps(
         _native_json_safe_value([

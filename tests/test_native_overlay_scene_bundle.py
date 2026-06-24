@@ -1681,7 +1681,7 @@ native_scene: (
     assert '"lock_aperture_camera":true' in compact
     assert '"controls_enabled":false' in compact
     assert '"flip_x":true' in compact
-    assert compact.index('"frame_id":"main_mirror_frame__surface_source_0"') < compact.index('"frame_id":"main_mirror_frame"')
+    assert compact.index('"frame_id":"main_mirror_frame"') < compact.index('"frame_id":"main_mirror_frame__surface_source_0"')
 
 
 def test_scene_3d_mirror_compiler_does_not_pre_reflect_camera() -> None:
