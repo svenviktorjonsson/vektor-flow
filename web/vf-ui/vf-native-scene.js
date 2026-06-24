@@ -739,6 +739,89 @@
     return objects;
   }
 
+  function reflectedSourceClipFrame(camera, seconds) {
+    var cameraCfg = config.camera || {};
+    var props = cameraCfg && cameraCfg.properties && typeof cameraCfg.properties === "object"
+      ? cameraCfg.properties
+      : {};
+    var mirrorMeshId = String(props.reflect_mirror_mesh_id || "").trim();
+    if (!mirrorMeshId) { return null; }
+    var debug = camera && camera._mirrorDebug && typeof camera._mirrorDebug === "object"
+      ? camera._mirrorDebug
+      : null;
+    var planePoint = debug && Array.isArray(debug.planePoint)
+      ? toVec3(debug.planePoint, [0.0, 0.0, 0.0])
+      : null;
+    var planeNormal = debug && Array.isArray(debug.mirrorFrontNormal)
+      ? normalize3(toVec3(debug.mirrorFrontNormal, [0.0, 1.0, 0.0]), [0.0, 1.0, 0.0])
+      : null;
+    if (!planePoint || !planeNormal) {
+      var sourceCamera = resolveReflectSourceCameraForSpec(props, null);
+      var rawMeshes = Array.isArray(config.meshes) ? config.meshes : [];
+      var mirrorMesh = normalizeMeshSpec(resolveRawMeshById(rawMeshes, mirrorMeshId, "reflected source clip"), seconds, sourceCamera || camera);
+      var vertices = meshVerticesForOccluder(mirrorMesh);
+      if (!Array.isArray(vertices) || vertices.length < 3) {
+        failFast("reflected source clip requires planar mirror geometry");
+      }
+      var bounds = computeBounds(vertices);
+      planePoint = meshCenterFromBounds(bounds);
+      var geomUtil = global.VfGeomWgpuUtil;
+      if (geomUtil && typeof geomUtil.resolvePlanarMirrorGeometry === "function") {
+        var packet = geomUtil.resolvePlanarMirrorGeometry(mirrorMesh, seconds * 1000.0, "reflected source clip");
+        if (packet && packet.frame && Array.isArray(packet.frame.normal)) {
+          planeNormal = normalize3(packet.frame.normal, [0.0, 1.0, 0.0]);
+        }
+        if (packet && Array.isArray(packet.center)) {
+          planePoint = toVec3(packet.center, planePoint);
+        }
+      }
+      if (!planeNormal) {
+        planeNormal = [0.0, 1.0, 0.0];
+      }
+      if (sourceCamera && Array.isArray(sourceCamera.pos) && dot3([
+        Number(sourceCamera.pos[0] || 0.0) - planePoint[0],
+        Number(sourceCamera.pos[1] || 0.0) - planePoint[1],
+        Number(sourceCamera.pos[2] || 0.0) - planePoint[2]
+      ], planeNormal) < 0.0) {
+        planeNormal = [-planeNormal[0], -planeNormal[1], -planeNormal[2]];
+      }
+    }
+    return {
+      mirrorMeshId: mirrorMeshId,
+      planePoint: planePoint,
+      planeNormal: planeNormal,
+      epsilon: 1e-5
+    };
+  }
+
+  function meshRejectedByReflectedSourceClip(mesh, clip) {
+    if (!mesh || !clip) { return false; }
+    if (String(mesh.id || "") === String(clip.mirrorMeshId || "")) { return false; }
+    var vertices = meshVerticesForOccluder(mesh);
+    if (!Array.isArray(vertices) || !vertices.length) {
+      vertices = [meshWorldCenter(mesh)];
+    }
+    var maxSide = -Infinity;
+    for (var i = 0; i < vertices.length; i += 1) {
+      var p = vertices[i];
+      var side = dot3([
+        Number(p[0] || 0.0) - clip.planePoint[0],
+        Number(p[1] || 0.0) - clip.planePoint[1],
+        Number(p[2] || 0.0) - clip.planePoint[2]
+      ], clip.planeNormal);
+      if (side > maxSide) { maxSide = side; }
+    }
+    return maxSide < -(Number(clip.epsilon || 0.0) || 0.0);
+  }
+
+  function filterReflectedSourceMeshes(meshSpecs, camera, seconds) {
+    var clip = reflectedSourceClipFrame(camera, seconds);
+    if (!clip) { return meshSpecs; }
+    return meshSpecs.filter(function (mesh) {
+      return !meshRejectedByReflectedSourceClip(mesh, clip);
+    });
+  }
+
   function authoredSceneMeshSpecs() {
     var out = Array.isArray(config.meshes) ? config.meshes.slice() : [];
     function pushAll(items, kind) {
@@ -3749,6 +3832,7 @@
     }
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeMeshes");
     var meshSpecs = rawMeshSpecs.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, camera); });
+    meshSpecs = filterReflectedSourceMeshes(meshSpecs, camera, seconds);
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterNormalizeMeshes");
     var receivers = Array.isArray(config.shadow_receivers) ? config.shadow_receivers.map(normalizeShadowReceiverSpec) : [];
     var meshById = Object.create(null);

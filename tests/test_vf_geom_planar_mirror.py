@@ -741,12 +741,16 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
 
 def test_window_reflection_pass_clips_objects_on_wrong_side_of_pane() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
+    native_scene = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     assert "reflectedCamera._mirrorRenderClip = mirrorRenderClip" in shader
     assert "reflectedCamera._mirrorRenderClip = mirrorRenderClip;" in shader
     assert "var reflectionClip = options.reflectionClip && typeof options.reflectionClip === \"object\" ? options.reflectionClip : null;" in shader
     assert "function isRejectedByReflectionClip(part)" in shader
     assert "return side < -reflectionClipEpsilon;" in shader
     assert "{ reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }" in shader
+    assert "function filterReflectedSourceMeshes(meshSpecs, camera, seconds)" in native_scene
+    assert "meshSpecs = filterReflectedSourceMeshes(meshSpecs, camera, seconds);" in native_scene
+    assert "return maxSide < -(Number(clip.epsilon || 0.0) || 0.0);" in native_scene
 
 
 def test_native_scene_quad_alpha_drives_transparent_surface_pipeline() -> None:
