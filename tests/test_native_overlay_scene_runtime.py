@@ -144,6 +144,48 @@ def test_launch_native_overlay_scene_program_stages_and_launches(tmp_path: Path)
     assert ("wait_ready", (exe, "sessions/native-scene-test/vkf-scene.html", 24680)) in calls
 
 
+def test_launch_native_overlay_scene_program_uses_stable_asset_versions(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    repo_web_dir = root / "web" / "vf-ui"
+    overlay_web_dir = root / "native" / "VfOverlay" / "build" / "Release" / "web"
+    exe = root / "native" / "VfOverlay" / "build" / "Release" / "vf-overlay.exe"
+    repo_web_dir.mkdir(parents=True, exist_ok=True)
+    overlay_web_dir.mkdir(parents=True, exist_ok=True)
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_bytes(b"")
+    (overlay_web_dir / "vf-runtime-shell.js").write_text("// shell", encoding="utf-8")
+
+    program = NativeOverlaySceneProgram(
+        session_name="native-scene-cache",
+        page_rel="sessions/native-scene-cache/vkf-scene.html",
+        html_text='<script src="../../vf-runtime-shell.js?v=1"></script>',
+        runtime_packets_text='{"packets":[]}\n',
+    )
+
+    def run_once() -> str:
+        launch_native_overlay_scene_program(
+            program,
+            root=root,
+            exe=exe,
+            sync_display_runtime_assets=lambda _root: None,
+            required_assets=("vf-runtime-shell.js",),
+            reset_overlay_port=lambda: None,
+            read_overlay_pid=lambda: None,
+            terminate_previous_overlay=lambda _pid: None,
+            clear_overlay_port_file=lambda _path: None,
+            write_overlay_state=lambda **_kwargs: None,
+            wait_for_overlay_ready=lambda **_kwargs: 43125,
+            popen=lambda _argv, **_kwargs: _FakeProc(24680),
+        )
+        return (repo_web_dir / "sessions" / "native-scene-cache" / "vkf-scene.html").read_text(encoding="utf-8")
+
+    first = run_once()
+    second = run_once()
+
+    assert first == second
+    assert 'vf-runtime-shell.js?v=1"' not in first
+
+
 def test_launch_native_overlay_scene_program_removes_stale_scene_config_files(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     repo_web_dir = root / "web" / "vf-ui"

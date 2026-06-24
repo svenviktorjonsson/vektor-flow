@@ -2995,3 +2995,21 @@ def test_linked_texture_notifications_wait_for_gpu_submission_done() -> None:
     assert "markSubmittedGpuWork(this);\n        this._markPresentedFirstFrame();\n        notifyLinkedTextureFrames(this);" not in shader
     assert "markSubmittedGpuWork(this);\n      this._markPresentedFirstFrame();\n      notifyLinkedTextureFrames(this);" not in shader
 
+
+def test_same_frame_mirror_surface_uses_transaction_camera() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    camera_fn = shader[shader.index("_resolveScreenRenderCamera: function"):shader.index("_drawSingleScenePart: function")]
+
+    assert 'var localFrameId = String(this._frameId || "").trim();' in camera_fn
+    assert 'sourceFrameId === "current" || (localFrameId && sourceFrameId === localFrameId)' in camera_fn
+    assert camera_fn.index('sourceFrameId === "current" || (localFrameId && sourceFrameId === localFrameId)') < camera_fn.index("global.__vfNativeSceneLiveCameras[sourceFrameId]")
+
+
+def test_live_renderer_does_not_drop_frames_for_gpu_pending() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    render_fn = shader[shader.index("_renderContent: function"):shader.index("_drawGpuLightFlares: function")]
+
+    assert "gpu_pending_block" not in render_fn
+    assert "queueRendererForGpuDrain(this" not in render_fn
+    assert "if (isGpuWorkPending(this)" not in render_fn
+

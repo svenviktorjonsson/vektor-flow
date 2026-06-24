@@ -6745,8 +6745,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         return surfaceCamera;
       }
       var sourceFrameId = String(surfaceCamera.reflect_of_frame_id || "").trim();
+      var localFrameId = String(this._frameId || "").trim();
       var sourceCamera = null;
-      if (!sourceFrameId || sourceFrameId === "current") {
+      if (!sourceFrameId || sourceFrameId === "current" || (localFrameId && sourceFrameId === localFrameId)) {
         sourceCamera = sceneMesh && sceneMesh.camera ? sceneMesh.camera : null;
       } else if (global.__vfNativeSceneLiveCameras && typeof global.__vfNativeSceneLiveCameras === "object") {
         sourceCamera = global.__vfNativeSceneLiveCameras[sourceFrameId] || null;
@@ -7601,24 +7602,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     _renderContent: function (t, options) {
       if (!this._device) { return; }
       options = options && typeof options === "object" ? options : {};
-      if (isGpuWorkPending(this) && options.forceResize !== true) {
-        var scheduler = gpuSchedulerState(this);
-        this._debugGpuBlockedCount = Number(this._debugGpuBlockedCount || 0) + 1;
-        queueRendererForGpuDrain(this, scheduler);
-        var pendingAgeMs = perfNowMs() - Number((scheduler && scheduler.pendingStartMs) || this._debugGpuPendingStartMs || perfNowMs());
-        var queuedCount = scheduler && scheduler.order ? scheduler.order.length : 0;
-        if (this._debugGpuBlockedCount <= 3 || this._debugGpuBlockedCount % 10 === 0 || pendingAgeMs > 250) {
-          lagDebugLog(
-            this,
-            "gpu_pending_block blocked=" + Number(this._debugGpuBlockedCount || 0) +
-              " pending_age_ms=" + pendingAgeMs.toFixed(1) +
-              " global_queued=" + queuedCount +
-              " requests=" + Number(this._debugFrameRequestCount || 0) +
-              " coalesced=" + Number(this._debugFrameRequestCoalesced || 0)
-          );
-        }
-        return;
-      }
       var perfSample = Object.create(null);
       var perfTotalStart = perfNowMs();
       var perfStageStart = perfTotalStart;
