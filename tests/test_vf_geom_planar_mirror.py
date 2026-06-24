@@ -467,8 +467,8 @@ def test_planar_mirror_geometry_is_single_runtime_seam() -> None:
 def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fixedSurfaceTextureKind = texture ? proceduralTextureKindCode(texture) : 0.0" in shader
-    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 8.0" in shader
-    assert "let baseTextureKind = floor(packedScreenFlags / 8.0)" in shader
+    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 16.0" in shader
+    assert "let baseTextureKind = floor(packedScreenFlags / 16.0)" in shader
     assert "clamp(surfaceUv.x, 0.0, 1.0)" in shader
     assert "clamp(surfaceUv.y, 0.0, 1.0)" in shader
     assert "let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture)" in shader

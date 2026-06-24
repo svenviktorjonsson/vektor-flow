@@ -64,6 +64,18 @@ def _native_scene_source_tree_hash(source: Path) -> str:
     return _fnv1a64_hex(b"".join(chunks))
 
 
+def _write_generated_scene_config(source: Path, config_text: str) -> Path:
+    cache_dir = source.parent / ".vkfbuild"
+    cache_dir.mkdir(exist_ok=True)
+    config_path = cache_dir / f"{source.stem}.native-scene-config.json"
+    config_path.write_text(config_text, encoding="utf-8")
+    config_path.with_name(config_path.name + ".source_hash").write_text(
+        _native_scene_source_tree_hash(source) + "\n",
+        encoding="utf-8",
+    )
+    return config_path
+
+
 def test_native_scene_artifact_stager_writes_launcher_contract_without_python(tmp_path: Path) -> None:
     exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
     source_dir = tmp_path / "program"
@@ -126,12 +138,22 @@ def test_native_scene_artifact_stager_hash_includes_program_libs(tmp_path: Path)
     lib_dir = source_dir / "lib"
     lib_dir.mkdir()
     source = source_dir / "main.vkf"
-    source.write_text('native_scene_config_json: "{}"\n', encoding="utf-8")
     dependency = lib_dir / "native_scene.vkf"
     dependency.write_text('board: (texture: (kind: "checker"))\n', encoding="utf-8")
+    source.write_text(
+        "\n".join(
+            [
+                'native_scene_config_path: ".vkfbuild/main.native-scene-config.json"',
+                'native_scene: (kind:"scene_3d", frame_id:"vkf_chess_board")',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     overlay_web = tmp_path / "web"
 
     def run_stager() -> str:
+        _write_generated_scene_config(source, "{}")
         proc = subprocess.run(
             [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
             cwd=ROOT,
@@ -157,10 +179,11 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_bindings(tmp_path: Pa
     source_dir = tmp_path / "program"
     source_dir.mkdir()
     source = source_dir / "main.vkf"
+    scene_config = '[{"scene_ir":{"frame":{"frame_id":"vkf_chess_board","title":"Board","rect":[0.1,0.2,0.3,0.4],"aspect":"equal","visible":true}}}]'
     source.write_text(
         "\n".join(
             [
-                "native_scene_config_json: '[{\"scene_ir\":{\"frame\":{\"frame_id\":\"vkf_chess_board\",\"title\":\"Board\",\"rect\":[0.1,0.2,0.3,0.4],\"aspect\":\"equal\",\"visible\":true}}}]'",
+                'native_scene_config_path: ".vkfbuild/main.native-scene-config.json"',
                 "native_scene_runtime_packets_json: '{\"frames\":[{\"id\":\"vkf_chess_board\"}]}'",
                 "native_scene: (kind:\"scene_3d\", frame_id:\"vkf_chess_board\")",
                 "",
@@ -168,6 +191,7 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_bindings(tmp_path: Pa
         ),
         encoding="utf-8",
     )
+    _write_generated_scene_config(source, scene_config)
     overlay_web = tmp_path / "web"
 
     subprocess.run(
@@ -216,7 +240,6 @@ def test_native_scene_artifact_stager_records_runtime_packet_path_provenance(tmp
     source.write_text(
         "\n".join(
             [
-                "native_scene_config_json: '{}'",
                 'native_scene_runtime_packets_path: "runtime-packets/main.vf-runtime-packets.json"',
                 "",
             ]
@@ -230,7 +253,7 @@ def test_native_scene_artifact_stager_records_runtime_packet_path_provenance(tmp
     overlay_web = tmp_path / "web"
 
     proc = subprocess.run(
-        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
+        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web), "--scene-config", "{}"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -257,7 +280,6 @@ def test_native_scene_artifact_stager_rejects_stale_runtime_packet_path_fingerpr
     source.write_text(
         "\n".join(
             [
-                "native_scene_config_json: '{}'",
                 'native_scene_runtime_packets_path: "runtime-packets/main.vf-runtime-packets.json"',
                 "",
             ]
@@ -267,7 +289,7 @@ def test_native_scene_artifact_stager_rejects_stale_runtime_packet_path_fingerpr
     packets.with_name(packets.name + ".source_hash").write_text("0000000000000000\n", encoding="utf-8")
 
     proc = subprocess.run(
-        [str(exe), "--source", str(source), "--overlay-web", str(tmp_path / "web")],
+        [str(exe), "--source", str(source), "--overlay-web", str(tmp_path / "web"), "--scene-config", "{}"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -323,10 +345,10 @@ def test_native_scene_artifact_stager_refreshes_unchanged_artifact_mtime(tmp_pat
     source_dir = tmp_path / "program"
     source_dir.mkdir()
     source = source_dir / "main.vkf"
+    scene_config = '{"kind":"scene_3d","frame_id":"vkf_chess_board"}'
     source.write_text(
         "\n".join(
             [
-                'native_scene_config_json: \'{"kind":"scene_3d","frame_id":"vkf_chess_board"}\'',
                 'native_scene: (kind:"scene_3d", frame_id:"vkf_chess_board")',
                 "",
             ]
@@ -335,7 +357,7 @@ def test_native_scene_artifact_stager_refreshes_unchanged_artifact_mtime(tmp_pat
     )
     overlay_web = tmp_path / "web"
 
-    command = [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)]
+    command = [str(exe), "--source", str(source), "--overlay-web", str(overlay_web), "--scene-config", scene_config]
     subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
     page = overlay_web / "sessions" / "main" / "vkf-scene.html"
     first_page_mtime = page.stat().st_mtime_ns
@@ -358,11 +380,11 @@ def test_native_scene_artifact_stager_externalizes_mesh_arrays_to_binary_arena(t
         '"indices":[0,1,2]}}]}}]'
     )
     source = source_dir / "main.vkf"
-    source.write_text(f"native_scene_config_json: '{scene_config}'\n", encoding="utf-8")
+    source.write_text('native_scene: (kind:"scene_3d", frame_id:"vkf_chess_board")\n', encoding="utf-8")
     overlay_web = tmp_path / "web"
 
     subprocess.run(
-        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
+        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web), "--scene-config", scene_config],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -396,11 +418,11 @@ def test_native_scene_artifact_stager_hydrates_single_scene_binary_arena(tmp_pat
         '"indices":[0,1,2]}]}'
     )
     source = source_dir / "main.vkf"
-    source.write_text(f"native_scene_config_json: '{scene_config}'\n", encoding="utf-8")
+    source.write_text('native_scene: (kind:"scene_3d", frame_id:"mirror_frame")\n', encoding="utf-8")
     overlay_web = tmp_path / "web"
 
     subprocess.run(
-        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
+        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web), "--scene-config", scene_config],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -430,10 +452,10 @@ def test_native_scene_artifact_stager_preserves_current_hashed_artifacts(tmp_pat
         '"meshes":[{"kind":"field_mesh","properties":{"id":"piece","vertices":[1.0,2.0,3.0,0.0,0.0,1.0,1.0,0.8,0.6,1.0],'
         '"indices":[0,1,2]}}]}}]'
     )
-    source.write_text(f"native_scene_config_json: '{scene_config}'\n", encoding="utf-8")
+    source.write_text('native_scene: (kind:"scene_3d", frame_id:"vkf_chess_board")\n', encoding="utf-8")
     overlay_web = tmp_path / "web"
 
-    command = [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)]
+    command = [str(exe), "--source", str(source), "--overlay-web", str(overlay_web), "--scene-config", scene_config]
     subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
 
     session_dir = overlay_web / "sessions" / "main"
@@ -494,22 +516,15 @@ def test_native_scene_artifact_stager_rejects_stale_generated_scene_config(tmp_p
     assert "rebuild the VKF scene config before staging" in proc.stderr
 
 
-def test_native_scene_artifact_stager_recovers_json_from_cached_scene_html(tmp_path: Path) -> None:
+def test_native_scene_artifact_stager_rejects_inline_scene_config(tmp_path: Path) -> None:
     exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
     source_dir = tmp_path / "program"
     source_dir.mkdir()
     source = source_dir / "main.vkf"
-    cached_html = (
-        '<!DOCTYPE html>\n'
-        '<html><body><script>window.__vfNativeSceneConfigs = '
-        '[{"scene_ir":{"frame":{"frame_id":"hidden","visible":false}}},'
-        '{"scene_ir":{"frame":{"frame_id":"vkf_chess_board","visible":true}}}]'
-        ';</script></body></html>'
-    )
     source.write_text(
         "\n".join(
             [
-                f"native_scene_config_json: '{cached_html}'",
+                "native_scene_config_json: '{}'",
                 "native_scene: (kind:\"scene_3d\", frame_id:\"vkf_chess_board\")",
                 "",
             ]
@@ -518,7 +533,7 @@ def test_native_scene_artifact_stager_recovers_json_from_cached_scene_html(tmp_p
     )
     overlay_web = tmp_path / "web"
 
-    subprocess.run(
+    proc = subprocess.run(
         [
             str(exe),
             "--source",
@@ -527,19 +542,12 @@ def test_native_scene_artifact_stager_recovers_json_from_cached_scene_html(tmp_p
             str(overlay_web),
         ],
         cwd=ROOT,
-        check=True,
         capture_output=True,
         text=True,
     )
 
-    html = (overlay_web / "sessions" / "main" / "vkf-scene.html").read_text(encoding="utf-8")
-    assert "window.__vfNativeSceneConfigs=null" in html
-    assert "window.__vfNativeSceneConfigsUrl=\"vf-native-scene-configs-" in html
-    config_files = list((overlay_web / "sessions" / "main").glob("vf-native-scene-configs-*.json"))
-    assert len(config_files) == 1
-    assert config_files[0].read_text(encoding="utf-8").startswith("[{\"scene_ir\"")
-    assert "window.__vfNativeSceneConfig=<!DOCTYPE html>" not in html
-    assert html.count("<!DOCTYPE html>") == 1
+    assert proc.returncode == 1
+    assert "native_scene_config_json is not allowed in VKF source" in proc.stderr
 
 
 def test_native_scene_artifact_stager_writes_multi_view_scene_contract(tmp_path: Path) -> None:
@@ -583,3 +591,5 @@ def test_native_scene_artifact_stager_writes_multi_view_scene_contract(tmp_path:
     assert "var delay=index===0?200:0;global.setTimeout(function(){loadAt(index+1);},delay);" in html
     assert "vf-native-scene.js?view=" in html
     assert "loadAt(0)" in html
+
+

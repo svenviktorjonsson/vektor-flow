@@ -1513,60 +1513,6 @@ def _normalize_function_plotter_spec(declared: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
-    for stmt in module.statements:
-        if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
-            value = _eval_native_scene_literal(stmt.value, f"{name}")
-            if not isinstance(value, dict):
-                raise ValueError(f"{name} must be a struct literal")
-            return value
-    return None
-
-
-def _eval_native_scene_literal(expr: Any, path: str) -> Any:
-    if isinstance(expr, ast.AxisAlign):
-        value = _eval_native_scene_literal(expr.value, f"{path}.value")
-        if expr.label is not None:
-            axis_key = "i" if expr.label == "_" else expr.label
-        else:
-            evaluated = [_eval_native_scene_literal(item, f"{path}.axis") for item in (expr.indices or [])]
-            if len(evaluated) != 1:
-                raise ValueError(f"{path} axis access expects exactly one key")
-            raw = evaluated[0]
-            if isinstance(raw, bool):
-                raise ValueError(f"{path} axis key cannot be bool")
-            if isinstance(raw, str):
-                axis_key = raw
-            elif isinstance(raw, (int, float)):
-                axis_key = str(int(raw)) if isinstance(raw, float) and raw == int(raw) else str(raw)
-            else:
-                raise ValueError(f"{path} axis key must be string or number")
-        return axis_tagged_wrap(value, axis_key)
-    if isinstance(expr, ast.StructLit):
-        return {key: _eval_native_scene_literal(value, f"{path}.{key}") for key, value in expr.fields}
-    if isinstance(expr, ast.ListLit):
-        return [_eval_native_scene_literal(value, f"{path}[]") for value in expr.elements]
-    if isinstance(expr, ast.TupleLit):
-        return [_eval_native_scene_literal(value, f"{path}[]") for value in expr.elements]
-    if isinstance(expr, ast.StringLit):
-        return expr.value
-    if isinstance(expr, ast.NumberLit):
-        return expr.value
-    if isinstance(expr, ast.BoolLit):
-        return expr.value
-    if isinstance(expr, ast.NullLit):
-        return None
-    if isinstance(expr, ast.UnaryOp):
-        operand = _eval_native_scene_literal(expr.operand, f"{path}.operand")
-        if not isinstance(operand, (int, float)) or isinstance(operand, bool):
-            raise ValueError(f"{path} unary operand must be numeric")
-        if expr.op == "MINUS":
-            return -float(operand)
-        if expr.op == "PLUS":
-            return float(operand)
-    raise ValueError(f"{path} must be a literal value; got {type(expr).__name__}")
-
-
 def _require_field(scope: dict[str, Any], name: str) -> Any:
     if name not in scope:
         raise ValueError(f"native_scene missing field {name!r}")

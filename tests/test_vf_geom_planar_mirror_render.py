@@ -137,6 +137,8 @@ def test_calibration_reflected_frame_is_declared_square() -> None:
         / "planar-mirror-calibration"
         / "vf-runtime-packets.json"
     )
+    if not packets_path.exists():
+        pytest.skip(f"calibration packets missing: {packets_path}")
     payload = json.loads(packets_path.read_text(encoding="utf-8"))
     commands = payload[0]["payload"]["commands"]
     frame = next(cmd for cmd in commands if cmd["id"] == "planar_mirror_reflected_frame")

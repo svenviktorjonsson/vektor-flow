@@ -159,7 +159,53 @@ async function main() {
       })()`,
       returnByValue: true
     });
-    await delay(500);
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const ready = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
+        expression: `(() => {
+          const captureState = window.VfDisplay && window.VfDisplay.__test && window.VfDisplay.__test.debugGeomFrameCaptureState
+            ? window.VfDisplay.__test.debugGeomFrameCaptureState(${JSON.stringify(frameId)})
+            : [];
+          const dynamicState = window.VfDisplay && window.VfDisplay.__test && window.VfDisplay.__test.debugDynamicGeomFrameState
+            ? window.VfDisplay.__test.debugDynamicGeomFrameState(${JSON.stringify(frameId)})
+            : null;
+          const renderer = dynamicState && dynamicState.renderer || null;
+          const firstCapture = Array.isArray(captureState) && captureState.length ? captureState[0] : null;
+          return {
+            captureState,
+            dynamicState,
+            ready: !!(
+              renderer &&
+              renderer.partCount > 0 &&
+              renderer.renderPending !== true &&
+              firstCapture &&
+              firstCapture.hasFrameTextureRef &&
+              firstCapture.frameWidth > 0 &&
+              firstCapture.frameHeight > 0
+            )
+          };
+        })()`,
+        returnByValue: true
+      });
+      const value = ready && ready.result ? ready.result.value : null;
+      if (value && value.ready) {
+        break;
+      }
+      if (attempt === 79) {
+        throw new Error(`renderer frame texture never became ready: ${JSON.stringify(value)}`);
+      }
+      if (attempt % 4 === 0) {
+        await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
+          expression: `(() => {
+            if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
+              return window.VfDisplay.redrawVisibleGeomFrames();
+            }
+            return false;
+          })()`,
+          returnByValue: true
+        });
+      }
+      await delay(250);
+    }
     if (zoomSteps !== 0) {
       const deltaY = zoomSteps > 0 ? 100 : -100;
       const count = Math.abs(zoomSteps);

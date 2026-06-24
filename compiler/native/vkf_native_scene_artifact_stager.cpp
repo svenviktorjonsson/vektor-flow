@@ -447,7 +447,7 @@ std::string normalize_scene_config_json(const std::string& scene_config_json) {
     if (auto config = extract_js_json_assignment(trimmed, "window.__vfNativeSceneConfig")) {
         return *config;
     }
-    throw StagerError("native_scene_config_json contains HTML but no window.__vfNativeSceneConfig assignment");
+    throw StagerError("scene config contains HTML but no window.__vfNativeSceneConfig assignment");
 }
 
 bool is_array_number_char(char ch) {
@@ -800,8 +800,10 @@ int run(int argc, char** argv) {
     if (!effective.scene_config_supplied) {
         auto extracted_inline = extract_vkf_string_binding(source_text, "native_scene_config_json");
         auto extracted_path = extract_vkf_string_binding(source_text, "native_scene_config_path");
-        if (extracted_inline.has_value() && extracted_path.has_value()) {
-            throw StagerError("source defines both native_scene_config_json and native_scene_config_path; choose one");
+        if (extracted_inline.has_value()) {
+            throw StagerError(
+                "native_scene_config_json is not allowed in VKF source; "
+                "use native_scene syntax or a fingerprinted native_scene_config_path artifact");
         }
         if (extracted_path.has_value()) {
             const std::filesystem::path config_path = resolve_source_relative_path(absolute_source, *extracted_path);
@@ -813,11 +815,8 @@ int run(int argc, char** argv) {
             scene_config_provenance.source = "path";
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
-        } else if (extracted_inline.has_value()) {
-            effective.scene_config_json = *extracted_inline;
-            scene_config_provenance.source = "inline";
         } else {
-            throw StagerError("source does not expose native_scene_config_json or native_scene_config_path and --scene-config was not supplied");
+            throw StagerError("source does not expose native_scene_config_path and --scene-config was not supplied");
         }
     } else {
         scene_config_provenance.source = "argument";

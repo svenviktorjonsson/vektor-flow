@@ -2,7 +2,6 @@ ui:.ui
 math:.math
 ui.set_mode("overlay")
 
-native_scene_config_json: '[]'
 
 d: ui.display
 
