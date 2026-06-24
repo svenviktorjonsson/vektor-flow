@@ -2661,3 +2661,18 @@ process.stdout.write(JSON.stringify({{
     assert payload["hasView"] is True
     assert payload["hasProjection"] is True
 
+
+def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
+    runtime = (REPO / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
+
+    assert "function sceneHasNativeWorldAnimations()" in runtime
+    assert "function lightHasContinuousMotion(light)" in runtime
+    assert 'motion === "orbit" || motion === "oscillate"' in runtime
+    assert "function currentNativeSceneAnimationDirtyVersion(seconds)" in runtime
+    assert "function currentSceneWorldDirtyVersion(seconds)" in runtime
+    assert "currentNativeSceneAnimationDirtyVersion(seconds)" in runtime
+    assert "return chessAnimationsPending() || sceneHasNativeWorldAnimations();" in runtime
+    assert "return chessActive || sceneHasNativeWorldAnimations();" in runtime
+    assert "var dirtyVersion = currentSceneWorldDirtyVersion(seconds);" in runtime
+    assert "var nativeWorldAnimationPresence = null;" in runtime
+

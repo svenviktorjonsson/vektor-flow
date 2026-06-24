@@ -28,6 +28,7 @@
   var durationSeconds = Math.max(0.001, Number(timingCfg.duration_seconds || 10.0));
   var boundary = String(timingCfg.boundary || "repeat");
   var frameCount = Math.max(1, Math.round(fps * durationSeconds));
+  var nativeWorldAnimationPresence = null;
   var AXIS_TAGGED_KEY = "__vf_axis_tagged__";
 
   function startupDebugMark(frameId, mark) {
@@ -3928,8 +3929,77 @@
     return runtime ? (Number(runtime.sceneDirtyVersion || 0) || 0) : 0;
   }
 
-  function currentSceneWorldDirtyVersion() {
-    return currentChessSceneDirtyVersion();
+  function entityTrackIsAnimated(track) {
+    if (Array.isArray(track)) { return track.length > 1; }
+    if (isEncodedAxisTaggedValue(track)) {
+      var idx = encodedAxisTaggedIdx(track);
+      if (!idx || idx.charAt(idx.length - 1) !== "t") { return false; }
+      return trackLengthForAxis(encodedAxisTaggedData(track), idx.length - 1) > 1;
+    }
+    return false;
+  }
+
+  function entityHasAnimatedTracks(entity) {
+    if (!entity || typeof entity !== "object") { return false; }
+    var tracks = entity.tracks && typeof entity.tracks === "object" ? entity.tracks : null;
+    if (tracks) {
+      var names = Object.keys(tracks);
+      for (var i = 0; i < names.length; i += 1) {
+        if (entityTrackIsAnimated(tracks[names[i]])) { return true; }
+      }
+    }
+    return Math.max(1, Number(entityProp(entity, "time_count", 1) || 1) | 0) > 1;
+  }
+
+  function lightHasContinuousMotion(light) {
+    if (!light || typeof light !== "object") { return false; }
+    if (entityHasAnimatedTracks(light)) { return true; }
+    var angularVelocity = Math.abs(Number(entityProp(light, "angular_velocity", 0.0) || 0.0));
+    if (!(angularVelocity > 0.0)) { return false; }
+    var motion = String(entityProp(light, "motion", Array.isArray(entityProp(light, "pos", undefined)) ? "fixed" : "orbit") || "orbit");
+    return motion === "orbit" || motion === "oscillate";
+  }
+
+  function sceneHasNativeWorldAnimations() {
+    if (nativeWorldAnimationPresence != null) { return nativeWorldAnimationPresence === true; }
+    if (entityHasAnimatedTracks(config.camera || null)) {
+      nativeWorldAnimationPresence = true;
+      return true;
+    }
+    var lightSpecs = Array.isArray(config.lights)
+      ? config.lights
+      : (config.light ? [config.light] : []);
+    for (var lightIndex = 0; lightIndex < lightSpecs.length; lightIndex += 1) {
+      if (lightHasContinuousMotion(lightSpecs[lightIndex])) {
+        nativeWorldAnimationPresence = true;
+        return true;
+      }
+    }
+    var rawMeshSpecs = authoredSceneMeshSpecs();
+    for (var meshIndex = 0; meshIndex < rawMeshSpecs.length; meshIndex += 1) {
+      if (entityHasAnimatedTracks(rawMeshSpecs[meshIndex])) {
+        nativeWorldAnimationPresence = true;
+        return true;
+      }
+    }
+    var surfaceCameraIds = Object.keys(surfaceCameras);
+    for (var cameraIndex = 0; cameraIndex < surfaceCameraIds.length; cameraIndex += 1) {
+      if (entityHasAnimatedTracks(surfaceCameras[surfaceCameraIds[cameraIndex]])) {
+        nativeWorldAnimationPresence = true;
+        return true;
+      }
+    }
+    nativeWorldAnimationPresence = false;
+    return false;
+  }
+
+  function currentNativeSceneAnimationDirtyVersion(seconds) {
+    if (!sceneHasNativeWorldAnimations()) { return 0; }
+    return Math.max(0, Math.floor(Math.max(0.0, Number(seconds || 0.0)) * Math.max(1, fps) * 4.0));
+  }
+
+  function currentSceneWorldDirtyVersion(seconds) {
+    return (currentChessSceneDirtyVersion() * 1000000000) + currentNativeSceneAnimationDirtyVersion(seconds);
   }
 
   function chessAnimationsPending() {
@@ -3938,11 +4008,12 @@
   }
 
   function sceneWorldAnimationsPending() {
-    return chessAnimationsPending();
+    return chessAnimationsPending() || sceneHasNativeWorldAnimations();
   }
 
   function applySceneWorldFrame(seconds) {
-    return applyChessInteractionFrame(seconds);
+    var chessActive = applyChessInteractionFrame(seconds);
+    return chessActive || sceneHasNativeWorldAnimations();
   }
 
   function chessMeshStructureSignature() {
@@ -8318,7 +8389,7 @@
         }
         renderCamera = applyCameraSwitch(renderCamera);
         publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
-        var dirtyVersion = currentSceneWorldDirtyVersion();
+        var dirtyVersion = currentSceneWorldDirtyVersion(seconds);
         var meshStructureSignature = sceneWorldMeshStructureSignature();
         var heldCameraKeyActive = cameraKeysActive();
         var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
