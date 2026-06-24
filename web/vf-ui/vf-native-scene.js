@@ -8300,15 +8300,6 @@
               : Math.max(1, Number(offscreenPixels && offscreenPixels.height || 0) || 1);
           }
           var markerSizeCamera = null;
-          if (!useVisibleFrame && dependencySourceFrameId && global.__vfNativeSceneLiveCameras) {
-            var sourceMarkerCamera = global.__vfNativeSceneLiveCameras[dependencySourceFrameId];
-            if (sourceMarkerCamera && typeof sourceMarkerCamera === "object") {
-              markerSizeCamera = Object.assign({}, sourceMarkerCamera);
-              if (!(Number(markerSizeCamera.viewport_height_px || 0) > 0)) {
-                markerSizeCamera.viewport_height_px = Number(markerSizeCamera.viewport_marker_reference_height_px || 0) || 0;
-              }
-            }
-          }
           publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
         if (useVisibleFrame && sceneWorldAnimationsPending() && visibleRenderBackpressureActive()) {
           startupDebugMark(watchedFrameId, "visibleBackpressureReturn");

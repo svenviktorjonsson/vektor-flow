@@ -2407,6 +2407,18 @@ def test_offscreen_reflected_frame_waits_for_source_before_resolving_camera() ->
     assert wait_index < resolve_index
 
 
+def test_offscreen_marker_impostors_size_from_virtual_mirror_camera() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    render_start = source.index("function renderFrame()")
+    render_fn = source[render_start:source.index("function wireChessRuntimeRenderCallbacks", render_start)]
+    publish_fn = source[source.index("function publishLiveCamera"):source.index("function ensureCameraHoldLoop")]
+
+    assert "sourceMarkerReferenceHeightPx" in render_fn
+    assert "var markerSizeCamera = null;" in render_fn
+    assert "Object.assign({}, sourceMarkerCamera)" not in render_fn
+    assert "renderCamera._marker_size_camera = markerSizeCamera;" in publish_fn
+
+
 def test_native_scene_resets_stale_camera_controls_on_boot() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     boot_fn = source[source.index("function boot()"):source.index("function ensureGeomRendererReady")]
