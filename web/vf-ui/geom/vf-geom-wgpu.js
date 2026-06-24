@@ -5185,13 +5185,37 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     return directLights.concat(apertureLights);
   }
 
-  function sceneMeshForLightResolution(meshLike, parts) {
-    if (!meshLike || !Array.isArray(parts) || !parts.length) {
+  function sceneMeshForLightResolution(meshLike, parts, authoredPartsForResolution) {
+    if (!meshLike) {
       return meshLike;
     }
-    var runtimeParts = new Array(parts.length);
-    for (var i = 0; i < parts.length; i += 1) {
-      runtimeParts[i] = parts[i] && parts[i].mesh ? parts[i].mesh : null;
+    var runtimeParts = [];
+    var seen = Object.create(null);
+    if (Array.isArray(parts)) {
+      for (var i = 0; i < parts.length; i += 1) {
+        var renderedMesh = parts[i] && parts[i].mesh ? parts[i].mesh : null;
+        if (!renderedMesh) { continue; }
+        runtimeParts.push(renderedMesh);
+        if (renderedMesh.id) { seen[String(renderedMesh.id)] = true; }
+      }
+    }
+    var authoredParts = [];
+    if (Array.isArray(meshLike.parts)) {
+      authoredParts = authoredParts.concat(meshLike.parts);
+    }
+    if (Array.isArray(authoredPartsForResolution)) {
+      authoredParts = authoredParts.concat(authoredPartsForResolution);
+    }
+    for (var j = 0; j < authoredParts.length; j += 1) {
+      var authoredMesh = authoredParts[j];
+      if (!authoredMesh) { continue; }
+      var authoredId = authoredMesh.id ? String(authoredMesh.id) : "";
+      if (authoredId && seen[authoredId]) { continue; }
+      runtimeParts.push(authoredMesh);
+      if (authoredId) { seen[authoredId] = true; }
+    }
+    if (!runtimeParts.length) {
+      return meshLike;
     }
     return Object.assign({}, meshLike, { parts: runtimeParts });
   }
@@ -5878,6 +5902,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._ibCount    = 0;
     this._topology   = "triangle-list";
     this._parts      = null;
+    this._scenePartSpecsForLightResolution = null;
     this._lastMesh   = null;
     this._lastMeshRevision = -1;
     this._lastFrameViewProj = null;
@@ -6455,7 +6480,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var MmLocal = getMath();
       var sceneLights = resolveSceneLights(
         lightsForRenderer(mesh.lights || [], this._offscreenFrame === true),
-        sceneMeshForLightResolution(mesh, this._parts),
+        sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
@@ -6761,7 +6786,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var rawLightsPart = partMesh.no_lighting === true
         ? []
         : lightsForMesh((partMesh.lights || sceneMesh.lights || []), this._offscreenFrame === true, partMesh);
-      var lightsNormPart = resolveSceneLights(rawLightsPart, sceneMeshForLightResolution(sceneMesh, this._parts), t);
+      var lightsNormPart = resolveSceneLights(rawLightsPart, sceneMeshForLightResolution(sceneMesh, this._parts, this._scenePartSpecsForLightResolution), t);
       var lmNamePart = partMesh.light_model || sceneMesh.light_model || (lightsNormPart[0] && lightsNormPart[0].model) || "blinn_phong";
       var lmIntPart = LIGHT_MODELS[lmNamePart] !== undefined ? LIGHT_MODELS[lmNamePart] : 2;
       var meshForUniform = partMesh;
@@ -7470,6 +7495,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!scene.parts.length) {
         failFast("scene parts upload received zero parts");
       }
+      this._scenePartSpecsForLightResolution = scene.parts.slice();
       var dev = this._device;
       var previousParts = Array.isArray(this._parts) ? this._parts : [];
       var nextParts = new Array(scene.parts.length);
@@ -7527,6 +7553,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._uploadSceneParts(mesh);
         return;
       }
+      this._scenePartSpecsForLightResolution = null;
       var dev = this._device;
       this._destroyParts();
       if (this._vb) { this._vb.destroy(); this._vb = null; }
@@ -7650,7 +7677,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._lastFrameFlipV = sceneCam && sceneCam._mirrorFlipV === true;
         var sceneLights = resolveSceneLights(
           lightsForRenderer(mesh.lights || [], this._offscreenFrame === true),
-          sceneMeshForLightResolution(mesh, this._parts),
+          sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
           t
         );
         maybeLogResolvedLights(this, "flares", sceneLights);
@@ -7831,7 +7858,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
       // --- Lights ---
       var rawLights = mesh.no_lighting === true ? [] : lightsForMesh((mesh.lights || []), this._offscreenFrame === true, mesh);
-      var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts), t);
+      var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution), t);
       maybeLogResolvedLights(this, "main", lightsNorm);
       var lmName = mesh.light_model || (lightsNorm[0] && lightsNorm[0].model) || "blinn_phong";
       var lmInt  = LIGHT_MODELS[lmName] !== undefined ? LIGHT_MODELS[lmName] : 2;
@@ -8117,6 +8144,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._lastFrameViewProj = null;
       this._lastFrameFlipU = false;
       this._lastFrameFlipV = false;
+      this._scenePartSpecsForLightResolution = null;
       if (this._resizeRaf) { cancelAnimationFrame(this._resizeRaf); this._resizeRaf = 0; }
       this._destroyParts();
       if (this._vb)        { try { this._vb.destroy(); } catch(_){} this._vb = null; }

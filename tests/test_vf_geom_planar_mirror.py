@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -18,13 +19,19 @@ NATIVE_SCENE_JS = REPO / "web" / "vf-ui" / "vf-native-scene.js"
 
 
 def _run_node(script: str) -> dict:
-    result = subprocess.run(
-        ["node", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=REPO,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as handle:
+        handle.write(script)
+        script_path = Path(handle.name)
+    try:
+        result = subprocess.run(
+            ["node", str(script_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=REPO,
+        )
+    finally:
+        script_path.unlink(missing_ok=True)
     return json.loads(result.stdout)
 
 
@@ -513,6 +520,152 @@ process.stdout.write(JSON.stringify({{
     assert payload["kinds"] == ["point", "projected"]
     assert payload["shadows"] == [False, True]
     assert payload["apertureMeshId"] == "mirror"
+
+
+def test_offscreen_solkatt_can_resolve_hidden_authored_mirror_part() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__hiddenMirrorSolkattTest = {{ lightsForRenderer: lightsForRenderer, resolveSceneLights: resolveSceneLights, sceneMeshForLightResolution: sceneMeshForLightResolution }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w * 0.5;
+  const y = h * 0.5;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  visible: false,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const blocker = {{
+  id: "blocker",
+  kind: "quad",
+  center: [0.2, 2.8, 0.55],
+  size: [0.8, 0.8],
+  rotation: [70, 0, 0],
+  vertices: quadVerts(0.8, 0.8)
+}};
+const sceneMesh = {{ parts: [mirror, blocker] }};
+const renderedParts = [{{ mesh: blocker }}];
+const raw = sandbox.__hiddenMirrorSolkattTest.lightsForRenderer([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "mirror" }}
+], true);
+const lightMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution(sceneMesh, renderedParts);
+const lights = sandbox.__hiddenMirrorSolkattTest.resolveSceneLights(raw, lightMesh, 0);
+process.stdout.write(JSON.stringify({{
+  partIds: lightMesh.parts.map((part) => part.id),
+  ids: lights.map((light) => light.id),
+  kinds: lights.map((light) => light.kind),
+  apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["partIds"] == ["blocker", "mirror"]
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["kinds"] == ["point", "projected"]
+    assert payload["apertureMeshId"] == "mirror"
+
+
+def test_offscreen_solkatt_uses_retained_scene_catalog_when_payload_is_transient() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__hiddenMirrorSolkattTest = {{ lightsForRenderer: lightsForRenderer, resolveSceneLights: resolveSceneLights, sceneMeshForLightResolution: sceneMeshForLightResolution }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w / 2, y = h / 2;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "showcase_mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  visible: false,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const blocker = {{
+  id: "blocker",
+  kind: "quad",
+  center: [0.2, 2.8, 0.55],
+  size: [0.8, 0.8],
+  rotation: [70, 0, 0],
+  vertices: quadVerts(0.8, 0.8)
+}};
+const transientPayload = {{}};
+const renderedParts = [{{ mesh: blocker }}];
+const retainedCatalog = [mirror, blocker];
+const raw = sandbox.__hiddenMirrorSolkattTest.lightsForRenderer([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "showcase_mirror" }}
+], true);
+const lightMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution(transientPayload, renderedParts, retainedCatalog);
+const lights = sandbox.__hiddenMirrorSolkattTest.resolveSceneLights(raw, lightMesh, 0);
+process.stdout.write(JSON.stringify({{
+  partIds: lightMesh.parts.map((part) => part.id),
+  ids: lights.map((light) => light.id),
+  apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["partIds"] == ["blocker", "showcase_mirror"]
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["apertureMeshId"] == "showcase_mirror"
 
 
 def test_mirror_plane_debug_logs_are_gated_and_cover_plane_consumers() -> None:
