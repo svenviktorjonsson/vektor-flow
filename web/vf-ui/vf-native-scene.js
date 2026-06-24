@@ -7430,6 +7430,10 @@
     return !((frameSpec && frameSpec.visible === false) || (config && config.visible === false));
   }
 
+  function sceneFrameShellIsPacketOwned() {
+    return global.__vfNativeSceneFramesArePacketOwned === true;
+  }
+
   function offscreenFramePixels() {
     var rect = frameSpec && Array.isArray(frameSpec.rect) ? frameSpec.rect : [0, 0, 1, 1];
     var viewportW = Math.max(1, Number(global.innerWidth || 1280) || 1280);
@@ -7517,6 +7521,7 @@
 
   function ensureVisibleSceneFrameShell() {
     if (!sceneFrameVisible()) { return null; }
+    if (sceneFrameShellIsPacketOwned()) { return null; }
     var frameId = String(frameSpec.frame_id || config.frame_id || "").trim();
     if (!frameId) { return null; }
     var existing = document.querySelector('.vf-frame[data-vf-frame-id="' + frameId + '"]');
@@ -7600,7 +7605,7 @@
   function boot() {
     requireRuntime();
     var frame = document.querySelector('.vf-frame[data-vf-frame-id="' + String(frameSpec.frame_id || config.frame_id) + '"]');
-    if (!frame && sceneFrameVisible()) {
+    if (!frame && sceneFrameVisible() && !sceneFrameShellIsPacketOwned()) {
       frame = ensureVisibleSceneFrameShell();
     }
     var body = frame ? frame.querySelector(".vf-frame__body") : null;
@@ -8516,6 +8521,7 @@
 
     function mountResponsiveVisibleShell() {
       if (!useVisibleFrame) { return; }
+      if (sceneFrameShellIsPacketOwned()) { return; }
       ensureVisibleSceneFrameShell();
       postVisibleShellLayout();
     }
@@ -8577,8 +8583,17 @@
       boot();
       return;
     }
+    if (sceneFrameShellIsPacketOwned()) {
+      if (attempt > 240) {
+        failFast("timed out waiting for packet-owned scene frame");
+      }
+      global.setTimeout(function () { waitForFrame(attempt + 1); }, 16);
+      return;
+    }
     if (global.VfDisplay && typeof global.VfDisplay.mountDynamicGeomFrame === "function") {
-      ensureVisibleSceneFrameShell();
+      if (!sceneFrameShellIsPacketOwned()) {
+        ensureVisibleSceneFrameShell();
+      }
       boot();
       return;
     }

@@ -1159,6 +1159,7 @@ def test_scene_3d_views_runs_as_multi_view_native_runtime(tmp_path: Path) -> Non
 
     assert program is not None
     assert program.session_name == "ui-scene-3d-views"
+    assert "window.__vfNativeSceneFramesArePacketOwned = true;" in program.html_text
     assert "window.__vfNativeSceneConfigs" in program.html_text
     assert 'vf-native-scene.js?v=' in program.html_text
     assert '"frame_id": "front_camera_frame"' in program.html_text

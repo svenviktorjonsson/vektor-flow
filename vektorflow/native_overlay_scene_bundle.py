@@ -3994,6 +3994,7 @@ def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
   <body>
     <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
     <script>
+      window.__vfNativeSceneFramesArePacketOwned = true;
       window.__vfNativeSceneConfigs = {config_json};
       (function (global) {{
         function fail(text) {{

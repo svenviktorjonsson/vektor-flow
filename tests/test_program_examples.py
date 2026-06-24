@@ -819,6 +819,15 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));" not in runtime
 
 
+def test_native_scene_waits_for_packet_owned_visible_frame() -> None:
+    runtime = (ROOT / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
+    assert "function sceneFrameShellIsPacketOwned()" in runtime
+    assert "return global.__vfNativeSceneFramesArePacketOwned === true;" in runtime
+    assert "if (sceneFrameShellIsPacketOwned()) { return null; }" in runtime
+    assert "if (!frame && sceneFrameVisible() && !sceneFrameShellIsPacketOwned())" in runtime
+    assert 'failFast("timed out waiting for packet-owned scene frame");' in runtime
+
+
 def test_imported_typed_vkf_module_functions_remain_callable_from_interpreter() -> None:
     source = ROOT / "examples" / "programs" / "vkf_chess_3d" / "inline_import_smoke.vkf"
     program = (
