@@ -642,7 +642,7 @@
       _renderFlipU: system._renderFlipU === true,
       _mirror_surface: kind === "mirror" || system._mirror_surface === true,
       _window_surface: kind === "window" || system._window_surface === true,
-      reverse_facing: system.reverse_facing === true,
+      reverse_facing: kind === "window" ? false : system.reverse_facing === true,
       camera: camera,
       world: {
         kind: world.kind,

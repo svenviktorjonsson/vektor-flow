@@ -744,6 +744,7 @@ def test_native_scene_quad_alpha_drives_transparent_surface_pipeline() -> None:
     assert "kind !== \"screen\" && kind !== \"mirror\" && kind !== \"window\"" in source
     assert "var defaultReflectivity = kind === \"window\" ? 0.5 : 1.0" in source
     assert "_window_surface: kind === \"window\" || system._window_surface === true" in source
+    assert "reverse_facing: kind === \"window\" ? false : system.reverse_facing === true" in source
     assert "quadSurfaceSystem && quadSurfaceSystem._window_surface === true" in source
     assert "transparent: quadTransparent" in source
     assert "no_cull: entityProp(spec, \"no_cull\", false) === true || (quadSurfaceSystem && quadSurfaceSystem._window_surface === true)" in source
@@ -756,6 +757,7 @@ def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
     assert "color: [0.68, 0.74, 0.84, 0.5]" in surface
     assert "no_cull: true" in surface
     assert 'kind: "window"' in surface
+    assert "reverse_facing" not in surface
 
 
 def test_keyboard_orbit_default_speed_is_four_times_previous_rate() -> None:

@@ -70,7 +70,6 @@ native_scene: (
             no_cull: true,
             surface_system: (
                 kind: "window",
-                reverse_facing: true,
                 flip_y: true,
                 scale: [1.0, 1.0],
                 camera: (
