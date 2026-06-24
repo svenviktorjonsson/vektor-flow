@@ -144,6 +144,53 @@ def test_launch_native_overlay_scene_program_stages_and_launches(tmp_path: Path)
     assert ("wait_ready", (exe, "sessions/native-scene-test/vkf-scene.html", 24680)) in calls
 
 
+def test_launch_native_overlay_scene_program_removes_stale_scene_config_files(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    repo_web_dir = root / "web" / "vf-ui"
+    overlay_web_dir = root / "native" / "VfOverlay" / "build" / "Release" / "web"
+    exe = root / "native" / "VfOverlay" / "build" / "Release" / "vf-overlay.exe"
+    repo_session_dir = repo_web_dir / "sessions" / "native-scene-test"
+    overlay_session_dir = overlay_web_dir / "sessions" / "native-scene-test"
+    repo_session_dir.mkdir(parents=True, exist_ok=True)
+    overlay_session_dir.mkdir(parents=True, exist_ok=True)
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_bytes(b"")
+    (overlay_web_dir / "vf-runtime-shell.js").write_text("// shell", encoding="utf-8")
+    for session_dir in (repo_session_dir, overlay_session_dir):
+        (session_dir / "vf-native-scene-configs-stale.json").write_text("stale", encoding="utf-8")
+
+    program = NativeOverlaySceneProgram(
+        session_name="native-scene-test",
+        page_rel="sessions/native-scene-test/vkf-scene.html",
+        html_text=(
+            "<script>\n"
+            "window.__vfNativeSceneConfigs = [{\"scene_ir\":{\"frame\":{\"frame_id\":\"visible\",\"visible\":true}}}];\n"
+            "</script>\n"
+        ),
+        runtime_packets_text='{"packets":[]}\n',
+    )
+
+    launch_native_overlay_scene_program(
+        program,
+        root=root,
+        exe=exe,
+        sync_display_runtime_assets=lambda _root: None,
+        required_assets=("vf-runtime-shell.js",),
+        reset_overlay_port=lambda: None,
+        read_overlay_pid=lambda: None,
+        terminate_previous_overlay=lambda _pid: None,
+        clear_overlay_port_file=lambda _path: None,
+        write_overlay_state=lambda **_kwargs: None,
+        wait_for_overlay_ready=lambda **_kwargs: 43125,
+        popen=lambda _argv, **_kwargs: _FakeProc(24680),
+    )
+
+    for session_dir in (repo_session_dir, overlay_session_dir):
+        config_files = sorted(path.name for path in session_dir.glob("vf-native-scene-configs-*.json"))
+        assert config_files == ["vf-native-scene-configs-9320a6b847d8a834.json"]
+        assert not (session_dir / "vf-native-scene-configs-stale.json").exists()
+
+
 def test_launch_native_overlay_scene_program_hot_publishes_without_relaunch(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     repo_web_dir = root / "web" / "vf-ui"

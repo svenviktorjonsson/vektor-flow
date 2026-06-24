@@ -76,6 +76,9 @@ def _stage_program_session(program: NativeOverlaySceneProgram, *session_dirs: Pa
     session_html, config_filename, config_text = _externalize_native_scene_configs(session_html)
     for session_dir in session_dirs:
         session_dir.mkdir(parents=True, exist_ok=True)
+        for stale_config in session_dir.glob("vf-native-scene-configs-*.json"):
+            if stale_config.name != config_filename:
+                stale_config.unlink(missing_ok=True)
         write_text_if_changed(session_dir / "vkf-scene.html", session_html)
         if config_filename and config_text is not None:
             write_text_if_changed(session_dir / config_filename, config_text)
