@@ -836,6 +836,7 @@ struct PointImpostorVOut {
   @location(3)       up      : vec3<f32>,
   @location(4)       center  : vec3<f32>,
   @location(5)       local_uv : vec2<f32>,
+  @location(6)       radius  : f32,
 }
 struct LineImpostorVOut {
   @builtin(position) clip    : vec4<f32>,
@@ -2416,15 +2417,6 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
   return shadeLitBaseScaled(base, alpha, worldPos, inputNormal, backfaceSpecularOff, 1.0);
 }
 
-fn shadeImpostorBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>) -> vec4f {
-  let lit = shadeLitBaseScaled(base, alpha, worldPos, inputNormal, false, 0.035);
-  let litEnergy = max(dot(lit.rgb, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0);
-  let tintedDiffuse = base * clamp(litEnergy, 0.18, 1.12);
-  let whiteHighlight = max(lit.rgb - (base * litEnergy), vec3<f32>(0.0, 0.0, 0.0)) * 0.20;
-  let colorFloor = base * (0.34 * alpha * sc.alpha_mul);
-  return vec4f(max(tintedDiffuse + whiteHighlight, colorFloor), lit.a);
-}
-
 fn readableShadowVisibility(visibility: f32) -> f32 {
   let v = clamp(visibility, 0.0, 1.0);
   let fullyLit = smoothstep(0.96, 1.0, v);
@@ -2651,6 +2643,7 @@ fn vs_point_impostor(v: SphereInstVin) -> PointImpostorVOut {
   o.up = up;
   o.center = center;
   o.local_uv = v.pos.xy;
+  o.radius = radius;
   return o;
 }
 
@@ -2710,7 +2703,8 @@ fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
   let z = sqrt(max(0.0, 1.0 - min(dot(i.local_uv, i.local_uv), 1.0)));
   let front = normalize(sc.cam_pos - i.center);
   let normal = normalize((i.right * i.local_uv.x) + (i.up * i.local_uv.y) + (front * z));
-  return shadeImpostorBase(i.color.rgb, i.color.a * mask, i.world_pos, normal);
+  let sphereWorldPos = i.center + (normal * i.radius);
+  return shadeLitBase(i.color.rgb, i.color.a * mask, sphereWorldPos, normal, false);
 }
 
 @fragment

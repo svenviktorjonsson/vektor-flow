@@ -100,6 +100,18 @@ def test_screen_surface_backface_gets_ambient_only() -> None:
     assert "if (!suppressBackfaceLighting && sc.light_count > 1u)" in shader
 
 
+def test_point_impostors_use_analytic_sphere_lighting_path() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    point_varyings = shader[shader.index("struct PointImpostorVOut"):shader.index("struct LineImpostorVOut")]
+    point_fs = shader[shader.index("@fragment\nfn fs_point_impostor"):shader.index("@fragment\nfn fs_line_impostor")]
+
+    assert "@location(6)       radius  : f32" in point_varyings
+    assert "o.radius = radius;" in shader
+    assert "let sphereWorldPos = i.center + (normal * i.radius);" in point_fs
+    assert "return shadeLitBase(i.color.rgb, i.color.a * mask, sphereWorldPos, normal, false);" in point_fs
+    assert "shadeImpostorBase" not in shader
+
+
 def test_screen_surface_reflection_is_composited_inside_surface_shader() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     fs_start = shader.index("@fragment\nfn fs(i: Vout)")
