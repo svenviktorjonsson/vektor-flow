@@ -428,6 +428,10 @@ def test_light_flares_are_depth_tested_against_scene_depth() -> None:
     assert "let haloR = max(0.0, r - sourceRadiusPx);" in flare_shader
     assert "let rays = outsideSource * (ray0 + ray1 + ray2 + ray3);" in flare_shader
     assert "let glow = outsideSource * 0.26 * gaussian(haloR, sigmaGlow);" in flare_shader
+    assert "let discA = sourceDisc;" in flare_shader
+    assert "let whiteA = alpha * (core + glow + (0.72 * rays));" in flare_shader
+    assert "let tint = i.color.rgb * (1.20 * discA + tintA);" in flare_shader
+    assert "return vec4<f32>(white + tint, max(discA, max(whiteA, tintA)));" in flare_shader
     project_fn = shader[shader.index("function projectWorldToNdc"):shader.index("// Uniform buffer: scene + shadows")]
     assert "var cz =" in project_fn
     assert "return [cx / cw, cy / cw, cz / cw];" in project_fn
@@ -2702,6 +2706,8 @@ def test_native_scene_light_markers_do_not_enable_screen_space_flare_ghosts() ->
     render_payload_fn = source[source.index("function renderPayload"):source.index("function resolveMeshSpecById")]
 
     assert "var glowRadius = Math.max(0.02, Number(markerSize || 0.18));" in marker_fn
+    assert "var centerColor = [color[0], color[1], color[2], 1.0];" in marker_fn
+    assert "var innerColor = [color[0], color[1], color[2], Math.max(0.85, glowAlpha)];" in marker_fn
     assert "light.source_radius != null ? light.source_radius : defaultSize" in marker_fn
     assert "intensity / 40.0" not in marker_fn
     assert "buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size)" in build_state_fn

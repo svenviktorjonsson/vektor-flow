@@ -3239,10 +3239,10 @@
       spotlightBoost = Math.max(0.0, (dir[0] * toCamera[0]) + (dir[1] * toCamera[1]) + (dir[2] * toCamera[2]));
     }
     var glowRadius = Math.max(0.02, Number(markerSize || 0.18));
-    var glowAlpha = Math.min(1.0, 0.42 + (0.42 * spotlightBoost));
     var color = toRgba(light.color, [1.0, 1.0, 1.0, 1.0]);
-    var centerColor = [1.0, 1.0, 1.0, glowAlpha];
-    var innerColor = [color[0], color[1], color[2], glowAlpha * 0.62];
+    var glowAlpha = Math.min(1.0, 0.42 + (0.42 * spotlightBoost));
+    var centerColor = [color[0], color[1], color[2], 1.0];
+    var innerColor = [color[0], color[1], color[2], Math.max(0.85, glowAlpha)];
     var outerColor = [color[0], color[1], color[2], 0.0];
     var segments = 20;
     var innerScale = 0.34;
