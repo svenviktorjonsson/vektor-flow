@@ -764,6 +764,8 @@ def test_keyboard_orbit_default_speed_is_four_times_previous_rate() -> None:
     assert "orbit_speed_deg_per_sec" in source
     assert "cameraOrbitStepRadians(cameraConfig || {}) * 72.0" in source
     assert "orbitSpeedRadPerSec: cameraOrbitSpeedRadians(config.camera || {})" in source
+    assert "if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())" not in source
+    assert "var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 30.0, keyElapsedSec || (1.0 / 60.0)))" in source
 
 
 def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:
