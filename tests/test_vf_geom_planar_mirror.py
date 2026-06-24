@@ -425,12 +425,17 @@ def test_light_flares_are_depth_tested_against_scene_depth() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     flare_shader = shader[shader.index("var FLARE_SHADER = `"):shader.index("function segmentIntersectsAabb")]
     assert "v.axis.z" in flare_shader
+    assert "let haloR = max(0.0, r - sourceRadiusPx);" in flare_shader
+    assert "let rays = outsideSource * (ray0 + ray1 + ray2 + ray3);" in flare_shader
+    assert "let glow = outsideSource * 0.26 * gaussian(haloR, sigmaGlow);" in flare_shader
     project_fn = shader[shader.index("function projectWorldToNdc"):shader.index("// Uniform buffer: scene + shadows")]
     assert "var cz =" in project_fn
     assert "return [cx / cw, cy / cw, cz / cw];" in project_fn
     assert 'depthStencil: { depthWriteEnabled: false, depthCompare: "less-equal", format: "depth24plus" }' in shader
     flare_draw = shader[shader.index("_drawGpuLightFlares: function"):shader.index("_frame: function")]
     assert "Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0))" in flare_draw
+    assert "var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);" in flare_draw
+    assert "var pxSize = Math.max(haloSizePx, sourceRadiusPx + haloSizePx);" in flare_draw
     assert "depthStencilAttachment:" in flare_draw
     assert "view: this._depthTex.createView()" in flare_draw
 
@@ -2689,9 +2694,13 @@ def test_native_scene_wheel_requires_frame_target_but_arrow_keys_allow_document_
 
 def test_native_scene_light_markers_do_not_enable_screen_space_flare_ghosts() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    marker_fn = source[source.index("function buildGlowHaloMesh"):source.index("function ensureFlareLayer")]
     build_state_fn = source[source.index("function buildSceneState"):source.index("function renderPayload")]
     render_payload_fn = source[source.index("function renderPayload"):source.index("function resolveMeshSpecById")]
 
+    assert "var glowRadius = Math.max(0.02, Number(markerSize || 0.18));" in marker_fn
+    assert "light.source_radius != null ? light.source_radius : defaultSize" in marker_fn
+    assert "intensity / 40.0" not in marker_fn
     assert "buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size)" in build_state_fn
     assert "enabled: renderOptions.light_flares === true" in render_payload_fn
     assert "enabled: renderOptions.show_light_markers === true" not in render_payload_fn

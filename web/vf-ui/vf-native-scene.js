@@ -3238,8 +3238,7 @@
           ], [0, 0, -1]);
       spotlightBoost = Math.max(0.0, (dir[0] * toCamera[0]) + (dir[1] * toCamera[1]) + (dir[2] * toCamera[2]));
     }
-    var intensity = Math.max(0.0, Number(light.intensity || 24.0));
-    var glowRadius = Math.max(0.10, Number(markerSize || 0.18) * (4.2 + Math.min(5.0, intensity / 40.0)));
+    var glowRadius = Math.max(0.02, Number(markerSize || 0.18));
     var glowAlpha = Math.min(1.0, 0.42 + (0.42 * spotlightBoost));
     var color = toRgba(light.color, [1.0, 1.0, 1.0, 1.0]);
     var centerColor = [1.0, 1.0, 1.0, glowAlpha];
@@ -3293,10 +3292,11 @@
 
   function buildLightMarkerMeshes(lights, camera, markerSize) {
     var meshes = [];
-    var size = Math.max(0.02, Number(markerSize || 0.18));
+    var defaultSize = Math.max(0.02, Number(markerSize || 0.18));
     for (var i = 0; i < lights.length; i += 1) {
       var light = lights[i];
       if (light.show_marker === false) { continue; }
+      var size = Math.max(0.02, Number(light.source_radius != null ? light.source_radius : defaultSize) || defaultSize);
       meshes.push(buildGlowHaloMesh(light, camera, size));
     }
     return meshes;

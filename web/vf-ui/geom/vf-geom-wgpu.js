@@ -2829,14 +2829,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let sourceRadiusPx = max(i.params0.w, 0.0);
   let p = i.uv * sizePx;
   let r = length(p);
-  let sigmaGlow = sizePx * 0.18;
-  let sigmaCore = max(1.2, sizePx * 0.022);
-  let ring1 = sizePx * 0.16;
-  let ring2 = sizePx * 0.28;
-  let ring3 = sizePx * 0.42;
-  let ringW1 = max(1.8, sizePx * 0.028);
-  let ringW2 = max(2.4, sizePx * 0.040);
-  let ringW3 = max(3.2, sizePx * 0.052);
+  let haloRadiusPx = max(1.0, sizePx - sourceRadiusPx);
+  let haloR = max(0.0, r - sourceRadiusPx);
+  let outsideSource = smoothstep(0.0, max(1.0, min(5.0, sourceRadiusPx * 0.18)), haloR);
+  let sigmaGlow = haloRadiusPx * 0.18;
+  let sigmaCore = max(1.2, haloRadiusPx * 0.022);
+  let ring1 = haloRadiusPx * 0.16;
+  let ring2 = haloRadiusPx * 0.28;
+  let ring3 = haloRadiusPx * 0.42;
+  let ringW1 = max(1.8, haloRadiusPx * 0.028);
+  let ringW2 = max(2.4, haloRadiusPx * 0.040);
+  let ringW3 = max(3.2, haloRadiusPx * 0.052);
 
   let c = i.axis.x;
   let s = i.axis.y;
@@ -2851,16 +2854,18 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let ray1 = 0.68 * gaussian(p1.x, 34.0) * lorentzian(p1.y, 1.9);
   let ray2 = 0.34 * gaussian(p2.x, 22.0) * lorentzian(p2.y, 2.1);
   let ray3 = 0.18 * gaussian(p3.x, 16.0) * lorentzian(p3.y, 2.2);
-  let rays = ray0 + ray1 + ray2 + ray3;
+  let rays = outsideSource * (ray0 + ray1 + ray2 + ray3);
 
-  let core = 1.30 * gaussian(r, sigmaCore);
+  let core = select(1.30 * gaussian(r, sigmaCore), 0.0, sourceRadiusPx > 0.5);
   let discEdge = max(1.0, min(4.0, sourceRadiusPx * 0.16));
   let sourceDisc = smoothstep(sourceRadiusPx + discEdge, sourceRadiusPx - discEdge, r);
-  let glow = 0.26 * gaussian(r, sigmaGlow);
+  let glow = outsideSource * 0.26 * gaussian(haloR, sigmaGlow);
   let rings =
-    0.060 * gaussian(r - ring1, ringW1) +
-    0.038 * gaussian(r - ring2, ringW2) +
-    0.018 * gaussian(r - ring3, ringW3);
+    outsideSource * (
+      0.060 * gaussian(haloR - ring1, ringW1) +
+      0.038 * gaussian(haloR - ring2, ringW2) +
+      0.018 * gaussian(haloR - ring3, ringW3)
+    );
 
   let whiteA = alpha * (max(core, sourceDisc) + glow + (0.72 * rays));
   let tintA = alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
@@ -8018,9 +8023,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var baseAlpha = Math.min(1.0, 0.30 + Math.min(0.70, intensity / 170.0));
         var flareAlpha = Math.max(0.0, Math.min(1.0, baseAlpha * (0.30 + (0.70 * facing))));
         if (!(flareAlpha > 0.001)) { continue; }
-        var pxSize = Math.max(72, 96 + (intensity * 0.55) + (72 * facing));
         var sourceRadiusWorld = light.source_radius !== undefined ? light.source_radius : baseSizeWorld;
         var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);
+        var haloSizePx = Math.max(72, 96 + (intensity * 0.55) + (72 * facing));
+        var pxSize = Math.max(haloSizePx, sourceRadiusPx + haloSizePx);
         var sizeNdcX = (pxSize / Math.max(1, width));
         var sizeNdcY = (pxSize / Math.max(1, height));
         var dx = (ndc[0] * 0.5 * width);
