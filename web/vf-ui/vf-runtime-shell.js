@@ -1009,7 +1009,10 @@
       if (autoBootDisabled()) { return false; }
       var options = resolveSceneBootOptions();
       if (!options) { return false; }
-      mountLaunchFramesFromUrl(options.launchManifestUrl).then(function() {
+      mountLaunchFramesFromUrl(options.launchManifestUrl).catch(function(err) {
+        runtimeLog("warn", "autoBootIfSceneDocument: optional launch manifest skipped: " + (err && err.message ? err.message : String(err)));
+        return false;
+      }).then(function() {
         return ensureSceneDependencies();
       }).then(function() {
         boot(options);

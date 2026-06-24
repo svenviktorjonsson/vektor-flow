@@ -1496,6 +1496,30 @@
     return out;
   }
 
+  function fieldMeshHasAuthoredVertexColors(vertices) {
+    if (!vertices || vertices.length < 10 || (vertices.length % 10) !== 0) {
+      return false;
+    }
+    for (var i = 0; i + 9 < vertices.length; i += 10) {
+      var r = Number(vertices[i + 6]);
+      var g = Number(vertices[i + 7]);
+      var b = Number(vertices[i + 8]);
+      var a = Number(vertices[i + 9]);
+      if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b) || !Number.isFinite(a)) {
+        continue;
+      }
+      if (
+        Math.abs(r - 1.0) > 1e-6 ||
+        Math.abs(g - 1.0) > 1e-6 ||
+        Math.abs(b - 1.0) > 1e-6 ||
+        Math.abs(a - 1.0) > 1e-6
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function fieldMeshIndicesWithConsistentWinding(vertices, indices, enabled) {
     if (enabled === false) {
       return indices;
@@ -2762,6 +2786,7 @@
       var fieldInterpolation = entityProp(spec, "interpolation", false) === true;
       var fieldVertices = fieldMeshFlatVertexArray(entityProp(spec, "vertices", []));
       var fieldIndices = fieldMeshIndexArray(entityProp(spec, "indices", []));
+      var vertexScale = entityProp(spec, "vertex_scale", null);
       var authoredPointXs = entityProp(spec, "x_i", null);
       var authoredPointYs = entityProp(spec, "y_i", null);
       var authoredPointZs = entityProp(spec, "z_i", null);
@@ -2797,7 +2822,8 @@
       fieldIndices = fieldMeshIndicesWithConsistentWinding(fieldVertices, fieldIndices, entityProp(spec, "repair_winding", true) !== false);
       fieldVertices = smoothInterpolatedFieldMeshVertices(spec, fieldVertices, fieldIndices, fieldInterpolation);
       var fieldColor = toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]);
-      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, !usesAuthoredPointColors && entityProp(spec, "use_vertex_color", false) !== true);
+      var hasAuthoredVertexColors = usesAuthoredPointColors || entityProp(spec, "use_vertex_color", false) === true || fieldMeshHasAuthoredVertexColors(fieldVertices);
+      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, !hasAuthoredVertexColors);
       return {
         id: String(spec.id || "field_mesh"),
         kind: "field_mesh",
@@ -2824,6 +2850,9 @@
         static_vertices: entityProp(spec, "static_vertices", false) === true,
         static_indices: entityProp(spec, "static_indices", false) === true,
         vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.0) || 0.0)),
+        vertex_scale: Array.isArray(vertexScale)
+          ? vertexScale.slice()
+          : (vertexScale == null ? undefined : Math.max(0.0, Number(vertexScale || 0.0))),
         edge_width: Math.max(0.0, Number(entityProp(spec, "edge_width", 0.0) || 0.0)),
         vertex_widths: Array.isArray(entityProp(spec, "vertex_widths", [])) ? entityProp(spec, "vertex_widths", []).slice() : [],
         render_mode: renderMode,
@@ -8457,7 +8486,7 @@
 
   function waitForFrame(attempt) {
     if (!requireRuntime()) {
-      if (attempt > 240) {
+      if (attempt > 900) {
         failFast("VfDisplay.renderFromJson is unavailable");
       }
       global.setTimeout(function () { waitForFrame(attempt + 1); }, 16);

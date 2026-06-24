@@ -836,6 +836,7 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "manifold_dim_count": geom["manifold_dim_count"],
         "solid_volume": geom["solid_volume"],
         "vertex_size": geom["vertex_size"],
+        "vertex_scale": meta.get("vertex_scale"),
         "edge_width": geom["edge_width"],
         "vertex_widths": geom["vertex_widths"],
         "render_mode": render_mode,

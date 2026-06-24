@@ -2297,7 +2297,7 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
   return tex * base;
 }
 
-fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool) -> vec4f {
+fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool, specularScale: f32) -> vec4f {
   let a = alpha * sc.alpha_mul;
   let V = normalize(sc.cam_pos - worldPos);
   var N = normalize(inputNormal);
@@ -2329,7 +2329,7 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light0_spot_params.w < 1.5) {
       let H0 = normalize(L0 + V);
       let spec0 = pow(max(dot(N, H0), 0.0), 40.0);
-      specular += (litScale0 * spec0) * lc0 * (1.8 * a * sc.specular_strength);
+      specular += (litScale0 * spec0) * lc0 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 1u) {
@@ -2353,7 +2353,7 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light1_spot_params.w < 1.5) {
       let H1 = normalize(L1 + V);
       let spec1 = pow(max(dot(N, H1), 0.0), 40.0);
-      specular += (litScale1 * spec1) * lc1 * (1.8 * a * sc.specular_strength);
+      specular += (litScale1 * spec1) * lc1 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 2u) {
@@ -2377,7 +2377,7 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light2_spot_params.w < 1.5) {
       let H2 = normalize(L2 + V);
       let spec2 = pow(max(dot(N, H2), 0.0), 40.0);
-      specular += (litScale2 * spec2) * lc2 * (1.8 * a * sc.specular_strength);
+      specular += (litScale2 * spec2) * lc2 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 3u) {
@@ -2401,7 +2401,7 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light3_spot_params.w < 1.5) {
       let H3 = normalize(L3 + V);
       let spec3 = pow(max(dot(N, H3), 0.0), 40.0);
-      specular += (litScale3 * spec3) * lc3 * (1.8 * a * sc.specular_strength);
+      specular += (litScale3 * spec3) * lc3 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (sc.light_count == 0u) {
@@ -2410,6 +2410,19 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
   let ambient = 0.10 * base;
   let lit = (ambient + diffuse) * a + specular;
   return vec4f(lit, a);
+}
+
+fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool) -> vec4f {
+  return shadeLitBaseScaled(base, alpha, worldPos, inputNormal, backfaceSpecularOff, 1.0);
+}
+
+fn shadeImpostorBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>) -> vec4f {
+  let lit = shadeLitBaseScaled(base, alpha, worldPos, inputNormal, false, 0.035);
+  let litEnergy = max(dot(lit.rgb, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0);
+  let tintedDiffuse = base * clamp(litEnergy, 0.18, 1.12);
+  let whiteHighlight = max(lit.rgb - (base * litEnergy), vec3<f32>(0.0, 0.0, 0.0)) * 0.20;
+  let colorFloor = base * (0.34 * alpha * sc.alpha_mul);
+  return vec4f(max(tintedDiffuse + whiteHighlight, colorFloor), lit.a);
 }
 
 fn readableShadowVisibility(visibility: f32) -> f32 {
@@ -2697,7 +2710,7 @@ fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
   let z = sqrt(max(0.0, 1.0 - min(dot(i.local_uv, i.local_uv), 1.0)));
   let front = normalize(sc.cam_pos - i.center);
   let normal = normalize((i.right * i.local_uv.x) + (i.up * i.local_uv.y) + (front * z));
-  return shadeLitBase(i.color.rgb, i.color.a * mask, i.world_pos, normal, false);
+  return shadeImpostorBase(i.color.rgb, i.color.a * mask, i.world_pos, normal);
 }
 
 @fragment
