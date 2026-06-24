@@ -758,6 +758,8 @@ def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
     assert "no_cull: true" in surface
     assert 'kind: "window"' in surface
     assert "reverse_facing" not in surface
+    assert 'id: "behind_window_orange_block"' in source
+    assert "center: [0.74, 3.18, 0.72]" in source
 
 
 def test_keyboard_orbit_default_speed_is_four_times_previous_rate() -> None:
