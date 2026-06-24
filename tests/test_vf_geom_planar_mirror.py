@@ -763,6 +763,68 @@ def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
     assert "face_color: [0.0, 0.92, 1.0, 1.0]" in source
 
 
+def test_native_scene_multiple_cubes_keep_independent_centers() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync({json.dumps(str(NATIVE_SCENE_JS))}, "utf8");
+source = source.replace(/\\}}\\)\\(typeof window !== "undefined" \\? window : this\\);\\s*$/, `
+global.__sceneTest = {{ buildSceneState }};
+}})(typeof window !== "undefined" ? window : this);
+`);
+const config = {{
+  scene_ir: {{
+    frame: {{ frame_id: "two_cube_probe", visible: true }},
+    camera: {{ pos: [0, -7, 3], target: [0, 0, 1], up: [0, 0, 1], fov: 34 }},
+    timing: {{ fps: 60, duration_seconds: 1, boundary: "repeat" }},
+    cubes: [
+      {{ id: "cube_a", center: [-1, 0, 1], size: 1, face_color: [1, 0, 0, 1] }},
+      {{ id: "cube_b", center: [2, 3, 4], size: 1, face_color: [0, 1, 1, 1] }}
+    ],
+    lights: []
+  }}
+}};
+const sandbox = {{
+  console,
+  setTimeout() {{}},
+  requestAnimationFrame() {{}},
+  performance: {{ now() {{ return 0; }} }},
+  document: {{
+    addEventListener() {{}},
+    querySelector() {{ return null; }},
+    createElement() {{
+      return {{ style: {{}}, classList: {{ add() {{}} }}, appendChild() {{}}, setAttribute() {{}}, querySelector() {{ return null; }}, querySelectorAll() {{ return []; }} }};
+    }}
+  }},
+  __vfNativeSceneConfig: config
+}};
+sandbox.window = sandbox;
+sandbox.global = sandbox;
+sandbox.globalThis = sandbox;
+vm.runInNewContext(source, sandbox, {{ filename: {json.dumps(str(NATIVE_SCENE_JS))} }});
+const state = sandbox.__sceneTest.buildSceneState(null, 0);
+function bounds(mesh) {{
+  const v = Array.from(mesh.vertices || []);
+  const xs = [], ys = [], zs = [];
+  for (let i = 0; i < v.length; i += 10) {{
+    xs.push(v[i]);
+    ys.push(v[i + 1]);
+    zs.push(v[i + 2]);
+  }}
+  return {{ id: mesh.id, min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)] }};
+}}
+process.stdout.write(JSON.stringify(state.meshes.map(bounds)));
+"""
+    payload = _run_node(script)
+    cube_a = next(item for item in payload if item["id"] == "cube_a")
+    cube_b = next(item for item in payload if item["id"] == "cube_b")
+
+    assert cube_a["min"] == [-1.5, -0.5, 0.5]
+    assert cube_a["max"] == [-0.5, 0.5, 1.5]
+    assert cube_b["min"] == [1.5, 2.5, 3.5]
+    assert cube_b["max"] == [2.5, 3.5, 4.5]
+
+
 def test_keyboard_orbit_default_speed_is_four_times_previous_rate() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     assert "function cameraOrbitSpeedRadians(cameraConfig)" in source

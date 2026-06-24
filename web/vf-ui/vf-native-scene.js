@@ -1314,6 +1314,9 @@
   }
 
   function sampleMatrixTrack(track, framePos, fallback) {
+    if (!track) {
+      return Array.isArray(fallback) ? fallback.slice() : null;
+    }
     var identity = Array.isArray(fallback) ? fallback : identityMat4();
     if (isEncodedAxisTaggedValue(track)) {
       var idx = encodedAxisTaggedIdx(track);
