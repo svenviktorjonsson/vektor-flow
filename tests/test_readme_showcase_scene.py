@@ -63,3 +63,37 @@ def test_readme_showcase_impostors_keep_point_colors_and_sizes() -> None:
     assert colors[0] == (1.0, 0.46, 0.02, 1.0)
     assert colors[4] == (0.0, 0.82, 0.96, 1.0)
     assert len(set(colors)) >= 6
+
+
+def test_readme_showcase_dna_vertices_use_complementary_base_palette() -> None:
+    program = try_build_native_overlay_scene_program(Path("examples/110_mirror_showcase.vkf"))
+    assert program is not None
+    configs = _native_scene_configs_from_html(program.html_text)
+    visible = next(
+        cfg for cfg in configs
+        if ((cfg.get("scene_ir") or {}).get("frame") or {}).get("frame_id") == "readme_mirror_showcase_frame"
+    )
+    meshes = {
+        item["properties"].get("id"): item["properties"]
+        for item in visible["scene_ir"]["meshes"]
+    }
+
+    strand_a = meshes["dna_strand_a"]
+    strand_b = meshes["dna_strand_b"]
+    assert strand_a["edge_color"] == [0.05, 0.46, 0.22, 1.0]
+    assert strand_b["edge_color"] == [0.08, 0.30, 0.64, 1.0]
+    assert len(strand_a["vertex_color"]) == 18
+    assert len(strand_b["vertex_color"]) == 18
+    assert len({tuple(color) for color in strand_a["vertex_color"]}) == 4
+    assert strand_a["vertex_color"][:4] == [
+        [1.0, 0.72, 0.04, 1.0],
+        [0.72, 0.12, 1.0, 1.0],
+        [0.16, 1.0, 0.26, 1.0],
+        [0.0, 0.84, 1.0, 1.0],
+    ]
+    assert strand_b["vertex_color"][:4] == [
+        [0.0, 0.84, 1.0, 1.0],
+        [0.16, 1.0, 0.26, 1.0],
+        [0.72, 0.12, 1.0, 1.0],
+        [1.0, 0.72, 0.04, 1.0],
+    ]

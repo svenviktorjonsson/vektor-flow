@@ -1496,6 +1496,20 @@
     return out;
   }
 
+  function vertexColorSpec(value, fallback) {
+    if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
+      return value.map(function (item) { return toRgba(item, fallback || [1.0, 1.0, 1.0, 1.0]); });
+    }
+    return toRgba(value, fallback || [1.0, 1.0, 1.0, 1.0]);
+  }
+
+  function vertexColorAt(colorSpec, index, fallback) {
+    if (Array.isArray(colorSpec) && colorSpec.length > 0 && Array.isArray(colorSpec[0])) {
+      return toRgba(colorSpec[Math.max(0, index) % colorSpec.length], fallback || [1.0, 1.0, 1.0, 1.0]);
+    }
+    return toRgba(colorSpec, fallback || [1.0, 1.0, 1.0, 1.0]);
+  }
+
   function fieldMeshHasAuthoredVertexColors(vertices) {
     if (!vertices || vertices.length < 10 || (vertices.length % 10) !== 0) {
       return false;
@@ -2536,14 +2550,14 @@
     if (!(vertexSize > 0) || mesh.show_vertices === false || !Array.isArray(hull.vertices) || !hull.vertices.length || !hullVertexIndices.length) {
       return null;
     }
-    var color = toRgba(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
+    var color = vertexColorSpec(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
     var liftedVertices = liftedFlatVertices(hull.vertices, mesh.vertex_lift);
     var verts = [];
     var indices = [];
     for (var i = 0; i < hullVertexIndices.length; i += 1) {
       var sourceIndex = Number(hullVertexIndices[i]) | 0;
       if (!liftedVertices[sourceIndex]) { continue; }
-      pushVertex(verts, liftedVertices[sourceIndex], [0, 0, 1], color);
+      pushVertex(verts, liftedVertices[sourceIndex], [0, 0, 1], vertexColorAt(color, i, mesh.face_color || [0.96, 0.22, 0.16, 1.0]));
       indices.push(indices.length);
     }
     return {
@@ -2553,7 +2567,7 @@
       vertices: verts,
       indices: indices,
       vertex_size: vertexSize,
-      color: color,
+      color: Array.isArray(color) && Array.isArray(color[0]) ? color[0] : color,
       render_mode: overlayRenderMode(mesh, "vertex"),
       marker_space: overlayMarkerSpace(mesh, "vertex"),
       casts_shadow: mesh.vertex_casts_shadow !== false,
@@ -2659,12 +2673,12 @@
     if (!(vertexSize > 0) || mesh.show_vertices === false || !Array.isArray(simplicial.vertices) || !simplicial.vertices.length) {
       return null;
     }
-    var color = toRgba(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
+    var color = vertexColorSpec(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
     var liftedVertices = liftedFlatVertices(simplicial.vertices, mesh.vertex_lift);
     var verts = [];
     var indices = [];
     for (var i = 0; i < liftedVertices.length; i += 1) {
-      pushVertex(verts, liftedVertices[i], [0, 0, 1], color);
+      pushVertex(verts, liftedVertices[i], [0, 0, 1], vertexColorAt(color, i, mesh.face_color || [0.96, 0.22, 0.16, 1.0]));
       indices.push(i);
     }
     return {
@@ -2674,7 +2688,7 @@
       vertices: verts,
       indices: indices,
       vertex_size: vertexSize,
-      color: color,
+      color: Array.isArray(color) && Array.isArray(color[0]) ? color[0] : color,
       render_mode: overlayRenderMode(mesh, "vertex"),
       marker_space: overlayMarkerSpace(mesh, "vertex"),
       casts_shadow: mesh.vertex_casts_shadow !== false,
@@ -2912,7 +2926,7 @@
           edge_casts_shadow: entityProp(spec, "edge_casts_shadow", true) !== false,
           edge_receives_lighting: entityProp(spec, "edge_receives_lighting", true) !== false,
           edge_depth_write: entityProp(spec, "edge_depth_write", null),
-          vertex_color: toRgba(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
+          vertex_color: vertexColorSpec(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
           vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.06) || 0.06)),
           vertex_lift: Math.max(0.0, Number(entityProp(spec, "vertex_lift", 0.006) || 0.006)),
           show_vertices: entityProp(spec, "show_vertices", true) !== false,
@@ -2948,7 +2962,7 @@
           edge_casts_shadow: entityProp(spec, "edge_casts_shadow", true) !== false,
           edge_receives_lighting: entityProp(spec, "edge_receives_lighting", true) !== false,
           edge_depth_write: entityProp(spec, "edge_depth_write", null),
-          vertex_color: toRgba(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
+          vertex_color: vertexColorSpec(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
           vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.06) || 0.06)),
           vertex_lift: Math.max(0.0, Number(entityProp(spec, "vertex_lift", 0.006) || 0.006)),
           show_vertices: entityProp(spec, "show_vertices", true) !== false,
@@ -2980,7 +2994,7 @@
           edge_casts_shadow: entityProp(spec, "edge_casts_shadow", true) !== false,
           edge_receives_lighting: entityProp(spec, "edge_receives_lighting", true) !== false,
           edge_depth_write: entityProp(spec, "edge_depth_write", null),
-          vertex_color: toRgba(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
+          vertex_color: vertexColorSpec(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
           vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.06) || 0.06)),
           vertex_lift: Math.max(0.0, Number(entityProp(spec, "vertex_lift", 0.006) || 0.006)),
           show_vertices: entityProp(spec, "show_vertices", true) !== false,
