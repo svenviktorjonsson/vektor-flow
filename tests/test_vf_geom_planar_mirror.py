@@ -2732,7 +2732,7 @@ def test_hidden_optical_reference_meshes_travel_outside_drawn_scene_parts() -> N
     assert "meshLike.optical_parts" in WGPU_JS.read_text(encoding="utf-8")
 
 
-def test_mirror_source_dependents_wait_until_source_presented() -> None:
+def test_visible_mirror_camera_dependents_present_before_source() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     render_loop = source[source.index("function renderFrame"):source.index("function wireChessRuntimeRenderCallbacks")]
     presenter = source[source.index("function presentVisibleCameraFrame"):source.index("function publishLiveCamera")]
@@ -2746,9 +2746,8 @@ def test_mirror_source_dependents_wait_until_source_presented() -> None:
     assert "presentVisibleCameraFrame(renderCamera" in render_loop
     assert "presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);" in render_loop
     visible_camera = presenter[presenter.index("function presentVisibleCameraFrame"):presenter.index("function presentVisibleFullFrame")]
-    assert "updateVisibleCameraOnly(renderCamera, {" in visible_camera
-    assert "afterPresented: function () {" in visible_camera
-    assert visible_camera.index("updateVisibleCameraOnly(renderCamera, {") < visible_camera.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });')
+    assert "updateVisibleCameraOnly(renderCamera, { immediate: true })" in visible_camera
+    assert visible_camera.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });') < visible_camera.index("updateVisibleCameraOnly(renderCamera, { immediate: true })")
     assert "global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {" in presenter
 
 
@@ -2981,10 +2980,9 @@ def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
     assert "if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {" in runtime
     assert "pushVisibleRender(rendered, { defer_update: true });" in runtime
     visible_full_path = runtime.index("pushVisibleRender(rendered, { defer_update: true });")
-    visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {", visible_full_path)
-    after_presented = runtime.index("afterPresented: function () {", visible_present)
-    dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", after_presented)
-    assert visible_full_path < visible_present < after_presented < dependent_trigger
+    dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", visible_full_path)
+    visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });", dependent_trigger)
+    assert visible_full_path < dependent_trigger < visible_present
 
 
 def test_linked_texture_notifications_wait_for_gpu_submission_done() -> None:

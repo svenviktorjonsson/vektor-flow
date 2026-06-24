@@ -8001,12 +8001,8 @@
     }
     function presentVisibleCameraFrame(renderCamera, options) {
       options = options && typeof options === "object" ? options : {};
-      if (!updateVisibleCameraOnly(renderCamera, {
-        immediate: true,
-        afterPresented: function () {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-        }
-      })) {
+      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
         failFast(String(options.label || "camera-only") + ' frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
       }
       scenePerf.cameraOnlyUpdates += 1;
@@ -8016,12 +8012,8 @@
       pushVisibleRender(rendered, { defer_update: true });
       visibleLastDirtyVersion = dirtyVersion;
       visibleLastMeshStructureSignature = meshStructureSignature;
-      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {
-        immediate: true,
-        afterPresented: function () {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-        }
-      });
+      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
     }
 
     function presentOffscreenSourceFrame(rendered, dirtyVersion, meshStructureSignature) {
