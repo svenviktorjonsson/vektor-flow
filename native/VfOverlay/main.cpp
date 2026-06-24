@@ -979,12 +979,6 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
                     rc.right = (LONG)cr->valuedouble;
                     rc.bottom = (LONG)cb->valuedouble;
                     if (rc.right > rc.left && rc.bottom > rc.top) {
-                        /* Widen slightly (DIP): avoids edge misses vs Chromium hit-testing / fractional scaling. */
-                        constexpr LONG kPad = 2;
-                        rc.left -= kPad;
-                        rc.top -= kPad;
-                        rc.right += kPad;
-                        rc.bottom += kPad;
                         g_hitRegions.push_back(rc);
                     }
                 }

@@ -254,24 +254,32 @@
         } catch (_) {}
         return pad;
       }
-      function pushRectWithPad(r, pad) {
+      function pushHitRect(r, shapePad) {
         if (!r) return;
         if (r.width < 1 || r.height < 1) return;
         const region = {
-          left: Math.floor(r.left - pad),
-          top: Math.floor(r.top - pad),
-          right: Math.ceil(r.right + pad),
-          bottom: Math.ceil(r.bottom + pad),
+          left: Math.floor(r.left),
+          top: Math.floor(r.top),
+          right: Math.ceil(r.right),
+          bottom: Math.ceil(r.bottom),
         };
         hitRegions.push(region);
-        pushTransparentOverlayRect(overlayShapes, "vf-region-" + hitRegions.length, region.left, region.top, region.right, region.bottom);
+        const pad = Math.max(0, Number(shapePad || 0) || 0);
+        pushTransparentOverlayRect(
+          overlayShapes,
+          "vf-region-" + hitRegions.length,
+          Math.floor(r.left - pad),
+          Math.floor(r.top - pad),
+          Math.ceil(r.right + pad),
+          Math.ceil(r.bottom + pad)
+        );
       }
       for (let i = 0; i < nodes.length; i++) {
         const el = nodes[i];
         if (!(el instanceof HTMLElement)) continue;
         if (el.classList.contains("vf-frame--pass-through")) continue;
         const r = el.getBoundingClientRect();
-        pushRectWithPad(r, paintPadDipForElement(el));
+        pushHitRect(r, paintPadDipForElement(el));
       }
       const displayRegions = !forceEmpty && globalThis && Array.isArray(globalThis.__vfDisplayHitRegions)
         ? globalThis.__vfDisplayHitRegions
@@ -305,7 +313,7 @@
           const b = Number(rr.bottom);
           if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(r) || !Number.isFinite(b)) continue;
           if (r <= l || b <= t) continue;
-          pushRectWithPad({ left: l, top: t, right: r, bottom: b, width: r - l, height: b - t }, 2);
+          pushHitRect({ left: l, top: t, right: r, bottom: b, width: r - l, height: b - t }, 0);
         }
       }
       const hasPendingGeomPresentation =
