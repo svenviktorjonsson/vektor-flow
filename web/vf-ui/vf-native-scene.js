@@ -3024,6 +3024,8 @@
           return [center2[0], center2[1], Number(entityProp(spec, "z", 0.0) || 0.0)];
         }());
     var quadSurfaceSystem = resolveSurfaceSystem(resolveTrackedObject(spec, "surface_system", framePos, entityProp(spec, "surface_system", null)), viewerCamera, seconds);
+    var quadColor = toRgba(entityProp(spec, "color", [0.20, 0.22, 0.26, 1.0]), [0.20, 0.22, 0.26, 1.0]);
+    var quadTransparent = entityProp(spec, "transparent", false) === true || Number(quadColor[3] || 0.0) < 0.999;
     var quadCastsShadowDefault = quadSurfaceSystem ? false : true;
     var quadReverseFacing = entityProp(spec, "reverse_facing", false) === true ||
       (quadSurfaceSystem && quadSurfaceSystem.reverse_facing === true);
@@ -3043,15 +3045,17 @@
         : Number(entityProp(spec, "size", 7.0) || 7.0),
       rotation: resolveTrackedVec3(spec, "rotation", framePos, toVec3(entityProp(spec, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
         transform: resolveTrackedMatrix4(spec, "transform", framePos, toMatrix4(entityProp(spec, "transform", null), null)),
-        color: toRgba(entityProp(spec, "color", [0.20, 0.22, 0.26, 1.0]), [0.20, 0.22, 0.26, 1.0]),
+        color: quadColor,
         texture: resolveTrackedObject(spec, "texture", framePos, entityProp(spec, "texture", null)),
         visible: entityProp(spec, "visible", true) !== false,
         surface_system: quadSurfaceSystem,
         casts_shadow: entityProp(spec, "casts_shadow", quadCastsShadowDefault) !== false,
         receives_shadow: entityProp(spec, "receives_shadow", true) !== false,
         no_backface_specular: entityProp(spec, "no_backface_specular", false) === true,
+        transparent: quadTransparent,
+        no_cull: entityProp(spec, "no_cull", false) === true,
         reverse_facing: quadReverseFacing,
-        depth_write: entityProp(spec, "depth_write", null)
+        depth_write: entityProp(spec, "depth_write", null) == null ? !quadTransparent : entityProp(spec, "depth_write", null) === true
       };
   }
 

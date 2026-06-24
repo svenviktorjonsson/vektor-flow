@@ -738,6 +738,22 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
     assert "let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity)" in shader
 
 
+def test_native_scene_quad_alpha_drives_transparent_surface_pipeline() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "var quadTransparent = entityProp(spec, \"transparent\", false) === true || Number(quadColor[3] || 0.0) < 0.999" in source
+    assert "transparent: quadTransparent" in source
+    assert "no_cull: entityProp(spec, \"no_cull\", false) === true" in source
+    assert "depth_write: entityProp(spec, \"depth_write\", null) == null ? !quadTransparent : entityProp(spec, \"depth_write\", null) === true" in source
+
+
+def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
+    source = (REPO / "examples" / "110_mirror_showcase.vkf").read_text(encoding="utf-8")
+    surface = source[source.index('id: "showcase_mirror"'):source.index("cubes: [")]
+    assert "color: [0.68, 0.74, 0.84, 0.5]" in surface
+    assert "no_cull: true" in surface
+    assert "reflectivity: 0.5" in surface
+
+
 def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     linked_fn = shader[shader.index("function resolveLinkedMirrorLight"):shader.index("function resolveProjectedLightFromMeshId")]
