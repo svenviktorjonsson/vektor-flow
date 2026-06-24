@@ -4953,7 +4953,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     var reflectedTarget = reflectPointAcrossPlane(sourceLight.target, planePoint, planeNormal);
     if (!reflectOfId && normalizeLightKind(lightSpec.kind) !== "projected") {
       var directResolved = Object.assign({}, lightSpec, {
-        reflect_mirror_mesh_id: ""
+        reflect_mirror_mesh_id: "",
+        casts_shadow: lightSpec.mirror_source_direct_casts_shadow === false ? false : lightSpec.casts_shadow
       });
       if (sourceSide > clipEpsilon && reflectivity > 1e-4) {
         var solkattAperture = runtime.aperturePacket(mirrorMeshId, planeNormal, lightSpec.clip_epsilon_ratio, 1e-5);
@@ -5206,8 +5207,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       if (light && String(light.reflect_mirror_mesh_id || "").trim()) {
         var directOnly = Object.assign({}, light);
-        delete directOnly.reflect_mirror_mesh_id;
-        directOnly.casts_shadow = false;
+        directOnly.mirror_source_direct_casts_shadow = false;
         filtered.push(directOnly);
         continue;
       }
@@ -5266,6 +5266,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       aperture_mesh_id: String(light.aperture_mesh_id || light.aperture_face_id || ""),
       reflect_of_light_id: String(light.reflect_of_light_id || ""),
       reflect_mirror_mesh_id: String(light.reflect_mirror_mesh_id || ""),
+      mirror_source_direct_casts_shadow: light.mirror_source_direct_casts_shadow === false ? false : true,
       clip_epsilon_ratio: clampPositiveNumber(light.clip_epsilon_ratio, 1e-5),
       projected_aperture: light && light.projected_aperture && typeof light.projected_aperture === "object"
         ? light.projected_aperture

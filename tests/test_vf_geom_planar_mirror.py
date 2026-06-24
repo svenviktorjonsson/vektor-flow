@@ -442,9 +442,77 @@ def test_batched_light_flares_use_frame_camera_projection() -> None:
 def test_offscreen_mirror_source_uses_direct_lights_without_reflection_apertures() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     offscreen_filter = shader[shader.index("function lightsForRenderer"):shader.index("function lightsForMesh")]
-    assert 'delete directOnly.reflect_mirror_mesh_id;' in offscreen_filter
-    assert "directOnly.casts_shadow = false;" in offscreen_filter
+    assert 'delete directOnly.reflect_mirror_mesh_id;' not in offscreen_filter
+    assert "directOnly.mirror_source_direct_casts_shadow = false;" in offscreen_filter
+    linked_fn = shader[shader.index("function resolveLinkedMirrorLight"):shader.index("function resolveProjectedLightFromMeshId")]
+    assert "casts_shadow: lightSpec.mirror_source_direct_casts_shadow === false ? false : lightSpec.casts_shadow" in linked_fn
     assert 'String(light.reflect_of_light_id || "").trim()' in offscreen_filter
+
+
+def test_offscreen_mirror_source_preserves_solkatt_generation() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__offscreenSolkattTest = {{ lightsForRenderer: lightsForRenderer, resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w * 0.5;
+  const y = h * 0.5;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const raw = sandbox.__offscreenSolkattTest.lightsForRenderer([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "mirror" }}
+], true);
+const lights = sandbox.__offscreenSolkattTest.resolveSceneLights(raw, {{ parts: [mirror] }}, 0);
+process.stdout.write(JSON.stringify({{
+  rawReflect: raw[0].reflect_mirror_mesh_id,
+  rawDirectShadowFlag: raw[0].mirror_source_direct_casts_shadow,
+  ids: lights.map((light) => light.id),
+  kinds: lights.map((light) => light.kind),
+  shadows: lights.map((light) => light.casts_shadow),
+  apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["rawReflect"] == "mirror"
+    assert payload["rawDirectShadowFlag"] is False
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["kinds"] == ["point", "projected"]
+    assert payload["shadows"] == [False, True]
+    assert payload["apertureMeshId"] == "mirror"
 
 
 def test_mirror_plane_debug_logs_are_gated_and_cover_plane_consumers() -> None:
