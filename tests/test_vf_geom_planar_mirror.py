@@ -2671,6 +2671,7 @@ def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
     assert "function currentNativeSceneAnimationDirtyVersion(seconds)" in runtime
     assert "function currentSceneWorldDirtyVersion(seconds)" in runtime
     assert "currentNativeSceneAnimationDirtyVersion(seconds)" in runtime
+    assert "Math.max(1, fps) * 4.0" not in runtime
     assert "return chessAnimationsPending() || sceneHasNativeWorldAnimations();" in runtime
     assert "return chessActive || sceneHasNativeWorldAnimations();" in runtime
     assert "var dirtyVersion = currentSceneWorldDirtyVersion(seconds);" in runtime

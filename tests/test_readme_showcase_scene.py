@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -39,6 +40,30 @@ def test_readme_showcase_uses_two_real_lights_and_one_flare_path() -> None:
     assert light_props[1]["casts_shadow"] is True
     assert light_props[0]["reflect_mirror_mesh_id"] == "showcase_mirror"
     assert light_props[1]["reflect_mirror_mesh_id"] == "showcase_mirror"
+
+
+def test_readme_showcase_has_one_visible_frame_and_sixty_hz_orbit() -> None:
+    program = try_build_native_overlay_scene_program(Path("examples/110_mirror_showcase.vkf"))
+    assert program is not None
+    configs = _native_scene_configs_from_html(program.html_text)
+    frames = [(cfg.get("scene_ir") or {}).get("frame") or {} for cfg in configs]
+
+    visible_frames = [frame for frame in frames if frame.get("visible") is not False]
+    assert [frame.get("frame_id") for frame in visible_frames] == ["readme_mirror_showcase_frame"]
+
+    visible = next(
+        cfg for cfg in configs
+        if ((cfg.get("scene_ir") or {}).get("frame") or {}).get("frame_id") == "readme_mirror_showcase_frame"
+    )
+    scene_ir = visible["scene_ir"]
+    assert scene_ir["timing"]["fps"] == 60
+
+    fill_light = next(
+        light["properties"] for light in scene_ir["lights"]
+        if light["properties"]["id"] == "fill_light"
+    )
+    assert fill_light["motion"] == "orbit"
+    assert math.isclose(fill_light["angular_velocity"], math.pi / 6.0, rel_tol=0.0, abs_tol=1e-10)
 
 
 def test_readme_showcase_impostors_keep_point_colors_and_sizes() -> None:

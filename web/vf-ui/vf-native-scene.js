@@ -3995,7 +3995,7 @@
 
   function currentNativeSceneAnimationDirtyVersion(seconds) {
     if (!sceneHasNativeWorldAnimations()) { return 0; }
-    return Math.max(0, Math.floor(Math.max(0.0, Number(seconds || 0.0)) * Math.max(1, fps) * 4.0));
+    return Math.max(0, Math.floor(Math.max(0.0, Number(seconds || 0.0)) * Math.max(1, fps)));
   }
 
   function currentSceneWorldDirtyVersion(seconds) {
