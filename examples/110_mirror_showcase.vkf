@@ -96,8 +96,8 @@ native_scene: (
         ),
         (
             id: "behind_window_cyan_marker",
-            center: [1.85, 2.66, 2.35],
-            size: 1.05,
+            center: [1.45, 2.72, 1.35],
+            size: 0.64,
             rotation: [0.0, 0.0, 18.0],
             face_color: [0.0, 0.92, 1.0, 1.0]
         )
