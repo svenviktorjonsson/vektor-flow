@@ -2732,6 +2732,28 @@ def test_hidden_optical_reference_meshes_travel_outside_drawn_scene_parts() -> N
     assert "meshLike.optical_parts" in WGPU_JS.read_text(encoding="utf-8")
 
 
+def test_mirror_source_updates_are_immediate_before_dependents_present() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    render_loop = source[source.index("function renderFrame"):source.index("function wireChessRuntimeRenderCallbacks")]
+    offscreen_branch = render_loop[render_loop.index("if (!offscreenMounted)"):render_loop.index("offscreenLastDirtyVersion = dirtyVersion;")]
+
+    update_index = offscreen_branch.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });')
+    dependent_index = render_loop.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });', render_loop.index("offscreenLastDirtyVersion = dirtyVersion;"))
+    assert update_index >= 0
+    assert render_loop.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });', render_loop.index("if (!offscreenMounted)")) < dependent_index
+
+
+def test_visible_scene_startup_does_not_wait_for_idle_before_first_render() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    start = source.index("function scheduleVisibleInitialSceneRender")
+    startup_fn = source[start:source.index("if (useVisibleFrame) {", start)]
+
+    assert "requestIdleCallback" not in startup_fn
+    assert "global.requestAnimationFrame(start);" in startup_fn
+    assert "global.setTimeout(forceStart, 120);" in startup_fn
+    assert startup_fn.count("postVisibleShellLayout();") >= 3
+
+
 def test_linked_reflected_camera_uses_planar_mirror_adapter_camera() -> None:
     script = f"""
 const fs = require("fs");

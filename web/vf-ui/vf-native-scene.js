@@ -8494,7 +8494,7 @@
             }, offscreenPixels.width, offscreenPixels.height);
             offscreenMounted = true;
           }
-          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId);
+          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
           offscreenLastDirtyVersion = dirtyVersion;
           offscreenLastMeshStructureSignature = meshStructureSignature;
           triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
@@ -8570,30 +8570,30 @@
       var runInitial = function () {
         if (started) { return; }
         started = true;
+        mountResponsiveVisibleShell();
+        postVisibleShellLayout();
         startInitialSceneRender();
       };
       var start = function () {
         if (started) { return; }
         mountResponsiveVisibleShell();
+        postVisibleShellLayout();
         global.requestAnimationFrame(function () {
           if (started) { return; }
           mountResponsiveVisibleShell();
-          global.requestAnimationFrame(runInitial);
+          postVisibleShellLayout();
+          runInitial();
         });
         global.setTimeout(runInitial, 80);
       };
       var forceStart = function () {
         if (started) { return; }
         mountResponsiveVisibleShell();
+        postVisibleShellLayout();
         global.setTimeout(runInitial, 0);
       };
-      if (typeof global.requestIdleCallback === "function") {
-        global.requestIdleCallback(start, { timeout: 600 });
-        global.setTimeout(forceStart, 700);
-        return;
-      }
-      global.setTimeout(start, 120);
-      global.setTimeout(forceStart, 260);
+      global.requestAnimationFrame(start);
+      global.setTimeout(forceStart, 120);
     }
 
     if (useVisibleFrame) {
