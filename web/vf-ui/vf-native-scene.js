@@ -8398,7 +8398,7 @@
         var meshStructureSignature = sceneWorldMeshStructureSignature();
         var heldCameraKeyActive = cameraKeysActive();
         var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
-        if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {
+        if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {
           renderFrameDependentsBeforePresent();
           if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
             failFast('held camera frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');

@@ -2679,4 +2679,5 @@ def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
     assert "return chessActive || sceneHasNativeWorldAnimations();" in runtime
     assert "var dirtyVersion = currentSceneWorldDirtyVersion(seconds);" in runtime
     assert "var nativeWorldAnimationPresence = null;" in runtime
+    assert "if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {" in runtime
 
