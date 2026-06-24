@@ -428,6 +428,17 @@ def test_light_flares_are_depth_tested_against_scene_depth() -> None:
     assert "view: this._depthTex.createView()" in flare_draw
 
 
+def test_batched_light_flares_use_frame_camera_projection() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    batch_frame = shader[shader.index("perfSample.final_pass = perfNowMs() - perfStageStart;"):shader.index("var sgBatch = sharedWgpu;")]
+
+    assert "function frameCameraMatrices(camera, aspect, timeMs, mathApi, fallbackAutoSpin)" in shader
+    assert "var frameCam = frameCameraMatrices(sceneCam, aspBatch, t, MmBatch, !mesh.camera);" in batch_frame
+    assert "var sceneMvp = frameCam.mvp;" in batch_frame
+    assert "var sceneProj = MmBatch.mat4PerspectiveZ01" not in batch_frame
+    assert "_drawGpuLightFlares(encBatch, mesh, sceneMvp, scenePos, sceneLights" in batch_frame
+
+
 def test_offscreen_mirror_source_uses_direct_lights_without_reflection_apertures() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     offscreen_filter = shader[shader.index("function lightsForRenderer"):shader.index("function lightsForMesh")]

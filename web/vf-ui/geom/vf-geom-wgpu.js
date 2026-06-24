@@ -2969,6 +2969,48 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     return best;
   }
 
+  function frameCameraMatrices(camera, aspect, timeMs, mathApi, fallbackAutoSpin) {
+    var Mm = mathApi || Math3D;
+    var cam = camera || {};
+    var pos = cam.pos || [0, 0, 5];
+    var target = cam.target || [0, 0, 0];
+    var up = cam.up || [0, 1, 0];
+    var projMat;
+    var viewMat;
+    if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && (cam._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(cam, aspect))) {
+      projMat = new Float32Array(cam.projection_matrix);
+    } else if (String(cam && cam.projection || "").toLowerCase() === "orthographic") {
+      var orthoScale = Math.max(1e-6, Number(cam.ortho_scale || 2.5) || 2.5);
+      projMat = Mm.mat4OrthoZ01(-orthoScale * aspect, orthoScale * aspect, -orthoScale, orthoScale, 0.05, 500);
+    } else {
+      var fov = cam.fov !== undefined ? cam.fov : 45;
+      projMat = Mm.mat4PerspectiveZ01((Number(fov) || 45) * Math.PI / 180, aspect, 0.05, 500);
+    }
+    if (cam && cam.flip_x === true) {
+      projMat[0] = -projMat[0];
+      projMat[4] = -projMat[4];
+      projMat[8] = -projMat[8];
+      projMat[12] = -projMat[12];
+    }
+    if (cam && Array.isArray(cam.view_matrix) && cam.view_matrix.length === 16) {
+      viewMat = new Float32Array(cam.view_matrix);
+    } else if (fallbackAutoSpin === true) {
+      var ang = Number(timeMs || 0) * 0.0008;
+      viewMat = Mm.mat4Mul(Mm.mat4Translation(0, 0, -5), Mm.mat4RotationY(ang));
+      pos = [0, 0, 5];
+    } else {
+      viewMat = mat4LookAt(pos, target, up);
+    }
+    return {
+      pos: pos,
+      target: target,
+      up: up,
+      projection: projMat,
+      view: viewMat,
+      mvp: Mm.mat4Mul(projMat, viewMat)
+    };
+  }
+
   // Uniform buffer: scene + shadows + procedural texture params.
   var UB_SIZE = 32768;
   var SHADOW_UB_SIZE = 192;
@@ -7599,20 +7641,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         );
         perfSample.final_pass = perfNowMs() - perfStageStart;
         var sceneCam = mesh.camera || {};
-        var scenePos = sceneCam.pos || [0, 0, 5];
-        var sceneTarget = sceneCam.target || [0, 0, 0];
-        var sceneUp = sceneCam.up || [0, 1, 0];
-        var sceneFov = sceneCam.fov !== undefined ? sceneCam.fov : 45;
-        var sceneProj = MmBatch.mat4PerspectiveZ01(sceneFov * Math.PI / 180, aspBatch, 0.05, 500);
-        var sceneView;
-        if (!mesh.camera) {
-          var sceneAng = t * 0.0008;
-          sceneView = MmBatch.mat4Mul(MmBatch.mat4Translation(0, 0, -5), MmBatch.mat4RotationY(sceneAng));
-          scenePos = [0, 0, 5];
-        } else {
-          sceneView = mat4LookAt(scenePos, sceneTarget, sceneUp);
-        }
-        var sceneMvp = MmBatch.mat4Mul(sceneProj, sceneView);
+        var frameCam = frameCameraMatrices(sceneCam, aspBatch, t, MmBatch, !mesh.camera);
+        var scenePos = frameCam.pos;
+        var sceneMvp = frameCam.mvp;
         this._lastFrameViewProj = Array.prototype.slice.call(sceneMvp);
         this._lastFrameFlipU = sceneCam && sceneCam._mirrorFlipU === true;
         this._lastFrameFlipV = sceneCam && sceneCam._mirrorFlipV === true;
