@@ -758,8 +758,9 @@ def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
     assert "no_cull: true" in surface
     assert 'kind: "window"' in surface
     assert "reverse_facing" not in surface
-    assert 'id: "behind_window_magenta_block"' in source
-    assert "center: [0.74, 2.78, 1.20]" in source
+    assert 'id: "behind_window_magenta_slab"' in source
+    assert "center: [1.65, 2.92, 1.20]" in source
+    assert "scale: [1.0, 0.16, 1.25]" in source
     assert "face_color: [1.0, 0.04, 0.92, 1.0]" in source
 
 

@@ -95,10 +95,11 @@ native_scene: (
             face_color: [0.84, 0.22, 0.16, 1.0]
         ),
         (
-            id: "behind_window_magenta_block",
-            center: [0.74, 2.78, 1.20],
-            size: 0.92,
-            rotation: [0.0, 0.0, -12.0],
+            id: "behind_window_magenta_slab",
+            center: [1.65, 2.92, 1.20],
+            size: 1.85,
+            scale: [1.0, 0.16, 1.25],
+            rotation: [0.0, 0.0, -8.0],
             face_color: [1.0, 0.04, 0.92, 1.0]
         )
     ],
