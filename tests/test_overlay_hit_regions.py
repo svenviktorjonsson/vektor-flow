@@ -24,3 +24,15 @@ def test_native_overlay_hit_regions_are_not_padded_by_visual_paint() -> None:
     assert "constexpr LONG kPad" not in native_main
     assert "rc.left -= kPad" not in native_main
     assert "rc.right += kPad" not in native_main
+
+
+def test_native_overlay_suspends_visual_region_clip_during_frame_drag() -> None:
+    frame_js = FRAME_JS.read_text(encoding="utf-8")
+    native_main = OVERLAY_MAIN.read_text(encoding="utf-8")
+
+    assert "dragActive: o.dragActive === true" in frame_js
+    assert "nativeFrameDragActive = true" in frame_js
+    assert "g_frameDragActive = cJSON_IsBool(da) && cJSON_IsTrue(da);" in native_main
+    assert "if (g_frameDragActive) {" in native_main
+    assert "SetWindowRgn(host, nullptr, TRUE);" in native_main
+    assert "ClearPassThroughShapeSubtree(ch);" in native_main

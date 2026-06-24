@@ -164,6 +164,7 @@ std::string g_lastLayoutSnapshotUtf8;
 double g_stageAlpha = 0.0;
 bool g_stagePassThrough = false;
 bool g_contentHidden = false;
+bool g_frameDragActive = false;
 int g_toolbarPx = 160;
 std::vector<RECT> g_hitRegions;
 
@@ -954,6 +955,8 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
             cJSON* ch = cJSON_GetObjectItem(root, "contentHidden");
             if (cJSON_IsBool(ch))
                 g_contentHidden = cJSON_IsTrue(ch);
+            cJSON* da = cJSON_GetObjectItem(root, "dragActive");
+            g_frameDragActive = cJSON_IsBool(da) && cJSON_IsTrue(da);
             /* Same rule as web postLayout(): pass-through when stage is hidden or backdrop α≈0. */
             g_stagePassThrough = g_contentHidden || g_stageAlpha < 0.001;
             cJSON* tp = cJSON_GetObjectItem(root, "toolbarPx");
@@ -1864,6 +1867,23 @@ static void ApplyPassThroughShapeToSubtree(HWND w, HWND host) {
 static void SyncPassThroughInputShape(HWND host) {
     if (!host)
         return;
+    if (g_frameDragActive) {
+        /*
+          During in-WebView frame drag, DOM position changes synchronously with pointer events while
+          HWND regions are applied asynchronously by the OS. If the region is used as a visual mask
+          mid-drag, the frame can be clipped by the previous rect. Keep hit-testing policy in the
+          subclass path during drag and restore the exact region from the final layout on pointerup.
+        */
+        SetWindowRgn(host, nullptr, TRUE);
+        EnumChildWindows(
+            host,
+            [](HWND ch, LPARAM) -> BOOL {
+                ClearPassThroughShapeSubtree(ch);
+                return TRUE;
+            },
+            0);
+        return;
+    }
     if (!EffectiveStagePassThrough()) {
         SetWindowRgn(host, nullptr, TRUE);
         EnumChildWindows(

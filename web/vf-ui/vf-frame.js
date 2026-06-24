@@ -221,7 +221,7 @@
      * Publish overlay input geometry. The product UI owns visual rendering; native overlay hosts own
      * transparent presentation and click-through from this explicit geometry stream.
      * @param {HTMLElement} layer
-     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[] }} o
+     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[], dragActive?: boolean }} o
      */
     postNativeHostLayout(layer, o) {
       o = o || {};
@@ -325,6 +325,7 @@
         contentHidden: hitRegions.length === 0,
         contentReady,
         toolbarPx: 160,
+        dragActive: o.dragActive === true,
         hitRegions: hitRegions,
       });
       if (!overlayShapes.length && VfFrame._lastTransparentOverlayShapeCount > 0 && o.clearOverlayGeometry !== true) {
@@ -1047,11 +1048,15 @@
         typeof wv0.postMessage === "function"
       );
       let hostLayoutRafId = 0;
-      function postHitRegionsToHostImpl() {
+      let nativeFrameDragActive = false;
+      function postHitRegionsToHostImpl(extra) {
         const wv = typeof window !== "undefined" && window.chrome && window.chrome.webview;
         if (!wv || typeof wv.postMessage !== "function") return;
         if (typeof VfFrame.postNativeHostLayout === "function") {
-          VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+          VfFrame.postNativeHostLayout(layer, {
+            stageAlpha: 0,
+            dragActive: !!(extra && extra.dragActive),
+          });
         }
       }
       /** At most one layout post per frame while idle updates run; drag/resize paths can call immediate post. */
@@ -1080,9 +1085,16 @@
           root,
           header: head,
           layer,
-          onDragStart: bringToFront,
-          onDragMove: postHitRegionsToHostImpl,
+          onDragStart: function () {
+            nativeFrameDragActive = true;
+            bringToFront();
+            postHitRegionsToHostImpl({ dragActive: true });
+          },
+          onDragMove: function () {
+            postHitRegionsToHostImpl({ dragActive: nativeFrameDragActive });
+          },
           onDragEnd: function () {
+            nativeFrameDragActive = false;
             flushPostHitRegionsToHost();
             enqueueFrameEvent({
               frameId: String(id),
