@@ -11469,6 +11469,12 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     rec.dynamicAdapter.markDirty();
     var entry = rec.entries && rec.entries[0];
     var renderer = entry && entry.renderer;
+    if (renderer && typeof options.afterPresented === "function") {
+      if (!Array.isArray(renderer._afterSubmittedWorkDoneCallbacks)) {
+        renderer._afterSubmittedWorkDoneCallbacks = [];
+      }
+      renderer._afterSubmittedWorkDoneCallbacks.push(options.afterPresented);
+    }
     if (renderer) {
       renderer._suppressLinkedTextureNotifyOnce = false;
     }
@@ -11541,6 +11547,12 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
       Number(global.__vfDynamicGeomCameraOnlyRenders[String(fid)] || 0) + 1;
     var entry = rec.entries && rec.entries[0];
     var renderer = entry && entry.renderer;
+    if (renderer && typeof options.afterPresented === "function") {
+      if (!Array.isArray(renderer._afterSubmittedWorkDoneCallbacks)) {
+        renderer._afterSubmittedWorkDoneCallbacks = [];
+      }
+      renderer._afterSubmittedWorkDoneCallbacks.push(options.afterPresented);
+    }
     if (
       renderer &&
       (renderer._offscreenFrame === true || options.immediate === true) &&

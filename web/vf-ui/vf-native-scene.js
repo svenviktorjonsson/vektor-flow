@@ -7816,7 +7816,10 @@
         nextCamera,
         visibleSpec.lights || [],
         visibleSpec.light_flares || null,
-        { immediate: options.immediate === true }
+        {
+          immediate: options.immediate === true,
+          afterPresented: typeof options.afterPresented === "function" ? options.afterPresented : null
+        }
       ) === true;
     }
     function updateOffscreenCameraOnly(camera, options) {
@@ -7830,7 +7833,10 @@
         camera,
         offscreenSpec.lights || [],
         offscreenSpec.light_flares || null,
-        { immediate: options.immediate === true }
+        {
+          immediate: options.immediate === true,
+          afterPresented: typeof options.afterPresented === "function" ? options.afterPresented : null
+        }
       ) === true;
     }
     function cameraKeysActive() {
@@ -7989,14 +7995,18 @@
     function finishRenderFrame(animationActive, triggerDependentsAfter) {
       controlState.rendering = false;
       if (triggerDependentsAfter === true) {
-        triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        failFast("dependent frames must be triggered from afterPresented");
       }
       scheduleNextFrameIfNeeded(animationActive);
     }
     function presentVisibleCameraFrame(renderCamera, options) {
       options = options && typeof options === "object" ? options : {};
-      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-      if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
+      if (!updateVisibleCameraOnly(renderCamera, {
+        immediate: true,
+        afterPresented: function () {
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        }
+      })) {
         failFast(String(options.label || "camera-only") + ' frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
       }
       scenePerf.cameraOnlyUpdates += 1;
@@ -8006,8 +8016,12 @@
       pushVisibleRender(rendered, { defer_update: true });
       visibleLastDirtyVersion = dirtyVersion;
       visibleLastMeshStructureSignature = meshStructureSignature;
-      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {
+        immediate: true,
+        afterPresented: function () {
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        }
+      });
     }
 
     function presentOffscreenSourceFrame(rendered, dirtyVersion, meshStructureSignature) {
@@ -8020,10 +8034,14 @@
         }, offscreenPixels.width, offscreenPixels.height);
         offscreenMounted = true;
       }
-      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
       offscreenLastDirtyVersion = dirtyVersion;
       offscreenLastMeshStructureSignature = meshStructureSignature;
-      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {
+        immediate: true,
+        afterPresented: function () {
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        }
+      });
     }
     function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera) {
       var liveCamera = {
@@ -8483,7 +8501,12 @@
           finishRenderFrame(worldAnimationActive, false);
           return;
         }
-        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera, { immediate: dependencySourceFrameId ? true : heldCameraKeyActive })) {
+        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera, {
+          immediate: dependencySourceFrameId ? true : heldCameraKeyActive,
+          afterPresented: function () {
+            triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+          }
+        })) {
           scenePerf.cameraOnlyUpdates += 1;
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
@@ -8493,7 +8516,7 @@
                 " full=" + Number(scenePerf.fullSceneUpdates || 0)
             );
           }
-          finishRenderFrame(worldAnimationActive, true);
+          finishRenderFrame(worldAnimationActive, false);
           return;
         }
         startupDebugMark(watchedFrameId, "beforeRenderPayload");

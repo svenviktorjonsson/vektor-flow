@@ -300,8 +300,29 @@
     return !!(scheduler && scheduler.pending === true);
   }
 
+  function drainSubmittedCallbacks(renderer) {
+    if (!renderer || !Array.isArray(renderer._afterSubmittedWorkDoneCallbacks)) { return; }
+    var callbacks = renderer._afterSubmittedWorkDoneCallbacks.splice(0);
+    for (var i = 0; i < callbacks.length; i += 1) {
+      try {
+        callbacks[i]();
+      } catch (err) {
+        failFast("after submitted frame callback failed: " + (err && err.message ? err.message : String(err)));
+      }
+    }
+  }
+
+  function enqueueSubmittedCallback(renderer, callback) {
+    if (!renderer || typeof callback !== "function") { return; }
+    if (!Array.isArray(renderer._afterSubmittedWorkDoneCallbacks)) {
+      renderer._afterSubmittedWorkDoneCallbacks = [];
+    }
+    renderer._afterSubmittedWorkDoneCallbacks.push(callback);
+  }
+
   function markSubmittedGpuWork(renderer) {
     if (!renderer || !renderer._device || !renderer._device.queue || typeof renderer._device.queue.onSubmittedWorkDone !== "function") {
+      drainSubmittedCallbacks(renderer);
       return;
     }
     var scheduler = gpuSchedulerState(renderer);
@@ -326,6 +347,7 @@
       }
       renderer._gpuWorkPending = false;
       renderer._debugGpuPendingStartMs = 0;
+      drainSubmittedCallbacks(renderer);
       if (chessLagDebugEnabled() && (pendingMs > 80 || queued)) {
         lagDebugLog(
           renderer,
@@ -349,6 +371,7 @@
       renderer._gpuWorkPending = false;
       renderer._debugGpuPendingStartMs = 0;
       renderer._renderQueuedWhileGpuPending = false;
+      drainSubmittedCallbacks(renderer);
       drainQueuedGpuRenderers(schedulerNow);
     });
   }
@@ -7775,9 +7798,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._blitFrameTargetToCanvas(encBatch, mesh);
         perfStageStart = perfNowMs();
         this._device.queue.submit([encBatch.finish()]);
+        enqueueSubmittedCallback(this, function () { notifyLinkedTextureFrames(this); }.bind(this));
         markSubmittedGpuWork(this);
         this._markPresentedFirstFrame();
-        notifyLinkedTextureFrames(this);
         perfSample.submit = perfNowMs() - perfStageStart;
         perfSample.total = perfNowMs() - perfTotalStart;
         var perfStats = ensurePerfStats(this);
@@ -7983,9 +8006,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       this._blitFrameTargetToCanvas(enc, mesh);
       this._device.queue.submit([enc.finish()]);
+      enqueueSubmittedCallback(this, function () { notifyLinkedTextureFrames(this); }.bind(this));
       markSubmittedGpuWork(this);
       this._markPresentedFirstFrame();
-      notifyLinkedTextureFrames(this);
 
       // Fire the callback after the combined visible+pick submit.
       if (fireSinglePickCallback && this._pickCallback) { this._pickCallback(); }

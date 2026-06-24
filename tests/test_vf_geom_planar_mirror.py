@@ -2732,21 +2732,24 @@ def test_hidden_optical_reference_meshes_travel_outside_drawn_scene_parts() -> N
     assert "meshLike.optical_parts" in WGPU_JS.read_text(encoding="utf-8")
 
 
-def test_mirror_source_updates_are_immediate_before_dependents_present() -> None:
+def test_mirror_source_dependents_wait_until_source_presented() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     render_loop = source[source.index("function renderFrame"):source.index("function wireChessRuntimeRenderCallbacks")]
     presenter = source[source.index("function presentVisibleCameraFrame"):source.index("function publishLiveCamera")]
     offscreen_presenter = presenter[presenter.index("function presentOffscreenSourceFrame"):presenter.index("function publishLiveCamera") if "function publishLiveCamera" in presenter else len(presenter)]
 
-    update_index = offscreen_presenter.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });')
+    update_index = offscreen_presenter.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {")
     assert update_index >= 0
-    assert offscreen_presenter.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });') < offscreen_presenter.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });')
+    assert offscreen_presenter.index("afterPresented: function () {", update_index) < offscreen_presenter.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });', update_index)
     assert "function presentVisibleCameraFrame" in presenter
     assert "function presentVisibleFullFrame" in presenter
     assert "presentVisibleCameraFrame(renderCamera" in render_loop
     assert "presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);" in render_loop
-    assert "updateVisibleCameraOnly(renderCamera, { immediate: true })" in presenter
-    assert "global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });" in presenter
+    visible_camera = presenter[presenter.index("function presentVisibleCameraFrame"):presenter.index("function presentVisibleFullFrame")]
+    assert "updateVisibleCameraOnly(renderCamera, {" in visible_camera
+    assert "afterPresented: function () {" in visible_camera
+    assert visible_camera.index("updateVisibleCameraOnly(renderCamera, {") < visible_camera.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });')
+    assert "global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {" in presenter
 
 
 def test_visible_scene_startup_does_not_wait_for_idle_before_first_render() -> None:
@@ -2978,7 +2981,19 @@ def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
     assert "if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {" in runtime
     assert "pushVisibleRender(rendered, { defer_update: true });" in runtime
     visible_full_path = runtime.index("pushVisibleRender(rendered, { defer_update: true });")
-    dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", visible_full_path)
-    visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: !!chessInteractionConfig() });", dependent_trigger)
-    assert visible_full_path < dependent_trigger < visible_present
+    visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {", visible_full_path)
+    after_presented = runtime.index("afterPresented: function () {", visible_present)
+    dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", after_presented)
+    assert visible_full_path < visible_present < after_presented < dependent_trigger
+
+
+def test_linked_texture_notifications_wait_for_gpu_submission_done() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+
+    assert "function drainSubmittedCallbacks(renderer)" in shader
+    assert "function enqueueSubmittedCallback(renderer, callback)" in shader
+    assert "drainSubmittedCallbacks(renderer);" in shader
+    assert "enqueueSubmittedCallback(this, function () { notifyLinkedTextureFrames(this); }.bind(this));" in shader
+    assert "markSubmittedGpuWork(this);\n        this._markPresentedFirstFrame();\n        notifyLinkedTextureFrames(this);" not in shader
+    assert "markSubmittedGpuWork(this);\n      this._markPresentedFirstFrame();\n      notifyLinkedTextureFrames(this);" not in shader
 
