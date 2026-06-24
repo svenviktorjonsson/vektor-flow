@@ -7749,6 +7749,9 @@
         visibleSpec = nextVisibleSpec;
         ensureVisibleGeomMount();
         scenePerf.fullSceneUpdates += 1;
+        if (options.defer_update === true) {
+          return;
+        }
         global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: options.immediate === true });
         return;
       }
@@ -8437,16 +8440,15 @@
           finishRenderFrame(worldAnimationActive, true);
           return;
         }
-        if (useVisibleFrame) {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-        }
         startupDebugMark(watchedFrameId, "beforeRenderPayload");
         var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });
         startupDebugMark(watchedFrameId, "afterRenderPayload");
         if (useVisibleFrame) {
-          pushVisibleRender(rendered, { immediate: !!chessInteractionConfig() });
+          pushVisibleRender(rendered, { defer_update: true });
           visibleLastDirtyVersion = dirtyVersion;
           visibleLastMeshStructureSignature = meshStructureSignature;
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: !!chessInteractionConfig() });
         } else {
           offscreenSpec = rendered.payload && rendered.payload.geom
             ? rendered.payload.geom[watchedFrameId] || null

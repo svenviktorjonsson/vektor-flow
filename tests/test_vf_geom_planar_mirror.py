@@ -2680,4 +2680,9 @@ def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
     assert "var dirtyVersion = currentSceneWorldDirtyVersion(seconds);" in runtime
     assert "var nativeWorldAnimationPresence = null;" in runtime
     assert "if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {" in runtime
+    assert "pushVisibleRender(rendered, { defer_update: true });" in runtime
+    visible_full_path = runtime.index("pushVisibleRender(rendered, { defer_update: true });")
+    dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", visible_full_path)
+    visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: !!chessInteractionConfig() });", dependent_trigger)
+    assert visible_full_path < dependent_trigger < visible_present
 

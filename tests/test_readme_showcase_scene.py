@@ -90,6 +90,26 @@ def test_readme_showcase_impostors_keep_point_colors_and_sizes() -> None:
     assert len(set(colors)) >= 6
 
 
+def test_readme_showcase_hull_adornments_do_not_self_shadow_faces() -> None:
+    program = try_build_native_overlay_scene_program(Path("examples/110_mirror_showcase.vkf"))
+    assert program is not None
+    configs = _native_scene_configs_from_html(program.html_text)
+    visible = next(
+        cfg for cfg in configs
+        if ((cfg.get("scene_ir") or {}).get("frame") or {}).get("frame_id") == "readme_mirror_showcase_frame"
+    )
+    mesh = next(
+        item for item in visible["scene_ir"]["meshes"]
+        if item["properties"].get("id") == "violet_hull"
+    )
+    props = mesh["properties"]
+
+    assert props["edge_casts_shadow"] is False
+    assert props["vertex_casts_shadow"] is False
+    assert props["edge_receives_lighting"] is True
+    assert props["vertex_receives_lighting"] is True
+
+
 def test_readme_showcase_dna_vertices_use_complementary_base_palette() -> None:
     program = try_build_native_overlay_scene_program(Path("examples/110_mirror_showcase.vkf"))
     assert program is not None

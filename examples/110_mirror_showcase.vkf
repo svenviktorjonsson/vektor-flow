@@ -157,12 +157,12 @@ native_scene: (
             edge_color: [0.28, 0.92, 0.96, 1.0],
             edge_width: 0.012,
             edge_render_mode: "proxy_geometry",
-            edge_casts_shadow: true,
+            edge_casts_shadow: false,
             edge_receives_lighting: true,
             vertex_color: [0.16, 0.96, 0.84, 1.0],
             vertex_size: 0.024,
             vertex_render_mode: "proxy_geometry",
-            vertex_casts_shadow: true,
+            vertex_casts_shadow: false,
             vertex_receives_lighting: true
         ),
         (
