@@ -69,8 +69,7 @@ native_scene: (
             no_backface_specular: true,
             no_cull: true,
             surface_system: (
-                kind: "screen",
-                reflectivity: 0.5,
+                kind: "window",
                 reverse_facing: true,
                 flip_y: true,
                 scale: [1.0, 1.0],

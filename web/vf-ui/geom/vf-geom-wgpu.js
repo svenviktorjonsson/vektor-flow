@@ -2578,7 +2578,7 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let reflectionAlpha = clamp(reflectionSample.a, 0.0, 1.0);
   let backgroundLayer = mix(baseLayer, frameTint, backgroundMix);
   let reflectedLayer = mix(backgroundLayer, reflectionSample.rgb, reflectionAlpha);
-  let finalAlpha = mix(litMaterial.a, mix(litMaterial.a, 1.0, reflectionAlpha), reflectivity);
+  let finalAlpha = max(litMaterial.a, reflectionAlpha * reflectivity);
   let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity);
   return vec4<f32>(mirrorComposite, finalAlpha);
 }

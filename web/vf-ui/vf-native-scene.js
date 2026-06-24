@@ -452,6 +452,14 @@
     return stepDeg * Math.PI / 180.0;
   }
 
+  function cameraOrbitSpeedRadians(cameraConfig) {
+    var explicitSpeedDeg = Number(entityProp(cameraConfig || {}, "orbit_speed_deg_per_sec", NaN));
+    if (Number.isFinite(explicitSpeedDeg) && Math.abs(explicitSpeedDeg) > 1e-6) {
+      return Math.abs(explicitSpeedDeg) * Math.PI / 180.0;
+    }
+    return Math.max(cameraOrbitStepRadians(cameraConfig || {}) * 72.0, Math.PI * 1.8);
+  }
+
   function cameraDistance(camera) {
     var pos = toVec3(camera.pos, [0, 0, 5]);
     var target = toVec3(camera.target, [0, 0, 0]);
@@ -614,17 +622,18 @@
   function resolveSurfaceSystem(system, viewerCamera, seconds) {
     if (!system || typeof system !== "object") { return null; }
     var kind = String(system.kind || "").toLowerCase().trim();
-    if (kind !== "screen" && kind !== "mirror") { return cloneJsonValue(system); }
+    if (kind !== "screen" && kind !== "mirror" && kind !== "window") { return cloneJsonValue(system); }
     if (Object.prototype.hasOwnProperty.call(system, "camera_mode")) {
       failFast("surface_system.camera_mode is removed; use a reflected camera frame plus screen.frame_ref");
     }
     var camera = resolveSurfaceCamera(system, viewerCamera);
     var world = resolveSurfaceWorld(system);
-    var runtimeKind = kind === "mirror" ? "screen" : kind;
+    var runtimeKind = kind === "mirror" || kind === "window" ? "screen" : kind;
+    var defaultReflectivity = kind === "window" ? 0.5 : 1.0;
     return {
       kind: runtimeKind,
       scale: Array.isArray(system.scale) ? [Number(system.scale[0]) || 1.0, Number(system.scale[1]) || 1.0] : [1.0, 1.0],
-      reflectivity: Math.max(0.0, Math.min(1.0, Number(system.reflectivity == null ? 1.0 : system.reflectivity) || 0.0)),
+      reflectivity: Math.max(0.0, Math.min(1.0, Number(system.reflectivity == null ? defaultReflectivity : system.reflectivity) || 0.0)),
       world_ref: String(system.world_ref || ""),
       camera_ref: String(system.camera_ref || ""),
       frame_ref: String(system.frame_ref || ""),
@@ -632,6 +641,7 @@
       flip_y: system.flip_y === true,
       _renderFlipU: system._renderFlipU === true,
       _mirror_surface: kind === "mirror" || system._mirror_surface === true,
+      _window_surface: kind === "window" || system._window_surface === true,
       reverse_facing: system.reverse_facing === true,
       camera: camera,
       world: {
@@ -3025,7 +3035,9 @@
         }());
     var quadSurfaceSystem = resolveSurfaceSystem(resolveTrackedObject(spec, "surface_system", framePos, entityProp(spec, "surface_system", null)), viewerCamera, seconds);
     var quadColor = toRgba(entityProp(spec, "color", [0.20, 0.22, 0.26, 1.0]), [0.20, 0.22, 0.26, 1.0]);
-    var quadTransparent = entityProp(spec, "transparent", false) === true || Number(quadColor[3] || 0.0) < 0.999;
+    var quadTransparent = entityProp(spec, "transparent", false) === true ||
+      (quadSurfaceSystem && quadSurfaceSystem._window_surface === true) ||
+      Number(quadColor[3] || 0.0) < 0.999;
     var quadCastsShadowDefault = quadSurfaceSystem ? false : true;
     var quadReverseFacing = entityProp(spec, "reverse_facing", false) === true ||
       (quadSurfaceSystem && quadSurfaceSystem.reverse_facing === true);
@@ -3053,7 +3065,7 @@
         receives_shadow: entityProp(spec, "receives_shadow", true) !== false,
         no_backface_specular: entityProp(spec, "no_backface_specular", false) === true,
         transparent: quadTransparent,
-        no_cull: entityProp(spec, "no_cull", false) === true,
+        no_cull: entityProp(spec, "no_cull", false) === true || (quadSurfaceSystem && quadSurfaceSystem._window_surface === true),
         reverse_facing: quadReverseFacing,
         depth_write: entityProp(spec, "depth_write", null) == null ? !quadTransparent : entityProp(spec, "depth_write", null) === true
       };
@@ -7692,7 +7704,7 @@
           orbitPhi: 0.0,
           orbitTheta: 0.0,
           orbitStep: cameraOrbitStepRadians(config.camera || {}),
-          orbitSpeedRadPerSec: Math.max(cameraOrbitStepRadians(config.camera || {}) * 18.0, Math.PI * 0.45),
+          orbitSpeedRadPerSec: cameraOrbitSpeedRadians(config.camera || {}),
           controlsEnabled: cameraBehaviorProps().controls_enabled !== false,
           lookOnlyControls: cameraBehaviorProps().look_only_controls === true,
           lockApertureCamera: cameraBehaviorProps().lock_aperture_camera === true,
