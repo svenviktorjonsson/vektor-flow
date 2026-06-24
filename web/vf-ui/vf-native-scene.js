@@ -3700,6 +3700,7 @@
     var lightSpecs = Array.isArray(config.lights)
       ? config.lights
       : (config.light ? [config.light] : []);
+    var opticalReferenceIds = collectOpticalReferenceMeshIds(lightSpecs);
     var rawMeshSpecs = authoredSceneMeshSpecs();
     var chessCfg = chessInteractionConfig();
     var chessRuntime = global.__vfNativeChessRuntime || null;
@@ -3716,7 +3717,8 @@
     rawMeshSpecs = syncChessRuntimePiecesIntoMeshes(rawMeshSpecs);
     if (frameSpec.visible === false) {
       rawMeshSpecs = rawMeshSpecs.filter(function (mesh) {
-        return entityProp(mesh, "visible", true) !== false;
+        var visible = entityProp(mesh, "visible", true) !== false;
+        return visible || opticalReferenceIds[meshSpecId(mesh)] === true;
       });
     }
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeMeshes");
@@ -3747,6 +3749,7 @@
       }
     }
     var meshes = [];
+    var opticalParts = [];
     var receiverIds = Object.create(null);
     for (var receiverIndex = 0; receiverIndex < receivers.length; receiverIndex += 1) {
       var receiver = receivers[receiverIndex] || {};
@@ -3769,16 +3772,15 @@
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeBuildMeshes");
     for (var i = 0; i < meshSpecs.length; i += 1) {
       var mesh = meshSpecs[i];
-      if (mesh.visible === false) { continue; }
+      if (mesh.visible === false) {
+        if (opticalReferenceIds[String(mesh.id || "")] === true) {
+          pushMeshPayload(opticalParts, buildMeshPayload(mesh, camera, lights));
+        }
+        continue;
+      }
       if (receiverIds[mesh.id]) { continue; }
       var meshPayload = buildMeshPayload(mesh, camera, lights);
-      if (Array.isArray(meshPayload)) {
-        for (var meshPayloadIndex = 0; meshPayloadIndex < meshPayload.length; meshPayloadIndex += 1) {
-          if (meshPayload[meshPayloadIndex]) { meshes.push(meshPayload[meshPayloadIndex]); }
-        }
-      } else if (meshPayload) {
-        meshes.push(meshPayload);
-      }
+      pushMeshPayload(meshes, meshPayload);
     }
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterBuildMeshes");
     if (renderOptions.show_light_markers === true) {
@@ -3792,6 +3794,7 @@
       camera: camera,
       lights: lights,
       meshes: meshes,
+      optical_parts: opticalParts,
       flare_occluders: meshSpecs.filter(function (mesh) { return mesh.kind === "cube" || mesh.kind === "random_hull" || mesh.kind === "convex_hull" || mesh.kind === "simplices"; })
     };
   }
@@ -3828,6 +3831,7 @@
     var geom = {};
     geom[String(frameSpec.frame_id || config.frame_id)] = {
       meshes: state.meshes,
+      optical_parts: state.optical_parts,
       camera: state.camera,
       lights: state.lights,
       background: sceneBackground,
@@ -7358,6 +7362,37 @@
       registry[key] = Object.create(null);
     }
     registry[key][depKey] = callback;
+  }
+
+  function collectOpticalReferenceMeshIds(lightSpecs) {
+    var out = Object.create(null);
+    if (!Array.isArray(lightSpecs)) { return out; }
+    for (var i = 0; i < lightSpecs.length; i += 1) {
+      var light = lightSpecs[i] || {};
+      var mirrorId = String(entityProp(light, "reflect_mirror_mesh_id", "") || "").trim();
+      if (mirrorId) { out[mirrorId] = true; }
+      var aperture = entityProp(light, "projected_aperture", null);
+      if (aperture && typeof aperture === "object") {
+        var apertureMeshId = String(aperture.mesh_id || "").trim();
+        if (apertureMeshId) { out[apertureMeshId] = true; }
+      }
+    }
+    return out;
+  }
+
+  function meshSpecId(mesh) {
+    return String(entityProp(mesh || {}, "id", (mesh && mesh.id) || "") || "").trim();
+  }
+
+  function pushMeshPayload(target, payload) {
+    if (!target || !payload) { return; }
+    if (Array.isArray(payload)) {
+      for (var i = 0; i < payload.length; i += 1) {
+        if (payload[i]) { target.push(payload[i]); }
+      }
+      return;
+    }
+    target.push(payload);
   }
 
   function triggerFrameDependents(sourceFrameId, options) {

@@ -660,15 +660,18 @@ const raw = sandbox.__hiddenMirrorSolkattTest.lightsForRenderer([
   {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "showcase_mirror" }}
 ], true);
 const lightMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution(transientPayload, renderedParts, retainedCatalog);
+const opticalMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution({{ optical_parts: [mirror] }}, renderedParts);
 const lights = sandbox.__hiddenMirrorSolkattTest.resolveSceneLights(raw, lightMesh, 0);
 process.stdout.write(JSON.stringify({{
   partIds: lightMesh.parts.map((part) => part.id),
+  opticalPartIds: opticalMesh.parts.map((part) => part.id),
   ids: lights.map((light) => light.id),
   apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
 }}));
 """
     payload = _run_node(script)
     assert payload["partIds"] == ["blocker", "showcase_mirror"]
+    assert payload["opticalPartIds"] == ["blocker", "showcase_mirror"]
     assert payload["ids"] == ["sun", "sun::solkatt"]
     assert payload["apertureMeshId"] == "showcase_mirror"
 
@@ -2704,6 +2707,23 @@ def test_native_scene_light_markers_do_not_enable_screen_space_flare_ghosts() ->
     assert "buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size)" in build_state_fn
     assert "enabled: renderOptions.light_flares === true" in render_payload_fn
     assert "enabled: renderOptions.show_light_markers === true" not in render_payload_fn
+
+
+def test_hidden_optical_reference_meshes_travel_outside_drawn_scene_parts() -> None:
+    native_source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    display_source = DISPLAY_JS.read_text(encoding="utf-8")
+    build_state_fn = native_source[native_source.index("function buildSceneState"):native_source.index("function renderPayload")]
+    render_payload_fn = native_source[native_source.index("function renderPayload"):native_source.index("function chessInteractionConfig")]
+    dynamic_scene_fn = display_source[display_source.index("function _buildDynamicGeomScene"):display_source.index("function mountDynamicGeomFrame")]
+
+    assert "function collectOpticalReferenceMeshIds" in native_source
+    assert 'entityProp(light, "reflect_mirror_mesh_id", "")' in native_source
+    assert "return visible || opticalReferenceIds[meshSpecId(mesh)] === true;" in build_state_fn
+    assert "pushMeshPayload(opticalParts, buildMeshPayload(mesh, camera, lights));" in build_state_fn
+    assert "optical_parts: opticalParts" in build_state_fn
+    assert "optical_parts: state.optical_parts" in render_payload_fn
+    assert "scene.optical_parts = geomSpec.optical_parts.slice();" in dynamic_scene_fn
+    assert "meshLike.optical_parts" in WGPU_JS.read_text(encoding="utf-8")
 
 
 def test_linked_reflected_camera_uses_planar_mirror_adapter_camera() -> None:

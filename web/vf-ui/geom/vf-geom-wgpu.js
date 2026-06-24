@@ -5208,6 +5208,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     if (Array.isArray(meshLike.parts)) {
       authoredParts = authoredParts.concat(meshLike.parts);
     }
+    if (Array.isArray(meshLike.optical_parts)) {
+      authoredParts = authoredParts.concat(meshLike.optical_parts);
+    }
     if (Array.isArray(authoredPartsForResolution)) {
       authoredParts = authoredParts.concat(authoredPartsForResolution);
     }

@@ -10641,6 +10641,9 @@
     if (!scene) {
       throw new Error("dynamic geom provider did not produce a unified scene");
     }
+    if (Array.isArray(geomSpec.optical_parts)) {
+      scene.optical_parts = geomSpec.optical_parts.slice();
+    }
     if (Array.isArray(geomSpec.hit_regions)) {
       scene.hit_regions = geomSpec.hit_regions;
     }
