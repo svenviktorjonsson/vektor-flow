@@ -5167,6 +5167,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (light && String(light.reflect_mirror_mesh_id || "").trim()) {
         var directOnly = Object.assign({}, light);
         delete directOnly.reflect_mirror_mesh_id;
+        directOnly.casts_shadow = false;
         filtered.push(directOnly);
         continue;
       }

@@ -432,6 +432,7 @@ def test_offscreen_mirror_source_uses_direct_lights_without_reflection_apertures
     shader = WGPU_JS.read_text(encoding="utf-8")
     offscreen_filter = shader[shader.index("function lightsForRenderer"):shader.index("function lightsForMesh")]
     assert 'delete directOnly.reflect_mirror_mesh_id;' in offscreen_filter
+    assert "directOnly.casts_shadow = false;" in offscreen_filter
     assert 'String(light.reflect_of_light_id || "").trim()' in offscreen_filter
 
 
