@@ -485,7 +485,8 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
     assert "clamp(surfaceUv.x, 0.0, 1.0)" in shader
     assert "clamp(surfaceUv.y, 0.0, 1.0)" in shader
     assert "let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture)" in shader
-    assert "let litMaterial = shadeLitBase(materialBase" in shader
+    assert "let litMaterial = shadeLitBaseScaled(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5, 0.0)" in shader
+    assert "let litMaterial = shadeLitBase(materialBase" not in shader
     assert "let baseLayer = litMaterial.rgb" in shader
     assert "let receiverShadow = readableShadowVisibility(receivedShadowVisibility(worldPos, hostNormal))" not in shader
     assert "let shadowedReflection = reflectionSample.rgb * receiverShadow" not in shader

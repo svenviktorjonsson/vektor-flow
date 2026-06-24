@@ -2527,7 +2527,7 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
     clamp(highlight.a, 0.0, 1.0)
   );
   let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture);
-  let litMaterial = shadeLitBase(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5);
+  let litMaterial = shadeLitBaseScaled(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5, 0.0);
   let baseLayer = litMaterial.rgb;
   if (maxUv > 0.995) {
     return vec4<f32>(mix(litMaterial.rgb, sc.texture_color_b.rgb, frameAlpha * (1.0 - hasBaseTexture)), litMaterial.a);
