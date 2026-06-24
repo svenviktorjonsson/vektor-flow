@@ -6760,8 +6760,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         cameraSeed = this._buildMirrorEyeLockedCamera(sourceCamera, part.mesh, surfaceCamera, t);
       }
       var reflectedCamera = this._buildPlanarSurfaceRenderCamera(part, sceneMesh, cameraSeed, t, targetAspect);
+      var mirrorRenderClip = null;
+      if (reflectedCamera && reflectedCamera._mirrorDebug && Array.isArray(reflectedCamera._mirrorDebug.planePoint)) {
+        mirrorRenderClip = {
+          planePoint: reflectedCamera._mirrorDebug.planePoint.slice(),
+          frontNormal: Array.isArray(reflectedCamera._mirrorDebug.mirrorFrontNormal)
+            ? reflectedCamera._mirrorDebug.mirrorFrontNormal.slice()
+            : (Array.isArray(reflectedCamera._mirrorDebug.planeNormal) ? reflectedCamera._mirrorDebug.planeNormal.slice() : [0.0, 1.0, 0.0])
+        };
+        reflectedCamera._mirrorRenderClip = mirrorRenderClip;
+      }
       if (surfaceCamera.lock_aperture_camera === true) {
         reflectedCamera = this._buildPlanarSurfaceApertureCamera(part, sceneMesh, reflectedCamera, t, targetAspect);
+        if (reflectedCamera && mirrorRenderClip) {
+          reflectedCamera._mirrorRenderClip = mirrorRenderClip;
+        }
       }
       if (reflectedCamera && typeof reflectedCamera === "object" && surfaceCamera.flip_x === true) {
         reflectedCamera.flip_x = true;
@@ -6911,6 +6924,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!this._parts || !this._parts.length) { return; }
       options = options && typeof options === "object" ? options : {};
       var skipOverlayExpanded = options.skipOverlayExpanded === true;
+      var reflectionClip = options.reflectionClip && typeof options.reflectionClip === "object" ? options.reflectionClip : null;
+      var reflectionClipPoint = reflectionClip && Array.isArray(reflectionClip.planePoint)
+        ? vec3Or(reflectionClip.planePoint, [0.0, 0.0, 0.0])
+        : null;
+      var reflectionClipNormal = reflectionClip && Array.isArray(reflectionClip.frontNormal)
+        ? normalizeVec3(reflectionClip.frontNormal, [0.0, 1.0, 0.0])
+        : null;
+      var reflectionClipEpsilon = reflectionClipPoint && reflectionClipNormal
+        ? Math.max(1e-5, Number(reflectionClip.epsilon || 0.0) || 1e-5)
+        : 0.0;
       var MmBatch = getMath();
       var aspect = width / Math.max(1, height);
       var pass = enc.beginRenderPass({
@@ -6936,6 +6959,38 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         }
         return !!mesh.transparent;
       }
+      function partWorldCenter(part) {
+        var mesh = part && part.mesh;
+        if (!mesh) { return null; }
+        var model = resolveAnimatedModelMatrix(
+          mesh,
+          t,
+          mesh.center || [0, 0, 0],
+          mesh.rotation || [0, 0, 0],
+          mesh.scale || [1, 1, 1],
+          MmBatch
+        ) || (mesh._modelMatrix || MmBatch.mat4Identity());
+        if (mesh.vertices && mesh.vertices.length >= 10) {
+          var minX = Infinity, minY = Infinity, minZ = Infinity;
+          var maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+          for (var vi = 0; vi + 2 < mesh.vertices.length; vi += 10) {
+            var wp = transformPointMat4(model, [mesh.vertices[vi], mesh.vertices[vi + 1], mesh.vertices[vi + 2]]);
+            minX = Math.min(minX, wp[0]); minY = Math.min(minY, wp[1]); minZ = Math.min(minZ, wp[2]);
+            maxX = Math.max(maxX, wp[0]); maxY = Math.max(maxY, wp[1]); maxZ = Math.max(maxZ, wp[2]);
+          }
+          if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+            return [(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5];
+          }
+        }
+        return transformPointMat4(model, [0.0, 0.0, 0.0]);
+      }
+      function isRejectedByReflectionClip(part) {
+        if (!reflectionClipPoint || !reflectionClipNormal) { return false; }
+        var center = partWorldCenter(part);
+        if (!center) { return false; }
+        var side = dotVec3(subVec3(center, reflectionClipPoint), reflectionClipNormal);
+        return side < -reflectionClipEpsilon;
+      }
       for (var stage = 0; stage < 2; stage += 1) {
         var lateStage = stage === 1;
         for (var partIndex = 0; partIndex < this._parts.length; partIndex++) {
@@ -6946,6 +7001,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           if (omitObjectId && Number(part.objectId || 0) === Number(omitObjectId || 0)) { continue; }
           if (skipSurfaceParts && partMesh.surface_system) { continue; }
           if (skipOverlayExpanded && partMesh.overlay_expanded === true) { continue; }
+          if (isRejectedByReflectionClip(part)) { continue; }
           if (isLateTransparent(part) !== lateStage) { continue; }
           this._drawSingleScenePart(pass, sceneMesh, part, t, aspect, overrideCamera || null, MmBatch, width, height);
         }
@@ -7213,7 +7269,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           renderCamera,
           part.objectId,
           true,
-          {}
+          { reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }
         );
         this._ensurePartBindGroup(part);
       }
