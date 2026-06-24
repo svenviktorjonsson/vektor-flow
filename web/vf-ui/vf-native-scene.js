@@ -7993,7 +7993,36 @@
       }
       scheduleNextFrameIfNeeded(animationActive);
     }
-    function renderFrameDependentsBeforePresent() {
+    function presentVisibleCameraFrame(renderCamera, options) {
+      options = options && typeof options === "object" ? options : {};
+      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
+        failFast(String(options.label || "camera-only") + ' frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
+      }
+      scenePerf.cameraOnlyUpdates += 1;
+    }
+
+    function presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature) {
+      pushVisibleRender(rendered, { defer_update: true });
+      visibleLastDirtyVersion = dirtyVersion;
+      visibleLastMeshStructureSignature = meshStructureSignature;
+      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
+    }
+
+    function presentOffscreenSourceFrame(rendered, dirtyVersion, meshStructureSignature) {
+      offscreenSpec = rendered.payload && rendered.payload.geom
+        ? rendered.payload.geom[watchedFrameId] || null
+        : null;
+      if (!offscreenMounted) {
+        global.VfDisplay.mountOffscreenGeomFrame(watchedFrameId, function () {
+          return offscreenSpec;
+        }, offscreenPixels.width, offscreenPixels.height);
+        offscreenMounted = true;
+      }
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
+      offscreenLastDirtyVersion = dirtyVersion;
+      offscreenLastMeshStructureSignature = meshStructureSignature;
       triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
     }
     function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera) {
@@ -8437,20 +8466,12 @@
         var heldCameraKeyActive = cameraKeysActive();
         var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
         if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {
-          renderFrameDependentsBeforePresent();
-          if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
-            failFast('held camera frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
-          }
-          scenePerf.cameraOnlyUpdates += 1;
+          presentVisibleCameraFrame(renderCamera, { label: "held camera" });
           finishRenderFrame(worldAnimationActive, false);
           return;
         }
         if (canUseVisibleCameraOnly) {
-          renderFrameDependentsBeforePresent();
-          if (!updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })) {
-            failFast('camera-only frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
-          }
-          scenePerf.cameraOnlyUpdates += 1;
+          presentVisibleCameraFrame(renderCamera, { label: "camera-only" });
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
               "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
@@ -8479,25 +8500,9 @@
         var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });
         startupDebugMark(watchedFrameId, "afterRenderPayload");
         if (useVisibleFrame) {
-          pushVisibleRender(rendered, { defer_update: true });
-          visibleLastDirtyVersion = dirtyVersion;
-          visibleLastMeshStructureSignature = meshStructureSignature;
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: !!chessInteractionConfig() });
+          presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);
         } else {
-          offscreenSpec = rendered.payload && rendered.payload.geom
-            ? rendered.payload.geom[watchedFrameId] || null
-            : null;
-          if (!offscreenMounted) {
-            global.VfDisplay.mountOffscreenGeomFrame(watchedFrameId, function () {
-              return offscreenSpec;
-            }, offscreenPixels.width, offscreenPixels.height);
-            offscreenMounted = true;
-          }
-          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
-          offscreenLastDirtyVersion = dirtyVersion;
-          offscreenLastMeshStructureSignature = meshStructureSignature;
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+          presentOffscreenSourceFrame(rendered, dirtyVersion, meshStructureSignature);
         }
         chessLagDebug(
           "render_full count=" + Number(controlState.debugRenderFrameCount || 0) +

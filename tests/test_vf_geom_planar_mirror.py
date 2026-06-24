@@ -2735,12 +2735,18 @@ def test_hidden_optical_reference_meshes_travel_outside_drawn_scene_parts() -> N
 def test_mirror_source_updates_are_immediate_before_dependents_present() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     render_loop = source[source.index("function renderFrame"):source.index("function wireChessRuntimeRenderCallbacks")]
-    offscreen_branch = render_loop[render_loop.index("if (!offscreenMounted)"):render_loop.index("offscreenLastDirtyVersion = dirtyVersion;")]
+    presenter = source[source.index("function presentVisibleCameraFrame"):source.index("function publishLiveCamera")]
+    offscreen_presenter = presenter[presenter.index("function presentOffscreenSourceFrame"):presenter.index("function publishLiveCamera") if "function publishLiveCamera" in presenter else len(presenter)]
 
-    update_index = offscreen_branch.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });')
-    dependent_index = render_loop.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });', render_loop.index("offscreenLastDirtyVersion = dirtyVersion;"))
+    update_index = offscreen_presenter.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });')
     assert update_index >= 0
-    assert render_loop.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });', render_loop.index("if (!offscreenMounted)")) < dependent_index
+    assert offscreen_presenter.index('global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });') < offscreen_presenter.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });')
+    assert "function presentVisibleCameraFrame" in presenter
+    assert "function presentVisibleFullFrame" in presenter
+    assert "presentVisibleCameraFrame(renderCamera" in render_loop
+    assert "presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);" in render_loop
+    assert "updateVisibleCameraOnly(renderCamera, { immediate: true })" in presenter
+    assert "global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });" in presenter
 
 
 def test_visible_scene_startup_does_not_wait_for_idle_before_first_render() -> None:
