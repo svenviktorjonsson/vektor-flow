@@ -1447,6 +1447,13 @@
     };
   }
 
+  function normalizeSceneLights(seconds) {
+    var lightSpecs = Array.isArray(config.lights)
+      ? config.lights
+      : (config.light ? [config.light] : []);
+    return lightSpecs.map(function (entry) { return normalizeLight(entry, seconds); });
+  }
+
   function toVec2(value, fallback) {
     if (!Array.isArray(value) || value.length !== 2) { return fallback.slice(); }
     return [Number(value[0]), Number(value[1])];
@@ -3730,7 +3737,7 @@
       meshById[meshSpecs[meshIndex].id] = meshSpecs[meshIndex];
     }
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeLights");
-    var lights = lightSpecs.map(function (entry) { return normalizeLight(entry, seconds); });
+    var lights = normalizeSceneLights(seconds);
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterNormalizeLights");
     for (var mirrorIndex = 0; mirrorIndex < meshSpecs.length; mirrorIndex += 1) {
       var mirrorMesh = meshSpecs[mirrorIndex];
@@ -3995,6 +4002,28 @@
     }
     nativeWorldAnimationPresence = false;
     return false;
+  }
+
+  function sceneHasNativeGeometryOrCameraAnimations() {
+    if (entityHasAnimatedTracks(config.camera || null)) { return true; }
+    var rawMeshSpecs = authoredSceneMeshSpecs();
+    for (var meshIndex = 0; meshIndex < rawMeshSpecs.length; meshIndex += 1) {
+      if (entityHasAnimatedTracks(rawMeshSpecs[meshIndex])) { return true; }
+    }
+    var surfaceCameraIds = Object.keys(surfaceCameras);
+    for (var cameraIndex = 0; cameraIndex < surfaceCameraIds.length; cameraIndex += 1) {
+      if (entityHasAnimatedTracks(surfaceCameras[surfaceCameraIds[cameraIndex]])) { return true; }
+    }
+    return false;
+  }
+
+  function canUseCameraLightFastPath(useVisibleFrameValue, visibleSpecValue, worldAnimationActive, dirtyVersion, visibleLastDirtyVersionValue, meshStructureSignature, visibleLastMeshStructureSignatureValue) {
+    if (!useVisibleFrameValue || !visibleSpecValue) { return false; }
+    if (meshStructureSignature !== visibleLastMeshStructureSignatureValue) { return false; }
+    if (chessInteractionConfig() && worldAnimationActive) { return false; }
+    if (sceneHasNativeGeometryOrCameraAnimations()) { return false; }
+    if (dirtyVersion === visibleLastDirtyVersionValue) { return true; }
+    return sceneHasNativeWorldAnimations();
   }
 
   function currentNativeSceneAnimationDirtyVersion(seconds) {
@@ -7725,7 +7754,7 @@
     controlState.debugRenderFrameSkippedCount = 0;
     var useVisibleFrame = sceneFrameVisible();
     var dependencySourceFrameId = String(cameraBehaviorProps().reflect_of_frame_id || "").trim();
-    var cameraOnlyFastPathEnabled = !!chessInteractionConfig();
+    var cameraOnlyFastPathEnabled = true;
     var offscreenSpec = null;
     var offscreenMounted = false;
     var visibleSpec = null;
@@ -8001,9 +8030,18 @@
     }
     function presentVisibleCameraFrame(renderCamera, options) {
       options = options && typeof options === "object" ? options : {};
+      if (Array.isArray(options.lights)) {
+        visibleSpec.lights = options.lights;
+      }
       triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
       if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
         failFast(String(options.label || "camera-only") + ' frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
+      }
+      if (typeof options.dirtyVersion === "number") {
+        visibleLastDirtyVersion = options.dirtyVersion;
+      }
+      if (typeof options.meshStructureSignature === "string") {
+        visibleLastMeshStructureSignature = options.meshStructureSignature;
       }
       scenePerf.cameraOnlyUpdates += 1;
     }
@@ -8474,14 +8512,44 @@
         var dirtyVersion = currentSceneWorldDirtyVersion(seconds);
         var meshStructureSignature = sceneWorldMeshStructureSignature();
         var heldCameraKeyActive = cameraKeysActive();
-        var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
-        if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {
-          presentVisibleCameraFrame(renderCamera, { label: "held camera" });
+        var liveFastPathLights = null;
+        var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && canUseCameraLightFastPath(
+          useVisibleFrame,
+          visibleSpec,
+          worldAnimationActive,
+          dirtyVersion,
+          visibleLastDirtyVersion,
+          meshStructureSignature,
+          visibleLastMeshStructureSignature
+        );
+        if (canUseVisibleCameraOnly && sceneHasNativeWorldAnimations()) {
+          liveFastPathLights = normalizeSceneLights(seconds);
+        }
+        if (heldCameraKeyActive && useVisibleFrame && visibleSpec && canUseCameraLightFastPath(
+          useVisibleFrame,
+          visibleSpec,
+          worldAnimationActive,
+          dirtyVersion,
+          visibleLastDirtyVersion,
+          meshStructureSignature,
+          visibleLastMeshStructureSignature
+        )) {
+          presentVisibleCameraFrame(renderCamera, {
+            label: "held camera",
+            lights: liveFastPathLights || (sceneHasNativeWorldAnimations() ? normalizeSceneLights(seconds) : null),
+            dirtyVersion: dirtyVersion,
+            meshStructureSignature: meshStructureSignature
+          });
           finishRenderFrame(worldAnimationActive, false);
           return;
         }
         if (canUseVisibleCameraOnly) {
-          presentVisibleCameraFrame(renderCamera, { label: "camera-only" });
+          presentVisibleCameraFrame(renderCamera, {
+            label: "camera-only",
+            lights: liveFastPathLights,
+            dirtyVersion: dirtyVersion,
+            meshStructureSignature: meshStructureSignature
+          });
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
               "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +

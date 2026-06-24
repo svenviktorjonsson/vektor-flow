@@ -3013,3 +3013,16 @@ def test_live_renderer_does_not_drop_frames_for_gpu_pending() -> None:
     assert "queueRendererForGpuDrain(this" not in render_fn
     assert "if (isGpuWorkPending(this)" not in render_fn
 
+
+def test_native_scene_zoom_fast_path_updates_live_lights() -> None:
+    runtime = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    render_loop = runtime[runtime.index("function renderFrame"):runtime.index("function wireChessRuntimeRenderCallbacks")]
+
+    assert "function normalizeSceneLights(seconds)" in runtime
+    assert "function canUseCameraLightFastPath(" in runtime
+    assert "if (sceneHasNativeGeometryOrCameraAnimations()) { return false; }" in runtime
+    assert "var cameraOnlyFastPathEnabled = true;" in runtime
+    assert "liveFastPathLights = normalizeSceneLights(seconds);" in render_loop
+    assert "lights: liveFastPathLights" in render_loop
+    assert "visibleSpec.lights = options.lights;" in runtime
+
