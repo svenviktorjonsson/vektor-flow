@@ -1225,7 +1225,8 @@ def test_screen_surface_shadow_casting_is_gated_by_light_side() -> None:
     assert "meshLike.no_backface_specular === true && meshLike.receives_shadow === false" in shader
     assert "return lightSide * targetSide < 0.0;" in shader
     caster_fn = shader[shader.index("function shadowCasterParts"):shader.index("function planarContactParts")]
-    assert "if (isPlanarScreenShadowSurface(mesh))" not in caster_fn
+    assert "var allowScreenCasters = includeScreens !== false;" in caster_fn
+    assert "if (!allowScreenCasters && isPlanarScreenShadowSurface(mesh)) { continue; }" in caster_fn
     assert "function shadowCasterPartsForLight(casterParts, light, t)" in shader
     assert "canPlanarSurfaceCastShadowForLight(casterMesh, light, t)" in shader
     assert "drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || [])" in shader

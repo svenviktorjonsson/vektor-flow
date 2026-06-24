@@ -5243,6 +5243,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
   function shadowCasterParts(parts, includeScreens) {
     if (!Array.isArray(parts)) { return []; }
+    var allowScreenCasters = includeScreens !== false;
     var out = [];
     for (var i = 0; i < parts.length; i += 1) {
       var part = parts[i];
@@ -5250,6 +5251,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!mesh || part.topology !== "triangle-list") { continue; }
       if (mesh.visible === false) { continue; }
       if (mesh.casts_shadow === false) { continue; }
+      if (!allowScreenCasters && isPlanarScreenShadowSurface(mesh)) { continue; }
       if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
       if (String(mesh.blend_mode || "") === "additive") { continue; }
       out.push(part);
