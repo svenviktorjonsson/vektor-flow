@@ -828,6 +828,13 @@ def test_native_scene_waits_for_packet_owned_visible_frame() -> None:
     assert 'failFast("timed out waiting for packet-owned scene frame");' in runtime
 
 
+def test_native_scene_game_camera_mouse_right_turns_right_and_locks_page_root() -> None:
+    runtime = (ROOT / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
+    assert "activeState.gameYaw -= dx * sensitivity;" in runtime
+    assert "global.document.documentElement" in runtime
+    assert "var lockTarget = body || frame;" not in runtime
+
+
 def test_imported_typed_vkf_module_functions_remain_callable_from_interpreter() -> None:
     source = ROOT / "examples" / "programs" / "vkf_chess_3d" / "inline_import_smoke.vkf"
     program = (

@@ -8297,7 +8297,9 @@
       if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
       markActiveFrame();
       setGameCursorActive(true);
-      var lockTarget = body || frame;
+      var lockTarget = global.document && global.document.documentElement
+        ? global.document.documentElement
+        : (global.document && global.document.body ? global.document.body : (body || frame));
       if (lockTarget && typeof lockTarget.requestPointerLock === "function") {
         try { lockTarget.requestPointerLock(); } catch (_) {}
       }
@@ -8510,7 +8512,7 @@
         var dx = Number(ev && ev.movementX || 0.0) || 0.0;
         var dy = Number(ev && ev.movementY || 0.0) || 0.0;
         if (dx === 0.0 && dy === 0.0) { return; }
-        activeState.gameYaw += dx * sensitivity;
+        activeState.gameYaw -= dx * sensitivity;
         activeState.gamePitch = Math.max(-1.45, Math.min(1.45, Number(activeState.gamePitch || 0.0) - (dy * sensitivity)));
         activeState.userInteracted = true;
         if (typeof activeState.requestCameraFrame === "function") {

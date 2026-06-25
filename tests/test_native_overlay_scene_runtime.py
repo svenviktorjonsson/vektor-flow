@@ -132,7 +132,8 @@ def test_launch_native_overlay_scene_program_stages_and_launches(tmp_path: Path)
     assert (overlay_session_dir / "vkf-scene.html").read_text(encoding="utf-8") == "<html>scene</html>"
     assert (repo_web_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == '{"packets":[]}\n'
     assert (overlay_web_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == '{"packets":[]}\n'
-    assert (repo_web_dir / "vf-display.json").read_text(encoding="utf-8") == '{\n  "screen": [],\n  "frames": {},\n  "geom": {}\n}\n'
+    assert not (repo_web_dir / "vf-display.json").exists()
+    assert not (overlay_web_dir / "vf-display.json").exists()
     assert ("sync", root) in calls
     assert ("terminate", 777) in calls
     assert ("reset_overlay_port", None) in calls

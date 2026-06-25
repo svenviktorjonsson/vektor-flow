@@ -65,7 +65,7 @@ def _externalize_native_scene_configs(session_html: str) -> tuple[str, str | Non
 def _seed_runtime_dir(runtime_dir: Path, packets_text: str) -> None:
     runtime_dir.mkdir(parents=True, exist_ok=True)
     write_text_if_changed(runtime_dir / "vf-runtime-packets.json", packets_text)
-    write_text_if_changed(runtime_dir / "vf-display.json", '{\n  "screen": [],\n  "frames": {},\n  "geom": {}\n}\n')
+    (runtime_dir / "vf-display.json").unlink(missing_ok=True)
     write_text_if_changed(runtime_dir / "vkf-scene.json", "[]\n")
     write_text_if_changed(runtime_dir / "vf-ui-state.json", "{}\n")
 
