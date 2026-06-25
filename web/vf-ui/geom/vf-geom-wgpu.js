@@ -2530,8 +2530,8 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let frameTint = mix(sc.texture_color_a.rgb, sc.texture_color_b.rgb, smoothstep(0.70, 0.92, maxUv) * 0.55);
   let surfaceAlpha = clamp(baseAlpha, 0.0, 1.0);
   let packedScreenFlags = max(sc.texture_params.w, 0.0);
-  let baseTextureKind = floor(packedScreenFlags / 16.0);
-  let screenFlags = i32(packedScreenFlags - (baseTextureKind * 16.0) + 0.5);
+  let baseTextureKind = floor(packedScreenFlags / 32.0);
+  let screenFlags = i32(packedScreenFlags - (baseTextureKind * 32.0) + 0.5);
   var baseTextureMask = checkerMask;
   if (baseTextureKind > 1.5 && baseTextureKind < 2.5) {
     baseTextureMask = stripesValue(surfaceUv * max(textureScale, vec2<f32>(1.0, 1.0)));
@@ -2702,7 +2702,11 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
 @fragment
 fn fs(i: Vout) -> @location(0) vec4f {
   if (sc.texture_params.x > 3.5) {
-    let frontMask = screenSurfaceFrontMask(i.normal);
+    let packedScreenFlags = max(sc.texture_params.w, 0.0);
+    let baseTextureKind = floor(packedScreenFlags / 32.0);
+    let screenFlags = i32(packedScreenFlags - (baseTextureKind * 32.0) + 0.5);
+    let twoSidedSurface = (screenFlags & 16) != 0;
+    let frontMask = select(screenSurfaceFrontMask(i.normal), 1.0, twoSidedSurface);
     if (frontMask < 0.5) {
       return shadeAmbientBase(i.color.rgb, i.color.a);
     }
@@ -3640,7 +3644,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         if (surfaceSystem.flip_x === true) { screenFlags += 2.0; }
         if (surfaceSystem.flip_y === true || surfaceSystem._renderFlipV === true) { screenFlags += 4.0; }
         if (surfaceSystem._projective_texture === true) { screenFlags += 8.0; }
-        screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 16.0;
+        if (surfaceSystem._window_surface === true) { screenFlags += 16.0; }
+        screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 32.0;
         f32[343] = screenFlags;
       }
     var squareHighlights = surfaceSystem && Array.isArray(surfaceSystem.square_highlights)

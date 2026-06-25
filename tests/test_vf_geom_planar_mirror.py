@@ -100,6 +100,8 @@ def test_screen_surface_face_gate_uses_geometric_front_face() -> None:
 def test_screen_surface_backface_gets_ambient_only() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fn shadeAmbientBase(base: vec3<f32>, alpha: f32) -> vec4f" in shader
+    assert "let twoSidedSurface = (screenFlags & 16) != 0;" in shader
+    assert "let frontMask = select(screenSurfaceFrontMask(i.normal), 1.0, twoSidedSurface);" in shader
     assert "if (frontMask < 0.5)" in shader
     assert "return shadeAmbientBase(i.color.rgb, i.color.a);" in shader
     assert "let suppressBackfaceLighting = backfaceSpecularOff && facing < 0.0;" in shader
@@ -724,8 +726,9 @@ def test_planar_mirror_geometry_is_single_runtime_seam() -> None:
 def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fixedSurfaceTextureKind = texture ? proceduralTextureKindCode(texture) : 0.0" in shader
-    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 16.0" in shader
-    assert "let baseTextureKind = floor(packedScreenFlags / 16.0)" in shader
+    assert "if (surfaceSystem._window_surface === true) { screenFlags += 16.0; }" in shader
+    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 32.0" in shader
+    assert "let baseTextureKind = floor(packedScreenFlags / 32.0)" in shader
     assert "clamp(surfaceUv.x, 0.0, 1.0)" in shader
     assert "clamp(surfaceUv.y, 0.0, 1.0)" in shader
     assert "let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture)" in shader
