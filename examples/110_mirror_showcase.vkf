@@ -63,7 +63,7 @@ native_scene: (
             center: [0.74, 2.18, 1.20],
             size: [3.10, 2.40],
             rotation: [90.0, 0.0, 0.0],
-            color: [0.68, 0.74, 0.84, 0.5],
+            color: [1.0, 0.42, 0.36, 0.5],
             casts_shadow: true,
             receives_shadow: true,
             no_backface_specular: true,

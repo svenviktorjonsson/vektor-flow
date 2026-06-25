@@ -771,7 +771,7 @@ def test_native_scene_quad_alpha_drives_transparent_surface_pipeline() -> None:
 def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
     source = (REPO / "examples" / "110_mirror_showcase.vkf").read_text(encoding="utf-8")
     surface = source[source.index('id: "showcase_mirror"'):source.index("cubes: [")]
-    assert "color: [0.68, 0.74, 0.84, 0.5]" in surface
+    assert "color: [1.0, 0.42, 0.36, 0.5]" in surface
     assert "no_cull: true" in surface
     assert 'kind: "window"' in surface
     assert "reverse_facing" not in surface
