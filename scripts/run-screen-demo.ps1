@@ -131,8 +131,21 @@ function Test-VfOverlayNativeBuildNeeded {
   if (-not $OverlayExe -or -not (Test-Path $OverlayExe)) {
     return $true
   }
+  $requiredExecutables = @(
+    (Join-Path $repo 'native\VfOverlay\build\Release\vkf.exe'),
+    (Join-Path $repo 'native\VfOverlay\build\Release\vkf-runner.exe')
+  )
+  foreach ($requiredExecutable in $requiredExecutables) {
+    if (-not (Test-Path $requiredExecutable)) {
+      return $true
+    }
+  }
   $overlay = Join-Path $repo 'native\VfOverlay'
-  $exeTime = (Get-Item $OverlayExe).LastWriteTimeUtc
+  $exeTime = @(
+    (Get-Item $OverlayExe).LastWriteTimeUtc,
+    (Get-Item $requiredExecutables[0]).LastWriteTimeUtc,
+    (Get-Item $requiredExecutables[1]).LastWriteTimeUtc
+  ) | Sort-Object | Select-Object -First 1
   $nativeSources = Get-ChildItem -LiteralPath $overlay -Recurse -File | Where-Object {
     $_.FullName -notlike '*\build\*' -and (
       $_.Extension -in @('.cpp', '.hpp', '.h', '.rc', '.ico') -or
