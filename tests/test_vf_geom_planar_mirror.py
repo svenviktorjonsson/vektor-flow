@@ -744,6 +744,20 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
     assert "let tintedComposite = mix(mirrorComposite, base, windowTintStrength)" in shader
 
 
+def test_grass_texture_kind_uses_procedural_grass_shader() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert 'if (rawKind === "grass") { return 3.25; }' in shader
+    assert "fn grassValue(p: vec2<f32>) -> f32" in shader
+    assert "if (kindCode > 3.1 && kindCode < 3.4)" in shader
+
+
+def test_unlit_material_flag_uses_receive_shadow_flags_without_changing_uniform_layout() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "var unlitMaterial = meshLike && meshLike.receives_lighting === false;" in shader
+    assert "u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);" in shader
+    assert "if ((sc.receive_shadow & 2u) != 0u)" in shader
+
+
 def test_window_reflection_pass_clips_objects_on_wrong_side_of_pane() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     native_scene = NATIVE_SCENE_JS.read_text(encoding="utf-8")

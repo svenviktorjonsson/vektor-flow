@@ -1483,6 +1483,76 @@ native_scene: (
     assert '"look_only_controls":true' in compact
 
 
+def test_scene_3d_camera_controls_mode_game_is_preserved(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_controls_game.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "game_controls_frame",
+    title: "Game Controls",
+    rect: [0.1, 0.1, 0.5, 0.5],
+    camera: (
+        pos: [0.0, -4.0, 1.8],
+        target: [0.0, 0.0, 1.8],
+        fov: 60.0,
+        up: [0.0, 0.0, 1.0],
+        controls_mode: "game",
+        speed: 3.2,
+        sensitivity: 0.0022
+    ),
+    cubes: [
+        (
+            id: "grass_cube",
+            center: [0.0, 0.0, -2.0],
+            size: 4.0,
+            face_color: [1.0, 1.0, 1.0, 1.0],
+            texture: (
+                kind: "grass",
+                scale: [4.4, 4.4],
+                color_a: [0.05, 0.18, 0.035, 1.0],
+                color_b: [0.64, 0.88, 0.26, 1.0]
+            )
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 0.01,
+        z: -20.0,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"controls_mode":"game"' in compact
+    assert '"speed":3.2' in compact
+    assert '"sensitivity":0.0022' in compact
+    assert '"kind":"grass"' in compact
+
+
+def test_grass_texture_cube_example_compiles() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    program = try_build_native_overlay_scene_program(repo / "examples" / "114_grass_texture_cube.vkf")
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"frame_id":"grass_texture_cube_frame"' in compact
+    assert '"controls_mode":"game"' in compact
+    assert '"kind":"grass"' in compact
+    assert '"receives_lighting":false' in compact
+
+
 def test_scene_3d_camera_fit_to_mesh_id_lowers_to_aperture_mirror_mesh_id(tmp_path: Path) -> None:
     path = tmp_path / "ui_scene_3d_camera_fit_to_mesh.vkf"
     path.write_text(

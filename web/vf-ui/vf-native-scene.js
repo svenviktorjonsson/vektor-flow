@@ -7813,6 +7813,16 @@
           keyRight: false,
           keyUp: false,
           keyDown: false,
+          keyW: false,
+          keyA: false,
+          keyS: false,
+          keyD: false,
+          gameActive: false,
+          gamePos: null,
+          gameYaw: 0.0,
+          gamePitch: 0.0,
+          gameInitDone: false,
+          gameSensitivity: Number(cameraBehaviorProps().sensitivity || 0.0022) || 0.0022,
           cameraKeyLastTsMs: 0.0,
           cameraKeyStepPending: false,
           dependencyWaitStartMs: 0.0
@@ -7837,6 +7847,16 @@
     controlState.keyRight = false;
     controlState.keyUp = false;
     controlState.keyDown = false;
+    controlState.keyW = false;
+    controlState.keyA = false;
+    controlState.keyS = false;
+    controlState.keyD = false;
+    controlState.gameActive = false;
+    controlState.gamePos = null;
+    controlState.gameYaw = 0.0;
+    controlState.gamePitch = 0.0;
+    controlState.gameInitDone = false;
+    controlState.gameSensitivity = Number(cameraBehaviorProps().sensitivity || 0.0022) || 0.0022;
     controlState.cameraKeyLastTsMs = 0.0;
     controlState.cameraKeyStepPending = false;
     controlState.cameraFramePending = false;
@@ -7975,7 +7995,11 @@
       return controlState.keyLeft === true ||
         controlState.keyRight === true ||
         controlState.keyUp === true ||
-        controlState.keyDown === true;
+        controlState.keyDown === true ||
+        controlState.keyW === true ||
+        controlState.keyA === true ||
+        controlState.keyS === true ||
+        controlState.keyD === true;
     }
     if (useVisibleFrame && chessInteractionConfig() && global.addEventListener) {
       global.addEventListener("vf-frame-live-resize", function (ev) {
@@ -8256,6 +8280,82 @@
     function markActiveFrame() {
       controlRegistry.activeFrameId = watchedFrameId;
     }
+    function gameCameraMode() {
+      return String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game";
+    }
+    function setGameCursorActive(active) {
+      var enabled = active === true;
+      controlState.gameActive = enabled;
+      var cursor = enabled ? "none" : "";
+      if (frame && frame.style) { frame.style.cursor = cursor; }
+      if (body && body.style) { body.style.cursor = cursor; }
+      if (global.document && global.document.body && global.document.body.style) {
+        global.document.body.style.cursor = cursor;
+      }
+    }
+    function activateGameCamera() {
+      if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+      markActiveFrame();
+      setGameCursorActive(true);
+      var lockTarget = body || frame;
+      if (lockTarget && typeof lockTarget.requestPointerLock === "function") {
+        try { lockTarget.requestPointerLock(); } catch (_) {}
+      }
+    }
+    function deactivateGameCamera() {
+      setGameCursorActive(false);
+      controlState.keyW = false;
+      controlState.keyA = false;
+      controlState.keyS = false;
+      controlState.keyD = false;
+      if (global.document && typeof global.document.exitPointerLock === "function") {
+        try { global.document.exitPointerLock(); } catch (_) {}
+      }
+    }
+    function initGameCameraFromBase(baseCamera) {
+      if (controlState.gameInitDone === true) { return; }
+      var pos = toVec3(baseCamera && baseCamera.pos, [0.0, -6.0, 1.8]);
+      var target = toVec3(baseCamera && baseCamera.target, [0.0, 0.0, 1.8]);
+      var forward = normalize3([target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]], [0.0, 1.0, 0.0]);
+      controlState.gamePos = pos.slice();
+      controlState.gameYaw = Math.atan2(forward[1], forward[0]);
+      controlState.gamePitch = Math.max(-1.45, Math.min(1.45, Math.asin(Math.max(-1.0, Math.min(1.0, forward[2])))));
+      controlState.gameInitDone = true;
+    }
+    function applyGameCamera(baseCamera, dtSec) {
+      initGameCameraFromBase(baseCamera);
+      var speed = Math.max(0.05, Number(cameraBehaviorProps().speed || 3.0) || 3.0);
+      var yaw = Number(controlState.gameYaw || 0.0);
+      var pitch = Number(controlState.gamePitch || 0.0);
+      var forwardFlat = normalize3([Math.cos(yaw), Math.sin(yaw), 0.0], [0.0, 1.0, 0.0]);
+      var rightFlat = normalize3([Math.cos(yaw - Math.PI * 0.5), Math.sin(yaw - Math.PI * 0.5), 0.0], [1.0, 0.0, 0.0]);
+      var move = [0.0, 0.0, 0.0];
+      if (controlState.keyW) { move = [move[0] + forwardFlat[0], move[1] + forwardFlat[1], move[2]]; }
+      if (controlState.keyS) { move = [move[0] - forwardFlat[0], move[1] - forwardFlat[1], move[2]]; }
+      if (controlState.keyA) { move = [move[0] - rightFlat[0], move[1] - rightFlat[1], move[2]]; }
+      if (controlState.keyD) { move = [move[0] + rightFlat[0], move[1] + rightFlat[1], move[2]]; }
+      if (move[0] !== 0.0 || move[1] !== 0.0 || move[2] !== 0.0) {
+        move = normalize3(move, [0.0, 0.0, 0.0]);
+        var step = speed * Math.max(0.0, Math.min(0.05, Number(dtSec || 0.0)));
+        controlState.gamePos = [
+          Number(controlState.gamePos[0] || 0.0) + (move[0] * step),
+          Number(controlState.gamePos[1] || 0.0) + (move[1] * step),
+          Number(controlState.gamePos[2] || 0.0) + (move[2] * step)
+        ];
+        controlState.userInteracted = true;
+      }
+      var cp = Math.cos(pitch);
+      var look = normalize3([Math.cos(yaw) * cp, Math.sin(yaw) * cp, Math.sin(pitch)], [0.0, 1.0, 0.0]);
+      var p = toVec3(controlState.gamePos, toVec3(baseCamera && baseCamera.pos, [0.0, -6.0, 1.8]));
+      return {
+        pos: p,
+        target: [p[0] + look[0], p[1] + look[1], p[2] + look[2]],
+        fov: Number(baseCamera && baseCamera.fov || 54.0) || 54.0,
+        up: [0.0, 0.0, 1.0],
+        min_distance: Number(baseCamera && baseCamera.min_distance || 0.0) || 0.0,
+        flip_x: baseCamera && baseCamera.flip_x === true
+      };
+    }
     function applyWheelZoom(state, ev) {
       if (!state) { return; }
       if (state.controlsEnabled === false) { return; }
@@ -8283,6 +8383,7 @@
       target.addEventListener("pointerenter", markActiveFrame, { passive: true });
       target.addEventListener("pointermove", markActiveFrame, { passive: true });
       target.addEventListener("pointerdown", markActiveFrame, { passive: true });
+      target.addEventListener("pointerdown", activateGameCamera, { passive: true });
     }
     function eventFrameId(ev) {
       var target = ev && ev.target;
@@ -8394,6 +8495,92 @@
           state.keyDown = false;
           state.cameraKeyLastTsMs = 0.0;
           state.cameraKeyStepPending = false;
+        }
+      }, true);
+    }
+    if (!global.__vfNativeSceneGameCameraAttached) {
+      global.__vfNativeSceneGameCameraAttached = true;
+      global.addEventListener("mousemove", function (ev) {
+        var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+        var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+          ? global.__vfNativeSceneCameraControls.states[activeFrameId]
+          : null;
+        if (!activeState || activeState.gameActive !== true) { return; }
+        var sensitivity = Math.max(0.0001, Number(activeState.gameSensitivity || 0.0022) || 0.0022);
+        var dx = Number(ev && ev.movementX || 0.0) || 0.0;
+        var dy = Number(ev && ev.movementY || 0.0) || 0.0;
+        if (dx === 0.0 && dy === 0.0) { return; }
+        activeState.gameYaw += dx * sensitivity;
+        activeState.gamePitch = Math.max(-1.45, Math.min(1.45, Number(activeState.gamePitch || 0.0) - (dy * sensitivity)));
+        activeState.userInteracted = true;
+        if (typeof activeState.requestCameraFrame === "function") {
+          activeState.requestCameraFrame();
+        }
+      }, true);
+      global.addEventListener("keydown", function (ev) {
+        var key = String(ev && ev.key || "").toLowerCase();
+        var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+        var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+          ? global.__vfNativeSceneCameraControls.states[activeFrameId]
+          : null;
+        if (!activeState) { return; }
+        if (key === "escape") {
+          activeState.gameActive = false;
+          activeState.keyW = false;
+          activeState.keyA = false;
+          activeState.keyS = false;
+          activeState.keyD = false;
+          var activeFrame = typeof findFrameEl === "function" ? findFrameEl(activeFrameId) : null;
+          var activeBody = activeFrame ? activeFrame.querySelector(".vf-frame__body") : null;
+          if (activeFrame && activeFrame.style) { activeFrame.style.cursor = ""; }
+          if (activeBody && activeBody.style) { activeBody.style.cursor = ""; }
+          if (global.document && global.document.body && global.document.body.style) {
+            global.document.body.style.cursor = "";
+          }
+          return;
+        }
+        if (activeState.gameActive !== true) { return; }
+        if (key !== "w" && key !== "a" && key !== "s" && key !== "d") { return; }
+        if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }
+        ev.preventDefault();
+        if (key === "w") { activeState.keyW = true; }
+        else if (key === "a") { activeState.keyA = true; }
+        else if (key === "s") { activeState.keyS = true; }
+        else if (key === "d") { activeState.keyD = true; }
+        activeState.userInteracted = true;
+        ensureCameraHoldLoop(activeState);
+        if (typeof activeState.requestCameraHoldFrame === "function") {
+          activeState.requestCameraHoldFrame();
+        }
+      }, true);
+      global.addEventListener("keyup", function (ev) {
+        var key = String(ev && ev.key || "").toLowerCase();
+        if (key !== "w" && key !== "a" && key !== "s" && key !== "d") { return; }
+        var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+        var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+          ? global.__vfNativeSceneCameraControls.states[activeFrameId]
+          : null;
+        if (!activeState) { return; }
+        if (key === "w") { activeState.keyW = false; }
+        else if (key === "a") { activeState.keyA = false; }
+        else if (key === "s") { activeState.keyS = false; }
+        else if (key === "d") { activeState.keyD = false; }
+        if (typeof activeState.requestCameraFrame === "function") {
+          activeState.requestCameraFrame();
+        }
+      }, true);
+      global.addEventListener("blur", function () {
+        var registry = global.__vfNativeSceneCameraControls;
+        if (!registry || !registry.states) { return; }
+        var frameIds = Object.keys(registry.states);
+        for (var i = 0; i < frameIds.length; i += 1) {
+          var state = registry.states[frameIds[i]];
+          if (!state) { continue; }
+          state.gameActive = false;
+          state.keyW = false;
+          state.keyA = false;
+          state.keyS = false;
+          state.keyD = false;
         }
       }, true);
     }
@@ -8549,7 +8736,9 @@
             ? cloneCameraState(controlState.baseCamera, cameraFallback)
             : authoredCamera;
           var userCamera;
-          if (controlState.lookOnlyControls === true) {
+          if (gameCameraMode()) {
+            userCamera = applyGameCamera(baseCamera, dtSec);
+          } else if (controlState.lookOnlyControls === true) {
             var zoomedBaseCamera = Math.abs(Number(controlState.zoomFactor || 1.0) - 1.0) > 1e-6
               ? zoomCamera(baseCamera, Number(controlState.zoomFactor || 1.0))
               : baseCamera;

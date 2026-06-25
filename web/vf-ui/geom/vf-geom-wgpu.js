@@ -2286,9 +2286,40 @@ fn surfaceWorldSceneColor(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f
   return mix(contentBg, sampleColor.rgb, sampleAlpha);
 }
 
+fn hash21(p: vec2<f32>) -> f32 {
+  let q = fract(vec2<f32>(
+    dot(p, vec2<f32>(127.1, 311.7)),
+    dot(p, vec2<f32>(269.5, 183.3))
+  ));
+  return fract(sin(q.x + q.y) * 43758.5453);
+}
+
+fn valueNoise2(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - (2.0 * f));
+  let a = hash21(i + vec2<f32>(0.0, 0.0));
+  let b = hash21(i + vec2<f32>(1.0, 0.0));
+  let c = hash21(i + vec2<f32>(0.0, 1.0));
+  let d = hash21(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn grassValue(p: vec2<f32>) -> f32 {
+  let broad = valueNoise2(p * 0.55);
+  let clump = valueNoise2(p * 2.4);
+  let fine = valueNoise2(p * 11.0);
+  let blade = smoothstep(0.40, 0.92, fract((p.x * 8.0) + (sin(p.y * 2.1) * 0.18)));
+  let bladeCut = smoothstep(0.60, 0.98, fine) * blade;
+  return clamp((0.36 * broad) + (0.44 * clump) + (0.20 * bladeCut), 0.0, 1.0);
+}
+
 fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
   if (kindCode < 1.5) {
     return checkerValue(p);
+  }
+  if (kindCode > 3.1 && kindCode < 3.4) {
+    return grassValue(p);
   }
   return stripesValue(p);
 }
@@ -2300,6 +2331,24 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
   }
   if (kindCode > 3.5) {
     return surfaceWorldSceneColor(base, localPos, worldPos, normal, surfaceProjPos, true);
+  }
+  if (kindCode > 3.1 && kindCode < 3.4) {
+    let scale = max(sc.texture_params.yz, vec2<f32>(1e-4, 1e-4));
+    let weightsRaw = pow(abs(normalize(normal)), vec3<f32>(6.0, 6.0, 6.0));
+    let weightSum = max(weightsRaw.x + weightsRaw.y + weightsRaw.z, 1e-6);
+    let weights = weightsRaw / weightSum;
+    let px = vec2<f32>(localPos.y * scale.x, localPos.z * scale.y);
+    let py = vec2<f32>(localPos.x * scale.x, localPos.z * scale.y);
+    let pz = vec2<f32>(localPos.x * scale.x, localPos.y * scale.y);
+    let grassMask =
+      (weights.x * grassValue(px)) +
+      (weights.y * grassValue(py)) +
+      (weights.z * grassValue(pz));
+    let tipTint = vec3<f32>(0.64, 0.88, 0.26);
+    let rootTint = vec3<f32>(0.05, 0.18, 0.035);
+    let rootNoise = valueNoise2((worldPos.xy * scale.x * 0.35) + vec2<f32>(1.7, -3.1));
+    let texGrass = mix(rootTint, tipTint, clamp(grassMask * 0.85 + rootNoise * 0.30, 0.0, 1.0));
+    return texGrass * base;
   }
   if (kindCode > 2.5) {
     let pipMask = diceValue(localPos);
@@ -2333,8 +2382,8 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
   var diffuse = vec3f(0.0, 0.0, 0.0);
   var specular = vec3f(0.0, 0.0, 0.0);
   if (!suppressBackfaceLighting && sc.light_count > 0u) {
-    let stableVis0 = select(1.0, shadowMapVisibility0(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis0 = select(1.0, planarContactVisibility0(worldPos, sc.light0_pos), sc.receive_shadow != 0u);
+    let stableVis0 = select(1.0, shadowMapVisibility0(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis0 = select(1.0, planarContactVisibility0(worldPos, sc.light0_pos), (sc.receive_shadow & 1u) != 0u);
     let vis0 = select(readableShadowVisibility(min(stableVis0, contactVis0)), 1.0, sc.light0_spot_params.w >= 1.5);
     let toLight0 = sc.light0_pos - worldPos;
     let dist0 = max(length(toLight0), 1e-6);
@@ -2357,8 +2406,8 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 1u) {
-    let stableVis1 = select(1.0, shadowMapVisibility1(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis1 = select(1.0, planarContactVisibility1(worldPos, sc.light1_pos), sc.receive_shadow != 0u);
+    let stableVis1 = select(1.0, shadowMapVisibility1(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis1 = select(1.0, planarContactVisibility1(worldPos, sc.light1_pos), (sc.receive_shadow & 1u) != 0u);
     let vis1 = select(readableShadowVisibility(min(stableVis1, contactVis1)), 1.0, sc.light1_spot_params.w >= 1.5);
     let toLight1 = sc.light1_pos - worldPos;
     let dist1 = max(length(toLight1), 1e-6);
@@ -2381,8 +2430,8 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 2u) {
-    let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), sc.receive_shadow != 0u);
+    let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), (sc.receive_shadow & 1u) != 0u);
     let vis2 = readableShadowVisibility(min(stableVis2, contactVis2));
     let toLight2 = sc.light2_pos.xyz - worldPos;
     let dist2 = max(length(toLight2), 1e-6);
@@ -2405,8 +2454,8 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 3u) {
-    let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), sc.receive_shadow != 0u);
+    let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), (sc.receive_shadow & 1u) != 0u);
     let vis3 = readableShadowVisibility(min(stableVis3, contactVis3));
     let toLight3 = sc.light3_pos.xyz - worldPos;
     let dist3 = max(length(toLight3), 1e-6);
@@ -2437,6 +2486,9 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
 }
 
 fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool) -> vec4f {
+  if ((sc.receive_shadow & 2u) != 0u) {
+    return vec4f(base, alpha * sc.alpha_mul);
+  }
   return shadeLitBaseScaled(base, alpha, worldPos, inputNormal, backfaceSpecularOff, 1.0);
 }
 
@@ -2447,7 +2499,7 @@ fn readableShadowVisibility(visibility: f32) -> f32 {
 }
 
 fn receivedShadowVisibility(worldPos: vec3<f32>, inputNormal: vec3<f32>) -> f32 {
-  if (sc.receive_shadow == 0u) {
+  if ((sc.receive_shadow & 1u) == 0u) {
     return 1.0;
   }
   var visibility = 1.0;
@@ -3514,7 +3566,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     if (meshLike && meshLike.transparent === true && meshLike.receives_shadow !== true) {
       receiveShadow = false;
     }
-    u32[71] = receiveShadow ? 1 : 0;
+    var unlitMaterial = meshLike && meshLike.receives_lighting === false;
+    u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);
     u32[72] = 0;
     f32[73] = 0.0;
     f32[74] = 0.0;
@@ -3575,6 +3628,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (rawKind === "stripes") { return 2.0; }
       if (rawKind === "dice") { return 3.0; }
       if (rawKind === "chess_board") { return 5.0; }
+      if (rawKind === "grass") { return 3.25; }
       return 0.0;
     }
     if (surfaceSystem) {

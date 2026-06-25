@@ -792,6 +792,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                     "object_id": "object_id",
                     "casts_shadow": "casts_shadow",
                     "receives_shadow": "receives_shadow",
+                    "receives_lighting": "receives_lighting",
                     "no_backface_specular": "no_backface_specular",
                     "reverse_facing": "reverse_facing",
                     "depth_write": "depth_write",
@@ -802,7 +803,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 quad_decl,
                 quad_props,
                 quad_embedding,
-                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "no_backface_specular", "reverse_facing", "depth_write"),
+                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "receives_lighting", "no_backface_specular", "reverse_facing", "depth_write"),
                 path=quad_path,
             )
             mesh_id = str(_embedded_named_property(quad_props, quad_embedding, "id", f"quad_{quad_index}"))
@@ -820,6 +821,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 "visible": _embedded_named_property(quad_props, quad_embedding, "visible", True),
                 "casts_shadow": _embedded_named_property(quad_props, quad_embedding, "casts_shadow", True),
                 "receives_shadow": _embedded_named_property(quad_props, quad_embedding, "receives_shadow", True),
+                "receives_lighting": _embedded_named_property(quad_props, quad_embedding, "receives_lighting", True),
                 "no_backface_specular": _embedded_named_property(quad_props, quad_embedding, "no_backface_specular", False),
                 "reverse_facing": _embedded_named_property(quad_props, quad_embedding, "reverse_facing", False),
                 "depth_write": _embedded_named_property(quad_props, quad_embedding, "depth_write", None),
@@ -1887,8 +1889,8 @@ def _optional_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
         result["look_only_controls"] = _require_bool_value(camera, "look_only_controls")
     if "controls_mode" in camera:
         controls_mode = _require_string_value(camera, "controls_mode")
-        if controls_mode not in {"look_only", "free"}:
-            raise ValueError("native_scene.camera.controls_mode must be look_only or free")
+        if controls_mode not in {"look_only", "free", "game"}:
+            raise ValueError("native_scene.camera.controls_mode must be look_only, free, or game")
         result["controls_mode"] = controls_mode
         if controls_mode == "look_only":
             result["look_only_controls"] = True
