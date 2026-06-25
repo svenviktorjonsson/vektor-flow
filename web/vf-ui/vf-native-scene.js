@@ -8287,8 +8287,19 @@
       var enabled = active === true;
       controlState.gameActive = enabled;
       var cursor = enabled ? "none" : "";
+      try {
+        if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+          global.chrome.webview.postMessage({
+            type: "transparent-overlay.cursor",
+            cursor: enabled ? "none" : "auto"
+          });
+        }
+      } catch (_) {}
       if (frame && frame.style) { frame.style.cursor = cursor; }
       if (body && body.style) { body.style.cursor = cursor; }
+      if (global.document && global.document.documentElement && global.document.documentElement.style) {
+        global.document.documentElement.style.cursor = cursor;
+      }
       if (global.document && global.document.body && global.document.body.style) {
         global.document.body.style.cursor = cursor;
       }
@@ -8297,9 +8308,12 @@
       if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
       markActiveFrame();
       setGameCursorActive(true);
-      var lockTarget = global.document && global.document.documentElement
-        ? global.document.documentElement
-        : (global.document && global.document.body ? global.document.body : (body || frame));
+      var overlayHostCursor = !!(global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function");
+      var lockTarget = overlayHostCursor
+        ? null
+        : (global.document && global.document.documentElement
+          ? global.document.documentElement
+          : (global.document && global.document.body ? global.document.body : (body || frame)));
       if (lockTarget && typeof lockTarget.requestPointerLock === "function") {
         try { lockTarget.requestPointerLock(); } catch (_) {}
       }
@@ -8532,10 +8546,18 @@
           activeState.keyA = false;
           activeState.keyS = false;
           activeState.keyD = false;
+          try {
+            if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+              global.chrome.webview.postMessage({ type: "transparent-overlay.cursor", cursor: "auto" });
+            }
+          } catch (_) {}
           var activeFrame = typeof findFrameEl === "function" ? findFrameEl(activeFrameId) : null;
           var activeBody = activeFrame ? activeFrame.querySelector(".vf-frame__body") : null;
           if (activeFrame && activeFrame.style) { activeFrame.style.cursor = ""; }
           if (activeBody && activeBody.style) { activeBody.style.cursor = ""; }
+          if (global.document && global.document.documentElement && global.document.documentElement.style) {
+            global.document.documentElement.style.cursor = "";
+          }
           if (global.document && global.document.body && global.document.body.style) {
             global.document.body.style.cursor = "";
           }
