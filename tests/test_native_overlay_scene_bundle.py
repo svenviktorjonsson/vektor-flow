@@ -1550,6 +1550,10 @@ def test_grass_texture_cube_example_compiles() -> None:
     assert '"frame_id":"grass_texture_cube_frame"' in compact
     assert '"controls_mode":"game"' in compact
     assert '"kind":"grass"' in compact
+    assert '"roughness":0.92' in compact
+    assert '"blade_length":1.35' in compact
+    assert '"clump_density":1.55' in compact
+    assert '"micro_shadow":0.78' in compact
     assert '"background":[0.36,0.68,1.0,1.0]' in compact
     assert '"blue_sky_panel"' not in compact
 

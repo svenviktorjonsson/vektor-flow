@@ -33,10 +33,15 @@ native_scene: (
             face_color: [1.0, 1.0, 1.0, 1.0],
             texture: (
                 kind: "grass",
-                scale: [4.4, 4.4],
-                color_a: [0.05, 0.18, 0.035, 1.0],
-                color_b: [0.64, 0.88, 0.26, 1.0]
+                scale: [7.5, 7.5],
+                color_a: [0.025, 0.12, 0.025, 1.0],
+                color_b: [0.50, 0.82, 0.18, 1.0],
+                roughness: 0.92,
+                blade_length: 1.35,
+                clump_density: 1.55,
+                micro_shadow: 0.78
             ),
+            specular_strength: 0.22,
             casts_shadow: true,
             receives_shadow: true
         )

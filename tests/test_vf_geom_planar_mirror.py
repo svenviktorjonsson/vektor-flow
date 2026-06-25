@@ -747,7 +747,12 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
 def test_grass_texture_kind_uses_procedural_grass_shader() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert 'if (rawKind === "grass") { return 3.25; }' in shader
-    assert "fn grassValue(p: vec2<f32>) -> f32" in shader
+    assert "fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32" in shader
+    assert "fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32" in shader
+    assert "texture.roughness" in shader
+    assert "texture.blade_length" in shader
+    assert "texture.clump_density" in shader
+    assert "texture.micro_shadow" in shader
     assert "if (kindCode > 3.1 && kindCode < 3.4)" in shader
 
 

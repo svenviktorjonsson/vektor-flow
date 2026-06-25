@@ -2305,13 +2305,32 @@ fn valueNoise2(p: vec2<f32>) -> f32 {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-fn grassValue(p: vec2<f32>) -> f32 {
-  let broad = valueNoise2(p * 0.55);
-  let clump = valueNoise2(p * 2.4);
-  let fine = valueNoise2(p * 11.0);
-  let blade = smoothstep(0.40, 0.92, fract((p.x * 8.0) + (sin(p.y * 2.1) * 0.18)));
-  let bladeCut = smoothstep(0.60, 0.98, fine) * blade;
-  return clamp((0.36 * broad) + (0.44 * clump) + (0.20 * bladeCut), 0.0, 1.0);
+fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let lengthScale = max(bladeLength, 0.20);
+  let broad = valueNoise2(p * 0.32 * density);
+  let bend = sin((p.y * 1.45) + (broad * 5.6)) * 0.20 * lengthScale;
+  let phase = fract(((p.x + bend) * (11.0 * density)) + (valueNoise2(p * 0.74) * 0.35));
+  let center = 1.0 - abs((phase * 2.0) - 1.0);
+  return pow(clamp(center, 0.0, 1.0), 3.2);
+}
+
+fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let broad = valueNoise2(p * 0.38 * density);
+  let clump = valueNoise2((p * 1.55 * density) + vec2<f32>(3.7, -1.9));
+  let fine = valueNoise2(p * vec2<f32>(5.5, 17.0) * density);
+  let blade = grassBladeRidge(p, bladeLength, density);
+  let heightDistribution = smoothstep(0.18, 0.92, (0.55 * clump) + (0.45 * fine));
+  return clamp((0.30 * broad) + (0.42 * clump) + (0.28 * blade * heightDistribution), 0.0, 1.0);
+}
+
+fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let blade = grassBladeRidge(p + vec2<f32>(0.13, -0.21), bladeLength, density);
+  let rootPocket = 1.0 - valueNoise2((p * 1.15 * density) + vec2<f32>(-2.4, 4.1));
+  let fineShadow = valueNoise2(p * vec2<f32>(8.0, 24.0) * density);
+  return clamp((0.46 * blade * fineShadow) + (0.54 * smoothstep(0.28, 0.88, rootPocket)), 0.0, 1.0);
 }
 
 fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
@@ -2319,7 +2338,7 @@ fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
     return checkerValue(p);
   }
   if (kindCode > 3.1 && kindCode < 3.4) {
-    return grassValue(p);
+    return grassValue(p, 1.0, 1.0);
   }
   return stripesValue(p);
 }
@@ -2334,6 +2353,10 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
   }
   if (kindCode > 3.1 && kindCode < 3.4) {
     let scale = max(sc.texture_params.yz, vec2<f32>(1e-4, 1e-4));
+    let roughness = clamp(sc.texture_extra.x, 0.0, 1.0);
+    let bladeLength = max(sc.texture_extra.y, 0.20);
+    let clumpDensity = max(sc.texture_extra.z, 0.25);
+    let microShadowStrength = clamp(sc.texture_extra.w, 0.0, 1.0);
     let weightsRaw = pow(abs(normalize(normal)), vec3<f32>(6.0, 6.0, 6.0));
     let weightSum = max(weightsRaw.x + weightsRaw.y + weightsRaw.z, 1e-6);
     let weights = weightsRaw / weightSum;
@@ -2341,14 +2364,24 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     let py = vec2<f32>(localPos.x * scale.x, localPos.z * scale.y);
     let pz = vec2<f32>(localPos.x * scale.x, localPos.y * scale.y);
     let grassMask =
-      (weights.x * grassValue(px)) +
-      (weights.y * grassValue(py)) +
-      (weights.z * grassValue(pz));
-    let tipTint = vec3<f32>(0.64, 0.88, 0.26);
-    let rootTint = vec3<f32>(0.05, 0.18, 0.035);
+      (weights.x * grassValue(px, bladeLength, clumpDensity)) +
+      (weights.y * grassValue(py, bladeLength, clumpDensity)) +
+      (weights.z * grassValue(pz, bladeLength, clumpDensity));
+    let microShadow =
+      (weights.x * grassMicroShadow(px, bladeLength, clumpDensity)) +
+      (weights.y * grassMicroShadow(py, bladeLength, clumpDensity)) +
+      (weights.z * grassMicroShadow(pz, bladeLength, clumpDensity));
+    let tipTint = sc.texture_color_b.rgb;
+    let rootTint = sc.texture_color_a.rgb;
     let rootNoise = valueNoise2((worldPos.xy * scale.x * 0.35) + vec2<f32>(1.7, -3.1));
-    let texGrass = mix(rootTint, tipTint, clamp(grassMask * 0.85 + rootNoise * 0.30, 0.0, 1.0));
-    return texGrass * base;
+    let strawNoise = smoothstep(0.68, 0.96, valueNoise2((worldPos.xy * scale.x * 0.18) + vec2<f32>(9.2, 2.6)));
+    let strawTint = vec3<f32>(0.63, 0.58, 0.18);
+    var texGrass = mix(rootTint, tipTint, clamp(grassMask * 0.90 + rootNoise * 0.26, 0.0, 1.0));
+    texGrass = mix(texGrass, strawTint, strawNoise * 0.13);
+    let roughDiffuseLift = 0.05 * roughness;
+    let bladeShadow = 1.0 - (microShadowStrength * mix(0.10, 0.42, microShadow));
+    texGrass = (texGrass * bladeShadow) + vec3<f32>(roughDiffuseLift);
+    return clamp(texGrass, vec3<f32>(0.0), vec3<f32>(1.0)) * base;
   }
   if (kindCode > 2.5) {
     let pipMask = diceValue(localPos);
@@ -2489,7 +2522,12 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
   if ((sc.receive_shadow & 2u) != 0u) {
     return vec4f(base, alpha * sc.alpha_mul);
   }
-  return shadeLitBaseScaled(base, alpha, worldPos, inputNormal, backfaceSpecularOff, 1.0);
+  var specularScale = 1.0;
+  if (sc.texture_params.x > 3.1 && sc.texture_params.x < 3.4) {
+    let roughness = clamp(sc.texture_extra.x, 0.0, 1.0);
+    specularScale = 0.34 * (1.0 - roughness) * (1.0 - roughness);
+  }
+  return shadeLitBaseScaled(base, alpha, worldPos, inputNormal, backfaceSpecularOff, specularScale);
 }
 
 fn readableShadowVisibility(visibility: f32) -> f32 {
@@ -3796,6 +3834,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[354] = Number(surfaceBounds.vAxis && surfaceBounds.vAxis[2] || 0.0);
       f32[355] = meshLike && meshLike.no_backface_specular === true ? 1.0 : 0.0;
     } else {
+      if (textureKind > 3.1 && textureKind < 3.4) {
+        var roughness = Number(texture && texture.roughness == null ? 0.86 : texture.roughness);
+        var bladeLength = Number(texture && texture.blade_length == null ? 1.18 : texture.blade_length);
+        var clumpDensity = Number(texture && texture.clump_density == null ? 1.35 : texture.clump_density);
+        var microShadow = Number(texture && texture.micro_shadow == null ? 0.72 : texture.micro_shadow);
+        f32[344] = Number.isFinite(roughness) ? Math.max(0.0, Math.min(1.0, roughness)) : 0.86;
+        f32[345] = Number.isFinite(bladeLength) ? Math.max(0.2, Math.min(4.0, bladeLength)) : 1.18;
+        f32[346] = Number.isFinite(clumpDensity) ? Math.max(0.25, Math.min(6.0, clumpDensity)) : 1.35;
+        f32[347] = Number.isFinite(microShadow) ? Math.max(0.0, Math.min(1.0, microShadow)) : 0.72;
+      } else {
       f32[344] = rx;
       f32[345] = ry;
       f32[346] = rz;
@@ -3808,6 +3856,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[347] = surfaceTextureReady
         ? 1.0
         : (textureKind > 3.5 && systemWorld ? (Number(systemWorld.spin_angle || 0.0) || 0.0) : 0.0);
+      }
     }
 
     var projectorBase = 356 + (MAX_SURFACE_TRIANGLES * 4 * 4) + (64 * 4);
