@@ -740,6 +740,8 @@ def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> N
     assert "let reflectedLayer = mix(backgroundLayer, reflectionSample.rgb, reflectionAlpha)" in shader
     assert "let finalAlpha = max(litMaterial.a, reflectionAlpha * reflectivity)" in shader
     assert "let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity)" in shader
+    assert "let windowTintStrength = select(0.0, clamp(surfaceAlpha * 0.85, 0.0, 0.85), (screenFlags & 16) != 0)" in shader
+    assert "let tintedComposite = mix(mirrorComposite, base, windowTintStrength)" in shader
 
 
 def test_window_reflection_pass_clips_objects_on_wrong_side_of_pane() -> None:

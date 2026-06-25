@@ -2580,7 +2580,9 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let reflectedLayer = mix(backgroundLayer, reflectionSample.rgb, reflectionAlpha);
   let finalAlpha = max(litMaterial.a, reflectionAlpha * reflectivity);
   let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity);
-  return vec4<f32>(mirrorComposite, finalAlpha);
+  let windowTintStrength = select(0.0, clamp(surfaceAlpha * 0.85, 0.0, 0.85), (screenFlags & 16) != 0);
+  let tintedComposite = mix(mirrorComposite, base, windowTintStrength);
+  return vec4<f32>(tintedComposite, finalAlpha);
 }
 
 @vertex
