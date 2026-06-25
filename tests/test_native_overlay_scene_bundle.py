@@ -1550,7 +1550,8 @@ def test_grass_texture_cube_example_compiles() -> None:
     assert '"frame_id":"grass_texture_cube_frame"' in compact
     assert '"controls_mode":"game"' in compact
     assert '"kind":"grass"' in compact
-    assert '"receives_lighting":false' in compact
+    assert '"background":[0.36,0.68,1.0,1.0]' in compact
+    assert '"blue_sky_panel"' not in compact
 
 
 def test_scene_3d_camera_fit_to_mesh_id_lowers_to_aperture_mirror_mesh_id(tmp_path: Path) -> None:

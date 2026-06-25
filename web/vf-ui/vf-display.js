@@ -2457,7 +2457,7 @@
     };
   }
 
-  function buildUnifiedFrameScene(specs, camera, lights, lightFlares) {
+  function buildUnifiedFrameScene(specs, camera, lights, lightFlares, background) {
     if (!Array.isArray(specs) || !specs.length) { return null; }
     var parts = [];
     for (var i = 0; i < specs.length; i++) {
@@ -2484,6 +2484,7 @@
       camera: camera || null,
       lights: lights || [],
       light_flares: lightFlares || null,
+      background: Array.isArray(background) ? background.slice(0, 4) : null,
       mode3d: false,
       unified_renderer: true
     };
@@ -10358,7 +10359,7 @@
         })()
       : null;
     var unifiedScene = geomSpec && geomSpec.unified_renderer === true
-      ? buildUnifiedFrameScene(renderableSpecs, effectiveCamera, lights, geomSpec.light_flares || null)
+      ? buildUnifiedFrameScene(renderableSpecs, effectiveCamera, lights, geomSpec.light_flares || null, geomSpec.background || null)
       : null;
     var combinedTransparent = !unifiedScene && geomSpec && geomSpec.combine_transparent === true && renderableSpecs.length > 1
       ? buildCombinedTransparentMesh(renderableSpecs, effectiveCamera, lights)
@@ -10636,7 +10637,7 @@
       throw new Error("dynamic geom provider returned invalid spec");
     }
     var scene = geomSpec && geomSpec.unified_renderer === true
-      ? buildUnifiedFrameScene(geomSpec.meshes, geomSpec.camera || null, geomSpec.lights || [], geomSpec.light_flares || null)
+      ? buildUnifiedFrameScene(geomSpec.meshes, geomSpec.camera || null, geomSpec.lights || [], geomSpec.light_flares || null, geomSpec.background || null)
       : null;
     if (!scene) {
       throw new Error("dynamic geom provider did not produce a unified scene");

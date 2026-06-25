@@ -7762,6 +7762,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         }
         perfStageStart = perfNowMs();
         var encBatch = this._device.createCommandEncoder();
+        var sceneClear = this._sceneBackgroundClear(mesh);
         var sceneSourceBackups = this._swapSelfReferencedScreensToPlain(this._frameId);
         if (sceneSourceBackups) {
           this._encodeScenePartsColorPass(
@@ -7773,7 +7774,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             this._msaaTex.createView(),
             this._frameSceneColorView,
             this._depthTex.createView(),
-            { r: 0, g: 0, b: 0, a: 0 },
+            sceneClear,
             null,
             0,
             true
@@ -7794,7 +7795,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           this._msaaTex.createView(),
           this._frameColorView,
           this._depthTex.createView(),
-          { r: 0, g: 0, b: 0, a: 0 },
+          sceneClear,
           null,
           0,
           false
@@ -8003,11 +8004,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._ensureMsaaColor();
       this._ensureFrameColorTarget();
       var enc  = this._device.createCommandEncoder();
+      var singleClear = this._sceneBackgroundClear(mesh);
       var pass = enc.beginRenderPass({
         colorAttachments: [{
           view:       this._msaaTex.createView(),
           resolveTarget: this._frameColorView,
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          clearValue: singleClear,
           loadOp:  "clear",
           storeOp: "store",
         }],

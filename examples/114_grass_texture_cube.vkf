@@ -6,6 +6,7 @@ native_scene: (
     frame_id: "grass_texture_cube_frame",
     title: "Grass Texture Cube",
     rect: [0.08, 0.08, 0.78, 0.80],
+    background: [0.36, 0.68, 1.0, 1.0],
     camera: (
         pos: [0.0, -7.2, 1.8],
         target: [0.0, -1.2, 2.25],
@@ -23,19 +24,6 @@ native_scene: (
         duration_seconds: 8.0,
         boundary: "repeat"
     ),
-    surfaces: [
-        (
-            id: "blue_sky_panel",
-            center: [0.0, 7.2, 4.0],
-            size: [28.0, 12.0],
-            rotation: [90.0, 0.0, 0.0],
-            color: [0.58, 0.82, 1.0, 1.0],
-            casts_shadow: false,
-            receives_shadow: false,
-            receives_lighting: false,
-            no_backface_specular: true
-        )
-    ],
     cubes: [
         (
             id: "grass_cube",
@@ -57,7 +45,8 @@ native_scene: (
         center: [0.0, 0.0],
         size: 0.01,
         z: -20.0,
-        color: [0.0, 0.0, 0.0, 0.0]
+        color: [0.0, 0.0, 0.0, 0.0],
+        visible: false
     ),
     lights: [
         (

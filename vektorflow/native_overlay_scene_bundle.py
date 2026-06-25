@@ -899,6 +899,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         show_light_markers=_optional_bool_value(declared, "show_light_markers", False),
         light_flares=_optional_bool_value(declared, "light_flares", False),
         light_marker_size=_optional_number_value(declared, "light_marker_size", 0.18),
+        background=_optional_number_list(declared, "background", [0.0, 0.0, 0.0, 0.0], length=4),
         surface_worlds=_optional_struct_value(declared, "surface_worlds"),
         surface_cameras=_optional_struct_value(declared, "surface_cameras"),
     )
@@ -920,6 +921,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "meshes": meshes,
         "camera": scene_ir["camera"],
         "lights": lights,
+        "background": scene_ir.get("background", [0.0, 0.0, 0.0, 0.0]),
         "timing": scene_ir["timing"],
         "surface_worlds": scene_ir.get("surface_worlds", {}),
         "surface_cameras": scene_ir.get("surface_cameras", {}),
