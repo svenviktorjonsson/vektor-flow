@@ -898,6 +898,98 @@
     return out;
   }
 
+  function meshHasGrassTexture(mesh) {
+    var texture = mesh && mesh.texture && typeof mesh.texture === "object" ? mesh.texture : null;
+    return texture && String(texture.kind || "").toLowerCase().trim() === "grass";
+  }
+
+  function grassNearBladeLayer(mesh, camera) {
+    if (!meshHasGrassTexture(mesh) || mesh.kind !== "cube" || mesh.visible === false) { return null; }
+    var texture = mesh.texture || {};
+    if (texture.near_blades === false) { return null; }
+    var size = Math.max(0.01, Number(mesh.size || 1.0));
+    var half = size * 0.5;
+    var topCenter = transformLocalVertices([[0.0, 0.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var xTip = transformLocalVertices([[1.0, 0.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var yTip = transformLocalVertices([[0.0, 1.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var uAxis = normalize3([xTip[0] - topCenter[0], xTip[1] - topCenter[1], xTip[2] - topCenter[2]], [1, 0, 0]);
+    var vAxis = normalize3([yTip[0] - topCenter[0], yTip[1] - topCenter[1], yTip[2] - topCenter[2]], [0, 1, 0]);
+    var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
+    var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
+    var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
+    var count = Math.max(0, Math.min(24000, Number(texture.near_blade_count || 18000) | 0));
+    if (!count) { return null; }
+    var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
+    var instances = new Float32Array(count * 12);
+    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (size * 0.0038)));
+    var bladeWidth = Math.max(0.00035, Number(texture.near_blade_width || (size * 0.00022)));
+    for (var i = 0; i < count; i += 1) {
+      var su = (rng() - 0.5) * size;
+      var sv = (rng() - 0.5) * size;
+      var bendA = (rng() * Math.PI * 2.0);
+      var lean = (rng() * 0.42 + 0.10) * bladeHeight;
+      var h = bladeHeight * (0.52 + (rng() * 0.88));
+      var w0 = bladeWidth * (0.70 + (rng() * 0.70));
+      var w1 = w0 * 0.32;
+      var base = [
+        topCenter[0] + (uAxis[0] * su) + (vAxis[0] * sv),
+        topCenter[1] + (uAxis[1] * su) + (vAxis[1] * sv),
+        topCenter[2] + (uAxis[2] * su) + (vAxis[2] * sv)
+      ];
+      var bend = [
+        (uAxis[0] * Math.cos(bendA) + vAxis[0] * Math.sin(bendA)) * lean,
+        (uAxis[1] * Math.cos(bendA) + vAxis[1] * Math.sin(bendA)) * lean,
+        (uAxis[2] * Math.cos(bendA) + vAxis[2] * Math.sin(bendA)) * lean
+      ];
+      var tip = [
+        base[0] + (nAxis[0] * h) + bend[0],
+        base[1] + (nAxis[1] * h) + bend[1],
+        base[2] + (nAxis[2] * h) + bend[2]
+      ];
+      var tintMix = rng();
+      var color = [
+        (rootColor[0] * (1.0 - tintMix) + tipColor[0] * tintMix) * 0.95,
+        (rootColor[1] * (1.0 - tintMix) + tipColor[1] * tintMix) * 1.02,
+        (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.82,
+        0.62
+      ];
+      var o = i * 12;
+      instances[o + 0] = base[0]; instances[o + 1] = base[1]; instances[o + 2] = base[2]; instances[o + 3] = w0;
+      instances[o + 4] = tip[0]; instances[o + 5] = tip[1]; instances[o + 6] = tip[2]; instances[o + 7] = w1;
+      instances[o + 8] = color[0]; instances[o + 9] = color[1]; instances[o + 10] = color[2]; instances[o + 11] = color[3];
+    }
+    return {
+      id: String(mesh.id || "grass") + "__near_blades",
+      kind: "field_mesh",
+      type: "field_mesh",
+      topology: "triangle-list",
+      vertices: new Float32Array([
+        -1, 0, 0,  0, 0, 1,  1, 1, 1, 1,
+         1, 0, 0,  0, 0, 1,  1, 1, 1, 1,
+        -1, 1, 0,  0, 0, 1,  1, 1, 1, 1,
+         1, 1, 0,  0, 0, 1,  1, 1, 1, 1
+      ]),
+      indices: new Uint32Array([0, 1, 2, 2, 1, 3]),
+      instances: instances,
+      instance_count: count,
+      instance_kind: "line-impostor",
+      static_vertices: true,
+      static_indices: true,
+      transparent: true,
+      depth_write: true,
+      casts_shadow: false,
+      receives_shadow: true,
+      receives_lighting: false,
+      no_lighting: true,
+      specular_strength: 0.0,
+      no_cull: true,
+      color: [1, 1, 1, 1],
+      center: [0, 0, 0],
+      scale: [1, 1, 1],
+      rotation: [0, 0, 0]
+    };
+  }
+
   function currentFrameViewportHeight() {
     try {
       var frame = global.document && global.document.querySelector(
@@ -2076,6 +2168,16 @@
     };
   }
 
+  function stringHash32(text) {
+    var h = 2166136261 >>> 0;
+    var s = String(text || "");
+    for (var i = 0; i < s.length; i += 1) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+
   function computeBounds(vertices) {
     var min = [Infinity, Infinity, Infinity];
     var max = [-Infinity, -Infinity, -Infinity];
@@ -3022,6 +3124,9 @@
         repair_winding: entityProp(spec, "repair_winding", true) !== false,
         static_vertices: entityProp(spec, "static_vertices", false) === true,
         static_indices: entityProp(spec, "static_indices", false) === true,
+        instances: numericArrayLike(entityProp(spec, "instances", null)) ? entityProp(spec, "instances", null) : null,
+        instance_count: Math.max(0, Number(entityProp(spec, "instance_count", 0) || 0) | 0),
+        instance_kind: String(entityProp(spec, "instance_kind", "") || ""),
         vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.0) || 0.0)),
         vertex_scale: Array.isArray(vertexScale)
           ? vertexScale.slice()
@@ -3325,6 +3430,9 @@
         topology: topology,
         vertices: numericArrayLike(mesh.vertices) ? mesh.vertices : [],
         indices: numericArrayLike(mesh.indices) ? mesh.indices : [],
+        instances: numericArrayLike(mesh.instances) ? mesh.instances : null,
+        instance_count: Math.max(0, Number(mesh.instance_count || 0) | 0),
+        instance_kind: String(mesh.instance_kind || ""),
         static_vertices: true,
         static_indices: true,
         color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
@@ -3968,6 +4076,10 @@
       if (receiverIds[mesh.id]) { continue; }
       var meshPayload = buildMeshPayload(mesh, camera, lights);
       pushMeshPayload(meshes, meshPayload);
+      var grassNearLayer = grassNearBladeLayer(mesh, camera);
+      if (grassNearLayer) {
+        pushMeshPayload(meshes, buildMeshPayload(grassNearLayer, camera, lights));
+      }
     }
     startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterBuildMeshes");
     if (renderOptions.show_light_markers === true) {
