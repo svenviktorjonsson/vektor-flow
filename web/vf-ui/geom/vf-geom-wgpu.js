@@ -2356,7 +2356,7 @@ fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
 fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let lengthScale = max(bladeLength, 0.20);
-  let q = p * (11.0 * density);
+  let q = p * (8.5 * density);
   let cell = floor(q);
   let f = fract(q);
   var blade = 0.0;
@@ -2364,7 +2364,7 @@ fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
     for (var ox: i32 = -1; ox <= 1; ox = ox + 1) {
       let offset = vec2<f32>(f32(ox), f32(oy));
       let id = cell + offset;
-      for (var si: i32 = 0; si < 4; si = si + 1) {
+      for (var si: i32 = 0; si < 5; si = si + 1) {
         let s = f32(si) * 37.0;
         let rnd = vec4<f32>(
           hash21(id + vec2<f32>(101.0 + s, 17.0)),
@@ -2379,11 +2379,13 @@ fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
         let rel = f - origin;
         let along = dot(rel, dir);
         let across = abs(dot(rel, side));
-        let len = (0.90 + (0.80 * rnd.w)) * lengthScale;
-        let width = 0.018 + (0.018 * rnd.z);
-        let grow = smoothstep(-len * 0.08, len * 0.08, along);
-        let fade = 1.0 - smoothstep(len * 0.62, len, along);
-        let line = 1.0 - smoothstep(width * 0.42, width, across);
+        let len = (1.85 + (1.35 * rnd.w)) * lengthScale;
+        let width = 0.030 + (0.026 * rnd.z);
+        let cappedAlong = clamp(along, -len * 0.10, len);
+        let capDistance = length(vec2<f32>(across, along - cappedAlong));
+        let line = 1.0 - smoothstep(width * 0.45, width, capDistance);
+        let grow = smoothstep(-len * 0.06, len * 0.08, along);
+        let fade = 1.0 - smoothstep(len * 0.72, len, along);
         let broken = smoothstep(0.18, 0.64, grassFbm((p * 1.35 * density) + vec2<f32>((rnd.x + s) * 2.7, rnd.y * -5.0)));
         blade = max(blade, line * grow * fade * broken);
       }
