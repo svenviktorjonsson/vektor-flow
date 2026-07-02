@@ -1520,7 +1520,11 @@ std::string eval_call(
             }
         }
         if (have_rendered_base && (rendered_base == "__ui_axis2d__" || rendered_base == "__ui_axis3d__")) {
-            if (function_name == "crosshair" || function_name == "box" || function_name == "plot") {
+            if (function_name == "crosshair"
+                || function_name == "box"
+                || function_name == "polar_crosshair"
+                || function_name == "polar_box"
+                || function_name == "plot") {
                 return "__ui_noop__";
             }
         }

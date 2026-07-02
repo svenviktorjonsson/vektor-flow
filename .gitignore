@@ -35,4 +35,6 @@ vscode/*.vsix
 web/vf-ui/vkf-scene.json
 web/vf-ui/vf-display.json
 web/vf-ui/vf-host-bootstrap.json
+web/sessions/
+captures/
 .vf-bench-cache/

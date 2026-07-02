@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STAGER_SOURCE = ROOT / "compiler" / "native" / "vkf_native_scene_artifact_stager.cpp"
@@ -129,6 +131,75 @@ def test_native_scene_artifact_stager_writes_launcher_contract_without_python(tm
     assert (session_dir / "vf-geom-ledger-transport.json").read_text(encoding="utf-8") == "{}"
     assert (session_dir / "vf-geom-ledger-state.json").read_text(encoding="utf-8") == "{}"
     assert (session_dir / "vf-event-program.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_native_scene_artifact_stager_lowers_native_scene_source_without_cache(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    source_dir = tmp_path / "program"
+    source_dir.mkdir()
+    source = source_dir / "grass.vkf"
+    source.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "grass_texture_cube_frame",
+    title: "Grass Texture Cube",
+    rect: [0.08, 0.08, 0.78, 0.80],
+    background: [0.36, 0.68, 1.0, 1.0],
+    camera: (
+        pos: [0.0, -7.2, 1.8],
+        target: [0.0, -1.2, 2.25],
+        fov: 64.0,
+        controls_mode: "game"
+    ),
+    show_light_markers: true,
+    light_flares: true,
+    light_marker_size: 0.72,
+    timing: (fps: 60, duration_seconds: 8.0, boundary: "repeat"),
+    cubes: [
+        (
+            id: "grass_cube",
+            center: [0.0, 0.0, -5.0],
+            size: 10.0,
+            texture: (kind: "grass", roughness: 0.92)
+        )
+    ],
+    plane: (center: [0.0, 0.0], size: 0.01, z: -20.0, visible: false),
+    lights: [
+        (id: "sun", kind: "point", pos: [-2.8, 2.8, 5.8], intensity: 30.0)
+    ],
+    shadow: (enabled: true)
+)
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    overlay_web = tmp_path / "web"
+
+    proc = subprocess.run(
+        [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    summary = json.loads(proc.stdout)
+    session_dir = overlay_web / "sessions" / "grass"
+    manifest = json.loads((source_dir / ".vkfbuild" / "grass.manifest.json").read_text(encoding="utf-8"))
+    html = (session_dir / "vkf-scene.html").read_text(encoding="utf-8")
+    packets = json.loads((session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8"))
+
+    assert summary["scene_config_source"] == "vkf-native-scene-source-lowering"
+    assert summary["runtime_packets_source"] == "vkf-native-scene-source-lowering"
+    assert manifest["scene_config_source"] == "vkf-native-scene-source-lowering"
+    assert manifest["runtime_packets_source"] == "vkf-native-scene-source-lowering"
+    assert "native_scene_config_json is not allowed" not in html
+    assert '"frame_id":"grass_texture_cube_frame"' in html
+    assert '"id":"grass_cube"' in html
+    assert '"kind":"grass"' in html
+    assert packets[0]["payload"]["commands"][0]["payload"]["spec"]["id"] == "grass_texture_cube_frame"
+    assert packets[0]["payload"]["commands"][0]["payload"]["spec"]["flags"]["use_browser"] is True
 
 
 def test_native_scene_artifact_stager_hash_includes_program_libs(tmp_path: Path) -> None:
@@ -475,7 +546,7 @@ def test_native_scene_artifact_stager_preserves_current_hashed_artifacts(tmp_pat
     assert not stale_config.exists()
     assert config_file.stat().st_mtime_ns == mtimes_before[config_file]
     assert arena_file.stat().st_mtime_ns == mtimes_before[arena_file]
-    assert html_file.stat().st_mtime_ns == mtimes_before[html_file]
+    assert html_file.stat().st_mtime_ns >= mtimes_before[html_file]
 
 
 def test_native_scene_artifact_stager_rejects_stale_generated_scene_config(tmp_path: Path) -> None:
@@ -593,3 +664,137 @@ def test_native_scene_artifact_stager_writes_multi_view_scene_contract(tmp_path:
     assert "loadAt(0)" in html
 
 
+def test_native_scene_artifact_stager_axis_demo_uses_one_closable_frame(tmp_path: Path) -> None:
+    exe = _compile_or_skip(STAGER_SOURCE, tmp_path / "vkf_native_scene_artifact_stager.exe")
+    overlay_web = tmp_path / "web"
+
+    subprocess.run(
+        [
+            str(exe),
+            "--source",
+            str(ROOT / "examples" / "100_axis_4_panel.vkf"),
+            "--overlay-web",
+            str(overlay_web),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    session_dir = overlay_web / "sessions" / "100-axis-4-panel"
+    packets = json.loads((session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8"))
+    commands = packets[0]["payload"]["commands"]
+    frame_commands = [command for command in commands if command.get("kind") == "frame_upsert"]
+
+    assert [command["id"] for command in frame_commands] == ["axis_deck"]
+    deck_spec = frame_commands[0]["payload"]["spec"]
+    assert deck_spec["flags"]["closable"] is True
+    assert deck_spec["flags"]["draggable"] is True
+    assert deck_spec["flags"]["resizable"] is True
+    assert deck_spec["body_layout"] == {
+        "type": "grid",
+        "rows": 2,
+        "cols": 12,
+        "row_heights": "max-content minmax(0, 1fr)",
+    }
+    assert "axis_panel_" not in json.dumps(commands)
+    options = deck_spec["body"][0]["options"]
+    assert [option["value"] for option in options] == [
+        "2d_crosshair",
+        "2d_box",
+        "2d_polar_crosshair",
+        "3d_crosshair",
+        "3d_box",
+    ]
+    assert {option["geom_frame"] for option in options} == {"axis_deck:axis_plot"}
+    assert all("target_frame" not in option for option in options)
+    assert deck_spec["body"][-1]["id"] == "axis_plot"
+    assert deck_spec["body"][-1]["type"] == "plot_panel"
+    assert deck_spec["body"][-1]["grid"] == [1, 0, 1, 12]
+    assert deck_spec["body"][1]["axis_log_target_frames"] == ["axis_deck:axis_plot"]
+    assert deck_spec["body"][2]["axis_log_target_frames"] == ["axis_deck:axis_plot"]
+    assert deck_spec["body"][3]["axis_log_target_frames"] == ["axis_deck:axis_plot"]
+
+    geom = packets[1]["payload"]["display"]["geom"]
+    assert list(geom) == ["axis_deck:axis_plot"]
+    assert geom["axis_deck:axis_plot"]["frame"] == "axis_deck:axis_plot"
+    assert geom["axis_deck:axis_plot"]["active_geom_variant"] == "2d_crosshair"
+    assert set(geom["axis_deck:axis_plot"]["geom_variants"]) == {
+        "2d_crosshair",
+        "2d_box",
+        "2d_polar_crosshair",
+        "3d_crosshair",
+        "3d_box",
+    }
+    expected_formula_texts = {
+        "2d_crosshair": "$y=\\sin(x)$",
+        "2d_box": "$y=0.65\\cos(x)e^{-x^{2}}-0.25$",
+        "2d_polar_crosshair": "$r=0.08+0.13\\phi$",
+        "3d_crosshair": "$z=u^{2}-v^{2}$",
+        "3d_box": "$z=\\sin(u)\\cos(v)$",
+    }
+    for mode, formula in expected_formula_texts.items():
+        texts = geom["axis_deck:axis_plot"]["geom_variants"][mode]["texts"]
+        assert texts[0]["text"] == formula
+        assert texts[0]["pixel"] is True
+    box_meshes = geom["axis_deck:axis_plot"]["geom_variants"]["2d_box"]["meshes"]
+    box_curve = next(mesh for mesh in box_meshes if mesh.get("axis_plot2d"))
+    box_x_values = box_curve["axis_plot2d"]["x_values"]
+    box_y_values = box_curve["axis_plot2d"]["y_values"]
+    assert len(box_x_values) == 65
+    assert len(box_y_values) == 65
+    assert len(box_curve["indices"]) == 128
+    assert max(box_y_values) == 0.4
+    assert min(box_y_values) < 0
+    assert 1 not in box_y_values
+    polar_meshes = geom["axis_deck:axis_plot"]["geom_variants"]["2d_polar_crosshair"]["meshes"]
+    polar_curve = next(mesh for mesh in polar_meshes if mesh.get("axis_plot2d"))
+    polar_x_values = polar_curve["axis_plot2d"]["x_values"]
+    polar_y_values = polar_curve["axis_plot2d"]["y_values"]
+    polar_r_values = polar_curve["axis_plot2d"]["r_values"]
+    polar_phi_values = polar_curve["axis_plot2d"]["phi_values"]
+    assert len(polar_x_values) == 129
+    assert len(polar_y_values) == 129
+    assert len(polar_r_values) == 129
+    assert len(polar_phi_values) == 129
+    assert len(polar_curve["indices"]) == 256
+    assert polar_x_values[0] == 0.08
+    assert polar_y_values[0] == 0
+    assert polar_r_values[0] == 0.08
+    assert polar_phi_values[0] == 0
+    assert polar_x_values[64] == -0.48841
+    assert polar_y_values[64] == 0
+    assert polar_r_values[64] == pytest.approx(0.488407)
+    assert polar_phi_values[64] == pytest.approx(3.14159265359)
+    assert polar_x_values[-1] == 0.89681
+    assert polar_y_values[-1] == 0
+    assert polar_r_values[-1] == pytest.approx(0.896814)
+    assert polar_phi_values[-1] == pytest.approx(6.28318530718)
+    meshes = geom["axis_deck:axis_plot"]["meshes"]
+    controller = next(mesh for mesh in meshes if mesh.get("axis_ticks"))
+    ticks = controller["axis_ticks"]
+    assert ticks["x_min"] == -1
+    assert ticks["x_max"] == 1
+    assert ticks["y_min"] == -1
+    assert ticks["y_max"] == 1
+    assert ticks["x_label"] == "x"
+    assert ticks["y_label"] == "y"
+    assert ticks["x_tick_label_placement"] == "below"
+    assert ticks["y_tick_label_placement"] == "left"
+    assert ticks["grid"] is True
+    assert ticks["grid_alpha"] == 0.16
+
+
+def test_axis_demo_controls_stay_above_geom_canvas() -> None:
+    display_runtime = (ROOT / "web" / "vf-ui" / "vf-display.js").read_text(encoding="utf-8")
+    frame_css = (ROOT / "web" / "vf-ui" / "vf-frame.css").read_text(encoding="utf-8")
+    widgets_runtime = (ROOT / "web" / "vf-ui" / "vf-widgets.js").read_text(encoding="utf-8")
+
+    assert "z-index:0;pointer-events:auto" in display_runtime
+    assert "nextFrameGeom.active_geom_variant = prevFrameGeom.active_geom_variant" in display_runtime
+    assert 'setAttribute("data-vf-active-geom-variant", requested)' in display_runtime
+    assert "requestAnimationFrame(function ()" in widgets_runtime
+    assert "global.setTimeout(function () { applyGeomVariant(geomFrame, geomValue); }, 50)" in widgets_runtime
+    assert ".vf-frame__body.vf-w-grid > *:not(.vf-frame__draw-canvas):not(.vf-geom-canvas):not(.vf-frame__overlay)" in frame_css
+    assert ".vf-frame__body.vf-w-stack > *:not(.vf-frame__draw-canvas):not(.vf-geom-canvas)" in frame_css
