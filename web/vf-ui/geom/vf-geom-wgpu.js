@@ -3089,6 +3089,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       0.018 * gaussian(haloR - ring3, ringW3)
     );
 
+  let warmWhite = vec3<f32>(1.0, 0.985, 0.82);
+  if (sourceRadiusPx > 0.0 && r <= sourceRadiusPx) {
+    return vec4<f32>(warmWhite * alpha, alpha);
+  }
+
   let whiteA = alpha * (glow + (0.72 * rays));
   let tintA = alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
   let white = vec3<f32>(1.0, 1.0, 1.0) * whiteA;

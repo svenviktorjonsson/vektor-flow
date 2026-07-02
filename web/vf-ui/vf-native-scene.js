@@ -3602,6 +3602,7 @@
     for (var i = 0; i < lights.length; i += 1) {
       var light = lights[i];
       if (light.show_marker === false) { continue; }
+      if (Number(light.source_radius || 0.0) > 0.0) { continue; }
       var size = Math.max(0.02, Number(light.source_radius != null ? light.source_radius : defaultSize) || defaultSize);
       var center = toVec3(light.pos, [0, 0, 0]);
       var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);

@@ -803,9 +803,29 @@ std::string native_scene_embedding_json(const std::vector<std::pair<std::string,
 std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) {
     std::string bytes;
     const std::vector<std::string> rels = {
+        "vf-frame.css",
         "vf-runtime-shell.js",
+        "vf-runtime-packet-contract.js",
+        "vf-runtime-source.js",
+        "vf-runtime-scene.js",
+        "vf-runtime-flow.js",
+        "vf-render-clock.js",
+        "vf-frame.js",
         "vf-native-scene.js",
-        "vf-display.js"
+        "vf-display.js",
+        "vf-axis3d-kernel.js",
+        "vf-axis3d-kernel-adapter.js",
+        "vf-axis3d-projection-kernel.js",
+        "vf-axis3d-projection-kernel-adapter.js",
+        "geom/vf-geom-math.js",
+        "geom/vf-geom-core.js",
+        "geom/vf-geom-material-arena.js",
+        "geom/vf-geom-ledger-layout.js",
+        "geom/vf-geom-ledger-transport.js",
+        "geom/vf-geom-ledger.js",
+        "geom/vf-geom-parametric-surface.js",
+        "geom/vf-geom-frame-adapter.js",
+        "geom/vf-geom-wgpu.js"
     };
     for (const std::string& rel : rels) {
         const std::filesystem::path path = overlay_web / rel;

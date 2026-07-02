@@ -493,6 +493,17 @@
     var localLeft = 0;
     var localTop = 0;
     var hostOwnsViewport = !!(hostEl && hostEl.classList && hostEl.classList.contains("vf-chess-board-host"));
+    var isNativeGeomFrame = !!(hostEl && hostEl.querySelector && hostEl.querySelector("canvas.vf-geom-canvas"));
+    if (isNativeGeomFrame && !hostOwnsViewport) {
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: width,
+        height: height,
+        localLeft: 0,
+        localTop: 0
+      };
+    }
     if (!hostOwnsViewport && frameContentAspectMode(frameEl) === "equal") {
       var fitSize = Math.max(1, Math.min(width, height));
       localLeft = (width - fitSize) * 0.5;
@@ -2750,6 +2761,9 @@
     if (body && body.classList) {
       body.classList.remove("vf-frame__body--empty");
       body.classList.add("vf-frame__body--transparent");
+    }
+    if (body && body.style) {
+      body.style.padding = "0";
     }
     var cls  = "vf-geom-canvas-" + idx;
     var existing = geomHostCanvas(body, idx);
