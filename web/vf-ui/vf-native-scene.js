@@ -917,7 +917,7 @@
     var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
     var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
     var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
-    var count = Math.max(0, Math.min(42000, Number(texture.near_blade_count || 30000) | 0));
+    var count = Math.max(0, Math.min(90000, Number(texture.near_blade_count || 62000) | 0));
     if (!count) { return null; }
     var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
     var instances = new Float32Array(count * 12);
@@ -934,25 +934,26 @@
     var viewLocalLen = Math.sqrt((viewLocalU * viewLocalU) + (viewLocalV * viewLocalV)) || 1.0;
     viewLocalU /= viewLocalLen;
     viewLocalV /= viewLocalLen;
-    var patchRadius = Math.max(size * 0.30, Math.min(size * 0.48, Number(texture.near_blade_radius || (size * 0.42))));
+    var patchRadius = Math.max(size * 0.36, Math.min(size * 0.70, Number(texture.near_blade_radius || (size * 0.64))));
     var focusU = Math.max(-half, Math.min(half, camLocalU + (viewLocalU * patchRadius * 0.42)));
     var focusV = Math.max(-half, Math.min(half, camLocalV + (viewLocalV * patchRadius * 0.42)));
+    var denseRadius = patchRadius * 0.36;
+    var fadeRadius = patchRadius;
+    var keptCount = 0;
     for (var i = 0; i < count; i += 1) {
-      var useBackgroundBlade = rng() < 0.24;
-      var edgeFade;
-      var su;
-      var sv;
-      if (useBackgroundBlade) {
-        su = (rng() - 0.5) * size;
-        sv = (rng() - 0.5) * size;
-        edgeFade = 0.18;
-      } else {
-        var angleSample = rng() * Math.PI * 2.0;
-        var radialSample = Math.sqrt(rng()) * patchRadius;
-        su = Math.max(-half, Math.min(half, focusU + (Math.cos(angleSample) * radialSample)));
-        sv = Math.max(-half, Math.min(half, focusV + (Math.sin(angleSample) * radialSample)));
-        edgeFade = Math.max(0.0, Math.min(1.0, 1.0 - (radialSample / Math.max(1e-6, patchRadius))));
+      var su = (rng() - 0.5) * size;
+      var sv = (rng() - 0.5) * size;
+      var du = su - focusU;
+      var dv = sv - focusV;
+      var dist = Math.sqrt((du * du) + (dv * dv));
+      var tFade = Math.max(0.0, Math.min(1.0, (dist - denseRadius) / Math.max(1e-6, fadeRadius - denseRadius)));
+      var nearWeight = 1.0 - (tFade * tFade * (3.0 - (2.0 * tFade)));
+      var backgroundWeight = 0.20;
+      var keepProbability = Math.max(backgroundWeight, nearWeight);
+      if (rng() > keepProbability) {
+        continue;
       }
+      var edgeFade = 0.18 + (0.82 * nearWeight);
       var bendA = (rng() * Math.PI * 2.0);
       var lean = (rng() * 0.42 + 0.10) * bladeHeight;
       var h = bladeHeight * (0.44 + (rng() * 0.92));
@@ -980,11 +981,14 @@
         (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.70,
         0.24 + (0.46 * edgeFade)
       ];
-      var o = i * 12;
+      var o = keptCount * 12;
       instances[o + 0] = base[0]; instances[o + 1] = base[1]; instances[o + 2] = base[2]; instances[o + 3] = w0;
       instances[o + 4] = tip[0]; instances[o + 5] = tip[1]; instances[o + 6] = tip[2]; instances[o + 7] = w1;
       instances[o + 8] = color[0]; instances[o + 9] = color[1]; instances[o + 10] = color[2]; instances[o + 11] = color[3];
+      keptCount += 1;
     }
+    if (keptCount <= 0) { return null; }
+    var keptInstances = instances.subarray(0, keptCount * 12);
     return {
       id: String(mesh.id || "grass") + "__near_blades",
       kind: "field_mesh",
@@ -997,8 +1001,8 @@
          1, 1, 0,  0, 0, 1,  1, 1, 1, 1
       ]),
       indices: new Uint32Array([0, 1, 2, 2, 1, 3]),
-      instances: instances,
-      instance_count: count,
+      instances: keptInstances,
+      instance_count: keptCount,
       instance_kind: "line-impostor",
       static_vertices: true,
       static_indices: true,
