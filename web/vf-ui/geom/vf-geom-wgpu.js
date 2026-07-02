@@ -2305,32 +2305,68 @@ fn valueNoise2(p: vec2<f32>) -> f32 {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+fn grassFbm(p: vec2<f32>) -> f32 {
+  var sum = 0.0;
+  var amp = 0.5;
+  var freq = 1.0;
+  for (var i: i32 = 0; i < 4; i = i + 1) {
+    sum += amp * valueNoise2(p * freq);
+    freq *= 2.03;
+    amp *= 0.52;
+  }
+  return clamp(sum / 0.968, 0.0, 1.0);
+}
+
 fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let lengthScale = max(bladeLength, 0.20);
-  let broad = valueNoise2(p * 0.32 * density);
-  let bend = sin((p.y * 1.45) + (broad * 5.6)) * 0.20 * lengthScale;
-  let phase = fract(((p.x + bend) * (11.0 * density)) + (valueNoise2(p * 0.74) * 0.35));
-  let center = 1.0 - abs((phase * 2.0) - 1.0);
-  return pow(clamp(center, 0.0, 1.0), 3.2);
+  let q = p * (3.10 * density);
+  let detailFade = 1.0;
+  let cell = floor(q);
+  let f = fract(q);
+  var blade = 0.0;
+  for (var oy: i32 = -1; oy <= 1; oy = oy + 1) {
+    for (var ox: i32 = -1; ox <= 1; ox = ox + 1) {
+      let offset = vec2<f32>(f32(ox), f32(oy));
+      let id = cell + offset;
+      let rnd = vec2<f32>(
+        hash21(id + vec2<f32>(11.7, 3.1)),
+        hash21(id + vec2<f32>(5.3, 19.9))
+      );
+      let center = offset + rnd;
+      let angle = hash21(id + vec2<f32>(23.4, 91.7)) * 6.2831853;
+      let dir = vec2<f32>(cos(angle), sin(angle));
+      let side = vec2<f32>(-dir.y, dir.x);
+      let rel = f - center;
+      let along = dot(rel, dir);
+      let across = abs(dot(rel, side));
+      let halfLen = (0.11 + (0.22 * hash21(id + vec2<f32>(43.1, 7.4)))) * lengthScale;
+      let width = 0.026 + (0.032 * hash21(id + vec2<f32>(2.8, 67.2)));
+      let tip = 1.0 - smoothstep(halfLen * 0.35, halfLen, abs(along));
+      let edge = 1.0 - smoothstep(width * 0.35, width, across);
+      let strength = 0.62 + (0.38 * hash21(id + vec2<f32>(31.0, 13.0)));
+      blade = max(blade, strength * tip * edge);
+    }
+  }
+  return detailFade * pow(clamp(blade, 0.0, 1.0), 0.78);
 }
 
 fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
-  let broad = valueNoise2(p * 0.38 * density);
-  let clump = valueNoise2((p * 1.55 * density) + vec2<f32>(3.7, -1.9));
-  let fine = valueNoise2(p * vec2<f32>(5.5, 17.0) * density);
+  let broad = grassFbm((p * 0.42 * density) + vec2<f32>(2.0, -1.0));
+  let clump = grassFbm((p * 1.05 * density) + vec2<f32>(3.7, -1.9));
+  let fine = grassFbm((p * 3.90 * density) + vec2<f32>(-6.1, 4.4));
   let blade = grassBladeRidge(p, bladeLength, density);
-  let heightDistribution = smoothstep(0.18, 0.92, (0.55 * clump) + (0.45 * fine));
-  return clamp((0.30 * broad) + (0.42 * clump) + (0.28 * blade * heightDistribution), 0.0, 1.0);
+  let heightDistribution = smoothstep(0.22, 0.88, (0.48 * clump) + (0.52 * fine));
+  return clamp((0.30 * broad) + (0.34 * clump) + (0.22 * fine) + (0.14 * blade * heightDistribution), 0.0, 1.0);
 }
 
 fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let blade = grassBladeRidge(p + vec2<f32>(0.13, -0.21), bladeLength, density);
-  let rootPocket = 1.0 - valueNoise2((p * 1.15 * density) + vec2<f32>(-2.4, 4.1));
-  let fineShadow = valueNoise2(p * vec2<f32>(8.0, 24.0) * density);
-  return clamp((0.46 * blade * fineShadow) + (0.54 * smoothstep(0.28, 0.88, rootPocket)), 0.0, 1.0);
+  let rootPocket = 1.0 - grassFbm((p * 0.95 * density) + vec2<f32>(-2.4, 4.1));
+  let fineShadow = grassFbm((p * 5.20 * density) + vec2<f32>(7.5, -3.8));
+  return clamp((0.35 * blade * fineShadow) + (0.65 * smoothstep(0.34, 0.84, rootPocket)), 0.0, 1.0);
 }
 
 fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
@@ -2373,13 +2409,13 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
       (weights.z * grassMicroShadow(pz, bladeLength, clumpDensity));
     let tipTint = sc.texture_color_b.rgb;
     let rootTint = sc.texture_color_a.rgb;
-    let rootNoise = valueNoise2((worldPos.xy * scale.x * 0.35) + vec2<f32>(1.7, -3.1));
-    let strawNoise = smoothstep(0.68, 0.96, valueNoise2((worldPos.xy * scale.x * 0.18) + vec2<f32>(9.2, 2.6)));
+    let rootNoise = grassFbm((worldPos.xy * scale.x * 0.22) + vec2<f32>(1.7, -3.1));
+    let strawNoise = smoothstep(0.72, 0.98, grassFbm((worldPos.xy * scale.x * 0.16) + vec2<f32>(9.2, 2.6)));
     let strawTint = vec3<f32>(0.63, 0.58, 0.18);
-    var texGrass = mix(rootTint, tipTint, clamp(grassMask * 0.90 + rootNoise * 0.26, 0.0, 1.0));
-    texGrass = mix(texGrass, strawTint, strawNoise * 0.13);
-    let roughDiffuseLift = 0.05 * roughness;
-    let bladeShadow = 1.0 - (microShadowStrength * mix(0.10, 0.42, microShadow));
+    var texGrass = mix(rootTint, tipTint, clamp(0.10 + (grassMask * 0.66) + (rootNoise * 0.10), 0.0, 1.0));
+    texGrass = mix(texGrass, strawTint, strawNoise * 0.045);
+    let roughDiffuseLift = 0.014 * roughness;
+    let bladeShadow = 1.0 - (microShadowStrength * mix(0.04, 0.24, microShadow));
     texGrass = (texGrass * bladeShadow) + vec3<f32>(roughDiffuseLift);
     return clamp(texGrass, vec3<f32>(0.0), vec3<f32>(1.0)) * base;
   }
@@ -2513,7 +2549,11 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
   if (sc.light_count == 0u) {
     return vec4f(base, a);
   }
-  let ambient = 0.10 * base;
+  var ambientStrength = 0.10;
+  if (sc.texture_params.x > 3.1 && sc.texture_params.x < 3.4) {
+    ambientStrength = 0.58;
+  }
+  let ambient = ambientStrength * base;
   let lit = (ambient + diffuse) * a + specular;
   return vec4f(lit, a);
 }
@@ -2817,11 +2857,16 @@ fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
   if (mask <= 1e-4) {
     discard;
   }
+  let instAlpha = abs(i.color.a);
+  if ((sc.receive_shadow & 2u) != 0u || i.color.a < 0.0) {
+    let emissive = min(vec3<f32>(1.0, 1.0, 1.0), (i.color.rgb * 1.18) + vec3<f32>(0.10, 0.08, 0.02));
+    return vec4f(emissive, instAlpha * mask * sc.alpha_mul);
+  }
   let z = sqrt(max(0.0, 1.0 - min(dot(i.local_uv, i.local_uv), 1.0)));
   let front = normalize(sc.cam_pos - i.center);
   let normal = normalize((i.right * i.local_uv.x) + (i.up * i.local_uv.y) + (front * z));
   let sphereWorldPos = i.center + (normal * i.radius);
-  return shadeLitBase(i.color.rgb, i.color.a * mask, sphereWorldPos, normal, false);
+  return shadeLitBase(i.color.rgb, instAlpha * mask, sphereWorldPos, normal, false);
 }
 
 @fragment
@@ -2950,9 +2995,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let r = length(p);
   let haloRadiusPx = max(1.0, sizePx - sourceRadiusPx);
   let haloR = max(0.0, r - sourceRadiusPx);
-  let outsideSource = smoothstep(0.0, max(1.0, min(5.0, sourceRadiusPx * 0.18)), haloR);
+  let flareGapPx = max(3.0, min(9.0, sourceRadiusPx * 0.16));
+  let outsideSource = smoothstep(sourceRadiusPx + flareGapPx, sourceRadiusPx + (flareGapPx * 2.0), r);
+  let radialFade = 1.0 - smoothstep(sizePx * 0.78, sizePx, r);
   let sigmaGlow = haloRadiusPx * 0.18;
-  let sigmaCore = max(1.2, haloRadiusPx * 0.022);
   let ring1 = haloRadiusPx * 0.16;
   let ring2 = haloRadiusPx * 0.28;
   let ring3 = haloRadiusPx * 0.42;
@@ -2973,25 +3019,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let ray1 = 0.68 * gaussian(p1.x, 34.0) * lorentzian(p1.y, 1.9);
   let ray2 = 0.34 * gaussian(p2.x, 22.0) * lorentzian(p2.y, 2.1);
   let ray3 = 0.18 * gaussian(p3.x, 16.0) * lorentzian(p3.y, 2.2);
-  let rays = outsideSource * (ray0 + ray1 + ray2 + ray3);
+  let rays = outsideSource * radialFade * (ray0 + ray1 + ray2 + ray3);
 
-  let core = select(1.30 * gaussian(r, sigmaCore), 0.0, sourceRadiusPx > 0.5);
-  let discEdge = max(1.0, min(4.0, sourceRadiusPx * 0.16));
-  let sourceDisc = smoothstep(sourceRadiusPx + discEdge, sourceRadiusPx - discEdge, r);
-  let glow = outsideSource * 0.26 * gaussian(haloR, sigmaGlow);
+  let glow = outsideSource * radialFade * 0.26 * gaussian(haloR, sigmaGlow);
   let rings =
-    outsideSource * (
+    outsideSource * radialFade * (
       0.060 * gaussian(haloR - ring1, ringW1) +
       0.038 * gaussian(haloR - ring2, ringW2) +
       0.018 * gaussian(haloR - ring3, ringW3)
     );
 
-  let discA = sourceDisc;
-  let whiteA = alpha * (core + glow + (0.72 * rays));
-  let tintA = discA + (alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays)));
+  let whiteA = alpha * (glow + (0.72 * rays));
+  let tintA = alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
   let white = vec3<f32>(1.0, 1.0, 1.0) * whiteA;
-  let tint = i.color.rgb * (1.20 * discA + tintA);
-  return vec4<f32>(white + tint, max(discA, max(whiteA, tintA)));
+  let tint = i.color.rgb * tintA;
+  return vec4<f32>(white + tint, max(whiteA, tintA));
 }
 `;
 
@@ -3604,7 +3646,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     if (meshLike && meshLike.transparent === true && meshLike.receives_shadow !== true) {
       receiveShadow = false;
     }
-    var unlitMaterial = meshLike && meshLike.receives_lighting === false;
+    var unlitMaterial = meshLike && (meshLike.receives_lighting === false || meshLike.no_lighting === true);
     u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);
     u32[72] = 0;
     f32[73] = 0.0;
@@ -5417,6 +5459,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       pos: pos,
       target: vec3Or(light.target, [0, 0, 0]),
       color_f32: parseColor(light.color || "white"),
+      marker_color_f32: parseColor(light.marker_color || light.source_color || light.color || "white"),
       model: light.model || "blinn_phong",
       intensity: intensity,
       direction_f32: resolveLightDirection(light, pos),
@@ -8183,8 +8226,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var lightPos = light.pos || [0, 0, 0];
         var ndc = projectWorldToNdc(mvp, lightPos);
         if (!ndc) { continue; }
-        if (Math.abs(ndc[0]) > 1.02 || Math.abs(ndc[1]) > 1.02) { continue; }
-        if (lightOccludedByBoxes(cameraPos, lightPos, occluders)) { continue; }
+        var sourceRadiusWorld = light.source_radius !== undefined ? light.source_radius : baseSizeWorld;
+        var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);
+        if (sourceRadiusWorld > 0.0) {
+          sourceRadiusPx = Math.max(sourceRadiusPx, Math.min(96, Math.max(18, Number(sourceRadiusWorld) * 56.0)));
+        }
         var intensity = Math.max(0.0, Number(light.intensity || 24.0));
         var toCam = [
           Number(cameraPos[0]) - Number(lightPos[0]),
@@ -8201,10 +8247,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var baseAlpha = Math.min(1.0, 0.30 + Math.min(0.70, intensity / 170.0));
         var flareAlpha = Math.max(0.0, Math.min(1.0, baseAlpha * (0.30 + (0.70 * facing))));
         if (!(flareAlpha > 0.001)) { continue; }
-        var sourceRadiusWorld = light.source_radius !== undefined ? light.source_radius : baseSizeWorld;
-        var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);
         var haloSizePx = Math.max(72, 96 + (intensity * 0.55) + (72 * facing));
         var pxSize = Math.max(haloSizePx, sourceRadiusPx + haloSizePx);
+        var padX = (pxSize / Math.max(1, width)) * 2.0;
+        var padY = (pxSize / Math.max(1, height)) * 2.0;
+        if (Math.abs(ndc[0]) > 1.0 + padX || Math.abs(ndc[1]) > 1.0 + padY) { continue; }
+        if (lightOccludedByBoxes(cameraPos, lightPos, occluders)) { continue; }
         var sizeNdcX = (pxSize / Math.max(1, width));
         var sizeNdcY = (pxSize / Math.max(1, height));
         var dx = (ndc[0] * 0.5 * width);
@@ -8212,7 +8260,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var axisAngle = Math.atan2(dy, dx);
         instances.push(
           ndc[0], ndc[1], sizeNdcX, sizeNdcY,
-          Number((light.color_f32 || [1, 1, 1, 1])[0]), Number((light.color_f32 || [1, 1, 1, 1])[1]), Number((light.color_f32 || [1, 1, 1, 1])[2]), 1.0,
+          Number((light.marker_color_f32 || light.color_f32 || [1, 1, 1, 1])[0]), Number((light.marker_color_f32 || light.color_f32 || [1, 1, 1, 1])[1]), Number((light.marker_color_f32 || light.color_f32 || [1, 1, 1, 1])[2]), 1.0,
           pxSize, flareAlpha, facing, sourceRadiusPx,
           Math.cos(axisAngle), Math.sin(axisAngle), Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0)), 0.0
         );

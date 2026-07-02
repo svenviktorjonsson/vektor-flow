@@ -83,17 +83,18 @@
         existing = doc.createElement("div");
         existing.id = "vf-native-scene-fatal";
         existing.style.position = "absolute";
-        existing.style.inset = "0";
+        existing.style.right = "16px";
+        existing.style.bottom = "16px";
+        existing.style.width = "min(560px, calc(100vw - 32px))";
+        existing.style.maxHeight = "min(260px, calc(100vh - 32px))";
         existing.style.zIndex = "9999";
-        existing.style.display = "flex";
-        existing.style.alignItems = "center";
-        existing.style.justifyContent = "center";
-        existing.style.padding = "24px";
-        existing.style.background = "rgba(20,12,16,0.92)";
+        existing.style.padding = "0";
+        existing.style.background = "transparent";
         existing.style.color = "#ffd7df";
         existing.style.font = "600 14px/1.45 Consolas, Menlo, monospace";
         existing.style.whiteSpace = "pre-wrap";
         existing.style.textAlign = "left";
+        existing.style.pointerEvents = "auto";
         if (host !== doc.body) {
           var computedPosition = "";
           try { computedPosition = global.getComputedStyle(host).position || ""; } catch (_) {}
@@ -105,7 +106,60 @@
         }
         host.appendChild(existing);
       }
-      existing.textContent = String(text);
+      existing.textContent = "";
+      var panel = doc.createElement("div");
+      panel.style.maxHeight = "inherit";
+      panel.style.overflow = "auto";
+      panel.style.padding = "12px";
+      panel.style.border = "1px solid rgba(255,215,223,0.28)";
+      panel.style.borderRadius = "8px";
+      panel.style.background = "rgba(20,12,16,0.94)";
+      panel.style.boxShadow = "0 18px 60px rgba(0,0,0,0.45)";
+      panel.style.pointerEvents = "auto";
+      var actions = doc.createElement("div");
+      actions.style.display = "flex";
+      actions.style.justifyContent = "flex-end";
+      actions.style.gap = "8px";
+      actions.style.marginBottom = "8px";
+      var copy = doc.createElement("button");
+      copy.type = "button";
+      copy.textContent = "Copy";
+      copy.style.cssText = "border:1px solid rgba(255,215,223,.35);background:rgba(255,255,255,.08);color:#ffd7df;border-radius:6px;padding:4px 10px;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer";
+      copy.onclick = function () {
+        var value = String(text);
+        try {
+          if (global.navigator && global.navigator.clipboard && typeof global.navigator.clipboard.writeText === "function") {
+            global.navigator.clipboard.writeText(value).catch(function () {});
+          }
+        } catch (_) {}
+      };
+      var close = doc.createElement("button");
+      close.type = "button";
+      close.textContent = "Close";
+      close.style.cssText = "border:1px solid rgba(255,215,223,.35);background:rgba(255,255,255,.08);color:#ffd7df;border-radius:6px;padding:4px 10px;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer";
+      close.onclick = function () {
+        if (existing && existing.parentNode) {
+          existing.parentNode.removeChild(existing);
+        }
+      };
+      var message = doc.createElement("div");
+      message.textContent = String(text);
+      actions.appendChild(copy);
+      actions.appendChild(close);
+      panel.appendChild(actions);
+      panel.appendChild(message);
+      existing.appendChild(panel);
+      if (!global.__vfNativeSceneFatalEscapeBound) {
+        global.__vfNativeSceneFatalEscapeBound = true;
+        doc.addEventListener("keydown", function (event) {
+          if (event && event.key === "Escape") {
+            var fatal = doc.getElementById("vf-native-scene-fatal");
+            if (fatal && fatal.parentNode) {
+              fatal.parentNode.removeChild(fatal);
+            }
+          }
+        });
+      }
     } catch (_) {}
   }
 
@@ -1522,6 +1576,7 @@
       motion: String(entityProp(resolved, "motion", Array.isArray(entityProp(resolved, "pos", undefined)) ? "fixed" : "orbit") || "orbit"),
       model: String(entityProp(resolved, "model", "blinn_phong") || "blinn_phong"),
       color: resolveTrackedRgba(resolved, "color", framePos, toRgba(entityProp(resolved, "color", [1.0, 0.95, 0.84, 1.0]), [1.0, 0.95, 0.84, 1.0])),
+      marker_color: resolveTrackedRgba(resolved, "marker_color", framePos, toRgba(entityProp(resolved, "marker_color", entityProp(resolved, "source_color", entityProp(resolved, "color", [1.0, 0.95, 0.84, 1.0]))), [1.0, 0.95, 0.84, 1.0])),
       kind: kind,
       direction: entityTrack(resolved, "direction")
         ? resolveTrackedVec3(resolved, "direction", framePos, [0, 0, -1])
@@ -3348,7 +3403,7 @@
       spotlightBoost = Math.max(0.0, (dir[0] * toCamera[0]) + (dir[1] * toCamera[1]) + (dir[2] * toCamera[2]));
     }
     var glowRadius = Math.max(0.02, Number(markerSize || 0.18));
-    var color = toRgba(light.color, [1.0, 1.0, 1.0, 1.0]);
+    var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);
     var glowAlpha = Math.min(1.0, 0.42 + (0.42 * spotlightBoost));
     var centerColor = [color[0], color[1], color[2], 1.0];
     var innerColor = [color[0], color[1], color[2], Math.max(0.85, glowAlpha)];
@@ -3406,7 +3461,29 @@
       var light = lights[i];
       if (light.show_marker === false) { continue; }
       var size = Math.max(0.02, Number(light.source_radius != null ? light.source_radius : defaultSize) || defaultSize);
-      meshes.push(buildGlowHaloMesh(light, camera, size));
+      var center = toVec3(light.pos, [0, 0, 0]);
+      var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);
+      meshes.push({
+        type: "field_mesh",
+        id: String("light_source_" + String(light.id || i)),
+        topology: "point-list",
+        vertices: new Float32Array([
+          center[0], center[1], center[2],
+          0.0, 0.0, 1.0,
+          color[0], color[1], color[2], 1.0
+        ]),
+        indices: new Uint32Array([0]),
+        color: color,
+        vertex_size: size,
+        render_mode: "marker_impostor",
+        marker_space: "world",
+        receives_lighting: false,
+        receives_shadow: false,
+        casts_shadow: false,
+        depth_write: true,
+        transparent: false,
+        pickable: false
+      });
     }
     return meshes;
   }
@@ -3754,7 +3831,7 @@
       var size = Math.max(92, 120 + (intensity * 0.72) + (120 * facing));
       var node = ensureFlareElement(layer, i);
       var canvas = ensureFlareCanvas(node);
-      var color = toRgba(light.color, [1.0, 1.0, 1.0, 1.0]);
+      var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);
       var cr = Math.round(color[0] * 255);
       var cg = Math.round(color[1] * 255);
       var cb = Math.round(color[2] * 255);
@@ -7776,6 +7853,9 @@
       frame = ensureVisibleSceneFrameShell();
     }
     var body = frame ? frame.querySelector(".vf-frame__body") : null;
+    if (body && gameCameraMode()) {
+      try { body.tabIndex = 0; } catch (_) {}
+    }
     var cameraFallback = { pos: [3.9, -5.6, 3.2], target: [0, 0, 0.9], fov: 34, up: [0, 0, 1], min_distance: 0.0 };
     var watchedFrameId = String(frameSpec.frame_id || config.frame_id);
     if (!global.__vfNativeSceneCameraControls) {
@@ -7818,11 +7898,16 @@
           keyS: false,
           keyD: false,
           gameActive: false,
+          gameClickLocked: false,
+          gameCameraMode: String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game",
           gamePos: null,
           gameYaw: 0.0,
           gamePitch: 0.0,
           gameInitDone: false,
           gameSensitivity: Number(cameraBehaviorProps().sensitivity || 0.0022) || 0.0022,
+          gameLastMouseX: null,
+          gameLastMouseY: null,
+          gameMoveLastTsMs: 0.0,
           cameraKeyLastTsMs: 0.0,
           cameraKeyStepPending: false,
           dependencyWaitStartMs: 0.0
@@ -7852,11 +7937,15 @@
     controlState.keyS = false;
     controlState.keyD = false;
     controlState.gameActive = false;
+    controlState.gameClickLocked = false;
+    controlState.gameCameraMode = String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game";
     controlState.gamePos = null;
     controlState.gameYaw = 0.0;
     controlState.gamePitch = 0.0;
     controlState.gameInitDone = false;
     controlState.gameSensitivity = Number(cameraBehaviorProps().sensitivity || 0.0022) || 0.0022;
+    controlState.gameLastMouseX = null;
+    controlState.gameLastMouseY = null;
     controlState.cameraKeyLastTsMs = 0.0;
     controlState.cameraKeyStepPending = false;
     controlState.cameraFramePending = false;
@@ -7991,7 +8080,26 @@
         }
       ) === true;
     }
+    function inputDown(name) {
+      var input = global.VfInput;
+      return !!(input && typeof input.isDown === "function" && input.isDown(name));
+    }
+    function syncHeldInputState() {
+      var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+      if (activeFrameId && activeFrameId !== watchedFrameId) { return; }
+      controlState.keyLeft = inputDown("ArrowLeft") || inputDown("arrowleft");
+      controlState.keyRight = inputDown("ArrowRight") || inputDown("arrowright");
+      controlState.keyUp = inputDown("ArrowUp") || inputDown("arrowup");
+      controlState.keyDown = inputDown("ArrowDown") || inputDown("arrowdown");
+      if (controlState.gameClickLocked === true) {
+        controlState.keyW = inputDown("w") || inputDown("KeyW");
+        controlState.keyA = inputDown("a") || inputDown("KeyA");
+        controlState.keyS = inputDown("s") || inputDown("KeyS");
+        controlState.keyD = inputDown("d") || inputDown("KeyD");
+      }
+    }
     function cameraKeysActive() {
+      syncHeldInputState();
       return controlState.keyLeft === true ||
         controlState.keyRight === true ||
         controlState.keyUp === true ||
@@ -8162,7 +8270,14 @@
       }
       triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
       if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
-        failFast(String(options.label || "camera-only") + ' frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
+        if (
+          global.VfDisplay &&
+          typeof global.VfDisplay.requestDynamicGeomFrameUpdate === "function"
+        ) {
+          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: false });
+        }
+        scheduleNextFrameIfNeeded(true);
+        return;
       }
       if (typeof options.dirtyVersion === "number") {
         visibleLastDirtyVersion = options.dirtyVersion;
@@ -8225,11 +8340,11 @@
     }
     function ensureCameraHoldLoop(state) {
       if (!state || state.cameraHoldLoopPending === true) { return; }
-      if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
+      if (!cameraStateHasHeldKey(state)) { return; }
       state.cameraHoldLoopPending = true;
-      global.setTimeout(function () {
+      global.requestAnimationFrame(function () {
         state.cameraHoldLoopPending = false;
-        if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
+        if (!cameraStateHasHeldKey(state)) { return; }
         if (typeof state.requestCameraHoldFrame === "function") {
           state.requestCameraHoldFrame();
         } else if (typeof state.requestCameraFrame === "function") {
@@ -8283,47 +8398,134 @@
     function gameCameraMode() {
       return String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game";
     }
+    function cameraStateHasHeldKey(state) {
+      return !!(state && (
+        state.keyLeft === true ||
+        state.keyRight === true ||
+        state.keyUp === true ||
+        state.keyDown === true ||
+        state.keyW === true ||
+        state.keyA === true ||
+        state.keyS === true ||
+        state.keyD === true
+      ));
+    }
     function setGameCursorActive(active) {
       var enabled = active === true;
       controlState.gameActive = enabled;
+      if (!enabled) {
+        controlState.gameLastMouseX = null;
+        controlState.gameLastMouseY = null;
+      }
       var cursor = enabled ? "none" : "";
+      var cursorRect = null;
+      try {
+        var cursorTarget = body && typeof body.querySelector === "function" ? body.querySelector("canvas.vf-geom-canvas") : null;
+        if (!cursorTarget) { cursorTarget = body || frame; }
+        cursorRect = cursorTarget && typeof cursorTarget.getBoundingClientRect === "function"
+          ? cursorTarget.getBoundingClientRect()
+          : null;
+      } catch (_) {
+        cursorRect = null;
+      }
       try {
         if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
-          global.chrome.webview.postMessage({
+          var cursorMessage = {
             type: "transparent-overlay.cursor",
             cursor: enabled ? "none" : "auto"
-          });
+          };
+          if (cursorRect) {
+            cursorMessage.left = Number(cursorRect.left || 0.0);
+            cursorMessage.top = Number(cursorRect.top || 0.0);
+            cursorMessage.right = Number(cursorRect.right || 0.0);
+            cursorMessage.bottom = Number(cursorRect.bottom || 0.0);
+            cursorMessage.x = (Number(cursorRect.left || 0.0) + Number(cursorRect.right || 0.0)) * 0.5;
+            cursorMessage.y = (Number(cursorRect.top || 0.0) + Number(cursorRect.bottom || 0.0)) * 0.5;
+          }
+          global.chrome.webview.postMessage(cursorMessage);
         }
       } catch (_) {}
-      if (frame && frame.style) { frame.style.cursor = cursor; }
+      if (body && body.classList) { body.classList.toggle("vf-native-scene-game-active", enabled); }
+      try {
+        var canvas = body && typeof body.querySelector === "function" ? body.querySelector("canvas.vf-geom-canvas") : null;
+        if (canvas && canvas.classList) { canvas.classList.toggle("vf-native-scene-game-active", enabled); }
+      } catch (_) {}
       if (body && body.style) { body.style.cursor = cursor; }
-      if (global.document && global.document.documentElement && global.document.documentElement.style) {
-        global.document.documentElement.style.cursor = cursor;
+    }
+    controlState.setGameCursorActive = setGameCursorActive;
+    function ensureFocusable(target) {
+      if (!target || typeof target.setAttribute !== "function") { return; }
+      try {
+        if (!target.hasAttribute("tabindex")) {
+          target.setAttribute("tabindex", "-1");
+        }
+      } catch (_) {}
+    }
+    function focusGameCameraTarget(target) {
+      ensureFocusable(body);
+      ensureFocusable(frame);
+      ensureFocusable(target);
+      if (target && typeof target.focus === "function") {
+        try { target.focus({ preventScroll: true }); return; } catch (_) {
+          try { target.focus(); return; } catch (_) {}
+        }
       }
-      if (global.document && global.document.body && global.document.body.style) {
-        global.document.body.style.cursor = cursor;
+      try {
+        if (body && typeof body.focus === "function") { body.focus({ preventScroll: true }); return; }
+      } catch (_) {
+        try { if (body && typeof body.focus === "function") { body.focus(); return; } } catch (_) {}
+      }
+      try {
+        if (frame && typeof frame.focus === "function") { frame.focus({ preventScroll: true }); return; }
+      } catch (_) {
+        try { if (frame && typeof frame.focus === "function") { frame.focus(); } } catch (_) {}
       }
     }
     function activateGameCamera() {
       if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+      if (controlState.gameSuppressHoverActivation === true) { return; }
       markActiveFrame();
+      focusGameCameraTarget();
+      controlState.gameClickLocked = true;
+      controlState.gameLastMouseX = null;
+      controlState.gameLastMouseY = null;
       setGameCursorActive(true);
-      var overlayHostCursor = !!(global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function");
-      var lockTarget = overlayHostCursor
-        ? null
-        : (global.document && global.document.documentElement
-          ? global.document.documentElement
-          : (global.document && global.document.body ? global.document.body : (body || frame)));
+      try {
+        if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+          global.chrome.webview.postMessage({ type: "vf_log", level: "info", message: "game camera locked frame=" + watchedFrameId, t: Date.now() });
+        }
+      } catch (_) {}
+    }
+    function requestGamePointerLockFromGesture(target) {
+      if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+      if (!target) { return; }
+      activateGameCamera();
+      if (global.chrome && global.chrome.webview) { return; }
+      var lockTarget = target || body || frame || (global.document && global.document.documentElement);
       if (lockTarget && typeof lockTarget.requestPointerLock === "function") {
-        try { lockTarget.requestPointerLock(); } catch (_) {}
+        try {
+          var lockResult = lockTarget.requestPointerLock();
+          if (lockResult && typeof lockResult.catch === "function") {
+            lockResult.catch(function (err) {
+              try {
+                if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+                  global.chrome.webview.postMessage({ type: "vf_log", level: "warn", message: "pointer lock failed: " + (err && err.message ? err.message : String(err)), t: Date.now() });
+                }
+              } catch (_) {}
+            });
+          }
+        } catch (_) {}
       }
     }
     function deactivateGameCamera() {
+      controlState.gameSuppressHoverActivation = true;
+      controlState.gameClickLocked = false;
       setGameCursorActive(false);
       controlState.keyW = false;
       controlState.keyA = false;
       controlState.keyS = false;
       controlState.keyD = false;
+      controlState.gameMoveLastTsMs = 0.0;
       if (global.document && typeof global.document.exitPointerLock === "function") {
         try { global.document.exitPointerLock(); } catch (_) {}
       }
@@ -8339,29 +8541,33 @@
       controlState.gameInitDone = true;
     }
     function applyGameCamera(baseCamera, dtSec) {
+      syncHeldInputState();
       initGameCameraFromBase(baseCamera);
       var speed = Math.max(0.05, Number(cameraBehaviorProps().speed || 3.0) || 3.0);
       var yaw = Number(controlState.gameYaw || 0.0);
       var pitch = Number(controlState.gamePitch || 0.0);
-      var forwardFlat = normalize3([Math.cos(yaw), Math.sin(yaw), 0.0], [0.0, 1.0, 0.0]);
-      var rightFlat = normalize3([Math.cos(yaw - Math.PI * 0.5), Math.sin(yaw - Math.PI * 0.5), 0.0], [1.0, 0.0, 0.0]);
+      var cp = Math.cos(pitch);
+      var look = normalize3([Math.cos(yaw) * cp, Math.sin(yaw) * cp, Math.sin(pitch)], [0.0, 1.0, 0.0]);
+      var right = normalize3([look[1], -look[0], 0.0], [1.0, 0.0, 0.0]);
       var move = [0.0, 0.0, 0.0];
-      if (controlState.keyW) { move = [move[0] + forwardFlat[0], move[1] + forwardFlat[1], move[2]]; }
-      if (controlState.keyS) { move = [move[0] - forwardFlat[0], move[1] - forwardFlat[1], move[2]]; }
-      if (controlState.keyA) { move = [move[0] - rightFlat[0], move[1] - rightFlat[1], move[2]]; }
-      if (controlState.keyD) { move = [move[0] + rightFlat[0], move[1] + rightFlat[1], move[2]]; }
+      if (controlState.keyW) { move = [move[0] + look[0], move[1] + look[1], move[2] + look[2]]; }
+      if (controlState.keyS) { move = [move[0] - look[0], move[1] - look[1], move[2] - look[2]]; }
+      if (controlState.keyA) { move = [move[0] - right[0], move[1] - right[1], move[2] - right[2]]; }
+      if (controlState.keyD) { move = [move[0] + right[0], move[1] + right[1], move[2] + right[2]]; }
       if (move[0] !== 0.0 || move[1] !== 0.0 || move[2] !== 0.0) {
         move = normalize3(move, [0.0, 0.0, 0.0]);
-        var step = speed * Math.max(0.0, Math.min(0.05, Number(dtSec || 0.0)));
+        var moveDtSec = Math.max(0.0, Math.min(1.0 / 60.0, Number(dtSec || (1.0 / 60.0)) || (1.0 / 60.0)));
+        controlState.gameMoveLastTsMs = 0.0;
+        var step = speed * moveDtSec;
         controlState.gamePos = [
           Number(controlState.gamePos[0] || 0.0) + (move[0] * step),
           Number(controlState.gamePos[1] || 0.0) + (move[1] * step),
           Number(controlState.gamePos[2] || 0.0) + (move[2] * step)
         ];
         controlState.userInteracted = true;
+      } else {
+        controlState.gameMoveLastTsMs = 0.0;
       }
-      var cp = Math.cos(pitch);
-      var look = normalize3([Math.cos(yaw) * cp, Math.sin(yaw) * cp, Math.sin(pitch)], [0.0, 1.0, 0.0]);
       var p = toVec3(controlState.gamePos, toVec3(baseCamera && baseCamera.pos, [0.0, -6.0, 1.8]));
       return {
         pos: p,
@@ -8393,13 +8599,79 @@
       markActiveFrame();
       applyWheelZoom(controlState, ev);
     }
-    function attachFrameZoomTarget(target) {
-      if (!target || target.__vfWheelZoomAttached) { return; }
-      target.__vfWheelZoomAttached = true;
+    function eventHitsFrameChrome(ev) {
+      var target = ev && ev.target;
+      if (target && typeof target.closest === "function") {
+        if (target.closest("[data-vf-frame-chrome='1'], .vf-frame__header, .vf-frame__resize-grip, .vf-frame__minibar")) {
+          return true;
+        }
+      }
+      if (ev && typeof ev.composedPath === "function") {
+        var path = ev.composedPath();
+        for (var i = 0; i < path.length; i++) {
+          var node = path[i];
+          if (!node || !node.classList) { continue; }
+          if (
+            node.getAttribute && node.getAttribute("data-vf-frame-chrome") === "1" ||
+            node.classList.contains("vf-frame__header") ||
+            node.classList.contains("vf-frame__resize-grip") ||
+            node.classList.contains("vf-frame__minibar")
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    function attachFrameZoomTarget(target, options) {
+      if (!target || target.__vfNativeSceneCameraTargetAttached) { return; }
+      options = options && typeof options === "object" ? options : {};
+      var gameContentTarget = options.gameContent === true;
+      var releaseGameTarget = options.releaseGame === true;
+      target.__vfNativeSceneCameraTargetAttached = true;
+      ensureFocusable(target);
       target.addEventListener("pointerenter", markActiveFrame, { passive: true });
-      target.addEventListener("pointermove", markActiveFrame, { passive: true });
-      target.addEventListener("pointerdown", markActiveFrame, { passive: true });
-      target.addEventListener("pointerdown", activateGameCamera, { passive: true });
+      target.addEventListener("pointerenter", function (ev) {
+        markActiveFrame();
+        if (gameContentTarget && !eventHitsFrameChrome(ev) && (!gameCameraMode() || controlState.gameClickLocked === true)) {
+          focusGameCameraTarget(target);
+        }
+        if (releaseGameTarget && controlState.gameActive === true) {
+          deactivateGameCamera();
+        }
+      }, { passive: true });
+      target.addEventListener("pointermove", function (ev) {
+        markActiveFrame();
+        if (gameContentTarget && !eventHitsFrameChrome(ev) && (!gameCameraMode() || controlState.gameClickLocked === true)) {
+          focusGameCameraTarget(target);
+        }
+        if (releaseGameTarget && controlState.gameActive === true) {
+          deactivateGameCamera();
+        }
+      }, { passive: true });
+      target.addEventListener("pointerleave", function () {
+        if (gameContentTarget) {
+          controlState.gameSuppressHoverActivation = false;
+        }
+      }, { passive: true });
+      target.addEventListener("pointerdown", function (ev) {
+        if (eventHitsFrameChrome(ev)) {
+          if (releaseGameTarget && controlState.gameActive === true) {
+            deactivateGameCamera();
+          }
+          return;
+        }
+        markActiveFrame();
+        if (releaseGameTarget && controlState.gameActive === true) {
+          deactivateGameCamera();
+          return;
+        }
+        if (gameContentTarget) {
+          focusGameCameraTarget(target);
+          controlState.gameSuppressHoverActivation = false;
+          requestGamePointerLockFromGesture(target);
+        }
+      }, { passive: true, capture: true });
     }
     function eventFrameId(ev) {
       var target = ev && ev.target;
@@ -8429,9 +8701,29 @@
       return !fid || fid === activeFrameId;
     }
     if (useVisibleFrame) {
-      attachFrameZoomTarget(frame);
-      attachFrameZoomTarget(body);
+      attachFrameZoomTarget(body, { gameContent: true });
+      try {
+        var header = frame && typeof frame.querySelector === "function" ? frame.querySelector(".vf-frame__header") : null;
+        attachFrameZoomTarget(header, { gameContent: false, releaseGame: true });
+      } catch (_) {}
+      if (global.document && !controlState.gameContentPointerCaptureAttached) {
+        controlState.gameContentPointerCaptureAttached = true;
+        global.document.addEventListener("pointerdown", function (ev) {
+          if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+          if (eventHitsFrameChrome(ev)) { return; }
+          var target = ev && ev.target;
+          if (!target || typeof target.closest !== "function") { return; }
+          var content = target.closest("[data-vf-frame-content='1'], .vf-frame__body");
+          if (!content) { return; }
+          var ownerFrame = content.closest && content.closest(".vf-frame");
+          if (!ownerFrame) { return; }
+          if (String(ownerFrame.getAttribute("data-vf-frame-id") || "") !== watchedFrameId) { return; }
+          controlState.gameSuppressHoverActivation = false;
+          requestGamePointerLockFromGesture(content);
+        }, { passive: true, capture: true });
+      }
       markActiveFrame();
+      setGameCursorActive(false);
     }
     if (!global.__vfNativeSceneGlobalWheelAttached) {
       global.__vfNativeSceneGlobalWheelAttached = true;
@@ -8460,14 +8752,23 @@
         if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }
         ev.preventDefault();
         var wasActive = activeState.keyLeft === true || activeState.keyRight === true || activeState.keyUp === true || activeState.keyDown === true;
+        if (
+          (key === "ArrowLeft" && activeState.keyLeft === true) ||
+          (key === "ArrowRight" && activeState.keyRight === true) ||
+          (key === "ArrowUp" && activeState.keyUp === true) ||
+          (key === "ArrowDown" && activeState.keyDown === true)
+        ) {
+          return;
+        }
         if (key === "ArrowLeft") { activeState.keyLeft = true; }
         else if (key === "ArrowRight") { activeState.keyRight = true; }
         else if (key === "ArrowUp") { activeState.keyUp = true; }
         else if (key === "ArrowDown") { activeState.keyDown = true; }
         if (!wasActive || Number(activeState.cameraKeyLastTsMs || 0.0) <= 0.0) {
-          activeState.cameraKeyLastTsMs = global.performance && typeof global.performance.now === "function"
+          var keyNowMs = global.performance && typeof global.performance.now === "function"
             ? global.performance.now()
             : Date.now();
+          activeState.cameraKeyLastTsMs = keyNowMs - (1000.0 / 60.0);
         }
         activeState.userInteracted = true;
         ensureCameraHoldLoop(activeState);
@@ -8516,22 +8817,100 @@
     }
     if (!global.__vfNativeSceneGameCameraAttached) {
       global.__vfNativeSceneGameCameraAttached = true;
-      global.addEventListener("mousemove", function (ev) {
+      function activeGameMouseState() {
         var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
-        var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+        return activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
           ? global.__vfNativeSceneCameraControls.states[activeFrameId]
           : null;
-        if (!activeState || activeState.gameActive !== true) { return; }
-        var sensitivity = Math.max(0.0001, Number(activeState.gameSensitivity || 0.0022) || 0.0022);
-        var dx = Number(ev && ev.movementX || 0.0) || 0.0;
-        var dy = Number(ev && ev.movementY || 0.0) || 0.0;
+      }
+      function applyGameMouseDelta(activeState, dx, dy) {
+        if (!activeState || activeState.gameClickLocked !== true) { return; }
+        dx = Number(dx || 0.0) || 0.0;
+        dy = Number(dy || 0.0) || 0.0;
         if (dx === 0.0 && dy === 0.0) { return; }
+        var sensitivity = Math.max(0.0001, Number(activeState.gameSensitivity || 0.0022) || 0.0022);
+        activeState.gameZeroDeltaLogged = false;
         activeState.gameYaw -= dx * sensitivity;
         activeState.gamePitch = Math.max(-1.45, Math.min(1.45, Number(activeState.gamePitch || 0.0) - (dy * sensitivity)));
         activeState.userInteracted = true;
         if (typeof activeState.requestCameraFrame === "function") {
           activeState.requestCameraFrame();
         }
+      }
+      if (global.chrome && global.chrome.webview && typeof global.chrome.webview.addEventListener === "function") {
+        global.chrome.webview.addEventListener("message", function (ev) {
+          var data = ev && ev.data ? ev.data : null;
+          if (!data || String(data.type || "") !== "transparent-overlay.mouse-delta") { return; }
+          applyGameMouseDelta(activeGameMouseState(), Number(data.dx || 0.0), Number(data.dy || 0.0));
+        });
+      }
+      if (global.document && typeof global.document.addEventListener === "function") {
+        global.document.addEventListener("pointerlockchange", function () {
+          var state = activeGameMouseState();
+          if (state && state.gameClickLocked === true && !global.document.pointerLockElement) {
+            state.gameSuppressHoverActivation = true;
+            state.gameClickLocked = false;
+            state.gameActive = false;
+            state.keyW = false;
+            state.keyA = false;
+            state.keyS = false;
+            state.keyD = false;
+            state.gameMoveLastTsMs = 0.0;
+            if (typeof state.setGameCursorActive === "function") {
+              state.setGameCursorActive(false);
+            }
+            if (typeof state.requestCameraFrame === "function") {
+              state.requestCameraFrame();
+            }
+          }
+          try {
+            if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+              global.chrome.webview.postMessage({
+                type: "vf_log",
+                level: "info",
+                message: "pointerlockchange element=" + (global.document.pointerLockElement ? String(global.document.pointerLockElement.className || global.document.pointerLockElement.tagName || "locked") : "none"),
+                t: Date.now()
+              });
+            }
+          } catch (_) {}
+        }, true);
+      }
+      global.addEventListener("mousemove", function (ev) {
+        var activeState = activeGameMouseState();
+        if (!activeState || activeState.gameClickLocked !== true) { return; }
+        var dx = Number(ev && ev.movementX || 0.0) || 0.0;
+        var dy = Number(ev && ev.movementY || 0.0) || 0.0;
+        if ((dx !== 0.0 || dy !== 0.0) && ev) {
+          var px = Number(ev.clientX);
+          var py = Number(ev.clientY);
+          if (Number.isFinite(px)) { activeState.gameLastMouseX = px; }
+          if (Number.isFinite(py)) { activeState.gameLastMouseY = py; }
+        }
+        if (dx === 0.0 && dy === 0.0 && ev) {
+          var cx = Number(ev.clientX);
+          var cy = Number(ev.clientY);
+          if (Number.isFinite(cx) && Number.isFinite(cy) &&
+              Number.isFinite(Number(activeState.gameLastMouseX)) &&
+              Number.isFinite(Number(activeState.gameLastMouseY))) {
+            dx = cx - Number(activeState.gameLastMouseX);
+            dy = cy - Number(activeState.gameLastMouseY);
+          }
+          if (Number.isFinite(cx)) { activeState.gameLastMouseX = cx; }
+          if (Number.isFinite(cy)) { activeState.gameLastMouseY = cy; }
+        }
+        if (dx === 0.0 && dy === 0.0) {
+          if (activeState.gameZeroDeltaLogged !== true) {
+            activeState.gameZeroDeltaLogged = true;
+            try {
+              if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+                global.chrome.webview.postMessage({ type: "vf_log", level: "warn", message: "game mousemove locked but zero delta", t: Date.now() });
+              }
+            } catch (_) {}
+          }
+          return;
+        }
+        activeState.gameZeroDeltaLogged = false;
+        applyGameMouseDelta(activeState, dx, dy);
       }, true);
       global.addEventListener("keydown", function (ev) {
         var key = String(ev && ev.key || "").toLowerCase();
@@ -8541,36 +8920,49 @@
           : null;
         if (!activeState) { return; }
         if (key === "escape") {
-          activeState.gameActive = false;
+          activeState.gameSuppressHoverActivation = true;
+        activeState.gameActive = false;
+        activeState.gameClickLocked = false;
           activeState.keyW = false;
           activeState.keyA = false;
           activeState.keyS = false;
           activeState.keyD = false;
-          try {
-            if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
-              global.chrome.webview.postMessage({ type: "transparent-overlay.cursor", cursor: "auto" });
-            }
-          } catch (_) {}
-          var activeFrame = typeof findFrameEl === "function" ? findFrameEl(activeFrameId) : null;
-          var activeBody = activeFrame ? activeFrame.querySelector(".vf-frame__body") : null;
-          if (activeFrame && activeFrame.style) { activeFrame.style.cursor = ""; }
-          if (activeBody && activeBody.style) { activeBody.style.cursor = ""; }
-          if (global.document && global.document.documentElement && global.document.documentElement.style) {
-            global.document.documentElement.style.cursor = "";
+          activeState.gameMoveLastTsMs = 0.0;
+          if (typeof activeState.setGameCursorActive === "function") {
+            activeState.setGameCursorActive(false);
           }
-          if (global.document && global.document.body && global.document.body.style) {
-            global.document.body.style.cursor = "";
+          if (global.document && typeof global.document.exitPointerLock === "function") {
+            try { global.document.exitPointerLock(); } catch (_) {}
           }
+          if (typeof activeState.requestCameraFrame === "function") {
+            activeState.requestCameraFrame();
+          }
+          ev.preventDefault();
           return;
         }
-        if (activeState.gameActive !== true) { return; }
+        if (activeState.gameClickLocked !== true) { return; }
         if (key !== "w" && key !== "a" && key !== "s" && key !== "d") { return; }
         if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }
         ev.preventDefault();
+        var gameWasMoving = activeState.keyW === true || activeState.keyA === true || activeState.keyS === true || activeState.keyD === true;
+        if (
+          (key === "w" && activeState.keyW === true) ||
+          (key === "a" && activeState.keyA === true) ||
+          (key === "s" && activeState.keyS === true) ||
+          (key === "d" && activeState.keyD === true)
+        ) {
+          return;
+        }
         if (key === "w") { activeState.keyW = true; }
         else if (key === "a") { activeState.keyA = true; }
         else if (key === "s") { activeState.keyS = true; }
         else if (key === "d") { activeState.keyD = true; }
+        if (!gameWasMoving || Number(activeState.gameMoveLastTsMs || 0.0) <= 0.0) {
+          var gameKeyNowMs = global.performance && typeof global.performance.now === "function"
+            ? global.performance.now()
+            : Date.now();
+          activeState.gameMoveLastTsMs = gameKeyNowMs - (1000.0 / 60.0);
+        }
         activeState.userInteracted = true;
         ensureCameraHoldLoop(activeState);
         if (typeof activeState.requestCameraHoldFrame === "function") {
@@ -8589,6 +8981,9 @@
         else if (key === "a") { activeState.keyA = false; }
         else if (key === "s") { activeState.keyS = false; }
         else if (key === "d") { activeState.keyD = false; }
+        if (!(activeState.keyW === true || activeState.keyA === true || activeState.keyS === true || activeState.keyD === true)) {
+          activeState.gameMoveLastTsMs = 0.0;
+        }
         if (typeof activeState.requestCameraFrame === "function") {
           activeState.requestCameraFrame();
         }
@@ -8601,10 +8996,15 @@
           var state = registry.states[frameIds[i]];
           if (!state) { continue; }
           state.gameActive = false;
+          state.gameClickLocked = false;
+          if (typeof state.setGameCursorActive === "function") {
+            state.setGameCursorActive(false);
+          }
           state.keyW = false;
           state.keyA = false;
           state.keyS = false;
           state.keyD = false;
+          state.gameMoveLastTsMs = 0.0;
         }
       }, true);
     }
@@ -8760,8 +9160,12 @@
             ? cloneCameraState(controlState.baseCamera, cameraFallback)
             : authoredCamera;
           var userCamera;
-          if (gameCameraMode()) {
+          if (gameCameraMode() && controlState.gameClickLocked === true) {
             userCamera = applyGameCamera(baseCamera, dtSec);
+          } else if (gameCameraMode()) {
+            userCamera = controlState.gameInitDone === true
+              ? applyGameCamera(baseCamera, 0.0)
+              : baseCamera;
           } else if (controlState.lookOnlyControls === true) {
             var zoomedBaseCamera = Math.abs(Number(controlState.zoomFactor || 1.0) - 1.0) > 1e-6
               ? zoomCamera(baseCamera, Number(controlState.zoomFactor || 1.0))
