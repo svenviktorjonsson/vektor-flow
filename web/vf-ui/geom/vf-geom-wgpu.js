@@ -2356,24 +2356,40 @@ fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
 fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let lengthScale = max(bladeLength, 0.20);
-  let q = vec2<f32>(p.x * 5.80 * density, p.y * 1.35 * density);
+  let q = p * (11.0 * density);
   let cell = floor(q);
   let f = fract(q);
-  let rnd = vec3<f32>(
-    hash21(cell + vec2<f32>(101.0, 17.0)),
-    hash21(cell + vec2<f32>(47.0, 229.0)),
-    hash21(cell + vec2<f32>(331.0, 71.0))
-  );
-  let xCenter = 0.18 + (0.64 * rnd.x);
-  let bend = (rnd.y - 0.5) * 0.46 * sin((f.y + rnd.z) * 3.14159265);
-  let width = 0.034 + (0.040 * rnd.z);
-  let lengthJitter = mix(0.76, 1.18, rnd.y) * lengthScale;
-  let root = smoothstep(0.02, 0.16, f.y);
-  let tip = 1.0 - smoothstep(0.62 * lengthJitter, 1.04, f.y);
-  let broken = smoothstep(0.16, 0.64, grassFbm((p * 1.65 * density) + vec2<f32>(rnd.x * 5.0, rnd.y * -4.0)));
-  let across = abs(f.x - xCenter - bend);
-  let core = 1.0 - smoothstep(width * 0.42, width, across);
-  return pow(clamp(core * root * tip * broken, 0.0, 1.0), 0.68);
+  var blade = 0.0;
+  for (var oy: i32 = -1; oy <= 1; oy = oy + 1) {
+    for (var ox: i32 = -1; ox <= 1; ox = ox + 1) {
+      let offset = vec2<f32>(f32(ox), f32(oy));
+      let id = cell + offset;
+      for (var si: i32 = 0; si < 4; si = si + 1) {
+        let s = f32(si) * 37.0;
+        let rnd = vec4<f32>(
+          hash21(id + vec2<f32>(101.0 + s, 17.0)),
+          hash21(id + vec2<f32>(47.0, 229.0 + s)),
+          hash21(id + vec2<f32>(331.0 + s, 71.0)),
+          hash21(id + vec2<f32>(19.0, 409.0 + s))
+        );
+        let origin = offset + vec2<f32>(0.06 + (0.88 * rnd.x), 0.06 + (0.88 * rnd.y));
+        let angle = (rnd.z - 0.5) * 1.55;
+        let dir = normalize(vec2<f32>(sin(angle) * 0.50, 1.0));
+        let side = vec2<f32>(-dir.y, dir.x);
+        let rel = f - origin;
+        let along = dot(rel, dir);
+        let across = abs(dot(rel, side));
+        let len = (0.90 + (0.80 * rnd.w)) * lengthScale;
+        let width = 0.018 + (0.018 * rnd.z);
+        let grow = smoothstep(-len * 0.08, len * 0.08, along);
+        let fade = 1.0 - smoothstep(len * 0.62, len, along);
+        let line = 1.0 - smoothstep(width * 0.42, width, across);
+        let broken = smoothstep(0.18, 0.64, grassFbm((p * 1.35 * density) + vec2<f32>((rnd.x + s) * 2.7, rnd.y * -5.0)));
+        blade = max(blade, line * grow * fade * broken);
+      }
+    }
+  }
+  return pow(clamp(blade, 0.0, 1.0), 0.74);
 }
 
 fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
@@ -2455,8 +2471,8 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     texGrass = mix(texGrass, bladeSunTint, smoothstep(0.67, 0.94, grassMask) * 0.18);
     let strandHighlight = smoothstep(0.08, 0.62, strandMask);
     let strandShade = smoothstep(0.10, 0.70, strandShadowMask);
-    texGrass = texGrass + (bladeSunTint * strandHighlight * 0.075);
-    texGrass = texGrass * (1.0 - (strandShade * 0.11));
+    texGrass = texGrass + (bladeSunTint * strandHighlight * 0.048);
+    texGrass = texGrass * (1.0 - (strandShade * 0.08));
     texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
     let roughDiffuseLift = 0.026 * roughness;
     let bladeShadow = 1.0 - (microShadowStrength * mix(0.025, 0.15, microShadow));
