@@ -2505,9 +2505,11 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     texGrass = texGrass * (1.0 - (strandShade * 0.024));
     texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
     let roughDiffuseLift = 0.026 * roughness;
-    let bladeShadow = 1.0 - (microShadowStrength * mix(0.025, 0.15, microShadow));
+    let bladeShadow = 1.0 - (microShadowStrength * mix(0.05, 0.24, microShadow));
     let strandGroove = 1.0 - (0.012 * strandShade * (1.0 - smoothstep(0.82, 1.0, grassMask)));
-    texGrass = (texGrass * bladeShadow * strandGroove) + vec3<f32>(roughDiffuseLift);
+    let tuftCover = smoothstep(0.18, 0.78, grassHeight(worldPos.xy * scale.x, bladeLength, clumpDensity));
+    let rootOcclusion = 1.0 - (0.16 * tuftCover * microShadowStrength);
+    texGrass = (texGrass * bladeShadow * strandGroove * rootOcclusion) + vec3<f32>(roughDiffuseLift);
     return clamp(texGrass, vec3<f32>(0.0), vec3<f32>(1.0)) * base;
   }
   if (kindCode > 2.5) {

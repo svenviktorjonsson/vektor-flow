@@ -917,12 +917,12 @@
     var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
     var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
     var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
-    var count = Math.max(0, Math.min(90000, Number(texture.near_blade_count || 62000) | 0));
+    var count = Math.max(0, Math.min(160000, Number(texture.near_blade_count || 125000) | 0));
     if (!count) { return null; }
     var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
     var instances = new Float32Array(count * 12);
-    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (size * 0.0042)));
-    var bladeWidth = Math.max(0.00035, Number(texture.near_blade_width || (size * 0.00018)));
+    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (size * 0.0036)));
+    var bladeWidth = Math.max(0.00028, Number(texture.near_blade_width || (size * 0.00014)));
     var camPos = toVec3(camera && camera.pos, topCenter);
     var camTarget = toVec3(camera && camera.target, topCenter);
     var camLocalU = dot3([camPos[0] - topCenter[0], camPos[1] - topCenter[1], camPos[2] - topCenter[2]], uAxis);
@@ -948,7 +948,7 @@
       var dist = Math.sqrt((du * du) + (dv * dv));
       var tFade = Math.max(0.0, Math.min(1.0, (dist - denseRadius) / Math.max(1e-6, fadeRadius - denseRadius)));
       var nearWeight = 1.0 - (tFade * tFade * (3.0 - (2.0 * tFade)));
-      var backgroundWeight = 0.20;
+      var backgroundWeight = 0.34;
       var keepProbability = Math.max(backgroundWeight, nearWeight);
       if (rng() > keepProbability) {
         continue;
