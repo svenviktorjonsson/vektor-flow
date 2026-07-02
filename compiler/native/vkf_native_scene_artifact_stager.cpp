@@ -1801,7 +1801,9 @@ std::string html_text(
         + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};"
         + "document.body.appendChild(s);}"
         + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
-        + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(function(){return hydrateConfig(global.__vfNativeSceneConfig);}).then(load).catch(fail);"
+        + "var framePromise=window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl);"
+        + "var depsPromise=window.VfRuntimeShell.ensureSceneDependencies();"
+        + "Promise.all([framePromise,depsPromise]).then(function(){return hydrateConfig(global.__vfNativeSceneConfig);}).then(load).catch(fail);"
         + "}else{hydrateConfig(global.__vfNativeSceneConfig).then(load).catch(fail);}"
         + "})(window);</script>"
         + "</body></html>\n";

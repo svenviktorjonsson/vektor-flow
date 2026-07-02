@@ -9,7 +9,7 @@ native_scene: (
     background: [0.36, 0.68, 1.0, 1.0],
     camera: (
         pos: [0.0, -7.2, 1.8],
-        target: [0.0, -1.2, 2.25],
+        target: [0.0, -0.4, 0.10],
         fov: 64.0,
         up: [0.0, 0.0, 1.0],
         controls_mode: "game",

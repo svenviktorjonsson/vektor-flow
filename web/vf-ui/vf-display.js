@@ -2747,6 +2747,10 @@
   function ensureGeomCanvas(frameEl, idx, fid) {
     if (!frameEl) { return null; }
     var body = resizeChessBoardHostToFit(geomFrameHost(frameEl, fid));
+    if (body && body.classList) {
+      body.classList.remove("vf-frame__body--empty");
+      body.classList.add("vf-frame__body--transparent");
+    }
     var cls  = "vf-geom-canvas-" + idx;
     var existing = geomHostCanvas(body, idx);
     if (existing) {
@@ -2763,7 +2767,7 @@
     var c = document.createElement("canvas");
     c.className = "vf-geom-canvas " + cls;
     c.setAttribute("tabindex", "-1");
-    c.style.cssText = "display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;pointer-events:auto;background:transparent;object-fit:contain;object-position:center center;";
+    c.style.cssText = "display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:1;pointer-events:auto;background:transparent;object-fit:contain;object-position:center center;";
     body.style.position = "relative";
     body.style.pointerEvents = "auto";
     body.appendChild(c);
@@ -10970,10 +10974,26 @@
     r._renderOnDemand = true;
     global.__vfFrameRenderers[String(fid)] = r;
     canvas.style.pointerEvents = "none";
+    var initSettled = false;
+    var initTimeout = global.setTimeout ? global.setTimeout(function () {
+      if (initSettled) { return; }
+      entry.initError = "renderer init timed out";
+      if (typeof global.__vfGeomRuntimeErrorHandler === "function") {
+        global.__vfGeomRuntimeErrorHandler(
+          "mountDynamicGeomFrame [" + fid + "]: renderer init timed out; lastWgpuError=" +
+          String(global.__vfGeomWgpuLastError || "") + " lastWgpuLog=" + String(global.__vfGeomWgpuLastLog || "")
+        );
+      }
+    }, 5000) : 0;
     r.init().then(function(ok) {
+      initSettled = true;
+      if (initTimeout && global.clearTimeout) { global.clearTimeout(initTimeout); }
       if (!ok) {
         entry.initError = global.__vfGeomWgpuLastError || "renderer init returned false";
         vlog("error", "mountDynamicGeomFrame [" + fid + "]: renderer init FAILED");
+        if (typeof global.__vfGeomRuntimeErrorHandler === "function") {
+          global.__vfGeomRuntimeErrorHandler("mountDynamicGeomFrame [" + fid + "]: " + entry.initError);
+        }
         return;
       }
       entry.initError = "";
@@ -11017,8 +11037,13 @@
       ensureGeomFrameEvents(fid);
       schedulePostGeomLayout();
     }).catch(function(err) {
+      initSettled = true;
+      if (initTimeout && global.clearTimeout) { global.clearTimeout(initTimeout); }
       entry.initError = (err && err.message ? err.message : String(err));
       vlog("error", "mountDynamicGeomFrame [" + fid + "]: renderer init threw: " + (err && err.message ? err.message : String(err)));
+      if (typeof global.__vfGeomRuntimeErrorHandler === "function") {
+        global.__vfGeomRuntimeErrorHandler("mountDynamicGeomFrame [" + fid + "] threw: " + entry.initError);
+      }
     });
   }
 

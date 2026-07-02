@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "embedded_vf_ui_assets.hpp"
-#include "transparent_overlay/overlay.h"
+#include "vf_overlay_host.hpp"
 
 namespace fs = std::filesystem;
 
@@ -310,6 +310,14 @@ fs::path FindNativeSceneStager(const fs::path& repoRoot, const fs::path& self) {
 }
 
 fs::path FindRuntimeWebRoot(const fs::path& repoRoot, const fs::path& self) {
+    std::wstring embeddedError;
+    const fs::path embeddedRoot = EnsureEmbeddedVfUiWebRoot(&embeddedError);
+    if (!embeddedRoot.empty()) {
+        return fs::absolute(embeddedRoot);
+    }
+    if (kVfEmbeddedVfUiAssetCount > 0 && !embeddedError.empty()) {
+        std::wcerr << L"vkf: " << embeddedError << std::endl;
+    }
     std::vector<fs::path> candidates = {
         self.parent_path() / L"web",
         repoRoot / L"native" / L"VfOverlay" / L"build" / L"Release" / L"web",
@@ -321,14 +329,6 @@ fs::path FindRuntimeWebRoot(const fs::path& repoRoot, const fs::path& self) {
         if (fs::exists(candidate / L"index.html", ec) && fs::is_regular_file(candidate / L"index.html", ec)) {
             return fs::absolute(candidate);
         }
-    }
-    std::wstring embeddedError;
-    const fs::path embeddedRoot = EnsureEmbeddedVfUiWebRoot(&embeddedError);
-    if (!embeddedRoot.empty()) {
-        return fs::absolute(embeddedRoot);
-    }
-    if (kVfEmbeddedVfUiAssetCount > 0 && !embeddedError.empty()) {
-        std::wcerr << L"vkf: " << embeddedError << std::endl;
     }
     return {};
 }
@@ -602,6 +602,39 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
     for (fs::recursive_directory_iterator it(sessionDir, ec), end; !ec && it != end; it.increment(ec)) {
         if (ec || !it->is_regular_file(ec)) { continue; }
         files.push_back(it->path());
+    }
+    const std::vector<fs::path> runtimeFiles = {
+        L"index.html",
+        L"vf-frame.css",
+        L"vf-runtime-shell.js",
+        L"vf-runtime-packet-contract.js",
+        L"vf-runtime-source.js",
+        L"vf-runtime-scene.js",
+        L"vf-runtime-flow.js",
+        L"vf-render-clock.js",
+        L"vf-frame.js",
+        L"vf-display.js",
+        L"vf-native-scene.js",
+        L"vf-axis3d-kernel.js",
+        L"vf-axis3d-kernel-adapter.js",
+        L"vf-axis3d-projection-kernel.js",
+        L"vf-axis3d-projection-kernel-adapter.js",
+        L"geom/vf-geom-math.js",
+        L"geom/vf-geom-core.js",
+        L"geom/vf-geom-material-arena.js",
+        L"geom/vf-geom-ledger-layout.js",
+        L"geom/vf-geom-ledger-transport.js",
+        L"geom/vf-geom-ledger.js",
+        L"geom/vf-geom-parametric-surface.js",
+        L"geom/vf-geom-frame-adapter.js",
+        L"geom/vf-geom-wgpu.js",
+    };
+    for (const fs::path& rel : runtimeFiles) {
+        const fs::path file = webRoot / rel;
+        if (!fs::exists(file, ec) || !fs::is_regular_file(file, ec)) {
+            return {};
+        }
+        files.push_back(file);
     }
     if (files.empty()) {
         return {};
@@ -963,12 +996,27 @@ bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, 
         report(L"overlay web assets not found; build native/VfOverlay first");
         return false;
     }
+    const bool embeddedSceneBundle = HasAppendedSceneBundle(self);
     if (!ExtractAppendedSceneBundle(self, webRoot)) {
         report(L"embedded compiled scene bundle is invalid in " + self.wstring());
         return false;
     }
 
     const fs::path page = SessionPageForWebRoot(webRoot, absoluteSource);
+    if (embeddedSceneBundle) {
+        if (!fs::exists(page, ec) || !fs::is_regular_file(page, ec)) {
+            report(L"embedded compiled scene bundle did not contain scene page: " + page.wstring());
+            return false;
+        }
+        if (bundle) {
+            bundle->source = absoluteSource;
+            bundle->repoRoot = repoRoot;
+            bundle->webRoot = webRoot;
+            bundle->page = page;
+        }
+        return true;
+    }
+
     const fs::path manifest = ManifestPathForSource(absoluteSource);
     const std::string sourceHash = Fnv1a64Hex(NativeSceneSourceTreeBytes(absoluteSource));
     if (!ManifestCurrentForSource(manifest, sourceHash)) {
@@ -999,20 +1047,10 @@ int RunCompiledScene(const fs::path& source) {
     if (!TryResolveCurrentSceneBundle(source, CurrentExePath(), &bundle)) {
         return 1;
     }
-    const std::string webRootUtf8 = bundle.webRoot.string();
-    const std::string slugUtf8 = WideToUtf8(Slugify(bundle.source.stem().wstring()));
-    const std::string entryUtf8 = "/sessions/" + slugUtf8 + "/vkf-scene.html";
-    TransparentOverlayRunOptions options = TransparentOverlayDefaultRunOptions();
-    options.web_root_utf8 = webRootUtf8.c_str();
-    options.entry_url_utf8 = entryUtf8.c_str();
-    options.close_on_empty_geometry = false;
-    const int validation = TransparentOverlayValidateRunOptions(&options);
-    if (validation != TRANSPARENT_OVERLAY_OK) {
-        return Fail(L"TransparentOverlay options invalid: " + std::to_wstring(validation));
-    }
-    const int result = TransparentOverlayRun(&options);
-    if (result != TRANSPARENT_OVERLAY_OK) {
-        return Fail(L"TransparentOverlayRun failed: " + std::to_wstring(result));
+    const std::wstring pageArg = SessionPageArgForSource(bundle.source);
+    const int result = VfOverlayRunDll(GetModuleHandleW(nullptr), pageArg.c_str(), bundle.webRoot.wstring().c_str(), SW_SHOW);
+    if (result != 0) {
+        return Fail(L"VKF overlay host failed: " + std::to_wstring(result));
     }
     return 0;
 }
@@ -1036,12 +1074,17 @@ int BuildOrRun(const fs::path& source) {
         }
     }
 
-    const fs::path overlayExe = FindOverlayExe(bundle.repoRoot, self);
-    if (overlayExe.empty()) {
-        return Fail(L"vf-overlay.exe not found; build native/VfOverlay first");
+    const fs::path target = TargetExeForSource(absoluteSource);
+    const fs::path runnerTemplate = RunnerTemplateForCompiledScene(self);
+    const int exeResult = EnsureExampleExeCurrent(runnerTemplate, absoluteSource, target);
+    if (exeResult != 0) {
+        return exeResult;
     }
-    const std::wstring pageArg = SessionPageArgForSource(absoluteSource);
-    return LaunchProcess(overlayExe, Quote(pageArg), overlayExe.parent_path(), false);
+    const int appendResult = AppendCompiledSceneBundleToExe(target, bundle.webRoot, absoluteSource);
+    if (appendResult != 0) {
+        return appendResult;
+    }
+    return LaunchProcess(target, L"", target.parent_path(), false);
 }
 
 }  // namespace
