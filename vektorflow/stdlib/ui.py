@@ -2704,10 +2704,19 @@ class Axis2D:
             render_mode="marker_impostor",
             marker_space="pixel",
             axis_bind_id=self._axis_bind_id,
-            axis_plot2d={
-                "x_values": [float(v) for v in source_xs.data],
-                "y_values": [float(v) for v in source_ys.data],
-            },
+            axis_plot2d=(
+                {
+                    "x_values": [float(v) for v in source_xs.data],
+                    "y_values": [float(v) for v in source_ys.data],
+                    "r_values": [float(v) for v in source_rs.data],
+                    "phi_values": [float(v) for v in source_phis.data],
+                }
+                if polar
+                else {
+                    "x_values": [float(v) for v in source_xs.data],
+                    "y_values": [float(v) for v in source_ys.data],
+                }
+            ),
             mode3d=False,
             receives_lighting=False,
             casts_shadow=False,

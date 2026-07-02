@@ -112,6 +112,9 @@
   function runtimeLog(level, text) {
     var s = "[vf-runtime-shell] " + String(text);
     try {
+      if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+        global.chrome.webview.postMessage({ type: "vf_log", level: String(level || "info"), message: s, t: Date.now() });
+      }
       if (global.console) {
         if (level === "error" && global.console.error) { global.console.error(s); return; }
         if (level === "warn" && global.console.warn) { global.console.warn(s); return; }

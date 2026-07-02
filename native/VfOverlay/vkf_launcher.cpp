@@ -6,6 +6,7 @@
 #endif
 
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -28,7 +29,7 @@ namespace {
 std::string ReadFileBytes(const fs::path& path);
 const char kSceneBundleHeader[] = "VKF_SCENE_BUNDLE_V1\n";
 const char kSceneBundleFooter[] = "VKF_SCENE_BUNDLE_END_V1";
-const char kNativeSceneStagerContractVersion[] = "vkf-native-scene-artifact-stager-0.2-launch-manifest";
+const char kNativeSceneCompilerVersion[] = "vkf-native-scene-compiler-0.1";
 
 std::wstring Quote(const std::wstring& value) {
     std::wstring out = L"\"";
@@ -309,17 +310,6 @@ fs::path FindNativeSceneStager(const fs::path& repoRoot, const fs::path& self) {
 }
 
 fs::path FindRuntimeWebRoot(const fs::path& repoRoot, const fs::path& self) {
-    std::wstring embeddedError;
-    const fs::path embeddedRoot = EnsureEmbeddedVfUiWebRoot(&embeddedError);
-    if (!embeddedRoot.empty()) {
-        return fs::absolute(embeddedRoot);
-    }
-    if (kVfEmbeddedVfUiAssetCount > 0) {
-        if (!embeddedError.empty()) {
-            std::wcerr << L"vkf: " << embeddedError << std::endl;
-        }
-        return {};
-    }
     std::vector<fs::path> candidates = {
         self.parent_path() / L"web",
         repoRoot / L"native" / L"VfOverlay" / L"build" / L"Release" / L"web",
@@ -331,6 +321,14 @@ fs::path FindRuntimeWebRoot(const fs::path& repoRoot, const fs::path& self) {
         if (fs::exists(candidate / L"index.html", ec) && fs::is_regular_file(candidate / L"index.html", ec)) {
             return fs::absolute(candidate);
         }
+    }
+    std::wstring embeddedError;
+    const fs::path embeddedRoot = EnsureEmbeddedVfUiWebRoot(&embeddedError);
+    if (!embeddedRoot.empty()) {
+        return fs::absolute(embeddedRoot);
+    }
+    if (kVfEmbeddedVfUiAssetCount > 0 && !embeddedError.empty()) {
+        std::wcerr << L"vkf: " << embeddedError << std::endl;
     }
     return {};
 }
@@ -391,6 +389,72 @@ fs::path SourceFromRunnerExe(const fs::path& self) {
 
 fs::path TargetExeForSource(const fs::path& source) {
     return source.parent_path() / (source.stem().wstring() + L".exe");
+}
+
+bool SameExistingPath(const fs::path& left, const fs::path& right) {
+    std::error_code ec;
+    if (left.empty() || right.empty()) {
+        return false;
+    }
+    if (fs::exists(left, ec) && fs::exists(right, ec)) {
+        ec.clear();
+        if (fs::equivalent(left, right, ec)) {
+            return true;
+        }
+    }
+    std::wstring a = ToLowerAscii(fs::absolute(left, ec).wstring());
+    ec.clear();
+    std::wstring b = ToLowerAscii(fs::absolute(right, ec).wstring());
+    return !a.empty() && a == b;
+}
+
+bool ProcessImagePath(DWORD pid, fs::path* out) {
+    if (!out || pid == 0 || pid == GetCurrentProcessId()) {
+        return false;
+    }
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!process) {
+        return false;
+    }
+    std::wstring buffer(32768, L'\0');
+    DWORD size = static_cast<DWORD>(buffer.size());
+    const BOOL ok = QueryFullProcessImageNameW(process, 0, buffer.data(), &size);
+    CloseHandle(process);
+    if (!ok || size == 0) {
+        return false;
+    }
+    buffer.resize(size);
+    *out = fs::path(buffer);
+    return true;
+}
+
+void StopRunningTargetExe(const fs::path& target) {
+    if (target.empty()) {
+        return;
+    }
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    for (BOOL ok = Process32FirstW(snapshot, &entry); ok; ok = Process32NextW(snapshot, &entry)) {
+        if (entry.th32ProcessID == GetCurrentProcessId()) {
+            continue;
+        }
+        fs::path image;
+        if (!ProcessImagePath(entry.th32ProcessID, &image) || !SameExistingPath(image, target)) {
+            continue;
+        }
+        HANDLE process = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, entry.th32ProcessID);
+        if (!process) {
+            continue;
+        }
+        TerminateProcess(process, 0);
+        WaitForSingleObject(process, 3000);
+        CloseHandle(process);
+    }
+    CloseHandle(snapshot);
 }
 
 fs::path SessionPageForSource(const fs::path& overlayExe, const fs::path& source) {
@@ -683,8 +747,8 @@ bool ManifestCurrentForSource(const fs::path& manifest, const std::string& sourc
         text.find("\"source_hash\":\"" + sourceHash + "\"") != std::string::npos ||
         text.find("\"source_hash\": \"" + sourceHash + "\"") != std::string::npos;
     const bool contractMatches =
-        text.find("\"compiler\":\"" + std::string(kNativeSceneStagerContractVersion) + "\"") != std::string::npos ||
-        text.find("\"compiler\": \"" + std::string(kNativeSceneStagerContractVersion) + "\"") != std::string::npos;
+        text.find("\"compiler\":\"" + std::string(kNativeSceneCompilerVersion) + "\"") != std::string::npos ||
+        text.find("\"compiler\": \"" + std::string(kNativeSceneCompilerVersion) + "\"") != std::string::npos;
     return sourceMatches && contractMatches;
 }
 
@@ -821,6 +885,7 @@ int EnsureExampleExeCurrent(const fs::path& runnerTemplate, const fs::path& sour
     std::error_code ec;
     (void)source;
 
+    StopRunningTargetExe(target);
     fs::copy_file(runnerTemplate, target, fs::copy_options::overwrite_existing, ec);
     if (ec) {
         const std::string detail = ec.message();
@@ -959,7 +1024,6 @@ int BuildOrRun(const fs::path& source) {
         return Fail(L"source not found: " + source.wstring());
     }
     const fs::path self = CurrentExePath();
-    const fs::path target = TargetExeForSource(absoluteSource);
 
     NativeSceneBundle bundle{};
     if (!TryResolveCurrentSceneBundle(absoluteSource, self, &bundle, false)) {
@@ -972,20 +1036,12 @@ int BuildOrRun(const fs::path& source) {
         }
     }
 
-    int compileResult = EnsureExampleExeCurrent(RunnerTemplateForCompiledScene(self), absoluteSource, target);
-    if (compileResult != 0) {
-        return compileResult;
+    const fs::path overlayExe = FindOverlayExe(bundle.repoRoot, self);
+    if (overlayExe.empty()) {
+        return Fail(L"vf-overlay.exe not found; build native/VfOverlay first");
     }
-    compileResult = EnsureOverlayRuntimeDependency(self, absoluteSource, target);
-    if (compileResult != 0) {
-        return compileResult;
-    }
-    compileResult = AppendCompiledSceneBundleToExe(target, bundle.webRoot, absoluteSource);
-    if (compileResult != 0) {
-        return compileResult;
-    }
-
-    return LaunchProcess(target, L"", target.parent_path(), false);
+    const std::wstring pageArg = SessionPageArgForSource(absoluteSource);
+    return LaunchProcess(overlayExe, Quote(pageArg), overlayExe.parent_path(), false);
 }
 
 }  // namespace

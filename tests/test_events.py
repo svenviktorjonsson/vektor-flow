@@ -250,6 +250,16 @@ class TestUIKeyboard:
         assert received[0].ctrl  is True
         assert received[0].shift is False
 
+    def test_held_key_state_tracks_down_and_up(self) -> None:
+        kbd = UIKeyboard()
+        kbd._push(dict(type="vf_event", event="key_down", key="w", code="KeyW"))
+        assert kbd.is_down("w") is True
+        assert kbd.is_down("KeyW") is True
+        assert kbd.down["w"] is True
+        kbd._push(dict(type="vf_event", event="key_up", key="w", code="KeyW"))
+        assert kbd.is_down("w") is False
+        assert kbd.is_down("KeyW") is False
+
     def test_repr(self) -> None:
         kbd = UIKeyboard()
         kbd.on_down(lambda e: None)

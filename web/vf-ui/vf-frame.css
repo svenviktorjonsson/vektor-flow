@@ -211,11 +211,21 @@ body.vf-frame-dragging .vf-frame__header[data-vf-frame-dragging="1"] * {
 }
 
 canvas.vf-geom-canvas {
+  position: absolute;
   object-fit: contain;
   object-position: center center;
+  z-index: 0;
+  pointer-events: auto;
+  background: transparent;
 }
 
-.vf-frame__body.vf-w-stack > *:not(.vf-frame__draw-canvas) {
+.vf-native-scene-game-active,
+.vf-native-scene-game-active *,
+canvas.vf-geom-canvas.vf-native-scene-game-active {
+  cursor: none !important;
+}
+
+.vf-frame__body.vf-w-stack > *:not(.vf-frame__draw-canvas):not(.vf-geom-canvas) {
   position: relative;
   z-index: 1;
 }
@@ -443,7 +453,7 @@ canvas.vf-geom-canvas {
   background: transparent;
 }
 
-.vf-frame__body.vf-w-grid > *:not(.vf-frame__draw-canvas):not(.vf-frame__overlay) {
+.vf-frame__body.vf-w-grid > *:not(.vf-frame__draw-canvas):not(.vf-geom-canvas):not(.vf-frame__overlay) {
   position: relative;
   z-index: 1;
   min-width: 0;
@@ -490,6 +500,7 @@ canvas.vf-geom-canvas {
   background: transparent;
   pointer-events: auto;
   z-index: 0;
+  isolation: isolate;
 }
 
 .vf-frame__body.vf-w-grid > .vf-w-plot-panel {
@@ -525,6 +536,8 @@ canvas.vf-geom-canvas {
   height: 100%;
   display: block;
   pointer-events: auto;
+  z-index: 0;
+  background: transparent;
 }
 
 .vf-w-align-left {

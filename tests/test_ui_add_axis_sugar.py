@@ -267,6 +267,8 @@ axis.plot(r: radius, phi: theta, id: "curve")
     assert mesh["axis_plot2d"]["x_values"][0] == pytest.approx(1.0)
     assert mesh["axis_plot2d"]["y_values"][1] == pytest.approx(1.0)
     assert mesh["axis_plot2d"]["x_values"][2] == pytest.approx(-2.0)
+    assert mesh["axis_plot2d"]["r_values"] == pytest.approx([1.0, 1.0, 2.0])
+    assert mesh["axis_plot2d"]["phi_values"] == pytest.approx([0.0, 1.57079632679, 3.14159265359])
 
 
 def test_axis_3d_crosshair_emits_pixel_line_geometry() -> None:

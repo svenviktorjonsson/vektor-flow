@@ -135,6 +135,11 @@ HCURSOR g_webviewCursorCached = nullptr;
 bool g_webviewCursorCachedOwned = false;
 bool g_cursorChangedHandlerRegistered = false;
 EventRegistrationToken g_cursorChangedToken{};
+HCURSOR g_hiddenCursor = nullptr;
+bool g_forceHiddenCursor = false;
+bool g_cursorClipActive = false;
+POINT g_cursorLockCenterScreen{};
+RECT g_cursorLockScreenRect{};
 
 std::mutex g_queueMutex;
 std::mutex g_enqueueLogMutex;
@@ -689,6 +694,12 @@ static const char* ContentTypeForWebPath(const std::wstring& path) {
 }
 
 const char* StaticCacheControlForRelativePath(const std::string& rel) {
+    if (rel.size() >= 3 && _stricmp(rel.c_str() + rel.size() - 3, ".js") == 0) {
+        return "no-store, no-cache, must-revalidate";
+    }
+    if (rel.size() >= 4 && _stricmp(rel.c_str() + rel.size() - 4, ".css") == 0) {
+        return "no-store, no-cache, must-revalidate";
+    }
     if (rel == "vf-runtime-packets.json" ||
         rel.find("\\vf-runtime-packets.json") != std::string::npos ||
         rel.find("\\vf-geom-ledger-transport.json") != std::string::npos ||
@@ -990,6 +1001,11 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
                 std::lock_guard<std::mutex> snap(g_lastLayoutSnapshotMutex);
                 g_lastLayoutSnapshotUtf8 = jsonUtf8;
             }
+            VfTraceLogA("layout: stageAlpha=%.3f contentHidden=%d hitRegions=%zu contentReady=%d",
+                        g_stageAlpha,
+                        g_contentHidden ? 1 : 0,
+                        g_hitRegions.size(),
+                        cJSON_IsTrue(cJSON_GetObjectItem(root, "contentReady")) ? 1 : 0);
         } else if (_stricmp(type->valuestring, "stageAlpha") == 0) {
             cJSON* v = cJSON_GetObjectItem(root, "value");
             if (cJSON_IsNumber(v)) {
@@ -1095,6 +1111,12 @@ static cJSON* ParseWebViewPostMessageObject(const std::string& u8) {
     return root;
 }
 
+static POINT DipClientPointToScreen(HWND host, double xDip, double yDip);
+static RECT DipClientRectToScreen(HWND host, double leftDip, double topDip, double rightDip, double bottomDip);
+HRESULT ExecuteScriptUtf8(const std::string& jsUtf8);
+static HCURSOR HiddenCursor();
+static void ApplyOverlayCursor();
+
 static bool TryHandleVfUserLogMessage(const std::string& u8) {
     /* Skip huge layout payloads. Do not match on "\"type\":\"vf_log\"" — postMessage(string) JSON is
      * escaped (\"…\") so that substring never appears; use "vf_log" or parse. */
@@ -1169,6 +1191,30 @@ static bool TryHandleVfHostChromeMessage(const std::string& u8, HWND host) {
         return false;
     }
     const char* t = jtype->valuestring;
+    if (_stricmp(t, "transparent-overlay.cursor") == 0) {
+        cJSON* cursor = cJSON_GetObjectItem(root, "cursor");
+        const char* cursorValue = cJSON_IsString(cursor) && cursor->valuestring ? cursor->valuestring : "";
+        g_forceHiddenCursor = _stricmp(cursorValue, "none") == 0;
+        cJSON* x = cJSON_GetObjectItem(root, "x");
+        cJSON* y = cJSON_GetObjectItem(root, "y");
+        cJSON* left = cJSON_GetObjectItem(root, "left");
+        cJSON* top = cJSON_GetObjectItem(root, "top");
+        cJSON* right = cJSON_GetObjectItem(root, "right");
+        cJSON* bottom = cJSON_GetObjectItem(root, "bottom");
+        if (g_cursorClipActive) {
+            ClipCursor(nullptr);
+            g_cursorClipActive = false;
+        }
+        if (cJSON_IsNumber(x) && cJSON_IsNumber(y)) {
+            g_cursorLockCenterScreen = DipClientPointToScreen(host, x->valuedouble, y->valuedouble);
+        }
+        if (g_forceHiddenCursor && (g_cursorLockCenterScreen.x != 0 || g_cursorLockCenterScreen.y != 0)) {
+            SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
+        }
+        cJSON_Delete(root);
+        ApplyOverlayCursor();
+        return true;
+    }
     if (_stricmp(t, "vf-move") == 0) {
         cJSON* jdx = cJSON_GetObjectItem(root, "dx");
         cJSON* jdy = cJSON_GetObjectItem(root, "dy");
@@ -1531,6 +1577,8 @@ static void TryYieldForegroundToWindowBehind() {
   hitRects use getBoundingClientRect() (DIP). Compare in physical client pixels (MulDiv per edge) so
   WM_NCHITTEST / TryForwardMouseToWebView agree with the OS cursor position.
 */
+static void RectNormalize(RECT* r);
+
 static void PhysicalClientToDIP(POINT ptPhys, LONG* outX, LONG* outY) {
     UINT dpi = g_hwnd ? GetDpiForWindow(g_hwnd) : 96u;
     if (dpi == 0)
@@ -1539,8 +1587,62 @@ static void PhysicalClientToDIP(POINT ptPhys, LONG* outX, LONG* outY) {
     *outY = (LONG)MulDiv((int)ptPhys.y, USER_DEFAULT_SCREEN_DPI, (int)dpi);
 }
 
+static POINT DipClientPointToScreen(HWND host, double xDip, double yDip) {
+    UINT dpi = host ? GetDpiForWindow(host) : 96u;
+    if (dpi == 0)
+        dpi = 96u;
+    POINT pt{};
+    pt.x = (LONG)std::lround(xDip * (double)dpi / (double)USER_DEFAULT_SCREEN_DPI);
+    pt.y = (LONG)std::lround(yDip * (double)dpi / (double)USER_DEFAULT_SCREEN_DPI);
+    if (host) {
+        ClientToScreen(host, &pt);
+    }
+    return pt;
+}
+
+static RECT DipClientRectToScreen(HWND host, double leftDip, double topDip, double rightDip, double bottomDip) {
+    POINT a = DipClientPointToScreen(host, leftDip, topDip);
+    POINT b = DipClientPointToScreen(host, rightDip, bottomDip);
+    RECT out{a.x, a.y, b.x, b.y};
+    RectNormalize(&out);
+    return out;
+}
+
 static bool EffectiveStagePassThrough() {
     return g_contentHidden || g_stageAlpha < 0.001;
+}
+
+static void PinHiddenCursorToLockCenter() {
+    if (!g_forceHiddenCursor)
+        return;
+    if (g_cursorLockCenterScreen.x == 0 && g_cursorLockCenterScreen.y == 0)
+        return;
+    POINT pt{};
+    GetCursorPos(&pt);
+    if (std::abs(pt.x - g_cursorLockCenterScreen.x) > 1 || std::abs(pt.y - g_cursorLockCenterScreen.y) > 1) {
+        SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
+    }
+    SetCursor(HiddenCursor());
+}
+
+static bool HandleHiddenCursorRelativeMouse() {
+    if (!g_forceHiddenCursor)
+        return false;
+    if (g_cursorLockCenterScreen.x == 0 && g_cursorLockCenterScreen.y == 0)
+        return true;
+    POINT pt{};
+    if (!GetCursorPos(&pt))
+        return true;
+    const LONG dx = pt.x - g_cursorLockCenterScreen.x;
+    const LONG dy = pt.y - g_cursorLockCenterScreen.y;
+    if (dx != 0 || dy != 0) {
+        std::ostringstream json;
+        json << "{\"type\":\"transparent-overlay.mouse-delta\",\"dx\":" << dx << ",\"dy\":" << dy << "}";
+        PostHostJsonMessageToWeb(json.str());
+        SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
+    }
+    SetCursor(HiddenCursor());
+    return true;
 }
 
 static void DipRectToPhysicalClientRect(const RECT& dip, RECT* outPhys) {
@@ -1589,6 +1691,17 @@ static LRESULT CALLBACK WebViewChildSubclass(HWND hwnd, UINT msg, WPARAM wParam,
                                              UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     HWND parent = reinterpret_cast<HWND>(dwRefData);
     switch (msg) {
+    case WM_SETCURSOR:
+        if (g_forceHiddenCursor) {
+            SetCursor(HiddenCursor());
+            return (LRESULT)TRUE;
+        }
+        break;
+    case WM_MOUSEMOVE:
+        if (HandleHiddenCursorRelativeMouse()) {
+            return 0;
+        }
+        break;
     case WM_NCHITTEST: {
         if (!parent)
             break;
@@ -2622,9 +2735,26 @@ static void ReplaceWebViewCursorCache(HCURSOR cursor, bool owned) {
     g_webviewCursorCachedOwned = owned;
 }
 
+static HCURSOR HiddenCursor() {
+    if (g_hiddenCursor)
+        return g_hiddenCursor;
+    BYTE andMask[1] = {0xFF};
+    BYTE xorMask[1] = {0x00};
+    g_hiddenCursor = CreateCursor(GetModuleHandleW(nullptr), 0, 0, 1, 1, andMask, xorMask);
+    return g_hiddenCursor ? g_hiddenCursor : LoadCursor(nullptr, IDC_ARROW);
+}
+
+static void ApplyOverlayCursor() {
+    SetCursor(g_forceHiddenCursor ? HiddenCursor() : (g_webviewCursorCached ? g_webviewCursorCached : LoadCursor(nullptr, IDC_ARROW)));
+}
+
 static HRESULT OnCompositionCursorChanged(ICoreWebView2CompositionController* sender) {
     if (!sender)
         return E_POINTER;
+    if (g_forceHiddenCursor) {
+        SetCursor(HiddenCursor());
+        return S_OK;
+    }
 
     HCURSOR cur = nullptr;
     if (SUCCEEDED(sender->get_Cursor(&cur)) && cur != nullptr) {
@@ -2677,6 +2807,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         return 1;
     case WM_SETCURSOR:
         if (g_compController && LOWORD(l) == HTCLIENT) {
+        if (g_forceHiddenCursor) {
+                SetCursor(HiddenCursor());
+                return (LRESULT)TRUE;
+            }
             HCURSOR use = g_webviewCursorCached ? g_webviewCursorCached : LoadCursor(nullptr, IDC_ARROW);
             SetCursor(use);
             return (LRESULT)TRUE;
@@ -2782,6 +2916,15 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
 #endif
     case WM_DESTROY:
         VfTraceLogA("WM_DESTROY: teardown (http stop, PostQuit)");
+        if (g_cursorClipActive) {
+            ClipCursor(nullptr);
+            g_cursorClipActive = false;
+        }
+        g_forceHiddenCursor = false;
+        if (g_hiddenCursor) {
+            DestroyCursor(g_hiddenCursor);
+            g_hiddenCursor = nullptr;
+        }
         KillTimer(h, kWebViewSubclassRetryTimer);
         if (g_compController && g_cursorChangedHandlerRegistered) {
             g_compController->remove_CursorChanged(g_cursorChangedToken);
@@ -2797,6 +2940,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         PostQuitMessage(0);
         return 0;
     default:
+        if (msg == WM_MOUSEMOVE && HandleHiddenCursorRelativeMouse()) {
+            return 0;
+        }
         if (msg == WM_MOUSEMOVE && g_compiledUiBootstrapHost.Active()) {
             g_compiledUiBootstrapHost.UpdateFromPointer(
                 g_overlayPacketRuntime,
@@ -2960,18 +3106,18 @@ void InitWebView(HWND h) {
                                             if (TryHandleCaptureScreenRectMessage(u8)) {
                                                 return S_OK;
                                             }
-                                            if (TryHandleVfEventMessage(u8)) {
-                                                return S_OK;
-                                            }
-                                            if (TryHandleVfSharedBufferRequestMessage(u8)) {
-                                                return S_OK;
-                                            }
                                             if (TryHandleVfHostChromeMessage(u8, h)) {
                                                 return S_OK;
                                             }
                                            if (TryHandleVfUserLogMessage(u8)) {
                                                return S_OK;
                                            }
+                                            if (TryHandleVfEventMessage(u8)) {
+                                                return S_OK;
+                                            }
+                                            if (TryHandleVfSharedBufferRequestMessage(u8)) {
+                                                return S_OK;
+                                            }
                                            {
                                                std::lock_guard<std::mutex> lock(g_layoutCoalesceMutex);
                                                g_layoutCoalescePending = std::move(u8);

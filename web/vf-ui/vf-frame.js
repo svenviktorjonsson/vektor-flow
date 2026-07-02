@@ -278,8 +278,30 @@
         const el = nodes[i];
         if (!(el instanceof HTMLElement)) continue;
         if (el.classList.contains("vf-frame--pass-through")) continue;
-        const r = el.getBoundingClientRect();
-        pushHitRect(r, paintPadDipForElement(el));
+        const framePad = paintPadDipForElement(el);
+        const chromeNodes = el.querySelectorAll(
+          ".vf-frame__header, .vf-frame__minibar, .vf-frame__resize-grip, .vf-frame__body"
+        );
+        if (chromeNodes && chromeNodes.length) {
+          for (let j = 0; j < chromeNodes.length; j++) {
+            const part = chromeNodes[j];
+            if (!(part instanceof HTMLElement)) continue;
+            const pr = part.getBoundingClientRect();
+            pushHitRect(pr, part.classList.contains("vf-frame__body") ? 0 : 2);
+          }
+          const r = el.getBoundingClientRect();
+          pushTransparentOverlayRect(
+            overlayShapes,
+            "vf-frame-shell-" + i,
+            Math.floor(r.left - framePad),
+            Math.floor(r.top - framePad),
+            Math.ceil(r.right + framePad),
+            Math.ceil(r.bottom + framePad)
+          );
+        } else {
+          const r = el.getBoundingClientRect();
+          pushHitRect(r, framePad);
+        }
       }
       const displayRegions = !forceEmpty && globalThis && Array.isArray(globalThis.__vfDisplayHitRegions)
         ? globalThis.__vfDisplayHitRegions
@@ -809,6 +831,7 @@
 
       const head = document.createElement("div");
       head.className = "vf-frame__header vf-frame__header--title-" + titleAlign;
+      head.setAttribute("data-vf-frame-chrome", "1");
 
       const titleEl = document.createElement("span");
       titleEl.className = "vf-frame__title";
@@ -835,6 +858,7 @@
 
       const headEnd = document.createElement("div");
       headEnd.className = "vf-frame__header-actions";
+      headEnd.setAttribute("data-vf-frame-chrome", "1");
 
       const btnMin = dockable ? VfFrame.createMinimizeButton() : null;
       const btnClose = closable ? VfFrame.createCloseButton() : null;
@@ -848,6 +872,7 @@
 
       const body = document.createElement("div");
       body.className = "vf-frame__body";
+      body.setAttribute("data-vf-frame-content", "1");
       const hasBodyContent = Array.isArray(opt.body) ? opt.body.length > 0 : !!opt.body;
       if (!hasBodyContent) {
         body.classList.add("vf-frame__body--empty");
@@ -869,6 +894,7 @@
 
       const resizeGrip = document.createElement("div");
       resizeGrip.className = "vf-frame__resize-grip";
+      resizeGrip.setAttribute("data-vf-frame-chrome", "1");
       resizeGrip.setAttribute("aria-hidden", "true");
 
       if (!frameless) {
@@ -1001,6 +1027,7 @@
         syncMinBtnGlyph();
         btnMin.addEventListener("click", (e) => {
           e.stopPropagation();
+          e.preventDefault();
           setMinimized(!minimized);
         });
       }
@@ -1008,6 +1035,7 @@
       if (btnClose) {
         btnClose.addEventListener("click", (e) => {
           e.stopPropagation();
+          e.preventDefault();
           if (master) {
             const wv = window.chrome && window.chrome.webview;
             /* Close every other frame first, then this one; one host `close`. */
