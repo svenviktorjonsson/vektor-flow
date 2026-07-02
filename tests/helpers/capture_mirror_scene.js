@@ -222,6 +222,23 @@ async function main() {
       });
       await delay(2000);
     }
+    const extraRedraws = Math.max(0, Number(process.env.VF_CAPTURE_EXTRA_REDRAWS || "0") | 0);
+    if (extraRedraws > 0) {
+      await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
+        expression: `(async () => {
+          const frames = ${extraRedraws};
+          for (let i = 0; i < frames; i += 1) {
+            if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
+              window.VfDisplay.redrawVisibleGeomFrames();
+            }
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+          }
+          return true;
+        })()`,
+        returnByValue: true,
+        awaitPromise: true
+      });
+    }
     const framePng = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
       expression: `(async () => {
         const api = !!(window.VfDisplay && window.VfDisplay.__test);
@@ -303,7 +320,7 @@ async function main() {
     });
     const payload = status.result.value || {};
     payload.captureMode = captureMode;
-    payload.captureDebug = captureDebug;
+    payload.captureDebug = captureDebug && typeof captureDebug === "object" ? { ...captureDebug, value: "<omitted>" } : captureDebug;
     payload.surfaceDebug = surfaceDebug.result ? surfaceDebug.result.value : null;
     process.stdout.write(JSON.stringify(payload));
   } finally {

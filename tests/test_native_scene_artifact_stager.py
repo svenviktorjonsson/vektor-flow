@@ -175,6 +175,7 @@ native_scene: (
         encoding="utf-8",
     )
     overlay_web = tmp_path / "web"
+    shutil.copytree(ROOT / "web" / "vf-ui", overlay_web)
 
     proc = subprocess.run(
         [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],

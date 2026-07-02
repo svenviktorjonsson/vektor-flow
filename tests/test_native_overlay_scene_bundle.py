@@ -1550,10 +1550,13 @@ def test_grass_texture_cube_example_compiles() -> None:
     assert '"frame_id":"grass_texture_cube_frame"' in compact
     assert '"controls_mode":"game"' in compact
     assert '"kind":"grass"' in compact
-    assert '"roughness":0.92' in compact
-    assert '"blade_length":1.35' in compact
-    assert '"clump_density":1.55' in compact
-    assert '"micro_shadow":0.78' in compact
+    assert '"id":"grass_field"' in compact
+    assert '"roughness":0.99' in compact
+    assert '"blade_length":1.1' in compact
+    assert '"clump_density":1.22' in compact
+    assert '"micro_shadow":0.52' in compact
+    assert '"near_blades":true' in compact
+    assert '"near_blade_count":140000' in compact
     assert '"background":[0.36,0.68,1.0,1.0]' in compact
     assert '"blue_sky_panel"' not in compact
 

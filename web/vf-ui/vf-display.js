@@ -2602,6 +2602,15 @@
           static_indices: spec.static_indices === true,
           topology: spec.topology || "triangle-list",
           transparent: spec.transparent === true,
+          depth_write: spec.depth_write === true,
+          no_lighting: spec.no_lighting === true,
+          no_cull: spec.no_cull === true,
+          casts_shadow: spec.casts_shadow === true,
+          receives_shadow: spec.receives_shadow === true,
+          receive_shadow: spec.receive_shadow,
+          specular_strength: Number(spec.specular_strength || 0.0) || 0.0,
+          alpha: Math.max(0.0, Math.min(1.0, Number(spec.alpha == null ? 1.0 : spec.alpha))),
+          color: spec.color || [1, 1, 1, 1],
           overlay_expanded: spec.overlay_expanded === true,
           pickable: spec.pickable === true
         };
@@ -7282,6 +7291,19 @@
         unified: providerScene.unified_renderer === true,
         parts: Array.isArray(providerScene.parts) ? providerScene.parts.length : 0,
         meshes: Array.isArray(providerScene.meshes) ? providerScene.meshes.length : 0,
+        partDetails: Array.isArray(providerScene.parts) ? providerScene.parts.map(function(part) {
+          return {
+            id: String(part && part.id || ""),
+            topology: String(part && part.topology || ""),
+            instanceKind: String(part && part.instance_kind || ""),
+            instanceCount: Number(part && part.instance_count || 0) || 0,
+            vertexValueCount: part && part.vertices && part.vertices.length || 0,
+            indexCount: part && part.indices && part.indices.length || 0,
+            transparent: !!(part && part.transparent),
+            depthWrite: !!(part && part.depth_write),
+            noLighting: !!(part && part.no_lighting)
+          };
+        }) : [],
         firstPart: Array.isArray(providerScene.parts) && providerScene.parts[0] ? {
           id: String(providerScene.parts[0].id || ""),
           topology: String(providerScene.parts[0].topology || ""),

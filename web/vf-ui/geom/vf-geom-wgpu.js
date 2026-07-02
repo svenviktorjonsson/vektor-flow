@@ -868,6 +868,7 @@ struct LineImpostorVOut {
   @location(2)       axis    : vec3<f32>,
   @location(3)       perp    : vec3<f32>,
   @location(4)       local_uv : vec2<f32>,
+  @location(5)       blade_flag : f32,
 }
 
 fn applyDepthOffset(clip: vec4<f32>) -> vec4<f32> {
@@ -2437,11 +2438,13 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
       vec2<f32>(localPos.x * scale.x, localPos.y * scale.y),
       n.z > max(n.x, n.y)
     );
-    let fineDetail = 1.0 - smoothstep(0.050, 0.240, materialFootprint);
+    let fineDetail = 1.0 - smoothstep(0.030, 0.300, materialFootprint);
+    let midDetail = 1.0 - smoothstep(0.160, 0.900, materialFootprint);
     let grassMask = grassValue(p, bladeLength, clumpDensity);
-    let bladeRidge = grassBladeRidge(p * 1.08, bladeLength * 1.42, clumpDensity * 1.16) * (0.24 + (0.76 * fineDetail));
+    let bladeRidge = grassBladeRidge(p * 1.08, bladeLength * 1.42, clumpDensity * 1.16) * (0.34 + (0.46 * fineDetail) + (0.20 * midDetail));
     let strandMask = grassStrandField(p, bladeLength, clumpDensity) * fineDetail;
-    let strandShadowMask = grassStrandField(p + vec2<f32>(0.09, 0.03), bladeLength, clumpDensity) * fineDetail;
+    let strandShadowMask = grassStrandField(p + vec2<f32>(0.09, 0.03), bladeLength, clumpDensity) * (0.42 + (0.58 * fineDetail));
+    let midBladeMass = grassStrandField(rotate2(p * 0.72 + vec2<f32>(0.37, -0.19), -0.48), bladeLength * 1.72, clumpDensity * 0.88) * midDetail;
     let microShadow = grassMicroShadow(p, bladeLength, clumpDensity);
     let tipTint = sc.texture_color_b.rgb;
     let rootTint = sc.texture_color_a.rgb;
@@ -2452,12 +2455,12 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     let litTint = tipTint * vec3<f32>(1.14, 1.08, 0.84);
     let bladeSunTint = tipTint * vec3<f32>(1.24, 1.16, 0.72);
     let strawTint = vec3<f32>(0.58, 0.55, 0.20);
-    var texGrass = mix(coolTint, litTint, clamp(0.16 + (grassMask * 0.50) + (bladeRidge * 0.18) + (rootNoise * 0.11) + (meadowNoise * 0.09), 0.0, 1.0));
+    var texGrass = mix(coolTint, litTint, clamp(0.14 + (grassMask * 0.43) + (bladeRidge * 0.19) + (midBladeMass * 0.16) + (rootNoise * 0.10) + (meadowNoise * 0.08), 0.0, 1.0));
     texGrass = mix(texGrass, bladeSunTint, smoothstep(0.54, 0.92, max(grassMask, bladeRidge)) * 0.20);
     let strandHighlight = smoothstep(0.08, 0.62, strandMask);
     let strandShade = smoothstep(0.10, 0.70, strandShadowMask);
     texGrass = texGrass + (bladeSunTint * (strandHighlight * 0.025 + bladeRidge * 0.018));
-    texGrass = texGrass * (1.0 - ((strandShade * 0.030) + (bladeRidge * microShadowStrength * 0.045)));
+    texGrass = texGrass * (1.0 - ((strandShade * 0.034) + (bladeRidge * microShadowStrength * 0.048) + (midBladeMass * microShadowStrength * 0.030)));
     texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
     let roughDiffuseLift = 0.026 * roughness;
     let bladeShadow = 1.0 - (microShadowStrength * mix(0.04, 0.20, microShadow) * (0.45 + (0.55 * fineDetail)));
@@ -2880,6 +2883,7 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
   o.axis = axis;
   o.perp = perp;
   o.local_uv = vec2<f32>(side, t);
+  o.blade_flag = curveEnabled;
   return o;
 }
 
@@ -2929,8 +2933,15 @@ fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_line_impostor(i: LineImpostorVOut) -> @location(0) vec4<f32> {
   let x = i.local_uv.x;
+  let t = clamp(i.local_uv.y, 0.0, 1.0);
   let edge = max(fwidth(x), 1e-4);
-  let mask = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, abs(x));
+  let bladeShape = select(1.0, max(0.08, 1.0 - (t * 0.82)), i.blade_flag > 0.5);
+  var mask = 1.0 - smoothstep(bladeShape - edge, bladeShape + edge, abs(x));
+  if (i.blade_flag > 0.5) {
+    let rootFade = smoothstep(0.0, 0.055, t);
+    let tipFade = 1.0 - smoothstep(0.94, 1.015, t);
+    mask = mask * rootFade * tipFade;
+  }
   if (mask <= 1e-4) {
     discard;
   }
@@ -2941,7 +2952,13 @@ fn fs_line_impostor(i: LineImpostorVOut) -> @location(0) vec4<f32> {
   }
   let z = sqrt(max(0.0, 1.0 - min(x * x, 1.0)));
   let normal = normalize((i.perp * x) + (front * z));
-  return shadeLitBase(i.color.rgb, i.color.a * mask, i.world_pos, normal, false);
+  var baseColor = i.color.rgb;
+  if (i.blade_flag > 0.5) {
+    let centerRib = 1.0 - smoothstep(0.0, 0.36, abs(x));
+    let tipLight = smoothstep(0.12, 1.0, t);
+    baseColor = baseColor * (0.72 + (0.42 * tipLight)) + vec3<f32>(0.025, 0.045, 0.010) * centerRib;
+  }
+  return shadeLitBase(baseColor, i.color.a * mask, i.world_pos, normal, false);
 }
 `;
 
@@ -7767,6 +7784,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         instanceKind: mesh.instance_kind || null,
         staticIndices: mesh.static_indices === true,
         staticVertices: mesh.static_vertices === true,
+        staticInstances: mesh.static_instances === true || (mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind),
         ibCount: mesh.indices.length,
         topology: mesh.topology || "triangle-list",
         uniformBuf: uniformBuf,
@@ -7821,7 +7839,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
               dev.queue.writeBuffer(existing.ib, 0, mesh.indices);
             }
           }
-          if (mesh.instances && existing.instanceBuf) {
+          if (mesh.instances && existing.instanceBuf && !existing.staticInstances) {
             dev.queue.writeBuffer(existing.instanceBuf, 0, mesh.instances);
           }
           existing.mesh = mesh;
@@ -7830,6 +7848,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           existing.instanceKind = mesh.instance_kind || null;
           existing.staticIndices = mesh.static_indices === true;
           existing.staticVertices = mesh.static_vertices === true;
+          existing.staticInstances = mesh.static_instances === true || (mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind);
           existing.topology = mesh.topology || "triangle-list";
           existing.objectId = Number(mesh.object_id || (i + 1)) || (i + 1);
           nextParts[i] = existing;
