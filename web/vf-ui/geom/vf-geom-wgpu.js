@@ -2355,25 +2355,15 @@ fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
 
 fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
-  let lengthScale = max(bladeLength, 0.20);
-  let warp = (valueNoise2(p * (0.55 * density) + vec2<f32>(13.0, -7.0)) - 0.5) * 0.28;
-  let q = (p + vec2<f32>(warp, -warp * 0.61)) * (42.0 * density);
-  let cell = floor(q);
-  let f = fract(q);
-  let rnd = hash21(cell);
-  let angle = (rnd - 0.5) * 1.75;
-  let dir = normalize(vec2<f32>(sin(angle) * 0.72, cos(angle) * 0.30 + 0.92));
-  let side = vec2<f32>(-dir.y, dir.x);
-  let rel = f - vec2<f32>(hash21(cell + vec2<f32>(3.7, 11.1)), hash21(cell + vec2<f32>(17.3, 5.9)));
-  let along = dot(rel, dir);
-  let across = abs(dot(rel, side));
-  let len = (0.58 + 0.46 * hash21(cell + vec2<f32>(23.0, 41.0))) * lengthScale;
-  let width = 0.034 + 0.018 * hash21(cell + vec2<f32>(61.0, 7.0));
-  let line = 1.0 - smoothstep(width * 0.42, width, across);
-  let grow = smoothstep(-len * 0.16, len * 0.08, along);
-  let fade = 1.0 - smoothstep(len * 0.55, len, along);
-  let clump = smoothstep(0.20, 0.82, valueNoise2((p * 2.2 * density) + vec2<f32>(4.0, -9.0)));
-  return pow(clamp(line * grow * fade * clump, 0.0, 1.0), 0.80);
+  let warpA = (valueNoise2((p * 0.83 * density) + vec2<f32>(13.0, -7.0)) - 0.5) * 0.34;
+  let warpB = (valueNoise2((p * 1.37 * density) + vec2<f32>(-5.0, 19.0)) - 0.5) * 0.21;
+  let q = p + vec2<f32>(warpA + warpB, (warpA * -0.37) + (warpB * 0.59));
+  let a = grassFiberCell(q * 2.35, bladeLength * 0.72, density * 2.30, 101.0);
+  let b = grassFiberCell(rotate2(q * 2.90 + vec2<f32>(0.19, -0.31), 0.91), bladeLength * 0.55, density * 2.85, 211.0);
+  let c = grassFiberCell(rotate2(q * 3.45 + vec2<f32>(-0.43, 0.17), -1.27), bladeLength * 0.44, density * 3.25, 307.0);
+  let d = grassFiberCell(rotate2(q * 4.20 + vec2<f32>(0.07, 0.53), 2.11), bladeLength * 0.36, density * 3.85, 419.0);
+  let clump = smoothstep(0.16, 0.84, grassFbm((p * 1.72 * density) + vec2<f32>(4.0, -9.0)));
+  return pow(clamp(max(max(a, b * 0.82), max(c * 0.64, d * 0.50)) * clump, 0.0, 1.0), 0.86);
 }
 
 fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
@@ -2427,7 +2417,7 @@ fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
   return stripesValue(p);
 }
 
-fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>, surfaceProjPos: vec4<f32>) -> vec3<f32> {
+fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>, surfaceProjPos: vec4<f32>, materialFootprint: f32) -> vec3<f32> {
   let kindCode = sc.texture_params.x;
   if (kindCode < 0.5) {
     return base;
@@ -2447,9 +2437,11 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
       vec2<f32>(localPos.x * scale.x, localPos.y * scale.y),
       n.z > max(n.x, n.y)
     );
+    let fineDetail = 1.0 - smoothstep(0.050, 0.240, materialFootprint);
     let grassMask = grassValue(p, bladeLength, clumpDensity);
-    let strandMask = grassStrandField(p, bladeLength, clumpDensity);
-    let strandShadowMask = grassStrandField(p + vec2<f32>(0.09, 0.03), bladeLength, clumpDensity);
+    let bladeRidge = grassBladeRidge(p * 1.08, bladeLength * 1.42, clumpDensity * 1.16) * (0.24 + (0.76 * fineDetail));
+    let strandMask = grassStrandField(p, bladeLength, clumpDensity) * fineDetail;
+    let strandShadowMask = grassStrandField(p + vec2<f32>(0.09, 0.03), bladeLength, clumpDensity) * fineDetail;
     let microShadow = grassMicroShadow(p, bladeLength, clumpDensity);
     let tipTint = sc.texture_color_b.rgb;
     let rootTint = sc.texture_color_a.rgb;
@@ -2460,15 +2452,15 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     let litTint = tipTint * vec3<f32>(1.14, 1.08, 0.84);
     let bladeSunTint = tipTint * vec3<f32>(1.24, 1.16, 0.72);
     let strawTint = vec3<f32>(0.58, 0.55, 0.20);
-    var texGrass = mix(coolTint, litTint, clamp(0.18 + (grassMask * 0.56) + (rootNoise * 0.12) + (meadowNoise * 0.10), 0.0, 1.0));
-    texGrass = mix(texGrass, bladeSunTint, smoothstep(0.67, 0.94, grassMask) * 0.18);
+    var texGrass = mix(coolTint, litTint, clamp(0.16 + (grassMask * 0.50) + (bladeRidge * 0.18) + (rootNoise * 0.11) + (meadowNoise * 0.09), 0.0, 1.0));
+    texGrass = mix(texGrass, bladeSunTint, smoothstep(0.54, 0.92, max(grassMask, bladeRidge)) * 0.20);
     let strandHighlight = smoothstep(0.08, 0.62, strandMask);
     let strandShade = smoothstep(0.10, 0.70, strandShadowMask);
-    texGrass = texGrass + (bladeSunTint * strandHighlight * 0.014);
-    texGrass = texGrass * (1.0 - (strandShade * 0.024));
+    texGrass = texGrass + (bladeSunTint * (strandHighlight * 0.025 + bladeRidge * 0.018));
+    texGrass = texGrass * (1.0 - ((strandShade * 0.030) + (bladeRidge * microShadowStrength * 0.045)));
     texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
     let roughDiffuseLift = 0.026 * roughness;
-    let bladeShadow = 1.0 - (microShadowStrength * mix(0.05, 0.24, microShadow));
+    let bladeShadow = 1.0 - (microShadowStrength * mix(0.04, 0.20, microShadow) * (0.45 + (0.55 * fineDetail)));
     let strandGroove = 1.0 - (0.012 * strandShade * (1.0 - smoothstep(0.82, 1.0, grassMask)));
     let tuftCover = smoothstep(0.18, 0.78, grassHeight(worldPos.xy * scale.x, bladeLength, clumpDensity));
     let rootOcclusion = 1.0 - (0.16 * tuftCover * microShadowStrength);
@@ -2889,6 +2881,7 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
 
 @fragment
 fn fs(i: Vout) -> @location(0) vec4f {
+  let materialFootprint = max(length(dpdx(i.local_pos)), length(dpdy(i.local_pos))) * max(sc.texture_params.y, sc.texture_params.z);
   if (sc.texture_params.x > 3.5) {
     let packedScreenFlags = max(sc.texture_params.w, 0.0);
     let baseTextureKind = floor(packedScreenFlags / 32.0);
@@ -2901,7 +2894,7 @@ fn fs(i: Vout) -> @location(0) vec4f {
     let composed = screenSurfaceLayer(i.color.rgb, i.color.a * sc.alpha_mul, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos);
     return vec4f(composed.rgb, composed.a);
   }
-  let base = proceduralTexture(i.color.rgb, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos);
+  let base = proceduralTexture(i.color.rgb, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos, materialFootprint);
   var materialNormal = i.normal;
   if (sc.texture_params.x > 3.1 && sc.texture_params.x < 3.4) {
     materialNormal = grassPerturbedNormal(i.local_pos, i.normal, max(sc.texture_extra.y, 0.20), max(sc.texture_extra.z, 0.25), 0.42);
