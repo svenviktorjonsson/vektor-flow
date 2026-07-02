@@ -2317,56 +2317,58 @@ fn grassFbm(p: vec2<f32>) -> f32 {
   return clamp(sum / 0.968, 0.0, 1.0);
 }
 
-fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+fn rotate2(p: vec2<f32>, a: f32) -> vec2<f32> {
+  let c = cos(a);
+  let s = sin(a);
+  return vec2<f32>((c * p.x) - (s * p.y), (s * p.x) + (c * p.y));
+}
+
+fn grassFiberCell(p: vec2<f32>, bladeLength: f32, clumpDensity: f32, seed: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let lengthScale = max(bladeLength, 0.20);
-  let q = p * (3.10 * density);
-  let detailFade = 1.0;
+  let q = p * (5.25 * density);
   let cell = floor(q);
   let f = fract(q);
-  var blade = 0.0;
-  for (var oy: i32 = -1; oy <= 1; oy = oy + 1) {
-    for (var ox: i32 = -1; ox <= 1; ox = ox + 1) {
-      let offset = vec2<f32>(f32(ox), f32(oy));
-      let id = cell + offset;
-      let rnd = vec2<f32>(
-        hash21(id + vec2<f32>(11.7, 3.1)),
-        hash21(id + vec2<f32>(5.3, 19.9))
-      );
-      let center = offset + rnd;
-      let angle = hash21(id + vec2<f32>(23.4, 91.7)) * 6.2831853;
-      let dir = vec2<f32>(cos(angle), sin(angle));
-      let side = vec2<f32>(-dir.y, dir.x);
-      let rel = f - center;
-      let along = dot(rel, dir);
-      let across = abs(dot(rel, side));
-      let halfLen = (0.11 + (0.22 * hash21(id + vec2<f32>(43.1, 7.4)))) * lengthScale;
-      let width = 0.026 + (0.032 * hash21(id + vec2<f32>(2.8, 67.2)));
-      let tip = 1.0 - smoothstep(halfLen * 0.35, halfLen, abs(along));
-      let edge = 1.0 - smoothstep(width * 0.35, width, across);
-      let strength = 0.62 + (0.38 * hash21(id + vec2<f32>(31.0, 13.0)));
-      blade = max(blade, strength * tip * edge);
-    }
-  }
-  return detailFade * pow(clamp(blade, 0.0, 1.0), 0.78);
+  let rnd = vec2<f32>(
+    hash21(cell + vec2<f32>(11.7 + seed, 3.1)),
+    hash21(cell + vec2<f32>(5.3, 19.9 + seed))
+  );
+  let center = mix(vec2<f32>(0.18, 0.18), vec2<f32>(0.82, 0.82), rnd);
+  let angle = (hash21(cell + vec2<f32>(23.4 + seed, 91.7)) - 0.5) * 2.25;
+  let rel = rotate2(f - center, angle);
+  let halfLen = (0.15 + (0.24 * hash21(cell + vec2<f32>(43.1, 7.4 + seed)))) * lengthScale;
+  let width = 0.030 + (0.035 * hash21(cell + vec2<f32>(2.8 + seed, 67.2)));
+  let along = abs(rel.y);
+  let across = abs(rel.x);
+  let tapered = 1.0 - smoothstep(halfLen * 0.32, halfLen, along);
+  let edge = 1.0 - smoothstep(width * 0.35, width, across);
+  let broken = smoothstep(0.18, 0.72, grassFbm((p * 1.85 * density) + vec2<f32>(seed, -seed * 0.37)));
+  return pow(clamp(tapered * edge * broken, 0.0, 1.0), 0.82);
+}
+
+fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let a = grassFiberCell(p, bladeLength, clumpDensity, 0.0);
+  let b = grassFiberCell(p + vec2<f32>(0.17, -0.11), bladeLength * 0.82, clumpDensity * 1.24, 17.0);
+  let c = grassFiberCell(p + vec2<f32>(-0.29, 0.23), bladeLength * 1.12, clumpDensity * 0.78, 41.0);
+  return clamp(max(a, max(b * 0.72, c * 0.55)), 0.0, 1.0);
 }
 
 fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
-  let broad = grassFbm((p * 0.42 * density) + vec2<f32>(2.0, -1.0));
-  let clump = grassFbm((p * 1.05 * density) + vec2<f32>(3.7, -1.9));
-  let fine = grassFbm((p * 3.90 * density) + vec2<f32>(-6.1, 4.4));
+  let broad = grassFbm((p * 0.30 * density) + vec2<f32>(2.0, -1.0));
+  let clump = grassFbm((p * 0.92 * density) + vec2<f32>(3.7, -1.9));
+  let fine = grassFbm((p * 2.70 * density) + vec2<f32>(-6.1, 4.4));
   let blade = grassBladeRidge(p, bladeLength, density);
-  let heightDistribution = smoothstep(0.22, 0.88, (0.48 * clump) + (0.52 * fine));
-  return clamp((0.30 * broad) + (0.34 * clump) + (0.22 * fine) + (0.14 * blade * heightDistribution), 0.0, 1.0);
+  let heightDistribution = smoothstep(0.20, 0.86, (0.58 * clump) + (0.42 * fine));
+  return clamp((0.32 * broad) + (0.32 * clump) + (0.18 * fine) + (0.18 * blade * heightDistribution), 0.0, 1.0);
 }
 
 fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let blade = grassBladeRidge(p + vec2<f32>(0.13, -0.21), bladeLength, density);
-  let rootPocket = 1.0 - grassFbm((p * 0.95 * density) + vec2<f32>(-2.4, 4.1));
-  let fineShadow = grassFbm((p * 5.20 * density) + vec2<f32>(7.5, -3.8));
-  return clamp((0.35 * blade * fineShadow) + (0.65 * smoothstep(0.34, 0.84, rootPocket)), 0.0, 1.0);
+  let rootPocket = 1.0 - grassFbm((p * 0.82 * density) + vec2<f32>(-2.4, 4.1));
+  let fineShadow = grassFbm((p * 3.40 * density) + vec2<f32>(7.5, -3.8));
+  return clamp((0.26 * blade * fineShadow) + (0.74 * smoothstep(0.30, 0.82, rootPocket)), 0.0, 1.0);
 }
 
 fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
@@ -2409,13 +2411,18 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
       (weights.z * grassMicroShadow(pz, bladeLength, clumpDensity));
     let tipTint = sc.texture_color_b.rgb;
     let rootTint = sc.texture_color_a.rgb;
-    let rootNoise = grassFbm((worldPos.xy * scale.x * 0.22) + vec2<f32>(1.7, -3.1));
-    let strawNoise = smoothstep(0.72, 0.98, grassFbm((worldPos.xy * scale.x * 0.16) + vec2<f32>(9.2, 2.6)));
-    let strawTint = vec3<f32>(0.63, 0.58, 0.18);
-    var texGrass = mix(rootTint, tipTint, clamp(0.10 + (grassMask * 0.66) + (rootNoise * 0.10), 0.0, 1.0));
-    texGrass = mix(texGrass, strawTint, strawNoise * 0.045);
-    let roughDiffuseLift = 0.014 * roughness;
-    let bladeShadow = 1.0 - (microShadowStrength * mix(0.04, 0.24, microShadow));
+    let rootNoise = grassFbm((worldPos.xy * scale.x * 0.15) + vec2<f32>(1.7, -3.1));
+    let meadowNoise = grassFbm((worldPos.xy * scale.x * 0.055) + vec2<f32>(-4.0, 11.0));
+    let strawNoise = smoothstep(0.79, 0.99, grassFbm((worldPos.xy * scale.x * 0.11) + vec2<f32>(9.2, 2.6)));
+    let coolTint = rootTint * vec3<f32>(0.82, 1.02, 0.82);
+    let litTint = tipTint * vec3<f32>(1.14, 1.08, 0.84);
+    let bladeSunTint = tipTint * vec3<f32>(1.24, 1.16, 0.72);
+    let strawTint = vec3<f32>(0.58, 0.55, 0.20);
+    var texGrass = mix(coolTint, litTint, clamp(0.18 + (grassMask * 0.56) + (rootNoise * 0.12) + (meadowNoise * 0.10), 0.0, 1.0));
+    texGrass = mix(texGrass, bladeSunTint, smoothstep(0.67, 0.94, grassMask) * 0.18);
+    texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
+    let roughDiffuseLift = 0.026 * roughness;
+    let bladeShadow = 1.0 - (microShadowStrength * mix(0.025, 0.16, microShadow));
     texGrass = (texGrass * bladeShadow) + vec3<f32>(roughDiffuseLift);
     return clamp(texGrass, vec3<f32>(0.0), vec3<f32>(1.0)) * base;
   }
