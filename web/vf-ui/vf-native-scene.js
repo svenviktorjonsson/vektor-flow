@@ -917,18 +917,45 @@
     var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
     var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
     var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
-    var count = Math.max(0, Math.min(24000, Number(texture.near_blade_count || 18000) | 0));
+    var count = Math.max(0, Math.min(42000, Number(texture.near_blade_count || 30000) | 0));
     if (!count) { return null; }
     var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
     var instances = new Float32Array(count * 12);
-    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (size * 0.0038)));
-    var bladeWidth = Math.max(0.00035, Number(texture.near_blade_width || (size * 0.00022)));
+    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (size * 0.0042)));
+    var bladeWidth = Math.max(0.00035, Number(texture.near_blade_width || (size * 0.00018)));
+    var camPos = toVec3(camera && camera.pos, topCenter);
+    var camTarget = toVec3(camera && camera.target, topCenter);
+    var camLocalU = dot3([camPos[0] - topCenter[0], camPos[1] - topCenter[1], camPos[2] - topCenter[2]], uAxis);
+    var camLocalV = dot3([camPos[0] - topCenter[0], camPos[1] - topCenter[1], camPos[2] - topCenter[2]], vAxis);
+    var targetLocalU = dot3([camTarget[0] - topCenter[0], camTarget[1] - topCenter[1], camTarget[2] - topCenter[2]], uAxis);
+    var targetLocalV = dot3([camTarget[0] - topCenter[0], camTarget[1] - topCenter[1], camTarget[2] - topCenter[2]], vAxis);
+    var viewLocalU = targetLocalU - camLocalU;
+    var viewLocalV = targetLocalV - camLocalV;
+    var viewLocalLen = Math.sqrt((viewLocalU * viewLocalU) + (viewLocalV * viewLocalV)) || 1.0;
+    viewLocalU /= viewLocalLen;
+    viewLocalV /= viewLocalLen;
+    var patchRadius = Math.max(size * 0.30, Math.min(size * 0.48, Number(texture.near_blade_radius || (size * 0.42))));
+    var focusU = Math.max(-half, Math.min(half, camLocalU + (viewLocalU * patchRadius * 0.42)));
+    var focusV = Math.max(-half, Math.min(half, camLocalV + (viewLocalV * patchRadius * 0.42)));
     for (var i = 0; i < count; i += 1) {
-      var su = (rng() - 0.5) * size;
-      var sv = (rng() - 0.5) * size;
+      var useBackgroundBlade = rng() < 0.24;
+      var edgeFade;
+      var su;
+      var sv;
+      if (useBackgroundBlade) {
+        su = (rng() - 0.5) * size;
+        sv = (rng() - 0.5) * size;
+        edgeFade = 0.18;
+      } else {
+        var angleSample = rng() * Math.PI * 2.0;
+        var radialSample = Math.sqrt(rng()) * patchRadius;
+        su = Math.max(-half, Math.min(half, focusU + (Math.cos(angleSample) * radialSample)));
+        sv = Math.max(-half, Math.min(half, focusV + (Math.sin(angleSample) * radialSample)));
+        edgeFade = Math.max(0.0, Math.min(1.0, 1.0 - (radialSample / Math.max(1e-6, patchRadius))));
+      }
       var bendA = (rng() * Math.PI * 2.0);
       var lean = (rng() * 0.42 + 0.10) * bladeHeight;
-      var h = bladeHeight * (0.52 + (rng() * 0.88));
+      var h = bladeHeight * (0.44 + (rng() * 0.92));
       var w0 = bladeWidth * (0.70 + (rng() * 0.70));
       var w1 = w0 * 0.32;
       var base = [
@@ -948,10 +975,10 @@
       ];
       var tintMix = rng();
       var color = [
-        (rootColor[0] * (1.0 - tintMix) + tipColor[0] * tintMix) * 0.95,
-        (rootColor[1] * (1.0 - tintMix) + tipColor[1] * tintMix) * 1.02,
-        (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.82,
-        0.62
+        (rootColor[0] * (1.0 - tintMix) + tipColor[0] * tintMix) * 0.78,
+        (rootColor[1] * (1.0 - tintMix) + tipColor[1] * tintMix) * 0.92,
+        (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.70,
+        0.24 + (0.46 * edgeFade)
       ];
       var o = i * 12;
       instances[o + 0] = base[0]; instances[o + 1] = base[1]; instances[o + 2] = base[2]; instances[o + 3] = w0;
