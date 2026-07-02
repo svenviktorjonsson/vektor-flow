@@ -2356,7 +2356,11 @@ fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
 fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let lengthScale = max(bladeLength, 0.20);
-  let q = p * (8.5 * density);
+  let warp = vec2<f32>(
+    grassFbm((p * 0.42 * density) + vec2<f32>(13.0, -7.0)),
+    grassFbm((p * 0.47 * density) + vec2<f32>(-5.0, 19.0))
+  ) - vec2<f32>(0.5, 0.5);
+  let q = (p + (warp * 0.31)) * (8.5 * density);
   let cell = floor(q);
   let f = fract(q);
   var blade = 0.0;
@@ -2373,8 +2377,8 @@ fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
           hash21(id + vec2<f32>(19.0, 409.0 + s))
         );
         let origin = offset + vec2<f32>(0.06 + (0.88 * rnd.x), 0.06 + (0.88 * rnd.y));
-        let angle = (rnd.z - 0.5) * 1.55;
-        let dir = normalize(vec2<f32>(sin(angle) * 0.50, 1.0));
+        let angle = (rnd.z - 0.5) * 2.35;
+        let dir = normalize(vec2<f32>(sin(angle) * 0.72, cos(angle) * 0.38 + 0.82));
         let side = vec2<f32>(-dir.y, dir.x);
         let rel = f - origin;
         let along = dot(rel, dir);
@@ -2473,12 +2477,12 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     texGrass = mix(texGrass, bladeSunTint, smoothstep(0.67, 0.94, grassMask) * 0.18);
     let strandHighlight = smoothstep(0.08, 0.62, strandMask);
     let strandShade = smoothstep(0.10, 0.70, strandShadowMask);
-    texGrass = texGrass + (bladeSunTint * strandHighlight * 0.048);
-    texGrass = texGrass * (1.0 - (strandShade * 0.08));
+    texGrass = texGrass + (bladeSunTint * strandHighlight * 0.036);
+    texGrass = texGrass * (1.0 - (strandShade * 0.055));
     texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
     let roughDiffuseLift = 0.026 * roughness;
     let bladeShadow = 1.0 - (microShadowStrength * mix(0.025, 0.15, microShadow));
-    let strandGroove = 1.0 - (0.045 * strandShade * (1.0 - smoothstep(0.82, 1.0, grassMask)));
+    let strandGroove = 1.0 - (0.028 * strandShade * (1.0 - smoothstep(0.82, 1.0, grassMask)));
     texGrass = (texGrass * bladeShadow * strandGroove) + vec3<f32>(roughDiffuseLift);
     return clamp(texGrass, vec3<f32>(0.0), vec3<f32>(1.0)) * base;
   }
