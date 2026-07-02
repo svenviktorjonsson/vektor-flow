@@ -2859,7 +2859,7 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
   let axisRaw = b - a;
   let axisLen = max(length(axisRaw), 1e-6);
   let axis = axisRaw / axisLen;
-  let width = mix(v.aRad.w, v.bPad.w, t);
+  let width = mix(v.aRad.w, abs(v.bPad.w), t);
   let viewDir = normalize(sc.cam_pos - center);
   var perp = cross(viewDir, axis);
   if (length(perp) <= 1e-6) {
@@ -2869,7 +2869,11 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
     }
   }
   perp = normalize(perp);
-  let wp = center + (perp * (side * width));
+  let curveSeed = hash21((a.xy * 13.17) + (b.xy * 0.31) + vec2<f32>(a.z, b.z));
+  let curveSign = select(-1.0, 1.0, curveSeed > 0.5);
+  let curveEnabled = select(0.0, 1.0, v.bPad.w < 0.0);
+  let curve = curveEnabled * curveSign * sin(t * 3.14159265) * axisLen * (0.055 + (0.070 * abs(curveSeed - 0.5)));
+  let wp = center + (perp * ((side * width) + curve));
   o.clip = sc.mvp * vec4f(wp, 1.0);
   o.color = v.instColor;
   o.world_pos = wp;

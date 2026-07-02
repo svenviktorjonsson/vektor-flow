@@ -904,28 +904,43 @@
   }
 
   function grassNearBladeLayer(mesh, camera) {
-    if (!meshHasGrassTexture(mesh) || mesh.kind !== "cube" || mesh.visible === false) { return null; }
+    if (!meshHasGrassTexture(mesh) || (mesh.kind !== "cube" && mesh.kind !== "quad") || mesh.visible === false) { return null; }
     var texture = mesh.texture || {};
     // Grass materials must stay shader-only by default. Expanding every grass
     // surface into tens of thousands of CPU-side impostors makes startup and
     // navigation scale with material detail instead of visible scene complexity.
     if (texture.near_blades !== true) { return null; }
-    var size = Math.max(0.01, Number(mesh.size || 1.0));
-    var half = size * 0.5;
-    var topCenter = transformLocalVertices([[0.0, 0.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
-    var xTip = transformLocalVertices([[1.0, 0.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
-    var yTip = transformLocalVertices([[0.0, 1.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var sizeU = 1.0;
+    var sizeV = 1.0;
+    var localZ = 0.0;
+    if (mesh.kind === "cube") {
+      sizeU = Math.max(0.01, Number(mesh.size || 1.0));
+      sizeV = sizeU;
+      localZ = sizeU * 0.5;
+    } else {
+      var quadSize = Array.isArray(mesh.size)
+        ? [Number(mesh.size[0] || 0.0), Number(mesh.size[1] || 0.0)]
+        : [Number(mesh.size || 1.0), Number(mesh.size || 1.0)];
+      sizeU = Math.max(0.01, Math.abs(quadSize[0]));
+      sizeV = Math.max(0.01, Math.abs(quadSize[1]));
+    }
+    var minSize = Math.max(0.01, Math.min(sizeU, sizeV));
+    var halfU = sizeU * 0.5;
+    var halfV = sizeV * 0.5;
+    var topCenter = transformLocalVertices([[0.0, 0.0, localZ]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var xTip = transformLocalVertices([[1.0, 0.0, localZ]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var yTip = transformLocalVertices([[0.0, 1.0, localZ]], mesh.center, mesh.rotation || [0, 0, 0])[0];
     var uAxis = normalize3([xTip[0] - topCenter[0], xTip[1] - topCenter[1], xTip[2] - topCenter[2]], [1, 0, 0]);
     var vAxis = normalize3([yTip[0] - topCenter[0], yTip[1] - topCenter[1], yTip[2] - topCenter[2]], [0, 1, 0]);
     var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
     var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
     var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
-    var count = Math.max(0, Math.min(24000, Number(texture.near_blade_count || 12000) | 0));
+    var count = Math.max(0, Math.min(90000, Number(texture.near_blade_count || 18000) | 0));
     if (!count) { return null; }
     var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
     var instances = new Float32Array(count * 12);
-    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (size * 0.0036)));
-    var bladeWidth = Math.max(0.00028, Number(texture.near_blade_width || (size * 0.00014)));
+    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (minSize * 0.006)));
+    var bladeWidth = Math.max(0.00028, Number(texture.near_blade_width || (minSize * 0.00030)));
     var camPos = toVec3(camera && camera.pos, topCenter);
     var camTarget = toVec3(camera && camera.target, topCenter);
     var camLocalU = dot3([camPos[0] - topCenter[0], camPos[1] - topCenter[1], camPos[2] - topCenter[2]], uAxis);
@@ -937,29 +952,29 @@
     var viewLocalLen = Math.sqrt((viewLocalU * viewLocalU) + (viewLocalV * viewLocalV)) || 1.0;
     viewLocalU /= viewLocalLen;
     viewLocalV /= viewLocalLen;
-    var patchRadius = Math.max(size * 0.36, Math.min(size * 0.70, Number(texture.near_blade_radius || (size * 0.64))));
-    var focusU = Math.max(-half, Math.min(half, camLocalU + (viewLocalU * patchRadius * 0.42)));
-    var focusV = Math.max(-half, Math.min(half, camLocalV + (viewLocalV * patchRadius * 0.42)));
-    var denseRadius = patchRadius * 0.36;
+    var patchRadius = Math.max(minSize * 0.18, Math.min(minSize * 0.48, Number(texture.near_blade_radius || (minSize * 0.34))));
+    var focusU = Math.max(-halfU, Math.min(halfU, camLocalU + (viewLocalU * patchRadius * 0.42)));
+    var focusV = Math.max(-halfV, Math.min(halfV, camLocalV + (viewLocalV * patchRadius * 0.42)));
+    var denseRadius = patchRadius * 0.42;
     var fadeRadius = patchRadius;
     var keptCount = 0;
     for (var i = 0; i < count; i += 1) {
-      var su = (rng() - 0.5) * size;
-      var sv = (rng() - 0.5) * size;
+      var su = (rng() - 0.5) * sizeU;
+      var sv = (rng() - 0.5) * sizeV;
       var du = su - focusU;
       var dv = sv - focusV;
       var dist = Math.sqrt((du * du) + (dv * dv));
       var tFade = Math.max(0.0, Math.min(1.0, (dist - denseRadius) / Math.max(1e-6, fadeRadius - denseRadius)));
       var nearWeight = 1.0 - (tFade * tFade * (3.0 - (2.0 * tFade)));
-      var backgroundWeight = 0.34;
+      var backgroundWeight = 0.18;
       var keepProbability = Math.max(backgroundWeight, nearWeight);
       if (rng() > keepProbability) {
         continue;
       }
       var edgeFade = 0.18 + (0.82 * nearWeight);
       var bendA = (rng() * Math.PI * 2.0);
-      var lean = (rng() * 0.42 + 0.10) * bladeHeight;
-      var h = bladeHeight * (0.44 + (rng() * 0.92));
+      var lean = (rng() * 0.48 + 0.12) * bladeHeight;
+      var h = bladeHeight * (0.34 + (rng() * 1.18));
       var w0 = bladeWidth * (0.70 + (rng() * 0.70));
       var w1 = w0 * 0.32;
       var base = [
@@ -979,14 +994,14 @@
       ];
       var tintMix = rng();
       var color = [
-        (rootColor[0] * (1.0 - tintMix) + tipColor[0] * tintMix) * 0.78,
-        (rootColor[1] * (1.0 - tintMix) + tipColor[1] * tintMix) * 0.92,
-        (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.70,
-        0.24 + (0.46 * edgeFade)
+        (rootColor[0] * (1.0 - tintMix) + tipColor[0] * tintMix) * 0.38,
+        (rootColor[1] * (1.0 - tintMix) + tipColor[1] * tintMix) * 0.48,
+        (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.32,
+        0.40 + (0.48 * edgeFade)
       ];
       var o = keptCount * 12;
       instances[o + 0] = base[0]; instances[o + 1] = base[1]; instances[o + 2] = base[2]; instances[o + 3] = w0;
-      instances[o + 4] = tip[0]; instances[o + 5] = tip[1]; instances[o + 6] = tip[2]; instances[o + 7] = w1;
+      instances[o + 4] = tip[0]; instances[o + 5] = tip[1]; instances[o + 6] = tip[2]; instances[o + 7] = -w1;
       instances[o + 8] = color[0]; instances[o + 9] = color[1]; instances[o + 10] = color[2]; instances[o + 11] = color[3];
       keptCount += 1;
     }
