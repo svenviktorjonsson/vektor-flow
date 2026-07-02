@@ -3094,11 +3094,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     return vec4<f32>(warmWhite * alpha, alpha);
   }
 
+  let sourceHaloRadiusPx = sourceRadiusPx + max(8.0, sourceRadiusPx * 0.32);
+  let sourceHalo = select(0.0, 1.0 - smoothstep(sourceRadiusPx, sourceHaloRadiusPx, r), sourceRadiusPx > 0.0);
+  let sourceHaloA = alpha * 0.72 * sourceHalo;
   let whiteA = alpha * (glow + (0.72 * rays));
   let tintA = alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
   let white = vec3<f32>(1.0, 1.0, 1.0) * whiteA;
   let tint = i.color.rgb * tintA;
-  return vec4<f32>(white + tint, max(whiteA, tintA));
+  let sourceTint = warmWhite * sourceHaloA;
+  return vec4<f32>(sourceTint + white + tint, max(sourceHaloA, max(whiteA, tintA)));
 }
 `;
 
