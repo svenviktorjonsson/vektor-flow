@@ -906,7 +906,10 @@
   function grassNearBladeLayer(mesh, camera) {
     if (!meshHasGrassTexture(mesh) || mesh.kind !== "cube" || mesh.visible === false) { return null; }
     var texture = mesh.texture || {};
-    if (texture.near_blades === false) { return null; }
+    // Grass materials must stay shader-only by default. Expanding every grass
+    // surface into tens of thousands of CPU-side impostors makes startup and
+    // navigation scale with material detail instead of visible scene complexity.
+    if (texture.near_blades !== true) { return null; }
     var size = Math.max(0.01, Number(mesh.size || 1.0));
     var half = size * 0.5;
     var topCenter = transformLocalVertices([[0.0, 0.0, half]], mesh.center, mesh.rotation || [0, 0, 0])[0];
@@ -917,7 +920,7 @@
     var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
     var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
     var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
-    var count = Math.max(0, Math.min(160000, Number(texture.near_blade_count || 125000) | 0));
+    var count = Math.max(0, Math.min(24000, Number(texture.near_blade_count || 12000) | 0));
     if (!count) { return null; }
     var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
     var instances = new Float32Array(count * 12);
