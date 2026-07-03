@@ -61,7 +61,7 @@ README_ASSETS: tuple[ReadmeAsset, ...] = (
         marker="ui-physics-layer-lighting",
         example=REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf",
         output_name="ui-physics-layer-lighting.png",
-        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting: lower room walls are illuminated, while a same-layer blocker casts shadow.",
+        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting through the middle-third gap between two adjacent equal-aspect squares.",
         viewport=(1400, 900),
         wait_ms=1200,
     ),
@@ -340,14 +340,15 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "circular light core": ((515, 400), (255, 244, 168), 10),
-        "circular light falloff ring": ((275, 400), (207, 169, 74), 10),
-        "illuminated left room wall": ((235, 270), (215, 184, 90), 10),
-        "illuminated center wall below light": ((565, 360), (215, 184, 90), 10),
-        "illuminated right room wall": ((710, 250), (141, 114, 48), 10),
-        "same-layer blocker": ((680, 400), (16, 22, 32), 10),
-        "shadow cast by blocker": ((835, 430), (36, 31, 26), 10),
-        "text-free blocker area": ((650, 365), (16, 22, 32), 10),
+        "left square background": ((360, 320), (38, 51, 66), 10),
+        "right square background": ((820, 320), (38, 51, 66), 10),
+        "circular light source core": ((475, 430), (255, 248, 168), 10),
+        "left circular light ring": ((470, 360), (255, 224, 113), 10),
+        "light passing through gap": ((680, 430), (246, 196, 79), 10),
+        "shared edge first third": ((630, 320), (216, 220, 228), 10),
+        "shared edge middle-third gap": ((630, 430), (234, 187, 75), 10),
+        "shared edge last third": ((630, 530), (216, 220, 228), 10),
+        "right outer square boundary": ((935, 430), (216, 220, 228), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:

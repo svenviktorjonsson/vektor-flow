@@ -52,20 +52,23 @@ class TestReadmeGeneratedExamples:
         assert meshes["layer_1_light_source"]["physics"] == {
             "kind": "light2d",
             "layer": 1,
-            "radius": 1.8,
-            "blocked_by_same_layer": True,
+            "radius_ratio_to_square_width": 0.1,
+            "shape": "circle",
             "illuminates_lower_layers": True,
         }
-        assert meshes["lower_room_backgrounds"]["physics"]["layer"] == 0
-        assert meshes["lower_room_backgrounds"]["physics"]["light_result"] == "lit_by_circular_layer_1_light"
-        assert meshes["lower_radial_light_field"]["physics"]["layer"] == 0
-        assert meshes["lower_radial_light_field"]["physics"]["light_result"] == "radial_light_on_layers_below"
-        assert meshes["lower_room_walls"]["physics"]["layer"] == 0
-        assert meshes["lower_room_walls"]["physics"]["blocks_light"] is False
-        assert meshes["lower_room_walls"]["physics"]["light_result"] == "illuminated_because_below_light"
-        assert meshes["same_layer_blocker"]["physics"]["layer"] == 1
-        assert meshes["same_layer_blocker"]["physics"]["blocks_light"] is True
-        assert meshes["same_layer_blocker"]["physics"]["light_result"] == "casts_shadow_on_lower_layer"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["layer"] == 0
+        assert meshes["adjacent_square_backgrounds"]["physics"]["light_result"] == "background_layer_under_light"
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["layer"] == 0
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["boundary_parts"] == (
+            "outer_edges_and_shared_edge_first_last_thirds"
+        )
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["shared_edge_gap"] == "middle_third"
+        assert meshes["lighting_layer_passes_through_gap"]["physics"] == {
+            "kind": "light_field2d",
+            "layer": 1,
+            "passes_through": "shared_edge_middle_third_gap",
+            "above_layer": 0,
+        }
 
 
 class TestStringInterpolation:

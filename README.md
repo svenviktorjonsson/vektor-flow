@@ -1466,10 +1466,10 @@ The first 2D lighting slice attaches a `physics` record to field meshes and
 lights so the world simulator can reason about layers, blockers, and ambient
 surfaces without introducing a second geometry format.
 
-In this example the light is on layer `1` inside the left room. The rooms and
-their walls are layer `0`, below the light, so they are illuminated by the
-circular light field. Only the small obstacle on layer `1` blocks light and
-casts a shadow across the lower layer.
+In this example two adjacent square rooms sit on layer `0`. The shared boundary
+only has its first and last thirds, leaving the middle third open. A circular
+light on layer `1` sits inside the left square and the lighting layer is drawn
+above the room/background layer so the light passes through the gap.
 
 <!-- readme-example: ui_physics_layer_lighting.vkf -->
 ```vkf
@@ -1483,38 +1483,36 @@ g: d.frame(id: "physics_layer_light_canvas", title: "", alpha: 1.0, frameless: t
 d.add_frame(g, (0.0, 0.0, 0.01, 0.01), in_frame: f)
 
 f.draw_rect((0.00, 0.00, 1.00, 1.00), color: "#22242d")
-f.draw_rect((0.10, 0.18, 0.36, 0.58), color: "#1f2933")
-f.draw_rect((0.56, 0.18, 0.36, 0.58), color: "#1f2933")
-f.add_oval((0.02, 0.08, 0.74, 0.74), color: "#51482d")
-f.add_oval((0.08, 0.14, 0.62, 0.62), color: "#8c7335")
-f.add_oval((0.14, 0.20, 0.50, 0.50), color: "#cfa94a")
-f.add_oval((0.20, 0.26, 0.38, 0.38), color: "#ffe079")
-f.add_oval((0.27, 0.33, 0.24, 0.24), color: "#fff4a8")
-f.add_oval((0.66, 0.36, 0.20, 0.20), color: "#8d7230")
-f.draw_rect((0.10, 0.18, 0.36, 0.04), color: "#d7b85a")
-f.draw_rect((0.10, 0.72, 0.36, 0.04), color: "#b18f3b")
-f.draw_rect((0.10, 0.18, 0.04, 0.58), color: "#d7b85a")
-f.draw_rect((0.42, 0.18, 0.04, 0.58), color: "#d7b85a")
-f.draw_rect((0.56, 0.18, 0.36, 0.04), color: "#8d7230")
-f.draw_rect((0.56, 0.72, 0.36, 0.04), color: "#6f5b32")
-f.draw_rect((0.88, 0.18, 0.04, 0.58), color: "#6f5b32")
-f.draw_rect((0.56, 0.18, 0.04, 0.58), color: "#8d7230")
-f.draw_rect((0.50, 0.36, 0.10, 0.24), color: "#101620")
-f.draw_rect((0.60, 0.46, 0.25, 0.10), color: "#241f1a")
+f.draw_rect((0.20, 0.25, 0.30, 0.50), color: "#263342")
+f.draw_rect((0.50, 0.25, 0.30, 0.50), color: "#263342")
+f.add_oval((0.20, 0.25, 0.30, 0.50), color: "#5c502f")
+f.add_oval((0.24, 0.32, 0.22, 0.36), color: "#b28b35")
+f.add_oval((0.28, 0.38, 0.14, 0.24), color: "#ffe071")
+f.add_oval((0.32, 0.45, 0.06, 0.10), color: "#fff8a8")
+f.add_oval((0.50, 0.36, 0.18, 0.30), color: "#8f7130")
+f.add_oval((0.50, 0.43, 0.10, 0.14), color: "#f6c44f")
+f.draw_rect((0.20, 0.25, 0.30, 0.015), color: "#d8dce4")
+f.draw_rect((0.20, 0.735, 0.30, 0.015), color: "#d8dce4")
+f.draw_rect((0.20, 0.25, 0.009, 0.50), color: "#d8dce4")
+f.draw_rect((0.50, 0.25, 0.30, 0.015), color: "#d8dce4")
+f.draw_rect((0.50, 0.735, 0.30, 0.015), color: "#d8dce4")
+f.draw_rect((0.791, 0.25, 0.009, 0.50), color: "#d8dce4")
+f.draw_rect((0.496, 0.25, 0.008, 0.167), color: "#d8dce4")
+f.draw_rect((0.496, 0.583, 0.008, 0.167), color: "#d8dce4")
 
-room_bg_x: [[-1.0, -0.18, 0.18, 1.0], [-1.0, -0.18, 0.18, 1.0]] -> uv
-room_bg_y: [[-0.72, -0.72, -0.72, -0.72], [0.62, 0.62, 0.62, 0.62]] -> uv
-room_bg_z: [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]] -> uv
-room_bg_c: [
-  [[0.32, 0.28, 0.20, 1.0], [0.70, 0.58, 0.28, 1.0], [0.70, 0.58, 0.28, 1.0], [0.32, 0.28, 0.20, 1.0]],
-  [[0.30, 0.26, 0.20, 1.0], [1.0, 0.78, 0.28, 1.0], [1.0, 0.78, 0.28, 1.0], [0.30, 0.26, 0.20, 1.0]]
+square_bg_x: [[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]] -> uv
+square_bg_y: [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]] -> uv
+square_bg_z: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] -> uv
+square_bg_c: [
+  [[0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0]],
+  [[0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0]]
 ] -> uv
 g.add(
-  id: "lower_room_backgrounds",
-  x: room_bg_x,
-  y: room_bg_y,
-  z: room_bg_z,
-  c: room_bg_c,
+  id: "adjacent_square_backgrounds",
+  x: square_bg_x,
+  y: square_bg_y,
+  z: square_bg_z,
+  c: square_bg_c,
   representation: "faces",
   render_mode: "proxy_geometry",
   mode3d: false,
@@ -1525,23 +1523,23 @@ g.add(
     kind: "surface2d",
     layer: 0,
     receives_light: true,
-    light_result: "lit_by_circular_layer_1_light"
+    light_result: "background_layer_under_light"
   )
 )
 
-field_x: [[-0.95, 0.05, 0.95], [-0.95, 0.05, 0.95]] -> uv
-field_y: [[-0.72, -0.72, -0.72], [0.72, 0.72, 0.72]] -> uv
-field_z: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] -> uv
-field_c: [
-  [[0.34, 0.28, 0.16, 1.0], [1.0, 0.90, 0.48, 1.0], [0.44, 0.34, 0.16, 1.0]],
-  [[0.24, 0.22, 0.18, 1.0], [0.72, 0.58, 0.28, 1.0], [0.22, 0.20, 0.16, 1.0]]
+boundary_x: [[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]] -> uv
+boundary_y: [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]] -> uv
+boundary_z: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] -> uv
+boundary_c: [
+  [[0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0]],
+  [[0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0]]
 ] -> uv
 g.add(
-  id: "lower_radial_light_field",
-  x: field_x,
-  y: field_y,
-  z: field_z,
-  c: field_c,
+  id: "boundary_parts_with_middle_gap",
+  x: boundary_x,
+  y: boundary_y,
+  z: boundary_z,
+  c: boundary_c,
   representation: "faces",
   render_mode: "proxy_geometry",
   mode3d: false,
@@ -1552,23 +1550,24 @@ g.add(
     kind: "surface2d",
     layer: 0,
     receives_light: true,
-    light_result: "radial_light_on_layers_below"
+    boundary_parts: "outer_edges_and_shared_edge_first_last_thirds",
+    shared_edge_gap: "middle_third"
   )
 )
 
-wall_x: [[-0.92, -0.18, 0.18, 0.92], [-0.92, -0.18, 0.18, 0.92]] -> uv
-wall_y: [[-0.86, -0.86, -0.86, -0.86], [0.82, 0.82, 0.82, 0.82]] -> uv
-wall_z: [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]] -> uv
-wall_c: [
-  [[0.08, 0.10, 0.13, 1.0], [0.08, 0.10, 0.13, 1.0], [0.08, 0.10, 0.13, 1.0], [0.08, 0.10, 0.13, 1.0]],
-  [[0.10, 0.12, 0.16, 1.0], [0.10, 0.12, 0.16, 1.0], [0.10, 0.12, 0.16, 1.0], [0.10, 0.12, 0.16, 1.0]]
+lighting_x: [[-0.5, 0.0, 0.5], [-0.5, 0.0, 0.5]] -> uv
+lighting_y: [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]] -> uv
+lighting_z: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] -> uv
+lighting_c: [
+  [[0.36, 0.31, 0.18, 1.0], [1.0, 0.88, 0.44, 1.0], [0.56, 0.44, 0.18, 1.0]],
+  [[0.28, 0.26, 0.22, 1.0], [0.80, 0.64, 0.26, 1.0], [0.22, 0.20, 0.18, 1.0]]
 ] -> uv
 g.add(
-  id: "lower_room_walls",
-  x: wall_x,
-  y: wall_y,
-  z: wall_z,
-  c: wall_c,
+  id: "lighting_layer_passes_through_gap",
+  x: lighting_x,
+  y: lighting_y,
+  z: lighting_z,
+  c: lighting_c,
   representation: "faces",
   render_mode: "proxy_geometry",
   mode3d: false,
@@ -1576,43 +1575,14 @@ g.add(
   axis_full_frame: true,
   receives_lighting: false,
   physics: (
-    kind: "surface2d",
-    layer: 0,
-    blocks_light: false,
-    receives_light: true,
-    light_result: "illuminated_because_below_light"
-  )
-)
-
-blocker_x: [[-0.08, 0.16], [-0.08, 0.16]] -> uv
-blocker_y: [[-0.06, -0.06], [0.34, 0.34]] -> uv
-blocker_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
-blocker_c: [
-  [[0.08, 0.10, 0.13, 1.0], [0.10, 0.12, 0.16, 1.0]],
-  [[0.08, 0.10, 0.13, 1.0], [0.10, 0.12, 0.16, 1.0]]
-] -> uv
-g.add(
-  id: "same_layer_blocker",
-  x: blocker_x,
-  y: blocker_y,
-  z: blocker_z,
-  c: blocker_c,
-  representation: "faces",
-  render_mode: "proxy_geometry",
-  mode3d: false,
-  aspect: "equal",
-  axis_full_frame: true,
-  receives_lighting: false,
-  physics: (
-    kind: "surface2d",
+    kind: "light_field2d",
     layer: 1,
-    blocks_light: true,
-    receives_light: true,
-    light_result: "casts_shadow_on_lower_layer"
+    passes_through: "shared_edge_middle_third_gap",
+    above_layer: 0
   )
 )
 
-light_x: [[-0.52, -0.32], [-0.52, -0.32]] -> uv
+light_x: [[-0.40, -0.30], [-0.40, -0.30]] -> uv
 light_y: [[-0.10, -0.10], [0.10, 0.10]] -> uv
 light_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
 light_c: [
@@ -1634,8 +1604,8 @@ g.add(
   physics: (
     kind: "light2d",
     layer: 1,
-    radius: 1.8,
-    blocked_by_same_layer: true,
+    radius_ratio_to_square_width: 0.1,
+    shape: "circle",
     illuminates_lower_layers: true
   )
 )
@@ -1643,7 +1613,7 @@ g.add(
 
 <!-- readme-asset: ui-physics-layer-lighting -->
 ![ui-physics-layer-lighting](docs/public/images/readme-ui/ui-physics-layer-lighting.png)
-*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting: lower room walls are illuminated, while a same-layer blocker casts shadow.*
+*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting through the middle-third gap between two adjacent equal-aspect squares.*
 
 ### Native Scene Packets
 
