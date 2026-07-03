@@ -327,6 +327,37 @@ def _capture_png_from_root(root: Path, out_path: Path, *, viewport: tuple[int, i
             httpd.server_close()
 
 
+def _assert_rgb_near(actual: tuple[int, int, int], expected: tuple[int, int, int], *, tolerance: int) -> None:
+    if any(abs(a - e) > tolerance for a, e in zip(actual, expected, strict=True)):
+        raise RuntimeError(f"expected RGB near {expected}, got {actual}")
+
+
+def _verify_physics_layer_lighting_capture(path: Path) -> None:
+    from PIL import Image
+
+    image = Image.open(path).convert("RGB")
+    if image.size != (1400, 900):
+        raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
+
+    samples = {
+        "layer 1 light source": ((650, 200), (255, 228, 92), 10),
+        "same-layer blocker": ((650, 360), (21, 25, 34), 10),
+        "lit lower layer": ((400, 560), (255, 180, 46), 10),
+        "blocked lower-layer shadow": ((740, 560), (40, 31, 24), 10),
+        "upper ambient-only layer": ((410, 300), (45, 83, 109), 10),
+    }
+    for label, (xy, expected, tolerance) in samples.items():
+        try:
+            _assert_rgb_near(image.getpixel(xy), expected, tolerance=tolerance)
+        except RuntimeError as exc:
+            raise RuntimeError(f"{path.name} missing {label}: {exc}") from exc
+
+
+def _verify_rendered_asset(asset: ReadmeAsset, path: Path) -> None:
+    if asset.marker == "ui-physics-layer-lighting":
+        _verify_physics_layer_lighting_capture(path)
+
+
 def render_asset(asset: ReadmeAsset) -> Path:
     out_path = asset.output_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +366,7 @@ def render_asset(asset: ReadmeAsset) -> Path:
         scene_json, display_json = _scene_and_display_from_display_vkf(asset)
         scene_html, frame_id = _stage_display_capture_session(asset, scene_json, display_json)
         _capture_png_via_edge(scene_html, frame_id, out_path)
+        _verify_rendered_asset(asset, out_path)
         return out_path
     except Exception as exc:
         logging.warning("display runtime failed for %s: %s", asset.marker, exc)
@@ -343,6 +375,7 @@ def render_asset(asset: ReadmeAsset) -> Path:
         program = _native_overlay_program_from_vkf(asset)
         scene_html, frame_id = _stage_native_capture_session(asset, program)
         _capture_png_via_edge(scene_html, frame_id, out_path)
+        _verify_rendered_asset(asset, out_path)
         return out_path
     except Exception as exc:
         logging.warning("native scene runtime failed for %s: %s", asset.marker, exc)
@@ -359,6 +392,7 @@ def render_asset(asset: ReadmeAsset) -> Path:
             program = _native_overlay_program_from_vkf(asset)
             _seed_native_scene_runtime(root, program)
         _capture_png_from_root(root, asset.output_path, viewport=asset.viewport, wait_ms=asset.wait_ms)
+    _verify_rendered_asset(asset, asset.output_path)
     return asset.output_path
 
 
