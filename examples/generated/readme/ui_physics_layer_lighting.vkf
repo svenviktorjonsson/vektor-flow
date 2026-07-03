@@ -6,33 +6,26 @@ f: d.frame(id: "physics_layer_light_frame", title: "2D Physics Lighting Layers",
 d.add_frame(f, (0.08, 0.08, 0.74, 0.74))
 g: d.frame(id: "physics_layer_light_canvas", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
 d.add_frame(g, (0.0, 0.0, 0.01, 0.01), in_frame: f)
-label_frame: d.frame(id: "physics_layer_above_text", title: "", alpha: 0.96, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl", body_transparent: true)
-d.add_frame(
-  label_frame,
-  (0.43, 0.36, 0.16, 0.08),
-  in_frame: f,
-  body: [d.widget.label("ambient_label", text: "LAYER 2 TEXT / ambient only")]
-)
 
 f.draw_rect((0.00, 0.00, 1.00, 1.00), color: "#22242d")
-f.draw_rect((0.12, 0.24, 0.30, 0.48), color: "#342f25")
-f.draw_rect((0.60, 0.24, 0.30, 0.48), color: "#342f25")
-f.draw_rect((0.14, 0.42, 0.72, 0.12), color: "#ffd56a")
-f.draw_rect((0.18, 0.46, 0.66, 0.06), color: "#fff0a6")
-f.add_oval((0.20, 0.40, 0.08, 0.08), color: "#fff275")
-f.draw_rect((0.10, 0.20, 0.34, 0.04), color: "#111722")
-f.draw_rect((0.10, 0.72, 0.34, 0.04), color: "#111722")
-f.draw_rect((0.10, 0.20, 0.04, 0.56), color: "#111722")
-f.draw_rect((0.40, 0.20, 0.04, 0.22), color: "#111722")
-f.draw_rect((0.40, 0.54, 0.04, 0.22), color: "#111722")
-f.draw_rect((0.58, 0.20, 0.34, 0.04), color: "#111722")
-f.draw_rect((0.58, 0.72, 0.34, 0.04), color: "#111722")
-f.draw_rect((0.88, 0.20, 0.04, 0.56), color: "#111722")
-f.draw_rect((0.58, 0.20, 0.04, 0.22), color: "#111722")
-f.draw_rect((0.58, 0.54, 0.04, 0.22), color: "#111722")
-f.draw_rect((0.44, 0.20, 0.14, 0.22), color: "#151922")
-f.draw_rect((0.44, 0.54, 0.14, 0.22), color: "#151922")
-f.draw_rect((0.445, 0.365, 0.13, 0.09), color: "#29455c")
+f.draw_rect((0.10, 0.18, 0.36, 0.58), color: "#1f2933")
+f.draw_rect((0.56, 0.18, 0.36, 0.58), color: "#1f2933")
+f.add_oval((0.02, 0.08, 0.74, 0.74), color: "#51482d")
+f.add_oval((0.08, 0.14, 0.62, 0.62), color: "#8c7335")
+f.add_oval((0.14, 0.20, 0.50, 0.50), color: "#cfa94a")
+f.add_oval((0.20, 0.26, 0.38, 0.38), color: "#ffe079")
+f.add_oval((0.27, 0.33, 0.24, 0.24), color: "#fff4a8")
+f.add_oval((0.66, 0.36, 0.20, 0.20), color: "#8d7230")
+f.draw_rect((0.10, 0.18, 0.36, 0.04), color: "#d7b85a")
+f.draw_rect((0.10, 0.72, 0.36, 0.04), color: "#b18f3b")
+f.draw_rect((0.10, 0.18, 0.04, 0.58), color: "#d7b85a")
+f.draw_rect((0.42, 0.18, 0.04, 0.58), color: "#d7b85a")
+f.draw_rect((0.56, 0.18, 0.36, 0.04), color: "#8d7230")
+f.draw_rect((0.56, 0.72, 0.36, 0.04), color: "#6f5b32")
+f.draw_rect((0.88, 0.18, 0.04, 0.58), color: "#6f5b32")
+f.draw_rect((0.56, 0.18, 0.04, 0.58), color: "#8d7230")
+f.draw_rect((0.50, 0.36, 0.10, 0.24), color: "#101620")
+f.draw_rect((0.60, 0.46, 0.25, 0.10), color: "#241f1a")
 
 room_bg_x: [[-1.0, -0.18, 0.18, 1.0], [-1.0, -0.18, 0.18, 1.0]] -> uv
 room_bg_y: [[-0.72, -0.72, -0.72, -0.72], [0.62, 0.62, 0.62, 0.62]] -> uv
@@ -57,23 +50,23 @@ g.add(
     kind: "surface2d",
     layer: 0,
     receives_light: true,
-    light_result: "lit_through_room_openings"
+    light_result: "lit_by_circular_layer_1_light"
   )
 )
 
-beam_x: [[-0.78, 0.78], [-0.78, 0.78]] -> uv
-beam_y: [[-0.18, -0.18], [0.16, 0.16]] -> uv
-beam_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
-beam_c: [
-  [[1.0, 0.94, 0.55, 1.0], [1.0, 0.84, 0.24, 1.0]],
-  [[1.0, 0.88, 0.34, 1.0], [1.0, 0.78, 0.18, 1.0]]
+field_x: [[-0.95, 0.05, 0.95], [-0.95, 0.05, 0.95]] -> uv
+field_y: [[-0.72, -0.72, -0.72], [0.72, 0.72, 0.72]] -> uv
+field_z: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] -> uv
+field_c: [
+  [[0.34, 0.28, 0.16, 1.0], [1.0, 0.90, 0.48, 1.0], [0.44, 0.34, 0.16, 1.0]],
+  [[0.24, 0.22, 0.18, 1.0], [0.72, 0.58, 0.28, 1.0], [0.22, 0.20, 0.16, 1.0]]
 ] -> uv
 g.add(
-  id: "light_path_through_openings",
-  x: beam_x,
-  y: beam_y,
-  z: beam_z,
-  c: beam_c,
+  id: "lower_radial_light_field",
+  x: field_x,
+  y: field_y,
+  z: field_z,
+  c: field_c,
   representation: "faces",
   render_mode: "proxy_geometry",
   mode3d: false,
@@ -84,7 +77,7 @@ g.add(
     kind: "surface2d",
     layer: 0,
     receives_light: true,
-    light_result: "passes_through_two_wall_openings"
+    light_result: "radial_light_on_layers_below"
   )
 )
 
@@ -96,7 +89,7 @@ wall_c: [
   [[0.10, 0.12, 0.16, 1.0], [0.10, 0.12, 0.16, 1.0], [0.10, 0.12, 0.16, 1.0], [0.10, 0.12, 0.16, 1.0]]
 ] -> uv
 g.add(
-  id: "same_layer_room_walls",
+  id: "lower_room_walls",
   x: wall_x,
   y: wall_y,
   z: wall_z,
@@ -109,26 +102,26 @@ g.add(
   receives_lighting: false,
   physics: (
     kind: "surface2d",
-    layer: 1,
-    blocks_light: true,
+    layer: 0,
+    blocks_light: false,
     receives_light: true,
-    light_result: "same_layer_blockers_with_openings"
+    light_result: "illuminated_because_below_light"
   )
 )
 
-closed_wall_x: [[-0.18, 0.18], [-0.18, 0.18]] -> uv
-closed_wall_y: [[0.22, 0.22], [0.56, 0.56]] -> uv
-closed_wall_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
-closed_wall_c: [
+blocker_x: [[-0.08, 0.16], [-0.08, 0.16]] -> uv
+blocker_y: [[-0.06, -0.06], [0.34, 0.34]] -> uv
+blocker_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+blocker_c: [
   [[0.08, 0.10, 0.13, 1.0], [0.10, 0.12, 0.16, 1.0]],
   [[0.08, 0.10, 0.13, 1.0], [0.10, 0.12, 0.16, 1.0]]
 ] -> uv
 g.add(
-  id: "closed_wall_shadow",
-  x: closed_wall_x,
-  y: closed_wall_y,
-  z: closed_wall_z,
-  c: closed_wall_c,
+  id: "same_layer_blocker",
+  x: blocker_x,
+  y: blocker_y,
+  z: blocker_z,
+  c: blocker_c,
   representation: "faces",
   render_mode: "proxy_geometry",
   mode3d: false,
@@ -140,40 +133,12 @@ g.add(
     layer: 1,
     blocks_light: true,
     receives_light: true,
-    light_result: "blocks_light_outside_openings"
+    light_result: "casts_shadow_on_lower_layer"
   )
 )
 
-text_x: [[-0.12, 0.12], [-0.12, 0.12]] -> uv
-text_y: [[-0.02, -0.02], [0.18, 0.18]] -> uv
-text_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
-text_c: [
-  [[0.18, 0.32, 0.46, 0.82], [0.20, 0.38, 0.52, 0.82]],
-  [[0.18, 0.32, 0.46, 0.82], [0.22, 0.42, 0.58, 0.82]]
-] -> uv
-g.add(
-  id: "upper_ambient_text",
-  x: text_x,
-  y: text_y,
-  z: text_z,
-  c: text_c,
-  representation: "faces",
-  render_mode: "proxy_geometry",
-  mode3d: false,
-  aspect: "equal",
-  axis_full_frame: true,
-  receives_lighting: false,
-  physics: (
-    kind: "surface2d",
-    layer: 2,
-    receives_light: false,
-    ambient_only: true,
-    light_result: "ambient_only_text_above_light"
-  )
-)
-
-light_x: [[-0.78, -0.62], [-0.78, -0.62]] -> uv
-light_y: [[-0.12, -0.12], [0.08, 0.08]] -> uv
+light_x: [[-0.52, -0.32], [-0.52, -0.32]] -> uv
+light_y: [[-0.10, -0.10], [0.10, 0.10]] -> uv
 light_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
 light_c: [
   [[1.0, 0.96, 0.55, 1.0], [1.0, 0.96, 0.55, 1.0]],

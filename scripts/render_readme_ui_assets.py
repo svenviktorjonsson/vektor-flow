@@ -61,7 +61,7 @@ README_ASSETS: tuple[ReadmeAsset, ...] = (
         marker="ui-physics-layer-lighting",
         example=REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf",
         output_name="ui-physics-layer-lighting.png",
-        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D physics lighting layers: same-layer blockers, lit lower surfaces, and ambient-only upper surfaces.",
+        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting: lower room walls are illuminated, while a same-layer blocker casts shadow.",
         viewport=(1400, 900),
         wait_ms=1200,
     ),
@@ -340,14 +340,14 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left room lower-layer background": ((390, 310), (52, 47, 37), 10),
-        "right room lower-layer background": ((890, 310), (52, 47, 37), 10),
-        "layer 1 light source": ((360, 390), (255, 242, 117), 10),
-        "beam in left room": ((450, 420), (255, 240, 166), 10),
-        "beam reaching right room": ((860, 420), (255, 240, 166), 10),
-        "same-layer wall blocker": ((390, 250), (17, 23, 34), 10),
-        "upper ambient text plate": ((650, 370), (29, 31, 39), 10),
-        "visible upper-layer text": ((693, 362), (191, 192, 201), 20),
+        "circular light core": ((515, 400), (255, 244, 168), 10),
+        "circular light falloff ring": ((275, 400), (207, 169, 74), 10),
+        "illuminated left room wall": ((235, 270), (215, 184, 90), 10),
+        "illuminated center wall below light": ((565, 360), (215, 184, 90), 10),
+        "illuminated right room wall": ((710, 250), (141, 114, 48), 10),
+        "same-layer blocker": ((680, 400), (16, 22, 32), 10),
+        "shadow cast by blocker": ((835, 430), (36, 31, 26), 10),
+        "text-free blocker area": ((650, 365), (16, 22, 32), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:

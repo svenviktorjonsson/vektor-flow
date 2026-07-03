@@ -57,17 +57,15 @@ class TestReadmeGeneratedExamples:
             "illuminates_lower_layers": True,
         }
         assert meshes["lower_room_backgrounds"]["physics"]["layer"] == 0
-        assert meshes["lower_room_backgrounds"]["physics"]["light_result"] == "lit_through_room_openings"
-        assert meshes["light_path_through_openings"]["physics"]["layer"] == 0
-        assert meshes["light_path_through_openings"]["physics"]["light_result"] == (
-            "passes_through_two_wall_openings"
-        )
-        assert meshes["same_layer_room_walls"]["physics"]["layer"] == 1
-        assert meshes["same_layer_room_walls"]["physics"]["blocks_light"] is True
-        assert meshes["closed_wall_shadow"]["physics"]["light_result"] == "blocks_light_outside_openings"
-        assert meshes["upper_ambient_text"]["physics"]["layer"] == 2
-        assert meshes["upper_ambient_text"]["physics"]["ambient_only"] is True
-        assert meshes["upper_ambient_text"]["physics"]["light_result"] == "ambient_only_text_above_light"
+        assert meshes["lower_room_backgrounds"]["physics"]["light_result"] == "lit_by_circular_layer_1_light"
+        assert meshes["lower_radial_light_field"]["physics"]["layer"] == 0
+        assert meshes["lower_radial_light_field"]["physics"]["light_result"] == "radial_light_on_layers_below"
+        assert meshes["lower_room_walls"]["physics"]["layer"] == 0
+        assert meshes["lower_room_walls"]["physics"]["blocks_light"] is False
+        assert meshes["lower_room_walls"]["physics"]["light_result"] == "illuminated_because_below_light"
+        assert meshes["same_layer_blocker"]["physics"]["layer"] == 1
+        assert meshes["same_layer_blocker"]["physics"]["blocks_light"] is True
+        assert meshes["same_layer_blocker"]["physics"]["light_result"] == "casts_shadow_on_lower_layer"
 
 
 class TestStringInterpolation:
