@@ -1459,6 +1459,179 @@ light: d.add_light(pos: [6,8,6], model: "blinn_phong", color: "white")
 
 This is the ergonomic authoring layer used by the axis showcase.
 
+### Physics Lighting Layers
+
+The physics world should use the same geometry objects the UI already builds.
+The first 2D lighting slice attaches a `physics` record to field meshes and
+lights so the world simulator can reason about layers, blockers, and ambient
+surfaces without introducing a second geometry format.
+
+In this example the light is on layer `1`. The wall on layer `1` is a blocker,
+the floor patch on layer `0` is lit because it is below the light and not
+covered by the blocker, and the glass patch on layer `2` is ambient-only
+because it is above the light layer.
+
+<!-- readme-example: ui_physics_layer_lighting.vkf -->
+```vkf
+ui:.ui
+ui.set_mode("overlay")
+
+d: ui.display
+f: d.frame(id: "physics_layer_light_frame", title: "2D Physics Lighting Layers", alpha: 0.96)
+d.add_frame(f, (0.08, 0.08, 0.74, 0.74))
+g: d.frame(id: "physics_layer_light_canvas", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(g, (0.0, 0.0, 0.01, 0.01), in_frame: f)
+
+f.draw_rect((0.00, 0.00, 1.00, 1.00), color: "#22242d")
+f.draw_rect((0.12, 0.62, 0.76, 0.18), color: "#ffb42e")
+f.draw_rect((0.47, 0.62, 0.28, 0.18), color: "#281f18")
+f.draw_rect((0.48, 0.24, 0.08, 0.48), color: "#151922")
+f.draw_rect((0.18, 0.20, 0.22, 0.18), color: "#2d536d")
+f.add_oval((0.47, 0.08, 0.10, 0.10), color: "#ffe45c")
+
+floor_x: [[-1.0, 1.0], [-1.0, 1.0]] -> uv
+floor_y: [[-0.72, -0.72], [-0.24, -0.24]] -> uv
+floor_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+floor_c: [
+  [[1.0, 0.82, 0.28, 1.0], [1.0, 0.82, 0.28, 1.0]],
+  [[1.0, 0.66, 0.18, 1.0], [1.0, 0.66, 0.18, 1.0]]
+] -> uv
+g.add(
+  id: "lower_lit_floor",
+  x: floor_x,
+  y: floor_y,
+  z: floor_z,
+  c: floor_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "surface2d",
+    layer: 0,
+    receives_light: true,
+    light_result: "lit_by_layer_1_light"
+  )
+)
+
+shadow_x: [[-0.18, 0.52], [-0.18, 0.52]] -> uv
+shadow_y: [[-0.72, -0.72], [-0.24, -0.24]] -> uv
+shadow_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+shadow_c: [
+  [[0.16, 0.12, 0.09, 1.0], [0.16, 0.12, 0.09, 1.0]],
+  [[0.20, 0.15, 0.10, 1.0], [0.20, 0.15, 0.10, 1.0]]
+] -> uv
+g.add(
+  id: "same_layer_shadow",
+  x: shadow_x,
+  y: shadow_y,
+  z: shadow_z,
+  c: shadow_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "surface2d",
+    layer: 0,
+    receives_light: true,
+    light_result: "blocked_by_same_layer_wall"
+  )
+)
+
+wall_x: [[-0.08, 0.12], [-0.08, 0.12]] -> uv
+wall_y: [[-0.08, -0.08], [0.60, 0.60]] -> uv
+wall_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+wall_c: [
+  [[0.08, 0.10, 0.13, 1.0], [0.10, 0.12, 0.16, 1.0]],
+  [[0.16, 0.18, 0.23, 1.0], [0.22, 0.26, 0.32, 1.0]]
+] -> uv
+g.add(
+  id: "same_layer_blocker",
+  x: wall_x,
+  y: wall_y,
+  z: wall_z,
+  c: wall_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "surface2d",
+    layer: 1,
+    blocks_light: true,
+    receives_light: true,
+    light_result: "same_layer_blocker"
+  )
+)
+
+glass_x: [[-0.82, -0.28], [-0.82, -0.28]] -> uv
+glass_y: [[0.20, 0.20], [0.62, 0.62]] -> uv
+glass_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+glass_c: [
+  [[0.18, 0.32, 0.46, 0.82], [0.20, 0.38, 0.52, 0.82]],
+  [[0.18, 0.32, 0.46, 0.82], [0.22, 0.42, 0.58, 0.82]]
+] -> uv
+g.add(
+  id: "upper_ambient_glass",
+  x: glass_x,
+  y: glass_y,
+  z: glass_z,
+  c: glass_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "surface2d",
+    layer: 2,
+    receives_light: false,
+    ambient_only: true,
+    light_result: "ambient_only_above_light"
+  )
+)
+
+light_x: [[-0.05, 0.05], [-0.05, 0.05]] -> uv
+light_y: [[0.72, 0.72], [0.82, 0.82]] -> uv
+light_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+light_c: [
+  [[1.0, 0.96, 0.55, 1.0], [1.0, 0.96, 0.55, 1.0]],
+  [[1.0, 0.84, 0.20, 1.0], [1.0, 0.84, 0.20, 1.0]]
+] -> uv
+g.add(
+  id: "layer_1_light_source",
+  x: light_x,
+  y: light_y,
+  z: light_z,
+  c: light_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "light2d",
+    layer: 1,
+    radius: 1.8,
+    blocked_by_same_layer: true,
+    illuminates_lower_layers: true
+  )
+)
+```
+
+<!-- readme-asset: ui-physics-layer-lighting -->
+![ui-physics-layer-lighting](docs/public/images/readme-ui/ui-physics-layer-lighting.png)
+*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D physics lighting layers: same-layer blockers, lit lower surfaces, and ambient-only upper surfaces.*
+
 ### Native Scene Packets
 
 The richer renderer surface is expressed through `native_scene`. This is where

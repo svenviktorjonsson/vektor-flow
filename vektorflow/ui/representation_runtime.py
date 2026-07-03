@@ -817,8 +817,9 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     marker_space = _normalize_field_mesh_marker_space(meta.get("marker_space"), render_mode)
     casts_shadow = bool(meta.get("casts_shadow", render_mode != "marker_impostor"))
     receives_lighting = bool(meta.get("receives_lighting", True))
+    physics = meta.get("physics")
 
-    return {
+    payload = {
         "type": "field_mesh",
         "id": str(meta.get("id", "field_mesh")),
         "vertices": geom["vertices"],
@@ -858,6 +859,9 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "receives_lighting": receives_lighting,
         "depth_write": bool(meta.get("depth_write", False)),
     }
+    if physics is not None:
+        payload["physics"] = physics
+    return payload
 
 
 def _parse_mesh_channel(

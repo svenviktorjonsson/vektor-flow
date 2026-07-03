@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from io import StringIO
 from pathlib import Path
 
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
+from vektorflow.ui.display_runtime import build_display_payload
 
 
 def _emit(src: str) -> str:
@@ -17,6 +19,50 @@ def _emit(src: str) -> str:
     with contextlib.redirect_stdout(buf):
         ip.run_module(mod)
     return buf.getvalue().strip()
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _display_payload_for_file(path: Path) -> dict:
+    source = path.read_text(encoding="utf-8")
+    mod = parse_module(source, filename=str(path))
+    ip = Interpreter(path)
+    ip.run_module(mod)
+    d = ip.globals["d"]
+    payload = build_display_payload(
+        screen_ops=list(getattr(d, "_screen_ops", [])),
+        screen_repr_ops=dict(getattr(d, "_screen_repr_ops", {})),
+        frame_ops=dict(getattr(d, "_frame_ops", {})),
+        frame_repr_ops=dict(getattr(d, "_frame_repr_ops", {})),
+        geom=dict(getattr(d, "_geom", {})),
+    )
+    json.dumps(payload)
+    return payload
+
+
+class TestReadmeGeneratedExamples:
+    def test_physics_layer_lighting_example_preserves_layer_contract(self) -> None:
+        payload = _display_payload_for_file(
+            REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf"
+        )
+        geom = payload["geom"]["physics_layer_light_canvas"]
+        meshes = {mesh["id"]: mesh for mesh in geom["meshes"]}
+
+        assert meshes["layer_1_light_source"]["physics"] == {
+            "kind": "light2d",
+            "layer": 1,
+            "radius": 1.8,
+            "blocked_by_same_layer": True,
+            "illuminates_lower_layers": True,
+        }
+        assert meshes["same_layer_blocker"]["physics"]["layer"] == 1
+        assert meshes["same_layer_blocker"]["physics"]["blocks_light"] is True
+        assert meshes["lower_lit_floor"]["physics"]["layer"] == 0
+        assert meshes["lower_lit_floor"]["physics"]["light_result"] == "lit_by_layer_1_light"
+        assert meshes["same_layer_shadow"]["physics"]["light_result"] == "blocked_by_same_layer_wall"
+        assert meshes["upper_ambient_glass"]["physics"]["layer"] == 2
+        assert meshes["upper_ambient_glass"]["physics"]["ambient_only"] is True
 
 
 class TestStringInterpolation:

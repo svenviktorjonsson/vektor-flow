@@ -58,6 +58,14 @@ class ReadmeAsset:
 
 README_ASSETS: tuple[ReadmeAsset, ...] = (
     ReadmeAsset(
+        marker="ui-physics-layer-lighting",
+        example=REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf",
+        output_name="ui-physics-layer-lighting.png",
+        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D physics lighting layers: same-layer blockers, lit lower surfaces, and ambient-only upper surfaces.",
+        viewport=(1400, 900),
+        wait_ms=1200,
+    ),
+    ReadmeAsset(
         marker="ui-mirror-gallery",
         example=REPO / "examples" / "110_mirror_showcase.vkf",
         output_name="ui-mirror-gallery.png",
