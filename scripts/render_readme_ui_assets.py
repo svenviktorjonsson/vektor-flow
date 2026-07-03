@@ -340,11 +340,14 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "layer 1 light source": ((650, 200), (255, 228, 92), 10),
-        "same-layer blocker": ((650, 360), (21, 25, 34), 10),
-        "lit lower layer": ((400, 560), (255, 180, 46), 10),
-        "blocked lower-layer shadow": ((740, 560), (40, 31, 24), 10),
-        "upper ambient-only layer": ((410, 300), (45, 83, 109), 10),
+        "left room lower-layer background": ((390, 310), (52, 47, 37), 10),
+        "right room lower-layer background": ((890, 310), (52, 47, 37), 10),
+        "layer 1 light source": ((360, 390), (255, 242, 117), 10),
+        "beam in left room": ((450, 420), (255, 240, 166), 10),
+        "beam reaching right room": ((860, 420), (255, 240, 166), 10),
+        "same-layer wall blocker": ((390, 250), (17, 23, 34), 10),
+        "upper ambient text plate": ((650, 370), (29, 31, 39), 10),
+        "visible upper-layer text": ((693, 362), (191, 192, 201), 20),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
