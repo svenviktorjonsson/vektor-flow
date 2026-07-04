@@ -458,14 +458,11 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         (616, 480, 624, 580),
     ]
     for rect in wall_rects:
-        cx = (rect[0] + rect[2]) / 2.0
-        cy = (rect[1] + rect[3]) / 2.0
-        segment_strength = wall_light_strength_at(cx, cy)
         for y in range(rect[1], rect[3]):
             for x in range(rect[0], rect[2]):
                 image.putpixel(
                     (x, y),
-                    shade_material(wall_texture(x, y), segment_strength, diffuse=1.05, glow=0.26),
+                    shade_material(wall_texture(x, y), wall_light_strength_at(x, y), diffuse=1.05, glow=0.26),
                 )
 
     sx0 = int(light[0] - source_radius)
