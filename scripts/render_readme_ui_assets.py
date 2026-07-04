@@ -440,9 +440,7 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             image.putpixel((x, y), shade_material(floor_texture(x, y), light_strength_at(x, y), diffuse=0.42, glow=0.58))
 
     def wall_texture(x: int, y: int) -> tuple[float, float, float]:
-        stripe = 1.0 if (x // 16 + y // 16) % 2 == 0 else 0.0
-        base = 196.0 + 18.0 * stripe
-        return (base, base + 4.0, base + 12.0)
+        return (204.0, 208.0, 216.0)
 
     def wall_light_strength_at(x: float, y: float) -> float:
         dist = math.hypot(x - light[0], y - light[1])
