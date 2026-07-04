@@ -559,12 +559,42 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             return (wall_x, hit_y)
         return None
 
+    def ray_intersection_with_segment(
+        origin: tuple[float, float],
+        target: tuple[float, float],
+        segment: tuple[tuple[float, float], tuple[float, float]],
+    ) -> tuple[float, float] | None:
+        ox, oy = origin
+        tx, ty = target
+        sx, sy = segment[0]
+        ex, ey = segment[1]
+        rx = tx - ox
+        ry = ty - oy
+        ux = ex - sx
+        uy = ey - sy
+        denom = rx * uy - ry * ux
+        if abs(denom) < 0.00001:
+            return None
+        wx = sx - ox
+        wy = sy - oy
+        ray_t = (wx * uy - wy * ux) / denom
+        seg_t = (wx * ry - wy * rx) / denom
+        if ray_t <= 0.0001 or ray_t >= 0.9999 or seg_t < 0.0 or seg_t > 1.0:
+            return None
+        return (ox + ray_t * rx, oy + ray_t * ry)
+
     def wall_visibility_from(origin: tuple[float, float], target: tuple[float, float]) -> float:
         penumbra_base = square * float(light_field_physics["penumbra_base_ratio"])
         penumbra_growth = float(light_field_physics["penumbra_growth_ratio"])
         visible = 1.0
-        for segment in shared_wall_segments:
-            hit = ray_intersection_with_vertical_segment(origin, target, segment)
+        optical_occluders = [
+            boundary["segment"]
+            for boundary in optical_boundaries
+            if float(boundary["reflectivity"]) > 0.0 and float(boundary["transmittance"]) <= 0.0
+        ]
+        for segment in [*shared_wall_segments, *optical_occluders]:
+            assert isinstance(segment, tuple)
+            hit = ray_intersection_with_segment(origin, target, segment)
             if hit is None:
                 continue
             distance_from_wall = math.hypot(target[0] - hit[0], target[1] - hit[1])
@@ -831,7 +861,8 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         "circular light source": ((520, 430), (255, 248, 168), 10),
         "silver mirror optical boundary": ((610, 365), (244, 248, 255), 10),
         "projected virtual mirror light after aperture": ((650, 405), (170, 164, 104), 10),
-        "opposite side of mirror remains darker": ((650, 345), (96, 93, 59), 10),
+        "mirror casts direct-light shadow behind aperture": ((650, 345), (7, 9, 11), 10),
+        "mirror shadow center remains blocked": ((620, 345), (8, 11, 14), 10),
         "projected mirror aperture starts lit beam": ((550, 380), (221, 213, 133), 10),
         "shader-lit left shared wall": ((486, 330), (255, 255, 255), 10),
         "left shared middle-third lit gap": ((486, 430), (156, 147, 84), 10),
