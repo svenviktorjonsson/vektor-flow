@@ -559,10 +559,7 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             return (wall_x, hit_y)
         return None
 
-    def visibility_for_light(light: dict[str, object], x: float, y: float) -> float:
-        origin = light["center"]
-        assert isinstance(origin, tuple)
-        target = (float(x), float(y))
+    def wall_visibility_from(origin: tuple[float, float], target: tuple[float, float]) -> float:
         penumbra_base = square * float(light_field_physics["penumbra_base_ratio"])
         penumbra_growth = float(light_field_physics["penumbra_growth_ratio"])
         visible = 1.0
@@ -575,6 +572,11 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             edge_dist = min(math.hypot(hit[0] - end[0], hit[1] - end[1]) for end in segment)
             visible = min(visible, 1.0 - smoothstep(0.0, penumbra, edge_dist))
         return visible
+
+    def visibility_for_light(light: dict[str, object], x: float, y: float) -> float:
+        origin = light["center"]
+        assert isinstance(origin, tuple)
+        return wall_visibility_from(origin, (float(x), float(y)))
 
     def segment_midpoint(segment: tuple[tuple[float, float], tuple[float, float]]) -> tuple[float, float]:
         return ((segment[0][0] + segment[1][0]) / 2.0, (segment[0][1] + segment[1][1]) / 2.0)
@@ -712,10 +714,12 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
                     else:
                         aperture_hit = None
                     if aperture_hit is not None:
+                        aperture_point = (aperture_hit[0], aperture_hit[1])
                         aperture_u = aperture_hit[2]
                         outside_u = max(0.0, -aperture_u, aperture_u - 1.0)
                         spread_width = max(0.0001, float(boundary["spread_ratio"]))
                         aperture_gate = 1.0 - smoothstep(0.0, spread_width, outside_u)
+                        wall_gate = wall_visibility_from(aperture_point, target)
                         reflected_distance = math.hypot(x - virtual_source[0], y - virtual_source[1])
                         reflected_falloff = float(light["falloff"])
                         reflected_strength = 1.0 / (1.0 + (reflected_distance / reflected_falloff) ** 2)
@@ -725,6 +729,7 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
                                 incoming
                                 * float(boundary["reflectivity"])
                                 * aperture_gate
+                                * wall_gate
                                 * reflected_strength
                                 * 1.35,
                             )
@@ -833,7 +838,8 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         "right shared middle-third lit gap": ((713, 430), (112, 106, 62), 10),
         "right room projected cone through gap": ((770, 430), (90, 87, 56), 10),
         "right room shadow above cone": ((760, 345), (4, 5, 6), 10),
-        "right room lower reflected edge": ((760, 525), (27, 27, 18), 10),
+        "right room lower wall blocks reflected light": ((760, 525), (4, 5, 7), 10),
+        "reflected light does not pass through wall": ((735, 500), (7, 9, 12), 10),
         "shader-lit right outer square wall": ((937, 430), (90, 91, 89), 10),
         "floor texture seam": ((355, 430), (88, 84, 50), 10),
         "floor texture tile body": ((390, 430), (115, 112, 73), 10),
