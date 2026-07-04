@@ -153,6 +153,47 @@ def spring_damper_edge_force(
     return (force_on_0, force_on_1, tension)
 
 
+def orthogonal_spring_damper_edge_force(
+    p0: Sequence[Number],
+    p1: Sequence[Number],
+    *,
+    rest_vector: Sequence[Number],
+    orthogonal_spring_constant: Number,
+    orthogonal_damping: Number = 0.0,
+    v0: Sequence[Number] | None = None,
+    v1: Sequence[Number] | None = None,
+) -> tuple[Vec, Vec, Vec]:
+    """Return endpoint forces for edge displacement orthogonal to its rest axis."""
+
+    current = _sub(p1, p0)
+    rest = _vec(rest_vector)
+    rest_length = _norm(rest)
+    if rest_length == 0.0:
+        raise ValueError("orthogonal edge force requires a non-zero rest vector")
+    axis = tuple(component / rest_length for component in rest)
+    axial = _dot(current, axis)
+    orthogonal_displacement = tuple(
+        current_component - axial * axis_component
+        for current_component, axis_component in zip(current, axis, strict=True)
+    )
+    orthogonal_velocity = tuple(0.0 for _ in current)
+    if v0 is not None or v1 is not None:
+        zero = tuple(0.0 for _ in current)
+        relative_velocity = _sub(v1 or zero, v0 or zero)
+        axial_velocity = _dot(relative_velocity, axis)
+        orthogonal_velocity = tuple(
+            velocity_component - axial_velocity * axis_component
+            for velocity_component, axis_component in zip(relative_velocity, axis, strict=True)
+        )
+    response = tuple(
+        float(orthogonal_spring_constant) * displacement + float(orthogonal_damping) * velocity
+        for displacement, velocity in zip(orthogonal_displacement, orthogonal_velocity, strict=True)
+    )
+    force_on_0 = response
+    force_on_1 = tuple(-component for component in response)
+    return (force_on_0, force_on_1, orthogonal_displacement)
+
+
 def rotational_spring_damper_torque(
     angle: Number,
     *,
@@ -278,6 +319,22 @@ class PhysicsGeometry:
             rest_length=float(props.get("L0", props.get("rest_length", self.L(edge_index)))),
             spring_constant=float(props.get("k", props.get("spring_constant", 0.0))),
             damping=float(props.get("c", props.get("damping", 0.0))),
+            v0=self.vertex_properties.get(edge[0], {}).get("v"),  # type: ignore[arg-type]
+            v1=self.vertex_properties.get(edge[1], {}).get("v"),  # type: ignore[arg-type]
+        )
+
+    def edge_orthogonal_force(self, edge_index: int) -> tuple[Vec, Vec, Vec]:
+        props = self.edge_properties.get(edge_index, {})
+        edge = self.edges[edge_index]
+        default_rest_vector = _sub(self.vertices[edge[1]], self.vertices[edge[0]])
+        return orthogonal_spring_damper_edge_force(
+            self.vertices[edge[0]],
+            self.vertices[edge[1]],
+            rest_vector=props.get("edge0", props.get("rest_vector", default_rest_vector)),  # type: ignore[arg-type]
+            orthogonal_spring_constant=float(props.get("k_perp", props.get("orthogonal_spring_constant", 0.0))),
+            orthogonal_damping=float(
+                props.get("c_perp", props.get("orthogonal_damping", props.get("orthogonal_friction", 0.0)))
+            ),
             v0=self.vertex_properties.get(edge[0], {}).get("v"),  # type: ignore[arg-type]
             v1=self.vertex_properties.get(edge[1], {}).get("v"),  # type: ignore[arg-type]
         )

@@ -6,6 +6,7 @@ from vektorflow.physics_properties import (
     PhysicsGeometry,
     inertia_tensor_from_point_masses,
     length,
+    orthogonal_spring_damper_edge_force,
     polygon_area,
     rotational_spring_damper_torque,
     spring_damper_edge_force,
@@ -129,6 +130,56 @@ def test_geometry_edge_force_uses_edge_properties_and_vertex_velocities() -> Non
     assert tension == pytest.approx(13.0)
     assert force_0 == pytest.approx((13.0, 0.0))
     assert force_1 == pytest.approx((-13.0, -0.0))
+
+
+def test_orthogonal_edge_force_uses_displacement_perpendicular_to_rest_axis() -> None:
+    force_0, force_1, displacement = orthogonal_spring_damper_edge_force(
+        (0.0, 0.0),
+        (3.0, 1.0),
+        rest_vector=(3.0, 0.0),
+        orthogonal_spring_constant=10.0,
+        orthogonal_damping=2.0,
+        v0=(0.0, 0.0),
+        v1=(0.0, 0.5),
+    )
+
+    assert displacement == pytest.approx((0.0, 1.0))
+    assert force_0 == pytest.approx((0.0, 11.0))
+    assert force_1 == pytest.approx((-0.0, -11.0))
+
+
+def test_geometry_edge_orthogonal_force_uses_k_perp_and_c_perp_constants() -> None:
+    geometry = PhysicsGeometry.from_vertices(
+        ((0.0, 0.0), (3.0, 1.0)),
+        edges=((0, 1),),
+        vertex_properties={0: {"v": (0.0, 0.0)}, 1: {"v": (0.0, 0.5)}},
+        edge_properties={0: {"edge0": (3.0, 0.0), "k_perp": 10.0, "c_perp": 2.0}},
+    )
+
+    force_0, force_1, displacement = geometry.edge_orthogonal_force(0)
+    assert displacement == pytest.approx((0.0, 1.0))
+    assert force_0 == pytest.approx((0.0, 11.0))
+    assert force_1 == pytest.approx((-0.0, -11.0))
+
+
+def test_geometry_edge_orthogonal_force_supports_readable_aliases() -> None:
+    geometry = PhysicsGeometry.from_vertices(
+        ((0.0, 0.0), (3.0, -1.0)),
+        edges=((0, 1),),
+        vertex_properties={0: {"v": (0.0, 0.0)}, 1: {"v": (0.0, -0.5)}},
+        edge_properties={
+            0: {
+                "rest_vector": (3.0, 0.0),
+                "orthogonal_spring_constant": 10.0,
+                "orthogonal_friction": 2.0,
+            }
+        },
+    )
+
+    force_0, force_1, displacement = geometry.edge_orthogonal_force(0)
+    assert displacement == pytest.approx((0.0, -1.0))
+    assert force_0 == pytest.approx((0.0, -11.0))
+    assert force_1 == pytest.approx((-0.0, 11.0))
 
 
 def test_rotational_spring_damper_torque_uses_angle_deviation_and_angular_friction() -> None:
