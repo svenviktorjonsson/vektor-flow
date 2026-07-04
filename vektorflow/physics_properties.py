@@ -54,6 +54,22 @@ def _norm(values: Sequence[Number]) -> float:
     return math.sqrt(sum(float(value) * float(value) for value in values))
 
 
+def stiffness_value(value: object, *, default: Number = 0.0) -> float:
+    if value is None:
+        return float(default)
+    if isinstance(value, str) and value.strip().lower() in {"inf", "infinity", "rigid"}:
+        return math.inf
+    return float(value)
+
+
+def is_rigid_stiffness(value: object) -> bool:
+    return math.isinf(stiffness_value(value))
+
+
+def is_free_stiffness(value: object) -> bool:
+    return stiffness_value(value) == 0.0
+
+
 def length(vertices: Sequence[Sequence[Number]], edge: tuple[int, int]) -> float:
     """Return L, the Euclidean length of an edge between two vertices."""
 
