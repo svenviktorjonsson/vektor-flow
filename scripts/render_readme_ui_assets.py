@@ -392,7 +392,7 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         top_edge_y = light[1] + (top_gap_y - light[1]) * ray_scale
         bottom_edge_y = light[1] + (bottom_gap_y - light[1]) * ray_scale
         signed_cone_distance = min(float(y) - top_edge_y, bottom_edge_y - float(y))
-        penumbra = 68.0 + 0.34 * max(0.0, float(x) - wall_x)
+        penumbra = 5.0 + 0.16 * max(0.0, float(x) - wall_x)
         return smoothstep(-penumbra, penumbra, signed_cone_distance)
 
     def floor_texture(x: int, y: int) -> tuple[float, float, float]:
@@ -420,7 +420,7 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         dx = x - light[0]
         dy = y - light[1]
         dist = math.hypot(dx, dy)
-        return visibility(x, y) / (1.0 + (dist / 155.0) ** 2)
+        return visibility(x, y) / (1.0 + (dist / 230.0) ** 2)
 
     def shade_material(
         material: tuple[float, float, float],
@@ -493,20 +493,20 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left textured floor lit by computed light": ((430, 360), (138, 121, 70), 10),
+        "left textured floor lit by computed light": ((430, 360), (155, 136, 77), 10),
         "circular light source": ((470, 430), (255, 248, 168), 10),
         "shader-lit shared edge first-third wall": ((620, 330), (109, 108, 104), 10),
-        "shared edge middle-third lit gap": ((620, 430), (82, 71, 37), 10),
+        "shared edge middle-third lit gap": ((620, 430), (115, 98, 49), 10),
         "shader-lit shared edge last-third wall": ((620, 530), (117, 116, 111), 10),
-        "right room soft shadow above cone": ((740, 330), (19, 19, 13), 10),
-        "right room soft light cone through gap": ((760, 430), (42, 39, 26), 10),
-        "right room soft shadow below cone": ((740, 530), (21, 21, 16), 10),
-        "shader-lit right outer square wall": ((916, 430), (79, 79, 78), 10),
-        "floor texture seam": ((368, 430), (117, 102, 54), 10),
-        "floor texture tile body": ((390, 430), (137, 121, 69), 10),
-        "upper penumbra fade": ((760, 370), (33, 32, 24), 10),
-        "center penumbra fade": ((760, 430), (42, 39, 26), 10),
-        "lower penumbra fade": ((760, 490), (37, 37, 30), 10),
+        "right room shadow above cone": ((740, 330), (17, 16, 12), 10),
+        "right room light cone through gap": ((760, 430), (69, 63, 38), 10),
+        "right room shadow below cone": ((740, 530), (19, 19, 15), 10),
+        "shader-lit right outer square wall": ((916, 430), (80, 79, 78), 10),
+        "floor texture seam": ((368, 430), (139, 120, 63), 10),
+        "floor texture tile body": ((390, 430), (154, 135, 77), 10),
+        "near soft shadow edge": ((670, 382), (91, 79, 40), 10),
+        "far soft shadow edge": ((835, 330), (42, 38, 23), 10),
+        "far cone interior remains lit": ((835, 430), (52, 48, 30), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
