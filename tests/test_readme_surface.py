@@ -59,16 +59,7 @@ class TestReadmeGeneratedExamples:
             "falloff_radius_ratio": 0.7666666667,
             "illuminates_lower_layers": True,
         }
-        assert meshes["layer_1_blue_light_source"]["physics"] == {
-            "kind": "light2d",
-            "layer": 1,
-            "radius_ratio_to_square_width": 0.1,
-            "shape": "circle",
-            "center": "0.85,0.0",
-            "color": "#7ddcff",
-            "falloff_radius_ratio": 0.7666666667,
-            "illuminates_lower_layers": True,
-        }
+        assert "layer_1_blue_light_source" not in meshes
         assert meshes["adjacent_square_backgrounds"]["physics"]["layer"] == 0
         assert meshes["adjacent_square_backgrounds"]["physics"]["floor_texture"] == "axis_aligned_tiles"
         assert meshes["adjacent_square_backgrounds"]["physics"]["square_width"] == 1.0
@@ -95,36 +86,18 @@ class TestReadmeGeneratedExamples:
             "penumbra_growth_ratio": 0.16,
             "falloff_radius_ratio": 0.7666666667,
         }
-        assert meshes["layer_1_silver_floor_mirror"]["physics"] == {
+        assert meshes["layer_1_silver_mirror"]["physics"] == {
             "kind": "optical_boundary2d",
             "layer": 1,
             "optical_kind": "mirror",
-            "segment": "-1.28,-0.30,-0.82,-0.30",
+            "segment": "-0.22,-0.28,0.34,-0.28",
             "reflectivity": 0.72,
             "transmittance": 0.0,
             "color": "#f4f8ff",
             "roughness": 0.04,
         }
-        assert meshes["layer_1_green_tinted_window"]["physics"] == {
-            "kind": "optical_boundary2d",
-            "layer": 1,
-            "optical_kind": "tinted_window",
-            "segment": "-0.12,-0.28,0.42,-0.28",
-            "reflectivity": 0.08,
-            "transmittance": 0.62,
-            "color": "#8cffb8",
-            "tint_strength": 0.78,
-        }
-        assert meshes["layer_1_blue_tinted_mirror"]["physics"] == {
-            "kind": "optical_boundary2d",
-            "layer": 1,
-            "optical_kind": "colored_mirror",
-            "segment": "0.72,0.26,1.22,0.26",
-            "reflectivity": 0.68,
-            "transmittance": 0.0,
-            "color": "#9ed3ff",
-            "roughness": 0.10,
-        }
+        assert "layer_1_green_tinted_window" not in meshes
+        assert "layer_1_blue_tinted_mirror" not in meshes
 
 
 class TestStringInterpolation:

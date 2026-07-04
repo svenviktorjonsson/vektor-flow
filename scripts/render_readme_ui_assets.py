@@ -62,7 +62,7 @@ README_ASSETS: tuple[ReadmeAsset, ...] = (
         marker="ui-physics-layer-lighting",
         example=REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf",
         output_name="ui-physics-layer-lighting.png",
-        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders, colored mirrors, and tinted window transmission.",
+        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with a single VKF-defined mirror reflection.",
         viewport=(1400, 900),
         wait_ms=1200,
     ),
@@ -429,7 +429,7 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
 
     rect_ops = [op for op in frame_ops if isinstance(op, dict) and op.get("op") == "rect"]
     oval_ops = [op for op in frame_ops if isinstance(op, dict) and op.get("op") == "oval"]
-    if len(rect_ops) < 12 or len(oval_ops) < 2:
+    if len(rect_ops) < 12 or len(oval_ops) < 1:
         raise RuntimeError("physics lighting proof must declare room, wall, and light draw ops")
 
     bg_op = rect_ops[0]
@@ -485,8 +485,8 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
                 "color": _hex_to_rgb(str(mesh_physics.get("color", "#fff8a8"))),
             }
         )
-    if len(light_sources) < 2:
-        raise RuntimeError("physics lighting proof must declare two light2d sources")
+    if len(light_sources) < 1:
+        raise RuntimeError("physics lighting proof must declare a light2d source")
     light_sources.sort(key=lambda item: str(item["id"]))
 
     optical_boundaries: list[dict[str, object]] = []
@@ -506,8 +506,8 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
                 "tint_strength": float(mesh_physics.get("tint_strength", 1.0)),
             }
         )
-    if len(optical_boundaries) < 3:
-        raise RuntimeError("physics lighting proof must declare mirror and window optical boundaries")
+    if len(optical_boundaries) < 1:
+        raise RuntimeError("physics lighting proof must declare an optical boundary")
 
     shared_xs = [
         room_rects[index][2]
@@ -672,8 +672,10 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
                 center = light["center"]
                 assert isinstance(center, tuple)
                 incoming = light_strength_for_source(light, midpoint[0], midpoint[1], wall=True)
-                opposite_side = signed_side(target, segment) * signed_side(center, segment) < 0.0
-                if float(boundary["reflectivity"]) > 0.0 and opposite_side:
+                side_product = signed_side(target, segment) * signed_side(center, segment)
+                same_side = side_product > 0.0
+                opposite_side = side_product < 0.0
+                if float(boundary["reflectivity"]) > 0.0 and same_side:
                     reflected = reflect_point_across_segment_line(center, segment)
                     beam_width = square * (0.045 + 0.30 * float(boundary["roughness"]))
                     beam_distance = line_distance(target, reflected, midpoint)
@@ -778,28 +780,22 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left room textured floor lit by computed lights": ((400, 380), (126, 130, 87), 10),
+        "left room textured floor lit by computed light": ((400, 380), (112, 107, 67), 10),
         "circular light source": ((520, 430), (255, 248, 168), 10),
-        "blue circular light source": ((792, 430), (125, 220, 255), 10),
-        "silver mirror optical boundary": ((400, 360), (244, 248, 255), 10),
-        "green tinted window optical boundary": ((630, 365), (140, 255, 184), 10),
-        "blue tinted mirror optical boundary": ((820, 489), (158, 211, 255), 10),
-        "green window transmitted glow": ((610, 345), (203, 250, 169), 10),
-        "blue mirror reflected glow": ((810, 510), (122, 193, 170), 10),
-        "silver mirror reflected glow": ((430, 340), (141, 137, 85), 10),
+        "silver mirror optical boundary": ((610, 365), (244, 248, 255), 10),
+        "mirror reflection remains on source side": ((650, 405), (142, 137, 88), 10),
+        "opposite side of mirror remains darker": ((650, 345), (96, 93, 59), 10),
         "shader-lit left shared wall": ((486, 330), (255, 255, 255), 10),
-        "left shared middle-third lit gap": ((486, 430), (176, 179, 111), 10),
-        "left room blocked shadow wedge": ((470, 345), (11, 16, 18), 10),
-        "middle room blended yellow-blue floor": ((610, 430), (181, 202, 146), 10),
-        "shader-lit right shared wall": ((713, 330), (255, 255, 255), 10),
-        "right shared middle-third lit gap": ((713, 430), (142, 180, 136), 10),
-        "right blue-lit textured floor": ((850, 430), (125, 172, 146), 10),
-        "right room shadow above cone": ((760, 345), (68, 109, 95), 10),
-        "shader-lit right outer square wall": ((937, 430), (243, 255, 255), 10),
-        "floor texture seam": ((355, 430), (100, 102, 66), 10),
-        "floor texture tile body": ((390, 430), (129, 134, 93), 10),
-        "yellow cone soft edge": ((450, 382), (142, 141, 85), 10),
-        "blue cone soft edge": ((760, 500), (91, 133, 112), 10),
+        "left shared middle-third lit gap": ((486, 430), (156, 147, 84), 10),
+        "right shared middle-third lit gap": ((713, 430), (117, 111, 65), 10),
+        "right room light cone through gap": ((770, 430), (60, 59, 40), 10),
+        "right room shadow above cone": ((760, 345), (4, 5, 6), 10),
+        "right room shadow below cone": ((760, 525), (4, 5, 7), 10),
+        "shader-lit right outer square wall": ((937, 430), (90, 91, 89), 10),
+        "floor texture seam": ((355, 430), (88, 84, 50), 10),
+        "floor texture tile body": ((390, 430), (115, 112, 73), 10),
+        "yellow cone soft edge": ((450, 382), (130, 122, 69), 10),
+        "reflected cone soft edge": ((700, 450), (90, 88, 59), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
