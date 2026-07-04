@@ -1644,10 +1644,14 @@ g.add(
     layer: 1,
     optical_kind: "mirror",
     segment: "-0.22,-0.28,0.34,-0.28",
+    virtual_light_kind: "projected",
+    reflect_of_light_id: "layer_1_light_source",
+    aperture_face_id: "layer_1_silver_mirror",
+    starts_after_aperture: true,
     reflectivity: 0.72,
     transmittance: 0.0,
     color: "#f4f8ff",
-    roughness: 0.04
+    spread_ratio: 0.10
   )
 )
 ```

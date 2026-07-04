@@ -503,6 +503,11 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
                 "reflectivity": float(mesh_physics.get("reflectivity", 0.0)),
                 "transmittance": float(mesh_physics.get("transmittance", 0.0)),
                 "roughness": float(mesh_physics.get("roughness", 0.08)),
+                "spread_ratio": float(mesh_physics.get("spread_ratio", 0.10)),
+                "reflect_of_light_id": str(mesh_physics.get("reflect_of_light_id", "")),
+                "virtual_light_kind": str(mesh_physics.get("virtual_light_kind", "")),
+                "aperture_face_id": str(mesh_physics.get("aperture_face_id", mesh_id)),
+                "starts_after_aperture": bool(mesh_physics.get("starts_after_aperture", False)),
                 "tint_strength": float(mesh_physics.get("tint_strength", 1.0)),
             }
         )
@@ -617,6 +622,29 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             return math.hypot(point[0] - a[0], point[1] - a[1])
         return abs(dy * point[0] - dx * point[1] + b[0] * a[1] - b[1] * a[0]) / denom
 
+    def aperture_hit_from_virtual_source(
+        virtual_source: tuple[float, float],
+        target: tuple[float, float],
+        segment: tuple[tuple[float, float], tuple[float, float]],
+    ) -> tuple[float, float, float] | None:
+        sx, sy = segment[0]
+        ex, ey = segment[1]
+        vx = ex - sx
+        vy = ey - sy
+        tx = target[0] - virtual_source[0]
+        ty = target[1] - virtual_source[1]
+        denom = tx * vy - ty * vx
+        if abs(denom) < 0.00001:
+            return None
+        wx = sx - virtual_source[0]
+        wy = sy - virtual_source[1]
+        ray_t = (wx * vy - wy * vx) / denom
+        aperture_u = (wx * ty - wy * tx) / denom
+        if ray_t <= 0.0 or ray_t >= 1.0:
+            return None
+        hit = (sx + aperture_u * vx, sy + aperture_u * vy)
+        return (hit[0], hit[1], aperture_u)
+
     def floor_texture(x: int, y: int) -> tuple[float, float, float]:
         room_left = next(room for room in room_rects if room[0] <= x < room[2] and room[1] <= y < room[3])
         lx = x - room_left[0]
@@ -669,24 +697,38 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             midpoint = segment_midpoint(segment)
             distance_to_boundary = point_to_segment_distance(target, segment)
             for light in light_sources:
+                if boundary["reflect_of_light_id"] and str(light["id"]) != boundary["reflect_of_light_id"]:
+                    continue
                 center = light["center"]
                 assert isinstance(center, tuple)
                 incoming = light_strength_for_source(light, midpoint[0], midpoint[1], wall=True)
                 side_product = signed_side(target, segment) * signed_side(center, segment)
-                same_side = side_product > 0.0
                 opposite_side = side_product < 0.0
-                if float(boundary["reflectivity"]) > 0.0 and same_side:
-                    reflected = reflect_point_across_segment_line(center, segment)
-                    beam_width = square * (0.045 + 0.30 * float(boundary["roughness"]))
-                    beam_distance = line_distance(target, reflected, midpoint)
-                    spread = math.exp(-((beam_distance / beam_width) ** 2))
-                    reach = 1.0 / (1.0 + (math.hypot(x - midpoint[0], y - midpoint[1]) / (square * 0.62)) ** 2)
-                    strengths.append(
-                        (
-                            {"color": tinted_color(light, color, 0.42)},
-                            incoming * float(boundary["reflectivity"]) * spread * reach,
+                if float(boundary["reflectivity"]) > 0.0:
+                    virtual_source = reflect_point_across_segment_line(center, segment)
+                    target_after_aperture = signed_side(target, segment) * signed_side(virtual_source, segment) < 0.0
+                    if target_after_aperture:
+                        aperture_hit = aperture_hit_from_virtual_source(virtual_source, target, segment)
+                    else:
+                        aperture_hit = None
+                    if aperture_hit is not None:
+                        aperture_u = aperture_hit[2]
+                        outside_u = max(0.0, -aperture_u, aperture_u - 1.0)
+                        spread_width = max(0.0001, float(boundary["spread_ratio"]))
+                        aperture_gate = 1.0 - smoothstep(0.0, spread_width, outside_u)
+                        reflected_distance = math.hypot(x - virtual_source[0], y - virtual_source[1])
+                        reflected_falloff = float(light["falloff"])
+                        reflected_strength = 1.0 / (1.0 + (reflected_distance / reflected_falloff) ** 2)
+                        strengths.append(
+                            (
+                                {"color": tinted_color(light, color, 0.25)},
+                                incoming
+                                * float(boundary["reflectivity"])
+                                * aperture_gate
+                                * reflected_strength
+                                * 1.35,
+                            )
                         )
-                    )
                 if float(boundary["transmittance"]) > 0.0:
                     side_factor = 1.0 if opposite_side else 0.32
                     band = math.exp(-((distance_to_boundary / (square * 0.16)) ** 2))
@@ -783,19 +825,20 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         "left room textured floor lit by computed light": ((400, 380), (112, 107, 67), 10),
         "circular light source": ((520, 430), (255, 248, 168), 10),
         "silver mirror optical boundary": ((610, 365), (244, 248, 255), 10),
-        "mirror reflection remains on source side": ((650, 405), (142, 137, 88), 10),
+        "projected virtual mirror light after aperture": ((650, 405), (170, 164, 104), 10),
         "opposite side of mirror remains darker": ((650, 345), (96, 93, 59), 10),
+        "projected mirror aperture starts lit beam": ((550, 380), (221, 213, 133), 10),
         "shader-lit left shared wall": ((486, 330), (255, 255, 255), 10),
         "left shared middle-third lit gap": ((486, 430), (156, 147, 84), 10),
-        "right shared middle-third lit gap": ((713, 430), (117, 111, 65), 10),
-        "right room light cone through gap": ((770, 430), (60, 59, 40), 10),
+        "right shared middle-third lit gap": ((713, 430), (112, 106, 62), 10),
+        "right room projected cone through gap": ((770, 430), (90, 87, 56), 10),
         "right room shadow above cone": ((760, 345), (4, 5, 6), 10),
-        "right room shadow below cone": ((760, 525), (4, 5, 7), 10),
+        "right room lower reflected edge": ((760, 525), (27, 27, 18), 10),
         "shader-lit right outer square wall": ((937, 430), (90, 91, 89), 10),
         "floor texture seam": ((355, 430), (88, 84, 50), 10),
         "floor texture tile body": ((390, 430), (115, 112, 73), 10),
         "yellow cone soft edge": ((450, 382), (130, 122, 69), 10),
-        "reflected cone soft edge": ((700, 450), (90, 88, 59), 10),
+        "reflected cone soft edge": ((700, 450), (126, 122, 79), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
