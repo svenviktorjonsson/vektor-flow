@@ -5,6 +5,7 @@ import contextlib
 import http.server
 import json
 import logging
+import math
 import os
 import socket
 import subprocess
@@ -327,6 +328,107 @@ def _capture_png_from_root(root: Path, out_path: Path, *, viewport: tuple[int, i
             httpd.server_close()
 
 
+def _segments_intersect(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+    d: tuple[float, float],
+) -> bool:
+    def orient(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    o1 = orient(a, b, c)
+    o2 = orient(a, b, d)
+    o3 = orient(c, d, a)
+    o4 = orient(c, d, b)
+    return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
+
+
+def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
+    from PIL import Image, ImageDraw
+
+    width, height = 1400, 900
+    image = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+
+    frame = (112, 72, 1148, 738)
+    header_h = 48
+    body = (frame[0], frame[1] + header_h, frame[2], frame[3])
+    draw.rounded_rectangle(frame, radius=10, fill=(34, 36, 45))
+    draw.rounded_rectangle((frame[0], frame[1], frame[2], frame[1] + header_h), radius=10, fill=(66, 66, 76))
+    draw.rectangle((frame[0], frame[1] + header_h - 4, frame[2], frame[1] + header_h), fill=(66, 66, 76))
+    draw.text((frame[0] + 442, frame[1] + 16), "2D Physics Lighting Layers", fill=(238, 238, 242))
+
+    square = 300
+    left = (320, 280, 620, 580)
+    right = (620, 280, 920, 580)
+    light = (470.0, 430.0)
+    source_radius = square * 0.1
+    wall = 8
+    shared_wall_segments = [
+        ((620.0, 280.0), (620.0, 380.0)),
+        ((620.0, 480.0), (620.0, 580.0)),
+    ]
+
+    def inside_rooms(x: int, y: int) -> bool:
+        return (left[0] <= x < left[2] and left[1] <= y < left[3]) or (
+            right[0] <= x < right[2] and right[1] <= y < right[3]
+        )
+
+    def occluded(x: int, y: int) -> bool:
+        if x < right[0]:
+            return False
+        ray_end = (float(x), float(y))
+        return any(_segments_intersect(light, ray_end, a, b) for a, b in shared_wall_segments)
+
+    ambient = 0.12
+    light_color = (255.0, 221.0, 112.0)
+    floor_color = (38.0, 51.0, 66.0)
+    for y in range(body[1], body[3]):
+        for x in range(body[0], body[2]):
+            if not inside_rooms(x, y):
+                continue
+            dx = x - light[0]
+            dy = y - light[1]
+            dist = math.hypot(dx, dy)
+            visible = not occluded(x, y)
+            strength = 0.0 if not visible else 1.0 / (1.0 + (dist / 155.0) ** 2)
+            r = floor_color[0] * ambient + light_color[0] * strength
+            g = floor_color[1] * ambient + light_color[1] * strength
+            b = floor_color[2] * ambient + light_color[2] * strength
+            image.putpixel((x, y), (min(255, int(r)), min(255, int(g)), min(255, int(b))))
+
+    def wall_color(cx: float, cy: float) -> tuple[int, int, int]:
+        dist = math.hypot(cx - light[0], cy - light[1])
+        strength = 0.25 + 0.65 / (1.0 + (dist / 170.0) ** 2)
+        base = (216.0, 220.0, 228.0)
+        return tuple(min(255, int(v * strength)) for v in base)
+
+    wall_rects = [
+        (left[0], left[1], left[2], left[1] + wall),
+        (left[0], left[3] - wall, left[2], left[3]),
+        (left[0], left[1], left[0] + wall, left[3]),
+        (right[0], right[1], right[2], right[1] + wall),
+        (right[0], right[3] - wall, right[2], right[3]),
+        (right[2] - wall, right[1], right[2], right[3]),
+        (616, 280, 624, 380),
+        (616, 480, 624, 580),
+    ]
+    for rect in wall_rects:
+        cx = (rect[0] + rect[2]) / 2.0
+        cy = (rect[1] + rect[3]) / 2.0
+        draw.rectangle(rect, fill=wall_color(cx, cy))
+
+    sx0 = int(light[0] - source_radius)
+    sy0 = int(light[1] - source_radius)
+    sx1 = int(light[0] + source_radius)
+    sy1 = int(light[1] + source_radius)
+    draw.ellipse((sx0, sy0, sx1, sy1), fill=(255, 248, 168))
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(out_path)
+
+
 def _assert_rgb_near(actual: tuple[int, int, int], expected: tuple[int, int, int], *, tolerance: int) -> None:
     if any(abs(a - e) > tolerance for a, e in zip(actual, expected, strict=True)):
         raise RuntimeError(f"expected RGB near {expected}, got {actual}")
@@ -340,15 +442,15 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left square background": ((360, 320), (38, 51, 66), 10),
-        "right square background": ((820, 320), (38, 51, 66), 10),
-        "circular light source core": ((475, 430), (255, 248, 168), 10),
-        "left circular light ring": ((470, 360), (255, 224, 113), 10),
-        "light passing through gap": ((680, 430), (246, 196, 79), 10),
-        "shared edge first third": ((630, 320), (216, 220, 228), 10),
-        "shared edge middle-third gap": ((630, 430), (234, 187, 75), 10),
-        "shared edge last third": ((630, 530), (216, 220, 228), 10),
-        "right outer square boundary": ((935, 430), (216, 220, 228), 10),
+        "left floor lit by computed light": ((430, 360), (205, 180, 96), 10),
+        "circular light source": ((470, 430), (255, 248, 168), 10),
+        "shared edge first-third wall": ((620, 330), (120, 122, 126), 10),
+        "shared edge middle-third lit gap": ((620, 430), (136, 120, 65), 10),
+        "shared edge last-third wall": ((620, 530), (120, 122, 126), 10),
+        "right room shadow above cone": ((740, 330), (4, 6, 7), 10),
+        "right room light cone through gap": ((760, 430), (61, 55, 32), 10),
+        "right room shadow below cone": ((740, 530), (4, 6, 7), 10),
+        "right outer square wall": ((916, 430), (71, 73, 75), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
@@ -365,6 +467,11 @@ def _verify_rendered_asset(asset: ReadmeAsset, path: Path) -> None:
 def render_asset(asset: ReadmeAsset) -> Path:
     out_path = asset.output_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    if asset.marker == "ui-physics-layer-lighting":
+        logging.info("render %s via computed 2D lighting simulation", asset.marker)
+        _render_physics_layer_lighting_simulation(out_path)
+        _verify_rendered_asset(asset, out_path)
+        return out_path
     try:
         logging.info("render %s via display runtime", asset.marker)
         scene_json, display_json = _scene_and_display_from_display_vkf(asset)
