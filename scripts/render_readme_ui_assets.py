@@ -399,17 +399,17 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         room_left = left if x < right[0] else right
         lx = x - room_left[0]
         ly = y - room_left[1]
-        checker = 1.0 if ((lx // 36) + (ly // 36)) % 2 == 0 else 0.0
-        plank = 0.5 + 0.5 * math.sin((lx * 0.18) + (ly * 0.035))
-        fine = 0.5 + 0.5 * math.sin((x * 0.31) + (y * 0.47))
+        tx = lx // 48
+        ty = ly // 48
+        checker = 1.0 if (tx + ty) % 2 == 0 else 0.0
         seam = 1.0 if lx % 48 < 3 or ly % 48 < 3 else 0.0
-        base = 0.62 + 0.18 * checker + 0.12 * plank + 0.06 * fine
+        tile_variation = ((tx * 37 + ty * 17) % 11) / 10.0
+        base = 0.70 + 0.12 * checker + 0.07 * tile_variation
         base *= 0.58 if seam else 1.0
-        accent = 0.5 + 0.5 * math.sin((lx - ly) * 0.06)
         return (
-            42.0 * base + 10.0 * accent,
-            56.0 * base + 12.0 * accent,
-            70.0 * base + 18.0 * accent,
+            46.0 * base,
+            60.0 * base,
+            74.0 * base,
         )
 
     ambient = 0.22
@@ -440,9 +440,8 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             image.putpixel((x, y), shade_material(floor_texture(x, y), light_strength_at(x, y), diffuse=0.42, glow=0.58))
 
     def wall_texture(x: int, y: int) -> tuple[float, float, float]:
-        stripe = 0.5 + 0.5 * math.sin(y * 0.11)
-        grain = 0.5 + 0.5 * math.sin(x * 0.61 + y * 0.29)
-        base = 188.0 + 34.0 * stripe + 14.0 * grain
+        stripe = 1.0 if (x // 16 + y // 16) % 2 == 0 else 0.0
+        base = 196.0 + 18.0 * stripe
         return (base, base + 4.0, base + 12.0)
 
     def wall_light_strength_at(x: float, y: float) -> float:
@@ -494,20 +493,20 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left textured floor lit by computed light": ((430, 360), (155, 136, 77), 10),
+        "left textured floor lit by computed light": ((430, 360), (151, 131, 69), 10),
         "circular light source": ((470, 430), (255, 248, 168), 10),
-        "shader-lit shared edge first-third wall": ((620, 330), (109, 108, 104), 10),
-        "shared edge middle-third lit gap": ((620, 430), (115, 98, 49), 10),
-        "shader-lit shared edge last-third wall": ((620, 530), (117, 116, 111), 10),
-        "right room shadow above cone": ((740, 330), (17, 16, 12), 10),
-        "right room light cone through gap": ((760, 430), (69, 63, 38), 10),
-        "right room shadow below cone": ((740, 530), (19, 19, 15), 10),
-        "shader-lit right outer square wall": ((916, 430), (80, 79, 78), 10),
-        "floor texture seam": ((368, 430), (139, 120, 63), 10),
-        "floor texture tile body": ((390, 430), (154, 135, 77), 10),
-        "near soft shadow edge": ((670, 382), (91, 79, 40), 10),
-        "far soft shadow edge": ((835, 330), (42, 38, 23), 10),
-        "far cone interior remains lit": ((835, 430), (52, 48, 30), 10),
+        "shader-lit shared edge first-third wall": ((620, 330), (114, 113, 109), 10),
+        "shared edge middle-third lit gap": ((620, 430), (114, 97, 46), 10),
+        "shader-lit shared edge last-third wall": ((620, 530), (106, 105, 100), 10),
+        "right room shadow above cone": ((740, 330), (16, 16, 11), 10),
+        "right room light cone through gap": ((760, 430), (69, 62, 37), 10),
+        "right room shadow below cone": ((740, 530), (20, 20, 17), 10),
+        "shader-lit right outer square wall": ((916, 430), (77, 77, 75), 10),
+        "floor texture seam": ((368, 430), (136, 115, 55), 10),
+        "floor texture tile body": ((390, 430), (154, 135, 74), 10),
+        "near soft shadow edge": ((670, 382), (91, 77, 38), 10),
+        "far soft shadow edge": ((835, 330), (40, 35, 19), 10),
+        "far cone interior remains lit": ((835, 430), (53, 48, 29), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
