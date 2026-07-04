@@ -1608,7 +1608,7 @@ g.add(
 
 <!-- readme-asset: ui-physics-layer-lighting -->
 ![ui-physics-layer-lighting](docs/public/images/readme-ui/ui-physics-layer-lighting.png)
-*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting through the middle-third gap between two adjacent equal-aspect squares.*
+*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders through the middle-third gap.*
 
 ### Native Scene Packets
 

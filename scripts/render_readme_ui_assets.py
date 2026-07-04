@@ -62,7 +62,7 @@ README_ASSETS: tuple[ReadmeAsset, ...] = (
         marker="ui-physics-layer-lighting",
         example=REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf",
         output_name="ui-physics-layer-lighting.png",
-        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D circular lighting through the middle-third gap between two adjacent equal-aspect squares.",
+        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders through the middle-third gap.",
         viewport=(1400, 900),
         wait_ms=1200,
     ),
@@ -375,15 +375,50 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             right[0] <= x < right[2] and right[1] <= y < right[3]
         )
 
-    def occluded(x: int, y: int) -> bool:
+    def smoothstep(edge0: float, edge1: float, value: float) -> float:
+        if edge0 == edge1:
+            return 1.0 if value >= edge1 else 0.0
+        t = max(0.0, min(1.0, (value - edge0) / (edge1 - edge0)))
+        return t * t * (3.0 - 2.0 * t)
+
+    def visibility(x: int, y: int) -> float:
         if x < right[0]:
-            return False
+            return 1.0
         ray_end = (float(x), float(y))
-        return any(_segments_intersect(light, ray_end, a, b) for a, b in shared_wall_segments)
+        if not any(_segments_intersect(light, ray_end, a, b) for a, b in shared_wall_segments):
+            return 1.0
+
+        wall_x = shared_wall_segments[0][0][0]
+        top_gap_y = shared_wall_segments[0][1][1]
+        bottom_gap_y = shared_wall_segments[1][0][1]
+        ray_scale = (float(x) - light[0]) / (wall_x - light[0])
+        top_edge_y = light[1] + (top_gap_y - light[1]) * ray_scale
+        bottom_edge_y = light[1] + (bottom_gap_y - light[1]) * ray_scale
+        signed_cone_distance = min(float(y) - top_edge_y, bottom_edge_y - float(y))
+        penumbra = 34.0 + 0.10 * max(0.0, float(x) - wall_x)
+        return smoothstep(-penumbra, penumbra, signed_cone_distance)
+
+    def floor_texture(x: int, y: int) -> tuple[float, float, float]:
+        room_left = left if x < right[0] else right
+        lx = x - room_left[0]
+        ly = y - room_left[1]
+        checker = 1.0 if ((lx // 36) + (ly // 36)) % 2 == 0 else 0.0
+        plank = 0.5 + 0.5 * math.sin((lx * 0.18) + (ly * 0.035))
+        fine = 0.5 + 0.5 * math.sin((x * 0.31) + (y * 0.47))
+        seam = 1.0 if lx % 48 < 3 or ly % 48 < 3 else 0.0
+        diagonal = 1.0 if (lx + ly) % 96 < 8 else 0.0
+        base = 0.62 + 0.18 * checker + 0.12 * plank + 0.06 * fine
+        base *= 0.58 if seam else 1.0
+        base *= 1.18 if diagonal else 1.0
+        accent = 0.5 + 0.5 * math.sin((lx - ly) * 0.06)
+        return (
+            42.0 * base + 10.0 * accent,
+            56.0 * base + 12.0 * accent,
+            70.0 * base + 18.0 * accent,
+        )
 
     ambient = 0.12
     light_color = (255.0, 221.0, 112.0)
-    floor_color = (38.0, 51.0, 66.0)
     for y in range(body[1], body[3]):
         for x in range(body[0], body[2]):
             if not inside_rooms(x, y):
@@ -391,11 +426,13 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             dx = x - light[0]
             dy = y - light[1]
             dist = math.hypot(dx, dy)
-            visible = not occluded(x, y)
-            strength = 0.0 if not visible else 1.0 / (1.0 + (dist / 155.0) ** 2)
-            r = floor_color[0] * ambient + light_color[0] * strength
-            g = floor_color[1] * ambient + light_color[1] * strength
-            b = floor_color[2] * ambient + light_color[2] * strength
+            vis = visibility(x, y)
+            strength = vis / (1.0 + (dist / 155.0) ** 2)
+            floor_color = floor_texture(x, y)
+            lit_floor = ambient + 0.42 * strength
+            r = floor_color[0] * lit_floor + light_color[0] * strength * 0.58
+            g = floor_color[1] * lit_floor + light_color[1] * strength * 0.54
+            b = floor_color[2] * lit_floor + light_color[2] * strength * 0.38
             image.putpixel((x, y), (min(255, int(r)), min(255, int(g)), min(255, int(b))))
 
     def wall_color(cx: float, cy: float) -> tuple[int, int, int]:
@@ -442,15 +479,17 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left floor lit by computed light": ((430, 360), (205, 180, 96), 10),
+        "left textured floor lit by computed light": ((430, 360), (134, 116, 63), 10),
         "circular light source": ((470, 430), (255, 248, 168), 10),
         "shared edge first-third wall": ((620, 330), (120, 122, 126), 10),
-        "shared edge middle-third lit gap": ((620, 430), (136, 120, 65), 10),
+        "shared edge middle-third lit gap": ((620, 430), (83, 71, 34), 10),
         "shared edge last-third wall": ((620, 530), (120, 122, 126), 10),
-        "right room shadow above cone": ((740, 330), (4, 6, 7), 10),
-        "right room light cone through gap": ((760, 430), (61, 55, 32), 10),
-        "right room shadow below cone": ((740, 530), (4, 6, 7), 10),
+        "right room soft shadow above cone": ((740, 330), (14, 13, 8), 10),
+        "right room soft light cone through gap": ((760, 430), (40, 36, 21), 10),
+        "right room soft shadow below cone": ((740, 530), (15, 14, 10), 10),
         "right outer square wall": ((916, 430), (71, 73, 75), 10),
+        "floor texture seam": ((368, 430), (115, 98, 49), 10),
+        "floor texture tile body": ((390, 430), (134, 116, 63), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
