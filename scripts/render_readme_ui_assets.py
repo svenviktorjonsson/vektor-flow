@@ -384,9 +384,6 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
     def visibility(x: int, y: int) -> float:
         if x < right[0]:
             return 1.0
-        ray_end = (float(x), float(y))
-        if not any(_segments_intersect(light, ray_end, a, b) for a, b in shared_wall_segments):
-            return 1.0
 
         wall_x = shared_wall_segments[0][0][0]
         top_gap_y = shared_wall_segments[0][1][1]
@@ -395,7 +392,7 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         top_edge_y = light[1] + (top_gap_y - light[1]) * ray_scale
         bottom_edge_y = light[1] + (bottom_gap_y - light[1]) * ray_scale
         signed_cone_distance = min(float(y) - top_edge_y, bottom_edge_y - float(y))
-        penumbra = 34.0 + 0.10 * max(0.0, float(x) - wall_x)
+        penumbra = 68.0 + 0.34 * max(0.0, float(x) - wall_x)
         return smoothstep(-penumbra, penumbra, signed_cone_distance)
 
     def floor_texture(x: int, y: int) -> tuple[float, float, float]:
@@ -417,29 +414,43 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             70.0 * base + 18.0 * accent,
         )
 
-    ambient = 0.12
+    ambient = 0.22
     light_color = (255.0, 221.0, 112.0)
+    def light_strength_at(x: int, y: int) -> float:
+        dx = x - light[0]
+        dy = y - light[1]
+        dist = math.hypot(dx, dy)
+        return visibility(x, y) / (1.0 + (dist / 155.0) ** 2)
+
+    def shade_material(
+        material: tuple[float, float, float],
+        strength: float,
+        *,
+        diffuse: float,
+        glow: float,
+    ) -> tuple[int, int, int]:
+        lit = ambient + diffuse * strength
+        r = material[0] * lit + light_color[0] * strength * glow
+        g = material[1] * lit + light_color[1] * strength * glow * 0.93
+        b = material[2] * lit + light_color[2] * strength * glow * 0.66
+        return (min(255, int(r)), min(255, int(g)), min(255, int(b)))
+
     for y in range(body[1], body[3]):
         for x in range(body[0], body[2]):
             if not inside_rooms(x, y):
                 continue
-            dx = x - light[0]
-            dy = y - light[1]
-            dist = math.hypot(dx, dy)
-            vis = visibility(x, y)
-            strength = vis / (1.0 + (dist / 155.0) ** 2)
-            floor_color = floor_texture(x, y)
-            lit_floor = ambient + 0.42 * strength
-            r = floor_color[0] * lit_floor + light_color[0] * strength * 0.58
-            g = floor_color[1] * lit_floor + light_color[1] * strength * 0.54
-            b = floor_color[2] * lit_floor + light_color[2] * strength * 0.38
-            image.putpixel((x, y), (min(255, int(r)), min(255, int(g)), min(255, int(b))))
+            image.putpixel((x, y), shade_material(floor_texture(x, y), light_strength_at(x, y), diffuse=0.42, glow=0.58))
 
-    def wall_color(cx: float, cy: float) -> tuple[int, int, int]:
-        dist = math.hypot(cx - light[0], cy - light[1])
-        strength = 0.25 + 0.65 / (1.0 + (dist / 170.0) ** 2)
-        base = (216.0, 220.0, 228.0)
-        return tuple(min(255, int(v * strength)) for v in base)
+    def wall_texture(x: int, y: int) -> tuple[float, float, float]:
+        stripe = 0.5 + 0.5 * math.sin(x * 0.17 + y * 0.04)
+        grain = 0.5 + 0.5 * math.sin(x * 0.61 + y * 0.29)
+        base = 188.0 + 34.0 * stripe + 14.0 * grain
+        return (base, base + 4.0, base + 12.0)
+
+    def wall_light_strength_at(x: int, y: int) -> float:
+        dist = math.hypot(x - light[0], y - light[1])
+        direct = 1.0 / (1.0 + (dist / 170.0) ** 2)
+        return direct * (0.35 + 0.65 * max(visibility(x, y), 0.22))
 
     wall_rects = [
         (left[0], left[1], left[2], left[1] + wall),
@@ -452,9 +463,12 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         (616, 480, 624, 580),
     ]
     for rect in wall_rects:
-        cx = (rect[0] + rect[2]) / 2.0
-        cy = (rect[1] + rect[3]) / 2.0
-        draw.rectangle(rect, fill=wall_color(cx, cy))
+        for y in range(rect[1], rect[3]):
+            for x in range(rect[0], rect[2]):
+                image.putpixel(
+                    (x, y),
+                    shade_material(wall_texture(x, y), wall_light_strength_at(x, y), diffuse=1.05, glow=0.26),
+                )
 
     sx0 = int(light[0] - source_radius)
     sy0 = int(light[1] - source_radius)
@@ -479,17 +493,20 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left textured floor lit by computed light": ((430, 360), (134, 116, 63), 10),
+        "left textured floor lit by computed light": ((430, 360), (138, 121, 70), 10),
         "circular light source": ((470, 430), (255, 248, 168), 10),
-        "shared edge first-third wall": ((620, 330), (120, 122, 126), 10),
-        "shared edge middle-third lit gap": ((620, 430), (83, 71, 34), 10),
-        "shared edge last-third wall": ((620, 530), (120, 122, 126), 10),
-        "right room soft shadow above cone": ((740, 330), (14, 13, 8), 10),
-        "right room soft light cone through gap": ((760, 430), (40, 36, 21), 10),
-        "right room soft shadow below cone": ((740, 530), (15, 14, 10), 10),
-        "right outer square wall": ((916, 430), (71, 73, 75), 10),
-        "floor texture seam": ((368, 430), (115, 98, 49), 10),
-        "floor texture tile body": ((390, 430), (134, 116, 63), 10),
+        "shader-lit shared edge first-third wall": ((620, 330), (109, 108, 104), 10),
+        "shared edge middle-third lit gap": ((620, 430), (82, 71, 37), 10),
+        "shader-lit shared edge last-third wall": ((620, 530), (117, 116, 111), 10),
+        "right room soft shadow above cone": ((740, 330), (19, 19, 13), 10),
+        "right room soft light cone through gap": ((760, 430), (42, 39, 26), 10),
+        "right room soft shadow below cone": ((740, 530), (21, 21, 16), 10),
+        "shader-lit right outer square wall": ((916, 430), (79, 79, 78), 10),
+        "floor texture seam": ((368, 430), (117, 102, 54), 10),
+        "floor texture tile body": ((390, 430), (137, 121, 69), 10),
+        "upper penumbra fade": ((760, 370), (33, 32, 24), 10),
+        "center penumbra fade": ((760, 430), (42, 39, 26), 10),
+        "lower penumbra fade": ((760, 490), (37, 37, 30), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
