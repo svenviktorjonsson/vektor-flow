@@ -54,20 +54,30 @@ class TestReadmeGeneratedExamples:
             "layer": 1,
             "radius_ratio_to_square_width": 0.1,
             "shape": "circle",
+            "center": "-0.35,0.0",
             "illuminates_lower_layers": True,
         }
         assert meshes["adjacent_square_backgrounds"]["physics"]["layer"] == 0
+        assert meshes["adjacent_square_backgrounds"]["physics"]["floor_texture"] == "axis_aligned_tiles"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["square_width"] == 1.0
+        assert meshes["adjacent_square_backgrounds"]["physics"]["left_square"] == "-1.0,-0.5,0.0,0.5"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["right_square"] == "0.0,-0.5,1.0,0.5"
         assert meshes["adjacent_square_backgrounds"]["physics"]["light_result"] == "background_layer_under_light"
         assert meshes["boundary_parts_with_middle_gap"]["physics"]["layer"] == 0
         assert meshes["boundary_parts_with_middle_gap"]["physics"]["boundary_parts"] == (
             "outer_edges_and_shared_edge_first_last_thirds"
         )
         assert meshes["boundary_parts_with_middle_gap"]["physics"]["shared_edge_gap"] == "middle_third"
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["wall_thickness_ratio"] == 0.0266666667
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["wall_material"] == "plain_shader_lit"
         assert meshes["lighting_layer_passes_through_gap"]["physics"] == {
             "kind": "light_field2d",
             "layer": 1,
             "passes_through": "shared_edge_middle_third_gap",
             "above_layer": 0,
+            "penumbra_base_ratio": 0.0166666667,
+            "penumbra_growth_ratio": 0.16,
+            "falloff_radius_ratio": 0.7666666667,
         }
 
 

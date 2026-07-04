@@ -1518,6 +1518,10 @@ g.add(
     kind: "surface2d",
     layer: 0,
     receives_light: true,
+    floor_texture: "axis_aligned_tiles",
+    square_width: 1.0,
+    left_square: "-1.0,-0.5,0.0,0.5",
+    right_square: "0.0,-0.5,1.0,0.5",
     light_result: "background_layer_under_light"
   )
 )
@@ -1546,7 +1550,9 @@ g.add(
     layer: 0,
     receives_light: true,
     boundary_parts: "outer_edges_and_shared_edge_first_last_thirds",
-    shared_edge_gap: "middle_third"
+    shared_edge_gap: "middle_third",
+    wall_thickness_ratio: 0.0266666667,
+    wall_material: "plain_shader_lit"
   )
 )
 
@@ -1573,7 +1579,10 @@ g.add(
     kind: "light_field2d",
     layer: 1,
     passes_through: "shared_edge_middle_third_gap",
-    above_layer: 0
+    above_layer: 0,
+    penumbra_base_ratio: 0.0166666667,
+    penumbra_growth_ratio: 0.16,
+    falloff_radius_ratio: 0.7666666667
   )
 )
 
@@ -1600,6 +1609,7 @@ g.add(
     kind: "light2d",
     layer: 1,
     radius_ratio_to_square_width: 0.1,
+    center: "-0.35,0.0",
     shape: "circle",
     illuminates_lower_layers: true
   )

@@ -344,31 +344,129 @@ def _segments_intersect(
     return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
 
 
-def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
+def _hex_to_rgb(color: str) -> tuple[float, float, float]:
+    raw = color.strip().lstrip("#")
+    if len(raw) != 6:
+        raise RuntimeError(f"expected #rrggbb color, got {color!r}")
+    return (float(int(raw[0:2], 16)), float(int(raw[2:4], 16)), float(int(raw[4:6], 16)))
+
+
+def _parse_csv_floats(raw: object, *, expected: int) -> tuple[float, ...]:
+    values = tuple(float(part.strip()) for part in str(raw).split(","))
+    if len(values) != expected:
+        raise RuntimeError(f"expected {expected} comma-separated numbers, got {raw!r}")
+    return values
+
+
+def _physics_by_mesh_id(display_payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    geom = display_payload.get("geom") if isinstance(display_payload, dict) else None
+    if not isinstance(geom, dict):
+        raise RuntimeError("physics lighting proof display payload has no geom block")
+    frame_geom = geom.get("physics_layer_light_canvas")
+    if not isinstance(frame_geom, dict):
+        raise RuntimeError("physics lighting proof missing physics_layer_light_canvas geometry")
+    meshes = frame_geom.get("meshes")
+    if not isinstance(meshes, list):
+        raise RuntimeError("physics lighting proof geometry has no mesh list")
+    by_id: dict[str, dict[str, object]] = {}
+    for mesh in meshes:
+        if isinstance(mesh, dict) and isinstance(mesh.get("id"), str) and isinstance(mesh.get("physics"), dict):
+            by_id[str(mesh["id"])] = dict(mesh["physics"])
+    return by_id
+
+
+def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path) -> None:
     from PIL import Image, ImageDraw
+
+    scene_json, display_json = _scene_and_display_from_display_vkf(asset)
+    scene = json.loads(scene_json)
+    display_payload = json.loads(display_json)
+    physics = _physics_by_mesh_id(display_payload)
 
     width, height = 1400, 900
     image = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(image)
 
-    frame = (112, 72, 1148, 738)
+    frame_spec = None
+    for command in scene:
+        if isinstance(command, dict) and command.get("kind") == "frame_upsert" and command.get("id") == "physics_layer_light_frame":
+            payload = command.get("payload")
+            spec = payload.get("spec") if isinstance(payload, dict) else None
+            if isinstance(spec, dict):
+                frame_spec = spec
+                break
+    if frame_spec is None:
+        raise RuntimeError("physics lighting proof missing physics_layer_light_frame frame spec")
+    frame_rect = frame_spec.get("rect")
+    if not isinstance(frame_rect, dict):
+        raise RuntimeError("physics lighting proof frame spec missing rect")
+    frame = (
+        int(float(frame_rect["x"]) * width),
+        int(float(frame_rect["y"]) * height),
+        int((float(frame_rect["x"]) + float(frame_rect["w"])) * width),
+        int((float(frame_rect["y"]) + float(frame_rect["h"])) * height),
+    )
     header_h = 48
     body = (frame[0], frame[1] + header_h, frame[2], frame[3])
     draw.rounded_rectangle(frame, radius=10, fill=(34, 36, 45))
     draw.rounded_rectangle((frame[0], frame[1], frame[2], frame[1] + header_h), radius=10, fill=(66, 66, 76))
     draw.rectangle((frame[0], frame[1] + header_h - 4, frame[2], frame[1] + header_h), fill=(66, 66, 76))
-    draw.text((frame[0] + 442, frame[1] + 16), "2D Physics Lighting Layers", fill=(238, 238, 242))
+    title = str(frame_spec.get("title") or "2D Physics Lighting Layers")
+    draw.text((frame[0] + int((frame[2] - frame[0]) * 0.426), frame[1] + 16), title, fill=(238, 238, 242))
 
-    square = 300
-    left = (320, 280, 620, 580)
-    right = (620, 280, 920, 580)
-    light = (470.0, 430.0)
-    source_radius = square * 0.1
-    wall = 8
+    frame_ops = display_payload.get("frames", {}).get("physics_layer_light_frame", [])
+    if not isinstance(frame_ops, list):
+        raise RuntimeError("physics lighting proof frame ops missing")
+
+    def to_px(rect: list[object]) -> tuple[int, int, int, int]:
+        x, y, w, h = (float(value) for value in rect)
+        return (
+            int(body[0] + x * (body[2] - body[0])),
+            int(body[1] + y * (body[3] - body[1])),
+            int(body[0] + (x + w) * (body[2] - body[0])),
+            int(body[1] + (y + h) * (body[3] - body[1])),
+        )
+
+    rect_ops = [op for op in frame_ops if isinstance(op, dict) and op.get("op") == "rect"]
+    oval_ops = [op for op in frame_ops if isinstance(op, dict) and op.get("op") == "oval"]
+    if len(rect_ops) < 10 or not oval_ops:
+        raise RuntimeError("physics lighting proof must declare room, wall, and light draw ops")
+
+    bg_op = rect_ops[0]
+    draw.rectangle(to_px(bg_op["rect"]), fill=tuple(int(value) for value in _hex_to_rgb(str(bg_op["color"]))))
+    left = to_px(rect_ops[1]["rect"])
+    right = to_px(rect_ops[2]["rect"])
+    wall_rects = [to_px(op["rect"]) for op in rect_ops[3:]]
+    wall_material = _hex_to_rgb(str(rect_ops[3]["color"]))
+
+    background_physics = physics["adjacent_square_backgrounds"]
+    boundary_physics = physics["boundary_parts_with_middle_gap"]
+    light_field_physics = physics["lighting_layer_passes_through_gap"]
+    light_physics = physics["layer_1_light_source"]
+
+    left_world = _parse_csv_floats(background_physics["left_square"], expected=4)
+    right_world = _parse_csv_floats(background_physics["right_square"], expected=4)
+    light_world = _parse_csv_floats(light_physics["center"], expected=2)
+    square = left[2] - left[0]
+
+    def world_to_px(point: tuple[float, float]) -> tuple[float, float]:
+        world_min_x = left_world[0]
+        world_max_x = right_world[2]
+        world_min_y = left_world[1]
+        world_max_y = left_world[3]
+        px = left[0] + ((point[0] - world_min_x) / (world_max_x - world_min_x)) * (right[2] - left[0])
+        py = left[1] + ((point[1] - world_min_y) / (world_max_y - world_min_y)) * (left[3] - left[1])
+        return (px, py)
+
+    light = world_to_px((light_world[0], light_world[1]))
+    source_radius = square * float(light_physics["radius_ratio_to_square_width"])
     shared_wall_segments = [
-        ((620.0, 280.0), (620.0, 380.0)),
-        ((620.0, 480.0), (620.0, 580.0)),
+        ((float(rect[0] + rect[2]) / 2.0, float(rect[1])), (float(rect[0] + rect[2]) / 2.0, float(rect[3])))
+        for rect in wall_rects
+        if abs(((rect[0] + rect[2]) / 2.0) - left[2]) <= max(2.0, square * float(boundary_physics["wall_thickness_ratio"]))
     ]
+    if len(shared_wall_segments) != 2:
+        raise RuntimeError(f"expected two shared wall segments from VKF, got {len(shared_wall_segments)}")
 
     def inside_rooms(x: int, y: int) -> bool:
         return (left[0] <= x < left[2] and left[1] <= y < left[3]) or (
@@ -392,7 +490,9 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         top_edge_y = light[1] + (top_gap_y - light[1]) * ray_scale
         bottom_edge_y = light[1] + (bottom_gap_y - light[1]) * ray_scale
         signed_cone_distance = min(float(y) - top_edge_y, bottom_edge_y - float(y))
-        penumbra = 5.0 + 0.16 * max(0.0, float(x) - wall_x)
+        penumbra_base = square * float(light_field_physics["penumbra_base_ratio"])
+        penumbra_growth = float(light_field_physics["penumbra_growth_ratio"])
+        penumbra = penumbra_base + penumbra_growth * max(0.0, float(x) - wall_x)
         return smoothstep(-penumbra, penumbra, signed_cone_distance)
 
     def floor_texture(x: int, y: int) -> tuple[float, float, float]:
@@ -418,7 +518,8 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         dx = x - light[0]
         dy = y - light[1]
         dist = math.hypot(dx, dy)
-        return visibility(x, y) / (1.0 + (dist / 230.0) ** 2)
+        falloff = square * float(light_field_physics["falloff_radius_ratio"])
+        return visibility(x, y) / (1.0 + (dist / falloff) ** 2)
 
     def shade_material(
         material: tuple[float, float, float],
@@ -440,23 +541,13 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             image.putpixel((x, y), shade_material(floor_texture(x, y), light_strength_at(x, y), diffuse=0.42, glow=0.58))
 
     def wall_texture(x: int, y: int) -> tuple[float, float, float]:
-        return (204.0, 208.0, 216.0)
+        return wall_material
 
     def wall_light_strength_at(x: float, y: float) -> float:
         dist = math.hypot(x - light[0], y - light[1])
         direct = 1.0 / (1.0 + (dist / 170.0) ** 2)
         return direct * (0.35 + 0.65 * max(visibility(x, y), 0.22))
 
-    wall_rects = [
-        (left[0], left[1], left[2], left[1] + wall),
-        (left[0], left[3] - wall, left[2], left[3]),
-        (left[0], left[1], left[0] + wall, left[3]),
-        (right[0], right[1], right[2], right[1] + wall),
-        (right[0], right[3] - wall, right[2], right[3]),
-        (right[2] - wall, right[1], right[2], right[3]),
-        (616, 280, 624, 380),
-        (616, 480, 624, 580),
-    ]
     for rect in wall_rects:
         for y in range(rect[1], rect[3]):
             for x in range(rect[0], rect[2]):
@@ -488,20 +579,20 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left textured floor lit by computed light": ((430, 360), (151, 131, 69), 10),
-        "circular light source": ((470, 430), (255, 248, 168), 10),
-        "shader-lit shared edge first-third wall": ((620, 330), (114, 113, 109), 10),
-        "shared edge middle-third lit gap": ((620, 430), (114, 97, 46), 10),
-        "shader-lit shared edge last-third wall": ((620, 530), (106, 105, 100), 10),
-        "right room shadow above cone": ((740, 330), (16, 16, 11), 10),
-        "right room light cone through gap": ((760, 430), (69, 62, 37), 10),
-        "right room shadow below cone": ((740, 530), (20, 20, 17), 10),
-        "shader-lit right outer square wall": ((916, 430), (77, 77, 75), 10),
-        "floor texture seam": ((368, 430), (136, 115, 55), 10),
-        "floor texture tile body": ((390, 430), (154, 135, 74), 10),
-        "near soft shadow edge": ((670, 382), (91, 77, 38), 10),
-        "far soft shadow edge": ((835, 330), (40, 35, 19), 10),
-        "far cone interior remains lit": ((835, 430), (53, 48, 29), 10),
+        "left textured floor lit by computed light": ((430, 360), (139, 121, 64), 10),
+        "circular light source": ((520, 430), (255, 248, 168), 10),
+        "shader-lit shared edge first-third wall": ((630, 330), (130, 128, 123), 10),
+        "shared edge middle-third lit gap": ((630, 430), (133, 113, 53), 10),
+        "shader-lit shared edge last-third wall": ((630, 530), (129, 127, 122), 10),
+        "right room shadow above cone": ((740, 330), (61, 55, 33), 10),
+        "right room light cone through gap": ((760, 430), (88, 78, 44), 10),
+        "right room shadow below cone": ((740, 530), (53, 48, 30), 10),
+        "shader-lit right outer square wall": ((936, 430), (89, 89, 87), 10),
+        "floor texture seam": ((368, 430), (116, 99, 48), 10),
+        "floor texture tile body": ((390, 430), (134, 118, 65), 10),
+        "near soft shadow edge": ((670, 382), (123, 108, 61), 10),
+        "far soft shadow edge": ((835, 330), (62, 56, 33), 10),
+        "far cone interior remains lit": ((835, 430), (66, 59, 35), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
@@ -520,7 +611,7 @@ def render_asset(asset: ReadmeAsset) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if asset.marker == "ui-physics-layer-lighting":
         logging.info("render %s via computed 2D lighting simulation", asset.marker)
-        _render_physics_layer_lighting_simulation(out_path)
+        _render_physics_layer_lighting_simulation(asset, out_path)
         _verify_rendered_asset(asset, out_path)
         return out_path
     try:
