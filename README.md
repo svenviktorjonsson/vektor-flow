@@ -1651,11 +1651,104 @@ g.add(
     illuminates_lower_layers: true
   )
 )
+
+silver_mirror_x: [[-1.28, -0.82], [-1.28, -0.82]] -> uv
+silver_mirror_y: [[-0.30, -0.30], [-0.30, -0.30]] -> uv
+silver_mirror_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+silver_mirror_c: [
+  [[0.92, 0.96, 1.0, 1.0], [0.92, 0.96, 1.0, 1.0]],
+  [[0.92, 0.96, 1.0, 1.0], [0.92, 0.96, 1.0, 1.0]]
+] -> uv
+g.add(
+  id: "layer_1_silver_floor_mirror",
+  x: silver_mirror_x,
+  y: silver_mirror_y,
+  z: silver_mirror_z,
+  c: silver_mirror_c,
+  representation: "lines",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "optical_boundary2d",
+    layer: 1,
+    optical_kind: "mirror",
+    segment: "-1.28,-0.30,-0.82,-0.30",
+    reflectivity: 0.72,
+    transmittance: 0.0,
+    color: "#f4f8ff",
+    roughness: 0.04
+  )
+)
+
+green_window_x: [[-0.12, 0.42], [-0.12, 0.42]] -> uv
+green_window_y: [[-0.28, -0.28], [-0.28, -0.28]] -> uv
+green_window_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+green_window_c: [
+  [[0.55, 1.0, 0.72, 0.9], [0.55, 1.0, 0.72, 0.9]],
+  [[0.55, 1.0, 0.72, 0.9], [0.55, 1.0, 0.72, 0.9]]
+] -> uv
+g.add(
+  id: "layer_1_green_tinted_window",
+  x: green_window_x,
+  y: green_window_y,
+  z: green_window_z,
+  c: green_window_c,
+  representation: "lines",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "optical_boundary2d",
+    layer: 1,
+    optical_kind: "tinted_window",
+    segment: "-0.12,-0.28,0.42,-0.28",
+    reflectivity: 0.08,
+    transmittance: 0.62,
+    color: "#8cffb8",
+    tint_strength: 0.78
+  )
+)
+
+blue_mirror_x: [[0.72, 1.22], [0.72, 1.22]] -> uv
+blue_mirror_y: [[0.26, 0.26], [0.26, 0.26]] -> uv
+blue_mirror_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+blue_mirror_c: [
+  [[0.62, 0.83, 1.0, 1.0], [0.62, 0.83, 1.0, 1.0]],
+  [[0.62, 0.83, 1.0, 1.0], [0.62, 0.83, 1.0, 1.0]]
+] -> uv
+g.add(
+  id: "layer_1_blue_tinted_mirror",
+  x: blue_mirror_x,
+  y: blue_mirror_y,
+  z: blue_mirror_z,
+  c: blue_mirror_c,
+  representation: "lines",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "optical_boundary2d",
+    layer: 1,
+    optical_kind: "colored_mirror",
+    segment: "0.72,0.26,1.22,0.26",
+    reflectivity: 0.68,
+    transmittance: 0.0,
+    color: "#9ed3ff",
+    roughness: 0.10
+  )
+)
 ```
 
 <!-- readme-asset: ui-physics-layer-lighting -->
 ![ui-physics-layer-lighting](docs/public/images/readme-ui/ui-physics-layer-lighting.png)
-*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders through the middle-third gap.*
+*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders, colored mirrors, and tinted window transmission.*
 
 ### Native Scene Packets
 

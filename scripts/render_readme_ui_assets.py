@@ -62,7 +62,7 @@ README_ASSETS: tuple[ReadmeAsset, ...] = (
         marker="ui-physics-layer-lighting",
         example=REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf",
         output_name="ui-physics-layer-lighting.png",
-        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders through the middle-third gap.",
+        caption="`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with soft wall-shadow borders, colored mirrors, and tinted window transmission.",
         viewport=(1400, 900),
         wait_ms=1200,
     ),
@@ -489,6 +489,26 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
         raise RuntimeError("physics lighting proof must declare two light2d sources")
     light_sources.sort(key=lambda item: str(item["id"]))
 
+    optical_boundaries: list[dict[str, object]] = []
+    for mesh_id, mesh_physics in physics.items():
+        if mesh_physics.get("kind") != "optical_boundary2d":
+            continue
+        x0, y0, x1, y1 = _parse_csv_floats(mesh_physics["segment"], expected=4)
+        optical_boundaries.append(
+            {
+                "id": mesh_id,
+                "kind": str(mesh_physics["optical_kind"]),
+                "segment": (world_to_px((x0, y0)), world_to_px((x1, y1))),
+                "color": _hex_to_rgb(str(mesh_physics.get("color", "#ffffff"))),
+                "reflectivity": float(mesh_physics.get("reflectivity", 0.0)),
+                "transmittance": float(mesh_physics.get("transmittance", 0.0)),
+                "roughness": float(mesh_physics.get("roughness", 0.08)),
+                "tint_strength": float(mesh_physics.get("tint_strength", 1.0)),
+            }
+        )
+    if len(optical_boundaries) < 3:
+        raise RuntimeError("physics lighting proof must declare mirror and window optical boundaries")
+
     shared_xs = [
         room_rects[index][2]
         for index in range(len(room_rects) - 1)
@@ -551,6 +571,52 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             visible = min(visible, 1.0 - smoothstep(0.0, penumbra, edge_dist))
         return visible
 
+    def segment_midpoint(segment: tuple[tuple[float, float], tuple[float, float]]) -> tuple[float, float]:
+        return ((segment[0][0] + segment[1][0]) / 2.0, (segment[0][1] + segment[1][1]) / 2.0)
+
+    def point_to_segment_distance(
+        point: tuple[float, float], segment: tuple[tuple[float, float], tuple[float, float]]
+    ) -> float:
+        ax, ay = segment[0]
+        bx, by = segment[1]
+        px, py = point
+        dx = bx - ax
+        dy = by - ay
+        length2 = dx * dx + dy * dy
+        if length2 <= 0.00001:
+            return math.hypot(px - ax, py - ay)
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length2))
+        closest = (ax + t * dx, ay + t * dy)
+        return math.hypot(px - closest[0], py - closest[1])
+
+    def signed_side(point: tuple[float, float], segment: tuple[tuple[float, float], tuple[float, float]]) -> float:
+        ax, ay = segment[0]
+        bx, by = segment[1]
+        return (bx - ax) * (point[1] - ay) - (by - ay) * (point[0] - ax)
+
+    def reflect_point_across_segment_line(
+        point: tuple[float, float], segment: tuple[tuple[float, float], tuple[float, float]]
+    ) -> tuple[float, float]:
+        ax, ay = segment[0]
+        bx, by = segment[1]
+        px, py = point
+        dx = bx - ax
+        dy = by - ay
+        length2 = dx * dx + dy * dy
+        if length2 <= 0.00001:
+            return point
+        t = ((px - ax) * dx + (py - ay) * dy) / length2
+        foot = (ax + t * dx, ay + t * dy)
+        return (2.0 * foot[0] - px, 2.0 * foot[1] - py)
+
+    def line_distance(point: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        denom = math.hypot(dx, dy)
+        if denom <= 0.00001:
+            return math.hypot(point[0] - a[0], point[1] - a[1])
+        return abs(dy * point[0] - dx * point[1] + b[0] * a[1] - b[1] * a[0]) / denom
+
     def floor_texture(x: int, y: int) -> tuple[float, float, float]:
         room_left = next(room for room in room_rects if room[0] <= x < room[2] and room[1] <= y < room[3])
         lx = x - room_left[0]
@@ -580,6 +646,57 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             visible = max(visible, 0.22)
         return visible / (1.0 + (dist / falloff) ** 2)
 
+    def tinted_color(
+        light: dict[str, object], tint: tuple[float, float, float], tint_strength: float
+    ) -> tuple[float, float, float]:
+        source = light["color"]
+        assert isinstance(source, tuple)
+        mix = max(0.0, min(1.0, tint_strength))
+        return (
+            source[0] * (1.0 - mix) + source[0] * (tint[0] / 255.0) * mix,
+            source[1] * (1.0 - mix) + source[1] * (tint[1] / 255.0) * mix,
+            source[2] * (1.0 - mix) + source[2] * (tint[2] / 255.0) * mix,
+        )
+
+    def optical_strengths_at(x: float, y: float) -> list[tuple[dict[str, object], float]]:
+        target = (x, y)
+        strengths: list[tuple[dict[str, object], float]] = []
+        for boundary in optical_boundaries:
+            segment = boundary["segment"]
+            color = boundary["color"]
+            assert isinstance(segment, tuple)
+            assert isinstance(color, tuple)
+            midpoint = segment_midpoint(segment)
+            distance_to_boundary = point_to_segment_distance(target, segment)
+            for light in light_sources:
+                center = light["center"]
+                assert isinstance(center, tuple)
+                incoming = light_strength_for_source(light, midpoint[0], midpoint[1], wall=True)
+                opposite_side = signed_side(target, segment) * signed_side(center, segment) < 0.0
+                if float(boundary["reflectivity"]) > 0.0 and opposite_side:
+                    reflected = reflect_point_across_segment_line(center, segment)
+                    beam_width = square * (0.045 + 0.30 * float(boundary["roughness"]))
+                    beam_distance = line_distance(target, reflected, midpoint)
+                    spread = math.exp(-((beam_distance / beam_width) ** 2))
+                    reach = 1.0 / (1.0 + (math.hypot(x - midpoint[0], y - midpoint[1]) / (square * 0.62)) ** 2)
+                    strengths.append(
+                        (
+                            {"color": tinted_color(light, color, 0.42)},
+                            incoming * float(boundary["reflectivity"]) * spread * reach,
+                        )
+                    )
+                if float(boundary["transmittance"]) > 0.0:
+                    side_factor = 1.0 if opposite_side else 0.32
+                    band = math.exp(-((distance_to_boundary / (square * 0.16)) ** 2))
+                    reach = 1.0 / (1.0 + (math.hypot(x - midpoint[0], y - midpoint[1]) / (square * 0.50)) ** 2)
+                    strengths.append(
+                        (
+                            {"color": tinted_color(light, color, float(boundary["tint_strength"]))},
+                            incoming * float(boundary["transmittance"]) * side_factor * band * reach,
+                        )
+                    )
+        return strengths
+
     def shade_material(
         material: tuple[float, float, float],
         strengths: list[tuple[dict[str, object], float]],
@@ -605,6 +722,7 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
             if not inside_rooms(x, y):
                 continue
             strengths = [(light, light_strength_for_source(light, x, y)) for light in light_sources]
+            strengths.extend(optical_strengths_at(x, y))
             image.putpixel((x, y), shade_material(floor_texture(x, y), strengths, diffuse=0.42, glow=0.58))
 
     def wall_texture(x: int, y: int) -> tuple[float, float, float]:
@@ -614,10 +732,22 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
         for y in range(rect[1], rect[3]):
             for x in range(rect[0], rect[2]):
                 strengths = [(light, light_strength_for_source(light, x, y, wall=True)) for light in light_sources]
+                strengths.extend(optical_strengths_at(x, y))
                 image.putpixel(
                     (x, y),
                     shade_material(wall_texture(x, y), strengths, diffuse=1.05, glow=0.26),
                 )
+
+    for boundary in optical_boundaries:
+        segment = boundary["segment"]
+        color = boundary["color"]
+        assert isinstance(segment, tuple)
+        assert isinstance(color, tuple)
+        draw.line(
+            (int(segment[0][0]), int(segment[0][1]), int(segment[1][0]), int(segment[1][1])),
+            fill=tuple(int(channel) for channel in color),
+            width=max(3, int(square * 0.018)),
+        )
 
     for light in light_sources:
         center = light["center"]
@@ -648,22 +778,28 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left room textured floor lit by computed lights": ((400, 360), (111, 108, 71), 10),
+        "left room textured floor lit by computed lights": ((400, 380), (126, 130, 87), 10),
         "circular light source": ((520, 430), (255, 248, 168), 10),
         "blue circular light source": ((792, 430), (125, 220, 255), 10),
+        "silver mirror optical boundary": ((400, 360), (244, 248, 255), 10),
+        "green tinted window optical boundary": ((630, 365), (140, 255, 184), 10),
+        "blue tinted mirror optical boundary": ((820, 489), (158, 211, 255), 10),
+        "green window transmitted glow": ((610, 345), (203, 250, 169), 10),
+        "blue mirror reflected glow": ((810, 510), (122, 193, 170), 10),
+        "silver mirror reflected glow": ((430, 340), (141, 137, 85), 10),
         "shader-lit left shared wall": ((486, 330), (255, 255, 255), 10),
         "left shared middle-third lit gap": ((486, 430), (176, 179, 111), 10),
-        "left room blocked shadow wedge": ((470, 345), (8, 11, 13), 10),
-        "middle room blended yellow-blue floor": ((610, 430), (181, 201, 146), 10),
-        "shader-lit right shared wall": ((713, 330), (242, 255, 255), 10),
-        "right shared middle-third lit gap": ((713, 430), (142, 179, 136), 10),
+        "left room blocked shadow wedge": ((470, 345), (11, 16, 18), 10),
+        "middle room blended yellow-blue floor": ((610, 430), (181, 202, 146), 10),
+        "shader-lit right shared wall": ((713, 330), (255, 255, 255), 10),
+        "right shared middle-third lit gap": ((713, 430), (142, 180, 136), 10),
         "right blue-lit textured floor": ((850, 430), (125, 172, 146), 10),
-        "right room shadow above cone": ((760, 345), (68, 107, 94), 10),
+        "right room shadow above cone": ((760, 345), (68, 109, 95), 10),
         "shader-lit right outer square wall": ((937, 430), (243, 255, 255), 10),
         "floor texture seam": ((355, 430), (100, 102, 66), 10),
         "floor texture tile body": ((390, 430), (129, 134, 93), 10),
         "yellow cone soft edge": ((450, 382), (142, 141, 85), 10),
-        "blue cone soft edge": ((760, 500), (72, 114, 101), 10),
+        "blue cone soft edge": ((760, 500), (91, 133, 112), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:

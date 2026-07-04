@@ -95,6 +95,36 @@ class TestReadmeGeneratedExamples:
             "penumbra_growth_ratio": 0.16,
             "falloff_radius_ratio": 0.7666666667,
         }
+        assert meshes["layer_1_silver_floor_mirror"]["physics"] == {
+            "kind": "optical_boundary2d",
+            "layer": 1,
+            "optical_kind": "mirror",
+            "segment": "-1.28,-0.30,-0.82,-0.30",
+            "reflectivity": 0.72,
+            "transmittance": 0.0,
+            "color": "#f4f8ff",
+            "roughness": 0.04,
+        }
+        assert meshes["layer_1_green_tinted_window"]["physics"] == {
+            "kind": "optical_boundary2d",
+            "layer": 1,
+            "optical_kind": "tinted_window",
+            "segment": "-0.12,-0.28,0.42,-0.28",
+            "reflectivity": 0.08,
+            "transmittance": 0.62,
+            "color": "#8cffb8",
+            "tint_strength": 0.78,
+        }
+        assert meshes["layer_1_blue_tinted_mirror"]["physics"] == {
+            "kind": "optical_boundary2d",
+            "layer": 1,
+            "optical_kind": "colored_mirror",
+            "segment": "0.72,0.26,1.22,0.26",
+            "reflectivity": 0.68,
+            "transmittance": 0.0,
+            "color": "#9ed3ff",
+            "roughness": 0.10,
+        }
 
 
 class TestStringInterpolation:
