@@ -429,49 +429,85 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
 
     rect_ops = [op for op in frame_ops if isinstance(op, dict) and op.get("op") == "rect"]
     oval_ops = [op for op in frame_ops if isinstance(op, dict) and op.get("op") == "oval"]
-    if len(rect_ops) < 10 or not oval_ops:
+    if len(rect_ops) < 12 or len(oval_ops) < 2:
         raise RuntimeError("physics lighting proof must declare room, wall, and light draw ops")
 
     bg_op = rect_ops[0]
     draw.rectangle(to_px(bg_op["rect"]), fill=tuple(int(value) for value in _hex_to_rgb(str(bg_op["color"]))))
-    left = to_px(rect_ops[1]["rect"])
-    right = to_px(rect_ops[2]["rect"])
-    wall_rects = [to_px(op["rect"]) for op in rect_ops[3:]]
-    wall_material = _hex_to_rgb(str(rect_ops[3]["color"]))
+    room_rects = [to_px(op["rect"]) for op in rect_ops if str(op.get("color")).lower() == "#263342"]
+    wall_rects = [to_px(op["rect"]) for op in rect_ops if str(op.get("color")).lower() == "#d8dce4"]
+    if len(room_rects) < 3 or len(wall_rects) < 8:
+        raise RuntimeError("physics lighting proof must declare three rooms and their wall segments")
+    room_rects.sort(key=lambda rect: rect[0])
+    wall_material = _hex_to_rgb("#d8dce4")
 
     background_physics = physics["adjacent_square_backgrounds"]
     boundary_physics = physics["boundary_parts_with_middle_gap"]
     light_field_physics = physics["lighting_layer_passes_through_gap"]
-    light_physics = physics["layer_1_light_source"]
 
-    left_world = _parse_csv_floats(background_physics["left_square"], expected=4)
-    right_world = _parse_csv_floats(background_physics["right_square"], expected=4)
-    light_world = _parse_csv_floats(light_physics["center"], expected=2)
-    square = left[2] - left[0]
+    def parse_room_list(raw: object) -> list[tuple[float, float, float, float]]:
+        rooms = [_parse_csv_floats(room, expected=4) for room in str(raw).split(";") if room.strip()]
+        if len(rooms) < 3:
+            raise RuntimeError(f"expected at least three rooms in physics metadata, got {raw!r}")
+        return rooms
+
+    world_rooms = parse_room_list(background_physics["rooms"])
+    world_min_x = min(room[0] for room in world_rooms)
+    world_max_x = max(room[2] for room in world_rooms)
+    world_min_y = min(room[1] for room in world_rooms)
+    world_max_y = max(room[3] for room in world_rooms)
+    rooms_px_min_x = min(rect[0] for rect in room_rects)
+    rooms_px_max_x = max(rect[2] for rect in room_rects)
+    rooms_px_min_y = min(rect[1] for rect in room_rects)
+    rooms_px_max_y = max(rect[3] for rect in room_rects)
+    square = room_rects[0][2] - room_rects[0][0]
 
     def world_to_px(point: tuple[float, float]) -> tuple[float, float]:
-        world_min_x = left_world[0]
-        world_max_x = right_world[2]
-        world_min_y = left_world[1]
-        world_max_y = left_world[3]
-        px = left[0] + ((point[0] - world_min_x) / (world_max_x - world_min_x)) * (right[2] - left[0])
-        py = left[1] + ((point[1] - world_min_y) / (world_max_y - world_min_y)) * (left[3] - left[1])
+        px = rooms_px_min_x + ((point[0] - world_min_x) / (world_max_x - world_min_x)) * (
+            rooms_px_max_x - rooms_px_min_x
+        )
+        py = rooms_px_min_y + ((point[1] - world_min_y) / (world_max_y - world_min_y)) * (
+            rooms_px_max_y - rooms_px_min_y
+        )
         return (px, py)
 
-    light = world_to_px((light_world[0], light_world[1]))
-    source_radius = square * float(light_physics["radius_ratio_to_square_width"])
+    light_sources: list[dict[str, object]] = []
+    for mesh_id, mesh_physics in physics.items():
+        if mesh_physics.get("kind") != "light2d":
+            continue
+        center_world = _parse_csv_floats(mesh_physics["center"], expected=2)
+        light_sources.append(
+            {
+                "id": mesh_id,
+                "center": world_to_px((center_world[0], center_world[1])),
+                "radius": square * float(mesh_physics["radius_ratio_to_square_width"]),
+                "falloff": square * float(mesh_physics.get("falloff_radius_ratio", light_field_physics["falloff_radius_ratio"])),
+                "color": _hex_to_rgb(str(mesh_physics.get("color", "#fff8a8"))),
+            }
+        )
+    if len(light_sources) < 2:
+        raise RuntimeError("physics lighting proof must declare two light2d sources")
+    light_sources.sort(key=lambda item: str(item["id"]))
+
+    shared_xs = [
+        room_rects[index][2]
+        for index in range(len(room_rects) - 1)
+        if abs(room_rects[index][2] - room_rects[index + 1][0]) <= max(5.0, square * 0.05)
+    ]
     shared_wall_segments = [
         ((float(rect[0] + rect[2]) / 2.0, float(rect[1])), (float(rect[0] + rect[2]) / 2.0, float(rect[3])))
         for rect in wall_rects
-        if abs(((rect[0] + rect[2]) / 2.0) - left[2]) <= max(2.0, square * float(boundary_physics["wall_thickness_ratio"]))
+        if any(
+            abs(((rect[0] + rect[2]) / 2.0) - shared_x)
+            <= max(2.0, square * float(boundary_physics["wall_thickness_ratio"]))
+            for shared_x in shared_xs
+        )
     ]
-    if len(shared_wall_segments) != 2:
-        raise RuntimeError(f"expected two shared wall segments from VKF, got {len(shared_wall_segments)}")
+    if len(shared_wall_segments) != 4:
+        raise RuntimeError(f"expected four shared wall segments from VKF, got {len(shared_wall_segments)}")
 
     def inside_rooms(x: int, y: int) -> bool:
-        return (left[0] <= x < left[2] and left[1] <= y < left[3]) or (
-            right[0] <= x < right[2] and right[1] <= y < right[3]
-        )
+        return any(room[0] <= x < room[2] and room[1] <= y < room[3] for room in room_rects)
 
     def smoothstep(edge0: float, edge1: float, value: float) -> float:
         if edge0 == edge1:
@@ -479,24 +515,44 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
         t = max(0.0, min(1.0, (value - edge0) / (edge1 - edge0)))
         return t * t * (3.0 - 2.0 * t)
 
-    def visibility(x: int, y: int) -> float:
-        if x < right[0]:
-            return 1.0
+    def ray_intersection_with_vertical_segment(
+        origin: tuple[float, float],
+        target: tuple[float, float],
+        segment: tuple[tuple[float, float], tuple[float, float]],
+    ) -> tuple[float, float] | None:
+        wall_x = segment[0][0]
+        dx = target[0] - origin[0]
+        if abs(dx) < 0.00001:
+            return None
+        t = (wall_x - origin[0]) / dx
+        if t <= 0.0 or t >= 1.0:
+            return None
+        hit_y = origin[1] + (target[1] - origin[1]) * t
+        seg_min_y = min(segment[0][1], segment[1][1])
+        seg_max_y = max(segment[0][1], segment[1][1])
+        if seg_min_y <= hit_y <= seg_max_y:
+            return (wall_x, hit_y)
+        return None
 
-        wall_x = shared_wall_segments[0][0][0]
-        top_gap_y = shared_wall_segments[0][1][1]
-        bottom_gap_y = shared_wall_segments[1][0][1]
-        ray_scale = (float(x) - light[0]) / (wall_x - light[0])
-        top_edge_y = light[1] + (top_gap_y - light[1]) * ray_scale
-        bottom_edge_y = light[1] + (bottom_gap_y - light[1]) * ray_scale
-        signed_cone_distance = min(float(y) - top_edge_y, bottom_edge_y - float(y))
+    def visibility_for_light(light: dict[str, object], x: float, y: float) -> float:
+        origin = light["center"]
+        assert isinstance(origin, tuple)
+        target = (float(x), float(y))
         penumbra_base = square * float(light_field_physics["penumbra_base_ratio"])
         penumbra_growth = float(light_field_physics["penumbra_growth_ratio"])
-        penumbra = penumbra_base + penumbra_growth * max(0.0, float(x) - wall_x)
-        return smoothstep(-penumbra, penumbra, signed_cone_distance)
+        visible = 1.0
+        for segment in shared_wall_segments:
+            hit = ray_intersection_with_vertical_segment(origin, target, segment)
+            if hit is None:
+                continue
+            distance_from_wall = math.hypot(target[0] - hit[0], target[1] - hit[1])
+            penumbra = penumbra_base + penumbra_growth * distance_from_wall
+            edge_dist = min(math.hypot(hit[0] - end[0], hit[1] - end[1]) for end in segment)
+            visible = min(visible, 1.0 - smoothstep(0.0, penumbra, edge_dist))
+        return visible
 
     def floor_texture(x: int, y: int) -> tuple[float, float, float]:
-        room_left = left if x < right[0] else right
+        room_left = next(room for room in room_rects if room[0] <= x < room[2] and room[1] <= y < room[3])
         lx = x - room_left[0]
         ly = y - room_left[1]
         tx = lx // 48
@@ -513,54 +569,67 @@ def _render_physics_layer_lighting_simulation(asset: ReadmeAsset, out_path: Path
         )
 
     ambient = 0.22
-    light_color = (255.0, 221.0, 112.0)
-    def light_strength_at(x: int, y: int) -> float:
-        dx = x - light[0]
-        dy = y - light[1]
-        dist = math.hypot(dx, dy)
-        falloff = square * float(light_field_physics["falloff_radius_ratio"])
-        return visibility(x, y) / (1.0 + (dist / falloff) ** 2)
+
+    def light_strength_for_source(light: dict[str, object], x: float, y: float, *, wall: bool = False) -> float:
+        center = light["center"]
+        assert isinstance(center, tuple)
+        falloff = float(light["falloff"])
+        dist = math.hypot(x - center[0], y - center[1])
+        visible = visibility_for_light(light, x, y)
+        if wall:
+            visible = max(visible, 0.22)
+        return visible / (1.0 + (dist / falloff) ** 2)
 
     def shade_material(
         material: tuple[float, float, float],
-        strength: float,
+        strengths: list[tuple[dict[str, object], float]],
         *,
         diffuse: float,
         glow: float,
     ) -> tuple[int, int, int]:
-        lit = ambient + diffuse * strength
-        r = material[0] * lit + light_color[0] * strength * glow
-        g = material[1] * lit + light_color[1] * strength * glow * 0.93
-        b = material[2] * lit + light_color[2] * strength * glow * 0.66
+        total_strength = min(1.35, sum(strength for _, strength in strengths))
+        lit = ambient + diffuse * total_strength
+        r = material[0] * lit
+        g = material[1] * lit
+        b = material[2] * lit
+        for light, strength in strengths:
+            color = light["color"]
+            assert isinstance(color, tuple)
+            r += color[0] * strength * glow
+            g += color[1] * strength * glow * 0.93
+            b += color[2] * strength * glow * 0.66
         return (min(255, int(r)), min(255, int(g)), min(255, int(b)))
 
     for y in range(body[1], body[3]):
         for x in range(body[0], body[2]):
             if not inside_rooms(x, y):
                 continue
-            image.putpixel((x, y), shade_material(floor_texture(x, y), light_strength_at(x, y), diffuse=0.42, glow=0.58))
+            strengths = [(light, light_strength_for_source(light, x, y)) for light in light_sources]
+            image.putpixel((x, y), shade_material(floor_texture(x, y), strengths, diffuse=0.42, glow=0.58))
 
     def wall_texture(x: int, y: int) -> tuple[float, float, float]:
         return wall_material
 
-    def wall_light_strength_at(x: float, y: float) -> float:
-        dist = math.hypot(x - light[0], y - light[1])
-        direct = 1.0 / (1.0 + (dist / 170.0) ** 2)
-        return direct * (0.35 + 0.65 * max(visibility(x, y), 0.22))
-
     for rect in wall_rects:
         for y in range(rect[1], rect[3]):
             for x in range(rect[0], rect[2]):
+                strengths = [(light, light_strength_for_source(light, x, y, wall=True)) for light in light_sources]
                 image.putpixel(
                     (x, y),
-                    shade_material(wall_texture(x, y), wall_light_strength_at(x, y), diffuse=1.05, glow=0.26),
+                    shade_material(wall_texture(x, y), strengths, diffuse=1.05, glow=0.26),
                 )
 
-    sx0 = int(light[0] - source_radius)
-    sy0 = int(light[1] - source_radius)
-    sx1 = int(light[0] + source_radius)
-    sy1 = int(light[1] + source_radius)
-    draw.ellipse((sx0, sy0, sx1, sy1), fill=(255, 248, 168))
+    for light in light_sources:
+        center = light["center"]
+        color = light["color"]
+        assert isinstance(center, tuple)
+        assert isinstance(color, tuple)
+        source_radius = float(light["radius"])
+        sx0 = int(center[0] - source_radius)
+        sy0 = int(center[1] - source_radius)
+        sx1 = int(center[0] + source_radius)
+        sy1 = int(center[1] + source_radius)
+        draw.ellipse((sx0, sy0, sx1, sy1), fill=tuple(int(channel) for channel in color))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(out_path)
@@ -579,20 +648,22 @@ def _verify_physics_layer_lighting_capture(path: Path) -> None:
         raise RuntimeError(f"expected physics lighting proof to be 1400x900, got {image.size}")
 
     samples = {
-        "left textured floor lit by computed light": ((430, 360), (139, 121, 64), 10),
+        "left room textured floor lit by computed lights": ((400, 360), (111, 108, 71), 10),
         "circular light source": ((520, 430), (255, 248, 168), 10),
-        "shader-lit shared edge first-third wall": ((630, 330), (130, 128, 123), 10),
-        "shared edge middle-third lit gap": ((630, 430), (133, 113, 53), 10),
-        "shader-lit shared edge last-third wall": ((630, 530), (129, 127, 122), 10),
-        "right room shadow above cone": ((740, 330), (61, 55, 33), 10),
-        "right room light cone through gap": ((760, 430), (88, 78, 44), 10),
-        "right room shadow below cone": ((740, 530), (53, 48, 30), 10),
-        "shader-lit right outer square wall": ((936, 430), (89, 89, 87), 10),
-        "floor texture seam": ((368, 430), (116, 99, 48), 10),
-        "floor texture tile body": ((390, 430), (134, 118, 65), 10),
-        "near soft shadow edge": ((670, 382), (123, 108, 61), 10),
-        "far soft shadow edge": ((835, 330), (62, 56, 33), 10),
-        "far cone interior remains lit": ((835, 430), (66, 59, 35), 10),
+        "blue circular light source": ((792, 430), (125, 220, 255), 10),
+        "shader-lit left shared wall": ((486, 330), (255, 255, 255), 10),
+        "left shared middle-third lit gap": ((486, 430), (176, 179, 111), 10),
+        "left room blocked shadow wedge": ((470, 345), (8, 11, 13), 10),
+        "middle room blended yellow-blue floor": ((610, 430), (181, 201, 146), 10),
+        "shader-lit right shared wall": ((713, 330), (242, 255, 255), 10),
+        "right shared middle-third lit gap": ((713, 430), (142, 179, 136), 10),
+        "right blue-lit textured floor": ((850, 430), (125, 172, 146), 10),
+        "right room shadow above cone": ((760, 345), (68, 107, 94), 10),
+        "shader-lit right outer square wall": ((937, 430), (243, 255, 255), 10),
+        "floor texture seam": ((355, 430), (100, 102, 66), 10),
+        "floor texture tile body": ((390, 430), (129, 134, 93), 10),
+        "yellow cone soft edge": ((450, 382), (142, 141, 85), 10),
+        "blue cone soft edge": ((760, 500), (72, 114, 101), 10),
     }
     for label, (xy, expected, tolerance) in samples.items():
         try:
