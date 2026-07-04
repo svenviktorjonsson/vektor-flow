@@ -7,6 +7,7 @@ from vektorflow.physics_properties import (
     inertia_tensor_from_point_masses,
     length,
     polygon_area,
+    rotational_spring_damper_torque,
     spring_damper_edge_force,
     tetra_volume,
 )
@@ -110,3 +111,51 @@ def test_geometry_edge_force_uses_edge_properties_and_vertex_velocities() -> Non
     assert tension == pytest.approx(13.0)
     assert force_0 == pytest.approx((13.0, 0.0))
     assert force_1 == pytest.approx((-13.0, -0.0))
+
+
+def test_rotational_spring_damper_torque_uses_angle_deviation_and_angular_friction() -> None:
+    torque = rotational_spring_damper_torque(
+        1.25,
+        rest_angle=0.25,
+        angular_spring_constant=8.0,
+        angular_damping=1.5,
+        angular_velocity=-2.0,
+    )
+
+    assert torque == pytest.approx(5.0)
+
+
+def test_geometry_rotational_torque_uses_theta_constants_and_omega_alias() -> None:
+    geometry = PhysicsGeometry.from_vertices(
+        ((0.0, 0.0), (1.0, 0.0)),
+        edges=((0, 1),),
+        edge_properties={
+            0: {
+                "theta": 1.25,
+                "theta0": 0.25,
+                "k_theta": 8.0,
+                "c_theta": 1.5,
+                "omega": -2.0,
+            }
+        },
+    )
+
+    assert geometry.rotational_torque("edge", 0) == pytest.approx(5.0)
+
+
+def test_geometry_rotational_torque_supports_readable_aliases() -> None:
+    geometry = PhysicsGeometry.from_vertices(
+        ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)),
+        faces=((0, 1, 2),),
+        face_properties={
+            0: {
+                "angle": 0.75,
+                "rest_angle": 0.25,
+                "angular_spring_constant": 4.0,
+                "angular_friction": 0.5,
+                "w_scalar": 3.0,
+            }
+        },
+    )
+
+    assert geometry.rotational_torque("face", 0) == pytest.approx(3.5)

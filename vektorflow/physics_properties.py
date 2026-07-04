@@ -153,6 +153,25 @@ def spring_damper_edge_force(
     return (force_on_0, force_on_1, tension)
 
 
+def rotational_spring_damper_torque(
+    angle: Number,
+    *,
+    rest_angle: Number = 0.0,
+    angular_spring_constant: Number,
+    angular_damping: Number = 0.0,
+    angular_velocity: Number = 0.0,
+) -> float:
+    """Return torque from angular deviation and angular friction/damping.
+
+    Positive torque follows positive angle deviation. Callers can negate it when
+    applying a restoring torque in their chosen constraint orientation.
+    """
+
+    return float(angular_spring_constant) * (float(angle) - float(rest_angle)) + float(angular_damping) * float(
+        angular_velocity
+    )
+
+
 @dataclass(frozen=True)
 class PhysicsGeometry:
     vertices: tuple[Vec, ...]
@@ -258,6 +277,27 @@ class PhysicsGeometry:
             damping=float(props.get("c", props.get("damping", 0.0))),
             v0=self.vertex_properties.get(edge[0], {}).get("v"),  # type: ignore[arg-type]
             v1=self.vertex_properties.get(edge[1], {}).get("v"),  # type: ignore[arg-type]
+        )
+
+    def rotational_torque(
+        self,
+        element_kind: str,
+        index: int,
+        *,
+        angle: Number | None = None,
+        angular_velocity: Number | None = None,
+    ) -> float:
+        props = self._properties(element_kind, index)
+        current_angle = float(angle if angle is not None else props.get("theta", props.get("angle", 0.0)))
+        current_angular_velocity = float(
+            angular_velocity if angular_velocity is not None else props.get("omega", props.get("w_scalar", 0.0))
+        )
+        return rotational_spring_damper_torque(
+            current_angle,
+            rest_angle=float(props.get("theta0", props.get("rest_angle", 0.0))),
+            angular_spring_constant=float(props.get("k_theta", props.get("angular_spring_constant", 0.0))),
+            angular_damping=float(props.get("c_theta", props.get("angular_damping", props.get("angular_friction", 0.0)))),
+            angular_velocity=current_angular_velocity,
         )
 
     def _properties(self, element_kind: str, index: int) -> Mapping[str, object]:
