@@ -14,6 +14,7 @@ from . import collections as collectionslib
 from . import errors as errorslib
 from . import io as iolib
 from . import math as mathlib
+from . import physics as physicslib
 from . import stat as statlib
 from . import time as timelib
 from . import ui as uilib
@@ -22,6 +23,7 @@ StdlibFactory = Callable[[], dict[str, Any]]
 
 STDLIB_MODULES: dict[str, StdlibFactory] = {
     "math": mathlib.build_math_namespace,
+    "physics": physicslib.build_physics_namespace,
     "capture": capturelib.build_capture_namespace,
     "errors": errorslib.build_errors_namespace,
     "io": iolib.build_io_namespace,

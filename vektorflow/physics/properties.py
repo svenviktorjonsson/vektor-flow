@@ -231,6 +231,8 @@ def rotational_spring_damper_torque(
 
 @dataclass(frozen=True)
 class PhysicsGeometry:
+    __vf_py_attrs__ = True
+
     vertices: tuple[Vec, ...]
     edges: tuple[tuple[int, int], ...] = ()
     faces: tuple[tuple[int, ...], ...] = ()

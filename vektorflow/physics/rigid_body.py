@@ -125,6 +125,8 @@ def _inverse_mat3(a: Mat3) -> Mat3:
 
 @dataclass(frozen=True)
 class RigidBodyMassProperties:
+    __vf_py_attrs__ = True
+
     mass: float
     center_of_mass: tuple[float, float, float]
     inertia_tensor: Mat3
@@ -132,12 +134,16 @@ class RigidBodyMassProperties:
 
 @dataclass(frozen=True)
 class ForceApplication:
+    __vf_py_attrs__ = True
+
     force: tuple[float, float, float]
     point: tuple[float, float, float]
 
 
 @dataclass(frozen=True)
 class RigidBodyState:
+    __vf_py_attrs__ = True
+
     position: tuple[float, float, float]
     velocity: tuple[float, float, float]
     angular_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
