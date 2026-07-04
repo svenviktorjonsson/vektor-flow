@@ -67,6 +67,24 @@ def test_velocity_and_angular_velocity_accessors_use_v_and_w() -> None:
     assert geometry.angular_velocity("vertex", 0) == (0.0, 0.0, 7.0)
 
 
+def test_temperature_accessor_uses_T_on_all_geometry_element_kinds() -> None:
+    geometry = PhysicsGeometry.from_vertices(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        edges=((0, 1),),
+        faces=((0, 1, 2),),
+        volumes=((0, 1, 2, 3),),
+        vertex_properties={0: {"T": 293.15}},
+        edge_properties={0: {"T": 310.0}},
+        face_properties={0: {"T": 350.0}},
+        volume_properties={0: {"T": 1200.0}},
+    )
+
+    assert geometry.temperature("vertex", 0) == pytest.approx(293.15)
+    assert geometry.temperature("edge", 0) == pytest.approx(310.0)
+    assert geometry.temperature("face", 0) == pytest.approx(350.0)
+    assert geometry.temperature("volume", 0) == pytest.approx(1200.0)
+
+
 def test_inertia_tensor_I_from_point_masses() -> None:
     tensor = inertia_tensor_from_point_masses([((1.0, 0.0, 0.0), 2.0), ((0.0, 2.0, 0.0), 3.0)])
 

@@ -222,6 +222,9 @@ class PhysicsGeometry:
     def angular_velocity(self, element_kind: str, index: int) -> Vec:
         return _vec(self._properties(element_kind, index).get("w", ()))
 
+    def temperature(self, element_kind: str, index: int) -> float:
+        return float(self._properties(element_kind, index).get("T", 0.0))
+
     def mass(self, element_kind: str, index: int) -> float:
         props = self._properties(element_kind, index)
         if "m" in props:
