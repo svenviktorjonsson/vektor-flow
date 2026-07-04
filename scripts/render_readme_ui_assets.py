@@ -403,10 +403,8 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         plank = 0.5 + 0.5 * math.sin((lx * 0.18) + (ly * 0.035))
         fine = 0.5 + 0.5 * math.sin((x * 0.31) + (y * 0.47))
         seam = 1.0 if lx % 48 < 3 or ly % 48 < 3 else 0.0
-        diagonal = 1.0 if (lx + ly) % 96 < 8 else 0.0
         base = 0.62 + 0.18 * checker + 0.12 * plank + 0.06 * fine
         base *= 0.58 if seam else 1.0
-        base *= 1.18 if diagonal else 1.0
         accent = 0.5 + 0.5 * math.sin((lx - ly) * 0.06)
         return (
             42.0 * base + 10.0 * accent,
@@ -442,12 +440,12 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
             image.putpixel((x, y), shade_material(floor_texture(x, y), light_strength_at(x, y), diffuse=0.42, glow=0.58))
 
     def wall_texture(x: int, y: int) -> tuple[float, float, float]:
-        stripe = 0.5 + 0.5 * math.sin(x * 0.17 + y * 0.04)
+        stripe = 0.5 + 0.5 * math.sin(y * 0.11)
         grain = 0.5 + 0.5 * math.sin(x * 0.61 + y * 0.29)
         base = 188.0 + 34.0 * stripe + 14.0 * grain
         return (base, base + 4.0, base + 12.0)
 
-    def wall_light_strength_at(x: int, y: int) -> float:
+    def wall_light_strength_at(x: float, y: float) -> float:
         dist = math.hypot(x - light[0], y - light[1])
         direct = 1.0 / (1.0 + (dist / 170.0) ** 2)
         return direct * (0.35 + 0.65 * max(visibility(x, y), 0.22))
@@ -463,11 +461,14 @@ def _render_physics_layer_lighting_simulation(out_path: Path) -> None:
         (616, 480, 624, 580),
     ]
     for rect in wall_rects:
+        cx = (rect[0] + rect[2]) / 2.0
+        cy = (rect[1] + rect[3]) / 2.0
+        segment_strength = wall_light_strength_at(cx, cy)
         for y in range(rect[1], rect[3]):
             for x in range(rect[0], rect[2]):
                 image.putpixel(
                     (x, y),
-                    shade_material(wall_texture(x, y), wall_light_strength_at(x, y), diffuse=1.05, glow=0.26),
+                    shade_material(wall_texture(x, y), segment_strength, diffuse=1.05, glow=0.26),
                 )
 
     sx0 = int(light[0] - source_radius)
