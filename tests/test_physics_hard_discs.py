@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vektorflow.physics_hard_discs import HardDisc, HardDiscWorld2D
+from vektorflow.stdlib.physics import density_color, disc_impostors
 
 
 def test_pair_collision_conserves_energy_and_respects_radius() -> None:
@@ -51,3 +52,17 @@ def test_event_queue_handles_multiple_discs_without_overlap() -> None:
         snapshot = world.advance_to(step * 0.04)
         assert snapshot.min_gap >= -1.0e-7
         assert snapshot.kinetic_energy == pytest.approx(energy0)
+
+
+def test_impostor_color_reflects_density_and_density_changes_mass() -> None:
+    light = HardDisc(0.25, 0.5, 0.0, 0.0, 0.08, density=0.75)
+    heavy = HardDisc(0.75, 0.5, 0.0, 0.0, 0.08, density=3.70)
+    world = HardDiscWorld2D((light, heavy))
+    snapshot = world.snapshot()
+
+    impostors = disc_impostors(world, snapshot)
+
+    assert heavy.mass > light.mass
+    assert impostors[0]["color"] == pytest.approx(density_color(light.density))
+    assert impostors[1]["color"] == pytest.approx(density_color(heavy.density))
+    assert impostors[0]["color"] != impostors[1]["color"]

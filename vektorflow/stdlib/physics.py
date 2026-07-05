@@ -287,7 +287,7 @@ def disc_impostors(
     *,
     z: Any = 0.0,
 ) -> list[dict[str, Any]]:
-    palette = list(colors) if colors is not None else [disc_color(i) for i in range(len(snapshot.discs))]
+    palette = list(colors) if colors is not None else []
     impostors: list[dict[str, Any]] = []
     for index, item in enumerate(snapshot.discs):
         impostors.append(
@@ -296,7 +296,7 @@ def disc_impostors(
                 "y": item.y - world.height * 0.5,
                 "z": float(z),
                 "radius": item.radius,
-                "color": palette[index % len(palette)] if palette else [1.0, 1.0, 1.0, 1.0],
+                "color": palette[index % len(palette)] if palette else density_color(item.density),
                 "density": item.density,
                 "mass": item.mass,
             }
@@ -332,19 +332,30 @@ def hard_disc_impostor_driver(world: HardDiscWorld2D, renderer: Any, colors: Any
 def demo_hard_discs() -> tuple[HardDisc, ...]:
     """Default 10-disc VKF collision proof setup."""
 
-    density = 1.0
     return (
-        disc(0.15, 0.18, 0.34, 0.20, 0.045, density),
-        disc(0.33, 0.16, 0.23, 0.30, 0.060, density),
-        disc(0.55, 0.16, -0.18, 0.34, 0.040, density),
-        disc(0.78, 0.20, -0.29, 0.24, 0.070, density),
-        disc(1.04, 0.18, -0.35, 0.20, 0.050, density),
-        disc(0.20, 0.50, 0.31, -0.25, 0.065, density),
-        disc(0.45, 0.45, 0.25, -0.23, 0.048, density),
-        disc(0.66, 0.53, -0.30, -0.28, 0.055, density),
-        disc(0.90, 0.48, -0.32, -0.18, 0.042, density),
-        disc(1.08, 0.63, -0.20, -0.31, 0.058, density),
+        disc(0.15, 0.18, 0.34, 0.20, 0.045, 0.75),
+        disc(0.33, 0.16, 0.23, 0.30, 0.060, 1.35),
+        disc(0.55, 0.16, -0.18, 0.34, 0.040, 1.95),
+        disc(0.78, 0.20, -0.29, 0.24, 0.070, 2.60),
+        disc(1.04, 0.18, -0.35, 0.20, 0.050, 3.30),
+        disc(0.20, 0.50, 0.31, -0.25, 0.065, 1.05),
+        disc(0.45, 0.45, 0.25, -0.23, 0.048, 1.65),
+        disc(0.66, 0.53, -0.30, -0.28, 0.055, 2.25),
+        disc(0.90, 0.48, -0.32, -0.18, 0.042, 2.90),
+        disc(1.08, 0.63, -0.20, -0.31, 0.058, 3.70),
     )
+
+
+def density_color(density: Any) -> list[float]:
+    """Map material density to one fill color; mass still uses density directly."""
+
+    t = max(0.0, min(1.0, (float(density) - 0.75) / (3.70 - 0.75)))
+    return [
+        0.08 + 0.88 * t,
+        0.72 - 0.28 * t,
+        0.92 - 0.74 * t,
+        1.0,
+    ]
 
 
 def disc_color(index: Any) -> list[float]:
@@ -403,6 +414,7 @@ def build_physics_namespace() -> dict[str, Any]:
         "HardDiscImpostorDriver": HardDiscImpostorDriver,
         "hard_disc_impostor_driver": hard_disc_impostor_driver,
         "demo_hard_discs": demo_hard_discs,
+        "density_color": density_color,
         "disc_color": disc_color,
         "one": Quantity(1.0, DIMENSIONLESS, "1"),
         "m": metre,

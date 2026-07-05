@@ -2,26 +2,14 @@ ui: .ui
 physics: .physics
 
 d: ui.display
-f: d.frame(id: "physics_hard_disc_collision_frame", title: "Hard-disc collision", alpha: 1.0)
-d.add_frame(f, (0.08, 0.08, 0.84, 0.84))
+f: d.frame(id: "physics_hard_disc_collision_frame", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false)
+d.add_frame(f, (0.0, 0.0, 1.0, 1.0))
 f.add_camera(pos: [0.0, 0.0, 2.2], target: [0.0, 0.0, 0.0], projection: "orthographic", ortho_scale: 1.35)
 f.add_light(pos: [0.0, 0.0, 1.8], color: "white", intensity: 15.0)
 
 world_width: 1.20
 world_height: 0.80
 world: physics.hard_disc_world(physics.demo_hard_discs(), width: world_width, height: world_height)
-colors: [
-  [0.10, 0.74, 0.92, 1.0],
-  [0.98, 0.50, 0.45, 1.0],
-  [0.54, 0.89, 0.36, 1.0],
-  [1.00, 0.82, 0.25, 1.0],
-  [0.70, 0.55, 0.98, 1.0],
-  [0.98, 0.35, 0.72, 1.0],
-  [0.35, 0.91, 0.75, 1.0],
-  [0.93, 0.63, 0.27, 1.0],
-  [0.50, 0.70, 1.00, 1.0],
-  [0.86, 0.92, 0.38, 1.0]
-]
 
 renderer: f.impostor_renderer(
   width: world_width,
@@ -29,9 +17,10 @@ renderer: f.impostor_renderer(
   depth: 0.035,
   capture_path: "examples/generated/physics_hard_disc_collision_single_frame.gif",
   capture_size: [720, 520],
+  capture_margin: 0,
   sync_display: false
 )
-driver: physics.hard_disc_impostor_driver(world, renderer, colors: colors)
+driver: physics.hard_disc_impostor_driver(world, renderer)
 loop: ui.event_loop(fps: 24, frames: 120, realtime: false)
 video_path: loop.run(driver)
 :: video_path

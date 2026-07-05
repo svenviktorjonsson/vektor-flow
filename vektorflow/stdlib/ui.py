@@ -1708,6 +1708,7 @@ class ImpostorRenderer:
         depth: Any = 0.035,
         capture_path: Any = "",
         capture_size: Any = (720, 520),
+        capture_margin: Any = 44,
         sync_display: Any = True,
     ) -> None:
         self.frame = frame
@@ -1717,6 +1718,7 @@ class ImpostorRenderer:
         self.depth = float(depth)
         self.capture_path = str(capture_path or "")
         self.capture_size = tuple(int(v) for v in capture_size) if isinstance(capture_size, (list, tuple)) else (720, 520)
+        self.capture_margin = int(capture_margin)
         self.sync_display = bool(sync_display)
         self._objects: list[SceneBox] = []
         self._bounds: list[SceneBox] = []
@@ -1775,7 +1777,7 @@ class ImpostorRenderer:
         except Exception as exc:  # pragma: no cover - optional proof dependency
             raise RuntimeError("impostor GIF capture requires Pillow") from exc
         width, height = self.capture_size
-        margin = 44
+        margin = max(0, self.capture_margin)
         scale = min((width - 2 * margin) / self.width, (height - 2 * margin) / self.height)
         ox = width * 0.5
         oy = height * 0.5
@@ -1794,7 +1796,7 @@ class ImpostorRenderer:
             cx = ox + x * scale
             cy = oy - y * scale
             rr = radius * scale
-            draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=color, outline="#f8fbff", width=2)
+            draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=color)
         return image
 
 
@@ -3887,6 +3889,7 @@ class FrameRef:
         depth: Any = 0.035,
         capture_path: Any = "",
         capture_size: Any = (720, 520),
+        capture_margin: Any = 44,
         sync_display: Any = True,
     ) -> ImpostorRenderer:
         return ImpostorRenderer(
@@ -3897,6 +3900,7 @@ class FrameRef:
             depth=depth,
             capture_path=capture_path,
             capture_size=capture_size,
+            capture_margin=capture_margin,
             sync_display=sync_display,
         )
 
