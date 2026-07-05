@@ -49,6 +49,37 @@ def test_gravity_accelerates_between_collisions() -> None:
     assert snapshot.discs[0].vy == pytest.approx(-0.1)
 
 
+def test_large_world_gravity_uses_constant_acceleration_drift() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(demo_hard_discs(count=300, width=3.0, height=3.0), width=3.0, height=3.0, gravity=(0.0, -0.2))
+    start = world.snapshot().discs[0]
+
+    snapshot = world.advance_to(0.1)
+    item = snapshot.discs[0]
+
+    assert item.x == pytest.approx(start.x + start.vx * 0.1)
+    assert item.y == pytest.approx(start.y + start.vy * 0.1 - 0.001)
+    assert item.vy == pytest.approx(start.vy - 0.02)
+
+
+def test_large_world_wall_hit_is_solved_at_impact_time() -> None:
+    discs = [HardDisc(0.50, 0.10, 0.0, -1.0, 0.05)]
+    for row in range(10):
+        for col in range(30):
+            if len(discs) >= 300:
+                break
+            discs.append(HardDisc(1.5 + col * 0.20, 1.0 + row * 0.20, 0.0, 0.0, 0.04))
+
+    world = HardDiscWorld2D(discs, width=8.0, height=4.0)
+
+    snapshot = world.advance_to(0.05)
+    item = snapshot.discs[0]
+
+    assert item.y == pytest.approx(item.radius)
+    assert item.vy == pytest.approx(1.0)
+
+
 def test_wall_collision_reflects_without_energy_loss() -> None:
     world = HardDiscWorld2D((HardDisc(0.25, 0.4, -0.30, 0.10, 0.05, density=2.0),))
     energy0 = world.snapshot().kinetic_energy

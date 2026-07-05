@@ -99,6 +99,13 @@ class HardDiscWorld2D:
         self._events: list[tuple[float, int, CollisionEvent]] = []
         self._next_event_id = 0
         self._use_spatial_stepper = len(self._discs) >= 256
+        self._spatial_x = [disc.x for disc in self._discs]
+        self._spatial_y = [disc.y for disc in self._discs]
+        self._spatial_vx = [disc.vx for disc in self._discs]
+        self._spatial_vy = [disc.vy for disc in self._discs]
+        self._spatial_radius = [disc.radius for disc in self._discs]
+        self._spatial_density = [disc.density for disc in self._discs]
+        self._spatial_mass = [disc.mass for disc in self._discs]
         if not self._use_spatial_stepper:
             self._schedule_all()
 
@@ -107,6 +114,21 @@ class HardDiscWorld2D:
         return self._time
 
     def snapshot(self) -> HardDiscSnapshot:
+        if self._use_spatial_stepper:
+            return HardDiscSnapshot(
+                self._time,
+                tuple(
+                    HardDisc(
+                        self._spatial_x[index],
+                        self._spatial_y[index],
+                        self._spatial_vx[index],
+                        self._spatial_vy[index],
+                        self._spatial_radius[index],
+                        self._spatial_density[index],
+                    )
+                    for index in range(len(self._spatial_x))
+                ),
+            )
         return HardDiscSnapshot(self._time, tuple(self._discs))
 
     def advance_to(self, target_time: Number) -> HardDiscSnapshot:
@@ -143,24 +165,37 @@ class HardDiscWorld2D:
 
     def _spatial_step(self, dt: float) -> None:
         gx, gy = self.gravity
-        discs = [
-            HardDisc(
-                disc.x + (disc.vx + gx * dt) * dt,
-                disc.y + (disc.vy + gy * dt) * dt,
-                disc.vx + gx * dt,
-                disc.vy + gy * dt,
-                disc.radius,
-                disc.density,
+        xs = self._spatial_x
+        ys = self._spatial_y
+        vxs = self._spatial_vx
+        vys = self._spatial_vy
+        radii = self._spatial_radius
+        count = len(xs)
+        for index in range(count):
+            xs[index], vxs[index] = _advance_axis_with_walls(
+                xs[index],
+                vxs[index],
+                radii[index],
+                self.width,
+                gx,
+                dt,
+                self.restitution,
             )
-            for disc in self._discs
-        ]
-        discs = [self._resolve_spatial_walls(disc) for disc in discs]
-        max_radius = max(disc.radius for disc in discs)
+            ys[index], vys[index] = _advance_axis_with_walls(
+                ys[index],
+                vys[index],
+                radii[index],
+                self.height,
+                gy,
+                dt,
+                self.restitution,
+            )
+        max_radius = max(radii)
         cell_size = max(max_radius * 2.1, _EPS)
         for _ in range(1):
             cells: dict[tuple[int, int], list[int]] = {}
-            for index, disc in enumerate(discs):
-                key = (math.floor(disc.x / cell_size), math.floor(disc.y / cell_size))
+            for index in range(count):
+                key = (math.floor(xs[index] / cell_size), math.floor(ys[index] / cell_size))
                 cells.setdefault(key, []).append(index)
             neighbor_offsets = ((0, 0), (1, -1), (1, 0), (1, 1), (0, 1))
             for (cx, cy), indices in cells.items():
@@ -171,66 +206,63 @@ class HardDiscWorld2D:
                     if ox == 0 and oy == 0:
                         for local_pos, i in enumerate(indices):
                             for j in indices[local_pos + 1 :]:
-                                updated = self._resolve_spatial_pair(discs[i], discs[j])
-                                if updated is not None:
-                                    discs[i], discs[j] = updated
+                                self._resolve_spatial_pair_index(i, j)
                     else:
                         for i in indices:
                             for j in neighbors:
-                                updated = self._resolve_spatial_pair(discs[i], discs[j])
-                                if updated is not None:
-                                    discs[i], discs[j] = updated
-            discs = [self._resolve_spatial_walls(disc) for disc in discs]
-        self._discs = discs
+                                self._resolve_spatial_pair_index(i, j)
+            for index in range(count):
+                self._resolve_spatial_wall_index(index)
 
-    def _resolve_spatial_walls(self, disc: HardDisc) -> HardDisc:
-        x, y, vx, vy = disc.x, disc.y, disc.vx, disc.vy
-        if x - disc.radius < 0.0:
-            x = disc.radius
-            vx = abs(vx) * self.restitution
-        elif x + disc.radius > self.width:
-            x = self.width - disc.radius
-            vx = -abs(vx) * self.restitution
-        if y - disc.radius < 0.0:
-            y = disc.radius
-            vy = abs(vy) * self.restitution
-        elif y + disc.radius > self.height:
-            y = self.height - disc.radius
-            vy = -abs(vy) * self.restitution
-        return HardDisc(x, y, vx, vy, disc.radius, disc.density)
+    def _resolve_spatial_wall_index(self, index: int) -> None:
+        radius = self._spatial_radius[index]
+        x = self._spatial_x[index]
+        y = self._spatial_y[index]
+        vx = self._spatial_vx[index]
+        vy = self._spatial_vy[index]
+        if x - radius < 0.0:
+            self._spatial_x[index] = radius
+            self._spatial_vx[index] = abs(vx) * self.restitution
+        elif x + radius > self.width:
+            self._spatial_x[index] = self.width - radius
+            self._spatial_vx[index] = -abs(vx) * self.restitution
+        if y - radius < 0.0:
+            self._spatial_y[index] = radius
+            self._spatial_vy[index] = abs(vy) * self.restitution
+        elif y + radius > self.height:
+            self._spatial_y[index] = self.height - radius
+            self._spatial_vy[index] = -abs(vy) * self.restitution
 
-    def _resolve_spatial_pair(self, a: HardDisc, b: HardDisc) -> tuple[HardDisc, HardDisc] | None:
-        dx = b.x - a.x
-        dy = b.y - a.y
-        min_distance = a.radius + b.radius
+    def _resolve_spatial_pair_index(self, i: int, j: int) -> None:
+        dx = self._spatial_x[j] - self._spatial_x[i]
+        dy = self._spatial_y[j] - self._spatial_y[i]
+        min_distance = self._spatial_radius[i] + self._spatial_radius[j]
         distance_sq = dx * dx + dy * dy
         if distance_sq >= min_distance * min_distance:
-            return None
+            return
         distance = math.sqrt(distance_sq) if distance_sq > _EPS else min_distance
         nx = dx / distance if distance_sq > _EPS else 1.0
         ny = dy / distance if distance_sq > _EPS else 0.0
         overlap = min_distance - distance
-        inv_a = 1.0 / a.mass
-        inv_b = 1.0 / b.mass
+        inv_a = 1.0 / self._spatial_mass[i]
+        inv_b = 1.0 / self._spatial_mass[j]
         inv_sum = inv_a + inv_b
         correction = overlap / inv_sum
-        ax = a.x - nx * correction * inv_a
-        ay = a.y - ny * correction * inv_a
-        bx = b.x + nx * correction * inv_b
-        by = b.y + ny * correction * inv_b
-        avx, avy = a.vx, a.vy
-        bvx, bvy = b.vx, b.vy
+        self._spatial_x[i] -= nx * correction * inv_a
+        self._spatial_y[i] -= ny * correction * inv_a
+        self._spatial_x[j] += nx * correction * inv_b
+        self._spatial_y[j] += ny * correction * inv_b
+        avx = self._spatial_vx[i]
+        avy = self._spatial_vy[i]
+        bvx = self._spatial_vx[j]
+        bvy = self._spatial_vy[j]
         relative_normal_speed = (avx - bvx) * nx + (avy - bvy) * ny
         if relative_normal_speed > 0.0:
             impulse = (1.0 + self.restitution) * relative_normal_speed / inv_sum
-            avx -= impulse * inv_a * nx
-            avy -= impulse * inv_a * ny
-            bvx += impulse * inv_b * nx
-            bvy += impulse * inv_b * ny
-        return (
-            HardDisc(ax, ay, avx, avy, a.radius, a.density),
-            HardDisc(bx, by, bvx, bvy, b.radius, b.density),
-        )
+            self._spatial_vx[i] = avx - impulse * inv_a * nx
+            self._spatial_vy[i] = avy - impulse * inv_a * ny
+            self._spatial_vx[j] = bvx + impulse * inv_b * nx
+            self._spatial_vy[j] = bvy + impulse * inv_b * ny
 
     def _validate_initial_state(self) -> None:
         for index, disc in enumerate(self._discs):
@@ -409,3 +441,39 @@ def _first_positive_quadratic_root(a: float, b: float, c: float) -> float | None
     roots = [(-b - sqrt_d) / (2.0 * a), (-b + sqrt_d) / (2.0 * a)]
     positive = [root for root in roots if root > _EPS]
     return min(positive) if positive else None
+
+
+def _advance_axis_with_walls(
+    position: float,
+    velocity: float,
+    radius: float,
+    upper: float,
+    acceleration: float,
+    dt: float,
+    restitution: float,
+) -> tuple[float, float]:
+    remaining = dt
+    x = position
+    v = velocity
+    for _ in range(4):
+        lower_hit = _first_positive_quadratic_root(0.5 * acceleration, v, x - radius)
+        upper_hit = _first_positive_quadratic_root(0.5 * acceleration, v, x + radius - upper)
+        hit = None
+        hit_side = 0
+        if lower_hit is not None and lower_hit <= remaining + _EPS:
+            hit = lower_hit
+            hit_side = -1
+        if upper_hit is not None and upper_hit <= remaining + _EPS and (hit is None or upper_hit < hit):
+            hit = upper_hit
+            hit_side = 1
+        if hit is None:
+            return x + v * remaining + 0.5 * acceleration * remaining * remaining, v + acceleration * remaining
+        x += v * hit + 0.5 * acceleration * hit * hit
+        v += acceleration * hit
+        x = radius if hit_side < 0 else upper - radius
+        v = abs(v) * restitution if hit_side < 0 else -abs(v) * restitution
+        remaining -= hit
+        if remaining <= _EPS:
+            return x, v
+    x = min(upper - radius, max(radius, x + v * remaining + 0.5 * acceleration * remaining * remaining))
+    return x, v + acceleration * remaining
