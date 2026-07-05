@@ -13,6 +13,10 @@
   3D crosshair, and 3D box axis modes.
 - **Physics engine**: The VKF simulation module that owns mechanical, thermal,
   fluid, granular, and electromagnetic laws over topology truth.
+- **Physics stdlib**: The VKF `:physics` namespace for dimension basis
+  quantities, unit constants, prefixes, and unit-checked quantity arithmetic.
+  Geometry-derived properties such as `L`, `A`, and `V` are owned by the
+  geometry/UI model that creates the topology.
 - **Physics property core**: The physics module that resolves canonical geometry
   and material symbols such as `L`, `A`, `V`, `m`, `q`, `T`, `v`, `w`, and `I`.
 - **Rigid body core**: The physics module that owns mass, center of mass,

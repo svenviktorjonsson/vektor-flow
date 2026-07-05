@@ -1,11 +1,40 @@
-# Physics Engine Module
+# Physics And Units
 
-The physics engine is a deep module under `vektorflow.physics`. It owns
-simulation laws over topology truth. UI rendering, native scene staging, and
-symbolic display may inspect physics state, but they should not reimplement
-physics formulas.
+The VKF-facing `:physics` stdlib is the place for dimensions, unit constants,
+prefixes, and quantity checks. Geometry-owned values such as edge length, face
+area, and body volume belong to the geometry/UI model that creates the
+topology, not to the public `:physics` namespace.
 
-## Package Seam
+The compiler implementation still keeps physics-engine formulas in one internal
+area so running mode has a single source of truth for dynamics. UI rendering,
+native scene staging, and symbolic display may inspect physics state, but they
+should not reimplement physics formulas.
+
+## VKF Stdlib Surface
+
+VKF code imports physics through:
+
+```vkf
+physics: .physics
+d: physics.dimensions
+s: d.L
+t: d.T
+x: 3 * physics.km
+```
+
+The stdlib surface owns:
+
+- seven-dimensional basis quantities: `L`, `T`, `M`, `K`, `A`, `Cd`, `Mole`
+- unit constants and aliases: `m`, `km`, `cm`, `mm`, `um`, `s`, `sec`,
+  `second`, `seconds`, `min`, `minutes`, `h`, `d`, `month`, `months`, `y`
+- prefixes through `physics.prefixes`
+- quantity arithmetic where multiplication/division add or subtract dimension
+  exponents
+- addition, subtraction, equality, and ordering only between matching
+  dimensions, or between unitless quantities/numbers
+- math functions only over unitless quantities or plain numbers
+
+## Internal Engine Area
 
 New code imports from:
 
@@ -20,7 +49,8 @@ The old top-level modules remain compatibility adapters:
 - `vektorflow.physics_dynamics`
 - `vektorflow.physics_rigid_body`
 
-Those adapters should stay thin. Physics implementation belongs in the package.
+Those adapters should stay thin. Physics implementation belongs in this internal
+compiler area.
 
 ## Current Modules
 
