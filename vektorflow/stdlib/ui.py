@@ -1709,6 +1709,7 @@ class ImpostorRenderer:
         capture_path: Any = "",
         capture_size: Any = (720, 520),
         capture_margin: Any = 44,
+        show_boundary: Any = True,
         sync_display: Any = True,
     ) -> None:
         self.frame = frame
@@ -1719,11 +1720,13 @@ class ImpostorRenderer:
         self.capture_path = str(capture_path or "")
         self.capture_size = tuple(int(v) for v in capture_size) if isinstance(capture_size, (list, tuple)) else (720, 520)
         self.capture_margin = int(capture_margin)
+        self.show_boundary = bool(show_boundary)
         self.sync_display = bool(sync_display)
         self._objects: list[SceneBox] = []
         self._bounds: list[SceneBox] = []
         self._capture_frames: list[Any] = []
-        self._ensure_bounds()
+        if self.show_boundary:
+            self._ensure_bounds()
 
     def render(self, impostors: Any) -> "ImpostorRenderer":
         items = list(impostors)
@@ -1790,7 +1793,8 @@ class ImpostorRenderer:
         right = ox + self.width * scale * 0.5
         top = oy - self.height * scale * 0.5
         bottom = oy + self.height * scale * 0.5
-        draw.rectangle((left, top, right, bottom), outline="#dce7f2", width=3)
+        if self.show_boundary:
+            draw.rectangle((left, top, right, bottom), outline="#dce7f2", width=3)
         for item in items:
             x = float(_impostor_field(item, "x", 0.0))
             y = float(_impostor_field(item, "y", 0.0))
@@ -3893,6 +3897,7 @@ class FrameRef:
         capture_path: Any = "",
         capture_size: Any = (720, 520),
         capture_margin: Any = 44,
+        show_boundary: Any = True,
         sync_display: Any = True,
     ) -> ImpostorRenderer:
         return ImpostorRenderer(
@@ -3904,6 +3909,7 @@ class FrameRef:
             capture_path=capture_path,
             capture_size=capture_size,
             capture_margin=capture_margin,
+            show_boundary=show_boundary,
             sync_display=sync_display,
         )
 

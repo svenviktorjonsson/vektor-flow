@@ -24,9 +24,10 @@ renderer: f.impostor_renderer(
   capture_path: "examples/generated/physics_hard_disc_collision_single_frame.gif",
   capture_size: [720, 520],
   capture_margin: 0,
+  show_boundary: false,
   sync_display: false
 )
 driver: physics.hard_disc_impostor_driver(world, renderer)
-loop: ui.event_loop(fps: 60, frames: 300, realtime: false)
+loop: ui.event_loop(fps: 60, frames: 600, realtime: false)
 video_path: loop.run(driver)
 :: video_path
