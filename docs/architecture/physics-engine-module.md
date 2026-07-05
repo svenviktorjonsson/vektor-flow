@@ -24,9 +24,10 @@ x: 3 * physics.km
 
 The stdlib surface owns:
 
-- seven-dimensional basis quantities: `L`, `T`, `M`, `K`, `A`, `Cd`, `Mole`
-- unit constants and aliases: `m`, `km`, `cm`, `mm`, `um`, `s`, `sec`,
-  `second`, `seconds`, `min`, `minutes`, `h`, `d`, `month`, `months`, `y`
+- seven-dimensional basis quantities: `L`, `M`, `T`, `Theta`, `I`, `N`, `J`
+- unit constants and aliases: `m`, `km`, `cm`, `mm`, `um`, `kg`, `g`, `mg`,
+  `s`, `sec`, `second`, `seconds`, `min`, `minutes`, `h`, `d`, `month`,
+  `months`, `y`, `K`, `A`, `mol`, `cd`
 - prefixes through `physics.prefixes`
 - quantity arithmetic where multiplication/division add or subtract dimension
   exponents

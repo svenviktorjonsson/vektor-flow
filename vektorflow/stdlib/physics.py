@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 
 DimensionVector = tuple[float, float, float, float, float, float, float]
-DIMENSION_NAMES = ("L", "T", "M", "K", "A", "Cd", "Mole")
+DIMENSION_NAMES = ("L", "M", "T", "Theta", "I", "N", "J")
 DIMENSIONLESS: DimensionVector = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
@@ -187,12 +187,14 @@ class Quantity:
 @dataclass(frozen=True)
 class Dimensions:
     L: Quantity = Quantity(1.0, _dimension_at(0), "L")
-    T: Quantity = Quantity(1.0, _dimension_at(1), "T")
-    M: Quantity = Quantity(1.0, _dimension_at(2), "M")
-    K: Quantity = Quantity(1.0, _dimension_at(3), "K")
-    A: Quantity = Quantity(1.0, _dimension_at(4), "A")
-    Cd: Quantity = Quantity(1.0, _dimension_at(5), "Cd")
-    Mole: Quantity = Quantity(1.0, _dimension_at(6), "Mole")
+    M: Quantity = Quantity(1.0, _dimension_at(1), "M")
+    T: Quantity = Quantity(1.0, _dimension_at(2), "T")
+    Theta: Quantity = Quantity(1.0, _dimension_at(3), "Theta")
+    I: Quantity = Quantity(1.0, _dimension_at(4), "I")
+    N: Quantity = Quantity(1.0, _dimension_at(5), "N")
+    J: Quantity = Quantity(1.0, _dimension_at(6), "J")
+    Th: Quantity = Theta
+    temp: Quantity = Theta
     __vf_py_attrs__ = True
 
 
@@ -234,7 +236,12 @@ def build_physics_namespace() -> dict[str, Any]:
     d = Dimensions()
     prefixes = Prefixes()
     metre = Quantity(1.0, d.L.dimension, "m")
+    kilogram = Quantity(1.0, d.M.dimension, "kg")
     second = Quantity(1.0, d.T.dimension, "s")
+    kelvin = Quantity(1.0, d.Theta.dimension, "K")
+    ampere = Quantity(1.0, d.I.dimension, "A")
+    mole = Quantity(1.0, d.N.dimension, "mol")
+    candela = Quantity(1.0, d.J.dimension, "cd")
     ns: dict[str, Any] = {
         "Quantity": Quantity,
         "dimensions": d,
@@ -248,6 +255,9 @@ def build_physics_namespace() -> dict[str, Any]:
         "cm": prefixes.c * metre,
         "mm": prefixes.m * metre,
         "um": prefixes.u * metre,
+        "kg": kilogram,
+        "g": prefixes.m * kilogram,
+        "mg": prefixes.u * kilogram,
         "s": second,
         "sec": second,
         "second": second,
@@ -266,5 +276,13 @@ def build_physics_namespace() -> dict[str, Any]:
         "y": 31557600 * second,
         "year": 31557600 * second,
         "years": 31557600 * second,
+        "K": kelvin,
+        "A": ampere,
+        "mol": mole,
+        "mole": mole,
+        "moles": mole,
+        "cd": candela,
+        "candela": candela,
+        "candelas": candela,
     }
     return ns

@@ -25,16 +25,21 @@ def test_resolve_stdlib_physics_exposes_dimension_basis_and_units() -> None:
     ns = resolve_stdlib("physics")
 
     assert ns["dimensions"].L.dimension == (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    assert ns["dimensions"].T.dimension == (0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    assert ns["dimensions"].M.dimension == (0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
-    assert ns["dimensions"].K.symbol == "K"
-    assert ns["dimensions"].A.symbol == "A"
-    assert ns["dimensions"].Cd.symbol == "Cd"
-    assert ns["dimensions"].Mole.symbol == "Mole"
+    assert ns["dimensions"].M.dimension == (0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    assert ns["dimensions"].T.dimension == (0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
+    assert ns["dimensions"].Theta.symbol == "Theta"
+    assert ns["dimensions"].Th is ns["dimensions"].Theta
+    assert ns["dimensions"].temp is ns["dimensions"].Theta
+    assert ns["dimensions"].I.symbol == "I"
+    assert ns["dimensions"].N.symbol == "N"
+    assert ns["dimensions"].J.symbol == "J"
     assert ns["km"].value == 1000
     assert ns["cm"].value == 0.01
     assert ns["mm"].value == 0.001
     assert ns["um"].value == 0.000001
+    assert ns["kg"].dimension == ns["dimensions"].M.dimension
+    assert ns["g"].value == 0.001
+    assert ns["mg"].value == 0.000001
     assert ns["sec"] is ns["s"]
     assert ns["second"] is ns["s"]
     assert ns["seconds"] is ns["s"]
@@ -45,6 +50,13 @@ def test_resolve_stdlib_physics_exposes_dimension_basis_and_units() -> None:
     assert ns["month"].value == 2629800
     assert ns["months"].value == 2629800
     assert ns["y"].value == 31557600
+    assert ns["K"].dimension == ns["dimensions"].Theta.dimension
+    assert ns["A"].dimension == ns["dimensions"].I.dimension
+    assert ns["mol"].dimension == ns["dimensions"].N.dimension
+    assert ns["mole"] is ns["mol"]
+    assert ns["moles"] is ns["mol"]
+    assert ns["cd"].dimension == ns["dimensions"].J.dimension
+    assert ns["candela"] is ns["cd"]
 
 
 def test_quantity_arithmetic_enforces_matching_dimensions() -> None:
@@ -57,7 +69,7 @@ def test_quantity_arithmetic_enforces_matching_dimensions() -> None:
     assert isinstance(length, Quantity)
     assert length.value == 3200
     assert length.dimension == ns["m"].dimension
-    assert speed.dimension == (1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    assert speed.dimension == (1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0)
     assert area.dimension == (2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     with pytest.raises(ValueError, match="cannot add"):
         ns["m"] + ns["s"]
@@ -74,15 +86,17 @@ physics: .physics
 d: physics.dimensions
 s: d.L
 t: d.T
+theta: d.Theta
 x: 3 * physics.km
 y: 200 * physics.m
 speed: (x + y) / (100 * physics.s)
 :: s.symbol
 :: t.symbol
+:: theta.symbol
 :: (x + y).value
 :: speed.dimension_label
 """
-    ) == ["L", "T", "3200", "L T^-1"]
+    ) == ["L", "T", "Theta", "3200", "L T^-1"]
 
 
 def test_physics_spill_import_units_work_from_vkf() -> None:
