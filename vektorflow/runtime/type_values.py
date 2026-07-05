@@ -168,7 +168,7 @@ def _parse_bit_string(text: str) -> bool:
 
 
 def is_type_value(v: Any) -> bool:
-    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)):
+    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)):
         return True
     if isinstance(v, type) and isinstance(getattr(v, "__vf_event_type_name__", None), str):
         return True
@@ -262,6 +262,12 @@ def types_equal(a: Any, b: Any) -> bool:
         return b.name == a.name
     if isinstance(a, ast.PrimTypeRef) and isinstance(b, ast.PrimTypeRef):
         return a.name == b.name
+    if isinstance(a, ast.SymbolicDomainType) and isinstance(b, ast.SymbolicDomainType):
+        return a.name == b.name
+    if isinstance(a, ast.TypePowerExpr) and isinstance(b, ast.TypePowerExpr):
+        return types_equal(a.base, b.base) and types_equal(a.exponent, b.exponent)
+    if isinstance(a, ast.TypeDomainBinOp) and isinstance(b, ast.TypeDomainBinOp):
+        return a.op == b.op and types_equal(a.left, b.left) and types_equal(a.right, b.right)
     if isinstance(a, ast.TypeUnionExpr) and isinstance(b, ast.TypeUnionExpr):
         return _unordered_type_member_list_equal(
             _flatten_union_members(a),
@@ -334,6 +340,17 @@ def _resolve_named_type_once(
     if isinstance(type_expr, ast.TypeIntersectionExpr):
         return ast.TypeIntersectionExpr(
             [normalize_type_expr(member, type_registry) for member in type_expr.members]
+        )
+    if isinstance(type_expr, ast.TypePowerExpr):
+        return ast.TypePowerExpr(
+            normalize_type_expr(type_expr.base, type_registry),
+            normalize_type_expr(type_expr.exponent, type_registry),
+        )
+    if isinstance(type_expr, ast.TypeDomainBinOp):
+        return ast.TypeDomainBinOp(
+            type_expr.op,
+            normalize_type_expr(type_expr.left, type_registry),
+            normalize_type_expr(type_expr.right, type_registry),
         )
     return type_expr
 
@@ -633,7 +650,7 @@ def infer_type(
     if isinstance(v, ErrorTypeValue):
         return v
     if isinstance(
-        v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)
+        v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.MapValueType, ast.LinkedListValueType)
     ):
         return v
 
@@ -935,6 +952,17 @@ def resolve_return_type(type_expr: Any, size_bindings: dict[str, int]) -> Any:
     if isinstance(type_expr, ast.TypeIntersectionExpr):
         return ast.TypeIntersectionExpr(
             [resolve_return_type(member, size_bindings) for member in type_expr.members]
+        )
+    if isinstance(type_expr, ast.TypePowerExpr):
+        return ast.TypePowerExpr(
+            resolve_return_type(type_expr.base, size_bindings),
+            resolve_return_type(type_expr.exponent, size_bindings),
+        )
+    if isinstance(type_expr, ast.TypeDomainBinOp):
+        return ast.TypeDomainBinOp(
+            type_expr.op,
+            resolve_return_type(type_expr.left, size_bindings),
+            resolve_return_type(type_expr.right, size_bindings),
         )
     if isinstance(type_expr, ast.FixedVectorType):
         return ast.FixedVectorType(

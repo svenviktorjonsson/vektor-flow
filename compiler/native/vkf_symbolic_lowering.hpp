@@ -16,7 +16,7 @@ enum class VkfSymbolicTypeShape {
     None,
     ScalarDomain,
     FunctionDomain,
-    PowerDomain,
+    FixedVectorDomain,
 };
 
 enum class VkfSymbolicCompilerNodeKind {
@@ -103,16 +103,31 @@ inline VkfSymbolicTypeFacts vkf_symbolic_type_facts(std::string surface) {
         return facts;
     }
 
-    const auto power = surface.find('^');
-    if (power != std::string::npos) {
-        const std::string base = vkf_trim_ascii(surface.substr(0, power));
-        const std::string exponent = vkf_trim_ascii(surface.substr(power + 1));
-        if (vkf_symbolic_surface_is_scalar_domain(base) && !exponent.empty()) {
-            facts.symbolic = true;
-            facts.shape = VkfSymbolicTypeShape::PowerDomain;
-            facts.base_surface = base;
-            facts.exponent_surface = exponent;
-            facts.scalar_domain = vkf_symbolic_domain_from_surface(base);
+    if (surface.size() >= 5 && surface.front() == '[' && surface.back() == ']') {
+        const auto colon = surface.find(':');
+        if (colon != std::string::npos) {
+            const std::string base = vkf_trim_ascii(surface.substr(1, colon - 1));
+            const std::string size = vkf_trim_ascii(surface.substr(colon + 1, surface.size() - colon - 2));
+            if (vkf_symbolic_surface_is_scalar_domain(base) && !size.empty()) {
+                facts.symbolic = true;
+                facts.shape = VkfSymbolicTypeShape::FixedVectorDomain;
+                facts.base_surface = base;
+                facts.exponent_surface = size;
+                facts.scalar_domain = vkf_symbolic_domain_from_surface(base);
+            }
+        }
+    } else {
+        const auto power = surface.find('^');
+        if (power != std::string::npos) {
+            const std::string base = vkf_trim_ascii(surface.substr(0, power));
+            const std::string exponent = vkf_trim_ascii(surface.substr(power + 1));
+            if (vkf_symbolic_surface_is_scalar_domain(base) && !exponent.empty()) {
+                facts.symbolic = true;
+                facts.shape = VkfSymbolicTypeShape::ScalarDomain;
+                facts.base_surface = base;
+                facts.exponent_surface = exponent;
+                facts.scalar_domain = vkf_symbolic_domain_from_surface(base);
+            }
         }
     }
 

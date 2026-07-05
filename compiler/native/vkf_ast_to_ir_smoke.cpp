@@ -299,7 +299,7 @@ vf::JsonValue symbolic_type_facts_json(const VkfSymbolicTypeFacts& facts) {
     std::string shape = "none";
     if (facts.shape == VkfSymbolicTypeShape::ScalarDomain) shape = "scalar_domain";
     if (facts.shape == VkfSymbolicTypeShape::FunctionDomain) shape = "function_domain";
-    if (facts.shape == VkfSymbolicTypeShape::PowerDomain) shape = "power_domain";
+    if (facts.shape == VkfSymbolicTypeShape::FixedVectorDomain) shape = "fixed_vector_domain";
     out["shape"] = vf::JsonValue(shape);
     out["surface"] = vf::JsonValue(facts.surface);
     out["scalar_domain"] = vf::JsonValue(vkf_sym_domain_surface(facts.scalar_domain));

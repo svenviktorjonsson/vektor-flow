@@ -22,7 +22,7 @@ m: Z
 q: Q
 z: C
 f: R -> R
-v: R^n
+v: [R:n]
 ```
 
 The domains are compile-time facts carried by the symbolic expression. They are

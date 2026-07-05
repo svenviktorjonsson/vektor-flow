@@ -6,7 +6,7 @@ m: Z
 q: Q
 z: C
 f: R -> R
-v: R^n
+v: [R:n]
 
 :: conditions(x)
 :: conditions(n)

@@ -257,10 +257,19 @@ class SymbolicDomainType:
 
 @dataclass
 class TypePowerExpr:
-    """Power type expression, e.g. ``R^n``."""
+    """Power type expression, e.g. ``L^2`` for a scalar dimension power."""
 
     base: Any
     exponent: Any
+
+
+@dataclass
+class TypeDomainBinOp:
+    """Dimension/domain algebra inside type syntax, e.g. ``M*L/T^2``."""
+
+    op: str
+    left: Any
+    right: Any
 
 
 @dataclass

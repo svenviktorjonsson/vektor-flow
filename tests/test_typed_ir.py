@@ -44,7 +44,7 @@ def test_typed_ir_preserves_symbolic_domain_types() -> None:
 :.symbolic
 x: R
 f: R -> R
-v: R^n
+v: [R:n]
 """,
         filename="<typed-ir>",
     )
@@ -64,12 +64,41 @@ v: R^n
     assert isinstance(bind_f.declared_type, ast.SymbolicValueType)
     assert isinstance(bind_f.declared_type.domain, ast.FuncType)
     assert isinstance(bind_v.declared_type, ast.SymbolicValueType)
-    assert isinstance(bind_v.declared_type.domain, ast.TypePowerExpr)
+    assert isinstance(bind_v.declared_type.domain, ast.FixedVectorType)
 
     out_env = info.stmt_output_envs[id(bind_v)]
     assert isinstance(out_env["x"], ast.SymbolicValueType)
     assert isinstance(out_env["f"], ast.SymbolicValueType)
     assert isinstance(out_env["v"], ast.SymbolicValueType)
+
+
+def test_typed_ir_preserves_physics_dimension_domains_and_shapes() -> None:
+    mod = parse_module(
+        """
+:.symbolic
+:.physics
+x: L
+area: L^2
+velocity: L/T
+force: [M*L/T^2:3]
+inertia: [[M*L^2:3]:3]
+""",
+        filename="<typed-ir>",
+    )
+    lowered = lower_module(mod)
+    info = annotate_module(lowered)
+
+    out_env = info.stmt_output_envs[id(lowered.statements[-1])]
+    assert isinstance(out_env["x"], ast.SymbolicValueType)
+    assert isinstance(out_env["x"].domain, ast.SymbolicDomainType)
+    assert out_env["x"].domain.name == "L"
+    assert isinstance(out_env["area"].domain, ast.TypePowerExpr)
+    assert isinstance(out_env["velocity"].domain, ast.TypeDomainBinOp)
+    assert out_env["velocity"].domain.op == "/"
+    assert isinstance(out_env["force"].domain, ast.FixedVectorType)
+    assert isinstance(out_env["force"].domain.element_type, ast.TypeDomainBinOp)
+    assert isinstance(out_env["inertia"].domain, ast.FixedVectorType)
+    assert isinstance(out_env["inertia"].domain.element_type, ast.FixedVectorType)
 
 
 def test_typed_ir_tracks_vector_and_struct_expression_types() -> None:

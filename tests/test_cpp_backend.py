@@ -41,7 +41,7 @@ def _compile_native_core_example(tmp_path: Path, filename: str) -> subprocess.Co
 
 
 SYMBOLIC_EXAMPLE_EXPECTATIONS = {
-    "01_domains_and_types.vkf": "[x in R]\n[n in N]\n[m in Z]\n[q in Q]\n[z in C]\n[f in R->R]\n[v in R^n]\nx + 1\nf",
+    "01_domains_and_types.vkf": "[x in R]\n[n in N]\n[m in Z]\n[q in Q]\n[z in C]\n[f in R->R]\n[v in [R:n]]\nx + 1\nf",
     "02_latex_display_names.vkf": "phi + theta\n\\phi+\\theta\n\\varphi+\\theta\n\\varphi\\,\\theta\ntrue",
     "03_calculus_and_sums.vkf": "derivative(x ^ 2, x) + y\nx ^ 2 / 2\nintegrate(x, x, 0, 1)\nsum(n, n, 1, inf)\n\\frac{\\partial}{\\partial x} x\\,y\n\\int_{0}^{1} x\\,dx\n\\sum_{n=1}^{\\infty} n",
     "04_relations_and_integer_solve.vkf": "(2 * x + 3 * y) = 7\n((2 * x + 3 * y) = 7) & ((x - y) = 1)\n(x:-7 + 3*k, y:7 - 2*k)\n-7 + 3*k\n7 - 2*k\nno integer solution",
@@ -297,7 +297,7 @@ m: Z
 q: Q
 z: C
 f: R -> R
-v: R^n
+v: [R:n]
 :: conditions(x)
 :: conditions(n)
 :: conditions(m)
@@ -318,9 +318,37 @@ v: R^n
         "[q in Q]",
         "[z in C]",
         "[f in R->R]",
-        "[v in R^n]",
+        "[v in [R:n]]",
         "x + 1",
         "f",
+    ]
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_compiled_physics_dimension_domains_use_vector_shape_syntax() -> None:
+    src = """
+:.symbolic
+:.physics
+x: L
+area: L^2
+velocity: L/T
+force: [M*L/T^2:3]
+inertia: [[M*L^2:3]:3]
+:: conditions(x)
+:: conditions(area)
+:: conditions(velocity)
+:: conditions(force)
+:: conditions(inertia)
+"""
+    lowered = lower_module(parse_module(src, filename="<cpp-test>"))
+    res = compile_and_run_module(lowered)
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.strip().splitlines() == [
+        "[x in L]",
+        "[area in L^2]",
+        "[velocity in L/T]",
+        "[force in [M*L/T^2:3]]",
+        "[inertia in [[M*L^2:3]:3]]",
     ]
 
 

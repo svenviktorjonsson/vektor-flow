@@ -17,9 +17,9 @@ int main() {
     if (function.domain_surface != "R") return 7;
     if (function.codomain_surface != "R") return 8;
 
-    const auto vector = vkf_symbolic_type_facts("R^n");
+    const auto vector = vkf_symbolic_type_facts("[R:n]");
     if (!vector.symbolic) return 9;
-    if (vector.shape != VkfSymbolicTypeShape::PowerDomain) return 10;
+    if (vector.shape != VkfSymbolicTypeShape::FixedVectorDomain) return 10;
     if (vector.base_surface != "R") return 11;
     if (vector.exponent_surface != "n") return 12;
 
@@ -40,7 +40,7 @@ int main() {
 
     std::cout << vkf_sym_domain_surface(real.scalar_domain) << "\n";
     std::cout << function.domain_surface << "->" << function.codomain_surface << "\n";
-    std::cout << vector.base_surface << "^" << vector.exponent_surface << "\n";
+    std::cout << "[" << vector.base_surface << ":" << vector.exponent_surface << "]\n";
     std::cout << symbolic_expr.value_type << "\n";
     return 0;
 }

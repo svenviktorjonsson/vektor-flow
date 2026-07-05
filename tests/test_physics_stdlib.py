@@ -33,6 +33,13 @@ def test_resolve_stdlib_physics_exposes_dimension_basis_and_units() -> None:
     assert ns["dimensions"].I.symbol == "I"
     assert ns["dimensions"].N.symbol == "N"
     assert ns["dimensions"].J.symbol == "J"
+    assert ns["L"] is ns["dimensions"].L
+    assert ns["M"] is ns["dimensions"].M
+    assert ns["T"] is ns["dimensions"].T
+    assert ns["Theta"] is ns["dimensions"].Theta
+    assert ns["I"] is ns["dimensions"].I
+    assert ns["N"] is ns["dimensions"].N
+    assert ns["J"] is ns["dimensions"].J
     assert ns["km"].value == 1000
     assert ns["cm"].value == 0.01
     assert ns["mm"].value == 0.001

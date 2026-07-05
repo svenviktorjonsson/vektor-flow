@@ -64,7 +64,7 @@ def _compiler_command(source: Path, output: Path) -> list[str] | None:
             [
                 "R",
                 "R->R",
-                "R^n",
+                "[R:n]",
                 "symbolic",
             ],
         ),

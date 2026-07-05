@@ -88,7 +88,7 @@ names directly:
 x: R
 n: Z
 f: R -> R
-v: R^n
+v: [R:n]
 
 expr: x^2 + 1
 rel: x^2 = 4
@@ -144,7 +144,7 @@ m: Z      # integer
 q: Q      # rational
 z: C      # complex
 f: R -> R # symbolic function
-v: R^n    # symbolic vector domain
+v: [R:n]  # symbolic vector domain
 ```
 
 The symbolic domain is a compile-time fact on the expression. This matters for
@@ -1061,12 +1061,12 @@ Import the symbolic namespace before using symbolic domains directly:
 x: R
 n: Z
 f: R -> R
-v: R^n
+v: [R:n]
 
 :: conditions(x)   # [x in R]
 :: conditions(n)   # [n in Z]
 :: conditions(f)   # [f in R->R]
-:: conditions(v)   # [v in R^n]
+:: conditions(v)   # [v in [R:n]]
 ```
 
 The symbolic domain names are:
@@ -1077,7 +1077,7 @@ The symbolic domain names are:
 - `R`: real symbolic domain
 - `C`: complex symbolic domain
 - `R -> R`: symbolic function domain
-- `R^n`: symbolic vector or power-shaped domain
+- `[R:n]`: symbolic vector domain
 
 These names are not global by default. Use `:.symbolic` to pour the symbolic
 namespace into scope before declaring symbolic values with `R`, `Z`, and the

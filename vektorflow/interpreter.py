@@ -952,6 +952,8 @@ def _format_nested_func_type_for_param(ft: ast.FuncType) -> str:
 def _format_ft_domain_part(dom: Any) -> str:
     if isinstance(dom, ast.PrimTypeRef):
         return dom.name
+    if isinstance(dom, (ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp)):
+        return _format_type_ast_for_stringify(dom)
     if isinstance(dom, ast.TupleTypeExpr):
         if not dom.elements:
             return "()"
@@ -978,7 +980,7 @@ def _format_ft_codomain_part(cod: Any) -> str:
         return _format_nested_func_type_for_param(cod)
     if isinstance(cod, ast.PrimTypeRef):
         return cod.name
-    if isinstance(cod, (ast.TupleTypeExpr, ast.TypeExpr, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)):
+    if isinstance(cod, (ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TupleTypeExpr, ast.TypeExpr, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)):
         return _format_type_ast_for_stringify(cod)
     return "…"
 
@@ -987,6 +989,12 @@ def _format_type_ast_for_stringify(v: Any) -> str:
     """Surface-syntax type printout (no ``PrimTypeRef(...)`` / ``dataclass`` repr)."""
     if isinstance(v, ast.PrimTypeRef):
         return v.name
+    if isinstance(v, ast.SymbolicDomainType):
+        return v.name
+    if isinstance(v, ast.TypePowerExpr):
+        return f"{_format_type_ast_for_stringify(v.base)}^{_format_type_ast_for_stringify(v.exponent)}"
+    if isinstance(v, ast.TypeDomainBinOp):
+        return f"{_format_type_ast_for_stringify(v.left)}{v.op}{_format_type_ast_for_stringify(v.right)}"
     if isinstance(v, ast.TypeUnionExpr):
         return "|".join(_format_type_ast_for_stringify(member) for member in v.members)
     if isinstance(v, ast.TypeIntersectionExpr):
@@ -1205,6 +1213,17 @@ class Interpreter:
         if isinstance(type_expr, ast.TypeIntersectionExpr):
             return ast.TypeIntersectionExpr(
                 [self._resolve_runtime_type_expr(member, env) for member in type_expr.members]
+            )
+        if isinstance(type_expr, ast.TypePowerExpr):
+            return ast.TypePowerExpr(
+                self._resolve_runtime_type_expr(type_expr.base, env),
+                self._resolve_runtime_type_expr(type_expr.exponent, env),
+            )
+        if isinstance(type_expr, ast.TypeDomainBinOp):
+            return ast.TypeDomainBinOp(
+                type_expr.op,
+                self._resolve_runtime_type_expr(type_expr.left, env),
+                self._resolve_runtime_type_expr(type_expr.right, env),
             )
         if isinstance(type_expr, ast.FixedVectorType):
             return ast.FixedVectorType(self._resolve_runtime_type_expr(type_expr.element_type, env), type_expr.size)
@@ -1537,7 +1556,7 @@ class Interpreter:
                 self._assign_bind(node.target, coerced, env)
                 return coerced
             if isinstance(node.target, ast.Ident) and isinstance(
-                node.value, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)
+                node.value, (ast.TypeExpr, ast.FuncType, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec)
             ):
                 self.types[node.target.name] = node.value
                 return None
@@ -2198,7 +2217,7 @@ class Interpreter:
             raise VfAssertionError(msg)
         if isinstance(node, ast.DotModulePath):
             return self._eval_dot_module(node)
-        if isinstance(node, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
+        if isinstance(node, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
             return node
         if isinstance(node, ast.TypeOf):
             v = self.eval_expr(node.value, env)
@@ -3113,7 +3132,7 @@ def _stringify(
         return v.name
     if isinstance(v, PrimitiveSignature):
         return _format_primitive_signature(v.name)
-    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
+    if isinstance(v, (ast.TypeExpr, ast.FuncType, ast.TupleTypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.NamedTypeSpec, ast.TypeSizeConst, ast.TypeSizeVar, ast.TypeSizeBinOp)):
         return _format_type_ast_for_stringify(v)
     if isinstance(v, dict) and is_struct_dict(v):
         if struct_tagged(v):

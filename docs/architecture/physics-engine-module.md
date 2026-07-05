@@ -35,6 +35,24 @@ The stdlib surface owns:
   dimensions, or between unitless quantities/numbers
 - math functions only over unitless quantities or plain numbers
 
+When dimensions are used symbolically, scalar dimension powers use `^` and
+shape uses fixed-vector type syntax:
+
+```vkf
+:.symbolic
+:.physics
+
+x: L
+area: L^2
+velocity: L/T
+force: [M*L/T^2:3]
+inertia: [[M*L^2:3]:3]
+```
+
+`N` is intentionally shared by `symbolic.N` and `physics.N`; bare `N` follows
+normal VKF spill order. Use explicit namespace aliases when both meanings must
+be visible in the same scope.
+
 ## Internal Engine Area
 
 New code imports from:
