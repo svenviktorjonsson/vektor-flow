@@ -5,6 +5,7 @@ modules are compatibility adapters; new code should import from here.
 """
 
 from vektorflow.physics.dynamics import effective_vertex_masses, edge_rotational_inertia, step_edge_dynamics
+from vektorflow.physics.hard_discs import CollisionEvent, HardDisc, HardDiscSnapshot, HardDiscWorld2D
 from vektorflow.physics.properties import (
     Mat3,
     Number,
@@ -41,8 +42,12 @@ __all__ = [
     "RigidBodyState",
     "Vec",
     "centroid",
+    "CollisionEvent",
     "effective_vertex_masses",
     "edge_rotational_inertia",
+    "HardDisc",
+    "HardDiscSnapshot",
+    "HardDiscWorld2D",
     "inertia_tensor_from_point_masses",
     "is_free_stiffness",
     "is_rigid_stiffness",
