@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from math import isclose
 from typing import Any, Callable
 
@@ -240,10 +241,22 @@ def disc(x: Any, y: Any, vx: Any, vy: Any, radius: Any, density: Any = 1.0) -> H
     return HardDisc(float(x), float(y), float(vx), float(vy), float(radius), float(density))
 
 
-def hard_disc_world(discs: Any, width: Any = 1.0, height: Any = 1.0) -> HardDiscWorld2D:
+def hard_disc_world(
+    discs: Any,
+    width: Any = 1.0,
+    height: Any = 1.0,
+    restitution: Any = 1.0,
+    gravity: Any = (0.0, 0.0),
+) -> HardDiscWorld2D:
     """Create an event-driven 2D hard-disc collision world."""
 
-    return HardDiscWorld2D(tuple(discs), width=float(width), height=float(height))
+    return HardDiscWorld2D(
+        tuple(discs),
+        width=float(width),
+        height=float(height),
+        restitution=float(restitution),
+        gravity=(float(gravity[0]), float(gravity[1])),
+    )
 
 
 def snapshot_at(world: HardDiscWorld2D, time: Any) -> HardDiscSnapshot:
@@ -329,21 +342,33 @@ def hard_disc_impostor_driver(world: HardDiscWorld2D, renderer: Any, colors: Any
     return HardDiscImpostorDriver(world, renderer, colors, z=z)
 
 
-def demo_hard_discs() -> tuple[HardDisc, ...]:
-    """Default 10-disc VKF collision proof setup."""
+def demo_hard_discs(count: Any = 1000, width: Any = 1.20, height: Any = 0.80) -> tuple[HardDisc, ...]:
+    """Deterministic non-overlapping hard-disc proof setup."""
 
-    return (
-        disc(0.15, 0.18, 0.34, 0.20, 0.045, 0.75),
-        disc(0.33, 0.16, 0.23, 0.30, 0.060, 1.35),
-        disc(0.55, 0.16, -0.18, 0.34, 0.040, 1.95),
-        disc(0.78, 0.20, -0.29, 0.24, 0.070, 2.60),
-        disc(1.04, 0.18, -0.35, 0.20, 0.050, 3.30),
-        disc(0.20, 0.50, 0.31, -0.25, 0.065, 1.05),
-        disc(0.45, 0.45, 0.25, -0.23, 0.048, 1.65),
-        disc(0.66, 0.53, -0.30, -0.28, 0.055, 2.25),
-        disc(0.90, 0.48, -0.32, -0.18, 0.042, 2.90),
-        disc(1.08, 0.63, -0.20, -0.31, 0.058, 3.70),
-    )
+    n = max(1, int(count))
+    world_w = float(width)
+    world_h = float(height)
+    cols = max(1, math.ceil(math.sqrt(n * world_w / world_h)))
+    rows = math.ceil(n / cols)
+    cell_w = world_w / cols
+    cell_h = world_h / rows
+    base_radius = min(cell_w, cell_h) * 0.24
+    out: list[HardDisc] = []
+    for index in range(n):
+        col = index % cols
+        row = index // cols
+        jitter_x = (((index * 37) % 17) - 8) / 8.0 * cell_w * 0.10
+        jitter_y = (((index * 53) % 19) - 9) / 9.0 * cell_h * 0.10
+        radius = base_radius * (0.72 + 0.24 * ((index * 11) % 7) / 6.0)
+        x = (col + 0.5) * cell_w + jitter_x
+        y = (row + 0.5) * cell_h + jitter_y
+        x = min(world_w - radius, max(radius, x))
+        y = min(world_h - radius, max(radius, y))
+        angle = ((index * 137) % 360) * math.pi / 180.0
+        speed = 0.045 + 0.035 * ((index * 29) % 11) / 10.0
+        density = 0.75 + (3.70 - 0.75) * ((index * 23) % 101) / 100.0
+        out.append(disc(x, y, math.cos(angle) * speed, math.sin(angle) * speed, radius, density))
+    return tuple(out)
 
 
 def density_color(density: Any) -> list[float]:

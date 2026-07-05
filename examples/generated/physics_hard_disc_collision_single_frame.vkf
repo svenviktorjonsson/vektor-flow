@@ -9,7 +9,13 @@ f.add_light(pos: [0.0, 0.0, 1.8], color: "white", intensity: 15.0)
 
 world_width: 1.20
 world_height: 0.80
-world: physics.hard_disc_world(physics.demo_hard_discs(), width: world_width, height: world_height)
+world: physics.hard_disc_world(
+  physics.demo_hard_discs(count: 1000, width: world_width, height: world_height),
+  width: world_width,
+  height: world_height,
+  restitution: 0.9,
+  gravity: [0.0, -0.22]
+)
 
 renderer: f.impostor_renderer(
   width: world_width,
@@ -21,6 +27,6 @@ renderer: f.impostor_renderer(
   sync_display: false
 )
 driver: physics.hard_disc_impostor_driver(world, renderer)
-loop: ui.event_loop(fps: 24, frames: 120, realtime: false)
+loop: ui.event_loop(fps: 60, frames: 300, realtime: false)
 video_path: loop.run(driver)
 :: video_path

@@ -24,6 +24,31 @@ def test_pair_collision_conserves_energy_and_respects_radius() -> None:
     assert after.min_gap >= -1.0e-8
 
 
+def test_restitution_dissipates_pair_collision_energy() -> None:
+    world = HardDiscWorld2D(
+        (
+            HardDisc(0.25, 0.5, 0.20, 0.0, 0.08, density=1.0),
+            HardDisc(0.75, 0.5, -0.20, 0.0, 0.08, density=1.0),
+        ),
+        restitution=0.9,
+    )
+    energy0 = world.snapshot().kinetic_energy
+
+    snapshot = world.advance_to(1.2)
+
+    assert snapshot.kinetic_energy < energy0
+    assert snapshot.min_gap >= -1.0e-8
+
+
+def test_gravity_accelerates_between_collisions() -> None:
+    world = HardDiscWorld2D((HardDisc(0.5, 0.7, 0.0, 0.0, 0.05),), gravity=(0.0, -0.2))
+
+    snapshot = world.advance_to(0.5)
+
+    assert snapshot.discs[0].y == pytest.approx(0.675)
+    assert snapshot.discs[0].vy == pytest.approx(-0.1)
+
+
 def test_wall_collision_reflects_without_energy_loss() -> None:
     world = HardDiscWorld2D((HardDisc(0.25, 0.4, -0.30, 0.10, 0.05, density=2.0),))
     energy0 = world.snapshot().kinetic_energy
@@ -66,3 +91,12 @@ def test_impostor_color_reflects_density_and_density_changes_mass() -> None:
     assert impostors[0]["color"] == pytest.approx(density_color(light.density))
     assert impostors[1]["color"] == pytest.approx(density_color(heavy.density))
     assert impostors[0]["color"] != impostors[1]["color"]
+
+
+def test_demo_hard_discs_can_start_with_1000_non_overlapping_bodies() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(demo_hard_discs(count=1000, width=1.2, height=0.8), width=1.2, height=0.8)
+
+    assert len(world.snapshot().discs) == 1000
+    assert world.snapshot().min_gap >= -1.0e-8

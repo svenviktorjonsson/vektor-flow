@@ -1727,6 +1727,9 @@ class ImpostorRenderer:
 
     def render(self, impostors: Any) -> "ImpostorRenderer":
         items = list(impostors)
+        if self.capture_path and not self.sync_display:
+            self._capture_frames.append(self._capture_image(items))
+            return self
         while len(self._objects) < len(items):
             self._objects.append(
                 self.frame.add_ellipsoid(center=[0.0, 0.0, self.z], scale=[0.01, 0.01, self.depth], color=[1, 1, 1, 1])
