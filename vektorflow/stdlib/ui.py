@@ -1442,6 +1442,12 @@ class SceneBox:
         self._display._sync_all()
         return self
 
+    def set_center(self, center: Any) -> "SceneBox":
+        """Move center to [x, y, z]. Returns self."""
+        self._data["center"] = _vec3(center, "center")
+        self._display._sync_all()
+        return self
+
     def rotate_by(self, angle_deg: float, around: str = "y") -> "SceneBox":
         """Rotate box around its center by *angle_deg* degrees about *around* axis.
 
@@ -1685,6 +1691,156 @@ class SceneFieldMesh(SceneBox):
             f"time_boundary={self._data.get('time_boundary', 'stop')!r}, "
             f"color={self._data.get('color')!r})"
         )
+
+
+class ImpostorRenderer:
+    """General-purpose mutable renderer for circular/spherical impostors."""
+
+    __vf_py_attrs__ = True
+
+    def __init__(
+        self,
+        frame: "FrameRef",
+        *,
+        width: Any = 1.0,
+        height: Any = 1.0,
+        z: Any = 0.0,
+        depth: Any = 0.035,
+        capture_path: Any = "",
+        capture_size: Any = (720, 520),
+        sync_display: Any = True,
+    ) -> None:
+        self.frame = frame
+        self.width = float(width)
+        self.height = float(height)
+        self.z = float(z)
+        self.depth = float(depth)
+        self.capture_path = str(capture_path or "")
+        self.capture_size = tuple(int(v) for v in capture_size) if isinstance(capture_size, (list, tuple)) else (720, 520)
+        self.sync_display = bool(sync_display)
+        self._objects: list[SceneBox] = []
+        self._bounds: list[SceneBox] = []
+        self._capture_frames: list[Any] = []
+        self._ensure_bounds()
+
+    def render(self, impostors: Any) -> "ImpostorRenderer":
+        items = list(impostors)
+        while len(self._objects) < len(items):
+            self._objects.append(
+                self.frame.add_ellipsoid(center=[0.0, 0.0, self.z], scale=[0.01, 0.01, self.depth], color=[1, 1, 1, 1])
+            )
+        while len(self._objects) > len(items):
+            self._objects.pop().remove()
+        for obj, item in zip(self._objects, items, strict=True):
+            x = float(_impostor_field(item, "x", 0.0))
+            y = float(_impostor_field(item, "y", 0.0))
+            z = float(_impostor_field(item, "z", self.z))
+            radius = float(_impostor_field(item, "radius", _impostor_field(item, "r", 0.025)))
+            color = _impostor_field(item, "color", [1.0, 1.0, 1.0, 1.0])
+            obj._data["center"] = [x, y, z]
+            obj._data["scale"] = [2.0 * radius, 2.0 * radius, self.depth]
+            obj._data["color"] = _color_to_payload(color)
+        display = getattr(self.frame, "_display", None)
+        if self.sync_display and display is not None:
+            display._sync_all()
+        if self.capture_path:
+            self._capture_frames.append(self._capture_image(items))
+        return self
+
+    def save_capture(self) -> str:
+        if not self.capture_path or not self._capture_frames:
+            return self.capture_path
+        path = Path(self.capture_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frames = self._capture_frames
+        frames[0].save(path, save_all=True, append_images=frames[1:], duration=42, loop=0, optimize=False)
+        return str(path)
+
+    def _ensure_bounds(self) -> None:
+        if self._bounds:
+            return
+        wall_color = [0.82, 0.88, 0.96, 1.0]
+        thickness = min(self.width, self.height) * 0.018
+        z = self.z - self.depth
+        self._bounds = [
+            self.frame.add_box(center=[0.0, self.height * 0.5, z], scale=[self.width, thickness, self.depth], color=wall_color),
+            self.frame.add_box(center=[0.0, -self.height * 0.5, z], scale=[self.width, thickness, self.depth], color=wall_color),
+            self.frame.add_box(center=[-self.width * 0.5, 0.0, z], scale=[thickness, self.height, self.depth], color=wall_color),
+            self.frame.add_box(center=[self.width * 0.5, 0.0, z], scale=[thickness, self.height, self.depth], color=wall_color),
+        ]
+
+    def _capture_image(self, items: list[Any]) -> Any:
+        try:
+            from PIL import Image, ImageDraw
+        except Exception as exc:  # pragma: no cover - optional proof dependency
+            raise RuntimeError("impostor GIF capture requires Pillow") from exc
+        width, height = self.capture_size
+        margin = 44
+        scale = min((width - 2 * margin) / self.width, (height - 2 * margin) / self.height)
+        ox = width * 0.5
+        oy = height * 0.5
+        image = Image.new("RGB", (width, height), "#101822")
+        draw = ImageDraw.Draw(image)
+        left = ox - self.width * scale * 0.5
+        right = ox + self.width * scale * 0.5
+        top = oy - self.height * scale * 0.5
+        bottom = oy + self.height * scale * 0.5
+        draw.rectangle((left, top, right, bottom), outline="#dce7f2", width=3)
+        for item in items:
+            x = float(_impostor_field(item, "x", 0.0))
+            y = float(_impostor_field(item, "y", 0.0))
+            radius = float(_impostor_field(item, "radius", _impostor_field(item, "r", 0.025)))
+            color = _color_to_rgb(_impostor_field(item, "color", [1.0, 1.0, 1.0, 1.0]))
+            cx = ox + x * scale
+            cy = oy - y * scale
+            rr = radius * scale
+            draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=color, outline="#f8fbff", width=2)
+        return image
+
+
+class UIEventLoop:
+    """Frame-clock event loop for VKF examples and simple simulations."""
+
+    __vf_py_attrs__ = True
+
+    def __init__(self, *, fps: Any = 24, frames: Any = 120, realtime: Any = True) -> None:
+        self.fps = float(fps)
+        self.frames = int(frames)
+        self.realtime = bool(realtime)
+        if self.fps <= 0.0:
+            raise ValueError("event_loop fps must be positive")
+        if self.frames < 0:
+            raise ValueError("event_loop frames must be non-negative")
+
+    def run(self, stepper: Any) -> Any:
+        for frame_index in range(self.frames):
+            t = frame_index / self.fps
+            if hasattr(stepper, "step"):
+                stepper.step(t, frame_index)
+            else:
+                stepper(t, frame_index)
+            if self.realtime:
+                _ui_sleep(1.0 / self.fps)
+        if hasattr(stepper, "finish"):
+            return stepper.finish()
+        return None
+
+
+def _impostor_field(item: Any, name: str, default: Any) -> Any:
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+def _color_to_rgb(color: Any) -> tuple[int, int, int]:
+    payload = _color_to_payload(color)
+    if isinstance(payload, str):
+        text = payload.lstrip("#")
+        if len(text) == 6:
+            return (int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+        return (255, 255, 255)
+    values = list(payload)
+    return tuple(max(0, min(255, int(float(values[i]) * 255.0))) for i in range(3))  # type: ignore[return-value]
 
 
 class SceneCamera:
@@ -3722,6 +3878,28 @@ class FrameRef:
     def draw_ellipsoid(self, *, center: Any = None, scale: Any = None, color: Any = None, texture: Any = None) -> SceneBox:
         return self.add_ellipsoid(center=center, scale=scale, color=color, texture=texture)
 
+    def impostor_renderer(
+        self,
+        *,
+        width: Any = 1.0,
+        height: Any = 1.0,
+        z: Any = 0.0,
+        depth: Any = 0.035,
+        capture_path: Any = "",
+        capture_size: Any = (720, 520),
+        sync_display: Any = True,
+    ) -> ImpostorRenderer:
+        return ImpostorRenderer(
+            self,
+            width=width,
+            height=height,
+            z=z,
+            depth=depth,
+            capture_path=capture_path,
+            capture_size=capture_size,
+            sync_display=sync_display,
+        )
+
     def add_torus(
         self,
         *,
@@ -4136,6 +4314,9 @@ class UIRoot:
         """
         from vektorflow.ui.launch import set_ui_mode
         set_ui_mode(mode)
+
+    def event_loop(self, *, fps: Any = 24, frames: Any = 120, realtime: Any = True) -> UIEventLoop:
+        return UIEventLoop(fps=fps, frames=frames, realtime=realtime)
 
     @property
     def mode(self) -> str:
@@ -5199,6 +5380,7 @@ def build_ui_namespace() -> dict[str, Any]:
         "Axis3D": Axis3D,
         "poll": root.poll,
         "sleep": root.sleep,
+        "event_loop": root.event_loop,
         "next_event": root.next_event,
         "set_mode": root.set_mode,
         "hit": _pick_hit,

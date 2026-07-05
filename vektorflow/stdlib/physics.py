@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from math import isclose
 from typing import Any, Callable
 
+from vektorflow.physics.hard_discs import HardDisc, HardDiscSnapshot, HardDiscWorld2D
+
 
 DimensionVector = tuple[float, float, float, float, float, float, float]
 DIMENSION_NAMES = ("L", "M", "T", "Theta", "I", "N", "J")
@@ -232,6 +234,135 @@ def require_unitless(value: Any, context: str = "function") -> Any:
     return value
 
 
+def disc(x: Any, y: Any, vx: Any, vy: Any, radius: Any, density: Any = 1.0) -> HardDisc:
+    """Create a 2D hard-disc vertex impostor for collision simulation."""
+
+    return HardDisc(float(x), float(y), float(vx), float(vy), float(radius), float(density))
+
+
+def hard_disc_world(discs: Any, width: Any = 1.0, height: Any = 1.0) -> HardDiscWorld2D:
+    """Create an event-driven 2D hard-disc collision world."""
+
+    return HardDiscWorld2D(tuple(discs), width=float(width), height=float(height))
+
+
+def snapshot_at(world: HardDiscWorld2D, time: Any) -> HardDiscSnapshot:
+    """Advance ``world`` to ``time`` and return the exact analytic snapshot."""
+
+    return world.advance_to(float(time))
+
+
+def snapshot_disc(snapshot: HardDiscSnapshot, index: Any) -> HardDisc:
+    return snapshot.discs[int(index)]
+
+
+def snapshot_center(world: HardDiscWorld2D, snapshot: HardDiscSnapshot, index: Any, z: Any = 0.0) -> list[float]:
+    """Return a render-space [x,y,z] center with the world centered on origin."""
+
+    item = snapshot_disc(snapshot, index)
+    return [item.x - world.width * 0.5, item.y - world.height * 0.5, float(z)]
+
+
+def snapshot_radius(snapshot: HardDiscSnapshot, index: Any) -> float:
+    return snapshot_disc(snapshot, index).radius
+
+
+def snapshot_scale(snapshot: HardDiscSnapshot, index: Any, z: Any = 0.035) -> list[float]:
+    radius = snapshot_radius(snapshot, index)
+    return [radius * 2.0, radius * 2.0, float(z)]
+
+
+def snapshot_kinetic_energy(snapshot: HardDiscSnapshot) -> float:
+    return snapshot.kinetic_energy
+
+
+def snapshot_min_gap(snapshot: HardDiscSnapshot) -> float:
+    return snapshot.min_gap
+
+
+def disc_impostors(
+    world: HardDiscWorld2D,
+    snapshot: HardDiscSnapshot,
+    colors: Any = None,
+    *,
+    z: Any = 0.0,
+) -> list[dict[str, Any]]:
+    palette = list(colors) if colors is not None else [disc_color(i) for i in range(len(snapshot.discs))]
+    impostors: list[dict[str, Any]] = []
+    for index, item in enumerate(snapshot.discs):
+        impostors.append(
+            {
+                "x": item.x - world.width * 0.5,
+                "y": item.y - world.height * 0.5,
+                "z": float(z),
+                "radius": item.radius,
+                "color": palette[index % len(palette)] if palette else [1.0, 1.0, 1.0, 1.0],
+                "density": item.density,
+                "mass": item.mass,
+            }
+        )
+    return impostors
+
+
+class HardDiscImpostorDriver:
+    __vf_py_attrs__ = True
+
+    def __init__(self, world: HardDiscWorld2D, renderer: Any, colors: Any = None, *, z: Any = 0.0) -> None:
+        self.world = world
+        self.renderer = renderer
+        self.colors = colors
+        self.z = float(z)
+        self.last_snapshot = world.snapshot()
+
+    def step(self, time: Any, frame_index: Any = 0) -> "HardDiscImpostorDriver":
+        self.last_snapshot = snapshot_at(self.world, time)
+        self.renderer.render(disc_impostors(self.world, self.last_snapshot, self.colors, z=self.z))
+        return self
+
+    def finish(self) -> Any:
+        if hasattr(self.renderer, "save_capture"):
+            return self.renderer.save_capture()
+        return None
+
+
+def hard_disc_impostor_driver(world: HardDiscWorld2D, renderer: Any, colors: Any = None, z: Any = 0.0) -> HardDiscImpostorDriver:
+    return HardDiscImpostorDriver(world, renderer, colors, z=z)
+
+
+def demo_hard_discs() -> tuple[HardDisc, ...]:
+    """Default 10-disc VKF collision proof setup."""
+
+    density = 1.0
+    return (
+        disc(0.15, 0.18, 0.34, 0.20, 0.045, density),
+        disc(0.33, 0.16, 0.23, 0.30, 0.060, density),
+        disc(0.55, 0.16, -0.18, 0.34, 0.040, density),
+        disc(0.78, 0.20, -0.29, 0.24, 0.070, density),
+        disc(1.04, 0.18, -0.35, 0.20, 0.050, density),
+        disc(0.20, 0.50, 0.31, -0.25, 0.065, density),
+        disc(0.45, 0.45, 0.25, -0.23, 0.048, density),
+        disc(0.66, 0.53, -0.30, -0.28, 0.055, density),
+        disc(0.90, 0.48, -0.32, -0.18, 0.042, density),
+        disc(1.08, 0.63, -0.20, -0.31, 0.058, density),
+    )
+
+
+def disc_color(index: Any) -> list[float]:
+    colors = (
+        (0.10, 0.74, 0.92, 1.0),
+        (0.98, 0.50, 0.45, 1.0),
+        (0.54, 0.89, 0.36, 1.0),
+        (1.00, 0.82, 0.25, 1.0),
+        (0.70, 0.55, 0.98, 1.0),
+        (0.98, 0.35, 0.72, 1.0),
+        (0.35, 0.91, 0.75, 1.0),
+        (0.93, 0.63, 0.27, 1.0),
+        (0.50, 0.70, 1.00, 1.0),
+        (0.86, 0.92, 0.38, 1.0),
+    )
+    return list(colors[int(index) % len(colors)])
+
+
 def build_physics_namespace() -> dict[str, Any]:
     d = Dimensions()
     prefixes = Prefixes()
@@ -257,6 +388,22 @@ def build_physics_namespace() -> dict[str, Any]:
         "quantity": quantity,
         "unitless": unitless,
         "require_unitless": require_unitless,
+        "HardDisc": HardDisc,
+        "HardDiscWorld2D": HardDiscWorld2D,
+        "disc": disc,
+        "hard_disc_world": hard_disc_world,
+        "snapshot_at": snapshot_at,
+        "snapshot_disc": snapshot_disc,
+        "snapshot_center": snapshot_center,
+        "snapshot_radius": snapshot_radius,
+        "snapshot_scale": snapshot_scale,
+        "snapshot_kinetic_energy": snapshot_kinetic_energy,
+        "snapshot_min_gap": snapshot_min_gap,
+        "disc_impostors": disc_impostors,
+        "HardDiscImpostorDriver": HardDiscImpostorDriver,
+        "hard_disc_impostor_driver": hard_disc_impostor_driver,
+        "demo_hard_discs": demo_hard_discs,
+        "disc_color": disc_color,
         "one": Quantity(1.0, DIMENSIONLESS, "1"),
         "m": metre,
         "km": prefixes.k * metre,
