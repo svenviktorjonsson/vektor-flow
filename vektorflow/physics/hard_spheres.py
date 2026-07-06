@@ -74,6 +74,9 @@ class HardSphereWorld3D:
         self._time = 0.0
         self._max_step = 1.0 / 480.0
         self._contact_iterations = 4
+        self._max_radius = max(s.radius for s in self._spheres)
+        self._contact_band_ratio = 0.04
+        self._cell_size = max(self._max_radius * (2.0 + self._contact_band_ratio) * 1.02, _EPS)
 
     @property
     def time(self) -> float:
@@ -83,7 +86,9 @@ class HardSphereWorld3D:
         return HardSphereSnapshot(self._time, tuple(self._spheres))
 
     def min_gap(self) -> float:
-        return self.snapshot().min_gap
+        if len(self._spheres) < 256:
+            return self.snapshot().min_gap
+        return self._spatial_min_gap()
 
     def advance_to(self, target_time: Number) -> HardSphereSnapshot:
         target = float(target_time)
@@ -115,11 +120,76 @@ class HardSphereWorld3D:
         for _ in range(self._contact_iterations):
             for i in range(len(self._spheres)):
                 self._resolve_wall(i)
-            for i in range(len(self._spheres)):
-                for j in range(i + 1, len(self._spheres)):
-                    self._resolve_pair(i, j)
+            if len(self._spheres) < 256:
+                for i in range(len(self._spheres)):
+                    for j in range(i + 1, len(self._spheres)):
+                        self._resolve_pair(i, j)
+            else:
+                self._resolve_spatial_pairs()
         for i in range(len(self._spheres)):
             self._resolve_wall(i)
+
+    def _cell_key(self, s: HardSphere) -> tuple[int, int, int]:
+        return (
+            math.floor(s.x / self._cell_size),
+            math.floor(s.y / self._cell_size),
+            math.floor(s.z / self._cell_size),
+        )
+
+    def _spatial_cells(self) -> dict[tuple[int, int, int], list[int]]:
+        cells: dict[tuple[int, int, int], list[int]] = {}
+        for index, sphere in enumerate(self._spheres):
+            cells.setdefault(self._cell_key(sphere), []).append(index)
+        return cells
+
+    @staticmethod
+    def _neighbor_offsets() -> tuple[tuple[int, int, int], ...]:
+        offsets: list[tuple[int, int, int]] = []
+        for ox in (-1, 0, 1):
+            for oy in (-1, 0, 1):
+                for oz in (-1, 0, 1):
+                    if (ox, oy, oz) >= (0, 0, 0):
+                        offsets.append((ox, oy, oz))
+        return tuple(offsets)
+
+    def _resolve_spatial_pairs(self) -> None:
+        cells = self._spatial_cells()
+        for (cx, cy, cz), indices in cells.items():
+            for ox, oy, oz in self._neighbor_offsets():
+                neighbors = cells.get((cx + ox, cy + oy, cz + oz))
+                if not neighbors:
+                    continue
+                if ox == 0 and oy == 0 and oz == 0:
+                    for local_pos, i in enumerate(indices):
+                        for j in indices[local_pos + 1 :]:
+                            self._resolve_pair(i, j)
+                else:
+                    for i in indices:
+                        for j in neighbors:
+                            self._resolve_pair(i, j)
+
+    def _spatial_min_gap(self) -> float:
+        cells = self._spatial_cells()
+        worst = math.inf
+        for (cx, cy, cz), indices in cells.items():
+            for ox, oy, oz in self._neighbor_offsets():
+                neighbors = cells.get((cx + ox, cy + oy, cz + oz))
+                if not neighbors:
+                    continue
+                if ox == 0 and oy == 0 and oz == 0:
+                    for local_pos, i in enumerate(indices):
+                        for j in indices[local_pos + 1 :]:
+                            worst = min(worst, self._pair_gap(i, j))
+                else:
+                    for i in indices:
+                        for j in neighbors:
+                            worst = min(worst, self._pair_gap(i, j))
+        return worst
+
+    def _pair_gap(self, i: int, j: int) -> float:
+        a = self._spheres[i]
+        b = self._spheres[j]
+        return math.dist((a.x, a.y, a.z), (b.x, b.y, b.z)) - a.radius - b.radius
 
     def _resolve_wall(self, index: int) -> None:
         s = self._spheres[index]
@@ -154,15 +224,17 @@ class HardSphereWorld3D:
         dy = b.y - a.y
         dz = b.z - a.z
         min_distance = a.radius + b.radius
+        contact_band = min(a.radius, b.radius) * self._contact_band_ratio
+        target_distance = min_distance + contact_band
         dist_sq = dx * dx + dy * dy + dz * dz
-        if dist_sq >= min_distance * min_distance:
+        if dist_sq >= target_distance * target_distance:
             return
         distance = math.sqrt(dist_sq) if dist_sq > _EPS else 0.0
         if distance > _EPS:
             nx, ny, nz = dx / distance, dy / distance, dz / distance
         else:
             nx, ny, nz = 1.0, 0.0, 0.0
-        overlap = min_distance - distance
+        overlap = target_distance - distance
         inv_a = 1.0 / a.mass
         inv_b = 1.0 / b.mass
         inv_sum = inv_a + inv_b

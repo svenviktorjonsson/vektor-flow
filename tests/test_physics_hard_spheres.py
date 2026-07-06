@@ -46,6 +46,22 @@ def test_demo_hard_spheres_start_and_remain_non_overlapping() -> None:
     assert worst >= -1.0e-6
 
 
+def test_demo_hard_spheres_scales_to_1000_with_spatial_contacts() -> None:
+    world = HardSphereWorld3D(
+        demo_hard_spheres(count=1000, width=5.0, depth=3.5, height=3.0),
+        width=5.0,
+        depth=3.5,
+        height=3.0,
+        restitution=0.9,
+        gravity=(0.0, 0.0, -9.81),
+    )
+
+    assert world._cell_size > 2.0 * world._max_radius
+    worst = min(world.advance_to(frame / 60.0) and world.min_gap() for frame in range(0, 91, 15))
+
+    assert worst >= -1.0e-6
+
+
 def test_physics_namespace_exposes_3d_hard_sphere_world() -> None:
     ns = resolve_stdlib("physics")
     spheres = ns["demo_hard_spheres"](100, width=3.0, depth=2.0, height=2.0)
