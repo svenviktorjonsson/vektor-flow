@@ -1922,53 +1922,6 @@
     var inds = spec.indices || [];
     var vertexRadius = Number(spec.vertex_size || 0);
     if (!(vertexRadius > 0) || !inds.length) { return null; }
-    var physicsKind = String(spec.physics_gpu && (spec.physics_gpu.kind || spec.physics_gpu.collider_kind) || "").toLowerCase();
-    if (physicsKind === "hard_sphere_3d" || physicsKind === "sphere_3d") {
-      var geomCore = global.VfGeomCore || null;
-      if (!geomCore || typeof geomCore.buildSphere !== "function") {
-        return null;
-      }
-      var sphereMesh = spec.__gpuSphereInstanceMesh;
-      if (!sphereMesh || sphereMesh.__cacheKind !== "gpu-sphere-list") {
-        var template = geomCore.buildSphere([0, 0, 0], 1.0, spec.color || [1, 1, 1, 1], spec.id || "gpu_sphere_cloud");
-        sphereMesh = {
-          id: String(spec.id || "gpu_sphere_cloud"),
-          mode3d: spec.mode3d === false ? false : true,
-          label: String(spec.id || "gpu_sphere_cloud"),
-          vertices: template.vertices,
-          indices: template.indices,
-          topology: "triangle-list",
-          camera: null,
-          lights: [],
-          center: [0, 0, 0],
-          rotation: [0, 0, 0],
-          scale: [1, 1, 1],
-          alpha: 1,
-          transparent: spec.transparent === true,
-          depth_write: spec.depth_write === true,
-          no_lighting: spec.no_lighting === true,
-          overlay_expanded: true,
-          instance_kind: "sphere-list",
-          instance_count: inds.length,
-          instances: new Float32Array(Math.max(1, inds.length * 8)),
-          static_vertices: true,
-          static_indices: true,
-          physics: spec.physics && typeof spec.physics === "object" ? spec.physics : null,
-          physics_gpu: spec.physics_gpu && typeof spec.physics_gpu === "object" ? spec.physics_gpu : null,
-          __cacheKind: "gpu-sphere-list"
-        };
-        spec.__gpuSphereInstanceMesh = sphereMesh;
-      }
-      sphereMesh.mode3d = spec.mode3d === false ? false : true;
-      sphereMesh.instance_count = inds.length;
-      sphereMesh.physics = spec.physics && typeof spec.physics === "object" ? spec.physics : null;
-      sphereMesh.physics_gpu = spec.physics_gpu && typeof spec.physics_gpu === "object" ? spec.physics_gpu : null;
-      sphereMesh.no_lighting = spec.no_lighting === true;
-      sphereMesh.depth_write = spec.depth_write === true;
-      sphereMesh.camera = camera || null;
-      sphereMesh.lights = lights || [];
-      return sphereMesh;
-    }
     var mesh = spec.__analyticImpostorMesh;
     if (!mesh || mesh.__cacheKind !== "point-impostor") {
       mesh = {

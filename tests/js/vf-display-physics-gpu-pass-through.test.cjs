@@ -10,7 +10,7 @@ const source = fs.readFileSync(
 assert.match(source, /mesh\.physics_gpu = spec\.physics_gpu/);
 assert.match(source, /physics_gpu:\s*spec\.physics_gpu/);
 assert.match(source, /buildAnalyticPointImpostorMesh/);
-assert.match(source, /hard_sphere_3d/);
-assert.match(source, /instance_kind:\s*"sphere-list"/);
+assert.match(source, /instance_kind:\s*"point-impostor"/);
+assert.doesNotMatch(source, /__gpuSphereInstanceMesh/);
 
 console.log("vf-display physics_gpu pass-through tests passed");

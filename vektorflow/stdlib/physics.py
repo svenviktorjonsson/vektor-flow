@@ -444,6 +444,7 @@ def hard_sphere_gpu_runtime(
     solver_iterations: Any = 4,
     contact_band_ratio: Any = 0.04,
     max_particles_per_cell: Any = 96,
+    fixed_dt: Any = 0.0,
 ) -> dict[str, Any]:
     """Return a VKF scene physics spec for WebGPU hard-sphere impostors."""
 
@@ -487,6 +488,7 @@ def hard_sphere_gpu_runtime(
         "solver_iterations": int(solver_iterations),
         "contact_band_ratio": float(contact_band_ratio),
         "max_particles_per_cell": int(max_particles_per_cell),
+        "fixed_dt": float(fixed_dt),
         "max_radius": max_radius,
         "initial_particles": particles,
         "collision_matrix": [float(restitution), 0.0, 0.0, 1.0],

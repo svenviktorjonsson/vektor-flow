@@ -379,7 +379,8 @@ async function main() {
         const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
           ? "video/webm;codecs=vp9"
           : "video/webm";
-        const stream = canvas.captureStream(0);
+        const captureFps = Math.max(0, Number(${JSON.stringify(process.env.VF_CAPTURE_STREAM_FPS || "0")}) || 0);
+        const stream = canvas.captureStream(captureFps > 0 ? captureFps : 0);
         const videoTrack = stream.getVideoTracks()[0] || null;
         const chunks = [];
         const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
