@@ -18,7 +18,7 @@ physics_gpu: physics.hard_sphere_gpu_runtime(
   width: world_width,
   depth: world_depth,
   height: world_height,
-  restitution: 0.9,
+  restitution: 0.5,
   gravity: [0.0, 0.0, -9.81],
   solver_iterations: 4,
   contact_band_ratio: 0.04,
