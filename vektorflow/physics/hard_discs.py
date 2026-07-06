@@ -287,7 +287,7 @@ class HardDiscWorld2D:
         sleep_speed = abs(gy) * dt * (1.0 + self.restitution)
         for column, bases in zip(self._spatial_columns, self._spatial_column_bases, strict=True):
             column_y = ys[column]
-            projected_y = bases + np.maximum.accumulate(column_y - bases)
+            projected_y = bases + np.maximum.accumulate(np.maximum(column_y - bases, 0.0))
             impacted = projected_y > column_y + _EPS
             if impacted.any():
                 ys[column] = projected_y

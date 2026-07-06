@@ -120,6 +120,26 @@ def test_high_count_column_drop_uses_real_gravity_and_keeps_order() -> None:
             assert gap >= -1.0e-9
 
 
+def test_high_count_column_drop_keeps_floor_after_settling() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=0.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+
+    world.advance_to(5.0)
+
+    assert float((world._spatial_y - world._spatial_radius).min()) >= -1.0e-9
+    for column in world._spatial_columns:
+        for lower, upper in zip(column[:-1], column[1:], strict=False):
+            gap = float(world._spatial_y[upper] - world._spatial_y[lower] - world._spatial_radius[upper] - world._spatial_radius[lower])
+            assert gap >= -1.0e-9
+
+
 def test_wall_collision_reflects_without_energy_loss() -> None:
     world = HardDiscWorld2D((HardDisc(0.25, 0.4, -0.30, 0.10, 0.05, density=2.0),))
     energy0 = world.snapshot().kinetic_energy

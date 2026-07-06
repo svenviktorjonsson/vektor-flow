@@ -24,7 +24,7 @@ renderer: f.impostor_renderer(
   capture_path: "examples/generated/physics_hard_disc_collision_single_frame.gif",
   capture_size: [720, 520],
   capture_margin: 0,
-  show_boundary: false,
+  show_boundary: true,
   capture_supersample: 1,
   sync_display: false
 )
