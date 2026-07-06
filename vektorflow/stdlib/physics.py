@@ -7,6 +7,7 @@ import math
 from math import isclose
 from typing import Any, Callable
 
+from vektorflow.physics.gpu_hard_discs import hard_disc_gpu_kernel_spec
 from vektorflow.physics.hard_discs import HardDisc, HardDiscSnapshot, HardDiscWorld2D
 
 
@@ -438,6 +439,7 @@ def build_physics_namespace() -> dict[str, Any]:
         "disc_impostors": disc_impostors,
         "HardDiscImpostorDriver": HardDiscImpostorDriver,
         "hard_disc_impostor_driver": hard_disc_impostor_driver,
+        "hard_disc_gpu_kernel_spec": hard_disc_gpu_kernel_spec,
         "demo_hard_discs": demo_hard_discs,
         "density_color": density_color,
         "disc_color": disc_color,

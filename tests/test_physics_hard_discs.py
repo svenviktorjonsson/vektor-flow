@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vektorflow.physics_hard_discs import HardDisc, HardDiscWorld2D
-from vektorflow.stdlib.physics import density_color, disc_impostors
+from vektorflow.stdlib.physics import density_color, disc_impostors, hard_disc_gpu_kernel_spec
 
 
 def test_pair_collision_conserves_energy_and_respects_radius() -> None:
@@ -120,6 +120,20 @@ def test_high_count_column_drop_uses_real_gravity_and_keeps_order() -> None:
             assert gap >= -1.0e-9
 
 
+def test_high_count_with_horizontal_motion_does_not_use_column_shortcut() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=6.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+
+    assert not world._spatial_column_mode
+
+
 def test_high_count_column_drop_keeps_floor_after_settling() -> None:
     from vektorflow.stdlib.physics import demo_hard_discs
 
@@ -191,3 +205,20 @@ def test_demo_hard_discs_can_start_with_1000_non_overlapping_bodies() -> None:
 
     assert len(world.snapshot().discs) == 1000
     assert world.snapshot().min_gap >= -1.0e-8
+
+
+def test_hard_disc_gpu_kernel_exposes_parallel_broadphase_and_contacts() -> None:
+    spec = hard_disc_gpu_kernel_spec()
+    shader = spec.wgsl
+
+    assert spec.workgroup_size == 128
+    assert spec.particle_stride_f32 == 8
+    assert "@group(0) @binding(0) var<storage, read_write> particles" in shader
+    assert "@group(0) @binding(1) var<storage, read_write> cell_counts" in shader
+    assert "@group(0) @binding(2) var<storage, read_write> cell_items" in shader
+    assert "fn integrate(" in shader
+    assert "0.5 * g * dt * dt" in shader
+    assert "fn fill_cells(" in shader
+    assert "atomicAdd(&cell_counts[cell], 1u)" in shader
+    assert "fn resolve_contacts(" in shader
+    assert "resolve_pair(index, other)" in shader
