@@ -185,6 +185,7 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
   const forcedFrameCount = Math.max(0, Number(process.env.VF_FRAME_SEQUENCE_COUNT || "0") | 0);
   const captureFixedDt = Math.max(0, Number(process.env.VF_CAPTURE_FIXED_DT || "0") || 0);
   const targetFrames = forcedFrameCount > 0 ? forcedFrameCount : Math.max(2, Math.ceil(seconds * Math.max(1, fps)));
+  const frameDuration = 1 / Math.max(1, fps);
   const targetInterval = 1000 / Math.max(1, fps);
   const started = Date.now();
   let nextAt = started;
@@ -239,7 +240,7 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
     const file = path.join(tempDir, `frame_${String(index).padStart(5, "0")}.png`);
     fs.writeFileSync(file, Buffer.from(captureValue.dataUrl.slice(comma + 1), "base64"));
     framePaths.push(file);
-    frameTimes.push(forcedFrameCount > 0 ? (seconds * index / Math.max(1, targetFrames - 1)) : (Date.now() - started) / 1000);
+    frameTimes.push(forcedFrameCount > 0 ? index * frameDuration : (Date.now() - started) / 1000);
     index += 1;
     nextAt += targetInterval;
     if (forcedFrameCount <= 0 && Date.now() - started >= seconds * 1000) {
@@ -249,6 +250,28 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
   if (framePaths.length < 2) {
     throw new Error(`not enough captured frames: ${framePaths.length}`);
   }
+  if (forcedFrameCount > 0) {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    await runProcess(ffmpegPath, [
+      "-y",
+      "-framerate", String(Math.max(1, Math.round(fps))),
+      "-i", path.join(tempDir, "frame_%05d.png"),
+      "-frames:v", String(framePaths.length),
+      "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+      "-r", String(Math.max(1, Math.round(fps))),
+      "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      outputPath
+    ]);
+    return {
+      ok: true,
+      mode: "frame_sequence_ffmpeg",
+      frames: framePaths.length,
+      seconds,
+      bytes: fs.statSync(outputPath).size,
+      tempDir
+    };
+  }
   const concatPath = path.join(tempDir, "frames.txt");
   const lines = [];
   for (let i = 0; i < framePaths.length - 1; i += 1) {
@@ -257,7 +280,7 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
     lines.push(`duration ${duration.toFixed(6)}`);
   }
   lines.push(`file '${framePaths[framePaths.length - 1].replace(/\\/g, "/").replace(/'/g, "'\\''")}'`);
-  lines.push(`duration ${Math.max(0.001, seconds - frameTimes[frameTimes.length - 1]).toFixed(6)}`);
+  lines.push(`duration ${Math.max(0.001, forcedFrameCount > 0 ? frameDuration : seconds - frameTimes[frameTimes.length - 1]).toFixed(6)}`);
   lines.push(`file '${framePaths[framePaths.length - 1].replace(/\\/g, "/").replace(/'/g, "'\\''")}'`);
   fs.writeFileSync(concatPath, lines.join("\n") + "\n", "utf8");
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -267,6 +290,7 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
     "-safe", "0",
     "-i", concatPath,
     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+    "-r", String(Math.max(1, Math.round(fps))),
     "-pix_fmt", "yuv420p",
     "-movflags", "+faststart",
     outputPath
