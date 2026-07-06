@@ -25,6 +25,7 @@ renderer: f.impostor_renderer(
   capture_size: [720, 520],
   capture_margin: 0,
   show_boundary: false,
+  capture_supersample: 2,
   sync_display: false
 )
 driver: physics.hard_disc_impostor_driver(world, renderer)

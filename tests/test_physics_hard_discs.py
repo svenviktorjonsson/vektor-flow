@@ -80,6 +80,22 @@ def test_large_world_wall_hit_is_solved_at_impact_time() -> None:
     assert item.vy == pytest.approx(1.0)
 
 
+def test_large_world_slow_contacts_are_projected_apart() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=300, width=1.2, height=0.8),
+        width=1.2,
+        height=0.8,
+        restitution=0.9,
+        gravity=(0.0, -0.22),
+    )
+
+    snapshot = world.advance_to(2.0)
+
+    assert snapshot.min_gap >= -2.0e-3
+
+
 def test_wall_collision_reflects_without_energy_loss() -> None:
     world = HardDiscWorld2D((HardDisc(0.25, 0.4, -0.30, 0.10, 0.05, density=2.0),))
     energy0 = world.snapshot().kinetic_energy

@@ -1710,6 +1710,7 @@ class ImpostorRenderer:
         capture_size: Any = (720, 520),
         capture_margin: Any = 44,
         show_boundary: Any = True,
+        capture_supersample: Any = 1,
         sync_display: Any = True,
     ) -> None:
         self.frame = frame
@@ -1721,6 +1722,7 @@ class ImpostorRenderer:
         self.capture_size = tuple(int(v) for v in capture_size) if isinstance(capture_size, (list, tuple)) else (720, 520)
         self.capture_margin = int(capture_margin)
         self.show_boundary = bool(show_boundary)
+        self.capture_supersample = max(1, int(capture_supersample))
         self.sync_display = bool(sync_display)
         self._objects: list[SceneBox] = []
         self._bounds: list[SceneBox] = []
@@ -1782,8 +1784,11 @@ class ImpostorRenderer:
             from PIL import Image, ImageDraw
         except Exception as exc:  # pragma: no cover - optional proof dependency
             raise RuntimeError("impostor GIF capture requires Pillow") from exc
-        width, height = self.capture_size
-        margin = max(0, self.capture_margin)
+        output_width, output_height = self.capture_size
+        supersample = self.capture_supersample
+        width = output_width * supersample
+        height = output_height * supersample
+        margin = max(0, self.capture_margin) * supersample
         scale = min((width - 2 * margin) / self.width, (height - 2 * margin) / self.height)
         ox = width * 0.5
         oy = height * 0.5
@@ -1804,7 +1809,9 @@ class ImpostorRenderer:
             cy = oy - y * scale
             rr = radius * scale
             draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=color)
-        return image
+        if supersample <= 1:
+            return image
+        return image.resize((output_width, output_height), Image.Resampling.LANCZOS)
 
 
 class UIEventLoop:
@@ -3898,6 +3905,7 @@ class FrameRef:
         capture_size: Any = (720, 520),
         capture_margin: Any = 44,
         show_boundary: Any = True,
+        capture_supersample: Any = 1,
         sync_display: Any = True,
     ) -> ImpostorRenderer:
         return ImpostorRenderer(
@@ -3910,6 +3918,7 @@ class FrameRef:
             capture_size=capture_size,
             capture_margin=capture_margin,
             show_boundary=show_boundary,
+            capture_supersample=capture_supersample,
             sync_display=sync_display,
         )
 

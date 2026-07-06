@@ -106,6 +106,10 @@ class HardDiscWorld2D:
         self._spatial_radius = [disc.radius for disc in self._discs]
         self._spatial_density = [disc.density for disc in self._discs]
         self._spatial_mass = [disc.mass for disc in self._discs]
+        self._spatial_contact_iterations = 1
+        self._spatial_max_radius = max(self._spatial_radius)
+        self._spatial_cell_size = max(self._spatial_max_radius * 2.1, _EPS)
+        self._spatial_contact_dt = 1.0 / 60.0
         if not self._use_spatial_stepper:
             self._schedule_all()
 
@@ -164,6 +168,7 @@ class HardDiscWorld2D:
             self._time += dt
 
     def _spatial_step(self, dt: float) -> None:
+        self._spatial_contact_dt = dt
         gx, gy = self.gravity
         xs = self._spatial_x
         ys = self._spatial_y
@@ -190,9 +195,8 @@ class HardDiscWorld2D:
                 dt,
                 self.restitution,
             )
-        max_radius = max(radii)
-        cell_size = max(max_radius * 2.1, _EPS)
-        for _ in range(1):
+        cell_size = self._spatial_cell_size
+        for _ in range(self._spatial_contact_iterations):
             cells: dict[tuple[int, int], list[int]] = {}
             for index in range(count):
                 key = (math.floor(xs[index] / cell_size), math.floor(ys[index] / cell_size))
@@ -237,13 +241,15 @@ class HardDiscWorld2D:
         dx = self._spatial_x[j] - self._spatial_x[i]
         dy = self._spatial_y[j] - self._spatial_y[i]
         min_distance = self._spatial_radius[i] + self._spatial_radius[j]
+        contact_band = min(self._spatial_radius[i], self._spatial_radius[j]) * 0.18
+        target_distance = min_distance + contact_band
         distance_sq = dx * dx + dy * dy
-        if distance_sq >= min_distance * min_distance:
+        if distance_sq >= target_distance * target_distance:
             return
-        distance = math.sqrt(distance_sq) if distance_sq > _EPS else min_distance
+        distance = math.sqrt(distance_sq) if distance_sq > _EPS else 0.0
         nx = dx / distance if distance_sq > _EPS else 1.0
         ny = dy / distance if distance_sq > _EPS else 0.0
-        overlap = min_distance - distance
+        overlap = target_distance - distance
         inv_a = 1.0 / self._spatial_mass[i]
         inv_b = 1.0 / self._spatial_mass[j]
         inv_sum = inv_a + inv_b
@@ -257,8 +263,11 @@ class HardDiscWorld2D:
         bvx = self._spatial_vx[j]
         bvy = self._spatial_vy[j]
         relative_normal_speed = (avx - bvx) * nx + (avy - bvy) * ny
-        if relative_normal_speed > 0.0:
-            impulse = (1.0 + self.restitution) * relative_normal_speed / inv_sum
+        desired_separation_speed = max(0.0, overlap / max(self._spatial_contact_dt, _EPS))
+        bounce_relative_speed = -self.restitution * relative_normal_speed if relative_normal_speed > 0.0 else relative_normal_speed
+        target_relative_speed = min(-desired_separation_speed, bounce_relative_speed)
+        if relative_normal_speed > target_relative_speed:
+            impulse = (relative_normal_speed - target_relative_speed) / inv_sum
             self._spatial_vx[i] = avx - impulse * inv_a * nx
             self._spatial_vy[i] = avy - impulse * inv_a * ny
             self._spatial_vx[j] = bvx + impulse * inv_b * nx
