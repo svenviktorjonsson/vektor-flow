@@ -419,6 +419,28 @@ class TestFieldMeshTimeSlices:
         data = _geom(d, fid)["meshes"][0]
         assert data["depth_write"] is True
 
+    def test_physics_gpu_metadata_is_preserved(self) -> None:
+        d, fid = _placed()
+        d.set_auto_render(False)
+        physics_gpu = {
+            "kind": "hard_sphere_3d",
+            "particle_count": 2,
+            "initial_particles": [0.0] * 24,
+        }
+
+        d.add(
+            x_u=[0.0, 1.0],
+            y=0.0,
+            z=0.0,
+            vertex_size=0.1,
+            render_mode="marker_impostor",
+            marker_space="world",
+            physics_gpu=physics_gpu,
+        )
+
+        data = _geom(d, fid)["meshes"][0]
+        assert data["physics_gpu"] is physics_gpu
+
     def test_add_infers_channel_indices_from_axis_tagged_values(self) -> None:
         d, fid = _placed()
         d.set_auto_render(False)

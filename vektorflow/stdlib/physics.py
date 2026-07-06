@@ -500,6 +500,12 @@ def hard_sphere_gpu_runtime(
     }
 
 
+def gpu_placeholder_axis(count: Any, value: Any = 0.0) -> list[float]:
+    """Return a constant axis list used only to size GPU-driven impostor meshes."""
+
+    return [float(value) for _ in range(max(0, int(count)))]
+
+
 def demo_hard_discs(count: Any = 1000, width: Any = 1.20, height: Any = 0.80, speed_scale: Any = 1.0) -> tuple[HardDisc, ...]:
     """Deterministic non-overlapping hard-disc proof setup."""
 
@@ -603,6 +609,7 @@ def build_physics_namespace() -> dict[str, Any]:
         "hard_disc_impostor_driver": hard_disc_impostor_driver,
         "hard_disc_gpu_runtime": hard_disc_gpu_runtime,
         "hard_sphere_gpu_runtime": hard_sphere_gpu_runtime,
+        "gpu_placeholder_axis": gpu_placeholder_axis,
         "gpu_physics_pipeline_spec": gpu_physics_pipeline_spec,
         "hard_disc_gpu_kernel_spec": hard_disc_gpu_kernel_spec,
         "hard_sphere_gpu_kernel_spec": hard_sphere_gpu_kernel_spec,

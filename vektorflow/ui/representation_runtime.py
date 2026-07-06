@@ -818,6 +818,7 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     casts_shadow = bool(meta.get("casts_shadow", render_mode != "marker_impostor"))
     receives_lighting = bool(meta.get("receives_lighting", True))
     physics = meta.get("physics")
+    physics_gpu = meta.get("physics_gpu")
 
     payload = {
         "type": "field_mesh",
@@ -857,10 +858,13 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "mode3d": bool(meta.get("mode3d", True)),
         "casts_shadow": casts_shadow,
         "receives_lighting": receives_lighting,
+        "no_lighting": bool(meta.get("no_lighting", False)),
         "depth_write": bool(meta.get("depth_write", False)),
     }
     if physics is not None:
         payload["physics"] = physics
+    if physics_gpu is not None:
+        payload["physics_gpu"] = physics_gpu
     return payload
 
 

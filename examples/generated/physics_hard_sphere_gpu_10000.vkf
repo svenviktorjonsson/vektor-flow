@@ -1,0 +1,44 @@
+ui: .ui
+physics: .physics
+
+d: ui.display
+f: d.frame(id: "physics_hard_sphere_gpu_frame", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false)
+d.add_frame(f, (0.0, 0.0, 1.0, 1.0))
+f.set_geom_options(unified_renderer: true)
+f.add_camera(pos: [0.0, 0.0, 14.0], target: [0.0, 0.0, 0.0], up: [0.0, 1.0, 0.0], projection: "orthographic", ortho_scale: 2.0)
+f.add_light(pos: [4.0, -5.0, 8.0], color: "white", intensity: 28.0)
+
+count: 10000
+world_width: 12.0
+world_depth: 8.0
+world_height: 7.0
+spheres: physics.demo_hard_spheres(count: count, width: world_width, depth: world_depth, height: world_height)
+physics_gpu: physics.hard_sphere_gpu_runtime(
+  spheres,
+  width: world_width,
+  depth: world_depth,
+  height: world_height,
+  restitution: 0.9,
+  gravity: [0.0, 0.0, -9.81],
+  solver_iterations: 4,
+  contact_band_ratio: 0.04,
+  max_particles_per_cell: 96
+)
+
+axis: physics.gpu_placeholder_axis(count)
+cloud: f.add(
+  x_u: axis,
+  y: 0.0,
+  z: 0.0,
+  vertex_size: 0.025,
+  representation: "vertices",
+  render_mode: "marker_impostor",
+  marker_space: "world",
+  color: [0.25, 0.82, 1.0, 1.0],
+  depth_write: true,
+  no_lighting: true,
+  physics_gpu: physics_gpu,
+  id: "gpu_hard_sphere_cloud"
+)
+:: physics_gpu.kind
+:: physics_gpu.particle_count
