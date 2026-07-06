@@ -183,6 +183,7 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
   const framePaths = [];
   const frameTimes = [];
   const forcedFrameCount = Math.max(0, Number(process.env.VF_FRAME_SEQUENCE_COUNT || "0") | 0);
+  const captureFixedDt = Math.max(0, Number(process.env.VF_CAPTURE_FIXED_DT || "0") || 0);
   const targetFrames = forcedFrameCount > 0 ? forcedFrameCount : Math.max(2, Math.ceil(seconds * Math.max(1, fps)));
   const targetInterval = 1000 / Math.max(1, fps);
   const started = Date.now();
@@ -196,6 +197,9 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
     const stateResult = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
       expression: `(() => {
         const frameId = ${JSON.stringify(frameId)};
+        if (${JSON.stringify(captureFixedDt)} > 0) {
+          window.__vfCaptureFixedPhysicsDt = ${JSON.stringify(captureFixedDt)};
+        }
         if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
           window.VfDisplay.redrawVisibleGeomFrames();
         }

@@ -7809,7 +7809,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var spec = part.mesh && part.mesh.physics_gpu && typeof part.mesh.physics_gpu === "object"
           ? part.mesh.physics_gpu
           : (part.mesh && part.mesh.physics && typeof part.mesh.physics === "object" ? part.mesh.physics : {});
-        var fixedDt = Number(spec.fixed_dt || 0.0) || 0.0;
+        var fixedDt = Number(global.__vfCaptureFixedPhysicsDt || spec.fixed_dt || 0.0) || 0.0;
         var elapsed = part.physicsLastTimeMs == null
           ? (Number(spec.initial_dt || (1000.0 / 60.0)) * 0.001)
           : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001);
