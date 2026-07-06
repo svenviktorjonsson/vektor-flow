@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from vektorflow.physics.gpu_pipeline import GpuPhysicsPipelineSpec, gpu_physics_pipeline_spec
+
 
 @dataclass(frozen=True, slots=True)
 class GpuHardDiscKernelSpec:
@@ -17,6 +19,8 @@ class GpuHardDiscKernelSpec:
     workgroup_size: int
     particle_stride_f32: int
     params_stride_f32: int
+    pipeline: GpuPhysicsPipelineSpec
+    collider_kind: str
     wgsl: str
 
 
@@ -30,6 +34,8 @@ def hard_disc_gpu_kernel_spec() -> GpuHardDiscKernelSpec:
         workgroup_size=HARD_DISC_WORKGROUP_SIZE,
         particle_stride_f32=HARD_DISC_PARTICLE_STRIDE_F32,
         params_stride_f32=HARD_DISC_PARAMS_STRIDE_F32,
+        pipeline=gpu_physics_pipeline_spec(2, wgsl=HARD_DISC_GPU_WGSL),
+        collider_kind="disc_2d",
         wgsl=HARD_DISC_GPU_WGSL,
     )
 
@@ -51,6 +57,7 @@ struct Params {
 @group(0) @binding(1) var<storage, read_write> cell_counts: array<atomic<u32>>;
 @group(0) @binding(2) var<storage, read_write> cell_items: array<u32>;
 @group(0) @binding(3) var<uniform> params: Params;
+@group(0) @binding(4) var<storage, read> collision_matrix: array<vec4<f32>>;
 
 fn particle_count() -> u32 {
   return u32(params.gravity.w);
@@ -138,6 +145,8 @@ fn resolve_pair(i: u32, j: u32) {
   let delta = b.pos_radius.xy - a.pos_radius.xy;
   let min_dist = a.pos_radius.z + b.pos_radius.z;
   let contact_band = min(a.pos_radius.z, b.pos_radius.z) * params.gravity.z;
+  let material = collision_matrix[0u];
+  let restitution = select(params.world.z, material.x, material.w > 0.5);
   let target_dist = min_dist + contact_band;
   let dist_sq = dot(delta, delta);
   if (dist_sq >= target_dist * target_dist) {
@@ -155,7 +164,7 @@ fn resolve_pair(i: u32, j: u32) {
 
   let relative_normal_speed = dot(a.vel_mass.xy - b.vel_mass.xy, n);
   let desired_separation_speed = max(0.0, overlap / max(params.world.w, 1.0e-6));
-  let bounce_speed = select(relative_normal_speed, -params.world.z * relative_normal_speed, relative_normal_speed > 0.0);
+  let bounce_speed = select(relative_normal_speed, -restitution * relative_normal_speed, relative_normal_speed > 0.0);
   let target_speed = min(-desired_separation_speed, bounce_speed);
   if (relative_normal_speed > target_speed) {
     let impulse = (relative_normal_speed - target_speed) / inv_sum;

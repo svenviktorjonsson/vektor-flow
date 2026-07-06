@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vektorflow.physics_hard_discs import HardDisc, HardDiscWorld2D
-from vektorflow.stdlib.physics import density_color, disc_impostors, hard_disc_gpu_kernel_spec
+from vektorflow.stdlib.physics import density_color, disc_impostors, gpu_physics_pipeline_spec, hard_disc_gpu_kernel_spec
 
 
 def test_pair_collision_conserves_energy_and_respects_radius() -> None:
@@ -213,12 +213,43 @@ def test_hard_disc_gpu_kernel_exposes_parallel_broadphase_and_contacts() -> None
 
     assert spec.workgroup_size == 128
     assert spec.particle_stride_f32 == 8
+    assert spec.collider_kind == "disc_2d"
+    assert spec.pipeline.dimension == 2
+    assert spec.pipeline.collision_matrix_supported
+    assert spec.pipeline.rigid_body_supported
     assert "@group(0) @binding(0) var<storage, read_write> particles" in shader
     assert "@group(0) @binding(1) var<storage, read_write> cell_counts" in shader
     assert "@group(0) @binding(2) var<storage, read_write> cell_items" in shader
+    assert "@group(0) @binding(4) var<storage, read> collision_matrix" in shader
     assert "fn integrate(" in shader
     assert "0.5 * g * dt * dt" in shader
     assert "fn fill_cells(" in shader
     assert "atomicAdd(&cell_counts[cell], 1u)" in shader
     assert "fn resolve_contacts(" in shader
     assert "resolve_pair(index, other)" in shader
+
+
+def test_gpu_physics_pipeline_is_shape_agnostic_and_3d_ready() -> None:
+    pipeline2 = gpu_physics_pipeline_spec(2)
+    pipeline3 = gpu_physics_pipeline_spec(3)
+
+    assert pipeline2.body_layout.name == "PhysicsBodyState2D"
+    assert pipeline3.body_layout.name == "PhysicsBodyState3D"
+    assert pipeline3.body_layout.stride_f32 > pipeline2.body_layout.stride_f32
+    assert any(field.name == "orientation_quat" for field in pipeline3.body_layout.fields)
+    assert any(field.name == "angular_velocity" for field in pipeline3.body_layout.fields)
+    assert pipeline2.collider_layout.name == "PhysicsCollider"
+    assert pipeline2.contact_layout.name == "PhysicsContact"
+    assert pipeline2.collision_matrix_supported
+    assert pipeline2.rigid_body_supported
+    assert [stage.kind for stage in pipeline2.stages] == [
+        "integrate",
+        "clear_broadphase",
+        "bin_bodies",
+        "build_contact_candidates",
+        "solve_contacts",
+        "write_render_instances",
+    ]
+    solve_stage = next(stage for stage in pipeline2.stages if stage.kind == "solve_contacts")
+    assert "collision_matrix" in solve_stage.reads
+    assert "contacts" in solve_stage.writes
