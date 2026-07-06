@@ -6,6 +6,7 @@ modules are compatibility adapters; new code should import from here.
 
 from vektorflow.physics.dynamics import effective_vertex_masses, edge_rotational_inertia, step_edge_dynamics
 from vektorflow.physics.gpu_hard_discs import GpuHardDiscKernelSpec, hard_disc_gpu_kernel_spec
+from vektorflow.physics.gpu_hard_spheres import GpuHardSphereKernelSpec, hard_sphere_gpu_kernel_spec
 from vektorflow.physics.gpu_pipeline import (
     GpuFieldSpec,
     GpuPhysicsPipelineSpec,
@@ -46,6 +47,7 @@ __all__ = [
     "ForceApplication",
     "GpuFieldSpec",
     "GpuHardDiscKernelSpec",
+    "GpuHardSphereKernelSpec",
     "GpuPhysicsPipelineSpec",
     "GpuPhysicsStageSpec",
     "GpuStructLayout",
@@ -68,6 +70,7 @@ __all__ = [
     "demo_hard_spheres",
     "gpu_physics_pipeline_spec",
     "hard_disc_gpu_kernel_spec",
+    "hard_sphere_gpu_kernel_spec",
     "inertia_tensor_from_point_masses",
     "is_free_stiffness",
     "is_rigid_stiffness",

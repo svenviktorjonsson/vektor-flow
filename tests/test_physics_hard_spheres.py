@@ -84,6 +84,26 @@ def test_1000_sphere_spatial_path_stays_within_performance_budget() -> None:
     assert elapsed < 4.0
 
 
+def test_10000_sphere_tree_path_advances_short_window() -> None:
+    world = HardSphereWorld3D(
+        demo_hard_spheres(count=10000, width=12.0, depth=8.0, height=7.0),
+        width=12.0,
+        depth=8.0,
+        height=7.0,
+        restitution=0.9,
+        gravity=(0.0, 0.0, -9.81),
+    )
+    if world._ckdtree_cls is None:
+        pytest.skip("high-count 3D performance path requires spatial tree acceleration")
+
+    started = perf_counter()
+    world.advance_to(5.0 / 60.0)
+    elapsed = perf_counter() - started
+
+    assert world.min_gap() >= -1.0e-6
+    assert elapsed < 3.0
+
+
 def test_physics_namespace_exposes_3d_hard_sphere_world() -> None:
     ns = resolve_stdlib("physics")
     spheres = ns["demo_hard_spheres"](100, width=3.0, depth=2.0, height=2.0)

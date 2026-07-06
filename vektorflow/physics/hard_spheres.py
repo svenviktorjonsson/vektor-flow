@@ -89,6 +89,14 @@ class HardSphereWorld3D:
                 self._array_mode = True
             except Exception:
                 self._array_mode = False
+        self._ckdtree_cls = None
+        if self._array_mode:
+            try:
+                from scipy.spatial import cKDTree
+
+                self._ckdtree_cls = cKDTree
+            except Exception:
+                self._ckdtree_cls = None
         self._max_step = 1.0 / 120.0 if len(self._spheres) >= 256 else 1.0 / 480.0
         self._contact_iterations = 4
         self._max_radius = max(s.radius for s in self._spheres)
@@ -176,9 +184,11 @@ class HardSphereWorld3D:
         self._vx += gx * dt
         self._vy += gy * dt
         self._vz += gz * dt
+        self._resolve_walls_arrays()
         for _ in range(self._contact_iterations):
             self._resolve_walls_arrays()
-            self._resolve_spatial_pairs_arrays()
+            for i, j in self._candidate_pairs_arrays():
+                self._resolve_pair_arrays(i, j)
         self._resolve_walls_arrays()
 
     def _resolve_walls_arrays(self) -> None:
@@ -296,6 +306,33 @@ class HardSphereWorld3D:
                     for i in indices:
                         for j in neighbors:
                             self._resolve_pair_arrays(i, j)
+
+    def _candidate_pairs_arrays(self) -> list[tuple[int, int]]:
+        search_radius = float(self._max_radius * (2.0 + self._contact_band_ratio))
+        if self._ckdtree_cls is not None:
+            points = self._array_points()
+            return [(int(i), int(j)) for i, j in self._ckdtree_cls(points).query_pairs(search_radius)]
+        pairs: list[tuple[int, int]] = []
+        cells = self._spatial_cells_arrays()
+        for (cx, cy, cz), indices in cells.items():
+            for ox, oy, oz in self._neighbor_offsets():
+                neighbors = cells.get((cx + ox, cy + oy, cz + oz))
+                if not neighbors:
+                    continue
+                if ox == 0 and oy == 0 and oz == 0:
+                    for local_pos, i in enumerate(indices):
+                        for j in indices[local_pos + 1 :]:
+                            pairs.append((i, j))
+                else:
+                    for i in indices:
+                        for j in neighbors:
+                            pairs.append((i, j))
+        return pairs
+
+    def _array_points(self):
+        import numpy as np
+
+        return np.column_stack((self._x, self._y, self._z))
 
     def _spatial_min_gap_arrays(self) -> float:
         cells = self._spatial_cells_arrays()

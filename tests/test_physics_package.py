@@ -10,6 +10,7 @@ def test_physics_package_exports_current_core_interface() -> None:
     assert physics.step_edge_dynamics is dynamics.step_edge_dynamics
     assert physics.tetra_mass_properties is rigid_body.tetra_mass_properties
     assert physics.step_rigid_body is rigid_body.step_rigid_body
+    assert physics.hard_sphere_gpu_kernel_spec().pipeline.dimension == 3
 
 
 def test_top_level_physics_modules_are_compatibility_adapters() -> None:

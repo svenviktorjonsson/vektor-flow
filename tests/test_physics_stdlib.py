@@ -174,3 +174,31 @@ def test_physics_namespace_builds_hard_disc_gpu_runtime_spec() -> None:
     assert "write_render_instances" in spec["wgsl"]
     assert spec["pipeline"]["rigid_body_supported"] is True
     assert spec["pipeline"]["collision_matrix_supported"] is True
+
+
+def test_physics_namespace_builds_hard_sphere_gpu_runtime_spec() -> None:
+    ns = resolve_stdlib("physics")
+    spheres = ns["demo_hard_spheres"](4, width=1.2, depth=0.8, height=0.7)
+
+    spec = ns["hard_sphere_gpu_runtime"](
+        spheres,
+        width=1.2,
+        depth=0.8,
+        height=0.7,
+        restitution=0.9,
+        gravity=(0.0, 0.0, -9.81),
+        solver_iterations=5,
+    )
+
+    assert spec["kind"] == "hard_sphere_3d"
+    assert spec["particle_count"] == 4
+    assert spec["particle_stride_f32"] == 12
+    assert len(spec["initial_particles"]) == 4 * 12
+    assert spec["gravity"] == [0.0, 0.0, -9.81]
+    assert spec["collision_matrix"] == [0.9, 0.0, 0.0, 1.0]
+    assert "grid_layers" in spec["wgsl"]
+    assert "vec3<f32>" in spec["wgsl"]
+    assert "write_render_instances" in spec["wgsl"]
+    assert spec["pipeline"]["dimension"] == 3
+    assert spec["pipeline"]["rigid_body_supported"] is True
+    assert spec["pipeline"]["collision_matrix_supported"] is True

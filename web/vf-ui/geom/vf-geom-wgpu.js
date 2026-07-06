@@ -7741,14 +7741,41 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         : (mesh && mesh.physics && typeof mesh.physics === "object" ? mesh.physics : null);
       if (!spec) { return null; }
       var kind = String(spec.kind || spec.collider_kind || "").toLowerCase().trim();
-      if (kind !== "hard_disc_2d" && kind !== "disc_2d") { return null; }
       var api = global.VfGpuRuntime;
-      if (!api || typeof api.createHardDiscPhysicsRuntime !== "function") {
-        failFast("physics_gpu hard_disc_2d requires vf-gpu-runtime.js");
-      }
       var particleCount = Number(spec.particle_count || mesh.instance_count || 0) || 0;
       if (particleCount <= 0) {
-        failFast("physics_gpu hard_disc_2d requires particle_count");
+        failFast("physics_gpu " + kind + " requires particle_count");
+      }
+      if (kind === "hard_sphere_3d" || kind === "sphere_3d") {
+        if (!api || typeof api.createHardSpherePhysicsRuntime !== "function") {
+          failFast("physics_gpu hard_sphere_3d requires vf-gpu-runtime.js");
+        }
+        return api.createHardSpherePhysicsRuntime({
+          device: this._device,
+          particleCount: particleCount,
+          particles: spec.particles || spec.initial_particles || [],
+          initialParticles: spec.initial_particles || spec.particles || [],
+          wgsl: spec.wgsl || spec.shader || "",
+          workgroupSize: Number(spec.workgroup_size || 128) || 128,
+          width: Number(spec.width || spec.world_width || 1.0) || 1.0,
+          depth: Number(spec.depth || spec.world_depth || 1.0) || 1.0,
+          height: Number(spec.height || spec.world_height || 1.0) || 1.0,
+          worldWidth: Number(spec.width || spec.world_width || 1.0) || 1.0,
+          worldDepth: Number(spec.depth || spec.world_depth || 1.0) || 1.0,
+          worldHeight: Number(spec.height || spec.world_height || 1.0) || 1.0,
+          gravity: Array.isArray(spec.gravity) ? spec.gravity : [0.0, 0.0, -9.81],
+          restitution: Number(spec.restitution == null ? 1.0 : spec.restitution),
+          contactBandRatio: Number(spec.contact_band_ratio == null ? 0.04 : spec.contact_band_ratio),
+          maxRadius: Number(spec.max_radius || 0.0125),
+          cellSize: Number(spec.cell_size || 0.0),
+          maxParticlesPerCell: Number(spec.max_particles_per_cell || 96),
+          solverIterations: Number(spec.solver_iterations || 4),
+          collisionMatrix: spec.collision_matrix
+        });
+      }
+      if (kind !== "hard_disc_2d" && kind !== "disc_2d") { return null; }
+      if (!api || typeof api.createHardDiscPhysicsRuntime !== "function") {
+        failFast("physics_gpu hard_disc_2d requires vf-gpu-runtime.js");
       }
       return api.createHardDiscPhysicsRuntime({
         device: this._device,

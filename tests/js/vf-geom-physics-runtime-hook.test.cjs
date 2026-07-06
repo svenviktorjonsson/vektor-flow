@@ -11,6 +11,8 @@ assert.match(source, /_createPartPhysicsRuntime:\s*function/);
 assert.match(source, /global\.VfGpuRuntime/);
 assert.match(source, /mesh\.physics && typeof mesh\.physics === "object"/);
 assert.match(source, /createHardDiscPhysicsRuntime/);
+assert.match(source, /createHardSpherePhysicsRuntime/);
+assert.match(source, /hard_sphere_3d/);
 assert.match(source, /physicsRuntime\.renderInstanceBuffer/);
 assert.match(source, /_stepScenePhysics:\s*function/);
 assert.match(source, /part\.physicsRuntime\.step\(enc,\s*dt\)/);

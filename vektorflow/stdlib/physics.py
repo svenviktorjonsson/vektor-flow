@@ -8,6 +8,7 @@ from math import isclose
 from typing import Any, Callable
 
 from vektorflow.physics.gpu_hard_discs import hard_disc_gpu_kernel_spec
+from vektorflow.physics.gpu_hard_spheres import hard_sphere_gpu_kernel_spec
 from vektorflow.physics.gpu_pipeline import gpu_physics_pipeline_spec
 from vektorflow.physics.hard_discs import HardDisc, HardDiscSnapshot, HardDiscWorld2D
 from vektorflow.physics.hard_spheres import HardSphere, HardSphereSnapshot, HardSphereWorld3D, demo_hard_spheres
@@ -432,6 +433,73 @@ def hard_disc_gpu_runtime(
     }
 
 
+def hard_sphere_gpu_runtime(
+    spheres: Any,
+    *,
+    width: Any = 1.0,
+    depth: Any = 1.0,
+    height: Any = 1.0,
+    restitution: Any = 1.0,
+    gravity: Any = (0.0, 0.0, -9.81),
+    solver_iterations: Any = 4,
+    contact_band_ratio: Any = 0.04,
+    max_particles_per_cell: Any = 96,
+) -> dict[str, Any]:
+    """Return a VKF scene physics spec for WebGPU hard-sphere impostors."""
+
+    items = tuple(spheres)
+    kernel = hard_sphere_gpu_kernel_spec()
+    particles: list[float] = []
+    max_radius = 0.0
+    for item in items:
+        radius = float(getattr(item, "radius"))
+        density = float(getattr(item, "density"))
+        mass = float(getattr(item, "mass"))
+        particles.extend(
+            [
+                float(getattr(item, "x")),
+                float(getattr(item, "y")),
+                float(getattr(item, "z")),
+                radius,
+                float(getattr(item, "vx")),
+                float(getattr(item, "vy")),
+                float(getattr(item, "vz")),
+                density,
+                mass,
+                0.0,
+                0.0,
+                0.0,
+            ]
+        )
+        max_radius = max(max_radius, radius)
+    return {
+        "kind": "hard_sphere_3d",
+        "collider_kind": kernel.collider_kind,
+        "particle_count": len(items),
+        "particle_stride_f32": kernel.particle_stride_f32,
+        "workgroup_size": kernel.workgroup_size,
+        "params_stride_f32": kernel.params_stride_f32,
+        "width": float(width),
+        "depth": float(depth),
+        "height": float(height),
+        "restitution": float(restitution),
+        "gravity": [float(gravity[0]), float(gravity[1]), float(gravity[2])],
+        "solver_iterations": int(solver_iterations),
+        "contact_band_ratio": float(contact_band_ratio),
+        "max_particles_per_cell": int(max_particles_per_cell),
+        "max_radius": max_radius,
+        "initial_particles": particles,
+        "collision_matrix": [float(restitution), 0.0, 0.0, 1.0],
+        "wgsl": kernel.wgsl,
+        "pipeline": {
+            "dimension": kernel.pipeline.dimension,
+            "stages": [stage.kind for stage in kernel.pipeline.stages],
+            "rigid_body_supported": kernel.pipeline.rigid_body_supported,
+            "collision_matrix_supported": kernel.pipeline.collision_matrix_supported,
+        },
+    }
+
+
 def demo_hard_discs(count: Any = 1000, width: Any = 1.20, height: Any = 0.80, speed_scale: Any = 1.0) -> tuple[HardDisc, ...]:
     """Deterministic non-overlapping hard-disc proof setup."""
 
@@ -534,8 +602,10 @@ def build_physics_namespace() -> dict[str, Any]:
         "HardDiscImpostorDriver": HardDiscImpostorDriver,
         "hard_disc_impostor_driver": hard_disc_impostor_driver,
         "hard_disc_gpu_runtime": hard_disc_gpu_runtime,
+        "hard_sphere_gpu_runtime": hard_sphere_gpu_runtime,
         "gpu_physics_pipeline_spec": gpu_physics_pipeline_spec,
         "hard_disc_gpu_kernel_spec": hard_disc_gpu_kernel_spec,
+        "hard_sphere_gpu_kernel_spec": hard_sphere_gpu_kernel_spec,
         "demo_hard_discs": demo_hard_discs,
         "demo_hard_spheres": demo_hard_spheres,
         "density_color": density_color,
