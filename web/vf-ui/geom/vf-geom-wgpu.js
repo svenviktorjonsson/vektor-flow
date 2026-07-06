@@ -7810,14 +7810,26 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           ? part.mesh.physics_gpu
           : (part.mesh && part.mesh.physics && typeof part.mesh.physics === "object" ? part.mesh.physics : {});
         var fixedDt = Number(spec.fixed_dt || 0.0) || 0.0;
-        var dt = fixedDt > 0.0
-          ? fixedDt
-          : (part.physicsLastTimeMs == null ? (Number(spec.initial_dt || (1000.0 / 60.0)) * 0.001) : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001));
-        var maxDt = Number(spec.max_dt || (1.0 / 30.0)) || (1.0 / 30.0);
-        dt = fixedDt > 0.0 ? dt : Math.min(maxDt, dt);
+        var elapsed = part.physicsLastTimeMs == null
+          ? (Number(spec.initial_dt || (1000.0 / 60.0)) * 0.001)
+          : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001);
         part.physicsLastTimeMs = now;
-        part.physicsRuntime.step(enc, dt);
-        stepped += 1;
+        if (fixedDt > 0.0) {
+          part.physicsRuntime.step(enc, fixedDt);
+          stepped += 1;
+          continue;
+        }
+        var stepDt = Math.max(1.0 / 240.0, Number(spec.step_dt || (1.0 / 120.0)) || (1.0 / 120.0));
+        var maxSubsteps = Math.max(1, Number(spec.max_substeps || 8) | 0);
+        var maxAccum = Math.max(stepDt, Number(spec.max_accumulated_dt || 0.25) || 0.25);
+        part.physicsAccumulatedDt = Math.min(maxAccum, Math.max(0.0, Number(part.physicsAccumulatedDt || 0.0) + elapsed));
+        var localSteps = 0;
+        while (part.physicsAccumulatedDt + 1.0e-9 >= stepDt && localSteps < maxSubsteps) {
+          part.physicsRuntime.step(enc, stepDt);
+          part.physicsAccumulatedDt -= stepDt;
+          stepped += 1;
+          localSteps += 1;
+        }
       }
       return stepped;
     },
@@ -7875,6 +7887,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         instanceBuf: instanceBuf,
         physicsRuntime: physicsRuntime,
         physicsLastTimeMs: null,
+        physicsAccumulatedDt: 0.0,
         instanceCount: Number(mesh.instance_count || 0),
         instanceKind: mesh.instance_kind || null,
         staticIndices: mesh.static_indices === true,

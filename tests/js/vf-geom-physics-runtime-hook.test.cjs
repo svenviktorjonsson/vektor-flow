@@ -15,7 +15,8 @@ assert.match(source, /createHardSpherePhysicsRuntime/);
 assert.match(source, /hard_sphere_3d/);
 assert.match(source, /physicsRuntime\.renderInstanceBuffer/);
 assert.match(source, /_stepScenePhysics:\s*function/);
-assert.match(source, /part\.physicsRuntime\.step\(enc,\s*dt\)/);
+assert.match(source, /physicsAccumulatedDt/);
+assert.match(source, /part\.physicsRuntime\.step\(enc,\s*stepDt\)/);
 assert.match(source, /perfSample\.physics = this\._stepScenePhysics\(shadowEncBatch,\s*mesh,\s*t\)/);
 assert.match(source, /Number\(perfSample\.physics \|\| 0\) > 0/);
 
