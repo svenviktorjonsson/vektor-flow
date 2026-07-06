@@ -150,3 +150,27 @@ math: .math
 :: math.sin(physics.m)
 """
         )
+
+
+def test_physics_namespace_builds_hard_disc_gpu_runtime_spec() -> None:
+    ns = resolve_stdlib("physics")
+    discs = ns["demo_hard_discs"](4, width=1.2, height=0.8, speed_scale=2.0)
+
+    spec = ns["hard_disc_gpu_runtime"](
+        discs,
+        width=1.2,
+        height=0.8,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+        solver_iterations=4,
+    )
+
+    assert spec["kind"] == "hard_disc_2d"
+    assert spec["particle_count"] == 4
+    assert spec["particle_stride_f32"] == 8
+    assert len(spec["initial_particles"]) == 4 * 8
+    assert spec["gravity"] == [0.0, -9.81]
+    assert spec["collision_matrix"] == [0.5, 0.0, 0.0, 1.0]
+    assert "write_render_instances" in spec["wgsl"]
+    assert spec["pipeline"]["rigid_body_supported"] is True
+    assert spec["pipeline"]["collision_matrix_supported"] is True

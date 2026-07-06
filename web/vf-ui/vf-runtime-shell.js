@@ -67,6 +67,7 @@
       "katex/katex.min.js",
       "vf-frame.js",
       "vf-widgets.js",
+      "vf-gpu-runtime.js",
       "vf-axis3d-kernel.js",
       "vf-axis3d-kernel-adapter.js",
       "vf-axis3d-projection-kernel.js",

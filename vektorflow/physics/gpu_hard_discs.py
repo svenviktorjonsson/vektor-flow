@@ -58,6 +58,7 @@ struct Params {
 @group(0) @binding(2) var<storage, read_write> cell_items: array<u32>;
 @group(0) @binding(3) var<uniform> params: Params;
 @group(0) @binding(4) var<storage, read> collision_matrix: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read_write> render_instances: array<vec4<f32>>;
 
 fn particle_count() -> u32 {
   return u32(params.gravity.w);
@@ -203,5 +204,31 @@ fn resolve_contacts(@builtin(global_invocation_id) gid: vec3<u32>) {
       }
     }
   }
+}
+
+fn density_color(density: f32) -> vec4<f32> {
+  let t = clamp((density - 0.75) / (3.70 - 0.75), 0.0, 1.0);
+  return vec4<f32>(
+    0.08 + 0.88 * t,
+    0.72 - 0.28 * t,
+    0.92 - 0.74 * t,
+    1.0
+  );
+}
+
+@compute @workgroup_size(128)
+fn write_render_instances(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let index = gid.x;
+  if (index >= particle_count()) {
+    return;
+  }
+  let p = particles[index];
+  render_instances[index * 2u] = vec4<f32>(
+    p.pos_radius.x - (params.world.x * 0.5),
+    p.pos_radius.y - (params.world.y * 0.5),
+    0.0,
+    p.pos_radius.z
+  );
+  render_instances[index * 2u + 1u] = density_color(p.pos_radius.w);
 }
 """

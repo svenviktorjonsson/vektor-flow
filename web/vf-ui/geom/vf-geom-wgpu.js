@@ -6411,6 +6411,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
     _destroyPart: function (part) {
       if (!part) { return; }
+      if (part.physicsRuntime && typeof part.physicsRuntime.destroy === "function") {
+        try { part.physicsRuntime.destroy(); } catch(_) {}
+      }
       if (part.vb) { try { part.vb.destroy(); } catch(_){} }
       if (part.ib) { try { part.ib.destroy(); } catch(_){} }
       if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
@@ -7732,6 +7735,63 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
+    _createPartPhysicsRuntime: function (mesh) {
+      var spec = mesh && mesh.physics_gpu && typeof mesh.physics_gpu === "object"
+        ? mesh.physics_gpu
+        : (mesh && mesh.physics && typeof mesh.physics === "object" ? mesh.physics : null);
+      if (!spec) { return null; }
+      var kind = String(spec.kind || spec.collider_kind || "").toLowerCase().trim();
+      if (kind !== "hard_disc_2d" && kind !== "disc_2d") { return null; }
+      var api = global.VfGpuRuntime;
+      if (!api || typeof api.createHardDiscPhysicsRuntime !== "function") {
+        failFast("physics_gpu hard_disc_2d requires vf-gpu-runtime.js");
+      }
+      var particleCount = Number(spec.particle_count || mesh.instance_count || 0) || 0;
+      if (particleCount <= 0) {
+        failFast("physics_gpu hard_disc_2d requires particle_count");
+      }
+      return api.createHardDiscPhysicsRuntime({
+        device: this._device,
+        particleCount: particleCount,
+        particles: spec.particles || spec.initial_particles || [],
+        initialParticles: spec.initial_particles || spec.particles || [],
+        wgsl: spec.wgsl || spec.shader || "",
+        workgroupSize: Number(spec.workgroup_size || 128) || 128,
+        width: Number(spec.width || spec.world_width || 1.0) || 1.0,
+        height: Number(spec.height || spec.world_height || 1.0) || 1.0,
+        worldWidth: Number(spec.width || spec.world_width || 1.0) || 1.0,
+        worldHeight: Number(spec.height || spec.world_height || 1.0) || 1.0,
+        gravity: Array.isArray(spec.gravity) ? spec.gravity : [0.0, 0.0],
+        restitution: Number(spec.restitution == null ? 1.0 : spec.restitution),
+        contactBandRatio: Number(spec.contact_band_ratio == null ? 0.05 : spec.contact_band_ratio),
+        maxRadius: Number(spec.max_radius || 0.0125),
+        cellSize: Number(spec.cell_size || 0.0),
+        maxParticlesPerCell: Number(spec.max_particles_per_cell || 64),
+        solverIterations: Number(spec.solver_iterations || 3),
+        collisionMatrix: spec.collision_matrix
+      });
+    },
+
+    _stepScenePhysics: function (enc, sceneMesh, t) {
+      if (!this._parts || !this._parts.length || !enc) { return 0; }
+      var stepped = 0;
+      var now = Number(t || 0.0);
+      for (var i = 0; i < this._parts.length; i += 1) {
+        var part = this._parts[i];
+        if (!part || !part.physicsRuntime || typeof part.physicsRuntime.step !== "function") { continue; }
+        var spec = part.mesh && part.mesh.physics_gpu && typeof part.mesh.physics_gpu === "object"
+          ? part.mesh.physics_gpu
+          : (part.mesh && part.mesh.physics && typeof part.mesh.physics === "object" ? part.mesh.physics : {});
+        var dt = part.physicsLastTimeMs == null ? (Number(spec.initial_dt || (1000.0 / 60.0)) * 0.001) : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001);
+        var maxDt = Number(spec.max_dt || (1.0 / 30.0)) || (1.0 / 30.0);
+        dt = Math.min(maxDt, dt);
+        part.physicsLastTimeMs = now;
+        part.physicsRuntime.step(enc, dt);
+        stepped += 1;
+      }
+      return stepped;
+    },
+
     _createScenePart: function (mesh, index) {
       var dev = this._device;
       var sg2 = sharedWgpu;
@@ -7739,8 +7799,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       dev.queue.writeBuffer(vb, 0, mesh.vertices);
       var ib = dev.createBuffer({ size: mesh.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
       dev.queue.writeBuffer(ib, 0, mesh.indices);
+      var physicsRuntime = this._createPartPhysicsRuntime(mesh);
       var instanceBuf = null;
-      if (mesh.instances && mesh.instances.byteLength > 0) {
+      if (physicsRuntime && physicsRuntime.renderInstanceBuffer) {
+        instanceBuf = physicsRuntime.renderInstanceBuffer;
+      } else if (mesh.instances && mesh.instances.byteLength > 0) {
         instanceBuf = dev.createBuffer({
           size: mesh.instances.byteLength,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -7780,6 +7843,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         vb: vb,
         ib: ib,
         instanceBuf: instanceBuf,
+        physicsRuntime: physicsRuntime,
+        physicsLastTimeMs: null,
         instanceCount: Number(mesh.instance_count || 0),
         instanceKind: mesh.instance_kind || null,
         staticIndices: mesh.static_indices === true,
@@ -7806,6 +7871,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!part.vb || !part.ib || !part.uniformBuf || !part.shadowUniformBuf0 || !part.shadowUniformBuf1 || !part.shadowUniformBuf2 || !part.shadowUniformBuf3 || !part.pickUb || !part.pickBg || !part.bindGroup) { return false; }
       if ((part.topology || "triangle-list") !== (mesh.topology || "triangle-list")) { return false; }
       if ((part.instanceKind || null) !== (mesh.instance_kind || null)) { return false; }
+      if (!!part.physicsRuntime !== !!((mesh.physics_gpu && typeof mesh.physics_gpu === "object") || (mesh.physics && typeof mesh.physics === "object"))) { return false; }
       if (Number(part.objectId || 0) !== (Number(mesh.object_id || (index + 1)) || (index + 1))) { return false; }
       if (!part.mesh) { return false; }
       if (!part.mesh.vertices || !part.mesh.indices || !mesh.vertices || !mesh.indices) { return false; }
@@ -7839,7 +7905,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
               dev.queue.writeBuffer(existing.ib, 0, mesh.indices);
             }
           }
-          if (mesh.instances && existing.instanceBuf && !existing.staticInstances) {
+          if (mesh.instances && existing.instanceBuf && !existing.staticInstances && !existing.physicsRuntime) {
             dev.queue.writeBuffer(existing.instanceBuf, 0, mesh.instances);
           }
           existing.mesh = mesh;
@@ -7927,10 +7993,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._ensureFrameSceneColorTarget();
         var shadowEncBatch = this._device.createCommandEncoder();
         perfStageStart = perfNowMs();
+        perfSample.physics = this._stepScenePhysics(shadowEncBatch, mesh, t);
+        perfSample.physics_ms = perfNowMs() - perfStageStart;
+        perfStageStart = perfNowMs();
         var preparedShadows = this._prepareShadowMapsForScene(shadowEncBatch, mesh, t, wBatch, hBatch);
         perfSample.shadow_prepare = perfNowMs() - perfStageStart;
         perfSample.shadow_cache_hit = Number(this._lastShadowCacheHit || 0.0);
-        if ((preparedShadows[0] || preparedShadows[1] || preparedShadows[2] || preparedShadows[3]) && Number(this._lastShadowDrawCount || 0) > 0) {
+        if (((preparedShadows[0] || preparedShadows[1] || preparedShadows[2] || preparedShadows[3]) && Number(this._lastShadowDrawCount || 0) > 0) || Number(perfSample.physics || 0) > 0) {
           perfStageStart = perfNowMs();
           this._device.queue.submit([shadowEncBatch.finish()]);
           perfSample.shadow_submit = perfNowMs() - perfStageStart;

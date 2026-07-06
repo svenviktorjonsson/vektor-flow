@@ -221,12 +221,15 @@ def test_hard_disc_gpu_kernel_exposes_parallel_broadphase_and_contacts() -> None
     assert "@group(0) @binding(1) var<storage, read_write> cell_counts" in shader
     assert "@group(0) @binding(2) var<storage, read_write> cell_items" in shader
     assert "@group(0) @binding(4) var<storage, read> collision_matrix" in shader
+    assert "@group(0) @binding(5) var<storage, read_write> render_instances" in shader
     assert "fn integrate(" in shader
     assert "0.5 * g * dt * dt" in shader
     assert "fn fill_cells(" in shader
     assert "atomicAdd(&cell_counts[cell], 1u)" in shader
     assert "fn resolve_contacts(" in shader
     assert "resolve_pair(index, other)" in shader
+    assert "fn write_render_instances(" in shader
+    assert "render_instances[index * 2u]" in shader
 
 
 def test_gpu_physics_pipeline_is_shape_agnostic_and_3d_ready() -> None:
