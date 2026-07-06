@@ -342,7 +342,7 @@ def hard_disc_impostor_driver(world: HardDiscWorld2D, renderer: Any, colors: Any
     return HardDiscImpostorDriver(world, renderer, colors, z=z)
 
 
-def demo_hard_discs(count: Any = 1000, width: Any = 1.20, height: Any = 0.80) -> tuple[HardDisc, ...]:
+def demo_hard_discs(count: Any = 1000, width: Any = 1.20, height: Any = 0.80, speed_scale: Any = 1.0) -> tuple[HardDisc, ...]:
     """Deterministic non-overlapping hard-disc proof setup."""
 
     n = max(1, int(count))
@@ -365,7 +365,7 @@ def demo_hard_discs(count: Any = 1000, width: Any = 1.20, height: Any = 0.80) ->
         x = min(world_w - radius, max(radius, x))
         y = min(world_h - radius, max(radius, y))
         angle = ((index * 137) % 360) * math.pi / 180.0
-        speed = 0.045 + 0.035 * ((index * 29) % 11) / 10.0
+        speed = float(speed_scale) * (0.045 + 0.035 * ((index * 29) % 11) / 10.0)
         density = 0.75 + (3.70 - 0.75) * ((index * 23) % 101) / 100.0
         out.append(disc(x, y, math.cos(angle) * speed, math.sin(angle) * speed, radius, density))
     return tuple(out)

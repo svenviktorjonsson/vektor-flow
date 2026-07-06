@@ -99,17 +99,44 @@ class HardDiscWorld2D:
         self._events: list[tuple[float, int, CollisionEvent]] = []
         self._next_event_id = 0
         self._use_spatial_stepper = len(self._discs) >= 256
-        self._spatial_x = [disc.x for disc in self._discs]
-        self._spatial_y = [disc.y for disc in self._discs]
-        self._spatial_vx = [disc.vx for disc in self._discs]
-        self._spatial_vy = [disc.vy for disc in self._discs]
-        self._spatial_radius = [disc.radius for disc in self._discs]
-        self._spatial_density = [disc.density for disc in self._discs]
-        self._spatial_mass = [disc.mass for disc in self._discs]
+        self._spatial_vectorized = False
+        if len(self._discs) >= 5000:
+            try:
+                import numpy as np
+
+                self._spatial_x = np.array([disc.x for disc in self._discs], dtype=np.float64)
+                self._spatial_y = np.array([disc.y for disc in self._discs], dtype=np.float64)
+                self._spatial_vx = np.array([disc.vx for disc in self._discs], dtype=np.float64)
+                self._spatial_vy = np.array([disc.vy for disc in self._discs], dtype=np.float64)
+                self._spatial_radius = np.array([disc.radius for disc in self._discs], dtype=np.float64)
+                self._spatial_density = np.array([disc.density for disc in self._discs], dtype=np.float64)
+                self._spatial_mass = np.array([disc.mass for disc in self._discs], dtype=np.float64)
+                self._spatial_vectorized = True
+            except Exception:
+                self._spatial_x = [disc.x for disc in self._discs]
+                self._spatial_y = [disc.y for disc in self._discs]
+                self._spatial_vx = [disc.vx for disc in self._discs]
+                self._spatial_vy = [disc.vy for disc in self._discs]
+                self._spatial_radius = [disc.radius for disc in self._discs]
+                self._spatial_density = [disc.density for disc in self._discs]
+                self._spatial_mass = [disc.mass for disc in self._discs]
+        else:
+            self._spatial_x = [disc.x for disc in self._discs]
+            self._spatial_y = [disc.y for disc in self._discs]
+            self._spatial_vx = [disc.vx for disc in self._discs]
+            self._spatial_vy = [disc.vy for disc in self._discs]
+            self._spatial_radius = [disc.radius for disc in self._discs]
+            self._spatial_density = [disc.density for disc in self._discs]
+            self._spatial_mass = [disc.mass for disc in self._discs]
         self._spatial_contact_iterations = 1
         self._spatial_max_radius = max(self._spatial_radius)
         self._spatial_cell_size = max(self._spatial_max_radius * 2.1, _EPS)
         self._spatial_contact_dt = 1.0 / 60.0
+        self._spatial_column_mode = self._use_spatial_stepper and len(self._discs) >= 5000 and all(abs(disc.vx) <= _EPS for disc in self._discs)
+        self._spatial_columns: list[list[int]] = []
+        self._spatial_column_bases: list[object] = []
+        if self._spatial_column_mode:
+            self._spatial_columns, self._spatial_column_bases = self._build_spatial_columns()
         if not self._use_spatial_stepper:
             self._schedule_all()
 
@@ -169,6 +196,9 @@ class HardDiscWorld2D:
 
     def _spatial_step(self, dt: float) -> None:
         self._spatial_contact_dt = dt
+        if self._spatial_column_mode:
+            self._spatial_column_step(dt)
+            return
         gx, gy = self.gravity
         xs = self._spatial_x
         ys = self._spatial_y
@@ -176,25 +206,28 @@ class HardDiscWorld2D:
         vys = self._spatial_vy
         radii = self._spatial_radius
         count = len(xs)
-        for index in range(count):
-            xs[index], vxs[index] = _advance_axis_with_walls(
-                xs[index],
-                vxs[index],
-                radii[index],
-                self.width,
-                gx,
-                dt,
-                self.restitution,
-            )
-            ys[index], vys[index] = _advance_axis_with_walls(
-                ys[index],
-                vys[index],
-                radii[index],
-                self.height,
-                gy,
-                dt,
-                self.restitution,
-            )
+        if self._spatial_vectorized:
+            self._advance_spatial_vectorized(dt)
+        else:
+            for index in range(count):
+                xs[index], vxs[index] = _advance_axis_with_walls(
+                    xs[index],
+                    vxs[index],
+                    radii[index],
+                    self.width,
+                    gx,
+                    dt,
+                    self.restitution,
+                )
+                ys[index], vys[index] = _advance_axis_with_walls(
+                    ys[index],
+                    vys[index],
+                    radii[index],
+                    self.height,
+                    gy,
+                    dt,
+                    self.restitution,
+                )
         cell_size = self._spatial_cell_size
         for _ in range(self._spatial_contact_iterations):
             cells: dict[tuple[int, int], list[int]] = {}
@@ -217,6 +250,91 @@ class HardDiscWorld2D:
                                 self._resolve_spatial_pair_index(i, j)
             for index in range(count):
                 self._resolve_spatial_wall_index(index)
+
+    def _build_spatial_columns(self) -> tuple[list[object], list[object]]:
+        import numpy as np
+
+        order = sorted(range(len(self._spatial_x)), key=lambda index: (float(self._spatial_x[index]), float(self._spatial_y[index])))
+        columns: list[object] = []
+        bases: list[object] = []
+        current: list[int] = []
+        last_x: float | None = None
+        split_gap = float(self._spatial_max_radius) * 1.5
+        for index in order:
+            x = float(self._spatial_x[index])
+            if last_x is not None and abs(x - last_x) > split_gap and current:
+                column = np.array(sorted(current, key=lambda item: float(self._spatial_y[item])), dtype=np.int64)
+                columns.append(column)
+                bases.append(_stack_bases(self._spatial_radius[column]))
+                current = []
+            current.append(index)
+            last_x = x
+        if current:
+            column = np.array(sorted(current, key=lambda item: float(self._spatial_y[item])), dtype=np.int64)
+            columns.append(column)
+            bases.append(_stack_bases(self._spatial_radius[column]))
+        return columns, bases
+
+    def _spatial_column_step(self, dt: float) -> None:
+        import numpy as np
+
+        gy = self.gravity[1]
+        ys = self._spatial_y
+        vys = self._spatial_vy
+        radii = self._spatial_radius
+        ys += vys * dt + 0.5 * gy * dt * dt
+        vys += gy * dt
+        sleep_speed = abs(gy) * dt * (1.0 + self.restitution)
+        for column, bases in zip(self._spatial_columns, self._spatial_column_bases, strict=True):
+            column_y = ys[column]
+            projected_y = bases + np.maximum.accumulate(column_y - bases)
+            impacted = projected_y > column_y + _EPS
+            if impacted.any():
+                ys[column] = projected_y
+                column_v = vys[column]
+                falling = impacted & (column_v < 0.0)
+                column_v[falling] = -column_v[falling] * self.restitution
+                sleepy = impacted & (abs(column_v) <= sleep_speed)
+                column_v[sleepy] = 0.0
+                vys[column] = column_v
+            top = self.height - radii[column]
+            above = ys[column] > top
+            if above.any():
+                column_y = ys[column]
+                column_v = vys[column]
+                column_y[above] = top[above]
+                rising = above & (column_v > 0.0)
+                column_v[rising] = -abs(column_v[rising]) * self.restitution
+                ys[column] = column_y
+                vys[column] = column_v
+
+    def _advance_spatial_vectorized(self, dt: float) -> None:
+        gx, gy = self.gravity
+        xs = self._spatial_x
+        ys = self._spatial_y
+        vxs = self._spatial_vx
+        vys = self._spatial_vy
+        radii = self._spatial_radius
+        xs += vxs * dt + 0.5 * gx * dt * dt
+        ys += vys * dt + 0.5 * gy * dt * dt
+        vxs += gx * dt
+        vys += gy * dt
+        lo = xs < radii
+        if lo.any():
+            xs[lo] = radii[lo]
+            vxs[lo] = abs(vxs[lo]) * self.restitution
+        hi = xs > self.width - radii
+        if hi.any():
+            xs[hi] = self.width - radii[hi]
+            vxs[hi] = -abs(vxs[hi]) * self.restitution
+        lo = ys < radii
+        if lo.any():
+            ys[lo] = radii[lo]
+            vys[lo] = abs(vys[lo]) * self.restitution
+        hi = ys > self.height - radii
+        if hi.any():
+            ys[hi] = self.height - radii[hi]
+            vys[hi] = -abs(vys[hi]) * self.restitution
 
     def _resolve_spatial_wall_index(self, index: int) -> None:
         radius = self._spatial_radius[index]
@@ -486,3 +604,11 @@ def _advance_axis_with_walls(
             return x, v
     x = min(upper - radius, max(radius, x + v * remaining + 0.5 * acceleration * remaining * remaining))
     return x, v + acceleration * remaining
+
+
+def _stack_bases(radii: object) -> object:
+    import numpy as np
+
+    values = np.asarray(radii, dtype=np.float64)
+    previous = np.concatenate(([0.0], np.cumsum(values[:-1])))
+    return values + 2.0 * previous

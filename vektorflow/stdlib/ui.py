@@ -1723,6 +1723,7 @@ class ImpostorRenderer:
         self.capture_margin = int(capture_margin)
         self.show_boundary = bool(show_boundary)
         self.capture_supersample = max(1, int(capture_supersample))
+        self.capture_frame_duration_ms = 42
         self.sync_display = bool(sync_display)
         self._objects: list[SceneBox] = []
         self._bounds: list[SceneBox] = []
@@ -1763,7 +1764,7 @@ class ImpostorRenderer:
         path = Path(self.capture_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         frames = self._capture_frames
-        frames[0].save(path, save_all=True, append_images=frames[1:], duration=42, loop=0, optimize=False)
+        frames[0].save(path, save_all=True, append_images=frames[1:], duration=max(1, int(round(self.capture_frame_duration_ms))), loop=0, optimize=False)
         return str(path)
 
     def _ensure_bounds(self) -> None:
@@ -1829,6 +1830,9 @@ class UIEventLoop:
             raise ValueError("event_loop frames must be non-negative")
 
     def run(self, stepper: Any) -> Any:
+        renderer = getattr(stepper, "renderer", None)
+        if renderer is not None and hasattr(renderer, "capture_frame_duration_ms"):
+            renderer.capture_frame_duration_ms = 1000.0 / self.fps
         for frame_index in range(self.frames):
             t = frame_index / self.fps
             if hasattr(stepper, "step"):
