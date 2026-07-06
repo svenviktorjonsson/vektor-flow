@@ -290,6 +290,13 @@ async function main() {
   const runtime = await openScene(scenePath, port, frameId);
   try {
     await delay(1000);
+    if (process.env.VF_FORCE_FRAME_SEQUENCE === "1") {
+      const fallbackFps = Math.max(1, Number(process.env.VF_FRAME_SEQUENCE_FPS || "30") || 30);
+      const mp4Path = outputPath.replace(/\.[^.]+$/, ".mp4");
+      const fallback = await captureFrameSequenceVideo(runtime, frameId, mp4Path, seconds, fallbackFps);
+      process.stdout.write(JSON.stringify({ forcedFrameSequence: true, fallback }, null, 2));
+      return;
+    }
     const result = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
       expression: `(async () => {
         const frameId = ${JSON.stringify(frameId)};
