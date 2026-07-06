@@ -14,6 +14,7 @@ from vektorflow.physics.gpu_pipeline import (
     gpu_physics_pipeline_spec,
 )
 from vektorflow.physics.hard_discs import CollisionEvent, HardDisc, HardDiscSnapshot, HardDiscWorld2D
+from vektorflow.physics.hard_spheres import HardSphere, HardSphereSnapshot, HardSphereWorld3D, demo_hard_spheres
 from vektorflow.physics.properties import (
     Mat3,
     Number,
@@ -61,6 +62,10 @@ __all__ = [
     "HardDisc",
     "HardDiscSnapshot",
     "HardDiscWorld2D",
+    "HardSphere",
+    "HardSphereSnapshot",
+    "HardSphereWorld3D",
+    "demo_hard_spheres",
     "gpu_physics_pipeline_spec",
     "hard_disc_gpu_kernel_spec",
     "inertia_tensor_from_point_masses",

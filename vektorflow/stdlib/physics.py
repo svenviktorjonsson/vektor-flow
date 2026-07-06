@@ -10,6 +10,7 @@ from typing import Any, Callable
 from vektorflow.physics.gpu_hard_discs import hard_disc_gpu_kernel_spec
 from vektorflow.physics.gpu_pipeline import gpu_physics_pipeline_spec
 from vektorflow.physics.hard_discs import HardDisc, HardDiscSnapshot, HardDiscWorld2D
+from vektorflow.physics.hard_spheres import HardSphere, HardSphereSnapshot, HardSphereWorld3D, demo_hard_spheres
 
 
 DimensionVector = tuple[float, float, float, float, float, float, float]
@@ -261,6 +262,32 @@ def hard_disc_world(
     )
 
 
+def sphere(x: Any, y: Any, z: Any, vx: Any, vy: Any, vz: Any, radius: Any, density: Any = 1.0) -> HardSphere:
+    """Create a 3D hard-sphere collision impostor."""
+
+    return HardSphere(float(x), float(y), float(z), float(vx), float(vy), float(vz), float(radius), float(density))
+
+
+def hard_sphere_world(
+    spheres: Any,
+    width: Any = 1.0,
+    depth: Any = 1.0,
+    height: Any = 1.0,
+    restitution: Any = 1.0,
+    gravity: Any = (0.0, 0.0, -9.81),
+) -> HardSphereWorld3D:
+    """Create a 3D hard-sphere world inside a virtual box."""
+
+    return HardSphereWorld3D(
+        tuple(spheres),
+        width=float(width),
+        depth=float(depth),
+        height=float(height),
+        restitution=float(restitution),
+        gravity=(float(gravity[0]), float(gravity[1]), float(gravity[2])),
+    )
+
+
 def snapshot_at(world: HardDiscWorld2D, time: Any) -> HardDiscSnapshot:
     """Advance ``world`` to ``time`` and return the exact analytic snapshot."""
 
@@ -489,8 +516,13 @@ def build_physics_namespace() -> dict[str, Any]:
         "require_unitless": require_unitless,
         "HardDisc": HardDisc,
         "HardDiscWorld2D": HardDiscWorld2D,
+        "HardSphere": HardSphere,
+        "HardSphereSnapshot": HardSphereSnapshot,
+        "HardSphereWorld3D": HardSphereWorld3D,
         "disc": disc,
         "hard_disc_world": hard_disc_world,
+        "sphere": sphere,
+        "hard_sphere_world": hard_sphere_world,
         "snapshot_at": snapshot_at,
         "snapshot_disc": snapshot_disc,
         "snapshot_center": snapshot_center,
@@ -505,6 +537,7 @@ def build_physics_namespace() -> dict[str, Any]:
         "gpu_physics_pipeline_spec": gpu_physics_pipeline_spec,
         "hard_disc_gpu_kernel_spec": hard_disc_gpu_kernel_spec,
         "demo_hard_discs": demo_hard_discs,
+        "demo_hard_spheres": demo_hard_spheres,
         "density_color": density_color,
         "disc_color": disc_color,
         "one": Quantity(1.0, DIMENSIONLESS, "1"),
