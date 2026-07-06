@@ -72,7 +72,24 @@ class HardSphereWorld3D:
             raise ValueError("hard-sphere world needs at least one sphere")
         self._validate_initial_state()
         self._time = 0.0
-        self._max_step = 1.0 / 480.0
+        self._array_mode = False
+        if len(self._spheres) >= 256:
+            try:
+                import numpy as np
+
+                self._x = np.array([s.x for s in self._spheres], dtype=np.float64)
+                self._y = np.array([s.y for s in self._spheres], dtype=np.float64)
+                self._z = np.array([s.z for s in self._spheres], dtype=np.float64)
+                self._vx = np.array([s.vx for s in self._spheres], dtype=np.float64)
+                self._vy = np.array([s.vy for s in self._spheres], dtype=np.float64)
+                self._vz = np.array([s.vz for s in self._spheres], dtype=np.float64)
+                self._radius = np.array([s.radius for s in self._spheres], dtype=np.float64)
+                self._density = np.array([s.density for s in self._spheres], dtype=np.float64)
+                self._mass = self._density * (4.0 / 3.0) * math.pi * self._radius**3
+                self._array_mode = True
+            except Exception:
+                self._array_mode = False
+        self._max_step = 1.0 / 120.0 if len(self._spheres) >= 256 else 1.0 / 480.0
         self._contact_iterations = 4
         self._max_radius = max(s.radius for s in self._spheres)
         self._contact_band_ratio = 0.04
@@ -83,9 +100,28 @@ class HardSphereWorld3D:
         return self._time
 
     def snapshot(self) -> HardSphereSnapshot:
+        if self._array_mode:
+            return HardSphereSnapshot(
+                self._time,
+                tuple(
+                    HardSphere(
+                        float(self._x[i]),
+                        float(self._y[i]),
+                        float(self._z[i]),
+                        float(self._vx[i]),
+                        float(self._vy[i]),
+                        float(self._vz[i]),
+                        float(self._radius[i]),
+                        float(self._density[i]),
+                    )
+                    for i in range(len(self._x))
+                ),
+            )
         return HardSphereSnapshot(self._time, tuple(self._spheres))
 
     def min_gap(self) -> float:
+        if self._array_mode:
+            return self._spatial_min_gap_arrays()
         if len(self._spheres) < 256:
             return self.snapshot().min_gap
         return self._spatial_min_gap()
@@ -101,6 +137,9 @@ class HardSphereWorld3D:
         return self.snapshot()
 
     def _step(self, dt: float) -> None:
+        if self._array_mode:
+            self._step_arrays(dt)
+            return
         gx, gy, gz = self.gravity
         next_spheres = []
         for s in self._spheres:
@@ -128,6 +167,45 @@ class HardSphereWorld3D:
                 self._resolve_spatial_pairs()
         for i in range(len(self._spheres)):
             self._resolve_wall(i)
+
+    def _step_arrays(self, dt: float) -> None:
+        gx, gy, gz = self.gravity
+        self._x += self._vx * dt + 0.5 * gx * dt * dt
+        self._y += self._vy * dt + 0.5 * gy * dt * dt
+        self._z += self._vz * dt + 0.5 * gz * dt * dt
+        self._vx += gx * dt
+        self._vy += gy * dt
+        self._vz += gz * dt
+        for _ in range(self._contact_iterations):
+            self._resolve_walls_arrays()
+            self._resolve_spatial_pairs_arrays()
+        self._resolve_walls_arrays()
+
+    def _resolve_walls_arrays(self) -> None:
+        lo = self._x < self._radius
+        if lo.any():
+            self._x[lo] = self._radius[lo]
+            self._vx[lo] = abs(self._vx[lo]) * self.restitution
+        hi = self._x > self.width - self._radius
+        if hi.any():
+            self._x[hi] = self.width - self._radius[hi]
+            self._vx[hi] = -abs(self._vx[hi]) * self.restitution
+        lo = self._y < self._radius
+        if lo.any():
+            self._y[lo] = self._radius[lo]
+            self._vy[lo] = abs(self._vy[lo]) * self.restitution
+        hi = self._y > self.depth - self._radius
+        if hi.any():
+            self._y[hi] = self.depth - self._radius[hi]
+            self._vy[hi] = -abs(self._vy[hi]) * self.restitution
+        lo = self._z < self._radius
+        if lo.any():
+            self._z[lo] = self._radius[lo]
+            self._vz[lo] = abs(self._vz[lo]) * self.restitution
+        hi = self._z > self.height - self._radius
+        if hi.any():
+            self._z[hi] = self.height - self._radius[hi]
+            self._vz[hi] = -abs(self._vz[hi]) * self.restitution
 
     def _cell_key(self, s: HardSphere) -> tuple[int, int, int]:
         return (
@@ -190,6 +268,98 @@ class HardSphereWorld3D:
         a = self._spheres[i]
         b = self._spheres[j]
         return math.dist((a.x, a.y, a.z), (b.x, b.y, b.z)) - a.radius - b.radius
+
+    def _spatial_cells_arrays(self) -> dict[tuple[int, int, int], list[int]]:
+        cells: dict[tuple[int, int, int], list[int]] = {}
+        inv_cell = 1.0 / self._cell_size
+        for index in range(len(self._x)):
+            key = (
+                math.floor(float(self._x[index]) * inv_cell),
+                math.floor(float(self._y[index]) * inv_cell),
+                math.floor(float(self._z[index]) * inv_cell),
+            )
+            cells.setdefault(key, []).append(index)
+        return cells
+
+    def _resolve_spatial_pairs_arrays(self) -> None:
+        cells = self._spatial_cells_arrays()
+        for (cx, cy, cz), indices in cells.items():
+            for ox, oy, oz in self._neighbor_offsets():
+                neighbors = cells.get((cx + ox, cy + oy, cz + oz))
+                if not neighbors:
+                    continue
+                if ox == 0 and oy == 0 and oz == 0:
+                    for local_pos, i in enumerate(indices):
+                        for j in indices[local_pos + 1 :]:
+                            self._resolve_pair_arrays(i, j)
+                else:
+                    for i in indices:
+                        for j in neighbors:
+                            self._resolve_pair_arrays(i, j)
+
+    def _spatial_min_gap_arrays(self) -> float:
+        cells = self._spatial_cells_arrays()
+        worst = math.inf
+        for (cx, cy, cz), indices in cells.items():
+            for ox, oy, oz in self._neighbor_offsets():
+                neighbors = cells.get((cx + ox, cy + oy, cz + oz))
+                if not neighbors:
+                    continue
+                if ox == 0 and oy == 0 and oz == 0:
+                    for local_pos, i in enumerate(indices):
+                        for j in indices[local_pos + 1 :]:
+                            worst = min(worst, self._pair_gap_arrays(i, j))
+                else:
+                    for i in indices:
+                        for j in neighbors:
+                            worst = min(worst, self._pair_gap_arrays(i, j))
+        return worst
+
+    def _pair_gap_arrays(self, i: int, j: int) -> float:
+        dx = float(self._x[j] - self._x[i])
+        dy = float(self._y[j] - self._y[i])
+        dz = float(self._z[j] - self._z[i])
+        return math.sqrt(dx * dx + dy * dy + dz * dz) - float(self._radius[i] + self._radius[j])
+
+    def _resolve_pair_arrays(self, i: int, j: int) -> None:
+        dx = float(self._x[j] - self._x[i])
+        dy = float(self._y[j] - self._y[i])
+        dz = float(self._z[j] - self._z[i])
+        min_distance = float(self._radius[i] + self._radius[j])
+        contact_band = float(min(self._radius[i], self._radius[j]) * self._contact_band_ratio)
+        target_distance = min_distance + contact_band
+        dist_sq = dx * dx + dy * dy + dz * dz
+        if dist_sq >= target_distance * target_distance:
+            return
+        distance = math.sqrt(dist_sq) if dist_sq > _EPS else 0.0
+        if distance > _EPS:
+            nx, ny, nz = dx / distance, dy / distance, dz / distance
+        else:
+            nx, ny, nz = 1.0, 0.0, 0.0
+        overlap = target_distance - distance
+        inv_a = 1.0 / float(self._mass[i])
+        inv_b = 1.0 / float(self._mass[j])
+        inv_sum = inv_a + inv_b
+        correction = overlap / inv_sum
+        self._x[i] -= nx * correction * inv_a
+        self._y[i] -= ny * correction * inv_a
+        self._z[i] -= nz * correction * inv_a
+        self._x[j] += nx * correction * inv_b
+        self._y[j] += ny * correction * inv_b
+        self._z[j] += nz * correction * inv_b
+        relative_normal_speed = (
+            float(self._vx[i] - self._vx[j]) * nx
+            + float(self._vy[i] - self._vy[j]) * ny
+            + float(self._vz[i] - self._vz[j]) * nz
+        )
+        if relative_normal_speed > 0.0:
+            impulse = (1.0 + self.restitution) * relative_normal_speed / inv_sum
+            self._vx[i] -= impulse * inv_a * nx
+            self._vy[i] -= impulse * inv_a * ny
+            self._vz[i] -= impulse * inv_a * nz
+            self._vx[j] += impulse * inv_b * nx
+            self._vy[j] += impulse * inv_b * ny
+            self._vz[j] += impulse * inv_b * nz
 
     def _resolve_wall(self, index: int) -> None:
         s = self._spheres[index]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 import pytest
 
 from vektorflow.physics.hard_spheres import HardSphere, HardSphereWorld3D, demo_hard_spheres
@@ -56,10 +58,30 @@ def test_demo_hard_spheres_scales_to_1000_with_spatial_contacts() -> None:
         gravity=(0.0, 0.0, -9.81),
     )
 
+    assert world._array_mode
     assert world._cell_size > 2.0 * world._max_radius
     worst = min(world.advance_to(frame / 60.0) and world.min_gap() for frame in range(0, 91, 15))
 
     assert worst >= -1.0e-6
+
+
+def test_1000_sphere_spatial_path_stays_within_performance_budget() -> None:
+    world = HardSphereWorld3D(
+        demo_hard_spheres(count=1000, width=5.0, depth=3.5, height=3.0),
+        width=5.0,
+        depth=3.5,
+        height=3.0,
+        restitution=0.9,
+        gravity=(0.0, 0.0, -9.81),
+    )
+
+    started = perf_counter()
+    world.advance_to(30.0 / 60.0)
+    elapsed = perf_counter() - started
+
+    assert world._array_mode
+    assert world.min_gap() >= -1.0e-6
+    assert elapsed < 4.0
 
 
 def test_physics_namespace_exposes_3d_hard_sphere_world() -> None:
