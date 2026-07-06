@@ -132,6 +132,23 @@ def test_high_count_with_horizontal_motion_does_not_use_column_shortcut() -> Non
     )
 
     assert not world._spatial_column_mode
+    assert world._spatial_max_step == pytest.approx(1.0 / 480.0)
+
+
+def test_high_count_horizontal_motion_uses_conservative_steps_to_prevent_overlap() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=9.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+
+    worst = min(world.advance_to(frame / 60.0) and world.min_gap() for frame in (0, 10, 20, 30))
+
+    assert worst >= -1.0e-6
 
 
 def test_high_count_column_drop_keeps_floor_after_settling() -> None:

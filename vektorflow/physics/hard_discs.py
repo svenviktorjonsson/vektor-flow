@@ -128,11 +128,13 @@ class HardDiscWorld2D:
             self._spatial_radius = [disc.radius for disc in self._discs]
             self._spatial_density = [disc.density for disc in self._discs]
             self._spatial_mass = [disc.mass for disc in self._discs]
-        self._spatial_contact_iterations = 1
+        self._spatial_contact_iterations = 2
         self._spatial_max_radius = max(self._spatial_radius)
-        self._spatial_cell_size = max(self._spatial_max_radius * 2.1, _EPS)
+        self._spatial_contact_band_ratio = 0.18
+        self._spatial_cell_size = max(self._spatial_max_radius * (2.0 + self._spatial_contact_band_ratio) * 1.02, _EPS)
         self._spatial_contact_dt = 1.0 / 60.0
         self._spatial_column_mode = self._use_spatial_stepper and len(self._discs) >= 5000 and all(abs(disc.vx) <= _EPS for disc in self._discs)
+        self._spatial_max_step = 1.0 / (480.0 if len(self._discs) >= 5000 and not self._spatial_column_mode else 60.0)
         self._spatial_columns: list[list[int]] = []
         self._spatial_column_bases: list[object] = []
         if self._spatial_column_mode:
@@ -162,6 +164,11 @@ class HardDiscWorld2D:
             )
         return HardDiscSnapshot(self._time, tuple(self._discs))
 
+    def min_gap(self) -> float:
+        if self._use_spatial_stepper:
+            return self._spatial_min_gap()
+        return self.snapshot().min_gap
+
     def advance_to(self, target_time: Number) -> HardDiscSnapshot:
         """Advance by consuming only queued collisions before ``target_time``."""
 
@@ -190,7 +197,7 @@ class HardDiscWorld2D:
 
     def _advance_spatial_to(self, target: float) -> None:
         while self._time < target - _EPS:
-            dt = min(target - self._time, 1.0 / 60.0)
+            dt = min(target - self._time, self._spatial_max_step)
             self._spatial_step(dt)
             self._time += dt
 
@@ -250,6 +257,38 @@ class HardDiscWorld2D:
                                 self._resolve_spatial_pair_index(i, j)
             for index in range(count):
                 self._resolve_spatial_wall_index(index)
+
+    def _spatial_neighbor_cells(self) -> dict[tuple[int, int], list[int]]:
+        cell_size = self._spatial_cell_size
+        cells: dict[tuple[int, int], list[int]] = {}
+        for index in range(len(self._spatial_x)):
+            key = (math.floor(self._spatial_x[index] / cell_size), math.floor(self._spatial_y[index] / cell_size))
+            cells.setdefault(key, []).append(index)
+        return cells
+
+    def _spatial_min_gap(self) -> float:
+        cells = self._spatial_neighbor_cells()
+        worst = math.inf
+        neighbor_offsets = ((0, 0), (1, -1), (1, 0), (1, 1), (0, 1))
+        for (cx, cy), indices in cells.items():
+            for ox, oy in neighbor_offsets:
+                neighbors = cells.get((cx + ox, cy + oy))
+                if not neighbors:
+                    continue
+                if ox == 0 and oy == 0:
+                    for local_pos, i in enumerate(indices):
+                        for j in indices[local_pos + 1 :]:
+                            worst = min(worst, self._spatial_pair_gap(i, j))
+                else:
+                    for i in indices:
+                        for j in neighbors:
+                            worst = min(worst, self._spatial_pair_gap(i, j))
+        return worst
+
+    def _spatial_pair_gap(self, i: int, j: int) -> float:
+        dx = self._spatial_x[j] - self._spatial_x[i]
+        dy = self._spatial_y[j] - self._spatial_y[i]
+        return math.hypot(dx, dy) - self._spatial_radius[i] - self._spatial_radius[j]
 
     def _build_spatial_columns(self) -> tuple[list[object], list[object]]:
         import numpy as np
@@ -359,7 +398,7 @@ class HardDiscWorld2D:
         dx = self._spatial_x[j] - self._spatial_x[i]
         dy = self._spatial_y[j] - self._spatial_y[i]
         min_distance = self._spatial_radius[i] + self._spatial_radius[j]
-        contact_band = min(self._spatial_radius[i], self._spatial_radius[j]) * 0.18
+        contact_band = min(self._spatial_radius[i], self._spatial_radius[j]) * self._spatial_contact_band_ratio
         target_distance = min_distance + contact_band
         distance_sq = dx * dx + dy * dy
         if distance_sq >= target_distance * target_distance:
