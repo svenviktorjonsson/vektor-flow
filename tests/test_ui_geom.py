@@ -859,10 +859,11 @@ class TestDisplayJson:
 
     def test_frame_geom_options_are_serialisable(self) -> None:
         d, fid = _placed()
-        d.set_geom_options(unified_renderer=True)
+        d.set_geom_options(unified_renderer=True, background=[0.01, 0.02, 0.03, 1.0])
         d.add_box(center=[0,0,0], scale=[1,1,1], color="red")
         obj = json.loads(json.dumps(self._payload(d)))
         assert obj["geom"][fid]["unified_renderer"] is True
+        assert obj["geom"][fid]["background"] == [0.01, 0.02, 0.03, 1.0]
 
     def test_vector_color_is_serialisable(self) -> None:
         d, fid = _placed()

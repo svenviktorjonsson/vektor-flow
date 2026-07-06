@@ -297,4 +297,21 @@ function createFakeAdapter() {
   assert.equal(runtime.renderInstanceBuffer.destroyed, true);
 }
 
+{
+  const discPacked = [0.2, 0.3, 0.04, 1.5, 0.6, -0.2, 0.01, 0.0];
+  const discData = gpu.normalizeHardDiscParticleData(discPacked, 1);
+  assert.equal(discData.length, discPacked.length);
+  assert.ok(Math.abs(discData[0] - 0.2) < 1e-6);
+  assert.ok(Math.abs(discData[2] - 0.04) < 1e-6);
+  assert.ok(Math.abs(discData[6] - 0.01) < 1e-6);
+
+  const spherePacked = [0.2, 0.3, 0.4, 0.05, 0.6, -0.2, 0.1, 1.7, 0.02, 0.0, 0.0, 0.0];
+  const sphereData = gpu.normalizeHardSphereParticleData(spherePacked, 1);
+  assert.equal(sphereData.length, spherePacked.length);
+  assert.ok(Math.abs(sphereData[0] - 0.2) < 1e-6);
+  assert.ok(Math.abs(sphereData[2] - 0.4) < 1e-6);
+  assert.ok(Math.abs(sphereData[3] - 0.05) < 1e-6);
+  assert.ok(Math.abs(sphereData[8] - 0.02) < 1e-6);
+}
+
 console.log("vf-gpu-runtime tests passed");

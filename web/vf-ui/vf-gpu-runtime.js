@@ -87,6 +87,9 @@
     if (input instanceof Float32Array) {
       return input;
     }
+    if (Array.isArray(input) && input.length >= count * 8 && (typeof input[0] === "number" || typeof input[0] === "string")) {
+      return new Float32Array(input.slice(0, count * 8));
+    }
     var out = new Float32Array(count * 8);
     var items = Array.isArray(input) ? input : [];
     for (var i = 0; i < count; i += 1) {
@@ -113,6 +116,9 @@
   function normalizeSphereParticleData(input, count) {
     if (input instanceof Float32Array) {
       return input;
+    }
+    if (Array.isArray(input) && input.length >= count * 12 && (typeof input[0] === "number" || typeof input[0] === "string")) {
+      return new Float32Array(input.slice(0, count * 12));
     }
     var out = new Float32Array(count * 12);
     var items = Array.isArray(input) ? input : [];

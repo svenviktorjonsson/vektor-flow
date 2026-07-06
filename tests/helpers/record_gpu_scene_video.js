@@ -211,12 +211,29 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
       throw new Error(`frame redraw failed: ${JSON.stringify(stateValue)}`);
     }
     await delay(80);
-    const capture = await sendCdp(runtime.pageWs, runtime.pageState, "Page.captureScreenshot", {
-      format: "png",
-      fromSurface: true
+    const capture = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
+      expression: `(async () => {
+        const api = window.VfDisplay && window.VfDisplay.__test;
+        const fn = api && api.captureGeomFrameDataUrl;
+        if (!fn) {
+          return { ok: false, reason: "captureGeomFrameDataUrl unavailable" };
+        }
+        const dataUrl = await fn(${JSON.stringify(frameId)});
+        return {
+          ok: typeof dataUrl === "string" && dataUrl.startsWith("data:image/png;base64,"),
+          dataUrl
+        };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true
     });
+    const captureValue = capture && capture.result ? capture.result.value : null;
+    if (!captureValue || !captureValue.ok || typeof captureValue.dataUrl !== "string") {
+      throw new Error(`frame texture capture failed: ${JSON.stringify(captureValue)}`);
+    }
+    const comma = captureValue.dataUrl.indexOf(",");
     const file = path.join(tempDir, `frame_${String(index).padStart(5, "0")}.png`);
-    fs.writeFileSync(file, Buffer.from(String(capture.data || ""), "base64"));
+    fs.writeFileSync(file, Buffer.from(captureValue.dataUrl.slice(comma + 1), "base64"));
     framePaths.push(file);
     frameTimes.push(forcedFrameCount > 0 ? (seconds * index / Math.max(1, targetFrames - 1)) : (Date.now() - started) / 1000);
     index += 1;
@@ -283,6 +300,72 @@ async function main() {
         const dynamicState = window.VfDisplay && window.VfDisplay.__test && window.VfDisplay.__test.debugDynamicGeomFrameState
           ? window.VfDisplay.__test.debugDynamicGeomFrameState(frameId)
           : null;
+        const samplePixels = async () => {
+          const api = window.VfDisplay && window.VfDisplay.__test;
+          const fn = api && api.captureGeomFrameDataUrl;
+          if (!fn) {
+            return { pixels: 0, coloredRatio: 0, brightRatio: 0, whiteRatio: 0, meanLuma: 0, reason: "captureGeomFrameDataUrl unavailable" };
+          }
+          const dataUrl = await fn(frameId);
+          if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png;base64,")) {
+            return { pixels: 0, coloredRatio: 0, brightRatio: 0, whiteRatio: 0, meanLuma: 0, reason: "frame texture data url unavailable" };
+          }
+          const img = new Image();
+          img.decoding = "sync";
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = dataUrl;
+          });
+          const sample = document.createElement("canvas");
+          sample.width = Math.min(240, Math.max(1, img.naturalWidth || img.width));
+          sample.height = Math.min(160, Math.max(1, img.naturalHeight || img.height));
+          const ctx = sample.getContext("2d", { willReadFrequently: true });
+          ctx.drawImage(img, 0, 0, sample.width, sample.height);
+          const data = ctx.getImageData(0, 0, sample.width, sample.height).data;
+          let colored = 0;
+          let bright = 0;
+          let whiteish = 0;
+          let totalLuma = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i] / 255;
+            const g = data[i + 1] / 255;
+            const b = data[i + 2] / 255;
+            const luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+            totalLuma += luma;
+            if (Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b)) > 0.08 && luma > 0.08) {
+              colored += 1;
+            }
+            if (luma > 0.18) {
+              bright += 1;
+            }
+            if (r > 0.95 && g > 0.95 && b > 0.95) {
+              whiteish += 1;
+            }
+          }
+          const pixels = data.length / 4;
+          return {
+            pixels,
+            coloredRatio: colored / Math.max(1, pixels),
+            brightRatio: bright / Math.max(1, pixels),
+            whiteRatio: whiteish / Math.max(1, pixels),
+            meanLuma: totalLuma / Math.max(1, pixels)
+          };
+        };
+        let initialPixelStats = null;
+        for (let warmup = 0; warmup < 8; warmup += 1) {
+          if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
+            window.VfDisplay.redrawVisibleGeomFrames();
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 / 60));
+          initialPixelStats = await samplePixels();
+          if (initialPixelStats.coloredRatio > 0.001 || initialPixelStats.brightRatio > 0.01) {
+            break;
+          }
+        }
+        if (!initialPixelStats || initialPixelStats.whiteRatio > 0.90 || (initialPixelStats.coloredRatio <= 0.0005 && initialPixelStats.brightRatio <= 0.005)) {
+          return { ok: false, reason: "blank_or_white_canvas", pixelStats: initialPixelStats, dynamicState };
+        }
         const runtimeProof = dynamicState && dynamicState.renderer && Array.isArray(dynamicState.renderer.partDetails)
           ? dynamicState.renderer.partDetails
           : [];
@@ -335,6 +418,7 @@ async function main() {
           frames,
           width: canvas.width,
           height: canvas.height,
+          pixelStats: initialPixelStats,
           dynamicState,
           runtimeProof,
           dataUrl

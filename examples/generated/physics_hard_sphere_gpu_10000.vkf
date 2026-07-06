@@ -4,8 +4,8 @@ physics: .physics
 d: ui.display
 f: d.frame(id: "physics_hard_sphere_gpu_frame", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false)
 d.add_frame(f, (0.0, 0.0, 1.0, 1.0))
-f.set_geom_options(unified_renderer: true)
-f.add_camera(pos: [0.0, 0.0, 14.0], target: [0.0, 0.0, 0.0], up: [0.0, 1.0, 0.0], projection: "orthographic", ortho_scale: 2.0)
+f.set_geom_options(unified_renderer: true, background: [0.015, 0.018, 0.026, 1.0])
+f.add_camera(pos: [7.0, -9.0, 8.0], target: [0.0, 0.0, 0.0], up: [0.0, 0.0, 1.0], projection: "orthographic", ortho_scale: 6.0)
 f.add_light(pos: [4.0, -5.0, 8.0], color: "white", intensity: 28.0)
 
 count: 10000
