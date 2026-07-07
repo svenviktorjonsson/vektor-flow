@@ -7803,13 +7803,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!this._parts || !this._parts.length || !enc) { return 0; }
       var stepped = 0;
       var now = Number(t || 0.0);
+      var captureFixedDt = Number(global.__vfCaptureFixedPhysicsDt || 0.0) || 0.0;
+      if (captureFixedDt > 0.0 && global.__vfCapturePhysicsStepRequested !== true) {
+        return 0;
+      }
       for (var i = 0; i < this._parts.length; i += 1) {
         var part = this._parts[i];
         if (!part || !part.physicsRuntime || typeof part.physicsRuntime.step !== "function") { continue; }
         var spec = part.mesh && part.mesh.physics_gpu && typeof part.mesh.physics_gpu === "object"
           ? part.mesh.physics_gpu
           : (part.mesh && part.mesh.physics && typeof part.mesh.physics === "object" ? part.mesh.physics : {});
-        var fixedDt = Number(global.__vfCaptureFixedPhysicsDt || spec.fixed_dt || 0.0) || 0.0;
+        var fixedDt = Number(captureFixedDt || spec.fixed_dt || 0.0) || 0.0;
         var elapsed = part.physicsLastTimeMs == null
           ? (Number(spec.initial_dt || (1000.0 / 60.0)) * 0.001)
           : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001);
@@ -7830,6 +7834,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           stepped += 1;
           localSteps += 1;
         }
+      }
+      if (captureFixedDt > 0.0) {
+        global.__vfCapturePhysicsStepRequested = false;
       }
       return stepped;
     },

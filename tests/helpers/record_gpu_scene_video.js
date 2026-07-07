@@ -196,12 +196,24 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
       await delay(wait);
     }
     const stateResult = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
-      expression: `(() => {
+      expression: `(async () => {
         const frameId = ${JSON.stringify(frameId)};
         if (${JSON.stringify(captureFixedDt)} > 0) {
           window.__vfCaptureFixedPhysicsDt = ${JSON.stringify(captureFixedDt)};
         }
-        if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
+        const renderer = window.__vfFrameRenderers && window.__vfFrameRenderers[String(frameId)];
+        if (${JSON.stringify(captureFixedDt)} > 0 && renderer && typeof renderer._renderContent === "function") {
+          window.__vfCapturePhysicsStepRequested = true;
+          renderer._renderPending = false;
+          renderer._renderContent(performance.now());
+          if (renderer._device && renderer._device.queue && typeof renderer._device.queue.onSubmittedWorkDone === "function") {
+            await renderer._device.queue.onSubmittedWorkDone();
+          }
+        } else if (${JSON.stringify(captureFixedDt)} > 0 && renderer && typeof renderer.requestFrame === "function") {
+          window.__vfCapturePhysicsStepRequested = true;
+          renderer.requestFrame();
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        } else if (window.VfDisplay && typeof window.VfDisplay.redrawVisibleGeomFrames === "function") {
           window.VfDisplay.redrawVisibleGeomFrames();
         }
         const state = window.VfDisplay.__test.debugDynamicGeomFrameState
@@ -209,13 +221,13 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
           : null;
         return { ok: true, state };
       })()`,
+      awaitPromise: true,
       returnByValue: true
     });
     const stateValue = stateResult && stateResult.result ? stateResult.result.value : null;
     if (!stateValue || !stateValue.ok) {
       throw new Error(`frame redraw failed: ${JSON.stringify(stateValue)}`);
     }
-    await delay(80);
     const capture = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
       expression: `(async () => {
         const api = window.VfDisplay && window.VfDisplay.__test;
