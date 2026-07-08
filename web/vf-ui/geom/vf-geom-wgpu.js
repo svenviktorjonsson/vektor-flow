@@ -870,6 +870,10 @@ struct LineImpostorVOut {
   @location(4)       local_uv : vec2<f32>,
   @location(5)       blade_flag : f32,
 }
+struct DepthFragmentOut {
+  @location(0) color : vec4<f32>,
+  @builtin(frag_depth) depth : f32,
+}
 
 fn applyDepthOffset(clip: vec4<f32>) -> vec4<f32> {
   var outClip = clip;
@@ -2911,7 +2915,8 @@ fn fs(i: Vout) -> @location(0) vec4f {
 }
 
 @fragment
-fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
+fn fs_point_impostor(i: PointImpostorVOut) -> DepthFragmentOut {
+  var out: DepthFragmentOut;
   let radial = length(i.local_uv);
   let edge = max(fwidth(radial), 1e-4);
   let mask = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, radial);
@@ -2921,13 +2926,18 @@ fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
   let instAlpha = abs(i.color.a);
   if ((sc.receive_shadow & 2u) != 0u || i.color.a < 0.0) {
     let emissive = min(vec3<f32>(1.0, 1.0, 1.0), (i.color.rgb * 1.18) + vec3<f32>(0.10, 0.08, 0.02));
-    return vec4f(emissive, instAlpha * mask * sc.alpha_mul);
+    out.color = vec4f(emissive * (instAlpha * mask * sc.alpha_mul), instAlpha * mask * sc.alpha_mul);
+    out.depth = clamp(i.clip.z / max(i.clip.w, 1.0e-6), 0.0, 1.0);
+    return out;
   }
   let z = sqrt(max(0.0, 1.0 - min(dot(i.local_uv, i.local_uv), 1.0)));
   let front = normalize(sc.cam_pos - i.center);
   let normal = normalize((i.right * i.local_uv.x) + (i.up * i.local_uv.y) + (front * z));
   let sphereWorldPos = i.center + (normal * i.radius);
-  return shadeLitBase(i.color.rgb, instAlpha * mask, sphereWorldPos, normal, false);
+  let sphereClip = sc.mvp * vec4f(sphereWorldPos, 1.0);
+  out.color = shadeLitBase(i.color.rgb, instAlpha * mask, sphereWorldPos, normal, false);
+  out.depth = clamp(sphereClip.z / max(sphereClip.w, 1.0e-6), 0.0, 1.0);
+  return out;
 }
 
 @fragment
