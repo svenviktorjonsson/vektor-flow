@@ -188,6 +188,7 @@ def test_physics_namespace_builds_hard_sphere_gpu_runtime_spec() -> None:
         restitution=0.9,
         gravity=(0.0, 0.0, -9.81),
         solver_iterations=5,
+        cell_size=0.18,
     )
 
     assert spec["kind"] == "hard_sphere_3d"
@@ -195,6 +196,7 @@ def test_physics_namespace_builds_hard_sphere_gpu_runtime_spec() -> None:
     assert spec["particle_stride_f32"] == 12
     assert len(spec["initial_particles"]) == 4 * 12
     assert spec["gravity"] == [0.0, 0.0, -9.81]
+    assert spec["cell_size"] == 0.18
     assert spec["collision_matrix"] == [0.9, 0.0, 0.0, 1.0]
     assert "grid_layers" in spec["wgsl"]
     assert "vec3<f32>" in spec["wgsl"]
