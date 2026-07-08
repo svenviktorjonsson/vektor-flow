@@ -4836,7 +4836,7 @@ class Display:
         return specs
 
     def _set_geom_options(self, fid: str, **kwargs: Any) -> None:
-        allowed = {"unified_renderer", "combine_transparent", "axis3d_controls", "background"}
+        allowed = {"unified_renderer", "combine_transparent", "axis3d_controls", "background", "physics_profiler"}
         bad = sorted(k for k in kwargs if k not in allowed)
         if bad:
             joined = ", ".join(repr(k) for k in bad)
@@ -4850,6 +4850,8 @@ class Display:
             geom["axis3d_controls"] = bool(kwargs["axis3d_controls"])
         if "background" in kwargs:
             geom["background"] = list(kwargs["background"]) if kwargs["background"] is not None else None
+        if "physics_profiler" in kwargs:
+            geom["physics_profiler"] = bool(kwargs["physics_profiler"])
         self._sync_all()
 
     def _add_frame_layer(self, fid: str, kind: str, **config: Any) -> None:

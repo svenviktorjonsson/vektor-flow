@@ -274,6 +274,8 @@ function createFakeAdapter() {
 
   assert.equal(runtime.particleCount, 2);
   assert.ok(runtime.gridCellCount > 0);
+  assert.equal(runtime.gridInfo.autoSized, true);
+  assert.equal(runtime.gridInfo.adjusted, false);
   assert.ok((runtime.renderInstanceBuffer.usage & global.GPUBufferUsage.VERTEX) !== 0);
   assert.ok((runtime.renderInstanceBuffer.usage & global.GPUBufferUsage.STORAGE) !== 0);
   assert.deepEqual(
@@ -295,6 +297,54 @@ function createFakeAdapter() {
   runtime.destroy();
   assert.equal(runtime.particleBuffer.destroyed, true);
   assert.equal(runtime.renderInstanceBuffer.destroyed, true);
+}
+
+{
+  global.GPUBufferUsage = { COPY_DST: 8, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
+  global.GPUShaderStage = { COMPUTE: 4 };
+  const calls = [];
+  const device = {
+    limits: { maxStorageBufferBindingSize: 64 * 1024 * 1024 },
+    queue: {
+      writeBuffer() {}
+    },
+    createBuffer(desc) {
+      const buffer = {
+        label: desc.label,
+        size: desc.size,
+        usage: desc.usage,
+        destroyed: false,
+        destroy() { this.destroyed = true; }
+      };
+      calls.push({ op: "createBuffer", desc, buffer });
+      return buffer;
+    },
+    createShaderModule(desc) { return { label: desc.label, code: desc.code }; },
+    createBindGroupLayout(desc) { return { label: desc.label, entries: desc.entries }; },
+    createPipelineLayout(desc) { return { label: desc.label }; },
+    createComputePipeline(desc) { return { entryPoint: desc.compute.entryPoint }; },
+    createBindGroup(desc) { return { label: desc.label, entries: desc.entries }; }
+  };
+  const runtime = gpu.createHardSpherePhysicsRuntime({
+    device,
+    particleCount: 50000,
+    particles: [],
+    width: 12,
+    depth: 8,
+    height: 7,
+    restitution: 0.85,
+    maxRadius: 0.0435,
+    maxParticlesPerCell: 96,
+    wgsl: "shader"
+  });
+
+  assert.equal(runtime.particleCount, 50000);
+  assert.equal(runtime.gridInfo.autoSized, true);
+  assert.equal(runtime.gridInfo.adjusted, true);
+  assert.ok(runtime.gridInfo.cellItemsBytes <= device.limits.maxStorageBufferBindingSize);
+  assert.ok(runtime.gridInfo.cellSize > 0.0435 * 2.25);
+  assert.equal(runtime.cellItemsBuffer.size, runtime.gridInfo.cellItemsBytes);
+  runtime.destroy();
 }
 
 {

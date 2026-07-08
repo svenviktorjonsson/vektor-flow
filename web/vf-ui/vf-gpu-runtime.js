@@ -83,6 +83,62 @@
     return Math.ceil(Math.max(0, Number(a) || 0) / Math.max(1, Number(b) || 1));
   }
 
+  function storageBufferLimitBytes(device, fallback) {
+    var limits = device && device.limits ? device.limits : null;
+    var raw = limits && Number(limits.maxStorageBufferBindingSize);
+    if (raw > 0) {
+      return raw;
+    }
+    return Math.max(4, Number(fallback || (128 * 1024 * 1024)) || (128 * 1024 * 1024));
+  }
+
+  function hardSphereGridInfo(options) {
+    var worldWidth = Math.max(1.0e-6, Number(options.worldWidth || options.width || 1.0) || 1.0);
+    var worldDepth = Math.max(1.0e-6, Number(options.worldDepth || options.depth || 1.0) || 1.0);
+    var worldHeight = Math.max(1.0e-6, Number(options.worldHeight || options.height || 1.0) || 1.0);
+    var maxParticlesPerCell = Math.max(8, Number(options.maxParticlesPerCell || 96) | 0);
+    var requestedCellSize = Number(options.cellSize);
+    var baseCellSize = Number(options.maxRadius || 0.0125) * 2.25;
+    var cellSize = requestedCellSize > 0.0 ? requestedCellSize : baseCellSize;
+    cellSize = Math.max(1.0e-5, cellSize);
+    var maxCellItemsBytes = Math.max(
+      4,
+      Math.floor(Number(options.maxCellItemsBytes || storageBufferLimitBytes(options.device, 128 * 1024 * 1024)) || (128 * 1024 * 1024))
+    );
+    var autoSized = !(requestedCellSize > 0.0);
+    var adjusted = false;
+    var gridCols = 1;
+    var gridRows = 1;
+    var gridLayers = 1;
+    var gridCellCount = 1;
+    var cellItemsBytes = 4;
+    for (var attempt = 0; attempt < 64; attempt += 1) {
+      gridCols = Math.max(1, Math.ceil(worldWidth / cellSize));
+      gridRows = Math.max(1, Math.ceil(worldDepth / cellSize));
+      gridLayers = Math.max(1, Math.ceil(worldHeight / cellSize));
+      gridCellCount = gridCols * gridRows * gridLayers;
+      cellItemsBytes = gridCellCount * maxParticlesPerCell * 4;
+      if (cellItemsBytes <= maxCellItemsBytes || !autoSized) {
+        break;
+      }
+      adjusted = true;
+      cellSize *= Math.max(1.05, Math.pow(cellItemsBytes / maxCellItemsBytes, 1.0 / 3.0) * 1.02);
+    }
+    return {
+      cellSize: cellSize,
+      requestedCellSize: requestedCellSize > 0.0 ? requestedCellSize : 0.0,
+      autoSized: autoSized,
+      adjusted: adjusted,
+      gridCols: gridCols,
+      gridRows: gridRows,
+      gridLayers: gridLayers,
+      gridCellCount: gridCellCount,
+      maxParticlesPerCell: maxParticlesPerCell,
+      cellItemsBytes: cellItemsBytes,
+      maxCellItemsBytes: maxCellItemsBytes
+    };
+  }
+
   function normalizeParticleData(input, count) {
     if (input instanceof Float32Array) {
       return input;
@@ -334,16 +390,18 @@
     var worldWidth = Number(options.worldWidth || options.width || 1.0) || 1.0;
     var worldDepth = Number(options.worldDepth || options.depth || 1.0) || 1.0;
     var worldHeight = Number(options.worldHeight || options.height || 1.0) || 1.0;
-    var cellSize = Number(options.cellSize);
-    if (!(cellSize > 0.0)) {
-      cellSize = Number(options.maxRadius || 0.0125) * 2.25;
-    }
-    cellSize = Math.max(1.0e-5, cellSize);
-    var gridCols = Math.max(1, Math.ceil(worldWidth / cellSize));
-    var gridRows = Math.max(1, Math.ceil(worldDepth / cellSize));
-    var gridLayers = Math.max(1, Math.ceil(worldHeight / cellSize));
-    var maxParticlesPerCell = Math.max(8, Number(options.maxParticlesPerCell || 96) | 0);
-    var gridCellCount = gridCols * gridRows * gridLayers;
+    var gridInfo = hardSphereGridInfo(Object.assign({}, options, {
+      device: device,
+      worldWidth: worldWidth,
+      worldDepth: worldDepth,
+      worldHeight: worldHeight
+    }));
+    var cellSize = gridInfo.cellSize;
+    var gridCols = gridInfo.gridCols;
+    var gridRows = gridInfo.gridRows;
+    var gridLayers = gridInfo.gridLayers;
+    var maxParticlesPerCell = gridInfo.maxParticlesPerCell;
+    var gridCellCount = gridInfo.gridCellCount;
     var storageUsage = gpuUsage("STORAGE", 128);
     var vertexUsage = gpuUsage("VERTEX", 32);
     var copyDstUsage = gpuUsage("COPY_DST", 8);
@@ -444,6 +502,7 @@
       cellItemsBuffer: cellItemsBuffer,
       collisionMatrixBuffer: collisionMatrixBuffer,
       gridCellCount: gridCellCount,
+      gridInfo: gridInfo,
       pipelines: pipelines,
       step: step,
       destroy: destroy

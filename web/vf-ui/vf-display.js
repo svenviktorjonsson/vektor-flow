@@ -7322,17 +7322,31 @@
         partCount: Array.isArray(renderer._parts) ? renderer._parts.length : 0,
         lastMeshRevision: Number(renderer._lastMeshRevision || 0) || 0,
         partDetails: Array.isArray(renderer._parts) ? renderer._parts.map(function(part) {
+          var grid = part && part.physicsRuntime && part.physicsRuntime.gridInfo || null;
           return {
             instanceKind: String(part && part.instanceKind || ""),
             instanceCount: Number(part && part.instanceCount || 0) || 0,
             hasPhysicsRuntime: !!(part && part.physicsRuntime),
-            physicsParticleCount: Number(part && part.physicsRuntime && part.physicsRuntime.particleCount || 0) || 0
+            physicsParticleCount: Number(part && part.physicsRuntime && part.physicsRuntime.particleCount || 0) || 0,
+            physicsGrid: grid ? {
+              cellSize: Number(grid.cellSize || 0) || 0,
+              autoSized: grid.autoSized === true,
+              adjusted: grid.adjusted === true,
+              gridCols: Number(grid.gridCols || 0) || 0,
+              gridRows: Number(grid.gridRows || 0) || 0,
+              gridLayers: Number(grid.gridLayers || 0) || 0,
+              gridCellCount: Number(grid.gridCellCount || 0) || 0,
+              maxParticlesPerCell: Number(grid.maxParticlesPerCell || 0) || 0,
+              cellItemsBytes: Number(grid.cellItemsBytes || 0) || 0,
+              maxCellItemsBytes: Number(grid.maxCellItemsBytes || 0) || 0
+            } : null
           };
         }) : [],
         renderOnDemand: renderer._renderOnDemand === true,
         renderPending: renderer._renderPending === true,
         lastPerfSample: renderer._lastPerfSample || null,
         lastPerfSummary: renderer._lastPerfSummary || null,
+        physicsProfile: renderer._lastPhysicsProfile || null,
         runtimeError: String(renderer._runtimeError || "")
       } : null
     };
@@ -7469,6 +7483,14 @@
       try { global.removeEventListener("vf-frame-live-resize", rec.simple2DLiveResizeHandler); } catch (_) {}
       rec.simple2DLiveResizeHandler = null;
     }
+    if (rec.physicsProfilerTimer) {
+      try { clearInterval(rec.physicsProfilerTimer); } catch (_) {}
+      rec.physicsProfilerTimer = 0;
+    }
+    if (rec.physicsProfilerEl && rec.physicsProfilerEl.parentNode) {
+      try { rec.physicsProfilerEl.parentNode.removeChild(rec.physicsProfilerEl); } catch (_) {}
+    }
+    rec.physicsProfilerEl = null;
   }
 
   function tickDistanceBand(tickDist, minTickDist, maxTickDist) {
@@ -10600,6 +10622,73 @@
     return true;
   }
 
+  function formatPhysicsProfiler(profile) {
+    if (!profile) { return "physics: waiting"; }
+    var mb = Number(profile.cellItemsBytes || 0) / (1024 * 1024);
+    var grid = profile.grid && typeof profile.grid === "object" ? profile.grid : null;
+    var adjusted = grid && grid.adjusted === true ? " auto-grid" : "";
+    return [
+      "fps " + Number(profile.fps || 0).toFixed(1) +
+        " frame " + Number(profile.frameMs || 0).toFixed(1) + "ms",
+      "phys " + Number(profile.physicsStepsPerSecond || 0).toFixed(1) + "/s" +
+        " step " + Number(profile.physicsMs || 0).toFixed(1) + "ms",
+      "particles " + String(Number(profile.particles || 0) | 0) +
+        " cells " + String(Number(profile.gridCells || 0) | 0),
+      "gridbuf " + mb.toFixed(1) + "MB" + adjusted
+    ].join("\n");
+  }
+
+  function ensurePhysicsProfilerOverlay(fid, frameEl, geomSpec) {
+    var rec = frameRecs[String(fid)] || null;
+    var enabled = geomSpec && geomSpec.physics_profiler === true;
+    if (!enabled) {
+      if (rec && rec.physicsProfilerTimer) {
+        clearInterval(rec.physicsProfilerTimer);
+        rec.physicsProfilerTimer = 0;
+      }
+      if (rec && rec.physicsProfilerEl && rec.physicsProfilerEl.parentNode) {
+        rec.physicsProfilerEl.parentNode.removeChild(rec.physicsProfilerEl);
+      }
+      if (rec) { rec.physicsProfilerEl = null; }
+      return;
+    }
+    if (!rec) { return; }
+    var host = geomFrameHost(frameEl, fid) || frameEl;
+    if (!host || !host.ownerDocument) { return; }
+    if (!rec.physicsProfilerEl) {
+      var el = host.ownerDocument.createElement("div");
+      el.className = "vf-physics-profiler";
+      el.style.cssText = [
+        "position:absolute",
+        "left:8px",
+        "bottom:8px",
+        "z-index:8",
+        "pointer-events:none",
+        "white-space:pre",
+        "font:11px/1.25 ui-monospace,SFMono-Regular,Consolas,monospace",
+        "color:rgba(232,244,255,0.96)",
+        "background:rgba(5,8,14,0.62)",
+        "border:1px solid rgba(160,190,230,0.24)",
+        "border-radius:4px",
+        "padding:6px 7px",
+        "text-shadow:0 1px 1px rgba(0,0,0,0.65)"
+      ].join(";");
+      host.appendChild(el);
+      rec.physicsProfilerEl = el;
+    }
+    function refresh() {
+      var entry = rec.entries && rec.entries[0] ? rec.entries[0] : null;
+      var renderer = entry && entry.renderer ? entry.renderer : null;
+      if (rec.physicsProfilerEl) {
+        rec.physicsProfilerEl.textContent = formatPhysicsProfiler(renderer && renderer._lastPhysicsProfile);
+      }
+    }
+    refresh();
+    if (!rec.physicsProfilerTimer) {
+      rec.physicsProfilerTimer = setInterval(refresh, 500);
+    }
+  }
+
   function updateGeomFrame(fid, geomSpec) {
     if (!_vfHostInputReadyPosted) {
       scheduleHostInputReady();
@@ -10672,6 +10761,7 @@
 
     if (!frameRecs[fid]) { frameRecs[fid] = { entries: [] }; }
     var rec = frameRecs[fid];
+    ensurePhysicsProfilerOverlay(fid, frameEl, geomSpec);
     var summary = "meshes=" + specs.length +
       (renderableSpecs.length !== specs.length ? " renderable=" + renderableSpecs.length : "") +
       (unifiedScene ? " (unified frame renderer)" : "") +

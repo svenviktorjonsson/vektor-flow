@@ -246,6 +246,64 @@
     } catch (_) {}
   }
 
+  function updatePhysicsProfile(renderer, sample) {
+    if (!renderer || !sample) { return; }
+    var now = perfNowMs();
+    var profile = renderer._physicsProfile;
+    if (!profile) {
+      profile = renderer._physicsProfile = {
+        startedAtMs: now,
+        lastAtMs: now,
+        frames: 0,
+        physicsSteps: 0,
+        physicsMsTotal: 0.0
+      };
+    }
+    var frameDtMs = profile.frames > 0 ? Math.max(0.0, now - Number(profile.lastAtMs || now)) : 0.0;
+    profile.lastAtMs = now;
+    profile.frames += 1;
+    profile.physicsSteps += Math.max(0, Number(sample.physics || 0) | 0);
+    profile.physicsMsTotal += Math.max(0.0, Number(sample.physics_ms || 0.0) || 0.0);
+    var elapsed = Math.max(1.0e-6, (now - Number(profile.startedAtMs || now)) * 0.001);
+    var particleCount = 0;
+    var gridCellCount = 0;
+    var cellItemsBytes = 0;
+    var runtimeCount = 0;
+    var gridInfo = null;
+    if (Array.isArray(renderer._parts)) {
+      for (var i = 0; i < renderer._parts.length; i += 1) {
+        var runtime = renderer._parts[i] && renderer._parts[i].physicsRuntime;
+        if (!runtime) { continue; }
+        runtimeCount += 1;
+        particleCount += Math.max(0, Number(runtime.particleCount || 0) || 0);
+        if (runtime.gridInfo && typeof runtime.gridInfo === "object") {
+          gridInfo = runtime.gridInfo;
+          gridCellCount += Math.max(0, Number(runtime.gridInfo.gridCellCount || 0) || 0);
+          cellItemsBytes += Math.max(0, Number(runtime.gridInfo.cellItemsBytes || 0) || 0);
+        } else {
+          gridCellCount += Math.max(0, Number(runtime.gridCellCount || 0) || 0);
+        }
+      }
+    }
+    renderer._lastPhysicsProfile = {
+      frames: profile.frames,
+      fps: profile.frames / elapsed,
+      frameDtMs: frameDtMs,
+      frameMs: Number(sample.total || 0.0) || 0.0,
+      physicsMs: Number(sample.physics_ms || 0.0) || 0.0,
+      physicsSteps: profile.physicsSteps,
+      physicsStepsPerSecond: profile.physicsSteps / elapsed,
+      particles: particleCount,
+      physicsRuntimes: runtimeCount,
+      gridCells: gridCellCount,
+      cellItemsBytes: cellItemsBytes,
+      grid: gridInfo,
+      gpuPending: !!renderer._gpuWorkPending,
+      submits: Number(renderer._debugGpuSubmitCount || 0) || 0,
+      coalesced: Number(renderer._debugFrameRequestCoalesced || 0) || 0
+    };
+  }
+
   function gpuSchedulerState(renderer) {
     var owner = sharedWgpu && sharedWgpu.device === (renderer && renderer._device)
       ? sharedWgpu
@@ -8213,6 +8271,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var perfStats = ensurePerfStats(this);
         this._lastPerfSample = clonePerfSample(perfSample);
         publishPerfSample(this, perfSample);
+        updatePhysicsProfile(this, perfSample);
         perfStats.frames += 1;
         var perfKeys = Object.keys(perfSample);
         for (var perfIndex = 0; perfIndex < perfKeys.length; perfIndex += 1) {
