@@ -495,6 +495,13 @@
         if (now - lastButtonEmitAt < 120) { return; }
         lastButtonEmitAt = now;
         if (e && typeof e.stopPropagation === "function") { e.stopPropagation(); }
+        var action = spec && spec.action;
+        if (action && action.kind === "reload") {
+          if (global.location && typeof global.location.reload === "function") {
+            global.location.reload();
+            return;
+          }
+        }
         enqueueEvent({
           frameId: String(frameId),
           widgetId: w,

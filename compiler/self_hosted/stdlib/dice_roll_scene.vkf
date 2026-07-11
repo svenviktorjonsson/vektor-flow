@@ -4,7 +4,7 @@ ui:.ui
 ui.set_mode("overlay")
 
 # Generated launcher contract for native vkf.exe. Keep native_scene below as the source-owned scene.
-native_scene_config_json: '{"scene_ir":{"frame":{"frame_id":"dice_roll_scene","title":"VKF Dice Roll","rect":[0.08,0.08,0.78,0.78],"aspect":"equal","visible":true},"camera":{"properties":{"pos":[5.1,-6.0,3.7],"target":[1.45,-0.58,0.78],"fov":42.0,"up":[0.0,0.0,1.0],"controls_mode":"free"},"embedding":{"pos":"pos","target":"target","fov":"fov","up":"up","min_distance":"min_distance","radius":"radius","height":"height","theta":"theta","turns_per_cycle":"turns_per_cycle"}},"lights":[{"properties":{"id":"key_light","kind":"point","pos":[2.6,-3.4,4.4],"target":[0.0,0.0,0.8],"model":"blinn_phong","color":[1.0,0.94,0.84,1.0],"intensity":24.0,"range":18.0,"casts_shadow":true,"source_radius":0.12,"spread":1.0,"motion":"fixed","power":0.0,"inner_cone_deg":14.0,"outer_cone_deg":22.0,"clip_epsilon_ratio":1e-05,"reflect_of_light_id":null,"reflect_mirror_mesh_id":null},"embedding":{"id":"id","pos":"pos","target":"target","motion":"motion","radius":"radius","height":"height","theta":"theta","theta_amplitude":"theta_amplitude","turns_per_cycle":"turns_per_cycle","angular_velocity":"angular_velocity","kind":"kind","direction":"direction","intensity":"intensity","power":"power","inner_cone_deg":"inner_cone_deg","outer_cone_deg":"outer_cone_deg","range":"range","model":"model","color":"color","casts_shadow":"casts_shadow","source_radius":"source_radius","spread":"spread","aperture_face_id":"aperture_face_id","aperture_mesh_id":"aperture_mesh_id","reflect_of_light_id":"reflect_of_light_id","reflect_mirror_mesh_id":"reflect_mirror_mesh_id","clip_epsilon_ratio":"clip_epsilon_ratio"}}],"timing":{"fps":30,"duration_seconds":2.9,"boundary":"stop"},"meshes":[{"id":"plane_0","kind":"quad","properties":{"center":[0.0,0.0],"size":7.0,"z":0.0,"color":[0.4,0.56,0.48,1.0],"texture":{"kind":"checker","scale":[0.75,0.75],"color_a":[0.24,0.36,0.32,1.0],"color_b":[0.44,0.6,0.52,1.0]}},"embedding":{"center":"center","size":"size","z":"z","color":"color","visible":"visible","surface_system":"surface_system"}},{"id":"die","kind":"cube","properties":{"id":"die","center":[0.0,-1.15,2.7],"size":1.0,"face_color":[0.98,0.98,1.0,1.0],"texture":{"kind":"dice","color_a":[0.98,0.98,1.0,1.0],"color_b":[0.03,0.03,0.04,1.0],"graph_width_px":3.0},"casts_shadow":true,"receives_shadow":true},"embedding":{"id":"id","center":"center","size":"size","rotation":"rotation","transform":"transform","face_color":"face_color","color":"color","texture":"texture","surface_system":"surface_system","no_backface_specular":"no_backface_specular","casts_shadow":"casts_shadow","receives_shadow":"receives_shadow"},"tracks":{"transform":[[[0.7969220629908466,-0.45692905743520884,-0.395134232875089,0.0],[0.2285137243720153,0.8335265420071472,-0.5030059458328878,-1.15],[0.5591929034707469,0.31056294086864117,0.7686702521022762,2.7],[0.0,0.0,0.0,1.0]],[[0.45422946531282565,-0.0024907524257617997,0.8908812429240937,0.38137499999999996],[0.7269190974479691,0.5791537263065449,-0.3690116354136733,-0.9259999999999999],[-0.5150380749100542,0.8152145468878713,0.2648792629394535,1.55],[0.0,0.0,0.0,1.0]],[[-0.05852620357053659,0.38042028193266947,0.9229599626147866,0.720375],[0.23473578139294557,0.9038664235102598,-0.3576654881095115,-0.7268888888888887],[-0.9702957262759965,0.19571892485153314,-0.14219812244012411,0.53],[0.0,0.0,0.0,1.0]],[[0.7878907357521319,0.13198531119247348,0.6015048346816427,0.40340986238199056],[0.013752683948894333,0.9727473417024276,-0.23145944114479797,-0.9130578586074968],[-0.6156614753256584,0.19063705526546068,0.7646034664841296,1.05],[0.0,0.0,0.0,1.0]],[[0.34864135044192207,-0.19350938546094335,0.9170623351226246,0.6685077719472986],[0.7830612939961842,-0.477537565997322,-0.39846315125287934,-0.7573530228352805],[0.5150380749100542,0.8570367499704323,-0.01495963211660215,0.64],[0.0,0.0,0.0,1.0]],[[0.10503527260387246,0.8366460717234766,-0.5375787776491044,2.7438749999999996],[-0.0913057694774584,0.5463989027315247,0.8325331798516592,-0.08511111111111085],[0.9902680687415704,-0.038361305549484796,0.13378177105786737,0.52],[0.0,0.0,0.0,1.0]],[[-1.8369701987210297e-16,4.898587196589413e-16,-1.0,2.923875],[4.499279347985573e-32,1.0,4.898587196589413e-16,-0.005111111111110844],[1.0,4.499279347985573e-32,-1.8369701987210297e-16,0.5],[0.0,0.0,0.0,1.0]]]}}],"shadow_receivers":[{"properties":{"receiver_mesh":"plane_0","occluders":["die"],"lights":["key_light"],"policy_kind":"light_camera_depth_map","policy_softness":"shadow_map_bias"},"embedding":{"receiver_mesh":"receiver_mesh","occluders":"occluders","lights":"lights","policy_kind":"policy_kind","policy_softness":"policy_softness"}}],"shadow":{"enabled":true,"color":[0.0,0.0,0.0,0.32],"lift":0.002},"surface_worlds":{},"surface_cameras":{},"render_options":{"show_light_markers":false,"light_flares":false,"light_marker_size":0.18}}}'
+native_scene_config_json: '{"scene_ir":{"frame":{"frame_id":"dice_roll_scene","title":"VKF Dice Roll","rect":[0.04,0.04,0.86,0.86],"aspect":"equal","visible":true},"camera":{"properties":{"pos":[7.8,-8.8,5.2],"target":[1.55,-0.58,0.55],"fov":48.0,"up":[0.0,0.0,1.0],"controls_mode":"free"},"embedding":{"pos":"pos","target":"target","fov":"fov","up":"up","min_distance":"min_distance","radius":"radius","height":"height","theta":"theta","turns_per_cycle":"turns_per_cycle"}},"lights":[{"properties":{"id":"key_light","kind":"point","pos":[2.6,-3.4,4.4],"target":[0.0,0.0,0.8],"model":"blinn_phong","color":[1.0,0.94,0.84,1.0],"intensity":24.0,"range":18.0,"casts_shadow":true,"source_radius":0.12,"spread":1.0,"motion":"fixed","power":0.0,"inner_cone_deg":14.0,"outer_cone_deg":22.0,"clip_epsilon_ratio":1e-05,"reflect_of_light_id":null,"reflect_mirror_mesh_id":null},"embedding":{"id":"id","pos":"pos","target":"target","motion":"motion","radius":"radius","height":"height","theta":"theta","theta_amplitude":"theta_amplitude","turns_per_cycle":"turns_per_cycle","angular_velocity":"angular_velocity","kind":"kind","direction":"direction","intensity":"intensity","power":"power","inner_cone_deg":"inner_cone_deg","outer_cone_deg":"outer_cone_deg","range":"range","model":"model","color":"color","casts_shadow":"casts_shadow","source_radius":"source_radius","spread":"spread","aperture_face_id":"aperture_face_id","aperture_mesh_id":"aperture_mesh_id","reflect_of_light_id":"reflect_of_light_id","reflect_mirror_mesh_id":"reflect_mirror_mesh_id","clip_epsilon_ratio":"clip_epsilon_ratio"}}],"timing":{"fps":30,"duration_seconds":2.9,"boundary":"stop"},"meshes":[{"id":"plane_0","kind":"quad","properties":{"center":[0.0,0.0],"size":11.0,"z":0.0,"color":[0.4,0.56,0.48,1.0],"texture":{"kind":"checker","scale":[0.75,0.75],"color_a":[0.24,0.36,0.32,1.0],"color_b":[0.44,0.6,0.52,1.0]}},"embedding":{"center":"center","size":"size","z":"z","color":"color","visible":"visible","surface_system":"surface_system"}},{"id":"die","kind":"cube","properties":{"id":"die","center":[0.0,-1.15,2.35],"size":0.62,"face_color":[0.98,0.98,1.0,1.0],"texture":{"kind":"dice","color_a":[0.98,0.98,1.0,1.0],"color_b":[0.03,0.03,0.04,1.0],"graph_width_px":3.0},"casts_shadow":true,"receives_shadow":true},"embedding":{"id":"id","center":"center","size":"size","rotation":"rotation","transform":"transform","face_color":"face_color","color":"color","texture":"texture","surface_system":"surface_system","no_backface_specular":"no_backface_specular","casts_shadow":"casts_shadow","receives_shadow":"receives_shadow"},"tracks":{"transform":[[[0.7969220629908466,-0.45692905743520884,-0.395134232875089,0.0],[0.2285137243720153,0.8335265420071472,-0.5030059458328878,-1.15],[0.5591929034707469,0.31056294086864117,0.7686702521022762,2.35],[0.0,0.0,0.0,1.0]],[[0.45422946531282565,-0.0024907524257617997,0.8908812429240937,0.38137499999999996],[0.7269190974479691,0.5791537263065449,-0.3690116354136733,-0.9259999999999999],[-0.5150380749100542,0.8152145468878713,0.2648792629394535,1.55],[0.0,0.0,0.0,1.0]],[[-0.05852620357053659,0.38042028193266947,0.9229599626147866,0.720375],[0.23473578139294557,0.9038664235102598,-0.3576654881095115,-0.7268888888888887],[-0.9702957262759965,0.19571892485153314,-0.14219812244012411,0.33999999999999997],[0.0,0.0,0.0,1.0]],[[0.7878907357521319,0.13198531119247348,0.6015048346816427,0.40340986238199056],[0.013752683948894333,0.9727473417024276,-0.23145944114479797,-0.9130578586074968],[-0.6156614753256584,0.19063705526546068,0.7646034664841296,1.05],[0.0,0.0,0.0,1.0]],[[0.34864135044192207,-0.19350938546094335,0.9170623351226246,0.6685077719472986],[0.7830612939961842,-0.477537565997322,-0.39846315125287934,-0.7573530228352805],[0.5150380749100542,0.8570367499704323,-0.01495963211660215,0.45],[0.0,0.0,0.0,1.0]],[[0.10503527260387246,0.8366460717234766,-0.5375787776491044,2.7438749999999996],[-0.0913057694774584,0.5463989027315247,0.8325331798516592,-0.08511111111111085],[0.9902680687415704,-0.038361305549484796,0.13378177105786737,0.33],[0.0,0.0,0.0,1.0]],[[-1.8369701987210297e-16,4.898587196589413e-16,-1.0,2.923875],[4.499279347985573e-32,1.0,4.898587196589413e-16,-0.005111111111110844],[1.0,4.499279347985573e-32,-1.8369701987210297e-16,0.31],[0.0,0.0,0.0,1.0]]]}}],"shadow_receivers":[{"properties":{"receiver_mesh":"plane_0","occluders":["die"],"lights":["key_light"],"policy_kind":"light_camera_depth_map","policy_softness":"shadow_map_bias"},"embedding":{"receiver_mesh":"receiver_mesh","occluders":"occluders","lights":"lights","policy_kind":"policy_kind","policy_softness":"policy_softness"}}],"shadow":{"enabled":true,"color":[0.0,0.0,0.0,0.32],"lift":0.002},"surface_worlds":{},"surface_cameras":{},"render_options":{"show_light_markers":false,"light_flares":false,"light_marker_size":0.18}}}'
 native_scene_runtime_packets_json: '[
   {
     "seq": 1,
@@ -20,10 +20,10 @@ native_scene_runtime_packets_json: '[
               "title": "VKF Dice Roll",
               "title_align": "left",
               "rect": {
-                "x": 0.08,
-                "y": 0.08,
-                "w": 0.78,
-                "h": 0.78
+                "x": 0.04,
+                "y": 0.04,
+                "w": 0.86,
+                "h": 0.86
               },
               "flags": {
                 "draggable": true,
@@ -41,6 +41,62 @@ native_scene_runtime_packets_json: '[
               "body_layout": null,
               "parent_id": null,
               "aspect": "equal"
+            }
+          }
+        },
+        {
+          "kind": "frame_upsert",
+          "id": "dice_roll_controls",
+          "payload": {
+            "spec": {
+              "id": "dice_roll_controls",
+              "title": "Dice",
+              "title_align": "left",
+              "rect": {
+                "x": 0.8,
+                "y": 0.08,
+                "w": 0.16,
+                "h": 0.12
+              },
+              "flags": {
+                "draggable": true,
+                "dockable": true,
+                "resizable": false,
+                "closable": true,
+                "use_browser": false
+              },
+              "alpha": 0.94,
+              "master": false,
+              "exit_counted": false,
+              "dock_location": "br",
+              "anchor": "tl",
+              "body": [
+                {
+                  "id": "roll_again",
+                  "type": "button",
+                  "label": "Re-toss",
+                  "grid": [
+                    0,
+                    0,
+                    1,
+                    1
+                  ],
+                  "align": "stretch",
+                  "action": {
+                    "kind": "reload"
+                  }
+                }
+              ],
+              "body_layout": {
+                "kind": "grid",
+                "rows": 1,
+                "cols": 1,
+                "row_heights": [
+                  "max-content"
+                ]
+              },
+              "parent_id": null,
+              "aspect": null
             }
           }
         }
@@ -74,7 +130,7 @@ die_material: dice_material()
 table_material: felt_table_material()
 contact: contact_material(die_material, table_material)
 table: infinite_plane3([0, 0, 1], 0, table_material)
-die: dice_body3(1.0, 0.016, [0.0, -1.15, 2.7], roll.linear_velocity, roll.angular_velocity, die_material)
+die: dice_body3(0.62, 0.016, [0.0, -1.15, 2.35], roll.linear_velocity, roll.angular_velocity, die_material)
 first_bounce: first_plane_bounce3(die, table, contact)
 roll_path: dice_roll_path3(die, table, contact)
 settled_face: settled_face_from_angular_velocity(die.angular_velocity)
@@ -105,12 +161,12 @@ native_scene: (
     kind: "scene_3d",
     frame_id: "dice_roll_scene",
     title: "VKF Dice Roll",
-    rect: [0.08, 0.08, 0.78, 0.78],
+    rect: [0.04, 0.04, 0.86, 0.86],
     aspect: "equal",
     camera: (
-        pos: [5.1, -6.0, 3.7],
-        target: [1.45, -0.58, 0.78],
-        fov: 42.0,
+        pos: [7.8, -8.8, 5.2],
+        target: [1.55, -0.58, 0.55],
+        fov: 48.0,
         up: [0.0, 0.0, 1.0],
         controls_mode: "free"
     ),
@@ -128,7 +184,7 @@ native_scene: (
     ],
     plane: (
         center: [0.0, 0.0],
-        size: 7.0,
+        size: 11.0,
         z: 0.0,
         color: [0.40, 0.56, 0.48, 1.0],
         texture: (

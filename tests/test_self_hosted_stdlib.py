@@ -181,17 +181,27 @@ def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: py
     first_bounce = ip.globals["first_bounce"]
     roll_path = ip.globals["roll_path"]
     contact = ip.globals["contact"]
+    runtime_packets = json.loads(ip.globals["native_scene_runtime_packets_json"])
+    frame_commands = runtime_packets[0]["payload"]["commands"]
+    controls_frame = next(command for command in frame_commands if command["id"] == "dice_roll_controls")
+    roll_button = controls_frame["payload"]["spec"]["body"][0]
 
     assert capsys.readouterr().out.splitlines()[0] == "2"
     assert "native_scene_config_json:" in source
     assert "native_scene_runtime_packets_json:" in source
     assert "graph_test" not in scene["cubes"][0]["texture"]
     assert scene["cubes"][0]["texture"]["kind"] == "dice"
+    assert scene["cubes"][0]["size"] == pytest.approx(0.62)
     assert getattr(scene["cubes"][0]["transform"], "idx", None) == "t"
     assert scene["plane"]["texture"]["kind"] == "checker"
+    assert scene["plane"]["size"] == pytest.approx(11.0)
     assert scene["timing"]["boundary"] == "stop"
     assert scene["interaction"]["roll_again_widget_id"] == "roll_again"
     assert scene["interaction"]["roll_again_event"] == "button.pressed"
+    assert len(frame_commands) == 2
+    assert roll_button["id"] == "roll_again"
+    assert roll_button["label"] == "Re-toss"
+    assert roll_button["action"] == {"kind": "reload"}
     assert ip.globals["settled_face"] in {1, 2, 3, 4, 5, 6}
     assert contact["normal_restitution"] == pytest.approx(0.42)
     assert roll_path["duration_seconds"] == pytest.approx(2.9)

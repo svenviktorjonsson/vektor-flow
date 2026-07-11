@@ -3069,42 +3069,89 @@ def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
         return _render_scene_3d_views_packets(spec)
     x, y, w, h = spec["rect"]
     frame_id = str(spec["frame_id"])
+    commands: list[dict[str, Any]] = [
+        {
+            "kind": "frame_upsert",
+            "id": frame_id,
+            "payload": {
+                "spec": {
+                    "id": frame_id,
+                    "title": str(spec["title"]),
+                    "title_align": "left",
+                    "rect": {"x": x, "y": y, "w": w, "h": h},
+                    "flags": {
+                        "draggable": True,
+                        "dockable": True,
+                        "resizable": True,
+                        "closable": True,
+                        "use_browser": True,
+                    },
+                    "alpha": 1.0,
+                    "master": True,
+                    "exit_counted": True,
+                    "dock_location": "bl",
+                    "anchor": "tl",
+                    "body": None,
+                    "body_layout": None,
+                    "parent_id": None,
+                    "aspect": spec.get("aspect"),
+                }
+            },
+        }
+    ]
+    interaction = spec.get("interaction")
+    if isinstance(interaction, dict) and interaction.get("kind") == "dice_roll":
+        controls_frame_id = str(interaction.get("controls_frame_id") or f"{frame_id}_controls")
+        roll_widget_id = str(interaction.get("roll_again_widget_id") or "roll_again")
+        commands.append(
+            {
+                "kind": "frame_upsert",
+                "id": controls_frame_id,
+                "payload": {
+                    "spec": {
+                        "id": controls_frame_id,
+                        "title": "Dice",
+                        "title_align": "left",
+                        "rect": {"x": 0.80, "y": 0.08, "w": 0.16, "h": 0.12},
+                        "flags": {
+                            "draggable": True,
+                            "dockable": True,
+                            "resizable": False,
+                            "closable": True,
+                            "use_browser": False,
+                        },
+                        "alpha": 0.94,
+                        "master": False,
+                        "exit_counted": False,
+                        "dock_location": "br",
+                        "anchor": "tl",
+                        "body": [
+                            {
+                                "id": roll_widget_id,
+                                "type": "button",
+                                "label": "Re-toss",
+                                "grid": [0, 0, 1, 1],
+                                "align": "stretch",
+                                "action": {"kind": "reload"},
+                            }
+                        ],
+                        "body_layout": {
+                            "kind": "grid",
+                            "rows": 1,
+                            "cols": 1,
+                            "row_heights": ["max-content"],
+                        },
+                        "parent_id": None,
+                        "aspect": None,
+                    }
+                },
+            }
+        )
     payload = [
         {
             "seq": 1,
             "kind": "scene.replace",
-            "payload": {
-                "commands": [
-                    {
-                        "kind": "frame_upsert",
-                        "id": frame_id,
-                        "payload": {
-                            "spec": {
-                                "id": frame_id,
-                                "title": str(spec["title"]),
-                                "title_align": "left",
-                                "rect": {"x": x, "y": y, "w": w, "h": h},
-                                "flags": {
-                                    "draggable": True,
-                                    "dockable": True,
-                                    "resizable": True,
-                                    "closable": True,
-                                    "use_browser": True,
-                                },
-                                "alpha": 1.0,
-                                "master": True,
-                                "exit_counted": True,
-                                "dock_location": "bl",
-                                "anchor": "tl",
-                                "body": None,
-                                "body_layout": None,
-                                "parent_id": None,
-                                "aspect": spec.get("aspect"),
-                            }
-                        },
-                    }
-                ]
-            },
+            "payload": {"commands": commands},
         },
         {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
         {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
