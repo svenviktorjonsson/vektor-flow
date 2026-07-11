@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from vektorflow.parser import parse_module
+from vektorflow.interpreter import Interpreter
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,6 +22,8 @@ JSON_SOURCE = ROOT / "native" / "VfOverlay" / "vf" / "json.cpp"
 STDLIB_SOURCE = ROOT / "compiler" / "self_hosted" / "stdlib.vkf"
 MATH_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "math.vkf"
 IO_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "io.vkf"
+PHYSICS_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics.vkf"
+PHYSICS_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_collision_matrix_smoke.vkf"
 
 
 def _compiler_command(sources: list[Path], output: Path) -> list[str] | None:
@@ -136,6 +139,28 @@ def test_stdlib_source_parses_and_names_dependency_contract() -> None:
     assert "io.print" in rendered
     assert "bare print remains compatibility alias for io.print" in rendered
     assert "manifest records dependencies with name path sha256" in rendered
+
+
+def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> None:
+    source = PHYSICS_FIXTURE.read_text(encoding="utf-8")
+
+    module = parse_module(source, filename=PHYSICS_FIXTURE.as_posix())
+    rendered = repr(module)
+
+    assert "physics_collision_matrix_seed" in rendered
+    assert "collision_matrix3" in rendered
+    assert "normal_restitution_impulse3" in rendered
+    assert "M_pp maps linear impulse to contact relative linear velocity" in rendered
+    assert "position and velocity updates can live in the runtime variable ledger" in rendered
+
+
+def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(capsys: pytest.CaptureFixture[str]) -> None:
+    source = PHYSICS_SMOKE.read_text(encoding="utf-8")
+
+    module = parse_module(source, filename=PHYSICS_SMOKE.as_posix())
+    Interpreter(file_path=PHYSICS_SMOKE).run_module(module)
+
+    assert capsys.readouterr().out.splitlines() == ["0.8333333333333333", "10.8"]
 
 
 def test_touched_native_sources_have_no_host_fallback_hooks() -> None:

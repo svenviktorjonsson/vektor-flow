@@ -29,6 +29,12 @@ math_tau:
 io_print:
     stdlib_function("io", "print", "fn(any)->any")
 
+physics_collision_matrix3:
+    stdlib_function("physics", "collision_matrix3", "fn(any,any)->any")
+
+physics_normal_restitution_impulse3:
+    stdlib_function("physics", "normal_restitution_impulse3", "fn(any,[num:3],[num:3],num)->any")
+
 stdlib_dependency_capability:
     name: "self_hosted_stdlib_seed"
     driver_owned_dependencies: [
@@ -37,6 +43,7 @@ stdlib_dependency_capability:
         "vkf_driver_artifact_smoke recognizes io dependency for io.print and bare print alias",
         "math dependency path points to compiler/self_hosted/stdlib/math.vkf",
         "io dependency path points to compiler/self_hosted/stdlib/io.vkf",
+        "physics dependency path points to compiler/self_hosted/stdlib/physics.vkf",
         "manifest records dependencies with name path sha256",
         "dependency hashes affect compiled/current status",
         "unknown stdlib names fail hard"
@@ -49,9 +56,14 @@ stdlib_dependency_capability:
         "io.print",
         "bare print remains compatibility alias for io.print"
     ]
+    physics_exports: [
+        "physics.collision_matrix3",
+        "physics.normal_restitution_impulse3"
+    ]
     pipeline: [
         "source uses math.pi or math.tau",
         "source uses io.print or bare print alias",
+        "source can use physics collision-matrix helpers from VKF stdlib source",
         "native typed IR resolves constant to num const",
         "native typed IR records source-visible io.print as stdlib function",
         "native artifact emits runnable script output"

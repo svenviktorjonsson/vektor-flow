@@ -1,0 +1,172 @@
+# Physics stdlib fixture.
+#
+# Rigid-body collision helpers are expressed in VKF so the scene/runtime can
+# compile the same source on web, desktop, and mobile hosts.
+
+vec2(x:num, y:num):
+    [x, y]
+
+vec3(x:num, y:num, z:num):
+    [x, y, z]
+
+add2(a:any, b:any):
+    [a.0 + b.0, a.1 + b.1]
+
+add3(a:any, b:any):
+    [a.0 + b.0, a.1 + b.1, a.2 + b.2]
+
+sub2(a:any, b:any):
+    [a.0 - b.0, a.1 - b.1]
+
+sub3(a:any, b:any):
+    [a.0 - b.0, a.1 - b.1, a.2 - b.2]
+
+scale2(s:num, v:any):
+    [s * v.0, s * v.1]
+
+scale3(s:num, v:any):
+    [s * v.0, s * v.1, s * v.2]
+
+dot2(a:any, b:any):
+    a.0 * b.0 + a.1 * b.1
+
+dot3(a:any, b:any):
+    a.0 * b.0 + a.1 * b.1 + a.2 * b.2
+
+cross3(a:any, b:any):
+    [
+        a.1 * b.2 - a.2 * b.1,
+        a.2 * b.0 - a.0 * b.2,
+        a.0 * b.1 - a.1 * b.0
+    ]
+
+mat2(a00:num, a01:num, a10:num, a11:num):
+    [[a00, a01], [a10, a11]]
+
+mat3(
+    a00:num, a01:num, a02:num,
+    a10:num, a11:num, a12:num,
+    a20:num, a21:num, a22:num
+):
+    [
+        [a00, a01, a02],
+        [a10, a11, a12],
+        [a20, a21, a22]
+    ]
+
+zero3x3():
+    mat3(0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+identity3x3():
+    mat3(1, 0, 0, 0, 1, 0, 0, 0, 1)
+
+scale_mat3(s:num, A:any):
+    mat3(
+        s * A.(0).(0), s * A.(0).(1), s * A.(0).(2),
+        s * A.(1).(0), s * A.(1).(1), s * A.(1).(2),
+        s * A.(2).(0), s * A.(2).(1), s * A.(2).(2)
+    )
+
+add_mat3(A:any, B:any):
+    mat3(
+        A.(0).(0) + B.(0).(0), A.(0).(1) + B.(0).(1), A.(0).(2) + B.(0).(2),
+        A.(1).(0) + B.(1).(0), A.(1).(1) + B.(1).(1), A.(1).(2) + B.(1).(2),
+        A.(2).(0) + B.(2).(0), A.(2).(1) + B.(2).(1), A.(2).(2) + B.(2).(2)
+    )
+
+neg_mat3(A:any):
+    scale_mat3(0 - 1, A)
+
+mat_vec3(A:any, v:any):
+    [
+        A.(0).(0) * v.0 + A.(0).(1) * v.1 + A.(0).(2) * v.2,
+        A.(1).(0) * v.0 + A.(1).(1) * v.1 + A.(1).(2) * v.2,
+        A.(2).(0) * v.0 + A.(2).(1) * v.1 + A.(2).(2) * v.2
+    ]
+
+mat_mul3(A:any, B:any):
+    mat3(
+        dot3(A.0, [B.(0).(0), B.(1).(0), B.(2).(0)]),
+        dot3(A.0, [B.(0).(1), B.(1).(1), B.(2).(1)]),
+        dot3(A.0, [B.(0).(2), B.(1).(2), B.(2).(2)]),
+        dot3(A.1, [B.(0).(0), B.(1).(0), B.(2).(0)]),
+        dot3(A.1, [B.(0).(1), B.(1).(1), B.(2).(1)]),
+        dot3(A.1, [B.(0).(2), B.(1).(2), B.(2).(2)]),
+        dot3(A.2, [B.(0).(0), B.(1).(0), B.(2).(0)]),
+        dot3(A.2, [B.(0).(1), B.(1).(1), B.(2).(1)]),
+        dot3(A.2, [B.(0).(2), B.(1).(2), B.(2).(2)])
+    )
+
+diag_inv3(diagonal:any):
+    mat3(
+        1 / diagonal.0, 0, 0,
+        0, 1 / diagonal.1, 0,
+        0, 0, 1 / diagonal.2
+    )
+
+skew3(r:any):
+    mat3(
+        0, 0 - r.2, r.1,
+        r.2, 0, 0 - r.0,
+        0 - r.1, r.0, 0
+    )
+
+collision_body3(mass:num, inv_inertia:any, contact_offset:any):
+    mass: mass
+    inv_inertia: inv_inertia
+    contact_offset: contact_offset
+    :
+
+body_inv_mass3(body:any):
+    scale_mat3(1 / body.mass, identity3x3())
+
+body_pp3(body:any):
+    S: skew3(body.contact_offset)
+    # inv(m)I - S inv(I) S equals inv(m)I + [r]x inv(I) [r]x^T.
+    add_mat3(body_inv_mass3(body), neg_mat3(mat_mul3(mat_mul3(S, body.inv_inertia), S)))
+
+body_pL3(body:any):
+    neg_mat3(mat_mul3(skew3(body.contact_offset), body.inv_inertia))
+
+body_Lp3(body:any):
+    mat_mul3(body.inv_inertia, skew3(body.contact_offset))
+
+body_LL3(body:any):
+    body.inv_inertia
+
+collision_matrix3(body_a:any, body_b:any):
+    pp: add_mat3(body_pp3(body_a), body_pp3(body_b))
+    pL: add_mat3(body_pL3(body_a), body_pL3(body_b))
+    Lp: add_mat3(body_Lp3(body_a), body_Lp3(body_b))
+    LL: add_mat3(body_LL3(body_a), body_LL3(body_b))
+    :
+
+apply_collision_matrix3(matrix:any, linear_impulse:any, angular_impulse:any):
+    linear_delta: add3(mat_vec3(matrix.pp, linear_impulse), mat_vec3(matrix.pL, angular_impulse))
+    angular_delta: add3(mat_vec3(matrix.Lp, linear_impulse), mat_vec3(matrix.LL, angular_impulse))
+    :
+
+normal_restitution_impulse3(matrix:any, relative_velocity:any, normal:any, restitution:num):
+    effective_mass: dot3(normal, mat_vec3(matrix.pp, normal))
+    closing_speed: dot3(relative_velocity, normal)
+    magnitude: (0 - (1 + restitution) * closing_speed) / effective_mass
+    impulse: scale3(magnitude, normal)
+    :
+
+physics_stdlib_capability:
+    name: "physics_collision_matrix_seed"
+    collision_matrix: [
+        "M_pp maps linear impulse to contact relative linear velocity",
+        "M_pL maps angular impulse to contact relative linear velocity",
+        "M_Lp maps linear impulse to relative angular velocity",
+        "M_LL maps angular impulse to relative angular velocity"
+    ]
+    restitution: [
+        "normal_restitution_impulse3 solves j = -(1 + e) v_n / (n M_pp n)",
+        "tangential restitution and friction cones are next layered helpers"
+    ]
+    ledger: [
+        "position and velocity updates can live in the runtime variable ledger",
+        "code changes define functions while running loops consume mutable state"
+    ]
+    :
