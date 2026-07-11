@@ -3,4 +3,4 @@
 Phase 1 reference implementation (Python tree-walking interpreter).
 """
 
-__version__ = "0.0.15"
+__version__ = "0.0.16"
