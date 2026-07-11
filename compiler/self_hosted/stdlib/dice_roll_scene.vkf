@@ -11,7 +11,30 @@ contact: contact_material(die_material, table_material)
 table: infinite_plane3([0, 0, 1], 0, table_material)
 die: dice_body3(1.0, 0.016, [0.0, -1.15, 2.7], roll.linear_velocity, roll.angular_velocity, die_material)
 first_bounce: first_plane_bounce3(die, table, contact)
+roll_path: dice_roll_path3(die, table, contact)
 settled_face: settled_face_from_angular_velocity(die.angular_velocity)
+
+d: ui.display
+d.set_auto_render(false)
+controls_frame: d.frame(
+    id:"dice_roll_controls",
+    title:"Dice",
+    alpha:0.94,
+    draggable:true,
+    dockable:true,
+    resizable:false,
+    closable:false,
+    gridlayout:(2, 1),
+    row_heights:"max-content max-content"
+)
+d.add_frame(
+    controls_frame,
+    (0.78, 0.08, 0.16, 0.16),
+    body: [
+        (id:"roll_again", type:"button", label:"Roll again", grid:[0, 0, 1, 1], align:"stretch"),
+        (id:"settled_face", type:"label", text:"Face: 2", grid:[1, 0, 1, 1], align:"center")
+    ]
+)
 
 native_scene: (
     kind: "scene_3d",
@@ -31,7 +54,7 @@ native_scene: (
             id: "die",
             center: die.center,
             size: die.size,
-            rotation: [22.0, 0.0 - 34.0, 16.0],
+            transform: roll_path.frames -> t,
             face_color: [0.98, 0.98, 1.0, 1.0],
             texture: die.texture,
             casts_shadow: true,
@@ -69,8 +92,23 @@ native_scene: (
         enabled: true,
         color: [0.0, 0.0, 0.0, 0.32],
         lift: 0.002
+    ),
+    timing: (
+        fps: 30,
+        duration_seconds: roll_path.duration_seconds,
+        boundary: "stop"
+    ),
+    interaction: (
+        kind: "dice_roll",
+        controls_frame_id: "dice_roll_controls",
+        roll_again_widget_id: "roll_again",
+        roll_again_event: "button.pressed",
+        seed_variable: "seed",
+        next_seed: seed + 1,
+        rest_condition: "linear and angular velocities are zero after Coulomb floor contact damping"
     )
 )
 
 :: settled_face
 :: first_bounce.after_linear_velocity
+:: first_bounce.friction_mode

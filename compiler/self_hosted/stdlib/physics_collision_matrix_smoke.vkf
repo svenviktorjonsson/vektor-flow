@@ -1,19 +1,19 @@
-physics: .physics
+:.physics
 
-body_a: physics.collision_body3(
+body_a: collision_body3(
     2,
-    physics.diag_inv3([3, 4, 5]),
+    diag_inv3([3, 4, 5]),
     [0, 0, 0]
 )
 
-body_b: physics.collision_body3(
+body_b: collision_body3(
     3,
-    physics.diag_inv3([6, 7, 8]),
+    diag_inv3([6, 7, 8]),
     [0, 0, 0]
 )
 
-matrix: physics.collision_matrix3(body_a, body_b)
-normal_hit: physics.normal_restitution_impulse3(matrix, [-6, 0, 0], [1, 0, 0], 0.5)
+matrix: collision_matrix3(body_a, body_b)
+normal_hit: normal_restitution_impulse3(matrix, [-6, 0, 0], [1, 0, 0], 0.5)
 
 :: matrix.pp.(0).(0)
 :: normal_hit.magnitude

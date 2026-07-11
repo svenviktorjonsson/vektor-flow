@@ -153,8 +153,11 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     assert "normal_restitution_impulse3" in rendered
     assert "dice_body3" in rendered
     assert "first_plane_bounce3" in rendered
+    assert "tangential_friction_impulse3" in rendered
+    assert "dice_roll_path3" in rendered
     assert "M_pp maps linear impulse to contact relative linear velocity" in rendered
     assert "dice_body3 provides cube inertia, material, six-face dice texture, and initial state" in rendered
+    assert "clamps static and dynamic friction in the Coulomb cone" in rendered
     assert "position and velocity updates can live in the runtime variable ledger" in rendered
 
 
@@ -176,15 +179,26 @@ def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: py
 
     scene = ip.globals["native_scene"]
     first_bounce = ip.globals["first_bounce"]
+    roll_path = ip.globals["roll_path"]
     contact = ip.globals["contact"]
 
     assert capsys.readouterr().out.splitlines()[0] == "2"
     assert scene["cubes"][0]["texture"]["kind"] == "dice"
+    assert getattr(scene["cubes"][0]["transform"], "idx", None) == "t"
     assert scene["plane"]["texture"]["kind"] == "checker"
+    assert scene["timing"]["boundary"] == "stop"
+    assert scene["interaction"]["roll_again_widget_id"] == "roll_again"
+    assert scene["interaction"]["roll_again_event"] == "button.pressed"
     assert ip.globals["settled_face"] in {1, 2, 3, 4, 5, 6}
     assert contact["normal_restitution"] == pytest.approx(0.42)
+    assert roll_path["duration_seconds"] == pytest.approx(2.9)
+    assert list(roll_path["rest_linear_velocity"]) == [0, 0, 0]
+    assert first_bounce["plane_body"]["inv_mass"] == 0
+    assert first_bounce["friction_mode"] in {"static", "dynamic"}
+    assert abs(complex(first_bounce["tangential_impulse"][0]).real) > 0
     assert float(first_bounce["impact_linear_velocity"][2].real) < 0
     assert float(first_bounce["after_linear_velocity"][2].real) > 0
+
 
 
 def test_touched_native_sources_have_no_host_fallback_hooks() -> None:

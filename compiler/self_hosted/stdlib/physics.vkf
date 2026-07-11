@@ -3,6 +3,8 @@
 # Rigid-body collision helpers are expressed in VKF so the scene/runtime can
 # compile the same source on web, desktop, and mobile hosts.
 
+:.math
+
 vec2(x:num, y:num):
     [x, y]
 
@@ -113,12 +115,20 @@ skew3(r:any):
 
 collision_body3(mass:num, inv_inertia:any, contact_offset:any):
     mass: mass
+    inv_mass: 1 / mass
+    inv_inertia: inv_inertia
+    contact_offset: contact_offset
+    :
+
+collision_body_inverse3(inv_mass:num, inv_inertia:any, contact_offset:any):
+    mass: "derived_from_inverse"
+    inv_mass: inv_mass
     inv_inertia: inv_inertia
     contact_offset: contact_offset
     :
 
 body_inv_mass3(body:any):
-    scale_mat3(1 / body.mass, identity3x3())
+    scale_mat3(body.inv_mass, identity3x3())
 
 body_pp3(body:any):
     S: skew3(body.contact_offset)
@@ -156,6 +166,47 @@ normal_restitution_impulse3(matrix:any, relative_velocity:any, normal:any, resti
 abs_num(x:num):
     x < 0? @: 0 - x
     @: x
+
+clamp_num(x:num, lo:num, hi:num):
+    x < lo? @: lo
+    x > hi? @: hi
+    @: x
+
+length3(v:any):
+    sqrt(dot3(v, v))
+
+unit_or_zero3(v:any):
+    len: length3(v)
+    len < 0.000001? @: [0, 0, 0]
+    @: scale3(1 / len, v)
+
+project_normal3(v:any, normal:any):
+    scale3(dot3(v, normal), normal)
+
+project_tangent3(v:any, normal:any):
+    sub3(v, project_normal3(v, normal))
+
+tangential_friction_impulse3(matrix:any, relative_velocity:any, normal:any, normal_impulse_magnitude:num, contact:any):
+    tangent_velocity: project_tangent3(relative_velocity, normal)
+    tangent_speed: length3(tangent_velocity)
+    safe_tangent_speed: tangent_speed + 0.000001
+    tangent: scale3(1 / safe_tangent_speed, tangent_velocity)
+    effective_mass: dot3(tangent, mat_vec3(matrix.pp, tangent))
+    desired_magnitude: (0 - (1 + contact.tangent_restitution) * tangent_speed) / effective_mass
+    static_limit: contact.static_friction * abs_num(normal_impulse_magnitude)
+    dynamic_limit: contact.dynamic_friction * abs_num(normal_impulse_magnitude)
+    desired_abs: abs_num(desired_magnitude)
+    mode: "static"
+    limited_magnitude: desired_magnitude
+    desired_abs > static_limit?
+        mode: "dynamic"
+        limited_magnitude: clamp_num(desired_magnitude, 0 - dynamic_limit, dynamic_limit)
+    impulse: scale3(limited_magnitude, tangent)
+    speed: tangent_speed
+    :
+
+angular_damping3(angular_velocity:any, damping:num):
+    scale3(clamp_num(1 - damping, 0, 1), angular_velocity)
 
 dice_texture():
     kind: "dice"
@@ -213,6 +264,7 @@ cube_inv_inertia3(mass:num, size:num):
 dice_body3(size:num, mass:num, center:any, linear_velocity:any, angular_velocity:any, material:any):
     size: size
     mass: mass
+    inv_mass: 1 / mass
     center: center
     linear_velocity: linear_velocity
     angular_velocity: angular_velocity
@@ -255,10 +307,102 @@ first_plane_bounce3(dice:any, plane:any, contact:any):
     ]
     relative_velocity: impact_linear_velocity
     body: collision_body3(dice.mass, dice.inv_inertia, scale3(0 - dice.size / 2, normal))
-    plane_body: collision_body3(1, zero3x3(), [0, 0, 0])
+    plane_body: collision_body_inverse3(0, zero3x3(), [0, 0, 0])
     matrix: collision_matrix3(body, plane_body)
     normal_hit: normal_restitution_impulse3(matrix, relative_velocity, normal, contact.normal_restitution)
-    after_linear_velocity: add3(impact_linear_velocity, scale3(1 / dice.mass, normal_hit.impulse))
+    friction_hit: tangential_friction_impulse3(
+        matrix,
+        relative_velocity,
+        normal,
+        normal_hit.magnitude,
+        contact
+    )
+    linear_impulse: add3(normal_hit.impulse, friction_hit.impulse)
+    angular_impulse_from_friction: cross3(body.contact_offset, friction_hit.impulse)
+    after_linear_velocity: add3(impact_linear_velocity, scale3(dice.inv_mass, linear_impulse))
+    after_angular_velocity_raw: add3(dice.angular_velocity, mat_vec3(dice.inv_inertia, angular_impulse_from_friction))
+    after_angular_velocity: angular_damping3(after_angular_velocity_raw, contact.rolling_friction)
+    linear_impulse: linear_impulse
+    normal_impulse: normal_hit.impulse
+    tangential_impulse: friction_hit.impulse
+    friction_mode: friction_hit.mode
+    tangential_speed: friction_hit.speed
+    :
+
+dice_transform_frame(center:any, rotation_degrees:any):
+    rx: rotation_degrees.0 * pi / 180
+    ry: rotation_degrees.1 * pi / 180
+    rz: rotation_degrees.2 * pi / 180
+    cx: cos(rx)
+    sx: sin(rx)
+    cy: cos(ry)
+    sy: sin(ry)
+    cz: cos(rz)
+    sz: sin(rz)
+    [
+        [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx, center.0],
+        [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx, center.1],
+        [0 - sy, cy * sx, cy * cx, center.2],
+        [0.0, 0.0, 0.0, 1.0]
+    ]
+
+dice_roll_path3(dice:any, plane:any, contact:any):
+    bounce: first_plane_bounce3(dice, plane, contact)
+    half_size: dice.size / 2
+    rest_center: [
+        dice.center.0 + dice.linear_velocity.0 * 1.38,
+        dice.center.1 + dice.linear_velocity.1 * 0.92,
+        half_size
+    ]
+    frames: [
+        dice_transform_frame(dice.center, [22.0, 0.0 - 34.0, 16.0]),
+        dice_transform_frame(
+            [
+                dice.center.0 + dice.linear_velocity.0 * 0.18,
+                dice.center.1 + dice.linear_velocity.1 * 0.18,
+                1.55
+            ],
+            [72.0, 31.0, 58.0]
+        ),
+        dice_transform_frame(
+            [
+                dice.center.0 + dice.linear_velocity.0 * 0.34,
+                dice.center.1 + dice.linear_velocity.1 * 0.34,
+                half_size + 0.03
+            ],
+            [126.0, 76.0, 104.0]
+        ),
+        dice_transform_frame(
+            [
+                dice.center.0 + bounce.after_linear_velocity.0 * 0.35,
+                dice.center.1 + bounce.after_linear_velocity.1 * 0.35,
+                1.05
+            ],
+            [194.0, 142.0, 181.0]
+        ),
+        dice_transform_frame(
+            [
+                dice.center.0 + bounce.after_linear_velocity.0 * 0.58,
+                dice.center.1 + bounce.after_linear_velocity.1 * 0.58,
+                half_size + 0.14
+            ],
+            [271.0, 211.0, 246.0]
+        ),
+        dice_transform_frame(
+            [
+                rest_center.0 - 0.18,
+                rest_center.1 - 0.08,
+                half_size + 0.02
+            ],
+            [344.0, 278.0, 319.0]
+        ),
+        dice_transform_frame(rest_center, [360.0, 270.0, 360.0])
+    ]
+    duration_seconds: 2.9
+    rest_center: rest_center
+    rest_linear_velocity: [0, 0, 0]
+    rest_angular_velocity: [0, 0, 0]
+    first_contact: bounce
     :
 
 settled_face_from_angular_velocity(angular_velocity:any):
@@ -288,12 +432,14 @@ physics_stdlib_capability:
     ]
     restitution: [
         "normal_restitution_impulse3 solves j = -(1 + e) v_n / (n M_pp n)",
-        "tangential restitution and friction cones are next layered helpers"
+        "tangential_friction_impulse3 clamps static and dynamic friction in the Coulomb cone",
+        "rolling_friction damps angular velocity after table contact"
     ]
     dice_roll: [
         "dice_body3 provides cube inertia, material, six-face dice texture, and initial state",
         "infinite_plane3 models the table as zero inverse mass and zero inverse inertia",
-        "first_plane_bounce3 applies the collision matrix to the first table impact"
+        "first_plane_bounce3 applies normal restitution and tangential friction to the first table impact",
+        "dice_roll_path3 returns transform frames from launch to rest for scene_3d animation"
     ]
     ledger: [
         "position and velocity updates can live in the runtime variable ledger",
