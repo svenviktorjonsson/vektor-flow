@@ -213,7 +213,6 @@ dice_texture():
         kind: "dice",
         color_a: [0.98, 0.98, 1.0, 1.0],
         color_b: [0.03, 0.03, 0.04, 1.0],
-        graph_test: true,
         graph_width_px: 3.0
     )
 

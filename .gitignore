@@ -25,6 +25,9 @@ examples/*.exe
 examples/*.exe.WebView2/
 examples/TransparentOverlay.dll
 examples/transparent-overlay-host.exe
+compiler/self_hosted/stdlib/*.exe
+compiler/self_hosted/stdlib/*.exe.WebView2/
+compiler/self_hosted/stdlib/TransparentOverlay.dll
 docs/.vitepress-preview*.log
 vscode/*.vsix
 .coverage

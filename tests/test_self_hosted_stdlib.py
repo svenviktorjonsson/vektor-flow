@@ -183,6 +183,9 @@ def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: py
     contact = ip.globals["contact"]
 
     assert capsys.readouterr().out.splitlines()[0] == "2"
+    assert "native_scene_config_json:" in source
+    assert "native_scene_runtime_packets_json:" in source
+    assert "graph_test" not in scene["cubes"][0]["texture"]
     assert scene["cubes"][0]["texture"]["kind"] == "dice"
     assert getattr(scene["cubes"][0]["transform"], "idx", None) == "t"
     assert scene["plane"]["texture"]["kind"] == "checker"
