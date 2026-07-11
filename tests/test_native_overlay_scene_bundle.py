@@ -2196,6 +2196,85 @@ native_scene: (
     assert '"op": "polyline"' not in program.event_program_text
 
 
+def test_scene_3d_emits_generic_interaction_controls_without_display_wipe(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_controls.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "scene",
+    title: "Scene",
+    rect: [0.1, 0.1, 0.7, 0.7],
+    aspect: "equal",
+    camera: (
+        pos: [3.0, -4.0, 2.0],
+        target: [0.0, 0.0, 0.5],
+        fov: 45.0,
+        up: [0.0, 0.0, 1.0]
+    ),
+    cube: (
+        id: "cube",
+        center: [0.0, 0.0, 0.6],
+        size: 1.0
+    ),
+    plane: (
+        center: [0.0, 0.0],
+        size: 4.0,
+        z: 0.0
+    ),
+    lights: [
+        (
+            id: "key",
+            kind: "point",
+            pos: [2.0, -2.0, 3.0],
+            target: [0.0, 0.0, 0.0],
+            intensity: 4.0
+        )
+    ],
+    shadow: (
+        enabled: true,
+        lift: 0.002
+    ),
+    interaction: (
+        kind: "controls_test",
+        controls: [
+            (
+                id: "scene_controls",
+                title: "Tools",
+                rect: [0.82, 0.1, 0.14, 0.1],
+                body: [
+                    (
+                        id: "again",
+                        type: "button",
+                        label: "Again",
+                        action: (kind: "reload", target: "scene")
+                    )
+                ],
+                body_layout: (
+                    kind: "grid",
+                    rows: 1,
+                    cols: 1
+                )
+            )
+        ]
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    runtime_packets = json.loads(program.runtime_packets_text)
+    scene_packet = next(packet for packet in runtime_packets if packet["kind"] == "scene.replace")
+    frames = {command["id"]: command["payload"]["spec"] for command in scene_packet["payload"]["commands"]}
+
+    assert [packet["kind"] for packet in runtime_packets] == ["scene.replace", "ui_state.replace"]
+    assert frames["scene_controls"]["body"][0]["id"] == "again"
+    assert frames["scene_controls"]["body"][0]["action"]["kind"] == "reload"
+
+
 def test_scene_3d_scene_ir_separates_properties_from_embedding(tmp_path: Path) -> None:
     path = tmp_path / "ui_embedded_property_scene.vkf"
     path.write_text(EMBEDDED_PROPERTY_SOURCE, encoding="utf-8")

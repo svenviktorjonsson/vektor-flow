@@ -62,7 +62,7 @@ native_scene_runtime_packets_json: '[
                 "draggable": true,
                 "dockable": true,
                 "resizable": false,
-                "closable": true,
+                "closable": false,
                 "use_browser": false
               },
               "alpha": 0.94,
@@ -108,17 +108,6 @@ native_scene_runtime_packets_json: '[
     "kind": "ui_state.replace",
     "payload": {
       "state": {}
-    }
-  },
-  {
-    "seq": 3,
-    "kind": "display.replace",
-    "payload": {
-      "display": {
-        "screen": [],
-        "frames": {},
-        "geom": {}
-      }
     }
   }
 ]'
@@ -226,6 +215,34 @@ native_scene: (
         roll_again_event: "button.pressed",
         seed_variable: "seed",
         next_seed: seed + 1,
+        controls: [
+            (
+                id: "dice_roll_controls",
+                title: "Dice",
+                rect: [0.78, 0.08, 0.18, 0.14],
+                alpha: 0.94,
+                draggable: true,
+                dockable: true,
+                resizable: false,
+                closable: false,
+                body: [
+                    (
+                        id: "roll_again",
+                        type: "button",
+                        label: "Re-toss",
+                        grid: [0, 0, 1, 1],
+                        align: "stretch",
+                        action: (kind: "reload", target: "scene")
+                    )
+                ],
+                body_layout: (
+                    kind: "grid",
+                    rows: 1,
+                    cols: 1,
+                    row_heights: ["max-content"]
+                )
+            )
+        ],
         rest_condition: "linear and angular velocities are zero after Coulomb floor contact damping"
     )
 )

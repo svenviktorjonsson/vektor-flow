@@ -182,6 +182,7 @@ def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: py
     roll_path = ip.globals["roll_path"]
     contact = ip.globals["contact"]
     runtime_packets = json.loads(ip.globals["native_scene_runtime_packets_json"])
+    assert [packet["kind"] for packet in runtime_packets] == ["scene.replace", "ui_state.replace"]
     frame_commands = runtime_packets[0]["payload"]["commands"]
     controls_frame = next(command for command in frame_commands if command["id"] == "dice_roll_controls")
     roll_button = controls_frame["payload"]["spec"]["body"][0]
@@ -198,6 +199,7 @@ def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: py
     assert scene["timing"]["boundary"] == "stop"
     assert scene["interaction"]["roll_again_widget_id"] == "roll_again"
     assert scene["interaction"]["roll_again_event"] == "button.pressed"
+    assert scene["interaction"]["controls"][0]["body"][0]["action"]["kind"] == "reload"
     assert len(frame_commands) == 2
     assert roll_button["id"] == "roll_again"
     assert roll_button["label"] == "Re-toss"

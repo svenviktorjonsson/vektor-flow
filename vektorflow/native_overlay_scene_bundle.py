@@ -3064,6 +3064,68 @@ def _render_cube_hover_packets(spec: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
+def _scene_3d_controls_frame_commands(spec: dict[str, Any], *, frame_id: str) -> list[dict[str, Any]]:
+    interaction = spec.get("interaction")
+    if not isinstance(interaction, dict):
+        return []
+    controls = interaction.get("controls")
+    if controls is None:
+        return []
+    if isinstance(controls, dict):
+        controls = [controls]
+    if not isinstance(controls, list):
+        raise ValueError("native_scene.interaction.controls must be a control frame or a list of control frames")
+
+    commands: list[dict[str, Any]] = []
+    for index, control in enumerate(controls):
+        if not isinstance(control, dict):
+            raise ValueError(f"native_scene.interaction.controls[{index}] must be a struct")
+        control_id = str(control.get("id") or f"{frame_id}_controls_{index}")
+        rect = control.get("rect")
+        if not isinstance(rect, (list, tuple)) or len(rect) != 4:
+            raise ValueError(f"native_scene.interaction.controls[{index}].rect must be [x, y, w, h]")
+        flags = {
+            "draggable": bool(control.get("draggable", True)),
+            "dockable": bool(control.get("dockable", True)),
+            "resizable": bool(control.get("resizable", False)),
+            "closable": bool(control.get("closable", True)),
+            "use_browser": bool(control.get("use_browser", False)),
+        }
+        body = control.get("body")
+        if body is not None and not isinstance(body, list):
+            raise ValueError(f"native_scene.interaction.controls[{index}].body must be a widget list")
+        commands.append(
+            {
+                "kind": "frame_upsert",
+                "id": control_id,
+                "payload": {
+                    "spec": {
+                        "id": control_id,
+                        "title": str(control.get("title") or ""),
+                        "title_align": str(control.get("title_align") or "left"),
+                        "rect": {
+                            "x": float(rect[0]),
+                            "y": float(rect[1]),
+                            "w": float(rect[2]),
+                            "h": float(rect[3]),
+                        },
+                        "flags": flags,
+                        "alpha": float(control.get("alpha", 0.94)),
+                        "master": bool(control.get("master", False)),
+                        "exit_counted": bool(control.get("exit_counted", False)),
+                        "dock_location": str(control.get("dock_location") or "br"),
+                        "anchor": str(control.get("anchor") or "tl"),
+                        "body": body,
+                        "body_layout": control.get("body_layout"),
+                        "parent_id": control.get("parent_id"),
+                        "aspect": control.get("aspect"),
+                    }
+                },
+            }
+        )
+    return commands
+
+
 def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
     if spec.get("kind") == "scene_3d_views":
         return _render_scene_3d_views_packets(spec)
@@ -3099,54 +3161,7 @@ def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
             },
         }
     ]
-    interaction = spec.get("interaction")
-    if isinstance(interaction, dict) and interaction.get("kind") == "dice_roll":
-        controls_frame_id = str(interaction.get("controls_frame_id") or f"{frame_id}_controls")
-        roll_widget_id = str(interaction.get("roll_again_widget_id") or "roll_again")
-        commands.append(
-            {
-                "kind": "frame_upsert",
-                "id": controls_frame_id,
-                "payload": {
-                    "spec": {
-                        "id": controls_frame_id,
-                        "title": "Dice",
-                        "title_align": "left",
-                        "rect": {"x": 0.80, "y": 0.08, "w": 0.16, "h": 0.12},
-                        "flags": {
-                            "draggable": True,
-                            "dockable": True,
-                            "resizable": False,
-                            "closable": True,
-                            "use_browser": False,
-                        },
-                        "alpha": 0.94,
-                        "master": False,
-                        "exit_counted": False,
-                        "dock_location": "br",
-                        "anchor": "tl",
-                        "body": [
-                            {
-                                "id": roll_widget_id,
-                                "type": "button",
-                                "label": "Re-toss",
-                                "grid": [0, 0, 1, 1],
-                                "align": "stretch",
-                                "action": {"kind": "reload"},
-                            }
-                        ],
-                        "body_layout": {
-                            "kind": "grid",
-                            "rows": 1,
-                            "cols": 1,
-                            "row_heights": ["max-content"],
-                        },
-                        "parent_id": None,
-                        "aspect": None,
-                    }
-                },
-            }
-        )
+    commands.extend(_scene_3d_controls_frame_commands(spec, frame_id=frame_id))
     payload = [
         {
             "seq": 1,
@@ -3154,7 +3169,6 @@ def _render_scene_3d_packets(spec: dict[str, Any]) -> str:
             "payload": {"commands": commands},
         },
         {"seq": 2, "kind": "ui_state.replace", "payload": {"state": {}}},
-        {"seq": 3, "kind": "display.replace", "payload": {"display": {"screen": [], "frames": {}, "geom": {}}}},
     ]
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
