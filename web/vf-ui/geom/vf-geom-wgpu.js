@@ -2405,15 +2405,14 @@ fn grassFiberCell(p: vec2<f32>, bladeLength: f32, clumpDensity: f32, seed: f32) 
   let across = abs(rel.x);
   let tapered = 1.0 - smoothstep(halfLen * 0.32, halfLen, along);
   let edge = 1.0 - smoothstep(width * 0.35, width, across);
-  let broken = smoothstep(0.18, 0.72, grassFbm((p * 1.85 * density) + vec2<f32>(seed, -seed * 0.37)));
+  let broken = smoothstep(0.16, 0.84, valueNoise2((p * 2.15 * density) + vec2<f32>(seed, -seed * 0.37)));
   return pow(clamp(tapered * edge * broken, 0.0, 1.0), 0.82);
 }
 
 fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let a = grassFiberCell(p, bladeLength, clumpDensity, 0.0);
   let b = grassFiberCell(p + vec2<f32>(0.17, -0.11), bladeLength * 0.82, clumpDensity * 1.24, 17.0);
-  let c = grassFiberCell(p + vec2<f32>(-0.29, 0.23), bladeLength * 1.12, clumpDensity * 0.78, 41.0);
-  return clamp(max(a, max(b * 0.72, c * 0.55)), 0.0, 1.0);
+  return clamp(max(a, b * 0.72), 0.0, 1.0);
 }
 
 fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
@@ -2423,10 +2422,8 @@ fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let q = p + vec2<f32>(warpA + warpB, (warpA * -0.37) + (warpB * 0.59));
   let a = grassFiberCell(q * 2.35, bladeLength * 0.72, density * 2.30, 101.0);
   let b = grassFiberCell(rotate2(q * 2.90 + vec2<f32>(0.19, -0.31), 0.91), bladeLength * 0.55, density * 2.85, 211.0);
-  let c = grassFiberCell(rotate2(q * 3.45 + vec2<f32>(-0.43, 0.17), -1.27), bladeLength * 0.44, density * 3.25, 307.0);
-  let d = grassFiberCell(rotate2(q * 4.20 + vec2<f32>(0.07, 0.53), 2.11), bladeLength * 0.36, density * 3.85, 419.0);
-  let clump = smoothstep(0.16, 0.84, grassFbm((p * 1.72 * density) + vec2<f32>(4.0, -9.0)));
-  return pow(clamp(max(max(a, b * 0.82), max(c * 0.64, d * 0.50)) * clump, 0.0, 1.0), 0.86);
+  let clump = smoothstep(0.16, 0.84, valueNoise2((p * 1.72 * density) + vec2<f32>(4.0, -9.0)));
+  return pow(clamp(max(a, b * 0.82) * clump, 0.0, 1.0), 0.86);
 }
 
 fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
@@ -2441,17 +2438,15 @@ fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
 
 fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
-  let strands = grassStrandField(p + vec2<f32>(-0.07, 0.19), bladeLength, density);
   let rootPocket = 1.0 - valueNoise2((p * 0.82 * density) + vec2<f32>(-2.4, 4.1));
-  return clamp((0.28 * strands) + (0.72 * smoothstep(0.30, 0.82, rootPocket)), 0.0, 1.0);
+  return clamp(smoothstep(0.30, 0.82, rootPocket), 0.0, 1.0);
 }
 
 fn grassHeight(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
   let density = max(clumpDensity, 0.25);
   let clump = valueNoise2((p * 0.88 * density) + vec2<f32>(4.0, -2.0));
   let tuft = valueNoise2((p * 2.60 * density) + vec2<f32>(-8.0, 5.0));
-  let strandMass = grassStrandField(p, bladeLength, density);
-  return clamp((0.46 * clump) + (0.34 * tuft) + (0.20 * strandMass), 0.0, 1.0);
+  return clamp((0.56 * clump) + (0.44 * tuft), 0.0, 1.0);
 }
 
 fn grassPerturbedNormal(localPos: vec3<f32>, normal: vec3<f32>, bladeLength: f32, clumpDensity: f32, strength: f32) -> vec3<f32> {
@@ -2502,11 +2497,15 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
     );
     let fineDetail = 1.0 - smoothstep(0.030, 0.300, materialFootprint);
     let midDetail = 1.0 - smoothstep(0.160, 0.900, materialFootprint);
-    let grassMask = grassValue(p, bladeLength, clumpDensity);
+    let strandField = grassStrandField(p, bladeLength, clumpDensity);
+    let broad = valueNoise2((p * 0.28 * clumpDensity) + vec2<f32>(2.0, -1.0));
+    let clump = valueNoise2((p * 0.95 * clumpDensity) + vec2<f32>(3.7, -1.9));
+    let fine = valueNoise2((p * 3.10 * clumpDensity) + vec2<f32>(-6.1, 4.4));
+    let grassMask = clamp((0.38 * broad) + (0.34 * clump) + (0.18 * fine) + (0.10 * strandField), 0.0, 1.0);
     let bladeRidge = grassBladeRidge(p * 1.08, bladeLength * 1.42, clumpDensity * 1.16) * (0.34 + (0.46 * fineDetail) + (0.20 * midDetail));
-    let strandMask = grassStrandField(p, bladeLength, clumpDensity) * fineDetail;
-    let strandShadowMask = grassStrandField(p + vec2<f32>(0.09, 0.03), bladeLength, clumpDensity) * (0.42 + (0.58 * fineDetail));
-    let midBladeMass = grassStrandField(rotate2(p * 0.72 + vec2<f32>(0.37, -0.19), -0.48), bladeLength * 1.72, clumpDensity * 0.88) * midDetail;
+    let strandMask = strandField * fineDetail;
+    let strandShadowMask = strandField * (0.42 + (0.58 * fineDetail));
+    let midBladeMass = strandField * midDetail * 0.72;
     let microShadow = grassMicroShadow(p, bladeLength, clumpDensity);
     let tipTint = sc.texture_color_b.rgb;
     let rootTint = sc.texture_color_a.rgb;

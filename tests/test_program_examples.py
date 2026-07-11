@@ -831,9 +831,10 @@ def test_native_scene_waits_for_packet_owned_visible_frame() -> None:
 def test_native_scene_game_camera_mouse_right_turns_right_and_locks_page_root() -> None:
     runtime = (ROOT / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
     assert "activeState.gameYaw -= dx * sensitivity;" in runtime
+    assert "global.__vfNativeSceneApplyMouseDelta = function (dx, dy)" in runtime
     assert 'type: "transparent-overlay.cursor"' in runtime
     assert 'cursor: enabled ? "none" : "auto"' in runtime
-    assert "var overlayHostCursor = !!(global.chrome && global.chrome.webview" in runtime
+    assert "global.chrome.webview.postMessage(cursorMessage)" in runtime
     assert "global.document.documentElement" in runtime
     assert "var lockTarget = body || frame;" not in runtime
 

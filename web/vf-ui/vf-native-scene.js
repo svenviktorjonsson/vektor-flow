@@ -1012,6 +1012,7 @@
       instance_kind: "line-impostor",
       static_vertices: true,
       static_indices: true,
+      pickable: false,
       transparent: true,
       depth_write: true,
       casts_shadow: false,
@@ -8413,6 +8414,17 @@
       if (triggerDependentsAfter === true) {
         failFast("dependent frames must be triggered from afterPresented");
       }
+      if (controlState.cameraFrameDirty === true) {
+        controlState.cameraFrameDirty = false;
+        if (controlState.continuationFramePending !== true) {
+          controlState.continuationFramePending = true;
+          global.requestAnimationFrame(function () {
+            controlState.continuationFramePending = false;
+            renderFrame();
+          });
+        }
+        return;
+      }
       scheduleNextFrameIfNeeded(animationActive);
     }
     function presentVisibleCameraFrame(renderCamera, options) {
@@ -8507,7 +8519,12 @@
     }
     controlState.requestCameraFrame = function () {
       controlState.debugCameraRequestCount = Number(controlState.debugCameraRequestCount || 0) + 1;
-      if (controlState.controlsEnabled === false || controlState.cameraFramePending === true) {
+      if (controlState.controlsEnabled === false) { return; }
+      if (controlState.rendering === true) {
+        controlState.cameraFrameDirty = true;
+        return;
+      }
+      if (controlState.cameraFramePending === true) {
         controlState.debugCameraRequestCoalescedCount = Number(controlState.debugCameraRequestCoalescedCount || 0) + 1;
         controlState.cameraFrameDirty = true;
         ensureCameraHoldLoop(controlState);
@@ -8522,9 +8539,8 @@
       }
       controlState.cameraFramePending = true;
       function flushCameraFrame(attempt) {
-        if (controlState.rendering === true && attempt < 30) {
+        if (controlState.rendering === true) {
           controlState.cameraFrameDirty = true;
-          global.requestAnimationFrame(function () { flushCameraFrame(attempt + 1); });
           return;
         }
         controlState.cameraFramePending = false;
@@ -8692,7 +8708,7 @@
       controlState.gamePitch = Math.max(-1.45, Math.min(1.45, Math.asin(Math.max(-1.0, Math.min(1.0, forward[2])))));
       controlState.gameInitDone = true;
     }
-    function applyGameCamera(baseCamera, dtSec) {
+    function applyGameCamera(baseCamera, dtSec, nowMs) {
       syncHeldInputState();
       initGameCameraFromBase(baseCamera);
       var speed = Math.max(0.05, Number(cameraBehaviorProps().speed || 3.0) || 3.0);
@@ -8708,8 +8724,11 @@
       if (controlState.keyD) { move = [move[0] + right[0], move[1] + right[1], move[2] + right[2]]; }
       if (move[0] !== 0.0 || move[1] !== 0.0 || move[2] !== 0.0) {
         move = normalize3(move, [0.0, 0.0, 0.0]);
-        var moveDtSec = Math.max(0.0, Math.min(1.0 / 60.0, Number(dtSec || (1.0 / 60.0)) || (1.0 / 60.0)));
-        controlState.gameMoveLastTsMs = 0.0;
+        var clockNowMs = Number(nowMs || 0.0) || (global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now());
+        var moveDtSec = controlState.gameMoveLastTsMs > 0.0
+          ? Math.min(1.0 / 45.0, Math.max(0.0, (clockNowMs - Number(controlState.gameMoveLastTsMs || 0.0)) * 0.001))
+          : (Number(dtSec || (1.0 / 60.0)) || (1.0 / 60.0));
+        controlState.gameMoveLastTsMs = clockNowMs;
         var step = speed * moveDtSec;
         controlState.gamePos = [
           Number(controlState.gamePos[0] || 0.0) + (move[0] * step),
@@ -8989,6 +9008,9 @@
           activeState.requestCameraFrame();
         }
       }
+      global.__vfNativeSceneApplyMouseDelta = function (dx, dy) {
+        applyGameMouseDelta(activeGameMouseState(), Number(dx || 0.0), Number(dy || 0.0));
+      };
       if (global.chrome && global.chrome.webview && typeof global.chrome.webview.addEventListener === "function") {
         global.chrome.webview.addEventListener("message", function (ev) {
           var data = ev && ev.data ? ev.data : null;
@@ -9252,7 +9274,7 @@
           }
           var keyHoldActive = cameraKeysActive();
           var dtSec = controlState.lastRenderTsMs > 0
-            ? Math.max(0.0, Math.min(1.0 / 30.0, (nowMs - controlState.lastRenderTsMs) * 0.001))
+            ? Math.max(0.0, (nowMs - controlState.lastRenderTsMs) * 0.001)
             : (1.0 / 60.0);
           controlState.lastRenderTsMs = nowMs;
           if (controlState.controlsEnabled !== false) {
@@ -9261,7 +9283,7 @@
               var keyElapsedSec = controlState.cameraKeyLastTsMs > 0.0
                 ? Math.max(0.0, (nowMs - controlState.cameraKeyLastTsMs) * 0.001)
                 : (1.0 / 60.0);
-              var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 30.0, keyElapsedSec || (1.0 / 60.0)));
+              var keyDtSec = Math.max(1.0 / 240.0, keyElapsedSec || (1.0 / 60.0));
               var deltaPhi = 0.0;
               var deltaTheta = 0.0;
               if (keyHoldActive) {
@@ -9313,10 +9335,10 @@
             : authoredCamera;
           var userCamera;
           if (gameCameraMode() && controlState.gameClickLocked === true) {
-            userCamera = applyGameCamera(baseCamera, dtSec);
+            userCamera = applyGameCamera(baseCamera, dtSec, nowMs);
           } else if (gameCameraMode()) {
             userCamera = controlState.gameInitDone === true
-              ? applyGameCamera(baseCamera, 0.0)
+              ? applyGameCamera(baseCamera, 0.0, nowMs)
               : baseCamera;
           } else if (controlState.lookOnlyControls === true) {
             var zoomedBaseCamera = Math.abs(Number(controlState.zoomFactor || 1.0) - 1.0) > 1e-6

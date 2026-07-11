@@ -1055,7 +1055,7 @@ int RunCompiledScene(const fs::path& source) {
     return 0;
 }
 
-int BuildOrRun(const fs::path& source) {
+int BuildOrRun(const fs::path& source, bool compileOnly) {
     std::error_code ec;
     const fs::path absoluteSource = fs::absolute(source, ec);
     if (ec || !fs::exists(absoluteSource, ec)) {
@@ -1084,6 +1084,9 @@ int BuildOrRun(const fs::path& source) {
     if (appendResult != 0) {
         return appendResult;
     }
+    if (compileOnly) {
+        return 0;
+    }
     return LaunchProcess(target, L"", target.parent_path(), false);
 }
 
@@ -1093,18 +1096,21 @@ int wmain(int argc, wchar_t** argv) {
     if (argc >= 2) {
         const std::wstring first = argv[1] ? argv[1] : L"";
         if (first == L"--help" || first == L"-h") {
-            std::wcout << L"usage: vkf <example.vkf>\n"
+            std::wcout << L"usage: vkf [--compile-only] <example.vkf>\n"
                        << L"       .\\example.exe\n\n"
                        << L"Native runtime only. No Python fallback." << std::endl;
             return 0;
         }
-        return BuildOrRun(fs::path(first));
+        if ((first == L"--compile-only" || first == L"--no-launch") && argc >= 3) {
+            return BuildOrRun(fs::path(argv[2] ? argv[2] : L""), true);
+        }
+        return BuildOrRun(fs::path(first), false);
     }
 
     const fs::path self = CurrentExePath();
     const std::wstring stem = ToLowerAscii(self.stem().wstring());
     if (stem == L"vkf") {
-        return Fail(L"missing source file. usage: vkf <example.vkf>");
+        return Fail(L"missing source file. usage: vkf [--compile-only] <example.vkf>");
     }
     return RunCompiledScene(SourceFromRunnerExe(self));
 }

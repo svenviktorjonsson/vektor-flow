@@ -114,6 +114,7 @@ constexpr UINT WM_APP_LAYOUT = WM_APP + 2;
 constexpr UINT WM_APP_AFTER_NAV = WM_APP + 3;
 constexpr UINT WM_APP_YIELD_FOCUS = WM_APP + 4;
 constexpr UINT WM_APP_SUBCLASS_WEBVIEW_CHILDREN = WM_APP + 5;
+constexpr UINT WM_APP_RAW_MOUSE_DELTA = WM_APP + 6;
 constexpr UINT_PTR kWebViewHitSubclassId = 1;
 constexpr UINT_PTR kWebViewSubclassRetryTimer = 42;
 constexpr UINT_PTR kWebViewControllerInitWatchdogTimer = 43;
@@ -138,8 +139,12 @@ EventRegistrationToken g_cursorChangedToken{};
 HCURSOR g_hiddenCursor = nullptr;
 bool g_forceHiddenCursor = false;
 bool g_cursorClipActive = false;
+bool g_rawMouseLockActive = false;
 POINT g_cursorLockCenterScreen{};
 RECT g_cursorLockScreenRect{};
+std::atomic<long> g_rawMouseDeltaX{0};
+std::atomic<long> g_rawMouseDeltaY{0};
+std::atomic<bool> g_rawMouseDeltaPostPending{false};
 
 std::mutex g_queueMutex;
 std::mutex g_enqueueLogMutex;
@@ -158,6 +163,9 @@ std::atomic<unsigned long long> g_diagQueueCoalesces{0};
 std::atomic<unsigned long long> g_diagQueuePops{0};
 std::atomic<unsigned long long> g_diagPointerStreamEnqueues{0};
 std::atomic<unsigned long long> g_diagQueueHighWater{0};
+
+static bool SetRawMouseLockActive(bool active);
+static void FlushRawMouseDeltaToWeb();
 
 std::mutex g_layoutCoalesceMutex;
 std::string g_layoutCoalescePending;
@@ -476,6 +484,12 @@ static void PostHostJsonMessageToWeb(const std::string& jsonUtf8) {
     if (!w.empty()) {
         g_webview->PostWebMessageAsJson(w.c_str());
     }
+}
+
+static void ExecuteHostScript(const std::wstring& script) {
+    if (!g_webview || script.empty())
+        return;
+    g_webview->ExecuteScript(script.c_str(), nullptr);
 }
 
 static void PostGeometryLedgerErrorToWeb(const std::string& channel, const std::string& name, const std::string& message) {
@@ -1205,10 +1219,18 @@ static bool TryHandleVfHostChromeMessage(const std::string& u8, HWND host) {
             ClipCursor(nullptr);
             g_cursorClipActive = false;
         }
+        if (!g_forceHiddenCursor) {
+            SetRawMouseLockActive(false);
+            g_cursorLockCenterScreen = POINT{};
+        }
         if (cJSON_IsNumber(x) && cJSON_IsNumber(y)) {
             g_cursorLockCenterScreen = DipClientPointToScreen(host, x->valuedouble, y->valuedouble);
         }
         if (g_forceHiddenCursor && (g_cursorLockCenterScreen.x != 0 || g_cursorLockCenterScreen.y != 0)) {
+            if (!SetRawMouseLockActive(true)) {
+                cJSON_Delete(root);
+                return true;
+            }
             SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
         }
         cJSON_Delete(root);
@@ -1625,9 +1647,79 @@ static void PinHiddenCursorToLockCenter() {
     SetCursor(HiddenCursor());
 }
 
+static bool SetRawMouseLockActive(bool active) {
+    if (active == g_rawMouseLockActive)
+        return true;
+    RAWINPUTDEVICE rid{};
+    rid.usUsagePage = 0x01; /* Generic Desktop */
+    rid.usUsage = 0x02;     /* Mouse */
+    rid.dwFlags = active ? RIDEV_INPUTSINK : RIDEV_REMOVE;
+    rid.hwndTarget = active ? g_hwnd : nullptr;
+    if (!RegisterRawInputDevices(&rid, 1, sizeof(rid))) {
+        VfUserLogfA("error", "RegisterRawInputDevices(%s) failed: %lu", active ? "active" : "inactive",
+                    (unsigned long)GetLastError());
+        return false;
+    }
+    g_rawMouseLockActive = active;
+    return true;
+}
+
+static void PostHiddenCursorMouseDelta(LONG dx, LONG dy) {
+    if (dx == 0 && dy == 0)
+        return;
+    if (g_rawMouseLockActive && g_hwnd) {
+        g_rawMouseDeltaX.fetch_add(dx);
+        g_rawMouseDeltaY.fetch_add(dy);
+        FlushRawMouseDeltaToWeb();
+        return;
+    }
+    std::ostringstream json;
+    json << "{\"type\":\"transparent-overlay.mouse-delta\",\"dx\":" << dx << ",\"dy\":" << dy << "}";
+    PostHostJsonMessageToWeb(json.str());
+}
+
+static void FlushRawMouseDeltaToWeb() {
+    long dx = g_rawMouseDeltaX.exchange(0);
+    long dy = g_rawMouseDeltaY.exchange(0);
+    g_rawMouseDeltaPostPending.store(false);
+    if (dx != 0 || dy != 0) {
+        std::wostringstream script;
+        script << L"window.__vfNativeSceneApplyMouseDelta&&window.__vfNativeSceneApplyMouseDelta("
+               << dx << L"," << dy << L")";
+        ExecuteHostScript(script.str());
+    }
+    if ((g_rawMouseDeltaX.load() != 0 || g_rawMouseDeltaY.load() != 0) && !g_rawMouseDeltaPostPending.exchange(true)) {
+        PostMessageW(g_hwnd, WM_APP_RAW_MOUSE_DELTA, 0, 0);
+    }
+}
+
+static bool HandleHiddenCursorRawMouse(LPARAM lParam) {
+    if (!g_forceHiddenCursor || !g_rawMouseLockActive)
+        return false;
+    UINT size = 0;
+    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0)
+        return true;
+    if (size == 0)
+        return true;
+    std::vector<BYTE> buffer(size);
+    UINT read = GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, buffer.data(), &size, sizeof(RAWINPUTHEADER));
+    if (read != size)
+        return true;
+    RAWINPUT* raw = reinterpret_cast<RAWINPUT*>(buffer.data());
+    if (!raw || raw->header.dwType != RIM_TYPEMOUSE)
+        return true;
+    PostHiddenCursorMouseDelta(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
+    PinHiddenCursorToLockCenter();
+    return true;
+}
+
 static bool HandleHiddenCursorRelativeMouse() {
     if (!g_forceHiddenCursor)
         return false;
+    if (g_rawMouseLockActive) {
+        PinHiddenCursorToLockCenter();
+        return true;
+    }
     if (g_cursorLockCenterScreen.x == 0 && g_cursorLockCenterScreen.y == 0)
         return true;
     POINT pt{};
@@ -1636,9 +1728,7 @@ static bool HandleHiddenCursorRelativeMouse() {
     const LONG dx = pt.x - g_cursorLockCenterScreen.x;
     const LONG dy = pt.y - g_cursorLockCenterScreen.y;
     if (dx != 0 || dy != 0) {
-        std::ostringstream json;
-        json << "{\"type\":\"transparent-overlay.mouse-delta\",\"dx\":" << dx << ",\"dy\":" << dy << "}";
-        PostHostJsonMessageToWeb(json.str());
+        PostHiddenCursorMouseDelta(dx, dy);
         SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
     }
     SetCursor(HiddenCursor());
@@ -2833,6 +2923,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         }
         return 0;
     }
+    case WM_APP_RAW_MOUSE_DELTA:
+        FlushRawMouseDeltaToWeb();
+        return 0;
     case WM_APP_LAYOUT: {
         std::string json;
         {
@@ -2914,8 +3007,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         return DefWindowProcW(h, msg, w, l);
     }
 #endif
+    case WM_INPUT:
+        if (HandleHiddenCursorRawMouse(l))
+            return 0;
+        return DefWindowProcW(h, msg, w, l);
     case WM_DESTROY:
         VfTraceLogA("WM_DESTROY: teardown (http stop, PostQuit)");
+        SetRawMouseLockActive(false);
         if (g_cursorClipActive) {
             ClipCursor(nullptr);
             g_cursorClipActive = false;

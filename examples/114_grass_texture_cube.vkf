@@ -13,7 +13,7 @@ native_scene: (
         fov: 70.0,
         up: [0.0, 0.0, 1.0],
         controls_mode: "game",
-        speed: 3.2,
+        speed: 4.6,
         sensitivity: 0.0022
     ),
     show_light_markers: true,

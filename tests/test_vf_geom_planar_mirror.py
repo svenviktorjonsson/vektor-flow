@@ -871,7 +871,43 @@ def test_keyboard_orbit_default_speed_is_four_times_previous_rate() -> None:
     assert "cameraOrbitStepRadians(cameraConfig || {}) * 72.0" in source
     assert "orbitSpeedRadPerSec: cameraOrbitSpeedRadians(config.camera || {})" in source
     assert "if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())" not in source
-    assert "var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 30.0, keyElapsedSec || (1.0 / 60.0)))" in source
+    assert "var keyDtSec = Math.max(1.0 / 240.0, keyElapsedSec || (1.0 / 60.0));" in source
+
+
+def test_game_camera_movement_uses_elapsed_time_under_heavy_views() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    game_fn = source[source.index("function applyGameCamera"):source.index("function applyWheelZoom")]
+    render_fn = source[source.index("function renderFrame()"):source.index("var authoredCamera = makeCamera", source.index("function renderFrame()"))]
+
+    assert "var clockNowMs = Number(nowMs || 0.0)" in game_fn
+    assert "controlState.gameMoveLastTsMs > 0.0" in game_fn
+    assert "(clockNowMs - Number(controlState.gameMoveLastTsMs || 0.0)) * 0.001" in game_fn
+    assert "controlState.gameMoveLastTsMs = clockNowMs;" in game_fn
+    assert "Math.min(1.0 / 60.0, Number(dtSec || (1.0 / 60.0))" not in game_fn
+    assert "Math.min(1.0 / 15.0, (nowMs - controlState.lastRenderTsMs) * 0.001)" not in render_fn
+    assert "Math.max(0.0, (nowMs - controlState.lastRenderTsMs) * 0.001)" in render_fn
+    assert "applyGameCamera(baseCamera, dtSec, nowMs)" in source
+
+
+def test_camera_dirty_frame_renders_immediately_after_busy_frame() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    finish_fn = source[source.index("function finishRenderFrame"):source.index("function presentVisibleCameraFrame")]
+    request_fn = source[source.index("controlState.requestCameraFrame = function ()"):source.index("controlState.requestCameraHoldFrame = function ()")]
+
+    assert "if (controlState.cameraFrameDirty === true)" in finish_fn
+    assert "controlState.cameraFrameDirty = false;" in finish_fn
+    assert "global.requestAnimationFrame(function ()" in finish_fn
+    assert "renderFrame();" in finish_fn
+    assert "if (controlState.rendering === true) {\n        controlState.cameraFrameDirty = true;\n        return;\n      }" in request_fn
+    assert "attempt < 30" not in request_fn
+
+
+def test_generated_grass_blade_layer_is_not_pickable() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    grass_fn = source[source.index("function grassNearBladeLayer"):source.index("function currentFrameViewportHeight")]
+
+    assert 'instance_kind: "line-impostor"' in grass_fn
+    assert "pickable: false" in grass_fn
 
 
 def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:

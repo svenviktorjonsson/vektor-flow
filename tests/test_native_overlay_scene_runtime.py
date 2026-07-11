@@ -25,6 +25,25 @@ def test_overlay_static_server_uses_stable_origin_and_cacheable_scene_assets() -
     assert "no-store, no-cache, must-revalidate" in source
 
 
+def test_overlay_game_cursor_uses_raw_mouse_input_for_locked_camera() -> None:
+    source = (Path(__file__).resolve().parent.parent / "native" / "VfOverlay" / "main.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "RegisterRawInputDevices(&rid, 1, sizeof(rid))" in source
+    assert "rid.dwFlags = active ? RIDEV_INPUTSINK : RIDEV_REMOVE;" in source
+    assert "case WM_INPUT:" in source
+    assert "HandleHiddenCursorRawMouse(l)" in source
+    assert "PostHiddenCursorMouseDelta(raw->data.mouse.lLastX, raw->data.mouse.lLastY)" in source
+    assert "WM_APP_RAW_MOUSE_DELTA" in source
+    assert "g_rawMouseDeltaX.fetch_add(dx)" in source
+    assert "FlushRawMouseDeltaToWeb();\n        return;" in source
+    assert "FlushRawMouseDeltaToWeb()" in source
+    assert "window.__vfNativeSceneApplyMouseDelta&&window.__vfNativeSceneApplyMouseDelta(" in source
+    assert "if (g_rawMouseLockActive) {" in source
+    assert "PinHiddenCursorToLockCenter();" in source
+
+
 def test_vkf_launcher_does_not_invalidate_scene_cache_on_stager_mtime() -> None:
     source = (Path(__file__).resolve().parent.parent / "native" / "VfOverlay" / "vkf_launcher.cpp").read_text(
         encoding="utf-8"
@@ -45,6 +64,17 @@ def test_vkf_runner_embeds_compiled_scene_session_in_exe() -> None:
     assert "bool ExtractAppendedSceneBundle(" in source
     assert "if (!ExtractAppendedSceneBundle(self, webRoot))" in source
     assert "AppendCompiledSceneBundleToExe(target, bundle.webRoot, absoluteSource)" in source
+
+
+def test_vkf_launcher_supports_compile_only_without_launching_example() -> None:
+    source = (Path(__file__).resolve().parent.parent / "native" / "VfOverlay" / "vkf_launcher.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "usage: vkf [--compile-only] <example.vkf>" in source
+    assert 'first == L"--compile-only" || first == L"--no-launch"' in source
+    assert "return BuildOrRun(fs::path(argv[2] ? argv[2] : L\"\"), true);" in source
+    assert "if (compileOnly) {\n        return 0;\n    }\n    return LaunchProcess(target" in source
 
 
 class _FakeProc:

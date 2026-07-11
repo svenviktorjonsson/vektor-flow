@@ -1549,6 +1549,7 @@ def test_grass_texture_cube_example_compiles() -> None:
     compact = "".join(program.html_text.split())
     assert '"frame_id":"grass_texture_cube_frame"' in compact
     assert '"controls_mode":"game"' in compact
+    assert '"speed":4.6' in compact
     assert '"kind":"grass"' in compact
     assert '"id":"grass_field"' in compact
     assert '"roughness":0.99' in compact
