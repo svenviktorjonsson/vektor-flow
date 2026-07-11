@@ -43,9 +43,9 @@ native_scene: (
     rect: [0.08, 0.08, 0.78, 0.78],
     aspect: "equal",
     camera: (
-        pos: [3.6, -5.2, 3.2],
-        target: [0.0, 0.0, 0.8],
-        fov: 36.0,
+        pos: [5.1, -6.0, 3.7],
+        target: [1.45, -0.58, 0.78],
+        fov: 42.0,
         up: [0.0, 0.0, 1.0],
         controls_mode: "free"
     ),

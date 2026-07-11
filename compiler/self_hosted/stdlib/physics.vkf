@@ -209,12 +209,13 @@ angular_damping3(angular_velocity:any, damping:num):
     scale3(clamp_num(1 - damping, 0, 1), angular_velocity)
 
 dice_texture():
-    kind: "dice"
-    color_a: [0.98, 0.98, 1.0, 1.0]
-    color_b: [0.03, 0.03, 0.04, 1.0]
-    graph_test: true
-    graph_width_px: 3.0
-    :
+    @: (
+        kind: "dice",
+        color_a: [0.98, 0.98, 1.0, 1.0],
+        color_b: [0.03, 0.03, 0.04, 1.0],
+        graph_test: true,
+        graph_width_px: 3.0
+    )
 
 rigid_material(
     name:str,
