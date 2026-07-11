@@ -1,0 +1,76 @@
+ui:.ui
+:.physics
+
+ui.set_mode("overlay")
+
+seed: 41
+roll: dice_roll_initial_state(seed)
+die_material: dice_material()
+table_material: felt_table_material()
+contact: contact_material(die_material, table_material)
+table: infinite_plane3([0, 0, 1], 0, table_material)
+die: dice_body3(1.0, 0.016, [0.0, -1.15, 2.7], roll.linear_velocity, roll.angular_velocity, die_material)
+first_bounce: first_plane_bounce3(die, table, contact)
+settled_face: settled_face_from_angular_velocity(die.angular_velocity)
+
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "dice_roll_scene",
+    title: "VKF Dice Roll",
+    rect: [0.08, 0.08, 0.78, 0.78],
+    aspect: "equal",
+    camera: (
+        pos: [3.6, -5.2, 3.2],
+        target: [0.0, 0.0, 0.8],
+        fov: 36.0,
+        up: [0.0, 0.0, 1.0],
+        controls_mode: "free"
+    ),
+    cubes: [
+        (
+            id: "die",
+            center: die.center,
+            size: die.size,
+            rotation: [22.0, 0.0 - 34.0, 16.0],
+            face_color: [0.98, 0.98, 1.0, 1.0],
+            texture: die.texture,
+            casts_shadow: true,
+            receives_shadow: true
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 7.0,
+        z: 0.0,
+        color: [0.40, 0.56, 0.48, 1.0],
+        texture: (
+            kind: "checker",
+            scale: [0.75, 0.75],
+            color_a: [0.24, 0.36, 0.32, 1.0],
+            color_b: [0.44, 0.60, 0.52, 1.0]
+        )
+    ),
+    lights: [
+        (
+            id: "key_light",
+            kind: "point",
+            pos: [2.6, -3.4, 4.4],
+            target: [0.0, 0.0, 0.8],
+            model: "blinn_phong",
+            color: [1.0, 0.94, 0.84, 1.0],
+            intensity: 24.0,
+            range: 18.0,
+            casts_shadow: true,
+            source_radius: 0.12,
+            spread: 1.0
+        )
+    ],
+    shadow: (
+        enabled: true,
+        color: [0.0, 0.0, 0.0, 0.32],
+        lift: 0.002
+    )
+)
+
+:: settled_face
+:: first_bounce.after_linear_velocity

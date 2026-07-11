@@ -164,11 +164,11 @@ const sandbox = {{
   console,
   Float32Array,
   Uint32Array,
-  window: {{}},
+  Math
 }};
+sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync({json.dumps(str(MATERIAL_ARENA_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-material-arena.js" }});
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATERIAL_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-material-arena.js" }});
 
 const arena = sandbox.VfGeomMaterialArena.createArena({{
   projected: {{

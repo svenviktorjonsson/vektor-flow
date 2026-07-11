@@ -24,6 +24,7 @@ MATH_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "math.vkf"
 IO_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "io.vkf"
 PHYSICS_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics.vkf"
 PHYSICS_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_collision_matrix_smoke.vkf"
+PHYSICS_DICE_SCENE = ROOT / "compiler" / "self_hosted" / "stdlib" / "dice_roll_scene.vkf"
 
 
 def _compiler_command(sources: list[Path], output: Path) -> list[str] | None:
@@ -150,7 +151,10 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     assert "physics_collision_matrix_seed" in rendered
     assert "collision_matrix3" in rendered
     assert "normal_restitution_impulse3" in rendered
+    assert "dice_body3" in rendered
+    assert "first_plane_bounce3" in rendered
     assert "M_pp maps linear impulse to contact relative linear velocity" in rendered
+    assert "dice_body3 provides cube inertia, material, six-face dice texture, and initial state" in rendered
     assert "position and velocity updates can live in the runtime variable ledger" in rendered
 
 
@@ -161,6 +165,26 @@ def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(capsys: pyte
     Interpreter(file_path=PHYSICS_SMOKE).run_module(module)
 
     assert capsys.readouterr().out.splitlines() == ["0.8333333333333333", "10.8"]
+
+
+def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: pytest.CaptureFixture[str]) -> None:
+    source = PHYSICS_DICE_SCENE.read_text(encoding="utf-8")
+
+    module = parse_module(source, filename=PHYSICS_DICE_SCENE.as_posix())
+    ip = Interpreter(file_path=PHYSICS_DICE_SCENE)
+    ip.run_module(module)
+
+    scene = ip.globals["native_scene"]
+    first_bounce = ip.globals["first_bounce"]
+    contact = ip.globals["contact"]
+
+    assert capsys.readouterr().out.splitlines()[0] == "2"
+    assert scene["cubes"][0]["texture"]["kind"] == "dice"
+    assert scene["plane"]["texture"]["kind"] == "checker"
+    assert ip.globals["settled_face"] in {1, 2, 3, 4, 5, 6}
+    assert contact["normal_restitution"] == pytest.approx(0.42)
+    assert float(first_bounce["impact_linear_velocity"][2].real) < 0
+    assert float(first_bounce["after_linear_velocity"][2].real) > 0
 
 
 def test_touched_native_sources_have_no_host_fallback_hooks() -> None:

@@ -153,6 +153,131 @@ normal_restitution_impulse3(matrix:any, relative_velocity:any, normal:any, resti
     impulse: scale3(magnitude, normal)
     :
 
+abs_num(x:num):
+    x < 0? @: 0 - x
+    @: x
+
+dice_texture():
+    kind: "dice"
+    color_a: [0.98, 0.98, 1.0, 1.0]
+    color_b: [0.03, 0.03, 0.04, 1.0]
+    graph_test: true
+    graph_width_px: 3.0
+    :
+
+rigid_material(
+    name:str,
+    density:num,
+    normal_restitution:num,
+    tangent_restitution:num,
+    static_friction:num,
+    dynamic_friction:num,
+    rolling_friction:num
+):
+    name: name
+    density: density
+    normal_restitution: normal_restitution
+    tangent_restitution: tangent_restitution
+    static_friction: static_friction
+    dynamic_friction: dynamic_friction
+    rolling_friction: rolling_friction
+    :
+
+dice_material():
+    rigid_material("acrylic_dice", 1180, 0.46, 0.18, 0.62, 0.48, 0.055)
+
+felt_table_material():
+    rigid_material("felt_table", 220, 0.38, 0.10, 0.74, 0.58, 0.085)
+
+contact_material(a:any, b:any):
+    normal_restitution: (a.normal_restitution + b.normal_restitution) / 2
+    tangent_restitution: (a.tangent_restitution + b.tangent_restitution) / 2
+    static_friction: (a.static_friction + b.static_friction) / 2
+    dynamic_friction: (a.dynamic_friction + b.dynamic_friction) / 2
+    rolling_friction: (a.rolling_friction + b.rolling_friction) / 2
+    :
+
+infinite_plane3(normal:any, offset:num, material:any):
+    normal: normal
+    offset: offset
+    mass: "infinite"
+    inv_mass: 0
+    inv_inertia: zero3x3()
+    material: material
+    :
+
+cube_inv_inertia3(mass:num, size:num):
+    i: (mass * size * size) / 6
+    diag_inv3([i, i, i])
+
+dice_body3(size:num, mass:num, center:any, linear_velocity:any, angular_velocity:any, material:any):
+    size: size
+    mass: mass
+    center: center
+    linear_velocity: linear_velocity
+    angular_velocity: angular_velocity
+    inv_inertia: cube_inv_inertia3(mass, size)
+    material: material
+    texture: dice_texture()
+    :
+
+dice_roll_initial_state(seed:num):
+    # Deterministic seed-to-range mapping for examples until a source-owned RNG lands.
+    whole_seed: int(seed)
+    a0: whole_seed
+    a1: whole_seed * 7 + 3
+    a2: whole_seed * 11 + 5
+    a3: whole_seed * 13 + 7
+    a4: whole_seed * 17 + 11
+    r0: (a0 % 17) / 16
+    r1: (a1 % 19) / 18
+    r2: (a2 % 23) / 22
+    r3: (a3 % 29) / 28
+    r4: (a4 % 31) / 30
+    linear_velocity: [
+        1.2 + 2.1 * r0,
+        0.8 + 1.6 * r1,
+        4.8 + 2.7 * r2
+    ]
+    angular_velocity: [
+        7.0 + 9.0 * r3,
+        9.0 + 11.0 * r4,
+        5.0 + 7.0 * r2
+    ]
+    :
+
+first_plane_bounce3(dice:any, plane:any, contact:any):
+    normal: plane.normal
+    impact_linear_velocity: [
+        dice.linear_velocity.0,
+        dice.linear_velocity.1,
+        0 - abs_num(dice.linear_velocity.2)
+    ]
+    relative_velocity: impact_linear_velocity
+    body: collision_body3(dice.mass, dice.inv_inertia, scale3(0 - dice.size / 2, normal))
+    plane_body: collision_body3(1, zero3x3(), [0, 0, 0])
+    matrix: collision_matrix3(body, plane_body)
+    normal_hit: normal_restitution_impulse3(matrix, relative_velocity, normal, contact.normal_restitution)
+    after_linear_velocity: add3(impact_linear_velocity, scale3(1 / dice.mass, normal_hit.impulse))
+    :
+
+settled_face_from_angular_velocity(angular_velocity:any):
+    ax: angular_velocity.0
+    ay: angular_velocity.1
+    az: angular_velocity.2
+    ax_abs: abs_num(ax)
+    ay_abs: abs_num(ay)
+    az_abs: abs_num(az)
+    ax_abs >= ay_abs?
+        ax_abs >= az_abs?
+            ax > 0? @: 3
+            @: 4
+    ay_abs >= az_abs?
+        ay > 0? @: 2
+        @: 5
+    az > 0? @: 1
+    @: 6
+
 physics_stdlib_capability:
     name: "physics_collision_matrix_seed"
     collision_matrix: [
@@ -164,6 +289,11 @@ physics_stdlib_capability:
     restitution: [
         "normal_restitution_impulse3 solves j = -(1 + e) v_n / (n M_pp n)",
         "tangential restitution and friction cones are next layered helpers"
+    ]
+    dice_roll: [
+        "dice_body3 provides cube inertia, material, six-face dice texture, and initial state",
+        "infinite_plane3 models the table as zero inverse mass and zero inverse inertia",
+        "first_plane_bounce3 applies the collision matrix to the first table impact"
     ]
     ledger: [
         "position and velocity updates can live in the runtime variable ledger",
