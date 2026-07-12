@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import http.server
 import json
+import math
 import shutil
 import socketserver
 import tempfile
@@ -1525,6 +1526,745 @@ def test_ui_all_classes_button_click_posts_widget_event() -> None:
             event = json.loads(body["line"])
             assert event["event"] == "button.pressed"
             assert event["widgetId"] == "b1"
+
+
+@pytest.mark.network
+def test_axis_mode_button_switches_plot_panel_geom_variant() -> None:
+    scene = [
+        {
+            "kind": "frame_upsert",
+            "id": "axis_deck",
+            "payload": {
+                "spec": {
+                    "id": "axis_deck",
+                    "title": "Axis Mode Test Deck",
+                    "title_align": "center",
+                    "rect": {"x": 0.05, "y": 0.06, "w": 0.9, "h": 0.84},
+                    "flags": {
+                        "draggable": True,
+                        "dockable": True,
+                        "resizable": True,
+                        "closable": True,
+                        "use_browser": True,
+                    },
+                    "alpha": 0.92,
+                    "master": True,
+                    "dock_location": "bl",
+                    "anchor": "tl",
+                    "body_layout": {
+                        "type": "grid",
+                        "rows": 2,
+                        "cols": 12,
+                        "row_heights": "max-content minmax(0, 1fr)",
+                    },
+                    "body": [
+                        {
+                            "id": "axis_mode_group",
+                            "type": "button_group",
+                            "active": "2d_crosshair",
+                            "grid": [0, 0, 1, 4],
+                            "align": "left",
+                            "options": [
+                                {
+                                    "label": "2D crosshair",
+                                    "value": "2d_crosshair",
+                                    "geom_frame": "axis_deck:axis_plot",
+                                },
+                                {
+                                    "label": "2D box",
+                                    "value": "2d_box",
+                                    "geom_frame": "axis_deck:axis_plot",
+                                },
+                                {
+                                    "label": "3D crosshair",
+                                    "value": "3d_crosshair",
+                                    "geom_frame": "axis_deck:axis_plot",
+                                },
+                            ],
+                        },
+                        {
+                            "id": "axis_plot",
+                            "type": "plot_panel",
+                            "grid": [1, 0, 1, 12],
+                            "align": "stretch",
+                        },
+                    ],
+                }
+            },
+        }
+    ]
+    display = {
+        "screen": [],
+        "geom": {
+            "axis_deck:axis_plot": {
+                "geom_variants": {
+                    "2d_crosshair": {
+                        "meshes": [],
+                        "texts": [],
+                        "frame": "axis_deck:axis_plot",
+                    },
+                    "2d_box": {
+                        "meshes": [
+                            {
+                                "id": "test_axis_line",
+                                "type": "field_mesh",
+                                "vertices": [
+                                    -0.8,
+                                    -0.8,
+                                    0,
+                                    0,
+                                    0,
+                                    1,
+                                    1,
+                                    1,
+                                    1,
+                                    1,
+                                    0.8,
+                                    0.8,
+                                    0,
+                                    0,
+                                    0,
+                                    1,
+                                    1,
+                                    1,
+                                    1,
+                                    1,
+                                ],
+                                "indices": [0, 1],
+                                "topology": "line-list",
+                                "render_mode": "marker_impostor",
+                                "marker_space": "pixel",
+                                "edge_width": 3,
+                                "color": "white",
+                                "aspect": "equal",
+                                "axis_full_frame": False,
+                                "mode3d": False,
+                            }
+                        ],
+                        "texts": [{"pixel": True, "x": 10, "y": 10, "text": "$y=0.65\\cos(x)e^{-x^{2}}-0.25$", "color": "white"}],
+                        "frame": "axis_deck:axis_plot",
+                    },
+                    "3d_crosshair": {
+                        "meshes": [
+                            {
+                                "id": "test_axis3d_crosshair",
+                                "type": "field_mesh",
+                                "vertices": [
+                                    -1, 0, 0, 0, 0, 1, 1, 1, 1, 1,
+                                    1, 0, 0, 0, 0, 1, 1, 1, 1, 1,
+                                    0, -1, 0, 0, 0, 1, 1, 1, 1, 1,
+                                    0, 1, 0, 0, 0, 1, 1, 1, 1, 1,
+                                    0, 0, -1, 0, 0, 1, 1, 1, 1, 1,
+                                    0, 0, 1, 0, 0, 1, 1, 1, 1, 1,
+                                ],
+                                "indices": [0, 1, 2, 3, 4, 5],
+                                "topology": "line-list",
+                                "render_mode": "line",
+                                "marker_space": "pixel",
+                                "edge_width": 1.2,
+                                "color": "white",
+                                "axis_bind_id": "test_axis3d__axis3d_bind",
+                                "axis_plot3d": None,
+                                "axis3d_helper_lines": True,
+                                "axis_box": False,
+                                "axis_screen_extend": False,
+                                "axis_grid": True,
+                                "axis_grid_alpha": 0.12,
+                                "mode3d": True,
+                                "manifold_dim_count": 1,
+                                "depth_write": True,
+                                "receives_lighting": False,
+                            }
+                        ],
+                        "texts": [{"pixel": True, "x": 10, "y": 10, "text": "$z=u^{2}-v^{2}$", "color": "white"}],
+                        "frame": "axis_deck:axis_plot",
+                        "axis3d_controls": True,
+                        "camera": {
+                            "position": [4, 4, 5.657],
+                            "target": [0, 0, 0],
+                            "up": [0, 0, 1],
+                            "fov": 42,
+                            "projection": "orthographic",
+                            "ortho_scale": 3.2,
+                        },
+                        "axis3d_runtime": {
+                            "mode": "crosshair",
+                            "x_min": -2,
+                            "x_max": 2,
+                            "y_min": -2,
+                            "y_max": 2,
+                            "z_min": -2,
+                            "z_max": 2,
+                            "x_label": "x",
+                            "y_label": "y",
+                            "z_label": "z",
+                            "ticks": True,
+                            "grid": True,
+                            "grid_alpha": 0.12,
+                            "grid_width": 1,
+                            "tick_len_px": 7,
+                            "tick_label_font_size": 11,
+                            "label_font_size": 13,
+                        },
+                    },
+                },
+                "active_geom_variant": "2d_crosshair",
+                "meshes": [],
+                "texts": [],
+                "frame": "axis_deck:axis_plot",
+            }
+        },
+    }
+    packets = [
+        {"seq": 1, "kind": "scene.replace", "payload": {"commands": scene}},
+        {"seq": 2, "kind": "display.replace", "payload": {"display": display}},
+    ]
+
+    if not (VF_UI / "vf-runtime-shell.js").is_file():
+        pytest.skip("web/vf-ui not found")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "vf"
+        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        (root / INDEX_DOC).write_text(
+            '<!DOCTYPE html><html><body data-vf-runtime-shell="scene" '
+            'data-vf-runtime-packet-only="true" '
+            'data-vf-runtime-file-packets="vf-runtime-packets.json" '
+            'data-vf-runtime-prefer-file-packets="true">'
+            '<script src="vf-runtime-shell.js"></script></body></html>',
+            encoding="utf-8",
+        )
+        (root / "vf-runtime-packets.json").write_text(json.dumps(packets), encoding="utf-8")
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
+        try:
+            with _chromium_page() as page:
+                page.goto(f"{base.rstrip('/')}/{INDEX_DOC}", wait_until="domcontentloaded")
+                page.wait_for_selector(".vf-w-button-group__btn", state="visible")
+                page.get_by_role("button", name="2D box").click()
+                page.wait_for_function(
+                    """
+                    () => {
+                      const frame = document.querySelector('.vf-frame[data-vf-frame-id="axis_deck"]');
+                      return frame && frame.getAttribute('data-vf-active-geom-variant') === '2d_box';
+                    }
+                    """
+                )
+                layout = page.evaluate(
+                    """
+                    () => {
+                      const frame = document.querySelector('.vf-frame[data-vf-frame-id="axis_deck"]');
+                      const plot = document.querySelector('.vf-w-plot-panel[data-vf-geom-host="1"]');
+                      const canvas = plot && plot.querySelector('canvas[data-vf-geom-canvas="1"]');
+                      const overlay = document.querySelector('.vf-geom-text-overlay[data-vf-geom-text-fid="axis_deck:axis_plot"]');
+                      const button = document.querySelector('button.vf-w-button-group__btn');
+                      function rect(el) {
+                        const r = el.getBoundingClientRect();
+                        return { left: r.left, top: r.top, width: r.width, height: r.height };
+                      }
+                      return {
+                        active: frame && frame.getAttribute('data-vf-active-geom-variant'),
+                        plot: plot && rect(plot),
+                        canvas: canvas && rect(canvas),
+                        overlay: overlay && rect(overlay),
+                        plotBg: plot && getComputedStyle(plot).backgroundColor,
+                        plotPointer: plot && getComputedStyle(plot).pointerEvents,
+                        canvasPointer: canvas && getComputedStyle(canvas).pointerEvents,
+                        buttonPointer: button && getComputedStyle(button).pointerEvents,
+                      };
+                    }
+                    """
+                )
+                assert layout["active"] == "2d_box"
+                assert layout["plot"] and layout["canvas"] and layout["overlay"]
+                assert layout["plotBg"] in ("transparent", "rgba(0, 0, 0, 0)")
+                assert layout["plotPointer"] == "auto"
+                assert layout["canvasPointer"] in ("auto", "none")
+                assert layout["buttonPointer"] != "none"
+                for key in ("left", "top", "width", "height"):
+                    assert abs(layout["plot"][key] - layout["canvas"][key]) <= 2
+                    assert abs(layout["plot"][key] - layout["overlay"][key]) <= 2
+                page.wait_for_function(
+                    """
+                    () => {
+                      const canvas = document.querySelector('.vf-w-plot-panel canvas[data-vf-geom-canvas="1"]');
+                      if (!canvas || !canvas.width || !canvas.height) return false;
+                      const ctx = canvas.getContext('2d', { alpha: true });
+                      if (!ctx) return false;
+                      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                      for (let i = 3; i < data.length; i += 4) {
+                        if (data[i] > 0) return true;
+                      }
+                      return false;
+                    }
+                    """,
+                    timeout=5_000,
+                )
+                formula_html = page.locator(
+                    '.vf-geom-text-overlay[data-vf-geom-text-fid="axis_deck:axis_plot"] .katex'
+                ).first
+                expect(formula_html).to_be_visible(timeout=5_000)
+                expect(formula_html).to_contain_text("y=0.65")
+                page.evaluate(
+                    """
+                    () => {
+                      const canvas = document.querySelector('.vf-w-plot-panel canvas[data-vf-geom-canvas="1"]');
+                      canvas.dataset.probe2dCanvas = '1';
+                    }
+                    """
+                )
+                page.get_by_role("button", name="3D crosshair").click()
+                page.wait_for_function(
+                    """
+                    () => {
+                      const frame = document.querySelector('.vf-frame[data-vf-frame-id="axis_deck"]');
+                      return frame && frame.getAttribute('data-vf-active-geom-variant') === '3d_crosshair';
+                    }
+                    """
+                )
+                canvas_reused = page.evaluate(
+                    """
+                    () => !!document.querySelector('.vf-w-plot-panel canvas[data-probe2d-canvas="1"]')
+                    """
+                )
+                assert canvas_reused is False
+                page.wait_for_selector(".vf-w-plot-panel canvas.vf-geom-line-overlay", timeout=5_000)
+                page.wait_for_function(
+                    """
+                    () => {
+                      const canvas = document.querySelector('.vf-w-plot-panel canvas.vf-geom-line-overlay');
+                      if (!canvas || !canvas.width || !canvas.height) return false;
+                      const ctx = canvas.getContext('2d', { alpha: true });
+                      if (!ctx) return false;
+                      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                      for (let i = 3; i < data.length; i += 4) {
+                        if (data[i] > 0) return true;
+                      }
+                      return false;
+                    }
+                    """,
+                    timeout=5_000,
+                )
+                page.wait_for_function(
+                    """
+                    () => {
+                      const overlay = document.querySelector('.vf-geom-text-overlay[data-vf-geom-text-fid="axis_deck:axis_plot"]');
+                      return overlay && overlay.innerText.includes('z=u');
+                    }
+                    """,
+                    timeout=5_000,
+                )
+        finally:
+            with contextlib.suppress(Exception):
+                httpd.shutdown()
+            with contextlib.suppress(Exception):
+                httpd.server_close()
+
+
+@pytest.mark.network
+def test_polar_plot_out_of_range_segments_do_not_fallback_to_raw_vertices() -> None:
+    scene = [
+        {
+            "kind": "frame_upsert",
+            "id": "polar_deck",
+            "payload": {
+                "spec": {
+                    "id": "polar_deck",
+                    "title": "Polar Clip",
+                    "rect": {"x": 0.05, "y": 0.06, "w": 0.7, "h": 0.7},
+                    "flags": {"use_browser": True, "closable": True},
+                    "body_layout": {"type": "grid", "rows": 1, "cols": 1},
+                    "body": [{"id": "plot", "type": "plot_panel", "grid": [0, 0, 1, 1], "align": "stretch"}],
+                }
+            },
+        }
+    ]
+    controller = {
+        "id": "polar_controller",
+        "type": "field_mesh",
+        "vertices": [-1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "indices": [0, 1],
+        "topology": "line-list",
+        "render_mode": "marker_impostor",
+        "marker_space": "pixel",
+        "edge_width": 1,
+        "color": "white",
+        "aspect": "equal",
+        "axis_box": True,
+        "axis_polar": True,
+        "axis_bind_id": "polar_bind",
+        "axis_ticks": {
+            "enabled": True,
+            "x_min": -1,
+            "x_max": 1,
+            "y_min": -1,
+            "y_max": 1,
+            "r_min": 0,
+            "r_max": 1,
+            "grid": False,
+            "rings": 2,
+            "spokes": 8,
+        },
+        "axis_plot2d": None,
+        "mode3d": False,
+    }
+    outside_curve = {
+        "id": "outside_curve",
+        "type": "field_mesh",
+        "vertices": [
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+        ],
+        "indices": [0, 1],
+        "topology": "line-list",
+        "render_mode": "marker_impostor",
+        "marker_space": "pixel",
+        "edge_width": 5,
+        "color": [1, 0, 0, 1],
+        "aspect": "equal",
+        "axis_bind_id": "polar_bind",
+        "axis_ticks": None,
+        "axis_plot2d": {"x_values": [2, 3], "y_values": [0, 0]},
+        "mode3d": False,
+    }
+    display = {
+        "screen": [],
+        "geom": {
+            "polar_deck:plot": {
+                "meshes": [controller, outside_curve],
+                "texts": [],
+                "frame": "polar_deck:plot",
+            }
+        },
+    }
+    packets = [
+        {"seq": 1, "kind": "scene.replace", "payload": {"commands": scene}},
+        {"seq": 2, "kind": "display.replace", "payload": {"display": display}},
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "vf"
+        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        (root / INDEX_DOC).write_text(
+            '<!DOCTYPE html><html><body data-vf-runtime-shell="scene" '
+            'data-vf-runtime-packet-only="true" '
+            'data-vf-runtime-file-packets="vf-runtime-packets.json" '
+            'data-vf-runtime-prefer-file-packets="true">'
+            '<script src="vf-runtime-shell.js"></script></body></html>',
+            encoding="utf-8",
+        )
+        (root / "vf-runtime-packets.json").write_text(json.dumps(packets), encoding="utf-8")
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
+        try:
+            with _chromium_page() as page:
+                page.goto(f"{base.rstrip('/')}/{INDEX_DOC}", wait_until="domcontentloaded")
+                page.wait_for_selector(".vf-w-plot-panel canvas[data-vf-geom-canvas='1']", timeout=30_000)
+                page.wait_for_timeout(500)
+                red_pixels = page.evaluate(
+                    """
+                    () => {
+                      const canvas = document.querySelector('.vf-w-plot-panel canvas[data-vf-geom-canvas="1"]');
+                      const ctx = canvas.getContext('2d', { alpha: true });
+                      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                      let count = 0;
+                      for (let i = 0; i < data.length; i += 4) {
+                        if (data[i] > 160 && data[i + 1] < 80 && data[i + 2] < 80 && data[i + 3] > 120) count++;
+                      }
+                      return count;
+                    }
+                    """
+                )
+                assert red_pixels == 0
+        finally:
+            with contextlib.suppress(Exception):
+                httpd.shutdown()
+            with contextlib.suppress(Exception):
+                httpd.server_close()
+
+
+@pytest.mark.network
+def test_polar_plot_prefers_phi_values_when_axis_rotates() -> None:
+    scene = [
+        {
+            "kind": "frame_upsert",
+            "id": "polar_deck",
+            "payload": {
+                "spec": {
+                    "id": "polar_deck",
+                    "title": "Polar Phi",
+                    "rect": {"x": 0.05, "y": 0.06, "w": 0.7, "h": 0.7},
+                    "flags": {"use_browser": True, "closable": True},
+                    "body_layout": {"type": "grid", "rows": 1, "cols": 1},
+                    "body": [{"id": "plot", "type": "plot_panel", "grid": [0, 0, 1, 1], "align": "stretch"}],
+                }
+            },
+        }
+    ]
+    controller = {
+        "id": "polar_controller",
+        "type": "field_mesh",
+        "vertices": [-1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "indices": [0, 1],
+        "topology": "line-list",
+        "render_mode": "marker_impostor",
+        "marker_space": "pixel",
+        "edge_width": 1,
+        "color": "white",
+        "aspect": "equal",
+        "axis_box": True,
+        "axis_polar": True,
+        "axis_bind_id": "polar_bind",
+        "axis_ticks": {"enabled": True, "r_min": 0, "r_max": 1, "grid": False, "rings": 1, "spokes": 4},
+        "axis_plot2d": None,
+        "mode3d": False,
+    }
+    curve = {
+        "id": "phi_curve",
+        "type": "field_mesh",
+        "vertices": [-1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1],
+        "indices": [0, 1],
+        "topology": "line-list",
+        "render_mode": "marker_impostor",
+        "marker_space": "pixel",
+        "edge_width": 6,
+        "color": [1, 0, 0, 1],
+        "aspect": "equal",
+        "axis_bind_id": "polar_bind",
+        "axis_ticks": None,
+        "axis_plot2d": {
+            "x_values": [0.2, 0.8],
+            "y_values": [0, 0],
+            "r_values": [0.2, 0.8],
+            "phi_values": [1.57079632679, 1.57079632679],
+        },
+        "mode3d": False,
+    }
+    display = {
+        "screen": [],
+        "geom": {"polar_deck:plot": {"meshes": [controller, curve], "texts": [], "frame": "polar_deck:plot"}},
+    }
+
+    packets = [
+        {"seq": 1, "kind": "scene.replace", "payload": {"commands": scene}},
+        {"seq": 2, "kind": "display.replace", "payload": {"display": display}},
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "vf"
+        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        (root / INDEX_DOC).write_text(
+            '<!DOCTYPE html><html><body data-vf-runtime-shell="scene" '
+            'data-vf-runtime-packet-only="true" '
+            'data-vf-runtime-file-packets="vf-runtime-packets.json" '
+            'data-vf-runtime-prefer-file-packets="true">'
+            '<script src="vf-runtime-shell.js"></script></body></html>',
+            encoding="utf-8",
+        )
+        (root / "vf-runtime-packets.json").write_text(json.dumps(packets), encoding="utf-8")
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
+        try:
+            with _chromium_page() as page:
+                page.goto(f"{base.rstrip('/')}/{INDEX_DOC}", wait_until="domcontentloaded")
+                page.wait_for_selector(".vf-w-plot-panel canvas[data-vf-geom-canvas='1']", timeout=30_000)
+                page.wait_for_timeout(500)
+                counts = page.evaluate(
+                    """
+                    () => {
+                      const canvas = document.querySelector('.vf-w-plot-panel canvas[data-vf-geom-canvas="1"]');
+                      const ctx = canvas.getContext('2d', { alpha: true });
+                      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                      const cx = canvas.width / 2;
+                      const cy = canvas.height / 2;
+                      let vertical = 0;
+                      let horizontal = 0;
+                      for (let y = 0; y < canvas.height; y += 1) {
+                        for (let x = 0; x < canvas.width; x += 1) {
+                          const i = (y * canvas.width + x) * 4;
+                          const red = data[i] > 160 && data[i + 1] < 80 && data[i + 2] < 80 && data[i + 3] > 120;
+                          if (!red) continue;
+                          if (Math.abs(x - cx) <= 8 && y < cy - 20) vertical += 1;
+                          if (Math.abs(y - cy) <= 8 && x > cx + 20) horizontal += 1;
+                        }
+                      }
+                      return { vertical, horizontal };
+                    }
+                    """
+                )
+                assert counts["vertical"] > 20
+                assert counts["vertical"] > counts["horizontal"] * 3
+        finally:
+            with contextlib.suppress(Exception):
+                httpd.shutdown()
+            with contextlib.suppress(Exception):
+                httpd.server_close()
+
+
+@pytest.mark.network
+def test_ctrl_drag_rotates_polar_theta_tick_labels() -> None:
+    scene = [
+        {
+            "kind": "frame_upsert",
+            "id": "polar_deck",
+            "payload": {
+                "spec": {
+                    "id": "polar_deck",
+                    "title": "Polar Rotate",
+                    "rect": {"x": 0.05, "y": 0.06, "w": 0.7, "h": 0.7},
+                    "flags": {"use_browser": True, "closable": True},
+                    "body_layout": {"type": "grid", "rows": 1, "cols": 1},
+                    "body": [{"id": "plot", "type": "plot_panel", "grid": [0, 0, 1, 1], "align": "stretch"}],
+                }
+            },
+        }
+    ]
+    controller = {
+        "id": "polar_controller",
+        "type": "field_mesh",
+        "vertices": [-1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        "indices": [0, 1],
+        "topology": "line-list",
+        "render_mode": "marker_impostor",
+        "marker_space": "pixel",
+        "edge_width": 1,
+        "color": "white",
+        "aspect": "equal",
+        "axis_box": True,
+        "axis_polar": True,
+        "axis_bind_id": "polar_bind",
+        "axis_ticks": {
+            "enabled": True,
+            "x_min": -1,
+            "x_max": 1,
+            "y_min": -1,
+            "y_max": 1,
+            "r_min": 0,
+            "r_max": 1,
+            "grid": True,
+            "rings": 2,
+            "spokes": 8,
+            "theta_label_step_deg": 45,
+        },
+        "axis_plot2d": None,
+        "mode3d": False,
+    }
+    display = {
+        "screen": [],
+        "geom": {"polar_deck:plot": {"meshes": [controller], "texts": [], "frame": "polar_deck:plot"}},
+    }
+    packets = [
+        {"seq": 1, "kind": "scene.replace", "payload": {"commands": scene}},
+        {"seq": 2, "kind": "display.replace", "payload": {"display": display}},
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "vf"
+        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        (root / INDEX_DOC).write_text(
+            '<!DOCTYPE html><html><body data-vf-runtime-shell="scene" '
+            'data-vf-runtime-packet-only="true" '
+            'data-vf-runtime-file-packets="vf-runtime-packets.json" '
+            'data-vf-runtime-prefer-file-packets="true">'
+            '<script src="vf-runtime-shell.js"></script></body></html>',
+            encoding="utf-8",
+        )
+        (root / "vf-runtime-packets.json").write_text(json.dumps(packets), encoding="utf-8")
+        base, httpd, _thr, _posted = _http_server_for_directory(root)
+        try:
+            with _chromium_page() as page:
+                page.goto(f"{base.rstrip('/')}/{INDEX_DOC}", wait_until="domcontentloaded")
+                plot = page.locator(".vf-w-plot-panel").first
+                expect(plot).to_be_visible(timeout=30_000)
+                page.wait_for_function(
+                    """() => Array.from(document.querySelectorAll('.vf-geom-text-overlay__item'))
+                      .some((el) => el.dataset.vfGeomTextValue === '$90^\\\\circ$')""",
+                    timeout=10_000,
+                )
+                before = page.evaluate(
+                    """
+                    () => {
+                      const items = Array.from(document.querySelectorAll('.vf-geom-text-overlay__item'))
+                        .filter((item) => item.style.display !== 'none');
+                      const ninety = items.find((item) => item.dataset.vfGeomTextValue === '$90^\\\\circ$');
+                      const zero = items.find((item) => item.dataset.vfGeomTextValue === '$0^\\\\circ$');
+                      function anchor(el) {
+                        const m = /translate3d\\(\\s*([-0-9.]+)px\\s*,\\s*([-0-9.]+)px\\s*,\\s*0(?:px)?\\s*\\)/.exec(el.style.transform || '');
+                        return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+                      }
+                      const plot = document.querySelector('.vf-w-plot-panel');
+                      const er = ninety.getBoundingClientRect();
+                      const pr = plot.getBoundingClientRect();
+                      const n = anchor(ninety);
+                      const z = anchor(zero);
+                      return { x: er.left + er.width / 2, y: er.top + er.height / 2, cx: n.x, cy: z.y, radius: Math.max(40, Math.min(z.x - n.x, z.y - n.y) * 0.72), plotCx: pr.left + pr.width / 2, plotCy: pr.top + pr.height / 2 };
+                    }
+                    """
+                )
+                page.keyboard.down("Control")
+                near_quarter_turn = 86 * 3.141592653589793 / 180
+                page.mouse.move(before["cx"] + before["radius"], before["cy"])
+                page.mouse.down()
+                page.mouse.move(
+                    before["cx"] + before["radius"] * math.cos(near_quarter_turn),
+                    before["cy"] - before["radius"] * math.sin(near_quarter_turn),
+                    steps=12,
+                )
+                page.mouse.up()
+                page.keyboard.up("Control")
+                page.wait_for_timeout(400)
+                after = page.evaluate(
+                    """
+                    () => {
+                      const items = Array.from(document.querySelectorAll('.vf-geom-text-overlay__item'))
+                        .filter((item) => item.style.display !== 'none');
+                      const ninety = items.find((item) => item.dataset.vfGeomTextValue === '$90^\\\\circ$');
+                      const zero = items.find((item) => item.dataset.vfGeomTextValue === '$0^\\\\circ$');
+                      function anchor(el) {
+                        const m = /translate3d\\(\\s*([-0-9.]+)px\\s*,\\s*([-0-9.]+)px\\s*,\\s*0(?:px)?\\s*\\)/.exec(el.style.transform || '');
+                        return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+                      }
+                      const nr = ninety.getBoundingClientRect();
+                      const zr = zero.getBoundingClientRect();
+                          return {
+                            ninety: { x: nr.left + nr.width / 2, y: nr.top + nr.height / 2 },
+                            zero: { x: zr.left + zr.width / 2, y: zr.top + zr.height / 2 },
+                            ninetyAnchor: anchor(ninety),
+                            zeroAnchor: anchor(zero)
+                          };
+                        }
+                        """
+                )
+                assert before["cy"] - before["radius"] < before["y"] + 30
+                assert after["ninetyAnchor"]["x"] < before["cx"] - 20
+                page.add_script_tag(path=str(VF_UI / "vf-axis2d-ticks.js"))
+                snapped = page.evaluate(
+                    """
+                    () => window.VfAxis2DTicks.polarThetaOffset({
+                      __raw_theta_offset_rad: 86 * Math.PI / 180
+                    }) * 180 / Math.PI
+                    """
+                )
+                assert snapped == pytest.approx(90)
+        finally:
+            with contextlib.suppress(Exception):
+                httpd.shutdown()
+            with contextlib.suppress(Exception):
+                httpd.server_close()
 
 
 @pytest.mark.network

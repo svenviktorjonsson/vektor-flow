@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -66,16 +65,33 @@ def _externalize_native_scene_configs(session_html: str) -> tuple[str, str | Non
 def _seed_runtime_dir(runtime_dir: Path, packets_text: str) -> None:
     runtime_dir.mkdir(parents=True, exist_ok=True)
     write_text_if_changed(runtime_dir / "vf-runtime-packets.json", packets_text)
-    write_text_if_changed(runtime_dir / "vf-display.json", '{\n  "screen": [],\n  "frames": {},\n  "geom": {}\n}\n')
+    (runtime_dir / "vf-display.json").unlink(missing_ok=True)
     write_text_if_changed(runtime_dir / "vkf-scene.json", "[]\n")
     write_text_if_changed(runtime_dir / "vf-ui-state.json", "{}\n")
 
 
+def _program_version_stamp(program: NativeOverlaySceneProgram) -> str:
+    hasher = hashlib.sha256()
+    for text in (
+        program.html_text,
+        program.runtime_packets_text,
+        program.geom_transport_text or "",
+        program.geom_state_text or "",
+        program.event_program_text or "",
+    ):
+        hasher.update(text.encode("utf-8"))
+        hasher.update(b"\0")
+    return str(int(hasher.hexdigest()[:16], 16))
+
+
 def _stage_program_session(program: NativeOverlaySceneProgram, *session_dirs: Path) -> None:
-    session_html = _VERSION_QUERY_RE.sub(f"?v={time.time_ns()}", program.html_text)
+    session_html = _VERSION_QUERY_RE.sub(f"?v={_program_version_stamp(program)}", program.html_text)
     session_html, config_filename, config_text = _externalize_native_scene_configs(session_html)
     for session_dir in session_dirs:
         session_dir.mkdir(parents=True, exist_ok=True)
+        for stale_config in session_dir.glob("vf-native-scene-configs-*.json"):
+            if stale_config.name != config_filename:
+                stale_config.unlink(missing_ok=True)
         write_text_if_changed(session_dir / "vkf-scene.html", session_html)
         if config_filename and config_text is not None:
             write_text_if_changed(session_dir / config_filename, config_text)

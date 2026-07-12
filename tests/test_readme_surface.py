@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from io import StringIO
 from pathlib import Path
 
 from vektorflow.interpreter import Interpreter
 from vektorflow.parser import parse_module
+from vektorflow.ui.display_runtime import build_display_payload
 
 
 def _emit(src: str) -> str:
@@ -17,6 +19,89 @@ def _emit(src: str) -> str:
     with contextlib.redirect_stdout(buf):
         ip.run_module(mod)
     return buf.getvalue().strip()
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _display_payload_for_file(path: Path) -> dict:
+    source = path.read_text(encoding="utf-8")
+    mod = parse_module(source, filename=str(path))
+    ip = Interpreter(path)
+    ip.run_module(mod)
+    d = ip.globals["d"]
+    payload = build_display_payload(
+        screen_ops=list(getattr(d, "_screen_ops", [])),
+        screen_repr_ops=dict(getattr(d, "_screen_repr_ops", {})),
+        frame_ops=dict(getattr(d, "_frame_ops", {})),
+        frame_repr_ops=dict(getattr(d, "_frame_repr_ops", {})),
+        geom=dict(getattr(d, "_geom", {})),
+    )
+    json.dumps(payload)
+    return payload
+
+
+class TestReadmeGeneratedExamples:
+    def test_physics_layer_lighting_example_preserves_layer_contract(self) -> None:
+        payload = _display_payload_for_file(
+            REPO / "examples" / "generated" / "readme" / "ui_physics_layer_lighting.vkf"
+        )
+        geom = payload["geom"]["physics_layer_light_canvas"]
+        meshes = {mesh["id"]: mesh for mesh in geom["meshes"]}
+
+        assert meshes["layer_1_light_source"]["physics"] == {
+            "kind": "light2d",
+            "layer": 1,
+            "radius_ratio_to_square_width": 0.1,
+            "shape": "circle",
+            "center": "-0.35,0.0",
+            "color": "#fff8a8",
+            "falloff_radius_ratio": 0.7666666667,
+            "illuminates_lower_layers": True,
+        }
+        assert "layer_1_blue_light_source" not in meshes
+        assert meshes["adjacent_square_backgrounds"]["physics"]["layer"] == 0
+        assert meshes["adjacent_square_backgrounds"]["physics"]["floor_texture"] == "axis_aligned_tiles"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["square_width"] == 1.0
+        assert meshes["adjacent_square_backgrounds"]["physics"]["rooms"] == (
+            "-1.5,-0.5,-0.5,0.5;-0.5,-0.5,0.5,0.5;0.5,-0.5,1.5,0.5"
+        )
+        assert meshes["adjacent_square_backgrounds"]["physics"]["left_square"] == "-1.5,-0.5,-0.5,0.5"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["middle_square"] == "-0.5,-0.5,0.5,0.5"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["right_square"] == "0.5,-0.5,1.5,0.5"
+        assert meshes["adjacent_square_backgrounds"]["physics"]["light_result"] == "background_layer_under_light"
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["layer"] == 0
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["boundary_parts"] == (
+            "outer_edges_and_each_shared_edge_first_last_thirds"
+        )
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["shared_edge_gaps"] == "middle_thirds"
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["wall_thickness_ratio"] == 0.0266666667
+        assert meshes["boundary_parts_with_middle_gap"]["physics"]["wall_material"] == "plain_shader_lit"
+        assert meshes["lighting_layer_passes_through_gap"]["physics"] == {
+            "kind": "light_field2d",
+            "layer": 1,
+            "passes_through": "shared_edge_middle_third_gaps",
+            "above_layer": 0,
+            "penumbra_base_ratio": 0.0166666667,
+            "penumbra_growth_ratio": 0.16,
+            "falloff_radius_ratio": 0.7666666667,
+        }
+        assert meshes["layer_1_silver_mirror"]["physics"] == {
+            "kind": "optical_boundary2d",
+            "layer": 1,
+            "optical_kind": "mirror",
+            "segment": "-0.22,-0.28,0.34,-0.28",
+            "virtual_light_kind": "projected",
+            "reflect_of_light_id": "layer_1_light_source",
+            "aperture_face_id": "layer_1_silver_mirror",
+            "starts_after_aperture": True,
+            "reflectivity": 0.72,
+            "transmittance": 0.0,
+            "color": "#f4f8ff",
+            "spread_ratio": 0.10,
+        }
+        assert "layer_1_green_tinted_window" not in meshes
+        assert "layer_1_blue_tinted_mirror" not in meshes
 
 
 class TestStringInterpolation:

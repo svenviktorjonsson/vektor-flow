@@ -8,16 +8,20 @@ const source = fs.readFileSync(
 );
 
 assert.match(source, /"vf-axis3d-kernel\.js"/);
+assert.match(source, /"vf-gpu-runtime\.js"/);
 assert.match(source, /"vf-axis3d-kernel-adapter\.js"/);
 assert.match(source, /"vf-axis3d-projection-kernel\.js"/);
 assert.match(source, /"vf-axis3d-projection-kernel-adapter\.js"/);
 
 const kernelIndex = source.indexOf('"vf-axis3d-kernel.js"');
+const gpuRuntimeIndex = source.indexOf('"vf-gpu-runtime.js"');
+const geomRuntimeIndex = source.indexOf('"geom/vf-geom-wgpu.js"');
 const kernelAdapterIndex = source.indexOf('"vf-axis3d-kernel-adapter.js"');
 const projectionIndex = source.indexOf('"vf-axis3d-projection-kernel.js"');
 const projectionAdapterIndex = source.indexOf('"vf-axis3d-projection-kernel-adapter.js"');
 
 assert.ok(kernelIndex >= 0 && kernelAdapterIndex > kernelIndex);
+assert.ok(gpuRuntimeIndex >= 0 && geomRuntimeIndex > gpuRuntimeIndex);
 assert.ok(projectionIndex >= 0 && projectionAdapterIndex > projectionIndex);
 assert.match(source, /packetOnly:\s*false/);
 assert.match(source, /strictPacketOnly:\s*false/);

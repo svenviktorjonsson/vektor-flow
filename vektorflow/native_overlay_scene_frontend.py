@@ -17,8 +17,9 @@ def try_extract_native_overlay_scene_contract_from_module(
     module,
     *,
     session_stem: str,
+    source_path: Path | None = None,
 ) -> NativeOverlaySceneContract | None:
-    declared = find_top_level_struct_binding(module, "native_scene")
+    declared = find_top_level_struct_binding(module, "native_scene", source_path=source_path)
     if declared is not None:
         return NativeOverlaySceneContract(
             session_stem=session_stem,
@@ -47,6 +48,7 @@ def try_build_native_overlay_scene_program_from_source(
     contract = try_extract_native_overlay_scene_contract_from_module(
         module,
         session_stem=session_stem,
+        source_path=Path(filename),
     )
     if contract is None:
         return None

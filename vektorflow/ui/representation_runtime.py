@@ -817,8 +817,10 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     marker_space = _normalize_field_mesh_marker_space(meta.get("marker_space"), render_mode)
     casts_shadow = bool(meta.get("casts_shadow", render_mode != "marker_impostor"))
     receives_lighting = bool(meta.get("receives_lighting", True))
+    physics = meta.get("physics")
+    physics_gpu = meta.get("physics_gpu")
 
-    return {
+    payload = {
         "type": "field_mesh",
         "id": str(meta.get("id", "field_mesh")),
         "vertices": geom["vertices"],
@@ -836,6 +838,7 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "manifold_dim_count": geom["manifold_dim_count"],
         "solid_volume": geom["solid_volume"],
         "vertex_size": geom["vertex_size"],
+        "vertex_scale": meta.get("vertex_scale"),
         "edge_width": geom["edge_width"],
         "vertex_widths": geom["vertex_widths"],
         "render_mode": render_mode,
@@ -855,8 +858,14 @@ def build_field_mesh_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
         "mode3d": bool(meta.get("mode3d", True)),
         "casts_shadow": casts_shadow,
         "receives_lighting": receives_lighting,
+        "no_lighting": bool(meta.get("no_lighting", False)),
         "depth_write": bool(meta.get("depth_write", False)),
     }
+    if physics is not None:
+        payload["physics"] = physics
+    if physics_gpu is not None:
+        payload["physics_gpu"] = physics_gpu
+    return payload
 
 
 def _parse_mesh_channel(

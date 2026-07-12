@@ -631,6 +631,10 @@ int main(int argc, char** argv) {
         } else {
             std::cout << "null";
         }
+        if (token.kind == "NUMBER") {
+            std::cout << ",\n"
+                      << "      \"raw\": \"" << escaped_value(token.value) << "\"";
+        }
         std::cout << ",\n"
                   << "      \"location\": {\n"
                   << "        \"file\": \"" << escaped_value(token.file) << "\",\n"

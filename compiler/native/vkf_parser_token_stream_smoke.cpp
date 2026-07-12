@@ -23,6 +23,7 @@ struct Location {
 struct Token {
     std::string kind;
     vf::JsonValue value;
+    std::string raw;
     Location location;
 };
 
@@ -89,6 +90,10 @@ Token read_token(const vf::JsonValue& value) {
     token.kind = require_string(field(object, "kind", location), "token.kind", location);
     const auto value_field = object.find("value");
     token.value = value_field == object.end() ? vf::JsonValue(nullptr) : value_field->second;
+    const auto raw_field = object.find("raw");
+    if (raw_field != object.end() && raw_field->second.is_string()) {
+        token.raw = raw_field->second.as_string();
+    }
     token.location = location;
     return token;
 }
@@ -261,6 +266,17 @@ private:
         return !text.empty() && std::isupper(static_cast<unsigned char>(text.front()));
     }
 
+    static bool is_declared_bind_type_token(const Token& token) {
+        if (is_upper_ident_token(token)) {
+            return true;
+        }
+        if (token.kind != "IDENT" || !token.value.is_string()) {
+            return false;
+        }
+        const std::string& text = token.value.as_string();
+        return text == "bit" || text == "int" || text == "num" || text == "chr" || text == "str";
+    }
+
     const Token& peek() const {
         if (index_ >= tokens_.size()) {
             return tokens_.back();
@@ -324,7 +340,7 @@ private:
 
     bool starts_simple_ident_declared_bind() const {
         return index_ + 2 < tokens_.size()
-            && is_upper_ident_token(tokens_[index_])
+            && is_declared_bind_type_token(tokens_[index_])
             && tokens_[index_ + 1].kind == "IDENT"
             && tokens_[index_ + 2].kind == "COLON";
     }
@@ -1013,6 +1029,8 @@ private:
                     && kind_it->second.as_string() == "number_literal" && value_it->second.is_number()) {
                     auto out = node("number_literal");
                     out["value"] = vf::JsonValue(-value_it->second.as_number());
+                    const auto integer_it = object.find("is_integer_surface");
+                    out["is_integer_surface"] = integer_it != object.end() ? integer_it->second : vf::JsonValue(false);
                     return vf::JsonValue(std::move(out));
                 }
             }
@@ -1157,6 +1175,7 @@ private:
             }
             auto out = node("number_literal");
             out["value"] = number_value(-value.value.as_number());
+            out["is_integer_surface"] = vf::JsonValue(value.raw.find('.') == std::string::npos);
             return vf::JsonValue(std::move(out));
         }
         if (token.kind == "NUMBER") {
@@ -1166,6 +1185,7 @@ private:
             }
             auto out = node("number_literal");
             out["value"] = number_value(token.value.as_number());
+            out["is_integer_surface"] = vf::JsonValue(token.raw.find('.') == std::string::npos);
             return vf::JsonValue(std::move(out));
         }
         if (token.kind == "STRING" || token.kind == "STRING_RAW") {

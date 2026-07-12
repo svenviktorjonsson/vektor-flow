@@ -7,7 +7,6 @@ project(vf-overlay CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 get_filename_component(VF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 
@@ -197,8 +196,21 @@ if(MSVC)
   target_link_options(vf-overlay PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
 
-file(GLOB_RECURSE VF_EMBEDDED_VF_UI_INPUTS CONFIGURE_DEPENDS
-  "${VF_REPO_ROOT}/web/vf-ui/*"
+file(GLOB VF_EMBEDDED_VF_UI_ROOT_INPUTS CONFIGURE_DEPENDS
+  "${VF_REPO_ROOT}/web/vf-ui/*.css"
+  "${VF_REPO_ROOT}/web/vf-ui/*.html"
+  "${VF_REPO_ROOT}/web/vf-ui/*.js"
+  "${VF_REPO_ROOT}/web/vf-ui/.gitignore"
+  "${VF_REPO_ROOT}/web/vf-ui/.vf-ui-version"
+)
+file(GLOB_RECURSE VF_EMBEDDED_VF_UI_ASSET_INPUTS CONFIGURE_DEPENDS
+  "${VF_REPO_ROOT}/web/vf-ui/assets/*"
+  "${VF_REPO_ROOT}/web/vf-ui/geom/*"
+  "${VF_REPO_ROOT}/web/vf-ui/katex/*"
+)
+set(VF_EMBEDDED_VF_UI_INPUTS
+  ${VF_EMBEDDED_VF_UI_ROOT_INPUTS}
+  ${VF_EMBEDDED_VF_UI_ASSET_INPUTS}
 )
 set(VF_EMBEDDED_VF_UI_RC "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_vf_ui_assets.rc")
 set(VF_EMBEDDED_VF_UI_CPP "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_vf_ui_assets.cpp")
@@ -208,14 +220,14 @@ add_custom_command(
     "${VF_EMBEDDED_VF_UI_RC}"
     "${VF_EMBEDDED_VF_UI_CPP}"
     "${VF_EMBEDDED_VF_UI_HPP}"
-  COMMAND "${Python3_EXECUTABLE}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.py"
-    "${VF_REPO_ROOT}/web/vf-ui"
-    "${VF_EMBEDDED_VF_UI_RC}"
-    "${VF_EMBEDDED_VF_UI_CPP}"
-    "${VF_EMBEDDED_VF_UI_HPP}"
+  COMMAND "${CMAKE_COMMAND}"
+    "-DVF_UI_SOURCE_DIR=${VF_REPO_ROOT}/web/vf-ui"
+    "-DVF_UI_OUT_RC=${VF_EMBEDDED_VF_UI_RC}"
+    "-DVF_UI_OUT_CPP=${VF_EMBEDDED_VF_UI_CPP}"
+    "-DVF_UI_OUT_HPP=${VF_EMBEDDED_VF_UI_HPP}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.cmake"
   DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_embedded_vf_ui_assets.cmake"
     ${VF_EMBEDDED_VF_UI_INPUTS}
   COMMENT "Embed web/vf-ui into vkf resources"
   VERBATIM
@@ -229,46 +241,42 @@ add_custom_target(vkf-embedded-vf-ui-assets
 
 add_executable(vkf
   vkf_launcher.cpp
+  ${VF_OVERLAY_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
 target_include_directories(vkf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
-  "${TRANSPARENT_OVERLAY_INCLUDE_DIR}"
+  "${WV2_INCLUDE_DIR}"
+  "${cjson_SOURCE_DIR}"
 )
-target_compile_definitions(vkf PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST ${TRANSPARENT_OVERLAY_LINK_MODE_DEFINE})
+target_compile_definitions(vkf PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST VF_OVERLAY_NO_STANDALONE_MAIN)
 target_link_libraries(vkf PRIVATE
-  ${TRANSPARENT_OVERLAY_LINK_TARGET}
+  ${VF_OVERLAY_HOST_LIBS}
   kernel32
 )
 if(MSVC)
   target_compile_options(vkf PRIVATE /Zi)
   target_link_options(vkf PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
-if(TRANSPARENT_OVERLAY_RUNTIME_DLL)
-  add_custom_command(TARGET vkf POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${TRANSPARENT_OVERLAY_RUNTIME_DLL}"
-    "$<TARGET_FILE_DIR:vkf>"
-    COMMENT "Copy TransparentOverlay runtime next to vkf"
-  )
-endif()
 add_dependencies(vkf vkf-embedded-vf-ui-assets)
 
 add_executable(vkf-runner WIN32
   vkf_launcher.cpp
+  ${VF_OVERLAY_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
 target_include_directories(vkf-runner PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
-  "${TRANSPARENT_OVERLAY_INCLUDE_DIR}"
+  "${WV2_INCLUDE_DIR}"
+  "${cjson_SOURCE_DIR}"
 )
-target_compile_definitions(vkf-runner PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST ${TRANSPARENT_OVERLAY_LINK_MODE_DEFINE})
+target_compile_definitions(vkf-runner PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST VF_OVERLAY_NO_STANDALONE_MAIN)
 target_link_libraries(vkf-runner PRIVATE
-  ${TRANSPARENT_OVERLAY_LINK_TARGET}
+  ${VF_OVERLAY_HOST_LIBS}
   kernel32
 )
 if(MSVC)
@@ -285,6 +293,7 @@ if(MSVC)
   target_compile_options(vkf-native-scene-artifact-stager PRIVATE /Zi)
   target_link_options(vkf-native-scene-artifact-stager PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
+add_dependencies(vkf vkf-native-scene-artifact-stager)
 
 add_library(vf-compiled-ui-demo SHARED
   vf/compiled_ui_runtime_demo.cpp

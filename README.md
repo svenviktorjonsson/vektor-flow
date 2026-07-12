@@ -76,6 +76,178 @@ The primitive function/type handles are:
 
 File extension: `.vkf`.
 
+### 7. Symbolic Math Is Built In
+
+Symbolic expressions are ordinary VKF expressions with symbolic domains carried
+by the type system. Import the symbolic library before using symbolic domain
+names directly:
+
+```vkf
+:.symbolic
+
+x: R
+n: Z
+f: R -> R
+v: [R:n]
+
+expr: x^2 + 1
+rel: x^2 = 4
+
+:: latex(d/dx expr)
+:: solve(rel, x)
+```
+
+Symbolic operations preserve representation unless an explicit operation moves
+the expression. That means `x + 1` and `1 + x` can be equivalent without being
+the same representation. Use operations such as `expand`, `factor`,
+`integrate`, `diff`, and status calls to move through or inspect the symbolic
+space.
+
+The status surface is structured so UI and tracing tools can inspect searches
+without parsing human text:
+
+```vkf
+:.symbolic
+
+x: R
+
+:: path_status(x, x)
+:: transform_path_status(integrate(x, x))
+```
+
+These return record-shaped symbolic values with fields such as `found`,
+`capped`, `steps`, `expanded`, `reached`, `residual_before`,
+`residual_after`, `max_steps`, `beam`, and `reason`.
+
+## Symbolic Math Track
+
+VKF is growing an inbuilt symbolic system as part of the language, not as a
+separate interpreter bolted onto the side. The goal is that the same compiler
+that understands ordinary expressions also understands symbolic expressions,
+relations, transforms, and typed mathematical domains.
+
+This track follows the native compiler direction from
+`docs/adr/0003-self-hosted-vkf-compiler.md`: compiled programs and compiler
+runtime paths must not depend on Python. Python can still orchestrate tests or
+benchmarks, but symbolic program execution belongs to the native path.
+
+### Symbolic Domains
+
+Symbolic variables use domain types:
+
+```vkf
+:.symbolic
+
+x: R      # real
+n: N      # natural
+m: Z      # integer
+q: Q      # rational
+z: C      # complex
+f: R -> R # symbolic function
+v: [R:n]  # symbolic vector domain
+```
+
+The symbolic domain is a compile-time fact on the expression. This matters for
+rules such as inequalities, integer solving, and future matrix/non-commutative
+algebra.
+
+### Expressions And Relations
+
+Relations are symbolic expressions too:
+
+```vkf
+:.symbolic
+
+x: Z
+y: Z
+
+eq: 2*x + 3*y = 7
+sys: eq & (x - y = 1)
+
+:: solve(eq, x, y)
+```
+
+Solvers return values shaped for use in the language. For two-variable integer
+relations, the result exposes fields such as `.x` and `.y` rather than forcing
+users through stringly names.
+
+### Representation Is Explicit
+
+The symbolic engine does not silently canonicalize every expression. `x + 1`
+and `1 + x` can be equivalent, but their representations are different until
+an operation moves between them. This is intentional: representation matters
+for teaching, tracing, animation, and exact LaTeX output.
+
+Display names are local to symbols:
+
+```vkf
+:.symbolic
+
+phi: R
+phi.repr: "\\phi"
+
+:: latex(phi)
+```
+
+Numbers after symbol names are rendered as indices in LaTeX where appropriate,
+and multi-letter functions render as operators.
+
+### Equivalence And Transform Search
+
+The symbolic track separates equivalence movement from transforms.
+
+Equivalence movement keeps mathematical meaning in the same class:
+
+- expand and factor
+- compute literal subexpressions
+- apply reversible algebraic movement
+- reorder where a rule permits it
+
+Transforms create a new mathematical object:
+
+- `diff`
+- `integrate`
+- sums
+- Fourier/Laplace/Z/wavelet-style transforms as they land
+
+Status functions expose what the engine did or why it stopped:
+
+```vkf
+:.symbolic
+
+x: R
+
+:: path_status(x, x)
+:: transform_path_status(integrate(x, x))
+:: transform_path_beam_status(integrate(x, x), 1)
+```
+
+The status value is a record-shaped symbolic value:
+
+```text
+{found: true, capped: false, steps: 0, expanded: 0, reached: 1, score: 0, residual_before: 0, residual_after: 0, max_steps: 8, beam: 0, reason: same expression}
+```
+
+Those fields are the stable interface for tracing and future UI animation. The
+implementation can deepen behind that seam from small native moves to a fuller
+equivalence graph without changing the caller's shape.
+
+### Current Examples
+
+The symbolic examples are the best runnable overview:
+
+- `examples/symbolic/01_domains_and_types.vkf`
+- `examples/symbolic/02_latex_display_names.vkf`
+- `examples/symbolic/03_calculus_and_sums.vkf`
+- `examples/symbolic/04_relations_and_integer_solve.vkf`
+- `examples/symbolic/05_symbolic_status.vkf`
+
+Run them like any other VKF program:
+
+```bash
+vkf examples/symbolic/01_domains_and_types.vkf
+```
+
 ## First Look
 
 ```vkf
@@ -238,6 +410,17 @@ Types, flow, and modules:
 - `examples/51_vector_shape_types.vkf`
 - `examples/52_compile_time_shape_params.vkf`
 - `examples/53_type_reflection.vkf`
+
+Symbolic math:
+
+- `examples/symbolic/01_domains_and_types.vkf`
+- `examples/symbolic/02_latex_display_names.vkf`
+- `examples/symbolic/03_calculus_and_sums.vkf`
+- `examples/symbolic/04_relations_and_integer_solve.vkf`
+- `examples/symbolic/05_symbolic_status.vkf`
+
+Flow, operators, and modules:
+
 - `examples/60_if.vkf`
 - `examples/61_switch.vkf`
 - `examples/62_pipes.vkf`
@@ -864,6 +1047,147 @@ point: (x:3, y:4)
 :: {:point.}    # {x:1, y:1}     member keys
 ```
 
+## Built-In Symbolic Math
+
+VKF has a native symbolic track built into the language and compiler. Symbolic
+values are expression trees, not strings. Printing an expression shows its
+current representation; `latex(expr)` walks the same AST and emits LaTeX.
+
+Import the symbolic namespace before using symbolic domains directly:
+
+```vkf
+:.symbolic
+
+x: R
+n: Z
+f: R -> R
+v: [R:n]
+
+:: conditions(x)   # [x in R]
+:: conditions(n)   # [n in Z]
+:: conditions(f)   # [f in R->R]
+:: conditions(v)   # [v in [R:n]]
+```
+
+The symbolic domain names are:
+
+- `N`: natural-number symbolic domain
+- `Z`: integer symbolic domain
+- `Q`: rational symbolic domain
+- `R`: real symbolic domain
+- `C`: complex symbolic domain
+- `R -> R`: symbolic function domain
+- `[R:n]`: symbolic vector domain
+
+These names are not global by default. Use `:.symbolic` to pour the symbolic
+namespace into scope before declaring symbolic values with `R`, `Z`, and the
+other domain names.
+
+### Representation Matters
+
+Symbolic expressions preserve representation. `x + 1` and `1 + x` may be
+mathematically equivalent, but they are distinct nodes until you explicitly move
+through the equivalence graph.
+
+```vkf
+:.symbolic
+
+x: R
+expr: x + 1
+
+:: expr
+:: same(expr, x + 1)
+```
+
+The current symbolic system keeps plain rendering and LaTeX rendering separate.
+You can give a variable a display name without changing its identity:
+
+```vkf
+:.symbolic
+
+phi: R
+phi.repr: "\\phi"
+
+:: phi
+:: latex(phi)
+:: latex(phi + 1)
+```
+
+Changing `.repr` only affects future nodes that use that variable. Existing
+expressions keep the display metadata they already hold.
+
+### Relations And Solving
+
+`=` creates a relation. Relations are made from expressions, and relation
+solving can return a record when you ask for multiple variables.
+
+```vkf
+:.symbolic
+
+x: Z
+y: Z
+
+eq: 2*x + 3*y = 7
+sol: solve(eq, x, y)
+
+:: eq
+:: sol.x
+:: sol.y
+```
+
+For integer domains, `solve(eq, x, y)` treats the request as a Diophantine
+solution and returns a record with `.x` and `.y` fields when the current solver
+can solve it.
+
+### Calculus And Discrete Operators
+
+Differentiation and integration are ordinary symbolic operations. The short
+aliases are available from the symbolic namespace:
+
+- `diff` for `differentiate`
+- `integ` for `integrate`
+- `grad` for `gradient`
+
+VKF also accepts differential notation:
+
+```vkf
+:.symbolic
+
+x: R
+y: R
+
+:: d/dx x^2 + y
+:: x dx
+:: latex(d/dx x*y)
+```
+
+`d/dx` consumes the expression to its right until the next top-level `+` or `-`.
+When the expression involves other free variables, LaTeX uses partial
+derivatives.
+
+Symbolic range operations live on the existing `stat` namespace. They are the
+same functions used for numeric arrays, with the running variable and bounds
+made explicit:
+
+```vkf
+:.symbolic
+stat: .stat
+
+n: Z
+
+:: stat.sum(n, n, 1, inf)
+:: latex(stat.sum(n, n, 1, inf))
+```
+
+`inf` and `-inf` are symbolic infinity values. Infinite sums remain symbolic;
+finite sums may simplify when the rule is known.
+
+### Native Runtime Contract
+
+The symbolic runtime used by compiled programs is native C++ and lives in
+`compiler/native/vkf_symbolic.hpp`. Tests may use Python as orchestration, but a
+compiled VKF symbolic program runs as a native executable.
+
 ## Control Flow
 
 ### If With `?`
@@ -1077,6 +1401,7 @@ Current public modules:
 - `collections`: mutable runtime containers: `map`, `list`, `queue`.
 - `capture`: regex helpers: `regex`, `groups`.
 - `errors`: catchable error types such as `ParseError`, `EvalError`, `TypeError`.
+- `symbolic`: symbolic domains, expression transforms, LaTeX, solving, `diff`, `integ`, and `grad`.
 - `ui`: interactive display namespace. `sleep` is not in `ui`; import `time` for delays.
 
 ## UI And Scene Runtime
@@ -1133,6 +1458,207 @@ light: d.add_light(pos: [6,8,6], model: "blinn_phong", color: "white")
 ```
 
 This is the ergonomic authoring layer used by the axis showcase.
+
+### Physics Lighting Layers
+
+The physics world should use the same geometry objects the UI already builds.
+The first 2D lighting slice attaches a `physics` record to field meshes and
+lights so the world simulator can reason about layers, blockers, and ambient
+surfaces without introducing a second geometry format.
+
+In this example two adjacent square rooms sit on layer `0`. The shared boundary
+only has its first and last thirds, leaving the middle third open. A circular
+light on layer `1` sits inside the left square and the lighting layer is drawn
+above the room/background layer so the light passes through the gap.
+
+<!-- readme-example: ui_physics_layer_lighting.vkf -->
+```vkf
+ui:.ui
+ui.set_mode("overlay")
+
+d: ui.display
+f: d.frame(id: "physics_layer_light_frame", title: "2D Physics Lighting Layers", alpha: 0.96)
+d.add_frame(f, (0.08, 0.08, 0.74, 0.74))
+g: d.frame(id: "physics_layer_light_canvas", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false, dock_loc: "tl")
+d.add_frame(g, (0.0, 0.0, 0.01, 0.01), in_frame: f)
+
+f.draw_rect((0.00, 0.00, 1.00, 1.00), color: "#22242d")
+f.draw_rect((0.14, 0.315, 0.22, 0.37), color: "#263342")
+f.draw_rect((0.36, 0.315, 0.22, 0.37), color: "#263342")
+f.draw_rect((0.58, 0.315, 0.22, 0.37), color: "#263342")
+f.add_oval((0.225, 0.463, 0.044, 0.074), color: "#fff8a8")
+f.draw_rect((0.14, 0.315, 0.66, 0.012), color: "#d8dce4")
+f.draw_rect((0.14, 0.673, 0.66, 0.012), color: "#d8dce4")
+f.draw_rect((0.14, 0.315, 0.007, 0.37), color: "#d8dce4")
+f.draw_rect((0.793, 0.315, 0.007, 0.37), color: "#d8dce4")
+f.draw_rect((0.357, 0.315, 0.006, 0.123), color: "#d8dce4")
+f.draw_rect((0.357, 0.562, 0.006, 0.123), color: "#d8dce4")
+f.draw_rect((0.577, 0.315, 0.006, 0.123), color: "#d8dce4")
+f.draw_rect((0.577, 0.562, 0.006, 0.123), color: "#d8dce4")
+
+square_bg_x: [[-1.5, -0.5, 0.5, 1.5], [-1.5, -0.5, 0.5, 1.5]] -> uv
+square_bg_y: [[-0.5, -0.5, -0.5, -0.5], [0.5, 0.5, 0.5, 0.5]] -> uv
+square_bg_z: [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]] -> uv
+square_bg_c: [
+  [[0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0]],
+  [[0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0], [0.15, 0.20, 0.26, 1.0]]
+] -> uv
+g.add(
+  id: "adjacent_square_backgrounds",
+  x: square_bg_x,
+  y: square_bg_y,
+  z: square_bg_z,
+  c: square_bg_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "surface2d",
+    layer: 0,
+    receives_light: true,
+    floor_texture: "axis_aligned_tiles",
+    square_width: 1.0,
+    rooms: "-1.5,-0.5,-0.5,0.5;-0.5,-0.5,0.5,0.5;0.5,-0.5,1.5,0.5",
+    left_square: "-1.5,-0.5,-0.5,0.5",
+    middle_square: "-0.5,-0.5,0.5,0.5",
+    right_square: "0.5,-0.5,1.5,0.5",
+    light_result: "background_layer_under_light"
+  )
+)
+
+boundary_x: [[-1.5, -0.5, 0.5, 1.5], [-1.5, -0.5, 0.5, 1.5]] -> uv
+boundary_y: [[-0.5, -0.5, -0.5, -0.5], [0.5, 0.5, 0.5, 0.5]] -> uv
+boundary_z: [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]] -> uv
+boundary_c: [
+  [[0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0]],
+  [[0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0], [0.85, 0.86, 0.89, 1.0]]
+] -> uv
+g.add(
+  id: "boundary_parts_with_middle_gap",
+  x: boundary_x,
+  y: boundary_y,
+  z: boundary_z,
+  c: boundary_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "surface2d",
+    layer: 0,
+    receives_light: true,
+    boundary_parts: "outer_edges_and_each_shared_edge_first_last_thirds",
+    shared_edge_gaps: "middle_thirds",
+    wall_thickness_ratio: 0.0266666667,
+    wall_material: "plain_shader_lit"
+  )
+)
+
+lighting_x: [[-1.5, -0.5, 0.5, 1.5], [-1.5, -0.5, 0.5, 1.5]] -> uv
+lighting_y: [[-0.5, -0.5, -0.5, -0.5], [0.5, 0.5, 0.5, 0.5]] -> uv
+lighting_z: [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]] -> uv
+lighting_c: [
+  [[0.36, 0.31, 0.18, 1.0], [1.0, 0.88, 0.44, 1.0], [0.56, 0.44, 0.18, 1.0], [0.22, 0.20, 0.18, 1.0]],
+  [[0.28, 0.26, 0.22, 1.0], [0.80, 0.64, 0.26, 1.0], [0.22, 0.20, 0.18, 1.0], [0.18, 0.18, 0.18, 1.0]]
+] -> uv
+g.add(
+  id: "lighting_layer_passes_through_gap",
+  x: lighting_x,
+  y: lighting_y,
+  z: lighting_z,
+  c: lighting_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "light_field2d",
+    layer: 1,
+    passes_through: "shared_edge_middle_third_gaps",
+    above_layer: 0,
+    penumbra_base_ratio: 0.0166666667,
+    penumbra_growth_ratio: 0.16,
+    falloff_radius_ratio: 0.7666666667
+  )
+)
+
+light_x: [[-0.40, -0.30], [-0.40, -0.30]] -> uv
+light_y: [[-0.10, -0.10], [0.10, 0.10]] -> uv
+light_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+light_c: [
+  [[1.0, 0.96, 0.55, 1.0], [1.0, 0.96, 0.55, 1.0]],
+  [[1.0, 0.84, 0.20, 1.0], [1.0, 0.84, 0.20, 1.0]]
+] -> uv
+g.add(
+  id: "layer_1_light_source",
+  x: light_x,
+  y: light_y,
+  z: light_z,
+  c: light_c,
+  representation: "faces",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "light2d",
+    layer: 1,
+    radius_ratio_to_square_width: 0.1,
+    center: "-0.35,0.0",
+    color: "#fff8a8",
+    falloff_radius_ratio: 0.7666666667,
+    shape: "circle",
+    illuminates_lower_layers: true
+  )
+)
+
+silver_mirror_x: [[-0.22, 0.34], [-0.22, 0.34]] -> uv
+silver_mirror_y: [[-0.28, -0.28], [-0.28, -0.28]] -> uv
+silver_mirror_z: [[0.0, 0.0], [0.0, 0.0]] -> uv
+silver_mirror_c: [
+  [[0.92, 0.96, 1.0, 1.0], [0.92, 0.96, 1.0, 1.0]],
+  [[0.92, 0.96, 1.0, 1.0], [0.92, 0.96, 1.0, 1.0]]
+] -> uv
+g.add(
+  id: "layer_1_silver_mirror",
+  x: silver_mirror_x,
+  y: silver_mirror_y,
+  z: silver_mirror_z,
+  c: silver_mirror_c,
+  representation: "lines",
+  render_mode: "proxy_geometry",
+  mode3d: false,
+  aspect: "equal",
+  axis_full_frame: true,
+  receives_lighting: false,
+  physics: (
+    kind: "optical_boundary2d",
+    layer: 1,
+    optical_kind: "mirror",
+    segment: "-0.22,-0.28,0.34,-0.28",
+    virtual_light_kind: "projected",
+    reflect_of_light_id: "layer_1_light_source",
+    aperture_face_id: "layer_1_silver_mirror",
+    starts_after_aperture: true,
+    reflectivity: 0.72,
+    transmittance: 0.0,
+    color: "#f4f8ff",
+    spread_ratio: 0.10
+  )
+)
+```
+
+<!-- readme-asset: ui-physics-layer-lighting -->
+![ui-physics-layer-lighting](docs/public/images/readme-ui/ui-physics-layer-lighting.png)
+*`examples/generated/readme/ui_physics_layer_lighting.vkf` — 2D textured floor lighting with a single VKF-defined mirror reflection.*
 
 ### Native Scene Packets
 

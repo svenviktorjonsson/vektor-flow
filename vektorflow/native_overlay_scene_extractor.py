@@ -32,15 +32,22 @@ def _materialize_interpreter_value(value: Any) -> Any:
         return value
 
 
-def find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
-    prefix: list[Any] = []
+def find_top_level_struct_binding(module: ast.Module, name: str, *, source_path: Path | None = None) -> dict[str, Any] | None:
+    from .interpreter import Interpreter
+
+    interpreter = Interpreter(source_path or Path("."))
+    env = interpreter.globals
     for stmt in module.statements:
-        prefix.append(stmt)
         if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
-            value = eval_native_scene_literal(stmt.value, f"{name}")
+            try:
+                value = interpreter.eval_expr(stmt.value, env)
+                value = _materialize_interpreter_value(value)
+            except Exception:
+                value = eval_native_scene_literal(stmt.value, f"{name}")
             if not isinstance(value, dict):
                 raise ValueError(f"{name} must be a struct value")
             return value
+        interpreter.eval_stmt(stmt, env)
     return None
 
 

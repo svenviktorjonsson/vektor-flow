@@ -203,6 +203,7 @@
       if (kind === "scene.replace" && payload && Array.isArray(payload.commands)) {
         runtimeLog("info", "routeRuntimePacket: scene.replace commands=" + payload.commands.length);
         applySceneCommands(payload.commands);
+        state.packetSceneMounted = true;
         if (Number.isFinite(seq) && seq > Number(state.lastRuntimePacketSeq || 0)) {
           state.lastRuntimePacketSeq = seq;
         }
@@ -211,7 +212,22 @@
         if (state.legacyFallbackActive) {
           stopLegacyFallback();
         }
+        if (state.pendingDisplayReplacePacket) {
+          var pendingDisplay = state.pendingDisplayReplacePacket;
+          state.pendingDisplayReplacePacket = null;
+          global.setTimeout(function() {
+            routeRuntimePacket(pendingDisplay);
+          }, 0);
+        }
         return;
+      }
+      if (kind === "display.replace" && !state.packetSceneMounted) {
+        var declared = Number(global.__vfSceneDeclaredFrameCount || 0);
+        if (declared <= 0 && getPacketRuntimeState() === PACKET_RUNTIME_STATES.BOOTSTRAP_ONLY) {
+          runtimeLog("info", "routeRuntimePacket: delaying display.replace until scene frame mounts");
+          state.pendingDisplayReplacePacket = packet;
+          return;
+        }
       }
       if (deps.widgets && deps.widgets.applyRuntimePacket) {
         deps.widgets.applyRuntimePacket(packet);

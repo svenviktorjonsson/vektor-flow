@@ -111,4 +111,257 @@ function createFakeAdapter() {
   assert.equal(flush.bytesWritten, shared.MAT4_F32 * Float32Array.BYTES_PER_ELEMENT);
 }
 
+{
+  global.GPUBufferUsage = { COPY_DST: 8, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
+  global.GPUShaderStage = { COMPUTE: 4 };
+  const calls = [];
+  const device = {
+    queue: {
+      writeBuffer(buffer, offset, source, sourceOffset, byteLength) {
+        calls.push({ op: "writeBuffer", buffer, offset, source, sourceOffset, byteLength });
+      }
+    },
+    createBuffer(desc) {
+      const buffer = {
+        label: desc.label,
+        size: desc.size,
+        usage: desc.usage,
+        destroyed: false,
+        destroy() { this.destroyed = true; }
+      };
+      calls.push({ op: "createBuffer", desc, buffer });
+      return buffer;
+    },
+    createShaderModule(desc) {
+      calls.push({ op: "createShaderModule", desc });
+      return { label: desc.label, code: desc.code };
+    },
+    createBindGroupLayout(desc) {
+      calls.push({ op: "createBindGroupLayout", desc });
+      return { label: desc.label, entries: desc.entries };
+    },
+    createPipelineLayout(desc) {
+      calls.push({ op: "createPipelineLayout", desc });
+      return { label: desc.label };
+    },
+    createComputePipeline(desc) {
+      calls.push({ op: "createComputePipeline", entryPoint: desc.compute.entryPoint });
+      return { entryPoint: desc.compute.entryPoint };
+    },
+    createBindGroup(desc) {
+      calls.push({ op: "createBindGroup", desc });
+      return { label: desc.label, entries: desc.entries };
+    }
+  };
+  const encoder = {
+    beginComputePass(desc) {
+      calls.push({ op: "beginComputePass", desc });
+      return {
+        setPipeline(pipe) { calls.push({ op: "setPipeline", entryPoint: pipe.entryPoint }); },
+        setBindGroup(index, bindGroup) { calls.push({ op: "setBindGroup", index, bindGroup }); },
+        dispatchWorkgroups(groups) { calls.push({ op: "dispatchWorkgroups", groups }); },
+        end() { calls.push({ op: "endComputePass" }); }
+      };
+    }
+  };
+  const runtime = gpu.createHardDiscPhysicsRuntime({
+    device,
+    particleCount: 2,
+    particles: [
+      { x: 0.2, y: 0.3, vx: 1.0, vy: 0.0, radius: 0.02, density: 1.5 },
+      { x: 0.7, y: 0.3, vx: -1.0, vy: 0.0, radius: 0.03, density: 2.0 }
+    ],
+    width: 1.2,
+    height: 0.8,
+    gravity: [0, -9.81],
+    restitution: 0.5,
+    maxRadius: 0.03,
+    wgsl: "shader"
+  });
+
+  assert.equal(runtime.particleCount, 2);
+  assert.ok((runtime.renderInstanceBuffer.usage & global.GPUBufferUsage.VERTEX) !== 0);
+  assert.ok((runtime.renderInstanceBuffer.usage & global.GPUBufferUsage.STORAGE) !== 0);
+  assert.deepEqual(
+    calls.filter((call) => call.op === "createComputePipeline").map((call) => call.entryPoint),
+    ["clear_cells", "integrate", "fill_cells", "resolve_contacts", "write_render_instances"]
+  );
+  const bindLayout = calls.find((call) => call.op === "createBindGroupLayout");
+  assert.equal(bindLayout.desc.entries.length, 6);
+
+  runtime.step(encoder, 1 / 60);
+
+  assert.deepEqual(
+    calls.filter((call) => call.op === "setPipeline").map((call) => call.entryPoint),
+    ["integrate", "clear_cells", "fill_cells", "resolve_contacts", "resolve_contacts", "resolve_contacts", "write_render_instances"]
+  );
+  assert.equal(calls.filter((call) => call.op === "dispatchWorkgroups").length, 7);
+  assert.ok(calls.some((call) => call.op === "writeBuffer" && call.buffer === runtime.paramsBuffer));
+
+  runtime.destroy();
+  assert.equal(runtime.particleBuffer.destroyed, true);
+  assert.equal(runtime.renderInstanceBuffer.destroyed, true);
+}
+
+{
+  global.GPUBufferUsage = { COPY_DST: 8, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
+  global.GPUShaderStage = { COMPUTE: 4 };
+  const calls = [];
+  const device = {
+    queue: {
+      writeBuffer(buffer, offset, source, sourceOffset, byteLength) {
+        calls.push({ op: "writeBuffer", buffer, offset, source, sourceOffset, byteLength });
+      }
+    },
+    createBuffer(desc) {
+      const buffer = {
+        label: desc.label,
+        size: desc.size,
+        usage: desc.usage,
+        destroyed: false,
+        destroy() { this.destroyed = true; }
+      };
+      calls.push({ op: "createBuffer", desc, buffer });
+      return buffer;
+    },
+    createShaderModule(desc) {
+      calls.push({ op: "createShaderModule", desc });
+      return { label: desc.label, code: desc.code };
+    },
+    createBindGroupLayout(desc) {
+      calls.push({ op: "createBindGroupLayout", desc });
+      return { label: desc.label, entries: desc.entries };
+    },
+    createPipelineLayout(desc) {
+      calls.push({ op: "createPipelineLayout", desc });
+      return { label: desc.label };
+    },
+    createComputePipeline(desc) {
+      calls.push({ op: "createComputePipeline", entryPoint: desc.compute.entryPoint });
+      return { entryPoint: desc.compute.entryPoint };
+    },
+    createBindGroup(desc) {
+      calls.push({ op: "createBindGroup", desc });
+      return { label: desc.label, entries: desc.entries };
+    }
+  };
+  const encoder = {
+    beginComputePass(desc) {
+      calls.push({ op: "beginComputePass", desc });
+      return {
+        setPipeline(pipe) { calls.push({ op: "setPipeline", entryPoint: pipe.entryPoint }); },
+        setBindGroup(index, bindGroup) { calls.push({ op: "setBindGroup", index, bindGroup }); },
+        dispatchWorkgroups(groups) { calls.push({ op: "dispatchWorkgroups", groups }); },
+        end() { calls.push({ op: "endComputePass" }); }
+      };
+    }
+  };
+  const runtime = gpu.createHardSpherePhysicsRuntime({
+    device,
+    particleCount: 2,
+    particles: [
+      { x: 0.2, y: 0.3, z: 0.4, vx: 1.0, vy: 0.0, vz: 0.2, radius: 0.02, density: 1.5 },
+      { x: 0.7, y: 0.3, z: 0.5, vx: -1.0, vy: 0.0, vz: -0.1, radius: 0.03, density: 2.0 }
+    ],
+    width: 1.2,
+    depth: 0.8,
+    height: 0.7,
+    gravity: [0, 0, -9.81],
+    restitution: 0.9,
+    maxRadius: 0.03,
+    wgsl: "shader"
+  });
+
+  assert.equal(runtime.particleCount, 2);
+  assert.ok(runtime.gridCellCount > 0);
+  assert.equal(runtime.gridInfo.autoSized, true);
+  assert.equal(runtime.gridInfo.adjusted, false);
+  assert.ok((runtime.renderInstanceBuffer.usage & global.GPUBufferUsage.VERTEX) !== 0);
+  assert.ok((runtime.renderInstanceBuffer.usage & global.GPUBufferUsage.STORAGE) !== 0);
+  assert.deepEqual(
+    calls.filter((call) => call.op === "createComputePipeline").map((call) => call.entryPoint),
+    ["clear_cells", "integrate", "fill_cells", "resolve_contacts", "write_render_instances"]
+  );
+  const bindLayout = calls.find((call) => call.op === "createBindGroupLayout");
+  assert.equal(bindLayout.desc.entries.length, 6);
+
+  runtime.step(encoder, 1 / 60);
+
+  assert.deepEqual(
+    calls.filter((call) => call.op === "setPipeline").map((call) => call.entryPoint),
+    ["integrate", "clear_cells", "fill_cells", "resolve_contacts", "resolve_contacts", "resolve_contacts", "resolve_contacts", "write_render_instances"]
+  );
+  assert.equal(calls.filter((call) => call.op === "dispatchWorkgroups").length, 8);
+  assert.ok(calls.some((call) => call.op === "writeBuffer" && call.buffer === runtime.paramsBuffer));
+
+  runtime.destroy();
+  assert.equal(runtime.particleBuffer.destroyed, true);
+  assert.equal(runtime.renderInstanceBuffer.destroyed, true);
+}
+
+{
+  global.GPUBufferUsage = { COPY_DST: 8, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
+  global.GPUShaderStage = { COMPUTE: 4 };
+  const calls = [];
+  const device = {
+    limits: { maxStorageBufferBindingSize: 64 * 1024 * 1024 },
+    queue: {
+      writeBuffer() {}
+    },
+    createBuffer(desc) {
+      const buffer = {
+        label: desc.label,
+        size: desc.size,
+        usage: desc.usage,
+        destroyed: false,
+        destroy() { this.destroyed = true; }
+      };
+      calls.push({ op: "createBuffer", desc, buffer });
+      return buffer;
+    },
+    createShaderModule(desc) { return { label: desc.label, code: desc.code }; },
+    createBindGroupLayout(desc) { return { label: desc.label, entries: desc.entries }; },
+    createPipelineLayout(desc) { return { label: desc.label }; },
+    createComputePipeline(desc) { return { entryPoint: desc.compute.entryPoint }; },
+    createBindGroup(desc) { return { label: desc.label, entries: desc.entries }; }
+  };
+  const runtime = gpu.createHardSpherePhysicsRuntime({
+    device,
+    particleCount: 50000,
+    particles: [],
+    width: 12,
+    depth: 8,
+    height: 7,
+    restitution: 0.85,
+    maxRadius: 0.0435,
+    maxParticlesPerCell: 96,
+    wgsl: "shader"
+  });
+
+  assert.equal(runtime.particleCount, 50000);
+  assert.equal(runtime.gridInfo.autoSized, true);
+  assert.equal(runtime.gridInfo.adjusted, true);
+  assert.ok(runtime.gridInfo.cellItemsBytes <= device.limits.maxStorageBufferBindingSize);
+  assert.ok(runtime.gridInfo.cellSize > 0.0435 * 2.25);
+  assert.equal(runtime.cellItemsBuffer.size, runtime.gridInfo.cellItemsBytes);
+  runtime.destroy();
+}
+
+{
+  const discPacked = [0.2, 0.3, 0.04, 1.5, 0.6, -0.2, 0.01, 0.0];
+  const discData = gpu.normalizeHardDiscParticleData(discPacked, 1);
+  assert.equal(discData.length, discPacked.length);
+  assert.ok(Math.abs(discData[0] - 0.2) < 1e-6);
+  assert.ok(Math.abs(discData[2] - 0.04) < 1e-6);
+  assert.ok(Math.abs(discData[6] - 0.01) < 1e-6);
+
+  const spherePacked = [0.2, 0.3, 0.4, 0.05, 0.6, -0.2, 0.1, 1.7, 0.02, 0.0, 0.0, 0.0];
+  const sphereData = gpu.normalizeHardSphereParticleData(spherePacked, 1);
+  assert.equal(sphereData.length, spherePacked.length);
+  assert.ok(Math.abs(sphereData[0] - 0.2) < 1e-6);
+  assert.ok(Math.abs(sphereData[2] - 0.4) < 1e-6);
+  assert.ok(Math.abs(sphereData[3] - 0.05) < 1e-6);
+  assert.ok(Math.abs(sphereData[8] - 0.02) < 1e-6);
+}
+
 console.log("vf-gpu-runtime tests passed");

@@ -17,15 +17,15 @@ ParseResult: (module:any, diagnostics:any)
 ModuleNode: (kind:str, body:any, span:Span)
 BindNode: (kind:str, target:any, annotation:any, value:any, span:Span)
 NumberLiteralNode: (kind:str, value:num, span:Span)
-StringLiteralNode: (kind:str, value:str, raw:bool, span:Span)
-BoolLiteralNode: (kind:str, value:bool, span:Span)
+StringLiteralNode: (kind:str, value:str, raw:bit, span:Span)
+BoolLiteralNode: (kind:str, value:bit, span:Span)
 NullLiteralNode: (kind:str, span:Span)
 IdentifierNode: (kind:str, name:str, span:Span)
 CallNode: (kind:str, callee:any, args:any, span:Span)
 BinaryOpNode: (kind:str, op:str, left:any, right:any, span:Span)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
-MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bool, catch:bool)
+MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
 FunctionDefinitionNode: (kind:str, name:str, params:any, return_type:any, body:any, span:Span)
 BlockNode: (kind:str, statements:any, span:Span)
 TypeAnnotationNode: (kind:str, name:str, span:Span)
@@ -103,10 +103,10 @@ bind_node(target:any, annotation:any, value:any, span:Span):
 number_literal(value:num, span:Span):
     (kind: "number_literal", value: value, span: span)
 
-string_literal(value:str, raw:bool, span:Span):
+string_literal(value:str, raw:bit, span:Span):
     (kind: "string_literal", value: value, raw: raw, span: span)
 
-bool_literal(value:bool, span:Span):
+bool_literal(value:bit, span:Span):
     (kind: "bool_literal", value: value, span: span)
 
 null_literal(span:Span):

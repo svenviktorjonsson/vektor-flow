@@ -30,6 +30,7 @@ def build_scene_3d_state(
     show_light_markers: bool,
     light_flares: bool,
     light_marker_size: float,
+    background: list[float] | None = None,
     surface_worlds: dict[str, Any] | None = None,
     surface_cameras: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -77,6 +78,7 @@ def build_scene_3d_state(
         "meshes": mesh_entities,
         "shadow_receivers": shadow_receivers,
         "shadow": shadow_spec,
+        "background": list(background or [0.0, 0.0, 0.0, 0.0]),
         "surface_worlds": dict(surface_worlds or {}),
         "surface_cameras": dict(surface_cameras or {}),
         "render_options": {

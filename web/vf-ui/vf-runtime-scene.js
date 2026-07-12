@@ -373,13 +373,12 @@
             reapplySpecRect(mounted[m].panel, mounted[m].spec, "settled frame");
             mounted[m].panel.root.style.opacity = "";
           }
+          runtimeLog("info", "applySceneCommands: settled visible frames=" + Object.keys(livePanelsById).length);
           if (widgets && typeof widgets.refreshButtonGroups === "function") {
             widgets.refreshButtonGroups();
           }
           syncNativeLayout();
-          if (isLegacyFallbackActive()) {
-            displayRefresh();
-          }
+          displayRefresh();
         });
       });
     }
