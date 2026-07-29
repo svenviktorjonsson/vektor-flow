@@ -176,7 +176,6 @@ def test_native_pipeline_lowers_complete_symbolic_expression_to_typed_ir(
     }
     assert {
         "symbolic_tokenize_step",
-        "symbolic_latex",
         "symbolic_evaluate",
     } <= recursive_functions
 

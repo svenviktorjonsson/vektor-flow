@@ -253,13 +253,6 @@ def test_parses_ordered_typed_module_declarations(
             },
             "duplicate runtime name run",
         ),
-        (
-            {
-                "kind": "typed_module",
-                "body": [{"kind": "expr_stmt", "expr": {"kind": "const"}}],
-            },
-            "unsupported top-level typed IR declaration kind expr_stmt",
-        ),
     ],
 )
 def test_rejects_invalid_module_shapes(

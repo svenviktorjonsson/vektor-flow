@@ -430,6 +430,10 @@ int main(int argc, char** argv) {
             std::cout << serialize(module).size();
             return 0;
         }
+        if (mode == "unsupported" || mode == "intrinsic") {
+            std::cout << serialize(module).size();
+            return 0;
+        }
         if (mode != "valid") {
             return 5;
         }
@@ -540,13 +544,20 @@ def test_lowers_collections_control_flow_and_recursion(
     assert int(result.stdout) > 100
 
 
+@pytest.mark.parametrize("mode", ["unsupported", "intrinsic"])
+def test_lowers_supported_collection_and_runtime_intrinsic_ir(
+    lowering_harness: Path,
+    mode: str,
+) -> None:
+    result = _run(lowering_harness, mode)
+
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout) > 0
+
+
 @pytest.mark.parametrize(
     ("mode", "message"),
-    [
-        ("unsupported", "collection/string concatenation"),
-        ("intrinsic", "runtime intrinsic vkf_string_peek_scalar"),
-        ("arity", "wrong arity for function callee"),
-    ],
+    [("arity", "wrong arity for function callee")],
 )
 def test_rejects_unsupported_ir_explicitly(
     lowering_harness: Path,

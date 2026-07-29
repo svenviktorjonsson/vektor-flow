@@ -49,6 +49,7 @@ def test_emits_named_function_manifest_and_deterministic_wasm(
             {
                 "kind": "function",
                 "name": "double_value",
+                "type": "fn(num)->num",
                 "params": [{"kind": "param", "name": "value", "type": "num"}],
                 "return_type": "num",
                 "body": {
