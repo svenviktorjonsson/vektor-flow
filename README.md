@@ -125,6 +125,20 @@ vkf -e ':: "hello, world"'
 vkf -e '..5 >> :: $^2'
 ```
 
+## Browser WASM Text Channel
+
+`web/vf-ui/vf-symbolic-wasm-runtime.mjs` exposes the UTF-8 channel used by
+generated VKF WASM modules. Its interface is deliberately small:
+
+```js
+const channel = createSymbolicWasmTextChannel(instance.exports);
+const result = channel.transfer(source, instance.exports.vkf_symbolic_trace);
+```
+
+The browser module only transfers UTF-8 through WASM memory. Parsing,
+classification, evaluation, diagnostics, and LaTeX generation belong to the
+compiled VKF module; there is no JavaScript or Python expression fallback.
+
 Use single quotes around inline snippets in PowerShell when the snippet contains
 `$`. Double quotes let PowerShell expand `$...` before `vkf` receives the code.
 

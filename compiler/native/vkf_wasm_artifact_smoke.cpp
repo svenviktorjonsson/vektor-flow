@@ -16,6 +16,7 @@
 namespace {
 
 constexpr const char* compiler_version = "vkf-wasm-artifact-smoke-0.1";
+constexpr std::uint32_t symbolic_text_capacity = 4096;
 
 class WasmArtifactFailure : public std::runtime_error {
 public:
@@ -1024,16 +1025,26 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
     std::vector<std::uint8_t> module = {0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00};
 
     std::vector<std::uint8_t> type_section;
-    append_u32_leb(type_section, 3);
+    append_u32_leb(type_section, 4);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 0); append_u32_leb(type_section, 0);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 0); append_u32_leb(type_section, 1); append_u8(type_section, 0x7F);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 0); append_u32_leb(type_section, 1); append_u8(type_section, 0x7C);
+    append_u8(type_section, 0x60); append_u32_leb(type_section, 1); append_u8(type_section, 0x7F);
+    append_u32_leb(type_section, 1); append_u8(type_section, 0x7F);
     append_section(module, 1, type_section);
 
     struct FunctionSpec {
         std::string export_name;
         std::uint32_t type_index;
-        enum class BodyKind { Noop, ResetTick, IncrementTick, I32Const, F64Const } body_kind;
+        enum class BodyKind {
+            Noop,
+            ResetTick,
+            IncrementTick,
+            I32Const,
+            F64Const,
+            SetSymbolicInputLength,
+            TraceSymbolicText,
+        } body_kind;
         std::int32_t i32_value = 0;
         double f64_value = 0.0;
     };
@@ -1059,6 +1070,12 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
             binding.string_offset += data_offset;
         }
     }
+    const std::uint32_t symbolic_lengths_offset = (data_offset + next_offset + 3u) & ~3u;
+    const std::uint32_t symbolic_input_length_offset = symbolic_lengths_offset;
+    const std::uint32_t symbolic_output_length_offset = symbolic_lengths_offset + 4u;
+    const std::uint32_t symbolic_input_offset = symbolic_lengths_offset + 8u;
+    const std::uint32_t symbolic_output_offset = symbolic_input_offset + symbolic_text_capacity;
+    const std::uint32_t memory_size = symbolic_output_offset + symbolic_text_capacity;
 
     functions.push_back({"vkf_init", 0, FunctionSpec::BodyKind::ResetTick});
     functions.push_back({"vkf_update", 0, FunctionSpec::BodyKind::IncrementTick});
@@ -1067,6 +1084,22 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
     functions.push_back({"vkf_state_size", 1, FunctionSpec::BodyKind::I32Const, static_cast<std::int32_t>(state_size)});
     functions.push_back({"vkf_input_ptr", 1, FunctionSpec::BodyKind::I32Const, static_cast<std::int32_t>(input_offset)});
     functions.push_back({"vkf_input_size", 1, FunctionSpec::BodyKind::I32Const, static_cast<std::int32_t>(input_size)});
+    functions.push_back({"vkf_symbolic_input_ptr", 1, FunctionSpec::BodyKind::I32Const,
+        static_cast<std::int32_t>(symbolic_input_offset)});
+    functions.push_back({"vkf_symbolic_input_capacity", 1, FunctionSpec::BodyKind::I32Const,
+        static_cast<std::int32_t>(symbolic_text_capacity)});
+    functions.push_back({"vkf_symbolic_input_len", 1, FunctionSpec::BodyKind::I32Const,
+        static_cast<std::int32_t>(symbolic_input_length_offset)});
+    functions.back().body_kind = FunctionSpec::BodyKind::I32Const;
+    functions.push_back({"vkf_symbolic_set_input_len", 3, FunctionSpec::BodyKind::SetSymbolicInputLength});
+    functions.push_back({"vkf_symbolic_output_ptr", 1, FunctionSpec::BodyKind::I32Const,
+        static_cast<std::int32_t>(symbolic_output_offset)});
+    functions.push_back({"vkf_symbolic_output_capacity", 1, FunctionSpec::BodyKind::I32Const,
+        static_cast<std::int32_t>(symbolic_text_capacity)});
+    functions.push_back({"vkf_symbolic_output_len", 1, FunctionSpec::BodyKind::I32Const,
+        static_cast<std::int32_t>(symbolic_output_length_offset)});
+    functions.back().body_kind = FunctionSpec::BodyKind::I32Const;
+    functions.push_back({"vkf_symbolic_trace", 1, FunctionSpec::BodyKind::TraceSymbolicText});
     for (const auto& binding : bindings) {
         const std::string suffix = sanitize_export_suffix(binding.name);
         if (binding.kind == WasmBinding::Kind::I32) {
@@ -1101,7 +1134,7 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
     std::vector<std::uint8_t> memory_section;
     append_u32_leb(memory_section, 1);
     append_u8(memory_section, 0x00);
-    append_u32_leb(memory_section, 1);
+    append_u32_leb(memory_section, std::max(1u, (memory_size + 65535u) / 65536u));
     append_section(module, 5, memory_section);
 
     std::vector<std::uint8_t> export_section;
@@ -1142,6 +1175,18 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
             } else for (std::uint32_t offset = 0; offset < state_size; offset += 4) {
                 append_u8(body, 0x41);
                 append_i32_leb(body, static_cast<std::int32_t>(offset));
+                append_u8(body, 0x41);
+                append_i32_leb(body, 0);
+                append_u8(body, 0x36);
+                append_u32_leb(body, 2);
+                append_u32_leb(body, 0);
+            }
+            for (std::uint32_t length_offset : {
+                symbolic_input_length_offset,
+                symbolic_output_length_offset,
+            }) {
+                append_u8(body, 0x41);
+                append_i32_leb(body, static_cast<std::int32_t>(length_offset));
                 append_u8(body, 0x41);
                 append_i32_leb(body, 0);
                 append_u8(body, 0x36);
@@ -1245,10 +1290,73 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 append_u32_leb(body, 2);
                 append_u32_leb(body, 0);
             }
+        } else if (function.body_kind == FunctionSpec::BodyKind::SetSymbolicInputLength) {
+            append_u32_leb(body, 0);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_input_length_offset));
+            append_u8(body, 0x20);
+            append_u32_leb(body, 0);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_text_capacity));
+            append_u8(body, 0x4B);
+            append_u8(body, 0x04);
+            append_u8(body, 0x7F);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_text_capacity));
+            append_u8(body, 0x05);
+            append_u8(body, 0x20);
+            append_u32_leb(body, 0);
+            append_u8(body, 0x0B);
+            append_u8(body, 0x36);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_input_length_offset));
+            append_u8(body, 0x28);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+        } else if (function.body_kind == FunctionSpec::BodyKind::TraceSymbolicText) {
+            append_u32_leb(body, 0);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_output_offset));
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_input_offset));
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_input_length_offset));
+            append_u8(body, 0x28);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+            append_u8(body, 0xFC);
+            append_u32_leb(body, 10);
+            append_u32_leb(body, 0);
+            append_u32_leb(body, 0);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_output_length_offset));
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_input_length_offset));
+            append_u8(body, 0x28);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+            append_u8(body, 0x36);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+            append_u8(body, 0x41);
+            append_i32_leb(body, static_cast<std::int32_t>(symbolic_output_length_offset));
+            append_u8(body, 0x28);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
         } else {
             append_u32_leb(body, 0);
         }
-        if (function.body_kind == FunctionSpec::BodyKind::I32Const) {
+        if (function.body_kind == FunctionSpec::BodyKind::I32Const
+            && (function.export_name == "vkf_symbolic_input_len"
+                || function.export_name == "vkf_symbolic_output_len")) {
+            append_u8(body, 0x41);
+            append_i32_leb(body, function.i32_value);
+            append_u8(body, 0x28);
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+        } else if (function.body_kind == FunctionSpec::BodyKind::I32Const) {
             append_u8(body, 0x41);
             append_i32_leb(body, function.i32_value);
         } else if (function.body_kind == FunctionSpec::BodyKind::F64Const) {
@@ -1358,6 +1466,17 @@ vf::JsonValue::Object manifest_payload(
     runtime_surface["state_size"] = vf::JsonValue(static_cast<double>(state_size));
     runtime_surface["input_offset"] = vf::JsonValue(static_cast<double>(input_offset));
     runtime_surface["input_size"] = vf::JsonValue(static_cast<double>(input_size));
+    vf::JsonValue::Object symbolic_text;
+    symbolic_text["input_ptr_export"] = vf::JsonValue("vkf_symbolic_input_ptr");
+    symbolic_text["input_capacity_export"] = vf::JsonValue("vkf_symbolic_input_capacity");
+    symbolic_text["input_len_export"] = vf::JsonValue("vkf_symbolic_input_len");
+    symbolic_text["set_input_len_export"] = vf::JsonValue("vkf_symbolic_set_input_len");
+    symbolic_text["output_ptr_export"] = vf::JsonValue("vkf_symbolic_output_ptr");
+    symbolic_text["output_capacity_export"] = vf::JsonValue("vkf_symbolic_output_capacity");
+    symbolic_text["output_len_export"] = vf::JsonValue("vkf_symbolic_output_len");
+    symbolic_text["trace_export"] = vf::JsonValue("vkf_symbolic_trace");
+    symbolic_text["encoding"] = vf::JsonValue("utf-8");
+    runtime_surface["symbolic_text"] = vf::JsonValue(std::move(symbolic_text));
     runtime_surface["update_mode"] = vf::JsonValue(
         update_plan.axis_vector_mode ? (update_plan.axis_input_vector ? "axis_vector_vector" : "axis_vector_scalar")
         : (update_plan.record_mode ? "record" : (update_plan.enabled ? "scalar" : "builtin"))
@@ -1370,6 +1489,14 @@ vf::JsonValue::Object manifest_payload(
     exports.push_back(vf::JsonValue("vkf_state_size"));
     exports.push_back(vf::JsonValue("vkf_input_ptr"));
     exports.push_back(vf::JsonValue("vkf_input_size"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_input_ptr"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_input_capacity"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_input_len"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_set_input_len"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_output_ptr"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_output_capacity"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_output_len"));
+    exports.push_back(vf::JsonValue("vkf_symbolic_trace"));
     vf::JsonValue::Array binding_exports;
     for (const auto& binding : bindings) {
         const std::string suffix = sanitize_export_suffix(binding.name);

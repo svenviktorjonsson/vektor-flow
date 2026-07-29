@@ -1,0 +1,430 @@
+# Host-runtime-free symbolic expression kernel tracer.
+#
+# This is VKF compiler source. It defines the first browser-oriented symbolic
+# contract in VKF itself. The native bootstrap can lex and parse this source
+# today. Executable lowering still depends on the compiler gaps declared at the
+# bottom of this file.
+
+SymbolicLocation: (offset:num, line:num, column:num)
+SymbolicToken: (kind:str, text:str, value:any, location:SymbolicLocation)
+SymbolicCursor: (source:str, offset:num, line:num, column:num)
+SymbolicDiagnostic: (code:str, message:str, location:SymbolicLocation)
+SymbolicLexResult: (tokens:any, diagnostics:any)
+SymbolicParseState: (tokens:any, index:num, diagnostics:any)
+SymbolicNode: any
+SymbolicParseResult: (ast:any, next:SymbolicParseState)
+SymbolicProgram: (ast:any, diagnostics:any, latex:str)
+
+symbolic_location(offset:num, line:num, column:num):
+    (offset: offset, line: line, column: column)
+
+symbolic_token(kind:str, text:str, value:any, location:SymbolicLocation):
+    (kind: kind, text: text, value: value, location: location)
+
+symbolic_cursor(source:str):
+    (source: source, offset: 0, line: 1, column: 1)
+
+symbolic_diagnostic(code:str, message:str, location:SymbolicLocation):
+    (code: code, message: message, location: location)
+
+symbolic_lex_result(tokens:any, diagnostics:any):
+    (tokens: tokens, diagnostics: diagnostics)
+
+symbolic_parse_state(tokens:any, index:num, diagnostics:any):
+    (tokens: tokens, index: index, diagnostics: diagnostics)
+
+symbolic_parse_result(ast:any, next:SymbolicParseState):
+    (ast: ast, next: next)
+
+symbolic_number(value:num, location:SymbolicLocation):
+    (kind: "number", value: value, location: location)
+
+symbolic_variable(name:str, location:SymbolicLocation):
+    (kind: "variable", name: name, location: location)
+
+symbolic_unary(op:str, operand:SymbolicNode, location:SymbolicLocation):
+    (kind: "unary", op: op, operand: operand, location: location)
+
+symbolic_binary(op:str, left:SymbolicNode, right:SymbolicNode, location:SymbolicLocation):
+    (kind: "binary", op: op, left: left, right: right, location: location)
+
+symbolic_error_node(location:SymbolicLocation):
+    (kind: "error", location: location)
+
+symbolic_cursor_location(cursor:SymbolicCursor):
+    symbolic_location(cursor.offset, cursor.line, cursor.column)
+
+symbolic_cursor_eof(cursor:SymbolicCursor):
+    vkf_string_eof(cursor.source, cursor.offset)
+
+symbolic_cursor_peek(cursor:SymbolicCursor):
+    vkf_string_peek_scalar(cursor.source, cursor.offset)
+
+symbolic_cursor_advance(cursor:SymbolicCursor):
+    vkf_cursor_advance_scalar(cursor)
+
+symbolic_is_digit(ch:str):
+    ch >= "0" /\ ch <= "9"
+
+symbolic_is_identifier_start(ch:str):
+    ch = "x" \/ ch = "y" \/ ch = "p"
+
+symbolic_is_space(ch:str):
+    ch = " " \/ ch = "\t" \/ ch = "\n" \/ ch = "\r"
+
+symbolic_scan_number(cursor:SymbolicCursor):
+    vkf_symbolic_scan_decimal(cursor)
+
+symbolic_scan_identifier(cursor:SymbolicCursor):
+    vkf_symbolic_scan_identifier(cursor)
+
+symbolic_operator_kind(ch:str):
+    ch??
+        "+" => "PLUS"
+        "-" => "MINUS"
+        "*" => "STAR"
+        "/" => "SLASH"
+        "^" => "CARET"
+        "(" => "LPAREN"
+        ")" => "RPAREN"
+        "INVALID"
+
+symbolic_tokenize_step(cursor:SymbolicCursor, tokens:any, diagnostics:any):
+    symbolic_cursor_eof(cursor)?
+        eof_token: symbolic_token(
+            "EOF",
+            "",
+            null,
+            symbolic_cursor_location(cursor)
+        )
+        @: symbolic_lex_result(tokens & [eof_token], diagnostics)
+
+    ch: symbolic_cursor_peek(cursor)
+    symbolic_is_space(ch)?
+        @: symbolic_tokenize_step(
+            symbolic_cursor_advance(cursor),
+            tokens,
+            diagnostics
+        )
+
+    symbolic_is_digit(ch)?
+        scanned: symbolic_scan_number(cursor)
+        number_token: symbolic_token(
+            "NUMBER",
+            scanned.text,
+            scanned.value,
+            symbolic_cursor_location(cursor)
+        )
+        @: symbolic_tokenize_step(
+            scanned.next,
+            tokens & [number_token],
+            diagnostics
+        )
+
+    symbolic_is_identifier_start(ch)?
+        scanned: symbolic_scan_identifier(cursor)
+        valid_name: scanned.text = "x" \/ scanned.text = "y" \/ scanned.text = "pi"
+        valid_name?
+            identifier_token: symbolic_token(
+                "IDENT",
+                scanned.text,
+                scanned.text,
+                symbolic_cursor_location(cursor)
+            )
+            @: symbolic_tokenize_step(
+                scanned.next,
+                tokens & [identifier_token],
+                diagnostics
+            )
+        issue: symbolic_diagnostic(
+            "unsupported-identifier",
+            "expected x, y, or pi",
+            symbolic_cursor_location(cursor)
+        )
+        @: symbolic_tokenize_step(
+            scanned.next,
+            tokens,
+            diagnostics & [issue]
+        )
+
+    operator_kind: symbolic_operator_kind(ch)
+    operator_kind = "INVALID"?
+        issue: symbolic_diagnostic(
+            "unexpected-character",
+            "expected number, x, y, pi, or arithmetic operator",
+            symbolic_cursor_location(cursor)
+        )
+        @: symbolic_tokenize_step(
+            symbolic_cursor_advance(cursor),
+            tokens,
+            diagnostics & [issue]
+        )
+
+    operator_token: symbolic_token(
+        operator_kind,
+        ch,
+        ch,
+        symbolic_cursor_location(cursor)
+    )
+    @: symbolic_tokenize_step(
+        symbolic_cursor_advance(cursor),
+        tokens & [operator_token],
+        diagnostics
+    )
+
+symbolic_tokenize(source:str):
+    symbolic_tokenize_step(symbolic_cursor(source), [], [])
+
+symbolic_state_current(state:SymbolicParseState):
+    state.tokens.(state.index)
+
+symbolic_state_advance(state:SymbolicParseState):
+    symbolic_parse_state(state.tokens, state.index + 1, state.diagnostics)
+
+symbolic_state_with_diagnostic(
+    state:SymbolicParseState,
+    issue:SymbolicDiagnostic
+):
+    symbolic_parse_state(
+        state.tokens,
+        state.index,
+        state.diagnostics & [issue]
+    )
+
+symbolic_parse_primary(state:SymbolicParseState):
+    current: symbolic_state_current(state)
+    current.kind??
+        "NUMBER" => symbolic_parse_result(
+            symbolic_number(current.value, current.location),
+            symbolic_state_advance(state)
+        )
+        "IDENT" => symbolic_parse_result(
+            symbolic_variable(current.text, current.location),
+            symbolic_state_advance(state)
+        )
+        "LPAREN" => symbolic_parse_parenthesized(state)
+        symbolic_parse_primary_error(state, current)
+
+symbolic_parse_primary_error(
+    state:SymbolicParseState,
+    current:SymbolicToken
+):
+    issue: symbolic_diagnostic(
+        "expected-expression",
+        "expected number, variable, or parenthesized expression",
+        current.location
+    )
+    symbolic_parse_result(
+        symbolic_error_node(current.location),
+        symbolic_state_with_diagnostic(state, issue)
+    )
+
+symbolic_parse_parenthesized(state:SymbolicParseState):
+    open: symbolic_state_current(state)
+    inner: symbolic_parse_additive(symbolic_state_advance(state))
+    close: symbolic_state_current(inner.next)
+    close.kind??
+        "RPAREN" => symbolic_parse_result(
+            inner.ast,
+            symbolic_state_advance(inner.next)
+        )
+        symbolic_parse_parenthesized_error(inner, open)
+
+symbolic_parse_parenthesized_error(
+    inner:SymbolicParseResult,
+    open:SymbolicToken
+):
+    issue: symbolic_diagnostic(
+        "expected-close-parenthesis",
+        "expected closing parenthesis",
+        open.location
+    )
+    symbolic_parse_result(
+        inner.ast,
+        symbolic_state_with_diagnostic(inner.next, issue)
+    )
+
+symbolic_parse_unary(state:SymbolicParseState):
+    current: symbolic_state_current(state)
+    current.kind??
+        "PLUS" => symbolic_parse_unary(symbolic_state_advance(state))
+        "MINUS" => symbolic_parse_unary_operand(state)
+        symbolic_parse_primary(state)
+
+symbolic_parse_unary_operand(state:SymbolicParseState):
+    operator: symbolic_state_current(state)
+    operand: symbolic_parse_unary(symbolic_state_advance(state))
+    symbolic_parse_result(
+        symbolic_unary("-", operand.ast, operator.location),
+        operand.next
+    )
+
+symbolic_parse_power(state:SymbolicParseState):
+    left: symbolic_parse_unary(state)
+    current: symbolic_state_current(left.next)
+    current.kind??
+        "CARET" => symbolic_parse_power_right(left, current)
+        left
+
+symbolic_parse_power_right(left:SymbolicParseResult, operator:SymbolicToken):
+    right: symbolic_parse_power(symbolic_state_advance(left.next))
+    symbolic_parse_result(
+        symbolic_binary("^", left.ast, right.ast, operator.location),
+        right.next
+    )
+
+symbolic_parse_multiplicative(state:SymbolicParseState):
+    left: symbolic_parse_power(state)
+    symbolic_parse_multiplicative_tail(left)
+
+symbolic_parse_multiplicative_tail(left:SymbolicParseResult):
+    current: symbolic_state_current(left.next)
+    current.kind??
+        "STAR" => symbolic_parse_multiplicative_right(left, current, "*")
+        "SLASH" => symbolic_parse_multiplicative_right(left, current, "/")
+        left
+
+symbolic_parse_multiplicative_right(
+    left:SymbolicParseResult,
+    operator:SymbolicToken,
+    op:str
+):
+    right: symbolic_parse_power(symbolic_state_advance(left.next))
+    combined: symbolic_parse_result(
+        symbolic_binary(op, left.ast, right.ast, operator.location),
+        right.next
+    )
+    symbolic_parse_multiplicative_tail(combined)
+
+symbolic_parse_additive(state:SymbolicParseState):
+    left: symbolic_parse_multiplicative(state)
+    symbolic_parse_additive_tail(left)
+
+symbolic_parse_additive_tail(left:SymbolicParseResult):
+    current: symbolic_state_current(left.next)
+    current.kind??
+        "PLUS" => symbolic_parse_additive_right(left, current, "+")
+        "MINUS" => symbolic_parse_additive_right(left, current, "-")
+        left
+
+symbolic_parse_additive_right(
+    left:SymbolicParseResult,
+    operator:SymbolicToken,
+    op:str
+):
+    right: symbolic_parse_multiplicative(symbolic_state_advance(left.next))
+    combined: symbolic_parse_result(
+        symbolic_binary(op, left.ast, right.ast, operator.location),
+        right.next
+    )
+    symbolic_parse_additive_tail(combined)
+
+symbolic_parse_tokens(lexed:SymbolicLexResult):
+    state: symbolic_parse_state(lexed.tokens, 0, lexed.diagnostics)
+    parsed: symbolic_parse_additive(state)
+    current: symbolic_state_current(parsed.next)
+    current.kind??
+        "EOF" => parsed
+        symbolic_parse_trailing_error(parsed, current)
+
+symbolic_parse_trailing_error(
+    parsed:SymbolicParseResult,
+    current:SymbolicToken
+):
+    issue: symbolic_diagnostic(
+        "unexpected-token",
+        "expected end of expression",
+        current.location
+    )
+    symbolic_parse_result(
+        parsed.ast,
+        symbolic_state_with_diagnostic(parsed.next, issue)
+    )
+
+symbolic_latex(node:SymbolicNode):
+    node.kind??
+        "number" => str(node.value)
+        "variable" => symbolic_variable_latex(node.name)
+        "unary" => "-" & symbolic_latex(node.operand)
+        "binary" => symbolic_binary_latex(node)
+        "\\operatorname{error}"
+
+symbolic_variable_latex(name:str):
+    name??
+        "pi" => "\\pi"
+        name
+
+symbolic_binary_latex(node:SymbolicNode):
+    node.op??
+        "+" => symbolic_latex(node.left) & " + " & symbolic_latex(node.right)
+        "-" => symbolic_latex(node.left) & " - " & symbolic_latex(node.right)
+        "*" => symbolic_latex(node.left) & " \\cdot " & symbolic_latex(node.right)
+        "/" => "\\frac{" & symbolic_latex(node.left) & "}{" & symbolic_latex(node.right) & "}"
+        "^" => "{" & symbolic_latex(node.left) & "}^{" & symbolic_latex(node.right) & "}"
+        "\\operatorname{error}"
+
+symbolic_evaluate(node:SymbolicNode, x:num, y:num):
+    node.kind??
+        "number" => node.value
+        "variable" => symbolic_variable_value(node.name, x, y)
+        "unary" => 0 - symbolic_evaluate(node.operand, x, y)
+        "binary" => symbolic_binary_value(node, x, y)
+        null
+
+symbolic_variable_value(name:str, x:num, y:num):
+    name??
+        "x" => x
+        "y" => y
+        "pi" => 3.141592653589793
+        null
+
+symbolic_binary_value(node:SymbolicNode, x:num, y:num):
+    left: symbolic_evaluate(node.left, x, y)
+    right: symbolic_evaluate(node.right, x, y)
+    node.op??
+        "+" => left + right
+        "-" => left - right
+        "*" => left * right
+        "/" => left / right
+        "^" => left ^ right
+        null
+
+symbolic_compile(source:str):
+    lexed: symbolic_tokenize(source)
+    parsed: symbolic_parse_tokens(lexed)
+    symbolic_program(
+        parsed.ast,
+        parsed.next.diagnostics,
+        symbolic_latex(parsed.ast)
+    )
+
+symbolic_program(ast:SymbolicNode, diagnostics:any, latex:str):
+    (ast: ast, diagnostics: diagnostics, latex: latex)
+
+symbolic_expression_capability:
+    name: "self_hosted_symbolic_expression_tracer"
+    grammar: [
+        "decimal numbers",
+        "variables x and y",
+        "constant pi",
+        "prefix plus and minus",
+        "binary plus minus multiply divide power",
+        "parenthesized expressions"
+    ]
+    deterministic_interfaces: [
+        "symbolic_tokenize(source)",
+        "symbolic_parse_tokens(lexed)",
+        "symbolic_compile(source)",
+        "symbolic_latex(ast)",
+        "symbolic_evaluate(ast, x, y)"
+    ]
+    native_bootstrap_status: "source lexes and parses without a host runtime"
+    missing: [
+        "native VKF ABI for scalar-safe string cursor operations",
+        "native VKF decimal and identifier scan results",
+        "typed IR lowering for recursive calls",
+        "typed IR lowering for dynamic lists and tagged AST records",
+        "WASM lowering for strings, diagnostics, and dynamic arrays",
+        "browser ABI for compile, latex, evaluate, and diagnostics"
+    ]
+    :
