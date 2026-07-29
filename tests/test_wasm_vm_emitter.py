@@ -408,4 +408,4 @@ def test_rejects_invalid_numeric_stack(
         text=True,
     )
     assert result.returncode == 2
-    assert "underflows the numeric operand stack" in result.stderr
+    assert "underflows the tagged operand stack" in result.stderr

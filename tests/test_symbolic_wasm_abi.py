@@ -131,6 +131,7 @@ def test_wasm_artifact_exposes_round_trip_symbolic_text_buffers(tmp_path: Path) 
     expression = "sqrt(x^2 + y^2) + pi"
     node_script = r"""
 const fs = require("fs");
+void (async () => {
 const bytes = fs.readFileSync(process.argv[1]);
 const expression = process.argv[2];
 const { instance } = await WebAssembly.instantiate(bytes, {});
@@ -161,6 +162,10 @@ process.stdout.write(JSON.stringify({
   output: new TextDecoder().decode(output),
   distinctBuffers: e.vkf_symbolic_input_ptr() !== e.vkf_symbolic_output_ptr(),
 }));
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 """
     node_result = subprocess.run(
         [

@@ -132,7 +132,7 @@ def test_compiles_and_executes_symbolic_vkf_in_browser_wasm(
     script.write_text(
         """
 import { readFile } from "node:fs/promises";
-import { createSymbolicKernel } from process.argv[2];
+const { createSymbolicKernel } = await import(process.argv[2]);
 
 const wasm = await readFile(process.argv[3]);
 const manifest = JSON.parse(await readFile(process.argv[4], "utf8"));

@@ -97,6 +97,8 @@ int main() {
         "-std=c++17",
         "-I",
         str(REPO_ROOT),
+        "-I",
+        str(REPO_ROOT / "native/VfOverlay"),
         str(source),
         str(REPO_ROOT / "native/VfOverlay/vf/json.cpp"),
         "-o",

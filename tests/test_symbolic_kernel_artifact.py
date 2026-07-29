@@ -25,6 +25,8 @@ def compiler_command(output: Path) -> list[str] | None:
                 "-pedantic",
                 "-I",
                 str(ROOT),
+                "-I",
+                str(ROOT / "native/VfOverlay"),
                 str(SOURCE),
                 str(JSON_SOURCE),
                 "-o",
