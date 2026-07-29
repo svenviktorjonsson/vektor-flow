@@ -61,7 +61,13 @@ test("published archive contains an executable symbolic kernel", async () => {
       )
     );
     const { instance } = await WebAssembly.instantiate(wasm);
-    const kernel = runtime.createSymbolicKernel({ instance, manifest });
+    const manifestUrl = new URL(
+      `data:application/json,${encodeURIComponent(JSON.stringify(manifest))}`,
+    );
+    const kernel = await runtime.loadSymbolicKernel({
+      wasm: instance,
+      manifest: manifestUrl,
+    });
     const compiled = kernel.compile("x^2 + pi");
     assert.deepEqual(compiled.value.diagnostics, []);
     assert.equal(compiled.value.classification, "y-of-x");

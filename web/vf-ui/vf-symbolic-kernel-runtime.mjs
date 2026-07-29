@@ -38,7 +38,12 @@ function validateManifest(manifest) {
 }
 
 async function responseJson(source) {
-  if (source && typeof source === "object" && !(source instanceof Response)) {
+  if (
+    source
+    && typeof source === "object"
+    && !(source instanceof Response)
+    && !(source instanceof URL)
+  ) {
     return source;
   }
   const response = typeof source === "string" || source instanceof URL
