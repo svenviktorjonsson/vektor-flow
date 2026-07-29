@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 
+#include <cmath>
 #include <map>
 #include <fstream>
 #include <iostream>
@@ -188,13 +189,6 @@ std::string format_label_expr(const vf::JsonValue& ast) {
         return format_label_expr(field(object, "callee", "call")) + "()";
     }
     return "<expr>";
-}
-
-vf::JsonValue bool_const(bool value) {
-    auto out = node("const");
-    out["type"] = vf::JsonValue("bool");
-    out["value"] = vf::JsonValue(value);
-    return vf::JsonValue(std::move(out));
 }
 
 bool starts_with(const std::string& text, const std::string& prefix);

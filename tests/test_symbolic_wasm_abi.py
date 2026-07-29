@@ -77,9 +77,22 @@ def test_wasm_artifact_exposes_round_trip_symbolic_text_buffers(tmp_path: Path) 
                 "kind": "typed_module",
                 "body": [
                     {
+                        "kind": "type_alias",
+                        "name": "Answer",
+                        "type_annotation": {
+                            "kind": "type_annotation",
+                            "name": "num",
+                        },
+                    },
+                    {
                         "kind": "store_binding",
                         "name": "answer",
                         "value": {"kind": "const", "value": 42},
+                        "type": "Answer",
+                    },
+                    {
+                        "kind": "expr_stmt",
+                        "expr": {"kind": "load", "name": "answer", "type": "Answer"},
                     }
                 ],
             }

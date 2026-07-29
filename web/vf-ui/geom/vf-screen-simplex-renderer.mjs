@@ -2,6 +2,15 @@ const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const DEFAULT_COLOR = Object.freeze([1, 1, 1, 1]);
 
+export function growPackedVertexCapacity(currentBytes, requiredBytes) {
+  let capacity = Math.max(0, Number(currentBytes) || 0);
+  const required = Math.max(0, Number(requiredBytes) || 0);
+  if (required <= capacity) return capacity;
+  capacity = Math.max(256, capacity);
+  while (capacity < required) capacity *= 2;
+  return Math.ceil(capacity / 4) * 4;
+}
+
 export function colorToRgba(color) {
   if (Array.isArray(color) || ArrayBuffer.isView(color)) {
     return [
@@ -47,6 +56,16 @@ export function buildScreenSpaceSimplexVertices(scene = {}) {
   return new Float32Array(packed);
 }
 
+export function requirePackedSimplexVertices(value) {
+  if (!(value instanceof Float32Array)) {
+    throw new TypeError('packed simplex vertices must be a Float32Array');
+  }
+  if (value.length % (FLOATS_PER_VERTEX * 3) !== 0) {
+    throw new RangeError('packed simplex vertices must contain complete triangles');
+  }
+  return value;
+}
+
 export function createScreenSpaceSimplexRenderer(canvas, options = {}) {
   if (!canvas?.getContext) throw new TypeError('canvas must provide getContext');
   const pixelRatio = options.pixelRatio || (() => globalThis.devicePixelRatio || 1);
@@ -72,6 +91,13 @@ export function createScreenSpaceSimplexRenderer(canvas, options = {}) {
     assertAlive();
     scene = nextScene;
     vertices = buildScreenSpaceSimplexVertices(scene);
+    backend?.render(vertices);
+  }
+
+  function setPackedVertices(nextVertices) {
+    assertAlive();
+    scene = null;
+    vertices = requirePackedSimplexVertices(nextVertices);
     backend?.render(vertices);
   }
 
@@ -104,6 +130,7 @@ export function createScreenSpaceSimplexRenderer(canvas, options = {}) {
   return Object.freeze({
     initialize,
     setScene,
+    setPackedVertices,
     resize,
     destroy,
     get backend() {
@@ -266,6 +293,7 @@ async function createWebGpuBackend(canvas) {
     entries: [{ binding: 0, resource: { buffer: viewportBuffer } }]
   });
   let vertexBuffer = null;
+  let vertexCapacity = 0;
   let vertexCount = 0;
 
   return {
@@ -275,14 +303,19 @@ async function createWebGpuBackend(canvas) {
       device.queue.writeBuffer(viewportBuffer, 0, new Float32Array([width, height, 0, 0]));
     },
     render(vertices) {
-      vertexBuffer?.destroy();
-      vertexBuffer = null;
       vertexCount = vertices.length / FLOATS_PER_VERTEX;
-      if (vertices.byteLength) {
+      if (vertices.byteLength > vertexCapacity) {
+        vertexBuffer?.destroy();
+        vertexCapacity = growPackedVertexCapacity(
+          vertexCapacity,
+          vertices.byteLength,
+        );
         vertexBuffer = device.createBuffer({
-          size: Math.ceil(vertices.byteLength / 4) * 4,
+          size: vertexCapacity,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
         });
+      }
+      if (vertices.byteLength) {
         device.queue.writeBuffer(vertexBuffer, 0, vertices);
       }
       const encoder = device.createCommandEncoder();
@@ -345,6 +378,7 @@ function createWebGl2Backend(canvas) {
   const colorLocation = gl.getAttribLocation(program, 'a_color');
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport');
   let cssSize = [1, 1];
+  let bufferCapacity = 0;
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -363,7 +397,14 @@ function createWebGl2Backend(canvas) {
       gl.useProgram(program);
       gl.uniform2f(viewportLocation, cssSize[0], cssSize[1]);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+      if (vertices.byteLength > bufferCapacity) {
+        bufferCapacity = growPackedVertexCapacity(
+          bufferCapacity,
+          vertices.byteLength,
+        );
+        gl.bufferData(gl.ARRAY_BUFFER, bufferCapacity, gl.DYNAMIC_DRAW);
+      }
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, BYTES_PER_VERTEX, 0);
       gl.enableVertexAttribArray(colorLocation);

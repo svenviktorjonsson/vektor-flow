@@ -1,0 +1,63 @@
+name: Compiler CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compiler-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-native-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install C++17 compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++
+
+      - name: Install JavaScript dependencies
+        run: npm install
+
+      - name: Install Python test dependencies
+        run: python -m pip install --upgrade pytest
+
+      - name: Verify generated symbolic kernel
+        run: npm run check:symbolic-kernel
+
+      - name: Test browser package
+        run: npm test
+
+      - name: Test published package archive
+        run: npm run test:package
+
+      - name: Test native and WASM compiler modules
+        run: >-
+          python -m pytest -q
+          tests/test_native_symbolic_core.py
+          tests/test_wasm_typed_ir_model.py
+          tests/test_wasm_bytecode.py
+          tests/test_wasm_bytecode_lowering.py
+          tests/test_wasm_vm_emitter.py
+          tests/test_wasm_value_layout.py
+          tests/test_symbolic_wasm_abi.py
+          tests/test_self_hosted_symbolic_expression.py
+          tests/test_symbolic_kernel_artifact.py
+          tests/test_symbolic_kernel_browser.py

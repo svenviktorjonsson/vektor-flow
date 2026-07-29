@@ -1,9 +1,8 @@
-# Host-runtime-free symbolic expression kernel tracer.
+# Host-runtime-free symbolic expression kernel.
 #
-# This is VKF compiler source. It defines the first browser-oriented symbolic
-# contract in VKF itself. The native bootstrap can lex and parse this source
-# today. Executable lowering still depends on the compiler gaps declared at the
-# bottom of this file.
+# Parsing, diagnostics, canonical presentation, workspace ownership,
+# classification, coordinate contexts, and evaluation all live here in VKF.
+# Browser code transports tagged values only.
 
 SymbolicLocation: (offset:num, line:num, column:num)
 SymbolicToken: (kind:str, text:str, value:any, location:SymbolicLocation)
@@ -11,9 +10,19 @@ SymbolicCursor: (source:str, offset:num, line:num, column:num)
 SymbolicDiagnostic: (code:str, message:str, location:SymbolicLocation)
 SymbolicLexResult: (tokens:any, diagnostics:any)
 SymbolicParseState: (tokens:any, index:num, diagnostics:any)
-SymbolicNode: any
 SymbolicParseResult: (ast:any, next:SymbolicParseState)
-SymbolicProgram: (ast:any, diagnostics:any, latex:str)
+SymbolicProgram: (
+    ast:any,
+    diagnostics:any,
+    latex:str,
+    variables:any,
+    classification:str,
+    valueKind:str,
+    context:any,
+    clip:any
+)
+SymbolicWorkspace: any
+SymbolicEvaluation: (x:num, y:num, z:num, t:num, context:any)
 
 symbolic_location(offset:num, line:num, column:num):
     (offset: offset, line: line, column: column)
@@ -36,20 +45,115 @@ symbolic_parse_state(tokens:any, index:num, diagnostics:any):
 symbolic_parse_result(ast:any, next:SymbolicParseState):
     (ast: ast, next: next)
 
-symbolic_number(value:num, location:SymbolicLocation):
-    (kind: "number", value: value, location: location)
+symbolic_number(value:num, text:str, location:SymbolicLocation):
+    (kind: "number", value: value, text: text, location: location)
 
 symbolic_variable(name:str, location:SymbolicLocation):
     (kind: "variable", name: name, location: location)
 
-symbolic_unary(op:str, operand:SymbolicNode, location:SymbolicLocation):
+symbolic_unary(op:str, operand:any, location:SymbolicLocation):
     (kind: "unary", op: op, operand: operand, location: location)
 
-symbolic_binary(op:str, left:SymbolicNode, right:SymbolicNode, location:SymbolicLocation):
+symbolic_binary(op:str, left:any, right:any, location:SymbolicLocation):
     (kind: "binary", op: op, left: left, right: right, location: location)
+
+symbolic_call(name:str, args:any, location:SymbolicLocation):
+    (kind: "call", name: name, args: args, location: location)
+
+symbolic_tuple(items:any, location:SymbolicLocation):
+    (kind: "tuple", items: items, location: location)
+
+symbolic_set(items:any, location:SymbolicLocation):
+    (kind: "set", items: items, location: location)
+
+symbolic_definition(name:str, parameters:any, value:any, location:SymbolicLocation):
+    (
+        kind: "definition",
+        name: name,
+        parameters: parameters,
+        value: value,
+        location: location
+    )
 
 symbolic_error_node(location:SymbolicLocation):
     (kind: "error", location: location)
+
+symbolic_complex(real:num, imaginary:num):
+    (kind: "complex", real: real, imaginary: imaginary)
+
+symbolic_vector(x:num, y:num):
+    (kind: "vector", x: x, y: y)
+
+symbolic_global_context():
+    (
+        kind: "global",
+        dimension: 2,
+        originX: 0,
+        originY: 0,
+        basisXX: 1,
+        basisXY: 0,
+        basisYX: 0,
+        basisYY: 1
+    )
+
+symbolic_affine_context(
+    kind:str,
+    originX:num,
+    originY:num,
+    basisXX:num,
+    basisXY:num,
+    basisYX:num,
+    basisYY:num
+):
+    (
+        kind: kind,
+        originX: originX,
+        originY: originY,
+        basisXX: basisXX,
+        basisXY: basisXY,
+        basisYX: basisYX,
+        basisYY: basisYY
+    )
+
+symbolic_no_clip():
+    (kind: "none", vertices: vkf_list_empty())
+
+symbolic_face_clip(vertices:any):
+    (kind: "face", vertices: vertices)
+
+symbolic_context_dimension(context:any):
+    context.dimension = null?
+        @: 2
+    context.dimension
+
+symbolic_workspace():
+    vkf_list_empty()
+
+symbolic_pack_plot_vertices(vertices:any, revision:num):
+    packed: vkf_plot_pack(vertices, revision)
+    packed = null?
+        @: null
+    symbolic_plot_metadata(packed)
+
+symbolic_plot_builder(capacity:num, revision:num):
+    vkf_plot_builder_create(capacity, revision)
+
+symbolic_plot_builder_push(builder:any, vertex:any):
+    vkf_plot_builder_push(builder, vertex)
+
+symbolic_plot_builder_metadata(builder:any):
+    packed: vkf_plot_builder_finish(builder)
+    packed = null?
+        @: null
+    symbolic_plot_metadata(packed)
+
+symbolic_plot_metadata(packed:any):
+    (
+        pointer: packed.(0),
+        count: packed.(1),
+        stride: packed.(2),
+        revision: packed.(3)
+    )
 
 symbolic_cursor_location(cursor:SymbolicCursor):
     symbolic_location(cursor.offset, cursor.line, cursor.column)
@@ -61,33 +165,67 @@ symbolic_cursor_peek(cursor:SymbolicCursor):
     vkf_string_peek_scalar(cursor.source, cursor.offset)
 
 symbolic_cursor_advance(cursor:SymbolicCursor):
-    vkf_cursor_advance_scalar(cursor)
+    next_offset: vkf_utf8_advance(cursor.source, cursor.offset)
+    ch: symbolic_cursor_peek(cursor)
+    ch = 10?
+        @: symbolic_location_cursor(
+            cursor.source,
+            next_offset,
+            cursor.line + 1,
+            1
+        )
+    symbolic_location_cursor(
+        cursor.source,
+        next_offset,
+        cursor.line,
+        cursor.column + 1
+    )
 
-symbolic_is_digit(ch:str):
-    ch >= "0" /\ ch <= "9"
+symbolic_location_cursor(source:str, offset:num, line:num, column:num):
+    (source: source, offset: offset, line: line, column: column)
 
-symbolic_is_identifier_start(ch:str):
-    ch = "x" \/ ch = "y" \/ ch = "p"
+symbolic_is_digit(ch:num):
+    ch >= 48 /\ ch <= 57
 
-symbolic_is_space(ch:str):
-    ch = " " \/ ch = "\t" \/ ch = "\n" \/ ch = "\r"
+symbolic_is_identifier_start(ch:num):
+    (ch >= 97 /\ ch <= 122) \/ (ch >= 65 /\ ch <= 90) \/ ch = 95
+
+symbolic_is_space(ch:num):
+    ch = 32 \/ ch = 9 \/ ch = 10 \/ ch = 13
 
 symbolic_scan_number(cursor:SymbolicCursor):
-    vkf_symbolic_scan_decimal(cursor)
+    end: vkf_decimal_scan_end(cursor.source, cursor.offset)
+    text: vkf_utf8_slice(cursor.source, cursor.offset, end)
+    (
+        text: text,
+        value: vkf_decimal_parse(text),
+        next: symbolic_cursor_at(cursor, end)
+    )
 
 symbolic_scan_identifier(cursor:SymbolicCursor):
-    vkf_symbolic_scan_identifier(cursor)
+    end: vkf_identifier_scan_end(cursor.source, cursor.offset)
+    (
+        text: vkf_utf8_slice(cursor.source, cursor.offset, end),
+        next: symbolic_cursor_at(cursor, end)
+    )
 
-symbolic_operator_kind(ch:str):
-    ch??
-        "+" => "PLUS"
-        "-" => "MINUS"
-        "*" => "STAR"
-        "/" => "SLASH"
-        "^" => "CARET"
-        "(" => "LPAREN"
-        ")" => "RPAREN"
-        "INVALID"
+symbolic_scan_operator(cursor:SymbolicCursor):
+    width: vkf_operator_width(cursor.source, cursor.offset)
+    end: cursor.offset + width
+    text: vkf_utf8_slice(cursor.source, cursor.offset, end)
+    (
+        kind: vkf_operator_kind(text),
+        text: text,
+        next: symbolic_cursor_at(cursor, end)
+    )
+
+symbolic_cursor_at(cursor:SymbolicCursor, offset:num):
+    symbolic_location_cursor(
+        cursor.source,
+        offset,
+        cursor.line,
+        cursor.column + offset - cursor.offset
+    )
 
 symbolic_tokenize_step(cursor:SymbolicCursor, tokens:any, diagnostics:any):
     symbolic_cursor_eof(cursor)?
@@ -108,50 +246,38 @@ symbolic_tokenize_step(cursor:SymbolicCursor, tokens:any, diagnostics:any):
         )
 
     symbolic_is_digit(ch)?
-        scanned: symbolic_scan_number(cursor)
+        number_scan: symbolic_scan_number(cursor)
         number_token: symbolic_token(
             "NUMBER",
-            scanned.text,
-            scanned.value,
+            number_scan.text,
+            number_scan.value,
             symbolic_cursor_location(cursor)
         )
         @: symbolic_tokenize_step(
-            scanned.next,
+            number_scan.next,
             tokens & [number_token],
             diagnostics
         )
 
     symbolic_is_identifier_start(ch)?
-        scanned: symbolic_scan_identifier(cursor)
-        valid_name: scanned.text = "x" \/ scanned.text = "y" \/ scanned.text = "pi"
-        valid_name?
-            identifier_token: symbolic_token(
-                "IDENT",
-                scanned.text,
-                scanned.text,
-                symbolic_cursor_location(cursor)
-            )
-            @: symbolic_tokenize_step(
-                scanned.next,
-                tokens & [identifier_token],
-                diagnostics
-            )
-        issue: symbolic_diagnostic(
-            "unsupported-identifier",
-            "expected x, y, or pi",
+        identifier_scan: symbolic_scan_identifier(cursor)
+        identifier_token: symbolic_token(
+            "IDENT",
+            identifier_scan.text,
+            identifier_scan.text,
             symbolic_cursor_location(cursor)
         )
         @: symbolic_tokenize_step(
-            scanned.next,
-            tokens,
-            diagnostics & [issue]
+            identifier_scan.next,
+            tokens & [identifier_token],
+            diagnostics
         )
 
-    operator_kind: symbolic_operator_kind(ch)
-    operator_kind = "INVALID"?
+    operator_scan: symbolic_scan_operator(cursor)
+    operator_scan.kind = "INVALID"?
         issue: symbolic_diagnostic(
             "unexpected-character",
-            "expected number, x, y, pi, or arithmetic operator",
+            "expected a mathematical expression token",
             symbolic_cursor_location(cursor)
         )
         @: symbolic_tokenize_step(
@@ -161,13 +287,13 @@ symbolic_tokenize_step(cursor:SymbolicCursor, tokens:any, diagnostics:any):
         )
 
     operator_token: symbolic_token(
-        operator_kind,
-        ch,
-        ch,
+        operator_scan.kind,
+        operator_scan.text,
+        operator_scan.text,
         symbolic_cursor_location(cursor)
     )
     @: symbolic_tokenize_step(
-        symbolic_cursor_advance(cursor),
+        operator_scan.next,
         tokens & [operator_token],
         diagnostics
     )
@@ -195,15 +321,63 @@ symbolic_parse_primary(state:SymbolicParseState):
     current: symbolic_state_current(state)
     current.kind??
         "NUMBER" => symbolic_parse_result(
-            symbolic_number(current.value, current.location),
+            symbolic_number(current.value, current.text, current.location),
             symbolic_state_advance(state)
         )
-        "IDENT" => symbolic_parse_result(
-            symbolic_variable(current.text, current.location),
-            symbolic_state_advance(state)
-        )
+        "IDENT" => symbolic_parse_identifier(state, current)
         "LPAREN" => symbolic_parse_parenthesized(state)
+        "LBRACE" => symbolic_parse_set(state)
         symbolic_parse_primary_error(state, current)
+
+symbolic_parse_identifier(state:SymbolicParseState, identifier:SymbolicToken):
+    next: symbolic_state_advance(state)
+    current: symbolic_state_current(next)
+    current.kind??
+        "LPAREN" => symbolic_parse_call(identifier, next)
+        symbolic_parse_result(
+            symbolic_variable(identifier.text, identifier.location),
+            next
+        )
+
+symbolic_parse_call(identifier:SymbolicToken, state:SymbolicParseState):
+    symbolic_parse_call_items(
+        identifier,
+        symbolic_state_advance(state),
+        vkf_list_empty()
+    )
+
+symbolic_parse_call_items(
+    identifier:SymbolicToken,
+    state:SymbolicParseState,
+    items:any
+):
+    current: symbolic_state_current(state)
+    current.kind??
+        "RPAREN" => symbolic_parse_result(
+            symbolic_call(identifier.text, items, identifier.location),
+            symbolic_state_advance(state)
+        )
+        symbolic_parse_call_item(identifier, state, items)
+
+symbolic_parse_call_item(
+    identifier:SymbolicToken,
+    state:SymbolicParseState,
+    items:any
+):
+    item: symbolic_parse_relation(state)
+    next_items: items & [item.ast]
+    current: symbolic_state_current(item.next)
+    current.kind??
+        "COMMA" => symbolic_parse_call_items(
+            identifier,
+            symbolic_state_advance(item.next),
+            next_items
+        )
+        "RPAREN" => symbolic_parse_result(
+            symbolic_call(identifier.text, next_items, identifier.location),
+            symbolic_state_advance(item.next)
+        )
+        symbolic_parse_collection_error(item, current, "expected comma or )")
 
 symbolic_parse_primary_error(
     state:SymbolicParseState,
@@ -221,14 +395,121 @@ symbolic_parse_primary_error(
 
 symbolic_parse_parenthesized(state:SymbolicParseState):
     open: symbolic_state_current(state)
-    inner: symbolic_parse_additive(symbolic_state_advance(state))
+    next: symbolic_state_advance(state)
+    current: symbolic_state_current(next)
+    current.kind??
+        "RPAREN" => symbolic_parse_result(
+            symbolic_tuple(vkf_list_empty(), open.location),
+            symbolic_state_advance(next)
+        )
+        symbolic_parse_parenthesized_inner(open, next)
+
+symbolic_parse_parenthesized_inner(
+    open:SymbolicToken,
+    state:SymbolicParseState
+):
+    inner: symbolic_parse_relation(state)
     close: symbolic_state_current(inner.next)
     close.kind??
         "RPAREN" => symbolic_parse_result(
             inner.ast,
             symbolic_state_advance(inner.next)
         )
+        "COMMA" => symbolic_parse_tuple_items(
+            open,
+            symbolic_state_advance(inner.next),
+            [inner.ast]
+        )
         symbolic_parse_parenthesized_error(inner, open)
+
+symbolic_parse_tuple_items(
+    open:SymbolicToken,
+    state:SymbolicParseState,
+    items:any
+):
+    current: symbolic_state_current(state)
+    current.kind??
+        "RPAREN" => symbolic_parse_result(
+            symbolic_tuple(items, open.location),
+            symbolic_state_advance(state)
+        )
+        symbolic_parse_tuple_item(open, state, items)
+
+symbolic_parse_tuple_item(
+    open:SymbolicToken,
+    state:SymbolicParseState,
+    items:any
+):
+    item: symbolic_parse_relation(state)
+    next_items: items & [item.ast]
+    current: symbolic_state_current(item.next)
+    current.kind??
+        "COMMA" => symbolic_parse_tuple_items(
+            open,
+            symbolic_state_advance(item.next),
+            next_items
+        )
+        "RPAREN" => symbolic_parse_result(
+            symbolic_tuple(next_items, open.location),
+            symbolic_state_advance(item.next)
+        )
+        symbolic_parse_collection_error(item, current, "expected comma or )")
+
+symbolic_parse_set(state:SymbolicParseState):
+    open: symbolic_state_current(state)
+    symbolic_parse_set_items(
+        open,
+        symbolic_state_advance(state),
+        vkf_list_empty()
+    )
+
+symbolic_parse_set_items(
+    open:SymbolicToken,
+    state:SymbolicParseState,
+    items:any
+):
+    current: symbolic_state_current(state)
+    current.kind??
+        "RBRACE" => symbolic_parse_result(
+            symbolic_set(items, open.location),
+            symbolic_state_advance(state)
+        )
+        symbolic_parse_set_item(open, state, items)
+
+symbolic_parse_set_item(
+    open:SymbolicToken,
+    state:SymbolicParseState,
+    items:any
+):
+    item: symbolic_parse_relation(state)
+    next_items: items & [item.ast]
+    current: symbolic_state_current(item.next)
+    current.kind??
+        "COMMA" => symbolic_parse_set_items(
+            open,
+            symbolic_state_advance(item.next),
+            next_items
+        )
+        "RBRACE" => symbolic_parse_result(
+            symbolic_set(next_items, open.location),
+            symbolic_state_advance(item.next)
+        )
+        symbolic_parse_collection_error(item, current, "expected comma or }")
+
+symbolic_parse_collection_error(
+    parsed:SymbolicParseResult,
+    current:SymbolicToken,
+    message:str
+):
+    issue: symbolic_diagnostic(
+        "expected-collection-separator",
+        message,
+        current.location
+    )
+    symbolic_parse_result(
+        parsed.ast,
+        symbolic_state_with_diagnostic(parsed.next, issue)
+    )
 
 symbolic_parse_parenthesized_error(
     inner:SymbolicParseResult,
@@ -319,9 +600,43 @@ symbolic_parse_additive_right(
     )
     symbolic_parse_additive_tail(combined)
 
+symbolic_parse_relation(state:SymbolicParseState):
+    left: symbolic_parse_additive(state)
+    current: symbolic_state_current(left.next)
+    current.kind??
+        "EQ" => symbolic_parse_relation_right(left, current, "=")
+        "LT" => symbolic_parse_relation_right(left, current, "<")
+        "GT" => symbolic_parse_relation_right(left, current, ">")
+        "LE" => symbolic_parse_relation_right(left, current, "<=")
+        "GE" => symbolic_parse_relation_right(left, current, ">=")
+        left
+
+symbolic_parse_relation_right(
+    left:SymbolicParseResult,
+    operator:SymbolicToken,
+    op:str
+):
+    right: symbolic_parse_additive(symbolic_state_advance(left.next))
+    symbolic_parse_result(
+        symbolic_relation_node(left.ast, op, right.ast, operator.location),
+        right.next
+    )
+
+symbolic_relation_node(left:any, op:str, right:any, location:SymbolicLocation):
+    op = "="?
+        left.kind??
+            "call" => symbolic_definition(
+                left.name,
+                left.args,
+                right,
+                location
+            )
+            symbolic_binary(op, left, right, location)
+    symbolic_binary(op, left, right, location)
+
 symbolic_parse_tokens(lexed:SymbolicLexResult):
     state: symbolic_parse_state(lexed.tokens, 0, lexed.diagnostics)
-    parsed: symbolic_parse_additive(state)
+    parsed: symbolic_parse_relation(state)
     current: symbolic_state_current(parsed.next)
     current.kind??
         "EOF" => parsed
@@ -341,90 +656,1801 @@ symbolic_parse_trailing_error(
         symbolic_state_with_diagnostic(parsed.next, issue)
     )
 
-symbolic_latex(node:SymbolicNode):
+symbolic_latex(node:any):
+    symbolic_latex_at(node, 0)
+
+symbolic_latex_at(node:any, parentPrecedence:num):
+    own_precedence: symbolic_precedence(node)
+    rendered: symbolic_latex_unwrapped(node, own_precedence)
+    own_precedence < parentPrecedence?
+        @: "\\left(" & rendered & "\\right)"
+    rendered
+
+symbolic_precedence(node:any):
     node.kind??
-        "number" => str(node.value)
+        "definition" => 1
+        "binary" => symbolic_binary_precedence(node.op)
+        "unary" => 5
+        6
+
+symbolic_binary_precedence(op:str):
+    op??
+        "=" => 1
+        "<" => 1
+        ">" => 1
+        "<=" => 1
+        ">=" => 1
+        "+" => 2
+        "-" => 2
+        "*" => 3
+        "/" => 3
+        "^" => 4
+        0
+
+symbolic_latex_unwrapped(node:any, precedence:num):
+    node.kind??
+        "number" => node.text
         "variable" => symbolic_variable_latex(node.name)
-        "unary" => "-" & symbolic_latex(node.operand)
-        "binary" => symbolic_binary_latex(node)
+        "unary" => "-" & symbolic_latex_at(node.operand, precedence)
+        "binary" => symbolic_binary_latex(node, precedence)
+        "call" => symbolic_call_latex(node)
+        "tuple" => "\\left(" & symbolic_latex_items(node.items, 0) & "\\right)"
+        "set" => "\\left\\{" & symbolic_latex_items(node.items, 0) & "\\right\\}"
+        "definition" => symbolic_definition_latex(node)
         "\\operatorname{error}"
+
+symbolic_latex_items(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: ""
+    tail: symbolic_latex_items(items, index + 1)
+    tail = ""?
+        @: symbolic_latex(items.(index))
+    symbolic_latex(items.(index)) & ", " & tail
+
+symbolic_call_latex(node:any):
+    node.name??
+        "sqrt" => "\\sqrt{" & symbolic_latex(node.args.(0)) & "}"
+        "abs" => "\\left|" & symbolic_latex(node.args.(0)) & "\\right|"
+        "vector" => "\\begin{pmatrix}" & symbolic_latex(node.args.(0)) & "\\\\" & symbolic_latex(node.args.(1)) & "\\end{pmatrix}"
+        "complex" => symbolic_latex(node.args.(0)) & " + " & symbolic_latex(node.args.(1)) & "\\mathrm{i}"
+        symbolic_function_latex(node.name) & "\\left(" & symbolic_latex_items(node.args, 0) & "\\right)"
+
+symbolic_function_latex(name:str):
+    name??
+        "sin" => "\\sin"
+        "cos" => "\\cos"
+        "tan" => "\\tan"
+        "atan2" => "\\operatorname{atan2}"
+        "\\operatorname{" & name & "}"
+
+symbolic_definition_latex(node:any):
+    symbolic_function_latex(node.name) & "\\left(" & symbolic_latex_items(node.parameters, 0) & "\\right) = " & symbolic_latex(node.value)
 
 symbolic_variable_latex(name:str):
     name??
         "pi" => "\\pi"
+        "phi" => "\\phi"
+        "i" => "\\mathrm{i}"
         name
 
-symbolic_binary_latex(node:SymbolicNode):
+symbolic_binary_latex(node:any, precedence:num):
     node.op??
-        "+" => symbolic_latex(node.left) & " + " & symbolic_latex(node.right)
-        "-" => symbolic_latex(node.left) & " - " & symbolic_latex(node.right)
-        "*" => symbolic_latex(node.left) & " \\cdot " & symbolic_latex(node.right)
+        "+" => symbolic_latex_at(node.left, precedence) & " + " & symbolic_latex_at(node.right, precedence)
+        "-" => symbolic_latex_at(node.left, precedence) & " - " & symbolic_latex_at(node.right, precedence + 1)
+        "*" => symbolic_latex_at(node.left, precedence) & " \\cdot " & symbolic_latex_at(node.right, precedence)
         "/" => "\\frac{" & symbolic_latex(node.left) & "}{" & symbolic_latex(node.right) & "}"
         "^" => "{" & symbolic_latex(node.left) & "}^{" & symbolic_latex(node.right) & "}"
+        "=" => symbolic_latex(node.left) & " = " & symbolic_latex(node.right)
+        "<" => symbolic_latex(node.left) & " < " & symbolic_latex(node.right)
+        ">" => symbolic_latex(node.left) & " > " & symbolic_latex(node.right)
+        "<=" => symbolic_latex(node.left) & " \\le " & symbolic_latex(node.right)
+        ">=" => symbolic_latex(node.left) & " \\ge " & symbolic_latex(node.right)
         "\\operatorname{error}"
 
-symbolic_evaluate(node:SymbolicNode, x:num, y:num):
+symbolic_evaluation(x:num, y:num, z:num, t:num, context:any):
+    dx: x - context.originX
+    dy: y - context.originY
+    determinant: context.basisXX * context.basisYY - context.basisXY * context.basisYX
+    local_x: (dx * context.basisYY - dy * context.basisYX) / determinant
+    local_y: (dy * context.basisXX - dx * context.basisXY) / determinant
+    (x: local_x, y: local_y, z: z, t: t, context: context)
+
+symbolic_evaluate(
+    node:any,
+    evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace,
+    parameterNames:any,
+    parameterValues:any
+):
     node.kind??
         "number" => node.value
-        "variable" => symbolic_variable_value(node.name, x, y)
-        "unary" => 0 - symbolic_evaluate(node.operand, x, y)
-        "binary" => symbolic_binary_value(node, x, y)
+        "variable" => symbolic_variable_value(
+            node.name,
+            evaluation,
+            parameterNames,
+            parameterValues
+        )
+        "unary" => symbolic_negate_value(
+            symbolic_evaluate(
+                node.operand,
+                evaluation,
+                workspace,
+                parameterNames,
+                parameterValues
+            ),
+            symbolic_value_kind_for_context(node.operand, evaluation.context)
+        )
+        "binary" => symbolic_binary_value(
+            node,
+            evaluation,
+            workspace,
+            parameterNames,
+            parameterValues
+        )
+        "call" => symbolic_call_value(
+            node,
+            evaluation,
+            workspace,
+            parameterNames,
+            parameterValues
+        )
+        "tuple" => symbolic_evaluate_items(
+            node.items,
+            0,
+            evaluation,
+            workspace,
+            parameterNames,
+            parameterValues
+        )
+        "set" => symbolic_evaluate_items(
+            node.items,
+            0,
+            evaluation,
+            workspace,
+            parameterNames,
+            parameterValues
+        )
         null
 
-symbolic_variable_value(name:str, x:num, y:num):
+symbolic_evaluate_items(
+    items:any,
+    index:num,
+    evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace,
+    parameterNames:any,
+    parameterValues:any
+):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    vkf_list_single(
+        symbolic_evaluate(
+            items.(index),
+            evaluation,
+            workspace,
+            parameterNames,
+            parameterValues
+        )
+    ) & symbolic_evaluate_items(
+        items,
+        index + 1,
+        evaluation,
+        workspace,
+        parameterNames,
+        parameterValues
+    )
+
+symbolic_parameter_value(names:any, values:any, index:num, name:str):
+    index >= vkf_list_length(names)?
+        @: null
+    names.(index) = name?
+        @: values.(index)
+    symbolic_parameter_value(names, values, index + 1, name)
+
+symbolic_variable_value(
+    name:str,
+    evaluation:SymbolicEvaluation,
+    parameterNames:any,
+    parameterValues:any
+):
     name??
-        "x" => x
-        "y" => y
+        "x" => evaluation.x
+        "y" => evaluation.y
+        "z" => symbolic_z_value(evaluation)
+        "t" => evaluation.t
+        "r" => vkf_math_sqrt(evaluation.x * evaluation.x + evaluation.y * evaluation.y)
+        "phi" => symbolic_atan2(evaluation.y, evaluation.x)
         "pi" => 3.141592653589793
-        null
+        "i" => symbolic_complex(0, 1)
+        symbolic_free_variable_value(
+            name,
+            evaluation,
+            parameterNames,
+            parameterValues
+        )
 
-symbolic_binary_value(node:SymbolicNode, x:num, y:num):
-    left: symbolic_evaluate(node.left, x, y)
-    right: symbolic_evaluate(node.right, x, y)
-    node.op??
+symbolic_free_variable_value(
+    name:str,
+    evaluation:SymbolicEvaluation,
+    parameterNames:any,
+    parameterValues:any
+):
+    value: symbolic_parameter_value(parameterNames, parameterValues, 0, name)
+    value = null?
+        @: evaluation.t
+    value
+
+symbolic_z_value(evaluation:SymbolicEvaluation):
+    symbolic_context_dimension(evaluation.context) = 2?
+        @: symbolic_complex(evaluation.x, evaluation.y)
+    evaluation.z
+
+symbolic_call_value(
+    node:any,
+    evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace,
+    parameterNames:any,
+    parameterValues:any
+):
+    args: symbolic_evaluate_items(
+        node.args,
+        0,
+        evaluation,
+        workspace,
+        parameterNames,
+        parameterValues
+    )
+    node.name??
+        "sqrt" => vkf_math_sqrt(args.(0))
+        "sin" => vkf_math_sin(args.(0))
+        "cos" => vkf_math_cos(args.(0))
+        "tan" => vkf_math_tan(args.(0))
+        "abs" => vkf_math_abs(args.(0))
+        "atan2" => symbolic_atan2(args.(0), args.(1))
+        "vector" => symbolic_vector(args.(0), args.(1))
+        "complex" => symbolic_complex(args.(0), args.(1))
+        symbolic_user_call(node.name, args, evaluation, workspace)
+
+symbolic_atan2(y:num, x:num):
+    x > 0?
+        @: symbolic_atan(y / x)
+    x < 0 /\ y >= 0?
+        @: symbolic_atan(y / x) + 3.141592653589793
+    x < 0 /\ y < 0?
+        @: symbolic_atan(y / x) - 3.141592653589793
+    y > 0?
+        @: 1.5707963267948966
+    y < 0?
+        @: -1.5707963267948966
+    y - y
+
+symbolic_atan(value:num):
+    value > 1?
+        @: 1.5707963267948966 - symbolic_atan(1 / value)
+    value < -1?
+        @: -1.5707963267948966 - symbolic_atan(1 / value)
+    value / (1 + 0.28 * value * value)
+
+symbolic_user_call(
+    name:str,
+    args:any,
+    evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace
+):
+    definition: symbolic_find_definition(workspace, 0, name)
+    definition = null?
+        @: null
+    symbolic_evaluate(
+        definition.value,
+        evaluation,
+        workspace,
+        symbolic_parameter_names(definition.parameters, 0),
+        args
+    )
+
+symbolic_parameter_names(parameters:any, index:num):
+    index >= vkf_list_length(parameters)?
+        @: vkf_list_empty()
+    vkf_list_single(parameters.(index).name) & symbolic_parameter_names(
+        parameters,
+        index + 1
+    )
+
+symbolic_find_definition(workspace:SymbolicWorkspace, index:num, name:str):
+    index >= vkf_list_length(workspace)?
+        @: null
+    program: workspace.(index)
+    program.ast.kind??
+        "definition" => symbolic_definition_or_next(
+            workspace,
+            index,
+            name,
+            program.ast
+        )
+        symbolic_find_definition(workspace, index + 1, name)
+
+symbolic_definition_or_next(
+    workspace:SymbolicWorkspace,
+    index:num,
+    name:str,
+    definition:any
+):
+    definition.name = name?
+        @: definition
+    symbolic_find_definition(workspace, index + 1, name)
+
+symbolic_negate_value(value:any, kind:str):
+    kind??
+        "complex" => symbolic_complex(0 - value.real, 0 - value.imaginary)
+        "vector" => symbolic_vector(0 - value.x, 0 - value.y)
+        0 - value
+
+symbolic_binary_value(
+    node:any,
+    evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace,
+    parameterNames:any,
+    parameterValues:any
+):
+    left: symbolic_evaluate(
+        node.left,
+        evaluation,
+        workspace,
+        parameterNames,
+        parameterValues
+    )
+    right: symbolic_evaluate(
+        node.right,
+        evaluation,
+        workspace,
+        parameterNames,
+        parameterValues
+    )
+    left_kind: symbolic_value_kind_for_context(node.left, evaluation.context)
+    right_kind: symbolic_value_kind_for_context(node.right, evaluation.context)
+    value_kind: symbolic_binary_value_kind(left_kind, right_kind)
+    value_kind??
+        "complex" => symbolic_complex_binary(
+            node.op,
+            symbolic_as_complex(left, left_kind),
+            symbolic_as_complex(right, right_kind)
+        )
+        "vector" => symbolic_vector_binary(
+            node.op,
+            left,
+            right,
+            left_kind,
+            right_kind
+        )
+        symbolic_scalar_binary(node.op, left, right)
+
+symbolic_scalar_binary(op:str, left:any, right:any):
+    op??
         "+" => left + right
         "-" => left - right
         "*" => left * right
         "/" => left / right
-        "^" => left ^ right
+        "^" => symbolic_real_power(left, right)
+        "=" => left = right
+        "<" => left < right
+        ">" => left > right
+        "<=" => left <= right
+        ">=" => left >= right
         null
 
-symbolic_compile(source:str):
-    lexed: symbolic_tokenize(source)
-    parsed: symbolic_parse_tokens(lexed)
-    symbolic_program(
-        parsed.ast,
-        parsed.next.diagnostics,
-        symbolic_latex(parsed.ast)
+symbolic_real_power(base:num, exponent:num):
+    symbolic_is_integer(exponent)?
+        @: symbolic_integer_power(base, exponent)
+    base < 0?
+        @: null
+    base = 0 /\ exponent > 0?
+        @: base
+    base = 0?
+        @: null
+    symbolic_exponential(exponent * symbolic_natural_log(base))
+
+symbolic_is_integer(value:num):
+    value = 0?
+        @: true
+    value > 0 /\ value < 1?
+        @: false
+    value < 0 /\ value > -1?
+        @: false
+    value > 0?
+        @: symbolic_is_integer(value - 1)
+    symbolic_is_integer(value + 1)
+
+symbolic_integer_power(base:num, exponent:num):
+    exponent = 0?
+        @: 1
+    exponent < 0?
+        @: 1 / symbolic_integer_power(base, 0 - exponent)
+    symbolic_integer_power_positive(base, exponent, 1)
+
+symbolic_integer_power_positive(base:num, exponent:num, result:num):
+    exponent = 0?
+        @: result
+    symbolic_integer_power_positive(base, exponent - 1, result * base)
+
+symbolic_natural_log(value:num):
+    value <= 0?
+        @: null
+    normalized: symbolic_log_normalize(value, 0)
+    y: (normalized.value - 1) / (normalized.value + 1)
+    result: 2 * symbolic_log_series(y, y * y, 1, 12) + normalized.scale * 0.6931471805599453
+    result
+
+symbolic_log_normalize(value:num, scale:num):
+    value >= 2?
+        @: symbolic_log_normalize(value / 2, scale + 1)
+    value < 1?
+        @: symbolic_log_normalize(value * 2, scale - 1)
+    normalized: (value: value, scale: scale)
+    normalized
+
+symbolic_log_series(term:num, square:num, denominator:num, remaining:num):
+    remaining = 1?
+        @: term / denominator
+    term / denominator + symbolic_log_series(
+        term * square,
+        square,
+        denominator + 2,
+        remaining - 1
     )
 
-symbolic_program(ast:SymbolicNode, diagnostics:any, latex:str):
-    (ast: ast, diagnostics: diagnostics, latex: latex)
+symbolic_exponential(value:num):
+    reduced: symbolic_exp_reduce(value, 0)
+    series: symbolic_exp_series(reduced.value, 1, 1, 1, 24)
+    symbolic_exp_scale(series, reduced.scale)
+
+symbolic_exp_reduce(value:num, scale:num):
+    value > 0.6931471805599453?
+        @: symbolic_exp_reduce(value - 0.6931471805599453, scale + 1)
+    value < -0.6931471805599453?
+        @: symbolic_exp_reduce(value + 0.6931471805599453, scale - 1)
+    reduced: (value: value, scale: scale)
+    reduced
+
+symbolic_exp_series(
+    value:num,
+    term:num,
+    sum:num,
+    denominator:num,
+    remaining:num
+):
+    remaining = 0?
+        @: sum
+    next: term * value / denominator
+    symbolic_exp_series(
+        value,
+        next,
+        sum + next,
+        denominator + 1,
+        remaining - 1
+    )
+
+symbolic_exp_scale(value:num, scale:num):
+    scale = 0?
+        @: value
+    scale > 0?
+        @: symbolic_exp_scale(value * 2, scale - 1)
+    symbolic_exp_scale(value / 2, scale + 1)
+
+symbolic_as_complex(value:any, kind:str):
+    kind = "complex"?
+        @: value
+    symbolic_complex(value, 0)
+
+symbolic_complex_binary(op:str, left:any, right:any):
+    op??
+        "+" => symbolic_complex(
+            left.real + right.real,
+            left.imaginary + right.imaginary
+        )
+        "-" => symbolic_complex(
+            left.real - right.real,
+            left.imaginary - right.imaginary
+        )
+        "*" => symbolic_complex(
+            left.real * right.real - left.imaginary * right.imaginary,
+            left.real * right.imaginary + left.imaginary * right.real
+        )
+        "/" => symbolic_complex_divide(left, right)
+        "^" => symbolic_complex_power(left, right)
+        "=" => left.real = right.real /\ left.imaginary = right.imaginary
+        null
+
+symbolic_complex_power(base:any, exponent:any):
+    exponent.imaginary = 0?
+        @: symbolic_complex_integer_power(base, exponent.real)
+    symbolic_invalid_complex_power()
+
+symbolic_invalid_complex_power():
+    @: null
+
+symbolic_complex_integer_power(base:any, exponent:num):
+    exponent = 0?
+        @: symbolic_complex(1, 0)
+    exponent > 0 /\ exponent < 1?
+        @: null
+    exponent < 0 /\ exponent > -1?
+        @: null
+    exponent < 0?
+        @: symbolic_complex_divide(
+            symbolic_complex(1, 0),
+            symbolic_complex_integer_power(base, 0 - exponent)
+        )
+    symbolic_complex_binary(
+        "*",
+        base,
+        symbolic_complex_integer_power(base, exponent - 1)
+    )
+
+symbolic_complex_divide(left:any, right:any):
+    denominator: right.real * right.real + right.imaginary * right.imaginary
+    symbolic_complex(
+        (left.real * right.real + left.imaginary * right.imaginary) / denominator,
+        (left.imaginary * right.real - left.real * right.imaginary) / denominator
+    )
+
+symbolic_vector_binary(
+    op:str,
+    left:any,
+    right:any,
+    leftKind:str,
+    rightKind:str
+):
+    op??
+        "+" => symbolic_vector(left.x + right.x, left.y + right.y)
+        "-" => symbolic_vector(left.x - right.x, left.y - right.y)
+        "*" => symbolic_vector_scale(left, right, leftKind, rightKind)
+        "/" => symbolic_vector(left.x / right, left.y / right)
+        "=" => left.x = right.x /\ left.y = right.y
+        null
+
+symbolic_vector_scale(left:any, right:any, leftKind:str, rightKind:str):
+    leftKind = "vector"?
+        @: symbolic_vector(left.x * right, left.y * right)
+    symbolic_vector_scale_right(left, right, rightKind)
+
+symbolic_vector_scale_right(left:any, right:any, rightKind:str):
+    rightKind??
+        "vector" => symbolic_vector(right.x * left, right.y * left)
+        null
+
+symbolic_list_contains(items:any, index:num, expected:str):
+    index >= vkf_list_length(items)?
+        @: false
+    items.(index) = expected?
+        @: true
+    symbolic_list_contains(items, index + 1, expected)
+
+symbolic_value_kind(node:any):
+    node.kind??
+        "number" => "scalar"
+        "variable" => symbolic_variable_value_kind(node.name)
+        "unary" => symbolic_value_kind(node.operand)
+        "binary" => symbolic_binary_node_value_kind(node)
+        "call" => symbolic_call_value_kind(node.name)
+        "tuple" => "tuple"
+        "set" => "set"
+        "definition" => symbolic_value_kind(node.value)
+        "error"
+
+symbolic_value_kind_for_context(node:any, context:any):
+    node.kind??
+        "variable" => symbolic_variable_value_kind_for_context(node.name, context)
+        "unary" => symbolic_value_kind_for_context(node.operand, context)
+        "binary" => symbolic_binary_value_kind_for_context(node, context)
+        "definition" => symbolic_value_kind_for_context(node.value, context)
+        symbolic_value_kind(node)
+
+symbolic_variable_value_kind_for_context(name:str, context:any):
+    name = "z" /\ symbolic_context_dimension(context) = 3?
+        @: "scalar"
+    symbolic_variable_value_kind(name)
+
+symbolic_binary_value_kind_for_context(node:any, context:any):
+    symbolic_is_relation(node.op)?
+        @: "scalar"
+    symbolic_binary_value_kind(
+        symbolic_value_kind_for_context(node.left, context),
+        symbolic_value_kind_for_context(node.right, context)
+    )
+
+symbolic_variable_value_kind(name:str):
+    name??
+        "i" => "complex"
+        "z" => "complex"
+        "scalar"
+
+symbolic_call_value_kind(name:str):
+    name??
+        "vector" => "vector"
+        "complex" => "complex"
+        "scalar"
+
+symbolic_binary_node_value_kind(node:any):
+    symbolic_is_relation(node.op)?
+        @: "scalar"
+    symbolic_binary_value_kind(
+        symbolic_value_kind(node.left),
+        symbolic_value_kind(node.right)
+    )
+
+symbolic_binary_value_kind(leftKind:str, rightKind:str):
+    leftKind??
+        "complex" => "complex"
+        "vector" => symbolic_right_value_kind(rightKind, "vector")
+        symbolic_right_value_kind(rightKind, "scalar")
+
+symbolic_right_value_kind(rightKind:str, fallback:str):
+    rightKind??
+        "complex" => "complex"
+        "vector" => "vector"
+        fallback
+
+symbolic_is_relation(op:str):
+    op = "=" \/ op = "<" \/ op = ">" \/ op = "<=" \/ op = ">="
+
+symbolic_items_variables(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    symbolic_variables(items.(index)) & symbolic_items_variables(items, index + 1)
+
+symbolic_variables(node:any):
+    node.kind??
+        "variable" => symbolic_variable_dependencies(node.name)
+        "unary" => symbolic_variables(node.operand)
+        "binary" => symbolic_variables(node.left) & symbolic_variables(node.right)
+        "call" => symbolic_items_variables(node.args, 0)
+        "tuple" => symbolic_items_variables(node.items, 0)
+        "set" => symbolic_items_variables(node.items, 0)
+        "definition" => symbolic_variables(node.value)
+        symbolic_empty_variables()
+
+symbolic_empty_variables():
+    vkf_list_empty()
+
+symbolic_single_variable(name:str):
+    vkf_list_single(name)
+
+symbolic_variable_dependencies(name:str):
+    name??
+        "pi" => vkf_list_empty()
+        "i" => vkf_list_empty()
+        "r" => vkf_list_pair("x", "y")
+        "phi" => vkf_list_pair("x", "y")
+        symbolic_single_variable(name)
+
+symbolic_classification(ast:any, variables:any, value_kind:str):
+    ast.kind??
+        "definition" => "definition"
+        "tuple" => "linked-tuple"
+        "set" => "point-set"
+        "binary" => symbolic_binary_classification(ast, variables, value_kind)
+        symbolic_variable_classification(variables, value_kind)
+
+symbolic_binary_classification(ast:any, variables:any, valueKind:str):
+    ast.op??
+        "=" => "implicit-curve"
+        "<" => "open-region"
+        ">" => "open-region"
+        "<=" => "closed-region"
+        ">=" => "closed-region"
+        symbolic_variable_classification(variables, valueKind)
+
+symbolic_variable_classification(variables:any, valueKind:str):
+    has_x: symbolic_list_contains(variables, 0, "x")
+    has_y: symbolic_list_contains(variables, 0, "y")
+    has_z: symbolic_list_contains(variables, 0, "z")
+    has_t: symbolic_list_contains(variables, 0, "t")
+    has_t?
+        @: "time-dependent"
+    valueKind = "vector" \/ valueKind = "complex"?
+        has_x /\ has_y?
+            @: "vector-field"
+        vkf_list_length(variables) > 0?
+            @: "parametric"
+        @: "literal"
+    has_x /\ has_y?
+        @: "scalar-field"
+    has_z?
+        @: "scalar-field"
+    has_x?
+        @: "y-of-x"
+    has_y?
+        @: "x-of-y"
+    @: "literal"
+
+symbolic_compile(source:str):
+    symbolic_compile_with_context(
+        source,
+        symbolic_global_context(),
+        symbolic_no_clip()
+    )
+
+symbolic_compile_with_context(source:str, context:any, clip:any):
+    lexed: symbolic_tokenize(source)
+    parsed: symbolic_parse_tokens(lexed)
+    variables: symbolic_variables(parsed.ast)
+    value_kind: symbolic_value_kind_for_context(parsed.ast, context)
+    symbolic_program(
+        parsed.ast,
+        parsed.next.diagnostics & symbolic_semantic_diagnostics(parsed.ast),
+        symbolic_latex(parsed.ast),
+        variables,
+        symbolic_classification(parsed.ast, variables, value_kind),
+        value_kind,
+        context,
+        clip
+    )
+
+symbolic_program(
+    ast:any,
+    diagnostics:any,
+    latex:str,
+    variables:any,
+    classification:str,
+    valueKind:str,
+    context:any,
+    clip:any
+):
+    (
+        ast: ast,
+        diagnostics: diagnostics,
+        latex: latex,
+        variables: variables,
+        classification: classification,
+        valueKind: valueKind,
+        context: context,
+        clip: clip
+    )
+
+symbolic_program_evaluate(program:SymbolicProgram, x:num, y:num):
+    symbolic_program_evaluate_at(
+        program,
+        x,
+        y,
+        0,
+        0,
+        program.context,
+        symbolic_workspace()
+    )
+
+symbolic_program_evaluate_at(
+    program:SymbolicProgram,
+    x:num,
+    y:num,
+    z:num,
+    t:num,
+    context:any,
+    workspace:SymbolicWorkspace
+):
+    symbolic_evaluate(
+        program.ast,
+        symbolic_evaluation(x, y, z, t, context),
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+
+symbolic_workspace_compile(
+    workspace:SymbolicWorkspace,
+    source:str,
+    context:any,
+    clip:any
+):
+    program: symbolic_compile_with_context(source, context, clip)
+    handle: vkf_list_length(workspace)
+    next_workspace: workspace & [program]
+    (workspace: next_workspace, handle: handle, program: program)
+
+symbolic_workspace_append(
+    workspace:SymbolicWorkspace,
+    source:str,
+    context:any,
+    clip:any
+):
+    symbolic_workspace_compile(workspace, source, context, clip).workspace
+
+symbolic_workspace_latest_handle(workspace:SymbolicWorkspace):
+    vkf_list_length(workspace) - 1
+
+symbolic_workspace_latest_program(workspace:SymbolicWorkspace):
+    symbolic_workspace_program(
+        workspace,
+        symbolic_workspace_latest_handle(workspace)
+    )
+
+symbolic_workspace_program(workspace:SymbolicWorkspace, handle:num):
+    workspace.(handle)
+
+symbolic_workspace_evaluate(
+    workspace:SymbolicWorkspace,
+    handle:num,
+    x:num,
+    y:num,
+    z:num,
+    t:num
+):
+    program: symbolic_workspace_program(workspace, handle)
+    symbolic_program_evaluate_at(
+        program,
+        x,
+        y,
+        z,
+        t,
+        program.context,
+        workspace
+    )
+
+symbolic_plot(
+    program:SymbolicProgram,
+    workspace:SymbolicWorkspace,
+    view:any,
+    style:any,
+    revision:num
+):
+    builder: symbolic_plot_builder(
+        symbolic_plot_capacity(program.classification, view),
+        revision
+    )
+    builder = null?
+        @: null
+    sampled: symbolic_plot_into_builder(
+        program,
+        workspace,
+        view,
+        style,
+        builder
+    )
+    program.classification = "closed-region"?
+        @: symbolic_closed_region_plot_result(
+            program,
+            workspace,
+            view,
+            style,
+            sampled
+        )
+    metadata: symbolic_plot_builder_metadata(sampled)
+    symbolic_plot_result(metadata, program.classification)
+
+symbolic_closed_region_plot_result(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any
+):
+    fillCount: builder.(2) + 0
+    outlined: symbolic_sample_implicit(
+        program,
+        workspace,
+        view,
+        style,
+        builder,
+        0,
+        0
+    )
+    complete: symbolic_plot_builder_metadata(outlined)
+    (
+        pointer: complete.pointer,
+        count: complete.count,
+        stride: complete.stride,
+        revision: complete.revision,
+        ranges: symbolic_closed_region_ranges(fillCount, complete.count)
+    )
+
+symbolic_closed_region_ranges(fillCount:num, completeCount:num):
+    first: vkf_list_single(
+        (
+            mode: "triangles",
+            first: 0,
+            count: fillCount
+        )
+    )
+    second: vkf_list_single(
+        (
+            mode: "linked-line-segments",
+            first: fillCount,
+            count: completeCount - fillCount
+        )
+    )
+    first & second
+
+symbolic_plot_capacity(classification:str, view:any):
+    classification??
+        "y-of-x" => view.xSteps
+        "x-of-y" => view.ySteps
+        "parametric" => view.tSteps
+        "time-dependent" => view.tSteps
+        "vector-field" => view.fieldXSteps * view.fieldYSteps * 2
+        "scalar-field" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 6
+        "implicit-curve" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 4
+        "open-region" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 6
+        "closed-region" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 10
+        1024
+
+symbolic_plot_result(metadata:any, classification:str):
+    metadata = null?
+        @: null
+    symbolic_plot_result_record(metadata, classification)
+
+symbolic_plot_result_record(metadata:any, classification:str):
+    (
+        pointer: metadata.pointer,
+        count: metadata.count,
+        stride: metadata.stride,
+        revision: metadata.revision,
+        ranges: symbolic_plot_ranges(classification, metadata.count)
+    )
+
+symbolic_plot_ranges(classification:str, count:num):
+    vkf_list_single(
+        (
+            mode: symbolic_plot_mode(classification),
+            first: 0,
+            count: count
+        )
+    )
+
+symbolic_plot_mode(classification:str):
+    classification??
+        "literal" => "points"
+        "point-set" => "points"
+        "linked-tuple" => "linked-line-segments"
+        "y-of-x" => "time-curve"
+        "x-of-y" => "time-curve"
+        "parametric" => "time-curve"
+        "implicit-curve" => "linked-line-segments"
+        "scalar-field" => "scalar-field-triangles"
+        "vector-field" => "vector-field-glyphs"
+        "open-region" => "triangles"
+        "closed-region" => "triangles"
+        "time-dependent" => "time-curve"
+        "triangles"
+
+symbolic_plot_into_builder(
+    program:SymbolicProgram,
+    workspace:SymbolicWorkspace,
+    view:any,
+    style:any,
+    builder:any
+):
+    program.classification??
+        "y-of-x" => symbolic_sample_explicit_x(program, workspace, view, style, builder, 0)
+        "x-of-y" => symbolic_sample_explicit_y(program, workspace, view, style, builder, 0)
+        "parametric" => symbolic_sample_parametric(program, workspace, view, style, builder, 0)
+        "time-dependent" => symbolic_sample_parametric(program, workspace, view, style, builder, 0)
+        "vector-field" => symbolic_sample_vector_field(program, workspace, view, style, builder, 0, 0)
+        "scalar-field" => symbolic_sample_scalar_field(program, workspace, view, style, builder, 0, 0)
+        "implicit-curve" => symbolic_sample_implicit(program, workspace, view, style, builder, 0, 0)
+        "open-region" => symbolic_sample_region(program, workspace, view, style, builder, 0, 0)
+        "closed-region" => symbolic_sample_region(program, workspace, view, style, builder, 0, 0)
+        symbolic_plot_literal(program, workspace, style, builder)
+
+symbolic_sample_explicit_x(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    index:num
+):
+    index >= view.xSteps?
+        @: builder
+    x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
+    y: symbolic_program_evaluate_at(
+        program,
+        x,
+        0,
+        0,
+        view.t,
+        program.context,
+        workspace
+    )
+    pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
+    symbolic_sample_explicit_x(
+        program,
+        workspace,
+        view,
+        style,
+        pushed,
+        index + 1
+    )
+
+symbolic_sample_explicit_y(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    index:num
+):
+    index >= view.ySteps?
+        @: builder
+    y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
+    x: symbolic_program_evaluate_at(
+        program,
+        0,
+        y,
+        0,
+        view.t,
+        program.context,
+        workspace
+    )
+    pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
+    symbolic_sample_explicit_y(
+        program,
+        workspace,
+        view,
+        style,
+        pushed,
+        index + 1
+    )
+
+symbolic_sample_parametric(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    index:num
+):
+    index >= view.tSteps?
+        @: builder
+    parameter: symbolic_sample_coordinate(view.tMin, view.tMax, view.tSteps, index)
+    value: symbolic_program_evaluate_at(
+        program,
+        parameter,
+        0,
+        0,
+        parameter,
+        program.context,
+        workspace
+    )
+    point: symbolic_plot_point(value, parameter)
+    pushed: symbolic_plot_builder_push(
+        builder,
+        symbolic_line_vertex(point.(0), point.(1), style)
+    )
+    symbolic_sample_parametric(
+        program,
+        workspace,
+        view,
+        style,
+        pushed,
+        index + 1
+    )
+
+symbolic_plot_point(value:any, parameter:num):
+    value.kind??
+        "complex" => vkf_list_pair(value.real, value.imaginary)
+        "vector" => vkf_list_pair(value.x, value.y)
+        vkf_list_pair(parameter, value)
+
+symbolic_sample_vector_field(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    xIndex:num,
+    yIndex:num
+):
+    xIndex >= view.fieldXSteps?
+        @: builder
+    yIndex >= view.fieldYSteps?
+        @: symbolic_sample_vector_field(
+            program,
+            workspace,
+            view,
+            style,
+            builder,
+            xIndex + 1,
+            0
+        )
+    x: symbolic_sample_coordinate(
+        view.xMin,
+        view.xMax,
+        view.fieldXSteps,
+        xIndex
+    )
+    y: symbolic_sample_coordinate(
+        view.yMin,
+        view.yMax,
+        view.fieldYSteps,
+        yIndex
+    )
+    value: symbolic_program_evaluate_at(
+        program,
+        x,
+        y,
+        0,
+        view.t,
+        program.context,
+        workspace
+    )
+    vector: symbolic_plot_vector(value)
+    scale: view.vectorScale
+    start: symbolic_plot_builder_push(
+        builder,
+        symbolic_line_vertex(x, y, style)
+    )
+    glyph: symbolic_plot_builder_push(
+        start,
+        symbolic_line_vertex(
+            x + vector.(0) * scale,
+            y + vector.(1) * scale,
+            style
+        )
+    )
+    symbolic_sample_vector_field(
+        program,
+        workspace,
+        view,
+        style,
+        glyph,
+        xIndex,
+        yIndex + 1
+    )
+
+symbolic_plot_vector(value:any):
+    value.kind??
+        "complex" => vkf_list_pair(value.real, value.imaginary)
+        "vector" => vkf_list_pair(value.x, value.y)
+        vkf_list_pair(0, 0)
+
+symbolic_sample_scalar_field(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    xIndex:num,
+    yIndex:num
+):
+    xIndex >= view.fieldXSteps - 1?
+        @: builder
+    yIndex >= view.fieldYSteps - 1?
+        @: symbolic_sample_scalar_field(
+            program,
+            workspace,
+            view,
+            style,
+            builder,
+            xIndex + 1,
+            0
+        )
+    x0: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex)
+    x1: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex + 1)
+    y0: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex)
+    y1: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex + 1)
+    v00: symbolic_program_evaluate_at(program, x0, y0, 0, view.t, program.context, workspace)
+    v10: symbolic_program_evaluate_at(program, x1, y0, 0, view.t, program.context, workspace)
+    v11: symbolic_program_evaluate_at(program, x1, y1, 0, view.t, program.context, workspace)
+    v01: symbolic_program_evaluate_at(program, x0, y1, 0, view.t, program.context, workspace)
+    cell: symbolic_push_scalar_field_cell(
+        builder,
+        x0,
+        y0,
+        x1,
+        y1,
+        v00,
+        v10,
+        v11,
+        v01,
+        style
+    )
+    symbolic_sample_scalar_field(
+        program,
+        workspace,
+        view,
+        style,
+        cell,
+        xIndex,
+        yIndex + 1
+    )
+
+symbolic_push_scalar_field_cell(
+    builder:any,
+    x0:num,
+    y0:num,
+    x1:num,
+    y1:num,
+    v00:num,
+    v10:num,
+    v11:num,
+    v01:num,
+    style:any
+):
+    first: symbolic_plot_builder_push(builder, symbolic_field_vertex(x0, y0, v00, style))
+    second: symbolic_plot_builder_push(first, symbolic_field_vertex(x1, y0, v10, style))
+    third: symbolic_plot_builder_push(second, symbolic_field_vertex(x1, y1, v11, style))
+    fourth: symbolic_plot_builder_push(third, symbolic_field_vertex(x0, y0, v00, style))
+    fifth: symbolic_plot_builder_push(fourth, symbolic_field_vertex(x1, y1, v11, style))
+    symbolic_plot_builder_push(fifth, symbolic_field_vertex(x0, y1, v01, style))
+
+symbolic_sample_implicit(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    xIndex:num,
+    yIndex:num
+):
+    xIndex >= view.fieldXSteps - 1?
+        @: builder
+    yIndex >= view.fieldYSteps - 1?
+        @: symbolic_sample_implicit(
+            program,
+            workspace,
+            view,
+            style,
+            builder,
+            xIndex + 1,
+            0
+        )
+    x0: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex)
+    x1: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex + 1)
+    y0: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex)
+    y1: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex + 1)
+    v00: symbolic_relation_residual(program, workspace, x0, y0, view.t)
+    v10: symbolic_relation_residual(program, workspace, x1, y0, view.t)
+    v11: symbolic_relation_residual(program, workspace, x1, y1, view.t)
+    v01: symbolic_relation_residual(program, workspace, x0, y1, view.t)
+    cell: symbolic_push_implicit_cell(
+        builder,
+        x0,
+        y0,
+        x1,
+        y1,
+        v00,
+        v10,
+        v11,
+        v01,
+        style
+    )
+    symbolic_sample_implicit(
+        program,
+        workspace,
+        view,
+        style,
+        cell,
+        xIndex,
+        yIndex + 1
+    )
+
+symbolic_relation_residual(program:any, workspace:any, x:num, y:num, t:num):
+    evaluation: symbolic_evaluation(x, y, 0, t, program.context)
+    left: symbolic_evaluate(
+        program.ast.left,
+        evaluation,
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+    right: symbolic_evaluate(
+        program.ast.right,
+        evaluation,
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+    left - right
+
+symbolic_push_implicit_cell(
+    builder:any,
+    x0:num,
+    y0:num,
+    x1:num,
+    y1:num,
+    v00:num,
+    v10:num,
+    v11:num,
+    v01:num,
+    style:any
+):
+    caseIndex: symbolic_implicit_case(v00, v10, v11, v01)
+    bottom: symbolic_implicit_intersection(x0, y0, v00, x1, y0, v10)
+    right: symbolic_implicit_intersection(x1, y0, v10, x1, y1, v11)
+    top: symbolic_implicit_intersection(x1, y1, v11, x0, y1, v01)
+    left: symbolic_implicit_intersection(x0, y1, v01, x0, y0, v00)
+    caseIndex??
+        1 => symbolic_push_segment(builder, bottom, left, style)
+        2 => symbolic_push_segment(builder, bottom, right, style)
+        3 => symbolic_push_segment(builder, left, right, style)
+        4 => symbolic_push_segment(builder, right, top, style)
+        5 => symbolic_push_two_segments(builder, bottom, right, top, left, style)
+        6 => symbolic_push_segment(builder, bottom, top, style)
+        7 => symbolic_push_segment(builder, left, top, style)
+        8 => symbolic_push_segment(builder, left, top, style)
+        9 => symbolic_push_segment(builder, bottom, top, style)
+        10 => symbolic_push_two_segments(builder, bottom, left, right, top, style)
+        11 => symbolic_push_segment(builder, right, top, style)
+        12 => symbolic_push_segment(builder, left, right, style)
+        13 => symbolic_push_segment(builder, bottom, right, style)
+        14 => symbolic_push_segment(builder, bottom, left, style)
+        builder
+
+symbolic_implicit_case(v00:num, v10:num, v11:num, v01:num):
+    symbolic_sign_bit(v00) + symbolic_sign_bit(v10) * 2 + symbolic_sign_bit(v11) * 4 + symbolic_sign_bit(v01) * 8
+
+symbolic_sign_bit(value:num):
+    value >= 0?
+        @: 1
+    value - value
+
+symbolic_implicit_intersection(
+    x0:num,
+    y0:num,
+    value0:num,
+    x1:num,
+    y1:num,
+    value1:num
+):
+    ratio: value0 / (value0 - value1)
+    vkf_list_pair(
+        x0 + (x1 - x0) * ratio,
+        y0 + (y1 - y0) * ratio
+    )
+
+symbolic_push_segment(builder:any, first:any, second:any, style:any):
+    start: symbolic_plot_builder_push(
+        builder,
+        symbolic_line_vertex(first.(0), first.(1), style)
+    )
+    symbolic_plot_builder_push(
+        start,
+        symbolic_line_vertex(second.(0), second.(1), style)
+    )
+
+symbolic_push_two_segments(
+    builder:any,
+    first:any,
+    second:any,
+    third:any,
+    fourth:any,
+    style:any
+):
+    one: symbolic_push_segment(builder, first, second, style)
+    symbolic_push_segment(one, third, fourth, style)
+
+symbolic_sample_region(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    xIndex:num,
+    yIndex:num
+):
+    xIndex >= view.fieldXSteps - 1?
+        @: builder
+    yIndex >= view.fieldYSteps - 1?
+        @: symbolic_sample_region(
+            program,
+            workspace,
+            view,
+            style,
+            builder,
+            xIndex + 1,
+            0
+        )
+    x0: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex)
+    x1: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex + 1)
+    y0: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex)
+    y1: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex + 1)
+    center: symbolic_program_evaluate_at(
+        program,
+        (x0 + x1) / 2,
+        (y0 + y1) / 2,
+        0,
+        view.t,
+        program.context,
+        workspace
+    )
+    center?
+        @: symbolic_region_cell_and_rest(
+            program,
+            workspace,
+            view,
+            style,
+            builder,
+            xIndex,
+            yIndex,
+            x0,
+            y0,
+            x1,
+            y1
+        )
+    symbolic_sample_region(
+        program,
+        workspace,
+        view,
+        style,
+        builder,
+        xIndex,
+        yIndex + 1
+    )
+
+symbolic_region_cell_and_rest(
+    program:any,
+    workspace:any,
+    view:any,
+    style:any,
+    builder:any,
+    xIndex:num,
+    yIndex:num,
+    x0:num,
+    y0:num,
+    x1:num,
+    y1:num
+):
+    filled: symbolic_push_face_cell(builder, x0, y0, x1, y1, style)
+    symbolic_sample_region(
+        program,
+        workspace,
+        view,
+        style,
+        filled,
+        xIndex,
+        yIndex + 1
+    )
+
+symbolic_push_face_cell(builder:any, x0:num, y0:num, x1:num, y1:num, style:any):
+    first: symbolic_plot_builder_push(builder, symbolic_face_vertex(x0, y0, style))
+    second: symbolic_plot_builder_push(first, symbolic_face_vertex(x1, y0, style))
+    third: symbolic_plot_builder_push(second, symbolic_face_vertex(x1, y1, style))
+    fourth: symbolic_plot_builder_push(third, symbolic_face_vertex(x0, y0, style))
+    fifth: symbolic_plot_builder_push(fourth, symbolic_face_vertex(x1, y1, style))
+    symbolic_plot_builder_push(fifth, symbolic_face_vertex(x0, y1, style))
+
+symbolic_plot_literal(program:any, workspace:any, style:any, builder:any):
+    program.ast.kind = "tuple"?
+        @: symbolic_plot_tuple_items(
+            program.ast.items,
+            program,
+            workspace,
+            style,
+            builder,
+            0
+        )
+    program.ast.kind = "set"?
+        @: symbolic_plot_set_items(
+            program.ast.items,
+            program,
+            workspace,
+            style,
+            builder,
+            0
+        )
+    point: symbolic_node_plot_point(program.ast, program, workspace)
+    symbolic_plot_builder_push(
+        builder,
+        symbolic_line_vertex(point.(0), point.(1), style)
+    )
+
+symbolic_plot_tuple_items(
+    items:any,
+    program:any,
+    workspace:any,
+    style:any,
+    builder:any,
+    index:num
+):
+    index >= vkf_list_length(items)?
+        @: builder
+    nested: symbolic_plot_nested_tuple(
+        items.(index),
+        program,
+        workspace,
+        style,
+        builder
+    )
+    index + 1 >= vkf_list_length(items)?
+        @: nested
+    first: symbolic_node_plot_point(items.(index), program, workspace)
+    second: symbolic_node_plot_point(items.(index + 1), program, workspace)
+    linked: symbolic_push_segment(nested, first, second, style)
+    symbolic_plot_tuple_items(
+        items,
+        program,
+        workspace,
+        style,
+        linked,
+        index + 1
+    )
+
+symbolic_plot_nested_tuple(
+    node:any,
+    program:any,
+    workspace:any,
+    style:any,
+    builder:any
+):
+    node.kind = "tuple"?
+        @: symbolic_plot_tuple_items(
+            node.items,
+            program,
+            workspace,
+            style,
+            builder,
+            0
+        )
+    builder
+
+symbolic_plot_set_items(
+    items:any,
+    program:any,
+    workspace:any,
+    style:any,
+    builder:any,
+    index:num
+):
+    index >= vkf_list_length(items)?
+        @: builder
+    pushed: symbolic_plot_set_node(
+        items.(index),
+        program,
+        workspace,
+        style,
+        builder
+    )
+    symbolic_plot_set_items(
+        items,
+        program,
+        workspace,
+        style,
+        pushed,
+        index + 1
+    )
+
+symbolic_plot_set_node(
+    node:any,
+    program:any,
+    workspace:any,
+    style:any,
+    builder:any
+):
+    node.kind = "tuple" \/ node.kind = "set"?
+        @: symbolic_plot_set_items(
+            node.items,
+            program,
+            workspace,
+            style,
+            builder,
+            0
+        )
+    point: symbolic_node_plot_point(node, program, workspace)
+    symbolic_plot_builder_push(
+        builder,
+        symbolic_line_vertex(point.(0), point.(1), style)
+    )
+
+symbolic_node_plot_point(node:any, program:any, workspace:any):
+    node.kind = "tuple"?
+        @: symbolic_node_plot_point(node.items.(0), program, workspace)
+    value: symbolic_evaluate(
+        node,
+        symbolic_evaluation(0, 0, 0, 0, program.context),
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+    symbolic_plot_point(value, 0)
+
+symbolic_plot_literal_value(program:any, workspace:any, style:any, builder:any):
+    value: symbolic_program_evaluate_at(
+        program,
+        0,
+        0,
+        0,
+        0,
+        program.context,
+        workspace
+    )
+    point: symbolic_plot_point(value, 0)
+    symbolic_plot_builder_push(
+        builder,
+        symbolic_line_vertex(point.(0), point.(1), style)
+    )
+
+symbolic_sample_coordinate(minimum:num, maximum:num, steps:num, index:num):
+    steps <= 1?
+        @: minimum
+    minimum + (maximum - minimum) * index / (steps - 1)
+
+symbolic_line_vertex(x:num, y:num, style:any):
+    first: vkf_list_pair(x, y)
+    second: vkf_list_pair(style.edgeR, style.edgeG)
+    third: vkf_list_pair(style.edgeB, style.edgeA)
+    first & second & third
+
+symbolic_face_vertex(x:num, y:num, style:any):
+    first: vkf_list_pair(x, y)
+    second: vkf_list_pair(style.faceR, style.faceG)
+    third: vkf_list_pair(style.faceB, style.faceA)
+    first & second & third
+
+symbolic_field_vertex(x:num, y:num, value:num, style:any):
+    normalized: symbolic_clamp_unit(
+        (value - style.valueMin) / (style.valueMax - style.valueMin)
+    )
+    color: symbolic_field_color(normalized, style)
+    first: vkf_list_pair(x, y)
+    second: vkf_list_pair(color.r, color.g)
+    third: vkf_list_pair(color.b, color.a)
+    first & second & third
+
+symbolic_field_color(normalized:num, style:any):
+    style.colormapPoints = null?
+        @: symbolic_field_fallback_color(normalized, style)
+    vkf_list_length(style.colormapPoints) = 0?
+        @: symbolic_field_fallback_color(normalized, style)
+    symbolic_colormap_sample(style.colormapPoints, normalized, 0)
+
+symbolic_field_fallback_color(normalized:num, style:any):
+    (
+        r: style.faceR,
+        g: style.faceG,
+        b: style.faceB,
+        a: style.faceA * normalized
+    )
+
+symbolic_colormap_sample(points:any, position:num, index:num):
+    first: points.(0)
+    position <= first.pos?
+        @: symbolic_colormap_point(first)
+    index + 1 >= vkf_list_length(points)?
+        @: symbolic_colormap_point(points.(vkf_list_length(points) - 1))
+    upper: points.(index + 1)
+    position <= upper.pos?
+        @: symbolic_colormap_interpolate(points.(index), upper, position)
+    symbolic_colormap_sample(points, position, index + 1)
+
+symbolic_colormap_interpolate(lower:any, upper:any, position:num):
+    span: upper.pos - lower.pos
+    amount: symbolic_colormap_amount(span, position, lower.pos)
+    (
+        r: symbolic_mix(lower.color.(0), upper.color.(0), amount) / 255,
+        g: symbolic_mix(lower.color.(1), upper.color.(1), amount) / 255,
+        b: symbolic_mix(lower.color.(2), upper.color.(2), amount) / 255,
+        a: symbolic_mix(lower.alpha, upper.alpha, amount)
+    )
+
+symbolic_colormap_amount(span:num, position:num, lowerPosition:num):
+    span = 0?
+        @: position - position
+    amount: (position - lowerPosition) / span
+    amount
+
+symbolic_colormap_point(point:any):
+    (
+        r: point.color.(0) / 255,
+        g: point.color.(1) / 255,
+        b: point.color.(2) / 255,
+        a: point.alpha
+    )
+
+symbolic_mix(first:num, second:num, amount:num):
+    first + (second - first) * amount
+
+symbolic_clamp_unit(value:num):
+    value < 0?
+        @: 0
+    value > 1?
+        @: 1
+    value
+
+symbolic_semantic_diagnostics(ast:any):
+    ast.kind??
+        "call" => symbolic_call_diagnostics(ast)
+        "definition" => symbolic_definition_diagnostics(ast)
+        "unary" => symbolic_semantic_diagnostics(ast.operand)
+        "binary" => symbolic_semantic_diagnostics(ast.left) & symbolic_semantic_diagnostics(ast.right)
+        "tuple" => symbolic_items_diagnostics(ast.items, 0)
+        "set" => symbolic_items_diagnostics(ast.items, 0)
+        vkf_list_empty()
+
+symbolic_items_diagnostics(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    symbolic_semantic_diagnostics(items.(index)) & symbolic_items_diagnostics(
+        items,
+        index + 1
+    )
+
+symbolic_call_diagnostics(node:any):
+    expected: symbolic_builtin_arity(node.name)
+    nested: symbolic_items_diagnostics(node.args, 0)
+    expected < 0?
+        @: nested
+    vkf_list_length(node.args) = expected?
+        @: nested
+    vkf_list_single(
+        symbolic_diagnostic(
+            "invalid-arity",
+            "function argument count does not match its definition",
+            node.location
+        )
+    ) & nested
+
+symbolic_builtin_arity(name:str):
+    name??
+        "sqrt" => 1
+        "sin" => 1
+        "cos" => 1
+        "tan" => 1
+        "abs" => 1
+        "atan2" => 2
+        "vector" => 2
+        "complex" => 2
+        -1
+
+symbolic_definition_diagnostics(node:any):
+    parameters: symbolic_parameter_diagnostics(node.parameters, 0)
+    parameters & symbolic_semantic_diagnostics(node.value)
+
+symbolic_parameter_diagnostics(parameters:any, index:num):
+    index >= vkf_list_length(parameters)?
+        @: vkf_list_empty()
+    current: parameters.(index)
+    current.kind = "variable"?
+        @: symbolic_parameter_diagnostics(parameters, index + 1)
+    vkf_list_single(
+        symbolic_diagnostic(
+            "invalid-parameter",
+            "function parameters must be variable names",
+            current.location
+        )
+    ) & symbolic_parameter_diagnostics(parameters, index + 1)
 
 symbolic_expression_capability:
-    name: "self_hosted_symbolic_expression_tracer"
+    name: "self_hosted_symbolic_kernel"
     grammar: [
         "decimal numbers",
-        "variables x and y",
-        "constant pi",
+        "variables x y z t r phi",
+        "constants pi and i",
         "prefix plus and minus",
         "binary plus minus multiply divide power",
-        "parenthesized expressions"
+        "comparisons and equality",
+        "parenthesized expressions, tuples, and sets",
+        "calls and named function definitions",
+        "complex(real, imaginary) and vector(x, y)"
     ]
     deterministic_interfaces: [
         "symbolic_tokenize(source)",
         "symbolic_parse_tokens(lexed)",
         "symbolic_compile(source)",
+        "symbolic_compile_with_context(source, context, clip)",
         "symbolic_latex(ast)",
-        "symbolic_evaluate(ast, x, y)"
+        "symbolic_workspace_compile(workspace, source, context, clip)",
+        "symbolic_workspace_append(workspace, source, context, clip)",
+        "symbolic_workspace_evaluate(workspace, handle, x, y, z, t)",
+        "symbolic_program_evaluate_at(program, x, y, z, t, context, workspace)",
+        "symbolic_plot(program, workspace, view, style, revision)"
     ]
-    native_bootstrap_status: "source lexes and parses without a host runtime"
-    missing: [
-        "native VKF ABI for scalar-safe string cursor operations",
-        "native VKF decimal and identifier scan results",
-        "typed IR lowering for recursive calls",
-        "typed IR lowering for dynamic lists and tagged AST records",
-        "WASM lowering for strings, diagnostics, and dynamic arrays",
-        "browser ABI for compile, latex, evaluate, and diagnostics"
+    classifications: [
+        "literal",
+        "point-set",
+        "linked-tuple",
+        "y-of-x",
+        "x-of-y",
+        "parametric",
+        "implicit-curve",
+        "open-region",
+        "closed-region",
+        "scalar-field",
+        "vector-field",
+        "time-dependent"
     ]
+    coordinate_contexts: ["global", "vertex", "edge", "face"]
+    native_bootstrap_status: "source lexes, parses, lowers, executes, samples, and packs GPU ranges through the tagged WASM runtime"
+    rendering_modules: [
+        "vf-symbolic-plot-renderer",
+        "vf-screen-simplex-renderer"
+    ]
+    missing: []
     :

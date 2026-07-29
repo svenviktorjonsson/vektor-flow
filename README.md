@@ -127,8 +127,22 @@ vkf -e '..5 >> :: $^2'
 
 ## Browser WASM Text Channel
 
-`web/vf-ui/vf-symbolic-wasm-runtime.mjs` exposes the UTF-8 channel used by
-generated VKF WASM modules. Its interface is deliberately small:
+The npm package exposes stable browser-module imports:
+
+```js
+import axis2dTicks from "vektor-flow/axis2d-ticks";
+import {
+  createSymbolicWasmTextChannel,
+  loadSymbolicWasmTextChannel,
+} from "vektor-flow/symbolic-text-channel";
+import {
+  createSymbolicKernel,
+  loadSymbolicKernel,
+} from "vektor-flow/symbolic-kernel";
+```
+
+`vektor-flow/symbolic-text-channel` exposes the UTF-8 channel used by generated
+VKF WASM modules. Its interface is deliberately small:
 
 ```js
 const channel = createSymbolicWasmTextChannel(instance.exports);
@@ -138,6 +152,21 @@ const result = channel.transfer(source, instance.exports.vkf_symbolic_trace);
 The browser module only transfers UTF-8 through WASM memory. Parsing,
 classification, evaluation, diagnostics, and LaTeX generation belong to the
 compiled VKF module; there is no JavaScript or Python expression fallback.
+
+`vektor-flow/symbolic-kernel` loads a generated kernel artifact and its
+function manifest. It transfers tagged values and invokes named VKF functions;
+all parsing, diagnostics, LaTeX generation, classification, and evaluation
+remain inside WASM.
+
+The same kernel owns plot sampling and writes interleaved
+`[x, y, r, g, b, a]` vertices directly into a bounded WASM arena. Consumers
+pass the returned pointer, count, stride, revision, and ranges to
+`vektor-flow/symbolic-plot-renderer`; JavaScript does not resample expressions.
+The plot contract covers point sets, nested linked tuples, explicit and
+parametric curves, implicit curves, open and closed inequalities, scalar
+colormaps, vector fields, and time-dependent curves. Closed inequalities emit
+separate fill and boundary ranges. Face-local plots use the renderer's concave
+polygon clip and the current affine coordinate context.
 
 Use single quotes around inline snippets in PowerShell when the snippet contains
 `$`. Double quotes let PowerShell expand `$...` before `vkf` receives the code.

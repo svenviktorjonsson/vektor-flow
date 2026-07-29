@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   buildScreenSpaceSimplexVertices,
-  colorToRgba
+  colorToRgba,
+  growPackedVertexCapacity,
+  requirePackedSimplexVertices
 } from '../../web/vf-ui/geom/vf-screen-simplex-renderer.mjs';
 
 test('packs screen-space face, edge, and vertex primitives into one triangle buffer', () => {
@@ -64,4 +66,26 @@ test('skips malformed or degenerate primitives', () => {
   });
 
   assert.equal(vertices.length, 0);
+});
+
+test('accepts a WASM-backed packed triangle view without copying it', () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const packed = new Float32Array(memory.buffer, 64, 18);
+
+  assert.equal(requirePackedSimplexVertices(packed), packed);
+  assert.throws(
+    () => requirePackedSimplexVertices(new Float32Array(17)),
+    /complete triangles/,
+  );
+  assert.throws(
+    () => requirePackedSimplexVertices(new Float64Array(18)),
+    /Float32Array/,
+  );
+});
+
+test('grows GPU vertex capacity geometrically and reuses it', () => {
+  assert.equal(growPackedVertexCapacity(0, 1), 256);
+  assert.equal(growPackedVertexCapacity(256, 18 * 4), 256);
+  assert.equal(growPackedVertexCapacity(256, 257), 512);
+  assert.equal(growPackedVertexCapacity(512, 257), 512);
 });

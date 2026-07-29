@@ -1,15 +1,35 @@
 {
   "name": "vektor-flow",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Vektor Flow is a functional, scope-based language for shaping data, describing\r geometry, and driving interactive visual programs. The important thing is not\r just the syntax. The important thing is the model:",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./axis2d-ticks": "./web/vf-ui/vf-axis2d-ticks.js",
+    "./screen-simplex-renderer": "./web/vf-ui/geom/vf-screen-simplex-renderer.mjs",
+    "./symbolic-kernel": "./web/vf-ui/vf-symbolic-kernel-runtime.mjs",
+    "./symbolic-plot-renderer": "./web/vf-ui/geom/vf-symbolic-plot-renderer.mjs",
+    "./symbolic-kernel-manifest": "./web/vf-ui/artifacts/vkf-symbolic-kernel.json",
+    "./symbolic-kernel-wasm": "./web/vf-ui/artifacts/vkf-symbolic-kernel.wasm",
+    "./symbolic-text-channel": "./web/vf-ui/vf-symbolic-wasm-runtime.mjs",
+    "./ui-math": "./web/vf-ui/vf-vkf-ui-math.js",
+    "./web/vf-ui/*": "./web/vf-ui/*"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "web/vf-ui"
+  ],
   "directories": {
     "doc": "docs",
     "example": "examples",
     "test": "tests"
   },
   "scripts": {
-    "test": "node --test tests/js/vf-screen-simplex-renderer.test.mjs tests/js/vf-symbolic-wasm-runtime.test.mjs"
+    "test": "node --test tests/js/*.test.cjs tests/js/*.test.mjs",
+    "build:symbolic-kernel": "node tools/build-symbolic-kernel.mjs",
+    "check:symbolic-kernel": "node tools/build-symbolic-kernel.mjs --check",
+    "test:package": "node --test tests/js/package-exports.test.mjs tests/js/package-archive.integration.mjs"
   },
   "keywords": [],
   "author": "",

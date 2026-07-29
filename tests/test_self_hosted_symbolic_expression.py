@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "compiler" / "self_hosted" / "symbolic_expression.vkf"
 LEXER_SOURCE = ROOT / "compiler" / "native" / "vkf_lexer_cursor_smoke.cpp"
 PARSER_SOURCE = ROOT / "compiler" / "native" / "vkf_parser_token_stream_smoke.cpp"
+AST_TO_IR_SOURCE = ROOT / "compiler" / "native" / "vkf_ast_to_ir_smoke.cpp"
 JSON_SOURCE = ROOT / "native" / "VfOverlay" / "vf" / "json.cpp"
 
 
@@ -80,20 +81,24 @@ def test_symbolic_expression_source_is_real_vkf_with_stable_interfaces() -> None
     assert "_ =>" not in source
 
 
-def test_symbolic_expression_declares_current_compiler_frontier() -> None:
+def test_symbolic_expression_declares_complete_browser_kernel_surface() -> None:
     source = SOURCE.read_text(encoding="utf-8")
 
-    for gap in (
-        "string cursor operations",
-        "recursive calls",
-        "dynamic lists and tagged AST records",
-        "WASM lowering for strings",
-        "browser ABI",
+    for capability in (
+        "symbolic_compile_with_context",
+        "symbolic_workspace_compile",
+        "symbolic_program_evaluate_at",
+        "symbolic_plot(program, workspace, view, style, revision)",
+        "vf-symbolic-plot-renderer",
+        "vf-screen-simplex-renderer",
     ):
-        assert gap in source
+        assert capability in source
+
+    assert "missing: []" in source
+    assert "belongs to the VKF rendering module" not in source
 
 
-def test_native_bootstrap_lexer_and_parser_accept_symbolic_expression(
+def test_native_pipeline_lowers_complete_symbolic_expression_to_typed_ir(
     tmp_path: Path,
 ) -> None:
     lexer = _compile_or_skip(
@@ -103,6 +108,10 @@ def test_native_bootstrap_lexer_and_parser_accept_symbolic_expression(
     parser = _compile_or_skip(
         [PARSER_SOURCE, JSON_SOURCE],
         tmp_path / "vkf_symbolic_expression_parser.exe",
+    )
+    ast_to_ir = _compile_or_skip(
+        [AST_TO_IR_SOURCE, JSON_SOURCE],
+        tmp_path / "vkf_symbolic_expression_ast_to_ir.exe",
     )
 
     tokens = subprocess.run(
@@ -127,3 +136,57 @@ def test_native_bootstrap_lexer_and_parser_accept_symbolic_expression(
     ast_payload = json.loads(parsed.stdout)
     assert ast_payload["kind"] == "module"
     assert ast_payload["body"]
+
+    lowered = subprocess.run(
+        [str(ast_to_ir)],
+        cwd=ROOT,
+        input=parsed.stdout,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    typed_module = json.loads(lowered.stdout)
+    assert typed_module["kind"] == "typed_module"
+
+    functions = {
+        statement["name"]: statement
+        for statement in typed_module["body"]
+        if statement["kind"] == "function"
+    }
+    assert "symbolic_compile" in functions
+
+    def calls_named(value: object, name: str) -> bool:
+        if isinstance(value, dict):
+            if (
+                value.get("kind") == "call"
+                and isinstance(value.get("callee"), dict)
+                and value["callee"].get("kind") == "load"
+                and value["callee"].get("name") == name
+            ):
+                return True
+            return any(calls_named(child, name) for child in value.values())
+        if isinstance(value, list):
+            return any(calls_named(child, name) for child in value)
+        return False
+
+    recursive_functions = {
+        name
+        for name, function in functions.items()
+        if calls_named(function["body"], name)
+    }
+    assert {
+        "symbolic_tokenize_step",
+        "symbolic_latex",
+        "symbolic_evaluate",
+    } <= recursive_functions
+
+    for left, right in (
+        ("symbolic_parse_power", "symbolic_parse_power_right"),
+        (
+            "symbolic_parse_multiplicative_tail",
+            "symbolic_parse_multiplicative_right",
+        ),
+        ("symbolic_parse_additive_tail", "symbolic_parse_additive_right"),
+    ):
+        assert calls_named(functions[left]["body"], right)
+        assert calls_named(functions[right]["body"], left)

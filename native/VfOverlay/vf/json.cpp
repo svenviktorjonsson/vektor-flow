@@ -1,6 +1,7 @@
 #include "vf/json.hpp"
 
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <limits>

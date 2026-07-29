@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "compiler/native/vkf_wasm_typed_ir.hpp"
 
 #include <cstdint>
 #include <cmath>
@@ -839,31 +840,39 @@ bool parse_update_function(const vf::JsonValue::Object& stmt, const std::vector<
 }
 
 WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
-    const auto& module = object_of(root, "typed IR module");
-    const std::string kind = string_field(module, "kind", "typed IR module");
-    if (kind != "typed_module") {
-        throw WasmArtifactFailure("unsupported typed IR root kind " + kind);
-    }
+    const auto module = vkf::wasm::parse_typed_module(root);
     WasmModulePlan plan;
-    for (const auto& stmt_value : array_of(field(module, "body", "typed_module"), "typed_module.body")) {
-        const auto& stmt = object_of(stmt_value, "typed IR stmt");
-        const std::string stmt_kind = string_field(stmt, "kind", "typed IR stmt");
-        if (stmt_kind == "store_binding") {
+    for (const auto& item : module.items) {
+        if (item.kind == vkf::wasm::ModuleItemKind::TypeAlias
+            || item.kind == vkf::wasm::ModuleItemKind::ExpressionStatement) {
+            continue;
+        }
+        if (item.kind == vkf::wasm::ModuleItemKind::RuntimeBinding) {
+            const auto& stmt = object_of(
+                module.runtime_bindings[item.category_index].declaration,
+                "typed IR runtime binding"
+            );
             plan.bindings.push_back(binding_from_store(stmt, plan.bindings));
             continue;
         }
-        if (stmt_kind == "expr_stmt") {
-            continue;
-        }
-        if (stmt_kind == "function") {
+        if (item.kind == vkf::wasm::ModuleItemKind::Function) {
+            const auto& stmt = object_of(
+                module.functions[item.category_index].declaration,
+                "typed IR function"
+            );
             if (plan.update.enabled) {
                 throw WasmArtifactFailure("only one wasm vkf_update function is supported");
             }
             if (parse_update_function(stmt, plan.bindings, plan.update)) {
                 continue;
             }
+            throw WasmArtifactFailure(
+                "unsupported typed IR function "
+                + module.functions[item.category_index].name
+                + " for wasm artifact emission"
+            );
         }
-        throw WasmArtifactFailure("unsupported typed IR statement kind " + stmt_kind + " for wasm artifact emission");
+        throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
     return plan;
 }
