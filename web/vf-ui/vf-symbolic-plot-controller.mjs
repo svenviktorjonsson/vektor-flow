@@ -29,6 +29,8 @@ export async function createSymbolicPlotController({
   let destroyed = false;
   let lastResult = null;
   let snapGeometry = symbolicPlotSnapGeometry(null);
+  let dataToScreenTransform = [...IDENTITY_AFFINE];
+  let interactionState = 'normal';
   canvas.hidden = false;
 
   async function plot({
@@ -56,6 +58,7 @@ export async function createSymbolicPlotController({
 
     const program = compiled.value?.program ?? compiled.value;
     const result = publicProgramResult(program);
+    dataToScreenTransform = [...transform];
     renderer.updateTransform(transform);
     renderer.updateClip(localClip);
 
@@ -84,7 +87,8 @@ export async function createSymbolicPlotController({
   function updateView({ transform, pixelRatio = 1, context = globalSymbolicContext(), clip = null }) {
     assertAlive();
     const cssTransform = symbolicCssPixelTransform(transform, pixelRatio);
-    renderer.updateTransform(symbolicDataToScreenTransform({ transform: cssTransform }, context));
+    dataToScreenTransform = symbolicDataToScreenTransform({ transform: cssTransform }, context);
+    renderer.updateTransform(dataToScreenTransform);
     renderer.updateClip(symbolicClipInLocalCoordinates(clip, context));
     if (visible) renderer.render();
   }
@@ -105,6 +109,20 @@ export async function createSymbolicPlotController({
     return visible;
   }
 
+  function setInteractionState(state = 'normal') {
+    assertAlive();
+    if (state === interactionState) return interactionState;
+    interactionState = state;
+    renderer.updateAppearance({ state });
+    if (visible) renderer.render();
+    return interactionState;
+  }
+
+  function hitTest(screenPoint, radius = 7) {
+    assertAlive();
+    return hitTestSymbolicPlotGeometry(snapGeometry, dataToScreenTransform, screenPoint, radius);
+  }
+
   function destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -120,6 +138,8 @@ export async function createSymbolicPlotController({
     updateView,
     resize,
     setVisible,
+    setInteractionState,
+    hitTest,
     toggleVisible() {
       return setVisible(!visible);
     },
@@ -134,6 +154,40 @@ export async function createSymbolicPlotController({
       return snapGeometry;
     }
   });
+}
+
+export function hitTestSymbolicPlotGeometry(geometry, transform, screenPoint, radius = 7) {
+  if (!geometry || (!Array.isArray(screenPoint) && !ArrayBuffer.isView(screenPoint))) return null;
+  const point = [finite(screenPoint[0], 'plot hit x'), finite(screenPoint[1], 'plot hit y')];
+  const hitRadius = finite(radius, 'plot hit radius');
+  if (hitRadius < 0) throw new RangeError('plot hit radius must be non-negative');
+  const affine = normalizeAffine(transform);
+  let best = null;
+  const consider = (candidate, kind, index) => {
+    if (candidate.distance > hitRadius || (best && candidate.distance >= best.distance)) return;
+    best = Object.freeze({ kind, index, distance: candidate.distance, closest: Object.freeze(candidate.closest) });
+  };
+  for (const [index, value] of (geometry.points || []).entries()) {
+    const screen = applyAffine(affine, value);
+    consider({ distance: Math.hypot(point[0] - screen[0], point[1] - screen[1]), closest: screen }, 'point', index);
+  }
+  for (const [index, segment] of (geometry.segments || []).entries()) {
+    const from = applyAffine(affine, segment[0]);
+    const to = applyAffine(affine, segment[1]);
+    consider(distanceToSegment(point, from, to), 'segment', index);
+  }
+  return best;
+}
+
+function distanceToSegment(point, from, to) {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const lengthSquared = dx * dx + dy * dy;
+  const projection = lengthSquared > 0
+    ? Math.max(0, Math.min(1, ((point[0] - from[0]) * dx + (point[1] - from[1]) * dy) / lengthSquared))
+    : 0;
+  const closest = [from[0] + projection * dx, from[1] + projection * dy];
+  return { closest, distance: Math.hypot(point[0] - closest[0], point[1] - closest[1]) };
 }
 
 function controllerViewport(viewport) {

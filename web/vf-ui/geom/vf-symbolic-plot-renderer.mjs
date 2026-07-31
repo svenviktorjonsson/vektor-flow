@@ -1,8 +1,46 @@
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const DEFAULT_TRANSFORM = Object.freeze([1, 0, 0, 1, 0, 0]);
+const FLOATS_PER_SEGMENT = 12;
+
+export const SYMBOLIC_PLOT_EDGE_WIDTH = 2;
+export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
+export const SYMBOLIC_PLOT_SELECTION_WIDTH = 2;
+export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255, 211 / 255]);
 
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
+
+export function normalizeSymbolicPlotAppearance(value = {}) {
+  const state = ['hovered', 'selected'].includes(value.state) ? value.state : 'normal';
+  const alpha = state === 'selected' ? 0.75 : state === 'hovered' ? 0.5 : 0;
+  return Object.freeze({
+    state,
+    edgeWidth: positive(value.edgeWidth, SYMBOLIC_PLOT_EDGE_WIDTH),
+    selectionGap: nonNegative(value.selectionGap, SYMBOLIC_PLOT_SELECTION_GAP),
+    selectionWidth: positive(value.selectionWidth, SYMBOLIC_PLOT_SELECTION_WIDTH),
+    selectionColor: Object.freeze(normalizeRgb(value.selectionColor, SYMBOLIC_PLOT_SELECTION_COLOR)),
+    selectionAlpha: alpha
+  });
+}
+
+export function packSymbolicPlotSegments(arena) {
+  if (!arena?.data || !(arena.data instanceof Float32Array)) return new Float32Array();
+  const packed = [];
+  const append = (from, to) => {
+    const fromOffset = from * FLOATS_PER_VERTEX;
+    const toOffset = to * FLOATS_PER_VERTEX;
+    for (let index = 0; index < FLOATS_PER_VERTEX; index += 1) packed.push(arena.data[fromOffset + index]);
+    for (let index = 0; index < FLOATS_PER_VERTEX; index += 1) packed.push(arena.data[toOffset + index]);
+  };
+  for (const range of arena.ranges || []) {
+    if (range.topology === 'line-list') {
+      for (let index = 0; index + 1 < range.count; index += 2) append(range.first + index, range.first + index + 1);
+    } else if (range.topology === 'line-strip') {
+      for (let index = 0; index + 1 < range.count; index += 1) append(range.first + index, range.first + index + 1);
+    }
+  }
+  return new Float32Array(packed);
+}
 
 export const SymbolicPlotMode = Object.freeze({
   POINTS: 'points',
@@ -86,7 +124,7 @@ export function resolveSymbolicPlotArena(spec, previous = null) {
   }
 
   const ranges = normalizeRanges(spec.ranges, count, spec.mode);
-  return Object.freeze({
+  const resolved = {
     data,
     sourceBuffer,
     pointer,
@@ -94,6 +132,12 @@ export function resolveSymbolicPlotArena(spec, previous = null) {
     stride,
     revision: spec.revision ?? 0,
     ranges
+  };
+  const segments = packSymbolicPlotSegments(resolved);
+  return Object.freeze({
+    ...resolved,
+    segments,
+    segmentCount: segments.length / FLOATS_PER_SEGMENT
   });
 }
 
@@ -154,6 +198,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
   let cssHeight = 1;
   let uploadedData = null;
   let uploadedRevision = Symbol('not-uploaded');
+  let appearance = normalizeSymbolicPlotAppearance();
   let destroyed = false;
 
   async function initialize() {
@@ -164,6 +209,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     backend.resize(cssWidth, cssHeight);
     backend.updateTransform(transform);
     backend.updateClip(clipTriangles);
+    backend.updateAppearance(appearance);
     return backend.kind;
   }
 
@@ -171,6 +217,13 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     assertAlive();
     arena = resolveSymbolicPlotArena(nextArena, arena);
     return arena;
+  }
+
+  function updateAppearance(nextAppearance = {}) {
+    assertAlive();
+    appearance = normalizeSymbolicPlotAppearance(nextAppearance);
+    backend?.updateAppearance(appearance);
+    return appearance;
   }
 
   function updateTransform(nextTransform) {
@@ -234,6 +287,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     setArena,
     updateTransform,
     updateClip,
+    updateAppearance,
     resize,
     render,
     destroy,
@@ -241,6 +295,21 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
       return backend?.kind || null;
     }
   });
+}
+
+function positive(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function nonNegative(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function normalizeRgb(value, fallback) {
+  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) return [...fallback];
+  return [0, 1, 2].map((index) => Math.max(0, Math.min(1, Number(value[index]) || 0)));
 }
 
 function normalizeRanges(ranges, count, defaultMode) {
@@ -346,18 +415,24 @@ async function createWebGpuBackend(canvas) {
     size: 48,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
+  const strokeBuffers = Array.from({ length: 3 }, () => device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  }));
   const bindGroupLayout = device.createBindGroupLayout({
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: 'uniform' }
-    }]
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+      { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } }
+    ]
   });
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
-  const bindGroup = device.createBindGroup({
+  const bindGroups = strokeBuffers.map((buffer) => device.createBindGroup({
     layout: bindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: transformBuffer } }]
-  });
+    entries: [
+      { binding: 0, resource: { buffer: transformBuffer } },
+      { binding: 1, resource: { buffer } }
+    ]
+  }));
   const vertexLayout = {
     arrayStride: BYTES_PER_VERTEX,
     attributes: [
@@ -368,6 +443,16 @@ async function createWebGpuBackend(canvas) {
   const clipVertexLayout = {
     arrayStride: 8,
     attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }]
+  };
+  const segmentVertexLayout = {
+    arrayStride: FLOATS_PER_SEGMENT * Float32Array.BYTES_PER_ELEMENT,
+    stepMode: 'instance',
+    attributes: [
+      { shaderLocation: 2, offset: 0, format: 'float32x2' },
+      { shaderLocation: 3, offset: 8, format: 'float32x4' },
+      { shaderLocation: 4, offset: 24, format: 'float32x2' },
+      { shaderLocation: 5, offset: 32, format: 'float32x4' }
+    ]
   };
   const depthStencil = (compare, passOp = 'keep') => ({
     format: 'depth24plus-stencil8',
@@ -411,15 +496,35 @@ async function createWebGpuBackend(canvas) {
     primitive: { topology: 'triangle-list' },
     depthStencil: depthStencil('always', 'replace')
   });
+  const strokePipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'strokeVertex', buffers: [segmentVertexLayout] },
+    fragment: {
+      module: shader,
+      entryPoint: 'plotFragment',
+      targets: [{
+        format,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil(clipped ? 'equal' : 'always')
+  })]));
 
   let plotBuffer = null;
   let plotCapacity = 0;
+  let segmentBuffer = null;
+  let segmentCapacity = 0;
   let clipBuffer = null;
   let clipCapacity = 0;
   let clipCount = 0;
   let currentArena = null;
   let stencilTexture = null;
   let cssSize = [1, 1];
+  let appearance = normalizeSymbolicPlotAppearance();
 
   function ensureBuffer(buffer, capacity, required, usage) {
     if (required <= capacity) return [buffer, capacity];
@@ -453,6 +558,10 @@ async function createWebGpuBackend(canvas) {
       );
       if (vertices.byteLength) device.queue.writeBuffer(clipBuffer, 0, vertices);
     },
+    updateAppearance(nextAppearance) {
+      appearance = nextAppearance;
+      writeWebGpuStrokePasses(device, strokeBuffers, appearance);
+    },
     render(arena, upload) {
       currentArena = arena;
       if (currentArena && upload) {
@@ -465,6 +574,13 @@ async function createWebGpuBackend(canvas) {
         if (currentArena.data.byteLength) {
           device.queue.writeBuffer(plotBuffer, 0, currentArena.data);
         }
+        [segmentBuffer, segmentCapacity] = ensureBuffer(
+          segmentBuffer,
+          segmentCapacity,
+          currentArena.segments.byteLength,
+          GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+        );
+        if (currentArena.segments.byteLength) device.queue.writeBuffer(segmentBuffer, 0, currentArena.segments);
       }
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
@@ -487,20 +603,34 @@ async function createWebGpuBackend(canvas) {
       const clipped = clipCount > 0;
       if (clipped) {
         pass.setPipeline(clipPipeline);
-        pass.setBindGroup(0, bindGroup);
+        pass.setBindGroup(0, bindGroups[0]);
         pass.setStencilReference(1);
         pass.setVertexBuffer(0, clipBuffer);
         pass.draw(clipCount);
       }
       if (plotBuffer && currentArena) {
-        pass.setBindGroup(0, bindGroup);
+        pass.setBindGroup(0, bindGroups[0]);
         pass.setStencilReference(1);
         pass.setVertexBuffer(0, plotBuffer);
         for (const range of currentArena.ranges) {
           if (!range.count) continue;
+          if (range.topology === 'line-list' || range.topology === 'line-strip') continue;
           pass.setPipeline(pipelines.get(`${range.topology}:${clipped}`));
           pass.draw(range.count, 1, range.first);
         }
+      }
+      if (segmentBuffer && currentArena?.segmentCount) {
+        pass.setPipeline(strokePipelines.get(clipped));
+        pass.setStencilReference(1);
+        pass.setVertexBuffer(0, segmentBuffer);
+        if (appearance.selectionAlpha > 0) {
+          pass.setBindGroup(0, bindGroups[1]);
+          pass.draw(6, currentArena.segmentCount);
+          pass.setBindGroup(0, bindGroups[2]);
+          pass.draw(6, currentArena.segmentCount);
+        }
+        pass.setBindGroup(0, bindGroups[0]);
+        pass.draw(6, currentArena.segmentCount);
       }
       pass.end();
       device.queue.submit([encoder.finish()]);
@@ -508,8 +638,10 @@ async function createWebGpuBackend(canvas) {
     destroy() {
       plotBuffer?.destroy();
       clipBuffer?.destroy();
+      segmentBuffer?.destroy();
       stencilTexture?.destroy();
       transformBuffer.destroy();
+      strokeBuffers.forEach((buffer) => buffer.destroy());
       device.destroy();
     }
   };
@@ -524,6 +656,19 @@ function writeWebGpuTransform(device, buffer, transform, size) {
   ]));
 }
 
+function writeWebGpuStrokePasses(device, buffers, appearance) {
+  const offset = appearance.edgeWidth / 2 + appearance.selectionGap + appearance.selectionWidth / 2;
+  const write = (buffer, width, strokeOffset, color, alpha, override) => {
+    device.queue.writeBuffer(buffer, 0, new Float32Array([
+      width, strokeOffset, override ? 1 : 0, 0,
+      color[0], color[1], color[2], alpha
+    ]));
+  };
+  write(buffers[0], appearance.edgeWidth, 0, [0, 0, 0], 0, false);
+  write(buffers[1], appearance.selectionWidth, -offset, appearance.selectionColor, appearance.selectionAlpha, true);
+  write(buffers[2], appearance.selectionWidth, offset, appearance.selectionColor, appearance.selectionAlpha, true);
+}
+
 function webGpuShaderSource() {
   return `
     struct View {
@@ -532,6 +677,11 @@ function webGpuShaderSource() {
       viewport: vec4f,
     }
     @group(0) @binding(0) var<uniform> view: View;
+    struct Stroke {
+      geometry: vec4f,
+      color: vec4f,
+    }
+    @group(0) @binding(1) var<uniform> stroke: Stroke;
 
     struct PlotInput {
       @location(0) position: vec2f,
@@ -540,6 +690,12 @@ function webGpuShaderSource() {
     struct PlotOutput {
       @builtin(position) position: vec4f,
       @location(0) color: vec4f,
+    }
+    struct StrokeInput {
+      @location(2) fromPosition: vec2f,
+      @location(3) fromColor: vec4f,
+      @location(4) toPosition: vec2f,
+      @location(5) toColor: vec4f,
     }
 
     fn project(position: vec2f) -> vec4f {
@@ -557,6 +713,20 @@ function webGpuShaderSource() {
       var output: PlotOutput;
       output.position = project(input.position);
       output.color = input.color;
+      return output;
+    }
+
+    @vertex fn strokeVertex(input: StrokeInput, @builtin(vertex_index) vertexIndex: u32) -> PlotOutput {
+      let along = select(1.0, 0.0, vertexIndex == 0u || vertexIndex == 1u || vertexIndex == 3u);
+      let side = select(-1.0, 1.0, vertexIndex == 0u || vertexIndex == 3u || vertexIndex == 5u);
+      let fromScreen = vec2f(dot(view.xRow.xyz, vec3f(input.fromPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.fromPosition, 1.0)));
+      let toScreen = vec2f(dot(view.xRow.xyz, vec3f(input.toPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.toPosition, 1.0)));
+      let delta = toScreen - fromScreen;
+      let normal = vec2f(-delta.y, delta.x) / max(length(delta), 0.0001);
+      let screen = mix(fromScreen, toScreen, along) + normal * (stroke.geometry.y + side * stroke.geometry.x * 0.5);
+      var output: PlotOutput;
+      output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
+      output.color = select(mix(input.fromColor, input.toColor, along), stroke.color, stroke.geometry.z > 0.5);
       return output;
     }
 
@@ -585,14 +755,18 @@ function createWebGl2Backend(canvas) {
   if (gl.getContextAttributes?.()?.stencil !== true) return null;
   const plotProgram = createWebGlProgram(gl, webGlVertexSource(true), webGlFragmentSource(true));
   const clipProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlFragmentSource(false));
+  const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlFragmentSource(true));
   const plotBuffer = gl.createBuffer();
   const clipBuffer = gl.createBuffer();
+  const segmentBuffer = gl.createBuffer();
   const plotLocations = getWebGlLocations(gl, plotProgram, true);
   const clipLocations = getWebGlLocations(gl, clipProgram, false);
+  const strokeLocations = getWebGlStrokeLocations(gl, strokeProgram);
   let plotCapacity = 0;
   let clipCapacity = 0;
   let clipCount = 0;
   let currentArena = null;
+  let appearance = normalizeSymbolicPlotAppearance();
   let transform = [...DEFAULT_TRANSFORM];
   let cssSize = [1, 1];
 
@@ -617,6 +791,9 @@ function createWebGl2Backend(canvas) {
       }
       if (vertices.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
     },
+    updateAppearance(nextAppearance) {
+      appearance = nextAppearance;
+    },
     render(arena, upload) {
       currentArena = arena;
       gl.viewport(0, 0, canvas.width, canvas.height);
@@ -633,6 +810,8 @@ function createWebGl2Backend(canvas) {
         if (currentArena.data.byteLength) {
           gl.bufferSubData(gl.ARRAY_BUFFER, 0, currentArena.data);
         }
+        gl.bindBuffer(gl.ARRAY_BUFFER, segmentBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, currentArena.segments, gl.DYNAMIC_DRAW);
       }
 
       const clipped = clipCount > 0;
@@ -647,12 +826,25 @@ function createWebGl2Backend(canvas) {
         currentArena,
         clipped
       );
+      drawWebGlStrokes(
+        gl,
+        strokeProgram,
+        segmentBuffer,
+        strokeLocations,
+        transform,
+        cssSize,
+        currentArena.segmentCount,
+        appearance,
+        clipped
+      );
     },
     destroy() {
       gl.deleteBuffer(plotBuffer);
       gl.deleteBuffer(clipBuffer);
+      gl.deleteBuffer(segmentBuffer);
       gl.deleteProgram(plotProgram);
       gl.deleteProgram(clipProgram);
+      gl.deleteProgram(strokeProgram);
     }
   };
 }
@@ -685,8 +877,50 @@ function drawWebGlArena(gl, program, buffer, locations, transform, size, arena, 
   gl.vertexAttribPointer(locations.color, 4, gl.FLOAT, false, BYTES_PER_VERTEX, 8);
   for (const range of arena.ranges) {
     if (!range.count) continue;
+    if (range.topology === 'line-list' || range.topology === 'line-strip') continue;
     gl.drawArrays(webGlTopology(gl, range.topology), range.first, range.count);
   }
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
+function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count, appearance, clipped) {
+  if (!count) return;
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  const attributes = [
+    [locations.fromPosition, 2, 0],
+    [locations.fromColor, 4, 8],
+    [locations.toPosition, 2, 24],
+    [locations.toColor, 4, 32]
+  ];
+  for (const [location, sizeValue, offset] of attributes) {
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, sizeValue, gl.FLOAT, false, FLOATS_PER_SEGMENT * 4, offset);
+    gl.vertexAttribDivisor(location, 1);
+  }
+  const draw = (width, offset, color, alpha, override) => {
+    gl.uniform1f(locations.width, width);
+    gl.uniform1f(locations.offset, offset);
+    gl.uniform1f(locations.override, override ? 1 : 0);
+    gl.uniform4f(locations.overrideColor, color[0], color[1], color[2], alpha);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+  };
+  if (appearance.selectionAlpha > 0) {
+    const offset = appearance.edgeWidth / 2 + appearance.selectionGap + appearance.selectionWidth / 2;
+    draw(appearance.selectionWidth, -offset, appearance.selectionColor, appearance.selectionAlpha, true);
+    draw(appearance.selectionWidth, offset, appearance.selectionColor, appearance.selectionAlpha, true);
+  }
+  draw(appearance.edgeWidth, 0, [0, 0, 0], 0, false);
+  for (const [location] of attributes) gl.vertexAttribDivisor(location, 0);
   gl.disable(gl.STENCIL_TEST);
   gl.stencilMask(0xff);
 }
@@ -697,6 +931,21 @@ function getWebGlLocations(gl, program, withColor) {
     color: withColor ? gl.getAttribLocation(program, 'a_color') : -1,
     transform: gl.getUniformLocation(program, 'u_transform'),
     viewport: gl.getUniformLocation(program, 'u_viewport')
+  };
+}
+
+function getWebGlStrokeLocations(gl, program) {
+  return {
+    fromPosition: gl.getAttribLocation(program, 'a_from_position'),
+    fromColor: gl.getAttribLocation(program, 'a_from_color'),
+    toPosition: gl.getAttribLocation(program, 'a_to_position'),
+    toColor: gl.getAttribLocation(program, 'a_to_color'),
+    transform: gl.getUniformLocation(program, 'u_transform'),
+    viewport: gl.getUniformLocation(program, 'u_viewport'),
+    width: gl.getUniformLocation(program, 'u_width'),
+    offset: gl.getUniformLocation(program, 'u_offset'),
+    override: gl.getUniformLocation(program, 'u_override'),
+    overrideColor: gl.getUniformLocation(program, 'u_override_color')
   };
 }
 
@@ -743,6 +992,34 @@ function webGlFragmentSource(withColor) {
     out vec4 out_color;
     void main() {
       out_color = ${withColor ? 'v_color' : 'vec4(0.0)'};
+    }
+  `;
+}
+
+function webGlStrokeVertexSource() {
+  return `#version 300 es
+    in vec2 a_from_position;
+    in vec4 a_from_color;
+    in vec2 a_to_position;
+    in vec4 a_to_color;
+    uniform mat3 u_transform;
+    uniform vec2 u_viewport;
+    uniform float u_width;
+    uniform float u_offset;
+    uniform float u_override;
+    uniform vec4 u_override_color;
+    out vec4 v_color;
+    void main() {
+      float along = (gl_VertexID == 0 || gl_VertexID == 1 || gl_VertexID == 3) ? 0.0 : 1.0;
+      float side = (gl_VertexID == 0 || gl_VertexID == 3 || gl_VertexID == 5) ? 1.0 : -1.0;
+      vec2 from_screen = (u_transform * vec3(a_from_position, 1.0)).xy;
+      vec2 to_screen = (u_transform * vec3(a_to_position, 1.0)).xy;
+      vec2 delta = to_screen - from_screen;
+      float length_value = max(length(delta), 0.0001);
+      vec2 normal = vec2(-delta.y, delta.x) / length_value;
+      vec2 screen = mix(from_screen, to_screen, along) + normal * (u_offset + side * u_width * 0.5);
+      gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
+      v_color = u_override > 0.5 ? u_override_color : mix(a_from_color, a_to_color, along);
     }
   `;
 }

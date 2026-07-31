@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildSymbolicPlotView,
   createSymbolicPlotController,
+  hitTestSymbolicPlotGeometry,
   symbolicClipInLocalCoordinates,
   symbolicCssPixelTransform,
   symbolicDataToScreenTransform,
@@ -70,6 +71,13 @@ test('extracts snap points and line segments from symbolic plot ranges', () => {
   assert.ok(Object.isFrozen(geometry));
 });
 
+test('hit-tests plot geometry in CSS screen coordinates', () => {
+  const geometry = { points: [], segments: [[[0, 0], [2, 0]]] };
+  assert.deepEqual(hitTestSymbolicPlotGeometry(geometry, [10, 0, 0, -10, 100, 50], [110, 54], 5),
+    { kind: 'segment', index: 0, distance: 4, closest: [110, 50] });
+  assert.equal(hitTestSymbolicPlotGeometry(geometry, [10, 0, 0, -10, 100, 50], [110, 56], 5), null);
+});
+
 test('controller compiles, plots, renders, and exposes snap geometry', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
@@ -105,6 +113,7 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
     async initialize() { calls.push(['initialize']); },
     updateTransform(value) { calls.push(['transform', value]); },
     updateClip(value) { calls.push(['clip', value]); },
+    updateAppearance(value) { calls.push(['appearance', value]); },
     setArena(value) { calls.push(['arena', value]); },
     render() { calls.push(['render']); },
     resize() {},
@@ -128,9 +137,12 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
 
   assert.equal(result.classification, 'y-of-x');
   assert.deepEqual(controller.snapGeometry.segments, [[[1, 2], [3, 4]]]);
+  assert.equal(controller.hitTest([328, 177], 2)?.kind, 'segment');
+  controller.setInteractionState('selected');
+  assert.equal(calls.filter(([name]) => name === 'appearance').at(-1)[1].state, 'selected');
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
   assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'render').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'render').length, 2);
   assert.deepEqual(calls.find(([name]) => name === 'transform')[1], viewport.transform);
 
   controller.updateView({

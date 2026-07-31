@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   SYMBOLIC_PLOT_VERTEX_STRIDE,
+  SYMBOLIC_PLOT_EDGE_WIDTH,
   SymbolicPlotMode,
   createSymbolicPlotRenderer,
   growSymbolicPlotCapacity,
+  normalizeSymbolicPlotAppearance,
+  packSymbolicPlotSegments,
   resolveSymbolicPlotArena,
   triangulateSymbolicPlotClip
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
@@ -31,6 +34,7 @@ function createBackendLog() {
       resize(...args) { calls.push(['resize', ...args]); },
       updateTransform(value) { calls.push(['transform', value]); },
       updateClip(value) { calls.push(['clip', value]); },
+      updateAppearance(value) { calls.push(['appearance', value]); },
       render(arena, upload) { calls.push(['render', arena, upload]); },
       destroy() { calls.push(['destroy']); }
     }
@@ -46,7 +50,7 @@ test('exposes the stable arena renderer contract', async () => {
   });
 
   assert.deepEqual(
-    ['initialize', 'setArena', 'updateTransform', 'updateClip', 'resize', 'render', 'destroy']
+    ['initialize', 'setArena', 'updateTransform', 'updateClip', 'updateAppearance', 'resize', 'render', 'destroy']
       .filter((name) => typeof renderer[name] !== 'function'),
     []
   );
@@ -61,6 +65,30 @@ test('exposes the stable arena renderer contract', async () => {
   assert.ok(calls.some(([name, triangles]) => name === 'clip' && triangles.length === 12));
   assert.equal(calls.at(-1)[0], 'destroy');
   assert.throws(() => renderer.render(), /destroyed/);
+});
+
+test('packs line lists and strips once for instanced screen-space strokes', () => {
+  const data = new Float32Array([
+    1, 2, 1, 0, 0, 1,
+    3, 4, 0, 1, 0, 1,
+    5, 6, 0, 0, 1, 1
+  ]);
+  const segments = packSymbolicPlotSegments({
+    data,
+    ranges: [{ topology: 'line-strip', first: 0, count: 3 }]
+  });
+  assert.equal(segments.length, 24);
+  assert.deepEqual(Array.from(segments.slice(0, 12)), Array.from(data.slice(0, 12)));
+  assert.deepEqual(Array.from(segments.slice(12)), Array.from(data.slice(6, 18)));
+});
+
+test('uses edge-consistent plot width and distinct hover and selection opacity', () => {
+  assert.equal(SYMBOLIC_PLOT_EDGE_WIDTH, 2);
+  const normal = normalizeSymbolicPlotAppearance({ state: 'normal' });
+  assert.equal(normal.edgeWidth, 2);
+  assert.equal(normal.selectionAlpha, 0);
+  assert.equal(normalizeSymbolicPlotAppearance({ state: 'hovered' }).selectionAlpha, 0.5);
+  assert.equal(normalizeSymbolicPlotAppearance({ state: 'selected' }).selectionAlpha, 0.75);
 });
 
 test('reuses a WASM arena view and deduplicates uploads by revision', async () => {
