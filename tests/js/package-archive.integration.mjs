@@ -32,6 +32,7 @@ test("published archive contains an executable symbolic kernel", async () => {
     const names = new Set(files.map((file) => file.path));
     assert.ok(names.has("web/vf-ui/artifacts/vkf-symbolic-kernel.wasm"));
     assert.ok(names.has("web/vf-ui/artifacts/vkf-symbolic-kernel.json"));
+    assert.ok(names.has("web/vf-ui/vf-symbolic-plot-controller.mjs"));
 
     const initialized = runNpm(["init", "--yes"], work, cache);
     assert.equal(initialized.status, 0, initialized.stderr);
@@ -60,6 +61,13 @@ test("published archive contains an executable symbolic kernel", async () => {
         join(packageRoot, "web", "vf-ui", "vf-symbolic-kernel-runtime.mjs"),
       )
     );
+    const plotController = await import(
+      pathToFileURL(
+        join(packageRoot, "web", "vf-ui", "vf-symbolic-plot-controller.mjs"),
+      )
+    );
+    assert.equal(typeof plotController.createSymbolicPlotController, "function");
+    assert.equal(typeof plotController.createSymbolicCompiler, "function");
     const { instance } = await WebAssembly.instantiate(wasm);
     const manifestUrl = new URL(
       `data:application/json,${encodeURIComponent(JSON.stringify(manifest))}`,

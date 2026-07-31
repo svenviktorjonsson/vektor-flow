@@ -14,6 +14,7 @@ test("package root resolves to the deterministic browser module manifest", () =>
     symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
     symbolicKernelWasm: "vektor-flow/symbolic-kernel-wasm",
     symbolicPlotRenderer: "vektor-flow/symbolic-plot-renderer",
+    symbolicPlotController: "vektor-flow/symbolic-plot-controller",
     symbolicTextChannel: "vektor-flow/symbolic-text-channel",
     uiMath: "vektor-flow/ui-math",
   });
@@ -26,6 +27,7 @@ test("named browser exports resolve to their implemented modules", async () => {
   const renderer = await import("vektor-flow/screen-simplex-renderer");
   const symbolicKernel = await import("vektor-flow/symbolic-kernel");
   const symbolicPlot = await import("vektor-flow/symbolic-plot-renderer");
+  const symbolicPlotController = await import("vektor-flow/symbolic-plot-controller");
   const symbolicText = await import("vektor-flow/symbolic-text-channel");
   const uiMath = await import("vektor-flow/ui-math");
 
@@ -35,6 +37,8 @@ test("named browser exports resolve to their implemented modules", async () => {
   assert.equal(typeof symbolicKernel.loadSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadPackagedSymbolicKernel, "function");
   assert.equal(typeof symbolicPlot.createSymbolicPlotRenderer, "function");
+  assert.equal(typeof symbolicPlotController.createSymbolicPlotController, "function");
+  assert.equal(typeof symbolicPlotController.createSymbolicCompiler, "function");
   assert.equal(typeof symbolicText.createSymbolicWasmTextChannel, "function");
   assert.equal(typeof symbolicText.loadSymbolicWasmTextChannel, "function");
   assert.equal(typeof uiMath.default, "object");
