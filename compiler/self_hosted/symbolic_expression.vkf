@@ -755,6 +755,9 @@ symbolic_evaluation(x:num, y:num, z:num, t:num, context:any):
     local_y: (dy * context.basisXX - dx * context.basisXY) / determinant
     (x: local_x, y: local_y, z: z, t: t, context: context)
 
+symbolic_local_evaluation(x:num, y:num, z:num, t:num, context:any):
+    (x: x, y: y, z: z, t: t, context: context)
+
 symbolic_evaluate(
     node:any,
     evaluation:SymbolicEvaluation,
@@ -1434,6 +1437,22 @@ symbolic_program_evaluate_at(
         vkf_list_empty()
     )
 
+symbolic_program_evaluate_local_at(
+    program:SymbolicProgram,
+    x:num,
+    y:num,
+    z:num,
+    t:num,
+    workspace:SymbolicWorkspace
+):
+    symbolic_evaluate(
+        program.ast,
+        symbolic_local_evaluation(x, y, z, t, program.context),
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+
 symbolic_workspace_compile(
     workspace:SymbolicWorkspace,
     source:str,
@@ -1640,13 +1659,12 @@ symbolic_sample_explicit_x(
     index >= view.xSteps?
         @: builder
     x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
-    y: symbolic_program_evaluate_at(
+    y: symbolic_program_evaluate_local_at(
         program,
         x,
         0,
         0,
         view.t,
-        program.context,
         workspace
     )
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
@@ -1670,13 +1688,12 @@ symbolic_sample_explicit_y(
     index >= view.ySteps?
         @: builder
     y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
-    x: symbolic_program_evaluate_at(
+    x: symbolic_program_evaluate_local_at(
         program,
         0,
         y,
         0,
         view.t,
-        program.context,
         workspace
     )
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
@@ -1700,13 +1717,12 @@ symbolic_sample_parametric(
     index >= view.tSteps?
         @: builder
     parameter: symbolic_sample_coordinate(view.tMin, view.tMax, view.tSteps, index)
-    value: symbolic_program_evaluate_at(
+    value: symbolic_program_evaluate_local_at(
         program,
         parameter,
         0,
         0,
         parameter,
-        program.context,
         workspace
     )
     point: symbolic_plot_point(value, parameter)
@@ -1762,13 +1778,12 @@ symbolic_sample_vector_field(
         view.fieldYSteps,
         yIndex
     )
-    value: symbolic_program_evaluate_at(
+    value: symbolic_program_evaluate_local_at(
         program,
         x,
         y,
         0,
         view.t,
-        program.context,
         workspace
     )
     vector: symbolic_plot_vector(value)
@@ -1826,10 +1841,10 @@ symbolic_sample_scalar_field(
     x1: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex + 1)
     y0: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex)
     y1: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex + 1)
-    v00: symbolic_program_evaluate_at(program, x0, y0, 0, view.t, program.context, workspace)
-    v10: symbolic_program_evaluate_at(program, x1, y0, 0, view.t, program.context, workspace)
-    v11: symbolic_program_evaluate_at(program, x1, y1, 0, view.t, program.context, workspace)
-    v01: symbolic_program_evaluate_at(program, x0, y1, 0, view.t, program.context, workspace)
+    v00: symbolic_program_evaluate_local_at(program, x0, y0, 0, view.t, workspace)
+    v10: symbolic_program_evaluate_local_at(program, x1, y0, 0, view.t, workspace)
+    v11: symbolic_program_evaluate_local_at(program, x1, y1, 0, view.t, workspace)
+    v01: symbolic_program_evaluate_local_at(program, x0, y1, 0, view.t, workspace)
     cell: symbolic_push_scalar_field_cell(
         builder,
         x0,
@@ -1923,7 +1938,7 @@ symbolic_sample_implicit(
     )
 
 symbolic_relation_residual(program:any, workspace:any, x:num, y:num, t:num):
-    evaluation: symbolic_evaluation(x, y, 0, t, program.context)
+    evaluation: symbolic_local_evaluation(x, y, 0, t, program.context)
     left: symbolic_evaluate(
         program.ast.left,
         evaluation,
@@ -2042,13 +2057,12 @@ symbolic_sample_region(
     x1: symbolic_sample_coordinate(view.xMin, view.xMax, view.fieldXSteps, xIndex + 1)
     y0: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex)
     y1: symbolic_sample_coordinate(view.yMin, view.yMax, view.fieldYSteps, yIndex + 1)
-    center: symbolic_program_evaluate_at(
+    center: symbolic_program_evaluate_local_at(
         program,
         (x0 + x1) / 2,
         (y0 + y1) / 2,
         0,
         view.t,
-        program.context,
         workspace
     )
     center?
@@ -2234,7 +2248,7 @@ symbolic_node_plot_point(node:any, program:any, workspace:any):
         @: symbolic_node_plot_point(node.items.(0), program, workspace)
     value: symbolic_evaluate(
         node,
-        symbolic_evaluation(0, 0, 0, 0, program.context),
+        symbolic_local_evaluation(0, 0, 0, 0, program.context),
         workspace,
         vkf_list_empty(),
         vkf_list_empty()
@@ -2242,13 +2256,12 @@ symbolic_node_plot_point(node:any, program:any, workspace:any):
     symbolic_plot_point(value, 0)
 
 symbolic_plot_literal_value(program:any, workspace:any, style:any, builder:any):
-    value: symbolic_program_evaluate_at(
+    value: symbolic_program_evaluate_local_at(
         program,
         0,
         0,
         0,
         0,
-        program.context,
         workspace
     )
     point: symbolic_plot_point(value, 0)

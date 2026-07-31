@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -23,6 +24,7 @@ function run(command, args, options = {}) {
     encoding: options.binary ? null : "utf8",
     input: options.input,
     maxBuffer: 64 * 1024 * 1024,
+    shell: options.shell === true,
   });
   if (result.status !== 0) {
     process.stderr.write(result.stderr ?? "");
@@ -38,17 +40,71 @@ function findCompiler() {
     "clang++",
     "g++",
     "c++",
+    process.platform === "win32" ? "cl" : null,
   ].filter(Boolean);
   for (const candidate of candidates) {
-    if (spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) {
-      return candidate;
+    const msvc = /(^|[\\/])cl(?:\.exe)?$/i.test(candidate);
+    const probe = spawnSync(candidate, [msvc ? "/Bv" : "--version"], { stdio: "ignore" });
+    if ((msvc && !probe.error) || probe.status === 0) {
+      return { command: candidate, msvc };
+    }
+  }
+  if (process.platform === "win32") {
+    const vswhere = join(
+      process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+      "Microsoft Visual Studio",
+      "Installer",
+      "vswhere.exe",
+    );
+    if (existsSync(vswhere)) {
+      const installation = spawnSync(vswhere, [
+        "-latest",
+        "-products",
+        "*",
+        "-requires",
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "-property",
+        "installationPath",
+      ], { encoding: "utf8" }).stdout?.trim();
+      const developerEnvironment = installation
+        ? join(installation, "Common7", "Tools", "VsDevCmd.bat")
+        : null;
+      if (developerEnvironment && existsSync(developerEnvironment)) {
+        return {
+          command: process.env.ComSpec || "cmd.exe",
+          developerEnvironment,
+          msvc: true,
+        };
+      }
     }
   }
   throw new Error("a C++17 compiler is required to build the symbolic kernel");
 }
 
 function compile(compiler, output, ...sources) {
-  run(compiler, [
+  if (compiler.msvc) {
+    const args = [
+      "/nologo",
+      "/std:c++17",
+      "/EHsc",
+      `/I${root}`,
+      `/I${join(root, "native", "VfOverlay")}`,
+      `/Fo${dirname(output).replaceAll("\\", "/")}/`,
+      ...sources.map((source) => join(root, source)),
+      `/Fe${output}`,
+    ];
+    if (compiler.developerEnvironment) {
+      run(
+        `call ${quoteCmd(compiler.developerEnvironment)} -no_logo -arch=x64 -host_arch=x64 >nul && cl ${args.map(quoteCmd).join(" ")}`,
+        [],
+        { shell: true },
+      );
+    } else {
+      run(compiler.command, args);
+    }
+    return;
+  }
+  run(compiler.command, [
     "-std=c++17",
     "-Wall",
     "-Wextra",
@@ -61,6 +117,10 @@ function compile(compiler, output, ...sources) {
     "-o",
     output,
   ]);
+}
+
+function quoteCmd(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
 }
 
 function assertIdentical(actual, expected, label) {

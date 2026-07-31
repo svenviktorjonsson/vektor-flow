@@ -72,6 +72,72 @@ test("published archive contains an executable symbolic kernel", async () => {
     assert.deepEqual(compiled.value.diagnostics, []);
     assert.equal(compiled.value.classification, "y-of-x");
     assert.ok(Math.abs(kernel.evaluate(compiled.handle, 3, 0) - 12.141592653589793) < 1e-12);
+
+    const context = {
+      kind: "edge",
+      dimension: 2,
+      originX: 10,
+      originY: 20,
+      basisXX: 0,
+      basisXY: 2,
+      basisYX: -2,
+      basisYY: 0,
+    };
+    const workspace = kernel.createWorkspace().handle;
+    const localProgram = kernel.workspaceCompile(workspace, "x^2", context);
+    const view = {
+      xMin: -2,
+      xMax: 2,
+      yMin: -2,
+      yMax: 4,
+      xSteps: 65,
+      ySteps: 65,
+      fieldXSteps: 17,
+      fieldYSteps: 17,
+      tMin: -2,
+      tMax: 2,
+      tSteps: 65,
+      t: 0,
+      vectorScale: 0.35,
+    };
+    const style = {
+      edgeR: 1,
+      edgeG: 1,
+      edgeB: 1,
+      edgeA: 1,
+      faceR: 1,
+      faceG: 1,
+      faceB: 1,
+      faceA: 0.5,
+      valueMin: 0,
+      valueMax: 1,
+      colormapPoints: null,
+    };
+    const arena = kernel.plot(
+      localProgram.value.program,
+      localProgram.workspace,
+      view,
+      style,
+      7,
+    );
+    assert.equal(arena.count, view.xSteps);
+    assert.deepEqual(arena.ranges.map((range) => ({ ...range })), [{
+      mode: "time-curve",
+      first: 0,
+      count: view.xSteps,
+    }]);
+    const vertices = new Float32Array(
+      kernel.memory.buffer,
+      arena.pointer,
+      arena.count * arena.stride / Float32Array.BYTES_PER_ELEMENT,
+    );
+    const positions = Array.from({ length: arena.count }, (_, index) => [
+      vertices[index * 6],
+      vertices[index * 6 + 1],
+    ]);
+    assert.deepEqual(positions[0], [-2, 4]);
+    assert.deepEqual(positions.at(-1), [2, 4]);
+    assert.ok(positions.every(([x, y]) => Math.abs(y - x * x) < 1e-6));
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
