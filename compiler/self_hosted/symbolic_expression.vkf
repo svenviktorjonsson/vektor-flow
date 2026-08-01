@@ -57,6 +57,16 @@ symbolic_unary(op:str, operand:any, location:SymbolicLocation):
 symbolic_binary(op:str, left:any, right:any, location:SymbolicLocation):
     (kind: "binary", op: op, left: left, right: right, location: location)
 
+symbolic_implicit_multiplication(left:any, right:any, location:SymbolicLocation):
+    (
+        kind: "binary",
+        op: "*",
+        left: left,
+        right: right,
+        implicit: true,
+        location: location
+    )
+
 symbolic_call(name:str, args:any, location:SymbolicLocation):
     (kind: "call", name: name, args: args, location: location)
 
@@ -563,7 +573,28 @@ symbolic_parse_multiplicative_tail(left:SymbolicParseResult):
     current.kind??
         "STAR" => symbolic_parse_multiplicative_right(left, current, "*")
         "SLASH" => symbolic_parse_multiplicative_right(left, current, "/")
+        "IDENT" => symbolic_parse_implicit_multiplicative(left, current)
         left
+
+symbolic_parse_implicit_multiplicative(
+    left:SymbolicParseResult,
+    rightToken:SymbolicToken
+):
+    symbolic_numeric_coefficient(left.ast) = false?
+        @: left
+    right: symbolic_parse_power(left.next)
+    combined: symbolic_parse_result(
+        symbolic_implicit_multiplication(
+            left.ast,
+            right.ast,
+            rightToken.location
+        ),
+        right.next
+    )
+    symbolic_parse_multiplicative_tail(combined)
+
+symbolic_numeric_coefficient(node:any):
+    node.kind = "number"
 
 symbolic_parse_multiplicative_right(
     left:SymbolicParseResult,
@@ -737,7 +768,7 @@ symbolic_binary_latex(node:any, precedence:num):
     node.op??
         "+" => symbolic_latex_at(node.left, precedence) & " + " & symbolic_latex_at(node.right, precedence)
         "-" => symbolic_latex_at(node.left, precedence) & " - " & symbolic_latex_at(node.right, precedence + 1)
-        "*" => symbolic_latex_at(node.left, precedence) & " \\cdot " & symbolic_latex_at(node.right, precedence)
+        "*" => symbolic_multiplication_latex(node, precedence)
         "/" => "\\frac{" & symbolic_latex(node.left) & "}{" & symbolic_latex(node.right) & "}"
         "^" => "{" & symbolic_latex(node.left) & "}^{" & symbolic_latex(node.right) & "}"
         "=" => symbolic_latex(node.left) & " = " & symbolic_latex(node.right)
@@ -746,6 +777,11 @@ symbolic_binary_latex(node:any, precedence:num):
         "<=" => symbolic_latex(node.left) & " \\le " & symbolic_latex(node.right)
         ">=" => symbolic_latex(node.left) & " \\ge " & symbolic_latex(node.right)
         "\\operatorname{error}"
+
+symbolic_multiplication_latex(node:any, precedence:num):
+    node.implicit = true?
+        @: symbolic_latex_at(node.left, precedence) & symbolic_latex_at(node.right, precedence)
+    symbolic_latex_at(node.left, precedence) & " \\cdot " & symbolic_latex_at(node.right, precedence)
 
 symbolic_evaluation(x:num, y:num, z:num, t:num, context:any):
     dx: x - context.originX
