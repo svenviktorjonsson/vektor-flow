@@ -8,6 +8,7 @@ import {
   createSymbolicPlotRenderer,
   growSymbolicPlotCapacity,
   normalizeSymbolicPlotAppearance,
+  normalizeSymbolicPlotPickRequest,
   packSymbolicPlotSegments,
   resolveSymbolicPlotArena,
   triangulateSymbolicPlotClip
@@ -36,6 +37,7 @@ function createBackendLog() {
       updateClip(value) { calls.push(['clip', value]); },
       updateAppearance(value) { calls.push(['appearance', value]); },
       render(arena, upload) { calls.push(['render', arena, upload]); },
+      async pick(request) { calls.push(['pick', request]); return { kind: 'segment', index: 3 }; },
       destroy() { calls.push(['destroy']); }
     }
   };
@@ -50,7 +52,7 @@ test('exposes the stable arena renderer contract', async () => {
   });
 
   assert.deepEqual(
-    ['initialize', 'setArena', 'updateTransform', 'updateClip', 'updateAppearance', 'resize', 'render', 'destroy']
+    ['initialize', 'setArena', 'updateTransform', 'updateClip', 'updateAppearance', 'resize', 'render', 'pick', 'destroy']
       .filter((name) => typeof renderer[name] !== 'function'),
     []
   );
@@ -65,6 +67,24 @@ test('exposes the stable arena renderer contract', async () => {
   assert.ok(calls.some(([name, triangles]) => name === 'clip' && triangles.length === 12));
   assert.equal(calls.at(-1)[0], 'destroy');
   assert.throws(() => renderer.render(), /destroyed/);
+});
+
+test('normalizes CSS-coordinate GPU pick requests and delegates to the backend', async () => {
+  const { backend, calls } = createBackendLog();
+  const renderer = createSymbolicPlotRenderer(createCanvas(), { backendFactory: async () => backend });
+  await renderer.initialize();
+  renderer.setArena({
+    data: new Float32Array(12),
+    count: 2,
+    ranges: [{ mode: SymbolicPlotMode.TIME_CURVE, first: 0, count: 2 }]
+  });
+
+  assert.deepEqual(await renderer.pick([40, 50], 9), { kind: 'segment', index: 3 });
+  assert.deepEqual(calls.find(([name]) => name === 'pick')[1], {
+    x: 40, y: 50, radius: 9, width: 320, height: 200
+  });
+  assert.equal(await renderer.pick([-1, 50], 9), null);
+  assert.throws(() => normalizeSymbolicPlotPickRequest([1, 2], -1, 10, 10), /non-negative/);
 });
 
 test('packs line lists and strips once for instanced screen-space strokes', () => {

@@ -116,6 +116,7 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
     updateAppearance(value) { calls.push(['appearance', value]); },
     setArena(value) { calls.push(['arena', value]); },
     render() { calls.push(['render']); },
+    async pick(point, radius) { calls.push(['pick', point, radius]); return { kind: 'segment', index: 0 }; },
     resize() {},
     destroy() {}
   };
@@ -138,6 +139,8 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
   assert.equal(result.classification, 'y-of-x');
   assert.deepEqual(controller.snapGeometry.segments, [[[1, 2], [3, 4]]]);
   assert.equal(controller.hitTest([328, 177], 2)?.kind, 'segment');
+  assert.deepEqual(await controller.pick([328, 177], 8), { kind: 'segment', index: 0 });
+  assert.deepEqual(calls.find(([name]) => name === 'pick').slice(1), [[328, 177], 8]);
   controller.setInteractionState('selected');
   assert.equal(calls.filter(([name]) => name === 'appearance').at(-1)[1].state, 'selected');
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);

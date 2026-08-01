@@ -268,6 +268,14 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     }
   }
 
+  async function pick(screenPoint, radius = 7) {
+    assertAlive();
+    if (!backend) throw new Error('symbolic plot renderer is not initialized');
+    const request = normalizeSymbolicPlotPickRequest(screenPoint, radius, cssWidth, cssHeight);
+    if (!request || !arena?.segmentCount || typeof backend.pick !== 'function') return null;
+    return backend.pick(request);
+  }
+
   function destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -290,11 +298,29 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     updateAppearance,
     resize,
     render,
+    pick,
     destroy,
     get backend() {
       return backend?.kind || null;
     }
   });
+}
+
+export function normalizeSymbolicPlotPickRequest(screenPoint, radius, width, height) {
+  if ((!Array.isArray(screenPoint) && !ArrayBuffer.isView(screenPoint)) || screenPoint.length < 2) {
+    throw new TypeError('symbolic plot pick point must contain x and y');
+  }
+  const x = Number(screenPoint[0]);
+  const y = Number(screenPoint[1]);
+  const hitRadius = Number(radius);
+  if (![x, y, hitRadius].every(Number.isFinite)) {
+    throw new TypeError('symbolic plot pick values must be finite');
+  }
+  if (hitRadius < 0) throw new RangeError('symbolic plot pick radius must be non-negative');
+  const viewportWidth = Math.max(1, Number(width) || 1);
+  const viewportHeight = Math.max(1, Number(height) || 1);
+  if (x < 0 || y < 0 || x >= viewportWidth || y >= viewportHeight) return null;
+  return Object.freeze({ x, y, radius: hitRadius, width: viewportWidth, height: viewportHeight });
 }
 
 function positive(value, fallback) {
@@ -513,6 +539,31 @@ async function createWebGpuBackend(canvas) {
     primitive: { topology: 'triangle-list' },
     depthStencil: depthStencil(clipped ? 'equal' : 'always')
   })]));
+  const pickStrokeBuffer = device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+  const pickBindGroup = device.createBindGroup({
+    layout: bindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: transformBuffer } },
+      { binding: 1, resource: { buffer: pickStrokeBuffer } }
+    ]
+  });
+  const pickPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'pickStrokeVertex', buffers: [segmentVertexLayout] },
+    fragment: { module: shader, entryPoint: 'pickFragment', targets: [{ format: 'r32uint' }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil(clipped ? 'equal' : 'always')
+  })]));
+  const pickClipPipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'clipVertex', buffers: [clipVertexLayout] },
+    fragment: { module: shader, entryPoint: 'pickClipFragment', targets: [{ format: 'r32uint', writeMask: 0 }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil('always', 'replace')
+  });
 
   let plotBuffer = null;
   let plotCapacity = 0;
@@ -523,6 +574,7 @@ async function createWebGpuBackend(canvas) {
   let clipCount = 0;
   let currentArena = null;
   let stencilTexture = null;
+  let pickTexture = null;
   let cssSize = [1, 1];
   let appearance = normalizeSymbolicPlotAppearance();
 
@@ -539,10 +591,16 @@ async function createWebGpuBackend(canvas) {
       cssSize = [width, height];
       context.configure({ device, format, alphaMode: 'premultiplied' });
       stencilTexture?.destroy();
+      pickTexture?.destroy();
       stencilTexture = device.createTexture({
         size: [canvas.width, canvas.height],
         format: 'depth24plus-stencil8',
         usage: GPUTextureUsage.RENDER_ATTACHMENT
+      });
+      pickTexture = device.createTexture({
+        size: [canvas.width, canvas.height],
+        format: 'r32uint',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
       });
     },
     updateTransform(transform) {
@@ -635,13 +693,74 @@ async function createWebGpuBackend(canvas) {
       pass.end();
       device.queue.submit([encoder.finish()]);
     },
+    async pick(request) {
+      if (!currentArena?.segmentCount || !segmentBuffer || !pickTexture) return null;
+      const scaleX = canvas.width / cssSize[0];
+      const scaleY = canvas.height / cssSize[1];
+      const pixelX = Math.min(canvas.width - 1, Math.floor(request.x * scaleX));
+      const pixelY = Math.min(canvas.height - 1, Math.floor(request.y * scaleY));
+      device.queue.writeBuffer(pickStrokeBuffer, 0, new Float32Array([
+        appearance.edgeWidth + request.radius * 2, 0, 0, 0,
+        0, 0, 0, 0
+      ]));
+      const readback = device.createBuffer({
+        size: 256,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: pickTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }],
+        depthStencilAttachment: {
+          view: stencilTexture.createView(),
+          depthClearValue: 1,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'discard',
+          stencilClearValue: 0,
+          stencilLoadOp: 'clear',
+          stencilStoreOp: 'discard'
+        }
+      });
+      pass.setScissorRect(pixelX, pixelY, 1, 1);
+      const clipped = clipCount > 0;
+      if (clipped) {
+        pass.setPipeline(pickClipPipeline);
+        pass.setBindGroup(0, pickBindGroup);
+        pass.setStencilReference(1);
+        pass.setVertexBuffer(0, clipBuffer);
+        pass.draw(clipCount);
+      }
+      pass.setPipeline(pickPipelines.get(clipped));
+      pass.setBindGroup(0, pickBindGroup);
+      pass.setStencilReference(1);
+      pass.setVertexBuffer(0, segmentBuffer);
+      pass.draw(6, currentArena.segmentCount);
+      pass.end();
+      encoder.copyTextureToBuffer(
+        { texture: pickTexture, origin: { x: pixelX, y: pixelY } },
+        { buffer: readback, bytesPerRow: 256 },
+        { width: 1, height: 1 }
+      );
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const value = new Uint32Array(readback.getMappedRange())[0];
+      readback.unmap();
+      readback.destroy();
+      return value ? Object.freeze({ kind: 'segment', index: value - 1 }) : null;
+    },
     destroy() {
       plotBuffer?.destroy();
       clipBuffer?.destroy();
       segmentBuffer?.destroy();
       stencilTexture?.destroy();
+      pickTexture?.destroy();
       transformBuffer.destroy();
       strokeBuffers.forEach((buffer) => buffer.destroy());
+      pickStrokeBuffer.destroy();
       device.destroy();
     }
   };
@@ -697,6 +816,10 @@ function webGpuShaderSource() {
       @location(4) toPosition: vec2f,
       @location(5) toColor: vec4f,
     }
+    struct PickOutput {
+      @builtin(position) position: vec4f,
+      @location(0) @interpolate(flat) id: u32,
+    }
 
     fn project(position: vec2f) -> vec4f {
       let value = vec3f(position, 1.0);
@@ -730,8 +853,30 @@ function webGpuShaderSource() {
       return output;
     }
 
+    @vertex fn pickStrokeVertex(
+      input: StrokeInput,
+      @builtin(vertex_index) vertexIndex: u32,
+      @builtin(instance_index) instanceIndex: u32
+    ) -> PickOutput {
+      let along = select(1.0, 0.0, vertexIndex == 0u || vertexIndex == 1u || vertexIndex == 3u);
+      let side = select(-1.0, 1.0, vertexIndex == 0u || vertexIndex == 3u || vertexIndex == 5u);
+      let fromScreen = vec2f(dot(view.xRow.xyz, vec3f(input.fromPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.fromPosition, 1.0)));
+      let toScreen = vec2f(dot(view.xRow.xyz, vec3f(input.toPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.toPosition, 1.0)));
+      let delta = toScreen - fromScreen;
+      let normal = vec2f(-delta.y, delta.x) / max(length(delta), 0.0001);
+      let screen = mix(fromScreen, toScreen, along) + normal * side * stroke.geometry.x * 0.5;
+      var output: PickOutput;
+      output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
+      output.id = instanceIndex + 1u;
+      return output;
+    }
+
     @fragment fn plotFragment(input: PlotOutput) -> @location(0) vec4f {
       return input.color;
+    }
+
+    @fragment fn pickFragment(input: PickOutput) -> @location(0) u32 {
+      return input.id;
     }
 
     @vertex fn clipVertex(@location(0) position: vec2f) -> @builtin(position) vec4f {
@@ -740,6 +885,10 @@ function webGpuShaderSource() {
 
     @fragment fn clipFragment() -> @location(0) vec4f {
       return vec4f(0.0);
+    }
+
+    @fragment fn pickClipFragment() -> @location(0) u32 {
+      return 0u;
     }
   `;
 }
@@ -756,12 +905,17 @@ function createWebGl2Backend(canvas) {
   const plotProgram = createWebGlProgram(gl, webGlVertexSource(true), webGlFragmentSource(true));
   const clipProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlFragmentSource(false));
   const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlFragmentSource(true));
+  const pickProgram = createWebGlProgram(gl, webGlPickVertexSource(), webGlPickFragmentSource());
   const plotBuffer = gl.createBuffer();
   const clipBuffer = gl.createBuffer();
   const segmentBuffer = gl.createBuffer();
+  const pickFramebuffer = gl.createFramebuffer();
+  const pickTexture = gl.createTexture();
+  const pickStencil = gl.createRenderbuffer();
   const plotLocations = getWebGlLocations(gl, plotProgram, true);
   const clipLocations = getWebGlLocations(gl, clipProgram, false);
   const strokeLocations = getWebGlStrokeLocations(gl, strokeProgram);
+  const pickLocations = getWebGlPickLocations(gl, pickProgram);
   let plotCapacity = 0;
   let clipCapacity = 0;
   let clipCount = 0;
@@ -778,6 +932,16 @@ function createWebGl2Backend(canvas) {
     resize(width, height) {
       cssSize = [width, height];
       gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.bindTexture(gl.TEXTURE_2D, pickTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, pickStencil);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, canvas.width, canvas.height);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTexture, 0);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, pickStencil);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
     updateTransform(nextTransform) {
       transform = [...nextTransform];
@@ -838,13 +1002,56 @@ function createWebGl2Backend(canvas) {
         clipped
       );
     },
+    async pick(request) {
+      if (!currentArena?.segmentCount) return null;
+      const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+      const blendEnabled = gl.isEnabled(gl.BLEND);
+      const scaleX = canvas.width / cssSize[0];
+      const scaleY = canvas.height / cssSize[1];
+      const pixelX = Math.min(canvas.width - 1, Math.floor(request.x * scaleX));
+      const pixelY = Math.min(canvas.height - 1, Math.floor(request.y * scaleY));
+      const readY = canvas.height - pixelY - 1;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
+      gl.disable(gl.BLEND);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(pixelX, readY, 1, 1);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clearStencil(0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+      const clipped = clipCount > 0;
+      if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipCount);
+      drawWebGlPick(
+        gl,
+        pickProgram,
+        segmentBuffer,
+        pickLocations,
+        transform,
+        cssSize,
+        currentArena.segmentCount,
+        appearance.edgeWidth + request.radius * 2,
+        clipped
+      );
+      const pixel = new Uint8Array(4);
+      gl.readPixels(pixelX, readY, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      gl.disable(gl.SCISSOR_TEST);
+      if (blendEnabled) gl.enable(gl.BLEND);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      const value = (pixel[0] | (pixel[1] << 8) | (pixel[2] << 16) | (pixel[3] << 24)) >>> 0;
+      return value ? Object.freeze({ kind: 'segment', index: value - 1 }) : null;
+    },
     destroy() {
       gl.deleteBuffer(plotBuffer);
       gl.deleteBuffer(clipBuffer);
       gl.deleteBuffer(segmentBuffer);
+      gl.deleteFramebuffer(pickFramebuffer);
+      gl.deleteTexture(pickTexture);
+      gl.deleteRenderbuffer(pickStencil);
       gl.deleteProgram(plotProgram);
       gl.deleteProgram(clipProgram);
       gl.deleteProgram(strokeProgram);
+      gl.deleteProgram(pickProgram);
     }
   };
 }
@@ -925,6 +1132,34 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
   gl.stencilMask(0xff);
 }
 
+function drawWebGlPick(gl, program, buffer, locations, transform, size, count, width, clipped) {
+  if (!count) return;
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  gl.uniform1f(locations.width, width);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  for (const [location, sizeValue, offset] of [
+    [locations.fromPosition, 2, 0],
+    [locations.toPosition, 2, 24]
+  ]) {
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, sizeValue, gl.FLOAT, false, FLOATS_PER_SEGMENT * 4, offset);
+    gl.vertexAttribDivisor(location, 1);
+  }
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+  gl.vertexAttribDivisor(locations.fromPosition, 0);
+  gl.vertexAttribDivisor(locations.toPosition, 0);
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
 function getWebGlLocations(gl, program, withColor) {
   return {
     position: gl.getAttribLocation(program, 'a_position'),
@@ -946,6 +1181,16 @@ function getWebGlStrokeLocations(gl, program) {
     offset: gl.getUniformLocation(program, 'u_offset'),
     override: gl.getUniformLocation(program, 'u_override'),
     overrideColor: gl.getUniformLocation(program, 'u_override_color')
+  };
+}
+
+function getWebGlPickLocations(gl, program) {
+  return {
+    fromPosition: gl.getAttribLocation(program, 'a_from_position'),
+    toPosition: gl.getAttribLocation(program, 'a_to_position'),
+    transform: gl.getUniformLocation(program, 'u_transform'),
+    viewport: gl.getUniformLocation(program, 'u_viewport'),
+    width: gl.getUniformLocation(program, 'u_width')
   };
 }
 
@@ -1020,6 +1265,45 @@ function webGlStrokeVertexSource() {
       vec2 screen = mix(from_screen, to_screen, along) + normal * (u_offset + side * u_width * 0.5);
       gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
       v_color = u_override > 0.5 ? u_override_color : mix(a_from_color, a_to_color, along);
+    }
+  `;
+}
+
+function webGlPickVertexSource() {
+  return `#version 300 es
+    in vec2 a_from_position;
+    in vec2 a_to_position;
+    uniform mat3 u_transform;
+    uniform vec2 u_viewport;
+    uniform float u_width;
+    flat out uint v_pick_id;
+    void main() {
+      float along = (gl_VertexID == 0 || gl_VertexID == 1 || gl_VertexID == 3) ? 0.0 : 1.0;
+      float side = (gl_VertexID == 0 || gl_VertexID == 3 || gl_VertexID == 5) ? 1.0 : -1.0;
+      vec2 from_screen = (u_transform * vec3(a_from_position, 1.0)).xy;
+      vec2 to_screen = (u_transform * vec3(a_to_position, 1.0)).xy;
+      vec2 delta = to_screen - from_screen;
+      vec2 normal = vec2(-delta.y, delta.x) / max(length(delta), 0.0001);
+      vec2 screen = mix(from_screen, to_screen, along) + normal * side * u_width * 0.5;
+      gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
+      v_pick_id = uint(gl_InstanceID + 1);
+    }
+  `;
+}
+
+function webGlPickFragmentSource() {
+  return `#version 300 es
+    precision highp float;
+    precision highp int;
+    flat in uint v_pick_id;
+    out vec4 out_color;
+    void main() {
+      out_color = vec4(
+        float(v_pick_id & 255u),
+        float((v_pick_id >> 8u) & 255u),
+        float((v_pick_id >> 16u) & 255u),
+        float((v_pick_id >> 24u) & 255u)
+      ) / 255.0;
     }
   `;
 }

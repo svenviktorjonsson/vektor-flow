@@ -123,6 +123,12 @@ export async function createSymbolicPlotController({
     return hitTestSymbolicPlotGeometry(snapGeometry, dataToScreenTransform, screenPoint, radius);
   }
 
+  async function pick(screenPoint, radius = 7) {
+    assertAlive();
+    if (!visible) return null;
+    return renderer.pick(screenPoint, radius);
+  }
+
   function destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -140,6 +146,7 @@ export async function createSymbolicPlotController({
     setVisible,
     setInteractionState,
     hitTest,
+    pick,
     toggleVisible() {
       return setVisible(!visible);
     },
