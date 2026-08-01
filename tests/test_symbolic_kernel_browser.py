@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -163,7 +164,7 @@ const plot = kernel.plot(
 const vertices = Array.from(
   new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6),
 );
-function plotSource(source, revision, stylePatch = {}) {
+function plotSource(source, revision, stylePatch = {}, viewPatch = {}) {
   const program = kernel.compile(source);
   const localWorkspace = kernel.createWorkspace();
   const result = kernel.plot(
@@ -174,6 +175,7 @@ function plotSource(source, revision, stylePatch = {}) {
       tMin: 0, tMax: 1, t: 0,
       xSteps: 9, ySteps: 9, tSteps: 9,
       fieldXSteps: 9, fieldYSteps: 9, vectorScale: 0.1,
+      ...viewPatch,
     },
     {
       edgeR: 1, edgeG: 1, edgeB: 1, edgeA: 1,
@@ -199,6 +201,9 @@ const scalar = plotSource("x + y", 14, {
     { pos: 1, color: [0, 0, 255], alpha: 0.5 },
   ],
 });
+const sine = plotSource("sin(x)", 15, {}, {
+  xMin: -3.3, xMax: -3.0, xSteps: 65,
+});
 process.stdout.write(JSON.stringify({
   program: compiled.value,
   evaluated,
@@ -215,6 +220,7 @@ process.stdout.write(JSON.stringify({
   closed,
   tuple,
   scalar,
+  sine,
 }));
 """,
         encoding="utf-8",
@@ -252,6 +258,24 @@ process.stdout.write(JSON.stringify({
     assert payload["vertices"][:6] == pytest.approx(
         [-2, 4 + 3.141592653589793, 1, 1, 1, 1]
     )
+    sine_vertices = payload["sine"]["vertices"]
+    sine_x = sine_vertices[0::6]
+    sine_y = sine_vertices[1::6]
+    assert payload["sine"]["result"]["ranges"] == [
+        {"mode": "time-curve", "first": 0, "count": len(sine_x)}
+    ]
+    assert all(left < right for left, right in zip(sine_x, sine_x[1:]))
+    assert sine_y == pytest.approx([math.sin(x) for x in sine_x], abs=1e-6)
+    assert all(left > right for left, right in zip(sine_y, sine_y[1:]))
+    assert max(
+        math.hypot(sine_x[index] - sine_x[index - 1],
+                   sine_y[index] - sine_y[index - 1])
+        for index in range(1, len(sine_x))
+    ) < 0.01
+    assert max(
+        abs(sine_y[index - 1] - 2 * sine_y[index] + sine_y[index + 1])
+        for index in range(1, len(sine_y) - 1)
+    ) < 1e-4
     assert payload["closed"]["classification"] == "closed-region"
     assert payload["closed"]["result"]["ranges"][0]["mode"] == "triangles"
     assert (

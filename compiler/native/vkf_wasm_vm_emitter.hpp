@@ -2554,34 +2554,32 @@ inline std::vector<std::uint8_t> emit_sine_function(
     local_get(body, 1);
     body.u8(0xa2);
     local_set(body, 2);
+
+    const auto emit_term = [&body](
+        std::uint32_t squared_factors,
+        double scale,
+        std::uint8_t combine_opcode
+    ) {
+        local_get(body, 1);
+        for (std::uint32_t index = 0; index < squared_factors; ++index) {
+            local_get(body, 2);
+            body.u8(0xa2);
+        }
+        body.u8(0x44);
+        body.f64(scale);
+        body.u8(0xa2);
+        body.u8(combine_opcode);
+    };
+
     local_get(body, 1);
-    local_get(body, 1);
-    local_get(body, 2);
-    body.u8(0xa2);
-    body.u8(0x44);
-    body.f64(1.0 / 6.0);
-    body.u8(0xa2);
-    body.u8(0xa1);
-    local_get(body, 1);
-    local_get(body, 2);
-    body.u8(0xa2);
-    local_get(body, 2);
-    body.u8(0xa2);
-    body.u8(0x44);
-    body.f64(1.0 / 120.0);
-    body.u8(0xa2);
-    body.u8(0xa0);
-    local_get(body, 1);
-    local_get(body, 2);
-    body.u8(0xa2);
-    local_get(body, 2);
-    body.u8(0xa2);
-    local_get(body, 2);
-    body.u8(0xa2);
-    body.u8(0x44);
-    body.f64(1.0 / 5040.0);
-    body.u8(0xa2);
-    body.u8(0xa1);
+    emit_term(1, 1.0 / 6.0, 0xa1);
+    emit_term(2, 1.0 / 120.0, 0xa0);
+    emit_term(3, 1.0 / 5040.0, 0xa1);
+    emit_term(4, 1.0 / 362880.0, 0xa0);
+    emit_term(5, 1.0 / 39916800.0, 0xa1);
+    emit_term(6, 1.0 / 6227020800.0, 0xa0);
+    emit_term(7, 1.0 / 1307674368000.0, 0xa1);
+    emit_term(8, 1.0 / 355687428096000.0, 0xa0);
     body.u8(0x10);
     body.u32_leb(make_number_index);
     body.u8(0x0b);
