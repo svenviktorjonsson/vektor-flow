@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
         }
         vkf::wasm::bytecode::validate(bytecode);
         vkf::wasm::vm::EmitterOptions emitter_options;
-        emitter_options.arena_capacity = 16U * 1024U * 1024U;
+        emitter_options.arena_capacity = 64U * 1024U * 1024U;
         const auto emitted = vkf::wasm::vm::emit(
             bytecode,
             emitter_options

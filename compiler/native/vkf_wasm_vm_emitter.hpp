@@ -479,12 +479,12 @@ inline StaticImage build_static_image(
     image.key_kind = append_utf8_static(image.bytes, "kind");
     const char* operator_kinds[] = {
         "PLUS", "MINUS", "STAR", "SLASH", "CARET", "LPAREN", "RPAREN",
-        "LBRACE", "RBRACE", "COMMA", "EQ", "LT", "GT", "LE", "GE",
-        "INVALID",
+        "LBRACKET", "RBRACKET", "LBRACE", "RBRACE", "COMMA", "RANGE",
+        "EQ", "LT", "GT", "LE", "GE", "INVALID",
     };
     const char* operator_texts[] = {
-        "+", "-", "*", "/", "^", "(", ")", "{", "}", ",", "=", "<",
-        ">", "<=", ">=", "",
+        "+", "-", "*", "/", "^", "(", ")", "[", "]", "{", "}", ",",
+        "..", "=", "<", ">", "<=", ">=", "",
     };
     for (const auto* kind : operator_kinds) {
         image.operator_kinds.push_back(
@@ -2122,6 +2122,10 @@ inline std::vector<std::uint8_t> emit_operator_width_function(
     i32_const(body, static_cast<std::uint32_t>('>'));
     body.u8(0x46);
     body.u8(0x72);
+    local_get(body, 3);
+    i32_const(body, static_cast<std::uint32_t>('.'));
+    body.u8(0x46);
+    body.u8(0x72);
     local_get(body, 2);
     i32_const(body, 1);
     body.u8(0x6a);
@@ -2140,8 +2144,13 @@ inline std::vector<std::uint8_t> emit_operator_width_function(
     body.u8(0x2d);
     body.u32_leb(0);
     body.u32_leb(0);
+    local_tee(body, 3);
     i32_const(body, static_cast<std::uint32_t>('='));
     body.u8(0x46);
+    local_get(body, 3);
+    i32_const(body, static_cast<std::uint32_t>('.'));
+    body.u8(0x46);
+    body.u8(0x72);
     body.u8(0x04);
     body.u8(wasm_f64);
     body.u8(0x44);

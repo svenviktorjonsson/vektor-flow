@@ -5,7 +5,7 @@ const IDENTITY_AFFINE = Object.freeze([1, 0, 0, 1, 0, 0]);
 const MIN_CURVE_STEPS = 65;
 const MAX_CURVE_STEPS = 2049;
 const MIN_FIELD_STEPS = 17;
-const MAX_FIELD_STEPS = 257;
+const MAX_FIELD_STEPS = 17;
 const FLOATS_PER_VERTEX = 6;
 
 export async function createSymbolicPlotController({
@@ -267,24 +267,40 @@ export function symbolicPlotSnapGeometry(arena) {
   if (!arena || !(arena.data instanceof Float32Array)) return emptySnapGeometry();
   const points = [];
   const segments = [];
+  const canonicalPoints = new Map();
+  const canonicalPoint = (value) => {
+    const point = freezePoint(value);
+    const key = `${point[0]},${point[1]}`;
+    const existing = canonicalPoints.get(key);
+    if (existing) return existing;
+    canonicalPoints.set(key, point);
+    return point;
+  };
   for (const range of arena.ranges || []) {
     if (range.topology === 'point-list') {
       for (let index = 0; index < range.count; index += 1) {
-        points.push(vertexAt(arena.data, range.first + index));
+        const point = canonicalPoint(vertexAt(arena.data, range.first + index));
+        if (!points.includes(point)) points.push(point);
       }
     } else if (range.topology === 'line-list') {
       for (let index = 0; index + 1 < range.count; index += 2) {
-        segments.push([vertexAt(arena.data, range.first + index), vertexAt(arena.data, range.first + index + 1)]);
+        segments.push([
+          canonicalPoint(vertexAt(arena.data, range.first + index)),
+          canonicalPoint(vertexAt(arena.data, range.first + index + 1))
+        ]);
       }
     } else if (range.topology === 'line-strip') {
       for (let index = 0; index + 1 < range.count; index += 1) {
-        segments.push([vertexAt(arena.data, range.first + index), vertexAt(arena.data, range.first + index + 1)]);
+        segments.push([
+          canonicalPoint(vertexAt(arena.data, range.first + index)),
+          canonicalPoint(vertexAt(arena.data, range.first + index + 1))
+        ]);
       }
     }
   }
   return Object.freeze({
-    points: Object.freeze(points.map(freezePoint)),
-    segments: Object.freeze(segments.map(([from, to]) => Object.freeze([freezePoint(from), freezePoint(to)])))
+    points: Object.freeze(points),
+    segments: Object.freeze(segments.map(([from, to]) => Object.freeze([from, to])))
   });
 }
 
@@ -460,7 +476,9 @@ function vertexAt(data, index) {
 }
 
 function freezePoint(point) {
-  return Object.freeze([...point]);
+  return Object.freeze([...point].map((coordinate) => (
+    Object.is(coordinate, -0) ? 0 : coordinate
+  )));
 }
 
 function emptySnapGeometry() {
