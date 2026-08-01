@@ -61,7 +61,7 @@
       "resultType": 1
     },
     "symbolic_builtin_arity": {
-      "index": 206,
+      "index": 207,
       "parameters": 1,
       "resultType": 1
     },
@@ -71,7 +71,7 @@
       "resultType": 1
     },
     "symbolic_call_diagnostics": {
-      "index": 205,
+      "index": 206,
       "parameters": 1,
       "resultType": 1
     },
@@ -91,7 +91,7 @@
       "resultType": 1
     },
     "symbolic_clamp_unit": {
-      "index": 202,
+      "index": 203,
       "parameters": 1,
       "resultType": 1
     },
@@ -111,22 +111,22 @@
       "resultType": 1
     },
     "symbolic_colormap_amount": {
-      "index": 199,
+      "index": 200,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_colormap_interpolate": {
-      "index": 198,
+      "index": 199,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_colormap_point": {
-      "index": 200,
+      "index": 201,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_colormap_sample": {
-      "index": 197,
+      "index": 198,
       "parameters": 3,
       "resultType": 1
     },
@@ -206,7 +206,7 @@
       "resultType": 1
     },
     "symbolic_definition_diagnostics": {
-      "index": 207,
+      "index": 208,
       "parameters": 1,
       "resultType": 1
     },
@@ -276,22 +276,22 @@
       "resultType": 1
     },
     "symbolic_face_vertex": {
-      "index": 193,
+      "index": 194,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_field_color": {
-      "index": 195,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_field_fallback_color": {
       "index": 196,
       "parameters": 2,
       "resultType": 1
     },
+    "symbolic_field_fallback_color": {
+      "index": 197,
+      "parameters": 2,
+      "resultType": 1
+    },
     "symbolic_field_vertex": {
-      "index": 194,
+      "index": 195,
       "parameters": 4,
       "resultType": 1
     },
@@ -316,12 +316,12 @@
       "resultType": 1
     },
     "symbolic_implicit_case": {
-      "index": 176,
+      "index": 177,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_implicit_intersection": {
-      "index": 178,
+      "index": 179,
       "parameters": 6,
       "resultType": 1
     },
@@ -366,7 +366,7 @@
       "resultType": 1
     },
     "symbolic_items_diagnostics": {
-      "index": 204,
+      "index": 205,
       "parameters": 2,
       "resultType": 1
     },
@@ -401,7 +401,7 @@
       "resultType": 1
     },
     "symbolic_line_vertex": {
-      "index": 192,
+      "index": 193,
       "parameters": 3,
       "resultType": 1
     },
@@ -436,7 +436,7 @@
       "resultType": 1
     },
     "symbolic_mix": {
-      "index": 201,
+      "index": 202,
       "parameters": 3,
       "resultType": 1
     },
@@ -456,7 +456,7 @@
       "resultType": 1
     },
     "symbolic_node_plot_point": {
-      "index": 189,
+      "index": 190,
       "parameters": 3,
       "resultType": 1
     },
@@ -471,7 +471,7 @@
       "resultType": 1
     },
     "symbolic_parameter_diagnostics": {
-      "index": 208,
+      "index": 209,
       "parameters": 2,
       "resultType": 1
     },
@@ -666,17 +666,17 @@
       "resultType": 1
     },
     "symbolic_plot_into_builder": {
-      "index": 164,
+      "index": 165,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_plot_literal": {
-      "index": 184,
+      "index": 185,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_plot_literal_value": {
-      "index": 190,
+      "index": 191,
       "parameters": 4,
       "resultType": 1
     },
@@ -691,12 +691,17 @@
       "resultType": 1
     },
     "symbolic_plot_nested_tuple": {
-      "index": 186,
+      "index": 187,
       "parameters": 5,
       "resultType": 1
     },
+    "symbolic_plot_part": {
+      "index": 164,
+      "parameters": 1,
+      "resultType": 1
+    },
     "symbolic_plot_point": {
-      "index": 168,
+      "index": 169,
       "parameters": 2,
       "resultType": 1
     },
@@ -716,22 +721,22 @@
       "resultType": 1
     },
     "symbolic_plot_set_items": {
-      "index": 187,
+      "index": 188,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_plot_set_node": {
-      "index": 188,
+      "index": 189,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_plot_tuple_items": {
-      "index": 185,
+      "index": 186,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_plot_vector": {
-      "index": 170,
+      "index": 171,
       "parameters": 1,
       "resultType": 1
     },
@@ -761,27 +766,27 @@
       "resultType": 1
     },
     "symbolic_push_face_cell": {
-      "index": 183,
+      "index": 184,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_push_implicit_cell": {
-      "index": 175,
+      "index": 176,
       "parameters": 10,
       "resultType": 1
     },
     "symbolic_push_scalar_field_cell": {
-      "index": 172,
+      "index": 173,
       "parameters": 10,
       "resultType": 1
     },
     "symbolic_push_segment": {
-      "index": 179,
+      "index": 180,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_push_two_segments": {
-      "index": 180,
+      "index": 181,
       "parameters": 6,
       "resultType": 1
     },
@@ -791,7 +796,7 @@
       "resultType": 1
     },
     "symbolic_region_cell_and_rest": {
-      "index": 182,
+      "index": 183,
       "parameters": 11,
       "resultType": 1
     },
@@ -801,7 +806,7 @@
       "resultType": 1
     },
     "symbolic_relation_residual": {
-      "index": 174,
+      "index": 175,
       "parameters": 5,
       "resultType": 1
     },
@@ -811,42 +816,42 @@
       "resultType": 1
     },
     "symbolic_sample_coordinate": {
-      "index": 191,
+      "index": 192,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_sample_explicit_x": {
-      "index": 165,
-      "parameters": 6,
-      "resultType": 1
-    },
-    "symbolic_sample_explicit_y": {
       "index": 166,
       "parameters": 6,
       "resultType": 1
     },
-    "symbolic_sample_implicit": {
-      "index": 173,
-      "parameters": 7,
-      "resultType": 1
-    },
-    "symbolic_sample_parametric": {
+    "symbolic_sample_explicit_y": {
       "index": 167,
       "parameters": 6,
       "resultType": 1
     },
+    "symbolic_sample_implicit": {
+      "index": 174,
+      "parameters": 7,
+      "resultType": 1
+    },
+    "symbolic_sample_parametric": {
+      "index": 168,
+      "parameters": 6,
+      "resultType": 1
+    },
     "symbolic_sample_region": {
-      "index": 181,
+      "index": 182,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_sample_scalar_field": {
-      "index": 171,
+      "index": 172,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_sample_vector_field": {
-      "index": 169,
+      "index": 170,
       "parameters": 7,
       "resultType": 1
     },
@@ -871,7 +876,7 @@
       "resultType": 1
     },
     "symbolic_semantic_diagnostics": {
-      "index": 203,
+      "index": 204,
       "parameters": 1,
       "resultType": 1
     },
@@ -881,7 +886,7 @@
       "resultType": 1
     },
     "symbolic_sign_bit": {
-      "index": 177,
+      "index": 178,
       "parameters": 1,
       "resultType": 1
     },
@@ -1048,11 +1053,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 89152,
-    "bytecodeLength": 89151,
+    "argumentsPointer": 89608,
+    "bytecodeLength": 89606,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 89408
+    "resultsPointer": 89864
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

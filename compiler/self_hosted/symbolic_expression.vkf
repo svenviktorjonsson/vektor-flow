@@ -1564,6 +1564,7 @@ symbolic_closed_region_ranges(fillCount:num, completeCount:num):
     first: vkf_list_single(
         (
             mode: "triangles",
+            part: "face",
             first: 0,
             count: fillCount
         )
@@ -1571,6 +1572,7 @@ symbolic_closed_region_ranges(fillCount:num, completeCount:num):
     second: vkf_list_single(
         (
             mode: "linked-line-segments",
+            part: "edge",
             first: fillCount,
             count: completeCount - fillCount
         )
@@ -1608,6 +1610,7 @@ symbolic_plot_ranges(classification:str, count:num):
     vkf_list_single(
         (
             mode: symbolic_plot_mode(classification),
+            part: symbolic_plot_part(classification),
             first: 0,
             count: count
         )
@@ -1628,6 +1631,13 @@ symbolic_plot_mode(classification:str):
         "closed-region" => "triangles"
         "time-dependent" => "time-curve"
         "triangles"
+
+symbolic_plot_part(classification:str):
+    classification??
+        "open-region" => "face"
+        "closed-region" => "face"
+        "scalar-field" => "face"
+        "edge"
 
 symbolic_plot_into_builder(
     program:SymbolicProgram,

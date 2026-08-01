@@ -193,15 +193,20 @@ function plotSource(source, revision, stylePatch = {}, viewPatch = {}) {
     ),
   };
 }
-const closed = plotSource("x^2 + y^2 <= 1", 12);
-const tuple = plotSource("(complex(1, 2), complex(3, 4))", 13);
-const scalar = plotSource("x + y", 14, {
+const relations = {
+  lt: plotSource("x^2 + y^2 < 1", 12),
+  gt: plotSource("x^2 + y^2 > 1", 13),
+  le: plotSource("x^2 + y^2 <= 1", 14),
+  ge: plotSource("x^2 + y^2 >= 1", 15),
+};
+const tuple = plotSource("(complex(1, 2), complex(3, 4))", 16);
+const scalar = plotSource("x + y", 17, {
   colormapPoints: [
     { pos: 0, color: [255, 0, 0], alpha: 1 },
     { pos: 1, color: [0, 0, 255], alpha: 0.5 },
   ],
 });
-const sine = plotSource("sin(x)", 15, {}, {
+const sine = plotSource("sin(x)", 18, {}, {
   xMin: -3.3, xMax: -3.0, xSteps: 65,
 });
 process.stdout.write(JSON.stringify({
@@ -217,7 +222,7 @@ process.stdout.write(JSON.stringify({
   ],
   plot,
   vertices,
-  closed,
+  relations,
   tuple,
   scalar,
   sine,
@@ -276,13 +281,30 @@ process.stdout.write(JSON.stringify({
         abs(sine_y[index - 1] - 2 * sine_y[index] + sine_y[index + 1])
         for index in range(1, len(sine_y) - 1)
     ) < 1e-4
-    assert payload["closed"]["classification"] == "closed-region"
-    assert payload["closed"]["result"]["ranges"][0]["mode"] == "triangles"
-    assert (
-        payload["closed"]["result"]["ranges"][1]["mode"]
-        == "linked-line-segments"
-    )
-    assert payload["closed"]["result"]["ranges"][1]["count"] > 0
+    for key in ("lt", "gt"):
+        relation = payload["relations"][key]
+        assert relation["classification"] == "open-region"
+        assert relation["result"]["ranges"] == [
+            {
+                "mode": "triangles",
+                "part": "face",
+                "first": 0,
+                "count": relation["result"]["count"],
+            }
+        ]
+        assert relation["vertices"][2:6] == pytest.approx([0.2, 0.4, 0.8, 0.8])
+    for key in ("le", "ge"):
+        relation = payload["relations"][key]
+        ranges = relation["result"]["ranges"]
+        assert relation["classification"] == "closed-region"
+        assert ranges[0]["mode"] == "triangles"
+        assert ranges[0]["part"] == "face"
+        assert ranges[1]["mode"] == "linked-line-segments"
+        assert ranges[1]["part"] == "edge"
+        assert ranges[1]["count"] > 0
+        assert relation["vertices"][2:6] == pytest.approx([0.2, 0.4, 0.8, 0.8])
+        edge_offset = ranges[1]["first"] * 6 + 2
+        assert relation["vertices"][edge_offset : edge_offset + 4] == pytest.approx([1, 1, 1, 1])
     assert payload["tuple"]["classification"] == "linked-tuple"
     assert payload["tuple"]["result"]["count"] == 2
     assert payload["tuple"]["vertices"][:12] == pytest.approx(

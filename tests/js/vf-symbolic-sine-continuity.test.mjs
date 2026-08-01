@@ -59,7 +59,7 @@ test('emits an ordered smooth sin(x) line strip across negative pi', async () =>
   assert.equal(plot.count, xSteps);
   assert.deepEqual(
     plot.ranges.map((range) => ({ ...range })),
-    [{ mode: 'time-curve', first: 0, count: xSteps }]
+    [{ mode: 'time-curve', part: 'edge', first: 0, count: xSteps }]
   );
   assert.ok(points.every((point, index) => index === 0 || points[index - 1].x < point.x));
   assert.ok(points.every((point) => Math.abs(point.y - Math.sin(point.x)) < 1e-6));

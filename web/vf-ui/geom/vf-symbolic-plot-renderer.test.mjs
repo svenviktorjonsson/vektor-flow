@@ -38,6 +38,7 @@ function createObservedBackend() {
       updateClip(triangles) {
         observations.clips.push(new Float32Array(triangles));
       },
+      updateAppearance() {},
       render(arena, upload) {
         observations.renders.push({ arena, upload });
       },
@@ -93,12 +94,12 @@ test('uploads the packed Float32 arena once per data identity and revision', asy
 
 test('maps every symbolic range mode to its GPU primitive topology', () => {
   const ranges = [
-    { mode: SymbolicPlotMode.POINTS, first: 0, count: 1 },
-    { mode: SymbolicPlotMode.LINKED_LINE_SEGMENTS, first: 1, count: 2 },
-    { mode: SymbolicPlotMode.TRIANGLES, first: 3, count: 3 },
-    { mode: SymbolicPlotMode.SCALAR_FIELD_TRIANGLES, first: 6, count: 3 },
-    { mode: SymbolicPlotMode.VECTOR_FIELD_GLYPHS, first: 9, count: 2 },
-    { mode: SymbolicPlotMode.TIME_CURVE, first: 11, count: 7 }
+    { mode: SymbolicPlotMode.POINTS, part: 'edge', first: 0, count: 1 },
+    { mode: SymbolicPlotMode.LINKED_LINE_SEGMENTS, part: 'edge', first: 1, count: 2 },
+    { mode: SymbolicPlotMode.TRIANGLES, part: 'face', first: 3, count: 3 },
+    { mode: SymbolicPlotMode.SCALAR_FIELD_TRIANGLES, part: 'face', first: 6, count: 3 },
+    { mode: SymbolicPlotMode.VECTOR_FIELD_GLYPHS, part: 'edge', first: 9, count: 2 },
+    { mode: SymbolicPlotMode.TIME_CURVE, part: 'edge', first: 11, count: 7 }
   ];
   const arena = resolveSymbolicPlotArena({
     data: new Float32Array(18 * 6),
@@ -107,8 +108,9 @@ test('maps every symbolic range mode to its GPU primitive topology', () => {
   });
 
   assert.deepEqual(
-    arena.ranges.map(({ mode, topology, first, count }) => ({
+    arena.ranges.map(({ mode, part, topology, first, count }) => ({
       mode,
+      part,
       topology,
       first,
       count
@@ -122,6 +124,9 @@ test('maps every symbolic range mode to its GPU primitive topology', () => {
       { ...ranges[5], topology: 'line-strip' }
     ]
   );
+  assert.deepEqual(arena.ranges.slice(1, 3).map(({ part }) => part), ['edge', 'face']);
+  assert.deepEqual(arena.primitives.edges[0], { part: 'edge', rangeIndex: 1, primitiveIndex: 0 });
+  assert.deepEqual(arena.primitives.faces[1], { part: 'face', rangeIndex: 2, primitiveIndex: 0 });
 });
 
 test('forwards the complete data-to-screen affine transform to the GPU backend', async () => {

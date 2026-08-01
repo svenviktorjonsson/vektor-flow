@@ -142,10 +142,21 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
   assert.deepEqual(await controller.pick([328, 177], 8), { kind: 'segment', index: 0 });
   assert.deepEqual(calls.find(([name]) => name === 'pick').slice(1), [[328, 177], 8]);
   controller.setInteractionState('selected');
-  assert.equal(calls.filter(([name]) => name === 'appearance').at(-1)[1].state, 'selected');
+  assert.deepEqual(calls.filter(([name]) => name === 'appearance').at(-1)[1].partStates, {
+    edge: 'selected', face: 'selected'
+  });
+  assert.deepEqual(controller.setInteractionState({ edge: 'selected', face: 'hovered' }), {
+    edge: 'selected', face: 'hovered'
+  });
+  assert.deepEqual(calls.filter(([name]) => name === 'appearance').at(-1)[1].partStates, {
+    edge: 'selected', face: 'hovered'
+  });
+  assert.deepEqual(controller.setInteractionState('normal', 'edge'), {
+    edge: 'normal', face: 'hovered'
+  });
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
   assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'render').length, 2);
+  assert.equal(calls.filter(([name]) => name === 'render').length, 4);
   assert.deepEqual(calls.find(([name]) => name === 'transform')[1], viewport.transform);
 
   controller.updateView({
@@ -158,4 +169,54 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
   assert.equal(controller.setVisible(true), true);
   controller.destroy();
   assert.throws(() => controller.updateView({ transform: viewport.transform }), /destroyed/);
+});
+
+test('keeps newer synchronous view frames when asynchronous sampling completes stale', async () => {
+  const calls = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  let resolvePlot;
+  const pendingArena = new Promise((resolve) => { resolvePlot = resolve; });
+  const program = {
+    diagnostics: [], latex: 'x', variables: ['x'], classification: 'y-of-x', valueKind: 'number'
+  };
+  const kernel = {
+    memory,
+    compileWithContext() { return { value: program }; },
+    createWorkspace() { return { handle: 'workspace' }; },
+    workspaceCompile() { return { value: { program }, workspace: 'next-workspace' }; },
+    plot() { return pendingArena; }
+  };
+  const renderer = {
+    async initialize() {},
+    updateTransform(value) { calls.push(['transform', value]); },
+    updateClip(value) { calls.push(['clip', value]); },
+    updateAppearance() {},
+    setArena(value) { calls.push(['arena', value]); },
+    render() { calls.push(['render']); },
+    async pick() { return null; },
+    resize() {},
+    destroy() {}
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true }, kernel, createRenderer: () => renderer
+  });
+  const oldTransform = [10, 0, 0, -10, 100, 100];
+  const newestTransform = [20, 0, 0, -20, 200, 200];
+  const stalePlot = controller.plot({
+    source: 'x', viewport: { ...viewport, transform: oldTransform },
+    colors: { edge: '#ffffff', face: '#00000080' }, frameRevision: 4
+  });
+
+  assert.equal(controller.updateView({ transform: newestTransform, frameRevision: 5 }), true);
+  assert.equal(controller.frameRevision, 5);
+  assert.equal(controller.updateView({ transform: oldTransform, frameRevision: 3 }), false);
+  resolvePlot({ pointer: 0, count: 0, stride: 24, revision: 1, ranges: [] });
+  assert.equal(await stalePlot, null);
+
+  assert.deepEqual(calls.filter(([name]) => name === 'transform').map((call) => call[1]), [newestTransform]);
+  assert.equal(calls.some(([name]) => name === 'arena'), false);
+  assert.equal(calls.filter(([name]) => name === 'render').length, 1);
+  await assert.rejects(() => controller.plot({
+    source: 'x', viewport, colors: { edge: '#fff', face: '#fff' }, frameRevision: -1
+  }), /frame revision/);
 });

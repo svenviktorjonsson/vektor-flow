@@ -11,16 +11,35 @@ export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
 
 export function normalizeSymbolicPlotAppearance(value = {}) {
-  const state = ['hovered', 'selected'].includes(value.state) ? value.state : 'normal';
-  const alpha = state === 'selected' ? 0.75 : state === 'hovered' ? 0.5 : 0;
+  const scalarState = normalizeInteractionState(value.state);
+  const requestedParts = value.partStates && typeof value.partStates === 'object'
+    ? value.partStates
+    : null;
+  const partStates = Object.freeze({
+    edge: normalizeInteractionState(requestedParts?.edge ?? scalarState),
+    face: normalizeInteractionState(requestedParts?.face ?? scalarState)
+  });
+  const edgeSelectionAlpha = interactionAlpha(partStates.edge);
+  const faceSelectionAlpha = interactionAlpha(partStates.face);
   return Object.freeze({
-    state,
+    state: partStates.edge === partStates.face ? partStates.edge : 'mixed',
+    partStates,
     edgeWidth: positive(value.edgeWidth, SYMBOLIC_PLOT_EDGE_WIDTH),
     selectionGap: nonNegative(value.selectionGap, SYMBOLIC_PLOT_SELECTION_GAP),
     selectionWidth: positive(value.selectionWidth, SYMBOLIC_PLOT_SELECTION_WIDTH),
     selectionColor: Object.freeze(normalizeRgb(value.selectionColor, SYMBOLIC_PLOT_SELECTION_COLOR)),
-    selectionAlpha: alpha
+    selectionAlpha: Math.max(edgeSelectionAlpha, faceSelectionAlpha),
+    edgeSelectionAlpha,
+    faceSelectionAlpha
   });
+}
+
+function normalizeInteractionState(value) {
+  return ['hovered', 'selected'].includes(value) ? value : 'normal';
+}
+
+function interactionAlpha(state) {
+  return state === 'selected' ? 0.75 : state === 'hovered' ? 0.5 : 0;
 }
 
 export function packSymbolicPlotSegments(arena) {
@@ -40,6 +59,35 @@ export function packSymbolicPlotSegments(arena) {
     }
   }
   return new Float32Array(packed);
+}
+
+function symbolicPlotPrimitiveMetadata(ranges, count) {
+  const edges = [];
+  const faces = new Array(Math.ceil(count / 3)).fill(null);
+  ranges.forEach((range, rangeIndex) => {
+    if (range.topology === 'line-list') {
+      for (let offset = 0; offset + 1 < range.count; offset += 2) {
+        edges.push(Object.freeze({ part: range.part, rangeIndex, primitiveIndex: offset / 2 }));
+      }
+    } else if (range.topology === 'line-strip') {
+      for (let offset = 0; offset + 1 < range.count; offset += 1) {
+        edges.push(Object.freeze({ part: range.part, rangeIndex, primitiveIndex: offset }));
+      }
+    } else if (range.topology === 'triangle-list') {
+      for (let offset = 0; offset + 2 < range.count; offset += 3) {
+        faces[Math.floor((range.first + offset) / 3)] = Object.freeze({
+          part: range.part,
+          rangeIndex,
+          primitiveIndex: offset / 3
+        });
+      }
+    }
+  });
+  return Object.freeze({
+    edges: Object.freeze(edges),
+    faces: Object.freeze(faces),
+    facePickCapacity: faces.length
+  });
 }
 
 export const SymbolicPlotMode = Object.freeze({
@@ -134,10 +182,12 @@ export function resolveSymbolicPlotArena(spec, previous = null) {
     ranges
   };
   const segments = packSymbolicPlotSegments(resolved);
+  const primitives = symbolicPlotPrimitiveMetadata(ranges, count);
   return Object.freeze({
     ...resolved,
     segments,
-    segmentCount: segments.length / FLOATS_PER_SEGMENT
+    segmentCount: segments.length / FLOATS_PER_SEGMENT,
+    primitives
   });
 }
 
@@ -272,8 +322,13 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     assertAlive();
     if (!backend) throw new Error('symbolic plot renderer is not initialized');
     const request = normalizeSymbolicPlotPickRequest(screenPoint, radius, cssWidth, cssHeight);
-    if (!request || !arena?.segmentCount || typeof backend.pick !== 'function') return null;
-    return backend.pick(request);
+    if (!request || !arena || typeof backend.pick !== 'function') return null;
+    const hit = await backend.pick(request);
+    if (!hit) return null;
+    const metadata = hit.kind === 'triangle'
+      ? arena.primitives.faces[hit.index]
+      : arena.primitives.edges[hit.index];
+    return metadata ? Object.freeze({ ...hit, ...metadata }) : null;
   }
 
   function destroy() {
@@ -356,7 +411,10 @@ function normalizeRanges(ranges, count, defaultMode) {
     if (topology === 'triangle-list' && rangeCount % 3 !== 0) {
       throw new RangeError(`${mode} requires complete triangles`);
     }
-    return Object.freeze({ mode, topology, first, count: rangeCount });
+    const defaultPart = topology === 'triangle-list' ? 'face' : 'edge';
+    const part = range?.part == null ? defaultPart : String(range.part);
+    if (!['face', 'edge'].includes(part)) throw new RangeError(`unsupported symbolic plot part: ${part}`);
+    return Object.freeze({ mode, part, topology, first, count: rangeCount });
   }));
 }
 
@@ -441,7 +499,7 @@ async function createWebGpuBackend(canvas) {
     size: 48,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
-  const strokeBuffers = Array.from({ length: 3 }, () => device.createBuffer({
+  const strokeBuffers = Array.from({ length: 4 }, () => device.createBuffer({
     size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   }));
@@ -539,6 +597,23 @@ async function createWebGpuBackend(canvas) {
     primitive: { topology: 'triangle-list' },
     depthStencil: depthStencil(clipped ? 'equal' : 'always')
   })]));
+  const faceSelectionPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'selectionFaceVertex', buffers: [vertexLayout] },
+    fragment: {
+      module: shader,
+      entryPoint: 'plotFragment',
+      targets: [{
+        format,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil(clipped ? 'equal' : 'always')
+  })]));
   const pickStrokeBuffer = device.createBuffer({
     size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -553,6 +628,13 @@ async function createWebGpuBackend(canvas) {
   const pickPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
     layout: pipelineLayout,
     vertex: { module: shader, entryPoint: 'pickStrokeVertex', buffers: [segmentVertexLayout] },
+    fragment: { module: shader, entryPoint: 'pickFragment', targets: [{ format: 'r32uint' }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil(clipped ? 'equal' : 'always')
+  })]));
+  const facePickPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'pickFaceVertex', buffers: [vertexLayout] },
     fragment: { module: shader, entryPoint: 'pickFragment', targets: [{ format: 'r32uint' }] },
     primitive: { topology: 'triangle-list' },
     depthStencil: depthStencil(clipped ? 'equal' : 'always')
@@ -676,12 +758,21 @@ async function createWebGpuBackend(canvas) {
           pass.setPipeline(pipelines.get(`${range.topology}:${clipped}`));
           pass.draw(range.count, 1, range.first);
         }
+        if (appearance.faceSelectionAlpha > 0) {
+          pass.setPipeline(faceSelectionPipelines.get(clipped));
+          pass.setBindGroup(0, bindGroups[3]);
+          for (const range of currentArena.ranges) {
+            if (range.part === 'face' && range.topology === 'triangle-list' && range.count) {
+              pass.draw(range.count, 1, range.first);
+            }
+          }
+        }
       }
       if (segmentBuffer && currentArena?.segmentCount) {
         pass.setPipeline(strokePipelines.get(clipped));
         pass.setStencilReference(1);
         pass.setVertexBuffer(0, segmentBuffer);
-        if (appearance.selectionAlpha > 0) {
+        if (appearance.edgeSelectionAlpha > 0) {
           pass.setBindGroup(0, bindGroups[1]);
           pass.draw(6, currentArena.segmentCount);
           pass.setBindGroup(0, bindGroups[2]);
@@ -694,15 +785,15 @@ async function createWebGpuBackend(canvas) {
       device.queue.submit([encoder.finish()]);
     },
     async pick(request) {
-      if (!currentArena?.segmentCount || !segmentBuffer || !pickTexture) return null;
+      if (!currentArena || (!currentArena.segmentCount && !currentArena.primitives.facePickCapacity) || !pickTexture) return null;
       const scaleX = canvas.width / cssSize[0];
       const scaleY = canvas.height / cssSize[1];
       const pixelX = Math.min(canvas.width - 1, Math.floor(request.x * scaleX));
       const pixelY = Math.min(canvas.height - 1, Math.floor(request.y * scaleY));
-      device.queue.writeBuffer(pickStrokeBuffer, 0, new Float32Array([
-        appearance.edgeWidth + request.radius * 2, 0, 0, 0,
-        0, 0, 0, 0
-      ]));
+      const pickUniform = new ArrayBuffer(32);
+      new Float32Array(pickUniform)[0] = appearance.edgeWidth + request.radius * 2;
+      new Uint32Array(pickUniform)[3] = currentArena.primitives.facePickCapacity;
+      device.queue.writeBuffer(pickStrokeBuffer, 0, pickUniform);
       const readback = device.createBuffer({
         size: 256,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
@@ -734,11 +825,22 @@ async function createWebGpuBackend(canvas) {
         pass.setVertexBuffer(0, clipBuffer);
         pass.draw(clipCount);
       }
-      pass.setPipeline(pickPipelines.get(clipped));
       pass.setBindGroup(0, pickBindGroup);
       pass.setStencilReference(1);
-      pass.setVertexBuffer(0, segmentBuffer);
-      pass.draw(6, currentArena.segmentCount);
+      if (plotBuffer && currentArena.primitives.facePickCapacity) {
+        pass.setPipeline(facePickPipelines.get(clipped));
+        pass.setVertexBuffer(0, plotBuffer);
+        for (const range of currentArena.ranges) {
+          if (range.part === 'face' && range.topology === 'triangle-list' && range.count) {
+            pass.draw(range.count, 1, range.first);
+          }
+        }
+      }
+      if (segmentBuffer && currentArena.segmentCount) {
+        pass.setPipeline(pickPipelines.get(clipped));
+        pass.setVertexBuffer(0, segmentBuffer);
+        pass.draw(6, currentArena.segmentCount);
+      }
       pass.end();
       encoder.copyTextureToBuffer(
         { texture: pickTexture, origin: { x: pixelX, y: pixelY } },
@@ -750,7 +852,10 @@ async function createWebGpuBackend(canvas) {
       const value = new Uint32Array(readback.getMappedRange())[0];
       readback.unmap();
       readback.destroy();
-      return value ? Object.freeze({ kind: 'segment', index: value - 1 }) : null;
+      if (!value) return null;
+      return value <= currentArena.primitives.facePickCapacity
+        ? Object.freeze({ kind: 'triangle', index: value - 1 })
+        : Object.freeze({ kind: 'segment', index: value - currentArena.primitives.facePickCapacity - 1 });
     },
     destroy() {
       plotBuffer?.destroy();
@@ -784,8 +889,9 @@ function writeWebGpuStrokePasses(device, buffers, appearance) {
     ]));
   };
   write(buffers[0], appearance.edgeWidth, 0, [0, 0, 0], 0, false);
-  write(buffers[1], appearance.selectionWidth, -offset, appearance.selectionColor, appearance.selectionAlpha, true);
-  write(buffers[2], appearance.selectionWidth, offset, appearance.selectionColor, appearance.selectionAlpha, true);
+  write(buffers[1], appearance.selectionWidth, -offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+  write(buffers[2], appearance.selectionWidth, offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+  write(buffers[3], 0, 0, appearance.selectionColor, appearance.faceSelectionAlpha, true);
 }
 
 function webGpuShaderSource() {
@@ -839,6 +945,20 @@ function webGpuShaderSource() {
       return output;
     }
 
+    @vertex fn selectionFaceVertex(input: PlotInput) -> PlotOutput {
+      var output: PlotOutput;
+      output.position = project(input.position);
+      output.color = stroke.color;
+      return output;
+    }
+
+    @vertex fn pickFaceVertex(input: PlotInput, @builtin(vertex_index) vertexIndex: u32) -> PickOutput {
+      var output: PickOutput;
+      output.position = project(input.position);
+      output.id = vertexIndex / 3u + 1u;
+      return output;
+    }
+
     @vertex fn strokeVertex(input: StrokeInput, @builtin(vertex_index) vertexIndex: u32) -> PlotOutput {
       let along = select(1.0, 0.0, vertexIndex == 0u || vertexIndex == 1u || vertexIndex == 3u);
       let side = select(-1.0, 1.0, vertexIndex == 0u || vertexIndex == 3u || vertexIndex == 5u);
@@ -867,7 +987,7 @@ function webGpuShaderSource() {
       let screen = mix(fromScreen, toScreen, along) + normal * side * stroke.geometry.x * 0.5;
       var output: PickOutput;
       output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
-      output.id = instanceIndex + 1u;
+      output.id = bitcast<u32>(stroke.geometry.w) + instanceIndex + 1u;
       return output;
     }
 
@@ -903,9 +1023,11 @@ function createWebGl2Backend(canvas) {
   if (!gl) return null;
   if (gl.getContextAttributes?.()?.stencil !== true) return null;
   const plotProgram = createWebGlProgram(gl, webGlVertexSource(true), webGlFragmentSource(true));
+  const faceSelectionProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlSolidFragmentSource());
   const clipProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlFragmentSource(false));
   const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlFragmentSource(true));
   const pickProgram = createWebGlProgram(gl, webGlPickVertexSource(), webGlPickFragmentSource());
+  const facePickProgram = createWebGlProgram(gl, webGlFacePickVertexSource(), webGlPickFragmentSource());
   const plotBuffer = gl.createBuffer();
   const clipBuffer = gl.createBuffer();
   const segmentBuffer = gl.createBuffer();
@@ -913,9 +1035,14 @@ function createWebGl2Backend(canvas) {
   const pickTexture = gl.createTexture();
   const pickStencil = gl.createRenderbuffer();
   const plotLocations = getWebGlLocations(gl, plotProgram, true);
+  const faceSelectionLocations = {
+    ...getWebGlLocations(gl, faceSelectionProgram, false),
+    solidColor: gl.getUniformLocation(faceSelectionProgram, 'u_color')
+  };
   const clipLocations = getWebGlLocations(gl, clipProgram, false);
   const strokeLocations = getWebGlStrokeLocations(gl, strokeProgram);
   const pickLocations = getWebGlPickLocations(gl, pickProgram);
+  const facePickLocations = getWebGlLocations(gl, facePickProgram, false);
   let plotCapacity = 0;
   let clipCapacity = 0;
   let clipCount = 0;
@@ -990,6 +1117,12 @@ function createWebGl2Backend(canvas) {
         currentArena,
         clipped
       );
+      if (appearance.faceSelectionAlpha > 0) {
+        drawWebGlFaceSelection(
+          gl, faceSelectionProgram, plotBuffer, faceSelectionLocations,
+          transform, cssSize, currentArena, appearance, clipped
+        );
+      }
       drawWebGlStrokes(
         gl,
         strokeProgram,
@@ -1003,7 +1136,7 @@ function createWebGl2Backend(canvas) {
       );
     },
     async pick(request) {
-      if (!currentArena?.segmentCount) return null;
+      if (!currentArena || (!currentArena.segmentCount && !currentArena.primitives.facePickCapacity)) return null;
       const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
       const blendEnabled = gl.isEnabled(gl.BLEND);
       const scaleX = canvas.width / cssSize[0];
@@ -1021,6 +1154,10 @@ function createWebGl2Backend(canvas) {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
       const clipped = clipCount > 0;
       if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipCount);
+      drawWebGlFacePick(
+        gl, facePickProgram, plotBuffer, facePickLocations,
+        transform, cssSize, currentArena, clipped
+      );
       drawWebGlPick(
         gl,
         pickProgram,
@@ -1030,6 +1167,7 @@ function createWebGl2Backend(canvas) {
         cssSize,
         currentArena.segmentCount,
         appearance.edgeWidth + request.radius * 2,
+        currentArena.primitives.facePickCapacity,
         clipped
       );
       const pixel = new Uint8Array(4);
@@ -1039,7 +1177,10 @@ function createWebGl2Backend(canvas) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
       gl.viewport(0, 0, canvas.width, canvas.height);
       const value = (pixel[0] | (pixel[1] << 8) | (pixel[2] << 16) | (pixel[3] << 24)) >>> 0;
-      return value ? Object.freeze({ kind: 'segment', index: value - 1 }) : null;
+      if (!value) return null;
+      return value <= currentArena.primitives.facePickCapacity
+        ? Object.freeze({ kind: 'triangle', index: value - 1 })
+        : Object.freeze({ kind: 'segment', index: value - currentArena.primitives.facePickCapacity - 1 });
     },
     destroy() {
       gl.deleteBuffer(plotBuffer);
@@ -1049,9 +1190,11 @@ function createWebGl2Backend(canvas) {
       gl.deleteTexture(pickTexture);
       gl.deleteRenderbuffer(pickStencil);
       gl.deleteProgram(plotProgram);
+      gl.deleteProgram(faceSelectionProgram);
       gl.deleteProgram(clipProgram);
       gl.deleteProgram(strokeProgram);
       gl.deleteProgram(pickProgram);
+      gl.deleteProgram(facePickProgram);
     }
   };
 }
@@ -1091,6 +1234,32 @@ function drawWebGlArena(gl, program, buffer, locations, transform, size, arena, 
   gl.stencilMask(0xff);
 }
 
+function drawWebGlFaceSelection(gl, program, buffer, locations, transform, size, arena, appearance, clipped) {
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  gl.uniform4f(
+    locations.solidColor,
+    appearance.selectionColor[0], appearance.selectionColor[1], appearance.selectionColor[2], appearance.faceSelectionAlpha
+  );
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.enableVertexAttribArray(locations.position);
+  gl.vertexAttribPointer(locations.position, 2, gl.FLOAT, false, BYTES_PER_VERTEX, 0);
+  for (const range of arena.ranges) {
+    if (range.part === 'face' && range.topology === 'triangle-list' && range.count) {
+      gl.drawArrays(gl.TRIANGLES, range.first, range.count);
+    }
+  }
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
 function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count, appearance, clipped) {
   if (!count) return;
   if (clipped) {
@@ -1121,10 +1290,10 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
     gl.uniform4f(locations.overrideColor, color[0], color[1], color[2], alpha);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   };
-  if (appearance.selectionAlpha > 0) {
+  if (appearance.edgeSelectionAlpha > 0) {
     const offset = appearance.edgeWidth / 2 + appearance.selectionGap + appearance.selectionWidth / 2;
-    draw(appearance.selectionWidth, -offset, appearance.selectionColor, appearance.selectionAlpha, true);
-    draw(appearance.selectionWidth, offset, appearance.selectionColor, appearance.selectionAlpha, true);
+    draw(appearance.selectionWidth, -offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+    draw(appearance.selectionWidth, offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
   }
   draw(appearance.edgeWidth, 0, [0, 0, 0], 0, false);
   for (const [location] of attributes) gl.vertexAttribDivisor(location, 0);
@@ -1132,7 +1301,7 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
   gl.stencilMask(0xff);
 }
 
-function drawWebGlPick(gl, program, buffer, locations, transform, size, count, width, clipped) {
+function drawWebGlPick(gl, program, buffer, locations, transform, size, count, width, pickBase, clipped) {
   if (!count) return;
   if (clipped) {
     gl.enable(gl.STENCIL_TEST);
@@ -1144,6 +1313,7 @@ function drawWebGlPick(gl, program, buffer, locations, transform, size, count, w
   gl.useProgram(program);
   setWebGlView(gl, locations, transform, size);
   gl.uniform1f(locations.width, width);
+  gl.uniform1ui(locations.pickBase, pickBase);
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   for (const [location, sizeValue, offset] of [
     [locations.fromPosition, 2, 0],
@@ -1156,6 +1326,28 @@ function drawWebGlPick(gl, program, buffer, locations, transform, size, count, w
   gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   gl.vertexAttribDivisor(locations.fromPosition, 0);
   gl.vertexAttribDivisor(locations.toPosition, 0);
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
+function drawWebGlFacePick(gl, program, buffer, locations, transform, size, arena, clipped) {
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.enableVertexAttribArray(locations.position);
+  gl.vertexAttribPointer(locations.position, 2, gl.FLOAT, false, BYTES_PER_VERTEX, 0);
+  for (const range of arena.ranges) {
+    if (range.part === 'face' && range.topology === 'triangle-list' && range.count) {
+      gl.drawArrays(gl.TRIANGLES, range.first, range.count);
+    }
+  }
   gl.disable(gl.STENCIL_TEST);
   gl.stencilMask(0xff);
 }
@@ -1190,7 +1382,8 @@ function getWebGlPickLocations(gl, program) {
     toPosition: gl.getAttribLocation(program, 'a_to_position'),
     transform: gl.getUniformLocation(program, 'u_transform'),
     viewport: gl.getUniformLocation(program, 'u_viewport'),
-    width: gl.getUniformLocation(program, 'u_width')
+    width: gl.getUniformLocation(program, 'u_width'),
+    pickBase: gl.getUniformLocation(program, 'u_pick_base')
   };
 }
 
@@ -1241,6 +1434,17 @@ function webGlFragmentSource(withColor) {
   `;
 }
 
+function webGlSolidFragmentSource() {
+  return `#version 300 es
+    precision mediump float;
+    uniform vec4 u_color;
+    out vec4 out_color;
+    void main() {
+      out_color = u_color;
+    }
+  `;
+}
+
 function webGlStrokeVertexSource() {
   return `#version 300 es
     in vec2 a_from_position;
@@ -1276,6 +1480,7 @@ function webGlPickVertexSource() {
     uniform mat3 u_transform;
     uniform vec2 u_viewport;
     uniform float u_width;
+    uniform uint u_pick_base;
     flat out uint v_pick_id;
     void main() {
       float along = (gl_VertexID == 0 || gl_VertexID == 1 || gl_VertexID == 3) ? 0.0 : 1.0;
@@ -1286,7 +1491,26 @@ function webGlPickVertexSource() {
       vec2 normal = vec2(-delta.y, delta.x) / max(length(delta), 0.0001);
       vec2 screen = mix(from_screen, to_screen, along) + normal * side * u_width * 0.5;
       gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
-      v_pick_id = uint(gl_InstanceID + 1);
+      v_pick_id = u_pick_base + uint(gl_InstanceID + 1);
+    }
+  `;
+}
+
+function webGlFacePickVertexSource() {
+  return `#version 300 es
+    in vec2 a_position;
+    uniform mat3 u_transform;
+    uniform vec2 u_viewport;
+    flat out uint v_pick_id;
+    void main() {
+      vec2 screen = (u_transform * vec3(a_position, 1.0)).xy;
+      gl_Position = vec4(
+        screen.x / u_viewport.x * 2.0 - 1.0,
+        1.0 - screen.y / u_viewport.y * 2.0,
+        0.0,
+        1.0
+      );
+      v_pick_id = uint(gl_VertexID / 3 + 1);
     }
   `;
 }

@@ -26,7 +26,7 @@ function createCanvas() {
   };
 }
 
-function createBackendLog() {
+function createBackendLog(pickResult = { kind: 'segment', index: 0 }) {
   const calls = [];
   return {
     calls,
@@ -37,7 +37,7 @@ function createBackendLog() {
       updateClip(value) { calls.push(['clip', value]); },
       updateAppearance(value) { calls.push(['appearance', value]); },
       render(arena, upload) { calls.push(['render', arena, upload]); },
-      async pick(request) { calls.push(['pick', request]); return { kind: 'segment', index: 3 }; },
+      async pick(request) { calls.push(['pick', request]); return pickResult; },
       destroy() { calls.push(['destroy']); }
     }
   };
@@ -76,10 +76,12 @@ test('normalizes CSS-coordinate GPU pick requests and delegates to the backend',
   renderer.setArena({
     data: new Float32Array(12),
     count: 2,
-    ranges: [{ mode: SymbolicPlotMode.TIME_CURVE, first: 0, count: 2 }]
+    ranges: [{ mode: SymbolicPlotMode.TIME_CURVE, part: 'edge', first: 0, count: 2 }]
   });
 
-  assert.deepEqual(await renderer.pick([40, 50], 9), { kind: 'segment', index: 3 });
+  assert.deepEqual(await renderer.pick([40, 50], 9), {
+    kind: 'segment', index: 0, part: 'edge', rangeIndex: 0, primitiveIndex: 0
+  });
   assert.deepEqual(calls.find(([name]) => name === 'pick')[1], {
     x: 40, y: 50, radius: 9, width: 320, height: 200
   });
@@ -109,6 +111,34 @@ test('uses edge-consistent plot width and distinct hover and selection opacity',
   assert.equal(normal.selectionAlpha, 0);
   assert.equal(normalizeSymbolicPlotAppearance({ state: 'hovered' }).selectionAlpha, 0.5);
   assert.equal(normalizeSymbolicPlotAppearance({ state: 'selected' }).selectionAlpha, 0.75);
+  const mixed = normalizeSymbolicPlotAppearance({
+    partStates: { edge: 'selected', face: 'hovered' }
+  });
+  assert.equal(mixed.state, 'mixed');
+  assert.deepEqual(mixed.partStates, { edge: 'selected', face: 'hovered' });
+  assert.equal(mixed.edgeSelectionAlpha, 0.75);
+  assert.equal(mixed.faceSelectionAlpha, 0.5);
+});
+
+test('preserves semantic parts and enriches face picks with range provenance', async () => {
+  const { backend } = createBackendLog({ kind: 'triangle', index: 0 });
+  const renderer = createSymbolicPlotRenderer(createCanvas(), { backendFactory: async () => backend });
+  await renderer.initialize();
+  const arena = renderer.setArena({
+    data: new Float32Array(5 * 6),
+    count: 5,
+    ranges: [
+      { mode: SymbolicPlotMode.TRIANGLES, part: 'face', first: 0, count: 3 },
+      { mode: SymbolicPlotMode.LINKED_LINE_SEGMENTS, part: 'edge', first: 3, count: 2 }
+    ]
+  });
+
+  assert.deepEqual(arena.ranges.map(({ part }) => part), ['face', 'edge']);
+  assert.deepEqual(arena.primitives.edges[0], { part: 'edge', rangeIndex: 1, primitiveIndex: 0 });
+  assert.deepEqual(arena.primitives.faces[0], { part: 'face', rangeIndex: 0, primitiveIndex: 0 });
+  assert.deepEqual(await renderer.pick([20, 20]), {
+    kind: 'triangle', index: 0, part: 'face', rangeIndex: 0, primitiveIndex: 0
+  });
 });
 
 test('reuses a WASM arena view and deduplicates uploads by revision', async () => {
@@ -179,7 +209,7 @@ test('validates all plot primitive modes without repacking vertex data', () => {
   const ranges = [
     { mode: SymbolicPlotMode.POINTS, first: 0, count: 1 },
     { mode: SymbolicPlotMode.LINKED_LINE_SEGMENTS, first: 1, count: 2 },
-    { mode: SymbolicPlotMode.TRIANGLES, first: 3, count: 3 },
+    { mode: SymbolicPlotMode.TRIANGLES, part: 'face', first: 3, count: 3 },
     { mode: SymbolicPlotMode.SCALAR_FIELD_TRIANGLES, first: 6, count: 3 },
     { mode: SymbolicPlotMode.VECTOR_FIELD_GLYPHS, first: 9, count: 2 },
     { mode: SymbolicPlotMode.TIME_CURVE, first: 11, count: 7 }
@@ -191,6 +221,7 @@ test('validates all plot primitive modes without repacking vertex data', () => {
     arena.ranges.map(({ topology }) => topology),
     ['point-list', 'line-list', 'triangle-list', 'triangle-list', 'line-list', 'line-strip']
   );
+  assert.equal(arena.ranges[2].part, 'face');
   assert.throws(
     () => resolveSymbolicPlotArena({
       data,

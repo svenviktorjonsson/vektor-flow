@@ -131,6 +131,7 @@ test("published archive contains an executable symbolic kernel", async () => {
     assert.equal(arena.count, view.xSteps);
     assert.deepEqual(arena.ranges.map((range) => ({ ...range })), [{
       mode: "time-curve",
+      part: "edge",
       first: 0,
       count: view.xSteps,
     }]);

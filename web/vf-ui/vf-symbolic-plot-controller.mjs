@@ -30,7 +30,8 @@ export async function createSymbolicPlotController({
   let lastResult = null;
   let snapGeometry = symbolicPlotSnapGeometry(null);
   let dataToScreenTransform = [...IDENTITY_AFFINE];
-  let interactionState = 'normal';
+  let interactionState = Object.freeze({ edge: 'normal', face: 'normal' });
+  let latestFrameRevision = null;
   canvas.hidden = false;
 
   async function plot({
@@ -41,11 +42,14 @@ export async function createSymbolicPlotController({
     colors,
     colormapPoints = null,
     revision = 0,
+    frameRevision = null,
     compilation = null
   }) {
     assertAlive();
     if (typeof source !== 'string') throw new TypeError('symbolic source must be a string');
     requireRecord(context, 'symbolic context');
+    const requestedFrameRevision = normalizeFrameRevision(frameRevision);
+    if (isStaleFrameRevision(requestedFrameRevision, latestFrameRevision)) return lastResult;
 
     const normalizedViewport = controllerViewport(viewport);
     const view = buildSymbolicPlotView(normalizedViewport, context);
@@ -54,22 +58,27 @@ export async function createSymbolicPlotController({
     const localClip = symbolicClipInLocalCoordinates(clip, context);
     const compiled = compilation || kernel.workspaceCompile(workspace, source, context, clip);
     const executionWorkspace = compiled.workspace || workspace;
-    if (!compilation) workspace = executionWorkspace;
 
     const program = compiled.value?.program ?? compiled.value;
     const result = publicProgramResult(program);
+    let nextSnapGeometry;
+    let nextArena;
+    if (result.diagnostics.length === 0) {
+      const arena = await kernel.plot(program, executionWorkspace, view, style, revision);
+      nextSnapGeometry = symbolicPlotSnapGeometry(arenaView(arena, kernel.memory));
+      nextArena = { memory: kernel.memory, ...arena };
+    } else {
+      nextSnapGeometry = symbolicPlotSnapGeometry(null);
+      nextArena = emptyArena(revision);
+    }
+    if (isStaleFrameRevision(requestedFrameRevision, latestFrameRevision)) return lastResult;
+    if (requestedFrameRevision != null) latestFrameRevision = requestedFrameRevision;
+    if (!compilation) workspace = executionWorkspace;
     dataToScreenTransform = [...transform];
     renderer.updateTransform(transform);
     renderer.updateClip(localClip);
-
-    if (result.diagnostics.length === 0) {
-      const arena = kernel.plot(program, executionWorkspace, view, style, revision);
-      snapGeometry = symbolicPlotSnapGeometry(arenaView(arena, kernel.memory));
-      renderer.setArena({ memory: kernel.memory, ...arena });
-    } else {
-      snapGeometry = symbolicPlotSnapGeometry(null);
-      renderer.setArena(emptyArena(revision));
-    }
+    snapGeometry = nextSnapGeometry;
+    renderer.setArena(nextArena);
     if (visible) renderer.render();
 
     lastResult = Object.freeze({
@@ -79,18 +88,29 @@ export async function createSymbolicPlotController({
       clip,
       view,
       style,
-      revision
+      revision,
+      frameRevision: requestedFrameRevision
     });
     return lastResult;
   }
 
-  function updateView({ transform, pixelRatio = 1, context = globalSymbolicContext(), clip = null }) {
+  function updateView({
+    transform,
+    pixelRatio = 1,
+    context = globalSymbolicContext(),
+    clip = null,
+    frameRevision = null
+  }) {
     assertAlive();
+    const requestedFrameRevision = normalizeFrameRevision(frameRevision);
+    if (isStaleFrameRevision(requestedFrameRevision, latestFrameRevision)) return false;
+    if (requestedFrameRevision != null) latestFrameRevision = requestedFrameRevision;
     const cssTransform = symbolicCssPixelTransform(transform, pixelRatio);
     dataToScreenTransform = symbolicDataToScreenTransform({ transform: cssTransform }, context);
     renderer.updateTransform(dataToScreenTransform);
     renderer.updateClip(symbolicClipInLocalCoordinates(clip, context));
     if (visible) renderer.render();
+    return true;
   }
 
   function resize(width, height) {
@@ -109,11 +129,29 @@ export async function createSymbolicPlotController({
     return visible;
   }
 
-  function setInteractionState(state = 'normal') {
+  function setInteractionState(state = 'normal', target = null) {
     assertAlive();
-    if (state === interactionState) return interactionState;
-    interactionState = state;
-    renderer.updateAppearance({ state });
+    const targetPart = ['face', 'edge'].includes(target?.part) ? target.part
+      : ['face', 'edge'].includes(target) ? target
+        : null;
+    let next;
+    if (state && typeof state === 'object' && !Array.isArray(state)) {
+      next = Object.freeze({
+        edge: normalizePartInteractionState(state.edge),
+        face: normalizePartInteractionState(state.face)
+      });
+    } else if (targetPart) {
+      next = Object.freeze({
+        ...interactionState,
+        [targetPart]: normalizePartInteractionState(state)
+      });
+    } else {
+      const scalar = normalizePartInteractionState(state);
+      next = Object.freeze({ edge: scalar, face: scalar });
+    }
+    if (next.edge === interactionState.edge && next.face === interactionState.face) return interactionState;
+    interactionState = next;
+    renderer.updateAppearance({ partStates: interactionState });
     if (visible) renderer.render();
     return interactionState;
   }
@@ -159,8 +197,28 @@ export async function createSymbolicPlotController({
     },
     get snapGeometry() {
       return snapGeometry;
+    },
+    get frameRevision() {
+      return latestFrameRevision;
     }
   });
+}
+
+function normalizeFrameRevision(value) {
+  if (value == null) return null;
+  const revision = Number(value);
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new RangeError('symbolic frame revision must be a non-negative safe integer');
+  }
+  return revision;
+}
+
+function isStaleFrameRevision(requested, latest) {
+  return requested != null && latest != null && requested < latest;
+}
+
+function normalizePartInteractionState(value) {
+  return ['hovered', 'selected'].includes(value) ? value : 'normal';
 }
 
 export function hitTestSymbolicPlotGeometry(geometry, transform, screenPoint, radius = 7) {
