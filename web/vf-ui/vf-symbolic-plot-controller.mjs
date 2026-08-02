@@ -451,9 +451,15 @@ export async function createSymbolicCompiler({
 } = {}) {
   const kernel = suppliedKernel || await loadKernel();
   requireKernel(kernel);
+  if (typeof kernel.compileDraft !== 'function') {
+    throw new TypeError('symbolic compiler kernel must provide compileDraft');
+  }
   let workspace = kernel.createWorkspace().handle;
 
   return Object.freeze({
+    preview(source) {
+      return publicDraftResult(kernel.compileDraft(String(source ?? '')).value);
+    },
     compile(source, context = globalSymbolicContext(), clip = null) {
       const result = kernel.compileWithContext(String(source ?? ''), context, clip);
       return publicProgramResult(result.value?.program ?? result.value);
@@ -465,6 +471,71 @@ export async function createSymbolicCompiler({
         ...compiled,
         result: publicProgramResult(compiled.value?.program ?? compiled.value)
       });
+    }
+  });
+}
+
+export function createSymbolicEditorSession({
+  compiler,
+  source = '',
+  context = globalSymbolicContext(),
+  clip = null
+} = {}) {
+  if (typeof compiler?.preview !== 'function' || typeof compiler?.compileProgram !== 'function') {
+    throw new TypeError('symbolic editor compiler must provide preview and compileProgram');
+  }
+
+  let editing = false;
+  let committedSource = '';
+  let committedLatex = '';
+  let program = null;
+  let draftSource = String(source ?? '');
+  let draft = compiler.preview(draftSource);
+
+  if (draft.complete) commit(draftSource, draft);
+
+  function commit(nextSource, nextDraft) {
+    program = compiler.compileProgram(nextSource, context, clip);
+    committedSource = nextSource;
+    committedLatex = nextDraft.latex;
+  }
+
+  function snapshot() {
+    const visibleSource = editing ? draftSource : committedSource;
+    const visibleLatex = editing ? draft.latex : committedLatex;
+    return Object.freeze({
+      editing,
+      source: visibleSource,
+      latex: visibleLatex,
+      complete: editing ? draft.complete : program !== null,
+      recoverable: editing ? draft.recoverable : true,
+      diagnostics: editing ? draft.diagnostics : Object.freeze([]),
+      committedSource,
+      committedLatex,
+      program
+    });
+  }
+
+  return Object.freeze({
+    snapshot,
+    open() {
+      editing = true;
+      draftSource = committedSource;
+      draft = compiler.preview(draftSource);
+      return snapshot();
+    },
+    update(nextSource) {
+      if (!editing) throw new Error('symbolic editor session must be open before updating');
+      draftSource = String(nextSource ?? '');
+      draft = compiler.preview(draftSource);
+      if (draft.complete) commit(draftSource, draft);
+      return snapshot();
+    },
+    cancel() {
+      editing = false;
+      draftSource = committedSource;
+      draft = compiler.preview(draftSource);
+      return snapshot();
     }
   });
 }
@@ -580,6 +651,15 @@ function requireKernel(kernel) {
   if (!(kernel.memory instanceof WebAssembly.Memory)) {
     throw new TypeError('symbolic kernel must expose WebAssembly memory');
   }
+}
+
+function publicDraftResult(draft) {
+  return Object.freeze({
+    latex: typeof draft?.latex === 'string' ? draft.latex : '',
+    complete: draft?.complete === true,
+    recoverable: draft?.recoverable === true,
+    diagnostics: Object.freeze(Array.isArray(draft?.diagnostics) ? [...draft.diagnostics] : [])
+  });
 }
 
 function publicProgramResult(program) {

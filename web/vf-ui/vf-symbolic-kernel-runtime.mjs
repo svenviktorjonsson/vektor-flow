@@ -339,6 +339,9 @@ export function createSymbolicKernel({ instance, manifest }) {
     compile(source) {
       return invoke("symbolic_compile", [source]);
     },
+    compileDraft(source) {
+      return invoke("symbolic_compile_draft", [source]);
+    },
     evaluate(program, x, y) {
       return invoke("symbolic_program_evaluate", [program, x, y]).value;
     },

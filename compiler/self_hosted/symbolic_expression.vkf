@@ -21,6 +21,12 @@ SymbolicProgram: (
     context:any,
     clip:any
 )
+SymbolicDraft: (
+    latex:str,
+    complete:bool,
+    recoverable:bool,
+    diagnostics:any
+)
 SymbolicWorkspace: any
 SymbolicEvaluation: (x:num, y:num, z:num, t:num, context:any)
 
@@ -1499,6 +1505,91 @@ symbolic_compile(source:str):
         symbolic_no_clip()
     )
 
+symbolic_compile_draft(source:str):
+    program: symbolic_compile(source)
+    complete: vkf_list_length(program.diagnostics) = 0
+    complete?
+        @: symbolic_draft(
+            program.latex,
+            true,
+            true,
+            program.diagnostics
+        )
+    lexed: symbolic_tokenize(source)
+    symbolic_draft(
+        symbolic_draft_latex_tokens(lexed.tokens, 0),
+        false,
+        true,
+        program.diagnostics
+    )
+
+symbolic_draft(
+    latex:str,
+    isComplete:any,
+    isRecoverable:any,
+    diagnostics:any
+):
+    (
+        latex: latex,
+        complete: isComplete,
+        recoverable: isRecoverable,
+        diagnostics: diagnostics
+    )
+
+symbolic_draft_latex_tokens(tokens:any, index:num):
+    current: tokens.(index)
+    current.kind??
+        "EOF" => ""
+        "CARET" => symbolic_draft_power_latex(tokens, index)
+        symbolic_draft_token_latex(tokens, index) & symbolic_draft_latex_tokens(
+            tokens,
+            index + 1
+        )
+
+symbolic_draft_power_latex(tokens:any, index:num):
+    next: tokens.(index + 1)
+    next.kind??
+        "NUMBER" => "^{" & next.text & "}" & symbolic_draft_latex_tokens(
+            tokens,
+            index + 2
+        )
+        "IDENT" => "^{" & symbolic_variable_latex(next.text) & "}" & symbolic_draft_latex_tokens(
+            tokens,
+            index + 2
+        )
+        "^{}" & symbolic_draft_latex_tokens(tokens, index + 1)
+
+symbolic_draft_token_latex(tokens:any, index:num):
+    current: tokens.(index)
+    current.kind??
+        "NUMBER" => current.text
+        "IDENT" => symbolic_draft_identifier_latex(tokens, index)
+        "PLUS" => " + "
+        "MINUS" => " - "
+        "STAR" => " \\cdot "
+        "SLASH" => "/"
+        "LPAREN" => "("
+        "RPAREN" => ")"
+        "LBRACKET" => "["
+        "RBRACKET" => "]"
+        "LBRACE" => "\\{"
+        "RBRACE" => "\\}"
+        "COMMA" => ", "
+        "RANGE" => ".."
+        "EQ" => " = "
+        "LT" => " < "
+        "GT" => " > "
+        "LE" => " \\le "
+        "GE" => " \\ge "
+        current.text
+
+symbolic_draft_identifier_latex(tokens:any, index:num):
+    current: tokens.(index)
+    next: tokens.(index + 1)
+    next.kind = "LPAREN"?
+        @: symbolic_function_latex(current.text)
+    symbolic_variable_latex(current.text)
+
 symbolic_compile_with_context(source:str, context:any, clip:any):
     lexed: symbolic_tokenize(source)
     parsed: symbolic_parse_tokens(lexed)
@@ -2715,6 +2806,7 @@ symbolic_expression_capability:
         "symbolic_tokenize(source)",
         "symbolic_parse_tokens(lexed)",
         "symbolic_compile(source)",
+        "symbolic_compile_draft(source)",
         "symbolic_compile_with_context(source, context, clip)",
         "symbolic_latex(ast)",
         "symbolic_workspace_compile(workspace, source, context, clip)",
