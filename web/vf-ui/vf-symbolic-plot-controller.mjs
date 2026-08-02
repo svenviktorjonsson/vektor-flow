@@ -663,16 +663,37 @@ function publicDraftResult(draft) {
 }
 
 function publicProgramResult(program) {
+  const diagnostics = Object.freeze(
+    Array.isArray(program?.diagnostics) ? [...program.diagnostics] : []
+  );
+  const classification = typeof program?.classification === 'string'
+    ? program.classification
+    : 'invalid';
   return Object.freeze({
-    diagnostics: Object.freeze(Array.isArray(program?.diagnostics) ? [...program.diagnostics] : []),
+    diagnostics,
     latex: typeof program?.latex === 'string' ? program.latex : '',
     variables: Object.freeze(Array.isArray(program?.variables)
       ? program.variables.filter((name) => typeof name === 'string')
       : []),
-    classification: typeof program?.classification === 'string' ? program.classification : 'invalid',
+    classification,
+    plottable: diagnostics.length === 0 && PLOTTABLE_CLASSIFICATIONS.has(classification),
     valueKind: typeof program?.valueKind === 'string' ? program.valueKind : 'invalid'
   });
 }
+
+const PLOTTABLE_CLASSIFICATIONS = new Set([
+  'literal',
+  'linked-tuple',
+  'point-set',
+  'y-of-x',
+  'x-of-y',
+  'parametric',
+  'vector-field',
+  'scalar-field',
+  'implicit-curve',
+  'open-region',
+  'closed-region'
+]);
 
 function emptyArena(revision) {
   return { data: new Float32Array(), count: 0, stride: 24, revision, ranges: [] };

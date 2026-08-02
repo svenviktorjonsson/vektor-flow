@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildSymbolicPlotView,
+  createSymbolicCompiler,
   createSymbolicPlotController,
   hitTestSymbolicPlotGeometry,
   symbolicClipInLocalCoordinates,
@@ -17,6 +18,25 @@ const viewport = Object.freeze({
   yMin: -5,
   yMax: 5,
   transform: [32, 1, -2, -32, 300, 240]
+});
+
+test('compiler exposes plot capability only for supported classifications', async () => {
+  let classification = 'definition';
+  const kernel = {
+    memory: new WebAssembly.Memory({ initial: 1 }),
+    compileDraft: () => ({ value: { latex: '', complete: false, diagnostics: [] } }),
+    compileWithContext: () => ({ value: {
+      classification, diagnostics: [], latex: 'f(x)=x', variables: ['x']
+    } }),
+    createWorkspace: () => ({ handle: 'workspace-0' }),
+    workspaceCompile: () => ({ workspace: 'workspace-0', value: {} }),
+    plot: () => ({ data: new Float32Array(), count: 0, stride: 24, ranges: [] })
+  };
+  const compiler = await createSymbolicCompiler({ kernel });
+
+  assert.equal(compiler.compile('f(x)=x').plottable, false);
+  classification = 'y-of-x';
+  assert.equal(compiler.compile('x^2').plottable, true);
 });
 
 test('normalizes device transforms at DPR 2 and 3', () => {
@@ -137,6 +157,7 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
   });
 
   assert.equal(result.classification, 'y-of-x');
+  assert.equal(result.plottable, true);
   assert.deepEqual(controller.snapGeometry.segments, [[[1, 2], [3, 4]]]);
   assert.equal(controller.hitTest([328, 177], 2)?.kind, 'segment');
   assert.deepEqual(await controller.pick([328, 177], 8), { kind: 'segment', index: 0 });
