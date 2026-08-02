@@ -220,3 +220,98 @@ test('keeps newer synchronous view frames when asynchronous sampling completes s
     source: 'x', viewport, colors: { edge: '#fff', face: '#fff' }, frameRevision: -1
   }), /frame revision/);
 });
+
+test('commits delayed temporal samples when only time advances in the same spatial view', async () => {
+  const calls = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const vertices = new Float32Array(memory.buffer, 0, 12);
+  vertices.set([0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0]);
+  let resolvePlot;
+  const pendingArena = new Promise((resolve) => { resolvePlot = resolve; });
+  const program = {
+    diagnostics: [], latex: '\\sin(x-t)', variables: ['x', 't'],
+    classification: 'y-of-x', valueKind: 'number'
+  };
+  const kernel = {
+    memory,
+    compileWithContext() { return { value: program }; },
+    createWorkspace() { return { handle: 'workspace' }; },
+    workspaceCompile() { return { value: { program }, workspace: 'next-workspace' }; },
+    plot() { return pendingArena; }
+  };
+  const renderer = {
+    async initialize() {},
+    updateTransform(value) { calls.push(['transform', value]); },
+    updateClip() {},
+    updateAppearance() {},
+    setArena(value) { calls.push(['arena', value]); },
+    render() {},
+    async pick() { return { kind: 'segment', index: 0 }; },
+    resize() {},
+    destroy() {}
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true }, kernel, createRenderer: () => renderer
+  });
+  const pending = controller.plot({
+    source: 'sin(x-t)', viewport: { ...viewport, t: 0 },
+    colors: { edge: '#ffffff', face: '#00000080' },
+    frameRevision: 4, frameEpoch: 2
+  });
+
+  assert.equal(controller.updateView({
+    transform: viewport.transform, frameRevision: 5, frameEpoch: 2
+  }), true);
+  resolvePlot({
+    pointer: 0, count: 2, stride: 24, revision: 1,
+    ranges: [{ topology: 'line-strip', mode: 'time-curve', first: 0, count: 2 }]
+  });
+  const result = await pending;
+
+  assert.equal(result.frameRevision, 4);
+  assert.equal(controller.frameRevision, 5);
+  assert.equal(controller.frameEpoch, 2);
+  assert.equal(calls.filter(([name]) => name === 'arena').length, 1);
+  assert.equal(controller.hitTest([300, 240], 2)?.kind, 'segment');
+  assert.deepEqual(await controller.pick([300, 240], 8), { kind: 'segment', index: 0 });
+});
+
+test('rejects delayed samples from an epoch before reset', async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  let resolvePlot;
+  const pendingArena = new Promise((resolve) => { resolvePlot = resolve; });
+  const program = {
+    diagnostics: [], latex: 'x-t', variables: ['x', 't'],
+    classification: 'y-of-x', valueKind: 'number'
+  };
+  const arenas = [];
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel: {
+      memory,
+      compileWithContext() { return { value: program }; },
+      createWorkspace() { return { handle: 'workspace' }; },
+      workspaceCompile() { return { value: { program }, workspace: 'next-workspace' }; },
+      plot() { return pendingArena; }
+    },
+    createRenderer: () => ({
+      async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setArena(value) { arenas.push(value); }, render() {}, async pick() { return null; },
+      resize() {}, destroy() {}
+    })
+  });
+  const pending = controller.plot({
+    source: 'x-t', viewport: { ...viewport, t: 8 },
+    colors: { edge: '#ffffff', face: '#00000080' },
+    frameRevision: 9, frameEpoch: 1
+  });
+
+  assert.equal(controller.updateView({
+    transform: viewport.transform, frameRevision: 10, frameEpoch: 2
+  }), true);
+  resolvePlot({ pointer: 0, count: 0, stride: 24, revision: 1, ranges: [] });
+
+  assert.equal(await pending, null);
+  assert.equal(arenas.length, 0);
+  assert.equal(controller.frameEpoch, 2);
+});

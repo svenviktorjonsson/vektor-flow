@@ -31,7 +31,13 @@ export async function createSymbolicPlotController({
   let snapGeometry = symbolicPlotSnapGeometry(null);
   let dataToScreenTransform = [...IDENTITY_AFFINE];
   let interactionState = Object.freeze({ edge: 'normal', face: 'normal' });
-  let latestFrameRevision = null;
+  let latestViewRevision = null;
+  let latestViewSpatialKey = null;
+  let latestViewEpoch = 0;
+  let plotRequestOrder = 0;
+  let latestPlotRequest = null;
+  let latestCommittedPlotOrder = 0;
+  let latestCommittedPlotRevision = null;
   canvas.hidden = false;
 
   async function plot({
@@ -43,19 +49,36 @@ export async function createSymbolicPlotController({
     colormapPoints = null,
     revision = 0,
     frameRevision = null,
+    frameEpoch = 0,
     compilation = null
   }) {
     assertAlive();
     if (typeof source !== 'string') throw new TypeError('symbolic source must be a string');
     requireRecord(context, 'symbolic context');
     const requestedFrameRevision = normalizeFrameRevision(frameRevision);
-    if (isStaleFrameRevision(requestedFrameRevision, latestFrameRevision)) return lastResult;
-
+    const requestedFrameEpoch = normalizeFrameEpoch(frameEpoch);
     const normalizedViewport = controllerViewport(viewport);
     const view = buildSymbolicPlotView(normalizedViewport, context);
     const style = buildSymbolicPlotStyle(colors, colormapPoints);
     const transform = symbolicDataToScreenTransform(normalizedViewport, context);
     const localClip = symbolicClipInLocalCoordinates(clip, context);
+    const viewSpatialKey = symbolicViewSpatialKey(transform, localClip);
+    if (requestedFrameEpoch < latestViewEpoch) return lastResult;
+    if (requestedFrameEpoch > latestViewEpoch) {
+      latestViewEpoch = requestedFrameEpoch;
+      latestViewRevision = requestedFrameRevision;
+      latestViewSpatialKey = viewSpatialKey;
+    } else if (
+      isStaleFrameRevision(requestedFrameRevision, latestViewRevision)
+      && viewSpatialKey !== latestViewSpatialKey
+    ) {
+      return lastResult;
+    }
+    const compatibilityKey = symbolicPlotCompatibilityKey({
+      source, revision, context, view, style, transform, clip: localClip
+    });
+    const requestOrder = ++plotRequestOrder;
+    latestPlotRequest = { order: requestOrder, compatibilityKey };
     const compiled = compilation || kernel.workspaceCompile(workspace, source, context, clip);
     const executionWorkspace = compiled.workspace || workspace;
 
@@ -71,8 +94,24 @@ export async function createSymbolicPlotController({
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(revision);
     }
-    if (isStaleFrameRevision(requestedFrameRevision, latestFrameRevision)) return lastResult;
-    if (requestedFrameRevision != null) latestFrameRevision = requestedFrameRevision;
+    if (requestedFrameEpoch !== latestViewEpoch) return lastResult;
+    if (
+      viewSpatialKey !== latestViewSpatialKey
+      && isStaleFrameRevision(requestedFrameRevision, latestViewRevision)
+    ) return lastResult;
+    if (
+      latestPlotRequest.order > requestOrder
+      && latestPlotRequest.compatibilityKey !== compatibilityKey
+    ) return lastResult;
+    if (requestOrder < latestCommittedPlotOrder) return lastResult;
+    if (latestViewRevision == null || (
+      requestedFrameRevision != null && requestedFrameRevision >= latestViewRevision
+    )) {
+      latestViewRevision = requestedFrameRevision;
+      latestViewSpatialKey = viewSpatialKey;
+    }
+    latestCommittedPlotOrder = requestOrder;
+    latestCommittedPlotRevision = requestedFrameRevision;
     if (!compilation) workspace = executionWorkspace;
     dataToScreenTransform = [...transform];
     renderer.updateTransform(transform);
@@ -89,7 +128,8 @@ export async function createSymbolicPlotController({
       view,
       style,
       revision,
-      frameRevision: requestedFrameRevision
+      frameRevision: requestedFrameRevision,
+      frameEpoch: requestedFrameEpoch
     });
     return lastResult;
   }
@@ -99,16 +139,36 @@ export async function createSymbolicPlotController({
     pixelRatio = 1,
     context = globalSymbolicContext(),
     clip = null,
-    frameRevision = null
+    frameRevision = null,
+    frameEpoch = 0
   }) {
     assertAlive();
     const requestedFrameRevision = normalizeFrameRevision(frameRevision);
-    if (isStaleFrameRevision(requestedFrameRevision, latestFrameRevision)) return false;
-    if (requestedFrameRevision != null) latestFrameRevision = requestedFrameRevision;
+    const requestedFrameEpoch = normalizeFrameEpoch(frameEpoch);
     const cssTransform = symbolicCssPixelTransform(transform, pixelRatio);
-    dataToScreenTransform = symbolicDataToScreenTransform({ transform: cssTransform }, context);
+    const nextTransform = symbolicDataToScreenTransform({ transform: cssTransform }, context);
+    const localClip = symbolicClipInLocalCoordinates(clip, context);
+    const spatialKey = symbolicViewSpatialKey(nextTransform, localClip);
+    if (requestedFrameEpoch < latestViewEpoch) return false;
+    if (requestedFrameEpoch > latestViewEpoch) {
+      latestViewEpoch = requestedFrameEpoch;
+      latestViewRevision = requestedFrameRevision;
+      latestViewSpatialKey = spatialKey;
+    } else {
+      if (
+        isStaleFrameRevision(requestedFrameRevision, latestViewRevision)
+        && spatialKey !== latestViewSpatialKey
+      ) return false;
+      if (latestViewRevision == null || (
+        requestedFrameRevision != null && requestedFrameRevision >= latestViewRevision
+      )) {
+        latestViewRevision = requestedFrameRevision;
+        latestViewSpatialKey = spatialKey;
+      }
+    }
+    dataToScreenTransform = nextTransform;
     renderer.updateTransform(dataToScreenTransform);
-    renderer.updateClip(symbolicClipInLocalCoordinates(clip, context));
+    renderer.updateClip(localClip);
     if (visible) renderer.render();
     return true;
   }
@@ -199,9 +259,58 @@ export async function createSymbolicPlotController({
       return snapGeometry;
     },
     get frameRevision() {
-      return latestFrameRevision;
+      return latestViewRevision;
+    },
+    get frameEpoch() {
+      return latestViewEpoch;
+    },
+    get committedPlotRevision() {
+      return latestCommittedPlotRevision;
     }
   });
+}
+
+function symbolicViewSpatialKey(transform, clip) {
+  return compatibilityKey([transform, clip]);
+}
+
+function symbolicPlotCompatibilityKey({ source, revision, context, view, style, transform, clip }) {
+  return compatibilityKey([
+    source,
+    revision,
+    context,
+    clip,
+    transform,
+    {
+      xMin: view.xMin,
+      xMax: view.xMax,
+      yMin: view.yMin,
+      yMax: view.yMax,
+      xSteps: view.xSteps,
+      ySteps: view.ySteps,
+      fieldXSteps: view.fieldXSteps,
+      fieldYSteps: view.fieldYSteps,
+      tMin: view.tMin,
+      tMax: view.tMax,
+      tSteps: view.tSteps,
+      vectorScale: view.vectorScale
+    },
+    style
+  ]);
+}
+
+function compatibilityKey(value) {
+  return JSON.stringify(canonicalCompatibilityValue(value));
+}
+
+function canonicalCompatibilityValue(value) {
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    return Array.from(value, canonicalCompatibilityValue);
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().map((key) => [key, canonicalCompatibilityValue(value[key])]);
+  }
+  return Object.is(value, -0) ? 0 : value;
 }
 
 function normalizeFrameRevision(value) {
@@ -211,6 +320,14 @@ function normalizeFrameRevision(value) {
     throw new RangeError('symbolic frame revision must be a non-negative safe integer');
   }
   return revision;
+}
+
+function normalizeFrameEpoch(value) {
+  const epoch = Number(value);
+  if (!Number.isSafeInteger(epoch) || epoch < 0) {
+    throw new RangeError('symbolic frame epoch must be a non-negative safe integer');
+  }
+  return epoch;
 }
 
 function isStaleFrameRevision(requested, latest) {
