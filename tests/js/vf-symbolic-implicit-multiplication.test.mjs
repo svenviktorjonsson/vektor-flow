@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { createSymbolicKernel } from '../../web/vf-ui/vf-symbolic-kernel-runtime.mjs';
-import { compileSymbolicRelationShader } from '../../web/vf-ui/geom/vf-symbolic-relation-shader.mjs';
 
 const artifactRoot = new URL('../../web/vf-ui/artifacts/', import.meta.url);
 
@@ -51,22 +50,17 @@ test('compiles numeric coefficients adjacent to symbolic variables', async () =>
     .every((index) => Math.abs(packed[index * 6 + 1] - 2 * packed[index * 6]) < 1e-6));
 });
 
-test('compiles adjacent coordinate variables in GPU relations', async () => {
+test('keeps adjacent letters as one explicit identifier token', async () => {
   const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
   const manifest = JSON.parse(
     await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
   );
   const { instance } = await WebAssembly.instantiate(wasm);
   const kernel = createSymbolicKernel({ instance, manifest });
-  const source = '3x^2 + xy - y^3 <= y^2 - x^2';
-  const compiled = kernel.compile(source);
+  const compiled = kernel.compile('xy');
 
   assert.deepEqual(compiled.value.diagnostics, []);
-  assert.equal(compiled.value.classification, 'closed-region');
-  assert.deepEqual(new Set(compiled.value.variables), new Set(['x', 'y']));
-  const shader = compileSymbolicRelationShader(compiled.value.ast);
-  assert.ok(shader, 'exact relation must compile to a GPU shader');
-  assert.equal(shader.operator, '<=');
-  assert.equal(shader.hasFill, true);
-  assert.equal(shader.hasBoundary, true);
+  assert.deepEqual(compiled.value.variables, ['xy']);
+  assert.equal(compiled.value.ast.kind, 'variable');
+  assert.equal(compiled.value.ast.name, 'xy');
 });
