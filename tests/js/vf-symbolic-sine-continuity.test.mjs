@@ -72,3 +72,42 @@ test('emits an ordered smooth sin(x) line strip across negative pi', async () =>
   );
   assert.ok(largestSecondDifference < 1e-4, `unexpected local spike: ${largestSecondDifference}`);
 });
+
+test('evaluates temporal curves continuously beyond the sampled time window', async () => {
+  const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
+  const manifest = JSON.parse(
+    await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
+  );
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  const program = kernel.compile('sin(x-t)');
+  const workspace = kernel.createWorkspace();
+  const t = 10_000;
+  const xMin = -2;
+  const xMax = 2;
+  const xSteps = 129;
+  const plot = kernel.plot(
+    program.handle,
+    workspace.handle,
+    {
+      xMin, xMax, yMin: -1, yMax: 1, xSteps, ySteps: 9,
+      fieldXSteps: 9, fieldYSteps: 9,
+      tMin: 0, tMax: 1, tSteps: 9, t, vectorScale: 0.1
+    },
+    {
+      edgeR: 1, edgeG: 1, edgeB: 1, edgeA: 1,
+      faceR: 1, faceG: 1, faceB: 1, faceA: 1,
+      valueMin: -1, valueMax: 1
+    },
+    1
+  );
+  const packed = new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6);
+  const points = Array.from({ length: plot.count }, (_, index) => ({
+    x: packed[index * 6],
+    y: packed[index * 6 + 1]
+  }));
+
+  assert.equal(plot.count, xSteps);
+  assert.ok(points.every((point) => Math.abs(point.y - Math.sin(point.x - t)) < 1e-3));
+  assert.ok(points.some((point) => Math.abs(point.y - Math.sin(point.x)) > 0.1));
+});

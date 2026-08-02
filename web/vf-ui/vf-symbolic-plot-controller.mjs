@@ -89,10 +89,13 @@ export async function createSymbolicPlotController({
     if (result.diagnostics.length === 0) {
       const arena = await kernel.plot(program, executionWorkspace, view, style, revision);
       nextSnapGeometry = symbolicPlotSnapGeometry(arenaView(arena, kernel.memory));
-      nextArena = { memory: kernel.memory, ...arena };
+      // The kernel reuses its WASM arena. Expression revisions are stable while
+      // time advances, so the renderer needs a distinct revision per sample to
+      // upload both visible geometry and GPU picking data.
+      nextArena = { memory: kernel.memory, ...arena, revision: requestOrder };
     } else {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
-      nextArena = emptyArena(revision);
+      nextArena = emptyArena(requestOrder);
     }
     if (requestedFrameEpoch !== latestViewEpoch) return lastResult;
     if (

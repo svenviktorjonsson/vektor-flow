@@ -276,6 +276,51 @@ test('commits delayed temporal samples when only time advances in the same spati
   assert.deepEqual(await controller.pick([300, 240], 8), { kind: 'segment', index: 0 });
 });
 
+test('assigns a fresh GPU arena revision to every committed temporal sample', async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const vertices = new Float32Array(memory.buffer, 0, 12);
+  const arenas = [];
+  let sample = 0;
+  const program = {
+    diagnostics: [], latex: '\\sin(x-t)', variables: ['x', 't'],
+    classification: 'y-of-x', valueKind: 'number'
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel: {
+      memory,
+      compileWithContext() { return { value: program }; },
+      createWorkspace() { return { handle: 'workspace' }; },
+      workspaceCompile() { return { value: { program }, workspace: 'next-workspace' }; },
+      plot(_program, _workspace, _view, _style, revision) {
+        sample += 1;
+        vertices.set([sample, 0, 0, 0, 0, 0, sample + 1, 1, 0, 0, 0, 0]);
+        return {
+          pointer: 0, count: 2, stride: 24, revision,
+          ranges: [{ topology: 'line-strip', mode: 'time-curve', first: 0, count: 2 }]
+        };
+      }
+    },
+    createRenderer: () => ({
+      async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setArena(value) { arenas.push(value); }, render() {}, async pick() { return null; },
+      resize() {}, destroy() {}
+    })
+  });
+  const request = (t) => controller.plot({
+    source: 'sin(x-t)', viewport: { ...viewport, t },
+    colors: { edge: '#ffffff', face: '#00000080' },
+    revision: 7, frameRevision: 4, frameEpoch: 2
+  });
+
+  await request(0);
+  await request(1000);
+
+  assert.equal(arenas.length, 2);
+  assert.notEqual(arenas[0].revision, arenas[1].revision);
+  assert.deepEqual(controller.snapGeometry.segments, [[[2, 0], [3, 1]]]);
+});
+
 test('rejects delayed samples from an epoch before reset', async () => {
   const memory = new WebAssembly.Memory({ initial: 1 });
   let resolvePlot;
