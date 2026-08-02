@@ -6,17 +6,17 @@
       "resultType": 1
     },
     "symbolic_as_complex": {
-      "index": 130,
+      "index": 129,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_atan": {
-      "index": 111,
+      "index": 110,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_atan2": {
-      "index": 110,
+      "index": 109,
       "parameters": 2,
       "resultType": 1
     },
@@ -26,42 +26,42 @@
       "resultType": 1
     },
     "symbolic_binary_classification": {
-      "index": 156,
+      "index": 155,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_binary_latex": {
-      "index": 96,
+      "index": 95,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_binary_node_value_kind": {
-      "index": 146,
+      "index": 145,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_binary_precedence": {
-      "index": 89,
+      "index": 88,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_binary_value": {
-      "index": 117,
+      "index": 116,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_binary_value_kind": {
-      "index": 147,
+      "index": 146,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_binary_value_kind_for_context": {
-      "index": 143,
+      "index": 142,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_builtin_arity": {
-      "index": 239,
+      "index": 238,
       "parameters": 1,
       "resultType": 1
     },
@@ -71,77 +71,77 @@
       "resultType": 1
     },
     "symbolic_call_diagnostics": {
-      "index": 238,
+      "index": 237,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_call_latex": {
-      "index": 92,
+      "index": 91,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_call_value": {
-      "index": 109,
+      "index": 108,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_call_value_kind": {
-      "index": 145,
+      "index": 144,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_clamp_unit": {
-      "index": 235,
+      "index": 234,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_classification": {
-      "index": 155,
+      "index": 154,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_closed_region_plot_result": {
-      "index": 181,
+      "index": 180,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_closed_region_ranges": {
-      "index": 182,
+      "index": 181,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_colormap_amount": {
-      "index": 232,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "symbolic_colormap_interpolate": {
       "index": 231,
       "parameters": 3,
       "resultType": 1
     },
-    "symbolic_colormap_point": {
-      "index": 233,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "symbolic_colormap_sample": {
+    "symbolic_colormap_interpolate": {
       "index": 230,
       "parameters": 3,
       "resultType": 1
     },
+    "symbolic_colormap_point": {
+      "index": 232,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "symbolic_colormap_sample": {
+      "index": 229,
+      "parameters": 3,
+      "resultType": 1
+    },
     "symbolic_compile": {
-      "index": 159,
+      "index": 158,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_compile_draft": {
-      "index": 160,
+      "index": 159,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_compile_with_context": {
-      "index": 166,
+      "index": 165,
       "parameters": 3,
       "resultType": 1
     },
@@ -151,22 +151,22 @@
       "resultType": 1
     },
     "symbolic_complex_binary": {
-      "index": 131,
+      "index": 130,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_complex_divide": {
-      "index": 135,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_complex_integer_power": {
       "index": 134,
       "parameters": 2,
       "resultType": 1
     },
+    "symbolic_complex_integer_power": {
+      "index": 133,
+      "parameters": 2,
+      "resultType": 1
+    },
     "symbolic_complex_power": {
-      "index": 132,
+      "index": 131,
       "parameters": 2,
       "resultType": 1
     },
@@ -216,17 +216,17 @@
       "resultType": 1
     },
     "symbolic_definition_diagnostics": {
-      "index": 240,
+      "index": 239,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_definition_latex": {
-      "index": 94,
+      "index": 93,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_definition_or_next": {
-      "index": 115,
+      "index": 114,
       "parameters": 4,
       "resultType": 1
     },
@@ -236,32 +236,32 @@
       "resultType": 1
     },
     "symbolic_draft": {
-      "index": 161,
+      "index": 160,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_draft_identifier_latex": {
-      "index": 165,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_draft_latex_tokens": {
-      "index": 162,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_draft_power_latex": {
-      "index": 163,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_draft_token_latex": {
       "index": 164,
       "parameters": 2,
       "resultType": 1
     },
+    "symbolic_draft_latex_tokens": {
+      "index": 161,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "symbolic_draft_power_latex": {
+      "index": 162,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "symbolic_draft_token_latex": {
+      "index": 163,
+      "parameters": 2,
+      "resultType": 1
+    },
     "symbolic_empty_variables": {
-      "index": 152,
+      "index": 151,
       "parameters": 0,
       "resultType": 1
     },
@@ -271,37 +271,37 @@
       "resultType": 1
     },
     "symbolic_evaluate": {
-      "index": 100,
+      "index": 99,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_evaluate_items": {
-      "index": 104,
+      "index": 103,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_evaluation": {
-      "index": 98,
+      "index": 97,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_exp_reduce": {
-      "index": 127,
+      "index": 126,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_exp_scale": {
-      "index": 129,
+      "index": 128,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_exp_series": {
-      "index": 128,
+      "index": 127,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_exponential": {
-      "index": 126,
+      "index": 125,
       "parameters": 1,
       "resultType": 1
     },
@@ -311,37 +311,37 @@
       "resultType": 1
     },
     "symbolic_face_vertex": {
-      "index": 226,
+      "index": 225,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_field_color": {
-      "index": 228,
+      "index": 227,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_field_fallback_color": {
-      "index": 229,
+      "index": 228,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_field_vertex": {
-      "index": 227,
+      "index": 226,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_find_definition": {
-      "index": 114,
+      "index": 113,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_free_variable_value": {
-      "index": 107,
+      "index": 106,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_function_latex": {
-      "index": 93,
+      "index": 92,
       "parameters": 1,
       "resultType": 1
     },
@@ -351,12 +351,12 @@
       "resultType": 1
     },
     "symbolic_implicit_case": {
-      "index": 203,
+      "index": 202,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_implicit_intersection": {
-      "index": 205,
+      "index": 204,
       "parameters": 6,
       "resultType": 1
     },
@@ -366,17 +366,17 @@
       "resultType": 1
     },
     "symbolic_integer_power": {
-      "index": 121,
+      "index": 120,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_integer_power_positive": {
-      "index": 122,
+      "index": 121,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_invalid_complex_power": {
-      "index": 133,
+      "index": 132,
       "parameters": 0,
       "resultType": 1
     },
@@ -391,17 +391,17 @@
       "resultType": 1
     },
     "symbolic_is_integer": {
-      "index": 120,
+      "index": 119,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_is_linked_power_collection": {
-      "index": 178,
+      "index": 177,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_is_relation": {
-      "index": 149,
+      "index": 148,
       "parameters": 1,
       "resultType": 1
     },
@@ -411,32 +411,32 @@
       "resultType": 1
     },
     "symbolic_items_diagnostics": {
-      "index": 237,
+      "index": 236,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_items_variables": {
-      "index": 150,
+      "index": 149,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_latex": {
-      "index": 86,
+      "index": 85,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_latex_at": {
-      "index": 87,
+      "index": 86,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_latex_items": {
-      "index": 91,
+      "index": 90,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_latex_unwrapped": {
-      "index": 90,
+      "index": 89,
       "parameters": 2,
       "resultType": 1
     },
@@ -446,32 +446,32 @@
       "resultType": 1
     },
     "symbolic_line_vertex": {
-      "index": 225,
+      "index": 224,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_linked_literal_ranges": {
-      "index": 180,
+      "index": 179,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_linked_power_plot_result": {
-      "index": 179,
+      "index": 178,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_list_contains": {
-      "index": 139,
+      "index": 138,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_literal_point": {
-      "index": 195,
+      "index": 194,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_local_evaluation": {
-      "index": 99,
+      "index": 98,
       "parameters": 5,
       "resultType": 1
     },
@@ -486,22 +486,22 @@
       "resultType": 1
     },
     "symbolic_log_normalize": {
-      "index": 124,
+      "index": 123,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_log_series": {
-      "index": 125,
+      "index": 124,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_mix": {
-      "index": 234,
+      "index": 233,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_multiplication_latex": {
-      "index": 97,
+      "index": 96,
       "parameters": 2,
       "resultType": 1
     },
@@ -511,12 +511,12 @@
       "resultType": 1
     },
     "symbolic_natural_log": {
-      "index": 123,
+      "index": 122,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_negate_value": {
-      "index": 116,
+      "index": 115,
       "parameters": 2,
       "resultType": 1
     },
@@ -526,7 +526,7 @@
       "resultType": 1
     },
     "symbolic_node_plot_point": {
-      "index": 223,
+      "index": 222,
       "parameters": 4,
       "resultType": 1
     },
@@ -535,48 +535,43 @@
       "parameters": 3,
       "resultType": 1
     },
-    "symbolic_numeric_coefficient": {
-      "index": 74,
-      "parameters": 1,
-      "resultType": 1
-    },
     "symbolic_pack_plot_vertices": {
       "index": 27,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_parameter_diagnostics": {
-      "index": 241,
+      "index": 240,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_parameter_names": {
-      "index": 113,
+      "index": 112,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_parameter_value": {
-      "index": 105,
+      "index": 104,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_parameter_variable_count": {
-      "index": 157,
+      "index": 156,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_parse_additive": {
-      "index": 76,
+      "index": 75,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_parse_additive_right": {
-      "index": 78,
+      "index": 77,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_parse_additive_tail": {
-      "index": 77,
+      "index": 76,
       "parameters": 1,
       "resultType": 1
     },
@@ -616,7 +611,7 @@
       "resultType": 1
     },
     "symbolic_parse_multiplicative_right": {
-      "index": 75,
+      "index": 74,
       "parameters": 3,
       "resultType": 1
     },
@@ -661,22 +656,22 @@
       "resultType": 1
     },
     "symbolic_parse_range": {
-      "index": 79,
+      "index": 78,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_parse_range_right": {
-      "index": 80,
+      "index": 79,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_parse_relation": {
-      "index": 81,
+      "index": 80,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_parse_relation_right": {
-      "index": 82,
+      "index": 81,
       "parameters": 3,
       "resultType": 1
     },
@@ -706,12 +701,12 @@
       "resultType": 1
     },
     "symbolic_parse_tokens": {
-      "index": 84,
+      "index": 83,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_parse_trailing_error": {
-      "index": 85,
+      "index": 84,
       "parameters": 2,
       "resultType": 1
     },
@@ -746,7 +741,7 @@
       "resultType": 1
     },
     "symbolic_plot": {
-      "index": 177,
+      "index": 176,
       "parameters": 5,
       "resultType": 1
     },
@@ -766,17 +761,17 @@
       "resultType": 1
     },
     "symbolic_plot_capacity": {
-      "index": 183,
+      "index": 182,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_plot_into_builder": {
-      "index": 189,
+      "index": 188,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_plot_literal": {
-      "index": 211,
+      "index": 210,
       "parameters": 5,
       "resultType": 1
     },
@@ -786,147 +781,147 @@
       "resultType": 1
     },
     "symbolic_plot_mode": {
-      "index": 187,
+      "index": 186,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_plot_nested_tuple": {
-      "index": 220,
+      "index": 219,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_plot_part": {
-      "index": 188,
+      "index": 187,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_plot_point": {
-      "index": 194,
+      "index": 193,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_plot_power_points": {
-      "index": 216,
+      "index": 215,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_plot_power_points_at": {
-      "index": 217,
+      "index": 216,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_plot_power_segments": {
-      "index": 218,
+      "index": 217,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_plot_ranges": {
-      "index": 186,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_plot_result": {
-      "index": 184,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "symbolic_plot_result_record": {
       "index": 185,
       "parameters": 2,
       "resultType": 1
     },
+    "symbolic_plot_result": {
+      "index": 183,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "symbolic_plot_result_record": {
+      "index": 184,
+      "parameters": 2,
+      "resultType": 1
+    },
     "symbolic_plot_set_items": {
-      "index": 221,
+      "index": 220,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_plot_set_node": {
-      "index": 222,
+      "index": 221,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_plot_tuple_items": {
-      "index": 219,
+      "index": 218,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_plot_vector": {
-      "index": 197,
+      "index": 196,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_power_collection_point": {
-      "index": 214,
+      "index": 213,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_power_collection_value": {
-      "index": 215,
+      "index": 214,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_power_exponent_count": {
-      "index": 213,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "symbolic_power_exponents": {
       "index": 212,
       "parameters": 4,
       "resultType": 1
     },
+    "symbolic_power_exponents": {
+      "index": 211,
+      "parameters": 4,
+      "resultType": 1
+    },
     "symbolic_precedence": {
-      "index": 88,
+      "index": 87,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_program": {
-      "index": 167,
+      "index": 166,
       "parameters": 8,
       "resultType": 1
     },
     "symbolic_program_evaluate": {
-      "index": 168,
+      "index": 167,
       "parameters": 3,
       "resultType": 1
     },
     "symbolic_program_evaluate_at": {
-      "index": 169,
+      "index": 168,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_program_evaluate_local_at": {
-      "index": 170,
+      "index": 169,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_program_evaluate_parameter_at": {
-      "index": 193,
+      "index": 192,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_push_face_cell": {
-      "index": 210,
+      "index": 209,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_push_implicit_cell": {
-      "index": 202,
+      "index": 201,
       "parameters": 10,
       "resultType": 1
     },
     "symbolic_push_scalar_field_cell": {
-      "index": 199,
+      "index": 198,
       "parameters": 10,
       "resultType": 1
     },
     "symbolic_push_segment": {
-      "index": 206,
+      "index": 205,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_push_two_segments": {
-      "index": 207,
+      "index": 206,
       "parameters": 6,
       "resultType": 1
     },
@@ -936,87 +931,87 @@
       "resultType": 1
     },
     "symbolic_range_values": {
-      "index": 101,
+      "index": 100,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_range_values_ascending": {
-      "index": 102,
+      "index": 101,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_range_values_descending": {
-      "index": 103,
+      "index": 102,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_real_power": {
-      "index": 119,
+      "index": 118,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_region_cell_and_rest": {
-      "index": 209,
+      "index": 208,
       "parameters": 11,
       "resultType": 1
     },
     "symbolic_relation_node": {
-      "index": 83,
+      "index": 82,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_relation_residual": {
-      "index": 201,
+      "index": 200,
       "parameters": 5,
       "resultType": 1
     },
     "symbolic_right_value_kind": {
-      "index": 148,
+      "index": 147,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_sample_coordinate": {
-      "index": 224,
+      "index": 223,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_sample_explicit_x": {
-      "index": 190,
+      "index": 189,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_sample_explicit_y": {
-      "index": 191,
+      "index": 190,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_sample_implicit": {
-      "index": 200,
+      "index": 199,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_sample_parametric": {
-      "index": 192,
+      "index": 191,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_sample_region": {
-      "index": 208,
+      "index": 207,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_sample_scalar_field": {
-      "index": 198,
+      "index": 197,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_sample_vector_field": {
-      "index": 196,
+      "index": 195,
       "parameters": 7,
       "resultType": 1
     },
     "symbolic_scalar_binary": {
-      "index": 118,
+      "index": 117,
       "parameters": 3,
       "resultType": 1
     },
@@ -1036,17 +1031,17 @@
       "resultType": 1
     },
     "symbolic_semantic_diagnostics": {
-      "index": 236,
+      "index": 235,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_sign_bit": {
-      "index": 204,
+      "index": 203,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_single_variable": {
-      "index": 153,
+      "index": 152,
       "parameters": 1,
       "resultType": 1
     },
@@ -1091,17 +1086,17 @@
       "resultType": 1
     },
     "symbolic_user_call": {
-      "index": 112,
+      "index": 111,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_value_kind": {
-      "index": 140,
+      "index": 139,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_value_kind_for_context": {
-      "index": 141,
+      "index": 140,
       "parameters": 2,
       "resultType": 1
     },
@@ -1111,37 +1106,37 @@
       "resultType": 1
     },
     "symbolic_variable_classification": {
-      "index": 158,
+      "index": 157,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_variable_dependencies": {
-      "index": 154,
+      "index": 153,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_variable_latex": {
-      "index": 95,
+      "index": 94,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_variable_value": {
-      "index": 106,
+      "index": 105,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_variable_value_kind": {
-      "index": 144,
+      "index": 143,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_variable_value_kind_for_context": {
-      "index": 142,
+      "index": 141,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_variables": {
-      "index": 151,
+      "index": 150,
       "parameters": 1,
       "resultType": 1
     },
@@ -1151,7 +1146,7 @@
       "resultType": 1
     },
     "symbolic_vector_binary": {
-      "index": 136,
+      "index": 135,
       "parameters": 5,
       "resultType": 1
     },
@@ -1161,12 +1156,12 @@
       "resultType": 1
     },
     "symbolic_vector_scale": {
-      "index": 137,
+      "index": 136,
       "parameters": 4,
       "resultType": 1
     },
     "symbolic_vector_scale_right": {
-      "index": 138,
+      "index": 137,
       "parameters": 3,
       "resultType": 1
     },
@@ -1176,48 +1171,48 @@
       "resultType": 1
     },
     "symbolic_workspace_append": {
-      "index": 172,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "symbolic_workspace_compile": {
       "index": 171,
       "parameters": 4,
       "resultType": 1
     },
+    "symbolic_workspace_compile": {
+      "index": 170,
+      "parameters": 4,
+      "resultType": 1
+    },
     "symbolic_workspace_evaluate": {
-      "index": 176,
+      "index": 175,
       "parameters": 6,
       "resultType": 1
     },
     "symbolic_workspace_latest_handle": {
-      "index": 173,
+      "index": 172,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_workspace_latest_program": {
-      "index": 174,
+      "index": 173,
       "parameters": 1,
       "resultType": 1
     },
     "symbolic_workspace_program": {
-      "index": 175,
+      "index": 174,
       "parameters": 2,
       "resultType": 1
     },
     "symbolic_z_value": {
-      "index": 108,
+      "index": 107,
       "parameters": 1,
       "resultType": 1
     }
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 105352,
-    "bytecodeLength": 105347,
+    "argumentsPointer": 105144,
+    "bytecodeLength": 105142,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 105608
+    "resultsPointer": 105400
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

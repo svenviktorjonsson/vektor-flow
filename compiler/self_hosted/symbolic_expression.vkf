@@ -623,8 +623,6 @@ symbolic_parse_implicit_multiplicative(
     left:SymbolicParseResult,
     rightToken:SymbolicToken
 ):
-    symbolic_numeric_coefficient(left.ast) = false?
-        @: left
     right: symbolic_parse_power(left.next)
     combined: symbolic_parse_result(
         symbolic_implicit_multiplication(
@@ -635,9 +633,6 @@ symbolic_parse_implicit_multiplicative(
         right.next
     )
     symbolic_parse_multiplicative_tail(combined)
-
-symbolic_numeric_coefficient(node:any):
-    node.kind = "number"
 
 symbolic_parse_multiplicative_right(
     left:SymbolicParseResult,

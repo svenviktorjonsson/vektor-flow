@@ -64,3 +64,20 @@ test('keeps adjacent letters as one explicit identifier token', async () => {
   assert.equal(compiled.value.ast.kind, 'variable');
   assert.equal(compiled.value.ast.name, 'xy');
 });
+
+test('treats whitespace-separated identifiers as implicit multiplication', async () => {
+  const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
+  const manifest = JSON.parse(
+    await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
+  );
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  const compiled = kernel.compile('x y');
+
+  assert.deepEqual(compiled.value.diagnostics, []);
+  assert.deepEqual(compiled.value.variables, ['x', 'y']);
+  assert.equal(compiled.value.ast.kind, 'binary');
+  assert.equal(compiled.value.ast.op, '*');
+  assert.equal(compiled.value.ast.implicit, true);
+  assert.equal(kernel.evaluate(compiled.handle, 3, 4), 12);
+});
