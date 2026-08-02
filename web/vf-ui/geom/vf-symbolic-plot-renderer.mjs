@@ -1,7 +1,7 @@
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const DEFAULT_TRANSFORM = Object.freeze([1, 0, 0, 1, 0, 0]);
-const FLOATS_PER_SEGMENT = 12;
+const FLOATS_PER_SEGMENT = 16;
 
 export const SYMBOLIC_PLOT_EDGE_WIDTH = 2;
 export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
@@ -45,17 +45,34 @@ function interactionAlpha(state) {
 export function packSymbolicPlotSegments(arena) {
   if (!arena?.data || !(arena.data instanceof Float32Array)) return new Float32Array();
   const packed = [];
-  const append = (from, to) => {
+  const append = (previous, from, to, next) => {
+    const previousOffset = previous * FLOATS_PER_VERTEX;
     const fromOffset = from * FLOATS_PER_VERTEX;
     const toOffset = to * FLOATS_PER_VERTEX;
+    const nextOffset = next * FLOATS_PER_VERTEX;
+    packed.push(arena.data[previousOffset], arena.data[previousOffset + 1]);
     for (let index = 0; index < FLOATS_PER_VERTEX; index += 1) packed.push(arena.data[fromOffset + index]);
     for (let index = 0; index < FLOATS_PER_VERTEX; index += 1) packed.push(arena.data[toOffset + index]);
+    packed.push(arena.data[nextOffset], arena.data[nextOffset + 1]);
   };
   for (const range of arena.ranges || []) {
     if (range.topology === 'line-list') {
-      for (let index = 0; index + 1 < range.count; index += 2) append(range.first + index, range.first + index + 1);
+      for (let index = 0; index + 1 < range.count; index += 2) {
+        const from = range.first + index;
+        const to = from + 1;
+        append(from, from, to, to);
+      }
     } else if (range.topology === 'line-strip') {
-      for (let index = 0; index + 1 < range.count; index += 1) append(range.first + index, range.first + index + 1);
+      for (let index = 0; index + 1 < range.count; index += 1) {
+        const from = range.first + index;
+        const to = from + 1;
+        append(
+          index > 0 ? from - 1 : from,
+          from,
+          to,
+          index + 2 < range.count ? to + 1 : to
+        );
+      }
     }
   }
   return new Float32Array(packed);
@@ -544,9 +561,11 @@ async function createWebGpuBackend(canvas) {
     stepMode: 'instance',
     attributes: [
       { shaderLocation: 2, offset: 0, format: 'float32x2' },
-      { shaderLocation: 3, offset: 8, format: 'float32x4' },
-      { shaderLocation: 4, offset: 24, format: 'float32x2' },
-      { shaderLocation: 5, offset: 32, format: 'float32x4' }
+      { shaderLocation: 3, offset: 8, format: 'float32x2' },
+      { shaderLocation: 4, offset: 16, format: 'float32x4' },
+      { shaderLocation: 5, offset: 32, format: 'float32x2' },
+      { shaderLocation: 6, offset: 40, format: 'float32x4' },
+      { shaderLocation: 7, offset: 56, format: 'float32x2' }
     ]
   };
   const depthStencil = (compare, passOp = 'keep') => ({
@@ -928,10 +947,12 @@ function webGpuShaderSource() {
       @location(0) color: vec4f,
     }
     struct StrokeInput {
-      @location(2) fromPosition: vec2f,
-      @location(3) fromColor: vec4f,
-      @location(4) toPosition: vec2f,
-      @location(5) toColor: vec4f,
+      @location(2) previousPosition: vec2f,
+      @location(3) fromPosition: vec2f,
+      @location(4) fromColor: vec4f,
+      @location(5) toPosition: vec2f,
+      @location(6) toColor: vec4f,
+      @location(7) nextPosition: vec2f,
     }
     struct PickOutput {
       @builtin(position) position: vec4f,
@@ -970,14 +991,45 @@ function webGpuShaderSource() {
       return output;
     }
 
+    fn joinedStrokeOffset(previous: vec2f, point: vec2f, next: vec2f, distance: f32) -> vec2f {
+      let incoming = point - previous;
+      let outgoing = next - point;
+      let incomingLength = length(incoming);
+      let outgoingLength = length(outgoing);
+      if (incomingLength < 0.0001) {
+        let direction = outgoing / max(outgoingLength, 0.0001);
+        return vec2f(-direction.y, direction.x) * distance;
+      }
+      if (outgoingLength < 0.0001) {
+        let direction = incoming / incomingLength;
+        return vec2f(-direction.y, direction.x) * distance;
+      }
+      let incomingNormal = vec2f(-incoming.y, incoming.x) / incomingLength;
+      let outgoingNormal = vec2f(-outgoing.y, outgoing.x) / outgoingLength;
+      let normalSum = incomingNormal + outgoingNormal;
+      if (length(normalSum) < 0.0001) {
+        return outgoingNormal * distance;
+      }
+      let miter = normalize(normalSum);
+      let denominator = dot(miter, outgoingNormal);
+      if (abs(denominator) < 0.0001) {
+        return outgoingNormal * distance;
+      }
+      let scale = clamp(distance / denominator, -abs(distance) * 4.0, abs(distance) * 4.0);
+      return miter * scale;
+    }
+
     @vertex fn strokeVertex(input: StrokeInput, @builtin(vertex_index) vertexIndex: u32) -> PlotOutput {
       let along = select(1.0, 0.0, vertexIndex == 0u || vertexIndex == 1u || vertexIndex == 3u);
       let side = select(-1.0, 1.0, vertexIndex == 0u || vertexIndex == 3u || vertexIndex == 5u);
       let fromScreen = vec2f(dot(view.xRow.xyz, vec3f(input.fromPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.fromPosition, 1.0)));
       let toScreen = vec2f(dot(view.xRow.xyz, vec3f(input.toPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.toPosition, 1.0)));
-      let delta = toScreen - fromScreen;
-      let normal = vec2f(-delta.y, delta.x) / max(length(delta), 0.0001);
-      let screen = mix(fromScreen, toScreen, along) + normal * (stroke.geometry.y + side * stroke.geometry.x * 0.5);
+      let previousScreen = vec2f(dot(view.xRow.xyz, vec3f(input.previousPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.previousPosition, 1.0)));
+      let nextScreen = vec2f(dot(view.xRow.xyz, vec3f(input.nextPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.nextPosition, 1.0)));
+      let distance = stroke.geometry.y + side * stroke.geometry.x * 0.5;
+      let fromOffset = joinedStrokeOffset(previousScreen, fromScreen, toScreen, distance);
+      let toOffset = joinedStrokeOffset(fromScreen, toScreen, nextScreen, distance);
+      let screen = mix(fromScreen + fromOffset, toScreen + toOffset, along);
       var output: PlotOutput;
       output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
       output.color = select(mix(input.fromColor, input.toColor, along), stroke.color, stroke.geometry.z > 0.5);
@@ -1366,10 +1418,12 @@ function getWebGlLocations(gl, program, withColor) {
 
 function getWebGlStrokeLocations(gl, program) {
   return {
+    previousPosition: gl.getAttribLocation(program, 'a_previous_position'),
     fromPosition: gl.getAttribLocation(program, 'a_from_position'),
     fromColor: gl.getAttribLocation(program, 'a_from_color'),
     toPosition: gl.getAttribLocation(program, 'a_to_position'),
     toColor: gl.getAttribLocation(program, 'a_to_color'),
+    nextPosition: gl.getAttribLocation(program, 'a_next_position'),
     transform: gl.getUniformLocation(program, 'u_transform'),
     viewport: gl.getUniformLocation(program, 'u_viewport'),
     width: gl.getUniformLocation(program, 'u_width'),
@@ -1450,10 +1504,12 @@ function webGlSolidFragmentSource() {
 
 function webGlStrokeVertexSource() {
   return `#version 300 es
+    in vec2 a_previous_position;
     in vec2 a_from_position;
     in vec4 a_from_color;
     in vec2 a_to_position;
     in vec4 a_to_color;
+    in vec2 a_next_position;
     uniform mat3 u_transform;
     uniform vec2 u_viewport;
     uniform float u_width;
@@ -1461,15 +1517,40 @@ function webGlStrokeVertexSource() {
     uniform float u_override;
     uniform vec4 u_override_color;
     out vec4 v_color;
+    vec2 joined_stroke_offset(vec2 previous, vec2 point, vec2 next, float distance_value) {
+      vec2 incoming = point - previous;
+      vec2 outgoing = next - point;
+      float incoming_length = length(incoming);
+      float outgoing_length = length(outgoing);
+      if (incoming_length < 0.0001) {
+        vec2 direction = outgoing / max(outgoing_length, 0.0001);
+        return vec2(-direction.y, direction.x) * distance_value;
+      }
+      if (outgoing_length < 0.0001) {
+        vec2 direction = incoming / incoming_length;
+        return vec2(-direction.y, direction.x) * distance_value;
+      }
+      vec2 incoming_normal = vec2(-incoming.y, incoming.x) / incoming_length;
+      vec2 outgoing_normal = vec2(-outgoing.y, outgoing.x) / outgoing_length;
+      vec2 normal_sum = incoming_normal + outgoing_normal;
+      if (length(normal_sum) < 0.0001) return outgoing_normal * distance_value;
+      vec2 miter = normalize(normal_sum);
+      float denominator = dot(miter, outgoing_normal);
+      if (abs(denominator) < 0.0001) return outgoing_normal * distance_value;
+      float scale = clamp(distance_value / denominator, -abs(distance_value) * 4.0, abs(distance_value) * 4.0);
+      return miter * scale;
+    }
     void main() {
       float along = (gl_VertexID == 0 || gl_VertexID == 1 || gl_VertexID == 3) ? 0.0 : 1.0;
       float side = (gl_VertexID == 0 || gl_VertexID == 3 || gl_VertexID == 5) ? 1.0 : -1.0;
       vec2 from_screen = (u_transform * vec3(a_from_position, 1.0)).xy;
       vec2 to_screen = (u_transform * vec3(a_to_position, 1.0)).xy;
-      vec2 delta = to_screen - from_screen;
-      float length_value = max(length(delta), 0.0001);
-      vec2 normal = vec2(-delta.y, delta.x) / length_value;
-      vec2 screen = mix(from_screen, to_screen, along) + normal * (u_offset + side * u_width * 0.5);
+      vec2 previous_screen = (u_transform * vec3(a_previous_position, 1.0)).xy;
+      vec2 next_screen = (u_transform * vec3(a_next_position, 1.0)).xy;
+      float distance_value = u_offset + side * u_width * 0.5;
+      vec2 from_offset = joined_stroke_offset(previous_screen, from_screen, to_screen, distance_value);
+      vec2 to_offset = joined_stroke_offset(from_screen, to_screen, next_screen, distance_value);
+      vec2 screen = mix(from_screen + from_offset, to_screen + to_offset, along);
       gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
       v_color = u_override > 0.5 ? u_override_color : mix(a_from_color, a_to_color, along);
     }

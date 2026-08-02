@@ -89,7 +89,7 @@ test('normalizes CSS-coordinate GPU pick requests and delegates to the backend',
   assert.throws(() => normalizeSymbolicPlotPickRequest([1, 2], -1, 10, 10), /non-negative/);
 });
 
-test('packs line lists and strips once for instanced screen-space strokes', () => {
+test('packs line strips with adjacent vertices for continuous screen-space joins', () => {
   const data = new Float32Array([
     1, 2, 1, 0, 0, 1,
     3, 4, 0, 1, 0, 1,
@@ -99,9 +99,17 @@ test('packs line lists and strips once for instanced screen-space strokes', () =
     data,
     ranges: [{ topology: 'line-strip', first: 0, count: 3 }]
   });
-  assert.equal(segments.length, 24);
-  assert.deepEqual(Array.from(segments.slice(0, 12)), Array.from(data.slice(0, 12)));
-  assert.deepEqual(Array.from(segments.slice(12)), Array.from(data.slice(6, 18)));
+  assert.equal(segments.length, 32);
+  assert.deepEqual(Array.from(segments.slice(0, 16)), [
+    1, 2,
+    ...Array.from(data.slice(0, 12)),
+    5, 6
+  ]);
+  assert.deepEqual(Array.from(segments.slice(16)), [
+    1, 2,
+    ...Array.from(data.slice(6, 18)),
+    5, 6
+  ]);
 });
 
 test('uses edge-consistent plot width and distinct hover and selection opacity', () => {
