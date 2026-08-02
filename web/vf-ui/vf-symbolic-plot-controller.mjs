@@ -88,11 +88,8 @@ export async function createSymbolicPlotController({
     let nextArena;
     if (result.diagnostics.length === 0) {
       const arena = await kernel.plot(program, executionWorkspace, view, style, revision);
-      nextSnapGeometry = symbolicPlotSnapGeometry(arenaView(arena, kernel.memory));
-      // The kernel reuses its WASM arena. Expression revisions are stable while
-      // time advances, so the renderer needs a distinct revision per sample to
-      // upload both visible geometry and GPU picking data.
-      nextArena = { memory: kernel.memory, ...arena, revision: requestOrder };
+      nextArena = snapshotSymbolicPlotArena(arena, kernel.memory, requestOrder);
+      nextSnapGeometry = symbolicPlotSnapGeometry(nextArena);
     } else {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(requestOrder);
@@ -588,6 +585,17 @@ function arenaView(arena, memory) {
         ),
     ranges: arena.ranges
   };
+}
+
+function snapshotSymbolicPlotArena(arena, memory, revision) {
+  const view = arenaView(arena, memory);
+  return Object.freeze({
+    data: new Float32Array(view.data),
+    count: arena.count,
+    stride: arena.stride,
+    revision,
+    ranges: Object.freeze(view.ranges.map((range) => Object.freeze({ ...range })))
+  });
 }
 
 function vertexAt(data, index) {

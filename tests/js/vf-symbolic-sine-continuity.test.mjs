@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { createSymbolicKernel } from '../../web/vf-ui/vf-symbolic-kernel-runtime.mjs';
+import { createSymbolicPlotController } from '../../web/vf-ui/vf-symbolic-plot-controller.mjs';
 
 const artifactRoot = new URL('../../web/vf-ui/artifacts/', import.meta.url);
 
@@ -110,4 +111,44 @@ test('evaluates temporal curves continuously beyond the sampled time window', as
   assert.equal(plot.count, xSteps);
   assert.ok(points.every((point) => Math.abs(point.y - Math.sin(point.x - t)) < 1e-3));
   assert.ok(points.some((point) => Math.abs(point.y - Math.sin(point.x)) > 0.1));
+});
+
+test('controller commits distinct packaged sin(x-t) samples beyond t=1', async () => {
+  const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
+  const manifest = JSON.parse(
+    await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
+  );
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  const samples = [];
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel,
+    createRenderer: () => ({
+      async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setArena(arena) {
+        samples.push(arena);
+      },
+      render() {}, async pick() { return null; }, resize() {}, destroy() {}
+    })
+  });
+  const viewport = {
+    xMin: -2, xMax: 2, yMin: -1, yMax: 1,
+    transform: [100, 0, 0, -100, 200, 100], pixelRatio: 1
+  };
+
+  for (const [frameRevision, t] of [0, 0.5, 1, 1.5, 2].entries()) {
+    await controller.plot({
+      source: 'sin(x-t)', viewport: { ...viewport, t },
+      colors: { edge: '#ffffff', face: '#ffffff80' },
+      revision: 4, frameRevision, frameEpoch: 1
+    });
+  }
+
+  assert.equal(samples.length, 5);
+  assert.equal(new Set(samples.map(({ revision }) => revision)).size, 5);
+  assert.equal(new Set(samples.map(({ data }) => data.buffer)).size, 5);
+  assert.ok(samples.every(({ data }, index) => (
+    Math.abs(data[1] - Math.sin(viewport.xMin - index * 0.5)) < 1e-5
+  )));
 });
