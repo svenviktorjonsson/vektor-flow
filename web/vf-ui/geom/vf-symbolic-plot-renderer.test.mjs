@@ -5,9 +5,32 @@ import {
   SYMBOLIC_PLOT_VERTEX_STRIDE,
   SymbolicPlotMode,
   createSymbolicPlotRenderer,
+  uploadWebGlDynamicBuffer,
   resolveSymbolicPlotArena,
   triangulateSymbolicPlotClip
 } from './vf-symbolic-plot-renderer.mjs';
+
+test('reuses WebGL dynamic-buffer capacity across temporal frame uploads', () => {
+  const calls = [];
+  const gl = {
+    ARRAY_BUFFER: 0x8892,
+    DYNAMIC_DRAW: 0x88e8,
+    bindBuffer: (...args) => calls.push(['bindBuffer', ...args]),
+    bufferData: (...args) => calls.push(['bufferData', ...args]),
+    bufferSubData: (...args) => calls.push(['bufferSubData', ...args])
+  };
+  const buffer = {};
+
+  let capacity = uploadWebGlDynamicBuffer(gl, buffer, new Float32Array(65 * 12), 0);
+  const allocated = capacity;
+  for (let frame = 1; frame <= 120; frame += 1) {
+    capacity = uploadWebGlDynamicBuffer(gl, buffer, new Float32Array(65 * 12), capacity);
+  }
+
+  assert.equal(capacity, allocated);
+  assert.equal(calls.filter(([name]) => name === 'bufferData').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'bufferSubData').length, 121);
+});
 
 function createCanvas() {
   return {

@@ -394,19 +394,20 @@ export function symbolicPlotSnapGeometry(arena) {
     return point;
   };
   for (const range of arena.ranges || []) {
-    if (range.topology === 'point-list') {
+    const topology = symbolicSnapTopology(range);
+    if (topology === 'point-list') {
       for (let index = 0; index < range.count; index += 1) {
         const point = canonicalPoint(vertexAt(arena.data, range.first + index));
         if (!points.includes(point)) points.push(point);
       }
-    } else if (range.topology === 'line-list') {
+    } else if (topology === 'line-list') {
       for (let index = 0; index + 1 < range.count; index += 2) {
         segments.push([
           canonicalPoint(vertexAt(arena.data, range.first + index)),
           canonicalPoint(vertexAt(arena.data, range.first + index + 1))
         ]);
       }
-    } else if (range.topology === 'line-strip') {
+    } else if (topology === 'line-strip') {
       for (let index = 0; index + 1 < range.count; index += 1) {
         segments.push([
           canonicalPoint(vertexAt(arena.data, range.first + index)),
@@ -419,6 +420,16 @@ export function symbolicPlotSnapGeometry(arena) {
     points: Object.freeze(points),
     segments: Object.freeze(segments.map(([from, to]) => Object.freeze([from, to])))
   });
+}
+
+function symbolicSnapTopology(range) {
+  if (range?.topology) return range.topology;
+  if (range?.mode === 'points') return 'point-list';
+  if (range?.mode === 'linked-line-segments' || range?.mode === 'vector-field-glyphs') {
+    return 'line-list';
+  }
+  if (range?.mode === 'time-curve') return 'line-strip';
+  return null;
 }
 
 export async function createSymbolicCompiler({

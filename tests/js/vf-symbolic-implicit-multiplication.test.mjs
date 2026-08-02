@@ -43,7 +43,7 @@ test('compiles numeric coefficients adjacent to symbolic variables', async () =>
     },
     1
   );
-  const packed = new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6);
+  const packed = plot.data;
   assert.equal(plot.ranges[0].mode, 'time-curve');
   assert.equal(plot.ranges[0].part, 'edge');
   assert.ok(Array.from({ length: plot.count }, (_, index) => index)

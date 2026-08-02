@@ -135,11 +135,7 @@ test("published archive contains an executable symbolic kernel", async () => {
       first: 0,
       count: view.xSteps,
     }]);
-    const vertices = new Float32Array(
-      kernel.memory.buffer,
-      arena.pointer,
-      arena.count * arena.stride / Float32Array.BYTES_PER_ELEMENT,
-    );
+    const vertices = arena.data;
     const positions = Array.from({ length: arena.count }, (_, index) => [
       vertices[index * 6],
       vertices[index * 6 + 1],

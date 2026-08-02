@@ -87,6 +87,8 @@ export function createSymbolicKernel({ instance, manifest }) {
   const argumentCapacity = requireFunction(exportsObject, "vkf_vm_arguments_capacity");
   const resultPointer = requireFunction(exportsObject, "vkf_vm_results_ptr");
   const allocate = requireFunction(exportsObject, "vkf_vm_alloc");
+  const heapPointer = requireFunction(exportsObject, "vkf_vm_heap_ptr");
+  const rewind = requireFunction(exportsObject, "vkf_vm_rewind");
   const invokeWasm = requireFunction(exportsObject, "vkf_vm_invoke");
   const slotSize = requireFunction(exportsObject, "vkf_vm_value_slot_size")();
   if (slotSize !== SLOT_SIZE) {
@@ -262,7 +264,7 @@ export function createSymbolicKernel({ instance, manifest }) {
     return retain(recordFieldPointer(handle.pointer, field));
   }
 
-  function invoke(name, args = []) {
+  function invokePointer(name, args) {
     const signature = metadata.functions[name];
     if (!signature) throw new RangeError(`unknown VKF function "${name}"`);
     if (args.length !== signature.parameters) {
@@ -279,10 +281,56 @@ export function createSymbolicKernel({ instance, manifest }) {
     if (status !== 0) {
       throw new Error(`VKF invocation "${name}" failed with status ${status}`);
     }
-    const pointer = resultPointer();
+    return resultPointer();
+  }
+
+  function invoke(name, args = []) {
+    const pointer = invokePointer(name, args);
     return Object.freeze({
       value: decodeValue(pointer),
       handle: retain(pointer),
+    });
+  }
+
+  function invokeTransient(name, args, materialize) {
+    const checkpoint = heapPointer();
+    try {
+      return materialize(decodeValue(invokePointer(name, args)));
+    } finally {
+      if (rewind(checkpoint) !== checkpoint) {
+        throw new Error("VKF transient allocation checkpoint could not be restored");
+      }
+    }
+  }
+
+  function snapshotPlotArena(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("VKF symbolic plot must return an arena record");
+    }
+    const pointer = Number(value.pointer);
+    const count = Number(value.count);
+    const stride = Number(value.stride);
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new RangeError("VKF symbolic plot count must be a non-negative safe integer");
+    }
+    if (!Number.isSafeInteger(stride) || stride <= 0 || stride % 4 !== 0) {
+      throw new RangeError("VKF symbolic plot stride must be a positive Float32-aligned integer");
+    }
+    const byteLength = count * stride;
+    if (!Number.isSafeInteger(byteLength)) {
+      throw new RangeError("VKF symbolic plot arena exceeds the safe integer range");
+    }
+    checkedRange(pointer, byteLength, "VKF symbolic plot arena");
+    const data = new Float32Array(
+      new Float32Array(exportsObject.memory.buffer, pointer, byteLength / 4),
+    );
+    const { pointer: _transientPointer, ranges = [], ...metadata } = value;
+    return Object.freeze({
+      ...metadata,
+      count,
+      stride,
+      data,
+      ranges: Object.freeze(ranges.map((range) => Object.freeze({ ...range }))),
     });
   }
 
@@ -325,10 +373,11 @@ export function createSymbolicKernel({ instance, manifest }) {
       ).value;
     },
     plot(program, workspace, view, style, revision) {
-      return invoke(
+      return invokeTransient(
         "symbolic_plot",
         [program, workspace, view, style, revision],
-      ).value;
+        snapshotPlotArena,
+      );
     },
     get memory() {
       return exportsObject.memory;

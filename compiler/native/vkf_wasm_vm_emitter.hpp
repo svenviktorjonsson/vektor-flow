@@ -3186,6 +3186,40 @@ inline std::vector<std::uint8_t> emit_reset_function(
     return encoded_body(std::move(body));
 }
 
+inline std::vector<std::uint8_t> emit_rewind_function(
+    std::uint32_t heap_base
+) {
+    Writer body;
+    body.u32_leb(0);
+
+    local_get(body, 0);
+    i32_const(body, heap_base);
+    body.u8(0x49);
+    local_get(body, 0);
+    body.u8(0x23);
+    body.u32_leb(0);
+    body.u8(0x4b);
+    body.u8(0x72);
+    local_get(body, 0);
+    i32_const(body, values::slot_alignment - 1U);
+    body.u8(0x71);
+    body.u8(0x45);
+    body.u8(0x45);
+    body.u8(0x72);
+    body.u8(0x04);
+    body.u8(0x40);
+    i32_const(body, 0);
+    body.u8(0x0f);
+    body.u8(0x0b);
+
+    local_get(body, 0);
+    body.u8(0x24);
+    body.u32_leb(0);
+    local_get(body, 0);
+    body.u8(0x0b);
+    return encoded_body(std::move(body));
+}
+
 }  // namespace detail
 
 inline EmittedModule emit(
@@ -3277,7 +3311,8 @@ inline EmittedModule emit(
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
     const std::uint32_t reset_index = heap_pointer_index + 1;
-    const std::uint32_t invoke_index = reset_index + 1;
+    const std::uint32_t rewind_index = reset_index + 1;
+    const std::uint32_t invoke_index = rewind_index + 1;
     const std::uint32_t evaluate_index = invoke_index + 1;
     const std::uint32_t emitted_function_count = evaluate_index + 1;
 
@@ -3383,6 +3418,7 @@ inline EmittedModule emit(
     for (std::uint32_t index = 0; index < getter_count + 2; ++index) {
         emit_type({}, {detail::wasm_i32});
     }
+    emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type(
         {detail::wasm_i32, detail::wasm_i32},
         {detail::wasm_i32}
@@ -3413,7 +3449,7 @@ inline EmittedModule emit(
     detail::append_section(wasm, 6, globals.take());
 
     detail::Writer exports;
-    exports.u32_leb(15);
+    exports.u32_leb(16);
     exports.name("memory");
     exports.u8(0x02);
     exports.u32_leb(0);
@@ -3448,6 +3484,9 @@ inline EmittedModule emit(
     exports.name("vkf_vm_reset");
     exports.u8(0x00);
     exports.u32_leb(reset_index);
+    exports.name("vkf_vm_rewind");
+    exports.u8(0x00);
+    exports.u32_leb(rewind_index);
     detail::append_section(wasm, 7, exports.take());
 
     detail::Writer code;
@@ -3542,6 +3581,7 @@ inline EmittedModule emit(
     }
     code.raw(detail::emit_heap_pointer_function());
     code.raw(detail::emit_reset_function(emitted.layout.heap_base));
+    code.raw(detail::emit_rewind_function(emitted.layout.heap_base));
     code.raw(detail::emit_invoke_function(module, emitted.layout));
     code.raw(detail::emit_evaluate_function(
         module.entry_function,

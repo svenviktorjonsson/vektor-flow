@@ -31,7 +31,7 @@ function plotGeometry(kernel, workspace, source, viewOverrides = {}) {
   const program = kernel.compile(source);
   assert.deepEqual(program.value.diagnostics, [], source);
   const arena = kernel.plot(program.handle, workspace, { ...view, ...viewOverrides }, style, 1);
-  const data = new Float32Array(kernel.memory.buffer, arena.pointer, arena.count * 6);
+  const data = arena.data;
   const ranges = arena.ranges.map((range) => ({
     ...range,
     topology: range.mode === 'points'

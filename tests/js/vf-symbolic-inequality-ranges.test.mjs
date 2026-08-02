@@ -33,7 +33,7 @@ test('encodes strict faces and non-strict face plus edge ranges with independent
   ]) {
     const program = kernel.compile(`x^2 + y^2 ${operator} 1`);
     const plot = kernel.plot(program.handle, workspace.handle, view, style, parts.length);
-    const vertices = new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6);
+    const vertices = plot.data;
 
     assert.equal(program.value.classification, classification);
     assert.deepEqual(plot.ranges.map((range) => range.part), parts);

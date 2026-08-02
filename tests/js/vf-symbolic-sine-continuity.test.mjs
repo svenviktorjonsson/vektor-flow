@@ -51,7 +51,7 @@ test('emits an ordered smooth sin(x) line strip across negative pi', async () =>
     },
     1
   );
-  const packed = new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6);
+  const packed = plot.data;
   const points = Array.from({ length: plot.count }, (_, index) => ({
     x: packed[index * 6],
     y: packed[index * 6 + 1]
@@ -102,7 +102,7 @@ test('evaluates temporal curves continuously beyond the sampled time window', as
     },
     1
   );
-  const packed = new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6);
+  const packed = plot.data;
   const points = Array.from({ length: plot.count }, (_, index) => ({
     x: packed[index * 6],
     y: packed[index * 6 + 1]
@@ -151,4 +151,75 @@ test('controller commits distinct packaged sin(x-t) samples beyond t=1', async (
   assert.ok(samples.every(({ data }, index) => (
     Math.abs(data[1] - Math.sin(viewport.xMin - index * 0.5)) < 1e-5
   )));
+});
+
+test('keeps transient plot memory bounded across 300 temporal frames', async () => {
+  const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
+  const manifest = JSON.parse(
+    await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
+  );
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  const arenas = [];
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel,
+    createRenderer: () => ({
+      async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setArena(arena) { arenas.push(arena); return arena; },
+      render() {}, async pick() {
+        return { kind: 'segment', index: 0, part: 'edge', rangeIndex: 0, primitiveIndex: 0 };
+      },
+      resize() {}, destroy() {}
+    })
+  });
+  const viewport = {
+    xMin: -2, xMax: 2, yMin: -1, yMax: 1,
+    transform: [100, 0, 0, -100, 200, 100], pixelRatio: 1
+  };
+  const context = {
+    kind: 'global', dimension: 2, originX: 0, originY: 0,
+    basisXX: 1, basisXY: 0, basisYX: 0, basisYY: 1
+  };
+  const compilation = kernel.workspaceCompile(
+    kernel.createWorkspace().handle,
+    'sin(x-t)',
+    context,
+    null
+  );
+
+  await controller.plot({
+    source: 'sin(x-t)', viewport: { ...viewport, t: 0 },
+    colors: { edge: '#ffffff', face: '#ffffff80' },
+    revision: 9, frameRevision: 0, frameEpoch: 1, compilation
+  });
+  const persistentHeapEnd = instance.exports.vkf_vm_heap_ptr();
+  for (let frame = 1; frame < 300; frame += 1) {
+    await controller.plot({
+      source: 'sin(x-t)', viewport: { ...viewport, t: frame / 60 },
+      colors: { edge: '#ffffff', face: '#ffffff80' },
+      revision: 9, frameRevision: frame, frameEpoch: 1, compilation
+    });
+  }
+
+  assert.equal(arenas.length, 300);
+  assert.equal(instance.exports.vkf_vm_heap_ptr(), persistentHeapEnd);
+  assert.notDeepEqual(
+    Array.from(arenas[0].data.slice(0, 12)),
+    Array.from(arenas.at(-1).data.slice(0, 12))
+  );
+  assert.ok(controller.snapGeometry.segments.length > 0);
+  const segment = controller.snapGeometry.segments[0];
+  const midpoint = [
+    (segment[0][0] + segment[1][0]) / 2,
+    (segment[0][1] + segment[1][1]) / 2
+  ];
+  const screen = [
+    viewport.transform[0] * midpoint[0] + viewport.transform[4],
+    viewport.transform[3] * midpoint[1] + viewport.transform[5]
+  ];
+  assert.equal(controller.hitTest(screen, 2)?.kind, 'segment');
+  assert.deepEqual(await controller.pick(screen, 8), {
+    kind: 'segment', index: 0, part: 'edge', rangeIndex: 0, primitiveIndex: 0
+  });
 });

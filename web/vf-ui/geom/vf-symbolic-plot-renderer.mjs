@@ -117,6 +117,17 @@ export function growSymbolicPlotCapacity(currentBytes, requiredBytes) {
   return Math.ceil(capacity / 4) * 4;
 }
 
+export function uploadWebGlDynamicBuffer(gl, buffer, data, currentCapacity = 0) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  let capacity = currentCapacity;
+  if (data.byteLength > capacity) {
+    capacity = growSymbolicPlotCapacity(capacity, data.byteLength);
+    gl.bufferData(gl.ARRAY_BUFFER, capacity, gl.DYNAMIC_DRAW);
+  }
+  if (data.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
+  return capacity;
+}
+
 export function resolveSymbolicPlotArena(spec, previous = null) {
   if (!spec || typeof spec !== 'object') {
     throw new TypeError('symbolic plot arena must be an object');
@@ -1045,6 +1056,7 @@ function createWebGl2Backend(canvas) {
   const facePickLocations = getWebGlLocations(gl, facePickProgram, false);
   let plotCapacity = 0;
   let clipCapacity = 0;
+  let segmentCapacity = 0;
   let clipCount = 0;
   let currentArena = null;
   let appearance = normalizeSymbolicPlotAppearance();
@@ -1075,12 +1087,7 @@ function createWebGl2Backend(canvas) {
     },
     updateClip(vertices) {
       clipCount = vertices.length / 2;
-      gl.bindBuffer(gl.ARRAY_BUFFER, clipBuffer);
-      if (vertices.byteLength > clipCapacity) {
-        clipCapacity = growSymbolicPlotCapacity(clipCapacity, vertices.byteLength);
-        gl.bufferData(gl.ARRAY_BUFFER, clipCapacity, gl.DYNAMIC_DRAW);
-      }
-      if (vertices.byteLength) gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
+      clipCapacity = uploadWebGlDynamicBuffer(gl, clipBuffer, vertices, clipCapacity);
     },
     updateAppearance(nextAppearance) {
       appearance = nextAppearance;
@@ -1093,16 +1100,12 @@ function createWebGl2Backend(canvas) {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
       if (!currentArena) return;
       if (upload) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, plotBuffer);
-        if (currentArena.data.byteLength > plotCapacity) {
-          plotCapacity = growSymbolicPlotCapacity(plotCapacity, currentArena.data.byteLength);
-          gl.bufferData(gl.ARRAY_BUFFER, plotCapacity, gl.DYNAMIC_DRAW);
-        }
-        if (currentArena.data.byteLength) {
-          gl.bufferSubData(gl.ARRAY_BUFFER, 0, currentArena.data);
-        }
-        gl.bindBuffer(gl.ARRAY_BUFFER, segmentBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, currentArena.segments, gl.DYNAMIC_DRAW);
+        plotCapacity = uploadWebGlDynamicBuffer(
+          gl, plotBuffer, currentArena.data, plotCapacity
+        );
+        segmentCapacity = uploadWebGlDynamicBuffer(
+          gl, segmentBuffer, currentArena.segments, segmentCapacity
+        );
       }
 
       const clipped = clipCount > 0;

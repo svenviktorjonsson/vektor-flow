@@ -263,6 +263,7 @@ const required = [
   "vkf_vm_heap_ptr",
   "vkf_vm_alloc",
   "vkf_vm_reset",
+  "vkf_vm_rewind",
   "vkf_vm_invoke",
   "vkf_vm_evaluate",
 ];
@@ -317,6 +318,12 @@ const concatStatus = e.vkf_vm_invoke(5, 0);
 const concatValue = readString(result);
 const badFunction = e.vkf_vm_invoke(99, 0);
 const badArity = e.vkf_vm_invoke(0, 0);
+const checkpoint = e.vkf_vm_heap_ptr();
+e.vkf_vm_alloc(64);
+const rewindResult = e.vkf_vm_rewind(checkpoint);
+const rewoundHeap = e.vkf_vm_heap_ptr();
+const invalidRewindResult = e.vkf_vm_rewind(checkpoint - 1);
+const heapAfterInvalidRewind = e.vkf_vm_heap_ptr();
 process.stdout.write(JSON.stringify({
   bytecodeMagic: new TextDecoder().decode(bytecode.slice(0, 5)),
   bytecodeLength: bytecode.length,
@@ -342,6 +349,10 @@ process.stdout.write(JSON.stringify({
   concatValue,
   badFunction,
   badArity,
+  rewindResult,
+  rewoundHeap,
+  invalidRewindResult,
+  heapAfterInvalidRewind,
 }));
 ''',
         encoding="utf-8",
@@ -378,6 +389,10 @@ process.stdout.write(JSON.stringify({
         "concatValue": "abcd",
         "badFunction": 1,
         "badArity": 2,
+        "rewindResult": payload["rewoundHeap"],
+        "rewoundHeap": payload["rewoundHeap"],
+        "invalidRewindResult": 0,
+        "heapAfterInvalidRewind": payload["rewoundHeap"],
     }
 
 
