@@ -37,6 +37,64 @@ test('compiler exposes plot capability only for supported classifications', asyn
   assert.equal(compiler.compile('f(x)=x').plottable, false);
   classification = 'y-of-x';
   assert.equal(compiler.compile('x^2').plottable, true);
+  classification = 'y-of-x-family';
+  assert.equal(compiler.compile('x^(1..4)').plottable, true);
+});
+
+test('owns a four-range curve family in one controller arena', async () => {
+  const calls = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  const vertices = new Float32Array(memory.buffer, 0, 48);
+  for (let curve = 0; curve < 4; curve += 1) {
+    const offset = curve * 12;
+    vertices.set([-1, (-1) ** (curve + 1), 0, 0, 0, 0, 1, 1, 0, 0, 0, 0], offset);
+  }
+  const program = {
+    diagnostics: [],
+    latex: '{x}^{\\left(1..4\\right)}',
+    variables: ['x'],
+    classification: 'y-of-x-family',
+    valueKind: 'scalar'
+  };
+  const ranges = [0, 1, 2, 3].map((index) => ({
+    topology: 'line-strip', mode: 'time-curve', first: index * 2, count: 2
+  }));
+  const kernel = {
+    memory,
+    compileWithContext() { return { value: program }; },
+    createWorkspace() { return { handle: 'workspace-0' }; },
+    workspaceCompile() { calls.push(['compile']); return { value: { program }, workspace: 'workspace-1', program: 'program-1' }; },
+    plot() { calls.push(['plot']); return { pointer: 0, count: 8, stride: 24, revision: 1, ranges }; }
+  };
+  const renderer = {
+    async initialize() {},
+    updateTransform() {}, updateClip() {},
+    updateAppearance(value) { calls.push(['appearance', value]); },
+    setArena(value) { calls.push(['arena', value]); },
+    render() {}, resize() {}, destroy() {},
+    async pick() { calls.push(['pick']); return { kind: 'segment', rangeIndex: 2, index: 4 }; }
+  };
+  const canvas = { hidden: true };
+  const controller = await createSymbolicPlotController({ canvas, kernel, createRenderer: () => renderer });
+  const result = await controller.plot({
+    source: 'x^(1..4)', viewport,
+    colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' }, revision: 1
+  });
+
+  assert.equal(result.plottable, true);
+  assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  const arenas = calls.filter(([name]) => name === 'arena');
+  assert.equal(arenas.length, 1);
+  assert.deepEqual(arenas[0][1].ranges, ranges);
+  assert.deepEqual(await controller.pick([0, 0]), { kind: 'segment', rangeIndex: 2, index: 4 });
+  controller.setInteractionState('selected');
+  assert.deepEqual(calls.filter(([name]) => name === 'appearance').at(-1)[1].partStates, {
+    edge: 'selected', face: 'selected'
+  });
+  assert.equal(controller.toggleVisible(), false);
+  assert.equal(canvas.hidden, true);
+  controller.destroy();
 });
 
 test('normalizes device transforms at DPR 2 and 3', () => {

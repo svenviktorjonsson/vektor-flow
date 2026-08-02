@@ -1451,7 +1451,28 @@ symbolic_variable_dependencies(name:str):
         "phi" => vkf_list_pair("x", "y")
         symbolic_single_variable(name)
 
+symbolic_is_power_family_collection(node:any):
+    node.kind = "range" \/ node.kind = "multiset"
+
+symbolic_is_y_of_x_power_family(ast:any):
+    ast.kind = "binary" /\ ast.op = "^" /\ symbolic_is_power_family_collection(ast.right) /\ symbolic_power_base_has_x_only(ast.left)
+
+symbolic_is_x_of_y_power_family(ast:any):
+    ast.kind = "binary" /\ ast.op = "^" /\ symbolic_is_power_family_collection(ast.right) /\ symbolic_power_base_has_y_only(ast.left)
+
+symbolic_power_base_has_x_only(base:any):
+    variables: symbolic_variables(base)
+    symbolic_list_contains(variables, 0, "x") /\ symbolic_list_contains(variables, 0, "y") = false /\ symbolic_list_contains(variables, 0, "z") = false
+
+symbolic_power_base_has_y_only(base:any):
+    variables: symbolic_variables(base)
+    symbolic_list_contains(variables, 0, "y") /\ symbolic_list_contains(variables, 0, "x") = false /\ symbolic_list_contains(variables, 0, "z") = false
+
 symbolic_classification(ast:any, variables:any, value_kind:str):
+    symbolic_is_y_of_x_power_family(ast)?
+        @: "y-of-x-family"
+    symbolic_is_x_of_y_power_family(ast)?
+        @: "x-of-y-family"
     ast.kind = "binary" /\ ast.op = "^" /\ ast.right.kind = "multiset"?
         @: "point-set"
     ast.kind = "binary" /\ ast.op = "^" /\ (ast.right.kind = "tuple" \/ ast.right.kind = "range")?
@@ -1733,7 +1754,7 @@ symbolic_plot(
     revision:num
 ):
     builder: symbolic_plot_builder(
-        symbolic_plot_capacity(program.classification, view),
+        symbolic_plot_capacity(program, workspace, view),
         revision
     )
     builder = null?
@@ -1745,6 +1766,8 @@ symbolic_plot(
         style,
         builder
     )
+    program.classification = "y-of-x-family" \/ program.classification = "x-of-y-family"?
+        @: symbolic_curve_family_plot_result(program, workspace, view, sampled)
     symbolic_is_linked_power_collection(program.ast)?
         @: symbolic_linked_power_plot_result(program, workspace, view.t, sampled)
     program.ast.kind = "tuple"?
@@ -1762,6 +1785,36 @@ symbolic_plot(
 
 symbolic_is_linked_power_collection(node:any):
     node.kind = "binary" /\ node.op = "^" /\ (node.right.kind = "tuple" \/ node.right.kind = "range")
+
+symbolic_curve_family_points_per_curve(classification:str, view:any):
+    classification = "y-of-x-family"?
+        @: view.xSteps
+    view.ySteps
+
+symbolic_curve_family_plot_result(program:any, workspace:any, view:any, builder:any):
+    complete: symbolic_plot_builder_metadata(builder)
+    curveCount: symbolic_power_exponent_count(program.ast, program, workspace, view.t)
+    pointsPerCurve: symbolic_curve_family_points_per_curve(program.classification, view)
+    (
+        pointer: complete.pointer,
+        count: complete.count,
+        stride: complete.stride,
+        revision: complete.revision,
+        ranges: symbolic_curve_family_ranges(curveCount, pointsPerCurve, 0)
+    )
+
+symbolic_curve_family_ranges(curveCount:num, pointsPerCurve:num, index:num):
+    index >= curveCount?
+        @: vkf_list_empty()
+    current: vkf_list_single(
+        (
+            mode: "time-curve",
+            part: "edge",
+            first: index * pointsPerCurve,
+            count: pointsPerCurve
+        )
+    )
+    current & symbolic_curve_family_ranges(curveCount, pointsPerCurve, index + 1)
 
 symbolic_linked_power_plot_result(program:any, workspace:any, frameTime:num, builder:any):
     complete: symbolic_plot_builder_metadata(builder)
@@ -1844,8 +1897,10 @@ symbolic_closed_region_ranges(fillCount:num, completeCount:num):
     )
     first & second
 
-symbolic_plot_capacity(classification:str, view:any):
-    classification??
+symbolic_plot_capacity(program:any, workspace:any, view:any):
+    program.classification??
+        "y-of-x-family" => symbolic_power_exponent_count(program.ast, program, workspace, view.t) * view.xSteps
+        "x-of-y-family" => symbolic_power_exponent_count(program.ast, program, workspace, view.t) * view.ySteps
         "y-of-x" => view.xSteps
         "x-of-y" => view.ySteps
         "parametric" => view.tSteps
@@ -1885,6 +1940,8 @@ symbolic_plot_mode(classification:str):
         "literal" => "points"
         "point-set" => "points"
         "linked-tuple" => "linked-line-segments"
+        "y-of-x-family" => "time-curve"
+        "x-of-y-family" => "time-curve"
         "y-of-x" => "time-curve"
         "x-of-y" => "time-curve"
         "parametric" => "time-curve"
@@ -1910,6 +1967,8 @@ symbolic_plot_into_builder(
     builder:any
 ):
     program.classification??
+        "y-of-x-family" => symbolic_sample_explicit_x_family(program, workspace, view, style, builder, 0, 0)
+        "x-of-y-family" => symbolic_sample_explicit_y_family(program, workspace, view, style, builder, 0, 0)
         "y-of-x" => symbolic_sample_explicit_x(program, workspace, view, style, builder, 0)
         "x-of-y" => symbolic_sample_explicit_y(program, workspace, view, style, builder, 0)
         "parametric" => symbolic_sample_parametric(program, workspace, view, style, builder, 0)
@@ -1919,6 +1978,39 @@ symbolic_plot_into_builder(
         "open-region" => symbolic_sample_region(program, workspace, view, style, builder, 0, 0)
         "closed-region" => symbolic_sample_region(program, workspace, view, style, builder, 0, 0)
         symbolic_plot_literal(program, workspace, view.t, style, builder)
+
+symbolic_power_family_value(program:any, workspace:any, x:num, y:num, frameTime:num, exponentIndex:num):
+    evaluation: symbolic_local_evaluation(x, y, 0, frameTime, program.context)
+    base: symbolic_evaluate(
+        program.ast.left,
+        evaluation,
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+    exponent: symbolic_power_exponents(program.ast, program, workspace, frameTime).(exponentIndex)
+    baseKind: symbolic_value_kind_for_context(program.ast.left, program.context)
+    symbolic_power_collection_value(base, baseKind, exponent)
+
+symbolic_sample_explicit_x_family(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num):
+    exponentIndex >= symbolic_power_exponent_count(program.ast, program, workspace, view.t)?
+        @: builder
+    index >= view.xSteps?
+        @: symbolic_sample_explicit_x_family(program, workspace, view, style, builder, exponentIndex + 1, 0)
+    x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
+    y: symbolic_power_family_value(program, workspace, x, 0, view.t, exponentIndex)
+    pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
+    symbolic_sample_explicit_x_family(program, workspace, view, style, pushed, exponentIndex, index + 1)
+
+symbolic_sample_explicit_y_family(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num):
+    exponentIndex >= symbolic_power_exponent_count(program.ast, program, workspace, view.t)?
+        @: builder
+    index >= view.ySteps?
+        @: symbolic_sample_explicit_y_family(program, workspace, view, style, builder, exponentIndex + 1, 0)
+    y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
+    x: symbolic_power_family_value(program, workspace, 0, y, view.t, exponentIndex)
+    pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
+    symbolic_sample_explicit_y_family(program, workspace, view, style, pushed, exponentIndex, index + 1)
 
 symbolic_sample_explicit_x(
     program:any,
@@ -2457,22 +2549,34 @@ symbolic_plot_literal(program:any, workspace:any, frameTime:num, style:any, buil
     )
 
 symbolic_power_exponents(node:any, program:any, workspace:any, frameTime:num):
+    evaluation: symbolic_local_evaluation(0, 0, 0, frameTime, program.context)
     node.right.kind = "range"?
         @: symbolic_evaluate(
             node.right,
-            symbolic_local_evaluation(0, 0, 0, frameTime, program.context),
+            evaluation,
             workspace,
             vkf_list_empty(),
             vkf_list_empty()
         )
-    symbolic_evaluate_items(
-        node.right.items,
-        0,
-        symbolic_local_evaluation(0, 0, 0, frameTime, program.context),
+    symbolic_power_exponent_items(node.right.items, 0, evaluation, workspace)
+
+symbolic_power_exponent_items(items:any, index:num, evaluation:any, workspace:any):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    current: symbolic_power_exponent_values(items.(index), evaluation, workspace)
+    current & symbolic_power_exponent_items(items, index + 1, evaluation, workspace)
+
+symbolic_power_exponent_values(node:any, evaluation:any, workspace:any):
+    value: symbolic_evaluate(
+        node,
+        evaluation,
         workspace,
         vkf_list_empty(),
         vkf_list_empty()
     )
+    node.kind = "range"?
+        @: value
+    vkf_list_single(value)
 
 symbolic_power_exponent_count(node:any, program:any, workspace:any, frameTime:num):
     vkf_list_length(symbolic_power_exponents(node, program, workspace, frameTime))

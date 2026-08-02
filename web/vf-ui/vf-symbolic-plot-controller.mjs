@@ -685,6 +685,8 @@ const PLOTTABLE_CLASSIFICATIONS = new Set([
   'literal',
   'linked-tuple',
   'point-set',
+  'y-of-x-family',
+  'x-of-y-family',
   'y-of-x',
   'x-of-y',
   'parametric',

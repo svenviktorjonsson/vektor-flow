@@ -95,6 +95,43 @@ test('preserves set, tuple, and range-tuple exponent semantics in latex and geom
   assert.equal(closed.geometry.segments.length, 4);
 });
 
+test('plots a symbolic base with a range exponent as one multi-range curve family', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(kernel, workspace, 'x^(1..4)');
+
+  assert.equal(result.program.classification, 'y-of-x-family');
+  assert.equal(result.program.latex, '{x}^{\\left(1..4\\right)}');
+  assert.deepEqual(
+    result.arena.ranges.map(({ mode, first, count }) => ({ mode, first, count })),
+    [0, 1, 2, 3].map((index) => ({
+      mode: 'time-curve',
+      first: index * view.xSteps,
+      count: view.xSteps
+    }))
+  );
+
+  const sampleAt = (power, index) => {
+    const vertex = (power - 1) * view.xSteps + index;
+    const strideFloats = result.arena.stride / Float32Array.BYTES_PER_ELEMENT;
+    return [
+      result.packed[vertex * strideFloats],
+      result.packed[vertex * strideFloats + 1]
+    ];
+  };
+  const middle = Math.floor(view.xSteps / 2);
+  assert.deepEqual(sampleAt(1, middle), [0, 0]);
+  assert.deepEqual(sampleAt(2, 0), [-5, 25]);
+  assert.deepEqual(sampleAt(3, 0), [-5, -125]);
+  assert.deepEqual(sampleAt(4, view.xSteps - 1), [5, 625]);
+
+  for (const source of ['x^{1..4}', 'x^{1,2,3,4}']) {
+    const equivalent = plotGeometry(kernel, workspace, source);
+    assert.equal(equivalent.program.classification, 'y-of-x-family', source);
+    assert.deepEqual(equivalent.arena.ranges, result.arena.ranges, source);
+    assert.deepEqual(equivalent.packed, result.packed, source);
+  }
+});
 test('emits ordinary linked tuple vertices before linked edges', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
