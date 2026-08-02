@@ -388,9 +388,36 @@ symbolic_parse_identifier(state:SymbolicParseState, identifier:SymbolicToken):
     current.kind??
         "LPAREN" => symbolic_parse_call(identifier, next)
         symbolic_parse_result(
-            symbolic_variable(identifier.text, identifier.location),
+            symbolic_identifier_ast(identifier.text, identifier.location),
             next
         )
+
+symbolic_identifier_ast(text:str, location:SymbolicLocation):
+    symbolic_coordinate_product_text(text, 0)?
+        @: symbolic_coordinate_product_ast(text, 0, location)
+    symbolic_variable(text, location)
+
+symbolic_coordinate_product_text(text:str, offset:num):
+    vkf_string_eof(text, offset)?
+        @: true
+    ch: vkf_string_peek_scalar(text, offset)
+    symbolic_is_coordinate_variable(ch) = false?
+        @: false
+    symbolic_coordinate_product_text(text, offset + 1)
+
+symbolic_is_coordinate_variable(ch:num):
+    ch = 120 \/ ch = 121 \/ ch = 122 \/ ch = 116
+
+symbolic_coordinate_product_ast(text:str, offset:num, location:SymbolicLocation):
+    name: vkf_utf8_slice(text, offset, offset + 1)
+    variable: symbolic_variable(name, location)
+    vkf_string_eof(text, offset + 1)?
+        @: variable
+    symbolic_implicit_multiplication(
+        variable,
+        symbolic_coordinate_product_ast(text, offset + 1, location),
+        location
+    )
 
 symbolic_parse_call(identifier:SymbolicToken, state:SymbolicParseState):
     symbolic_parse_call_items(
