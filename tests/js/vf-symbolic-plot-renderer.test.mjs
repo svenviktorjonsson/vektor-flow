@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   SYMBOLIC_PLOT_VERTEX_STRIDE,
   SYMBOLIC_PLOT_EDGE_WIDTH,
+  SYMBOLIC_PLOT_POINT_RADIUS,
+  SYMBOLIC_PLOT_POINT_VERTICES,
   SymbolicPlotMode,
   createSymbolicPlotRenderer,
   growSymbolicPlotCapacity,
@@ -11,6 +13,9 @@ import {
   normalizeSymbolicPlotPickRequest,
   packSymbolicPlotSegments,
   resolveSymbolicPlotArena,
+  symbolicPlotPointDraws,
+  webGlPointFragmentSource,
+  webGlPointVertexSource,
   triangulateSymbolicPlotClip
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
 
@@ -240,6 +245,27 @@ test('validates all plot primitive modes without repacking vertex data', () => {
   );
 });
 
+test('expands symbolic points into smooth GPU circle instances', () => {
+  const arena = resolveSymbolicPlotArena({
+    data: new Float32Array(4 * 6),
+    count: 4,
+    ranges: [
+      { mode: SymbolicPlotMode.POINTS, first: 1, count: 2 },
+      { mode: SymbolicPlotMode.LINKED_LINE_SEGMENTS, first: 0, count: 2 }
+    ]
+  });
+
+  assert.equal(SYMBOLIC_PLOT_POINT_RADIUS, 6);
+  assert.equal(SYMBOLIC_PLOT_POINT_VERTICES, 6);
+  assert.deepEqual(symbolicPlotPointDraws(arena), [{
+    first: 1,
+    count: 2,
+    verticesPerInstance: 6
+  }]);
+  assert.match(webGlPointVertexSource(), /gl_VertexID/);
+  assert.match(webGlPointFragmentSource(), /fwidth/);
+  assert.match(webGlPointFragmentSource(), /smoothstep/);
+});
 test('triangulates a concave clip polygon with exact polygon area', () => {
   const polygon = [[0, 0], [4, 0], [4, 4], [2, 2], [0, 4]];
   const triangles = triangulateSymbolicPlotClip(polygon);

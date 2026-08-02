@@ -824,13 +824,22 @@ symbolic_binary_latex(node:any, precedence:num):
         "-" => symbolic_latex_at(node.left, precedence) & " - " & symbolic_latex_at(node.right, precedence + 1)
         "*" => symbolic_multiplication_latex(node, precedence)
         "/" => "\\frac{" & symbolic_latex(node.left) & "}{" & symbolic_latex(node.right) & "}"
-        "^" => "{" & symbolic_latex(node.left) & "}^{" & symbolic_latex(node.right) & "}"
+        "^" => symbolic_power_latex(node)
         "=" => symbolic_latex(node.left) & " = " & symbolic_latex(node.right)
         "<" => symbolic_latex(node.left) & " < " & symbolic_latex(node.right)
         ">" => symbolic_latex(node.left) & " > " & symbolic_latex(node.right)
         "<=" => symbolic_latex(node.left) & " \\le " & symbolic_latex(node.right)
         ">=" => symbolic_latex(node.left) & " \\ge " & symbolic_latex(node.right)
         "\\operatorname{error}"
+
+symbolic_power_latex(node:any):
+    exponent: symbolic_power_exponent_latex(node.right)
+    "{" & symbolic_latex(node.left) & "}^{" & exponent & "}"
+
+symbolic_power_exponent_latex(node:any):
+    node.kind = "range"?
+        @: "\\left(" & symbolic_latex(node) & "\\right)"
+    symbolic_latex(node)
 
 symbolic_multiplication_latex(node:any, precedence:num):
     node.implicit = true?
@@ -1738,6 +1747,8 @@ symbolic_plot(
     )
     symbolic_is_linked_power_collection(program.ast)?
         @: symbolic_linked_power_plot_result(program, workspace, view.t, sampled)
+    program.ast.kind = "tuple"?
+        @: symbolic_linked_tuple_plot_result(program, sampled)
     program.classification = "closed-region"?
         @: symbolic_closed_region_plot_result(
             program,
@@ -1776,6 +1787,17 @@ symbolic_linked_literal_ranges(pointCount:num, completeCount:num):
         )
     )
     points & edges
+
+symbolic_linked_tuple_plot_result(program:any, builder:any):
+    complete: symbolic_plot_builder_metadata(builder)
+    pointCount: symbolic_literal_collection_point_count(program.ast.items, 0)
+    (
+        pointer: complete.pointer,
+        count: complete.count,
+        stride: complete.stride,
+        revision: complete.revision,
+        ranges: symbolic_linked_literal_ranges(pointCount, complete.count)
+    )
 
 symbolic_closed_region_plot_result(
     program:any,
@@ -2400,13 +2422,22 @@ symbolic_plot_literal(program:any, workspace:any, frameTime:num, style:any, buil
         points: symbolic_plot_power_points(program.ast, program, workspace, frameTime, style, builder)
         @: symbolic_plot_power_segments(program.ast, program, workspace, frameTime, style, points, 0)
     program.ast.kind = "tuple"?
-        @: symbolic_plot_tuple_items(
+        tuplePoints: symbolic_plot_set_items(
             program.ast.items,
             program,
             workspace,
             frameTime,
             style,
             builder,
+            0
+        )
+        @: symbolic_plot_tuple_items(
+            program.ast.items,
+            program,
+            workspace,
+            frameTime,
+            style,
+            tuplePoints,
             0
         )
     program.ast.kind = "multiset"?
@@ -2594,6 +2625,19 @@ symbolic_plot_set_items(
         pushed,
         index + 1
     )
+
+symbolic_literal_collection_point_count(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: 0
+    node: items.(index)
+    nestedCount: symbolic_literal_node_point_count(node)
+    nestedCount + symbolic_literal_collection_point_count(items, index + 1)
+
+symbolic_literal_node_point_count(node:any):
+    node.kind??
+        "tuple" => symbolic_literal_collection_point_count(node.items, 0)
+        "multiset" => symbolic_literal_collection_point_count(node.items, 0)
+        1
 
 symbolic_plot_set_node(
     node:any,

@@ -75,6 +75,44 @@ test('maps exponent sets to points and exponent tuples to open linked geometry',
   ]);
 });
 
+test('preserves set, tuple, and range-tuple exponent semantics in latex and geometry', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+
+  const unlinked = plotGeometry(kernel, workspace, 'i^{1,2}');
+  assert.equal(unlinked.program.latex, '{\\mathrm{i}}^{\\left\\{1, 2\\right\\}}');
+  assert.deepEqual(unlinked.geometry.points, [[0, 1], [-1, 0]]);
+  assert.deepEqual(unlinked.geometry.segments, []);
+
+  const linked = plotGeometry(kernel, workspace, 'i^(1,2)');
+  assert.equal(linked.program.latex, '{\\mathrm{i}}^{\\left(1, 2\\right)}');
+  assert.deepEqual(linked.geometry.points, [[0, 1], [-1, 0]]);
+  assert.deepEqual(linked.geometry.segments, [[[0, 1], [-1, 0]]]);
+
+  const closed = plotGeometry(kernel, workspace, 'i^(1..5)');
+  assert.equal(closed.program.latex, '{\\mathrm{i}}^{\\left(1..5\\right)}');
+  assert.equal(closed.geometry.points.length, 4);
+  assert.equal(closed.geometry.segments.length, 4);
+});
+
+test('emits ordinary linked tuple vertices before linked edges', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(kernel, workspace, '(1,2,3,4)');
+
+  assert.equal(result.program.latex, '\\left(1, 2, 3, 4\\right)');
+  assert.deepEqual(result.arena.ranges.map(({ mode, first, count }) => ({ mode, first, count })), [
+    { mode: 'points', first: 0, count: 4 },
+    { mode: 'linked-line-segments', first: 4, count: 6 }
+  ]);
+  assert.deepEqual(result.geometry.points, [[1, 0], [2, 0], [3, 0], [4, 0]]);
+  assert.deepEqual(result.geometry.segments, [
+    [[1, 0], [2, 0]],
+    [[2, 0], [3, 0]],
+    [[3, 0], [4, 0]]
+  ]);
+});
+
 test('preserves multiset multiplicity while canonicalizing equal graph vertices', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;

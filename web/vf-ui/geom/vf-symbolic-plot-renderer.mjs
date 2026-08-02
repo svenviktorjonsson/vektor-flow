@@ -6,11 +6,23 @@ const DEFAULT_TRANSFORM = Object.freeze([1, 0, 0, 1, 0, 0]);
 const FLOATS_PER_SEGMENT = 16;
 
 export const SYMBOLIC_PLOT_EDGE_WIDTH = 2;
+export const SYMBOLIC_PLOT_POINT_RADIUS = 6;
+export const SYMBOLIC_PLOT_POINT_VERTICES = 6;
 export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
 export const SYMBOLIC_PLOT_SELECTION_WIDTH = 2;
 export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255, 211 / 255]);
 
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
+
+export function symbolicPlotPointDraws(arena) {
+  return Object.freeze((arena?.ranges || [])
+    .filter((range) => range.topology === 'point-list' && range.count > 0)
+    .map((range) => Object.freeze({
+      first: range.first,
+      count: range.count,
+      verticesPerInstance: SYMBOLIC_PLOT_POINT_VERTICES
+    })));
+}
 
 export function normalizeSymbolicPlotAppearance(value = {}) {
   const scalarState = normalizeInteractionState(value.state);
@@ -587,6 +599,7 @@ async function createWebGpuBackend(canvas) {
       { shaderLocation: 1, offset: 8, format: 'float32x4' }
     ]
   };
+  const pointVertexLayout = { ...vertexLayout, stepMode: 'instance' };
   const clipVertexLayout = {
     arrayStride: 8,
     attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }]
@@ -634,6 +647,23 @@ async function createWebGpuBackend(canvas) {
       }));
     }
   }
+  const pointPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'pointVertex', buffers: [pointVertexLayout] },
+    fragment: {
+      module: shader,
+      entryPoint: 'pointFragment',
+      targets: [{
+        format,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil(clipped ? 'equal' : 'always')
+  })]));
   const clipPipeline = device.createRenderPipeline({
     layout: pipelineLayout,
     vertex: { module: shader, entryPoint: 'clipVertex', buffers: [clipVertexLayout] },
@@ -908,9 +938,13 @@ async function createWebGpuBackend(canvas) {
         pass.setVertexBuffer(0, plotBuffer);
         for (const range of currentArena.ranges) {
           if (!range.count) continue;
-          if (range.topology === 'line-list' || range.topology === 'line-strip') continue;
+          if (['point-list', 'line-list', 'line-strip'].includes(range.topology)) continue;
           pass.setPipeline(pipelines.get(`${range.topology}:${clipped}`));
           pass.draw(range.count, 1, range.first);
+        }
+        pass.setPipeline(pointPipelines.get(clipped));
+        for (const draw of symbolicPlotPointDraws(currentArena)) {
+          pass.draw(draw.verticesPerInstance, draw.count, 0, draw.first);
         }
         if (appearance.faceSelectionAlpha > 0) {
           pass.setPipeline(faceSelectionPipelines.get(clipped));
@@ -1170,7 +1204,7 @@ export function webGpuRelationShaderSource(shader) {
   `;
 }
 
-function webGpuShaderSource() {
+export function webGpuShaderSource() {
   return `
     struct View {
       xRow: vec4f,
@@ -1191,6 +1225,11 @@ function webGpuShaderSource() {
     struct PlotOutput {
       @builtin(position) position: vec4f,
       @location(0) color: vec4f,
+    }
+    struct PointOutput {
+      @builtin(position) position: vec4f,
+      @location(0) color: vec4f,
+      @location(1) unitOffset: vec2f,
     }
     struct StrokeInput {
       @location(2) previousPosition: vec2f,
@@ -1220,6 +1259,27 @@ function webGpuShaderSource() {
       var output: PlotOutput;
       output.position = project(input.position);
       output.color = input.color;
+      return output;
+    }
+
+    @vertex fn pointVertex(input: PlotInput, @builtin(vertex_index) vertexIndex: u32) -> PointOutput {
+      let corners = array<vec2f, ${SYMBOLIC_PLOT_POINT_VERTICES}>(
+        vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+        vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+      );
+      let unitOffset = corners[vertexIndex];
+      let value = vec3f(input.position, 1.0);
+      let center = vec2f(dot(view.xRow.xyz, value), dot(view.yRow.xyz, value));
+      let screen = center + unitOffset * ${SYMBOLIC_PLOT_POINT_RADIUS.toFixed(1)};
+      var output: PointOutput;
+      output.position = vec4f(
+        screen.x / view.viewport.x * 2.0 - 1.0,
+        1.0 - screen.y / view.viewport.y * 2.0,
+        0.0,
+        1.0
+      );
+      output.color = input.color;
+      output.unitOffset = unitOffset;
       return output;
     }
 
@@ -1304,6 +1364,13 @@ function webGpuShaderSource() {
       return input.color;
     }
 
+    @fragment fn pointFragment(input: PointOutput) -> @location(0) vec4f {
+      let distance = length(input.unitOffset);
+      let antialias = max(fwidth(distance), 0.0001);
+      let coverage = 1.0 - smoothstep(1.0 - antialias, 1.0, distance);
+      return vec4f(input.color.rgb, input.color.a * coverage);
+    }
+
     @fragment fn pickFragment(input: PickOutput) -> @location(0) u32 {
       return input.id;
     }
@@ -1332,6 +1399,7 @@ function createWebGl2Backend(canvas) {
   if (!gl) return null;
   if (gl.getContextAttributes?.()?.stencil !== true) return null;
   const plotProgram = createWebGlProgram(gl, webGlVertexSource(true), webGlFragmentSource(true));
+  const pointProgram = createWebGlProgram(gl, webGlPointVertexSource(), webGlPointFragmentSource());
   const faceSelectionProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlSolidFragmentSource());
   const clipProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlFragmentSource(false));
   const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlFragmentSource(true));
@@ -1344,6 +1412,7 @@ function createWebGl2Backend(canvas) {
   const pickTexture = gl.createTexture();
   const pickStencil = gl.createRenderbuffer();
   const plotLocations = getWebGlLocations(gl, plotProgram, true);
+  const pointLocations = getWebGlLocations(gl, pointProgram, true);
   const faceSelectionLocations = {
     ...getWebGlLocations(gl, faceSelectionProgram, false),
     solidColor: gl.getUniformLocation(faceSelectionProgram, 'u_color')
@@ -1446,6 +1515,10 @@ function createWebGl2Backend(canvas) {
         currentArena,
         clipped
       );
+      drawWebGlPoints(
+        gl, pointProgram, plotBuffer, pointLocations,
+        transform, cssSize, currentArena, clipped
+      );
       if (appearance.faceSelectionAlpha > 0) {
         drawWebGlFaceSelection(
           gl, faceSelectionProgram, plotBuffer, faceSelectionLocations,
@@ -1527,6 +1600,7 @@ function createWebGl2Backend(canvas) {
       gl.deleteTexture(pickTexture);
       gl.deleteRenderbuffer(pickStencil);
       gl.deleteProgram(plotProgram);
+      gl.deleteProgram(pointProgram);
       gl.deleteProgram(faceSelectionProgram);
       gl.deleteProgram(clipProgram);
       gl.deleteProgram(strokeProgram);
@@ -1566,9 +1640,36 @@ function drawWebGlArena(gl, program, buffer, locations, transform, size, arena, 
   gl.vertexAttribPointer(locations.color, 4, gl.FLOAT, false, BYTES_PER_VERTEX, 8);
   for (const range of arena.ranges) {
     if (!range.count) continue;
-    if (range.topology === 'line-list' || range.topology === 'line-strip') continue;
+    if (['point-list', 'line-list', 'line-strip'].includes(range.topology)) continue;
     gl.drawArrays(webGlTopology(gl, range.topology), range.first, range.count);
   }
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
+function drawWebGlPoints(gl, program, buffer, locations, transform, size, arena, clipped) {
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.enableVertexAttribArray(locations.position);
+  gl.enableVertexAttribArray(locations.color);
+  gl.vertexAttribDivisor(locations.position, 1);
+  gl.vertexAttribDivisor(locations.color, 1);
+  for (const draw of symbolicPlotPointDraws(arena)) {
+    const offset = draw.first * BYTES_PER_VERTEX;
+    gl.vertexAttribPointer(locations.position, 2, gl.FLOAT, false, BYTES_PER_VERTEX, offset);
+    gl.vertexAttribPointer(locations.color, 4, gl.FLOAT, false, BYTES_PER_VERTEX, offset + 8);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, draw.verticesPerInstance, draw.count);
+  }
+  gl.vertexAttribDivisor(locations.position, 0);
+  gl.vertexAttribDivisor(locations.color, 0);
   gl.disable(gl.STENCIL_TEST);
   gl.stencilMask(0xff);
 }
@@ -1806,6 +1907,49 @@ function webGlVertexSource(withColor) {
         1.0
       );
       ${withColor ? 'v_color = a_color;' : ''}
+    }
+  `;
+}
+
+export function webGlPointVertexSource() {
+  return `#version 300 es
+    in vec2 a_position;
+    in vec4 a_color;
+    uniform mat3 u_transform;
+    uniform vec2 u_viewport;
+    out vec4 v_color;
+    out vec2 v_unit_offset;
+    void main() {
+      vec2 corners[${SYMBOLIC_PLOT_POINT_VERTICES}] = vec2[](
+        vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
+        vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(1.0, 1.0)
+      );
+      vec2 unit_offset = corners[gl_VertexID];
+      vec2 center = (u_transform * vec3(a_position, 1.0)).xy;
+      vec2 screen = center + unit_offset * ${SYMBOLIC_PLOT_POINT_RADIUS.toFixed(1)};
+      gl_Position = vec4(
+        screen.x / u_viewport.x * 2.0 - 1.0,
+        1.0 - screen.y / u_viewport.y * 2.0,
+        0.0,
+        1.0
+      );
+      v_color = a_color;
+      v_unit_offset = unit_offset;
+    }
+  `;
+}
+
+export function webGlPointFragmentSource() {
+  return `#version 300 es
+    precision mediump float;
+    in vec4 v_color;
+    in vec2 v_unit_offset;
+    out vec4 out_color;
+    void main() {
+      float distance_value = length(v_unit_offset);
+      float antialias = max(fwidth(distance_value), 0.0001);
+      float coverage = 1.0 - smoothstep(1.0 - antialias, 1.0, distance_value);
+      out_color = vec4(v_color.rgb, v_color.a * coverage);
     }
   `;
 }
