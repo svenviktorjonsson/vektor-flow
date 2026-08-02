@@ -1,3 +1,5 @@
+import { compileSymbolicRelationShader } from './vf-symbolic-relation-shader.mjs';
+
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const DEFAULT_TRANSFORM = Object.freeze([1, 0, 0, 1, 0, 0]);
@@ -277,6 +279,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
   let uploadedData = null;
   let uploadedRevision = Symbol('not-uploaded');
   let appearance = normalizeSymbolicPlotAppearance();
+  let relation = null;
   let destroyed = false;
 
   async function initialize() {
@@ -288,6 +291,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     backend.updateTransform(transform);
     backend.updateClip(clipTriangles);
     backend.updateAppearance(appearance);
+    backend.updateRelation?.(relation);
     return backend.kind;
   }
 
@@ -302,6 +306,22 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     appearance = normalizeSymbolicPlotAppearance(nextAppearance);
     backend?.updateAppearance(appearance);
     return appearance;
+  }
+
+  function setAnalyticRelation(nextRelation = null) {
+    assertAlive();
+    if (nextRelation == null) {
+      relation = null;
+    } else {
+      const shader = compileSymbolicRelationShader(nextRelation.ast);
+      relation = shader ? Object.freeze({
+        shader,
+        style: Object.freeze({ ...nextRelation.style }),
+        t: Number(nextRelation.t) || 0
+      }) : null;
+    }
+    backend?.updateRelation?.(relation);
+    return relation;
   }
 
   function updateTransform(nextTransform) {
@@ -334,7 +354,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
   function render() {
     assertAlive();
     if (!backend) throw new Error('symbolic plot renderer is not initialized');
-    if (!arena) {
+    if (!arena && !relation) {
       backend.render(null, false);
       return;
     }
@@ -350,9 +370,19 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     assertAlive();
     if (!backend) throw new Error('symbolic plot renderer is not initialized');
     const request = normalizeSymbolicPlotPickRequest(screenPoint, radius, cssWidth, cssHeight);
-    if (!request || !arena || typeof backend.pick !== 'function') return null;
+    if (!request || (!arena && !relation) || typeof backend.pick !== 'function') return null;
     const hit = await backend.pick(request);
     if (!hit) return null;
+    if (hit.kind === 'relation-edge' || hit.kind === 'relation-face') {
+      return Object.freeze({
+        kind: hit.kind === 'relation-edge' ? 'segment' : 'triangle',
+        index: 0,
+        part: hit.kind === 'relation-edge' ? 'edge' : 'face',
+        rangeIndex: 0,
+        primitiveIndex: 0,
+        analytic: true
+      });
+    }
     const metadata = hit.kind === 'triangle'
       ? arena.primitives.faces[hit.index]
       : arena.primitives.edges[hit.index];
@@ -379,6 +409,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     updateTransform,
     updateClip,
     updateAppearance,
+    setAnalyticRelation,
     resize,
     render,
     pick,
@@ -409,6 +440,10 @@ export function normalizeSymbolicPlotPickRequest(screenPoint, radius, width, hei
 function positive(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function relationShaderKey(shader) {
+  return shader ? [shader.operator, shader.wgslResidual, shader.glslResidual].join(':') : null;
 }
 
 function nonNegative(value, fallback) {
@@ -689,6 +724,79 @@ async function createWebGpuBackend(canvas) {
   let pickTexture = null;
   let cssSize = [1, 1];
   let appearance = normalizeSymbolicPlotAppearance();
+  let currentTransform = [...DEFAULT_TRANSFORM];
+  let relation = null;
+  let relationBuffer = null;
+  let relationBindGroup = null;
+  let relationPipelines = null;
+  let relationPickPipelines = null;
+
+  function writeRelationUniforms() {
+    if (!relation || !relationBuffer) return;
+    const [a, b, c, d, e, f] = currentTransform;
+    const style = relation.style;
+    const ratio = Math.max(1, canvas.width / Math.max(1, cssSize[0]));
+    device.queue.writeBuffer(relationBuffer, 0, new Float32Array([
+      a, c, e, 0, b, d, f, 0, cssSize[0], cssSize[1], 0, 0,
+      style.faceR, style.faceG, style.faceB, style.faceA,
+      style.edgeR, style.edgeG, style.edgeB, style.edgeA,
+      ...appearance.selectionColor, 1,
+      appearance.edgeWidth * ratio, appearance.selectionGap * ratio,
+      appearance.selectionWidth * ratio, ratio,
+      appearance.edgeSelectionAlpha, appearance.faceSelectionAlpha, relation.t, 0
+    ]));
+  }
+
+  function configureRelation(nextRelation) {
+    const nextKey = relationShaderKey(nextRelation?.shader);
+    const currentKey = relationShaderKey(relation?.shader);
+    relation = nextRelation;
+    if (nextKey === currentKey) {
+      writeRelationUniforms();
+      return;
+    }
+    relationBuffer?.destroy();
+    relationBuffer = null;
+    relationBindGroup = null;
+    relationPipelines = null;
+    relationPickPipelines = null;
+    if (!nextRelation) return;
+    relationBuffer = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const layout = device.createBindGroupLayout({
+      entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }]
+    });
+    const module = device.createShaderModule({ code: webGpuRelationShaderSource(nextRelation.shader) });
+    relationBindGroup = device.createBindGroup({
+      layout,
+      entries: [{ binding: 0, resource: { buffer: relationBuffer } }]
+    });
+    const relationPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
+    relationPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+      layout: relationPipelineLayout,
+      vertex: { module, entryPoint: 'relationVertex' },
+      fragment: {
+        module,
+        entryPoint: 'relationFragment',
+        targets: [{
+          format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }
+          }
+        }]
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: depthStencil(clipped ? 'equal' : 'always')
+    })]));
+    relationPickPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+      layout: relationPipelineLayout,
+      vertex: { module, entryPoint: 'relationVertex' },
+      fragment: { module, entryPoint: 'relationPickFragment', targets: [{ format: 'r32uint' }] },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: depthStencil(clipped ? 'equal' : 'always')
+    })]));
+    writeRelationUniforms();
+  }
 
   function ensureBuffer(buffer, capacity, required, usage) {
     if (required <= capacity) return [buffer, capacity];
@@ -714,9 +822,12 @@ async function createWebGpuBackend(canvas) {
         format: 'r32uint',
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
       });
+      writeRelationUniforms();
     },
     updateTransform(transform) {
+      currentTransform = [...transform];
       writeWebGpuTransform(device, transformBuffer, transform, cssSize);
+      writeRelationUniforms();
     },
     updateClip(vertices) {
       clipCount = vertices.length / 2;
@@ -731,6 +842,10 @@ async function createWebGpuBackend(canvas) {
     updateAppearance(nextAppearance) {
       appearance = nextAppearance;
       writeWebGpuStrokePasses(device, strokeBuffers, appearance);
+      writeRelationUniforms();
+    },
+    updateRelation(nextRelation) {
+      configureRelation(nextRelation);
     },
     render(arena, upload) {
       currentArena = arena;
@@ -778,6 +893,15 @@ async function createWebGpuBackend(canvas) {
         pass.setVertexBuffer(0, clipBuffer);
         pass.draw(clipCount);
       }
+      if (relation && relationPipelines && relationBindGroup) {
+        pass.setPipeline(relationPipelines.get(clipped));
+        pass.setBindGroup(0, relationBindGroup);
+        pass.setStencilReference(1);
+        pass.draw(3);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        return;
+      }
       if (plotBuffer && currentArena) {
         pass.setBindGroup(0, bindGroups[0]);
         pass.setStencilReference(1);
@@ -815,15 +939,20 @@ async function createWebGpuBackend(canvas) {
       device.queue.submit([encoder.finish()]);
     },
     async pick(request) {
-      if (!currentArena || (!currentArena.segmentCount && !currentArena.primitives.facePickCapacity) || !pickTexture) return null;
+      if (!pickTexture || (!relation && (!currentArena || (!currentArena.segmentCount && !currentArena.primitives.facePickCapacity)))) return null;
       const scaleX = canvas.width / cssSize[0];
       const scaleY = canvas.height / cssSize[1];
       const pixelX = Math.min(canvas.width - 1, Math.floor(request.x * scaleX));
       const pixelY = Math.min(canvas.height - 1, Math.floor(request.y * scaleY));
       const pickUniform = new ArrayBuffer(32);
       new Float32Array(pickUniform)[0] = appearance.edgeWidth + request.radius * 2;
-      new Uint32Array(pickUniform)[3] = currentArena.primitives.facePickCapacity;
+      new Uint32Array(pickUniform)[3] = currentArena?.primitives.facePickCapacity || 0;
       device.queue.writeBuffer(pickStrokeBuffer, 0, pickUniform);
+      if (relationBuffer && relation) {
+        device.queue.writeBuffer(relationBuffer, 27 * Float32Array.BYTES_PER_ELEMENT, new Float32Array([
+          request.radius * Math.max(1, canvas.width / Math.max(1, cssSize[0]))
+        ]));
+      }
       const readback = device.createBuffer({
         size: 256,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
@@ -855,9 +984,13 @@ async function createWebGpuBackend(canvas) {
         pass.setVertexBuffer(0, clipBuffer);
         pass.draw(clipCount);
       }
-      pass.setBindGroup(0, pickBindGroup);
       pass.setStencilReference(1);
-      if (plotBuffer && currentArena.primitives.facePickCapacity) {
+      if (relation && relationPickPipelines && relationBindGroup) {
+        pass.setPipeline(relationPickPipelines.get(clipped));
+        pass.setBindGroup(0, relationBindGroup);
+        pass.draw(3);
+      } else if (plotBuffer && currentArena.primitives.facePickCapacity) {
+        pass.setBindGroup(0, pickBindGroup);
         pass.setPipeline(facePickPipelines.get(clipped));
         pass.setVertexBuffer(0, plotBuffer);
         for (const range of currentArena.ranges) {
@@ -866,7 +999,8 @@ async function createWebGpuBackend(canvas) {
           }
         }
       }
-      if (segmentBuffer && currentArena.segmentCount) {
+      if (!relation && segmentBuffer && currentArena?.segmentCount) {
+        pass.setBindGroup(0, pickBindGroup);
         pass.setPipeline(pickPipelines.get(clipped));
         pass.setVertexBuffer(0, segmentBuffer);
         pass.draw(6, currentArena.segmentCount);
@@ -882,7 +1016,9 @@ async function createWebGpuBackend(canvas) {
       const value = new Uint32Array(readback.getMappedRange())[0];
       readback.unmap();
       readback.destroy();
+      writeRelationUniforms();
       if (!value) return null;
+      if (relation) return Object.freeze({ kind: value === 2 ? 'relation-edge' : 'relation-face', index: 0 });
       return value <= currentArena.primitives.facePickCapacity
         ? Object.freeze({ kind: 'triangle', index: value - 1 })
         : Object.freeze({ kind: 'segment', index: value - currentArena.primitives.facePickCapacity - 1 });
@@ -896,6 +1032,7 @@ async function createWebGpuBackend(canvas) {
       transformBuffer.destroy();
       strokeBuffers.forEach((buffer) => buffer.destroy());
       pickStrokeBuffer.destroy();
+      relationBuffer?.destroy();
       device.destroy();
     }
   };
@@ -922,6 +1059,115 @@ function writeWebGpuStrokePasses(device, buffers, appearance) {
   write(buffers[1], appearance.selectionWidth, -offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
   write(buffers[2], appearance.selectionWidth, offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
   write(buffers[3], 0, 0, appearance.selectionColor, appearance.faceSelectionAlpha, true);
+}
+
+export function webGpuRelationShaderSource(shader) {
+  const fill = shader.hasFill ? 'fillCoverage' : '0.0';
+  const boundary = shader.hasBoundary ? 'boundaryCoverage' : '0.0';
+  return `
+    struct RelationUniforms {
+      xRow: vec4f,
+      yRow: vec4f,
+      viewport: vec4f,
+      faceColor: vec4f,
+      edgeColor: vec4f,
+      selectionColor: vec4f,
+      geometry: vec4f,
+      interaction: vec4f,
+    }
+    @group(0) @binding(0) var<uniform> uniforms: RelationUniforms;
+
+    struct RelationVertexOutput {
+      @builtin(position) position: vec4f,
+      @location(0) screen: vec2f,
+    }
+
+    @vertex fn relationVertex(@builtin(vertex_index) index: u32) -> RelationVertexOutput {
+      let positions = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(-1.0, 3.0), vec2f(3.0, -1.0));
+      let position = positions[index];
+      var output: RelationVertexOutput;
+      output.position = vec4f(position, 0.0, 1.0);
+      output.screen = vec2f(
+        (position.x + 1.0) * 0.5 * uniforms.viewport.x,
+        (1.0 - position.y) * 0.5 * uniforms.viewport.y
+      );
+      return output;
+    }
+
+    fn over(foreground: vec4f, background: vec4f) -> vec4f {
+      let alpha = foreground.a + background.a * (1.0 - foreground.a);
+      if (alpha <= 0.000001) { return vec4f(0.0); }
+      return vec4f(
+        (foreground.rgb * foreground.a + background.rgb * background.a * (1.0 - foreground.a)) / alpha,
+        alpha
+      );
+    }
+
+    @fragment fn relationFragment(input: RelationVertexOutput) -> @location(0) vec4f {
+      let a = uniforms.xRow.x;
+      let c = uniforms.xRow.y;
+      let e = uniforms.xRow.z;
+      let b = uniforms.yRow.x;
+      let d = uniforms.yRow.y;
+      let f = uniforms.yRow.z;
+      let determinant = a * d - b * c;
+      let translated = input.screen - vec2f(e, f);
+      let local = vec2f(
+        (d * translated.x - c * translated.y) / determinant,
+        (-b * translated.x + a * translated.y) / determinant
+      );
+      let x = local.x;
+      let y = local.y;
+      let t = uniforms.interaction.z;
+      let residual = ${shader.wgslResidual};
+      let gradient = max(length(vec2f(dpdx(residual), dpdy(residual))), 0.0000001);
+      let distancePx = residual / gradient;
+      let insidePx = distancePx * ${shader.insideSign.toFixed(1)};
+      let fillCoverage = smoothstep(-0.75, 0.75, insidePx);
+      let edgeHalfWidth = uniforms.geometry.x * 0.5;
+      let boundaryCoverage = 1.0 - smoothstep(edgeHalfWidth - 0.75, edgeHalfWidth + 0.75, abs(distancePx));
+      let selectionCenter = edgeHalfWidth + uniforms.geometry.y + uniforms.geometry.z * 0.5;
+      let selectionDelta = abs(abs(distancePx) - selectionCenter);
+      let edgeSelection = (1.0 - smoothstep(
+        uniforms.geometry.z * 0.5 - 0.75,
+        uniforms.geometry.z * 0.5 + 0.75,
+        selectionDelta
+      )) * uniforms.interaction.x;
+      var color = vec4f(uniforms.faceColor.rgb, uniforms.faceColor.a * ${fill});
+      color = over(vec4f(uniforms.selectionColor.rgb, fillCoverage * uniforms.interaction.y), color);
+      color = over(vec4f(uniforms.selectionColor.rgb, edgeSelection), color);
+      color = over(vec4f(uniforms.edgeColor.rgb, uniforms.edgeColor.a * ${boundary}), color);
+      return color;
+    }
+
+    @fragment fn relationPickFragment(input: RelationVertexOutput) -> @location(0) u32 {
+      let a = uniforms.xRow.x;
+      let c = uniforms.xRow.y;
+      let e = uniforms.xRow.z;
+      let b = uniforms.yRow.x;
+      let d = uniforms.yRow.y;
+      let f = uniforms.yRow.z;
+      let determinant = a * d - b * c;
+      let translated = input.screen - vec2f(e, f);
+      let local = vec2f(
+        (d * translated.x - c * translated.y) / determinant,
+        (-b * translated.x + a * translated.y) / determinant
+      );
+      let x = local.x;
+      let y = local.y;
+      let t = uniforms.interaction.z;
+      let residual = ${shader.wgslResidual};
+      let gradient = max(length(vec2f(dpdx(residual), dpdy(residual))), 0.0000001);
+      let distancePx = residual / gradient;
+      let insidePx = distancePx * ${shader.insideSign.toFixed(1)};
+      if (${shader.hasBoundary ? 'abs(distancePx) <= uniforms.geometry.x * 0.5 + uniforms.geometry.w' : 'false'}) {
+        return 2u;
+      }
+      if (${shader.hasFill ? 'insidePx >= 0.0' : 'false'}) { return 1u; }
+      discard;
+      return 0u;
+    }
+  `;
 }
 
 function webGpuShaderSource() {
@@ -1114,6 +1360,11 @@ function createWebGl2Backend(canvas) {
   let appearance = normalizeSymbolicPlotAppearance();
   let transform = [...DEFAULT_TRANSFORM];
   let cssSize = [1, 1];
+  let relation = null;
+  let relationProgram = null;
+  let relationLocations = null;
+  let relationPickProgram = null;
+  let relationPickLocations = null;
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1144,6 +1395,25 @@ function createWebGl2Backend(canvas) {
     updateAppearance(nextAppearance) {
       appearance = nextAppearance;
     },
+    updateRelation(nextRelation) {
+      const nextKey = relationShaderKey(nextRelation?.shader);
+      const currentKey = relationShaderKey(relation?.shader);
+      relation = nextRelation;
+      if (nextKey === currentKey) return;
+      if (relationProgram) gl.deleteProgram(relationProgram);
+      if (relationPickProgram) gl.deleteProgram(relationPickProgram);
+      relationProgram = nextRelation
+        ? createWebGlProgram(gl, webGlRelationVertexSource(), webGlRelationFragmentSource(nextRelation.shader))
+        : null;
+      relationPickProgram = nextRelation
+        ? createWebGlProgram(gl, webGlRelationVertexSource(), webGlRelationPickFragmentSource(nextRelation.shader))
+        : null;
+      relationLocations = relationProgram ? getWebGlRelationLocations(gl, relationProgram) : null;
+      relationPickLocations = relationPickProgram ? {
+        ...getWebGlRelationLocations(gl, relationPickProgram),
+        pickRadius: gl.getUniformLocation(relationPickProgram, 'u_pick_radius')
+      } : null;
+    },
     render(arena, upload) {
       currentArena = arena;
       gl.viewport(0, 0, canvas.width, canvas.height);
@@ -1162,6 +1432,10 @@ function createWebGl2Backend(canvas) {
 
       const clipped = clipCount > 0;
       if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipCount);
+      if (relation && relationProgram) {
+        drawWebGlRelation(gl, relationProgram, relationLocations, transform, cssSize, canvas, relation, appearance, clipped);
+        return;
+      }
       drawWebGlArena(
         gl,
         plotProgram,
@@ -1191,7 +1465,7 @@ function createWebGl2Backend(canvas) {
       );
     },
     async pick(request) {
-      if (!currentArena || (!currentArena.segmentCount && !currentArena.primitives.facePickCapacity)) return null;
+      if (!relation && (!currentArena || (!currentArena.segmentCount && !currentArena.primitives.facePickCapacity))) return null;
       const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
       const blendEnabled = gl.isEnabled(gl.BLEND);
       const scaleX = canvas.width / cssSize[0];
@@ -1209,6 +1483,12 @@ function createWebGl2Backend(canvas) {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
       const clipped = clipCount > 0;
       if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipCount);
+      if (relation && relationPickProgram) {
+        drawWebGlRelation(
+          gl, relationPickProgram, relationPickLocations, transform, cssSize, canvas,
+          relation, appearance, clipped, request.radius
+        );
+      } else {
       drawWebGlFacePick(
         gl, facePickProgram, plotBuffer, facePickLocations,
         transform, cssSize, currentArena, clipped
@@ -1225,6 +1505,7 @@ function createWebGl2Backend(canvas) {
         currentArena.primitives.facePickCapacity,
         clipped
       );
+      }
       const pixel = new Uint8Array(4);
       gl.readPixels(pixelX, readY, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
       gl.disable(gl.SCISSOR_TEST);
@@ -1233,6 +1514,7 @@ function createWebGl2Backend(canvas) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       const value = (pixel[0] | (pixel[1] << 8) | (pixel[2] << 16) | (pixel[3] << 24)) >>> 0;
       if (!value) return null;
+      if (relation) return Object.freeze({ kind: value === 2 ? 'relation-edge' : 'relation-face', index: 0 });
       return value <= currentArena.primitives.facePickCapacity
         ? Object.freeze({ kind: 'triangle', index: value - 1 })
         : Object.freeze({ kind: 'segment', index: value - currentArena.primitives.facePickCapacity - 1 });
@@ -1250,6 +1532,8 @@ function createWebGl2Backend(canvas) {
       gl.deleteProgram(strokeProgram);
       gl.deleteProgram(pickProgram);
       gl.deleteProgram(facePickProgram);
+      if (relationProgram) gl.deleteProgram(relationProgram);
+      if (relationPickProgram) gl.deleteProgram(relationPickProgram);
     }
   };
 }
@@ -1444,6 +1728,52 @@ function getWebGlPickLocations(gl, program) {
   };
 }
 
+function getWebGlRelationLocations(gl, program) {
+  return {
+    transform: gl.getUniformLocation(program, 'u_transform'),
+    viewport: gl.getUniformLocation(program, 'u_viewport'),
+    time: gl.getUniformLocation(program, 'u_time'),
+    faceColor: gl.getUniformLocation(program, 'u_face_color'),
+    edgeColor: gl.getUniformLocation(program, 'u_edge_color'),
+    selectionColor: gl.getUniformLocation(program, 'u_selection_color'),
+    geometry: gl.getUniformLocation(program, 'u_geometry'),
+    interaction: gl.getUniformLocation(program, 'u_interaction')
+  };
+}
+
+function drawWebGlRelation(gl, program, locations, transform, size, canvas, relation, appearance, clipped, pickRadius = null) {
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  const style = relation.style;
+  const ratio = Math.max(1, canvas.width / Math.max(1, size[0]));
+  gl.uniform1f(locations.time, relation.t);
+  gl.uniform4f(locations.faceColor, style.faceR, style.faceG, style.faceB, style.faceA);
+  gl.uniform4f(locations.edgeColor, style.edgeR, style.edgeG, style.edgeB, style.edgeA);
+  gl.uniform4f(
+    locations.selectionColor,
+    appearance.selectionColor[0], appearance.selectionColor[1], appearance.selectionColor[2], 1
+  );
+  gl.uniform4f(
+    locations.geometry,
+    appearance.edgeWidth * ratio,
+    appearance.selectionGap * ratio,
+    appearance.selectionWidth * ratio,
+    ratio
+  );
+  gl.uniform2f(locations.interaction, appearance.edgeSelectionAlpha, appearance.faceSelectionAlpha);
+  if (pickRadius != null && locations.pickRadius) gl.uniform1f(locations.pickRadius, pickRadius * ratio);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
 function setWebGlView(gl, locations, transform, size) {
   const [a, b, c, d, e, f] = transform;
   gl.uniformMatrix3fv(locations.transform, false, new Float32Array([
@@ -1476,6 +1806,109 @@ function webGlVertexSource(withColor) {
         1.0
       );
       ${withColor ? 'v_color = a_color;' : ''}
+    }
+  `;
+}
+
+function webGlRelationVertexSource() {
+  return `#version 300 es
+    uniform vec2 u_viewport;
+    out vec2 v_screen;
+    void main() {
+      vec2 position = vec2(
+        gl_VertexID == 2 ? 3.0 : -1.0,
+        gl_VertexID == 1 ? 3.0 : -1.0
+      );
+      gl_Position = vec4(position, 0.0, 1.0);
+      v_screen = vec2(
+        (position.x + 1.0) * 0.5 * u_viewport.x,
+        (1.0 - position.y) * 0.5 * u_viewport.y
+      );
+    }
+  `;
+}
+
+export function webGlRelationFragmentSource(shader) {
+  const fill = shader.hasFill ? 'fill_coverage' : '0.0';
+  const boundary = shader.hasBoundary ? 'boundary_coverage' : '0.0';
+  return `#version 300 es
+    precision highp float;
+    in vec2 v_screen;
+    uniform mat3 u_transform;
+    uniform vec2 u_viewport;
+    uniform float u_time;
+    uniform vec4 u_face_color;
+    uniform vec4 u_edge_color;
+    uniform vec4 u_selection_color;
+    uniform vec4 u_geometry;
+    uniform vec2 u_interaction;
+    out vec4 out_color;
+
+    vec4 over(vec4 foreground, vec4 background) {
+      float alpha = foreground.a + background.a * (1.0 - foreground.a);
+      if (alpha <= 0.000001) return vec4(0.0);
+      return vec4(
+        (foreground.rgb * foreground.a + background.rgb * background.a * (1.0 - foreground.a)) / alpha,
+        alpha
+      );
+    }
+
+    void main() {
+      vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
+      float x = local.x;
+      float y = local.y;
+      float t = u_time;
+      float residual = ${shader.glslResidual};
+      float gradient = max(length(vec2(dFdx(residual), dFdy(residual))), 0.0000001);
+      float distance_px = residual / gradient;
+      float inside_px = distance_px * ${shader.insideSign.toFixed(1)};
+      float fill_coverage = smoothstep(-0.75, 0.75, inside_px);
+      float edge_half_width = u_geometry.x * 0.5;
+      float boundary_coverage = 1.0 - smoothstep(edge_half_width - 0.75, edge_half_width + 0.75, abs(distance_px));
+      float selection_center = edge_half_width + u_geometry.y + u_geometry.z * 0.5;
+      float selection_delta = abs(abs(distance_px) - selection_center);
+      float edge_selection = (1.0 - smoothstep(u_geometry.z * 0.5 - 0.75, u_geometry.z * 0.5 + 0.75, selection_delta)) * u_interaction.x;
+      vec4 color = vec4(u_face_color.rgb, u_face_color.a * ${fill});
+      color = over(vec4(u_selection_color.rgb, fill_coverage * u_interaction.y), color);
+      color = over(vec4(u_selection_color.rgb, edge_selection), color);
+      color = over(vec4(u_edge_color.rgb, u_edge_color.a * ${boundary}), color);
+      if (color.a <= 0.000001) discard;
+      out_color = color;
+    }
+  `;
+}
+
+export function webGlRelationPickFragmentSource(shader) {
+  const faceHit = shader.hasFill ? 'inside_px >= 0.0' : 'false';
+  return `#version 300 es
+    precision highp float;
+    in vec2 v_screen;
+    uniform mat3 u_transform;
+    uniform vec2 u_viewport;
+    uniform float u_time;
+    uniform vec4 u_face_color;
+    uniform vec4 u_edge_color;
+    uniform vec4 u_selection_color;
+    uniform vec4 u_geometry;
+    uniform vec2 u_interaction;
+    uniform float u_pick_radius;
+    out vec4 out_color;
+    void main() {
+      vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
+      float x = local.x;
+      float y = local.y;
+      float t = u_time;
+      float residual = ${shader.glslResidual};
+      float gradient = max(length(vec2(dFdx(residual), dFdy(residual))), 0.0000001);
+      float distance_px = residual / gradient;
+      float inside_px = distance_px * ${shader.insideSign.toFixed(1)};
+      if (${shader.hasBoundary ? 'abs(distance_px) <= u_geometry.x * 0.5 + u_pick_radius' : 'false'}) {
+        out_color = vec4(2.0 / 255.0, 0.0, 0.0, 0.0);
+      } else if (${faceHit}) {
+        out_color = vec4(1.0 / 255.0, 0.0, 0.0, 0.0);
+      } else {
+        discard;
+      }
     }
   `;
 }

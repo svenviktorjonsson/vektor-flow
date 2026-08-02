@@ -171,6 +171,45 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
   assert.throws(() => controller.updateView({ transform: viewport.transform }), /destroyed/);
 });
 
+test('routes relations directly to the GPU without invoking the sampled CPU plotter', async () => {
+  let sampled = 0;
+  const program = {
+    diagnostics: [],
+    latex: '\\sin(x) \\le \\cos(y)',
+    variables: ['x', 'y'],
+    classification: 'closed-region',
+    valueKind: 'scalar',
+    ast: {
+      kind: 'binary', op: '<=',
+      left: { kind: 'call', name: 'sin', args: [{ kind: 'variable', name: 'x' }] },
+      right: { kind: 'call', name: 'cos', args: [{ kind: 'variable', name: 'y' }] }
+    }
+  };
+  const renderer = {
+    async initialize() {},
+    setAnalyticRelation(value) { return value; },
+    updateTransform() {}, updateClip() {}, updateAppearance() {},
+    setArena() {}, render() {}, resize() {}, destroy() {}, async pick() { return null; }
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: false },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() {},
+      createWorkspace() { return { handle: 1 }; },
+      workspaceCompile() { return { value: { program }, workspace: 1 }; },
+      plot() { sampled += 1; throw new Error('sampled relation fallback must not run'); }
+    },
+    createRenderer: () => renderer
+  });
+  const result = await controller.plot({
+    source: 'sin(x)<=cos(y)', viewport, colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' }
+  });
+  assert.equal(result.classification, 'closed-region');
+  assert.equal(sampled, 0);
+  assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
+});
+
 test('keeps newer synchronous view frames when asynchronous sampling completes stale', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });

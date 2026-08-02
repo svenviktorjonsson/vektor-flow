@@ -84,9 +84,18 @@ export async function createSymbolicPlotController({
 
     const program = compiled.value?.program ?? compiled.value;
     const result = publicProgramResult(program);
+    const analyticRelation = renderer.setAnalyticRelation?.(result.diagnostics.length === 0 ? {
+      ast: program?.ast,
+      style,
+      t: view.t
+    } : null);
     let nextSnapGeometry;
     let nextArena;
-    if (result.diagnostics.length === 0) {
+    if (isSymbolicRelation(result.classification)) {
+      if (!analyticRelation) throw new Error('VKF GPU relation compiler does not support this expression');
+      nextSnapGeometry = symbolicPlotSnapGeometry(null);
+      nextArena = emptyArena(requestOrder);
+    } else if (result.diagnostics.length === 0) {
       const arena = await kernel.plot(program, executionWorkspace, view, style, revision);
       nextArena = snapshotSymbolicPlotArena(arena, kernel.memory, requestOrder);
       nextSnapGeometry = symbolicPlotSnapGeometry(nextArena);
@@ -336,6 +345,10 @@ function isStaleFrameRevision(requested, latest) {
 
 function normalizePartInteractionState(value) {
   return ['hovered', 'selected'].includes(value) ? value : 'normal';
+}
+
+function isSymbolicRelation(classification) {
+  return ['implicit-curve', 'open-region', 'closed-region'].includes(classification);
 }
 
 export function hitTestSymbolicPlotGeometry(geometry, transform, screenPoint, radius = 7) {
