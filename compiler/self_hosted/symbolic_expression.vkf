@@ -13,6 +13,7 @@ SymbolicParseState: (tokens:any, index:num, diagnostics:any)
 SymbolicParseResult: (ast:any, next:SymbolicParseState)
 SymbolicProgram: (
     ast:any,
+    variants:any,
     diagnostics:any,
     latex:str,
     variables:any,
@@ -1437,6 +1438,141 @@ symbolic_variables(node:any):
         "definition" => symbolic_variables(node.value)
         symbolic_empty_variables()
 
+# Cartesian-expand sets while preserving and translating tuples as linked geometry.
+symbolic_binary_scalar_variant(node:any, left:any, right:any):
+    node.implicit = true?
+        @: symbolic_implicit_multiplication(left, right, node.location)
+    symbolic_binary(node.op, left, right, node.location)
+
+symbolic_is_linked_collection(node:any):
+    node.kind = "tuple" \/ (node.kind = "binary" /\ node.op = "^" /\ (node.right.kind = "tuple" \/ node.right.kind = "range"))
+
+symbolic_linked_collection_items(node:any):
+    node.kind = "tuple"?
+        @: node.items
+    symbolic_linked_power_items(node, symbolic_item_variants(node.right), 0)
+
+symbolic_linked_power_items(node:any, exponents:any, index:num):
+    index >= vkf_list_length(exponents)?
+        @: vkf_list_empty()
+    current: symbolic_binary("^", node.left, exponents.(index), node.location)
+    vkf_list_single(current) & symbolic_linked_power_items(node, exponents, index + 1)
+
+symbolic_map_binary_left(node:any, items:any, right:any, index:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    current: items.(index)
+    current.kind = "tuple"?
+        nested: symbolic_tuple(symbolic_map_binary_left(node, current.items, right, 0), current.location)
+        @: vkf_list_single(nested) & symbolic_map_binary_left(node, items, right, index + 1)
+    mapped: symbolic_binary_scalar_variant(node, current, right)
+    vkf_list_single(mapped) & symbolic_map_binary_left(node, items, right, index + 1)
+
+symbolic_map_binary_right(node:any, left:any, items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    current: items.(index)
+    current.kind = "tuple"?
+        nested: symbolic_tuple(symbolic_map_binary_right(node, left, current.items, 0), current.location)
+        @: vkf_list_single(nested) & symbolic_map_binary_right(node, left, items, index + 1)
+    mapped: symbolic_binary_scalar_variant(node, left, current)
+    vkf_list_single(mapped) & symbolic_map_binary_right(node, left, items, index + 1)
+
+symbolic_binary_variant(node:any, left:any, right:any):
+    node.op != "^" /\ symbolic_is_linked_collection(left) /\ symbolic_is_linked_collection(right) = false?
+        @: symbolic_tuple(symbolic_map_binary_left(node, symbolic_linked_collection_items(left), right, 0), left.location)
+    node.op != "^" /\ symbolic_is_linked_collection(right) /\ symbolic_is_linked_collection(left) = false?
+        @: symbolic_tuple(symbolic_map_binary_right(node, left, symbolic_linked_collection_items(right), 0), right.location)
+    symbolic_binary_scalar_variant(node, left, right)
+
+symbolic_binary_variants(node:any, leftVariants:any, rightVariants:any, leftIndex:num, rightIndex:num):
+    leftIndex >= vkf_list_length(leftVariants)?
+        @: vkf_list_empty()
+    rightIndex >= vkf_list_length(rightVariants)?
+        @: symbolic_binary_variants(node, leftVariants, rightVariants, leftIndex + 1, 0)
+    vkf_list_single(symbolic_binary_variant(node, leftVariants.(leftIndex), rightVariants.(rightIndex))) & symbolic_binary_variants(node, leftVariants, rightVariants, leftIndex, rightIndex + 1)
+
+symbolic_unary_variants(node:any, variants:any, index:num):
+    index >= vkf_list_length(variants)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_unary(node.op, variants.(index), node.location)) & symbolic_unary_variants(node, variants, index + 1)
+
+symbolic_vector_variants(node:any, xVariants:any, yVariants:any, xIndex:num, yIndex:num):
+    xIndex >= vkf_list_length(xVariants)?
+        @: vkf_list_empty()
+    yIndex >= vkf_list_length(yVariants)?
+        @: symbolic_vector_variants(node, xVariants, yVariants, xIndex + 1, 0)
+    vkf_list_single(symbolic_vector_node(xVariants.(xIndex), yVariants.(yIndex), node.location)) & symbolic_vector_variants(node, xVariants, yVariants, xIndex, yIndex + 1)
+
+symbolic_append_argument_variants(prefixes:any, variants:any, prefixIndex:num, variantIndex:num):
+    prefixIndex >= vkf_list_length(prefixes)?
+        @: vkf_list_empty()
+    variantIndex >= vkf_list_length(variants)?
+        @: symbolic_append_argument_variants(prefixes, variants, prefixIndex + 1, 0)
+    vkf_list_single(prefixes.(prefixIndex) & [variants.(variantIndex)]) & symbolic_append_argument_variants(prefixes, variants, prefixIndex, variantIndex + 1)
+
+symbolic_argument_variant_lists(args:any, index:num, prefixes:any):
+    index >= vkf_list_length(args)?
+        @: prefixes
+    symbolic_argument_variant_lists(args, index + 1, symbolic_append_argument_variants(prefixes, symbolic_ast_variants(args.(index)), 0, 0))
+
+symbolic_call_variants(node:any, argumentLists:any, index:num):
+    index >= vkf_list_length(argumentLists)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_call(node.name, argumentLists.(index), node.location)) & symbolic_call_variants(node, argumentLists, index + 1)
+
+symbolic_tuple_variants(node:any, itemLists:any, index:num):
+    index >= vkf_list_length(itemLists)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_tuple(itemLists.(index), node.location)) & symbolic_tuple_variants(node, itemLists, index + 1)
+
+symbolic_definition_variants(node:any, variants:any, index:num):
+    index >= vkf_list_length(variants)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_definition(node.name, node.parameters, variants.(index), node.location)) & symbolic_definition_variants(node, variants, index + 1)
+
+symbolic_static_range_variants(node:any):
+    node.start.kind = "number" /\ node.end.kind = "number"?
+        @: symbolic_static_range_numbers(node.start.value, node.end.value, node.location)
+    vkf_list_single(node)
+
+symbolic_static_range_numbers(current:num, end:num, location:any):
+    current <= end?
+        @: symbolic_static_range_numbers_ascending(current, end, location)
+    symbolic_static_range_numbers_descending(current, end, location)
+
+symbolic_static_range_numbers_ascending(current:num, end:num, location:any):
+    current > end?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_number(current, "", location)) & symbolic_static_range_numbers_ascending(current + 1, end, location)
+
+symbolic_static_range_numbers_descending(current:num, end:num, location:any):
+    current < end?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_number(current, "", location)) & symbolic_static_range_numbers_descending(current - 1, end, location)
+
+symbolic_item_variants(item:any):
+    item.kind = "range"?
+        @: symbolic_static_range_variants(item)
+    symbolic_ast_variants(item)
+
+symbolic_multiset_variants(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    current: symbolic_item_variants(items.(index))
+    current & symbolic_multiset_variants(items, index + 1)
+
+symbolic_ast_variants(node:any):
+    node.kind??
+        "multiset" => symbolic_multiset_variants(node.items, 0)
+        "unary" => symbolic_unary_variants(node, symbolic_ast_variants(node.operand), 0)
+        "binary" => symbolic_binary_variants(node, symbolic_ast_variants(node.left), symbolic_ast_variants(node.right), 0, 0)
+        "call" => symbolic_call_variants(node, symbolic_argument_variant_lists(node.args, 0, vkf_list_single(vkf_list_empty())), 0)
+        "tuple" => symbolic_tuple_variants(node, symbolic_argument_variant_lists(node.items, 0, vkf_list_single(vkf_list_empty())), 0)
+        "vector" => symbolic_vector_variants(node, symbolic_ast_variants(node.x), symbolic_ast_variants(node.y), 0, 0)
+        "definition" => symbolic_definition_variants(node, symbolic_ast_variants(node.value), 0)
+        vkf_list_single(node)
+
 symbolic_empty_variables():
     vkf_list_empty()
 
@@ -1643,6 +1779,7 @@ symbolic_program(
 ):
     (
         ast: ast,
+        variants: symbolic_ast_variants(ast),
         diagnostics: diagnostics,
         latex: latex,
         variables: variables,
@@ -1759,6 +1896,10 @@ symbolic_plot(
     )
     builder = null?
         @: null
+    symbolic_has_analytical_variants(program)?
+        @: symbolic_plot_analytical_variants(program, workspace, view, style, builder, 0, vkf_list_empty())
+    symbolic_has_literal_variants(program)?
+        @: symbolic_plot_literal_variants(program, workspace, view, style, builder, 0, vkf_list_empty())
     sampled: symbolic_plot_into_builder(
         program,
         workspace,
@@ -1898,6 +2039,12 @@ symbolic_closed_region_ranges(fillCount:num, completeCount:num):
     first & second
 
 symbolic_plot_capacity(program:any, workspace:any, view:any):
+    base: symbolic_plot_single_capacity(program, workspace, view)
+    symbolic_has_analytical_variants(program) \/ symbolic_has_literal_variants(program)?
+        @: base * vkf_list_length(program.variants)
+    base
+
+symbolic_plot_single_capacity(program:any, workspace:any, view:any):
     program.classification??
         "y-of-x-family" => symbolic_power_exponent_count(program.ast, program, workspace, view.t) * view.xSteps
         "x-of-y-family" => symbolic_power_exponent_count(program.ast, program, workspace, view.t) * view.ySteps
@@ -1910,6 +2057,93 @@ symbolic_plot_capacity(program:any, workspace:any, view:any):
         "open-region" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 6
         "closed-region" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 10
         1024
+
+symbolic_has_analytical_variants(program:any):
+    vkf_list_length(program.variants) > 1 /\ symbolic_is_analytical_classification(program.classification) /\ program.classification != "y-of-x-family" /\ program.classification != "x-of-y-family"
+
+symbolic_has_literal_variants(program:any):
+    vkf_list_length(program.variants) > 1 /\ symbolic_is_analytical_classification(program.classification) = false /\ program.classification != "y-of-x-family" /\ program.classification != "x-of-y-family"
+
+symbolic_is_analytical_classification(classification:str):
+    classification = "y-of-x" \/ classification = "x-of-y" \/ classification = "parametric" \/ classification = "vector-field" \/ classification = "scalar-field" \/ classification = "implicit-curve" \/ classification = "open-region" \/ classification = "closed-region"
+
+symbolic_variant_program(program:any, ast:any):
+    (
+        ast: ast,
+        variants: vkf_list_single(ast),
+        diagnostics: program.diagnostics,
+        latex: program.latex,
+        variables: program.variables,
+        classification: program.classification,
+        valueKind: program.valueKind,
+        context: program.context,
+        clip: program.clip
+    )
+
+symbolic_plot_analytical_variants(program:any, workspace:any, view:any, style:any, builder:any, index:num, ranges:any):
+    index >= vkf_list_length(program.variants)?
+        metadata: symbolic_plot_builder_metadata(builder)
+        @: (
+            pointer: metadata.pointer,
+            count: metadata.count,
+            stride: metadata.stride,
+            revision: metadata.revision,
+            ranges: ranges
+        )
+    variant: symbolic_variant_program(program, program.variants.(index))
+    first: builder.(2) + 0
+    sampled: symbolic_plot_into_builder(variant, workspace, view, style, builder)
+    program.classification = "closed-region"?
+        faceEnd: sampled.(2) + 0
+        outlined: symbolic_sample_implicit(variant, workspace, view, style, sampled, 0, 0)
+        nextRanges: ranges & symbolic_variant_closed_ranges(first, faceEnd, outlined.(2))
+        @: symbolic_plot_analytical_variants(program, workspace, view, style, outlined, index + 1, nextRanges)
+    last: sampled.(2) + 0
+    nextRange: vkf_list_single((
+        mode: symbolic_plot_mode(program.classification),
+        part: symbolic_plot_part(program.classification),
+        first: first,
+        count: last - first
+    ))
+    symbolic_plot_analytical_variants(program, workspace, view, style, sampled, index + 1, ranges & nextRange)
+
+symbolic_variant_closed_ranges(first:num, faceEnd:num, end:num):
+    vkf_list_pair(
+        (mode: "triangles", part: "face", first: first, count: faceEnd - first),
+        (mode: "linked-line-segments", part: "edge", first: faceEnd, count: end - faceEnd)
+    )
+
+symbolic_plot_literal_variants(program:any, workspace:any, view:any, style:any, builder:any, index:num, ranges:any):
+    index >= vkf_list_length(program.variants)?
+        metadata: symbolic_plot_builder_metadata(builder)
+        @: (
+            pointer: metadata.pointer,
+            count: metadata.count,
+            stride: metadata.stride,
+            revision: metadata.revision,
+            ranges: ranges
+        )
+    ast: program.variants.(index)
+    variant: symbolic_variant_program(program, ast)
+    first: builder.(2) + 0
+    plotted: symbolic_plot_literal(variant, workspace, view.t, style, builder)
+    last: plotted.(2) + 0
+    nextRanges: ranges & symbolic_literal_variant_ranges(ast, variant, workspace, view.t, first, last)
+    symbolic_plot_literal_variants(program, workspace, view, style, plotted, index + 1, nextRanges)
+
+symbolic_literal_variant_ranges(ast:any, program:any, workspace:any, frameTime:num, first:num, last:num):
+    symbolic_is_linked_power_collection(ast)?
+        pointCount: symbolic_power_exponent_count(ast, program, workspace, frameTime)
+        @: symbolic_offset_linked_literal_ranges(first, pointCount, last)
+    ast.kind = "tuple"?
+        tuplePointCount: symbolic_literal_collection_point_count(ast.items, 0)
+        @: symbolic_offset_linked_literal_ranges(first, tuplePointCount, last)
+    vkf_list_single((mode: "points", part: "edge", first: first, count: last - first))
+
+symbolic_offset_linked_literal_ranges(first:num, pointCount:num, last:num):
+    points: vkf_list_single((mode: "points", part: "edge", first: first, count: pointCount))
+    edges: vkf_list_single((mode: "linked-line-segments", part: "edge", first: first + pointCount, count: last - first - pointCount))
+    points & edges
 
 symbolic_plot_result(metadata:any, classification:str):
     metadata = null?

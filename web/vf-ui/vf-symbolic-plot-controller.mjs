@@ -86,6 +86,7 @@ export async function createSymbolicPlotController({
     const result = publicProgramResult(program);
     const analyticRelation = renderer.setAnalyticRelation?.(result.diagnostics.length === 0 ? {
       ast: program?.ast,
+      variants: program?.variants,
       style,
       t: view.t
     } : null);

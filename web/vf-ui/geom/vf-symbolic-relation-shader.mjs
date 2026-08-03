@@ -9,21 +9,35 @@ const CALLS = Object.freeze({
   tan: ['tan', 'tan']
 });
 
-export function compileSymbolicRelationShader(ast) {
-  if (!ast || ast.kind !== 'binary' || !RELATION_OPERATORS.has(ast.op)) return null;
-  const wgslLeft = emit(ast.left, 'wgsl');
-  const wgslRight = emit(ast.right, 'wgsl');
-  const glslLeft = emit(ast.left, 'glsl');
-  const glslRight = emit(ast.right, 'glsl');
-  if (![wgslLeft, wgslRight, glslLeft, glslRight].every(Boolean)) return null;
+export function compileSymbolicRelationShader(ast, variants = null) {
+  const relations = Array.isArray(variants) && variants.length ? variants : [ast];
+  if (!relations.every((relation) => relation?.kind === 'binary' && RELATION_OPERATORS.has(relation.op))) return null;
+  if (!relations.every((relation) => relation.op === ast.op)) return null;
+  const wgslResiduals = relations.map((relation) => emitResidual(relation, 'wgsl'));
+  const glslResiduals = relations.map((relation) => emitResidual(relation, 'glsl'));
+  if (![...wgslResiduals, ...glslResiduals].every(Boolean)) return null;
+  const boundaryResidual = (residuals) => combine(residuals.map((residual) => `abs(${residual})`), 'min');
+  const fillOperator = ['<', '<='].includes(ast.op) ? 'min' : 'max';
   return Object.freeze({
     operator: ast.op,
     hasFill: ast.op !== '=',
     hasBoundary: ['=', '<=', '>='].includes(ast.op),
     insideSign: ['<', '<='].includes(ast.op) ? -1 : 1,
-    wgslResidual: `((${wgslLeft}) - (${wgslRight}))`,
-    glslResidual: `((${glslLeft}) - (${glslRight}))`
+    wgslBoundaryResidual: boundaryResidual(wgslResiduals),
+    glslBoundaryResidual: boundaryResidual(glslResiduals),
+    wgslFillResidual: combine(wgslResiduals, fillOperator),
+    glslFillResidual: combine(glslResiduals, fillOperator)
   });
+}
+
+function emitResidual(ast, language) {
+  const left = emit(ast.left, language);
+  const right = emit(ast.right, language);
+  return left && right ? `((${left}) - (${right}))` : null;
+}
+
+function combine(values, operator) {
+  return values.slice(1).reduce((combined, value) => `${operator}(${combined}, ${value})`, values[0]);
 }
 
 function emit(node, language) {

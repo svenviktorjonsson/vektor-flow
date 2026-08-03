@@ -325,7 +325,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     if (nextRelation == null) {
       relation = null;
     } else {
-      const shader = compileSymbolicRelationShader(nextRelation.ast);
+      const shader = compileSymbolicRelationShader(nextRelation.ast, nextRelation.variants);
       relation = shader ? Object.freeze({
         shader,
         style: Object.freeze({ ...nextRelation.style }),

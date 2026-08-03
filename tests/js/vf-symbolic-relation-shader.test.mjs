@@ -24,8 +24,8 @@ test('compiles a closed relation from the VKF AST without source interpolation',
     hasBoundary: shader.hasBoundary,
     insideSign: shader.insideSign
   }, { operator: '<=', hasFill: true, hasBoundary: true, insideSign: -1 });
-  assert.match(shader.glslResidual, /sin\(x\).*cos\(y\)/);
-  assert.match(shader.wgslResidual, /sin\(x\).*cos\(y\)/);
+  assert.match(shader.glslBoundaryResidual, /sin\(x\).*cos\(y\)/);
+  assert.match(shader.wgslBoundaryResidual, /sin\(x\).*cos\(y\)/);
   assert.doesNotMatch(JSON.stringify(shader), /INVALID_RAW_SOURCE_INJECTION/);
 });
 
@@ -53,4 +53,29 @@ test('both GPU backends derive antialiased coverage from the analytic residual',
   assert.match(glsl, /inverse\(u_transform\)/);
   assert.match(wgsl, /determinant/);
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /17\.0/);
+});
+
+
+test('combines a set-distributed equality into concentric GPU boundaries', () => {
+  const squaredRadius = (value) => ({
+    kind: 'binary',
+    op: '=',
+    left: {
+      kind: 'binary',
+      op: '+',
+      left: { kind: 'binary', op: '^', left: variable('x'), right: { kind: 'number', value: 2 } },
+      right: { kind: 'binary', op: '^', left: variable('y'), right: { kind: 'number', value: 2 } }
+    },
+    right: { kind: 'number', value }
+  });
+  const variants = [1, 2, 3, 4, 5].map(squaredRadius);
+  const shader = compileSymbolicRelationShader(variants[0], variants);
+
+  assert.equal(shader.hasBoundary, true);
+  assert.equal(shader.hasFill, false);
+  for (const radius of [1, 2, 3, 4, 5]) {
+    assert.match(shader.glslBoundaryResidual, new RegExp(radius + '\\.0'));
+    assert.match(shader.wgslBoundaryResidual, new RegExp(radius + '\\.0'));
+  }
+  assert.equal((shader.glslBoundaryResidual.match(/min\(/g) || []).length, 4);
 });

@@ -264,9 +264,14 @@ test('routes relations directly to the GPU without invoking the sampled CPU plot
       right: { kind: 'call', name: 'cos', args: [{ kind: 'variable', name: 'y' }] }
     }
   };
+  program.variants = [
+    program.ast,
+    { ...program.ast, right: { kind: 'number', value: 2 } }
+  ];
+  let analyticInput;
   const renderer = {
     async initialize() {},
-    setAnalyticRelation(value) { return value; },
+    setAnalyticRelation(value) { analyticInput = value; return value; },
     updateTransform() {}, updateClip() {}, updateAppearance() {},
     setArena() {}, render() {}, resize() {}, destroy() {}, async pick() { return null; }
   };
@@ -286,6 +291,7 @@ test('routes relations directly to the GPU without invoking the sampled CPU plot
   });
   assert.equal(result.classification, 'closed-region');
   assert.equal(sampled, 0);
+  assert.deepEqual(analyticInput.variants, program.variants);
   assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
 });
 
