@@ -1678,6 +1678,9 @@ symbolic_compile(source:str):
     )
 
 symbolic_compile_draft(source:str):
+    lexed: symbolic_tokenize(source)
+    symbolic_draft_tokens_ready(lexed.tokens) = false?
+        @: symbolic_incomplete_draft(lexed)
     program: symbolic_compile(source)
     complete: vkf_list_length(program.diagnostics) = 0
     complete?
@@ -1687,13 +1690,55 @@ symbolic_compile_draft(source:str):
             true,
             program.diagnostics
         )
-    lexed: symbolic_tokenize(source)
+    symbolic_uncompiled_draft(lexed, program.diagnostics)
+
+symbolic_uncompiled_draft(lexed:any, diagnostics:any):
     symbolic_draft(
         symbolic_draft_latex_tokens(lexed.tokens, 0),
         false,
         true,
-        program.diagnostics
+        diagnostics
     )
+
+symbolic_draft_for_uncompiled(lexed:any, diagnostics:any):
+    symbolic_draft_tokens_ready(lexed.tokens)?
+        @: symbolic_uncompiled_draft(lexed, diagnostics)
+    symbolic_incomplete_draft(lexed)
+
+symbolic_incomplete_draft(lexed:any):
+    eof: lexed.tokens.(vkf_list_length(lexed.tokens) - 1)
+    issue: symbolic_diagnostic(
+        "incomplete-expression",
+        "expression can be completed",
+        eof.location
+    )
+    symbolic_draft(
+        symbolic_draft_latex_tokens(lexed.tokens, 0),
+        false,
+        true,
+        lexed.diagnostics & [issue]
+    )
+
+symbolic_draft_tokens_ready(tokens:any):
+    symbolic_draft_tokens_balanced(tokens, 0, 0, 0, 0) /\ symbolic_draft_last_token_ready(tokens, 0, "")
+
+symbolic_draft_tokens_balanced(tokens:any, index:num, parens:num, brackets:num, braces:num):
+    current: tokens.(index)
+    current.kind??
+        "EOF" => parens = 0 /\ brackets = 0 /\ braces = 0
+        "LPAREN" => symbolic_draft_tokens_balanced(tokens, index + 1, parens + 1, brackets, braces)
+        "RPAREN" => parens > 0 /\ symbolic_draft_tokens_balanced(tokens, index + 1, parens - 1, brackets, braces)
+        "LBRACKET" => symbolic_draft_tokens_balanced(tokens, index + 1, parens, brackets + 1, braces)
+        "RBRACKET" => brackets > 0 /\ symbolic_draft_tokens_balanced(tokens, index + 1, parens, brackets - 1, braces)
+        "LBRACE" => symbolic_draft_tokens_balanced(tokens, index + 1, parens, brackets, braces + 1)
+        "RBRACE" => braces > 0 /\ symbolic_draft_tokens_balanced(tokens, index + 1, parens, brackets, braces - 1)
+        symbolic_draft_tokens_balanced(tokens, index + 1, parens, brackets, braces)
+
+symbolic_draft_last_token_ready(tokens:any, index:num, previousKind:str):
+    current: tokens.(index)
+    current.kind = "EOF"?
+        @: previousKind = "NUMBER" \/ previousKind = "IDENT" \/ previousKind = "RPAREN" \/ previousKind = "RBRACKET" \/ previousKind = "RBRACE"
+    symbolic_draft_last_token_ready(tokens, index + 1, current.kind)
 
 symbolic_draft(
     latex:str,
@@ -2095,14 +2140,14 @@ symbolic_compile_document(source:str, profile:str, context:any, clip:any):
     active_context: symbolic_document_context(context)
     active_clip: symbolic_document_clip(clip)
     normalized: symbolic_document_normalize_math(source, profile, 0)
+    lexed: symbolic_tokenize(source)
+    symbolic_document_math_end(source, 0, profile) = symbolic_document_source_end(source, 0) /\ symbolic_draft_tokens_ready(lexed.tokens) = false?
+        @: symbolic_document_draft_result(source, symbolic_incomplete_draft(lexed))
     whole: symbolic_compile_with_context(normalized, active_context, active_clip)
     vkf_list_length(whole.diagnostics) = 0 /\ symbolic_document_program_supported(whole, profile)?
         entry: symbolic_document_program_entry(source, 0, symbolic_document_source_end(source, 0), whole)
         spans: vkf_list_single(symbolic_document_math_span(source, 0, symbolic_document_source_end(source, 0), whole, 0))
         @: symbolic_document_result(source, spans, vkf_list_single(entry))
-    draft: symbolic_compile_draft(normalized)
-    symbolic_document_math_end(source, 0, profile) = symbolic_document_source_end(source, 0) /\ draft.complete = false?
-        @: symbolic_document_draft_result(source, draft)
     scanned: symbolic_document_scan(source, profile, active_context, active_clip, 0, 0, vkf_list_empty(), vkf_list_empty())
     symbolic_document_result(source, scanned.spans, scanned.programs)
 
@@ -2170,16 +2215,21 @@ symbolic_document_scan(
                 before_math & [math_span],
                 programs & [entry]
             )
-        symbolic_document_scan(
+        math_lexed: symbolic_tokenize(math_source)
+        before_draft: symbolic_document_flush_text(source, textStart, offset, spans)
+        math_draft: symbolic_draft_for_uncompiled(math_lexed, compiled.diagnostics)
+        draft_span: symbolic_document_math_draft_span(math_source, offset, math_end, math_draft)
+        @: symbolic_document_scan(
             source,
             profile,
             context,
             clip,
-            symbolic_document_advance(source, offset),
-            textStart,
-            spans,
+            math_end,
+            math_end,
+            before_draft & [draft_span],
             programs
         )
+
     symbolic_document_scan(
         source,
         profile,
@@ -2261,22 +2311,23 @@ symbolic_document_math_span(source:str, start:num, stop:num, program:any, progra
         roles: symbolic_document_math_roles(symbolic_tokenize(source).tokens, start, 0)
     )
 
-symbolic_document_math_draft_span(source:str, latex:str):
+symbolic_document_math_draft_span(source:str, start:num, stop:num, draft:any):
     (
         kind: "math-draft",
         source: source,
-        start: 0,
-        end: symbolic_document_source_end(source, 0),
-        latex: latex,
+        start: start,
+        end: stop,
+        latex: draft.latex,
         executable: false,
-        roles: symbolic_document_math_roles(symbolic_tokenize(source).tokens, 0, 0)
+        diagnostics: draft.diagnostics,
+        roles: symbolic_document_math_roles(symbolic_tokenize(source).tokens, start, 0)
     )
 
 symbolic_document_draft_result(source:str, draft:any):
     (
         source: source,
         latex: draft.latex,
-        spans: vkf_list_single(symbolic_document_math_draft_span(source, draft.latex)),
+        spans: vkf_list_single(symbolic_document_math_draft_span(source, 0, symbolic_document_source_end(source, 0), draft)),
         programs: vkf_list_empty(),
         program: null,
         diagnostics: draft.diagnostics,
@@ -2300,11 +2351,26 @@ symbolic_document_result(source:str, spans:any, programs:any):
         spans: spans,
         programs: programs,
         program: aggregate,
-        diagnostics: vkf_list_empty(),
-        complete: true,
+        diagnostics: symbolic_document_spans_diagnostics(spans, 0),
+        complete: symbolic_document_spans_complete(spans, 0),
         recoverable: true,
         plottable: symbolic_document_programs_plottable(programs, 0)
     )
+
+symbolic_document_spans_complete(spans:any, index:num):
+    index >= vkf_list_length(spans)?
+        @: true
+    spans.(index).kind = "math-draft"?
+        @: false
+    symbolic_document_spans_complete(spans, index + 1)
+
+symbolic_document_spans_diagnostics(spans:any, index:num):
+    index >= vkf_list_length(spans)?
+        @: vkf_list_empty()
+    current: spans.(index)
+    current.kind = "math-draft"?
+        @: current.diagnostics & symbolic_document_spans_diagnostics(spans, index + 1)
+    symbolic_document_spans_diagnostics(spans, index + 1)
 
 symbolic_document_spans_latex(spans:any, index:num):
     index >= vkf_list_length(spans)?
@@ -2369,6 +2435,8 @@ symbolic_document_program_variables(programs:any, index:num):
     programs.(index).program.variables & symbolic_document_program_variables(programs, index + 1)
 
 symbolic_document_math_anchor(source:str, offset:num, profile:str):
+    offset > 0 /\ symbolic_is_identifier_start(vkf_string_peek_scalar(source, offset - 1))?
+        @: false
     ch: vkf_string_peek_scalar(source, offset)
     symbolic_is_identifier_start(ch) = false?
         @: false
@@ -2413,7 +2481,7 @@ symbolic_document_math_end_at(source:str, offset:num, profile:str, consumed:any)
     symbolic_is_identifier_start(ch)?
         end: vkf_identifier_scan_end(source, offset)
         name: vkf_utf8_slice(source, offset, end)
-        symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)?
+        consumed \/ symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)?
             @: symbolic_document_math_end_at(source, end, profile, true)
         @: offset
     symbolic_is_digit(ch)?
