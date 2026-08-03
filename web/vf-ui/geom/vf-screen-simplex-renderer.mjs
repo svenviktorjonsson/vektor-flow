@@ -142,11 +142,11 @@ export function createScreenSpaceSimplexRenderer(canvas, options = {}) {
 function appendFace(output, primitive) {
   const points = validPoints(primitive.points);
   if (points.length < 3) return;
-  const color = colorToRgba(primitive.color);
+  const colors = pointColors(primitive.colors, points.length, primitive.color);
   for (let index = 1; index < points.length - 1; index += 1) {
-    appendPackedVertex(output, points[0], color);
-    appendPackedVertex(output, points[index], color);
-    appendPackedVertex(output, points[index + 1], color);
+    appendPackedVertex(output, points[0], colors[0]);
+    appendPackedVertex(output, points[index], colors[index]);
+    appendPackedVertex(output, points[index + 1], colors[index + 1]);
   }
 }
 
@@ -165,8 +165,20 @@ function appendEdge(output, primitive) {
   const b = [from[0] - nx, from[1] - ny];
   const c = [to[0] - nx, to[1] - ny];
   const d = [to[0] + nx, to[1] + ny];
-  const color = colorToRgba(primitive.color);
-  for (const point of [a, b, c, a, c, d]) appendPackedVertex(output, point, color);
+  const fromColor = colorToRgba(primitive.fromColor ?? primitive.color);
+  const toColor = colorToRgba(primitive.toColor ?? primitive.color);
+  for (const [point, color] of [
+    [a, fromColor], [b, fromColor], [c, toColor],
+    [a, fromColor], [c, toColor], [d, toColor]
+  ]) appendPackedVertex(output, point, color);
+}
+
+function pointColors(colors, count, fallback) {
+  if (!Array.isArray(colors) || colors.length !== count) {
+    const color = colorToRgba(fallback);
+    return Array.from({ length: count }, () => color);
+  }
+  return colors.map(colorToRgba);
 }
 
 function appendVertex(output, primitive) {

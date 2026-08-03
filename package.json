@@ -1,6 +1,6 @@
 {
   "name": "vektor-flow",
-  "version": "1.2.29",
+  "version": "1.2.30",
   "description": "Vektor Flow is a functional, scope-based language for shaping data, describing\r geometry, and driving interactive visual programs. The important thing is not\r just the syntax. The important thing is the model:",
   "main": "index.js",
   "exports": {

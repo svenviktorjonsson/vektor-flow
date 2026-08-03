@@ -55,6 +55,32 @@ test('keeps alpha and transparent colors deterministic', () => {
   assert.deepEqual(colorToRgba([0.1, 0.2, 0.3, 0.4]), [0.1, 0.2, 0.3, 0.4]);
 });
 
+test('interpolates face corners and edge endpoints on the GPU', () => {
+  const vertices = buildScreenSpaceSimplexVertices({
+    primitives: [
+      {
+        kind: 'face',
+        points: [[0, 0], [10, 0], [0, 10]],
+        colors: ['#ff0000', '#00ff00', '#0000ff']
+      },
+      {
+        kind: 'edge',
+        from: [0, 20],
+        to: [10, 20],
+        width: 2,
+        fromColor: '#ff0000',
+        toColor: '#0000ff'
+      }
+    ]
+  });
+
+  assert.deepEqual(Array.from(vertices.slice(2, 6)), [1, 0, 0, 1]);
+  assert.deepEqual(Array.from(vertices.slice(8, 12)), [0, 1, 0, 1]);
+  assert.deepEqual(Array.from(vertices.slice(14, 18)), [0, 0, 1, 1]);
+  const edgeOffset = 3 * 6;
+  assert.deepEqual(Array.from(vertices.slice(edgeOffset + 2, edgeOffset + 6)), [1, 0, 0, 1]);
+  assert.deepEqual(Array.from(vertices.slice(edgeOffset + 14, edgeOffset + 18)), [0, 0, 1, 1]);
+});
 test('skips malformed or degenerate primitives', () => {
   const vertices = buildScreenSpaceSimplexVertices({
     primitives: [
