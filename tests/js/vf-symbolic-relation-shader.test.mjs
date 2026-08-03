@@ -48,11 +48,24 @@ test('both GPU backends derive antialiased coverage from the analytic residual',
   });
   const glsl = webGlRelationFragmentSource(shader);
   const wgsl = webGpuRelationShaderSource(shader);
-  assert.match(glsl, /dFdx\(residual\).*dFdy\(residual\)/s);
-  assert.match(wgsl, /dpdx\(residual\).*dpdy\(residual\)/s);
+  assert.match(glsl, /dFdx\(boundary_residual\).*dFdy\(boundary_residual\)/s);
+  assert.match(wgsl, /dpdx\(boundaryResidual\).*dpdy\(boundaryResidual\)/s);
   assert.match(glsl, /inverse\(u_transform\)/);
   assert.match(wgsl, /determinant/);
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /17\.0/);
+  assert.doesNotMatch(`${glsl}\n${wgsl}`, /undefined/);
+});
+
+test('renders a simple equality through the current boundary and fill residual contract', () => {
+  const shader = compileSymbolicRelationShader({
+    kind: 'binary', op: '=', left: variable('x'), right: { kind: 'number', value: 1 }
+  });
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.match(glsl, /boundary_residual = .*x.*1\.0/);
+  assert.match(wgsl, /boundaryResidual = .*x.*1\.0/);
+  assert.doesNotMatch(`${glsl}\n${wgsl}`, /undefined/);
 });
 
 

@@ -455,7 +455,7 @@ function positive(value, fallback) {
 }
 
 function relationShaderKey(shader) {
-  return shader ? [shader.operator, shader.wgslResidual, shader.glslResidual].join(':') : null;
+  return shader ? [shader.operator, shader.wgslBoundaryResidual, shader.glslBoundaryResidual, shader.wgslFillResidual, shader.glslFillResidual].join(':') : null;
 }
 
 function nonNegative(value, fallback) {
@@ -1153,15 +1153,18 @@ export function webGpuRelationShaderSource(shader) {
       let x = local.x;
       let y = local.y;
       let t = uniforms.interaction.z;
-      let residual = ${shader.wgslResidual};
-      let gradient = max(length(vec2f(dpdx(residual), dpdy(residual))), 0.0000001);
-      let distancePx = residual / gradient;
-      let insidePx = distancePx * ${shader.insideSign.toFixed(1)};
+      let boundaryResidual = ${shader.wgslBoundaryResidual};
+      let boundaryGradient = max(length(vec2f(dpdx(boundaryResidual), dpdy(boundaryResidual))), 0.0000001);
+      let boundaryDistancePx = boundaryResidual / boundaryGradient;
+      let fillResidual = ${shader.wgslFillResidual};
+      let fillGradient = max(length(vec2f(dpdx(fillResidual), dpdy(fillResidual))), 0.0000001);
+      let fillDistancePx = fillResidual / fillGradient;
+      let insidePx = fillDistancePx * ${shader.insideSign.toFixed(1)};
       let fillCoverage = smoothstep(-0.75, 0.75, insidePx);
       let edgeHalfWidth = uniforms.geometry.x * 0.5;
-      let boundaryCoverage = 1.0 - smoothstep(edgeHalfWidth - 0.75, edgeHalfWidth + 0.75, abs(distancePx));
+      let boundaryCoverage = 1.0 - smoothstep(edgeHalfWidth - 0.75, edgeHalfWidth + 0.75, abs(boundaryDistancePx));
       let selectionCenter = edgeHalfWidth + uniforms.geometry.y + uniforms.geometry.z * 0.5;
-      let selectionDelta = abs(abs(distancePx) - selectionCenter);
+      let selectionDelta = abs(abs(boundaryDistancePx) - selectionCenter);
       let edgeSelection = (1.0 - smoothstep(
         uniforms.geometry.z * 0.5 - 0.75,
         uniforms.geometry.z * 0.5 + 0.75,
@@ -1190,11 +1193,14 @@ export function webGpuRelationShaderSource(shader) {
       let x = local.x;
       let y = local.y;
       let t = uniforms.interaction.z;
-      let residual = ${shader.wgslResidual};
-      let gradient = max(length(vec2f(dpdx(residual), dpdy(residual))), 0.0000001);
-      let distancePx = residual / gradient;
-      let insidePx = distancePx * ${shader.insideSign.toFixed(1)};
-      if (${shader.hasBoundary ? 'abs(distancePx) <= uniforms.geometry.x * 0.5 + uniforms.geometry.w' : 'false'}) {
+      let boundaryResidual = ${shader.wgslBoundaryResidual};
+      let boundaryGradient = max(length(vec2f(dpdx(boundaryResidual), dpdy(boundaryResidual))), 0.0000001);
+      let boundaryDistancePx = boundaryResidual / boundaryGradient;
+      let fillResidual = ${shader.wgslFillResidual};
+      let fillGradient = max(length(vec2f(dpdx(fillResidual), dpdy(fillResidual))), 0.0000001);
+      let fillDistancePx = fillResidual / fillGradient;
+      let insidePx = fillDistancePx * ${shader.insideSign.toFixed(1)};
+      if (${shader.hasBoundary ? 'abs(boundaryDistancePx) <= uniforms.geometry.x * 0.5 + uniforms.geometry.w' : 'false'}) {
         return 2u;
       }
       if (${shader.hasFill ? 'insidePx >= 0.0' : 'false'}) { return 1u; }
@@ -2002,15 +2008,18 @@ export function webGlRelationFragmentSource(shader) {
       float x = local.x;
       float y = local.y;
       float t = u_time;
-      float residual = ${shader.glslResidual};
-      float gradient = max(length(vec2(dFdx(residual), dFdy(residual))), 0.0000001);
-      float distance_px = residual / gradient;
-      float inside_px = distance_px * ${shader.insideSign.toFixed(1)};
+      float boundary_residual = ${shader.glslBoundaryResidual};
+      float boundary_gradient = max(length(vec2(dFdx(boundary_residual), dFdy(boundary_residual))), 0.0000001);
+      float boundary_distance_px = boundary_residual / boundary_gradient;
+      float fill_residual = ${shader.glslFillResidual};
+      float fill_gradient = max(length(vec2(dFdx(fill_residual), dFdy(fill_residual))), 0.0000001);
+      float fill_distance_px = fill_residual / fill_gradient;
+      float inside_px = fill_distance_px * ${shader.insideSign.toFixed(1)};
       float fill_coverage = smoothstep(-0.75, 0.75, inside_px);
       float edge_half_width = u_geometry.x * 0.5;
-      float boundary_coverage = 1.0 - smoothstep(edge_half_width - 0.75, edge_half_width + 0.75, abs(distance_px));
+      float boundary_coverage = 1.0 - smoothstep(edge_half_width - 0.75, edge_half_width + 0.75, abs(boundary_distance_px));
       float selection_center = edge_half_width + u_geometry.y + u_geometry.z * 0.5;
-      float selection_delta = abs(abs(distance_px) - selection_center);
+      float selection_delta = abs(abs(boundary_distance_px) - selection_center);
       float edge_selection = (1.0 - smoothstep(u_geometry.z * 0.5 - 0.75, u_geometry.z * 0.5 + 0.75, selection_delta)) * u_interaction.x;
       vec4 color = vec4(u_face_color.rgb, u_face_color.a * ${fill});
       color = over(vec4(u_selection_color.rgb, fill_coverage * u_interaction.y), color);
@@ -2042,11 +2051,14 @@ export function webGlRelationPickFragmentSource(shader) {
       float x = local.x;
       float y = local.y;
       float t = u_time;
-      float residual = ${shader.glslResidual};
-      float gradient = max(length(vec2(dFdx(residual), dFdy(residual))), 0.0000001);
-      float distance_px = residual / gradient;
-      float inside_px = distance_px * ${shader.insideSign.toFixed(1)};
-      if (${shader.hasBoundary ? 'abs(distance_px) <= u_geometry.x * 0.5 + u_pick_radius' : 'false'}) {
+      float boundary_residual = ${shader.glslBoundaryResidual};
+      float boundary_gradient = max(length(vec2(dFdx(boundary_residual), dFdy(boundary_residual))), 0.0000001);
+      float boundary_distance_px = boundary_residual / boundary_gradient;
+      float fill_residual = ${shader.glslFillResidual};
+      float fill_gradient = max(length(vec2(dFdx(fill_residual), dFdy(fill_residual))), 0.0000001);
+      float fill_distance_px = fill_residual / fill_gradient;
+      float inside_px = fill_distance_px * ${shader.insideSign.toFixed(1)};
+      if (${shader.hasBoundary ? 'abs(boundary_distance_px) <= u_geometry.x * 0.5 + u_pick_radius' : 'false'}) {
         out_color = vec4(2.0 / 255.0, 0.0, 0.0, 0.0);
       } else if (${faceHit}) {
         out_color = vec4(1.0 / 255.0, 0.0, 0.0, 0.0);
