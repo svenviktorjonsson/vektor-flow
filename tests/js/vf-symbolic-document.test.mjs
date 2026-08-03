@@ -89,6 +89,33 @@ test('preserves coordinate alias spelling while compiling its semantic meaning',
   assert.equal(radial.programs[0].result.classification, 'scalar-field');
 });
 
+test('keeps recoverable mathematical prefixes as math until they become executable', async () => {
+  const compiler = await createCompiler();
+  const incomplete = compiler.compileDocument('r=', { profile: 'platonic' });
+
+  assert.equal(incomplete.latex, 'r = ');
+  assert.equal(incomplete.complete, false);
+  assert.equal(incomplete.recoverable, true);
+  assert.equal(incomplete.plottable, false);
+  assert.equal(incomplete.programs.length, 0);
+  assert.equal(incomplete.spans[0].kind, 'math-draft');
+  assert.equal(incomplete.spans[0].source, 'r=');
+  assert.doesNotMatch(incomplete.latex, /\\mathrm/);
+
+  const sum = compiler.compileDocument('x+', { profile: 'platonic' });
+  assert.equal(sum.latex, 'x + ');
+  assert.equal(sum.spans[0].kind, 'math-draft');
+
+  const complete = compiler.compileDocument('r=1', { profile: 'platonic' });
+  assert.equal(complete.complete, true);
+  assert.equal(complete.spans[0].kind, 'math');
+  assert.equal(complete.programs.length, 1);
+
+  const prose = compiler.compileDocument('hello', { profile: 'platonic' });
+  assert.equal(prose.complete, true);
+  assert.equal(prose.spans[0].kind, 'text');
+});
+
 test('keeps prose upright and exposes explicit italic letter modifiers', async () => {
   const compiler = await createCompiler();
   const document = compiler.compileDocument('a /a /i /I', { profile: 'platonic' });

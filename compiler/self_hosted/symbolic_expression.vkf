@@ -2100,6 +2100,9 @@ symbolic_compile_document(source:str, profile:str, context:any, clip:any):
         entry: symbolic_document_program_entry(source, 0, symbolic_document_source_end(source, 0), whole)
         spans: vkf_list_single(symbolic_document_math_span(source, 0, symbolic_document_source_end(source, 0), whole, 0))
         @: symbolic_document_result(source, spans, vkf_list_single(entry))
+    draft: symbolic_compile_draft(normalized)
+    symbolic_document_math_end(source, 0, profile) = symbolic_document_source_end(source, 0) /\ draft.complete = false?
+        @: symbolic_document_draft_result(source, draft)
     scanned: symbolic_document_scan(source, profile, active_context, active_clip, 0, 0, vkf_list_empty(), vkf_list_empty())
     symbolic_document_result(source, scanned.spans, scanned.programs)
 
@@ -2258,6 +2261,29 @@ symbolic_document_math_span(source:str, start:num, stop:num, program:any, progra
         roles: symbolic_document_math_roles(symbolic_tokenize(source).tokens, start, 0)
     )
 
+symbolic_document_math_draft_span(source:str, latex:str):
+    (
+        kind: "math-draft",
+        source: source,
+        start: 0,
+        end: symbolic_document_source_end(source, 0),
+        latex: latex,
+        executable: false,
+        roles: symbolic_document_math_roles(symbolic_tokenize(source).tokens, 0, 0)
+    )
+
+symbolic_document_draft_result(source:str, draft:any):
+    (
+        source: source,
+        latex: draft.latex,
+        spans: vkf_list_single(symbolic_document_math_draft_span(source, draft.latex)),
+        programs: vkf_list_empty(),
+        program: null,
+        diagnostics: draft.diagnostics,
+        complete: false,
+        recoverable: draft.recoverable,
+        plottable: false
+    )
 symbolic_document_program_entry(source:str, start:num, stop:num, program:any):
     (
         source: source,
