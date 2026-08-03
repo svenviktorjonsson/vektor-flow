@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { compileSymbolicRelationShader } from '../../web/vf-ui/geom/vf-symbolic-relation-shader.mjs';
+import {
+  compileSymbolicRelationShader,
+  compileSymbolicRelationShaderGroup
+} from '../../web/vf-ui/geom/vf-symbolic-relation-shader.mjs';
 import {
   webGlRelationFragmentSource,
   webGpuRelationShaderSource
@@ -91,4 +94,24 @@ test('combines a set-distributed equality into concentric GPU boundaries', () =>
     assert.match(shader.wgslBoundaryResidual, new RegExp(radius + '\\.0'));
   }
   assert.equal((shader.glslBoundaryResidual.match(/min\(/g) || []).length, 4);
+});
+
+test('combines independent relation programs into one GPU plot group', () => {
+  const equality = {
+    ast: { kind: 'binary', op: '=', left: variable('x'), right: { kind: 'number', value: 1 } },
+    variants: []
+  };
+  const region = {
+    ast: { kind: 'binary', op: '>', left: variable('y'), right: { kind: 'number', value: 2 } },
+    variants: []
+  };
+  const shader = compileSymbolicRelationShaderGroup([equality, region]);
+
+  assert.equal(shader.operator, 'group');
+  assert.equal(shader.hasBoundary, true);
+  assert.equal(shader.hasFill, true);
+  assert.equal(shader.insideSign, 1);
+  assert.match(shader.glslBoundaryResidual, /x.*1\.0/);
+  assert.match(shader.glslFillResidual, /y.*2\.0/);
+  assert.doesNotMatch(JSON.stringify(shader), /undefined/);
 });

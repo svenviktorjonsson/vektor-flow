@@ -97,6 +97,106 @@ test('owns a four-range curve family in one controller arena', async () => {
   controller.destroy();
 });
 
+test('renders a mixed document plot group in one GPU arena', async () => {
+  const calls = [];
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  new Float32Array(memory.buffer, 0, 24).set([
+    -1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0,
+    -1, -1, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0
+  ]);
+  const members = [
+    { diagnostics: [], variables: ['x'], classification: 'y-of-x', valueKind: 'scalar' },
+    { diagnostics: [], variables: ['y'], classification: 'x-of-y', valueKind: 'scalar' }
+  ];
+  const aggregate = {
+    diagnostics: [], variables: ['x', 'y'], classification: 'plot-group', valueKind: 'group'
+  };
+  let plotIndex = 0;
+  const kernel = {
+    memory,
+    compileWithContext() { return { value: aggregate }; },
+    createWorkspace() { return { handle: 'workspace-0' }; },
+    workspaceCompile() { return { value: { program: aggregate }, workspace: 'workspace-0' }; },
+    plot() {
+      const index = plotIndex++;
+      return {
+        pointer: index * 48,
+        count: 2,
+        stride: 24,
+        revision: 1,
+        ranges: [{ topology: 'line-strip', first: 0, count: 2 }]
+      };
+    }
+  };
+  const renderer = {
+    async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+    setAnalyticRelation() { return null; },
+    setArena(arena) { calls.push(arena); }, render() {}, resize() {}, destroy() {}
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true }, kernel, createRenderer: () => renderer
+  });
+  const compilation = {
+    value: { program: aggregate },
+    workspace: 'workspace-0',
+    document: { programs: members.map((program) => ({ program })) }
+  };
+
+  await controller.plot({
+    source: 'Compare x^2 and y^2', viewport,
+    colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' },
+    compilation,
+    revision: 1
+  });
+
+  assert.equal(plotIndex, 2);
+  assert.equal(calls[0].count, 4);
+  assert.deepEqual(calls[0].ranges.map(({ first, count }) => ({ first, count })), [
+    { first: 0, count: 2 },
+    { first: 2, count: 2 }
+  ]);
+});
+
+test('routes every relation in a mixed document through one GPU relation group', async () => {
+  let analyticInputs = null;
+  let sampled = 0;
+  const members = [
+    { diagnostics: [], variables: ['x', 'y'], classification: 'implicit-curve', valueKind: 'relation', ast: { id: 1 } },
+    { diagnostics: [], variables: ['x', 'y'], classification: 'closed-region', valueKind: 'relation', ast: { id: 2 } }
+  ];
+  const aggregate = { diagnostics: [], variables: ['x', 'y'], classification: 'plot-group', valueKind: 'group' };
+  const renderer = {
+    async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+    setAnalyticRelations(values) { analyticInputs = values; return { shader: true }; },
+    setArena() {}, render() {}, resize() {}, destroy() {}
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() { return { value: aggregate }; },
+      createWorkspace() { return { handle: 'workspace-0' }; },
+      workspaceCompile() { return { value: { program: aggregate }, workspace: 'workspace-0' }; },
+      plot() { sampled += 1; throw new Error('sampled relation fallback must not run'); }
+    },
+    createRenderer: () => renderer
+  });
+
+  await controller.plot({
+    source: 'x^2 = 1 and y^2 < 1', viewport,
+    colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' },
+    compilation: {
+      value: { program: aggregate },
+      workspace: 'workspace-0',
+      document: { programs: members.map((program) => ({ program })) }
+    },
+    revision: 1
+  });
+
+  assert.deepEqual(analyticInputs.map(({ ast }) => ast.id), [1, 2]);
+  assert.equal(sampled, 0);
+});
+
 test('normalizes device transforms at DPR 2 and 3', () => {
   assert.deepEqual(symbolicCssPixelTransform([80, 4, -6, -80, 600, 1000], 2),
     [40, 2, -3, -40, 300, 500]);

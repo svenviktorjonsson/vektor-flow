@@ -84,21 +84,38 @@ export async function createSymbolicPlotController({
 
     const program = compiled.value?.program ?? compiled.value;
     const result = publicProgramResult(program);
-    const analyticRelation = renderer.setAnalyticRelation?.(result.diagnostics.length === 0 ? {
-      ast: program?.ast,
-      variants: program?.variants,
+    const documentPrograms = Array.isArray(compilation?.document?.programs)
+      ? compilation.document.programs.map(({ program: member }) => member).filter(Boolean)
+      : null;
+    const relationPrograms = (documentPrograms || [program])
+      .filter((member) => isSymbolicRelation(member?.classification));
+    const relationInputs = relationPrograms.map((member) => ({
+      ast: member.ast,
+      variants: member.variants,
       style,
       t: view.t
-    } : null);
+    }));
+    const analyticRelation = typeof renderer.setAnalyticRelations === 'function'
+      ? renderer.setAnalyticRelations(relationInputs)
+      : renderer.setAnalyticRelation?.(relationInputs[0] || null);
+    if (relationPrograms.length > 0 && !analyticRelation) {
+      throw new Error('VKF GPU relation compiler does not support this expression');
+    }
     let nextSnapGeometry;
     let nextArena;
-    if (isSymbolicRelation(result.classification)) {
-      if (!analyticRelation) throw new Error('VKF GPU relation compiler does not support this expression');
+    if (relationPrograms.length > 0 && relationPrograms.length === (documentPrograms || [program]).length) {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(requestOrder);
     } else if (result.diagnostics.length === 0) {
-      const arena = await kernel.plot(program, executionWorkspace, view, style, revision);
-      nextArena = snapshotSymbolicPlotArena(arena, kernel.memory, requestOrder);
+      const sampledPrograms = (documentPrograms || [program])
+        .filter((member) => !isSymbolicRelation(member?.classification));
+      const arenas = await Promise.all(sampledPrograms.map(async (member) =>
+        snapshotSymbolicPlotArena(
+          await kernel.plot(member, executionWorkspace, view, style, revision),
+          kernel.memory,
+          requestOrder
+        )));
+      nextArena = combineSymbolicPlotArenas(arenas, requestOrder);
       nextSnapGeometry = symbolicPlotSnapGeometry(nextArena);
     } else {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
@@ -465,6 +482,33 @@ export async function createSymbolicCompiler({
       const result = kernel.compileWithContext(String(source ?? ''), context, clip);
       return publicProgramResult(result.value?.program ?? result.value);
     },
+    compileDocument(source, {
+      profile = 'default',
+      context = globalSymbolicContext(),
+      clip = null
+    } = {}) {
+      const compiled = kernel.compileDocument(String(source ?? ''), profile, context, clip);
+      return publicDocumentResult(compiled.value, compiled.program);
+    },
+    compileDocumentPrograms(source, options = {}) {
+      return this.compileDocument(source, options).programs;
+    },
+    compileDocumentProgram(source, {
+      profile = 'default',
+      context = globalSymbolicContext(),
+      clip = null
+    } = {}) {
+      const compiled = kernel.compileDocument(String(source ?? ''), profile, context, clip);
+      const document = publicDocumentResult(compiled.value, compiled.program);
+      const program = compiled.value?.program ?? null;
+      return Object.freeze({
+        value: Object.freeze({ program }),
+        program: compiled.program,
+        workspace,
+        document,
+        result: publicProgramResult(program)
+      });
+    },
     compileProgram(source, context = globalSymbolicContext(), clip = null) {
       const compiled = kernel.workspaceCompile(workspace, String(source ?? ''), context, clip);
       workspace = compiled.workspace;
@@ -682,6 +726,37 @@ function publicProgramResult(program) {
   });
 }
 
+function publicDocumentResult(document, retainedProgram = null) {
+  const programs = Object.freeze((Array.isArray(document?.programs) ? document.programs : [])
+    .map((entry) => Object.freeze({
+      source: typeof entry?.source === 'string' ? entry.source : '',
+      start: Number(entry?.start) || 0,
+      end: Number(entry?.end) || 0,
+      program: entry?.program,
+      result: publicProgramResult(entry?.program)
+    })));
+  const spans = Object.freeze((Array.isArray(document?.spans) ? document.spans : [])
+    .map((span) => Object.freeze({
+      ...span,
+      roles: Object.freeze(Array.isArray(span?.roles) ? [...span.roles] : [])
+    })));
+  const diagnostics = Object.freeze(
+    Array.isArray(document?.diagnostics) ? [...document.diagnostics] : []
+  );
+  return Object.freeze({
+    source: typeof document?.source === 'string' ? document.source : '',
+    latex: typeof document?.latex === 'string' ? document.latex : '',
+    spans,
+    programs,
+    program: retainedProgram,
+    result: publicProgramResult(document?.program),
+    diagnostics,
+    complete: document?.complete === true,
+    recoverable: document?.recoverable === true,
+    plottable: document?.plottable === true && programs.some(({ result }) => result.plottable)
+  });
+}
+
 const PLOTTABLE_CLASSIFICATIONS = new Set([
   'literal',
   'linked-tuple',
@@ -695,7 +770,8 @@ const PLOTTABLE_CLASSIFICATIONS = new Set([
   'scalar-field',
   'implicit-curve',
   'open-region',
-  'closed-region'
+  'closed-region',
+  'plot-group'
 ]);
 
 function emptyArena(revision) {
@@ -723,6 +799,35 @@ function snapshotSymbolicPlotArena(arena, memory, revision) {
     stride: arena.stride,
     revision,
     ranges: Object.freeze(view.ranges.map((range) => Object.freeze({ ...range })))
+  });
+}
+
+function combineSymbolicPlotArenas(arenas, revision) {
+  if (arenas.length === 0) return emptyArena(revision);
+  if (arenas.length === 1) return arenas[0];
+  const stride = arenas[0].stride;
+  if (arenas.some((arena) => arena.stride !== stride)) {
+    throw new Error('VKF symbolic plot group has inconsistent vertex strides');
+  }
+  const data = new Float32Array(arenas.reduce((total, arena) => total + arena.data.length, 0));
+  const ranges = [];
+  let dataOffset = 0;
+  let vertexOffset = 0;
+  for (const arena of arenas) {
+    data.set(arena.data, dataOffset);
+    ranges.push(...arena.ranges.map((range) => Object.freeze({
+      ...range,
+      first: range.first + vertexOffset
+    })));
+    dataOffset += arena.data.length;
+    vertexOffset += arena.count;
+  }
+  return Object.freeze({
+    data,
+    count: vertexOffset,
+    stride,
+    revision,
+    ranges: Object.freeze(ranges)
   });
 }
 

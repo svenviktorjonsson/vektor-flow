@@ -342,6 +342,18 @@ export function createSymbolicKernel({ instance, manifest }) {
     compileDraft(source) {
       return invoke("symbolic_compile_draft", [source]);
     },
+    compileDocument(source, profile = "default", context = null, clip = null) {
+      const result = invoke(
+        "symbolic_compile_document",
+        [source, profile, context, clip],
+      );
+      return Object.freeze({
+        ...result,
+        program: result.value?.program == null
+          ? null
+          : retainField(result.handle, "program"),
+      });
+    },
     evaluate(program, x, y) {
       return invoke("symbolic_program_evaluate", [program, x, y]).value;
     },

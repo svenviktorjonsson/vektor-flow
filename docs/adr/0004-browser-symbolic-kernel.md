@@ -40,6 +40,14 @@ The UTF-8 memory interface is the browser seam. JavaScript may instantiate the
 module, transfer bytes, and decode structured results. It must not parse,
 classify, evaluate, repair, or render mathematical syntax.
 
+Mixed authoring is represented by `SymbolicDocument`. The kernel preserves
+exact source spans, classifies executable mathematical islands, emits one
+KaTeX math-mode string, and retains opaque KaTeX presentation spans that are
+not executable. Product profiles may define identifier decomposition such as
+Platonic Play's `xy -> x*y`. Consumers render `latex` and execute only the
+returned document program; they must not reconstruct either from spans in
+JavaScript.
+
 The WASM runtime owns dynamic values, program handles, diagnostics, and
 evaluation results. Generated plot data is written to shared arenas so renderer
 adapters can update GPU buffers without JSON on the frame path, consistent with

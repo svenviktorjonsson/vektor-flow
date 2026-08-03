@@ -1,4 +1,7 @@
-import { compileSymbolicRelationShader } from './vf-symbolic-relation-shader.mjs';
+import {
+  compileSymbolicRelationShader,
+  compileSymbolicRelationShaderGroup
+} from './vf-symbolic-relation-shader.mjs';
 
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
@@ -321,15 +324,21 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
   }
 
   function setAnalyticRelation(nextRelation = null) {
+    return setAnalyticRelations(nextRelation == null ? null : [nextRelation]);
+  }
+
+  function setAnalyticRelations(nextRelations = null) {
     assertAlive();
-    if (nextRelation == null) {
+    if (nextRelations == null || nextRelations.length === 0) {
       relation = null;
     } else {
-      const shader = compileSymbolicRelationShader(nextRelation.ast, nextRelation.variants);
+      const shader = nextRelations.length === 1
+        ? compileSymbolicRelationShader(nextRelations[0].ast, nextRelations[0].variants)
+        : compileSymbolicRelationShaderGroup(nextRelations);
       relation = shader ? Object.freeze({
         shader,
-        style: Object.freeze({ ...nextRelation.style }),
-        t: Number(nextRelation.t) || 0
+        style: Object.freeze({ ...nextRelations[0].style }),
+        t: Number(nextRelations[0].t) || 0
       }) : null;
     }
     backend?.updateRelation?.(relation);
@@ -422,6 +431,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     updateClip,
     updateAppearance,
     setAnalyticRelation,
+    setAnalyticRelations,
     resize,
     render,
     pick,

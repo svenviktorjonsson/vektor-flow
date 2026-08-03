@@ -28,6 +28,17 @@ SymbolicDraft: (
     recoverable:bool,
     diagnostics:any
 )
+SymbolicDocument: (
+    source:str,
+    latex:str,
+    spans:any,
+    programs:any,
+    program:any,
+    diagnostics:any,
+    complete:bool,
+    recoverable:bool,
+    plottable:bool
+)
 SymbolicWorkspace: any
 SymbolicEvaluation: (x:num, y:num, z:num, t:num, context:any)
 
@@ -2079,6 +2090,415 @@ symbolic_variant_program(program:any, ast:any):
         context: program.context,
         clip: program.clip
     )
+
+symbolic_compile_document(source:str, profile:str, context:any, clip:any):
+    active_context: symbolic_document_context(context)
+    active_clip: symbolic_document_clip(clip)
+    normalized: symbolic_document_normalize_math(source, profile, 0)
+    whole: symbolic_compile_with_context(normalized, active_context, active_clip)
+    vkf_list_length(whole.diagnostics) = 0 /\ symbolic_document_program_supported(whole, profile)?
+        entry: symbolic_document_program_entry(source, 0, symbolic_document_source_end(source, 0), whole)
+        spans: vkf_list_single(symbolic_document_math_span(source, 0, symbolic_document_source_end(source, 0), whole, 0))
+        @: symbolic_document_result(source, spans, vkf_list_single(entry))
+    scanned: symbolic_document_scan(source, profile, active_context, active_clip, 0, 0, vkf_list_empty(), vkf_list_empty())
+    symbolic_document_result(source, scanned.spans, scanned.programs)
+
+symbolic_document_context(context:any):
+    context = null?
+        @: symbolic_global_context()
+    context
+
+symbolic_document_clip(clip:any):
+    clip = null?
+        @: symbolic_no_clip()
+    clip
+
+symbolic_document_scan(
+    source:str,
+    profile:str,
+    context:any,
+    clip:any,
+    offset:num,
+    textStart:num,
+    spans:any,
+    programs:any
+):
+    vkf_string_eof(source, offset)?
+        final_spans: symbolic_document_flush_text(source, textStart, offset, spans)
+        @: (spans: final_spans, programs: programs)
+    ch: vkf_string_peek_scalar(source, offset)
+    ch = 92?
+        before_raw: symbolic_document_flush_text(source, textStart, offset, spans)
+        raw_text: vkf_utf8_slice(source, offset, symbolic_document_source_end(source, 0))
+        raw_span: symbolic_document_raw_span(raw_text, offset, symbolic_document_source_end(source, 0))
+        @: (spans: before_raw & [raw_span], programs: programs)
+    ch = 47 /\ symbolic_document_slash_command_end(source, offset) > offset + 1?
+        command_end: symbolic_document_slash_command_end(source, offset)
+        before_command: symbolic_document_flush_text(source, textStart, offset, spans)
+        command_source: vkf_utf8_slice(source, offset, command_end)
+        command_span: symbolic_document_command_span(command_source, offset, command_end)
+        @: symbolic_document_scan(
+            source,
+            profile,
+            context,
+            clip,
+            command_end,
+            command_end,
+            before_command & [command_span],
+            programs
+        )
+    symbolic_document_math_anchor(source, offset, profile)?
+        math_end: symbolic_document_math_end(source, offset, profile)
+        math_source: vkf_utf8_slice(source, offset, math_end)
+        normalized_math: symbolic_document_normalize_math(math_source, profile, 0)
+        compiled: symbolic_compile_with_context(normalized_math, context, clip)
+        vkf_list_length(compiled.diagnostics) = 0 /\ symbolic_document_program_supported(compiled, profile)?
+            before_math: symbolic_document_flush_text(source, textStart, offset, spans)
+            program_index: vkf_list_length(programs)
+            math_span: symbolic_document_math_span(math_source, offset, math_end, compiled, program_index)
+            entry: symbolic_document_program_entry(math_source, offset, math_end, compiled)
+            @: symbolic_document_scan(
+                source,
+                profile,
+                context,
+                clip,
+                math_end,
+                math_end,
+                before_math & [math_span],
+                programs & [entry]
+            )
+        symbolic_document_scan(
+            source,
+            profile,
+            context,
+            clip,
+            symbolic_document_advance(source, offset),
+            textStart,
+            spans,
+            programs
+        )
+    symbolic_document_scan(
+        source,
+        profile,
+        context,
+        clip,
+        symbolic_document_advance(source, offset),
+        textStart,
+        spans,
+        programs
+    )
+
+symbolic_document_advance(source:str, offset:num):
+    vkf_utf8_advance(source, offset)
+
+symbolic_document_source_end(source:str, offset:num):
+    vkf_string_eof(source, offset)?
+        @: offset
+    symbolic_document_source_end(source, symbolic_document_advance(source, offset))
+
+symbolic_document_flush_text(source:str, start:num, stop:num, spans:any):
+    stop <= start?
+        @: spans
+    text: vkf_utf8_slice(source, start, stop)
+    spans & [symbolic_document_text_span(text, start, stop)]
+
+symbolic_document_text_span(source:str, start:num, stop:num):
+    (
+        kind: "text",
+        source: source,
+        start: start,
+        end: stop,
+        latex: "\\mathrm{" & symbolic_document_text_latex(source, 0) & "}",
+        executable: false,
+        roles: vkf_list_single(symbolic_document_role("text", source, start, stop))
+    )
+
+symbolic_document_raw_span(source:str, start:num, stop:num):
+    (
+        kind: "raw-katex",
+        source: source,
+        start: start,
+        end: stop,
+        latex: source,
+        executable: false,
+        roles: vkf_list_single(symbolic_document_role("raw-katex", source, start, stop))
+    )
+
+symbolic_document_command_span(source:str, start:num, stop:num):
+    name: vkf_utf8_slice(source, 1, symbolic_document_source_end(source, 0))
+    command: symbolic_document_command_latex(name)
+    (
+        kind: "raw-katex",
+        source: source,
+        start: start,
+        end: stop,
+        latex: command,
+        executable: false,
+        roles: vkf_list_single(symbolic_document_role("command", source, start, stop))
+    )
+
+symbolic_document_command_latex(name:str):
+    name = "a"?
+        @: "a"
+    name = "i"?
+        @: "i"
+    name = "I"?
+        @: "I"
+    vkf_utf8_slice("\\mathrm", 0, 1) & name
+
+symbolic_document_math_span(source:str, start:num, stop:num, program:any, programIndex:num):
+    (
+        kind: "math",
+        source: source,
+        start: start,
+        end: stop,
+        latex: program.latex,
+        executable: true,
+        programIndex: programIndex,
+        roles: symbolic_document_math_roles(symbolic_tokenize(source).tokens, start, 0)
+    )
+
+symbolic_document_program_entry(source:str, start:num, stop:num, program:any):
+    (
+        source: source,
+        start: start,
+        end: stop,
+        program: program
+    )
+
+symbolic_document_result(source:str, spans:any, programs:any):
+    aggregate: symbolic_document_aggregate_program(programs)
+    (
+        source: source,
+        latex: symbolic_document_spans_latex(spans, 0),
+        spans: spans,
+        programs: programs,
+        program: aggregate,
+        diagnostics: vkf_list_empty(),
+        complete: true,
+        recoverable: true,
+        plottable: symbolic_document_programs_plottable(programs, 0)
+    )
+
+symbolic_document_spans_latex(spans:any, index:num):
+    index >= vkf_list_length(spans)?
+        @: ""
+    spans.(index).latex & symbolic_document_spans_latex(spans, index + 1)
+
+symbolic_document_programs_plottable(programs:any, index:num):
+    index >= vkf_list_length(programs)?
+        @: false
+    symbolic_program_is_plottable(programs.(index).program)?
+        @: true
+    symbolic_document_programs_plottable(programs, index + 1)
+
+symbolic_program_is_plottable(program:any):
+    program.classification != "definition" /\ vkf_list_length(program.diagnostics) = 0
+
+symbolic_document_aggregate_program(programs:any):
+    vkf_list_length(programs) = 0?
+        @: null
+    vkf_list_length(programs) = 1?
+        @: programs.(0).program
+    members: symbolic_document_program_values(programs, 0)
+    (
+        ast: (kind: "group", items: symbolic_document_program_asts(programs, 0)),
+        variants: symbolic_document_program_variants(programs, 0),
+        diagnostics: vkf_list_empty(),
+        latex: symbolic_document_program_latex(programs, 0),
+        variables: symbolic_document_program_variables(programs, 0),
+        classification: "plot-group",
+        valueKind: "group",
+        context: programs.(0).program.context,
+        clip: programs.(0).program.clip,
+        members: members
+    )
+
+symbolic_document_program_values(programs:any, index:num):
+    index >= vkf_list_length(programs)?
+        @: vkf_list_empty()
+    vkf_list_single(programs.(index).program) & symbolic_document_program_values(programs, index + 1)
+
+symbolic_document_program_asts(programs:any, index:num):
+    index >= vkf_list_length(programs)?
+        @: vkf_list_empty()
+    vkf_list_single(programs.(index).program.ast) & symbolic_document_program_asts(programs, index + 1)
+
+symbolic_document_program_variants(programs:any, index:num):
+    index >= vkf_list_length(programs)?
+        @: vkf_list_empty()
+    programs.(index).program.variants & symbolic_document_program_variants(programs, index + 1)
+
+symbolic_document_program_latex(programs:any, index:num):
+    index >= vkf_list_length(programs)?
+        @: ""
+    tail: symbolic_document_program_latex(programs, index + 1)
+    tail = ""?
+        @: programs.(index).program.latex
+    programs.(index).program.latex & ", " & tail
+
+symbolic_document_program_variables(programs:any, index:num):
+    index >= vkf_list_length(programs)?
+        @: vkf_list_empty()
+    programs.(index).program.variables & symbolic_document_program_variables(programs, index + 1)
+
+symbolic_document_math_anchor(source:str, offset:num, profile:str):
+    ch: vkf_string_peek_scalar(source, offset)
+    symbolic_is_identifier_start(ch) = false?
+        @: false
+    end: vkf_identifier_scan_end(source, offset)
+    name: vkf_utf8_slice(source, offset, end)
+    symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)
+
+symbolic_document_known_identifier(name:str, profile:str):
+    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "phi" \/ name = "pi" \/ name = "i" \/ (profile = "platonic" /\ name = "xy")
+
+symbolic_document_program_supported(program:any, profile:str):
+    profile != "platonic"?
+        @: true
+    symbolic_document_variables_supported(program.variables, 0, profile)
+
+symbolic_document_variables_supported(variables:any, index:num, profile:str):
+    index >= vkf_list_length(variables)?
+        @: true
+    name: variables.(index)
+    supported: symbolic_document_known_identifier(name, profile)
+    supported /\ symbolic_document_variables_supported(variables, index + 1, profile)
+
+symbolic_document_identifier_is_call(source:str, offset:num):
+    vkf_string_eof(source, offset)?
+        @: false
+    vkf_string_peek_scalar(source, offset) = 40
+
+symbolic_document_math_end(source:str, offset:num, profile:str):
+    symbolic_document_math_end_at(source, offset, profile, false)
+
+symbolic_document_math_end_at(source:str, offset:num, profile:str, consumed:any):
+    vkf_string_eof(source, offset)?
+        @: offset
+    ch: vkf_string_peek_scalar(source, offset)
+    symbolic_is_space(ch)?
+        next: symbolic_document_skip_spaces(source, offset)
+        vkf_string_eof(source, next)?
+            @: offset
+        symbolic_document_math_continues_at(source, next, profile)?
+            @: symbolic_document_math_end_at(source, next, profile, consumed)
+        @: offset
+    symbolic_is_identifier_start(ch)?
+        end: vkf_identifier_scan_end(source, offset)
+        name: vkf_utf8_slice(source, offset, end)
+        symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)?
+            @: symbolic_document_math_end_at(source, end, profile, true)
+        @: offset
+    symbolic_is_digit(ch)?
+        scanned: symbolic_scan_number(symbolic_location_cursor(source, offset, 1, offset + 1))
+        @: symbolic_document_math_end_at(source, scanned.next.offset, profile, true)
+    symbolic_document_math_operator(ch)?
+        @: symbolic_document_math_end_at(source, symbolic_document_advance(source, offset), profile, true)
+    offset
+
+symbolic_document_math_continues_at(source:str, offset:num, profile:str):
+    ch: vkf_string_peek_scalar(source, offset)
+    symbolic_is_identifier_start(ch) = false?
+        @: symbolic_is_digit(ch) \/ symbolic_document_math_operator(ch)
+    end: vkf_identifier_scan_end(source, offset)
+    name: vkf_utf8_slice(source, offset, end)
+    symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)
+
+symbolic_document_math_operator(ch:num):
+    ch = 43 \/ ch = 45 \/ ch = 42 \/ ch = 47 \/ ch = 94 \/ ch = 40 \/ ch = 41 \/ ch = 91 \/ ch = 93 \/ ch = 123 \/ ch = 125 \/ ch = 44 \/ ch = 46 \/ ch = 61 \/ ch = 60 \/ ch = 62
+
+symbolic_document_skip_spaces(source:str, offset:num):
+    vkf_string_eof(source, offset)?
+        @: offset
+    symbolic_is_space(vkf_string_peek_scalar(source, offset))?
+        @: symbolic_document_skip_spaces(source, symbolic_document_advance(source, offset))
+    offset
+
+symbolic_document_slash_command_end(source:str, offset:num):
+    next: symbolic_document_advance(source, offset)
+    vkf_string_eof(source, next)?
+        @: next
+    symbolic_is_identifier_start(vkf_string_peek_scalar(source, next))?
+        @: vkf_identifier_scan_end(source, next)
+    next
+
+symbolic_document_normalize_math(source:str, profile:str, offset:num):
+    vkf_string_eof(source, offset)?
+        @: ""
+    ch: vkf_string_peek_scalar(source, offset)
+    symbolic_is_identifier_start(ch)?
+        end: vkf_identifier_scan_end(source, offset)
+        name: vkf_utf8_slice(source, offset, end)
+        normalized: symbolic_document_normalized_identifier(name, profile)
+        @: normalized & symbolic_document_normalize_math(source, profile, end)
+    next: symbolic_document_advance(source, offset)
+    vkf_utf8_slice(source, offset, next) & symbolic_document_normalize_math(source, profile, next)
+
+symbolic_document_normalized_identifier(name:str, profile:str):
+    profile = "platonic" /\ name = "xy"?
+        @: "x y"
+    name
+
+symbolic_document_text_latex(source:str, offset:num):
+    vkf_string_eof(source, offset)?
+        @: ""
+    ch: vkf_string_peek_scalar(source, offset)
+    next: symbolic_document_advance(source, offset)
+    symbolic_document_text_scalar_latex(ch, vkf_utf8_slice(source, offset, next)) & symbolic_document_text_latex(source, next)
+
+symbolic_document_text_scalar_latex(ch:num, scalar:str):
+    ch??
+        32 => "\\ "
+        9 => "\\ "
+        10 => "\\\\"
+        13 => ""
+        35 => "\\#"
+        36 => "\\$"
+        37 => "\\%"
+        38 => "\\&"
+        95 => "\\_"
+        123 => "\\{"
+        125 => "\\}"
+        scalar
+
+symbolic_document_math_roles(tokens:any, base:num, index:num):
+    current: tokens.(index)
+    current.kind = "EOF"?
+        @: vkf_list_empty()
+    role_kind: symbolic_document_token_role(tokens, index)
+    start: base + current.location.offset
+    stop: start + symbolic_document_source_end(current.text, 0)
+    vkf_list_single(symbolic_document_role(role_kind, current.text, start, stop)) & symbolic_document_math_roles(tokens, base, index + 1)
+
+symbolic_document_token_role(tokens:any, index:num):
+    current: tokens.(index)
+    current.kind??
+        "NUMBER" => "literal"
+        "IDENT" => symbolic_document_identifier_role(tokens, index)
+        "LPAREN" => "wrapper"
+        "RPAREN" => "wrapper"
+        "LBRACKET" => "wrapper"
+        "RBRACKET" => "wrapper"
+        "LBRACE" => "wrapper"
+        "RBRACE" => "wrapper"
+        "COMMA" => "separator"
+        "operator"
+
+symbolic_document_identifier_role(tokens:any, index:num):
+    next: tokens.(index + 1)
+    next.kind??
+        "LPAREN" => "function"
+        symbolic_document_non_function_identifier_role(tokens.(index))
+
+symbolic_document_non_function_identifier_role(current:any):
+    current.text??
+        "pi" => "literal"
+        "i" => "literal"
+        "variable"
+
+symbolic_document_role(kind:str, source:str, start:num, stop:num):
+    (kind: kind, source: source, start: start, end: stop)
 
 symbolic_plot_analytical_variants(program:any, workspace:any, view:any, style:any, builder:any, index:num, ranges:any):
     index >= vkf_list_length(program.variants)?

@@ -30,6 +30,32 @@ export function compileSymbolicRelationShader(ast, variants = null) {
   });
 }
 
+export function compileSymbolicRelationShaderGroup(programs) {
+  if (!Array.isArray(programs) || programs.length === 0) return null;
+  const shaders = programs.map(({ ast, variants }) => compileSymbolicRelationShader(ast, variants));
+  if (shaders.some((shader) => shader == null)) return null;
+  const boundaries = shaders.filter(({ hasBoundary }) => hasBoundary);
+  const fills = shaders.filter(({ hasFill }) => hasFill);
+  const boundary = (language) => boundaries.length
+    ? combine(boundaries.map((shader) => shader[`${language}BoundaryResidual`]), 'min')
+    : '1e20';
+  const fill = (language) => fills.length
+    ? combine(fills.map((shader) =>
+        `((${shader[`${language}FillResidual`]}) * ${shader.insideSign.toFixed(1)})`), 'max')
+    : '-1e20';
+  return Object.freeze({
+    operator: 'group',
+    hasFill: fills.length > 0,
+    hasBoundary: boundaries.length > 0,
+    insideSign: 1,
+    wgslBoundaryResidual: boundary('wgsl'),
+    glslBoundaryResidual: boundary('glsl'),
+    wgslFillResidual: fill('wgsl'),
+    glslFillResidual: fill('glsl')
+  });
+}
+
+
 function emitResidual(ast, language) {
   const left = emit(ast.left, language);
   const right = emit(ast.right, language);
