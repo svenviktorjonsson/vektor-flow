@@ -1,3 +1,4 @@
+import { normalizeColorScale } from './vf-color-scale.mjs';
 import { loadPackagedSymbolicKernel } from './vf-symbolic-kernel-runtime.mjs';
 import { createSymbolicPlotRenderer } from './geom/vf-symbolic-plot-renderer.mjs';
 
@@ -47,6 +48,7 @@ export async function createSymbolicPlotController({
     viewport,
     colors,
     colormapPoints = null,
+    colorScale = null,
     revision = 0,
     frameRevision = null,
     frameEpoch = 0,
@@ -59,7 +61,7 @@ export async function createSymbolicPlotController({
     const requestedFrameEpoch = normalizeFrameEpoch(frameEpoch);
     const normalizedViewport = controllerViewport(viewport);
     const view = buildSymbolicPlotView(normalizedViewport, context);
-    const style = buildSymbolicPlotStyle(colors, colormapPoints);
+    const style = buildSymbolicPlotStyle(colors, colormapPoints, colorScale);
     const transform = symbolicDataToScreenTransform(normalizedViewport, context);
     const localClip = symbolicClipInLocalCoordinates(clip, context);
     const viewSpatialKey = symbolicViewSpatialKey(transform, localClip);
@@ -154,6 +156,7 @@ export async function createSymbolicPlotController({
       clip,
       view,
       style,
+      colorScale: publicColorScale(style),
       revision,
       frameRevision: requestedFrameRevision,
       frameEpoch: requestedFrameEpoch
@@ -680,19 +683,33 @@ export function symbolicClipInLocalCoordinates(clip, context = globalSymbolicCon
   });
 }
 
-export function buildSymbolicPlotStyle(colors, colormapPoints = null) {
+export function buildSymbolicPlotStyle(colors, colormapPoints = null, colorScale = null) {
   requireRecord(colors, 'symbolic colors');
   const edge = normalizeColor(colors.edge, 'colors.edge');
   const face = normalizeColor(colors.face, 'colors.face');
-  const valueMin = finite(colors.valueMin ?? 0, 'colors.valueMin');
-  const valueMax = finite(colors.valueMax ?? 1, 'colors.valueMax');
-  if (valueMax <= valueMin) throw new RangeError('symbolic color value range must be increasing');
+  const scale = normalizeColorScale({
+    domain: colorScale?.domain ?? [colors.valueMin ?? 0, colors.valueMax ?? 1],
+    magnitudeDomain: colorScale?.magnitudeDomain
+      ?? [colors.magnitudeMin ?? 0, colors.magnitudeMax ?? 1],
+    mode: colorScale?.mode ?? colors.colorScaleMode
+  });
   return Object.freeze({
     edgeR: edge[0], edgeG: edge[1], edgeB: edge[2], edgeA: edge[3],
     faceR: face[0], faceG: face[1], faceB: face[2], faceA: face[3],
-    valueMin,
-    valueMax,
+    valueMin: scale.domain[0],
+    valueMax: scale.domain[1],
+    magnitudeMin: scale.magnitudeDomain[0],
+    magnitudeMax: scale.magnitudeDomain[1],
+    colorScaleMode: scale.mode,
     colormapPoints: normalizeColormapPoints(colormapPoints)
+  });
+}
+
+function publicColorScale(style) {
+  return Object.freeze({
+    domain: Object.freeze([style.valueMin, style.valueMax]),
+    magnitudeDomain: Object.freeze([style.magnitudeMin, style.magnitudeMax]),
+    mode: style.colorScaleMode
   });
 }
 
@@ -782,6 +799,7 @@ const PLOTTABLE_CLASSIFICATIONS = new Set([
   'x-of-y',
   'parametric',
   'vector-field',
+  'complex-field',
   'scalar-field',
   'implicit-curve',
   'open-region',
