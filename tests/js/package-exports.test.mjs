@@ -9,6 +9,8 @@ test("package root resolves to the deterministic browser module manifest", () =>
 
   assert.deepEqual(packageRoot.browserModules, {
     axis2dTicks: "vektor-flow/axis2d-ticks",
+    colorScale: "vektor-flow/color-scale",
+    colorbar: "vektor-flow/colorbar",
     screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
     symbolicKernel: "vektor-flow/symbolic-kernel",
     symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
@@ -24,6 +26,8 @@ test("package root resolves to the deterministic browser module manifest", () =>
 
 test("named browser exports resolve to their implemented modules", async () => {
   const axis2d = await import("vektor-flow/axis2d-ticks");
+  const colorScale = await import("vektor-flow/color-scale");
+  const colorbar = await import("vektor-flow/colorbar");
   const renderer = await import("vektor-flow/screen-simplex-renderer");
   const symbolicKernel = await import("vektor-flow/symbolic-kernel");
   const symbolicPlot = await import("vektor-flow/symbolic-plot-renderer");
@@ -32,7 +36,10 @@ test("named browser exports resolve to their implemented modules", async () => {
   const uiMath = await import("vektor-flow/ui-math");
 
   assert.equal(typeof axis2d.default, "object");
+  assert.equal(typeof colorScale.normalizeColorScale, "function");
   assert.equal(typeof renderer.createScreenSpaceSimplexRenderer, "function");
+  assert.equal(typeof colorbar.createColorbarView, "function");
+  assert.equal(typeof colorbar.createColorbarGestureController, "function");
   assert.equal(typeof symbolicKernel.createSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadPackagedSymbolicKernel, "function");

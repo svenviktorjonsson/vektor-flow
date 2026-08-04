@@ -2,6 +2,8 @@
 
 const browserModules = Object.freeze({
   axis2dTicks: "vektor-flow/axis2d-ticks",
+  colorScale: "vektor-flow/color-scale",
+  colorbar: "vektor-flow/colorbar",
   screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
   symbolicKernel: "vektor-flow/symbolic-kernel",
   symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
