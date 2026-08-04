@@ -1,6 +1,6 @@
 {
   "name": "vektor-flow",
-  "version": "1.2.30",
+  "version": "1.2.31",
   "description": "Vektor Flow is a functional, scope-based language for shaping data, describing\r geometry, and driving interactive visual programs. The important thing is not\r just the syntax. The important thing is the model:",
   "main": "index.js",
   "exports": {
@@ -13,6 +13,7 @@
     "./symbolic-kernel-manifest": "./web/vf-ui/artifacts/vkf-symbolic-kernel.json",
     "./symbolic-kernel-wasm": "./web/vf-ui/artifacts/vkf-symbolic-kernel.wasm",
     "./symbolic-text-channel": "./web/vf-ui/vf-symbolic-wasm-runtime.mjs",
+    "./surface-context": "./web/vf-ui/vf-surface-context.mjs",
     "./ui-math": "./web/vf-ui/vf-vkf-ui-math.js",
     "./web/vf-ui/*": "./web/vf-ui/*"
   },
