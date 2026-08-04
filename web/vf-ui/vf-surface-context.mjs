@@ -15,7 +15,8 @@ export function createSurfaceContextRegistry({
     parentId: null,
     faceId: null,
     frame: IDENTITY_AFFINE,
-    clipPolygon: null
+    clipPolygon: null,
+    clipHoles: []
   }));
 
   for (const context of contexts) {
@@ -57,6 +58,14 @@ function createRegistry(records, stack, rootId, timeHandle) {
       return replaceRecord(records, stack, rootId, timeHandle, freezeRecord({
         ...record,
         clipPolygon: normalizePolygon(clipPolygon)
+      }));
+    },
+
+    updateClipHoles(id, clipHoles) {
+      const record = requireNonRootRecord(records, id, rootId);
+      return replaceRecord(records, stack, rootId, timeHandle, freezeRecord({
+        ...record,
+        clipHoles: normalizeHolePolygons(clipHoles)
       }));
     },
 
@@ -166,6 +175,9 @@ function renderDescriptor(records, record, activeId, rootId, timeHandle) {
     worldClipPolygon: record.clipPolygon === null
       ? null
       : freezePolygon(record.clipPolygon.map((point) => applyAffine(affine, point))),
+    worldClipHoles: freezePolygons(record.clipHoles.map((polygon) => (
+      polygon.map((point) => applyAffine(affine, point))
+    ))),
     focused,
     gridVisible: focused,
     dimOutside: focused && record.id !== rootId,
@@ -214,7 +226,8 @@ function normalizeChildRecord(value, rootId) {
     parentId: normalizeId(value.parentId, 'parent surface context id'),
     faceId: normalizeId(value.faceId, 'face id'),
     frame: normalizeAffine(value.frame),
-    clipPolygon: normalizePolygon(value.clipPolygon)
+    clipPolygon: normalizePolygon(value.clipPolygon),
+    clipHoles: normalizeHolePolygons(value.clipHoles)
   });
 }
 
@@ -224,7 +237,8 @@ function freezeRecord(record) {
     parentId: record.parentId,
     faceId: record.faceId,
     frame: freezeAffine(record.frame),
-    clipPolygon: record.clipPolygon === null ? null : freezePolygon(record.clipPolygon)
+    clipPolygon: record.clipPolygon === null ? null : freezePolygon(record.clipPolygon),
+    clipHoles: freezePolygons(record.clipHoles)
   });
 }
 
@@ -234,7 +248,8 @@ function publicRecord(record) {
     parentId: record.parentId,
     faceId: record.faceId,
     frame: record.frame,
-    clipPolygon: record.clipPolygon
+    clipPolygon: record.clipPolygon,
+    clipHoles: record.clipHoles
   });
 }
 
@@ -310,6 +325,11 @@ function normalizePolygon(value) {
   return polygon;
 }
 
+function normalizeHolePolygons(value = []) {
+  if (!Array.isArray(value)) throw new TypeError('surface clip holes must be an array');
+  return value.map((polygon) => normalizePolygon(polygon));
+}
+
 function assertSimplePolygon(polygon) {
   for (let first = 0; first < polygon.length; first += 1) {
     const firstNext = (first + 1) % polygon.length;
@@ -371,6 +391,10 @@ function freezeAffine(value) {
 
 function freezePolygon(value) {
   return Object.freeze(value.map((point) => Object.freeze([...point])));
+}
+
+function freezePolygons(value) {
+  return Object.freeze(value.map((polygon) => freezePolygon(polygon)));
 }
 
 function normalizeId(value, label) {

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createSurfaceContextRegistry } from '../../web/vf-ui/vf-surface-context.mjs';
 
 const triangle = Object.freeze([[0, 0], [4, 0], [0, 4]]);
+const hole = Object.freeze([[0.5, 0.5], [1.5, 0.5], [0.5, 1.5]]);
 
 function child(overrides = {}) {
   return {
@@ -57,6 +58,35 @@ test('deforming a clip does not change the stable internal coordinate frame', ()
   assert.deepEqual(registry.get('surface:f0').clipPolygon, triangle);
 });
 
+test('stores deeply immutable local clip holes and transforms them for rendering', () => {
+  const inputHole = hole.map((point) => [...point]);
+  const registry = createSurfaceContextRegistry({ contexts: [child({ clipHoles: [inputHole] })] });
+  inputHole[0][0] = 99;
+
+  const localHoles = registry.get('surface:f0').clipHoles;
+  const worldHoles = registry.renderDescriptor('surface:f0').worldClipHoles;
+  assert.deepEqual(localHoles, [hole]);
+  assert.deepEqual(worldHoles, [[[11, -2], [13, -2], [11, 0]]]);
+  assert.equal(Object.isFrozen(localHoles), true);
+  assert.equal(Object.isFrozen(localHoles[0]), true);
+  assert.equal(Object.isFrozen(localHoles[0][0]), true);
+  assert.equal(Object.isFrozen(worldHoles), true);
+  assert.equal(Object.isFrozen(worldHoles[0]), true);
+  assert.equal(Object.isFrozen(worldHoles[0][0]), true);
+});
+
+test('updates clip holes without mutating the original registry or coordinate frame', () => {
+  const registry = createSurfaceContextRegistry({ contexts: [child({ clipHoles: [hole] })] });
+  const replacement = [[[2, 0.5], [3, 0.5], [2, 1.5]]];
+  const updated = registry.updateClipHoles('surface:f0', replacement);
+  replacement[0][0][0] = 99;
+
+  assert.deepEqual(updated.worldAffine('surface:f0'), registry.worldAffine('surface:f0'));
+  assert.deepEqual(updated.get('surface:f0').clipHoles, [[[2, 0.5], [3, 0.5], [2, 1.5]]]);
+  assert.deepEqual(registry.get('surface:f0').clipHoles, [hole]);
+  assert.deepEqual(registry.updateClipHoles('surface:f0', []).get('surface:f0').clipHoles, []);
+});
+
 test('full similarity transforms move the frame and its world clip together', () => {
   const registry = createSurfaceContextRegistry({ contexts: [child()] });
   const moved = registry.translate('surface:f0', [3, 5]).rotate('surface:f0', Math.PI / 2);
@@ -83,6 +113,12 @@ test('rejects invalid hierarchy, singular transforms, and malformed clips', () =
   ] }), /invertible/);
   assert.throws(() => createSurfaceContextRegistry({ contexts: [
     child({ clipPolygon: [[0, 0], [4, 4], [0, 2], [3, 0]] })
+  ] }), /self-intersect/);
+  assert.throws(() => createSurfaceContextRegistry({ contexts: [
+    child({ clipHoles: 'not-an-array' })
+  ] }), /clip holes must be an array/);
+  assert.throws(() => createSurfaceContextRegistry({ contexts: [
+    child({ clipHoles: [[[0, 0], [4, 4], [0, 2], [3, 0]]] })
   ] }), /self-intersect/);
 });
 
