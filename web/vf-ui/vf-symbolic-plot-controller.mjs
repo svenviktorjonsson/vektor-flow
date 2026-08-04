@@ -660,9 +660,24 @@ export function symbolicLocalViewportBounds(viewport, context = globalSymbolicCo
 
 export function symbolicClipInLocalCoordinates(clip, context = globalSymbolicContext()) {
   if (clip == null) return null;
-  if (!Array.isArray(clip)) throw new TypeError('symbolic clip must be an array');
   const inverse = invertAffine(symbolicContextAffine(context));
-  return clip.map((point) => applyAffine(inverse, point));
+  const transformPolygon = (polygon, label) => {
+    if (!Array.isArray(polygon)) throw new TypeError(label + ' must be a polygon');
+    return Object.freeze(polygon.map((point) => applyAffine(inverse, point)));
+  };
+  if (Array.isArray(clip)) return transformPolygon(clip, 'symbolic clip');
+  if (!clip || typeof clip !== 'object') {
+    throw new TypeError('symbolic clip must be a polygon or region');
+  }
+  const holes = clip.holes ?? [];
+  if (!Array.isArray(holes)) throw new TypeError('symbolic clip region holes must be an array');
+  return Object.freeze({
+    outer: transformPolygon(clip.outer, 'symbolic clip region outer'),
+    holes: Object.freeze(holes.map((polygon) => transformPolygon(
+      polygon,
+      'symbolic clip region hole'
+    )))
+  });
 }
 
 export function buildSymbolicPlotStyle(colors, colormapPoints = null) {

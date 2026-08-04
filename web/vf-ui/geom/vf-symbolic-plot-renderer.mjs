@@ -281,6 +281,47 @@ export function triangulateSymbolicPlotClip(polygon) {
   return new Float32Array(triangles);
 }
 
+export function triangulateSymbolicPlotClipRegion(clip) {
+  if (clip == null) return emptySymbolicPlotClipGeometry();
+  const region = normalizeClipRegion(clip);
+  const outer = triangulateSymbolicPlotClip(region.outer);
+  const holes = region.holes.map((polygon) => triangulateSymbolicPlotClip(polygon));
+  const vertices = new Float32Array(
+    outer.length + holes.reduce((length, triangles) => length + triangles.length, 0)
+  );
+  vertices.set(outer);
+  let first = outer.length / 2;
+  const holeRanges = holes.map((triangles) => {
+    vertices.set(triangles, first * 2);
+    const range = Object.freeze({ first, count: triangles.length / 2 });
+    first += range.count;
+    return range;
+  });
+  return Object.freeze({
+    vertices,
+    outerCount: outer.length / 2,
+    holeRanges: Object.freeze(holeRanges)
+  });
+}
+
+export function symbolicPlotClipStencilDraws(geometry) {
+  if (!geometry?.outerCount) return Object.freeze([]);
+  return Object.freeze([
+    Object.freeze({ first: 0, count: geometry.outerCount, reference: 1 }),
+    ...geometry.holeRanges
+      .filter(({ count }) => count > 0)
+      .map(({ first, count }) => Object.freeze({ first, count, reference: 0 }))
+  ]);
+}
+
+function emptySymbolicPlotClipGeometry() {
+  return Object.freeze({
+    vertices: new Float32Array(),
+    outerCount: 0,
+    holeRanges: Object.freeze([])
+  });
+}
+
 export function createSymbolicPlotRenderer(canvas, options = {}) {
   if (!canvas?.getContext) throw new TypeError('canvas must provide getContext');
   const pixelRatio = options.pixelRatio || (() => globalThis.devicePixelRatio || 1);
@@ -288,7 +329,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
   let backend = null;
   let arena = null;
   let transform = [...DEFAULT_TRANSFORM];
-  let clipTriangles = new Float32Array();
+  let clipGeometry = emptySymbolicPlotClipGeometry();
   let cssWidth = 1;
   let cssHeight = 1;
   let uploadedData = null;
@@ -304,7 +345,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     if (!backend) throw new Error('A WebGPU or WebGL2 GPU backend is required');
     backend.resize(cssWidth, cssHeight);
     backend.updateTransform(transform);
-    backend.updateClip(clipTriangles);
+    backend.updateClip(clipGeometry);
     backend.updateAppearance(appearance);
     backend.updateRelation?.(relation);
     return backend.kind;
@@ -351,12 +392,10 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     backend?.updateTransform(transform);
   }
 
-  function updateClip(polygon = null) {
+  function updateClip(clip = null) {
     assertAlive();
-    clipTriangles = polygon == null
-      ? new Float32Array()
-      : triangulateSymbolicPlotClip(polygon);
-    backend?.updateClip(clipTriangles);
+    clipGeometry = triangulateSymbolicPlotClipRegion(clip);
+    backend?.updateClip(clipGeometry);
   }
 
   function resize(width = canvas.clientWidth, height = canvas.clientHeight) {
@@ -417,7 +456,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     backend = null;
     arena = null;
     uploadedData = null;
-    clipTriangles = new Float32Array();
+    clipGeometry = emptySymbolicPlotClipGeometry();
   }
 
   function assertAlive() {
@@ -512,6 +551,17 @@ function normalizeTransform(value) {
     throw new TypeError('data-to-screen transform values must be finite');
   }
   return result;
+}
+
+function normalizeClipRegion(value) {
+  if (Array.isArray(value)) return { outer: value, holes: [] };
+  if (!value || typeof value !== 'object') {
+    throw new TypeError('clip must be a polygon or region');
+  }
+  if (!Array.isArray(value.outer)) throw new TypeError('clip region outer must be a polygon');
+  const holes = value.holes ?? [];
+  if (!Array.isArray(holes)) throw new TypeError('clip region holes must be an array');
+  return { outer: value.outer, holes };
 }
 
 function normalizePolygon(value) {
@@ -758,7 +808,7 @@ async function createWebGpuBackend(canvas) {
   let segmentCapacity = 0;
   let clipBuffer = null;
   let clipCapacity = 0;
-  let clipCount = 0;
+  let clipDraws = Object.freeze([]);
   let currentArena = null;
   let stencilTexture = null;
   let pickTexture = null;
@@ -869,8 +919,9 @@ async function createWebGpuBackend(canvas) {
       writeWebGpuTransform(device, transformBuffer, transform, cssSize);
       writeRelationUniforms();
     },
-    updateClip(vertices) {
-      clipCount = vertices.length / 2;
+    updateClip(geometry) {
+      clipDraws = symbolicPlotClipStencilDraws(geometry);
+      const { vertices } = geometry;
       [clipBuffer, clipCapacity] = ensureBuffer(
         clipBuffer,
         clipCapacity,
@@ -925,13 +976,15 @@ async function createWebGpuBackend(canvas) {
           stencilStoreOp: 'discard'
         }
       });
-      const clipped = clipCount > 0;
+      const clipped = clipDraws.length > 0;
       if (clipped) {
         pass.setPipeline(clipPipeline);
         pass.setBindGroup(0, bindGroups[0]);
-        pass.setStencilReference(1);
         pass.setVertexBuffer(0, clipBuffer);
-        pass.draw(clipCount);
+        for (const draw of clipDraws) {
+          pass.setStencilReference(draw.reference);
+          pass.draw(draw.count, 1, draw.first);
+        }
       }
       if (relation && relationPipelines && relationBindGroup) {
         pass.setPipeline(relationPipelines.get(clipped));
@@ -1020,13 +1073,15 @@ async function createWebGpuBackend(canvas) {
         }
       });
       pass.setScissorRect(pixelX, pixelY, 1, 1);
-      const clipped = clipCount > 0;
+      const clipped = clipDraws.length > 0;
       if (clipped) {
         pass.setPipeline(pickClipPipeline);
         pass.setBindGroup(0, pickBindGroup);
-        pass.setStencilReference(1);
         pass.setVertexBuffer(0, clipBuffer);
-        pass.draw(clipCount);
+        for (const draw of clipDraws) {
+          pass.setStencilReference(draw.reference);
+          pass.draw(draw.count, 1, draw.first);
+        }
       }
       pass.setStencilReference(1);
       if (relation && relationPickPipelines && relationBindGroup) {
@@ -1440,7 +1495,7 @@ function createWebGl2Backend(canvas) {
   let plotCapacity = 0;
   let clipCapacity = 0;
   let segmentCapacity = 0;
-  let clipCount = 0;
+  let clipDraws = Object.freeze([]);
   let currentArena = null;
   let appearance = normalizeSymbolicPlotAppearance();
   let transform = [...DEFAULT_TRANSFORM];
@@ -1473,9 +1528,9 @@ function createWebGl2Backend(canvas) {
     updateTransform(nextTransform) {
       transform = [...nextTransform];
     },
-    updateClip(vertices) {
-      clipCount = vertices.length / 2;
-      clipCapacity = uploadWebGlDynamicBuffer(gl, clipBuffer, vertices, clipCapacity);
+    updateClip(geometry) {
+      clipDraws = symbolicPlotClipStencilDraws(geometry);
+      clipCapacity = uploadWebGlDynamicBuffer(gl, clipBuffer, geometry.vertices, clipCapacity);
     },
     updateAppearance(nextAppearance) {
       appearance = nextAppearance;
@@ -1515,8 +1570,8 @@ function createWebGl2Backend(canvas) {
         );
       }
 
-      const clipped = clipCount > 0;
-      if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipCount);
+      const clipped = clipDraws.length > 0;
+      if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipDraws);
       if (relation && relationProgram) {
         drawWebGlRelation(gl, relationProgram, relationLocations, transform, cssSize, canvas, relation, appearance, clipped);
         return;
@@ -1570,8 +1625,8 @@ function createWebGl2Backend(canvas) {
       gl.clearColor(0, 0, 0, 0);
       gl.clearStencil(0);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-      const clipped = clipCount > 0;
-      if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipCount);
+      const clipped = clipDraws.length > 0;
+      if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipDraws);
       if (relation && relationPickProgram) {
         drawWebGlRelation(
           gl, relationPickProgram, relationPickLocations, transform, cssSize, canvas,
@@ -1628,10 +1683,9 @@ function createWebGl2Backend(canvas) {
   };
 }
 
-function drawWebGlClip(gl, program, buffer, locations, transform, size, count) {
+function drawWebGlClip(gl, program, buffer, locations, transform, size, draws) {
   gl.enable(gl.STENCIL_TEST);
   gl.stencilMask(0xff);
-  gl.stencilFunc(gl.ALWAYS, 1, 0xff);
   gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
   gl.colorMask(false, false, false, false);
   gl.useProgram(program);
@@ -1639,7 +1693,10 @@ function drawWebGlClip(gl, program, buffer, locations, transform, size, count) {
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.enableVertexAttribArray(locations.position);
   gl.vertexAttribPointer(locations.position, 2, gl.FLOAT, false, 8, 0);
-  gl.drawArrays(gl.TRIANGLES, 0, count);
+  for (const draw of draws) {
+    gl.stencilFunc(gl.ALWAYS, draw.reference, 0xff);
+    gl.drawArrays(gl.TRIANGLES, draw.first, draw.count);
+  }
   gl.colorMask(true, true, true, true);
   gl.stencilMask(0);
   gl.stencilFunc(gl.EQUAL, 1, 0xff);

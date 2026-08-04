@@ -218,6 +218,13 @@ test('maps local context and clip into their matching coordinate spaces', () => 
     [64, 2, -4, -64, 434, 340]);
   assert.deepEqual(symbolicClipInLocalCoordinates([[4, -3], [6, -1]], context),
     [[0, 0], [1, 1]]);
+  assert.deepEqual(symbolicClipInLocalCoordinates({
+    outer: [[4, -3], [8, -3], [8, 1], [4, 1]],
+    holes: [[[5, -2], [6, -2], [5, -1]]]
+  }, context), {
+    outer: [[0, 0], [2, 0], [2, 2], [0, 2]],
+    holes: [[[0.5, 0.5], [1, 0.5], [0.5, 1]]]
+  });
 });
 
 test('adapts curve and field samples to pixel coverage', () => {
@@ -303,8 +310,13 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
     kernel,
     createRenderer: () => renderer
   });
+  const clipRegion = {
+    outer: [[0, 0], [4, 0], [4, 4], [0, 4]],
+    holes: [[[1, 1], [2, 1], [1, 2]]]
+  };
   const result = await controller.plot({
     source: 'x^2',
+    clip: clipRegion,
     viewport: {
       ...viewport,
       transform: viewport.transform.map((value) => value * 2),
@@ -335,6 +347,8 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
   });
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
   assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  assert.equal(calls.find(([name]) => name === 'compile')[4], clipRegion);
+  assert.deepEqual(calls.find(([name]) => name === 'clip')[1], clipRegion);
   assert.equal(calls.filter(([name]) => name === 'render').length, 4);
   assert.deepEqual(calls.find(([name]) => name === 'transform')[1], viewport.transform);
 

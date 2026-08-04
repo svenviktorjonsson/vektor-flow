@@ -16,7 +16,9 @@ import {
   symbolicPlotPointDraws,
   webGlPointFragmentSource,
   webGlPointVertexSource,
-  triangulateSymbolicPlotClip
+  symbolicPlotClipStencilDraws,
+  triangulateSymbolicPlotClip,
+  triangulateSymbolicPlotClipRegion
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
 
 function createCanvas() {
@@ -66,10 +68,22 @@ test('exposes the stable arena renderer contract', async () => {
   assert.equal(canvas.height, 400);
   renderer.updateTransform([2, 0, 0, -2, 10, 20]);
   renderer.updateClip([[0, 0], [2, 0], [2, 2], [0, 2]]);
+  renderer.updateClip({
+    outer: [[0, 0], [4, 0], [4, 4], [0, 4]],
+    holes: [[[1, 1], [2, 1], [1, 2]]]
+  });
   renderer.destroy();
 
   assert.ok(calls.some(([name]) => name === 'transform'));
-  assert.ok(calls.some(([name, triangles]) => name === 'clip' && triangles.length === 12));
+  assert.ok(calls.some(([name, geometry]) => (
+    name === 'clip'
+    && geometry.vertices.length === 12
+    && geometry.outerCount === 6
+    && geometry.holeRanges.length === 0
+  )));
+  const regionGeometry = calls.filter(([name]) => name === 'clip').at(-1)[1];
+  assert.equal(regionGeometry.outerCount, 6);
+  assert.deepEqual(regionGeometry.holeRanges, [{ first: 6, count: 3 }]);
   assert.equal(calls.at(-1)[0], 'destroy');
   assert.throws(() => renderer.render(), /destroyed/);
 });
@@ -281,6 +295,32 @@ test('triangulates a concave clip polygon with exact polygon area', () => {
     ) / 2;
   }
   assert.equal(triangleArea, 12);
+});
+
+test('triangulates clip regions into subtractive stencil draws for both GPU backends', () => {
+  const geometry = triangulateSymbolicPlotClipRegion({
+    outer: [[0, 0], [4, 0], [4, 4], [0, 4]],
+    holes: [
+      [[1, 1], [2, 1], [2, 2], [1, 2]],
+      [[2.5, 2.5], [3.5, 2.5], [3, 3.5]]
+    ]
+  });
+
+  assert.equal(geometry.outerCount, 6);
+  assert.equal(geometry.vertices.length, 30);
+  assert.deepEqual(geometry.holeRanges, [
+    { first: 6, count: 6 },
+    { first: 12, count: 3 }
+  ]);
+  assert.deepEqual(symbolicPlotClipStencilDraws(geometry), [
+    { first: 0, count: 6, reference: 1 },
+    { first: 6, count: 6, reference: 0 },
+    { first: 12, count: 3, reference: 0 }
+  ]);
+  assert.throws(
+    () => triangulateSymbolicPlotClipRegion({ outer: [[0, 0], [1, 0], [0, 1]], holes: 'bad' }),
+    /holes must be an array/
+  );
 });
 
 test('grows GPU arena capacity geometrically and keeps existing capacity', () => {
