@@ -89,6 +89,22 @@
     }
   }
 
+  function dispatchPhysicsControl(spec, action, value) {
+    var display = global.VfDisplay;
+    if (!display || typeof display.controlPhysics !== "function") {
+      return null;
+    }
+    try {
+      return display.controlPhysics(
+        action,
+        spec && spec.physics_target != null ? String(spec.physics_target) : "",
+        value
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   function makeDebouncedEmitter(delayMs) {
     var delay = Math.max(0, Number(delayMs || 0));
     var timer = 0;
@@ -504,6 +520,15 @@
             return;
           }
         }
+        var physicsAction = spec.physics_action != null ? String(spec.physics_action) : "";
+        if (physicsAction) {
+          var physicsResult = dispatchPhysicsControl(spec, physicsAction, null);
+          if (physicsAction === "toggle" && physicsResult && physicsResult.matched > 0) {
+            b.textContent = physicsResult.paused
+              ? String(spec.paused_label != null ? spec.paused_label : "Start")
+              : String(spec.running_label != null ? spec.running_label : "Stop");
+          }
+        }
         enqueueEvent({
           frameId: String(frameId),
           widgetId: w,
@@ -637,6 +662,9 @@
       vl.textContent = rng.value;
       rng.addEventListener("input", function () {
         vl.textContent = rng.value;
+        if (String(spec.physics_action || "") === "time_scale") {
+          dispatchPhysicsControl(spec, "time_scale", Number(rng.value));
+        }
         enqueueEvent({
           frameId: String(frameId),
           widgetId: w,

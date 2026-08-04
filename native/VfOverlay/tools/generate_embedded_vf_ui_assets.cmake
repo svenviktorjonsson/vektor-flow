@@ -22,6 +22,8 @@ set(VF_UI_NATIVE_SCENE_ASSETS
   "vf-frame.css"
   "vf-frame.js"
   "vf-widgets.js"
+  "vf-shared-runtime.js"
+  "vf-gpu-runtime.js"
   "vf-axis3d-kernel.js"
   "vf-axis3d-kernel-adapter.js"
   "vf-axis3d-projection-kernel.js"
@@ -40,6 +42,7 @@ set(VF_UI_NATIVE_SCENE_ASSETS
   "geom/vf-geom-material-arena.js"
   "geom/vf-geom-frame-adapter.js"
   "geom/vf-geom-wgpu.js"
+  "shaders/vf-rigid-polygons-2d.wgsl"
   "assets/fonts/NotoSans-Regular-chess-sdf.png"
 )
 

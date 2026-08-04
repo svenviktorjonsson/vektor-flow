@@ -129,7 +129,9 @@ async function openScene(scenePath, port, frameId) {
           ? window.VfDisplay.__test.debugDynamicGeomFrameState(${JSON.stringify(frameId)})
           : null,
         error: window.__vfLastError || null,
-        fatal: document.getElementById("vf-native-scene-fatal") ? document.getElementById("vf-native-scene-fatal").textContent : null
+        fatal: document.getElementById("vf-native-scene-fatal") ? document.getElementById("vf-native-scene-fatal").textContent : null,
+        gpuRuntime: !!window.VfGpuRuntime,
+        gpuScript: Array.from(document.scripts).filter((s) => /vf-gpu-runtime/.test(s.src)).map((s) => ({ src: s.src, ready: s.getAttribute("data-vf-runtime-ready") }))
       }))()`,
       returnByValue: true
     });
@@ -203,6 +205,15 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
         }
         const renderer = window.__vfFrameRenderers && window.__vfFrameRenderers[String(frameId)];
         if (${JSON.stringify(captureFixedDt)} > 0 && renderer && typeof renderer._renderContent === "function") {
+          if (renderer.__vfDeterministicCaptureStopped !== true) {
+            if (typeof renderer.stop === "function") {
+              renderer.stop();
+            }
+            renderer.__vfDeterministicCaptureStopped = true;
+            if (renderer._device && renderer._device.queue && typeof renderer._device.queue.onSubmittedWorkDone === "function") {
+              await renderer._device.queue.onSubmittedWorkDone();
+            }
+          }
           window.__vfCapturePhysicsStepRequested = true;
           renderer._renderPending = false;
           renderer._renderContent(performance.now());

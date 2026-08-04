@@ -207,6 +207,7 @@ file(GLOB_RECURSE VF_EMBEDDED_VF_UI_ASSET_INPUTS CONFIGURE_DEPENDS
   "${VF_REPO_ROOT}/web/vf-ui/assets/*"
   "${VF_REPO_ROOT}/web/vf-ui/geom/*"
   "${VF_REPO_ROOT}/web/vf-ui/katex/*"
+  "${VF_REPO_ROOT}/web/vf-ui/shaders/*"
 )
 set(VF_EMBEDDED_VF_UI_INPUTS
   ${VF_EMBEDDED_VF_UI_ROOT_INPUTS}

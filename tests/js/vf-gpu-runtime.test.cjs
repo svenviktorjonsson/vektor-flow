@@ -364,4 +364,67 @@ function createFakeAdapter() {
   assert.ok(Math.abs(sphereData[8] - 0.02) < 1e-6);
 }
 
+{
+  global.GPUBufferUsage = { COPY_DST: 8, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
+  global.GPUShaderStage = { COMPUTE: 4 };
+  const calls = [];
+  const device = {
+    queue: {
+      writeBuffer(buffer) { calls.push({ op: "writeBuffer", buffer }); }
+    },
+    createBuffer(desc) {
+      return { label: desc.label, usage: desc.usage, destroy() {} };
+    },
+    createShaderModule(desc) { return { code: desc.code }; },
+    createBindGroupLayout(desc) { return { entries: desc.entries }; },
+    createPipelineLayout() { return {}; },
+    createComputePipeline(desc) { return { entryPoint: desc.compute.entryPoint }; },
+    createBindGroup() { return {}; }
+  };
+  const encoder = {
+    beginComputePass() {
+      return {
+        setPipeline(pipe) { calls.push({ op: "setPipeline", entryPoint: pipe.entryPoint }); },
+        setBindGroup() {},
+        dispatchWorkgroups() {},
+        end() {}
+      };
+    }
+  };
+  const runtime = gpu.createRigidPolygonPhysicsRuntime({
+    device,
+    bodyCount: 1,
+    triangleCount: 1,
+    renderVertexCount: 1,
+    initialBodies: [0, 0, 0, 1, 0, 0, 0, 1, 0.4, 0.6, 0.4, 1, 0, 1, 0, 0],
+    collisionTriangles: [0, 0, 1, 0, 0, 1, 0, 0],
+    renderSource: [0, 0, 0, 0, 1, 0, 0, 1],
+    wgsl: "shader",
+    solverIterations: 2
+  });
+
+  assert.deepEqual(runtime.controlState(), { paused: false, timeScale: 1 });
+  assert.equal(runtime.togglePaused(), true);
+  const pausedStart = calls.length;
+  runtime.step(encoder, 1 / 60);
+  assert.deepEqual(
+    calls.slice(pausedStart).filter((call) => call.op === "setPipeline").map((call) => call.entryPoint),
+    ["write_render_vertices"]
+  );
+  assert.equal(runtime.setTimeScale(0.25), 0.25);
+  assert.equal(runtime.setPaused(false), false);
+  const runningStart = calls.length;
+  runtime.step(encoder, 1 / 60);
+  assert.deepEqual(
+    calls.slice(runningStart).filter((call) => call.op === "setPipeline").map((call) => call.entryPoint),
+    ["integrate", "resolve_contacts", "resolve_contacts", "write_render_vertices"]
+  );
+  const resetWrites = calls.filter((call) => call.op === "writeBuffer" && call.buffer === runtime.bodyBuffer).length;
+  runtime.reset();
+  assert.equal(
+    calls.filter((call) => call.op === "writeBuffer" && call.buffer === runtime.bodyBuffer).length,
+    resetWrites + 1
+  );
+}
+
 console.log("vf-gpu-runtime tests passed");

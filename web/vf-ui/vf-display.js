@@ -2738,6 +2738,10 @@
     out.light_flares = spec.light_flares || mesh.light_flares || null;
     out.texture = spec.texture || mesh.texture || null;
     out.surface_system = spec.surface_system || mesh.surface_system || null;
+    // Physics is a first-class field-mesh property. Preserve it for ordinary
+    // triangle meshes as well as instanced and expanded marker meshes.
+    out.physics = spec.physics && typeof spec.physics === "object" ? spec.physics : (mesh.physics || null);
+    out.physics_gpu = spec.physics_gpu && typeof spec.physics_gpu === "object" ? spec.physics_gpu : (mesh.physics_gpu || null);
     out.kind = mesh.kind || spec.kind || null;
     out.size = mesh.size || spec.size || null;
     out.tracks = spec.tracks || mesh.tracks || null;
@@ -7349,6 +7353,56 @@
         physicsProfile: renderer._lastPhysicsProfile || null,
         runtimeError: String(renderer._runtimeError || "")
       } : null
+    };
+  }
+
+  function controlPhysics(action, target, value) {
+    var requestedAction = String(action || "").toLowerCase();
+    var requestedTarget = String(target || "");
+    var states = [];
+    var frameIds = Object.keys(frameRecs || {});
+    for (var frameIndex = 0; frameIndex < frameIds.length; frameIndex += 1) {
+      var frameId = frameIds[frameIndex];
+      if (requestedTarget &&
+          requestedTarget !== frameId &&
+          requestedTarget !== geomTargetFrameId(frameId) &&
+          requestedTarget !== geomTargetWidgetId(frameId)) {
+        continue;
+      }
+      var rec = frameRecs[frameId];
+      var entries = rec && Array.isArray(rec.entries) ? rec.entries : [];
+      for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+        var renderer = entries[entryIndex] && entries[entryIndex].renderer;
+        var parts = renderer && Array.isArray(renderer._parts) ? renderer._parts : [];
+        for (var partIndex = 0; partIndex < parts.length; partIndex += 1) {
+          var runtime = parts[partIndex] && parts[partIndex].physicsRuntime;
+          if (!runtime) { continue; }
+          if (requestedAction === "toggle" && typeof runtime.togglePaused === "function") {
+            runtime.togglePaused();
+          } else if (requestedAction === "start" && typeof runtime.setPaused === "function") {
+            runtime.setPaused(false);
+          } else if (requestedAction === "stop" && typeof runtime.setPaused === "function") {
+            runtime.setPaused(true);
+          } else if (requestedAction === "reset" && typeof runtime.reset === "function") {
+            runtime.reset();
+          } else if (requestedAction === "time_scale" && typeof runtime.setTimeScale === "function") {
+            runtime.setTimeScale(value);
+          }
+          var state = typeof runtime.controlState === "function" ? runtime.controlState() : {};
+          states.push({
+            frameId: frameId,
+            paused: state.paused === true,
+            timeScale: Number(state.timeScale == null ? 1.0 : state.timeScale)
+          });
+        }
+      }
+    }
+    redrawVisibleGeomFrames();
+    return {
+      matched: states.length,
+      paused: states.length > 0 ? states[0].paused : false,
+      timeScale: states.length > 0 ? states[0].timeScale : 1.0,
+      states: states
     };
   }
 
@@ -12555,6 +12609,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     dynamicGeomFrameCanAcceptUpdate: dynamicGeomFrameCanAcceptUpdate,
     dynamicGeomFrameHasRenderBackpressure: dynamicGeomFrameHasRenderBackpressure,
     geomFrameStatus: geomFrameStatus,
+    controlPhysics: controlPhysics,
     geomFrameViewAspect: geomFrameViewAspect,
     setAxisTickMode: setAxisTickMode,
     setAxisGridEnabled: setAxisGridEnabled,

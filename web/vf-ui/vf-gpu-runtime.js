@@ -253,6 +253,188 @@
     return out;
   }
 
+  function makeRigidPolygonParams(options, dt) {
+    var out = new Float32Array(16);
+    out[0] = Number(options.worldWidth || options.width || 1.0) || 1.0;
+    out[1] = Number(options.worldHeight || options.height || 1.0) || 1.0;
+    out[2] = Math.max(0.0, Number(dt) || 0.0);
+    var gravity = Array.isArray(options.gravity) ? options.gravity : [0.0, -9.81];
+    out[4] = Number(gravity[0]) || 0.0;
+    out[5] = Number(gravity[1]) || 0.0;
+    out[6] = Number(options.bodyCount || 0) || 0.0;
+    out[7] = Number(options.renderVertexCount || 0) || 0.0;
+    out[8] = Math.max(0.0, Math.min(1.0, Number(options.positionCorrection == null ? 0.35 : options.positionCorrection)));
+    out[9] = Math.max(0.0, Number(options.penetrationSlop == null ? 0.002 : options.penetrationSlop));
+    out[10] = Math.max(0.0, Number(options.linearAngularDamping == null ? 0.025 : options.linearAngularDamping));
+    out[11] = Math.max(0.0, Math.min(1.0, Number(options.tangentialRestitution == null ? 0.0 : options.tangentialRestitution)));
+    out[12] = 1.0 / Math.max(1, Number(options.solverIterations || 8) | 0);
+    return out;
+  }
+
+  function createRigidPolygonPhysicsRuntime(options) {
+    options = options || {};
+    var device = options.device;
+    if (!device) {
+      throw new Error("createRigidPolygonPhysicsRuntime requires a WebGPU device");
+    }
+    var bodyCount = Math.max(0, Number(options.bodyCount || 0) | 0);
+    var triangleCount = Math.max(0, Number(options.triangleCount || 0) | 0);
+    var renderVertexCount = Math.max(0, Number(options.renderVertexCount || 0) | 0);
+    if (bodyCount <= 0 || triangleCount <= 0 || renderVertexCount <= 0) {
+      throw new Error("rigid polygon physics requires bodies, collision triangles, and render vertices");
+    }
+    var bodies = new Float32Array(options.initialBodies || options.bodies || []);
+    var initialBodies = new Float32Array(bodies);
+    var triangles = new Float32Array(options.collisionTriangles || options.triangles || []);
+    var renderSource = new Float32Array(options.renderSource || []);
+    if (bodies.length !== bodyCount * 16) {
+      throw new Error("rigid polygon body buffer must contain 16 floats per body");
+    }
+    if (triangles.length !== triangleCount * 8) {
+      throw new Error("rigid polygon triangle buffer must contain 8 floats per triangle");
+    }
+    if (renderSource.length !== renderVertexCount * 8) {
+      throw new Error("rigid polygon render source must contain 8 floats per vertex");
+    }
+    var workgroupSize = 64;
+    var storageUsage = gpuUsage("STORAGE", 128);
+    var vertexUsage = gpuUsage("VERTEX", 32);
+    var copyDstUsage = gpuUsage("COPY_DST", 8);
+    var uniformUsage = gpuUsage("UNIFORM", 64);
+    var bodyBuffer = createBufferWithData(device, "vf rigid polygon bodies", storageUsage | copyDstUsage, bodies);
+    var triangleBuffer = createBufferWithData(device, "vf rigid polygon triangles", storageUsage | copyDstUsage, triangles);
+    var renderSourceBuffer = createBufferWithData(device, "vf rigid polygon render source", storageUsage | copyDstUsage, renderSource);
+    var renderVertexBuffer = createBufferWithData(
+      device,
+      "vf rigid polygon render vertices",
+      storageUsage | vertexUsage | copyDstUsage,
+      renderVertexCount * 10 * 4
+    );
+    var paramsBuffer = createBufferWithData(device, "vf rigid polygon params", uniformUsage | copyDstUsage, 16 * 4);
+    var shaderModule = device.createShaderModule({
+      label: "vf rigid polygons 2d",
+      code: String(options.wgsl || options.shader || "")
+    });
+    var computeStage = gpuStage("COMPUTE", 4);
+    var bindLayout = device.createBindGroupLayout({
+      label: "vf rigid polygons bind layout",
+      entries: [
+        { binding: 0, visibility: computeStage, buffer: { type: "storage" } },
+        { binding: 1, visibility: computeStage, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: computeStage, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: computeStage, buffer: { type: "storage" } },
+        { binding: 4, visibility: computeStage, buffer: { type: "uniform" } }
+      ]
+    });
+    var pipelineLayout = device.createPipelineLayout({
+      label: "vf rigid polygons layout",
+      bindGroupLayouts: [bindLayout]
+    });
+    function pipeline(entryPoint) {
+      return device.createComputePipeline({
+        label: "vf rigid polygons " + entryPoint,
+        layout: pipelineLayout,
+        compute: { module: shaderModule, entryPoint: entryPoint }
+      });
+    }
+    var pipelines = {
+      integrate: pipeline("integrate"),
+      resolve_contacts: pipeline("resolve_contacts"),
+      write_render_vertices: pipeline("write_render_vertices")
+    };
+    var bindGroup = device.createBindGroup({
+      label: "vf rigid polygons bind group",
+      layout: bindLayout,
+      entries: [
+        { binding: 0, resource: { buffer: bodyBuffer } },
+        { binding: 1, resource: { buffer: triangleBuffer } },
+        { binding: 2, resource: { buffer: renderSourceBuffer } },
+        { binding: 3, resource: { buffer: renderVertexBuffer } },
+        { binding: 4, resource: { buffer: paramsBuffer } }
+      ]
+    });
+    var baseOptions = Object.assign({}, options, {
+      bodyCount: bodyCount,
+      renderVertexCount: renderVertexCount
+    });
+    var paused = false;
+    var timeScale = 1.0;
+    function dispatch(pass, pipe, groups) {
+      pass.setPipeline(pipe);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.max(1, groups));
+    }
+    function step(commandEncoder, dt) {
+      var scaledDt = paused ? 0.0 : Math.max(0.0, Number(dt) || 0.0) * timeScale;
+      var params = makeRigidPolygonParams(baseOptions, scaledDt);
+      device.queue.writeBuffer(paramsBuffer, 0, params.buffer, params.byteOffset, params.byteLength);
+      var pass = commandEncoder.beginComputePass({ label: "vf rigid polygons step" });
+      if (scaledDt > 0.0) {
+        dispatch(pass, pipelines.integrate, ceilDiv(bodyCount, workgroupSize));
+        var iterations = Math.max(1, Number(baseOptions.solverIterations || 8) | 0);
+        for (var i = 0; i < iterations; i += 1) {
+          dispatch(pass, pipelines.resolve_contacts, 1);
+        }
+      }
+      dispatch(pass, pipelines.write_render_vertices, ceilDiv(renderVertexCount, workgroupSize));
+      pass.end();
+    }
+    function setPaused(value) {
+      paused = value === true;
+      return paused;
+    }
+    function togglePaused() {
+      paused = !paused;
+      return paused;
+    }
+    function reset() {
+      device.queue.writeBuffer(
+        bodyBuffer,
+        0,
+        initialBodies.buffer,
+        initialBodies.byteOffset,
+        initialBodies.byteLength
+      );
+      return true;
+    }
+    function setTimeScale(value) {
+      var next = Number(value);
+      if (!Number.isFinite(next)) {
+        return timeScale;
+      }
+      timeScale = Math.max(0.0, Math.min(8.0, next));
+      return timeScale;
+    }
+    function controlState() {
+      return { paused: paused, timeScale: timeScale };
+    }
+    function destroy() {
+      var buffers = [bodyBuffer, triangleBuffer, renderSourceBuffer, renderVertexBuffer, paramsBuffer];
+      for (var i = 0; i < buffers.length; i += 1) {
+        if (buffers[i] && typeof buffers[i].destroy === "function") {
+          try { buffers[i].destroy(); } catch (_) {}
+        }
+      }
+    }
+    return {
+      bodyCount: bodyCount,
+      renderVertexCount: renderVertexCount,
+      bodyBuffer: bodyBuffer,
+      triangleBuffer: triangleBuffer,
+      renderSourceBuffer: renderSourceBuffer,
+      renderVertexBuffer: renderVertexBuffer,
+      paramsBuffer: paramsBuffer,
+      pipelines: pipelines,
+      step: step,
+      setPaused: setPaused,
+      togglePaused: togglePaused,
+      reset: reset,
+      setTimeScale: setTimeScale,
+      controlState: controlState,
+      destroy: destroy
+    };
+  }
+
   function createHardDiscPhysicsRuntime(options) {
     options = options || {};
     var device = options.device;
@@ -513,6 +695,7 @@
     createTransformRenderer: createTransformRenderer,
     createWebGpuTransformAdapter: createWebGpuTransformAdapter,
     createWebGlTransformAdapter: createWebGlTransformAdapter,
+    createRigidPolygonPhysicsRuntime: createRigidPolygonPhysicsRuntime,
     createHardDiscPhysicsRuntime: createHardDiscPhysicsRuntime,
     createHardSpherePhysicsRuntime: createHardSpherePhysicsRuntime,
     normalizeHardDiscParticleData: normalizeParticleData,

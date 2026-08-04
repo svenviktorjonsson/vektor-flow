@@ -197,8 +197,13 @@ global.fetch = windowObj.fetch;
 global.requestAnimationFrame = windowObj.requestAnimationFrame;
 global.dispatchEvent = windowObj.dispatchEvent;
 const axisTickModeCalls = [];
+const physicsControlCalls = [];
 const vfDisplayStub = {
   redrawVisibleGeomFrames() {},
+  controlPhysics(action, target, value) {
+    physicsControlCalls.push({ action, target, value });
+    return { matched: 1, paused: action === "toggle", timeScale: value == null ? 1 : Number(value) };
+  },
   setAxisTickMode(frameId, axis, mode) {
     axisTickModeCalls.push({ frameId: String(frameId), axis: String(axis), mode: String(mode) });
     return true;
@@ -285,6 +290,50 @@ assert.deepEqual(axisTickModeCalls, [
   { frameId: "axis_panel_2d_box", axis: "x", mode: "log" },
   { frameId: "axis_panel_3d_crosshair", axis: "x", mode: "log" },
   { frameId: "axis_panel_3d_box", axis: "x", mode: "log" }
+]);
+
+const physicsPanel = { body: document.createElement("div"), expandToFitContent() {} };
+widgets.mount(physicsPanel, "rigid_polygon_physics", [
+  {
+    id: "physics_toggle",
+    type: "button",
+    label: "Stop",
+    paused_label: "Start",
+    running_label: "Stop",
+    physics_action: "toggle",
+    physics_target: "rigid_polygon_physics"
+  },
+  {
+    id: "physics_reset",
+    type: "button",
+    label: "Reset",
+    physics_action: "reset",
+    physics_target: "rigid_polygon_physics"
+  },
+  {
+    id: "physics_time_scale",
+    type: "slider",
+    min: 0.05,
+    max: 2,
+    step: 0.05,
+    value: 1,
+    physics_action: "time_scale",
+    physics_target: "rigid_polygon_physics"
+  }
+], { type: "grid", rows: 1, cols: 3 });
+
+const toggleRecord = widgets.widgetRecord("rigid_polygon_physics", "physics_toggle");
+const resetRecord = widgets.widgetRecord("rigid_polygon_physics", "physics_reset");
+const speedRecord = widgets.widgetRecord("rigid_polygon_physics", "physics_time_scale");
+toggleRecord.el.eventListeners.pointerup({ button: 0, stopPropagation() {} });
+assert.equal(toggleRecord.el.textContent, "Start");
+resetRecord.el.eventListeners.pointerup({ button: 0, stopPropagation() {} });
+speedRecord.el.value = "0.25";
+speedRecord.el.eventListeners.input();
+assert.deepEqual(physicsControlCalls, [
+  { action: "toggle", target: "rigid_polygon_physics", value: null },
+  { action: "reset", target: "rigid_polygon_physics", value: null },
+  { action: "time_scale", target: "rigid_polygon_physics", value: 0.25 }
 ]);
 
 console.log("vf-widgets compiled state tests passed");

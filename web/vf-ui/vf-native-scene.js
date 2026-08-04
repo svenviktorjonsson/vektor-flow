@@ -3167,6 +3167,7 @@
         instances: numericArrayLike(entityProp(spec, "instances", null)) ? entityProp(spec, "instances", null) : null,
         instance_count: Math.max(0, Number(entityProp(spec, "instance_count", 0) || 0) | 0),
         instance_kind: String(entityProp(spec, "instance_kind", "") || ""),
+        physics_gpu: entityProp(spec, "physics_gpu", null),
         vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.0) || 0.0)),
         vertex_scale: Array.isArray(vertexScale)
           ? vertexScale.slice()
@@ -3425,6 +3426,7 @@
               : null,
             instance_count: Math.max(0, Number(expanded.instance_count || 0) | 0),
             instance_kind: expanded.instance_kind || null,
+            physics_gpu: mesh.physics_gpu || null,
             static_vertices: expanded.static_vertices === true,
             static_indices: expanded.static_indices === true,
             transparent: expanded.transparent === true,
@@ -3473,6 +3475,7 @@
         instances: numericArrayLike(mesh.instances) ? mesh.instances : null,
         instance_count: Math.max(0, Number(mesh.instance_count || 0) | 0),
         instance_kind: String(mesh.instance_kind || ""),
+        physics_gpu: mesh.physics_gpu || null,
         static_vertices: true,
         static_indices: true,
         color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),

@@ -7809,6 +7809,32 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!spec) { return null; }
       var kind = String(spec.kind || spec.collider_kind || "").toLowerCase().trim();
       var api = global.VfGpuRuntime;
+      if (kind === "rigid_polygons_2d" || kind === "polygon_2d") {
+        if (!api || typeof api.createRigidPolygonPhysicsRuntime !== "function") {
+          failFast("physics_gpu rigid_polygons_2d requires vf-gpu-runtime.js");
+        }
+        return api.createRigidPolygonPhysicsRuntime({
+          device: this._device,
+          bodyCount: Number(spec.body_count || 0) || 0,
+          triangleCount: Number(spec.triangle_count || 0) || 0,
+          renderVertexCount: Number(spec.render_vertex_count || 0) || 0,
+          bodies: spec.bodies || spec.initial_bodies || [],
+          initialBodies: spec.initial_bodies || spec.bodies || [],
+          collisionTriangles: spec.collision_triangles || [],
+          renderSource: spec.render_source || [],
+          wgsl: spec.wgsl || spec.shader || "",
+          width: Number(spec.width || spec.world_width || 1.0) || 1.0,
+          height: Number(spec.height || spec.world_height || 1.0) || 1.0,
+          worldWidth: Number(spec.width || spec.world_width || 1.0) || 1.0,
+          worldHeight: Number(spec.height || spec.world_height || 1.0) || 1.0,
+          gravity: Array.isArray(spec.gravity) ? spec.gravity : [0.0, -9.81],
+          solverIterations: Number(spec.solver_iterations || 8),
+          positionCorrection: Number(spec.position_correction == null ? 0.35 : spec.position_correction),
+          penetrationSlop: Number(spec.penetration_slop == null ? 0.002 : spec.penetration_slop),
+          linearAngularDamping: Number(spec.linear_angular_damping == null ? 0.025 : spec.linear_angular_damping),
+          tangentialRestitution: Number(spec.tangential_restitution == null ? 0.0 : spec.tangential_restitution)
+        });
+      }
       var particleCount = Number(spec.particle_count || mesh.instance_count || 0) || 0;
       if (particleCount <= 0) {
         failFast("physics_gpu " + kind + " requires particle_count");
@@ -7886,8 +7912,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001);
         part.physicsLastTimeMs = now;
         if (fixedDt > 0.0) {
-          part.physicsRuntime.step(enc, fixedDt);
-          stepped += 1;
+          var captureStepDt = Math.max(1.0 / 240.0, Number(spec.step_dt || (1.0 / 120.0)) || (1.0 / 120.0));
+          var captureMaxSubsteps = Math.max(1, Number(spec.max_substeps || 8) | 0);
+          var captureSubsteps = Math.min(
+            captureMaxSubsteps,
+            Math.max(1, Math.ceil((fixedDt / captureStepDt) - 1.0e-6))
+          );
+          var captureSubstepDt = fixedDt / captureSubsteps;
+          for (var captureStep = 0; captureStep < captureSubsteps; captureStep += 1) {
+            part.physicsRuntime.step(enc, captureSubstepDt);
+            stepped += 1;
+          }
           continue;
         }
         var stepDt = Math.max(1.0 / 240.0, Number(spec.step_dt || (1.0 / 120.0)) || (1.0 / 120.0));
@@ -7911,11 +7946,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     _createScenePart: function (mesh, index) {
       var dev = this._device;
       var sg2 = sharedWgpu;
-      var vb = dev.createBuffer({ size: mesh.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-      dev.queue.writeBuffer(vb, 0, mesh.vertices);
+      var physicsRuntime = this._createPartPhysicsRuntime(mesh);
+      var vb = null;
+      if (physicsRuntime && physicsRuntime.renderVertexBuffer) {
+        vb = physicsRuntime.renderVertexBuffer;
+      } else {
+        vb = dev.createBuffer({ size: mesh.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        dev.queue.writeBuffer(vb, 0, mesh.vertices);
+      }
       var ib = dev.createBuffer({ size: mesh.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
       dev.queue.writeBuffer(ib, 0, mesh.indices);
-      var physicsRuntime = this._createPartPhysicsRuntime(mesh);
       var instanceBuf = null;
       if (physicsRuntime && physicsRuntime.renderInstanceBuffer) {
         instanceBuf = physicsRuntime.renderInstanceBuffer;

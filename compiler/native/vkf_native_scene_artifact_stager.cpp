@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <regex>
@@ -774,6 +776,281 @@ std::string literal_number_at_or(const VkfLiteralValue* value, std::size_t index
     return fallback;
 }
 
+double literal_number_or(const VkfLiteralValue& value, const std::string& key, double fallback) {
+    const VkfLiteralValue* field = object_field(value, key);
+    if (!field || field->kind != VkfLiteralKind::Number) {
+        return fallback;
+    }
+    try {
+        return std::stod(field->text);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+bool literal_bool_or(const VkfLiteralValue& value, const std::string& key, bool fallback) {
+    const VkfLiteralValue* field = object_field(value, key);
+    return field && field->kind == VkfLiteralKind::Bool ? field->bool_value : fallback;
+}
+
+struct Point2 {
+    double x = 0.0;
+    double y = 0.0;
+};
+
+double cross2(const Point2& a, const Point2& b, const Point2& c) {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool same_point(const Point2& a, const Point2& b, double epsilon = 1e-9) {
+    return std::abs(a.x - b.x) <= epsilon && std::abs(a.y - b.y) <= epsilon;
+}
+
+double contour_signed_area(const std::vector<Point2>& contour) {
+    double twice_area = 0.0;
+    for (std::size_t i = 0; i < contour.size(); ++i) {
+        const Point2& a = contour[i];
+        const Point2& b = contour[(i + 1) % contour.size()];
+        twice_area += a.x * b.y - b.x * a.y;
+    }
+    return twice_area * 0.5;
+}
+
+int orientation_sign(const Point2& a, const Point2& b, const Point2& c) {
+    const double value = cross2(a, b, c);
+    return value > 1e-9 ? 1 : (value < -1e-9 ? -1 : 0);
+}
+
+bool point_on_segment(const Point2& a, const Point2& b, const Point2& p) {
+    return orientation_sign(a, b, p) == 0 &&
+        p.x >= std::min(a.x, b.x) - 1e-9 && p.x <= std::max(a.x, b.x) + 1e-9 &&
+        p.y >= std::min(a.y, b.y) - 1e-9 && p.y <= std::max(a.y, b.y) + 1e-9;
+}
+
+bool segments_intersect(const Point2& a, const Point2& b, const Point2& c, const Point2& d) {
+    const int o1 = orientation_sign(a, b, c);
+    const int o2 = orientation_sign(a, b, d);
+    const int o3 = orientation_sign(c, d, a);
+    const int o4 = orientation_sign(c, d, b);
+    if (o1 != o2 && o3 != o4) {
+        return true;
+    }
+    return (o1 == 0 && point_on_segment(a, b, c)) ||
+        (o2 == 0 && point_on_segment(a, b, d)) ||
+        (o3 == 0 && point_on_segment(c, d, a)) ||
+        (o4 == 0 && point_on_segment(c, d, b));
+}
+
+bool point_in_contour(const Point2& point, const std::vector<Point2>& contour) {
+    bool inside = false;
+    for (std::size_t i = 0, j = contour.size() - 1; i < contour.size(); j = i++) {
+        const Point2& a = contour[i];
+        const Point2& b = contour[j];
+        if (point_on_segment(a, b, point)) {
+            return true;
+        }
+        const bool crosses = ((a.y > point.y) != (b.y > point.y)) &&
+            point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x;
+        if (crosses) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+std::vector<Point2> parse_contour(const VkfLiteralValue& value, const std::string& body_id) {
+    if (value.kind != VkfLiteralKind::Array) {
+        throw StagerError("rigid body " + body_id + " contour must be an array of [x,y] points");
+    }
+    std::vector<Point2> contour;
+    for (const VkfLiteralValue& point : value.array) {
+        if (point.kind != VkfLiteralKind::Array || point.array.size() < 2 ||
+            point.array[0].kind != VkfLiteralKind::Number || point.array[1].kind != VkfLiteralKind::Number) {
+            throw StagerError("rigid body " + body_id + " contour point must be [x,y]");
+        }
+        Point2 parsed{std::stod(point.array[0].text), std::stod(point.array[1].text)};
+        if (!std::isfinite(parsed.x) || !std::isfinite(parsed.y)) {
+            throw StagerError("rigid body " + body_id + " contour contains a non-finite coordinate");
+        }
+        if (contour.empty() || !same_point(contour.back(), parsed)) {
+            contour.push_back(parsed);
+        }
+    }
+    if (contour.size() > 1 && same_point(contour.front(), contour.back())) {
+        contour.pop_back();
+    }
+    if (contour.size() < 3 || std::abs(contour_signed_area(contour)) <= 1e-10) {
+        throw StagerError("rigid body " + body_id + " contour must enclose non-zero area");
+    }
+    for (std::size_t i = 0; i < contour.size(); ++i) {
+        for (std::size_t j = i + 1; j < contour.size(); ++j) {
+            const std::size_t in = (i + 1) % contour.size();
+            const std::size_t jn = (j + 1) % contour.size();
+            if (i == j || in == j || jn == i) {
+                continue;
+            }
+            if (segments_intersect(contour[i], contour[in], contour[j], contour[jn])) {
+                throw StagerError("rigid body " + body_id + " has a self-intersecting contour");
+            }
+        }
+    }
+    return contour;
+}
+
+bool bridge_visible(
+    const Point2& hole_point,
+    const Point2& outer_point,
+    const std::vector<Point2>& outer,
+    const std::vector<std::vector<Point2>>& holes
+) {
+    auto crosses_contour = [&](const std::vector<Point2>& contour) {
+        for (std::size_t i = 0; i < contour.size(); ++i) {
+            const Point2& a = contour[i];
+            const Point2& b = contour[(i + 1) % contour.size()];
+            if (same_point(a, hole_point) || same_point(b, hole_point) ||
+                same_point(a, outer_point) || same_point(b, outer_point)) {
+                continue;
+            }
+            if (segments_intersect(hole_point, outer_point, a, b)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (crosses_contour(outer)) {
+        return false;
+    }
+    for (const auto& hole : holes) {
+        if (crosses_contour(hole)) {
+            return false;
+        }
+    }
+    const Point2 midpoint{(hole_point.x + outer_point.x) * 0.5, (hole_point.y + outer_point.y) * 0.5};
+    if (!point_in_contour(midpoint, outer)) {
+        return false;
+    }
+    for (const auto& hole : holes) {
+        if (point_in_contour(midpoint, hole)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<Point2> bridge_holes(
+    std::vector<Point2> outer,
+    const std::vector<std::vector<Point2>>& holes,
+    const std::string& body_id
+) {
+    for (std::size_t hole_index = 0; hole_index < holes.size(); ++hole_index) {
+        const std::vector<Point2>& hole = holes[hole_index];
+        std::size_t hi = 0;
+        for (std::size_t i = 1; i < hole.size(); ++i) {
+            if (hole[i].x > hole[hi].x ||
+                (std::abs(hole[i].x - hole[hi].x) <= 1e-9 && hole[i].y < hole[hi].y)) {
+                hi = i;
+            }
+        }
+        std::size_t oi = outer.size();
+        double best_distance = std::numeric_limits<double>::infinity();
+        for (std::size_t i = 0; i < outer.size(); ++i) {
+            if (!bridge_visible(hole[hi], outer[i], outer, holes)) {
+                continue;
+            }
+            const double dx = hole[hi].x - outer[i].x;
+            const double dy = hole[hi].y - outer[i].y;
+            const double distance = dx * dx + dy * dy;
+            if (distance < best_distance) {
+                oi = i;
+                best_distance = distance;
+            }
+        }
+        if (oi == outer.size()) {
+            throw StagerError("rigid body " + body_id + " hole cannot be connected to its outer contour");
+        }
+        std::vector<Point2> merged;
+        merged.reserve(outer.size() + hole.size() + 2);
+        for (std::size_t i = 0; i <= oi; ++i) {
+            merged.push_back(outer[i]);
+        }
+        for (std::size_t step = 0; step <= hole.size(); ++step) {
+            merged.push_back(hole[(hi + step) % hole.size()]);
+        }
+        merged.push_back(outer[oi]);
+        for (std::size_t i = oi + 1; i < outer.size(); ++i) {
+            merged.push_back(outer[i]);
+        }
+        outer = std::move(merged);
+    }
+    return outer;
+}
+
+bool point_strictly_in_triangle(const Point2& p, const Point2& a, const Point2& b, const Point2& c) {
+    const double ab = cross2(a, b, p);
+    const double bc = cross2(b, c, p);
+    const double ca = cross2(c, a, p);
+    return ab > 1e-9 && bc > 1e-9 && ca > 1e-9;
+}
+
+std::vector<std::array<Point2, 3>> triangulate_simple_polygon(
+    const std::vector<Point2>& polygon,
+    const std::string& body_id
+) {
+    std::vector<std::size_t> indices;
+    indices.reserve(polygon.size());
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+        indices.push_back(i);
+    }
+    std::vector<std::array<Point2, 3>> triangles_out;
+    std::size_t guard = polygon.size() * polygon.size() * 2;
+    while (indices.size() > 3 && guard-- > 0) {
+        bool clipped = false;
+        for (std::size_t i = 0; i < indices.size(); ++i) {
+            const std::size_t prev = indices[(i + indices.size() - 1) % indices.size()];
+            const std::size_t curr = indices[i];
+            const std::size_t next = indices[(i + 1) % indices.size()];
+            const Point2& a = polygon[prev];
+            const Point2& b = polygon[curr];
+            const Point2& c = polygon[next];
+            if (cross2(a, b, c) <= 1e-9) {
+                continue;
+            }
+            bool contains = false;
+            for (std::size_t candidate : indices) {
+                if (candidate == prev || candidate == curr || candidate == next ||
+                    same_point(polygon[candidate], a) || same_point(polygon[candidate], b) ||
+                    same_point(polygon[candidate], c)) {
+                    continue;
+                }
+                if (point_strictly_in_triangle(polygon[candidate], a, b, c)) {
+                    contains = true;
+                    break;
+                }
+            }
+            if (contains) {
+                continue;
+            }
+            triangles_out.push_back({a, b, c});
+            indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
+            clipped = true;
+            break;
+        }
+        if (!clipped) {
+            throw StagerError("rigid body " + body_id + " could not be triangulated; check contour/hole topology");
+        }
+    }
+    if (indices.size() == 3 && cross2(polygon[indices[0]], polygon[indices[1]], polygon[indices[2]]) > 1e-9) {
+        triangles_out.push_back({polygon[indices[0]], polygon[indices[1]], polygon[indices[2]]});
+    }
+    return triangles_out;
+}
+
+std::string number_json(double value) {
+    std::ostringstream out;
+    out << std::setprecision(9) << value;
+    return out.str();
+}
+
 std::optional<VkfLiteralValue> try_parse_native_scene_literal(const std::string& source_text) {
     const std::size_t marker = source_text.find("native_scene:");
     if (marker == std::string::npos) {
@@ -811,6 +1088,9 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
         "vf-runtime-flow.js",
         "vf-render-clock.js",
         "vf-frame.js",
+        "vf-widgets.js",
+        "vf-shared-runtime.js",
+        "vf-gpu-runtime.js",
         "vf-native-scene.js",
         "vf-display.js",
         "vf-axis3d-kernel.js",
@@ -825,7 +1105,8 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
         "geom/vf-geom-ledger.js",
         "geom/vf-geom-parametric-surface.js",
         "geom/vf-geom-frame-adapter.js",
-        "geom/vf-geom-wgpu.js"
+        "geom/vf-geom-wgpu.js",
+        "shaders/vf-rigid-polygons-2d.wgsl"
     };
     for (const std::string& rel : rels) {
         const std::filesystem::path path = overlay_web / rel;
@@ -848,6 +1129,15 @@ std::string native_scene_mesh_embedding_json(const std::string& kind) {
             {"receives_shadow", "receives_shadow"}
         });
     }
+    if (kind == "field_mesh") {
+        return native_scene_embedding_json({
+            {"id", "id"}, {"kind", "kind"}, {"vertices", "vertices"}, {"indices", "indices"},
+            {"topology", "topology"}, {"render_mode", "render_mode"}, {"mode3d", "mode3d"},
+            {"color", "color"}, {"no_cull", "no_cull"}, {"depth_write", "depth_write"},
+            {"receives_lighting", "receives_lighting"}, {"static_vertices", "static_vertices"},
+            {"static_indices", "static_indices"}, {"physics_gpu", "physics_gpu"}
+        });
+    }
     return native_scene_embedding_json({
         {"id", "id"}, {"center", "center"}, {"size", "size"}, {"rotation", "rotation"},
         {"transform", "transform"}, {"face_color", "face_color"}, {"color", "color"},
@@ -861,6 +1151,7 @@ std::string native_scene_mesh_embedding_json(const std::string& kind) {
 std::string native_scene_camera_embedding_json() {
     return native_scene_embedding_json({
         {"pos", "pos"}, {"target", "target"}, {"fov", "fov"}, {"up", "up"},
+        {"projection", "projection"}, {"ortho_scale", "ortho_scale"},
         {"controls_mode", "controls_mode"}, {"speed", "speed"}, {"sensitivity", "sensitivity"},
         {"min_distance", "min_distance"}, {"radius", "radius"}, {"height", "height"},
         {"theta", "theta"}, {"turns_per_cycle", "turns_per_cycle"}
@@ -886,6 +1177,8 @@ std::string native_scene_frame_command_json(const VkfLiteralValue& root) {
     const std::string frame_id = literal_string_or(root, "frame_id", "native_scene_frame");
     const std::string title = literal_string_or(root, "title", frame_id);
     const VkfLiteralValue* rect = object_field(root, "rect");
+    const std::string body_json = literal_json_or(root, "body", "null");
+    const std::string body_layout_json = literal_json_or(root, "body_layout", "null");
     std::ostringstream out;
     out << "{"
         << "\"kind\":\"frame_upsert\","
@@ -904,8 +1197,8 @@ std::string native_scene_frame_command_json(const VkfLiteralValue& root) {
         << "\"exit_counted\":true,"
         << "\"dock_location\":\"bl\","
         << "\"anchor\":\"tl\","
-        << "\"body\":null,"
-        << "\"body_layout\":null,"
+        << "\"body\":" << body_json << ","
+        << "\"body_layout\":" << body_layout_json << ","
         << "\"parent_id\":null,"
         << "\"aspect\":null"
         << "}}}";
@@ -920,12 +1213,259 @@ std::string native_scene_runtime_packets_json(const VkfLiteralValue& root) {
         "{\"seq\":3,\"kind\":\"display.replace\",\"payload\":{\"display\":{\"screen\":[],\"frames\":{},\"geom\":{}}}}]";
 }
 
-std::string native_scene_scene_ir_json(const VkfLiteralValue& root) {
+std::optional<std::string> rigid_polygon_mesh_json(
+    const VkfLiteralValue& root,
+    const std::string& solver_wgsl
+) {
+    const VkfLiteralValue* body_values = object_field(root, "rigid_bodies_2d");
+    if (!body_values) {
+        return std::nullopt;
+    }
+    if (body_values->kind != VkfLiteralKind::Array || body_values->array.empty()) {
+        throw StagerError("native_scene.rigid_bodies_2d must be a non-empty array");
+    }
+    const VkfLiteralValue* world = object_field(root, "rigid_world_2d");
+    const VkfLiteralValue empty_world{};
+    const VkfLiteralValue& world_value = world ? *world : empty_world;
+    const double world_width = literal_number_or(world_value, "width", 12.0);
+    const double world_height = literal_number_or(world_value, "height", 8.0);
+    if (!(world_width > 0.0) || !(world_height > 0.0)) {
+        throw StagerError("rigid_world_2d width and height must be positive");
+    }
+
+    std::vector<double> body_buffer;
+    std::vector<double> collision_triangles;
+    std::vector<double> render_source;
+    std::vector<double> initial_vertices;
+    std::vector<std::size_t> render_indices;
+    std::size_t triangle_start = 0;
+
+    for (std::size_t body_index = 0; body_index < body_values->array.size(); ++body_index) {
+        const VkfLiteralValue& body = body_values->array[body_index];
+        if (body.kind != VkfLiteralKind::Object) {
+            throw StagerError("rigid_bodies_2d entries must be field objects");
+        }
+        const std::string id = literal_string_or(body, "id", "body_" + std::to_string(body_index));
+        const VkfLiteralValue* contour_values = object_field(body, "contours");
+        if (!contour_values || contour_values->kind != VkfLiteralKind::Array || contour_values->array.empty()) {
+            throw StagerError("rigid body " + id + " requires contours: [outer, hole, ...]");
+        }
+        std::vector<std::vector<Point2>> contours;
+        for (const VkfLiteralValue& contour_value : contour_values->array) {
+            contours.push_back(parse_contour(contour_value, id));
+        }
+        if (contour_signed_area(contours[0]) < 0.0) {
+            std::reverse(contours[0].begin(), contours[0].end());
+        }
+        for (std::size_t hole_index = 1; hole_index < contours.size(); ++hole_index) {
+            if (contour_signed_area(contours[hole_index]) > 0.0) {
+                std::reverse(contours[hole_index].begin(), contours[hole_index].end());
+            }
+            if (!point_in_contour(contours[hole_index][0], contours[0])) {
+                throw StagerError("rigid body " + id + " hole lies outside the outer contour");
+            }
+            for (std::size_t other = 0; other < hole_index; ++other) {
+                const auto& a = contours[hole_index];
+                const auto& b = contours[other];
+                for (std::size_t ai = 0; ai < a.size(); ++ai) {
+                    for (std::size_t bi = 0; bi < b.size(); ++bi) {
+                        if (segments_intersect(
+                            a[ai], a[(ai + 1) % a.size()],
+                            b[bi], b[(bi + 1) % b.size()]
+                        )) {
+                            throw StagerError("rigid body " + id + " contours intersect");
+                        }
+                    }
+                }
+                if (other > 0 &&
+                    (point_in_contour(a[0], b) || point_in_contour(b[0], a))) {
+                    throw StagerError("rigid body " + id + " holes may not overlap or contain each other");
+                }
+            }
+        }
+
+        double signed_area = 0.0;
+        double centroid_x_numerator = 0.0;
+        double centroid_y_numerator = 0.0;
+        double inertia_origin_factor = 0.0;
+        for (const auto& contour : contours) {
+            for (std::size_t i = 0; i < contour.size(); ++i) {
+                const Point2& a = contour[i];
+                const Point2& b = contour[(i + 1) % contour.size()];
+                const double cross = a.x * b.y - b.x * a.y;
+                signed_area += cross * 0.5;
+                centroid_x_numerator += (a.x + b.x) * cross;
+                centroid_y_numerator += (a.y + b.y) * cross;
+                inertia_origin_factor += cross * (
+                    a.x * a.x + a.x * b.x + b.x * b.x +
+                    a.y * a.y + a.y * b.y + b.y * b.y
+                );
+            }
+        }
+        if (signed_area <= 1e-10) {
+            throw StagerError("rigid body " + id + " holes consume all body area");
+        }
+        const Point2 centroid{
+            centroid_x_numerator / (6.0 * signed_area),
+            centroid_y_numerator / (6.0 * signed_area)
+        };
+        const double density = std::max(1e-9, literal_number_or(body, "density", 1.0));
+        const double mass = density * signed_area;
+        const double inertia_origin = density * inertia_origin_factor / 12.0;
+        const double inertia = std::max(1e-9, inertia_origin - mass * (centroid.x * centroid.x + centroid.y * centroid.y));
+        const bool is_static = literal_bool_or(body, "static", false);
+        const double angle = literal_number_or(body, "angle", 0.0);
+        const VkfLiteralValue* position_value = object_field(body, "position");
+        const double authored_x = std::stod(literal_number_at_or(position_value, 0, "0"));
+        const double authored_y = std::stod(literal_number_at_or(position_value, 1, "0"));
+        const double cosine = std::cos(angle);
+        const double sine = std::sin(angle);
+        const double position_x = authored_x + cosine * centroid.x - sine * centroid.y;
+        const double position_y = authored_y + sine * centroid.x + cosine * centroid.y;
+        const VkfLiteralValue* velocity_value = object_field(body, "velocity");
+        const double velocity_x = std::stod(literal_number_at_or(velocity_value, 0, "0"));
+        const double velocity_y = std::stod(literal_number_at_or(velocity_value, 1, "0"));
+        const double angular_velocity = literal_number_or(body, "angular_velocity", 0.0);
+        const double restitution = std::clamp(literal_number_or(body, "restitution", 0.35), 0.0, 1.0);
+        const double static_friction = std::max(0.0, literal_number_or(body, "static_friction", 0.65));
+        const double dynamic_friction = std::max(0.0, literal_number_or(body, "dynamic_friction", 0.45));
+        const double rolling_friction = std::max(0.0, literal_number_or(body, "rolling_friction", 0.08));
+
+        double bounding_radius = 0.0;
+        for (const auto& contour : contours) {
+            for (const Point2& point : contour) {
+                const double dx = point.x - centroid.x;
+                const double dy = point.y - centroid.y;
+                bounding_radius = std::max(bounding_radius, std::sqrt(dx * dx + dy * dy));
+            }
+        }
+        std::vector<std::vector<Point2>> holes(contours.begin() + 1, contours.end());
+        const std::vector<Point2> bridged = bridge_holes(contours[0], holes, id);
+        const std::vector<std::array<Point2, 3>> body_triangles = triangulate_simple_polygon(bridged, id);
+        if (body_triangles.empty()) {
+            throw StagerError("rigid body " + id + " produced no collision triangles");
+        }
+
+        body_buffer.insert(body_buffer.end(), {
+            position_x, position_y, angle, is_static ? 0.0 : 1.0 / mass,
+            velocity_x, velocity_y, angular_velocity, is_static ? 0.0 : 1.0 / inertia,
+            restitution, static_friction, dynamic_friction, bounding_radius,
+            static_cast<double>(triangle_start), static_cast<double>(body_triangles.size()),
+            rolling_friction,
+            std::max(1.0e-5, literal_number_or(body, "contact_radius", bounding_radius))
+        });
+
+        const VkfLiteralValue* color_value = object_field(body, "color");
+        std::array<double, 4> color{
+            std::stod(literal_number_at_or(color_value, 0, "0.25")),
+            std::stod(literal_number_at_or(color_value, 1, "0.78")),
+            std::stod(literal_number_at_or(color_value, 2, "1.0")),
+            std::stod(literal_number_at_or(color_value, 3, "1.0"))
+        };
+        const double z = literal_number_or(body, "z", 0.0);
+        for (const auto& triangle : body_triangles) {
+            std::array<Point2, 3> local{};
+            for (std::size_t vertex_index = 0; vertex_index < 3; ++vertex_index) {
+                local[vertex_index] = {
+                    triangle[vertex_index].x - centroid.x,
+                    triangle[vertex_index].y - centroid.y
+                };
+            }
+            collision_triangles.insert(collision_triangles.end(), {
+                local[0].x, local[0].y, local[1].x, local[1].y,
+                local[2].x, local[2].y, static_cast<double>(body_index), 0.0
+            });
+            for (const Point2& point : local) {
+                render_source.insert(render_source.end(), {
+                    point.x, point.y, z, static_cast<double>(body_index),
+                    color[0], color[1], color[2], color[3]
+                });
+                const double world_x = position_x + cosine * point.x - sine * point.y;
+                const double world_y = position_y + sine * point.x + cosine * point.y;
+                initial_vertices.insert(initial_vertices.end(), {
+                    world_x, world_y, z, 0.0, 0.0, 1.0,
+                    color[0], color[1], color[2], color[3]
+                });
+                render_indices.push_back(render_indices.size());
+            }
+        }
+        triangle_start += body_triangles.size();
+    }
+
+    auto doubles_json = [](const std::vector<double>& values) {
+        std::ostringstream out;
+        out << "[";
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (i > 0) out << ",";
+            out << number_json(values[i]);
+        }
+        out << "]";
+        return out.str();
+    };
+    auto indices_json = [](const std::vector<std::size_t>& values) {
+        std::ostringstream out;
+        out << "[";
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (i > 0) out << ",";
+            out << values[i];
+        }
+        out << "]";
+        return out.str();
+    };
+    const VkfLiteralValue* gravity = object_field(world_value, "gravity");
+    std::ostringstream physics;
+    physics << "{"
+        << "\"kind\":\"rigid_polygons_2d\","
+        << "\"body_count\":" << body_values->array.size() << ","
+        << "\"triangle_count\":" << collision_triangles.size() / 8 << ","
+        << "\"render_vertex_count\":" << render_source.size() / 8 << ","
+        << "\"initial_bodies\":" << doubles_json(body_buffer) << ","
+        << "\"collision_triangles\":" << doubles_json(collision_triangles) << ","
+        << "\"render_source\":" << doubles_json(render_source) << ","
+        << "\"width\":" << number_json(world_width) << ","
+        << "\"height\":" << number_json(world_height) << ","
+        << "\"gravity\":[" << literal_number_at_or(gravity, 0, "0") << ","
+        << literal_number_at_or(gravity, 1, "-9.81") << "],"
+        << "\"solver_iterations\":" << std::max(1.0, literal_number_or(world_value, "solver_iterations", 10.0)) << ","
+        << "\"position_correction\":" << literal_number_or(world_value, "position_correction", 0.35) << ","
+        << "\"penetration_slop\":" << literal_number_or(world_value, "penetration_slop", 0.002) << ","
+        << "\"linear_angular_damping\":" << literal_number_or(world_value, "linear_angular_damping", 0.025) << ","
+        << "\"tangential_restitution\":" << std::clamp(literal_number_or(world_value, "tangential_restitution", 0.0), 0.0, 1.0) << ","
+        << "\"step_dt\":" << literal_number_or(world_value, "step_dt", 1.0 / 120.0) << ","
+        << "\"max_substeps\":" << std::max(1.0, literal_number_or(world_value, "max_substeps", 8.0)) << ","
+        << "\"wgsl\":\"" << json_escape(solver_wgsl) << "\""
+        << "}";
+
+    return "{"
+        "\"id\":\"rigid_polygons_2d\","
+        "\"kind\":\"field_mesh\","
+        "\"properties\":{"
+            "\"id\":\"rigid_polygons_2d\","
+            "\"kind\":\"field_mesh\","
+            "\"vertices\":" + doubles_json(initial_vertices) + ","
+            "\"indices\":" + indices_json(render_indices) + ","
+            "\"topology\":\"triangle-list\","
+            "\"render_mode\":\"proxy_geometry\","
+            "\"mode3d\":false,"
+            "\"no_cull\":true,"
+            "\"depth_write\":true,"
+            "\"receives_lighting\":true,"
+            "\"static_vertices\":true,"
+            "\"static_indices\":true,"
+            "\"physics_gpu\":" + physics.str() +
+        "},\"embedding\":" + native_scene_mesh_embedding_json("field_mesh") + "}";
+}
+
+std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::string& polygon_solver_wgsl) {
     const std::string frame_id = literal_string_or(root, "frame_id", "native_scene_frame");
     const std::string title = literal_string_or(root, "title", frame_id);
     const VkfLiteralValue* rect = object_field(root, "rect");
     std::vector<std::string> mesh_jsons;
     std::vector<std::string> occluder_ids;
+
+    if (auto rigid_mesh = rigid_polygon_mesh_json(root, polygon_solver_wgsl)) {
+        mesh_jsons.push_back(*rigid_mesh);
+    }
 
     if (const VkfLiteralValue* plane = object_field(root, "plane")) {
         mesh_jsons.push_back("{\"id\":\"plane_0\",\"kind\":\"quad\",\"properties\":" +
@@ -1033,13 +1573,20 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root) {
     return out.str();
 }
 
-std::optional<CompiledUiSceneBundle> try_compile_native_scene_from_source(const std::string& source_text) {
+std::optional<CompiledUiSceneBundle> try_compile_native_scene_from_source(
+    const std::string& source_text,
+    const std::filesystem::path& overlay_web
+) {
     auto root = try_parse_native_scene_literal(source_text);
     if (!root.has_value()) {
         return std::nullopt;
     }
+    std::string polygon_solver_wgsl;
+    if (object_field(*root, "rigid_bodies_2d")) {
+        polygon_solver_wgsl = read_file_bytes(overlay_web / "shaders" / "vf-rigid-polygons-2d.wgsl");
+    }
     CompiledUiSceneBundle bundle;
-    bundle.scene_config_json = native_scene_scene_ir_json(*root);
+    bundle.scene_config_json = native_scene_scene_ir_json(*root, polygon_solver_wgsl);
     bundle.runtime_packets_json = native_scene_runtime_packets_json(*root);
     bundle.provenance = "vkf-native-scene-source-lowering";
     return bundle;
@@ -1721,6 +2268,9 @@ std::string html_text(
         "\"vf-runtime-flow.js\","
         "\"vf-render-clock.js\","
         "\"vf-frame.js\","
+        "\"vf-widgets.js\","
+        "\"vf-shared-runtime.js\","
+        "\"vf-gpu-runtime.js\","
         "\"vf-axis3d-kernel.js\","
         "\"vf-axis3d-kernel-adapter.js\","
         "\"vf-axis3d-projection-kernel.js\","
@@ -1941,7 +2491,7 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_native_scene_from_source(source_text);
+            auto compiled_ui_scene = try_compile_native_scene_from_source(source_text, effective.overlay_web);
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_axis_mode_deck_from_source(source_text);
             }
