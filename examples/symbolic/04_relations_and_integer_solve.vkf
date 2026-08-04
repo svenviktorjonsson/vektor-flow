@@ -1,0 +1,16 @@
+:.symbolic
+
+x: Z
+y: Z
+
+eq: 2*x + 3*y = 7
+sys: eq & (x - y = 1)
+sol: solve(eq, x, y)
+none: solve(2*x + 4*y = 3, x, y)
+
+:: eq
+:: sys
+:: sol
+:: sol.x
+:: sol.y
+:: none.x

@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "compiler/native/vkf_symbolic.hpp"
 
 #include <cstdint>
 #include <cctype>
@@ -220,6 +221,12 @@ void validate_value(const vf::JsonValue& value) {
     if (kind == "load") {
         (void)string_field(object, "name", "load");
         (void)string_field(object, "type", "load");
+        return;
+    }
+    if (kind == "symbolic_var") {
+        (void)string_field(object, "name", "symbolic_var");
+        (void)string_field(object, "domain", "symbolic_var");
+        (void)string_field(object, "type", "symbolic_var");
         return;
     }
     if (kind == "stdlib_function") {
@@ -1128,6 +1135,29 @@ std::string eval_call(
     const std::string callee_kind = string_field(callee, "kind", "call.callee");
     if (callee_kind == "load") {
         const std::string callee_name = string_field(callee, "name", "call.callee");
+        if (callee_name == "path_status") {
+            const auto& args = array_of(field(object, "args", "call"), "call.args");
+            if (args.size() < 2) {
+                throw ArtifactFailure("path_status expects start and target");
+            }
+            const auto start = vf_make_symbolic(eval_value(args[0], values, imports, functions, stdlib_exports, ctor_name, output_lines));
+            const auto target = vf_make_symbolic(eval_value(args[1], values, imports, functions, stdlib_exports, ctor_name, output_lines));
+            return vkf_sym_render(vf_sym_path_status(start, target));
+        }
+        if (callee_name == "transform_path_status" || callee_name == "transform_path_beam_status") {
+            const auto& args = array_of(field(object, "args", "call"), "call.args");
+            if (args.empty()) {
+                throw ArtifactFailure(callee_name + " expects an expression");
+            }
+            const auto expr = vf_make_symbolic(eval_value(args[0], values, imports, functions, stdlib_exports, ctor_name, output_lines));
+            if (callee_name == "transform_path_beam_status") {
+                const long long beam = args.size() >= 2
+                    ? static_cast<long long>(eval_numeric_value(args[1], values, imports, functions, stdlib_exports, ctor_name))
+                    : 4;
+                return vkf_sym_render(vf_sym_transform_path_beam_status(expr, beam));
+            }
+            return vkf_sym_render(vf_sym_transform_path_status(expr));
+        }
         if (callee_name == "print") {
             // Supported implicitly for historical subset compatibility.
         } else {
@@ -1490,7 +1520,11 @@ std::string eval_call(
             }
         }
         if (have_rendered_base && (rendered_base == "__ui_axis2d__" || rendered_base == "__ui_axis3d__")) {
-            if (function_name == "crosshair" || function_name == "box" || function_name == "plot") {
+            if (function_name == "crosshair"
+                || function_name == "box"
+                || function_name == "polar_crosshair"
+                || function_name == "polar_box"
+                || function_name == "plot") {
                 return "__ui_noop__";
             }
         }
@@ -1543,6 +1577,9 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
     }
     if (kind == "load") {
         return values.get(string_field(object, "name", "load"));
+    }
+    if (kind == "symbolic_var") {
+        return string_field(object, "name", "symbolic_var");
     }
     if (kind == "call") {
         return eval_call(object, values, imports, functions, stdlib_exports, ctor_name, output_lines);
@@ -2015,7 +2052,11 @@ std::string eval_block_value(const vf::JsonValue& block, ValueTable& values, con
             const std::string spilled = eval_value(field(stmt_object, "value", "spill_stmt"), values, imports, functions, stdlib_exports, ctor_name, output_lines);
             const auto fields = parse_flat_record_string(spilled);
             if (fields.empty() && spilled != "{}") {
-                throw ArtifactFailure("spill_stmt requires rendered record value");
+                if (output_lines != nullptr) {
+                    output_lines->push_back(spilled);
+                }
+                last_value = spilled;
+                continue;
             }
             for (const auto& field_pair : fields) {
                 values.set(field_pair.first, field_pair.second);
@@ -2370,7 +2411,8 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                 && (segments.front().as_string() == "math"
                     || segments.front().as_string() == "stat"
                     || segments.front().as_string() == "collections"
-                    || segments.front().as_string() == "ui");
+                    || segments.front().as_string() == "ui"
+                    || segments.front().as_string() == "symbolic");
             if (is_stdlib_path) {
                 const std::string module_name = segments.front().as_string();
                 if (alias_value.is_string()) {
@@ -2402,6 +2444,8 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                         stdlib_exports["queue"] = "collections.queue";
                     } else if (module_name == "ui") {
                         values.set("ui", "__ui_module__");
+                    } else if (module_name == "symbolic") {
+                        values.set("symbolic", "__symbolic_module__");
                     }
                 } else {
                     throw ArtifactFailure("unsupported stdlib import alias shape");
@@ -2418,6 +2462,11 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
         }
         if (kind == "type_alias") {
             script += "rem type alias\r\n";
+            continue;
+        }
+        if (kind == "spill_stmt") {
+            const std::string spilled = eval_value(field(object, "value", "spill_stmt"), values, imports, functions, stdlib_exports);
+            script += "echo " + escape_cmd_echo(spilled) + "\r\n";
             continue;
         }
         if (kind == "expr_stmt") {

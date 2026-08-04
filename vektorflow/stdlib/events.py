@@ -866,6 +866,8 @@ class UIKeyboard:
         self._down_cbs: list[Callable] = []
         self._up_cbs:   list[Callable] = []
         self._queue: deque[KeyEvent]   = deque()
+        self._down_keys: dict[str, bool] = {}
+        self._down_codes: dict[str, bool] = {}
         self._modifiers: dict[str, bool] = {
             "ctrl": False,
             "shift": False,
@@ -886,6 +888,18 @@ class UIKeyboard:
         """Current modifier-key state snapshot."""
         return dict(self._modifiers)
 
+    def is_down(self, key_or_code: str) -> bool:
+        """Return whether a key is currently held down."""
+        raw = str(key_or_code or "")
+        if not raw:
+            return False
+        return self._down_keys.get(raw.lower(), False) or self._down_codes.get(raw, False)
+
+    @property
+    def down(self) -> dict[str, bool]:
+        """Current held-key state snapshot by lower-case key name."""
+        return dict(self._down_keys)
+
     def _observe_modifiers(self, evt: dict[str, Any]) -> None:
         """Update modifier snapshot from any incoming event payload."""
         for k in ("ctrl", "shift", "alt", "meta"):
@@ -901,10 +915,15 @@ class UIKeyboard:
     def _push(self, evt: dict[str, Any]) -> None:
         self._observe_modifiers(evt)
         ke = KeyEvent.from_dict(evt)
+        is_down = ke.event == "key_down"
+        if ke.key:
+            self._down_keys[str(ke.key).lower()] = is_down
+        if ke.code:
+            self._down_codes[str(ke.code)] = is_down
         mod = self._modifier_name(ke)
         if mod is not None:
             # Keep state up-to-date, but do not emit standalone modifier events.
-            self._modifiers[mod] = (ke.event == "key_down")
+            self._modifiers[mod] = is_down
             return
         self._queue.append(ke)
 

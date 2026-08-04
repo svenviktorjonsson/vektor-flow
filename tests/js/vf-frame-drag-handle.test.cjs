@@ -17,6 +17,8 @@ assert.ok(!source.includes("Drag window"));
 assert.ok(!source.includes("head.appendChild(dragHandle);"));
 assert.ok(source.includes("VfFrame.attachHostWindowDrag([head, minibar]"));
 assert.ok(source.includes("setFrameDragCursorState(true"));
+assert.ok(source.includes("dragActive: o.dragActive === true"));
+assert.ok(source.includes("nativeFrameDragActive = true"));
 assert.ok(source.includes('data-vf-frame-dragging'));
 assert.ok(css.includes("cursor: grab"));
 assert.ok(css.includes("cursor: grabbing"));

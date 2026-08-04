@@ -2119,6 +2119,8 @@ def _type_key(t: Any) -> str:
         return f"domain:{t.name}"
     if isinstance(t, ast.TypePowerExpr):
         return f"pow({_type_key(t.base)}^{_type_key(t.exponent)})"
+    if isinstance(t, ast.TypeDomainBinOp):
+        return f"domainop({_type_key(t.left)}{t.op}{_type_key(t.right)})"
     if isinstance(t, ast.TypeSizeConst):
         return f"size:{t.value}"
     if isinstance(t, ast.TypeSizeVar):
@@ -2165,6 +2167,14 @@ def _register_type(t: Any, state: EmitState) -> None:
     if isinstance(t, ast.SymbolicValueType):
         if t.domain is not None:
             _register_type(t.domain, state)
+        return
+    if isinstance(t, ast.TypeDomainBinOp):
+        _register_type(t.left, state)
+        _register_type(t.right, state)
+        return
+    if isinstance(t, ast.TypePowerExpr):
+        _register_type(t.base, state)
+        _register_type(t.exponent, state)
         return
     if isinstance(t, ast.TypeExpr):
         name = _struct_name(t)
@@ -2238,6 +2248,9 @@ def _collect_size_vars(type_expr: Any, out: set[str]) -> None:
     elif isinstance(type_expr, ast.TypePowerExpr):
         _collect_size_vars(type_expr.base, out)
         _collect_size_vars(type_expr.exponent, out)
+    elif isinstance(type_expr, ast.TypeDomainBinOp):
+        _collect_size_vars(type_expr.left, out)
+        _collect_size_vars(type_expr.right, out)
     elif isinstance(type_expr, ast.FixedVectorType):
         _collect_size_vars_from_size(type_expr.size, out)
         _collect_size_vars(type_expr.element_type, out)

@@ -408,6 +408,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "render_mode": "render_mode",
         "marker_space": "marker_space",
         "vertex_size": "vertex_size",
+        "vertex_scale": "vertex_scale",
         "edge_width": "edge_width",
         "depth_write": "depth_write",
         "interpolation": "interpolation",
@@ -494,6 +495,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                     "manifold_dim_count": 2,
                     "solid_volume": False,
                     "vertex_size": _embedded_named_property(object_props, object_embedding, "vertex_size", 0.0),
+                    "vertex_scale": _embedded_named_property(object_props, object_embedding, "vertex_scale", None),
                     "edge_width": _embedded_named_property(object_props, object_embedding, "edge_width", 0.0),
                     "vertex_widths": [],
                     "render_mode": _embedded_named_property(object_props, object_embedding, "render_mode", "proxy_geometry"),
@@ -790,6 +792,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                     "object_id": "object_id",
                     "casts_shadow": "casts_shadow",
                     "receives_shadow": "receives_shadow",
+                    "receives_lighting": "receives_lighting",
                     "no_backface_specular": "no_backface_specular",
                     "reverse_facing": "reverse_facing",
                     "depth_write": "depth_write",
@@ -800,7 +803,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 quad_decl,
                 quad_props,
                 quad_embedding,
-                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "no_backface_specular", "reverse_facing", "depth_write"),
+                legacy_canonical_names=("center", "size", "rotation", "transform", "color", "texture", "surface_system", "visible", "casts_shadow", "receives_shadow", "receives_lighting", "no_backface_specular", "reverse_facing", "depth_write"),
                 path=quad_path,
             )
             mesh_id = str(_embedded_named_property(quad_props, quad_embedding, "id", f"quad_{quad_index}"))
@@ -818,6 +821,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
                 "visible": _embedded_named_property(quad_props, quad_embedding, "visible", True),
                 "casts_shadow": _embedded_named_property(quad_props, quad_embedding, "casts_shadow", True),
                 "receives_shadow": _embedded_named_property(quad_props, quad_embedding, "receives_shadow", True),
+                "receives_lighting": _embedded_named_property(quad_props, quad_embedding, "receives_lighting", True),
                 "no_backface_specular": _embedded_named_property(quad_props, quad_embedding, "no_backface_specular", False),
                 "reverse_facing": _embedded_named_property(quad_props, quad_embedding, "reverse_facing", False),
                 "depth_write": _embedded_named_property(quad_props, quad_embedding, "depth_write", None),
@@ -895,6 +899,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         show_light_markers=_optional_bool_value(declared, "show_light_markers", False),
         light_flares=_optional_bool_value(declared, "light_flares", False),
         light_marker_size=_optional_number_value(declared, "light_marker_size", 0.18),
+        background=_optional_number_list(declared, "background", [0.0, 0.0, 0.0, 0.0], length=4),
         surface_worlds=_optional_struct_value(declared, "surface_worlds"),
         surface_cameras=_optional_struct_value(declared, "surface_cameras"),
     )
@@ -916,6 +921,7 @@ def _normalize_scene_3d_spec(declared: dict[str, Any]) -> dict[str, Any]:
         "meshes": meshes,
         "camera": scene_ir["camera"],
         "lights": lights,
+        "background": scene_ir.get("background", [0.0, 0.0, 0.0, 0.0]),
         "timing": scene_ir["timing"],
         "surface_worlds": scene_ir.get("surface_worlds", {}),
         "surface_cameras": scene_ir.get("surface_cameras", {}),
@@ -1513,60 +1519,6 @@ def _normalize_function_plotter_spec(declared: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _find_top_level_struct_binding(module: ast.Module, name: str) -> dict[str, Any] | None:
-    for stmt in module.statements:
-        if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
-            value = _eval_native_scene_literal(stmt.value, f"{name}")
-            if not isinstance(value, dict):
-                raise ValueError(f"{name} must be a struct literal")
-            return value
-    return None
-
-
-def _eval_native_scene_literal(expr: Any, path: str) -> Any:
-    if isinstance(expr, ast.AxisAlign):
-        value = _eval_native_scene_literal(expr.value, f"{path}.value")
-        if expr.label is not None:
-            axis_key = "i" if expr.label == "_" else expr.label
-        else:
-            evaluated = [_eval_native_scene_literal(item, f"{path}.axis") for item in (expr.indices or [])]
-            if len(evaluated) != 1:
-                raise ValueError(f"{path} axis access expects exactly one key")
-            raw = evaluated[0]
-            if isinstance(raw, bool):
-                raise ValueError(f"{path} axis key cannot be bool")
-            if isinstance(raw, str):
-                axis_key = raw
-            elif isinstance(raw, (int, float)):
-                axis_key = str(int(raw)) if isinstance(raw, float) and raw == int(raw) else str(raw)
-            else:
-                raise ValueError(f"{path} axis key must be string or number")
-        return axis_tagged_wrap(value, axis_key)
-    if isinstance(expr, ast.StructLit):
-        return {key: _eval_native_scene_literal(value, f"{path}.{key}") for key, value in expr.fields}
-    if isinstance(expr, ast.ListLit):
-        return [_eval_native_scene_literal(value, f"{path}[]") for value in expr.elements]
-    if isinstance(expr, ast.TupleLit):
-        return [_eval_native_scene_literal(value, f"{path}[]") for value in expr.elements]
-    if isinstance(expr, ast.StringLit):
-        return expr.value
-    if isinstance(expr, ast.NumberLit):
-        return expr.value
-    if isinstance(expr, ast.BoolLit):
-        return expr.value
-    if isinstance(expr, ast.NullLit):
-        return None
-    if isinstance(expr, ast.UnaryOp):
-        operand = _eval_native_scene_literal(expr.operand, f"{path}.operand")
-        if not isinstance(operand, (int, float)) or isinstance(operand, bool):
-            raise ValueError(f"{path} unary operand must be numeric")
-        if expr.op == "MINUS":
-            return -float(operand)
-        if expr.op == "PLUS":
-            return float(operand)
-    raise ValueError(f"{path} must be a literal value; got {type(expr).__name__}")
-
-
 def _require_field(scope: dict[str, Any], name: str) -> Any:
     if name not in scope:
         raise ValueError(f"native_scene missing field {name!r}")
@@ -1939,8 +1891,8 @@ def _optional_camera_value(scope: dict[str, Any]) -> dict[str, Any]:
         result["look_only_controls"] = _require_bool_value(camera, "look_only_controls")
     if "controls_mode" in camera:
         controls_mode = _require_string_value(camera, "controls_mode")
-        if controls_mode not in {"look_only", "free"}:
-            raise ValueError("native_scene.camera.controls_mode must be look_only or free")
+        if controls_mode not in {"look_only", "free", "game"}:
+            raise ValueError("native_scene.camera.controls_mode must be look_only, free, or game")
         result["controls_mode"] = controls_mode
         if controls_mode == "look_only":
             result["look_only_controls"] = True
@@ -4089,7 +4041,7 @@ def _render_scene_3d_html(spec: dict[str, Any]) -> str:
 def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
     ordered_views = sorted(
         spec.get("views", []),
-        key=lambda view: 0 if not view.get("visible", True) else 1,
+        key=lambda view: 0 if view.get("visible", True) else 1,
     )
     config_json = json.dumps(
         _native_json_safe_value([
@@ -4107,6 +4059,7 @@ def _render_scene_3d_views_html(spec: dict[str, Any]) -> str:
   <body>
     <script src="../../vf-runtime-shell.js?v={asset_version}"></script>
     <script>
+      window.__vfNativeSceneFramesArePacketOwned = true;
       window.__vfNativeSceneConfigs = {config_json};
       (function (global) {{
         function fail(text) {{

@@ -95,8 +95,8 @@ def normalize_scene_ir_camera_entity(scope: dict[str, Any]) -> dict[str, Any]:
         props["aperture_mirror_mesh_id"] = fit_to_mesh_id
     controls_mode = props.get("controls_mode")
     if controls_mode is not None:
-        if controls_mode not in {"look_only", "free"}:
-            raise ValueError("native_scene.camera.controls_mode must be look_only or free")
+        if controls_mode not in {"look_only", "free", "game"}:
+            raise ValueError("native_scene.camera.controls_mode must be look_only, free, or game")
         if controls_mode == "look_only":
             props["look_only_controls"] = True
     mirror_of = props.pop("mirror_of", None)

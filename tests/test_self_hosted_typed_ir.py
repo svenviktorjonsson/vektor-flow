@@ -179,6 +179,24 @@ def test_pipeline_lowers_scalar_bind_to_typed_store(
             {
                 "kind": "store_binding",
                 "name": "answer",
+                    "type": "int",
+                    "value": {"kind": "const", "type": "int", "value": 42},
+            }
+        ],
+    }
+
+
+def test_pipeline_lowers_decimal_literal_to_num(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    assert _pipeline_ir("answer: 42.0", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe) == {
+        "kind": "typed_module",
+        "body": [
+            {
+                "kind": "store_binding",
+                "name": "answer",
                 "type": "num",
                 "value": {"kind": "const", "type": "num", "value": 42},
             }
@@ -202,8 +220,8 @@ def test_pipeline_lowers_bind_then_call_with_loaded_binding(
             {
                 "kind": "store_binding",
                 "name": "answer",
-                "type": "num",
-                "value": {"kind": "const", "type": "num", "value": 42},
+                    "type": "int",
+                    "value": {"kind": "const", "type": "int", "value": 42},
             },
             {
                 "kind": "expr_stmt",
@@ -211,8 +229,10 @@ def test_pipeline_lowers_bind_then_call_with_loaded_binding(
                     "kind": "call",
                     "type": "any",
                     "callee": {"kind": "load", "name": "print", "type": "any"},
-                    "arg_types": ["num"],
-                    "args": [{"kind": "load", "name": "answer", "type": "num"}],
+                    "arg_types": ["int"],
+                    "args": [{"kind": "load", "name": "answer", "type": "int"}],
+                    "named_args": [],
+                    "spread_args": [],
                     "callee_type": "any",
                 },
             },
@@ -235,6 +255,27 @@ def test_pipeline_lowers_binary_comparison_chain(
     assert body["kind"] == "binary_op"
     assert body["op"] == "AND"
     assert body["type"] == "bit"
+
+
+def test_pipeline_lowers_bool_literals_as_bit(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    module = _pipeline_ir("flag: true", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe)
+    assert module["body"][0]["type"] == "bit"
+    assert module["body"][0]["value"] == {"kind": "const", "type": "bit", "value": True}
+
+
+def test_pipeline_keeps_nullable_list_element_type(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    module = _pipeline_ir("values: [1, null]", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe)
+    assert module["body"][0]["type"] == "list<int>"
+    assert module["body"][0]["value"]["element_type"] == "int"
+    assert module["body"][0]["value"]["items"][1] == {"kind": "const", "type": "null", "value": None}
 
 
 def test_pipeline_lowers_dotted_index_expression(
@@ -265,7 +306,7 @@ def test_pipeline_lowers_emit_abs_and_typeof_subset(
     )
     assert module["body"][1]["kind"] == "expr_stmt"
     assert module["body"][1]["expr"]["kind"] == "call"
-    assert module["body"][1]["expr"]["args"][0] == {"kind": "const", "type": "str", "value": "(x:num, y:num)"}
+    assert module["body"][1]["expr"]["args"][0] == {"kind": "const", "type": "str", "value": "(x:int, y:int)"}
     assert module["body"][2]["expr"]["args"][0] == {"kind": "const", "type": "num", "value": 3}
 
 
@@ -343,14 +384,14 @@ def test_pipeline_lowers_tuple_literal_and_numeric_dotted_index(
     )
     bind = module["body"][0]
     assert bind["kind"] == "store_binding"
-    assert bind["type"] == "tuple<num,num>"
+    assert bind["type"] == "tuple<int,int>"
     assert bind["value"] == {
         "kind": "tuple",
         "items": [
-            {"kind": "const", "type": "num", "value": 3},
-            {"kind": "const", "type": "num", "value": 4},
+            {"kind": "const", "type": "int", "value": 3},
+            {"kind": "const", "type": "int", "value": 4},
         ],
-        "type": "tuple<num,num>",
+        "type": "tuple<int,int>",
     }
     assert module["body"][1]["expr"]["args"][0]["kind"] == "dotted_index"
 
@@ -368,23 +409,23 @@ def test_pipeline_lowers_multiset_literal_and_count_ops(
     )
     bind = module["body"][0]
     assert bind["kind"] == "store_binding"
-    assert bind["type"] == "multiset<num>"
+    assert bind["type"] == "multiset<int>"
     assert bind["value"] == {
         "kind": "multiset",
         "pairs": [
             {
                 "kind": "multiset_pair",
-                "key": {"kind": "const", "type": "num", "value": 1},
-                "count": {"kind": "const", "type": "num", "value": 4},
+                "key": {"kind": "const", "type": "int", "value": 1},
+                "count": {"kind": "const", "type": "int", "value": 4},
             },
             {
                 "kind": "multiset_pair",
-                "key": {"kind": "const", "type": "num", "value": 2},
-                "count": {"kind": "const", "type": "num", "value": 2},
+                "key": {"kind": "const", "type": "int", "value": 2},
+                "count": {"kind": "const", "type": "int", "value": 2},
             },
         ],
-        "element_type": "num",
-        "type": "multiset<num>",
+        "element_type": "int",
+        "type": "multiset<int>",
     }
     assert module["body"][2]["expr"]["args"][0]["op"] == "PLUS"
     assert module["body"][3]["expr"]["args"][0]["op"] == "MINUS"
@@ -406,13 +447,13 @@ def test_pipeline_lowers_attribute_and_numeric_index_rebind_subset(
         "kind": "update_attr",
         "base_name": "point",
         "field": "z",
-        "value": {"kind": "const", "type": "num", "value": 5},
+        "value": {"kind": "const", "type": "int", "value": 5},
     }
     assert module["body"][3] == {
         "kind": "update_index",
         "base_name": "values",
-        "indices": [{"kind": "const", "type": "num", "value": 0}],
-        "value": {"kind": "const", "type": "num", "value": 4},
+        "indices": [{"kind": "const", "type": "int", "value": 0}],
+        "value": {"kind": "const", "type": "int", "value": 4},
     }
 
 
@@ -459,7 +500,16 @@ def test_pipeline_lowers_function_shell_with_typed_return(
                 "kind": "function",
                 "name": "double",
                 "type": "fn(num)->num",
-                "params": [{"kind": "param", "name": "x", "type": "num"}],
+                "params": [
+                    {
+                        "kind": "param",
+                        "name": "x",
+                        "type": "num",
+                        "default": None,
+                        "variadic_positional": False,
+                        "variadic_named": False,
+                    }
+                ],
                 "return_type": "num",
                 "signature": {
                     "kind": "function_signature",
@@ -538,6 +588,84 @@ def test_known_function_return_type_propagates_through_binding(
     assert answer["value"]["arg_types"] == ["num"]
 
 
+def test_bit_param_default_accepts_numeric_zero_and_one(
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    ir = json.loads(
+        _run(
+            ast_to_ir_smoke_exe,
+            json.dumps(
+                {
+                    "kind": "module",
+                    "body": [
+                        {
+                            "kind": "function_definition",
+                            "name": "enabled",
+                            "params": [
+                                {
+                                    "kind": "param",
+                                    "name": "flag",
+                                    "type": {"kind": "type_annotation", "name": "bit"},
+                                    "default": {"kind": "number_literal", "value": 1},
+                                }
+                            ],
+                            "return_type": {"kind": "type_annotation", "name": "bit"},
+                            "body": {
+                                "kind": "block",
+                                "statements": [
+                                    {
+                                        "kind": "return",
+                                        "value": {"kind": "identifier", "name": "flag"},
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ),
+        ).stdout
+    )
+
+    param = ir["body"][0]["params"][0]
+    assert param["type"] == "bit"
+    assert param["default"] == {"kind": "const", "type": "bit", "value": True}
+
+
+def test_pipeline_declared_bit_bind_accepts_numeric_zero_and_one(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    module = _pipeline_ir("bit flag: 1", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe)
+    assert module["body"][0] == {
+        "kind": "store_binding",
+        "name": "flag",
+        "type": "bit",
+        "value": {"kind": "const", "type": "bit", "value": True},
+    }
+
+
+def test_pipeline_lowers_symbolic_domain_bind_and_expression_facts(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    module = _pipeline_ir(":.symbolic\nx: R\nexpr: x + 1", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe)
+    assert module["body"][1]["kind"] == "store_binding"
+    assert module["body"][1]["name"] == "x"
+    assert module["body"][1]["type"] == "symbolic"
+    assert module["body"][1]["value"]["kind"] == "symbolic_var"
+    assert module["body"][1]["value"]["expression_mode"] == "symbolic_node"
+    assert module["body"][1]["value"]["symbolic_node_kind"] == "symbol"
+    assert module["body"][1]["value"]["symbolic_type"]["surface"] == "R"
+
+    expr = module["body"][2]["value"]
+    assert expr["kind"] == "binary_op"
+    assert expr["type"] == "symbolic"
+    assert expr["expression_mode"] == "symbolic_node"
+    assert expr["symbolic_node_kind"] == "binary"
+
+
 def test_known_function_wrong_arity_fails_without_fallback(
     ast_to_ir_smoke_exe: Path,
 ) -> None:
@@ -602,18 +730,18 @@ def test_pipeline_lowers_list_bind_to_typed_list(
             {
                 "kind": "store_binding",
                 "name": "values",
-                "type": "list<num>",
-                "value": {
-                    "kind": "list",
-                    "items": [
-                        {"kind": "const", "type": "num", "value": 1},
-                        {"kind": "const", "type": "num", "value": 2},
-                    ],
-                    "element_type": "num",
-                    "type": "list<num>",
-                },
-            }
-        ],
+                    "type": "list<int>",
+                    "value": {
+                        "kind": "list",
+                        "items": [
+                            {"kind": "const", "type": "int", "value": 1},
+                            {"kind": "const", "type": "int", "value": 2},
+                        ],
+                        "element_type": "int",
+                        "type": "list<int>",
+                    },
+                }
+            ],
     }
 
 
@@ -633,10 +761,10 @@ def test_pipeline_lowers_record_bind_and_field_access(
             {
                 "kind": "store_binding",
                 "name": "person",
-                "type": "record{name:str,age:num}",
-                "value": {
-                    "kind": "record",
-                    "type": "record{name:str,age:num}",
+                    "type": "record{name:str,age:int}",
+                    "value": {
+                        "kind": "record",
+                        "type": "record{name:str,age:int}",
                     "fields": [
                         {
                             "kind": "field",
@@ -644,12 +772,12 @@ def test_pipeline_lowers_record_bind_and_field_access(
                             "type": "str",
                             "value": {"kind": "const", "type": "str", "value": "Ada"},
                         },
-                        {
-                            "kind": "field",
-                            "name": "age",
-                            "type": "num",
-                            "value": {"kind": "const", "type": "num", "value": 42},
-                        },
+                            {
+                                "kind": "field",
+                                "name": "age",
+                                "type": "int",
+                                "value": {"kind": "const", "type": "int", "value": 42},
+                            },
                     ],
                 },
             },
@@ -660,12 +788,12 @@ def test_pipeline_lowers_record_bind_and_field_access(
                 "value": {
                     "kind": "field_access",
                     "field": "name",
-                    "object_type": "record{name:str,age:num}",
+                        "object_type": "record{name:str,age:int}",
                     "type": "str",
                     "object": {
-                        "kind": "load",
-                        "name": "person",
-                        "type": "record{name:str,age:num}",
+                            "kind": "load",
+                            "name": "person",
+                            "type": "record{name:str,age:int}",
                     },
                 },
             }
@@ -693,20 +821,20 @@ def test_pipeline_lowers_axis_aligned_fixed_vector_bind(
     bind = _pipeline_ir("u: [-1, 0, 1] -> u", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe)["body"][0]
     assert bind["kind"] == "store_binding"
     assert bind["name"] == "u"
-    assert bind["type"] == "axis<u>:list<num>"
+    assert bind["type"] == "axis<u>:list<int>"
     assert bind["value"] == {
         "kind": "axis_align",
         "axis_key": "u",
-        "type": "axis<u>:list<num>",
+        "type": "axis<u>:list<int>",
         "value": {
             "kind": "list",
             "items": [
-                {"kind": "const", "type": "num", "value": -1},
-                {"kind": "const", "type": "num", "value": 0},
-                {"kind": "const", "type": "num", "value": 1},
+                {"kind": "const", "type": "int", "value": -1},
+                {"kind": "const", "type": "int", "value": 0},
+                {"kind": "const", "type": "int", "value": 1},
             ],
-            "element_type": "num",
-            "type": "list<num>",
+            "element_type": "int",
+            "type": "list<int>",
         },
     }
 
@@ -719,19 +847,19 @@ def test_pipeline_lowers_axis_suffix_fixed_vector_bind(
     bind = _pipeline_ir("u: [1, 2]_ij", lexer_smoke_exe, parser_smoke_exe, ast_to_ir_smoke_exe)["body"][0]
     assert bind["kind"] == "store_binding"
     assert bind["name"] == "u"
-    assert bind["type"] == "axis<ij>:list<num>"
+    assert bind["type"] == "axis<ij>:list<int>"
     assert bind["value"] == {
         "kind": "axis_align",
         "axis_key": "ij",
-        "type": "axis<ij>:list<num>",
+        "type": "axis<ij>:list<int>",
         "value": {
             "kind": "list",
             "items": [
-                {"kind": "const", "type": "num", "value": 1},
-                {"kind": "const", "type": "num", "value": 2},
+                {"kind": "const", "type": "int", "value": 1},
+                {"kind": "const", "type": "int", "value": 2},
             ],
-            "element_type": "num",
-            "type": "list<num>",
+            "element_type": "int",
+            "type": "list<int>",
         },
     }
 
@@ -750,7 +878,7 @@ def test_pipeline_lowers_dynamic_axis_aligned_bind_to_any_axis_key(
     bind = module["body"][1]
     assert bind["kind"] == "store_binding"
     assert bind["name"] == "v"
-    assert bind["type"] == "axis<any>:list<num>"
+    assert bind["type"] == "axis<any>:list<int>"
     assert bind["value"]["kind"] == "axis_align"
     assert bind["value"]["axis_key"] == "any"
 

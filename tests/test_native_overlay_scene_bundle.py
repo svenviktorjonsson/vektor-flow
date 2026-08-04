@@ -1159,6 +1159,7 @@ def test_scene_3d_views_runs_as_multi_view_native_runtime(tmp_path: Path) -> Non
 
     assert program is not None
     assert program.session_name == "ui-scene-3d-views"
+    assert "window.__vfNativeSceneFramesArePacketOwned = true;" in program.html_text
     assert "window.__vfNativeSceneConfigs" in program.html_text
     assert 'vf-native-scene.js?v=' in program.html_text
     assert '"frame_id": "front_camera_frame"' in program.html_text
@@ -1482,6 +1483,85 @@ native_scene: (
     assert '"look_only_controls":true' in compact
 
 
+def test_scene_3d_camera_controls_mode_game_is_preserved(tmp_path: Path) -> None:
+    path = tmp_path / "ui_scene_3d_camera_controls_game.vkf"
+    path.write_text(
+        """
+native_scene: (
+    kind: "scene_3d",
+    frame_id: "game_controls_frame",
+    title: "Game Controls",
+    rect: [0.1, 0.1, 0.5, 0.5],
+    camera: (
+        pos: [0.0, -4.0, 1.8],
+        target: [0.0, 0.0, 1.8],
+        fov: 60.0,
+        up: [0.0, 0.0, 1.0],
+        controls_mode: "game",
+        speed: 3.2,
+        sensitivity: 0.0022
+    ),
+    cubes: [
+        (
+            id: "grass_cube",
+            center: [0.0, 0.0, -2.0],
+            size: 4.0,
+            face_color: [1.0, 1.0, 1.0, 1.0],
+            texture: (
+                kind: "grass",
+                scale: [4.4, 4.4],
+                color_a: [0.05, 0.18, 0.035, 1.0],
+                color_b: [0.64, 0.88, 0.26, 1.0]
+            )
+        )
+    ],
+    plane: (
+        center: [0.0, 0.0],
+        size: 0.01,
+        z: -20.0,
+        color: [0.0, 0.0, 0.0, 0.0]
+    ),
+    shadow: (
+        enabled: false,
+        color: [0.0, 0.0, 0.0, 0.30],
+        lift: 0.002
+    )
+)
+""",
+        encoding="utf-8",
+    )
+
+    program = try_build_native_overlay_scene_program(path)
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"controls_mode":"game"' in compact
+    assert '"speed":3.2' in compact
+    assert '"sensitivity":0.0022' in compact
+    assert '"kind":"grass"' in compact
+
+
+def test_grass_texture_cube_example_compiles() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    program = try_build_native_overlay_scene_program(repo / "examples" / "114_grass_texture_cube.vkf")
+
+    assert program is not None
+    compact = "".join(program.html_text.split())
+    assert '"frame_id":"grass_texture_cube_frame"' in compact
+    assert '"controls_mode":"game"' in compact
+    assert '"speed":4.6' in compact
+    assert '"kind":"grass"' in compact
+    assert '"id":"grass_field"' in compact
+    assert '"roughness":0.99' in compact
+    assert '"blade_length":1.1' in compact
+    assert '"clump_density":1.22' in compact
+    assert '"micro_shadow":0.52' in compact
+    assert '"near_blades":true' in compact
+    assert '"near_blade_count":140000' in compact
+    assert '"background":[0.36,0.68,1.0,1.0]' in compact
+    assert '"blue_sky_panel"' not in compact
+
+
 def test_scene_3d_camera_fit_to_mesh_id_lowers_to_aperture_mirror_mesh_id(tmp_path: Path) -> None:
     path = tmp_path / "ui_scene_3d_camera_fit_to_mesh.vkf"
     path.write_text(
@@ -1681,7 +1761,7 @@ native_scene: (
     assert '"lock_aperture_camera":true' in compact
     assert '"controls_enabled":false' in compact
     assert '"flip_x":true' in compact
-    assert compact.index('"frame_id":"main_mirror_frame__surface_source_0"') < compact.index('"frame_id":"main_mirror_frame"')
+    assert compact.index('"frame_id":"main_mirror_frame"') < compact.index('"frame_id":"main_mirror_frame__surface_source_0"')
 
 
 def test_scene_3d_mirror_compiler_does_not_pre_reflect_camera() -> None:

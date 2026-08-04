@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -18,13 +19,19 @@ NATIVE_SCENE_JS = REPO / "web" / "vf-ui" / "vf-native-scene.js"
 
 
 def _run_node(script: str) -> dict:
-    result = subprocess.run(
-        ["node", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=REPO,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as handle:
+        handle.write(script)
+        script_path = Path(handle.name)
+    try:
+        result = subprocess.run(
+            ["node", str(script_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=REPO,
+        )
+    finally:
+        script_path.unlink(missing_ok=True)
     return json.loads(result.stdout)
 
 
@@ -93,11 +100,25 @@ def test_screen_surface_face_gate_uses_geometric_front_face() -> None:
 def test_screen_surface_backface_gets_ambient_only() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fn shadeAmbientBase(base: vec3<f32>, alpha: f32) -> vec4f" in shader
+    assert "let twoSidedSurface = (screenFlags & 16) != 0;" in shader
+    assert "let frontMask = select(screenSurfaceFrontMask(i.normal), 1.0, twoSidedSurface);" in shader
     assert "if (frontMask < 0.5)" in shader
     assert "return shadeAmbientBase(i.color.rgb, i.color.a);" in shader
     assert "let suppressBackfaceLighting = backfaceSpecularOff && facing < 0.0;" in shader
     assert "if (!suppressBackfaceLighting && sc.light_count > 0u)" in shader
     assert "if (!suppressBackfaceLighting && sc.light_count > 1u)" in shader
+
+
+def test_point_impostors_use_analytic_sphere_lighting_path() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    point_varyings = shader[shader.index("struct PointImpostorVOut"):shader.index("struct LineImpostorVOut")]
+    point_fs = shader[shader.index("@fragment\nfn fs_point_impostor"):shader.index("@fragment\nfn fs_line_impostor")]
+
+    assert "@location(6)       radius  : f32" in point_varyings
+    assert "o.radius = radius;" in shader
+    assert "let sphereWorldPos = i.center + (normal * i.radius);" in point_fs
+    assert "return shadeLitBase(i.color.rgb, i.color.a * mask, sphereWorldPos, normal, false);" in point_fs
+    assert "shadeImpostorBase" not in shader
 
 
 def test_screen_surface_reflection_is_composited_inside_surface_shader() -> None:
@@ -406,21 +427,259 @@ def test_light_flares_are_depth_tested_against_scene_depth() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     flare_shader = shader[shader.index("var FLARE_SHADER = `"):shader.index("function segmentIntersectsAabb")]
     assert "v.axis.z" in flare_shader
+    assert "let haloR = max(0.0, r - sourceRadiusPx);" in flare_shader
+    assert "let rays = outsideSource * (ray0 + ray1 + ray2 + ray3);" in flare_shader
+    assert "let glow = outsideSource * 0.26 * gaussian(haloR, sigmaGlow);" in flare_shader
+    assert "let discA = sourceDisc;" in flare_shader
+    assert "let whiteA = alpha * (core + glow + (0.72 * rays));" in flare_shader
+    assert "let tint = i.color.rgb * (1.20 * discA + tintA);" in flare_shader
+    assert "return vec4<f32>(white + tint, max(discA, max(whiteA, tintA)));" in flare_shader
     project_fn = shader[shader.index("function projectWorldToNdc"):shader.index("// Uniform buffer: scene + shadows")]
     assert "var cz =" in project_fn
     assert "return [cx / cw, cy / cw, cz / cw];" in project_fn
     assert 'depthStencil: { depthWriteEnabled: false, depthCompare: "less-equal", format: "depth24plus" }' in shader
     flare_draw = shader[shader.index("_drawGpuLightFlares: function"):shader.index("_frame: function")]
     assert "Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0))" in flare_draw
+    assert "var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);" in flare_draw
+    assert "var pxSize = Math.max(haloSizePx, sourceRadiusPx + haloSizePx);" in flare_draw
     assert "depthStencilAttachment:" in flare_draw
     assert "view: this._depthTex.createView()" in flare_draw
+
+
+def test_batched_light_flares_use_frame_camera_projection() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    batch_frame = shader[shader.index("perfSample.final_pass = perfNowMs() - perfStageStart;"):shader.index("var sgBatch = sharedWgpu;")]
+
+    assert "function frameCameraMatrices(camera, aspect, timeMs, mathApi, fallbackAutoSpin)" in shader
+    assert "var frameCam = frameCameraMatrices(sceneCam, aspBatch, t, MmBatch, !mesh.camera);" in batch_frame
+    assert "var sceneMvp = frameCam.mvp;" in batch_frame
+    assert "var sceneProj = MmBatch.mat4PerspectiveZ01" not in batch_frame
+    assert "_drawGpuLightFlares(encBatch, mesh, sceneMvp, scenePos, sceneLights" in batch_frame
 
 
 def test_offscreen_mirror_source_uses_direct_lights_without_reflection_apertures() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     offscreen_filter = shader[shader.index("function lightsForRenderer"):shader.index("function lightsForMesh")]
-    assert 'delete directOnly.reflect_mirror_mesh_id;' in offscreen_filter
+    assert 'delete directOnly.reflect_mirror_mesh_id;' not in offscreen_filter
+    assert "directOnly.mirror_source_direct_casts_shadow = false;" in offscreen_filter
+    linked_fn = shader[shader.index("function resolveLinkedMirrorLight"):shader.index("function resolveProjectedLightFromMeshId")]
+    assert "casts_shadow: lightSpec.mirror_source_direct_casts_shadow === false ? false : lightSpec.casts_shadow" in linked_fn
     assert 'String(light.reflect_of_light_id || "").trim()' in offscreen_filter
+
+
+def test_offscreen_mirror_source_preserves_solkatt_generation() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__offscreenSolkattTest = {{ lightsForRenderer: lightsForRenderer, resolveSceneLights: resolveSceneLights }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w * 0.5;
+  const y = h * 0.5;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const raw = sandbox.__offscreenSolkattTest.lightsForRenderer([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "mirror" }}
+], true);
+const lights = sandbox.__offscreenSolkattTest.resolveSceneLights(raw, {{ parts: [mirror] }}, 0);
+process.stdout.write(JSON.stringify({{
+  rawReflect: raw[0].reflect_mirror_mesh_id,
+  rawDirectShadowFlag: raw[0].mirror_source_direct_casts_shadow,
+  ids: lights.map((light) => light.id),
+  kinds: lights.map((light) => light.kind),
+  shadows: lights.map((light) => light.casts_shadow),
+  apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["rawReflect"] == "mirror"
+    assert payload["rawDirectShadowFlag"] is False
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["kinds"] == ["point", "projected"]
+    assert payload["shadows"] == [False, True]
+    assert payload["apertureMeshId"] == "mirror"
+
+
+def test_offscreen_solkatt_can_resolve_hidden_authored_mirror_part() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__hiddenMirrorSolkattTest = {{ lightsForRenderer: lightsForRenderer, resolveSceneLights: resolveSceneLights, sceneMeshForLightResolution: sceneMeshForLightResolution }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w * 0.5;
+  const y = h * 0.5;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  visible: false,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const blocker = {{
+  id: "blocker",
+  kind: "quad",
+  center: [0.2, 2.8, 0.55],
+  size: [0.8, 0.8],
+  rotation: [70, 0, 0],
+  vertices: quadVerts(0.8, 0.8)
+}};
+const sceneMesh = {{ parts: [mirror, blocker] }};
+const renderedParts = [{{ mesh: blocker }}];
+const raw = sandbox.__hiddenMirrorSolkattTest.lightsForRenderer([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "mirror" }}
+], true);
+const lightMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution(sceneMesh, renderedParts);
+const lights = sandbox.__hiddenMirrorSolkattTest.resolveSceneLights(raw, lightMesh, 0);
+process.stdout.write(JSON.stringify({{
+  partIds: lightMesh.parts.map((part) => part.id),
+  ids: lights.map((light) => light.id),
+  kinds: lights.map((light) => light.kind),
+  apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["partIds"] == ["blocker", "mirror"]
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["kinds"] == ["point", "projected"]
+    assert payload["apertureMeshId"] == "mirror"
+
+
+def test_offscreen_solkatt_uses_retained_scene_catalog_when_payload_is_transient() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+
+let wgpuSrc = fs.readFileSync({json.dumps(str(WGPU_JS))}, "utf8");
+wgpuSrc = wgpuSrc.replace(
+  "  global.VfGeomWgpuUtil = {{",
+  "  global.__hiddenMirrorSolkattTest = {{ lightsForRenderer: lightsForRenderer, resolveSceneLights: resolveSceneLights, sceneMeshForLightResolution: sceneMeshForLightResolution }};\\n  global.VfGeomWgpuUtil = {{"
+);
+
+const sandbox = {{
+  console: {{ log() {{}}, warn() {{}}, error() {{}} }},
+  Float32Array,
+  Uint32Array,
+  Math,
+  setTimeout,
+  clearTimeout,
+}};
+sandbox.window = sandbox;
+
+vm.runInNewContext(fs.readFileSync({json.dumps(str(MATH_JS))}, "utf8"), sandbox, {{ filename: "vf-geom-math.js" }});
+vm.runInNewContext(wgpuSrc, sandbox, {{ filename: "vf-geom-wgpu.js" }});
+
+function quadVerts(w, h) {{
+  const x = w / 2, y = h / 2;
+  return new Float32Array([
+    -x, -y, 0,  0,0,1,  1,1,1,1,
+     x, -y, 0,  0,0,1,  1,1,1,1,
+     x,  y, 0,  0,0,1,  1,1,1,1,
+    -x,  y, 0,  0,0,1,  1,1,1,1
+  ]);
+}}
+
+const mirror = {{
+  id: "showcase_mirror",
+  kind: "quad",
+  center: [0, 2, 1],
+  size: [2, 2],
+  rotation: [90, 0, 0],
+  vertices: quadVerts(2, 2),
+  visible: false,
+  surface_system: {{ kind: "screen", reverse_facing: true }}
+}};
+const blocker = {{
+  id: "blocker",
+  kind: "quad",
+  center: [0.2, 2.8, 0.55],
+  size: [0.8, 0.8],
+  rotation: [70, 0, 0],
+  vertices: quadVerts(0.8, 0.8)
+}};
+const transientPayload = {{}};
+const renderedParts = [{{ mesh: blocker }}];
+const retainedCatalog = [mirror, blocker];
+const raw = sandbox.__hiddenMirrorSolkattTest.lightsForRenderer([
+  {{ id: "sun", kind: "point", pos: [0, 0, 3], target: [0, 2, 1], intensity: 2, casts_shadow: true, reflect_mirror_mesh_id: "showcase_mirror" }}
+], true);
+const lightMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution(transientPayload, renderedParts, retainedCatalog);
+const opticalMesh = sandbox.__hiddenMirrorSolkattTest.sceneMeshForLightResolution({{ optical_parts: [mirror] }}, renderedParts);
+const lights = sandbox.__hiddenMirrorSolkattTest.resolveSceneLights(raw, lightMesh, 0);
+process.stdout.write(JSON.stringify({{
+  partIds: lightMesh.parts.map((part) => part.id),
+  opticalPartIds: opticalMesh.parts.map((part) => part.id),
+  ids: lights.map((light) => light.id),
+  apertureMeshId: lights[1] && lights[1].projected_aperture && lights[1].projected_aperture.mesh_id
+}}));
+"""
+    payload = _run_node(script)
+    assert payload["partIds"] == ["blocker", "showcase_mirror"]
+    assert payload["opticalPartIds"] == ["blocker", "showcase_mirror"]
+    assert payload["ids"] == ["sun", "sun::solkatt"]
+    assert payload["apertureMeshId"] == "showcase_mirror"
 
 
 def test_mirror_plane_debug_logs_are_gated_and_cover_plane_consumers() -> None:
@@ -467,16 +726,188 @@ def test_planar_mirror_geometry_is_single_runtime_seam() -> None:
 def test_screen_surface_material_blends_fixed_texture_with_mirror_texture() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert "fixedSurfaceTextureKind = texture ? proceduralTextureKindCode(texture) : 0.0" in shader
-    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 8.0" in shader
-    assert "let baseTextureKind = floor(packedScreenFlags / 8.0)" in shader
+    assert "if (surfaceSystem._window_surface === true) { screenFlags += 16.0; }" in shader
+    assert "screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 32.0" in shader
+    assert "let baseTextureKind = floor(packedScreenFlags / 32.0)" in shader
     assert "clamp(surfaceUv.x, 0.0, 1.0)" in shader
     assert "clamp(surfaceUv.y, 0.0, 1.0)" in shader
     assert "let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture)" in shader
-    assert "let litMaterial = shadeLitBase(materialBase" in shader
+    assert "let litMaterial = shadeLitBaseScaled(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5, 0.0)" in shader
+    assert "let litMaterial = shadeLitBase(materialBase" not in shader
     assert "let baseLayer = litMaterial.rgb" in shader
-    assert "let receiverShadow = readableShadowVisibility(receivedShadowVisibility(worldPos, hostNormal))" in shader
-    assert "let shadowedReflection = reflectionSample.rgb * receiverShadow" in shader
+    assert "let receiverShadow = readableShadowVisibility(receivedShadowVisibility(worldPos, hostNormal))" not in shader
+    assert "let shadowedReflection = reflectionSample.rgb * receiverShadow" not in shader
+    assert "let reflectedLayer = mix(backgroundLayer, reflectionSample.rgb, reflectionAlpha)" in shader
+    assert "let finalAlpha = max(litMaterial.a, reflectionAlpha * reflectivity)" in shader
     assert "let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity)" in shader
+    assert "let windowTintStrength = select(0.0, clamp(surfaceAlpha * 0.85, 0.0, 0.85), (screenFlags & 16) != 0)" in shader
+    assert "let tintedComposite = mix(mirrorComposite, base, windowTintStrength)" in shader
+
+
+def test_grass_texture_kind_uses_procedural_grass_shader() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert 'if (rawKind === "grass") { return 3.25; }' in shader
+    assert "fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32" in shader
+    assert "fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32" in shader
+    assert "texture.roughness" in shader
+    assert "texture.blade_length" in shader
+    assert "texture.clump_density" in shader
+    assert "texture.micro_shadow" in shader
+    assert "if (kindCode > 3.1 && kindCode < 3.4)" in shader
+
+
+def test_unlit_material_flag_uses_receive_shadow_flags_without_changing_uniform_layout() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    assert "var unlitMaterial = meshLike && meshLike.receives_lighting === false;" in shader
+    assert "u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);" in shader
+    assert "if ((sc.receive_shadow & 2u) != 0u)" in shader
+
+
+def test_window_reflection_pass_clips_objects_on_wrong_side_of_pane() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    native_scene = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "reflectedCamera._mirrorRenderClip = mirrorRenderClip" in shader
+    assert "reflectedCamera._mirrorRenderClip = mirrorRenderClip;" in shader
+    assert "var reflectionClip = options.reflectionClip && typeof options.reflectionClip === \"object\" ? options.reflectionClip : null;" in shader
+    assert "function isRejectedByReflectionClip(part)" in shader
+    assert "return side < -reflectionClipEpsilon;" in shader
+    assert "{ reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }" in shader
+    assert "function filterReflectedSourceMeshes(meshSpecs, camera, seconds)" in native_scene
+    assert "meshSpecs = filterReflectedSourceMeshes(meshSpecs, camera, seconds);" in native_scene
+    assert "return maxSide < -(Number(clip.epsilon || 0.0) || 0.0);" in native_scene
+
+
+def test_native_scene_quad_alpha_drives_transparent_surface_pipeline() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "kind !== \"screen\" && kind !== \"mirror\" && kind !== \"window\"" in source
+    assert "var defaultReflectivity = kind === \"window\" ? 0.5 : 1.0" in source
+    assert "_window_surface: kind === \"window\" || system._window_surface === true" in source
+    assert "reverse_facing: kind === \"window\" ? false : system.reverse_facing === true" in source
+    assert "quadSurfaceSystem && quadSurfaceSystem._window_surface === true" in source
+    assert "transparent: quadTransparent" in source
+    assert "no_cull: entityProp(spec, \"no_cull\", false) === true || (quadSurfaceSystem && quadSurfaceSystem._window_surface === true)" in source
+    assert "depth_write: entityProp(spec, \"depth_write\", null) == null ? !quadTransparent : entityProp(spec, \"depth_write\", null) === true" in source
+
+
+def test_mirror_showcase_surface_is_half_reflective_two_sided_window() -> None:
+    source = (REPO / "examples" / "110_mirror_showcase.vkf").read_text(encoding="utf-8")
+    surface = source[source.index('id: "showcase_mirror"'):source.index("cubes: [")]
+    assert "color: [1.0, 0.42, 0.36, 0.5]" in surface
+    assert "no_cull: true" in surface
+    assert 'kind: "window"' in surface
+    assert "reverse_facing" not in surface
+    assert 'id: "behind_window_cyan_marker"' in source
+    assert "center: [1.45, 2.72, 1.35]" in source
+    assert "size: 0.64" in source
+    assert "face_color: [0.0, 0.92, 1.0, 1.0]" in source
+
+
+def test_native_scene_multiple_cubes_keep_independent_centers() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+let source = fs.readFileSync({json.dumps(str(NATIVE_SCENE_JS))}, "utf8");
+source = source.replace(/\\}}\\)\\(typeof window !== "undefined" \\? window : this\\);\\s*$/, `
+global.__sceneTest = {{ buildSceneState }};
+}})(typeof window !== "undefined" ? window : this);
+`);
+const config = {{
+  scene_ir: {{
+    frame: {{ frame_id: "two_cube_probe", visible: true }},
+    camera: {{ pos: [0, -7, 3], target: [0, 0, 1], up: [0, 0, 1], fov: 34 }},
+    timing: {{ fps: 60, duration_seconds: 1, boundary: "repeat" }},
+    cubes: [
+      {{ id: "cube_a", center: [-1, 0, 1], size: 1, face_color: [1, 0, 0, 1] }},
+      {{ id: "cube_b", center: [2, 3, 4], size: 1, face_color: [0, 1, 1, 1] }}
+    ],
+    lights: []
+  }}
+}};
+const sandbox = {{
+  console,
+  setTimeout() {{}},
+  requestAnimationFrame() {{}},
+  performance: {{ now() {{ return 0; }} }},
+  document: {{
+    addEventListener() {{}},
+    querySelector() {{ return null; }},
+    createElement() {{
+      return {{ style: {{}}, classList: {{ add() {{}} }}, appendChild() {{}}, setAttribute() {{}}, querySelector() {{ return null; }}, querySelectorAll() {{ return []; }} }};
+    }}
+  }},
+  __vfNativeSceneConfig: config
+}};
+sandbox.window = sandbox;
+sandbox.global = sandbox;
+sandbox.globalThis = sandbox;
+vm.runInNewContext(source, sandbox, {{ filename: {json.dumps(str(NATIVE_SCENE_JS))} }});
+const state = sandbox.__sceneTest.buildSceneState(null, 0);
+function bounds(mesh) {{
+  const v = Array.from(mesh.vertices || []);
+  const xs = [], ys = [], zs = [];
+  for (let i = 0; i < v.length; i += 10) {{
+    xs.push(v[i]);
+    ys.push(v[i + 1]);
+    zs.push(v[i + 2]);
+  }}
+  return {{ id: mesh.id, min: [Math.min(...xs), Math.min(...ys), Math.min(...zs)], max: [Math.max(...xs), Math.max(...ys), Math.max(...zs)] }};
+}}
+process.stdout.write(JSON.stringify(state.meshes.map(bounds)));
+"""
+    payload = _run_node(script)
+    cube_a = next(item for item in payload if item["id"] == "cube_a")
+    cube_b = next(item for item in payload if item["id"] == "cube_b")
+
+    assert cube_a["min"] == [-1.5, -0.5, 0.5]
+    assert cube_a["max"] == [-0.5, 0.5, 1.5]
+    assert cube_b["min"] == [1.5, 2.5, 3.5]
+    assert cube_b["max"] == [2.5, 3.5, 4.5]
+
+
+def test_keyboard_orbit_default_speed_is_four_times_previous_rate() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    assert "function cameraOrbitSpeedRadians(cameraConfig)" in source
+    assert "orbit_speed_deg_per_sec" in source
+    assert "cameraOrbitStepRadians(cameraConfig || {}) * 72.0" in source
+    assert "orbitSpeedRadPerSec: cameraOrbitSpeedRadians(config.camera || {})" in source
+    assert "if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())" not in source
+    assert "var keyDtSec = Math.max(1.0 / 240.0, keyElapsedSec || (1.0 / 60.0));" in source
+
+
+def test_game_camera_movement_uses_elapsed_time_under_heavy_views() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    game_fn = source[source.index("function applyGameCamera"):source.index("function applyWheelZoom")]
+    render_fn = source[source.index("function renderFrame()"):source.index("var authoredCamera = makeCamera", source.index("function renderFrame()"))]
+
+    assert "var clockNowMs = Number(nowMs || 0.0)" in game_fn
+    assert "controlState.gameMoveLastTsMs > 0.0" in game_fn
+    assert "(clockNowMs - Number(controlState.gameMoveLastTsMs || 0.0)) * 0.001" in game_fn
+    assert "controlState.gameMoveLastTsMs = clockNowMs;" in game_fn
+    assert "Math.min(1.0 / 60.0, Number(dtSec || (1.0 / 60.0))" not in game_fn
+    assert "Math.min(1.0 / 15.0, (nowMs - controlState.lastRenderTsMs) * 0.001)" not in render_fn
+    assert "Math.max(0.0, (nowMs - controlState.lastRenderTsMs) * 0.001)" in render_fn
+    assert "applyGameCamera(baseCamera, dtSec, nowMs)" in source
+
+
+def test_camera_dirty_frame_renders_immediately_after_busy_frame() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    finish_fn = source[source.index("function finishRenderFrame"):source.index("function presentVisibleCameraFrame")]
+    request_fn = source[source.index("controlState.requestCameraFrame = function ()"):source.index("controlState.requestCameraHoldFrame = function ()")]
+
+    assert "if (controlState.cameraFrameDirty === true)" in finish_fn
+    assert "controlState.cameraFrameDirty = false;" in finish_fn
+    assert "global.requestAnimationFrame(function ()" in finish_fn
+    assert "renderFrame();" in finish_fn
+    assert "if (controlState.rendering === true) {\n        controlState.cameraFrameDirty = true;\n        return;\n      }" in request_fn
+    assert "attempt < 30" not in request_fn
+
+
+def test_generated_grass_blade_layer_is_not_pickable() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    grass_fn = source[source.index("function grassNearBladeLayer"):source.index("function currentFrameViewportHeight")]
+
+    assert 'instance_kind: "line-impostor"' in grass_fn
+    assert "pickable: false" in grass_fn
 
 
 def test_planar_mirror_callers_use_runtime_for_aperture_packets() -> None:
@@ -1213,7 +1644,8 @@ def test_screen_surface_shadow_casting_is_gated_by_light_side() -> None:
     assert "meshLike.no_backface_specular === true && meshLike.receives_shadow === false" in shader
     assert "return lightSide * targetSide < 0.0;" in shader
     caster_fn = shader[shader.index("function shadowCasterParts"):shader.index("function planarContactParts")]
-    assert "if (isPlanarScreenShadowSurface(mesh))" not in caster_fn
+    assert "var allowScreenCasters = includeScreens !== false;" in caster_fn
+    assert "if (!allowScreenCasters && isPlanarScreenShadowSurface(mesh)) { continue; }" in caster_fn
     assert "function shadowCasterPartsForLight(casterParts, light, t)" in shader
     assert "canPlanarSurfaceCastShadowForLight(casterMesh, light, t)" in shader
     assert "drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || [])" in shader
@@ -2395,6 +2827,18 @@ def test_offscreen_reflected_frame_waits_for_source_before_resolving_camera() ->
     assert wait_index < resolve_index
 
 
+def test_offscreen_marker_impostors_size_from_virtual_mirror_camera() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    render_start = source.index("function renderFrame()")
+    render_fn = source[render_start:source.index("function wireChessRuntimeRenderCallbacks", render_start)]
+    publish_fn = source[source.index("function publishLiveCamera"):source.index("function ensureCameraHoldLoop")]
+
+    assert "sourceMarkerReferenceHeightPx" in render_fn
+    assert "var markerSizeCamera = null;" in render_fn
+    assert "Object.assign({}, sourceMarkerCamera)" not in render_fn
+    assert "renderCamera._marker_size_camera = markerSizeCamera;" in publish_fn
+
+
 def test_native_scene_resets_stale_camera_controls_on_boot() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     boot_fn = source[source.index("function boot()"):source.index("function ensureGeomRendererReady")]
@@ -2429,12 +2873,65 @@ def test_native_scene_wheel_requires_frame_target_but_arrow_keys_allow_document_
 
 def test_native_scene_light_markers_do_not_enable_screen_space_flare_ghosts() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    marker_fn = source[source.index("function buildGlowHaloMesh"):source.index("function ensureFlareLayer")]
     build_state_fn = source[source.index("function buildSceneState"):source.index("function renderPayload")]
     render_payload_fn = source[source.index("function renderPayload"):source.index("function resolveMeshSpecById")]
 
+    assert "var glowRadius = Math.max(0.02, Number(markerSize || 0.18));" in marker_fn
+    assert "var centerColor = [color[0], color[1], color[2], 1.0];" in marker_fn
+    assert "var innerColor = [color[0], color[1], color[2], Math.max(0.85, glowAlpha)];" in marker_fn
+    assert "light.source_radius != null ? light.source_radius : defaultSize" in marker_fn
+    assert "intensity / 40.0" not in marker_fn
     assert "buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size)" in build_state_fn
     assert "enabled: renderOptions.light_flares === true" in render_payload_fn
     assert "enabled: renderOptions.show_light_markers === true" not in render_payload_fn
+
+
+def test_hidden_optical_reference_meshes_travel_outside_drawn_scene_parts() -> None:
+    native_source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    display_source = DISPLAY_JS.read_text(encoding="utf-8")
+    build_state_fn = native_source[native_source.index("function buildSceneState"):native_source.index("function renderPayload")]
+    render_payload_fn = native_source[native_source.index("function renderPayload"):native_source.index("function chessInteractionConfig")]
+    dynamic_scene_fn = display_source[display_source.index("function _buildDynamicGeomScene"):display_source.index("function mountDynamicGeomFrame")]
+
+    assert "function collectOpticalReferenceMeshIds" in native_source
+    assert 'entityProp(light, "reflect_mirror_mesh_id", "")' in native_source
+    assert "return visible || opticalReferenceIds[meshSpecId(mesh)] === true;" in build_state_fn
+    assert "pushMeshPayload(opticalParts, buildMeshPayload(mesh, camera, lights));" in build_state_fn
+    assert "optical_parts: opticalParts" in build_state_fn
+    assert "optical_parts: state.optical_parts" in render_payload_fn
+    assert "scene.optical_parts = geomSpec.optical_parts.slice();" in dynamic_scene_fn
+    assert "meshLike.optical_parts" in WGPU_JS.read_text(encoding="utf-8")
+
+
+def test_visible_mirror_camera_dependents_present_before_source() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    render_loop = source[source.index("function renderFrame"):source.index("function wireChessRuntimeRenderCallbacks")]
+    presenter = source[source.index("function presentVisibleCameraFrame"):source.index("function publishLiveCamera")]
+    offscreen_presenter = presenter[presenter.index("function presentOffscreenSourceFrame"):presenter.index("function publishLiveCamera") if "function publishLiveCamera" in presenter else len(presenter)]
+
+    update_index = offscreen_presenter.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {")
+    assert update_index >= 0
+    assert offscreen_presenter.index("afterPresented: function () {", update_index) < offscreen_presenter.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });', update_index)
+    assert "function presentVisibleCameraFrame" in presenter
+    assert "function presentVisibleFullFrame" in presenter
+    assert "presentVisibleCameraFrame(renderCamera" in render_loop
+    assert "presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);" in render_loop
+    visible_camera = presenter[presenter.index("function presentVisibleCameraFrame"):presenter.index("function presentVisibleFullFrame")]
+    assert "updateVisibleCameraOnly(renderCamera, { immediate: true })" in visible_camera
+    assert visible_camera.index('triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });') < visible_camera.index("updateVisibleCameraOnly(renderCamera, { immediate: true })")
+    assert "global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {" in presenter
+
+
+def test_visible_scene_startup_does_not_wait_for_idle_before_first_render() -> None:
+    source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    start = source.index("function scheduleVisibleInitialSceneRender")
+    startup_fn = source[start:source.index("if (useVisibleFrame) {", start)]
+
+    assert "requestIdleCallback" not in startup_fn
+    assert "global.requestAnimationFrame(start);" in startup_fn
+    assert "global.setTimeout(forceStart, 120);" in startup_fn
+    assert startup_fn.count("postVisibleShellLayout();") >= 3
 
 
 def test_linked_reflected_camera_uses_planar_mirror_adapter_camera() -> None:
@@ -2636,4 +3133,68 @@ process.stdout.write(JSON.stringify({{
     assert payload["apertureCalls"] == 1
     assert payload["hasView"] is True
     assert payload["hasProjection"] is True
+
+
+def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
+    runtime = (REPO / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
+
+    assert "function sceneHasNativeWorldAnimations()" in runtime
+    assert "function lightHasContinuousMotion(light)" in runtime
+    assert 'motion === "orbit" || motion === "oscillate"' in runtime
+    assert "function currentNativeSceneAnimationDirtyVersion(seconds)" in runtime
+    assert "function currentSceneWorldDirtyVersion(seconds)" in runtime
+    assert "currentNativeSceneAnimationDirtyVersion(seconds)" in runtime
+    assert "Math.max(1, fps) * 4.0" not in runtime
+    assert "return chessAnimationsPending() || sceneHasNativeWorldAnimations();" in runtime
+    assert "return chessActive || sceneHasNativeWorldAnimations();" in runtime
+    assert "var dirtyVersion = currentSceneWorldDirtyVersion(seconds);" in runtime
+    assert "var nativeWorldAnimationPresence = null;" in runtime
+    assert "if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {" in runtime
+    assert "pushVisibleRender(rendered, { defer_update: true });" in runtime
+    visible_full_path = runtime.index("pushVisibleRender(rendered, { defer_update: true });")
+    dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", visible_full_path)
+    visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });", dependent_trigger)
+    assert visible_full_path < dependent_trigger < visible_present
+
+
+def test_linked_texture_notifications_wait_for_gpu_submission_done() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+
+    assert "function drainSubmittedCallbacks(renderer)" in shader
+    assert "function enqueueSubmittedCallback(renderer, callback)" in shader
+    assert "drainSubmittedCallbacks(renderer);" in shader
+    assert "enqueueSubmittedCallback(this, function () { notifyLinkedTextureFrames(this); }.bind(this));" in shader
+    assert "markSubmittedGpuWork(this);\n        this._markPresentedFirstFrame();\n        notifyLinkedTextureFrames(this);" not in shader
+    assert "markSubmittedGpuWork(this);\n      this._markPresentedFirstFrame();\n      notifyLinkedTextureFrames(this);" not in shader
+
+
+def test_same_frame_mirror_surface_uses_transaction_camera() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    camera_fn = shader[shader.index("_resolveScreenRenderCamera: function"):shader.index("_drawSingleScenePart: function")]
+
+    assert 'var localFrameId = String(this._frameId || "").trim();' in camera_fn
+    assert 'sourceFrameId === "current" || (localFrameId && sourceFrameId === localFrameId)' in camera_fn
+    assert camera_fn.index('sourceFrameId === "current" || (localFrameId && sourceFrameId === localFrameId)') < camera_fn.index("global.__vfNativeSceneLiveCameras[sourceFrameId]")
+
+
+def test_live_renderer_does_not_drop_frames_for_gpu_pending() -> None:
+    shader = WGPU_JS.read_text(encoding="utf-8")
+    render_fn = shader[shader.index("_renderContent: function"):shader.index("_drawGpuLightFlares: function")]
+
+    assert "gpu_pending_block" not in render_fn
+    assert "queueRendererForGpuDrain(this" not in render_fn
+    assert "if (isGpuWorkPending(this)" not in render_fn
+
+
+def test_native_scene_zoom_fast_path_updates_live_lights() -> None:
+    runtime = NATIVE_SCENE_JS.read_text(encoding="utf-8")
+    render_loop = runtime[runtime.index("function renderFrame"):runtime.index("function wireChessRuntimeRenderCallbacks")]
+
+    assert "function normalizeSceneLights(seconds)" in runtime
+    assert "function canUseCameraLightFastPath(" in runtime
+    assert "if (sceneHasNativeGeometryOrCameraAnimations()) { return false; }" in runtime
+    assert "var cameraOnlyFastPathEnabled = true;" in runtime
+    assert "liveFastPathLights = normalizeSceneLights(seconds);" in render_loop
+    assert "lights: liveFastPathLights" in render_loop
+    assert "visibleSpec.lights = options.lights;" in runtime
 

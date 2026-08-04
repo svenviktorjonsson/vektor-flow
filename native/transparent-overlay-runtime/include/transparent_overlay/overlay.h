@@ -79,6 +79,7 @@ struct TransparentOverlayRunOptions {
     const char* entry_url_utf8;
     const char* web_root_utf8;
     const char* user_data_dir_utf8;
+    bool close_on_empty_geometry;
 };
 
 TRANSPARENT_OVERLAY_API std::uint32_t TransparentOverlayApiVersion();

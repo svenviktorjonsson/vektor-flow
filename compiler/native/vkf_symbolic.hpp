@@ -4,7 +4,9 @@
 #include <cmath>
 #include <complex>
 #include <cstdlib>
+#include <deque>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -353,6 +355,274 @@ struct VkfSymbolicSolve2 {
 inline VkfSymbolicSolve2 vkf_sym_solve_linear_diophantine2(const VkfSymbolicExpr& relation, const VkfSymbolicExpr& x, const VkfSymbolicExpr& y);
 
 using vf_symbolic = VkfSymbolicExpr;
+
+struct VkfSymSearchStatus {
+    bool found = false;
+    bool capped = false;
+    long long steps = 0;
+    long long expanded = 0;
+    long long reached = 0;
+    long long score = 0;
+    long long residual_before = 0;
+    long long residual_after = 0;
+    long long max_steps = 0;
+    long long beam = 0;
+    std::string reason;
+};
+
+inline std::string vkf_sym_bool_text(bool value) {
+    return value ? "true" : "false";
+}
+
+inline std::string vkf_sym_status_record_text(const VkfSymSearchStatus& status) {
+    return std::string("{found: ") + vkf_sym_bool_text(status.found)
+        + ", capped: " + vkf_sym_bool_text(status.capped)
+        + ", steps: " + std::to_string(status.steps)
+        + ", expanded: " + std::to_string(status.expanded)
+        + ", reached: " + std::to_string(status.reached)
+        + ", score: " + std::to_string(status.score)
+        + ", residual_before: " + std::to_string(status.residual_before)
+        + ", residual_after: " + std::to_string(status.residual_after)
+        + ", max_steps: " + std::to_string(status.max_steps)
+        + ", beam: " + std::to_string(status.beam)
+        + ", reason: " + status.reason
+        + "}";
+}
+
+inline vf_symbolic vkf_sym_status_record(const VkfSymSearchStatus& status) {
+    return vkf_sym_symbol(vkf_sym_status_record_text(status));
+}
+
+inline long long vkf_sym_residual_transform_count_node(const std::shared_ptr<const VkfSymbolicNode>& node) {
+    if (!node) return 0;
+    long long count = 0;
+    if (node->kind == VkfSymbolicNodeKind::Call
+        && (node->text == "diff"
+            || node->text == "differentiate"
+            || node->text == "derivative"
+            || node->text == "integ"
+            || node->text == "integrate"
+            || node->text == "laplace_transform"
+            || node->text == "fourier_transform"
+            || node->text == "z_transform"
+            || node->text == "wavelet_transform")) {
+        ++count;
+    }
+    for (const auto& child : node->children) {
+        count += vkf_sym_residual_transform_count_node(child);
+    }
+    return count;
+}
+
+inline long long vkf_sym_residual_transform_count(const vf_symbolic& expr) {
+    return vkf_sym_residual_transform_count_node(expr.node);
+}
+
+inline bool vkf_sym_same_surface(const vf_symbolic& a, const vf_symbolic& b) {
+    return vkf_sym_render(a) == vkf_sym_render(b) && a.conditions == b.conditions;
+}
+
+inline void vkf_sym_push_unique_edge(std::vector<vf_symbolic>& edges, const vf_symbolic& expr) {
+    for (const auto& edge : edges) {
+        if (vkf_sym_same_surface(edge, expr)) return;
+    }
+    edges.push_back(expr);
+}
+
+inline bool vkf_sym_integer_literal_value(const vf_symbolic& expr, long long& value) {
+    if (!expr.node || expr.node->kind != VkfSymbolicNodeKind::IntegerLiteral) return false;
+    char* end = nullptr;
+    value = std::strtoll(expr.node->text.c_str(), &end, 10);
+    return end != nullptr && *end == '\0';
+}
+
+inline vf_symbolic vkf_sym_replace_child(const vf_symbolic& expr, std::size_t index, const vf_symbolic& child) {
+    if (!expr.node) return expr;
+    if ((expr.node->kind == VkfSymbolicNodeKind::Binary || expr.node->kind == VkfSymbolicNodeKind::Relation)
+        && expr.node->children.size() == 2) {
+        const auto other = VkfSymbolicExpr{expr.node->children[1 - index], {}};
+        return index == 0
+            ? (expr.node->kind == VkfSymbolicNodeKind::Relation ? vkf_sym_relation(child, expr.node->op, other) : vkf_sym_binary(child, expr.node->op, other))
+            : (expr.node->kind == VkfSymbolicNodeKind::Relation ? vkf_sym_relation(other, expr.node->op, child) : vkf_sym_binary(other, expr.node->op, child));
+    }
+    if (expr.node->kind == VkfSymbolicNodeKind::Call) {
+        std::vector<vf_symbolic> args;
+        for (std::size_t i = 0; i < expr.node->children.size(); ++i) {
+            args.push_back(i == index ? child : VkfSymbolicExpr{expr.node->children[i], {}});
+        }
+        return vkf_sym_call(expr.node->text, args);
+    }
+    return expr;
+}
+
+inline vf_symbolic vkf_sym_expand_once(const vf_symbolic& expr) {
+    if (!expr.node || expr.node->kind != VkfSymbolicNodeKind::Binary || expr.node->op != "*" || expr.node->children.size() != 2) return expr;
+    const auto left = VkfSymbolicExpr{expr.node->children[0], {}};
+    const auto right = VkfSymbolicExpr{expr.node->children[1], {}};
+    if (right.node && right.node->kind == VkfSymbolicNodeKind::Binary && right.node->op == "+" && right.node->children.size() == 2) {
+        const auto b = VkfSymbolicExpr{right.node->children[0], {}};
+        const auto c = VkfSymbolicExpr{right.node->children[1], {}};
+        return vkf_sym_binary(vkf_sym_binary(left, "*", b), "+", vkf_sym_binary(left, "*", c));
+    }
+    if (left.node && left.node->kind == VkfSymbolicNodeKind::Binary && left.node->op == "+" && left.node->children.size() == 2) {
+        const auto a = VkfSymbolicExpr{left.node->children[0], {}};
+        const auto b = VkfSymbolicExpr{left.node->children[1], {}};
+        return vkf_sym_binary(vkf_sym_binary(a, "*", right), "+", vkf_sym_binary(b, "*", right));
+    }
+    return expr;
+}
+
+inline vf_symbolic vkf_sym_factor_once(const vf_symbolic& expr) {
+    if (!expr.node || expr.node->kind != VkfSymbolicNodeKind::Binary || expr.node->op != "+" || expr.node->children.size() != 2) return expr;
+    const auto left = VkfSymbolicExpr{expr.node->children[0], {}};
+    const auto right = VkfSymbolicExpr{expr.node->children[1], {}};
+    if (!left.node || !right.node || left.node->kind != VkfSymbolicNodeKind::Binary || right.node->kind != VkfSymbolicNodeKind::Binary) return expr;
+    if (left.node->op != "*" || right.node->op != "*" || left.node->children.size() != 2 || right.node->children.size() != 2) return expr;
+    const auto la = VkfSymbolicExpr{left.node->children[0], {}};
+    const auto lb = VkfSymbolicExpr{left.node->children[1], {}};
+    const auto ra = VkfSymbolicExpr{right.node->children[0], {}};
+    const auto rb = VkfSymbolicExpr{right.node->children[1], {}};
+    if (vkf_sym_same_surface(la, ra)) return vkf_sym_binary(la, "*", vkf_sym_binary(lb, "+", rb));
+    if (vkf_sym_same_surface(la, rb)) return vkf_sym_binary(la, "*", vkf_sym_binary(lb, "+", ra));
+    if (vkf_sym_same_surface(lb, ra)) return vkf_sym_binary(lb, "*", vkf_sym_binary(la, "+", rb));
+    if (vkf_sym_same_surface(lb, rb)) return vkf_sym_binary(lb, "*", vkf_sym_binary(la, "+", ra));
+    return expr;
+}
+
+inline vf_symbolic vkf_sym_compute_once(const vf_symbolic& expr) {
+    if (!expr.node || expr.node->kind != VkfSymbolicNodeKind::Binary || expr.node->children.size() != 2) return expr;
+    const auto left = VkfSymbolicExpr{expr.node->children[0], {}};
+    const auto right = VkfSymbolicExpr{expr.node->children[1], {}};
+    long long a = 0;
+    long long b = 0;
+    if (!vkf_sym_integer_literal_value(left, a) || !vkf_sym_integer_literal_value(right, b)) return expr;
+    if (expr.node->op == "+") return vkf_sym_integer(a + b);
+    if (expr.node->op == "-") return vkf_sym_integer(a - b);
+    if (expr.node->op == "*") return vkf_sym_integer(a * b);
+    if (expr.node->op == "/" && b != 0 && a % b == 0) return vkf_sym_integer(a / b);
+    return expr;
+}
+
+inline vf_symbolic vkf_sym_transform_once(const vf_symbolic& expr) {
+    if (!expr.node || expr.node->kind != VkfSymbolicNodeKind::Call) return expr;
+    if ((expr.node->text == "diff" || expr.node->text == "differentiate" || expr.node->text == "derivative") && expr.node->children.size() >= 2) {
+        return vkf_sym_diff(VkfSymbolicExpr{expr.node->children[0], {}}, VkfSymbolicExpr{expr.node->children[1], {}});
+    }
+    if ((expr.node->text == "integ" || expr.node->text == "integrate") && expr.node->children.size() >= 2) {
+        return vkf_sym_integrate(VkfSymbolicExpr{expr.node->children[0], {}}, VkfSymbolicExpr{expr.node->children[1], {}});
+    }
+    return expr;
+}
+
+inline std::vector<vf_symbolic> vkf_sym_graph_edges_once(const vf_symbolic& expr) {
+    std::vector<vf_symbolic> edges;
+    vkf_sym_push_unique_edge(edges, vkf_sym_expand_once(expr));
+    vkf_sym_push_unique_edge(edges, vkf_sym_factor_once(expr));
+    vkf_sym_push_unique_edge(edges, vkf_sym_compute_once(expr));
+    vkf_sym_push_unique_edge(edges, vkf_sym_transform_once(expr));
+    if (expr.node && (expr.node->kind == VkfSymbolicNodeKind::Binary || expr.node->kind == VkfSymbolicNodeKind::Relation || expr.node->kind == VkfSymbolicNodeKind::Call)) {
+        for (std::size_t i = 0; i < expr.node->children.size(); ++i) {
+            const auto child = VkfSymbolicExpr{expr.node->children[i], {}};
+            for (const auto& child_edge : vkf_sym_graph_edges_once(child)) {
+                vkf_sym_push_unique_edge(edges, vkf_sym_replace_child(expr, i, child_edge));
+            }
+        }
+    }
+    return edges;
+}
+
+struct VkfSymPathSearchResult {
+    bool found = false;
+    bool capped = false;
+    long long steps = -1;
+    long long expanded = 0;
+    long long reached = 0;
+};
+
+inline VkfSymPathSearchResult vkf_sym_path_search(const vf_symbolic& start, const vf_symbolic& target, long long max_steps) {
+    VkfSymPathSearchResult result;
+    if (vkf_sym_same_surface(start, target)) {
+        result.found = true;
+        result.steps = 0;
+        result.reached = 1;
+        return result;
+    }
+    if (max_steps <= 0) {
+        result.capped = true;
+        result.reached = 1;
+        return result;
+    }
+    struct Item {
+        vf_symbolic expr;
+        long long depth = 0;
+    };
+    std::deque<Item> queue;
+    std::set<std::string> seen;
+    queue.push_back({start, 0});
+    seen.insert(vkf_sym_render(start));
+    while (!queue.empty()) {
+        const auto item = queue.front();
+        queue.pop_front();
+        if (item.depth >= max_steps) {
+            result.capped = true;
+            continue;
+        }
+        ++result.expanded;
+        for (const auto& edge : vkf_sym_graph_edges_once(item.expr)) {
+            const std::string key = vkf_sym_render(edge);
+            if (seen.find(key) != seen.end()) continue;
+            seen.insert(key);
+            if (vkf_sym_same_surface(edge, target)) {
+                result.found = true;
+                result.steps = item.depth + 1;
+                result.reached = static_cast<long long>(seen.size());
+                return result;
+            }
+            queue.push_back({edge, item.depth + 1});
+        }
+    }
+    result.reached = static_cast<long long>(seen.size());
+    return result;
+}
+
+inline vf_symbolic vf_sym_path_status(const vf_symbolic& start, const vf_symbolic& target, long long max_steps = 8) {
+    const auto search = vkf_sym_path_search(start, target, max_steps);
+    VkfSymSearchStatus status;
+    status.found = search.found;
+    status.capped = search.capped && !search.found;
+    status.steps = search.steps;
+    status.expanded = search.expanded;
+    status.reached = search.reached;
+    status.max_steps = max_steps;
+    status.reason = search.found
+        ? (search.steps == 0 ? "same expression" : "equivalence path found")
+        : (status.capped ? "search budget exhausted" : "no equivalence path found");
+    return vkf_sym_status_record(status);
+}
+
+inline vf_symbolic vf_sym_transform_path_status(const vf_symbolic& expr, long long max_steps = 16, long long beam = 4) {
+    const long long residual = vkf_sym_residual_transform_count(expr);
+    const auto transformed = vkf_sym_transform_once(expr);
+    const long long residual_after = vkf_sym_residual_transform_count(transformed);
+    VkfSymSearchStatus status;
+    status.found = residual_after == 0;
+    status.capped = residual != 0 && max_steps <= 0;
+    status.steps = residual == residual_after ? (residual == 0 ? 0 : -1) : 1;
+    status.expanded = 1;
+    status.reached = 1;
+    status.residual_before = residual;
+    status.residual_after = residual_after;
+    status.max_steps = max_steps;
+    status.beam = beam <= 0 ? 1 : beam;
+    status.reason = residual == 0
+        ? "no residual transforms"
+        : (status.found ? "transform evaluated" : (status.capped ? "transform budget exhausted" : "no transform path found"));
+    return vkf_sym_status_record(status);
+}
+
+inline vf_symbolic vf_sym_transform_path_beam_status(const vf_symbolic& expr, long long beam) {
+    return vf_sym_transform_path_status(expr, 16, beam);
+}
 
 inline vf_symbolic vf_make_symbolic(const std::string& text) { return vkf_sym_symbol(text); }
 inline vf_symbolic vf_to_symbolic(const vf_symbolic& value) { return value; }

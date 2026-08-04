@@ -533,15 +533,51 @@
     return true;
   }
 
-  function polarThetaOffset(cfg) {
-    var theta = Number(cfg && cfg.theta_offset_rad);
+  function normalizeSignedAngleDeg(angleDeg) {
+    var angle = Number(angleDeg) || 0;
+    while (angle <= -180) { angle += 360; }
+    while (angle > 180) { angle -= 360; }
+    return angle;
+  }
+
+  function signedAngleDiffDeg(aDeg, bDeg) {
+    return Math.abs(normalizeSignedAngleDeg(aDeg - bDeg));
+  }
+
+  function snapSignedAngleDegWithinThreshold(rawAngleDeg, thresholdDeg, snapTargets) {
+    var angle = normalizeSignedAngleDeg(rawAngleDeg);
+    var targets = Array.isArray(snapTargets) && snapTargets.length ? snapTargets : [-180, -90, 0, 90, 180];
+    var best = targets[0];
+    var bestDiff = signedAngleDiffDeg(angle, best);
+    for (var i = 1; i < targets.length; i += 1) {
+      var diff = signedAngleDiffDeg(angle, targets[i]);
+      if (diff < bestDiff) {
+        best = targets[i];
+        bestDiff = diff;
+      }
+    }
+    return bestDiff <= Math.max(0, Number(thresholdDeg) || 0) ? normalizeSignedAngleDeg(best) : rawAngleDeg;
+  }
+
+  function rawPolarThetaOffset(cfg) {
+    var theta = Number(cfg && cfg.__raw_theta_offset_rad);
+    if (!Number.isFinite(theta)) { theta = Number(cfg && cfg.theta_offset_rad); }
     return Number.isFinite(theta) ? theta : 0;
+  }
+
+  function polarThetaOffset(cfg) {
+    var theta = rawPolarThetaOffset(cfg);
+    var snapDeg = Number(cfg && cfg.theta_snap_angle_deg);
+    if (!Number.isFinite(snapDeg)) { snapDeg = Number(cfg && cfg.rotation_snap_angle_deg); }
+    if (!Number.isFinite(snapDeg)) { snapDeg = 8; }
+    return snapSignedAngleDegWithinThreshold(theta * 180 / Math.PI, snapDeg, [-180, -90, 0, 90, 180]) * Math.PI / 180;
   }
 
   function setPolarThetaOffset(cfg, theta) {
     if (!cfg) { return false; }
     theta = Number(theta);
-    cfg.theta_offset_rad = Number.isFinite(theta) ? theta : 0;
+    cfg.__raw_theta_offset_rad = Number.isFinite(theta) ? theta : 0;
+    cfg.theta_offset_rad = polarThetaOffset(cfg);
     return true;
   }
 

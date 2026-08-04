@@ -169,6 +169,7 @@ UNARY_KIND_TO_SYM = {
 # before ``(`` must not become ``bit(…)`` and swallow the next line (see parse_postfix).
 _PRIMITIVE_TYPE_IDENTS = frozenset({"bit", "int", "rational", "num", "symbolic", "chr", "str", "any"})
 _SYMBOLIC_DOMAIN_TYPE_IDENTS = frozenset({"R", "N", "Z", "Q", "C"})
+_PHYSICS_DOMAIN_TYPE_IDENTS = frozenset({"L", "M", "T", "Theta", "I", "N", "J"})
 
 _TOKEN_DISPLAY = {
     INDENT: "indented block",
@@ -210,6 +211,8 @@ class Parser:
         self.i = 0
         self._type_expr_relaxed_loose_dot_depth = 0
         self._symbolic_domains_visible = False
+        self._physics_domains_visible = False
+        self._visible_domain_sources: dict[str, str] = {}
         self.source = source
         self.filename = filename
         self._line_offsets: list[int] | None = None
@@ -505,6 +508,17 @@ class Parser:
             and stmt.path.segments == ["symbolic"]
         ):
             self._symbolic_domains_visible = True
+            for name in _SYMBOLIC_DOMAIN_TYPE_IDENTS:
+                self._visible_domain_sources[name] = "symbolic"
+        if (
+            isinstance(stmt, ast.SpillImport)
+            and stmt.alias is None
+            and isinstance(stmt.path, ast.DotModulePath)
+            and stmt.path.segments == ["physics"]
+        ):
+            self._physics_domains_visible = True
+            for name in _PHYSICS_DOMAIN_TYPE_IDENTS:
+                self._visible_domain_sources[name] = "physics"
 
     def parse_stmt(self) -> Any:
         self._skip_trivia()
@@ -1059,6 +1073,8 @@ class Parser:
             return value.name
         if isinstance(value, ast.TypePowerExpr):
             return f"{self._type_surface_string(value.base)}^{self._type_surface_string(value.exponent)}"
+        if isinstance(value, ast.TypeDomainBinOp):
+            return f"{self._type_surface_string(value.left)}{value.op}{self._type_surface_string(value.right)}"
         if isinstance(value, ast.TypeUnionExpr):
             return "|".join(self._type_surface_string(member) for member in value.members)
         if isinstance(value, ast.TypeIntersectionExpr):
@@ -1248,9 +1264,14 @@ class Parser:
                 if ident == "list":
                     return self._parse_linked_list_value_type()
             ident = str(self.toks[self.i].value)
-            if ident in _SYMBOLIC_DOMAIN_TYPE_IDENTS:
-                if not self._symbolic_domains_visible:
-                    raise ParseError(f"symbolic domain `{ident}` requires `:.symbolic`", self._loc_here())
+            if ident in _SYMBOLIC_DOMAIN_TYPE_IDENTS or ident in _PHYSICS_DOMAIN_TYPE_IDENTS:
+                source = self._visible_domain_sources.get(ident)
+                if source is None:
+                    if ident in _SYMBOLIC_DOMAIN_TYPE_IDENTS and ident in _PHYSICS_DOMAIN_TYPE_IDENTS:
+                        raise ParseError(f"domain `{ident}` requires `:.symbolic` or `:.physics`", self._loc_here())
+                    if ident in _SYMBOLIC_DOMAIN_TYPE_IDENTS:
+                        raise ParseError(f"symbolic domain `{ident}` requires `:.symbolic`", self._loc_here())
+                    raise ParseError(f"physics domain `{ident}` requires `:.physics`", self._loc_here())
                 return ast.SymbolicDomainType(str(self._advance().value))
             if ident in _PRIMITIVE_TYPE_IDENTS or self._name_is_type_bind(ident):
                 return ast.PrimTypeRef(str(self._advance().value))
@@ -1321,14 +1342,26 @@ class Parser:
             return ast.TypePowerExpr(left, exponent)
         return left
 
-    def _parse_type_intersection(self) -> Any:
+    def _parse_type_product(self) -> Any:
         left = self._parse_type_power()
+        while True:
+            self._skip_trivia()
+            if self._peek_raw() not in (STAR, SLASH):
+                break
+            op = "*" if self._peek_raw() == STAR else "/"
+            self._advance()
+            right = self._parse_type_power()
+            left = ast.TypeDomainBinOp(op, left, right)
+        return left
+
+    def _parse_type_intersection(self) -> Any:
+        left = self._parse_type_product()
         while True:
             self._skip_trivia()
             if self._peek_raw() != AMPERSAND:
                 break
             self._advance()
-            right = self._parse_type_power()
+            right = self._parse_type_product()
             left = ast.TypeIntersectionExpr(
                 self._flatten_type_members(ast.TypeIntersectionExpr, left, right)
             )
@@ -1362,6 +1395,9 @@ class Parser:
             cod,
                 (
                     ast.PrimTypeRef,
+                    ast.SymbolicDomainType,
+                    ast.TypePowerExpr,
+                    ast.TypeDomainBinOp,
                     ast.FuncType,
                     ast.TupleTypeExpr,
                     ast.TypeExpr,
@@ -1510,7 +1546,7 @@ class Parser:
             self._advance()
             codomain = self._parse_return_type_spec()
             return ast.FuncType(domain, codomain)
-        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
+        if isinstance(domain, (ast.TypeExpr, ast.PrimTypeRef, ast.SymbolicDomainType, ast.TypePowerExpr, ast.TypeDomainBinOp, ast.TypeUnionExpr, ast.TypeIntersectionExpr, ast.FixedVectorType, ast.MultisetType, ast.MapValueType, ast.LinkedListValueType, ast.TypeOf)):
             return domain
         raise ParseError(
             "tuple or bare type name requires '->' codomain (e.g. num -> num, (num,num) -> num)",
@@ -1539,6 +1575,8 @@ class Parser:
         eof_tok = Token(EOF, None, eof_loc)
         sub = Parser(self.toks[self.i:boundary] + [eof_tok])
         sub._symbolic_domains_visible = self._symbolic_domains_visible
+        sub._physics_domains_visible = self._physics_domains_visible
+        sub._visible_domain_sources = dict(self._visible_domain_sources)
         out = sub._parse_type_definition()
         sub._skip_trivia()
         if sub._peek_raw() != EOF:
@@ -1661,7 +1699,12 @@ class Parser:
                     return out
                 self.i = saved
             except ParseError as e:
-                if "spaced ` -> `" in str(e) or "requires `:.symbolic`" in str(e):
+                if (
+                    "spaced ` -> `" in str(e)
+                    or "requires `:.symbolic`" in str(e)
+                    or "requires `:.physics`" in str(e)
+                    or "requires `:.symbolic` or `:.physics`" in str(e)
+                ):
                     raise
                 self.i = saved
         return self.parse_expr()
@@ -1671,6 +1714,8 @@ class Parser:
             return True
         if isinstance(value, ast.TypePowerExpr):
             return self._type_contains_symbolic_domain(value.base) or self._type_contains_symbolic_domain(value.exponent)
+        if isinstance(value, ast.TypeDomainBinOp):
+            return self._type_contains_symbolic_domain(value.left) or self._type_contains_symbolic_domain(value.right)
         if isinstance(value, ast.FuncType):
             return self._type_contains_symbolic_domain(value.domain) or self._type_contains_symbolic_domain(value.codomain)
         if isinstance(value, ast.TypeUnionExpr) or isinstance(value, ast.TypeIntersectionExpr):

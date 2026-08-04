@@ -221,7 +221,7 @@
      * Publish overlay input geometry. The product UI owns visual rendering; native overlay hosts own
      * transparent presentation and click-through from this explicit geometry stream.
      * @param {HTMLElement} layer
-     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[] }} o
+     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[], dragActive?: boolean }} o
      */
     postNativeHostLayout(layer, o) {
       o = o || {};
@@ -254,24 +254,54 @@
         } catch (_) {}
         return pad;
       }
-      function pushRectWithPad(r, pad) {
+      function pushHitRect(r, shapePad) {
         if (!r) return;
         if (r.width < 1 || r.height < 1) return;
         const region = {
-          left: Math.floor(r.left - pad),
-          top: Math.floor(r.top - pad),
-          right: Math.ceil(r.right + pad),
-          bottom: Math.ceil(r.bottom + pad),
+          left: Math.floor(r.left),
+          top: Math.floor(r.top),
+          right: Math.ceil(r.right),
+          bottom: Math.ceil(r.bottom),
         };
         hitRegions.push(region);
-        pushTransparentOverlayRect(overlayShapes, "vf-region-" + hitRegions.length, region.left, region.top, region.right, region.bottom);
+        const pad = Math.max(0, Number(shapePad || 0) || 0);
+        pushTransparentOverlayRect(
+          overlayShapes,
+          "vf-region-" + hitRegions.length,
+          Math.floor(r.left - pad),
+          Math.floor(r.top - pad),
+          Math.ceil(r.right + pad),
+          Math.ceil(r.bottom + pad)
+        );
       }
       for (let i = 0; i < nodes.length; i++) {
         const el = nodes[i];
         if (!(el instanceof HTMLElement)) continue;
         if (el.classList.contains("vf-frame--pass-through")) continue;
-        const r = el.getBoundingClientRect();
-        pushRectWithPad(r, paintPadDipForElement(el));
+        const framePad = paintPadDipForElement(el);
+        const chromeNodes = el.querySelectorAll(
+          ".vf-frame__header, .vf-frame__minibar, .vf-frame__resize-grip, .vf-frame__body"
+        );
+        if (chromeNodes && chromeNodes.length) {
+          for (let j = 0; j < chromeNodes.length; j++) {
+            const part = chromeNodes[j];
+            if (!(part instanceof HTMLElement)) continue;
+            const pr = part.getBoundingClientRect();
+            pushHitRect(pr, part.classList.contains("vf-frame__body") ? 0 : 2);
+          }
+          const r = el.getBoundingClientRect();
+          pushTransparentOverlayRect(
+            overlayShapes,
+            "vf-frame-shell-" + i,
+            Math.floor(r.left - framePad),
+            Math.floor(r.top - framePad),
+            Math.ceil(r.right + framePad),
+            Math.ceil(r.bottom + framePad)
+          );
+        } else {
+          const r = el.getBoundingClientRect();
+          pushHitRect(r, framePad);
+        }
       }
       const displayRegions = !forceEmpty && globalThis && Array.isArray(globalThis.__vfDisplayHitRegions)
         ? globalThis.__vfDisplayHitRegions
@@ -305,7 +335,7 @@
           const b = Number(rr.bottom);
           if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(r) || !Number.isFinite(b)) continue;
           if (r <= l || b <= t) continue;
-          pushRectWithPad({ left: l, top: t, right: r, bottom: b, width: r - l, height: b - t }, 2);
+          pushHitRect({ left: l, top: t, right: r, bottom: b, width: r - l, height: b - t }, 0);
         }
       }
       const hasPendingGeomPresentation =
@@ -317,6 +347,7 @@
         contentHidden: hitRegions.length === 0,
         contentReady,
         toolbarPx: 160,
+        dragActive: o.dragActive === true,
         hitRegions: hitRegions,
       });
       if (!overlayShapes.length && VfFrame._lastTransparentOverlayShapeCount > 0 && o.clearOverlayGeometry !== true) {
@@ -800,6 +831,7 @@
 
       const head = document.createElement("div");
       head.className = "vf-frame__header vf-frame__header--title-" + titleAlign;
+      head.setAttribute("data-vf-frame-chrome", "1");
 
       const titleEl = document.createElement("span");
       titleEl.className = "vf-frame__title";
@@ -826,6 +858,7 @@
 
       const headEnd = document.createElement("div");
       headEnd.className = "vf-frame__header-actions";
+      headEnd.setAttribute("data-vf-frame-chrome", "1");
 
       const btnMin = dockable ? VfFrame.createMinimizeButton() : null;
       const btnClose = closable ? VfFrame.createCloseButton() : null;
@@ -839,6 +872,7 @@
 
       const body = document.createElement("div");
       body.className = "vf-frame__body";
+      body.setAttribute("data-vf-frame-content", "1");
       const hasBodyContent = Array.isArray(opt.body) ? opt.body.length > 0 : !!opt.body;
       if (!hasBodyContent) {
         body.classList.add("vf-frame__body--empty");
@@ -860,6 +894,7 @@
 
       const resizeGrip = document.createElement("div");
       resizeGrip.className = "vf-frame__resize-grip";
+      resizeGrip.setAttribute("data-vf-frame-chrome", "1");
       resizeGrip.setAttribute("aria-hidden", "true");
 
       if (!frameless) {
@@ -992,6 +1027,7 @@
         syncMinBtnGlyph();
         btnMin.addEventListener("click", (e) => {
           e.stopPropagation();
+          e.preventDefault();
           setMinimized(!minimized);
         });
       }
@@ -999,6 +1035,7 @@
       if (btnClose) {
         btnClose.addEventListener("click", (e) => {
           e.stopPropagation();
+          e.preventDefault();
           if (master) {
             const wv = window.chrome && window.chrome.webview;
             /* Close every other frame first, then this one; one host `close`. */
@@ -1039,11 +1076,15 @@
         typeof wv0.postMessage === "function"
       );
       let hostLayoutRafId = 0;
-      function postHitRegionsToHostImpl() {
+      let nativeFrameDragActive = false;
+      function postHitRegionsToHostImpl(extra) {
         const wv = typeof window !== "undefined" && window.chrome && window.chrome.webview;
         if (!wv || typeof wv.postMessage !== "function") return;
         if (typeof VfFrame.postNativeHostLayout === "function") {
-          VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+          VfFrame.postNativeHostLayout(layer, {
+            stageAlpha: 0,
+            dragActive: !!(extra && extra.dragActive),
+          });
         }
       }
       /** At most one layout post per frame while idle updates run; drag/resize paths can call immediate post. */
@@ -1072,9 +1113,16 @@
           root,
           header: head,
           layer,
-          onDragStart: bringToFront,
-          onDragMove: postHitRegionsToHostImpl,
+          onDragStart: function () {
+            nativeFrameDragActive = true;
+            bringToFront();
+            postHitRegionsToHostImpl({ dragActive: true });
+          },
+          onDragMove: function () {
+            postHitRegionsToHostImpl({ dragActive: nativeFrameDragActive });
+          },
           onDragEnd: function () {
+            nativeFrameDragActive = false;
             flushPostHitRegionsToHost();
             enqueueFrameEvent({
               frameId: String(id),
@@ -1115,6 +1163,8 @@
         nw = Math.max(resizeState.minW, nw);
         nh = Math.max(resizeState.minH, nh);
         root.classList.add("vf-frame--user-sized");
+        root.dataset.vfFrameResizing = "1";
+        window.__vfFrameResizeClockPaused = true;
         root.style.width = Math.round(nw) + "px";
         root.style.height = Math.round(nh) + "px";
         try {
@@ -1125,6 +1175,7 @@
             detail: {
               id: String(id),
               frameId: String(id),
+              phase: "move",
               width: root.style.width || "",
               height: root.style.height || "",
             },
@@ -1138,6 +1189,19 @@
           resizeGrip.releasePointerCapture(e.pointerId);
         } catch (_) {}
         resizeState = null;
+        delete root.dataset.vfFrameResizing;
+        window.__vfFrameResizeClockPaused = false;
+        try {
+          window.dispatchEvent(new CustomEvent("vf-frame-live-resize", {
+            detail: {
+              id: String(id),
+              frameId: String(id),
+              phase: "end",
+              width: root.style.width || "",
+              height: root.style.height || "",
+            },
+          }));
+        } catch (_) {}
         flushPostHitRegionsToHost();
         enqueueFrameEvent({
           frameId: String(id),
@@ -1169,6 +1233,8 @@
             minW,
             minH,
           };
+          root.dataset.vfFrameResizing = "1";
+          window.__vfFrameResizeClockPaused = true;
           try {
             resizeGrip.setPointerCapture(e.pointerId);
           } catch (_) {}

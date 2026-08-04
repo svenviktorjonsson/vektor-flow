@@ -329,6 +329,8 @@ def _resolve_type_refs(type_expr: Any, type_registry: dict[str, Any]) -> Any:
         return type_expr
     if isinstance(type_expr, ast.TypePowerExpr):
         return ast.TypePowerExpr(_resolve_type_refs(type_expr.base, type_registry), _resolve_type_refs(type_expr.exponent, type_registry))
+    if isinstance(type_expr, ast.TypeDomainBinOp):
+        return ast.TypeDomainBinOp(type_expr.op, _resolve_type_refs(type_expr.left, type_registry), _resolve_type_refs(type_expr.right, type_registry))
     if isinstance(type_expr, ast.SymbolicValueType):
         return ast.SymbolicValueType(None if type_expr.domain is None else _resolve_type_refs(type_expr.domain, type_registry))
     if isinstance(type_expr, ast.PrimTypeRef):
@@ -358,6 +360,8 @@ def _type_contains_symbolic_domain(type_expr: Any) -> bool:
         return True
     if isinstance(type_expr, ast.TypePowerExpr):
         return _type_contains_symbolic_domain(type_expr.base) or _type_contains_symbolic_domain(type_expr.exponent)
+    if isinstance(type_expr, ast.TypeDomainBinOp):
+        return _type_contains_symbolic_domain(type_expr.left) or _type_contains_symbolic_domain(type_expr.right)
     if isinstance(type_expr, ast.FuncType):
         return _type_contains_symbolic_domain(type_expr.domain) or _type_contains_symbolic_domain(type_expr.codomain)
     if isinstance(type_expr, (ast.TypeUnionExpr, ast.TypeIntersectionExpr)):
@@ -384,6 +388,8 @@ def _type_surface_string(type_expr: Any) -> str:
         return type_expr.name
     if isinstance(type_expr, ast.TypePowerExpr):
         return f"{_type_surface_string(type_expr.base)}^{_type_surface_string(type_expr.exponent)}"
+    if isinstance(type_expr, ast.TypeDomainBinOp):
+        return f"{_type_surface_string(type_expr.left)}{type_expr.op}{_type_surface_string(type_expr.right)}"
     if isinstance(type_expr, ast.TypeSizeConst):
         return str(type_expr.value)
     if isinstance(type_expr, ast.TypeSizeVar):

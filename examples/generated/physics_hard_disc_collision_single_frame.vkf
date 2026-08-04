@@ -1,0 +1,34 @@
+ui: .ui
+physics: .physics
+
+d: ui.display
+f: d.frame(id: "physics_hard_disc_collision_frame", title: "", alpha: 1.0, frameless: true, draggable: false, dockable: false, resizable: false, closable: false)
+d.add_frame(f, (0.0, 0.0, 1.0, 1.0))
+f.add_camera(pos: [0.0, 0.0, 2.2], target: [0.0, 0.0, 0.0], projection: "orthographic", ortho_scale: 1.35)
+f.add_light(pos: [0.0, 0.0, 1.8], color: "white", intensity: 15.0)
+
+world_width: 12.0
+world_height: 8.0
+world: physics.hard_disc_world(
+  physics.demo_hard_discs(count: 10000, width: world_width, height: world_height, speed_scale: 0.0),
+  width: world_width,
+  height: world_height,
+  restitution: 0.5,
+  gravity: [0.0, -9.81]
+)
+
+renderer: f.impostor_renderer(
+  width: world_width,
+  height: world_height,
+  depth: 0.035,
+  capture_path: "examples/generated/physics_hard_disc_collision_single_frame.gif",
+  capture_size: [720, 520],
+  capture_margin: 0,
+  show_boundary: true,
+  capture_supersample: 1,
+  sync_display: false
+)
+driver: physics.hard_disc_impostor_driver(world, renderer)
+loop: ui.event_loop(fps: 60, frames: 300, realtime: false)
+video_path: loop.run(driver)
+:: video_path

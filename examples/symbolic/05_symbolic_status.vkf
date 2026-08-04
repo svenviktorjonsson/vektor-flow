@@ -1,0 +1,13 @@
+:.symbolic
+
+x: R
+
+same: path_status(x, x)
+held: transform_path_status(integrate(gamma(x), x))
+done: transform_path_status(integrate(x, x))
+beam: transform_path_beam_status(integrate(x, x), 1)
+
+:: same
+:: held
+:: done
+:: beam

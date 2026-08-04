@@ -268,7 +268,22 @@ def _normalized_node(node: Any) -> dict[str, Any]:
 
 
 def _python_normalized_ast(payload: str) -> dict[str, Any]:
-    return _normalized_node(parse_token_stream_json(payload))
+    clean_payload = json.loads(payload)
+    for token in clean_payload.get("tokens", []):
+        token.pop("raw", None)
+    return _normalized_node(parse_token_stream_json(json.dumps(clean_payload)))
+
+
+def _without_native_number_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_native_number_metadata(item)
+            for key, item in value.items()
+            if key != "is_integer_surface"
+        }
+    if isinstance(value, list):
+        return [_without_native_number_metadata(item) for item in value]
+    return value
 
 
 def test_self_hosted_parser_source_parses_with_bootstrap_parser() -> None:
@@ -488,7 +503,7 @@ def test_bootstrap_parser_rejects_unsupported_token_stream_without_source_retry(
 def test_native_parser_smoke_matches_python_normalized_ast(parser_smoke_exe: Path, source: str) -> None:
     payload = _token_payload(source)
 
-    assert _run_parser_smoke(parser_smoke_exe, payload) == _python_normalized_ast(payload)
+    assert _without_native_number_metadata(_run_parser_smoke(parser_smoke_exe, payload)) == _python_normalized_ast(payload)
 
 
 def test_native_parser_smoke_accepts_payload_from_argv(parser_smoke_exe: Path) -> None:
@@ -502,7 +517,7 @@ def test_native_parser_smoke_accepts_payload_from_argv(parser_smoke_exe: Path) -
         check=True,
     )
 
-    assert json.loads(proc.stdout) == _python_normalized_ast(payload)
+    assert _without_native_number_metadata(json.loads(proc.stdout)) == _python_normalized_ast(payload)
     assert proc.stderr == ""
 
 
@@ -605,4 +620,4 @@ def test_native_lexer_smoke_output_pipes_into_native_parser_smoke(
 
     native_ast = _run_parser_smoke(parser_smoke_exe, lex_proc.stdout)
 
-    assert native_ast == _python_normalized_ast(lex_proc.stdout)
+    assert _without_native_number_metadata(native_ast) == _python_normalized_ast(lex_proc.stdout)

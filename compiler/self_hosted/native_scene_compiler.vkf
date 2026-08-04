@@ -100,11 +100,11 @@ native_scene_html_text(input:NativeSceneCompilerInput) -> str:
         "<!DOCTYPE html>\n" &
         "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>" &
         "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-strict-packet-only=\"true\">" &
-        "<script src=\"../../vf-runtime-shell.js\"></script>" &
+        "<script src=\"../../vf-runtime-shell.js?v=" & input.source_hash & "\"></script>" &
         "<script>window.__vfNativeSceneConfig=" & input.scene_config_json & ";</script>" &
         "<script>(function(){" &
         "function fail(err){throw err;}" &
-        "function load(){var s=document.createElement('script');s.src='../../vf-native-scene.js';" &
+        "function load(){var s=document.createElement('script');s.src='../../vf-native-scene.js?v=" & input.source_hash & "';" &
         "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};" &
         "document.body.appendChild(s);}" &
         "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){" &

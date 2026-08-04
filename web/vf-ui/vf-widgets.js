@@ -447,8 +447,10 @@
       panel.className = "vf-w-plot-panel";
       applyWidgetLayoutClasses(panel, spec);
       panel.setAttribute("data-vf-plot-panel", "1");
+      panel.setAttribute("data-vf-geom-host", "1");
       var canvas = document.createElement("canvas");
       canvas.className = "vf-w-plot-panel__canvas";
+      canvas.setAttribute("data-vf-geom-canvas", "1");
       canvas.setAttribute("aria-hidden", "true");
       panel.appendChild(canvas);
       setWidgetVisibility(panel, spec.visible !== false);
@@ -541,7 +543,8 @@
         normalized.push({
           value: value,
           label: opt.label != null ? String(opt.label) : value,
-          targetFrame: opt.target_frame != null ? String(opt.target_frame) : (opt.targetFrame != null ? String(opt.targetFrame) : "")
+          targetFrame: opt.target_frame != null ? String(opt.target_frame) : (opt.targetFrame != null ? String(opt.targetFrame) : ""),
+          geomFrame: opt.geom_frame != null ? String(opt.geom_frame) : (opt.geomFrame != null ? String(opt.geomFrame) : "")
         });
         btn.addEventListener("click", function (e) {
           var v = this.getAttribute("data-vf-button-group-value") || "";
@@ -846,6 +849,11 @@
     record.active = next;
     buttonGroupState[buttonGroupStateKey(record.frameId, record.id)] = next;
     var targets = [];
+    function applyGeomVariant(frameId, value) {
+      if (!frameId || !global.VfDisplay || typeof global.VfDisplay.setGeomVariant !== "function") { return false; }
+      try { return global.VfDisplay.setGeomVariant(String(frameId), String(value)) === true; } catch (_) {}
+      return false;
+    }
     for (var i = 0; Array.isArray(record.options) && i < record.options.length; i++) {
       var opt = record.options[i] || {};
       var value = String(opt.value || "");
@@ -857,6 +865,17 @@
       }
       if (opt.targetFrame) {
         targets.push({ frameId: String(opt.targetFrame), selected: selected });
+      }
+      if (selected && opt.geomFrame) {
+        if (!applyGeomVariant(opt.geomFrame, value) && typeof global.requestAnimationFrame === "function") {
+          (function (geomFrame, geomValue) {
+            global.requestAnimationFrame(function () {
+              if (!applyGeomVariant(geomFrame, geomValue) && typeof global.setTimeout === "function") {
+                global.setTimeout(function () { applyGeomVariant(geomFrame, geomValue); }, 50);
+              }
+            });
+          })(opt.geomFrame, value);
+        }
       }
     }
     function applyTargetVisibility() {

@@ -114,6 +114,7 @@ constexpr UINT WM_APP_LAYOUT = WM_APP + 2;
 constexpr UINT WM_APP_AFTER_NAV = WM_APP + 3;
 constexpr UINT WM_APP_YIELD_FOCUS = WM_APP + 4;
 constexpr UINT WM_APP_SUBCLASS_WEBVIEW_CHILDREN = WM_APP + 5;
+constexpr UINT WM_APP_RAW_MOUSE_DELTA = WM_APP + 6;
 constexpr UINT_PTR kWebViewHitSubclassId = 1;
 constexpr UINT_PTR kWebViewSubclassRetryTimer = 42;
 constexpr UINT_PTR kWebViewControllerInitWatchdogTimer = 43;
@@ -135,6 +136,15 @@ HCURSOR g_webviewCursorCached = nullptr;
 bool g_webviewCursorCachedOwned = false;
 bool g_cursorChangedHandlerRegistered = false;
 EventRegistrationToken g_cursorChangedToken{};
+HCURSOR g_hiddenCursor = nullptr;
+bool g_forceHiddenCursor = false;
+bool g_cursorClipActive = false;
+bool g_rawMouseLockActive = false;
+POINT g_cursorLockCenterScreen{};
+RECT g_cursorLockScreenRect{};
+std::atomic<long> g_rawMouseDeltaX{0};
+std::atomic<long> g_rawMouseDeltaY{0};
+std::atomic<bool> g_rawMouseDeltaPostPending{false};
 
 std::mutex g_queueMutex;
 std::mutex g_enqueueLogMutex;
@@ -154,6 +164,9 @@ std::atomic<unsigned long long> g_diagQueuePops{0};
 std::atomic<unsigned long long> g_diagPointerStreamEnqueues{0};
 std::atomic<unsigned long long> g_diagQueueHighWater{0};
 
+static bool SetRawMouseLockActive(bool active);
+static void FlushRawMouseDeltaToWeb();
+
 std::mutex g_layoutCoalesceMutex;
 std::string g_layoutCoalescePending;
 bool g_layoutCoalesceScheduled = false;
@@ -164,6 +177,7 @@ std::string g_lastLayoutSnapshotUtf8;
 double g_stageAlpha = 0.0;
 bool g_stagePassThrough = false;
 bool g_contentHidden = false;
+bool g_frameDragActive = false;
 int g_toolbarPx = 160;
 std::vector<RECT> g_hitRegions;
 
@@ -472,6 +486,12 @@ static void PostHostJsonMessageToWeb(const std::string& jsonUtf8) {
     }
 }
 
+static void ExecuteHostScript(const std::wstring& script) {
+    if (!g_webview || script.empty())
+        return;
+    g_webview->ExecuteScript(script.c_str(), nullptr);
+}
+
 static void PostGeometryLedgerErrorToWeb(const std::string& channel, const std::string& name, const std::string& message) {
     const std::string json =
         std::string("{\"type\":\"vf_geom_ledger_error\",\"channel\":\"") + JsonEscapeForHostUtf8(channel) +
@@ -688,6 +708,12 @@ static const char* ContentTypeForWebPath(const std::wstring& path) {
 }
 
 const char* StaticCacheControlForRelativePath(const std::string& rel) {
+    if (rel.size() >= 3 && _stricmp(rel.c_str() + rel.size() - 3, ".js") == 0) {
+        return "no-store, no-cache, must-revalidate";
+    }
+    if (rel.size() >= 4 && _stricmp(rel.c_str() + rel.size() - 4, ".css") == 0) {
+        return "no-store, no-cache, must-revalidate";
+    }
     if (rel == "vf-runtime-packets.json" ||
         rel.find("\\vf-runtime-packets.json") != std::string::npos ||
         rel.find("\\vf-geom-ledger-transport.json") != std::string::npos ||
@@ -954,6 +980,8 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
             cJSON* ch = cJSON_GetObjectItem(root, "contentHidden");
             if (cJSON_IsBool(ch))
                 g_contentHidden = cJSON_IsTrue(ch);
+            cJSON* da = cJSON_GetObjectItem(root, "dragActive");
+            g_frameDragActive = cJSON_IsBool(da) && cJSON_IsTrue(da);
             /* Same rule as web postLayout(): pass-through when stage is hidden or backdrop α≈0. */
             g_stagePassThrough = g_contentHidden || g_stageAlpha < 0.001;
             cJSON* tp = cJSON_GetObjectItem(root, "toolbarPx");
@@ -979,12 +1007,6 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
                     rc.right = (LONG)cr->valuedouble;
                     rc.bottom = (LONG)cb->valuedouble;
                     if (rc.right > rc.left && rc.bottom > rc.top) {
-                        /* Widen slightly (DIP): avoids edge misses vs Chromium hit-testing / fractional scaling. */
-                        constexpr LONG kPad = 2;
-                        rc.left -= kPad;
-                        rc.top -= kPad;
-                        rc.right += kPad;
-                        rc.bottom += kPad;
                         g_hitRegions.push_back(rc);
                     }
                 }
@@ -993,6 +1015,11 @@ void ApplyLayoutJson(const std::string& jsonUtf8) {
                 std::lock_guard<std::mutex> snap(g_lastLayoutSnapshotMutex);
                 g_lastLayoutSnapshotUtf8 = jsonUtf8;
             }
+            VfTraceLogA("layout: stageAlpha=%.3f contentHidden=%d hitRegions=%zu contentReady=%d",
+                        g_stageAlpha,
+                        g_contentHidden ? 1 : 0,
+                        g_hitRegions.size(),
+                        cJSON_IsTrue(cJSON_GetObjectItem(root, "contentReady")) ? 1 : 0);
         } else if (_stricmp(type->valuestring, "stageAlpha") == 0) {
             cJSON* v = cJSON_GetObjectItem(root, "value");
             if (cJSON_IsNumber(v)) {
@@ -1098,6 +1125,12 @@ static cJSON* ParseWebViewPostMessageObject(const std::string& u8) {
     return root;
 }
 
+static POINT DipClientPointToScreen(HWND host, double xDip, double yDip);
+static RECT DipClientRectToScreen(HWND host, double leftDip, double topDip, double rightDip, double bottomDip);
+HRESULT ExecuteScriptUtf8(const std::string& jsUtf8);
+static HCURSOR HiddenCursor();
+static void ApplyOverlayCursor();
+
 static bool TryHandleVfUserLogMessage(const std::string& u8) {
     /* Skip huge layout payloads. Do not match on "\"type\":\"vf_log\"" — postMessage(string) JSON is
      * escaped (\"…\") so that substring never appears; use "vf_log" or parse. */
@@ -1172,6 +1205,38 @@ static bool TryHandleVfHostChromeMessage(const std::string& u8, HWND host) {
         return false;
     }
     const char* t = jtype->valuestring;
+    if (_stricmp(t, "transparent-overlay.cursor") == 0) {
+        cJSON* cursor = cJSON_GetObjectItem(root, "cursor");
+        const char* cursorValue = cJSON_IsString(cursor) && cursor->valuestring ? cursor->valuestring : "";
+        g_forceHiddenCursor = _stricmp(cursorValue, "none") == 0;
+        cJSON* x = cJSON_GetObjectItem(root, "x");
+        cJSON* y = cJSON_GetObjectItem(root, "y");
+        cJSON* left = cJSON_GetObjectItem(root, "left");
+        cJSON* top = cJSON_GetObjectItem(root, "top");
+        cJSON* right = cJSON_GetObjectItem(root, "right");
+        cJSON* bottom = cJSON_GetObjectItem(root, "bottom");
+        if (g_cursorClipActive) {
+            ClipCursor(nullptr);
+            g_cursorClipActive = false;
+        }
+        if (!g_forceHiddenCursor) {
+            SetRawMouseLockActive(false);
+            g_cursorLockCenterScreen = POINT{};
+        }
+        if (cJSON_IsNumber(x) && cJSON_IsNumber(y)) {
+            g_cursorLockCenterScreen = DipClientPointToScreen(host, x->valuedouble, y->valuedouble);
+        }
+        if (g_forceHiddenCursor && (g_cursorLockCenterScreen.x != 0 || g_cursorLockCenterScreen.y != 0)) {
+            if (!SetRawMouseLockActive(true)) {
+                cJSON_Delete(root);
+                return true;
+            }
+            SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
+        }
+        cJSON_Delete(root);
+        ApplyOverlayCursor();
+        return true;
+    }
     if (_stricmp(t, "vf-move") == 0) {
         cJSON* jdx = cJSON_GetObjectItem(root, "dx");
         cJSON* jdy = cJSON_GetObjectItem(root, "dy");
@@ -1534,6 +1599,8 @@ static void TryYieldForegroundToWindowBehind() {
   hitRects use getBoundingClientRect() (DIP). Compare in physical client pixels (MulDiv per edge) so
   WM_NCHITTEST / TryForwardMouseToWebView agree with the OS cursor position.
 */
+static void RectNormalize(RECT* r);
+
 static void PhysicalClientToDIP(POINT ptPhys, LONG* outX, LONG* outY) {
     UINT dpi = g_hwnd ? GetDpiForWindow(g_hwnd) : 96u;
     if (dpi == 0)
@@ -1542,8 +1609,130 @@ static void PhysicalClientToDIP(POINT ptPhys, LONG* outX, LONG* outY) {
     *outY = (LONG)MulDiv((int)ptPhys.y, USER_DEFAULT_SCREEN_DPI, (int)dpi);
 }
 
+static POINT DipClientPointToScreen(HWND host, double xDip, double yDip) {
+    UINT dpi = host ? GetDpiForWindow(host) : 96u;
+    if (dpi == 0)
+        dpi = 96u;
+    POINT pt{};
+    pt.x = (LONG)std::lround(xDip * (double)dpi / (double)USER_DEFAULT_SCREEN_DPI);
+    pt.y = (LONG)std::lround(yDip * (double)dpi / (double)USER_DEFAULT_SCREEN_DPI);
+    if (host) {
+        ClientToScreen(host, &pt);
+    }
+    return pt;
+}
+
+static RECT DipClientRectToScreen(HWND host, double leftDip, double topDip, double rightDip, double bottomDip) {
+    POINT a = DipClientPointToScreen(host, leftDip, topDip);
+    POINT b = DipClientPointToScreen(host, rightDip, bottomDip);
+    RECT out{a.x, a.y, b.x, b.y};
+    RectNormalize(&out);
+    return out;
+}
+
 static bool EffectiveStagePassThrough() {
     return g_contentHidden || g_stageAlpha < 0.001;
+}
+
+static void PinHiddenCursorToLockCenter() {
+    if (!g_forceHiddenCursor)
+        return;
+    if (g_cursorLockCenterScreen.x == 0 && g_cursorLockCenterScreen.y == 0)
+        return;
+    POINT pt{};
+    GetCursorPos(&pt);
+    if (std::abs(pt.x - g_cursorLockCenterScreen.x) > 1 || std::abs(pt.y - g_cursorLockCenterScreen.y) > 1) {
+        SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
+    }
+    SetCursor(HiddenCursor());
+}
+
+static bool SetRawMouseLockActive(bool active) {
+    if (active == g_rawMouseLockActive)
+        return true;
+    RAWINPUTDEVICE rid{};
+    rid.usUsagePage = 0x01; /* Generic Desktop */
+    rid.usUsage = 0x02;     /* Mouse */
+    rid.dwFlags = active ? RIDEV_INPUTSINK : RIDEV_REMOVE;
+    rid.hwndTarget = active ? g_hwnd : nullptr;
+    if (!RegisterRawInputDevices(&rid, 1, sizeof(rid))) {
+        VfUserLogfA("error", "RegisterRawInputDevices(%s) failed: %lu", active ? "active" : "inactive",
+                    (unsigned long)GetLastError());
+        return false;
+    }
+    g_rawMouseLockActive = active;
+    return true;
+}
+
+static void PostHiddenCursorMouseDelta(LONG dx, LONG dy) {
+    if (dx == 0 && dy == 0)
+        return;
+    if (g_rawMouseLockActive && g_hwnd) {
+        g_rawMouseDeltaX.fetch_add(dx);
+        g_rawMouseDeltaY.fetch_add(dy);
+        FlushRawMouseDeltaToWeb();
+        return;
+    }
+    std::ostringstream json;
+    json << "{\"type\":\"transparent-overlay.mouse-delta\",\"dx\":" << dx << ",\"dy\":" << dy << "}";
+    PostHostJsonMessageToWeb(json.str());
+}
+
+static void FlushRawMouseDeltaToWeb() {
+    long dx = g_rawMouseDeltaX.exchange(0);
+    long dy = g_rawMouseDeltaY.exchange(0);
+    g_rawMouseDeltaPostPending.store(false);
+    if (dx != 0 || dy != 0) {
+        std::wostringstream script;
+        script << L"window.__vfNativeSceneApplyMouseDelta&&window.__vfNativeSceneApplyMouseDelta("
+               << dx << L"," << dy << L")";
+        ExecuteHostScript(script.str());
+    }
+    if ((g_rawMouseDeltaX.load() != 0 || g_rawMouseDeltaY.load() != 0) && !g_rawMouseDeltaPostPending.exchange(true)) {
+        PostMessageW(g_hwnd, WM_APP_RAW_MOUSE_DELTA, 0, 0);
+    }
+}
+
+static bool HandleHiddenCursorRawMouse(LPARAM lParam) {
+    if (!g_forceHiddenCursor || !g_rawMouseLockActive)
+        return false;
+    UINT size = 0;
+    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0)
+        return true;
+    if (size == 0)
+        return true;
+    std::vector<BYTE> buffer(size);
+    UINT read = GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, buffer.data(), &size, sizeof(RAWINPUTHEADER));
+    if (read != size)
+        return true;
+    RAWINPUT* raw = reinterpret_cast<RAWINPUT*>(buffer.data());
+    if (!raw || raw->header.dwType != RIM_TYPEMOUSE)
+        return true;
+    PostHiddenCursorMouseDelta(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
+    PinHiddenCursorToLockCenter();
+    return true;
+}
+
+static bool HandleHiddenCursorRelativeMouse() {
+    if (!g_forceHiddenCursor)
+        return false;
+    if (g_rawMouseLockActive) {
+        PinHiddenCursorToLockCenter();
+        return true;
+    }
+    if (g_cursorLockCenterScreen.x == 0 && g_cursorLockCenterScreen.y == 0)
+        return true;
+    POINT pt{};
+    if (!GetCursorPos(&pt))
+        return true;
+    const LONG dx = pt.x - g_cursorLockCenterScreen.x;
+    const LONG dy = pt.y - g_cursorLockCenterScreen.y;
+    if (dx != 0 || dy != 0) {
+        PostHiddenCursorMouseDelta(dx, dy);
+        SetCursorPos(g_cursorLockCenterScreen.x, g_cursorLockCenterScreen.y);
+    }
+    SetCursor(HiddenCursor());
+    return true;
 }
 
 static void DipRectToPhysicalClientRect(const RECT& dip, RECT* outPhys) {
@@ -1592,6 +1781,17 @@ static LRESULT CALLBACK WebViewChildSubclass(HWND hwnd, UINT msg, WPARAM wParam,
                                              UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     HWND parent = reinterpret_cast<HWND>(dwRefData);
     switch (msg) {
+    case WM_SETCURSOR:
+        if (g_forceHiddenCursor) {
+            SetCursor(HiddenCursor());
+            return (LRESULT)TRUE;
+        }
+        break;
+    case WM_MOUSEMOVE:
+        if (HandleHiddenCursorRelativeMouse()) {
+            return 0;
+        }
+        break;
     case WM_NCHITTEST: {
         if (!parent)
             break;
@@ -1870,6 +2070,23 @@ static void ApplyPassThroughShapeToSubtree(HWND w, HWND host) {
 static void SyncPassThroughInputShape(HWND host) {
     if (!host)
         return;
+    if (g_frameDragActive) {
+        /*
+          During in-WebView frame drag, DOM position changes synchronously with pointer events while
+          HWND regions are applied asynchronously by the OS. If the region is used as a visual mask
+          mid-drag, the frame can be clipped by the previous rect. Keep hit-testing policy in the
+          subclass path during drag and restore the exact region from the final layout on pointerup.
+        */
+        SetWindowRgn(host, nullptr, TRUE);
+        EnumChildWindows(
+            host,
+            [](HWND ch, LPARAM) -> BOOL {
+                ClearPassThroughShapeSubtree(ch);
+                return TRUE;
+            },
+            0);
+        return;
+    }
     if (!EffectiveStagePassThrough()) {
         SetWindowRgn(host, nullptr, TRUE);
         EnumChildWindows(
@@ -2608,9 +2825,26 @@ static void ReplaceWebViewCursorCache(HCURSOR cursor, bool owned) {
     g_webviewCursorCachedOwned = owned;
 }
 
+static HCURSOR HiddenCursor() {
+    if (g_hiddenCursor)
+        return g_hiddenCursor;
+    BYTE andMask[1] = {0xFF};
+    BYTE xorMask[1] = {0x00};
+    g_hiddenCursor = CreateCursor(GetModuleHandleW(nullptr), 0, 0, 1, 1, andMask, xorMask);
+    return g_hiddenCursor ? g_hiddenCursor : LoadCursor(nullptr, IDC_ARROW);
+}
+
+static void ApplyOverlayCursor() {
+    SetCursor(g_forceHiddenCursor ? HiddenCursor() : (g_webviewCursorCached ? g_webviewCursorCached : LoadCursor(nullptr, IDC_ARROW)));
+}
+
 static HRESULT OnCompositionCursorChanged(ICoreWebView2CompositionController* sender) {
     if (!sender)
         return E_POINTER;
+    if (g_forceHiddenCursor) {
+        SetCursor(HiddenCursor());
+        return S_OK;
+    }
 
     HCURSOR cur = nullptr;
     if (SUCCEEDED(sender->get_Cursor(&cur)) && cur != nullptr) {
@@ -2663,6 +2897,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         return 1;
     case WM_SETCURSOR:
         if (g_compController && LOWORD(l) == HTCLIENT) {
+        if (g_forceHiddenCursor) {
+                SetCursor(HiddenCursor());
+                return (LRESULT)TRUE;
+            }
             HCURSOR use = g_webviewCursorCached ? g_webviewCursorCached : LoadCursor(nullptr, IDC_ARROW);
             SetCursor(use);
             return (LRESULT)TRUE;
@@ -2685,6 +2923,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         }
         return 0;
     }
+    case WM_APP_RAW_MOUSE_DELTA:
+        FlushRawMouseDeltaToWeb();
+        return 0;
     case WM_APP_LAYOUT: {
         std::string json;
         {
@@ -2766,8 +3007,22 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         return DefWindowProcW(h, msg, w, l);
     }
 #endif
+    case WM_INPUT:
+        if (HandleHiddenCursorRawMouse(l))
+            return 0;
+        return DefWindowProcW(h, msg, w, l);
     case WM_DESTROY:
         VfTraceLogA("WM_DESTROY: teardown (http stop, PostQuit)");
+        SetRawMouseLockActive(false);
+        if (g_cursorClipActive) {
+            ClipCursor(nullptr);
+            g_cursorClipActive = false;
+        }
+        g_forceHiddenCursor = false;
+        if (g_hiddenCursor) {
+            DestroyCursor(g_hiddenCursor);
+            g_hiddenCursor = nullptr;
+        }
         KillTimer(h, kWebViewSubclassRetryTimer);
         if (g_compController && g_cursorChangedHandlerRegistered) {
             g_compController->remove_CursorChanged(g_cursorChangedToken);
@@ -2783,6 +3038,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         PostQuitMessage(0);
         return 0;
     default:
+        if (msg == WM_MOUSEMOVE && HandleHiddenCursorRelativeMouse()) {
+            return 0;
+        }
         if (msg == WM_MOUSEMOVE && g_compiledUiBootstrapHost.Active()) {
             g_compiledUiBootstrapHost.UpdateFromPointer(
                 g_overlayPacketRuntime,
@@ -2946,18 +3204,18 @@ void InitWebView(HWND h) {
                                             if (TryHandleCaptureScreenRectMessage(u8)) {
                                                 return S_OK;
                                             }
-                                            if (TryHandleVfEventMessage(u8)) {
-                                                return S_OK;
-                                            }
-                                            if (TryHandleVfSharedBufferRequestMessage(u8)) {
-                                                return S_OK;
-                                            }
                                             if (TryHandleVfHostChromeMessage(u8, h)) {
                                                 return S_OK;
                                             }
                                            if (TryHandleVfUserLogMessage(u8)) {
                                                return S_OK;
                                            }
+                                            if (TryHandleVfEventMessage(u8)) {
+                                                return S_OK;
+                                            }
+                                            if (TryHandleVfSharedBufferRequestMessage(u8)) {
+                                                return S_OK;
+                                            }
                                            {
                                                std::lock_guard<std::mutex> lock(g_layoutCoalesceMutex);
                                                g_layoutCoalescePending = std::move(u8);

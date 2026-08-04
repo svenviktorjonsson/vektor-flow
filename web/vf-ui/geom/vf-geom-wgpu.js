@@ -246,6 +246,64 @@
     } catch (_) {}
   }
 
+  function updatePhysicsProfile(renderer, sample) {
+    if (!renderer || !sample) { return; }
+    var now = perfNowMs();
+    var profile = renderer._physicsProfile;
+    if (!profile) {
+      profile = renderer._physicsProfile = {
+        startedAtMs: now,
+        lastAtMs: now,
+        frames: 0,
+        physicsSteps: 0,
+        physicsMsTotal: 0.0
+      };
+    }
+    var frameDtMs = profile.frames > 0 ? Math.max(0.0, now - Number(profile.lastAtMs || now)) : 0.0;
+    profile.lastAtMs = now;
+    profile.frames += 1;
+    profile.physicsSteps += Math.max(0, Number(sample.physics || 0) | 0);
+    profile.physicsMsTotal += Math.max(0.0, Number(sample.physics_ms || 0.0) || 0.0);
+    var elapsed = Math.max(1.0e-6, (now - Number(profile.startedAtMs || now)) * 0.001);
+    var particleCount = 0;
+    var gridCellCount = 0;
+    var cellItemsBytes = 0;
+    var runtimeCount = 0;
+    var gridInfo = null;
+    if (Array.isArray(renderer._parts)) {
+      for (var i = 0; i < renderer._parts.length; i += 1) {
+        var runtime = renderer._parts[i] && renderer._parts[i].physicsRuntime;
+        if (!runtime) { continue; }
+        runtimeCount += 1;
+        particleCount += Math.max(0, Number(runtime.particleCount || 0) || 0);
+        if (runtime.gridInfo && typeof runtime.gridInfo === "object") {
+          gridInfo = runtime.gridInfo;
+          gridCellCount += Math.max(0, Number(runtime.gridInfo.gridCellCount || 0) || 0);
+          cellItemsBytes += Math.max(0, Number(runtime.gridInfo.cellItemsBytes || 0) || 0);
+        } else {
+          gridCellCount += Math.max(0, Number(runtime.gridCellCount || 0) || 0);
+        }
+      }
+    }
+    renderer._lastPhysicsProfile = {
+      frames: profile.frames,
+      fps: profile.frames / elapsed,
+      frameDtMs: frameDtMs,
+      frameMs: Number(sample.total || 0.0) || 0.0,
+      physicsMs: Number(sample.physics_ms || 0.0) || 0.0,
+      physicsSteps: profile.physicsSteps,
+      physicsStepsPerSecond: profile.physicsSteps / elapsed,
+      particles: particleCount,
+      physicsRuntimes: runtimeCount,
+      gridCells: gridCellCount,
+      cellItemsBytes: cellItemsBytes,
+      grid: gridInfo,
+      gpuPending: !!renderer._gpuWorkPending,
+      submits: Number(renderer._debugGpuSubmitCount || 0) || 0,
+      coalesced: Number(renderer._debugFrameRequestCoalesced || 0) || 0
+    };
+  }
+
   function gpuSchedulerState(renderer) {
     var owner = sharedWgpu && sharedWgpu.device === (renderer && renderer._device)
       ? sharedWgpu
@@ -300,8 +358,29 @@
     return !!(scheduler && scheduler.pending === true);
   }
 
+  function drainSubmittedCallbacks(renderer) {
+    if (!renderer || !Array.isArray(renderer._afterSubmittedWorkDoneCallbacks)) { return; }
+    var callbacks = renderer._afterSubmittedWorkDoneCallbacks.splice(0);
+    for (var i = 0; i < callbacks.length; i += 1) {
+      try {
+        callbacks[i]();
+      } catch (err) {
+        failFast("after submitted frame callback failed: " + (err && err.message ? err.message : String(err)));
+      }
+    }
+  }
+
+  function enqueueSubmittedCallback(renderer, callback) {
+    if (!renderer || typeof callback !== "function") { return; }
+    if (!Array.isArray(renderer._afterSubmittedWorkDoneCallbacks)) {
+      renderer._afterSubmittedWorkDoneCallbacks = [];
+    }
+    renderer._afterSubmittedWorkDoneCallbacks.push(callback);
+  }
+
   function markSubmittedGpuWork(renderer) {
     if (!renderer || !renderer._device || !renderer._device.queue || typeof renderer._device.queue.onSubmittedWorkDone !== "function") {
+      drainSubmittedCallbacks(renderer);
       return;
     }
     var scheduler = gpuSchedulerState(renderer);
@@ -326,6 +405,7 @@
       }
       renderer._gpuWorkPending = false;
       renderer._debugGpuPendingStartMs = 0;
+      drainSubmittedCallbacks(renderer);
       if (chessLagDebugEnabled() && (pendingMs > 80 || queued)) {
         lagDebugLog(
           renderer,
@@ -349,6 +429,7 @@
       renderer._gpuWorkPending = false;
       renderer._debugGpuPendingStartMs = 0;
       renderer._renderQueuedWhileGpuPending = false;
+      drainSubmittedCallbacks(renderer);
       drainQueuedGpuRenderers(schedulerNow);
     });
   }
@@ -836,6 +917,7 @@ struct PointImpostorVOut {
   @location(3)       up      : vec3<f32>,
   @location(4)       center  : vec3<f32>,
   @location(5)       local_uv : vec2<f32>,
+  @location(6)       radius  : f32,
 }
 struct LineImpostorVOut {
   @builtin(position) clip    : vec4<f32>,
@@ -844,6 +926,11 @@ struct LineImpostorVOut {
   @location(2)       axis    : vec3<f32>,
   @location(3)       perp    : vec3<f32>,
   @location(4)       local_uv : vec2<f32>,
+  @location(5)       blade_flag : f32,
+}
+struct DepthFragmentOut {
+  @location(0) color : vec4<f32>,
+  @builtin(frag_depth) depth : f32,
 }
 
 fn applyDepthOffset(clip: vec4<f32>) -> vec4<f32> {
@@ -2262,20 +2349,187 @@ fn surfaceWorldSceneColor(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f
   return mix(contentBg, sampleColor.rgb, sampleAlpha);
 }
 
+fn hash21(p: vec2<f32>) -> f32 {
+  let q = fract(vec2<f32>(
+    dot(p, vec2<f32>(127.1, 311.7)),
+    dot(p, vec2<f32>(269.5, 183.3))
+  ));
+  return fract(sin(q.x + q.y) * 43758.5453);
+}
+
+fn valueNoise2(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - (2.0 * f));
+  let a = hash21(i + vec2<f32>(0.0, 0.0));
+  let b = hash21(i + vec2<f32>(1.0, 0.0));
+  let c = hash21(i + vec2<f32>(0.0, 1.0));
+  let d = hash21(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn grassFbm(p: vec2<f32>) -> f32 {
+  var sum = 0.0;
+  var amp = 0.5;
+  var freq = 1.0;
+  for (var i: i32 = 0; i < 4; i = i + 1) {
+    sum += amp * valueNoise2(p * freq);
+    freq *= 2.03;
+    amp *= 0.52;
+  }
+  return clamp(sum / 0.968, 0.0, 1.0);
+}
+
+fn rotate2(p: vec2<f32>, a: f32) -> vec2<f32> {
+  let c = cos(a);
+  let s = sin(a);
+  return vec2<f32>((c * p.x) - (s * p.y), (s * p.x) + (c * p.y));
+}
+
+fn grassFiberCell(p: vec2<f32>, bladeLength: f32, clumpDensity: f32, seed: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let lengthScale = max(bladeLength, 0.20);
+  let q = p * (5.25 * density);
+  let cell = floor(q);
+  let f = fract(q);
+  let rnd = vec2<f32>(
+    hash21(cell + vec2<f32>(11.7 + seed, 3.1)),
+    hash21(cell + vec2<f32>(5.3, 19.9 + seed))
+  );
+  let center = mix(vec2<f32>(0.18, 0.18), vec2<f32>(0.82, 0.82), rnd);
+  let angle = (hash21(cell + vec2<f32>(23.4 + seed, 91.7)) - 0.5) * 2.25;
+  let rel = rotate2(f - center, angle);
+  let halfLen = (0.15 + (0.24 * hash21(cell + vec2<f32>(43.1, 7.4 + seed)))) * lengthScale;
+  let width = 0.030 + (0.035 * hash21(cell + vec2<f32>(2.8 + seed, 67.2)));
+  let along = abs(rel.y);
+  let across = abs(rel.x);
+  let tapered = 1.0 - smoothstep(halfLen * 0.32, halfLen, along);
+  let edge = 1.0 - smoothstep(width * 0.35, width, across);
+  let broken = smoothstep(0.16, 0.84, valueNoise2((p * 2.15 * density) + vec2<f32>(seed, -seed * 0.37)));
+  return pow(clamp(tapered * edge * broken, 0.0, 1.0), 0.82);
+}
+
+fn grassBladeRidge(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let a = grassFiberCell(p, bladeLength, clumpDensity, 0.0);
+  let b = grassFiberCell(p + vec2<f32>(0.17, -0.11), bladeLength * 0.82, clumpDensity * 1.24, 17.0);
+  return clamp(max(a, b * 0.72), 0.0, 1.0);
+}
+
+fn grassStrandField(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let warpA = (valueNoise2((p * 0.83 * density) + vec2<f32>(13.0, -7.0)) - 0.5) * 0.34;
+  let warpB = (valueNoise2((p * 1.37 * density) + vec2<f32>(-5.0, 19.0)) - 0.5) * 0.21;
+  let q = p + vec2<f32>(warpA + warpB, (warpA * -0.37) + (warpB * 0.59));
+  let a = grassFiberCell(q * 2.35, bladeLength * 0.72, density * 2.30, 101.0);
+  let b = grassFiberCell(rotate2(q * 2.90 + vec2<f32>(0.19, -0.31), 0.91), bladeLength * 0.55, density * 2.85, 211.0);
+  let clump = smoothstep(0.16, 0.84, valueNoise2((p * 1.72 * density) + vec2<f32>(4.0, -9.0)));
+  return pow(clamp(max(a, b * 0.82) * clump, 0.0, 1.0), 0.86);
+}
+
+fn grassValue(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let broad = valueNoise2((p * 0.28 * density) + vec2<f32>(2.0, -1.0));
+  let clump = valueNoise2((p * 0.95 * density) + vec2<f32>(3.7, -1.9));
+  let fine = valueNoise2((p * 3.10 * density) + vec2<f32>(-6.1, 4.4));
+  let strands = grassStrandField(p, bladeLength, density);
+  let heightDistribution = smoothstep(0.20, 0.86, (0.58 * clump) + (0.42 * fine));
+  return clamp((0.36 * broad) + (0.32 * clump) + (0.20 * fine) + (0.12 * strands * heightDistribution), 0.0, 1.0);
+}
+
+fn grassMicroShadow(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let rootPocket = 1.0 - valueNoise2((p * 0.82 * density) + vec2<f32>(-2.4, 4.1));
+  return clamp(smoothstep(0.30, 0.82, rootPocket), 0.0, 1.0);
+}
+
+fn grassHeight(p: vec2<f32>, bladeLength: f32, clumpDensity: f32) -> f32 {
+  let density = max(clumpDensity, 0.25);
+  let clump = valueNoise2((p * 0.88 * density) + vec2<f32>(4.0, -2.0));
+  let tuft = valueNoise2((p * 2.60 * density) + vec2<f32>(-8.0, 5.0));
+  return clamp((0.56 * clump) + (0.44 * tuft), 0.0, 1.0);
+}
+
+fn grassPerturbedNormal(localPos: vec3<f32>, normal: vec3<f32>, bladeLength: f32, clumpDensity: f32, strength: f32) -> vec3<f32> {
+  let N = normalize(normal);
+  let scale = max(sc.texture_params.yz, vec2<f32>(1e-4, 1e-4));
+  let p = localPos.xy * scale;
+  let e = 0.065;
+  let h0 = grassHeight(p, bladeLength, clumpDensity);
+  let hx = grassHeight(p + vec2<f32>(e, 0.0), bladeLength, clumpDensity) - h0;
+  let hy = grassHeight(p + vec2<f32>(0.0, e), bladeLength, clumpDensity) - h0;
+  var tangent = normalize(cross(vec3<f32>(0.0, 0.0, 1.0), N));
+  if (length(tangent) < 1e-4) {
+    tangent = vec3<f32>(1.0, 0.0, 0.0);
+  }
+  let bitangent = normalize(cross(N, tangent));
+  return normalize(N - ((tangent * hx) + (bitangent * hy)) * strength);
+}
+
 fn texturePatternValue(kindCode: f32, p: vec2<f32>) -> f32 {
   if (kindCode < 1.5) {
     return checkerValue(p);
   }
+  if (kindCode > 3.1 && kindCode < 3.4) {
+    return grassValue(p, 1.0, 1.0);
+  }
   return stripesValue(p);
 }
 
-fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>, surfaceProjPos: vec4<f32>) -> vec3<f32> {
+fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>, surfaceProjPos: vec4<f32>, materialFootprint: f32) -> vec3<f32> {
   let kindCode = sc.texture_params.x;
   if (kindCode < 0.5) {
     return base;
   }
   if (kindCode > 3.5) {
     return surfaceWorldSceneColor(base, localPos, worldPos, normal, surfaceProjPos, true);
+  }
+  if (kindCode > 3.1 && kindCode < 3.4) {
+    let scale = max(sc.texture_params.yz, vec2<f32>(1e-4, 1e-4));
+    let roughness = clamp(sc.texture_extra.x, 0.0, 1.0);
+    let bladeLength = max(sc.texture_extra.y, 0.20);
+    let clumpDensity = max(sc.texture_extra.z, 0.25);
+    let microShadowStrength = clamp(sc.texture_extra.w, 0.0, 1.0);
+    let n = abs(normalize(normal));
+    let p = select(
+      select(vec2<f32>(localPos.y * scale.x, localPos.z * scale.y), vec2<f32>(localPos.x * scale.x, localPos.z * scale.y), n.y > n.x),
+      vec2<f32>(localPos.x * scale.x, localPos.y * scale.y),
+      n.z > max(n.x, n.y)
+    );
+    let fineDetail = 1.0 - smoothstep(0.030, 0.300, materialFootprint);
+    let midDetail = 1.0 - smoothstep(0.160, 0.900, materialFootprint);
+    let strandField = grassStrandField(p, bladeLength, clumpDensity);
+    let broad = valueNoise2((p * 0.28 * clumpDensity) + vec2<f32>(2.0, -1.0));
+    let clump = valueNoise2((p * 0.95 * clumpDensity) + vec2<f32>(3.7, -1.9));
+    let fine = valueNoise2((p * 3.10 * clumpDensity) + vec2<f32>(-6.1, 4.4));
+    let grassMask = clamp((0.38 * broad) + (0.34 * clump) + (0.18 * fine) + (0.10 * strandField), 0.0, 1.0);
+    let bladeRidge = grassBladeRidge(p * 1.08, bladeLength * 1.42, clumpDensity * 1.16) * (0.34 + (0.46 * fineDetail) + (0.20 * midDetail));
+    let strandMask = strandField * fineDetail;
+    let strandShadowMask = strandField * (0.42 + (0.58 * fineDetail));
+    let midBladeMass = strandField * midDetail * 0.72;
+    let microShadow = grassMicroShadow(p, bladeLength, clumpDensity);
+    let tipTint = sc.texture_color_b.rgb;
+    let rootTint = sc.texture_color_a.rgb;
+    let rootNoise = valueNoise2((worldPos.xy * scale.x * 0.15) + vec2<f32>(1.7, -3.1));
+    let meadowNoise = valueNoise2((worldPos.xy * scale.x * 0.055) + vec2<f32>(-4.0, 11.0));
+    let strawNoise = smoothstep(0.79, 0.99, valueNoise2((worldPos.xy * scale.x * 0.11) + vec2<f32>(9.2, 2.6)));
+    let coolTint = rootTint * vec3<f32>(0.82, 1.02, 0.82);
+    let litTint = tipTint * vec3<f32>(1.14, 1.08, 0.84);
+    let bladeSunTint = tipTint * vec3<f32>(1.24, 1.16, 0.72);
+    let strawTint = vec3<f32>(0.58, 0.55, 0.20);
+    var texGrass = mix(coolTint, litTint, clamp(0.14 + (grassMask * 0.43) + (bladeRidge * 0.19) + (midBladeMass * 0.16) + (rootNoise * 0.10) + (meadowNoise * 0.08), 0.0, 1.0));
+    texGrass = mix(texGrass, bladeSunTint, smoothstep(0.54, 0.92, max(grassMask, bladeRidge)) * 0.20);
+    let strandHighlight = smoothstep(0.08, 0.62, strandMask);
+    let strandShade = smoothstep(0.10, 0.70, strandShadowMask);
+    texGrass = texGrass + (bladeSunTint * (strandHighlight * 0.025 + bladeRidge * 0.018));
+    texGrass = texGrass * (1.0 - ((strandShade * 0.034) + (bladeRidge * microShadowStrength * 0.048) + (midBladeMass * microShadowStrength * 0.030)));
+    texGrass = mix(texGrass, strawTint, strawNoise * 0.032);
+    let roughDiffuseLift = 0.026 * roughness;
+    let bladeShadow = 1.0 - (microShadowStrength * mix(0.04, 0.20, microShadow) * (0.45 + (0.55 * fineDetail)));
+    let strandGroove = 1.0 - (0.012 * strandShade * (1.0 - smoothstep(0.82, 1.0, grassMask)));
+    let tuftCover = smoothstep(0.18, 0.78, grassHeight(worldPos.xy * scale.x, bladeLength, clumpDensity));
+    let rootOcclusion = 1.0 - (0.16 * tuftCover * microShadowStrength);
+    texGrass = (texGrass * bladeShadow * strandGroove * rootOcclusion) + vec3<f32>(roughDiffuseLift);
+    return clamp(texGrass, vec3<f32>(0.0), vec3<f32>(1.0)) * base;
   }
   if (kindCode > 2.5) {
     let pipMask = diceValue(localPos);
@@ -2297,7 +2551,7 @@ fn proceduralTexture(base: vec3<f32>, localPos: vec3<f32>, worldPos: vec3<f32>, 
   return tex * base;
 }
 
-fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool) -> vec4f {
+fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool, specularScale: f32) -> vec4f {
   let a = alpha * sc.alpha_mul;
   let V = normalize(sc.cam_pos - worldPos);
   var N = normalize(inputNormal);
@@ -2309,8 +2563,8 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
   var diffuse = vec3f(0.0, 0.0, 0.0);
   var specular = vec3f(0.0, 0.0, 0.0);
   if (!suppressBackfaceLighting && sc.light_count > 0u) {
-    let stableVis0 = select(1.0, shadowMapVisibility0(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis0 = select(1.0, planarContactVisibility0(worldPos, sc.light0_pos), sc.receive_shadow != 0u);
+    let stableVis0 = select(1.0, shadowMapVisibility0(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis0 = select(1.0, planarContactVisibility0(worldPos, sc.light0_pos), (sc.receive_shadow & 1u) != 0u);
     let vis0 = select(readableShadowVisibility(min(stableVis0, contactVis0)), 1.0, sc.light0_spot_params.w >= 1.5);
     let toLight0 = sc.light0_pos - worldPos;
     let dist0 = max(length(toLight0), 1e-6);
@@ -2329,12 +2583,12 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light0_spot_params.w < 1.5) {
       let H0 = normalize(L0 + V);
       let spec0 = pow(max(dot(N, H0), 0.0), 40.0);
-      specular += (litScale0 * spec0) * lc0 * (1.8 * a * sc.specular_strength);
+      specular += (litScale0 * spec0) * lc0 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 1u) {
-    let stableVis1 = select(1.0, shadowMapVisibility1(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis1 = select(1.0, planarContactVisibility1(worldPos, sc.light1_pos), sc.receive_shadow != 0u);
+    let stableVis1 = select(1.0, shadowMapVisibility1(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis1 = select(1.0, planarContactVisibility1(worldPos, sc.light1_pos), (sc.receive_shadow & 1u) != 0u);
     let vis1 = select(readableShadowVisibility(min(stableVis1, contactVis1)), 1.0, sc.light1_spot_params.w >= 1.5);
     let toLight1 = sc.light1_pos - worldPos;
     let dist1 = max(length(toLight1), 1e-6);
@@ -2353,12 +2607,12 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light1_spot_params.w < 1.5) {
       let H1 = normalize(L1 + V);
       let spec1 = pow(max(dot(N, H1), 0.0), 40.0);
-      specular += (litScale1 * spec1) * lc1 * (1.8 * a * sc.specular_strength);
+      specular += (litScale1 * spec1) * lc1 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 2u) {
-    let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), sc.receive_shadow != 0u);
+    let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), (sc.receive_shadow & 1u) != 0u);
     let vis2 = readableShadowVisibility(min(stableVis2, contactVis2));
     let toLight2 = sc.light2_pos.xyz - worldPos;
     let dist2 = max(length(toLight2), 1e-6);
@@ -2377,12 +2631,12 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light2_spot_params.w < 1.5) {
       let H2 = normalize(L2 + V);
       let spec2 = pow(max(dot(N, H2), 0.0), 40.0);
-      specular += (litScale2 * spec2) * lc2 * (1.8 * a * sc.specular_strength);
+      specular += (litScale2 * spec2) * lc2 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (!suppressBackfaceLighting && sc.light_count > 3u) {
-    let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), sc.receive_shadow != 0u);
-    let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), sc.receive_shadow != 0u);
+    let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), (sc.receive_shadow & 1u) != 0u);
+    let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), (sc.receive_shadow & 1u) != 0u);
     let vis3 = readableShadowVisibility(min(stableVis3, contactVis3));
     let toLight3 = sc.light3_pos.xyz - worldPos;
     let dist3 = max(length(toLight3), 1e-6);
@@ -2401,15 +2655,31 @@ fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: v
     if (sc.light3_spot_params.w < 1.5) {
       let H3 = normalize(L3 + V);
       let spec3 = pow(max(dot(N, H3), 0.0), 40.0);
-      specular += (litScale3 * spec3) * lc3 * (1.8 * a * sc.specular_strength);
+      specular += (litScale3 * spec3) * lc3 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
   if (sc.light_count == 0u) {
     return vec4f(base, a);
   }
-  let ambient = 0.10 * base;
+  var ambientStrength = 0.10;
+  if (sc.texture_params.x > 3.1 && sc.texture_params.x < 3.4) {
+    ambientStrength = 0.58;
+  }
+  let ambient = ambientStrength * base;
   let lit = (ambient + diffuse) * a + specular;
   return vec4f(lit, a);
+}
+
+fn shadeLitBase(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNormal: vec3<f32>, backfaceSpecularOff: bool) -> vec4f {
+  if ((sc.receive_shadow & 2u) != 0u) {
+    return vec4f(base, alpha * sc.alpha_mul);
+  }
+  var specularScale = 1.0;
+  if (sc.texture_params.x > 3.1 && sc.texture_params.x < 3.4) {
+    let roughness = clamp(sc.texture_extra.x, 0.0, 1.0);
+    specularScale = 0.34 * (1.0 - roughness) * (1.0 - roughness);
+  }
+  return shadeLitBaseScaled(base, alpha, worldPos, inputNormal, backfaceSpecularOff, specularScale);
 }
 
 fn readableShadowVisibility(visibility: f32) -> f32 {
@@ -2419,7 +2689,7 @@ fn readableShadowVisibility(visibility: f32) -> f32 {
 }
 
 fn receivedShadowVisibility(worldPos: vec3<f32>, inputNormal: vec3<f32>) -> f32 {
-  if (sc.receive_shadow == 0u) {
+  if ((sc.receive_shadow & 1u) == 0u) {
     return 1.0;
   }
   var visibility = 1.0;
@@ -2502,8 +2772,8 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let frameTint = mix(sc.texture_color_a.rgb, sc.texture_color_b.rgb, smoothstep(0.70, 0.92, maxUv) * 0.55);
   let surfaceAlpha = clamp(baseAlpha, 0.0, 1.0);
   let packedScreenFlags = max(sc.texture_params.w, 0.0);
-  let baseTextureKind = floor(packedScreenFlags / 8.0);
-  let screenFlags = i32(packedScreenFlags - (baseTextureKind * 8.0) + 0.5);
+  let baseTextureKind = floor(packedScreenFlags / 32.0);
+  let screenFlags = i32(packedScreenFlags - (baseTextureKind * 32.0) + 0.5);
   var baseTextureMask = checkerMask;
   if (baseTextureKind > 1.5 && baseTextureKind < 2.5) {
     baseTextureMask = stripesValue(surfaceUv * max(textureScale, vec2<f32>(1.0, 1.0)));
@@ -2522,7 +2792,7 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
     clamp(highlight.a, 0.0, 1.0)
   );
   let materialBase = mix(base, highlightedFixedTextureLayer, hasBaseTexture);
-  let litMaterial = shadeLitBase(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5);
+  let litMaterial = shadeLitBaseScaled(materialBase, max(surfaceAlpha, hasBaseTexture), worldPos, hostNormal, sc.surface_cam_up_pad.w > 0.5, 0.0);
   let baseLayer = litMaterial.rgb;
   if (maxUv > 0.995) {
     return vec4<f32>(mix(litMaterial.rgb, sc.texture_color_b.rgb, frameAlpha * (1.0 - hasBaseTexture)), litMaterial.a);
@@ -2531,6 +2801,13 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
     clamp(surfaceUv.x, 0.0, 1.0),
     clamp(surfaceUv.y, 0.0, 1.0)
   );
+  if ((screenFlags & 8) != 0 && abs(surfaceProjPos.w) > 1e-6) {
+    let projected = (surfaceProjPos.xy / surfaceProjPos.w) * 0.5 + vec2<f32>(0.5, 0.5);
+    uv = vec2<f32>(
+      clamp(projected.x, 0.0, 1.0),
+      clamp(projected.y, 0.0, 1.0)
+    );
+  }
   if ((screenFlags & 2) != 0) {
     uv.x = 1.0 - uv.x;
   }
@@ -2541,13 +2818,13 @@ fn screenSurfaceLayer(base: vec3<f32>, baseAlpha: f32, localPos: vec3<f32>, worl
   let reflectivity = clamp(sc.surface_cam_forward_count.w, 0.0, 1.0);
   let backgroundMix = clamp((bgAlpha + frameAlpha) * (1.0 - hasBaseTexture), 0.0, 1.0);
   let reflectionAlpha = clamp(reflectionSample.a, 0.0, 1.0);
-  let receiverShadow = readableShadowVisibility(receivedShadowVisibility(worldPos, hostNormal));
-  let shadowedReflection = reflectionSample.rgb * receiverShadow;
   let backgroundLayer = mix(baseLayer, frameTint, backgroundMix);
-  let reflectedLayer = mix(backgroundLayer, shadowedReflection, reflectionAlpha);
-  let finalAlpha = mix(litMaterial.a, mix(litMaterial.a, 1.0, reflectionAlpha), reflectivity);
+  let reflectedLayer = mix(backgroundLayer, reflectionSample.rgb, reflectionAlpha);
+  let finalAlpha = max(litMaterial.a, reflectionAlpha * reflectivity);
   let mirrorComposite = mix(backgroundLayer, reflectedLayer, reflectivity);
-  return vec4<f32>(mirrorComposite, finalAlpha);
+  let windowTintStrength = select(0.0, clamp(surfaceAlpha * 0.85, 0.0, 0.85), (screenFlags & 16) != 0);
+  let tintedComposite = mix(mirrorComposite, base, windowTintStrength);
+  return vec4<f32>(tintedComposite, finalAlpha);
 }
 
 @vertex
@@ -2631,6 +2908,7 @@ fn vs_point_impostor(v: SphereInstVin) -> PointImpostorVOut {
   o.up = up;
   o.center = center;
   o.local_uv = v.pos.xy;
+  o.radius = radius;
   return o;
 }
 
@@ -2645,7 +2923,7 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
   let axisRaw = b - a;
   let axisLen = max(length(axisRaw), 1e-6);
   let axis = axisRaw / axisLen;
-  let width = mix(v.aRad.w, v.bPad.w, t);
+  let width = mix(v.aRad.w, abs(v.bPad.w), t);
   let viewDir = normalize(sc.cam_pos - center);
   var perp = cross(viewDir, axis);
   if (length(perp) <= 1e-6) {
@@ -2655,49 +2933,82 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
     }
   }
   perp = normalize(perp);
-  let wp = center + (perp * (side * width));
+  let curveSeed = hash21((a.xy * 13.17) + (b.xy * 0.31) + vec2<f32>(a.z, b.z));
+  let curveSign = select(-1.0, 1.0, curveSeed > 0.5);
+  let curveEnabled = select(0.0, 1.0, v.bPad.w < 0.0);
+  let curve = curveEnabled * curveSign * sin(t * 3.14159265) * axisLen * (0.055 + (0.070 * abs(curveSeed - 0.5)));
+  let wp = center + (perp * ((side * width) + curve));
   o.clip = sc.mvp * vec4f(wp, 1.0);
   o.color = v.instColor;
   o.world_pos = wp;
   o.axis = axis;
   o.perp = perp;
   o.local_uv = vec2<f32>(side, t);
+  o.blade_flag = curveEnabled;
   return o;
 }
 
 @fragment
 fn fs(i: Vout) -> @location(0) vec4f {
+  let materialFootprint = max(length(dpdx(i.local_pos)), length(dpdy(i.local_pos))) * max(sc.texture_params.y, sc.texture_params.z);
   if (sc.texture_params.x > 3.5) {
-    let frontMask = screenSurfaceFrontMask(i.normal);
+    let packedScreenFlags = max(sc.texture_params.w, 0.0);
+    let baseTextureKind = floor(packedScreenFlags / 32.0);
+    let screenFlags = i32(packedScreenFlags - (baseTextureKind * 32.0) + 0.5);
+    let twoSidedSurface = (screenFlags & 16) != 0;
+    let frontMask = select(screenSurfaceFrontMask(i.normal), 1.0, twoSidedSurface);
     if (frontMask < 0.5) {
       return shadeAmbientBase(i.color.rgb, i.color.a);
     }
     let composed = screenSurfaceLayer(i.color.rgb, i.color.a * sc.alpha_mul, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos);
     return vec4f(composed.rgb, composed.a);
   }
-  let base = proceduralTexture(i.color.rgb, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos);
-  return shadeLitBase(base, i.color.a, i.world_pos, i.normal, sc.surface_cam_up_pad.w > 0.5);
+  let base = proceduralTexture(i.color.rgb, i.local_pos, i.world_pos, i.normal, i.surface_proj_pos, materialFootprint);
+  var materialNormal = i.normal;
+  if (sc.texture_params.x > 3.1 && sc.texture_params.x < 3.4) {
+    materialNormal = grassPerturbedNormal(i.local_pos, i.normal, max(sc.texture_extra.y, 0.20), max(sc.texture_extra.z, 0.25), 0.42);
+  }
+  return shadeLitBase(base, i.color.a, i.world_pos, materialNormal, sc.surface_cam_up_pad.w > 0.5);
 }
 
 @fragment
-fn fs_point_impostor(i: PointImpostorVOut) -> @location(0) vec4<f32> {
+fn fs_point_impostor(i: PointImpostorVOut) -> DepthFragmentOut {
+  var out: DepthFragmentOut;
   let radial = length(i.local_uv);
   let edge = max(fwidth(radial), 1e-4);
   let mask = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, radial);
   if (mask <= 1e-4) {
     discard;
   }
+  let instAlpha = abs(i.color.a);
+  if ((sc.receive_shadow & 2u) != 0u || i.color.a < 0.0) {
+    let emissive = min(vec3<f32>(1.0, 1.0, 1.0), (i.color.rgb * 1.18) + vec3<f32>(0.10, 0.08, 0.02));
+    out.color = vec4f(emissive * (instAlpha * mask * sc.alpha_mul), instAlpha * mask * sc.alpha_mul);
+    out.depth = clamp(i.clip.z / max(i.clip.w, 1.0e-6), 0.0, 1.0);
+    return out;
+  }
   let z = sqrt(max(0.0, 1.0 - min(dot(i.local_uv, i.local_uv), 1.0)));
   let front = normalize(sc.cam_pos - i.center);
   let normal = normalize((i.right * i.local_uv.x) + (i.up * i.local_uv.y) + (front * z));
-  return shadeLitBase(i.color.rgb, i.color.a * mask, i.world_pos, normal, false);
+  let sphereWorldPos = i.center + (normal * i.radius);
+  let sphereClip = sc.mvp * vec4f(sphereWorldPos, 1.0);
+  out.color = shadeLitBase(i.color.rgb, instAlpha * mask, sphereWorldPos, normal, false);
+  out.depth = clamp(sphereClip.z / max(sphereClip.w, 1.0e-6), 0.0, 1.0);
+  return out;
 }
 
 @fragment
 fn fs_line_impostor(i: LineImpostorVOut) -> @location(0) vec4<f32> {
   let x = i.local_uv.x;
+  let t = clamp(i.local_uv.y, 0.0, 1.0);
   let edge = max(fwidth(x), 1e-4);
-  let mask = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, abs(x));
+  let bladeShape = select(1.0, max(0.08, 1.0 - (t * 0.82)), i.blade_flag > 0.5);
+  var mask = 1.0 - smoothstep(bladeShape - edge, bladeShape + edge, abs(x));
+  if (i.blade_flag > 0.5) {
+    let rootFade = smoothstep(0.0, 0.055, t);
+    let tipFade = 1.0 - smoothstep(0.94, 1.015, t);
+    mask = mask * rootFade * tipFade;
+  }
   if (mask <= 1e-4) {
     discard;
   }
@@ -2708,7 +3019,13 @@ fn fs_line_impostor(i: LineImpostorVOut) -> @location(0) vec4<f32> {
   }
   let z = sqrt(max(0.0, 1.0 - min(x * x, 1.0)));
   let normal = normalize((i.perp * x) + (front * z));
-  return shadeLitBase(i.color.rgb, i.color.a * mask, i.world_pos, normal, false);
+  var baseColor = i.color.rgb;
+  if (i.blade_flag > 0.5) {
+    let centerRib = 1.0 - smoothstep(0.0, 0.36, abs(x));
+    let tipLight = smoothstep(0.12, 1.0, t);
+    baseColor = baseColor * (0.72 + (0.42 * tipLight)) + vec3<f32>(0.025, 0.045, 0.010) * centerRib;
+  }
+  return shadeLitBase(baseColor, i.color.a * mask, i.world_pos, normal, false);
 }
 `;
 
@@ -2814,17 +3131,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let sizePx = max(i.params0.x, 1.0);
   let alpha = i.params0.y;
   let facing = i.params0.z;
-  let edgeFade = i.params0.w;
+  let sourceRadiusPx = max(i.params0.w, 0.0);
   let p = i.uv * sizePx;
   let r = length(p);
-  let sigmaGlow = sizePx * 0.18;
-  let sigmaCore = max(1.2, sizePx * 0.022);
-  let ring1 = sizePx * 0.16;
-  let ring2 = sizePx * 0.28;
-  let ring3 = sizePx * 0.42;
-  let ringW1 = max(1.8, sizePx * 0.028);
-  let ringW2 = max(2.4, sizePx * 0.040);
-  let ringW3 = max(3.2, sizePx * 0.052);
+  let haloRadiusPx = max(1.0, sizePx - sourceRadiusPx);
+  let haloR = max(0.0, r - sourceRadiusPx);
+  let flareGapPx = max(3.0, min(9.0, sourceRadiusPx * 0.16));
+  let outsideSource = smoothstep(sourceRadiusPx + flareGapPx, sourceRadiusPx + (flareGapPx * 2.0), r);
+  let radialFade = 1.0 - smoothstep(sizePx * 0.78, sizePx, r);
+  let sigmaGlow = haloRadiusPx * 0.18;
+  let ring1 = haloRadiusPx * 0.16;
+  let ring2 = haloRadiusPx * 0.28;
+  let ring3 = haloRadiusPx * 0.42;
+  let ringW1 = max(1.8, haloRadiusPx * 0.028);
+  let ringW2 = max(2.4, haloRadiusPx * 0.040);
+  let ringW3 = max(3.2, haloRadiusPx * 0.052);
 
   let c = i.axis.x;
   let s = i.axis.y;
@@ -2839,21 +3160,30 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   let ray1 = 0.68 * gaussian(p1.x, 34.0) * lorentzian(p1.y, 1.9);
   let ray2 = 0.34 * gaussian(p2.x, 22.0) * lorentzian(p2.y, 2.1);
   let ray3 = 0.18 * gaussian(p3.x, 16.0) * lorentzian(p3.y, 2.2);
-  let rays = ray0 + ray1 + ray2 + ray3;
+  let rays = outsideSource * radialFade * (ray0 + ray1 + ray2 + ray3);
 
-  let core = 1.30 * gaussian(r, sigmaCore);
-  let glow = 0.26 * gaussian(r, sigmaGlow);
+  let glow = outsideSource * radialFade * 0.26 * gaussian(haloR, sigmaGlow);
   let rings =
-    0.060 * gaussian(r - ring1, ringW1) +
-    0.038 * gaussian(r - ring2, ringW2) +
-    0.018 * gaussian(r - ring3, ringW3);
+    outsideSource * radialFade * (
+      0.060 * gaussian(haloR - ring1, ringW1) +
+      0.038 * gaussian(haloR - ring2, ringW2) +
+      0.018 * gaussian(haloR - ring3, ringW3)
+    );
 
-  let globalScale = alpha * edgeFade;
-  let whiteA = globalScale * (core + glow + (0.72 * rays));
-  let tintA = globalScale * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
+  let warmWhite = vec3<f32>(1.0, 0.985, 0.82);
+  if (sourceRadiusPx > 0.0 && r <= sourceRadiusPx) {
+    return vec4<f32>(warmWhite * alpha, alpha);
+  }
+
+  let sourceHaloRadiusPx = sourceRadiusPx + max(8.0, sourceRadiusPx * 0.32);
+  let sourceHalo = select(0.0, 1.0 - smoothstep(sourceRadiusPx, sourceHaloRadiusPx, r), sourceRadiusPx > 0.0);
+  let sourceHaloA = alpha * 0.72 * sourceHalo;
+  let whiteA = alpha * (glow + (0.72 * rays));
+  let tintA = alpha * ((0.65 * glow) + (0.35 * rings) + (0.28 * rays));
   let white = vec3<f32>(1.0, 1.0, 1.0) * whiteA;
   let tint = i.color.rgb * tintA;
-  return vec4<f32>(white + tint, max(whiteA, tintA));
+  let sourceTint = warmWhite * sourceHaloA;
+  return vec4<f32>(sourceTint + white + tint, max(sourceHaloA, max(whiteA, tintA)));
 }
 `;
 
@@ -2928,6 +3258,74 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       (mvp[3] * x) + (mvp[7] * y) + (mvp[11] * z) + mvp[15];
     if (!(cw > 1e-6)) { return null; }
     return [cx / cw, cy / cw, cz / cw];
+  }
+
+  function projectedWorldRadiusPx(mvp, center, radiusWorld, width, height) {
+    var radius = Math.max(0.0, Number(radiusWorld || 0.0) || 0.0);
+    if (!(radius > 0.0)) { return 0.0; }
+    var base = projectWorldToNdc(mvp, center);
+    if (!base) { return 0.0; }
+    var axes = [
+      [radius, 0.0, 0.0],
+      [0.0, radius, 0.0],
+      [0.0, 0.0, radius]
+    ];
+    var best = 0.0;
+    for (var i = 0; i < axes.length; i += 1) {
+      var axis = axes[i];
+      var p = projectWorldToNdc(mvp, [
+        Number(center[0]) + axis[0],
+        Number(center[1]) + axis[1],
+        Number(center[2]) + axis[2]
+      ]);
+      if (!p) { continue; }
+      var dx = (p[0] - base[0]) * 0.5 * Number(width || 0);
+      var dy = (p[1] - base[1]) * 0.5 * Number(height || 0);
+      best = Math.max(best, Math.sqrt((dx * dx) + (dy * dy)));
+    }
+    return best;
+  }
+
+  function frameCameraMatrices(camera, aspect, timeMs, mathApi, fallbackAutoSpin) {
+    var Mm = mathApi || Math3D;
+    var cam = camera || {};
+    var pos = cam.pos || [0, 0, 5];
+    var target = cam.target || [0, 0, 0];
+    var up = cam.up || [0, 1, 0];
+    var projMat;
+    var viewMat;
+    if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && (cam._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(cam, aspect))) {
+      projMat = new Float32Array(cam.projection_matrix);
+    } else if (String(cam && cam.projection || "").toLowerCase() === "orthographic") {
+      var orthoScale = Math.max(1e-6, Number(cam.ortho_scale || 2.5) || 2.5);
+      projMat = Mm.mat4OrthoZ01(-orthoScale * aspect, orthoScale * aspect, -orthoScale, orthoScale, 0.05, 500);
+    } else {
+      var fov = cam.fov !== undefined ? cam.fov : 45;
+      projMat = Mm.mat4PerspectiveZ01((Number(fov) || 45) * Math.PI / 180, aspect, 0.05, 500);
+    }
+    if (cam && cam.flip_x === true) {
+      projMat[0] = -projMat[0];
+      projMat[4] = -projMat[4];
+      projMat[8] = -projMat[8];
+      projMat[12] = -projMat[12];
+    }
+    if (cam && Array.isArray(cam.view_matrix) && cam.view_matrix.length === 16) {
+      viewMat = new Float32Array(cam.view_matrix);
+    } else if (fallbackAutoSpin === true) {
+      var ang = Number(timeMs || 0) * 0.0008;
+      viewMat = Mm.mat4Mul(Mm.mat4Translation(0, 0, -5), Mm.mat4RotationY(ang));
+      pos = [0, 0, 5];
+    } else {
+      viewMat = mat4LookAt(pos, target, up);
+    }
+    return {
+      pos: pos,
+      target: target,
+      up: up,
+      projection: projMat,
+      view: viewMat,
+      mvp: Mm.mat4Mul(projMat, viewMat)
+    };
   }
 
   // Uniform buffer: scene + shadows + procedural texture params.
@@ -3398,7 +3796,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     if (meshLike && meshLike.transparent === true && meshLike.receives_shadow !== true) {
       receiveShadow = false;
     }
-    u32[71] = receiveShadow ? 1 : 0;
+    var unlitMaterial = meshLike && (meshLike.receives_lighting === false || meshLike.no_lighting === true);
+    u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);
     u32[72] = 0;
     f32[73] = 0.0;
     f32[74] = 0.0;
@@ -3459,6 +3858,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (rawKind === "stripes") { return 2.0; }
       if (rawKind === "dice") { return 3.0; }
       if (rawKind === "chess_board") { return 5.0; }
+      if (rawKind === "grass") { return 3.25; }
       return 0.0;
     }
     if (surfaceSystem) {
@@ -3529,7 +3929,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         if (surfaceSystem.reverse_facing === true) { screenFlags += 1.0; }
         if (surfaceSystem.flip_x === true) { screenFlags += 2.0; }
         if (surfaceSystem.flip_y === true || surfaceSystem._renderFlipV === true) { screenFlags += 4.0; }
-        screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 8.0;
+        if (surfaceSystem._projective_texture === true) { screenFlags += 8.0; }
+        if (surfaceSystem._window_surface === true) { screenFlags += 16.0; }
+        screenFlags += Math.max(0.0, Math.min(7.0, fixedSurfaceTextureKind)) * 32.0;
         f32[343] = screenFlags;
       }
     var squareHighlights = surfaceSystem && Array.isArray(surfaceSystem.square_highlights)
@@ -3624,6 +4026,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[354] = Number(surfaceBounds.vAxis && surfaceBounds.vAxis[2] || 0.0);
       f32[355] = meshLike && meshLike.no_backface_specular === true ? 1.0 : 0.0;
     } else {
+      if (textureKind > 3.1 && textureKind < 3.4) {
+        var roughness = Number(texture && texture.roughness == null ? 0.86 : texture.roughness);
+        var bladeLength = Number(texture && texture.blade_length == null ? 1.18 : texture.blade_length);
+        var clumpDensity = Number(texture && texture.clump_density == null ? 1.35 : texture.clump_density);
+        var microShadow = Number(texture && texture.micro_shadow == null ? 0.72 : texture.micro_shadow);
+        f32[344] = Number.isFinite(roughness) ? Math.max(0.0, Math.min(1.0, roughness)) : 0.86;
+        f32[345] = Number.isFinite(bladeLength) ? Math.max(0.2, Math.min(4.0, bladeLength)) : 1.18;
+        f32[346] = Number.isFinite(clumpDensity) ? Math.max(0.25, Math.min(6.0, clumpDensity)) : 1.35;
+        f32[347] = Number.isFinite(microShadow) ? Math.max(0.0, Math.min(1.0, microShadow)) : 0.72;
+      } else {
       f32[344] = rx;
       f32[345] = ry;
       f32[346] = rz;
@@ -3636,6 +4048,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[347] = surfaceTextureReady
         ? 1.0
         : (textureKind > 3.5 && systemWorld ? (Number(systemWorld.spin_angle || 0.0) || 0.0) : 0.0);
+      }
     }
 
     var projectorBase = 356 + (MAX_SURFACE_TRIANGLES * 4 * 4) + (64 * 4);
@@ -4871,7 +5284,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     var reflectedTarget = reflectPointAcrossPlane(sourceLight.target, planePoint, planeNormal);
     if (!reflectOfId && normalizeLightKind(lightSpec.kind) !== "projected") {
       var directResolved = Object.assign({}, lightSpec, {
-        reflect_mirror_mesh_id: ""
+        reflect_mirror_mesh_id: "",
+        casts_shadow: lightSpec.mirror_source_direct_casts_shadow === false ? false : lightSpec.casts_shadow
       });
       if (sourceSide > clipEpsilon && reflectivity > 1e-4) {
         var solkattAperture = runtime.aperturePacket(mirrorMeshId, planeNormal, lightSpec.clip_epsilon_ratio, 1e-5);
@@ -5102,13 +5516,40 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     return directLights.concat(apertureLights);
   }
 
-  function sceneMeshForLightResolution(meshLike, parts) {
-    if (!meshLike || !Array.isArray(parts) || !parts.length) {
+  function sceneMeshForLightResolution(meshLike, parts, authoredPartsForResolution) {
+    if (!meshLike) {
       return meshLike;
     }
-    var runtimeParts = new Array(parts.length);
-    for (var i = 0; i < parts.length; i += 1) {
-      runtimeParts[i] = parts[i] && parts[i].mesh ? parts[i].mesh : null;
+    var runtimeParts = [];
+    var seen = Object.create(null);
+    if (Array.isArray(parts)) {
+      for (var i = 0; i < parts.length; i += 1) {
+        var renderedMesh = parts[i] && parts[i].mesh ? parts[i].mesh : null;
+        if (!renderedMesh) { continue; }
+        runtimeParts.push(renderedMesh);
+        if (renderedMesh.id) { seen[String(renderedMesh.id)] = true; }
+      }
+    }
+    var authoredParts = [];
+    if (Array.isArray(meshLike.parts)) {
+      authoredParts = authoredParts.concat(meshLike.parts);
+    }
+    if (Array.isArray(meshLike.optical_parts)) {
+      authoredParts = authoredParts.concat(meshLike.optical_parts);
+    }
+    if (Array.isArray(authoredPartsForResolution)) {
+      authoredParts = authoredParts.concat(authoredPartsForResolution);
+    }
+    for (var j = 0; j < authoredParts.length; j += 1) {
+      var authoredMesh = authoredParts[j];
+      if (!authoredMesh) { continue; }
+      var authoredId = authoredMesh.id ? String(authoredMesh.id) : "";
+      if (authoredId && seen[authoredId]) { continue; }
+      runtimeParts.push(authoredMesh);
+      if (authoredId) { seen[authoredId] = true; }
+    }
+    if (!runtimeParts.length) {
+      return meshLike;
     }
     return Object.assign({}, meshLike, { parts: runtimeParts });
   }
@@ -5124,7 +5565,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       if (light && String(light.reflect_mirror_mesh_id || "").trim()) {
         var directOnly = Object.assign({}, light);
-        delete directOnly.reflect_mirror_mesh_id;
+        directOnly.mirror_source_direct_casts_shadow = false;
         filtered.push(directOnly);
         continue;
       }
@@ -5168,6 +5609,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       pos: pos,
       target: vec3Or(light.target, [0, 0, 0]),
       color_f32: parseColor(light.color || "white"),
+      marker_color_f32: parseColor(light.marker_color || light.source_color || light.color || "white"),
       model: light.model || "blinn_phong",
       intensity: intensity,
       direction_f32: resolveLightDirection(light, pos),
@@ -5183,6 +5625,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       aperture_mesh_id: String(light.aperture_mesh_id || light.aperture_face_id || ""),
       reflect_of_light_id: String(light.reflect_of_light_id || ""),
       reflect_mirror_mesh_id: String(light.reflect_mirror_mesh_id || ""),
+      mirror_source_direct_casts_shadow: light.mirror_source_direct_casts_shadow === false ? false : true,
       clip_epsilon_ratio: clampPositiveNumber(light.clip_epsilon_ratio, 1e-5),
       projected_aperture: light && light.projected_aperture && typeof light.projected_aperture === "object"
         ? light.projected_aperture
@@ -5201,6 +5644,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
   function shadowCasterParts(parts, includeScreens) {
     if (!Array.isArray(parts)) { return []; }
+    var allowScreenCasters = includeScreens !== false;
     var out = [];
     for (var i = 0; i < parts.length; i += 1) {
       var part = parts[i];
@@ -5208,6 +5652,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!mesh || part.topology !== "triangle-list") { continue; }
       if (mesh.visible === false) { continue; }
       if (mesh.casts_shadow === false) { continue; }
+      if (!allowScreenCasters && isPlanarScreenShadowSurface(mesh)) { continue; }
       if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
       if (String(mesh.blend_mode || "") === "additive") { continue; }
       out.push(part);
@@ -5792,6 +6237,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._ibCount    = 0;
     this._topology   = "triangle-list";
     this._parts      = null;
+    this._scenePartSpecsForLightResolution = null;
     this._lastMesh   = null;
     this._lastMeshRevision = -1;
     this._lastFrameViewProj = null;
@@ -6032,6 +6478,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
     _destroyPart: function (part) {
       if (!part) { return; }
+      if (part.physicsRuntime && typeof part.physicsRuntime.destroy === "function") {
+        try { part.physicsRuntime.destroy(); } catch(_) {}
+      }
       if (part.vb) { try { part.vb.destroy(); } catch(_){} }
       if (part.ib) { try { part.ib.destroy(); } catch(_){} }
       if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
@@ -6369,7 +6818,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var MmLocal = getMath();
       var sceneLights = resolveSceneLights(
         lightsForRenderer(mesh.lights || [], this._offscreenFrame === true),
-        sceneMeshForLightResolution(mesh, this._parts),
+        sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
@@ -6602,8 +7051,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         return surfaceCamera;
       }
       var sourceFrameId = String(surfaceCamera.reflect_of_frame_id || "").trim();
+      var localFrameId = String(this._frameId || "").trim();
       var sourceCamera = null;
-      if (!sourceFrameId || sourceFrameId === "current") {
+      if (!sourceFrameId || sourceFrameId === "current" || (localFrameId && sourceFrameId === localFrameId)) {
         sourceCamera = sceneMesh && sceneMesh.camera ? sceneMesh.camera : null;
       } else if (global.__vfNativeSceneLiveCameras && typeof global.__vfNativeSceneLiveCameras === "object") {
         sourceCamera = global.__vfNativeSceneLiveCameras[sourceFrameId] || null;
@@ -6616,8 +7066,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         cameraSeed = this._buildMirrorEyeLockedCamera(sourceCamera, part.mesh, surfaceCamera, t);
       }
       var reflectedCamera = this._buildPlanarSurfaceRenderCamera(part, sceneMesh, cameraSeed, t, targetAspect);
+      var mirrorRenderClip = null;
+      if (reflectedCamera && reflectedCamera._mirrorDebug && Array.isArray(reflectedCamera._mirrorDebug.planePoint)) {
+        mirrorRenderClip = {
+          planePoint: reflectedCamera._mirrorDebug.planePoint.slice(),
+          frontNormal: Array.isArray(reflectedCamera._mirrorDebug.mirrorFrontNormal)
+            ? reflectedCamera._mirrorDebug.mirrorFrontNormal.slice()
+            : (Array.isArray(reflectedCamera._mirrorDebug.planeNormal) ? reflectedCamera._mirrorDebug.planeNormal.slice() : [0.0, 1.0, 0.0])
+        };
+        reflectedCamera._mirrorRenderClip = mirrorRenderClip;
+      }
       if (surfaceCamera.lock_aperture_camera === true) {
         reflectedCamera = this._buildPlanarSurfaceApertureCamera(part, sceneMesh, reflectedCamera, t, targetAspect);
+        if (reflectedCamera && mirrorRenderClip) {
+          reflectedCamera._mirrorRenderClip = mirrorRenderClip;
+        }
       }
       if (reflectedCamera && typeof reflectedCamera === "object" && surfaceCamera.flip_x === true) {
         reflectedCamera.flip_x = true;
@@ -6647,7 +7110,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         projMatPart = MmBatch.mat4OrthoZ01(-1, 1, -1, 1, 0, 1);
         mvpPart = projMatPart;
       } else {
-        if (camPart && Array.isArray(camPart.projection_matrix) && camPart.projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(camPart, aspect)) {
+        if (camPart && Array.isArray(camPart.projection_matrix) && camPart.projection_matrix.length === 16 && (camPart._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(camPart, aspect))) {
           projMatPart = new Float32Array(camPart.projection_matrix);
         } else {
           var fovRadPart = fovPart * Math.PI / 180;
@@ -6675,7 +7138,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var rawLightsPart = partMesh.no_lighting === true
         ? []
         : lightsForMesh((partMesh.lights || sceneMesh.lights || []), this._offscreenFrame === true, partMesh);
-      var lightsNormPart = resolveSceneLights(rawLightsPart, sceneMeshForLightResolution(sceneMesh, this._parts), t);
+      var lightsNormPart = resolveSceneLights(rawLightsPart, sceneMeshForLightResolution(sceneMesh, this._parts, this._scenePartSpecsForLightResolution), t);
       var lmNamePart = partMesh.light_model || sceneMesh.light_model || (lightsNormPart[0] && lightsNormPart[0].model) || "blinn_phong";
       var lmIntPart = LIGHT_MODELS[lmNamePart] !== undefined ? LIGHT_MODELS[lmNamePart] : 2;
       var meshForUniform = partMesh;
@@ -6767,6 +7230,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!this._parts || !this._parts.length) { return; }
       options = options && typeof options === "object" ? options : {};
       var skipOverlayExpanded = options.skipOverlayExpanded === true;
+      var reflectionClip = options.reflectionClip && typeof options.reflectionClip === "object" ? options.reflectionClip : null;
+      var reflectionClipPoint = reflectionClip && Array.isArray(reflectionClip.planePoint)
+        ? vec3Or(reflectionClip.planePoint, [0.0, 0.0, 0.0])
+        : null;
+      var reflectionClipNormal = reflectionClip && Array.isArray(reflectionClip.frontNormal)
+        ? normalizeVec3(reflectionClip.frontNormal, [0.0, 1.0, 0.0])
+        : null;
+      var reflectionClipEpsilon = reflectionClipPoint && reflectionClipNormal
+        ? Math.max(1e-5, Number(reflectionClip.epsilon || 0.0) || 1e-5)
+        : 0.0;
       var MmBatch = getMath();
       var aspect = width / Math.max(1, height);
       var pass = enc.beginRenderPass({
@@ -6792,6 +7265,38 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         }
         return !!mesh.transparent;
       }
+      function partWorldCenter(part) {
+        var mesh = part && part.mesh;
+        if (!mesh) { return null; }
+        var model = resolveAnimatedModelMatrix(
+          mesh,
+          t,
+          mesh.center || [0, 0, 0],
+          mesh.rotation || [0, 0, 0],
+          mesh.scale || [1, 1, 1],
+          MmBatch
+        ) || (mesh._modelMatrix || MmBatch.mat4Identity());
+        if (mesh.vertices && mesh.vertices.length >= 10) {
+          var minX = Infinity, minY = Infinity, minZ = Infinity;
+          var maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+          for (var vi = 0; vi + 2 < mesh.vertices.length; vi += 10) {
+            var wp = transformPointMat4(model, [mesh.vertices[vi], mesh.vertices[vi + 1], mesh.vertices[vi + 2]]);
+            minX = Math.min(minX, wp[0]); minY = Math.min(minY, wp[1]); minZ = Math.min(minZ, wp[2]);
+            maxX = Math.max(maxX, wp[0]); maxY = Math.max(maxY, wp[1]); maxZ = Math.max(maxZ, wp[2]);
+          }
+          if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+            return [(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5];
+          }
+        }
+        return transformPointMat4(model, [0.0, 0.0, 0.0]);
+      }
+      function isRejectedByReflectionClip(part) {
+        if (!reflectionClipPoint || !reflectionClipNormal) { return false; }
+        var center = partWorldCenter(part);
+        if (!center) { return false; }
+        var side = dotVec3(subVec3(center, reflectionClipPoint), reflectionClipNormal);
+        return side < -reflectionClipEpsilon;
+      }
       for (var stage = 0; stage < 2; stage += 1) {
         var lateStage = stage === 1;
         for (var partIndex = 0; partIndex < this._parts.length; partIndex++) {
@@ -6802,6 +7307,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           if (omitObjectId && Number(part.objectId || 0) === Number(omitObjectId || 0)) { continue; }
           if (skipSurfaceParts && partMesh.surface_system) { continue; }
           if (skipOverlayExpanded && partMesh.overlay_expanded === true) { continue; }
+          if (isRejectedByReflectionClip(part)) { continue; }
           if (isLateTransparent(part) !== lateStage) { continue; }
           this._drawSingleScenePart(pass, sceneMesh, part, t, aspect, overrideCamera || null, MmBatch, width, height);
         }
@@ -7043,11 +7549,18 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           surfaceSystem._runtime_texture_ready = false;
           part.surfaceExternalView = null;
           partMesh._surfaceTextureReady = false;
+          partMesh._surfaceProjectorMatrix = null;
+          surfaceSystem._projective_texture = false;
           this._ensurePartBindGroup(part);
           continue;
         }
         this._ensureSurfaceTarget(part, targetDims.width, targetDims.height);
         partMesh._surfaceTextureReady = true;
+        var apertureLockedMirrorTexture = surfaceCamera && surfaceCamera.lock_aperture_camera === true && !!renderCamera._mirrorDebug;
+        partMesh._surfaceProjectorMatrix = !apertureLockedMirrorTexture && Array.isArray(renderCamera._mirrorViewProjection)
+          ? renderCamera._mirrorViewProjection
+          : null;
+        surfaceSystem._projective_texture = !!partMesh._surfaceProjectorMatrix;
         var surfaceClear = this._sceneBackgroundClear(sceneMesh);
         this._encodeScenePartsColorPass(
           enc,
@@ -7062,7 +7575,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           renderCamera,
           part.objectId,
           true,
-          {}
+          { reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }
         );
         this._ensurePartBindGroup(part);
       }
@@ -7160,10 +7673,23 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       await readBuf.mapAsync(GPUMapMode.READ);
       var mapped = new Uint8Array(readBuf.getMappedRange());
       var packed = new Uint8ClampedArray(width * height * bytesPerPixel);
+      var sourceFormat = String(this._format || "").toLowerCase();
+      var swapBgra = sourceFormat.indexOf("bgra") === 0;
       for (var y = 0; y < height; y += 1) {
         var srcRow = y * bytesPerRow;
         var dstRow = y * unpaddedBytesPerRow;
-        packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+        if (!swapBgra) {
+          packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+          continue;
+        }
+        for (var x = 0; x < width; x += 1) {
+          var src = srcRow + (x * bytesPerPixel);
+          var dst = dstRow + (x * bytesPerPixel);
+          packed[dst] = mapped[src + 2];
+          packed[dst + 1] = mapped[src + 1];
+          packed[dst + 2] = mapped[src];
+          packed[dst + 3] = mapped[src + 3];
+        }
       }
       readBuf.unmap();
       readBuf.destroy();
@@ -7202,10 +7728,23 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       await readBuf.mapAsync(GPUMapMode.READ);
       var mapped = new Uint8Array(readBuf.getMappedRange());
       var packed = new Uint8ClampedArray(width * height * bytesPerPixel);
+      var sourceFormat = String(frameRef.format || this._format || "").toLowerCase();
+      var swapBgra = sourceFormat.indexOf("bgra") === 0;
       for (var y = 0; y < height; y += 1) {
         var srcRow = y * bytesPerRow;
         var dstRow = y * unpaddedBytesPerRow;
-        packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+        if (!swapBgra) {
+          packed.set(mapped.subarray(srcRow, srcRow + unpaddedBytesPerRow), dstRow);
+          continue;
+        }
+        for (var x = 0; x < width; x += 1) {
+          var src = srcRow + (x * bytesPerPixel);
+          var dst = dstRow + (x * bytesPerPixel);
+          packed[dst] = mapped[src + 2];
+          packed[dst + 1] = mapped[src + 1];
+          packed[dst + 2] = mapped[src];
+          packed[dst + 3] = mapped[src + 3];
+        }
       }
       readBuf.unmap();
       readBuf.destroy();
@@ -7263,6 +7802,112 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
+    _createPartPhysicsRuntime: function (mesh) {
+      var spec = mesh && mesh.physics_gpu && typeof mesh.physics_gpu === "object"
+        ? mesh.physics_gpu
+        : (mesh && mesh.physics && typeof mesh.physics === "object" ? mesh.physics : null);
+      if (!spec) { return null; }
+      var kind = String(spec.kind || spec.collider_kind || "").toLowerCase().trim();
+      var api = global.VfGpuRuntime;
+      var particleCount = Number(spec.particle_count || mesh.instance_count || 0) || 0;
+      if (particleCount <= 0) {
+        failFast("physics_gpu " + kind + " requires particle_count");
+      }
+      if (kind === "hard_sphere_3d" || kind === "sphere_3d") {
+        if (!api || typeof api.createHardSpherePhysicsRuntime !== "function") {
+          failFast("physics_gpu hard_sphere_3d requires vf-gpu-runtime.js");
+        }
+        return api.createHardSpherePhysicsRuntime({
+          device: this._device,
+          particleCount: particleCount,
+          particles: spec.particles || spec.initial_particles || [],
+          initialParticles: spec.initial_particles || spec.particles || [],
+          wgsl: spec.wgsl || spec.shader || "",
+          workgroupSize: Number(spec.workgroup_size || 128) || 128,
+          width: Number(spec.width || spec.world_width || 1.0) || 1.0,
+          depth: Number(spec.depth || spec.world_depth || 1.0) || 1.0,
+          height: Number(spec.height || spec.world_height || 1.0) || 1.0,
+          worldWidth: Number(spec.width || spec.world_width || 1.0) || 1.0,
+          worldDepth: Number(spec.depth || spec.world_depth || 1.0) || 1.0,
+          worldHeight: Number(spec.height || spec.world_height || 1.0) || 1.0,
+          gravity: Array.isArray(spec.gravity) ? spec.gravity : [0.0, 0.0, -9.81],
+          restitution: Number(spec.restitution == null ? 1.0 : spec.restitution),
+          contactBandRatio: Number(spec.contact_band_ratio == null ? 0.04 : spec.contact_band_ratio),
+          maxRadius: Number(spec.max_radius || 0.0125),
+          cellSize: Number(spec.cell_size || 0.0),
+          maxParticlesPerCell: Number(spec.max_particles_per_cell || 96),
+          solverIterations: Number(spec.solver_iterations || 4),
+          collisionMatrix: spec.collision_matrix
+        });
+      }
+      if (kind !== "hard_disc_2d" && kind !== "disc_2d") { return null; }
+      if (!api || typeof api.createHardDiscPhysicsRuntime !== "function") {
+        failFast("physics_gpu hard_disc_2d requires vf-gpu-runtime.js");
+      }
+      return api.createHardDiscPhysicsRuntime({
+        device: this._device,
+        particleCount: particleCount,
+        particles: spec.particles || spec.initial_particles || [],
+        initialParticles: spec.initial_particles || spec.particles || [],
+        wgsl: spec.wgsl || spec.shader || "",
+        workgroupSize: Number(spec.workgroup_size || 128) || 128,
+        width: Number(spec.width || spec.world_width || 1.0) || 1.0,
+        height: Number(spec.height || spec.world_height || 1.0) || 1.0,
+        worldWidth: Number(spec.width || spec.world_width || 1.0) || 1.0,
+        worldHeight: Number(spec.height || spec.world_height || 1.0) || 1.0,
+        gravity: Array.isArray(spec.gravity) ? spec.gravity : [0.0, 0.0],
+        restitution: Number(spec.restitution == null ? 1.0 : spec.restitution),
+        contactBandRatio: Number(spec.contact_band_ratio == null ? 0.05 : spec.contact_band_ratio),
+        maxRadius: Number(spec.max_radius || 0.0125),
+        cellSize: Number(spec.cell_size || 0.0),
+        maxParticlesPerCell: Number(spec.max_particles_per_cell || 64),
+        solverIterations: Number(spec.solver_iterations || 3),
+        collisionMatrix: spec.collision_matrix
+      });
+    },
+
+    _stepScenePhysics: function (enc, sceneMesh, t) {
+      if (!this._parts || !this._parts.length || !enc) { return 0; }
+      var stepped = 0;
+      var now = Number(t || 0.0);
+      var captureFixedDt = Number(global.__vfCaptureFixedPhysicsDt || 0.0) || 0.0;
+      if (captureFixedDt > 0.0 && global.__vfCapturePhysicsStepRequested !== true) {
+        return 0;
+      }
+      for (var i = 0; i < this._parts.length; i += 1) {
+        var part = this._parts[i];
+        if (!part || !part.physicsRuntime || typeof part.physicsRuntime.step !== "function") { continue; }
+        var spec = part.mesh && part.mesh.physics_gpu && typeof part.mesh.physics_gpu === "object"
+          ? part.mesh.physics_gpu
+          : (part.mesh && part.mesh.physics && typeof part.mesh.physics === "object" ? part.mesh.physics : {});
+        var fixedDt = Number(captureFixedDt || spec.fixed_dt || 0.0) || 0.0;
+        var elapsed = part.physicsLastTimeMs == null
+          ? (Number(spec.initial_dt || (1000.0 / 60.0)) * 0.001)
+          : Math.max(0.0, (now - part.physicsLastTimeMs) * 0.001);
+        part.physicsLastTimeMs = now;
+        if (fixedDt > 0.0) {
+          part.physicsRuntime.step(enc, fixedDt);
+          stepped += 1;
+          continue;
+        }
+        var stepDt = Math.max(1.0 / 240.0, Number(spec.step_dt || (1.0 / 120.0)) || (1.0 / 120.0));
+        var maxSubsteps = Math.max(1, Number(spec.max_substeps || 8) | 0);
+        var maxAccum = Math.max(stepDt, Number(spec.max_accumulated_dt || 0.25) || 0.25);
+        part.physicsAccumulatedDt = Math.min(maxAccum, Math.max(0.0, Number(part.physicsAccumulatedDt || 0.0) + elapsed));
+        var localSteps = 0;
+        while (part.physicsAccumulatedDt + 1.0e-9 >= stepDt && localSteps < maxSubsteps) {
+          part.physicsRuntime.step(enc, stepDt);
+          part.physicsAccumulatedDt -= stepDt;
+          stepped += 1;
+          localSteps += 1;
+        }
+      }
+      if (captureFixedDt > 0.0) {
+        global.__vfCapturePhysicsStepRequested = false;
+      }
+      return stepped;
+    },
+
     _createScenePart: function (mesh, index) {
       var dev = this._device;
       var sg2 = sharedWgpu;
@@ -7270,8 +7915,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       dev.queue.writeBuffer(vb, 0, mesh.vertices);
       var ib = dev.createBuffer({ size: mesh.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
       dev.queue.writeBuffer(ib, 0, mesh.indices);
+      var physicsRuntime = this._createPartPhysicsRuntime(mesh);
       var instanceBuf = null;
-      if (mesh.instances && mesh.instances.byteLength > 0) {
+      if (physicsRuntime && physicsRuntime.renderInstanceBuffer) {
+        instanceBuf = physicsRuntime.renderInstanceBuffer;
+      } else if (mesh.instances && mesh.instances.byteLength > 0) {
         instanceBuf = dev.createBuffer({
           size: mesh.instances.byteLength,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -7311,10 +7959,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         vb: vb,
         ib: ib,
         instanceBuf: instanceBuf,
+        physicsRuntime: physicsRuntime,
+        physicsLastTimeMs: null,
+        physicsAccumulatedDt: 0.0,
         instanceCount: Number(mesh.instance_count || 0),
         instanceKind: mesh.instance_kind || null,
         staticIndices: mesh.static_indices === true,
         staticVertices: mesh.static_vertices === true,
+        staticInstances: mesh.static_instances === true || (mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind),
         ibCount: mesh.indices.length,
         topology: mesh.topology || "triangle-list",
         uniformBuf: uniformBuf,
@@ -7336,6 +7988,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!part.vb || !part.ib || !part.uniformBuf || !part.shadowUniformBuf0 || !part.shadowUniformBuf1 || !part.shadowUniformBuf2 || !part.shadowUniformBuf3 || !part.pickUb || !part.pickBg || !part.bindGroup) { return false; }
       if ((part.topology || "triangle-list") !== (mesh.topology || "triangle-list")) { return false; }
       if ((part.instanceKind || null) !== (mesh.instance_kind || null)) { return false; }
+      if (!!part.physicsRuntime !== !!((mesh.physics_gpu && typeof mesh.physics_gpu === "object") || (mesh.physics && typeof mesh.physics === "object"))) { return false; }
       if (Number(part.objectId || 0) !== (Number(mesh.object_id || (index + 1)) || (index + 1))) { return false; }
       if (!part.mesh) { return false; }
       if (!part.mesh.vertices || !part.mesh.indices || !mesh.vertices || !mesh.indices) { return false; }
@@ -7351,6 +8004,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!scene.parts.length) {
         failFast("scene parts upload received zero parts");
       }
+      this._scenePartSpecsForLightResolution = scene.parts.slice();
       var dev = this._device;
       var previousParts = Array.isArray(this._parts) ? this._parts : [];
       var nextParts = new Array(scene.parts.length);
@@ -7368,7 +8022,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
               dev.queue.writeBuffer(existing.ib, 0, mesh.indices);
             }
           }
-          if (mesh.instances && existing.instanceBuf) {
+          if (mesh.instances && existing.instanceBuf && !existing.staticInstances && !existing.physicsRuntime) {
             dev.queue.writeBuffer(existing.instanceBuf, 0, mesh.instances);
           }
           existing.mesh = mesh;
@@ -7377,6 +8031,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           existing.instanceKind = mesh.instance_kind || null;
           existing.staticIndices = mesh.static_indices === true;
           existing.staticVertices = mesh.static_vertices === true;
+          existing.staticInstances = mesh.static_instances === true || (mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind);
           existing.topology = mesh.topology || "triangle-list";
           existing.objectId = Number(mesh.object_id || (i + 1)) || (i + 1);
           nextParts[i] = existing;
@@ -7408,6 +8063,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._uploadSceneParts(mesh);
         return;
       }
+      this._scenePartSpecsForLightResolution = null;
       var dev = this._device;
       this._destroyParts();
       if (this._vb) { this._vb.destroy(); this._vb = null; }
@@ -7423,24 +8079,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     _renderContent: function (t, options) {
       if (!this._device) { return; }
       options = options && typeof options === "object" ? options : {};
-      if (isGpuWorkPending(this) && options.forceResize !== true) {
-        var scheduler = gpuSchedulerState(this);
-        this._debugGpuBlockedCount = Number(this._debugGpuBlockedCount || 0) + 1;
-        queueRendererForGpuDrain(this, scheduler);
-        var pendingAgeMs = perfNowMs() - Number((scheduler && scheduler.pendingStartMs) || this._debugGpuPendingStartMs || perfNowMs());
-        var queuedCount = scheduler && scheduler.order ? scheduler.order.length : 0;
-        if (this._debugGpuBlockedCount <= 3 || this._debugGpuBlockedCount % 10 === 0 || pendingAgeMs > 250) {
-          lagDebugLog(
-            this,
-            "gpu_pending_block blocked=" + Number(this._debugGpuBlockedCount || 0) +
-              " pending_age_ms=" + pendingAgeMs.toFixed(1) +
-              " global_queued=" + queuedCount +
-              " requests=" + Number(this._debugFrameRequestCount || 0) +
-              " coalesced=" + Number(this._debugFrameRequestCoalesced || 0)
-          );
-        }
-        return;
-      }
       var perfSample = Object.create(null);
       var perfTotalStart = perfNowMs();
       var perfStageStart = perfTotalStart;
@@ -7472,10 +8110,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._ensureFrameSceneColorTarget();
         var shadowEncBatch = this._device.createCommandEncoder();
         perfStageStart = perfNowMs();
+        perfSample.physics = this._stepScenePhysics(shadowEncBatch, mesh, t);
+        perfSample.physics_ms = perfNowMs() - perfStageStart;
+        perfStageStart = perfNowMs();
         var preparedShadows = this._prepareShadowMapsForScene(shadowEncBatch, mesh, t, wBatch, hBatch);
         perfSample.shadow_prepare = perfNowMs() - perfStageStart;
         perfSample.shadow_cache_hit = Number(this._lastShadowCacheHit || 0.0);
-        if ((preparedShadows[0] || preparedShadows[1] || preparedShadows[2] || preparedShadows[3]) && Number(this._lastShadowDrawCount || 0) > 0) {
+        if (((preparedShadows[0] || preparedShadows[1] || preparedShadows[2] || preparedShadows[3]) && Number(this._lastShadowDrawCount || 0) > 0) || Number(perfSample.physics || 0) > 0) {
           perfStageStart = perfNowMs();
           this._device.queue.submit([shadowEncBatch.finish()]);
           perfSample.shadow_submit = perfNowMs() - perfStageStart;
@@ -7484,6 +8125,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         }
         perfStageStart = perfNowMs();
         var encBatch = this._device.createCommandEncoder();
+        var sceneClear = this._sceneBackgroundClear(mesh);
         var sceneSourceBackups = this._swapSelfReferencedScreensToPlain(this._frameId);
         if (sceneSourceBackups) {
           this._encodeScenePartsColorPass(
@@ -7495,7 +8137,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             this._msaaTex.createView(),
             this._frameSceneColorView,
             this._depthTex.createView(),
-            { r: 0, g: 0, b: 0, a: 0 },
+            sceneClear,
             null,
             0,
             true
@@ -7516,33 +8158,22 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           this._msaaTex.createView(),
           this._frameColorView,
           this._depthTex.createView(),
-          { r: 0, g: 0, b: 0, a: 0 },
+          sceneClear,
           null,
           0,
           false
         );
         perfSample.final_pass = perfNowMs() - perfStageStart;
         var sceneCam = mesh.camera || {};
-        var scenePos = sceneCam.pos || [0, 0, 5];
-        var sceneTarget = sceneCam.target || [0, 0, 0];
-        var sceneUp = sceneCam.up || [0, 1, 0];
-        var sceneFov = sceneCam.fov !== undefined ? sceneCam.fov : 45;
-        var sceneProj = MmBatch.mat4PerspectiveZ01(sceneFov * Math.PI / 180, aspBatch, 0.05, 500);
-        var sceneView;
-        if (!mesh.camera) {
-          var sceneAng = t * 0.0008;
-          sceneView = MmBatch.mat4Mul(MmBatch.mat4Translation(0, 0, -5), MmBatch.mat4RotationY(sceneAng));
-          scenePos = [0, 0, 5];
-        } else {
-          sceneView = mat4LookAt(scenePos, sceneTarget, sceneUp);
-        }
-        var sceneMvp = MmBatch.mat4Mul(sceneProj, sceneView);
+        var frameCam = frameCameraMatrices(sceneCam, aspBatch, t, MmBatch, !mesh.camera);
+        var scenePos = frameCam.pos;
+        var sceneMvp = frameCam.mvp;
         this._lastFrameViewProj = Array.prototype.slice.call(sceneMvp);
         this._lastFrameFlipU = sceneCam && sceneCam._mirrorFlipU === true;
         this._lastFrameFlipV = sceneCam && sceneCam._mirrorFlipV === true;
         var sceneLights = resolveSceneLights(
           lightsForRenderer(mesh.lights || [], this._offscreenFrame === true),
-          sceneMeshForLightResolution(mesh, this._parts),
+          sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
           t
         );
         maybeLogResolvedLights(this, "flares", sceneLights);
@@ -7631,14 +8262,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._blitFrameTargetToCanvas(encBatch, mesh);
         perfStageStart = perfNowMs();
         this._device.queue.submit([encBatch.finish()]);
+        enqueueSubmittedCallback(this, function () { notifyLinkedTextureFrames(this); }.bind(this));
         markSubmittedGpuWork(this);
         this._markPresentedFirstFrame();
-        notifyLinkedTextureFrames(this);
         perfSample.submit = perfNowMs() - perfStageStart;
         perfSample.total = perfNowMs() - perfTotalStart;
         var perfStats = ensurePerfStats(this);
         this._lastPerfSample = clonePerfSample(perfSample);
         publishPerfSample(this, perfSample);
+        updatePhysicsProfile(this, perfSample);
         perfStats.frames += 1;
         var perfKeys = Object.keys(perfSample);
         for (var perfIndex = 0; perfIndex < perfKeys.length; perfIndex += 1) {
@@ -7700,7 +8332,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         mvp     = projMat;
       } else {
         var fovRad = fov * Math.PI / 180;
-        if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(cam, asp)) {
+        if (cam && Array.isArray(cam.projection_matrix) && cam.projection_matrix.length === 16 && (cam._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(cam, asp))) {
           projMat = new Float32Array(cam.projection_matrix);
         } else if (String(cam && cam.projection || "").toLowerCase() === "orthographic") {
           var orthoScale = Math.max(1e-6, Number(cam.ortho_scale || 2.5) || 2.5);
@@ -7723,7 +8355,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
       // --- Lights ---
       var rawLights = mesh.no_lighting === true ? [] : lightsForMesh((mesh.lights || []), this._offscreenFrame === true, mesh);
-      var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts), t);
+      var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution), t);
       maybeLogResolvedLights(this, "main", lightsNorm);
       var lmName = mesh.light_model || (lightsNorm[0] && lightsNorm[0].model) || "blinn_phong";
       var lmInt  = LIGHT_MODELS[lmName] !== undefined ? LIGHT_MODELS[lmName] : 2;
@@ -7736,11 +8368,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._ensureMsaaColor();
       this._ensureFrameColorTarget();
       var enc  = this._device.createCommandEncoder();
+      var singleClear = this._sceneBackgroundClear(mesh);
       var pass = enc.beginRenderPass({
         colorAttachments: [{
           view:       this._msaaTex.createView(),
           resolveTarget: this._frameColorView,
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          clearValue: singleClear,
           loadOp:  "clear",
           storeOp: "store",
         }],
@@ -7839,9 +8472,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       this._blitFrameTargetToCanvas(enc, mesh);
       this._device.queue.submit([enc.finish()]);
+      enqueueSubmittedCallback(this, function () { notifyLinkedTextureFrames(this); }.bind(this));
       markSubmittedGpuWork(this);
       this._markPresentedFirstFrame();
-      notifyLinkedTextureFrames(this);
 
       // Fire the callback after the combined visible+pick submit.
       if (fireSinglePickCallback && this._pickCallback) { this._pickCallback(); }
@@ -7865,8 +8498,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var lightPos = light.pos || [0, 0, 0];
         var ndc = projectWorldToNdc(mvp, lightPos);
         if (!ndc) { continue; }
-        if (Math.abs(ndc[0]) > 1.02 || Math.abs(ndc[1]) > 1.02) { continue; }
-        if (lightOccludedByBoxes(cameraPos, lightPos, occluders)) { continue; }
+        var sourceRadiusWorld = light.source_radius !== undefined ? light.source_radius : baseSizeWorld;
+        var sourceRadiusPx = projectedWorldRadiusPx(mvp, lightPos, sourceRadiusWorld, width, height);
+        if (sourceRadiusWorld > 0.0) {
+          sourceRadiusPx = Math.max(sourceRadiusPx, Math.min(96, Math.max(18, Number(sourceRadiusWorld) * 56.0)));
+        }
         var intensity = Math.max(0.0, Number(light.intensity || 24.0));
         var toCam = [
           Number(cameraPos[0]) - Number(lightPos[0]),
@@ -7883,7 +8519,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var baseAlpha = Math.min(1.0, 0.30 + Math.min(0.70, intensity / 170.0));
         var flareAlpha = Math.max(0.0, Math.min(1.0, baseAlpha * (0.30 + (0.70 * facing))));
         if (!(flareAlpha > 0.001)) { continue; }
-        var pxSize = Math.max(72, 96 + (intensity * 0.55) + (72 * facing));
+        var haloSizePx = Math.max(72, 96 + (intensity * 0.55) + (72 * facing));
+        var pxSize = Math.max(haloSizePx, sourceRadiusPx + haloSizePx);
+        var padX = (pxSize / Math.max(1, width)) * 2.0;
+        var padY = (pxSize / Math.max(1, height)) * 2.0;
+        if (Math.abs(ndc[0]) > 1.0 + padX || Math.abs(ndc[1]) > 1.0 + padY) { continue; }
+        if (lightOccludedByBoxes(cameraPos, lightPos, occluders)) { continue; }
         var sizeNdcX = (pxSize / Math.max(1, width));
         var sizeNdcY = (pxSize / Math.max(1, height));
         var dx = (ndc[0] * 0.5 * width);
@@ -7891,8 +8532,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var axisAngle = Math.atan2(dy, dx);
         instances.push(
           ndc[0], ndc[1], sizeNdcX, sizeNdcY,
-          Number((light.color_f32 || [1, 1, 1, 1])[0]), Number((light.color_f32 || [1, 1, 1, 1])[1]), Number((light.color_f32 || [1, 1, 1, 1])[2]), 1.0,
-          pxSize, flareAlpha, facing, 1.0,
+          Number((light.marker_color_f32 || light.color_f32 || [1, 1, 1, 1])[0]), Number((light.marker_color_f32 || light.color_f32 || [1, 1, 1, 1])[1]), Number((light.marker_color_f32 || light.color_f32 || [1, 1, 1, 1])[2]), 1.0,
+          pxSize, flareAlpha, facing, sourceRadiusPx,
           Math.cos(axisAngle), Math.sin(axisAngle), Math.max(0.0, Math.min(1.0, Number(ndc[2]) || 0.0)), 0.0
         );
       }
@@ -8007,6 +8648,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._lastFrameViewProj = null;
       this._lastFrameFlipU = false;
       this._lastFrameFlipV = false;
+      this._scenePartSpecsForLightResolution = null;
       if (this._resizeRaf) { cancelAnimationFrame(this._resizeRaf); this._resizeRaf = 0; }
       this._destroyParts();
       if (this._vb)        { try { this._vb.destroy(); } catch(_){} this._vb = null; }

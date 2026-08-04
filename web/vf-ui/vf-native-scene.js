@@ -28,7 +28,22 @@
   var durationSeconds = Math.max(0.001, Number(timingCfg.duration_seconds || 10.0));
   var boundary = String(timingCfg.boundary || "repeat");
   var frameCount = Math.max(1, Math.round(fps * durationSeconds));
+  var nativeWorldAnimationPresence = null;
   var AXIS_TAGGED_KEY = "__vf_axis_tagged__";
+
+  function startupDebugMark(frameId, mark) {
+    if (!global.__vfNativeSceneStartupDebug) {
+      global.__vfNativeSceneStartupDebug = Object.create(null);
+    }
+    var key = String(frameId || config.frame_id || frameSpec.frame_id || "");
+    if (!global.__vfNativeSceneStartupDebug[key]) {
+      global.__vfNativeSceneStartupDebug[key] = [];
+    }
+    global.__vfNativeSceneStartupDebug[key].push({
+      mark: String(mark || ""),
+      t: global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()
+    });
+  }
 
   function chessLagDebugEnabled() {
     return !!(
@@ -68,17 +83,18 @@
         existing = doc.createElement("div");
         existing.id = "vf-native-scene-fatal";
         existing.style.position = "absolute";
-        existing.style.inset = "0";
+        existing.style.right = "16px";
+        existing.style.bottom = "16px";
+        existing.style.width = "min(560px, calc(100vw - 32px))";
+        existing.style.maxHeight = "min(260px, calc(100vh - 32px))";
         existing.style.zIndex = "9999";
-        existing.style.display = "flex";
-        existing.style.alignItems = "center";
-        existing.style.justifyContent = "center";
-        existing.style.padding = "24px";
-        existing.style.background = "rgba(20,12,16,0.92)";
+        existing.style.padding = "0";
+        existing.style.background = "transparent";
         existing.style.color = "#ffd7df";
         existing.style.font = "600 14px/1.45 Consolas, Menlo, monospace";
         existing.style.whiteSpace = "pre-wrap";
         existing.style.textAlign = "left";
+        existing.style.pointerEvents = "auto";
         if (host !== doc.body) {
           var computedPosition = "";
           try { computedPosition = global.getComputedStyle(host).position || ""; } catch (_) {}
@@ -90,7 +106,60 @@
         }
         host.appendChild(existing);
       }
-      existing.textContent = String(text);
+      existing.textContent = "";
+      var panel = doc.createElement("div");
+      panel.style.maxHeight = "inherit";
+      panel.style.overflow = "auto";
+      panel.style.padding = "12px";
+      panel.style.border = "1px solid rgba(255,215,223,0.28)";
+      panel.style.borderRadius = "8px";
+      panel.style.background = "rgba(20,12,16,0.94)";
+      panel.style.boxShadow = "0 18px 60px rgba(0,0,0,0.45)";
+      panel.style.pointerEvents = "auto";
+      var actions = doc.createElement("div");
+      actions.style.display = "flex";
+      actions.style.justifyContent = "flex-end";
+      actions.style.gap = "8px";
+      actions.style.marginBottom = "8px";
+      var copy = doc.createElement("button");
+      copy.type = "button";
+      copy.textContent = "Copy";
+      copy.style.cssText = "border:1px solid rgba(255,215,223,.35);background:rgba(255,255,255,.08);color:#ffd7df;border-radius:6px;padding:4px 10px;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer";
+      copy.onclick = function () {
+        var value = String(text);
+        try {
+          if (global.navigator && global.navigator.clipboard && typeof global.navigator.clipboard.writeText === "function") {
+            global.navigator.clipboard.writeText(value).catch(function () {});
+          }
+        } catch (_) {}
+      };
+      var close = doc.createElement("button");
+      close.type = "button";
+      close.textContent = "Close";
+      close.style.cssText = "border:1px solid rgba(255,215,223,.35);background:rgba(255,255,255,.08);color:#ffd7df;border-radius:6px;padding:4px 10px;font:600 12px/1.3 system-ui,sans-serif;cursor:pointer";
+      close.onclick = function () {
+        if (existing && existing.parentNode) {
+          existing.parentNode.removeChild(existing);
+        }
+      };
+      var message = doc.createElement("div");
+      message.textContent = String(text);
+      actions.appendChild(copy);
+      actions.appendChild(close);
+      panel.appendChild(actions);
+      panel.appendChild(message);
+      existing.appendChild(panel);
+      if (!global.__vfNativeSceneFatalEscapeBound) {
+        global.__vfNativeSceneFatalEscapeBound = true;
+        doc.addEventListener("keydown", function (event) {
+          if (event && event.key === "Escape") {
+            var fatal = doc.getElementById("vf-native-scene-fatal");
+            if (fatal && fatal.parentNode) {
+              fatal.parentNode.removeChild(fatal);
+            }
+          }
+        });
+      }
     } catch (_) {}
   }
 
@@ -161,6 +230,7 @@
 
   function failFast(message) {
     var text = "native_scene: " + String(message);
+    try { global.__vfLastError = text; } catch (_) {}
     try { console.error(text); } catch (_) {}
     try {
       if (global.chrome && global.chrome.webview && global.chrome.webview.postMessage) {
@@ -436,6 +506,14 @@
     return stepDeg * Math.PI / 180.0;
   }
 
+  function cameraOrbitSpeedRadians(cameraConfig) {
+    var explicitSpeedDeg = Number(entityProp(cameraConfig || {}, "orbit_speed_deg_per_sec", NaN));
+    if (Number.isFinite(explicitSpeedDeg) && Math.abs(explicitSpeedDeg) > 1e-6) {
+      return Math.abs(explicitSpeedDeg) * Math.PI / 180.0;
+    }
+    return Math.max(cameraOrbitStepRadians(cameraConfig || {}) * 72.0, Math.PI * 1.8);
+  }
+
   function cameraDistance(camera) {
     var pos = toVec3(camera.pos, [0, 0, 5]);
     var target = toVec3(camera.target, [0, 0, 0]);
@@ -598,24 +676,18 @@
   function resolveSurfaceSystem(system, viewerCamera, seconds) {
     if (!system || typeof system !== "object") { return null; }
     var kind = String(system.kind || "").toLowerCase().trim();
-    if (kind !== "screen" && kind !== "mirror") { return cloneJsonValue(system); }
+    if (kind !== "screen" && kind !== "mirror" && kind !== "window") { return cloneJsonValue(system); }
     if (Object.prototype.hasOwnProperty.call(system, "camera_mode")) {
       failFast("surface_system.camera_mode is removed; use a reflected camera frame plus screen.frame_ref");
     }
-    if (system.camera && typeof system.camera === "object") {
-      var directMirrorCamera = system.camera.mirror_of && typeof system.camera.mirror_of === "object";
-      var directReflectMesh = String(system.camera.reflect_mirror_mesh_id || "").trim();
-      if (directMirrorCamera || directReflectMesh) {
-        failFast("surface_system.camera mirror path is removed; use a reflected source frame plus screen.frame_ref");
-      }
-    }
     var camera = resolveSurfaceCamera(system, viewerCamera);
     var world = resolveSurfaceWorld(system);
-    var runtimeKind = kind === "mirror" ? "screen" : kind;
+    var runtimeKind = kind === "mirror" || kind === "window" ? "screen" : kind;
+    var defaultReflectivity = kind === "window" ? 0.5 : 1.0;
     return {
       kind: runtimeKind,
       scale: Array.isArray(system.scale) ? [Number(system.scale[0]) || 1.0, Number(system.scale[1]) || 1.0] : [1.0, 1.0],
-      reflectivity: Math.max(0.0, Math.min(1.0, Number(system.reflectivity == null ? 1.0 : system.reflectivity) || 0.0)),
+      reflectivity: Math.max(0.0, Math.min(1.0, Number(system.reflectivity == null ? defaultReflectivity : system.reflectivity) || 0.0)),
       world_ref: String(system.world_ref || ""),
       camera_ref: String(system.camera_ref || ""),
       frame_ref: String(system.frame_ref || ""),
@@ -623,7 +695,8 @@
       flip_y: system.flip_y === true,
       _renderFlipU: system._renderFlipU === true,
       _mirror_surface: kind === "mirror" || system._mirror_surface === true,
-      reverse_facing: system.reverse_facing === true,
+      _window_surface: kind === "window" || system._window_surface === true,
+      reverse_facing: kind === "window" ? false : system.reverse_facing === true,
       camera: camera,
       world: {
         kind: world.kind,
@@ -718,6 +791,243 @@
       }
     }
     return objects;
+  }
+
+  function reflectedSourceClipFrame(camera, seconds) {
+    var cameraCfg = config.camera || {};
+    var props = cameraCfg && cameraCfg.properties && typeof cameraCfg.properties === "object"
+      ? cameraCfg.properties
+      : {};
+    var mirrorMeshId = String(props.reflect_mirror_mesh_id || "").trim();
+    if (!mirrorMeshId) { return null; }
+    var debug = camera && camera._mirrorDebug && typeof camera._mirrorDebug === "object"
+      ? camera._mirrorDebug
+      : null;
+    var planePoint = debug && Array.isArray(debug.planePoint)
+      ? toVec3(debug.planePoint, [0.0, 0.0, 0.0])
+      : null;
+    var planeNormal = debug && Array.isArray(debug.mirrorFrontNormal)
+      ? normalize3(toVec3(debug.mirrorFrontNormal, [0.0, 1.0, 0.0]), [0.0, 1.0, 0.0])
+      : null;
+    if (!planePoint || !planeNormal) {
+      var sourceCamera = resolveReflectSourceCameraForSpec(props, null);
+      var rawMeshes = Array.isArray(config.meshes) ? config.meshes : [];
+      var mirrorMesh = normalizeMeshSpec(resolveRawMeshById(rawMeshes, mirrorMeshId, "reflected source clip"), seconds, sourceCamera || camera);
+      var vertices = meshVerticesForOccluder(mirrorMesh);
+      if (!Array.isArray(vertices) || vertices.length < 3) {
+        failFast("reflected source clip requires planar mirror geometry");
+      }
+      var bounds = computeBounds(vertices);
+      planePoint = meshCenterFromBounds(bounds);
+      var geomUtil = global.VfGeomWgpuUtil;
+      if (geomUtil && typeof geomUtil.resolvePlanarMirrorGeometry === "function") {
+        var packet = geomUtil.resolvePlanarMirrorGeometry(mirrorMesh, seconds * 1000.0, "reflected source clip");
+        if (packet && packet.frame && Array.isArray(packet.frame.normal)) {
+          planeNormal = normalize3(packet.frame.normal, [0.0, 1.0, 0.0]);
+        }
+        if (packet && Array.isArray(packet.center)) {
+          planePoint = toVec3(packet.center, planePoint);
+        }
+      }
+      if (!planeNormal) {
+        planeNormal = [0.0, 1.0, 0.0];
+      }
+      if (sourceCamera && Array.isArray(sourceCamera.pos) && dot3([
+        Number(sourceCamera.pos[0] || 0.0) - planePoint[0],
+        Number(sourceCamera.pos[1] || 0.0) - planePoint[1],
+        Number(sourceCamera.pos[2] || 0.0) - planePoint[2]
+      ], planeNormal) < 0.0) {
+        planeNormal = [-planeNormal[0], -planeNormal[1], -planeNormal[2]];
+      }
+    }
+    return {
+      mirrorMeshId: mirrorMeshId,
+      planePoint: planePoint,
+      planeNormal: planeNormal,
+      epsilon: 1e-5
+    };
+  }
+
+  function meshRejectedByReflectedSourceClip(mesh, clip) {
+    if (!mesh || !clip) { return false; }
+    if (String(mesh.id || "") === String(clip.mirrorMeshId || "")) { return false; }
+    var vertices = meshVerticesForOccluder(mesh);
+    if (!Array.isArray(vertices) || !vertices.length) {
+      vertices = [meshWorldCenter(mesh)];
+    }
+    var maxSide = -Infinity;
+    for (var i = 0; i < vertices.length; i += 1) {
+      var p = vertices[i];
+      var side = dot3([
+        Number(p[0] || 0.0) - clip.planePoint[0],
+        Number(p[1] || 0.0) - clip.planePoint[1],
+        Number(p[2] || 0.0) - clip.planePoint[2]
+      ], clip.planeNormal);
+      if (side > maxSide) { maxSide = side; }
+    }
+    return maxSide < -(Number(clip.epsilon || 0.0) || 0.0);
+  }
+
+  function filterReflectedSourceMeshes(meshSpecs, camera, seconds) {
+    var clip = reflectedSourceClipFrame(camera, seconds);
+    if (!clip) { return meshSpecs; }
+    return meshSpecs.filter(function (mesh) {
+      return !meshRejectedByReflectedSourceClip(mesh, clip);
+    });
+  }
+
+  function authoredSceneMeshSpecs() {
+    var out = Array.isArray(config.meshes) ? config.meshes.slice() : [];
+    function pushAll(items, kind) {
+      if (!Array.isArray(items)) { return; }
+      for (var i = 0; i < items.length; i += 1) {
+        var item = items[i];
+        if (!item || typeof item !== "object") { continue; }
+        if (kind && item.kind == null) {
+          item = Object.assign({}, item, { kind: kind });
+        }
+        out.push(item);
+      }
+    }
+    pushAll(config.surfaces, "quad");
+    pushAll(config.cubes, "cube");
+    pushAll(config.objects, null);
+    if (config.plane && typeof config.plane === "object") {
+      out.push(Object.assign({ id: "ground_plane", kind: "quad" }, config.plane));
+    }
+    return out;
+  }
+
+  function meshHasGrassTexture(mesh) {
+    var texture = mesh && mesh.texture && typeof mesh.texture === "object" ? mesh.texture : null;
+    return texture && String(texture.kind || "").toLowerCase().trim() === "grass";
+  }
+
+  var grassBladeLayerCache = Object.create(null);
+
+  function grassNearBladeLayer(mesh, camera) {
+    if (!meshHasGrassTexture(mesh) || (mesh.kind !== "cube" && mesh.kind !== "quad") || mesh.visible === false) { return null; }
+    var texture = mesh.texture || {};
+    // Grass materials must stay shader-only by default. Expanding every grass
+    // surface into tens of thousands of CPU-side impostors makes startup and
+    // navigation scale with material detail instead of visible scene complexity.
+    if (texture.near_blades !== true) { return null; }
+    var sizeU = 1.0;
+    var sizeV = 1.0;
+    var localZ = 0.0;
+    if (mesh.kind === "cube") {
+      sizeU = Math.max(0.01, Number(mesh.size || 1.0));
+      sizeV = sizeU;
+      localZ = sizeU * 0.5;
+    } else {
+      var quadSize = Array.isArray(mesh.size)
+        ? [Number(mesh.size[0] || 0.0), Number(mesh.size[1] || 0.0)]
+        : [Number(mesh.size || 1.0), Number(mesh.size || 1.0)];
+      sizeU = Math.max(0.01, Math.abs(quadSize[0]));
+      sizeV = Math.max(0.01, Math.abs(quadSize[1]));
+    }
+    var minSize = Math.max(0.01, Math.min(sizeU, sizeV));
+    var halfU = sizeU * 0.5;
+    var halfV = sizeV * 0.5;
+    var topCenter = transformLocalVertices([[0.0, 0.0, localZ]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var xTip = transformLocalVertices([[1.0, 0.0, localZ]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var yTip = transformLocalVertices([[0.0, 1.0, localZ]], mesh.center, mesh.rotation || [0, 0, 0])[0];
+    var uAxis = normalize3([xTip[0] - topCenter[0], xTip[1] - topCenter[1], xTip[2] - topCenter[2]], [1, 0, 0]);
+    var vAxis = normalize3([yTip[0] - topCenter[0], yTip[1] - topCenter[1], yTip[2] - topCenter[2]], [0, 1, 0]);
+    var nAxis = normalize3(cross3(uAxis, vAxis), [0, 0, 1]);
+    var rootColor = toRgba(texture.color_a, [0.065, 0.25, 0.055, 1.0]);
+    var tipColor = toRgba(texture.color_b, [0.50, 0.78, 0.18, 1.0]);
+    var count = Math.max(0, Math.min(320000, Number(texture.near_blade_count || 80000) | 0));
+    if (!count) { return null; }
+    var cacheKey = [
+      String(mesh.id || "grass"),
+      String(mesh.kind || ""),
+      String(sizeU), String(sizeV), String(localZ),
+      JSON.stringify(mesh.center || []),
+      JSON.stringify(mesh.rotation || []),
+      JSON.stringify(texture.color_a || []),
+      JSON.stringify(texture.color_b || []),
+      String(count),
+      String(texture.seed || 99173),
+      String(texture.near_blade_height || ""),
+      String(texture.near_blade_width || "")
+    ].join("|");
+    if (grassBladeLayerCache[cacheKey]) {
+      return grassBladeLayerCache[cacheKey];
+    }
+    var rng = makeRng(Number(texture.seed || 99173) ^ stringHash32(String(mesh.id || "grass")));
+    var instances = new Float32Array(count * 12);
+    var bladeHeight = Math.max(0.004, Number(texture.near_blade_height || (minSize * 0.006)));
+    var bladeWidth = Math.max(0.00028, Number(texture.near_blade_width || (minSize * 0.00030)));
+    void camera;
+    for (var i = 0; i < count; i += 1) {
+      var su = (rng() - 0.5) * sizeU;
+      var sv = (rng() - 0.5) * sizeV;
+      var bendA = (rng() * Math.PI * 2.0);
+      var lean = (rng() * 0.48 + 0.12) * bladeHeight;
+      var h = bladeHeight * (0.34 + (rng() * 1.18));
+      var w0 = bladeWidth * (0.70 + (rng() * 0.70));
+      var w1 = w0 * 0.32;
+      var base = [
+        topCenter[0] + (uAxis[0] * su) + (vAxis[0] * sv),
+        topCenter[1] + (uAxis[1] * su) + (vAxis[1] * sv),
+        topCenter[2] + (uAxis[2] * su) + (vAxis[2] * sv)
+      ];
+      var bend = [
+        (uAxis[0] * Math.cos(bendA) + vAxis[0] * Math.sin(bendA)) * lean,
+        (uAxis[1] * Math.cos(bendA) + vAxis[1] * Math.sin(bendA)) * lean,
+        (uAxis[2] * Math.cos(bendA) + vAxis[2] * Math.sin(bendA)) * lean
+      ];
+      var tip = [
+        base[0] + (nAxis[0] * h) + bend[0],
+        base[1] + (nAxis[1] * h) + bend[1],
+        base[2] + (nAxis[2] * h) + bend[2]
+      ];
+      var tintMix = rng();
+      var color = [
+        (rootColor[0] * (1.0 - tintMix) + tipColor[0] * tintMix) * 0.38,
+        (rootColor[1] * (1.0 - tintMix) + tipColor[1] * tintMix) * 0.48,
+        (rootColor[2] * (1.0 - tintMix) + tipColor[2] * tintMix) * 0.32,
+        0.82
+      ];
+      var o = i * 12;
+      instances[o + 0] = base[0]; instances[o + 1] = base[1]; instances[o + 2] = base[2]; instances[o + 3] = w0;
+      instances[o + 4] = tip[0]; instances[o + 5] = tip[1]; instances[o + 6] = tip[2]; instances[o + 7] = -w1;
+      instances[o + 8] = color[0]; instances[o + 9] = color[1]; instances[o + 10] = color[2]; instances[o + 11] = color[3];
+    }
+    var layer = {
+      id: String(mesh.id || "grass") + "__near_blades",
+      kind: "field_mesh",
+      type: "field_mesh",
+      topology: "triangle-list",
+      vertices: new Float32Array([
+        -1, 0, 0,  0, 0, 1,  1, 1, 1, 1,
+         1, 0, 0,  0, 0, 1,  1, 1, 1, 1,
+        -1, 1, 0,  0, 0, 1,  1, 1, 1, 1,
+         1, 1, 0,  0, 0, 1,  1, 1, 1, 1
+      ]),
+      indices: new Uint32Array([0, 1, 2, 2, 1, 3]),
+      instances: instances,
+      instance_count: count,
+      instance_kind: "line-impostor",
+      static_vertices: true,
+      static_indices: true,
+      pickable: false,
+      transparent: true,
+      depth_write: true,
+      casts_shadow: false,
+      receives_shadow: true,
+      receives_lighting: false,
+      no_lighting: true,
+      specular_strength: 0.0,
+      no_cull: true,
+      color: [1, 1, 1, 1],
+      center: [0, 0, 0],
+      scale: [1, 1, 1],
+      rotation: [0, 0, 0]
+    };
+    grassBladeLayerCache[cacheKey] = layer;
+    return layer;
   }
 
   function currentFrameViewportHeight() {
@@ -1273,6 +1583,9 @@
   }
 
   function sampleMatrixTrack(track, framePos, fallback) {
+    if (!track) {
+      return Array.isArray(fallback) ? fallback.slice() : null;
+    }
     var identity = Array.isArray(fallback) ? fallback : identityMat4();
     if (isEncodedAxisTaggedValue(track)) {
       var idx = encodedAxisTaggedIdx(track);
@@ -1395,6 +1708,7 @@
       motion: String(entityProp(resolved, "motion", Array.isArray(entityProp(resolved, "pos", undefined)) ? "fixed" : "orbit") || "orbit"),
       model: String(entityProp(resolved, "model", "blinn_phong") || "blinn_phong"),
       color: resolveTrackedRgba(resolved, "color", framePos, toRgba(entityProp(resolved, "color", [1.0, 0.95, 0.84, 1.0]), [1.0, 0.95, 0.84, 1.0])),
+      marker_color: resolveTrackedRgba(resolved, "marker_color", framePos, toRgba(entityProp(resolved, "marker_color", entityProp(resolved, "source_color", entityProp(resolved, "color", [1.0, 0.95, 0.84, 1.0]))), [1.0, 0.95, 0.84, 1.0])),
       kind: kind,
       direction: entityTrack(resolved, "direction")
         ? resolveTrackedVec3(resolved, "direction", framePos, [0, 0, -1])
@@ -1414,6 +1728,13 @@
       reflect_mirror_mesh_id: String(entityProp(resolved, "reflect_mirror_mesh_id", "") || ""),
       clip_epsilon_ratio: Math.max(0.0, resolveTrackedNumber(resolved, "clip_epsilon_ratio", framePos, Number(entityProp(resolved, "clip_epsilon_ratio", 1e-5) == null ? 1e-5 : entityProp(resolved, "clip_epsilon_ratio", 1e-5))))
     };
+  }
+
+  function normalizeSceneLights(seconds) {
+    var lightSpecs = Array.isArray(config.lights)
+      ? config.lights
+      : (config.light ? [config.light] : []);
+    return lightSpecs.map(function (entry) { return normalizeLight(entry, seconds); });
   }
 
   function toVec2(value, fallback) {
@@ -1464,6 +1785,44 @@
       out[i + 9] = rgba[3];
     }
     return out;
+  }
+
+  function vertexColorSpec(value, fallback) {
+    if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
+      return value.map(function (item) { return toRgba(item, fallback || [1.0, 1.0, 1.0, 1.0]); });
+    }
+    return toRgba(value, fallback || [1.0, 1.0, 1.0, 1.0]);
+  }
+
+  function vertexColorAt(colorSpec, index, fallback) {
+    if (Array.isArray(colorSpec) && colorSpec.length > 0 && Array.isArray(colorSpec[0])) {
+      return toRgba(colorSpec[Math.max(0, index) % colorSpec.length], fallback || [1.0, 1.0, 1.0, 1.0]);
+    }
+    return toRgba(colorSpec, fallback || [1.0, 1.0, 1.0, 1.0]);
+  }
+
+  function fieldMeshHasAuthoredVertexColors(vertices) {
+    if (!vertices || vertices.length < 10 || (vertices.length % 10) !== 0) {
+      return false;
+    }
+    for (var i = 0; i + 9 < vertices.length; i += 10) {
+      var r = Number(vertices[i + 6]);
+      var g = Number(vertices[i + 7]);
+      var b = Number(vertices[i + 8]);
+      var a = Number(vertices[i + 9]);
+      if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b) || !Number.isFinite(a)) {
+        continue;
+      }
+      if (
+        Math.abs(r - 1.0) > 1e-6 ||
+        Math.abs(g - 1.0) > 1e-6 ||
+        Math.abs(b - 1.0) > 1e-6 ||
+        Math.abs(a - 1.0) > 1e-6
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function fieldMeshIndicesWithConsistentWinding(vertices, indices, enabled) {
@@ -1847,6 +2206,16 @@
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
       return state / 4294967296;
     };
+  }
+
+  function stringHash32(text) {
+    var h = 2166136261 >>> 0;
+    var s = String(text || "");
+    for (var i = 0; i < s.length; i += 1) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
   }
 
   function computeBounds(vertices) {
@@ -2482,14 +2851,14 @@
     if (!(vertexSize > 0) || mesh.show_vertices === false || !Array.isArray(hull.vertices) || !hull.vertices.length || !hullVertexIndices.length) {
       return null;
     }
-    var color = toRgba(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
+    var color = vertexColorSpec(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
     var liftedVertices = liftedFlatVertices(hull.vertices, mesh.vertex_lift);
     var verts = [];
     var indices = [];
     for (var i = 0; i < hullVertexIndices.length; i += 1) {
       var sourceIndex = Number(hullVertexIndices[i]) | 0;
       if (!liftedVertices[sourceIndex]) { continue; }
-      pushVertex(verts, liftedVertices[sourceIndex], [0, 0, 1], color);
+      pushVertex(verts, liftedVertices[sourceIndex], [0, 0, 1], vertexColorAt(color, i, mesh.face_color || [0.96, 0.22, 0.16, 1.0]));
       indices.push(indices.length);
     }
     return {
@@ -2499,7 +2868,7 @@
       vertices: verts,
       indices: indices,
       vertex_size: vertexSize,
-      color: color,
+      color: Array.isArray(color) && Array.isArray(color[0]) ? color[0] : color,
       render_mode: overlayRenderMode(mesh, "vertex"),
       marker_space: overlayMarkerSpace(mesh, "vertex"),
       casts_shadow: mesh.vertex_casts_shadow !== false,
@@ -2605,12 +2974,12 @@
     if (!(vertexSize > 0) || mesh.show_vertices === false || !Array.isArray(simplicial.vertices) || !simplicial.vertices.length) {
       return null;
     }
-    var color = toRgba(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
+    var color = vertexColorSpec(mesh.vertex_color, mesh.face_color || [0.96, 0.22, 0.16, 1.0]);
     var liftedVertices = liftedFlatVertices(simplicial.vertices, mesh.vertex_lift);
     var verts = [];
     var indices = [];
     for (var i = 0; i < liftedVertices.length; i += 1) {
-      pushVertex(verts, liftedVertices[i], [0, 0, 1], color);
+      pushVertex(verts, liftedVertices[i], [0, 0, 1], vertexColorAt(color, i, mesh.face_color || [0.96, 0.22, 0.16, 1.0]));
       indices.push(i);
     }
     return {
@@ -2620,7 +2989,7 @@
       vertices: verts,
       indices: indices,
       vertex_size: vertexSize,
-      color: color,
+      color: Array.isArray(color) && Array.isArray(color[0]) ? color[0] : color,
       render_mode: overlayRenderMode(mesh, "vertex"),
       marker_space: overlayMarkerSpace(mesh, "vertex"),
       casts_shadow: mesh.vertex_casts_shadow !== false,
@@ -2732,17 +3101,51 @@
       var fieldInterpolation = entityProp(spec, "interpolation", false) === true;
       var fieldVertices = fieldMeshFlatVertexArray(entityProp(spec, "vertices", []));
       var fieldIndices = fieldMeshIndexArray(entityProp(spec, "indices", []));
+      var vertexScale = entityProp(spec, "vertex_scale", null);
+      var authoredPointXs = entityProp(spec, "x_i", null);
+      var authoredPointYs = entityProp(spec, "y_i", null);
+      var authoredPointZs = entityProp(spec, "z_i", null);
+      var usesAuthoredPointColors = false;
+      if (
+        fieldVertices.length === 0 &&
+        Array.isArray(authoredPointXs) &&
+        Array.isArray(authoredPointYs) &&
+        Array.isArray(authoredPointZs)
+      ) {
+        var pointCount = Math.min(authoredPointXs.length, authoredPointYs.length, authoredPointZs.length);
+        var pointColors = Array.isArray(entityProp(spec, "c_i", null)) ? entityProp(spec, "c_i", null) : [];
+        var pointColorFallback = toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]);
+        fieldVertices = new Float32Array(pointCount * 10);
+        fieldIndices = new Uint32Array(pointCount);
+        for (var pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+          var pointOffset = pointIndex * 10;
+          var pointColor = toRgba(pointColors[pointIndex], pointColorFallback);
+          fieldVertices[pointOffset] = Number(authoredPointXs[pointIndex] || 0.0);
+          fieldVertices[pointOffset + 1] = Number(authoredPointYs[pointIndex] || 0.0);
+          fieldVertices[pointOffset + 2] = Number(authoredPointZs[pointIndex] || 0.0);
+          fieldVertices[pointOffset + 3] = 0.0;
+          fieldVertices[pointOffset + 4] = 0.0;
+          fieldVertices[pointOffset + 5] = 1.0;
+          fieldVertices[pointOffset + 6] = pointColor[0];
+          fieldVertices[pointOffset + 7] = pointColor[1];
+          fieldVertices[pointOffset + 8] = pointColor[2];
+          fieldVertices[pointOffset + 9] = pointColor[3];
+          fieldIndices[pointIndex] = pointIndex;
+        }
+        usesAuthoredPointColors = true;
+      }
       fieldIndices = fieldMeshIndicesWithConsistentWinding(fieldVertices, fieldIndices, entityProp(spec, "repair_winding", true) !== false);
       fieldVertices = smoothInterpolatedFieldMeshVertices(spec, fieldVertices, fieldIndices, fieldInterpolation);
       var fieldColor = toRgba(entityProp(spec, "color", [1.0, 1.0, 1.0, 1.0]), [1.0, 1.0, 1.0, 1.0]);
-      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, entityProp(spec, "use_vertex_color", false) !== true);
+      var hasAuthoredVertexColors = usesAuthoredPointColors || entityProp(spec, "use_vertex_color", false) === true || fieldMeshHasAuthoredVertexColors(fieldVertices);
+      fieldVertices = fieldMeshVerticesWithMaterialColor(fieldVertices, fieldColor, !hasAuthoredVertexColors);
       return {
         id: String(spec.id || "field_mesh"),
         kind: "field_mesh",
         object_id: Number(entityProp(spec, "object_id", 0) || 0) || undefined,
         vertices: fieldVertices,
         indices: fieldIndices,
-        topology: String(entityProp(spec, "topology", "triangle-list")),
+        topology: String(entityProp(spec, "topology", fieldIndices.length > 0 && fieldVertices.length === fieldIndices.length * 10 ? "point-list" : "triangle-list")),
         interpolation: fieldInterpolation,
         alpha: Math.max(0.0, Math.min(1.0, Number(entityProp(spec, "alpha", 1.0)))),
         center: resolveTrackedVec3(spec, "center", framePos, toVec3(entityProp(spec, "center", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
@@ -2761,7 +3164,13 @@
         repair_winding: entityProp(spec, "repair_winding", true) !== false,
         static_vertices: entityProp(spec, "static_vertices", false) === true,
         static_indices: entityProp(spec, "static_indices", false) === true,
+        instances: numericArrayLike(entityProp(spec, "instances", null)) ? entityProp(spec, "instances", null) : null,
+        instance_count: Math.max(0, Number(entityProp(spec, "instance_count", 0) || 0) | 0),
+        instance_kind: String(entityProp(spec, "instance_kind", "") || ""),
         vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.0) || 0.0)),
+        vertex_scale: Array.isArray(vertexScale)
+          ? vertexScale.slice()
+          : (vertexScale == null ? undefined : Math.max(0.0, Number(vertexScale || 0.0))),
         edge_width: Math.max(0.0, Number(entityProp(spec, "edge_width", 0.0) || 0.0)),
         vertex_widths: Array.isArray(entityProp(spec, "vertex_widths", [])) ? entityProp(spec, "vertex_widths", []).slice() : [],
         render_mode: renderMode,
@@ -2821,7 +3230,7 @@
           edge_casts_shadow: entityProp(spec, "edge_casts_shadow", true) !== false,
           edge_receives_lighting: entityProp(spec, "edge_receives_lighting", true) !== false,
           edge_depth_write: entityProp(spec, "edge_depth_write", null),
-          vertex_color: toRgba(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
+          vertex_color: vertexColorSpec(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
           vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.06) || 0.06)),
           vertex_lift: Math.max(0.0, Number(entityProp(spec, "vertex_lift", 0.006) || 0.006)),
           show_vertices: entityProp(spec, "show_vertices", true) !== false,
@@ -2857,7 +3266,7 @@
           edge_casts_shadow: entityProp(spec, "edge_casts_shadow", true) !== false,
           edge_receives_lighting: entityProp(spec, "edge_receives_lighting", true) !== false,
           edge_depth_write: entityProp(spec, "edge_depth_write", null),
-          vertex_color: toRgba(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
+          vertex_color: vertexColorSpec(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
           vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.06) || 0.06)),
           vertex_lift: Math.max(0.0, Number(entityProp(spec, "vertex_lift", 0.006) || 0.006)),
           show_vertices: entityProp(spec, "show_vertices", true) !== false,
@@ -2889,7 +3298,7 @@
           edge_casts_shadow: entityProp(spec, "edge_casts_shadow", true) !== false,
           edge_receives_lighting: entityProp(spec, "edge_receives_lighting", true) !== false,
           edge_depth_write: entityProp(spec, "edge_depth_write", null),
-          vertex_color: toRgba(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
+          vertex_color: vertexColorSpec(entityProp(spec, "vertex_color", faceColor), [0.96, 0.22, 0.16, 1.0]),
           vertex_size: Math.max(0.0, Number(entityProp(spec, "vertex_size", 0.06) || 0.06)),
           vertex_lift: Math.max(0.0, Number(entityProp(spec, "vertex_lift", 0.006) || 0.006)),
           show_vertices: entityProp(spec, "show_vertices", true) !== false,
@@ -2911,6 +3320,10 @@
           return [center2[0], center2[1], Number(entityProp(spec, "z", 0.0) || 0.0)];
         }());
     var quadSurfaceSystem = resolveSurfaceSystem(resolveTrackedObject(spec, "surface_system", framePos, entityProp(spec, "surface_system", null)), viewerCamera, seconds);
+    var quadColor = toRgba(entityProp(spec, "color", [0.20, 0.22, 0.26, 1.0]), [0.20, 0.22, 0.26, 1.0]);
+    var quadTransparent = entityProp(spec, "transparent", false) === true ||
+      (quadSurfaceSystem && quadSurfaceSystem._window_surface === true) ||
+      Number(quadColor[3] || 0.0) < 0.999;
     var quadCastsShadowDefault = quadSurfaceSystem ? false : true;
     var quadReverseFacing = entityProp(spec, "reverse_facing", false) === true ||
       (quadSurfaceSystem && quadSurfaceSystem.reverse_facing === true);
@@ -2930,15 +3343,17 @@
         : Number(entityProp(spec, "size", 7.0) || 7.0),
       rotation: resolveTrackedVec3(spec, "rotation", framePos, toVec3(entityProp(spec, "rotation", [0.0, 0.0, 0.0]), [0.0, 0.0, 0.0])),
         transform: resolveTrackedMatrix4(spec, "transform", framePos, toMatrix4(entityProp(spec, "transform", null), null)),
-        color: toRgba(entityProp(spec, "color", [0.20, 0.22, 0.26, 1.0]), [0.20, 0.22, 0.26, 1.0]),
+        color: quadColor,
         texture: resolveTrackedObject(spec, "texture", framePos, entityProp(spec, "texture", null)),
         visible: entityProp(spec, "visible", true) !== false,
         surface_system: quadSurfaceSystem,
         casts_shadow: entityProp(spec, "casts_shadow", quadCastsShadowDefault) !== false,
         receives_shadow: entityProp(spec, "receives_shadow", true) !== false,
         no_backface_specular: entityProp(spec, "no_backface_specular", false) === true,
+        transparent: quadTransparent,
+        no_cull: entityProp(spec, "no_cull", false) === true || (quadSurfaceSystem && quadSurfaceSystem._window_surface === true),
         reverse_facing: quadReverseFacing,
-        depth_write: entityProp(spec, "depth_write", null)
+        depth_write: entityProp(spec, "depth_write", null) == null ? !quadTransparent : entityProp(spec, "depth_write", null) === true
       };
   }
 
@@ -3055,6 +3470,9 @@
         topology: topology,
         vertices: numericArrayLike(mesh.vertices) ? mesh.vertices : [],
         indices: numericArrayLike(mesh.indices) ? mesh.indices : [],
+        instances: numericArrayLike(mesh.instances) ? mesh.instances : null,
+        instance_count: Math.max(0, Number(mesh.instance_count || 0) | 0),
+        instance_kind: String(mesh.instance_kind || ""),
         static_vertices: true,
         static_indices: true,
         color: toRgba(mesh.color, [1.0, 1.0, 1.0, 1.0]),
@@ -3132,12 +3550,11 @@
           ], [0, 0, -1]);
       spotlightBoost = Math.max(0.0, (dir[0] * toCamera[0]) + (dir[1] * toCamera[1]) + (dir[2] * toCamera[2]));
     }
-    var intensity = Math.max(0.0, Number(light.intensity || 24.0));
-    var glowRadius = Math.max(0.10, Number(markerSize || 0.18) * (4.2 + Math.min(5.0, intensity / 40.0)));
+    var glowRadius = Math.max(0.02, Number(markerSize || 0.18));
+    var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);
     var glowAlpha = Math.min(1.0, 0.42 + (0.42 * spotlightBoost));
-    var color = toRgba(light.color, [1.0, 1.0, 1.0, 1.0]);
-    var centerColor = [1.0, 1.0, 1.0, glowAlpha];
-    var innerColor = [color[0], color[1], color[2], glowAlpha * 0.62];
+    var centerColor = [color[0], color[1], color[2], 1.0];
+    var innerColor = [color[0], color[1], color[2], Math.max(0.85, glowAlpha)];
     var outerColor = [color[0], color[1], color[2], 0.0];
     var segments = 20;
     var innerScale = 0.34;
@@ -3187,11 +3604,35 @@
 
   function buildLightMarkerMeshes(lights, camera, markerSize) {
     var meshes = [];
-    var size = Math.max(0.02, Number(markerSize || 0.18));
+    var defaultSize = Math.max(0.02, Number(markerSize || 0.18));
     for (var i = 0; i < lights.length; i += 1) {
       var light = lights[i];
       if (light.show_marker === false) { continue; }
-      meshes.push(buildGlowHaloMesh(light, camera, size));
+      if (Number(light.source_radius || 0.0) > 0.0) { continue; }
+      var size = Math.max(0.02, Number(light.source_radius != null ? light.source_radius : defaultSize) || defaultSize);
+      var center = toVec3(light.pos, [0, 0, 0]);
+      var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);
+      meshes.push({
+        type: "field_mesh",
+        id: String("light_source_" + String(light.id || i)),
+        topology: "point-list",
+        vertices: new Float32Array([
+          center[0], center[1], center[2],
+          0.0, 0.0, 1.0,
+          color[0], color[1], color[2], 1.0
+        ]),
+        indices: new Uint32Array([0]),
+        color: color,
+        vertex_size: size,
+        render_mode: "marker_impostor",
+        marker_space: "world",
+        receives_lighting: false,
+        receives_shadow: false,
+        casts_shadow: false,
+        depth_write: true,
+        transparent: false,
+        pickable: false
+      });
     }
     return meshes;
   }
@@ -3539,7 +3980,7 @@
       var size = Math.max(92, 120 + (intensity * 0.72) + (120 * facing));
       var node = ensureFlareElement(layer, i);
       var canvas = ensureFlareCanvas(node);
-      var color = toRgba(light.color, [1.0, 1.0, 1.0, 1.0]);
+      var color = toRgba(light.marker_color || light.source_color || light.color, [1.0, 1.0, 1.0, 1.0]);
       var cr = Math.round(color[0] * 255);
       var cg = Math.round(color[1] * 255);
       var cb = Math.round(color[2] * 255);
@@ -3589,11 +4030,13 @@
   }
 
   function buildSceneState(cameraOverride, seconds) {
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:start");
     var camera = cameraOverride || makeCamera(config.camera || {}, { pos: [3.9, -5.6, 3.2], target: [0, 0, 0.9], fov: 34, up: [0, 0, 1], min_distance: 0.0 }, seconds);
     var lightSpecs = Array.isArray(config.lights)
       ? config.lights
       : (config.light ? [config.light] : []);
-    var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes.slice() : [];
+    var opticalReferenceIds = collectOpticalReferenceMeshIds(lightSpecs);
+    var rawMeshSpecs = authoredSceneMeshSpecs();
     var chessCfg = chessInteractionConfig();
     var chessRuntime = global.__vfNativeChessRuntime || null;
     if (chessCfg) {
@@ -3609,16 +4052,22 @@
     rawMeshSpecs = syncChessRuntimePiecesIntoMeshes(rawMeshSpecs);
     if (frameSpec.visible === false) {
       rawMeshSpecs = rawMeshSpecs.filter(function (mesh) {
-        return entityProp(mesh, "visible", true) !== false;
+        var visible = entityProp(mesh, "visible", true) !== false;
+        return visible || opticalReferenceIds[meshSpecId(mesh)] === true;
       });
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeMeshes");
     var meshSpecs = rawMeshSpecs.map(function (mesh) { return normalizeMeshSpec(mesh, seconds, camera); });
+    meshSpecs = filterReflectedSourceMeshes(meshSpecs, camera, seconds);
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterNormalizeMeshes");
     var receivers = Array.isArray(config.shadow_receivers) ? config.shadow_receivers.map(normalizeShadowReceiverSpec) : [];
     var meshById = Object.create(null);
     for (var meshIndex = 0; meshIndex < meshSpecs.length; meshIndex += 1) {
       meshById[meshSpecs[meshIndex].id] = meshSpecs[meshIndex];
     }
-    var lights = lightSpecs.map(function (entry) { return normalizeLight(entry, seconds); });
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeNormalizeLights");
+    var lights = normalizeSceneLights(seconds);
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterNormalizeLights");
     for (var mirrorIndex = 0; mirrorIndex < meshSpecs.length; mirrorIndex += 1) {
       var mirrorMesh = meshSpecs[mirrorIndex];
       var surfaceSystem = mirrorMesh && mirrorMesh.surface_system && typeof mirrorMesh.surface_system === "object"
@@ -3636,6 +4085,7 @@
       }
     }
     var meshes = [];
+    var opticalParts = [];
     var receiverIds = Object.create(null);
     for (var receiverIndex = 0; receiverIndex < receivers.length; receiverIndex += 1) {
       var receiver = receivers[receiverIndex] || {};
@@ -3655,29 +4105,36 @@
         meshes.push(receiverPayload);
       }
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:beforeBuildMeshes");
     for (var i = 0; i < meshSpecs.length; i += 1) {
       var mesh = meshSpecs[i];
-      if (mesh.visible === false) { continue; }
+      if (mesh.visible === false) {
+        if (opticalReferenceIds[String(mesh.id || "")] === true) {
+          pushMeshPayload(opticalParts, buildMeshPayload(mesh, camera, lights));
+        }
+        continue;
+      }
       if (receiverIds[mesh.id]) { continue; }
       var meshPayload = buildMeshPayload(mesh, camera, lights);
-      if (Array.isArray(meshPayload)) {
-        for (var meshPayloadIndex = 0; meshPayloadIndex < meshPayload.length; meshPayloadIndex += 1) {
-          if (meshPayload[meshPayloadIndex]) { meshes.push(meshPayload[meshPayloadIndex]); }
-        }
-      } else if (meshPayload) {
-        meshes.push(meshPayload);
+      pushMeshPayload(meshes, meshPayload);
+      var grassNearLayer = grassNearBladeLayer(mesh, camera);
+      if (grassNearLayer) {
+        pushMeshPayload(meshes, buildMeshPayload(grassNearLayer, camera, lights));
       }
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:afterBuildMeshes");
     if (renderOptions.show_light_markers === true) {
       var markerMeshes = buildLightMarkerMeshes(lights, camera, renderOptions.light_marker_size);
       for (var markerIndex = 0; markerIndex < markerMeshes.length; markerIndex += 1) {
         meshes.push(markerMeshes[markerIndex]);
       }
     }
+    startupDebugMark(frameSpec.frame_id || config.frame_id, "buildSceneState:return");
     return {
       camera: camera,
       lights: lights,
       meshes: meshes,
+      optical_parts: opticalParts,
       flare_occluders: meshSpecs.filter(function (mesh) { return mesh.kind === "cube" || mesh.kind === "random_hull" || mesh.kind === "convex_hull" || mesh.kind === "simplices"; })
     };
   }
@@ -3714,6 +4171,7 @@
     var geom = {};
     geom[String(frameSpec.frame_id || config.frame_id)] = {
       meshes: state.meshes,
+      optical_parts: state.optical_parts,
       camera: state.camera,
       lights: state.lights,
       background: sceneBackground,
@@ -3815,8 +4273,99 @@
     return runtime ? (Number(runtime.sceneDirtyVersion || 0) || 0) : 0;
   }
 
-  function currentSceneWorldDirtyVersion() {
-    return currentChessSceneDirtyVersion();
+  function entityTrackIsAnimated(track) {
+    if (Array.isArray(track)) { return track.length > 1; }
+    if (isEncodedAxisTaggedValue(track)) {
+      var idx = encodedAxisTaggedIdx(track);
+      if (!idx || idx.charAt(idx.length - 1) !== "t") { return false; }
+      return trackLengthForAxis(encodedAxisTaggedData(track), idx.length - 1) > 1;
+    }
+    return false;
+  }
+
+  function entityHasAnimatedTracks(entity) {
+    if (!entity || typeof entity !== "object") { return false; }
+    var tracks = entity.tracks && typeof entity.tracks === "object" ? entity.tracks : null;
+    if (tracks) {
+      var names = Object.keys(tracks);
+      for (var i = 0; i < names.length; i += 1) {
+        if (entityTrackIsAnimated(tracks[names[i]])) { return true; }
+      }
+    }
+    return Math.max(1, Number(entityProp(entity, "time_count", 1) || 1) | 0) > 1;
+  }
+
+  function lightHasContinuousMotion(light) {
+    if (!light || typeof light !== "object") { return false; }
+    if (entityHasAnimatedTracks(light)) { return true; }
+    var angularVelocity = Math.abs(Number(entityProp(light, "angular_velocity", 0.0) || 0.0));
+    if (!(angularVelocity > 0.0)) { return false; }
+    var motion = String(entityProp(light, "motion", Array.isArray(entityProp(light, "pos", undefined)) ? "fixed" : "orbit") || "orbit");
+    return motion === "orbit" || motion === "oscillate";
+  }
+
+  function sceneHasNativeWorldAnimations() {
+    if (nativeWorldAnimationPresence != null) { return nativeWorldAnimationPresence === true; }
+    if (entityHasAnimatedTracks(config.camera || null)) {
+      nativeWorldAnimationPresence = true;
+      return true;
+    }
+    var lightSpecs = Array.isArray(config.lights)
+      ? config.lights
+      : (config.light ? [config.light] : []);
+    for (var lightIndex = 0; lightIndex < lightSpecs.length; lightIndex += 1) {
+      if (lightHasContinuousMotion(lightSpecs[lightIndex])) {
+        nativeWorldAnimationPresence = true;
+        return true;
+      }
+    }
+    var rawMeshSpecs = authoredSceneMeshSpecs();
+    for (var meshIndex = 0; meshIndex < rawMeshSpecs.length; meshIndex += 1) {
+      if (entityHasAnimatedTracks(rawMeshSpecs[meshIndex])) {
+        nativeWorldAnimationPresence = true;
+        return true;
+      }
+    }
+    var surfaceCameraIds = Object.keys(surfaceCameras);
+    for (var cameraIndex = 0; cameraIndex < surfaceCameraIds.length; cameraIndex += 1) {
+      if (entityHasAnimatedTracks(surfaceCameras[surfaceCameraIds[cameraIndex]])) {
+        nativeWorldAnimationPresence = true;
+        return true;
+      }
+    }
+    nativeWorldAnimationPresence = false;
+    return false;
+  }
+
+  function sceneHasNativeGeometryOrCameraAnimations() {
+    if (entityHasAnimatedTracks(config.camera || null)) { return true; }
+    var rawMeshSpecs = authoredSceneMeshSpecs();
+    for (var meshIndex = 0; meshIndex < rawMeshSpecs.length; meshIndex += 1) {
+      if (entityHasAnimatedTracks(rawMeshSpecs[meshIndex])) { return true; }
+    }
+    var surfaceCameraIds = Object.keys(surfaceCameras);
+    for (var cameraIndex = 0; cameraIndex < surfaceCameraIds.length; cameraIndex += 1) {
+      if (entityHasAnimatedTracks(surfaceCameras[surfaceCameraIds[cameraIndex]])) { return true; }
+    }
+    return false;
+  }
+
+  function canUseCameraLightFastPath(useVisibleFrameValue, visibleSpecValue, worldAnimationActive, dirtyVersion, visibleLastDirtyVersionValue, meshStructureSignature, visibleLastMeshStructureSignatureValue) {
+    if (!useVisibleFrameValue || !visibleSpecValue) { return false; }
+    if (meshStructureSignature !== visibleLastMeshStructureSignatureValue) { return false; }
+    if (chessInteractionConfig() && worldAnimationActive) { return false; }
+    if (sceneHasNativeGeometryOrCameraAnimations()) { return false; }
+    if (dirtyVersion === visibleLastDirtyVersionValue) { return true; }
+    return sceneHasNativeWorldAnimations();
+  }
+
+  function currentNativeSceneAnimationDirtyVersion(seconds) {
+    if (!sceneHasNativeWorldAnimations()) { return 0; }
+    return Math.max(0, Math.floor(Math.max(0.0, Number(seconds || 0.0)) * Math.max(1, fps)));
+  }
+
+  function currentSceneWorldDirtyVersion(seconds) {
+    return (currentChessSceneDirtyVersion() * 1000000000) + currentNativeSceneAnimationDirtyVersion(seconds);
   }
 
   function chessAnimationsPending() {
@@ -3825,11 +4374,12 @@
   }
 
   function sceneWorldAnimationsPending() {
-    return chessAnimationsPending();
+    return chessAnimationsPending() || sceneHasNativeWorldAnimations();
   }
 
   function applySceneWorldFrame(seconds) {
-    return applyChessInteractionFrame(seconds);
+    var chessActive = applyChessInteractionFrame(seconds);
+    return chessActive || sceneHasNativeWorldAnimations();
   }
 
   function chessMeshStructureSignature() {
@@ -6367,62 +6917,35 @@
 
   function ensureChessPanel(runtime) {
     if (!global.document) { return; }
-    var controlsFrameId = String(runtime.cfg.controls_frame_id || "vkf_chess_controls");
     var controlsFrameClass = String(runtime.cfg.controls_frame_class || "vf-chess-frame");
     var controlsPanelClass = String(runtime.cfg.controls_panel_class || "vf-chess-panel");
-    var layer = document.body || document.documentElement;
-    var frameApi = null;
     var sceneFrame = chessSceneFrameElement();
     if (!sceneFrame && sceneFrameVisible()) {
       sceneFrame = ensureVisibleSceneFrameShell();
     }
     var sceneFrameBody = sceneFrame && sceneFrame.querySelector ? sceneFrame.querySelector(".vf-frame__body") : null;
+    if (!sceneFrame || !sceneFrameBody) {
+      failFast("chess controls require the scene frame shell before panel mount");
+    }
     if (runtime.panel) {
       attachChessPanelToSceneFrame(runtime, sceneFrame, sceneFrameBody, controlsFrameClass);
       return;
     }
-    if (sceneFrame && sceneFrameBody) {
-      sceneFrame.setAttribute("data-vf-chess-board-frame", "1");
-      sceneFrame.classList.add(controlsFrameClass);
-      ensureChessBoardHost(sceneFrameBody);
-    } else if (global.VfFrame && typeof global.VfFrame.mount === "function" && layer) {
-      frameApi = global.VfFrame.mount(layer, {
-        id: controlsFrameId,
-        title: "Moves",
-        titleAlign: "left",
-        inLayerDrag: true,
-        draggable: true,
-        dockable: true,
-        resizable: true,
-        closable: true,
-        exitWhenLastFrameClosed: true,
-        alpha: 1,
-        bodyTransparent: false,
-        dockLocation: "br",
-        zIndexBase: 1200
-      });
-      frameApi.root.setAttribute("data-vf-chess-panel", "1");
-      frameApi.root.classList.add(controlsFrameClass);
-    }
-    var panel = frameApi && frameApi.body ? frameApi.body : document.createElement("aside");
+    sceneFrame.setAttribute("data-vf-chess-board-frame", "1");
+    sceneFrame.classList.add(controlsFrameClass);
+    ensureChessBoardHost(sceneFrameBody);
+    var panel = document.createElement("aside");
     panel.classList.add(controlsPanelClass);
     panel.innerHTML = '<h2 class="vf-chess-title">VKF Chess</h2><div class="vf-chess-turn" data-vf-chess-turn>Turn: white</div><label class="vf-chess-mode"><span>Mode</span><select data-vf-chess-player-mode>' + renderChessPlayerModeOptions(runtime) + '</select></label><div class="vf-chess-clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="white" inputmode="numeric" value="10:00" aria-label="White clock"><input class="vf-chess-clock-time" data-vf-chess-clock-side="black" inputmode="numeric" value="10:00" aria-label="Black clock"></div><div class="vf-chess-actions"><button class="vf-chess-start-game" data-vf-chess-start-game>Start Game</button><button class="vf-chess-new-game" data-vf-chess-new-game>New Game</button></div><label class="vf-chess-toggle"><input type="checkbox" data-vf-chess-auto-switch> Auto switch view</label><h3 class="vf-chess-section-title">Moves</h3><table class="vf-chess-moves"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody data-vf-chess-moves></tbody></table>';
     panel.addEventListener("contextmenu", function (ev) {
       if (ev && typeof ev.preventDefault === "function") { ev.preventDefault(); }
       if (ev && typeof ev.stopPropagation === "function") { ev.stopPropagation(); }
     }, { passive: false, capture: true });
-    if (!frameApi) {
-      panel.setAttribute("data-vf-chess-panel", "1");
-      if (sceneFrameBody) {
-        panel.classList.add("vf-chess-panel--in-frame");
-        sceneFrameBody.appendChild(panel);
-      } else {
-        panel.classList.add("vf-chess-panel--fallback");
-        document.body.appendChild(panel);
-      }
-    }
-    runtime.panelFrame = frameApi;
-    runtime.panel = frameApi && frameApi.root ? frameApi.root : panel;
+    panel.setAttribute("data-vf-chess-panel", "1");
+    panel.classList.add("vf-chess-panel--in-frame");
+    sceneFrameBody.appendChild(panel);
+    runtime.panelFrame = null;
+    runtime.panel = panel;
     runtime.panelBody = panel;
     var startButton = panel.querySelector("[data-vf-chess-start-game]");
     if (startButton) {
@@ -7203,6 +7726,37 @@
     registry[key][depKey] = callback;
   }
 
+  function collectOpticalReferenceMeshIds(lightSpecs) {
+    var out = Object.create(null);
+    if (!Array.isArray(lightSpecs)) { return out; }
+    for (var i = 0; i < lightSpecs.length; i += 1) {
+      var light = lightSpecs[i] || {};
+      var mirrorId = String(entityProp(light, "reflect_mirror_mesh_id", "") || "").trim();
+      if (mirrorId) { out[mirrorId] = true; }
+      var aperture = entityProp(light, "projected_aperture", null);
+      if (aperture && typeof aperture === "object") {
+        var apertureMeshId = String(aperture.mesh_id || "").trim();
+        if (apertureMeshId) { out[apertureMeshId] = true; }
+      }
+    }
+    return out;
+  }
+
+  function meshSpecId(mesh) {
+    return String(entityProp(mesh || {}, "id", (mesh && mesh.id) || "") || "").trim();
+  }
+
+  function pushMeshPayload(target, payload) {
+    if (!target || !payload) { return; }
+    if (Array.isArray(payload)) {
+      for (var i = 0; i < payload.length; i += 1) {
+        if (payload[i]) { target.push(payload[i]); }
+      }
+      return;
+    }
+    target.push(payload);
+  }
+
   function triggerFrameDependents(sourceFrameId, options) {
     var key = String(sourceFrameId || "").trim();
     if (!key) { return; }
@@ -7271,6 +7825,10 @@
 
   function sceneFrameVisible() {
     return !((frameSpec && frameSpec.visible === false) || (config && config.visible === false));
+  }
+
+  function sceneFrameShellIsPacketOwned() {
+    return global.__vfNativeSceneFramesArePacketOwned === true;
   }
 
   function offscreenFramePixels() {
@@ -7360,6 +7918,7 @@
 
   function ensureVisibleSceneFrameShell() {
     if (!sceneFrameVisible()) { return null; }
+    if (sceneFrameShellIsPacketOwned()) { return null; }
     var frameId = String(frameSpec.frame_id || config.frame_id || "").trim();
     if (!frameId) { return null; }
     var existing = document.querySelector('.vf-frame[data-vf-frame-id="' + frameId + '"]');
@@ -7443,10 +8002,13 @@
   function boot() {
     requireRuntime();
     var frame = document.querySelector('.vf-frame[data-vf-frame-id="' + String(frameSpec.frame_id || config.frame_id) + '"]');
-    if (!frame && sceneFrameVisible()) {
+    if (!frame && sceneFrameVisible() && !sceneFrameShellIsPacketOwned()) {
       frame = ensureVisibleSceneFrameShell();
     }
     var body = frame ? frame.querySelector(".vf-frame__body") : null;
+    if (body && gameCameraMode()) {
+      try { body.tabIndex = 0; } catch (_) {}
+    }
     var cameraFallback = { pos: [3.9, -5.6, 3.2], target: [0, 0, 0.9], fov: 34, up: [0, 0, 1], min_distance: 0.0 };
     var watchedFrameId = String(frameSpec.frame_id || config.frame_id);
     if (!global.__vfNativeSceneCameraControls) {
@@ -7462,7 +8024,7 @@
           orbitPhi: 0.0,
           orbitTheta: 0.0,
           orbitStep: cameraOrbitStepRadians(config.camera || {}),
-          orbitSpeedRadPerSec: Math.max(cameraOrbitStepRadians(config.camera || {}) * 18.0, Math.PI * 0.45),
+          orbitSpeedRadPerSec: cameraOrbitSpeedRadians(config.camera || {}),
           controlsEnabled: cameraBehaviorProps().controls_enabled !== false,
           lookOnlyControls: cameraBehaviorProps().look_only_controls === true,
           lockApertureCamera: cameraBehaviorProps().lock_aperture_camera === true,
@@ -7484,6 +8046,21 @@
           keyRight: false,
           keyUp: false,
           keyDown: false,
+          keyW: false,
+          keyA: false,
+          keyS: false,
+          keyD: false,
+          gameActive: false,
+          gameClickLocked: false,
+          gameCameraMode: String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game",
+          gamePos: null,
+          gameYaw: 0.0,
+          gamePitch: 0.0,
+          gameInitDone: false,
+          gameSensitivity: Number(cameraBehaviorProps().sensitivity || 0.0022) || 0.0022,
+          gameLastMouseX: null,
+          gameLastMouseY: null,
+          gameMoveLastTsMs: 0.0,
           cameraKeyLastTsMs: 0.0,
           cameraKeyStepPending: false,
           dependencyWaitStartMs: 0.0
@@ -7508,6 +8085,20 @@
     controlState.keyRight = false;
     controlState.keyUp = false;
     controlState.keyDown = false;
+    controlState.keyW = false;
+    controlState.keyA = false;
+    controlState.keyS = false;
+    controlState.keyD = false;
+    controlState.gameActive = false;
+    controlState.gameClickLocked = false;
+    controlState.gameCameraMode = String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game";
+    controlState.gamePos = null;
+    controlState.gameYaw = 0.0;
+    controlState.gamePitch = 0.0;
+    controlState.gameInitDone = false;
+    controlState.gameSensitivity = Number(cameraBehaviorProps().sensitivity || 0.0022) || 0.0022;
+    controlState.gameLastMouseX = null;
+    controlState.gameLastMouseY = null;
     controlState.cameraKeyLastTsMs = 0.0;
     controlState.cameraKeyStepPending = false;
     controlState.cameraFramePending = false;
@@ -7528,7 +8119,7 @@
     controlState.debugRenderFrameSkippedCount = 0;
     var useVisibleFrame = sceneFrameVisible();
     var dependencySourceFrameId = String(cameraBehaviorProps().reflect_of_frame_id || "").trim();
-    var cameraOnlyFastPathEnabled = !!chessInteractionConfig();
+    var cameraOnlyFastPathEnabled = true;
     var offscreenSpec = null;
     var offscreenMounted = false;
     var visibleSpec = null;
@@ -7567,6 +8158,7 @@
       visibleMounted = true;
     }
     function pushVisibleRender(rendered, options) {
+      startupDebugMark(watchedFrameId, "pushVisibleRender");
       options = options && typeof options === "object" ? options : {};
       var payload = rendered && rendered.payload && typeof rendered.payload === "object"
         ? rendered.payload
@@ -7586,6 +8178,9 @@
         visibleSpec = nextVisibleSpec;
         ensureVisibleGeomMount();
         scenePerf.fullSceneUpdates += 1;
+        if (options.defer_update === true) {
+          return;
+        }
         global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: options.immediate === true });
         return;
       }
@@ -7615,7 +8210,10 @@
         nextCamera,
         visibleSpec.lights || [],
         visibleSpec.light_flares || null,
-        { immediate: options.immediate === true }
+        {
+          immediate: options.immediate === true,
+          afterPresented: typeof options.afterPresented === "function" ? options.afterPresented : null
+        }
       ) === true;
     }
     function updateOffscreenCameraOnly(camera, options) {
@@ -7629,14 +8227,40 @@
         camera,
         offscreenSpec.lights || [],
         offscreenSpec.light_flares || null,
-        { immediate: options.immediate === true }
+        {
+          immediate: options.immediate === true,
+          afterPresented: typeof options.afterPresented === "function" ? options.afterPresented : null
+        }
       ) === true;
     }
+    function inputDown(name) {
+      var input = global.VfInput;
+      return !!(input && typeof input.isDown === "function" && input.isDown(name));
+    }
+    function syncHeldInputState() {
+      var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+      if (activeFrameId && activeFrameId !== watchedFrameId) { return; }
+      controlState.keyLeft = inputDown("ArrowLeft") || inputDown("arrowleft");
+      controlState.keyRight = inputDown("ArrowRight") || inputDown("arrowright");
+      controlState.keyUp = inputDown("ArrowUp") || inputDown("arrowup");
+      controlState.keyDown = inputDown("ArrowDown") || inputDown("arrowdown");
+      if (controlState.gameClickLocked === true) {
+        controlState.keyW = inputDown("w") || inputDown("KeyW");
+        controlState.keyA = inputDown("a") || inputDown("KeyA");
+        controlState.keyS = inputDown("s") || inputDown("KeyS");
+        controlState.keyD = inputDown("d") || inputDown("KeyD");
+      }
+    }
     function cameraKeysActive() {
+      syncHeldInputState();
       return controlState.keyLeft === true ||
         controlState.keyRight === true ||
         controlState.keyUp === true ||
-        controlState.keyDown === true;
+        controlState.keyDown === true ||
+        controlState.keyW === true ||
+        controlState.keyA === true ||
+        controlState.keyS === true ||
+        controlState.keyD === true;
     }
     if (useVisibleFrame && chessInteractionConfig() && global.addEventListener) {
       global.addEventListener("vf-frame-live-resize", function (ev) {
@@ -7644,12 +8268,6 @@
         var liveFrameId = String(detail.frameId || detail.id || "");
         if (liveFrameId !== String(watchedFrameId || "")) { return; }
         resizeChessViewportToFit(body);
-        if (visibleSpec && controlState.baseCamera) {
-          var resizeCamera = controlState.exactInitCamera
-            ? cloneCameraState(controlState.exactInitCamera, cameraFallback)
-            : cloneCameraState(controlState.baseCamera, cameraFallback);
-          updateVisibleCameraOnly(resizeCamera, { immediate: true });
-        }
       }, true);
     }
     function cameraSwitchActive() {
@@ -7794,12 +8412,72 @@
     function finishRenderFrame(animationActive, triggerDependentsAfter) {
       controlState.rendering = false;
       if (triggerDependentsAfter === true) {
-        triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        failFast("dependent frames must be triggered from afterPresented");
+      }
+      if (controlState.cameraFrameDirty === true) {
+        controlState.cameraFrameDirty = false;
+        if (controlState.continuationFramePending !== true) {
+          controlState.continuationFramePending = true;
+          global.requestAnimationFrame(function () {
+            controlState.continuationFramePending = false;
+            renderFrame();
+          });
+        }
+        return;
       }
       scheduleNextFrameIfNeeded(animationActive);
     }
-    function renderFrameDependentsBeforePresent() {
+    function presentVisibleCameraFrame(renderCamera, options) {
+      options = options && typeof options === "object" ? options : {};
+      if (Array.isArray(options.lights)) {
+        visibleSpec.lights = options.lights;
+      }
       triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
+        if (
+          global.VfDisplay &&
+          typeof global.VfDisplay.requestDynamicGeomFrameUpdate === "function"
+        ) {
+          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: false });
+        }
+        scheduleNextFrameIfNeeded(true);
+        return;
+      }
+      if (typeof options.dirtyVersion === "number") {
+        visibleLastDirtyVersion = options.dirtyVersion;
+      }
+      if (typeof options.meshStructureSignature === "string") {
+        visibleLastMeshStructureSignature = options.meshStructureSignature;
+      }
+      scenePerf.cameraOnlyUpdates += 1;
+    }
+
+    function presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature) {
+      pushVisibleRender(rendered, { defer_update: true });
+      visibleLastDirtyVersion = dirtyVersion;
+      visibleLastMeshStructureSignature = meshStructureSignature;
+      triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });
+    }
+
+    function presentOffscreenSourceFrame(rendered, dirtyVersion, meshStructureSignature) {
+      offscreenSpec = rendered.payload && rendered.payload.geom
+        ? rendered.payload.geom[watchedFrameId] || null
+        : null;
+      if (!offscreenMounted) {
+        global.VfDisplay.mountOffscreenGeomFrame(watchedFrameId, function () {
+          return offscreenSpec;
+        }, offscreenPixels.width, offscreenPixels.height);
+        offscreenMounted = true;
+      }
+      offscreenLastDirtyVersion = dirtyVersion;
+      offscreenLastMeshStructureSignature = meshStructureSignature;
+      global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, {
+        immediate: true,
+        afterPresented: function () {
+          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+        }
+      });
     }
     function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera) {
       var liveCamera = {
@@ -7826,11 +8504,11 @@
     }
     function ensureCameraHoldLoop(state) {
       if (!state || state.cameraHoldLoopPending === true) { return; }
-      if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
+      if (!cameraStateHasHeldKey(state)) { return; }
       state.cameraHoldLoopPending = true;
-      global.setTimeout(function () {
+      global.requestAnimationFrame(function () {
         state.cameraHoldLoopPending = false;
-        if (!(state.keyLeft === true || state.keyRight === true || state.keyUp === true || state.keyDown === true)) { return; }
+        if (!cameraStateHasHeldKey(state)) { return; }
         if (typeof state.requestCameraHoldFrame === "function") {
           state.requestCameraHoldFrame();
         } else if (typeof state.requestCameraFrame === "function") {
@@ -7841,7 +8519,12 @@
     }
     controlState.requestCameraFrame = function () {
       controlState.debugCameraRequestCount = Number(controlState.debugCameraRequestCount || 0) + 1;
-      if (controlState.controlsEnabled === false || controlState.cameraFramePending === true) {
+      if (controlState.controlsEnabled === false) { return; }
+      if (controlState.rendering === true) {
+        controlState.cameraFrameDirty = true;
+        return;
+      }
+      if (controlState.cameraFramePending === true) {
         controlState.debugCameraRequestCoalescedCount = Number(controlState.debugCameraRequestCoalescedCount || 0) + 1;
         controlState.cameraFrameDirty = true;
         ensureCameraHoldLoop(controlState);
@@ -7856,9 +8539,8 @@
       }
       controlState.cameraFramePending = true;
       function flushCameraFrame(attempt) {
-        if (controlState.rendering === true && attempt < 30) {
+        if (controlState.rendering === true) {
           controlState.cameraFrameDirty = true;
-          global.requestAnimationFrame(function () { flushCameraFrame(attempt + 1); });
           return;
         }
         controlState.cameraFramePending = false;
@@ -7881,6 +8563,192 @@
     function markActiveFrame() {
       controlRegistry.activeFrameId = watchedFrameId;
     }
+    function gameCameraMode() {
+      return String(cameraBehaviorProps().controls_mode || "").toLowerCase() === "game";
+    }
+    function cameraStateHasHeldKey(state) {
+      return !!(state && (
+        state.keyLeft === true ||
+        state.keyRight === true ||
+        state.keyUp === true ||
+        state.keyDown === true ||
+        state.keyW === true ||
+        state.keyA === true ||
+        state.keyS === true ||
+        state.keyD === true
+      ));
+    }
+    function setGameCursorActive(active) {
+      var enabled = active === true;
+      controlState.gameActive = enabled;
+      if (!enabled) {
+        controlState.gameLastMouseX = null;
+        controlState.gameLastMouseY = null;
+      }
+      var cursor = enabled ? "none" : "";
+      var cursorRect = null;
+      try {
+        var cursorTarget = body && typeof body.querySelector === "function" ? body.querySelector("canvas.vf-geom-canvas") : null;
+        if (!cursorTarget) { cursorTarget = body || frame; }
+        cursorRect = cursorTarget && typeof cursorTarget.getBoundingClientRect === "function"
+          ? cursorTarget.getBoundingClientRect()
+          : null;
+      } catch (_) {
+        cursorRect = null;
+      }
+      try {
+        if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+          var cursorMessage = {
+            type: "transparent-overlay.cursor",
+            cursor: enabled ? "none" : "auto"
+          };
+          if (cursorRect) {
+            cursorMessage.left = Number(cursorRect.left || 0.0);
+            cursorMessage.top = Number(cursorRect.top || 0.0);
+            cursorMessage.right = Number(cursorRect.right || 0.0);
+            cursorMessage.bottom = Number(cursorRect.bottom || 0.0);
+            cursorMessage.x = (Number(cursorRect.left || 0.0) + Number(cursorRect.right || 0.0)) * 0.5;
+            cursorMessage.y = (Number(cursorRect.top || 0.0) + Number(cursorRect.bottom || 0.0)) * 0.5;
+          }
+          global.chrome.webview.postMessage(cursorMessage);
+        }
+      } catch (_) {}
+      if (body && body.classList) { body.classList.toggle("vf-native-scene-game-active", enabled); }
+      try {
+        var canvas = body && typeof body.querySelector === "function" ? body.querySelector("canvas.vf-geom-canvas") : null;
+        if (canvas && canvas.classList) { canvas.classList.toggle("vf-native-scene-game-active", enabled); }
+      } catch (_) {}
+      if (body && body.style) { body.style.cursor = cursor; }
+    }
+    controlState.setGameCursorActive = setGameCursorActive;
+    function ensureFocusable(target) {
+      if (!target || typeof target.setAttribute !== "function") { return; }
+      try {
+        if (!target.hasAttribute("tabindex")) {
+          target.setAttribute("tabindex", "-1");
+        }
+      } catch (_) {}
+    }
+    function focusGameCameraTarget(target) {
+      ensureFocusable(body);
+      ensureFocusable(frame);
+      ensureFocusable(target);
+      if (target && typeof target.focus === "function") {
+        try { target.focus({ preventScroll: true }); return; } catch (_) {
+          try { target.focus(); return; } catch (_) {}
+        }
+      }
+      try {
+        if (body && typeof body.focus === "function") { body.focus({ preventScroll: true }); return; }
+      } catch (_) {
+        try { if (body && typeof body.focus === "function") { body.focus(); return; } } catch (_) {}
+      }
+      try {
+        if (frame && typeof frame.focus === "function") { frame.focus({ preventScroll: true }); return; }
+      } catch (_) {
+        try { if (frame && typeof frame.focus === "function") { frame.focus(); } } catch (_) {}
+      }
+    }
+    function activateGameCamera() {
+      if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+      if (controlState.gameSuppressHoverActivation === true) { return; }
+      markActiveFrame();
+      focusGameCameraTarget();
+      controlState.gameClickLocked = true;
+      controlState.gameLastMouseX = null;
+      controlState.gameLastMouseY = null;
+      setGameCursorActive(true);
+      try {
+        if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+          global.chrome.webview.postMessage({ type: "vf_log", level: "info", message: "game camera locked frame=" + watchedFrameId, t: Date.now() });
+        }
+      } catch (_) {}
+    }
+    function requestGamePointerLockFromGesture(target) {
+      if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+      if (!target) { return; }
+      activateGameCamera();
+      if (global.chrome && global.chrome.webview) { return; }
+      var lockTarget = target || body || frame || (global.document && global.document.documentElement);
+      if (lockTarget && typeof lockTarget.requestPointerLock === "function") {
+        try {
+          var lockResult = lockTarget.requestPointerLock();
+          if (lockResult && typeof lockResult.catch === "function") {
+            lockResult.catch(function (err) {
+              try {
+                if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+                  global.chrome.webview.postMessage({ type: "vf_log", level: "warn", message: "pointer lock failed: " + (err && err.message ? err.message : String(err)), t: Date.now() });
+                }
+              } catch (_) {}
+            });
+          }
+        } catch (_) {}
+      }
+    }
+    function deactivateGameCamera() {
+      controlState.gameSuppressHoverActivation = true;
+      controlState.gameClickLocked = false;
+      setGameCursorActive(false);
+      controlState.keyW = false;
+      controlState.keyA = false;
+      controlState.keyS = false;
+      controlState.keyD = false;
+      controlState.gameMoveLastTsMs = 0.0;
+      if (global.document && typeof global.document.exitPointerLock === "function") {
+        try { global.document.exitPointerLock(); } catch (_) {}
+      }
+    }
+    function initGameCameraFromBase(baseCamera) {
+      if (controlState.gameInitDone === true) { return; }
+      var pos = toVec3(baseCamera && baseCamera.pos, [0.0, -6.0, 1.8]);
+      var target = toVec3(baseCamera && baseCamera.target, [0.0, 0.0, 1.8]);
+      var forward = normalize3([target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]], [0.0, 1.0, 0.0]);
+      controlState.gamePos = pos.slice();
+      controlState.gameYaw = Math.atan2(forward[1], forward[0]);
+      controlState.gamePitch = Math.max(-1.45, Math.min(1.45, Math.asin(Math.max(-1.0, Math.min(1.0, forward[2])))));
+      controlState.gameInitDone = true;
+    }
+    function applyGameCamera(baseCamera, dtSec, nowMs) {
+      syncHeldInputState();
+      initGameCameraFromBase(baseCamera);
+      var speed = Math.max(0.05, Number(cameraBehaviorProps().speed || 3.0) || 3.0);
+      var yaw = Number(controlState.gameYaw || 0.0);
+      var pitch = Number(controlState.gamePitch || 0.0);
+      var cp = Math.cos(pitch);
+      var look = normalize3([Math.cos(yaw) * cp, Math.sin(yaw) * cp, Math.sin(pitch)], [0.0, 1.0, 0.0]);
+      var right = normalize3([look[1], -look[0], 0.0], [1.0, 0.0, 0.0]);
+      var move = [0.0, 0.0, 0.0];
+      if (controlState.keyW) { move = [move[0] + look[0], move[1] + look[1], move[2] + look[2]]; }
+      if (controlState.keyS) { move = [move[0] - look[0], move[1] - look[1], move[2] - look[2]]; }
+      if (controlState.keyA) { move = [move[0] - right[0], move[1] - right[1], move[2] - right[2]]; }
+      if (controlState.keyD) { move = [move[0] + right[0], move[1] + right[1], move[2] + right[2]]; }
+      if (move[0] !== 0.0 || move[1] !== 0.0 || move[2] !== 0.0) {
+        move = normalize3(move, [0.0, 0.0, 0.0]);
+        var clockNowMs = Number(nowMs || 0.0) || (global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now());
+        var moveDtSec = controlState.gameMoveLastTsMs > 0.0
+          ? Math.min(1.0 / 45.0, Math.max(0.0, (clockNowMs - Number(controlState.gameMoveLastTsMs || 0.0)) * 0.001))
+          : (Number(dtSec || (1.0 / 60.0)) || (1.0 / 60.0));
+        controlState.gameMoveLastTsMs = clockNowMs;
+        var step = speed * moveDtSec;
+        controlState.gamePos = [
+          Number(controlState.gamePos[0] || 0.0) + (move[0] * step),
+          Number(controlState.gamePos[1] || 0.0) + (move[1] * step),
+          Number(controlState.gamePos[2] || 0.0) + (move[2] * step)
+        ];
+        controlState.userInteracted = true;
+      } else {
+        controlState.gameMoveLastTsMs = 0.0;
+      }
+      var p = toVec3(controlState.gamePos, toVec3(baseCamera && baseCamera.pos, [0.0, -6.0, 1.8]));
+      return {
+        pos: p,
+        target: [p[0] + look[0], p[1] + look[1], p[2] + look[2]],
+        fov: Number(baseCamera && baseCamera.fov || 54.0) || 54.0,
+        up: [0.0, 0.0, 1.0],
+        min_distance: Number(baseCamera && baseCamera.min_distance || 0.0) || 0.0,
+        flip_x: baseCamera && baseCamera.flip_x === true
+      };
+    }
     function applyWheelZoom(state, ev) {
       if (!state) { return; }
       if (state.controlsEnabled === false) { return; }
@@ -7902,12 +8770,79 @@
       markActiveFrame();
       applyWheelZoom(controlState, ev);
     }
-    function attachFrameZoomTarget(target) {
-      if (!target || target.__vfWheelZoomAttached) { return; }
-      target.__vfWheelZoomAttached = true;
+    function eventHitsFrameChrome(ev) {
+      var target = ev && ev.target;
+      if (target && typeof target.closest === "function") {
+        if (target.closest("[data-vf-frame-chrome='1'], .vf-frame__header, .vf-frame__resize-grip, .vf-frame__minibar")) {
+          return true;
+        }
+      }
+      if (ev && typeof ev.composedPath === "function") {
+        var path = ev.composedPath();
+        for (var i = 0; i < path.length; i++) {
+          var node = path[i];
+          if (!node || !node.classList) { continue; }
+          if (
+            node.getAttribute && node.getAttribute("data-vf-frame-chrome") === "1" ||
+            node.classList.contains("vf-frame__header") ||
+            node.classList.contains("vf-frame__resize-grip") ||
+            node.classList.contains("vf-frame__minibar")
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    function attachFrameZoomTarget(target, options) {
+      if (!target || target.__vfNativeSceneCameraTargetAttached) { return; }
+      options = options && typeof options === "object" ? options : {};
+      var gameContentTarget = options.gameContent === true;
+      var releaseGameTarget = options.releaseGame === true;
+      target.__vfNativeSceneCameraTargetAttached = true;
+      ensureFocusable(target);
       target.addEventListener("pointerenter", markActiveFrame, { passive: true });
-      target.addEventListener("pointermove", markActiveFrame, { passive: true });
-      target.addEventListener("pointerdown", markActiveFrame, { passive: true });
+      target.addEventListener("pointerenter", function (ev) {
+        markActiveFrame();
+        if (gameContentTarget && !eventHitsFrameChrome(ev) && (!gameCameraMode() || controlState.gameClickLocked === true)) {
+          focusGameCameraTarget(target);
+        }
+        if (releaseGameTarget && controlState.gameActive === true) {
+          deactivateGameCamera();
+        }
+      }, { passive: true });
+      target.addEventListener("pointermove", function (ev) {
+        markActiveFrame();
+        if (gameContentTarget && !eventHitsFrameChrome(ev) && (!gameCameraMode() || controlState.gameClickLocked === true)) {
+          focusGameCameraTarget(target);
+        }
+        if (releaseGameTarget && controlState.gameActive === true) {
+          deactivateGameCamera();
+        }
+      }, { passive: true });
+      target.addEventListener("pointerleave", function () {
+        if (gameContentTarget) {
+          controlState.gameSuppressHoverActivation = false;
+        }
+      }, { passive: true });
+      target.addEventListener("pointerdown", function (ev) {
+        if (eventHitsFrameChrome(ev)) {
+          if (releaseGameTarget && controlState.gameActive === true) {
+            deactivateGameCamera();
+          }
+          return;
+        }
+        markActiveFrame();
+        if (releaseGameTarget && controlState.gameActive === true) {
+          deactivateGameCamera();
+          return;
+        }
+        if (gameContentTarget) {
+          focusGameCameraTarget(target);
+          controlState.gameSuppressHoverActivation = false;
+          requestGamePointerLockFromGesture(target);
+        }
+      }, { passive: true, capture: true });
     }
     function eventFrameId(ev) {
       var target = ev && ev.target;
@@ -7937,9 +8872,29 @@
       return !fid || fid === activeFrameId;
     }
     if (useVisibleFrame) {
-      attachFrameZoomTarget(frame);
-      attachFrameZoomTarget(body);
+      attachFrameZoomTarget(body, { gameContent: true });
+      try {
+        var header = frame && typeof frame.querySelector === "function" ? frame.querySelector(".vf-frame__header") : null;
+        attachFrameZoomTarget(header, { gameContent: false, releaseGame: true });
+      } catch (_) {}
+      if (global.document && !controlState.gameContentPointerCaptureAttached) {
+        controlState.gameContentPointerCaptureAttached = true;
+        global.document.addEventListener("pointerdown", function (ev) {
+          if (!gameCameraMode() || controlState.controlsEnabled === false) { return; }
+          if (eventHitsFrameChrome(ev)) { return; }
+          var target = ev && ev.target;
+          if (!target || typeof target.closest !== "function") { return; }
+          var content = target.closest("[data-vf-frame-content='1'], .vf-frame__body");
+          if (!content) { return; }
+          var ownerFrame = content.closest && content.closest(".vf-frame");
+          if (!ownerFrame) { return; }
+          if (String(ownerFrame.getAttribute("data-vf-frame-id") || "") !== watchedFrameId) { return; }
+          controlState.gameSuppressHoverActivation = false;
+          requestGamePointerLockFromGesture(content);
+        }, { passive: true, capture: true });
+      }
       markActiveFrame();
+      setGameCursorActive(false);
     }
     if (!global.__vfNativeSceneGlobalWheelAttached) {
       global.__vfNativeSceneGlobalWheelAttached = true;
@@ -7968,14 +8923,23 @@
         if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }
         ev.preventDefault();
         var wasActive = activeState.keyLeft === true || activeState.keyRight === true || activeState.keyUp === true || activeState.keyDown === true;
+        if (
+          (key === "ArrowLeft" && activeState.keyLeft === true) ||
+          (key === "ArrowRight" && activeState.keyRight === true) ||
+          (key === "ArrowUp" && activeState.keyUp === true) ||
+          (key === "ArrowDown" && activeState.keyDown === true)
+        ) {
+          return;
+        }
         if (key === "ArrowLeft") { activeState.keyLeft = true; }
         else if (key === "ArrowRight") { activeState.keyRight = true; }
         else if (key === "ArrowUp") { activeState.keyUp = true; }
         else if (key === "ArrowDown") { activeState.keyDown = true; }
         if (!wasActive || Number(activeState.cameraKeyLastTsMs || 0.0) <= 0.0) {
-          activeState.cameraKeyLastTsMs = global.performance && typeof global.performance.now === "function"
+          var keyNowMs = global.performance && typeof global.performance.now === "function"
             ? global.performance.now()
             : Date.now();
+          activeState.cameraKeyLastTsMs = keyNowMs - (1000.0 / 60.0);
         }
         activeState.userInteracted = true;
         ensureCameraHoldLoop(activeState);
@@ -8022,6 +8986,202 @@
         }
       }, true);
     }
+    if (!global.__vfNativeSceneGameCameraAttached) {
+      global.__vfNativeSceneGameCameraAttached = true;
+      function activeGameMouseState() {
+        var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+        return activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+          ? global.__vfNativeSceneCameraControls.states[activeFrameId]
+          : null;
+      }
+      function applyGameMouseDelta(activeState, dx, dy) {
+        if (!activeState || activeState.gameClickLocked !== true) { return; }
+        dx = Number(dx || 0.0) || 0.0;
+        dy = Number(dy || 0.0) || 0.0;
+        if (dx === 0.0 && dy === 0.0) { return; }
+        var sensitivity = Math.max(0.0001, Number(activeState.gameSensitivity || 0.0022) || 0.0022);
+        activeState.gameZeroDeltaLogged = false;
+        activeState.gameYaw -= dx * sensitivity;
+        activeState.gamePitch = Math.max(-1.45, Math.min(1.45, Number(activeState.gamePitch || 0.0) - (dy * sensitivity)));
+        activeState.userInteracted = true;
+        if (typeof activeState.requestCameraFrame === "function") {
+          activeState.requestCameraFrame();
+        }
+      }
+      global.__vfNativeSceneApplyMouseDelta = function (dx, dy) {
+        applyGameMouseDelta(activeGameMouseState(), Number(dx || 0.0), Number(dy || 0.0));
+      };
+      if (global.chrome && global.chrome.webview && typeof global.chrome.webview.addEventListener === "function") {
+        global.chrome.webview.addEventListener("message", function (ev) {
+          var data = ev && ev.data ? ev.data : null;
+          if (!data || String(data.type || "") !== "transparent-overlay.mouse-delta") { return; }
+          applyGameMouseDelta(activeGameMouseState(), Number(data.dx || 0.0), Number(data.dy || 0.0));
+        });
+      }
+      if (global.document && typeof global.document.addEventListener === "function") {
+        global.document.addEventListener("pointerlockchange", function () {
+          var state = activeGameMouseState();
+          if (state && state.gameClickLocked === true && !global.document.pointerLockElement) {
+            state.gameSuppressHoverActivation = true;
+            state.gameClickLocked = false;
+            state.gameActive = false;
+            state.keyW = false;
+            state.keyA = false;
+            state.keyS = false;
+            state.keyD = false;
+            state.gameMoveLastTsMs = 0.0;
+            if (typeof state.setGameCursorActive === "function") {
+              state.setGameCursorActive(false);
+            }
+            if (typeof state.requestCameraFrame === "function") {
+              state.requestCameraFrame();
+            }
+          }
+          try {
+            if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+              global.chrome.webview.postMessage({
+                type: "vf_log",
+                level: "info",
+                message: "pointerlockchange element=" + (global.document.pointerLockElement ? String(global.document.pointerLockElement.className || global.document.pointerLockElement.tagName || "locked") : "none"),
+                t: Date.now()
+              });
+            }
+          } catch (_) {}
+        }, true);
+      }
+      global.addEventListener("mousemove", function (ev) {
+        var activeState = activeGameMouseState();
+        if (!activeState || activeState.gameClickLocked !== true) { return; }
+        var dx = Number(ev && ev.movementX || 0.0) || 0.0;
+        var dy = Number(ev && ev.movementY || 0.0) || 0.0;
+        if ((dx !== 0.0 || dy !== 0.0) && ev) {
+          var px = Number(ev.clientX);
+          var py = Number(ev.clientY);
+          if (Number.isFinite(px)) { activeState.gameLastMouseX = px; }
+          if (Number.isFinite(py)) { activeState.gameLastMouseY = py; }
+        }
+        if (dx === 0.0 && dy === 0.0 && ev) {
+          var cx = Number(ev.clientX);
+          var cy = Number(ev.clientY);
+          if (Number.isFinite(cx) && Number.isFinite(cy) &&
+              Number.isFinite(Number(activeState.gameLastMouseX)) &&
+              Number.isFinite(Number(activeState.gameLastMouseY))) {
+            dx = cx - Number(activeState.gameLastMouseX);
+            dy = cy - Number(activeState.gameLastMouseY);
+          }
+          if (Number.isFinite(cx)) { activeState.gameLastMouseX = cx; }
+          if (Number.isFinite(cy)) { activeState.gameLastMouseY = cy; }
+        }
+        if (dx === 0.0 && dy === 0.0) {
+          if (activeState.gameZeroDeltaLogged !== true) {
+            activeState.gameZeroDeltaLogged = true;
+            try {
+              if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+                global.chrome.webview.postMessage({ type: "vf_log", level: "warn", message: "game mousemove locked but zero delta", t: Date.now() });
+              }
+            } catch (_) {}
+          }
+          return;
+        }
+        activeState.gameZeroDeltaLogged = false;
+        applyGameMouseDelta(activeState, dx, dy);
+      }, true);
+      global.addEventListener("keydown", function (ev) {
+        var key = String(ev && ev.key || "").toLowerCase();
+        var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+        var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+          ? global.__vfNativeSceneCameraControls.states[activeFrameId]
+          : null;
+        if (!activeState) { return; }
+        if (key === "escape") {
+          activeState.gameSuppressHoverActivation = true;
+        activeState.gameActive = false;
+        activeState.gameClickLocked = false;
+          activeState.keyW = false;
+          activeState.keyA = false;
+          activeState.keyS = false;
+          activeState.keyD = false;
+          activeState.gameMoveLastTsMs = 0.0;
+          if (typeof activeState.setGameCursorActive === "function") {
+            activeState.setGameCursorActive(false);
+          }
+          if (global.document && typeof global.document.exitPointerLock === "function") {
+            try { global.document.exitPointerLock(); } catch (_) {}
+          }
+          if (typeof activeState.requestCameraFrame === "function") {
+            activeState.requestCameraFrame();
+          }
+          ev.preventDefault();
+          return;
+        }
+        if (activeState.gameClickLocked !== true) { return; }
+        if (key !== "w" && key !== "a" && key !== "s" && key !== "d") { return; }
+        if (!keyEventAllowedForActiveFrame(ev, activeFrameId)) { return; }
+        ev.preventDefault();
+        var gameWasMoving = activeState.keyW === true || activeState.keyA === true || activeState.keyS === true || activeState.keyD === true;
+        if (
+          (key === "w" && activeState.keyW === true) ||
+          (key === "a" && activeState.keyA === true) ||
+          (key === "s" && activeState.keyS === true) ||
+          (key === "d" && activeState.keyD === true)
+        ) {
+          return;
+        }
+        if (key === "w") { activeState.keyW = true; }
+        else if (key === "a") { activeState.keyA = true; }
+        else if (key === "s") { activeState.keyS = true; }
+        else if (key === "d") { activeState.keyD = true; }
+        if (!gameWasMoving || Number(activeState.gameMoveLastTsMs || 0.0) <= 0.0) {
+          var gameKeyNowMs = global.performance && typeof global.performance.now === "function"
+            ? global.performance.now()
+            : Date.now();
+          activeState.gameMoveLastTsMs = gameKeyNowMs - (1000.0 / 60.0);
+        }
+        activeState.userInteracted = true;
+        ensureCameraHoldLoop(activeState);
+        if (typeof activeState.requestCameraHoldFrame === "function") {
+          activeState.requestCameraHoldFrame();
+        }
+      }, true);
+      global.addEventListener("keyup", function (ev) {
+        var key = String(ev && ev.key || "").toLowerCase();
+        if (key !== "w" && key !== "a" && key !== "s" && key !== "d") { return; }
+        var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
+        var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
+          ? global.__vfNativeSceneCameraControls.states[activeFrameId]
+          : null;
+        if (!activeState) { return; }
+        if (key === "w") { activeState.keyW = false; }
+        else if (key === "a") { activeState.keyA = false; }
+        else if (key === "s") { activeState.keyS = false; }
+        else if (key === "d") { activeState.keyD = false; }
+        if (!(activeState.keyW === true || activeState.keyA === true || activeState.keyS === true || activeState.keyD === true)) {
+          activeState.gameMoveLastTsMs = 0.0;
+        }
+        if (typeof activeState.requestCameraFrame === "function") {
+          activeState.requestCameraFrame();
+        }
+      }, true);
+      global.addEventListener("blur", function () {
+        var registry = global.__vfNativeSceneCameraControls;
+        if (!registry || !registry.states) { return; }
+        var frameIds = Object.keys(registry.states);
+        for (var i = 0; i < frameIds.length; i += 1) {
+          var state = registry.states[frameIds[i]];
+          if (!state) { continue; }
+          state.gameActive = false;
+          state.gameClickLocked = false;
+          if (typeof state.setGameCursorActive === "function") {
+            state.setGameCursorActive(false);
+          }
+          state.keyW = false;
+          state.keyA = false;
+          state.keyS = false;
+          state.keyD = false;
+          state.gameMoveLastTsMs = 0.0;
+        }
+      }, true);
+    }
     var chessRuntime = null;
     function ensureChessRuntimeEventsAttached() {
       chessRuntime = initChessRuntime();
@@ -8060,7 +9220,8 @@
     }
 
     function renderFrame() {
-        if (controlState.rendering === true) {
+      startupDebugMark(watchedFrameId, "renderFrame");
+      if (controlState.rendering === true) {
           controlState.debugRenderFrameSkippedCount = Number(controlState.debugRenderFrameSkippedCount || 0) + 1;
           if (controlState.debugRenderFrameSkippedCount <= 3 || controlState.debugRenderFrameSkippedCount % 20 === 0) {
             chessLagDebug(
@@ -8080,9 +9241,21 @@
           ? global.performance.now()
           : Date.now();
         try {
-          var seconds = (global.performance && typeof global.performance.now === "function")
-            ? (global.performance.now() * 0.001)
-            : (Date.now() * 0.001);
+          var rawNowMs = (global.performance && typeof global.performance.now === "function")
+            ? global.performance.now()
+            : Date.now();
+          var pauseActive = global.__vfFrameResizeClockPaused === true;
+          if (pauseActive && !(controlState.resizeClockPauseStartMs > 0.0)) {
+            controlState.resizeClockPauseStartMs = rawNowMs;
+          } else if (!pauseActive && controlState.resizeClockPauseStartMs > 0.0) {
+            controlState.resizeClockPausedTotalMs = Number(controlState.resizeClockPausedTotalMs || 0.0) + Math.max(0.0, rawNowMs - controlState.resizeClockPauseStartMs);
+            controlState.resizeClockPauseStartMs = 0.0;
+          }
+          var pausedTotalMs = Number(controlState.resizeClockPausedTotalMs || 0.0);
+          var effectiveNowMs = pauseActive && controlState.resizeClockPauseStartMs > 0.0
+            ? controlState.resizeClockPauseStartMs - pausedTotalMs
+            : rawNowMs - pausedTotalMs;
+          var seconds = effectiveNowMs * 0.001;
           var nowMs = seconds * 1000.0;
           if (!useVisibleFrame && dependencySourceFrameId) {
             var dependencyCamera = global.__vfNativeSceneLiveCameras && global.__vfNativeSceneLiveCameras[dependencySourceFrameId];
@@ -8100,15 +9273,8 @@
             controlState.dependencyWaitStartMs = 0.0;
           }
           var keyHoldActive = cameraKeysActive();
-          if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive()) {
-            controlState.cameraKeyLastTsMs = nowMs;
-            controlState.cameraKeyStepPending = false;
-            controlState.rendering = false;
-            ensureCameraHoldLoop(controlState);
-            return;
-          }
           var dtSec = controlState.lastRenderTsMs > 0
-            ? Math.max(0.0, Math.min(1.0 / 30.0, (nowMs - controlState.lastRenderTsMs) * 0.001))
+            ? Math.max(0.0, (nowMs - controlState.lastRenderTsMs) * 0.001)
             : (1.0 / 60.0);
           controlState.lastRenderTsMs = nowMs;
           if (controlState.controlsEnabled !== false) {
@@ -8116,8 +9282,8 @@
             if (orbitSpeed > 0.0) {
               var keyElapsedSec = controlState.cameraKeyLastTsMs > 0.0
                 ? Math.max(0.0, (nowMs - controlState.cameraKeyLastTsMs) * 0.001)
-                : (1.0 / 120.0);
-              var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 120.0, keyElapsedSec || (1.0 / 120.0)));
+                : (1.0 / 60.0);
+              var keyDtSec = Math.max(1.0 / 240.0, keyElapsedSec || (1.0 / 60.0));
               var deltaPhi = 0.0;
               var deltaTheta = 0.0;
               if (keyHoldActive) {
@@ -8168,7 +9334,13 @@
             ? cloneCameraState(controlState.baseCamera, cameraFallback)
             : authoredCamera;
           var userCamera;
-          if (controlState.lookOnlyControls === true) {
+          if (gameCameraMode() && controlState.gameClickLocked === true) {
+            userCamera = applyGameCamera(baseCamera, dtSec, nowMs);
+          } else if (gameCameraMode()) {
+            userCamera = controlState.gameInitDone === true
+              ? applyGameCamera(baseCamera, 0.0, nowMs)
+              : baseCamera;
+          } else if (controlState.lookOnlyControls === true) {
             var zoomedBaseCamera = Math.abs(Number(controlState.zoomFactor || 1.0) - 1.0) > 1e-6
               ? zoomCamera(baseCamera, Number(controlState.zoomFactor || 1.0))
               : baseCamera;
@@ -8206,48 +9378,82 @@
               : Math.max(1, Number(offscreenPixels && offscreenPixels.height || 0) || 1);
           }
           var markerSizeCamera = null;
-          if (!useVisibleFrame && dependencySourceFrameId && global.__vfNativeSceneLiveCameras) {
-            var sourceMarkerCamera = global.__vfNativeSceneLiveCameras[dependencySourceFrameId];
-            if (sourceMarkerCamera && typeof sourceMarkerCamera === "object") {
-              markerSizeCamera = Object.assign({}, sourceMarkerCamera);
-              if (!(Number(markerSizeCamera.viewport_height_px || 0) > 0)) {
-                markerSizeCamera.viewport_height_px = Number(markerSizeCamera.viewport_marker_reference_height_px || 0) || 0;
-              }
-            }
-          }
           publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
         if (useVisibleFrame && sceneWorldAnimationsPending() && visibleRenderBackpressureActive()) {
+          startupDebugMark(watchedFrameId, "visibleBackpressureReturn");
           controlState.rendering = false;
           scheduleNextFrameIfNeeded(true);
           return;
         }
+        startupDebugMark(watchedFrameId, "beforeApplySceneWorldFrame");
         var worldAnimationActive = dependencySourceFrameId
           ? sceneWorldAnimationsPending()
           : applySceneWorldFrame(seconds);
+        startupDebugMark(watchedFrameId, "afterApplySceneWorldFrame");
         if (controlState.pendingAutoSwitchCamera === true && worldAnimationActive !== true) {
           controlState.pendingAutoSwitchCamera = false;
           startAutoSwitchCamera(renderCamera, controlState.pendingAutoSwitchSide || "white");
         }
         renderCamera = applyCameraSwitch(renderCamera);
         publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);
-        var dirtyVersion = currentSceneWorldDirtyVersion();
+        var dirtyVersion = currentSceneWorldDirtyVersion(seconds);
         var meshStructureSignature = sceneWorldMeshStructureSignature();
         var heldCameraKeyActive = cameraKeysActive();
-        var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;
-        if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {
-          renderFrameDependentsBeforePresent();
-          if (!updateVisibleCameraOnly(renderCamera, { immediate: true })) {
-            failFast('held camera frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
-          }
-          scenePerf.cameraOnlyUpdates += 1;
+        var liveFastPathLights = null;
+        var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && canUseCameraLightFastPath(
+          useVisibleFrame,
+          visibleSpec,
+          worldAnimationActive,
+          dirtyVersion,
+          visibleLastDirtyVersion,
+          meshStructureSignature,
+          visibleLastMeshStructureSignature
+        );
+        if (canUseVisibleCameraOnly && sceneHasNativeWorldAnimations()) {
+          liveFastPathLights = normalizeSceneLights(seconds);
+        }
+        if (heldCameraKeyActive && useVisibleFrame && visibleSpec && canUseCameraLightFastPath(
+          useVisibleFrame,
+          visibleSpec,
+          worldAnimationActive,
+          dirtyVersion,
+          visibleLastDirtyVersion,
+          meshStructureSignature,
+          visibleLastMeshStructureSignature
+        )) {
+          presentVisibleCameraFrame(renderCamera, {
+            label: "held camera",
+            lights: liveFastPathLights || (sceneHasNativeWorldAnimations() ? normalizeSceneLights(seconds) : null),
+            dirtyVersion: dirtyVersion,
+            meshStructureSignature: meshStructureSignature
+          });
           finishRenderFrame(worldAnimationActive, false);
           return;
         }
         if (canUseVisibleCameraOnly) {
-          renderFrameDependentsBeforePresent();
-          if (!updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })) {
-            failFast('camera-only frame "' + String(frameSpec.frame_id || config.frame_id) + '" could not present immediately');
+          presentVisibleCameraFrame(renderCamera, {
+            label: "camera-only",
+            lights: liveFastPathLights,
+            dirtyVersion: dirtyVersion,
+            meshStructureSignature: meshStructureSignature
+          });
+          if (controlState.debugRenderFrameCount % 60 === 0) {
+            chessLagDebug(
+              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
+                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
+                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
+                " full=" + Number(scenePerf.fullSceneUpdates || 0)
+            );
           }
+          finishRenderFrame(worldAnimationActive, false);
+          return;
+        }
+        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera, {
+          immediate: dependencySourceFrameId ? true : heldCameraKeyActive,
+          afterPresented: function () {
+            triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+          }
+        })) {
           scenePerf.cameraOnlyUpdates += 1;
           if (controlState.debugRenderFrameCount % 60 === 0) {
             chessLagDebug(
@@ -8260,41 +9466,13 @@
           finishRenderFrame(worldAnimationActive, false);
           return;
         }
-        if (!useVisibleFrame && offscreenMounted && offscreenSpec && dirtyVersion === offscreenLastDirtyVersion && meshStructureSignature === offscreenLastMeshStructureSignature && updateOffscreenCameraOnly(renderCamera, { immediate: dependencySourceFrameId ? true : heldCameraKeyActive })) {
-          scenePerf.cameraOnlyUpdates += 1;
-          if (controlState.debugRenderFrameCount % 60 === 0) {
-            chessLagDebug(
-              "render_camera_only count=" + Number(controlState.debugRenderFrameCount || 0) +
-                " elapsed_ms=" + ((global.performance && typeof global.performance.now === "function" ? global.performance.now() : Date.now()) - debugRenderStartMs).toFixed(1) +
-                " camera_only=" + Number(scenePerf.cameraOnlyUpdates || 0) +
-                " full=" + Number(scenePerf.fullSceneUpdates || 0)
-            );
-          }
-          finishRenderFrame(worldAnimationActive, true);
-          return;
-        }
-        if (useVisibleFrame) {
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
-        }
+        startupDebugMark(watchedFrameId, "beforeRenderPayload");
         var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });
+        startupDebugMark(watchedFrameId, "afterRenderPayload");
         if (useVisibleFrame) {
-          pushVisibleRender(rendered, { immediate: !!chessInteractionConfig() });
-          visibleLastDirtyVersion = dirtyVersion;
-          visibleLastMeshStructureSignature = meshStructureSignature;
+          presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);
         } else {
-          offscreenSpec = rendered.payload && rendered.payload.geom
-            ? rendered.payload.geom[watchedFrameId] || null
-            : null;
-          if (!offscreenMounted) {
-            global.VfDisplay.mountOffscreenGeomFrame(watchedFrameId, function () {
-              return offscreenSpec;
-            }, offscreenPixels.width, offscreenPixels.height);
-            offscreenMounted = true;
-          }
-          global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId);
-          offscreenLastDirtyVersion = dirtyVersion;
-          offscreenLastMeshStructureSignature = meshStructureSignature;
-          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });
+          presentOffscreenSourceFrame(rendered, dirtyVersion, meshStructureSignature);
         }
         chessLagDebug(
           "render_full count=" + Number(controlState.debugRenderFrameCount || 0) +
@@ -8335,6 +9513,7 @@
     }
 
     function startInitialSceneRender() {
+      startupDebugMark(watchedFrameId, "startInitialSceneRender");
       wireChessRuntimeRenderCallbacks();
       renderFrame();
       if (useVisibleFrame) {
@@ -8354,24 +9533,42 @@
 
     function mountResponsiveVisibleShell() {
       if (!useVisibleFrame) { return; }
+      if (sceneFrameShellIsPacketOwned()) { return; }
       ensureVisibleSceneFrameShell();
       postVisibleShellLayout();
     }
 
     function scheduleVisibleInitialSceneRender() {
+      startupDebugMark(watchedFrameId, "scheduleVisibleInitialSceneRender");
       mountResponsiveVisibleShell();
-      var start = function () {
+      var started = false;
+      var runInitial = function () {
+        if (started) { return; }
+        started = true;
         mountResponsiveVisibleShell();
-        global.requestAnimationFrame(function () {
-          mountResponsiveVisibleShell();
-          global.requestAnimationFrame(startInitialSceneRender);
-        });
+        postVisibleShellLayout();
+        startInitialSceneRender();
       };
-      if (typeof global.requestIdleCallback === "function") {
-        global.requestIdleCallback(start, { timeout: 600 });
-        return;
-      }
-      global.setTimeout(start, 120);
+      var start = function () {
+        if (started) { return; }
+        mountResponsiveVisibleShell();
+        postVisibleShellLayout();
+        global.requestAnimationFrame(function () {
+          if (started) { return; }
+          mountResponsiveVisibleShell();
+          postVisibleShellLayout();
+          runInitial();
+        });
+        global.setTimeout(runInitial, 80);
+      };
+      var forceStart = function () {
+        if (started) { return; }
+        mountResponsiveVisibleShell();
+        postVisibleShellLayout();
+        global.setTimeout(runInitial, 0);
+      };
+      global.requestAnimationFrame(start);
+      global.setTimeout(forceStart, 120);
     }
 
     if (useVisibleFrame) {
@@ -8383,7 +9580,7 @@
 
   function waitForFrame(attempt) {
     if (!requireRuntime()) {
-      if (attempt > 240) {
+      if (attempt > 900) {
         failFast("VfDisplay.renderFromJson is unavailable");
       }
       global.setTimeout(function () { waitForFrame(attempt + 1); }, 16);
@@ -8398,8 +9595,17 @@
       boot();
       return;
     }
+    if (sceneFrameShellIsPacketOwned()) {
+      if (attempt > 240) {
+        failFast("timed out waiting for packet-owned scene frame");
+      }
+      global.setTimeout(function () { waitForFrame(attempt + 1); }, 16);
+      return;
+    }
     if (global.VfDisplay && typeof global.VfDisplay.mountDynamicGeomFrame === "function") {
-      ensureVisibleSceneFrameShell();
+      if (!sceneFrameShellIsPacketOwned()) {
+        ensureVisibleSceneFrameShell();
+      }
       boot();
       return;
     }

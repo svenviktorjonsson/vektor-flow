@@ -694,12 +694,37 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'var liveFrameId = String(detail.frameId || detail.id || "");' in display_runtime
     assert 'var liveFrameId = String(detail.frameId || detail.id || "");' in runtime
     assert "liveFrameId !== String(geomTargetFrameId(fid)) && liveFrameId !== String(fid)" in display_runtime
+    assert "rec.dynamicAdapter.onHostResize(liveHost.clientWidth || 0, liveHost.clientHeight || 0);" in display_runtime
+    assert "if (r && typeof r.onResize === \"function\")" in display_runtime
     assert "entry.resizeRaf = requestAnimationFrame" not in display_runtime
+    assert 'phase: "move"' in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
+    assert 'phase: "end"' in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
+    assert "window.__vfFrameResizeClockPaused = true;" in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
+    assert "window.__vfFrameResizeClockPaused = false;" in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
+    assert 'if (String(detail.phase || "") === "move") { return; }' not in runtime
+    assert "updateVisibleCameraOnly(resizeCamera" not in runtime
+    assert "resizeClockPausedTotalMs" in runtime
+    assert "textureFit" not in display_runtime
+    assert "resizeDeferred" not in display_runtime
+    assert "function syncCanvasStyle(canvas, size)" in display_runtime
+    assert "syncCanvasSize(canvas, { deferStyle: true })" in display_runtime
+    assert display_runtime.index("var liveSize = syncCanvasSize(canvas, { deferStyle: true });") < display_runtime.index("syncCanvasStyle(canvas, liveSize);")
+    assert "function ensureResizeSnapshot(canvas)" not in display_runtime
+    assert "function attachGeomCanvasPresentationSwap(canvas)" not in display_runtime
+    assert "vf-geom-frame-presented" not in display_runtime
+    assert "vf-geom-frame-presented" not in geom_runtime
+    assert "canvas.__vfPendingResizeSnapshotRemoval" not in display_runtime
+    assert "removeResizeSnapshot(canvas);" not in display_runtime
     assert 'data-vf-geom-resize-pending' not in display_runtime
     assert 'data-vf-geom-resize-pending' not in geom_runtime
+    assert display_runtime.index("if (canvas.width  !== w)") < display_runtime.index("canvas.style.width = w + \"px\";")
     assert "options.forceResize !== true" in geom_runtime
     assert "this._renderContent(performance.now(), { forceResize: true })" in geom_runtime
     assert 'id: String(id),' in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
+    frame_css = (ROOT / "web" / "vf-ui" / "vf-frame.css").read_text(encoding="utf-8")
+    assert "canvas.vf-geom-canvas" in frame_css
+    assert "object-fit: contain;" in frame_css
+    assert "object-fit:contain;object-position:center center;" in display_runtime
     assert "function frameContentAspectMode(frameEl)" in display_runtime
     assert "dataset.vfContentAspect" in display_runtime
     assert 'hostOwnsViewport = !!(hostEl && hostEl.classList && hostEl.classList.contains("vf-chess-board-host"))' in display_runtime
@@ -710,6 +735,21 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(cam, asp)" in geom_runtime
     assert "projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(camPart, aspect)" in geom_runtime
     assert "delete nextCamera.projection_matrix;" in runtime
+    stager_runtime = (ROOT / "compiler" / "native" / "vkf_native_scene_artifact_stager.cpp").read_text(encoding="utf-8")
+    shell_runtime = (ROOT / "web" / "vf-ui" / "vf-runtime-shell.js").read_text(encoding="utf-8")
+    assert "vf-launch-manifest.json" in stager_runtime
+    assert "native_scene_launch_manifest_json" in stager_runtime
+    assert "mountLaunchFramesFromUrl" in stager_runtime
+    assert "function mountLaunchFrames(manifest)" in shell_runtime
+    assert "function mountLaunchFramesFromUrl(url)" in shell_runtime
+    assert "launch manifest requires VfFrame.mount" in shell_runtime
+    assert "window.__vfNativeSceneShell=" not in stager_runtime
+    assert "function mountShell()" not in stager_runtime
+    assert "data-vf-chess-preload-panel" not in stager_runtime
+    assert "querySelector(\"[data-vf-chess-preload-panel]\")" not in runtime
+    assert 'id: controlsFrameId' not in runtime
+    assert 'title: "Moves",' not in runtime
+    assert "chess controls require the scene frame shell before panel mount" in runtime
     assert display_runtime.count("ensureGeomCanvas(frameEl, 0, fid)") >= 3
     assert "ensureGeomCanvas(frameEl, 0);" not in display_runtime
     assert "function currentGeomEventHost()" in display_runtime
@@ -777,6 +817,26 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "updateDynamicGeomFrameCamera offscreen render" in display_runtime
     assert "updateDynamicGeomFrameCamera: updateDynamicGeomFrameCamera" in display_runtime
     assert "triggerFrameDependents(String(frameSpec.frame_id || config.frame_id));" not in runtime
+
+
+def test_native_scene_waits_for_packet_owned_visible_frame() -> None:
+    runtime = (ROOT / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
+    assert "function sceneFrameShellIsPacketOwned()" in runtime
+    assert "return global.__vfNativeSceneFramesArePacketOwned === true;" in runtime
+    assert "if (sceneFrameShellIsPacketOwned()) { return null; }" in runtime
+    assert "if (!frame && sceneFrameVisible() && !sceneFrameShellIsPacketOwned())" in runtime
+    assert 'failFast("timed out waiting for packet-owned scene frame");' in runtime
+
+
+def test_native_scene_game_camera_mouse_right_turns_right_and_locks_page_root() -> None:
+    runtime = (ROOT / "web" / "vf-ui" / "vf-native-scene.js").read_text(encoding="utf-8")
+    assert "activeState.gameYaw -= dx * sensitivity;" in runtime
+    assert "global.__vfNativeSceneApplyMouseDelta = function (dx, dy)" in runtime
+    assert 'type: "transparent-overlay.cursor"' in runtime
+    assert 'cursor: enabled ? "none" : "auto"' in runtime
+    assert "global.chrome.webview.postMessage(cursorMessage)" in runtime
+    assert "global.document.documentElement" in runtime
+    assert "var lockTarget = body || frame;" not in runtime
 
 
 def test_imported_typed_vkf_module_functions_remain_callable_from_interpreter() -> None:

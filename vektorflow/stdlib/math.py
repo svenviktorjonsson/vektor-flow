@@ -24,11 +24,23 @@ def _complex_unary(fn: Callable[[complex], complex]) -> Callable[[Any], Any]:
     return _wrapped
 
 
+def _unitless(value: Any, context: str) -> Any:
+    from vektorflow.stdlib.physics import require_unitless
+
+    return require_unitless(value, context)
+
+
 def _log_base(x: Any, base: Any) -> Any:
     """``log_base(x, y)`` = log_y(x)."""
+    x = _unitless(x, "log")
+    base = _unitless(base, "log base")
     if base == 1:
         raise ValueError("log base must be positive and not 1")
     return _clean_num(_cm.log(x) / _cm.log(base))
+
+
+def _atan2(y: Any, x: Any) -> Any:
+    return _m.atan2(_unitless(y, "atan2"), _unitless(x, "atan2"))
 
 
 def _map_unary_numeric(value: Any, fn: Callable[[Any], Any]) -> Any:
@@ -42,7 +54,7 @@ def _map_unary_numeric(value: Any, fn: Callable[[Any], Any]) -> Any:
         return tuple(_map_unary_numeric(item, fn) for item in value)
     if isinstance(value, VFVector):
         return VFVector(_map_unary_numeric(item, fn) for item in value)
-    return fn(value)
+    return fn(_unitless(value, "math function"))
 
 
 def _lift_unary_numeric(fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
@@ -74,7 +86,7 @@ def build_math_namespace() -> dict[str, Any]:
         "acot": _lift_unary_numeric(lambda value: _clean_num(_cm.atan(1 / value))),
         "asec": _lift_unary_numeric(lambda value: _clean_num(_cm.acos(1 / value))),
         "acsc": _lift_unary_numeric(lambda value: _clean_num(_cm.asin(1 / value))),
-        "atan2": _m.atan2,
+        "atan2": _atan2,
         "asinh": _lift_unary_numeric(_complex_unary(_cm.asinh)),
         "acosh": _lift_unary_numeric(_complex_unary(_cm.acosh)),
         "atanh": _lift_unary_numeric(_complex_unary(_cm.atanh)),

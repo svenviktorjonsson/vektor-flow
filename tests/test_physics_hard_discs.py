@@ -1,0 +1,275 @@
+from __future__ import annotations
+
+import pytest
+
+from vektorflow.physics_hard_discs import HardDisc, HardDiscWorld2D
+from vektorflow.stdlib.physics import density_color, disc_impostors, gpu_physics_pipeline_spec, hard_disc_gpu_kernel_spec
+
+
+def test_pair_collision_conserves_energy_and_respects_radius() -> None:
+    world = HardDiscWorld2D(
+        (
+            HardDisc(0.25, 0.5, 0.20, 0.0, 0.08, density=1.0),
+            HardDisc(0.75, 0.5, -0.20, 0.0, 0.12, density=1.0),
+        )
+    )
+    energy0 = world.snapshot().kinetic_energy
+
+    before = world.advance_to(0.70)
+    after = world.advance_to(1.20)
+
+    assert before.discs[0].vx > 0.0
+    assert after.discs[0].vx < 0.0
+    assert after.kinetic_energy == pytest.approx(energy0)
+    assert after.min_gap >= -1.0e-8
+
+
+def test_restitution_dissipates_pair_collision_energy() -> None:
+    world = HardDiscWorld2D(
+        (
+            HardDisc(0.25, 0.5, 0.20, 0.0, 0.08, density=1.0),
+            HardDisc(0.75, 0.5, -0.20, 0.0, 0.08, density=1.0),
+        ),
+        restitution=0.9,
+    )
+    energy0 = world.snapshot().kinetic_energy
+
+    snapshot = world.advance_to(1.2)
+
+    assert snapshot.kinetic_energy < energy0
+    assert snapshot.min_gap >= -1.0e-8
+
+
+def test_gravity_accelerates_between_collisions() -> None:
+    world = HardDiscWorld2D((HardDisc(0.5, 0.7, 0.0, 0.0, 0.05),), gravity=(0.0, -0.2))
+
+    snapshot = world.advance_to(0.5)
+
+    assert snapshot.discs[0].y == pytest.approx(0.675)
+    assert snapshot.discs[0].vy == pytest.approx(-0.1)
+
+
+def test_large_world_gravity_uses_constant_acceleration_drift() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(demo_hard_discs(count=300, width=3.0, height=3.0), width=3.0, height=3.0, gravity=(0.0, -0.2))
+    start = world.snapshot().discs[0]
+
+    snapshot = world.advance_to(0.1)
+    item = snapshot.discs[0]
+
+    assert item.x == pytest.approx(start.x + start.vx * 0.1)
+    assert item.y == pytest.approx(start.y + start.vy * 0.1 - 0.001)
+    assert item.vy == pytest.approx(start.vy - 0.02)
+
+
+def test_large_world_wall_hit_is_solved_at_impact_time() -> None:
+    discs = [HardDisc(0.50, 0.10, 0.0, -1.0, 0.05)]
+    for row in range(10):
+        for col in range(30):
+            if len(discs) >= 300:
+                break
+            discs.append(HardDisc(1.5 + col * 0.20, 1.0 + row * 0.20, 0.0, 0.0, 0.04))
+
+    world = HardDiscWorld2D(discs, width=8.0, height=4.0)
+
+    snapshot = world.advance_to(0.05)
+    item = snapshot.discs[0]
+
+    assert item.y == pytest.approx(item.radius)
+    assert item.vy == pytest.approx(1.0)
+
+
+def test_large_world_slow_contacts_are_projected_apart() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=300, width=1.2, height=0.8),
+        width=1.2,
+        height=0.8,
+        restitution=0.9,
+        gravity=(0.0, -0.22),
+    )
+
+    snapshot = world.advance_to(2.0)
+
+    assert snapshot.min_gap >= -2.0e-3
+
+
+def test_high_count_column_drop_uses_real_gravity_and_keeps_order() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=0.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+    index = len(world._spatial_columns[-1]) - 1
+    top = world._spatial_columns[-1][index]
+    y0 = float(world._spatial_y[top])
+
+    world.advance_to(1.0 / 60.0)
+
+    assert world._spatial_column_mode
+    assert float(world._spatial_y[top]) == pytest.approx(y0 + 0.5 * -9.81 * (1.0 / 60.0) ** 2)
+    for column in world._spatial_columns:
+        for lower, upper in zip(column[:-1], column[1:], strict=False):
+            gap = float(world._spatial_y[upper] - world._spatial_y[lower] - world._spatial_radius[upper] - world._spatial_radius[lower])
+            assert gap >= -1.0e-9
+
+
+def test_high_count_with_horizontal_motion_does_not_use_column_shortcut() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=6.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+
+    assert not world._spatial_column_mode
+    assert world._spatial_max_step == pytest.approx(1.0 / 480.0)
+
+
+def test_high_count_horizontal_motion_uses_conservative_steps_to_prevent_overlap() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=9.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+
+    worst = min(world.advance_to(frame / 60.0) and world.min_gap() for frame in (0, 10, 20, 30))
+
+    assert worst >= -1.0e-6
+
+
+def test_high_count_column_drop_keeps_floor_after_settling() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(
+        demo_hard_discs(count=5000, width=12.0, height=8.0, speed_scale=0.0),
+        width=12.0,
+        height=8.0,
+        restitution=0.5,
+        gravity=(0.0, -9.81),
+    )
+
+    world.advance_to(5.0)
+
+    assert float((world._spatial_y - world._spatial_radius).min()) >= -1.0e-9
+    for column in world._spatial_columns:
+        for lower, upper in zip(column[:-1], column[1:], strict=False):
+            gap = float(world._spatial_y[upper] - world._spatial_y[lower] - world._spatial_radius[upper] - world._spatial_radius[lower])
+            assert gap >= -1.0e-9
+
+
+def test_wall_collision_reflects_without_energy_loss() -> None:
+    world = HardDiscWorld2D((HardDisc(0.25, 0.4, -0.30, 0.10, 0.05, density=2.0),))
+    energy0 = world.snapshot().kinetic_energy
+
+    snapshot = world.advance_to(1.0)
+
+    assert snapshot.discs[0].vx == pytest.approx(0.30)
+    assert snapshot.discs[0].vy == pytest.approx(0.10)
+    assert snapshot.kinetic_energy == pytest.approx(energy0)
+    assert snapshot.discs[0].x >= snapshot.discs[0].radius
+
+
+def test_event_queue_handles_multiple_discs_without_overlap() -> None:
+    discs = (
+        HardDisc(0.18, 0.20, 0.32, 0.22, 0.035),
+        HardDisc(0.42, 0.25, -0.12, 0.30, 0.050),
+        HardDisc(0.72, 0.22, -0.25, 0.18, 0.045),
+        HardDisc(0.30, 0.55, 0.20, -0.17, 0.055),
+        HardDisc(0.60, 0.58, -0.30, -0.19, 0.040),
+        HardDisc(0.82, 0.72, -0.18, -0.28, 0.060),
+    )
+    world = HardDiscWorld2D(discs, width=1.0, height=0.8)
+    energy0 = world.snapshot().kinetic_energy
+
+    for step in range(1, 101):
+        snapshot = world.advance_to(step * 0.04)
+        assert snapshot.min_gap >= -1.0e-7
+        assert snapshot.kinetic_energy == pytest.approx(energy0)
+
+
+def test_impostor_color_reflects_density_and_density_changes_mass() -> None:
+    light = HardDisc(0.25, 0.5, 0.0, 0.0, 0.08, density=0.75)
+    heavy = HardDisc(0.75, 0.5, 0.0, 0.0, 0.08, density=3.70)
+    world = HardDiscWorld2D((light, heavy))
+    snapshot = world.snapshot()
+
+    impostors = disc_impostors(world, snapshot)
+
+    assert heavy.mass > light.mass
+    assert impostors[0]["color"] == pytest.approx(density_color(light.density))
+    assert impostors[1]["color"] == pytest.approx(density_color(heavy.density))
+    assert impostors[0]["color"] != impostors[1]["color"]
+
+
+def test_demo_hard_discs_can_start_with_1000_non_overlapping_bodies() -> None:
+    from vektorflow.stdlib.physics import demo_hard_discs
+
+    world = HardDiscWorld2D(demo_hard_discs(count=1000, width=1.2, height=0.8), width=1.2, height=0.8)
+
+    assert len(world.snapshot().discs) == 1000
+    assert world.snapshot().min_gap >= -1.0e-8
+
+
+def test_hard_disc_gpu_kernel_exposes_parallel_broadphase_and_contacts() -> None:
+    spec = hard_disc_gpu_kernel_spec()
+    shader = spec.wgsl
+
+    assert spec.workgroup_size == 128
+    assert spec.particle_stride_f32 == 8
+    assert spec.collider_kind == "disc_2d"
+    assert spec.pipeline.dimension == 2
+    assert spec.pipeline.collision_matrix_supported
+    assert spec.pipeline.rigid_body_supported
+    assert "@group(0) @binding(0) var<storage, read_write> particles" in shader
+    assert "@group(0) @binding(1) var<storage, read_write> cell_counts" in shader
+    assert "@group(0) @binding(2) var<storage, read_write> cell_items" in shader
+    assert "@group(0) @binding(4) var<storage, read> collision_matrix" in shader
+    assert "@group(0) @binding(5) var<storage, read_write> render_instances" in shader
+    assert "fn integrate(" in shader
+    assert "0.5 * g * dt * dt" in shader
+    assert "fn fill_cells(" in shader
+    assert "atomicAdd(&cell_counts[cell], 1u)" in shader
+    assert "fn resolve_contacts(" in shader
+    assert "resolve_pair(index, other)" in shader
+    assert "fn write_render_instances(" in shader
+    assert "render_instances[index * 2u]" in shader
+
+
+def test_gpu_physics_pipeline_is_shape_agnostic_and_3d_ready() -> None:
+    pipeline2 = gpu_physics_pipeline_spec(2)
+    pipeline3 = gpu_physics_pipeline_spec(3)
+
+    assert pipeline2.body_layout.name == "PhysicsBodyState2D"
+    assert pipeline3.body_layout.name == "PhysicsBodyState3D"
+    assert pipeline3.body_layout.stride_f32 > pipeline2.body_layout.stride_f32
+    assert any(field.name == "orientation_quat" for field in pipeline3.body_layout.fields)
+    assert any(field.name == "angular_velocity" for field in pipeline3.body_layout.fields)
+    assert pipeline2.collider_layout.name == "PhysicsCollider"
+    assert pipeline2.contact_layout.name == "PhysicsContact"
+    assert pipeline2.collision_matrix_supported
+    assert pipeline2.rigid_body_supported
+    assert [stage.kind for stage in pipeline2.stages] == [
+        "integrate",
+        "clear_broadphase",
+        "bin_bodies",
+        "build_contact_candidates",
+        "solve_contacts",
+        "write_render_instances",
+    ]
+    solve_stage = next(stage for stage in pipeline2.stages if stage.kind == "solve_contacts")
+    assert "collision_matrix" in solve_stage.reads
+    assert "contacts" in solve_stage.writes

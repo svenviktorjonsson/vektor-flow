@@ -30,7 +30,7 @@
       );
     }
     try {
-      if (typeof global.VfRuntimeShell.autoBootIfSceneDocument === "function") {
+      if (typeof global.VfRuntimeShell.autoBootIfSceneDocument === "function" && !global.VfRuntimeShell.autoBootDisabled()) {
         global.VfRuntimeShell.autoBootIfSceneDocument();
       }
     } catch (_) {}
@@ -50,6 +50,7 @@
     overlayPacketUrl: "/api/runtime-packets",
     filePacketUrl: "vf-runtime-packets.json",
     sceneUrl: "vkf-scene.json",
+    launchManifestUrl: "vf-launch-manifest.json",
     packetOnly: false,
     strictPacketOnly: false,
     sceneStyleDeps: [
@@ -66,6 +67,7 @@
       "katex/katex.min.js",
       "vf-frame.js",
       "vf-widgets.js",
+      "vf-gpu-runtime.js",
       "vf-axis3d-kernel.js",
       "vf-axis3d-kernel-adapter.js",
       "vf-axis3d-projection-kernel.js",
@@ -101,6 +103,9 @@
     if (Array.isArray(override.sceneScriptDeps)) {
       DEFAULT_RUNTIME_CONFIG.sceneScriptDeps = override.sceneScriptDeps.slice();
     }
+    if (Object.prototype.hasOwnProperty.call(override, "launchManifestUrl")) {
+      DEFAULT_RUNTIME_CONFIG.launchManifestUrl = String(override.launchManifestUrl || "");
+    }
   }
 
   applyRuntimeShellConfigOverrides();
@@ -108,6 +113,9 @@
   function runtimeLog(level, text) {
     var s = "[vf-runtime-shell] " + String(text);
     try {
+      if (global.chrome && global.chrome.webview && typeof global.chrome.webview.postMessage === "function") {
+        global.chrome.webview.postMessage({ type: "vf_log", level: String(level || "info"), message: s, t: Date.now() });
+      }
       if (global.console) {
         if (level === "error" && global.console.error) { global.console.error(s); return; }
         if (level === "warn" && global.console.warn) { global.console.warn(s); return; }
@@ -474,6 +482,12 @@
       return state.bootstrapPromise;
     }
 
+    function ensureLaunchFrameDependencies() {
+      return ensureStylesheetLoaded({ href: "vf-frame.css" }).then(function() {
+        return ensureScriptLoaded("vf-frame.js");
+      });
+    }
+
     function isSceneDocument() {
       var body = document && document.body;
       if (!body) { return false; }
@@ -490,6 +504,13 @@
     function truthyRuntimeAttr(value) {
       var normalized = String(value || "").toLowerCase();
       return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+    }
+
+    function autoBootDisabled() {
+      var body = document && document.body;
+      if (!body) { return false; }
+      var value = String(body.getAttribute("data-vf-runtime-autoboot") || "").toLowerCase();
+      return value === "0" || value === "false" || value === "off" || value === "no";
     }
 
     function applySceneRuntimeConfigFromBody(body) {
@@ -600,6 +621,96 @@
         layer: layer,
         screenCanvas: screenCanvas
       };
+    }
+
+    function selectorEscape(value) {
+      var text = String(value || "");
+      if (global.CSS && typeof global.CSS.escape === "function") {
+        return global.CSS.escape(text);
+      }
+      return text.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+    }
+
+    function normalizeLaunchFrameRect(rect) {
+      if (!Array.isArray(rect) || rect.length < 4) {
+        return [0.04, 0.06, 0.72, 0.84];
+      }
+      return [
+        Math.max(0, Math.min(1, Number(rect[0]) || 0)),
+        Math.max(0, Math.min(1, Number(rect[1]) || 0)),
+        Math.max(0.05, Math.min(1, Number(rect[2]) || 0.72)),
+        Math.max(0.05, Math.min(1, Number(rect[3]) || 0.84))
+      ];
+    }
+
+    function applyLaunchFrameRect(api, frame, layer) {
+      if (!api || !api.root || !layer) { return; }
+      var rect = normalizeLaunchFrameRect(frame && frame.rect);
+      var layerRect = layer.getBoundingClientRect ? layer.getBoundingClientRect() : { width: 0, height: 0 };
+      var width = Math.max(320, Math.round((Number(layerRect.width) || global.innerWidth || 1280) * rect[2]));
+      var height = Math.max(240, Math.round((Number(layerRect.height) || global.innerHeight || 720) * rect[3]));
+      api.root.style.left = Math.round((Number(layerRect.width) || global.innerWidth || 1280) * rect[0]) + "px";
+      api.root.style.top = Math.round((Number(layerRect.height) || global.innerHeight || 720) * rect[1]) + "px";
+      api.root.style.width = width + "px";
+      api.root.style.height = height + "px";
+    }
+
+    function mountLaunchFrames(manifest) {
+      if (!manifest || typeof manifest !== "object") { return false; }
+      var frames = Array.isArray(manifest.frames) ? manifest.frames : [];
+      if (!frames.length) { return false; }
+      var deps = createRuntimeDependencies();
+      if (!deps.frame || typeof deps.frame.mount !== "function") {
+        throw new Error("launch manifest requires VfFrame.mount");
+      }
+      var dom = ensureShellDom(DEFAULT_RUNTIME_CONFIG.layerId, DEFAULT_RUNTIME_CONFIG.screenCanvasId);
+      state.layer = dom.layer;
+      state.screenCanvas = dom.screenCanvas;
+      for (var i = 0; i < frames.length; i += 1) {
+        var frame = frames[i] || {};
+        if (frame.visible === false) { continue; }
+        var id = String(frame.id || frame.frame_id || "");
+        if (!id) { continue; }
+        if (dom.layer.querySelector('.vf-frame[data-vf-frame-id="' + selectorEscape(id) + '"]')) {
+          continue;
+        }
+        var api = deps.frame.mount(dom.layer, {
+          id: id,
+          title: String(frame.title || ""),
+          titleAlign: frame.titleAlign || "left",
+          aspect: frame.aspect || "",
+          draggable: true,
+          inLayerDrag: true,
+          dockable: true,
+          resizable: true,
+          closable: true,
+          alpha: frame.alpha == null ? 1 : Number(frame.alpha),
+          frameless: frame.frameless === true,
+          dockLocation: frame.dockLocation || "bl",
+          exitWhenLastFrameClosed: true,
+          zIndexBase: 1000 + i
+        });
+        applyLaunchFrameRect(api, frame, dom.layer);
+      }
+      if (deps.frame && typeof deps.frame.postNativeHostLayout === "function") {
+        deps.frame.postNativeHostLayout(dom.layer, { stageAlpha: 0 });
+      }
+      return true;
+    }
+
+    function mountLaunchFramesFromUrl(url) {
+      url = String(url || "");
+      if (!url) { return Promise.resolve(false); }
+      return ensureLaunchFrameDependencies().then(function() {
+        return fetch(url, { cache: "force-cache" });
+      }).then(function(response) {
+        if (!response.ok) {
+          throw new Error("failed to load launch manifest " + url + " (" + String(response.status) + ")");
+        }
+        return response.json();
+      }).then(function(manifest) {
+        return mountLaunchFrames(manifest);
+      });
     }
 
     function getSceneAdapter() {
@@ -783,7 +894,8 @@
       ensureShellDom(layerId, screenCanvasId);
       return {
         layerId: layerId,
-        screenCanvasId: screenCanvasId
+        screenCanvasId: screenCanvasId,
+        launchManifestUrl: DEFAULT_RUNTIME_CONFIG.launchManifestUrl
       };
     }
 
@@ -898,9 +1010,15 @@
     }
 
     function autoBootIfSceneDocument() {
+      if (autoBootDisabled()) { return false; }
       var options = resolveSceneBootOptions();
       if (!options) { return false; }
-      ensureSceneDependencies().then(function() {
+      mountLaunchFramesFromUrl(options.launchManifestUrl).catch(function(err) {
+        runtimeLog("warn", "autoBootIfSceneDocument: optional launch manifest skipped: " + (err && err.message ? err.message : String(err)));
+        return false;
+      }).then(function() {
+        return ensureSceneDependencies();
+      }).then(function() {
         boot(options);
       }).catch(function(err) {
         var message = err && err.message ? err.message : String(err || "unknown runtime boot error");
@@ -925,13 +1043,17 @@
     var shell = {
       boot: boot,
       autoBootIfSceneDocument: autoBootIfSceneDocument,
+      autoBootDisabled: autoBootDisabled,
       ensureSceneDependencies: ensureSceneDependencies,
+      ensureLaunchFrameDependencies: ensureLaunchFrameDependencies,
       ensureStylesheetLoaded: ensureStylesheetLoaded,
       ensureScriptLoaded: ensureScriptLoaded,
       isSceneDocument: isSceneDocument,
       ensureSceneDocumentMeta: ensureSceneDocumentMeta,
       ensureSceneHostStyles: ensureSceneHostStyles,
       ensureShellDom: ensureShellDom,
+      mountLaunchFrames: mountLaunchFrames,
+      mountLaunchFramesFromUrl: mountLaunchFramesFromUrl,
       getSceneAdapter: getSceneAdapter,
       getRuntimeSource: getRuntimeSource,
       getRuntimeFlow: getRuntimeFlow,
@@ -959,11 +1081,11 @@
   if (typeof document !== "undefined") {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", function() {
-        if (global.VfRuntimeShell && global.VfRuntimeShell.autoBootIfSceneDocument) {
+        if (global.VfRuntimeShell && global.VfRuntimeShell.autoBootIfSceneDocument && !global.VfRuntimeShell.autoBootDisabled()) {
           global.VfRuntimeShell.autoBootIfSceneDocument();
         }
       }, { once: true });
-    } else if (global.VfRuntimeShell.autoBootIfSceneDocument) {
+    } else if (global.VfRuntimeShell.autoBootIfSceneDocument && !global.VfRuntimeShell.autoBootDisabled()) {
       global.VfRuntimeShell.autoBootIfSceneDocument();
     }
   }

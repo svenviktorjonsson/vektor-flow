@@ -1,0 +1,14 @@
+:.symbolic
+stat: .stat
+
+x: R
+y: R
+n: Z
+
+:: d/dx x^2 + y
+:: x dx
+:: integrate(x, x, 0, 1)
+:: stat.sum(n, n, 1, inf)
+:: latex(d/dx x*y)
+:: latex(integrate(x, x, 0, 1))
+:: latex(stat.sum(n, n, 1, inf))
