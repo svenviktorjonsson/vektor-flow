@@ -14,6 +14,14 @@ const polygonShader = fs.readFileSync(
   path.join(__dirname, "../../web/vf-ui/shaders/vf-rigid-polygons-2d.wgsl"),
   "utf8"
 );
+const polygonProof = fs.readFileSync(
+  path.join(__dirname, "../../examples/physics_rigid_polygons_2d.vkf"),
+  "utf8"
+);
+const nativeStager = fs.readFileSync(
+  path.join(__dirname, "../../compiler/native/vkf_native_scene_artifact_stager.cpp"),
+  "utf8"
+);
 
 assert.match(source, /_createPartPhysicsRuntime:\s*function/);
 assert.match(source, /global\.VfGpuRuntime/);
@@ -39,5 +47,20 @@ assert.match(polygonShader, /triangle_centroid/);
 assert.doesNotMatch(polygonShader, /triangle_contact\([^)]*center_delta/);
 assert.match(polygonShader, /candidate\.penetration < best\.penetration/);
 assert.match(polygonShader, /params\.padding\.x/);
+assert.match(polygonShader, /boundary_mask/);
+assert.match(polygonShader, /triangle_a\.c_body\.w/);
+assert.match(polygonShader, /triangle_b\.c_body\.w/);
+assert.match(nativeStager, /triangle_boundary_mask/);
+
+function vkfNumbers(name) {
+  return Array.from(polygonProof.matchAll(new RegExp("(?:^|\\n)\\s*" + name + ":\\s*([0-9.]+)", "g")), (match) => Number(match[1]));
+}
+
+assert.ok(vkfNumbers("restitution").every((value) => value >= 0.90));
+assert.ok(vkfNumbers("static_friction").every((value) => value <= 0.20));
+assert.ok(vkfNumbers("dynamic_friction").every((value) => value <= 0.10));
+assert.ok(vkfNumbers("rolling_friction").every((value) => value <= 0.01));
+assert.ok(vkfNumbers("linear_angular_damping").every((value) => value <= 0.0002));
+assert.ok(vkfNumbers("tangential_restitution").every((value) => value >= 0.80));
 
 console.log("vf-geom physics runtime hook tests passed");

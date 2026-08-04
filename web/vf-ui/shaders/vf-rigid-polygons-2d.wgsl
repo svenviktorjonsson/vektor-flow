@@ -160,13 +160,17 @@ fn triangle_centroid(vertices: array<vec2<f32>, 3>) -> vec2<f32> {
   return (vertices[0] + vertices[1] + vertices[2]) / 3.0;
 }
 
-fn triangle_contact(a: array<vec2<f32>, 3>, b: array<vec2<f32>, 3>) -> Contact {
+fn triangle_contact(
+  triangle_a: Triangle, triangle_b: Triangle,
+  a: array<vec2<f32>, 3>, b: array<vec2<f32>, 3>
+) -> Contact {
   var result: Contact;
   result.hit = 1u;
   result.penetration = 1.0e30;
   result.normal = vec2<f32>(1.0, 0.0);
   let triangle_delta = triangle_centroid(b) - triangle_centroid(a);
   for (var shape = 0u; shape < 2u; shape = shape + 1u) {
+    let boundary_mask = select(u32(triangle_a.c_body.w), u32(triangle_b.c_body.w), shape == 1u);
     for (var edge = 0u; edge < 3u; edge = edge + 1u) {
       var p0 = a[edge];
       var p1 = a[(edge + 1u) % 3u];
@@ -186,11 +190,16 @@ fn triangle_contact(a: array<vec2<f32>, 3>, b: array<vec2<f32>, 3>) -> Contact {
         result.hit = 0u;
         return result;
       }
-      if (overlap < result.penetration) {
+      let is_boundary_edge = (boundary_mask & (1u << edge)) != 0u;
+      if (is_boundary_edge && overlap < result.penetration) {
         result.penetration = overlap;
         result.normal = axis;
       }
     }
+  }
+  if (result.penetration >= 1.0e29) {
+    result.hit = 0u;
+    return result;
   }
   let point_a = support(a, result.normal);
   let point_b = support(b, -result.normal);
@@ -295,10 +304,12 @@ fn resolve_contacts(@builtin(global_invocation_id) id: vec3<u32>) {
       let start_b = u32(body_b.triangle_range.x);
       let count_b = u32(body_b.triangle_range.y);
       for (var ta = 0u; ta < count_a; ta = ta + 1u) {
-        let world_a = world_triangle(triangles[start_a + ta], body_a);
+          let triangle_a = triangles[start_a + ta];
+          let world_a = world_triangle(triangle_a, body_a);
         for (var tb = 0u; tb < count_b; tb = tb + 1u) {
-          let world_b = world_triangle(triangles[start_b + tb], body_b);
-          let candidate = triangle_contact(world_a, world_b);
+          let triangle_b = triangles[start_b + tb];
+          let world_b = world_triangle(triangle_b, body_b);
+          let candidate = triangle_contact(triangle_a, triangle_b, world_a, world_b);
           if (candidate.hit != 0u && candidate.penetration < best.penetration) {
             best = candidate;
           }

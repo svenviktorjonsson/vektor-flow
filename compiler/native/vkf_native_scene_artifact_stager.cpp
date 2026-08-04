@@ -1045,6 +1045,36 @@ std::vector<std::array<Point2, 3>> triangulate_simple_polygon(
     return triangles_out;
 }
 
+unsigned triangle_boundary_mask(
+    const std::array<Point2, 3>& triangle,
+    const std::vector<std::vector<Point2>>& contours
+) {
+    unsigned mask = 0;
+    for (std::size_t triangle_edge = 0; triangle_edge < 3; ++triangle_edge) {
+        const Point2& a = triangle[triangle_edge];
+        const Point2& b = triangle[(triangle_edge + 1) % 3];
+        bool boundary = false;
+        for (const auto& contour : contours) {
+            for (std::size_t contour_edge = 0; contour_edge < contour.size(); ++contour_edge) {
+                const Point2& c = contour[contour_edge];
+                const Point2& d = contour[(contour_edge + 1) % contour.size()];
+                if ((same_point(a, c) && same_point(b, d)) ||
+                    (same_point(a, d) && same_point(b, c))) {
+                    boundary = true;
+                    break;
+                }
+            }
+            if (boundary) {
+                break;
+            }
+        }
+        if (boundary) {
+            mask |= 1u << triangle_edge;
+        }
+    }
+    return mask;
+}
+
 std::string number_json(double value) {
     std::ostringstream out;
     out << std::setprecision(9) << value;
@@ -1364,6 +1394,7 @@ std::optional<std::string> rigid_polygon_mesh_json(
         };
         const double z = literal_number_or(body, "z", 0.0);
         for (const auto& triangle : body_triangles) {
+            const unsigned boundary_mask = triangle_boundary_mask(triangle, contours);
             std::array<Point2, 3> local{};
             for (std::size_t vertex_index = 0; vertex_index < 3; ++vertex_index) {
                 local[vertex_index] = {
@@ -1373,7 +1404,7 @@ std::optional<std::string> rigid_polygon_mesh_json(
             }
             collision_triangles.insert(collision_triangles.end(), {
                 local[0].x, local[0].y, local[1].x, local[1].y,
-                local[2].x, local[2].y, static_cast<double>(body_index), 0.0
+                local[2].x, local[2].y, static_cast<double>(body_index), static_cast<double>(boundary_mask)
             });
             for (const Point2& point : local) {
                 render_source.insert(render_source.end(), {
