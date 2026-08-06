@@ -56,7 +56,7 @@ from .screen import (
     _write_vkf_scene_to_vf_ui,
 )
 from .events import (
-    UIMouse, UIKeyboard,
+    UIMouse, UITouch, UIKeyboard,
     MouseEvent, MouseMove, MouseHover, MouseDown, MouseUp, MouseWheel, MouseDrag,
     FrameEvent, FrameClosed, FrameDocked, FrameDragged, FrameResized,
     WidgetEvent, ButtonPressedEvent, CheckboxToggledEvent, SliderValueChangedEvent,
@@ -1830,13 +1830,19 @@ class UIEventLoop:
             raise ValueError("event_loop frames must be non-negative")
 
     def run(self, stepper: Any) -> Any:
-        renderer = getattr(stepper, "renderer", None)
+        renderer = _impostor_field(stepper, "renderer", None)
+        step = _impostor_field(stepper, "step", None)
         if renderer is not None and hasattr(renderer, "capture_frame_duration_ms"):
             renderer.capture_frame_duration_ms = 1000.0 / self.fps
         for frame_index in range(self.frames):
             t = frame_index / self.fps
-            if hasattr(stepper, "step"):
-                stepper.step(t, frame_index)
+            if isinstance(stepper, dict) and callable(step):
+                step(stepper.get("state", {}), t, 1.0 / self.fps, frame_index)
+                call_scope = getattr(step, "last_call_scope", None)
+                if isinstance(call_scope, dict) and "state" in call_scope:
+                    stepper["state"] = call_scope["state"]
+            elif callable(step):
+                step(t, frame_index)
             else:
                 stepper(t, frame_index)
             if self.realtime:
@@ -4180,6 +4186,7 @@ class UIRoot:
     COMBOBOX_ITEM_CHANGED: int = encode_ui_pattern("combobox.item_changed")
     COLOR_PICKER_VALUE_CHANGED: int = encode_ui_pattern("color_picker.value_changed")
     cursor:   UIMouse    = field(default_factory=UIMouse)
+    touch:    UITouch    = field(default_factory=UITouch)
     keyboard: UIKeyboard = field(default_factory=UIKeyboard)
     display:  "Display"  = field(default_factory=lambda: Display())
     events: UIEventQueue = field(init=False, repr=False)
@@ -4204,6 +4211,8 @@ class UIRoot:
                 event_kind_count=self._event_kind_count,
             )
             payload = dispatch.payload
+            is_touch = str(payload.get("pointer_type", payload.get("pointerType", "")) or "") == "touch"
+            self.touch._push(payload)
             ev_name = str(payload.get("event", ""))
             frame_id = str(payload.get("frame_id", ""))
             widget_id = str(payload.get("widget_id", ""))
@@ -4233,7 +4242,7 @@ class UIRoot:
             )
             if effects.should_observe_modifiers:
                 self.keyboard._observe_modifiers(payload)
-            if effects.should_push_cursor:
+            if effects.should_push_cursor and not is_touch:
                 self.cursor._push(payload)
             if effects.should_push_keyboard:
                 self.keyboard._push(payload)
@@ -5399,6 +5408,7 @@ def build_ui_namespace() -> dict[str, Any]:
         "ui": root,
         "display": root.display,
         "cursor": root.cursor,
+        "touch": root.touch,
         "keyboard": root.keyboard,
         "events": root.events,
         "widgets": root.widgets,

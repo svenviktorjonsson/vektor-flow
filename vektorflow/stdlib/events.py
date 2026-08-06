@@ -291,6 +291,10 @@ class MouseEvent:
     pick_mask_exact: int = 0
     button:     int    = -1     # 0=left 1=mid 2=right (-1 = N/A)
     buttons:    int    = 0      # bitmask from MouseEvent.buttons (for hover/drag state)
+    pointer_id: int    = 0
+    pointer_type: str  = "mouse"
+    pressure:   float  = 0.0
+    is_primary: bool   = True
     ctrl:       bool   = False
     shift:      bool   = False
     alt:        bool   = False
@@ -332,6 +336,10 @@ class MouseEvent:
             pick_mask_exact = int(d.get("pick_mask_exact", 0)),
             button     = int(d.get("button", -1)),
             buttons    = int(d.get("buttons", 0)),
+            pointer_id = int(d.get("pointer_id", d.get("pointerId", 0)) or 0),
+            pointer_type = str(d.get("pointer_type", d.get("pointerType", "mouse")) or "mouse"),
+            pressure   = float(d.get("pressure", 0.0) or 0.0),
+            is_primary = bool(d.get("is_primary", d.get("isPrimary", True))),
             ctrl       = bool(d.get("ctrl", False)),
             shift      = bool(d.get("shift", False)),
             alt        = bool(d.get("alt", False)),
@@ -696,6 +704,9 @@ def ui_event_from_payload(d: dict[str, Any]) -> MouseEvent | KeyboardEvent | Fra
     kind = str(payload.get("type", ""))
     if kind == "vf_event":
         if ev in _MOUSE_EVENT_CLASS_BY_NAME:
+            pointer_type = str(payload.get("pointer_type", payload.get("pointerType", "mouse")) or "mouse")
+            if pointer_type == "touch":
+                return TouchEvent.from_dict(payload)
             return MouseEvent.from_dict(payload)
         if ev in _KEYBOARD_EVENT_CLASS_BY_NAME:
             return KeyboardEvent.from_dict(payload)
@@ -829,6 +840,80 @@ class UIMouse:
                 f"wheel={len(self._wheel_cbs)} cbs, "
                 f"drag={len(self._drag_cbs)} cbs, "
                 f"move={len(self._move_cbs)} cbs)")
+
+
+@dataclass(frozen=True)
+class TouchContact:
+    __vf_py_attrs__ = True
+
+    id: int
+    x: float
+    y: float
+    dx: float = 0.0
+    dy: float = 0.0
+    pressure: float = 0.0
+    primary: bool = False
+
+
+class UITouch:
+    """Read-only VKF touch-state view maintained by the UI event ingress."""
+
+    __vf_py_attrs__ = True
+
+    def __init__(self) -> None:
+        self._x = 0.0
+        self._y = 0.0
+        self._dx = 0.0
+        self._dy = 0.0
+        self._contacts: dict[int, Any] = {}
+
+    @property
+    def x(self) -> float:
+        return self._x
+
+    @property
+    def y(self) -> float:
+        return self._y
+
+    @property
+    def dx(self) -> float:
+        return self._dx
+
+    @property
+    def dy(self) -> float:
+        return self._dy
+
+    @property
+    def n(self) -> int:
+        return len(self._contacts)
+
+    @property
+    def contacts(self) -> tuple[Any, ...]:
+        return tuple(self._contacts.values())
+
+    def _push(self, payload: dict[str, Any]) -> None:
+        pointer_type = str(payload.get("pointer_type", payload.get("pointerType", "")) or "")
+        if pointer_type != "touch":
+            return
+        pointer_id = int(payload.get("pointer_id", payload.get("pointerId", 0)) or 0)
+        x = float(payload.get("x", 0.0) or 0.0)
+        y = float(payload.get("y", 0.0) or 0.0)
+        previous = self._contacts.get(pointer_id)
+        dx = float(payload.get("dx", x - previous.x if previous is not None else 0.0) or 0.0)
+        dy = float(payload.get("dy", y - previous.y if previous is not None else 0.0) or 0.0)
+        self._x, self._y, self._dx, self._dy = x, y, dx, dy
+        if str(payload.get("event", "")) in {"up", "cancel"}:
+            self._contacts.pop(pointer_id, None)
+            return
+        self._contacts[pointer_id] = TouchContact(
+            id=pointer_id,
+            x=x,
+            y=y,
+            dx=dx,
+            dy=dy,
+            pressure=float(payload.get("pressure", 0.0) or 0.0),
+            primary=bool(payload.get("is_primary", payload.get("isPrimary", False))),
+        )
 
 
 class UIKeyboard:

@@ -18,6 +18,66 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function polygonsOverlapStrict(readback, epsilon = 1e-6) {
+  if (!readback || !Array.isArray(readback.bodies) || !Array.isArray(readback.triangles)) return null;
+  const bodies = readback.bodies;
+  const tris = readback.triangles;
+  const transform = (body, x, y) => {
+    const a = body[2];
+    const c = Math.cos(a), s = Math.sin(a);
+    return [body[0] + c * x - s * y, body[1] + s * x + c * y];
+  };
+  const axes = (poly) => poly.map((p, i) => {
+    const q = poly[(i + 1) % poly.length];
+    const dx = q[0] - p[0], dy = q[1] - p[1];
+    const n = Math.hypot(dx, dy) || 1;
+    return [-dy / n, dx / n];
+  });
+  const overlaps = (a, b) => {
+    for (const axis of axes(a).concat(axes(b))) {
+      let amin = Infinity, amax = -Infinity, bmin = Infinity, bmax = -Infinity;
+      for (const p of a) { const d = p[0] * axis[0] + p[1] * axis[1]; amin = Math.min(amin, d); amax = Math.max(amax, d); }
+      for (const p of b) { const d = p[0] * axis[0] + p[1] * axis[1]; bmin = Math.min(bmin, d); bmax = Math.max(bmax, d); }
+      if (Math.min(amax, bmax) - Math.max(amin, bmin) <= epsilon) return false;
+    }
+    return true;
+  };
+  const windingInside = (point, boundary) => {
+    let winding = 0;
+    for (const edge of boundary) {
+      const ax = edge[0][0] - point[0], ay = edge[0][1] - point[1];
+      const bx = edge[1][0] - point[0], by = edge[1][1] - point[1];
+      const cross = ax * by - ay * bx;
+      const dot = ax * bx + ay * by;
+      winding += Math.atan2(cross, dot);
+    }
+    return Math.abs(winding) > Math.PI;
+  };
+  const count = tris.length / 8;
+  const boundaries = new Map();
+  for (let i = 0; i < count; i += 1) {
+    const ti = i * 8, bi = Math.round(tris[ti + 6]), mask = Math.round(tris[ti + 7]);
+    const body = bodies.slice(bi * 16, bi * 16 + 16);
+    const tri = [transform(body, tris[ti], tris[ti + 1]), transform(body, tris[ti + 2], tris[ti + 3]), transform(body, tris[ti + 4], tris[ti + 5])];
+    if (!boundaries.has(bi)) boundaries.set(bi, []);
+    for (let e = 0; e < 3; e += 1) if ((mask & (1 << e)) !== 0) boundaries.get(bi).push([tri[e], tri[(e + 1) % 3]]);
+  }
+  for (let i = 0; i < count; i += 1) {
+    const ti = i * 8, bi = Math.round(tris[ti + 6]);
+    const pa = [transform(bodies.slice(bi * 16, bi * 16 + 16), tris[ti], tris[ti + 1]), transform(bodies.slice(bi * 16, bi * 16 + 16), tris[ti + 2], tris[ti + 3]), transform(bodies.slice(bi * 16, bi * 16 + 16), tris[ti + 4], tris[ti + 5])];
+    for (let j = i + 1; j < count; j += 1) {
+      const tj = j * 8, bj = Math.round(tris[tj + 6]);
+      if (bi === bj) continue;
+      const pb = [transform(bodies.slice(bj * 16, bj * 16 + 16), tris[tj], tris[tj + 1]), transform(bodies.slice(bj * 16, bj * 16 + 16), tris[tj + 2], tris[tj + 3]), transform(bodies.slice(bj * 16, bj * 16 + 16), tris[tj + 4], tris[tj + 5])];
+      if (overlaps(pa, pb)) return { triangleA: i, triangleB: j, bodyA: bi, bodyB: bj };
+      if (windingInside(pa[0], boundaries.get(bj) || []) || windingInside(pb[0], boundaries.get(bi) || [])) {
+        return { containment: true, triangleA: i, triangleB: j, bodyA: bi, bodyB: bj };
+      }
+    }
+  }
+  return null;
+}
+
 async function fetchJson(url) {
   const response = await fetch(url);
   return await response.json();
@@ -230,7 +290,11 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
         const state = window.VfDisplay.__test.debugDynamicGeomFrameState
           ? window.VfDisplay.__test.debugDynamicGeomFrameState(frameId)
           : null;
-        return { ok: true, state };
+        const rigidRenderer = window.__vfFrameRenderers && window.__vfFrameRenderers[String(frameId)];
+        const rigidBodies = rigidRenderer && typeof rigidRenderer._debugReadRigidPolygonBodies === "function"
+          ? await rigidRenderer._debugReadRigidPolygonBodies()
+          : null;
+        return { ok: true, state, rigidBodies };
       })()`,
       awaitPromise: true,
       returnByValue: true
@@ -238,6 +302,10 @@ async function captureFrameSequenceVideo(runtime, frameId, outputPath, seconds, 
     const stateValue = stateResult && stateResult.result ? stateResult.result.value : null;
     if (!stateValue || !stateValue.ok) {
       throw new Error(`frame redraw failed: ${JSON.stringify(stateValue)}`);
+    }
+    const overlap = polygonsOverlapStrict(stateValue.rigidBodies);
+    if (overlap) {
+      throw new Error(`strict non-overlap invariant failed at frame ${index}: ${JSON.stringify(overlap)}`);
     }
     const capture = await sendCdp(runtime.pageWs, runtime.pageState, "Runtime.evaluate", {
       expression: `(async () => {

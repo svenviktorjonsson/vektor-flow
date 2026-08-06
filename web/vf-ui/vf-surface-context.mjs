@@ -69,6 +69,14 @@ function createRegistry(records, stack, rootId, timeHandle) {
       }));
     },
 
+    updateFrame(id, frame) {
+      const record = requireNonRootRecord(records, id, rootId);
+      return replaceRecord(records, stack, rootId, timeHandle, freezeRecord({
+        ...record,
+        frame: normalizeAffine(frame)
+      }));
+    },
+
     translate(id, delta) {
       const [dx, dy] = normalizePoint(delta, 'translation');
       return transformFrame(records, stack, rootId, timeHandle, id, [1, 0, 0, 1, dx, dy]);

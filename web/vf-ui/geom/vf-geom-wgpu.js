@@ -7802,6 +7802,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
+    _debugReadRigidPolygonBodies: async function () {
+      var parts = Array.isArray(this._parts) ? this._parts : [];
+      for (var i = 0; i < parts.length; i += 1) {
+        var runtime = parts[i] && parts[i].physicsRuntime;
+        if (runtime && typeof runtime.readBodies === "function") {
+          return await runtime.readBodies();
+        }
+      }
+      return null;
+    },
+
     _createPartPhysicsRuntime: function (mesh) {
       var spec = mesh && mesh.physics_gpu && typeof mesh.physics_gpu === "object"
         ? mesh.physics_gpu

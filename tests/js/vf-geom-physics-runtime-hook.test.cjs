@@ -24,6 +24,7 @@ const nativeStager = fs.readFileSync(
 );
 
 assert.match(source, /_createPartPhysicsRuntime:\s*function/);
+assert.match(source, /_debugReadRigidPolygonBodies:/);
 assert.match(source, /global\.VfGpuRuntime/);
 assert.match(source, /mesh\.physics && typeof mesh\.physics === "object"/);
 assert.match(source, /createHardDiscPhysicsRuntime/);
@@ -50,7 +51,24 @@ assert.match(polygonShader, /params\.padding\.x/);
 assert.match(polygonShader, /boundary_mask/);
 assert.match(polygonShader, /triangle_a\.c_body\.w/);
 assert.match(polygonShader, /triangle_b\.c_body\.w/);
+assert.match(polygonShader, /swept_vertex_edge_distance/);
+assert.match(polygonShader, /swept_vertex_edge_toi/);
+assert.match(polygonShader, /earliest_swept_event/);
+assert.match(polygonShader, /swept_bounding_circles_overlap/);
+assert.match(polygonShader, /closest_time = clamp/);
+assert.doesNotMatch(polygonShader, /if \(dot\(delta, delta\) > radius \* radius\) \{ continue; \}/);
+assert.match(polygonShader, /let normal = vec2<f32>\(edge\.y, -edge\.x\)/);
+assert.doesNotMatch(polygonShader, /dot\(normal, vertex - edge_a\) < 0\.0/);
+assert.match(polygonShader, /triangle_vertex\(tri_b, vertex\)[\s\S]*body_b, body_a, dt/);
+assert.match(polygonShader, /let body_a = bodies\[ia\]/);
+assert.doesNotMatch(polygonShader, /previous_bodies/);
+assert.match(polygonShader, /for \(var iteration = 0u; iteration < 12u/);
+assert.match(fs.readFileSync(path.join(__dirname, "../../web/vf-ui/vf-gpu-runtime.js"), "utf8"), /out\[12\]\s*=\s*1\.0/);
+assert.match(fs.readFileSync(path.join(__dirname, "../../web/vf-ui/vf-gpu-runtime.js"), "utf8"), /readBodies/);
 assert.match(nativeStager, /triangle_boundary_mask/);
+assert.match(polygonProof, /mass:\s*"inf"/);
+assert.match(polygonProof, /position_correction:\s*1\.0/);
+assert.match(polygonProof, /penetration_slop:\s*0\.0/);
 
 function vkfNumbers(name) {
   return Array.from(polygonProof.matchAll(new RegExp("(?:^|\\n)\\s*" + name + ":\\s*([0-9.]+)", "g")), (match) => Number(match[1]));

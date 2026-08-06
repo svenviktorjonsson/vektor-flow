@@ -267,7 +267,9 @@
     out[9] = Math.max(0.0, Number(options.penetrationSlop == null ? 0.002 : options.penetrationSlop));
     out[10] = Math.max(0.0, Number(options.linearAngularDamping == null ? 0.025 : options.linearAngularDamping));
     out[11] = Math.max(0.0, Math.min(1.0, Number(options.tangentialRestitution == null ? 0.0 : options.tangentialRestitution)));
-    out[12] = 1.0 / Math.max(1, Number(options.solverIterations || 8) | 0);
+    // Strict non-penetration projection: apply the full measured correction
+    // on every solver pass. Any allowed tolerance comes only from out[9].
+    out[12] = 1.0;
     return out;
   }
 
@@ -300,8 +302,9 @@
     var storageUsage = gpuUsage("STORAGE", 128);
     var vertexUsage = gpuUsage("VERTEX", 32);
     var copyDstUsage = gpuUsage("COPY_DST", 8);
+    var copySrcUsage = gpuUsage("COPY_SRC", 4);
     var uniformUsage = gpuUsage("UNIFORM", 64);
-    var bodyBuffer = createBufferWithData(device, "vf rigid polygon bodies", storageUsage | copyDstUsage, bodies);
+    var bodyBuffer = createBufferWithData(device, "vf rigid polygon bodies", storageUsage | copyDstUsage | copySrcUsage, bodies);
     var triangleBuffer = createBufferWithData(device, "vf rigid polygon triangles", storageUsage | copyDstUsage, triangles);
     var renderSourceBuffer = createBufferWithData(device, "vf rigid polygon render source", storageUsage | copyDstUsage, renderSource);
     var renderVertexBuffer = createBufferWithData(
@@ -371,10 +374,9 @@
       var pass = commandEncoder.beginComputePass({ label: "vf rigid polygons step" });
       if (scaledDt > 0.0) {
         dispatch(pass, pipelines.integrate, ceilDiv(bodyCount, workgroupSize));
-        var iterations = Math.max(1, Number(baseOptions.solverIterations || 8) | 0);
-        for (var i = 0; i < iterations; i += 1) {
-          dispatch(pass, pipelines.resolve_contacts, 1);
-        }
+        // resolve_contacts owns the event-time advance and remainder. Keeping
+        // one dispatch here prevents replaying the same start-of-interval event.
+        dispatch(pass, pipelines.resolve_contacts, 1);
       }
       dispatch(pass, pipelines.write_render_vertices, ceilDiv(renderVertexCount, workgroupSize));
       pass.end();
@@ -408,6 +410,22 @@
     function controlState() {
       return { paused: paused, timeScale: timeScale };
     }
+    async function readBodies() {
+      var size = bodyCount * 16 * 4;
+      var readback = device.createBuffer({
+        label: "vf rigid polygon body readback",
+        size: size,
+        usage: gpuUsage("MAP_READ", 1) | copyDstUsage
+      });
+      var encoder = device.createCommandEncoder({ label: "vf rigid polygon body readback" });
+      encoder.copyBufferToBuffer(bodyBuffer, 0, readback, 0, size);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(1);
+      var result = Array.from(new Float32Array(readback.getMappedRange().slice(0)));
+      readback.unmap();
+      if (typeof readback.destroy === "function") { readback.destroy(); }
+      return { bodies: result, triangles: Array.from(triangles), bodyCount: bodyCount, triangleCount: triangleCount };
+    }
     function destroy() {
       var buffers = [bodyBuffer, triangleBuffer, renderSourceBuffer, renderVertexBuffer, paramsBuffer];
       for (var i = 0; i < buffers.length; i += 1) {
@@ -431,6 +449,7 @@
       reset: reset,
       setTimeScale: setTimeScale,
       controlState: controlState,
+      readBodies: readBodies,
       destroy: destroy
     };
   }

@@ -30,6 +30,24 @@ struct Contact {
   padding: vec2<f32>,
 }
 
+struct SweptVertexEdgeHit {
+  hit: u32,
+  time: f32,
+  point: vec2<f32>,
+  normal: vec2<f32>,
+}
+
+struct ToiEvent {
+  hit: u32,
+  time: f32,
+  body_a: u32,
+  body_b: u32,
+  triangle_a: u32,
+  triangle_b: u32,
+  vertex: u32,
+  edge: u32,
+}
+
 @group(0) @binding(0) var<storage, read_write> bodies: array<Body>;
 @group(0) @binding(1) var<storage, read> triangles: array<Triangle>;
 @group(0) @binding(2) var<storage, read> render_source: array<RenderSource>;
@@ -130,6 +148,151 @@ fn world_triangle(t: Triangle, body: Body) -> array<vec2<f32>, 3> {
   out[1] = position + rotate2(t.ab.zw, angle);
   out[2] = position + rotate2(t.c_body.xy, angle);
   return out;
+}
+
+// Signed distance of a moving vertex to a moving edge. Both rigid bodies use
+// linear translation plus constant angular velocity over the event interval.
+fn swept_vertex_edge_distance(
+  vertex_local: vec2<f32>, edge_a_local: vec2<f32>, edge_b_local: vec2<f32>,
+  body_vertex: Body, body_edge: Body, time: f32
+) -> vec4<f32> {
+  let vertex = body_vertex.pose_inv_mass.xy +
+    rotate2(vertex_local, body_vertex.pose_inv_mass.z + body_vertex.velocity_inv_inertia.z * time) +
+    body_vertex.velocity_inv_inertia.xy * time;
+  let edge_a = body_edge.pose_inv_mass.xy +
+    rotate2(edge_a_local, body_edge.pose_inv_mass.z + body_edge.velocity_inv_inertia.z * time) +
+    body_edge.velocity_inv_inertia.xy * time;
+  let edge_b = body_edge.pose_inv_mass.xy +
+    rotate2(edge_b_local, body_edge.pose_inv_mass.z + body_edge.velocity_inv_inertia.z * time) +
+    body_edge.velocity_inv_inertia.xy * time;
+  let edge = edge_b - edge_a;
+  let edge_len2 = max(dot(edge, edge), 1.0e-20);
+  // Collision triangles are counter-clockwise, so the right-hand normal is
+  // the fixed outward normal. Never flip it toward the query vertex: doing so
+  // destroys the signed-distance crossing used by continuous collision tests.
+  let normal = vec2<f32>(edge.y, -edge.x) * inverseSqrt(edge_len2);
+  let segment_u = clamp(dot(vertex - edge_a, edge) / edge_len2, 0.0, 1.0);
+  return vec4<f32>(dot(vertex - edge_a, normal), segment_u, normal.x, normal.y);
+}
+
+// Bracket and bisect the first signed-distance root. This is deliberately
+// conservative: no event is accepted unless the vertex is on the finite edge.
+fn swept_vertex_edge_toi(
+  vertex_local: vec2<f32>, edge_a_local: vec2<f32>, edge_b_local: vec2<f32>,
+  body_vertex: Body, body_edge: Body, dt: f32
+) -> SweptVertexEdgeHit {
+  var result: SweptVertexEdgeHit;
+  result.hit = 0u;
+  result.time = dt;
+  result.point = vec2<f32>(0.0);
+  result.normal = vec2<f32>(1.0, 0.0);
+  let samples = 16u;
+  var previous_time = 0.0;
+  var previous = swept_vertex_edge_distance(vertex_local, edge_a_local, edge_b_local, body_vertex, body_edge, 0.0);
+  if (previous.x <= 0.0 && previous.y >= 0.0 && previous.y <= 1.0) {
+    result.hit = 1u;
+    result.time = 0.0;
+  }
+  for (var sample = 1u; sample <= samples && result.hit == 0u; sample = sample + 1u) {
+    let current_time = dt * f32(sample) / f32(samples);
+    let current = swept_vertex_edge_distance(vertex_local, edge_a_local, edge_b_local, body_vertex, body_edge, current_time);
+    if (previous.x > 0.0 && current.x <= 0.0) {
+      var lo = previous_time;
+      var hi = current_time;
+      for (var iteration = 0u; iteration < 12u; iteration = iteration + 1u) {
+        let mid = 0.5 * (lo + hi);
+        let value = swept_vertex_edge_distance(vertex_local, edge_a_local, edge_b_local, body_vertex, body_edge, mid);
+        if (value.x > 0.0) { lo = mid; } else { hi = mid; }
+      }
+      let hit_value = swept_vertex_edge_distance(vertex_local, edge_a_local, edge_b_local, body_vertex, body_edge, hi);
+      if (hit_value.y >= 0.0 && hit_value.y <= 1.0) {
+        result.hit = 1u;
+        result.time = hi;
+        result.normal = hit_value.zw;
+      }
+    }
+    previous_time = current_time;
+    previous = current;
+  }
+  return result;
+}
+
+fn swept_bounding_circles_overlap(body_a: Body, body_b: Body, dt: f32) -> bool {
+  let relative_position = body_b.pose_inv_mass.xy - body_a.pose_inv_mass.xy;
+  let relative_velocity = body_b.velocity_inv_inertia.xy - body_a.velocity_inv_inertia.xy;
+  let speed_squared = dot(relative_velocity, relative_velocity);
+  var closest_time = 0.0;
+  if (speed_squared > 1.0e-20) {
+    closest_time = clamp(-dot(relative_position, relative_velocity) / speed_squared, 0.0, dt);
+  }
+  let closest_delta = relative_position + relative_velocity * closest_time;
+  let radius = body_a.material_radius.w + body_b.material_radius.w;
+  return dot(closest_delta, closest_delta) <= radius * radius;
+}
+
+fn earliest_swept_event(dt: f32, body_count: u32) -> ToiEvent {
+  var best: ToiEvent;
+  best.hit = 0u;
+  best.time = dt;
+  best.body_a = 0u;
+  best.body_b = 0u;
+  best.triangle_a = 0u;
+  best.triangle_b = 0u;
+  best.vertex = 0u;
+  best.edge = 0u;
+  for (var ia = 0u; ia < body_count; ia = ia + 1u) {
+    let body_a = bodies[ia];
+    for (var ib = ia + 1u; ib < body_count; ib = ib + 1u) {
+      let body_b = bodies[ib];
+      if (body_a.pose_inv_mass.w + body_b.pose_inv_mass.w <= 0.0) { continue; }
+      if (!swept_bounding_circles_overlap(body_a, body_b, dt)) { continue; }
+      let start_a = u32(body_a.triangle_range.x);
+      let count_a = u32(body_a.triangle_range.y);
+      let start_b = u32(body_b.triangle_range.x);
+      let count_b = u32(body_b.triangle_range.y);
+      for (var ta = 0u; ta < count_a; ta = ta + 1u) {
+        let tri_a = triangles[start_a + ta];
+        for (var tb = 0u; tb < count_b; tb = tb + 1u) {
+          let tri_b = triangles[start_b + tb];
+          for (var vertex = 0u; vertex < 3u; vertex = vertex + 1u) {
+            for (var edge = 0u; edge < 3u; edge = edge + 1u) {
+              if ((u32(tri_b.c_body.w) & (1u << edge)) != 0u) {
+                let hit_a_into_b = swept_vertex_edge_toi(
+                  triangle_vertex(tri_a, vertex), triangle_vertex(tri_b, edge),
+                  triangle_vertex(tri_b, (edge + 1u) % 3u), body_a, body_b, dt);
+                if (hit_a_into_b.hit != 0u && hit_a_into_b.time < best.time) {
+                  best.hit = 1u;
+                  best.time = hit_a_into_b.time;
+                  best.body_a = ia;
+                  best.body_b = ib;
+                  best.triangle_a = start_a + ta;
+                  best.triangle_b = start_b + tb;
+                  best.vertex = vertex;
+                  best.edge = edge;
+                }
+              }
+              if ((u32(tri_a.c_body.w) & (1u << edge)) != 0u) {
+                let hit_b_into_a = swept_vertex_edge_toi(
+                  triangle_vertex(tri_b, vertex), triangle_vertex(tri_a, edge),
+                  triangle_vertex(tri_a, (edge + 1u) % 3u), body_b, body_a, dt);
+                if (hit_b_into_a.hit != 0u && hit_b_into_a.time < best.time) {
+                  best.hit = 1u;
+                  best.time = hit_b_into_a.time;
+                  best.body_a = ia;
+                  best.body_b = ib;
+                  best.triangle_a = start_a + ta;
+                  best.triangle_b = start_b + tb;
+                  best.vertex = vertex;
+                  best.edge = edge;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return best;
 }
 
 fn project_triangle(vertices: array<vec2<f32>, 3>, axis: vec2<f32>) -> vec2<f32> {
@@ -276,8 +439,6 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
   if (body.pose_inv_mass.w <= 0.0) { return; }
   let dt = params.world_dt.z;
   body.velocity_inv_inertia.xy = body.velocity_inv_inertia.xy + params.gravity_counts.xy * dt;
-  body.pose_inv_mass.xy = body.pose_inv_mass.xy + body.velocity_inv_inertia.xy * dt;
-  body.pose_inv_mass.z = body.pose_inv_mass.z + body.velocity_inv_inertia.z * dt;
   let damping = max(0.0, 1.0 - params.solver.z * dt);
   body.velocity_inv_inertia.xy = body.velocity_inv_inertia.xy * damping;
   body.velocity_inv_inertia.z = body.velocity_inv_inertia.z * damping;
@@ -288,6 +449,16 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
 fn resolve_contacts(@builtin(global_invocation_id) id: vec3<u32>) {
   if (id.x != 0u) { return; }
   let body_count = u32(params.gravity_counts.z);
+  let event = earliest_swept_event(params.world_dt.z, body_count);
+  let event_time = select(params.world_dt.z, event.time, event.hit != 0u);
+  for (var advance_index = 0u; advance_index < body_count; advance_index = advance_index + 1u) {
+    var advanced = bodies[advance_index];
+    if (advanced.pose_inv_mass.w > 0.0) {
+      advanced.pose_inv_mass.xy = advanced.pose_inv_mass.xy + advanced.velocity_inv_inertia.xy * event_time;
+      advanced.pose_inv_mass.z = advanced.pose_inv_mass.z + advanced.velocity_inv_inertia.z * event_time;
+    }
+    bodies[advance_index] = advanced;
+  }
   for (var ia = 0u; ia < body_count; ia = ia + 1u) {
     let body_a = bodies[ia];
     for (var ib = ia + 1u; ib < body_count; ib = ib + 1u) {
@@ -350,6 +521,18 @@ fn resolve_contacts(@builtin(global_invocation_id) id: vec3<u32>) {
     apply_wall(body_index, max_x_point, vec2<f32>(-1.0, 0.0), max_x - half_width);
     apply_wall(body_index, min_y_point, vec2<f32>(0.0, 1.0), -half_height - min_y);
     apply_wall(body_index, max_y_point, vec2<f32>(0.0, -1.0), max_y - half_height);
+  }
+
+  let remaining = max(params.world_dt.z - event_time, 0.0);
+  if (remaining > 0.0) {
+    for (var remainder_index = 0u; remainder_index < body_count; remainder_index = remainder_index + 1u) {
+      var remainder_body = bodies[remainder_index];
+      if (remainder_body.pose_inv_mass.w > 0.0) {
+        remainder_body.pose_inv_mass.xy = remainder_body.pose_inv_mass.xy + remainder_body.velocity_inv_inertia.xy * remaining;
+        remainder_body.pose_inv_mass.z = remainder_body.pose_inv_mass.z + remainder_body.velocity_inv_inertia.z * remaining;
+        bodies[remainder_index] = remainder_body;
+      }
+    }
   }
 }
 

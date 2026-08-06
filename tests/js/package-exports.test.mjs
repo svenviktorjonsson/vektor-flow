@@ -10,7 +10,11 @@ test("package root resolves to the deterministic browser module manifest", () =>
   assert.deepEqual(packageRoot.browserModules, {
     axis2dTicks: "vektor-flow/axis2d-ticks",
     colorScale: "vektor-flow/color-scale",
+    colorField: "vektor-flow/color-field",
     colorbar: "vektor-flow/colorbar",
+    interpolation: "vektor-flow/interpolation",
+    interpolationEditor: "vektor-flow/interpolation-editor",
+    propertyProgram: "vektor-flow/property-program",
     screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
     symbolicKernel: "vektor-flow/symbolic-kernel",
     symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
@@ -27,7 +31,10 @@ test("package root resolves to the deterministic browser module manifest", () =>
 test("named browser exports resolve to their implemented modules", async () => {
   const axis2d = await import("vektor-flow/axis2d-ticks");
   const colorScale = await import("vektor-flow/color-scale");
+  const colorField = await import("vektor-flow/color-field");
   const colorbar = await import("vektor-flow/colorbar");
+  const interpolation = await import("vektor-flow/interpolation");
+  const propertyProgram = await import("vektor-flow/property-program");
   const renderer = await import("vektor-flow/screen-simplex-renderer");
   const symbolicKernel = await import("vektor-flow/symbolic-kernel");
   const symbolicPlot = await import("vektor-flow/symbolic-plot-renderer");
@@ -37,9 +44,12 @@ test("named browser exports resolve to their implemented modules", async () => {
 
   assert.equal(typeof axis2d.default, "object");
   assert.equal(typeof colorScale.normalizeColorScale, "function");
+  assert.equal(typeof colorField.rasterizeColorField, "function");
   assert.equal(typeof renderer.createScreenSpaceSimplexRenderer, "function");
   assert.equal(typeof colorbar.createColorbarView, "function");
   assert.equal(typeof colorbar.createColorbarGestureController, "function");
+  assert.equal(typeof interpolation.interpolateDirectedPath, "function");
+  assert.equal(typeof propertyProgram.parsePropertyProgram, "function");
   assert.equal(typeof symbolicKernel.createSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadPackagedSymbolicKernel, "function");

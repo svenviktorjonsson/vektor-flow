@@ -58,6 +58,17 @@ test('deforming a clip does not change the stable internal coordinate frame', ()
   assert.deepEqual(registry.get('surface:f0').clipPolygon, triangle);
 });
 
+test('replaces a child frame absolutely without mutating its clip or source registry', () => {
+  const registry = createSurfaceContextRegistry({ contexts: [child()] });
+  const frame = [0, 3, -3, 0, 7, 8];
+  const updated = registry.updateFrame('surface:f0', frame);
+  frame[0] = 99;
+
+  assert.deepEqual(updated.get('surface:f0').frame, [0, 3, -3, 0, 7, 8]);
+  assert.deepEqual(updated.get('surface:f0').clipPolygon, triangle);
+  assert.deepEqual(registry.get('surface:f0').frame, [2, 0, 0, 2, 10, -3]);
+});
+
 test('stores deeply immutable local clip holes and transforms them for rendering', () => {
   const inputHole = hole.map((point) => [...point]);
   const registry = createSurfaceContextRegistry({ contexts: [child({ clipHoles: [inputHole] })] });

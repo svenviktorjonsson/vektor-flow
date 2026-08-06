@@ -10,7 +10,11 @@ const source = fs.readFileSync(
 assert.ok(source.includes("var _vfPointerStreamInflight = false;"));
 assert.ok(source.includes("var _vfPointerStreamPending = null;"));
 assert.ok(source.includes("function flushPointerStreamEventQueue(port)"));
-assert.ok(source.includes('if (eventName === "hover" || eventName === "move")'));
+assert.ok(source.includes('if ((eventName === "hover" || eventName === "move") && pointerType !== "touch")'));
+assert.ok(source.includes('pointerType !== "touch"'));
+assert.ok(source.includes('pointerType: String(e.pointerType || "mouse")'));
+assert.ok(source.includes('pointerId: Number(e.pointerId) || 0'));
+assert.ok(source.includes('pressure: Number(e.pressure) || 0'));
 assert.ok(source.includes("_vfPointerStreamPending = evt;"));
 assert.ok(source.includes("if (_vfPointerStreamPending) {"));
 

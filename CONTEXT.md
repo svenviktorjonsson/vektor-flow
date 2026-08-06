@@ -11,6 +11,8 @@
 - **Axis mode deck**: The graphical API test deck in
   `examples/100_axis_4_panel.vkf`, covering 2D crosshair, 2D box, 2D polar,
   3D crosshair, and 3D box axis modes.
+- **Color Field**: A VKF UI field that evaluates normalized weighted colors from
+  point or segment sources and renders them through reusable raster adapters.
 - **Physics engine**: The VKF simulation module that owns mechanical, thermal,
   fluid, granular, and electromagnetic laws over topology truth.
 - **Physics stdlib**: The VKF `:physics` namespace for dimension basis

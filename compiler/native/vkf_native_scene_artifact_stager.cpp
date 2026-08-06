@@ -793,6 +793,18 @@ bool literal_bool_or(const VkfLiteralValue& value, const std::string& key, bool 
     return field && field->kind == VkfLiteralKind::Bool ? field->bool_value : fallback;
 }
 
+bool literal_infinite_or(const VkfLiteralValue& value, const std::string& key, bool fallback) {
+    const VkfLiteralValue* field = object_field(value, key);
+    if (!field || field->kind != VkfLiteralKind::String) {
+        return fallback;
+    }
+    std::string text = field->text;
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return text == "inf" || text == "infinity" || text == "rigid";
+}
+
 struct Point2 {
     double x = 0.0;
     double y = 0.0;
@@ -1343,7 +1355,8 @@ std::optional<std::string> rigid_polygon_mesh_json(
         const double mass = density * signed_area;
         const double inertia_origin = density * inertia_origin_factor / 12.0;
         const double inertia = std::max(1e-9, inertia_origin - mass * (centroid.x * centroid.x + centroid.y * centroid.y));
-        const bool is_static = literal_bool_or(body, "static", false);
+        const bool is_static = literal_bool_or(body, "static", false) ||
+            literal_infinite_or(body, "mass", false);
         const double angle = literal_number_or(body, "angle", 0.0);
         const VkfLiteralValue* position_value = object_field(body, "position");
         const double authored_x = std::stod(literal_number_at_or(position_value, 0, "0"));

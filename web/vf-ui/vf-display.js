@@ -210,7 +210,8 @@
     var port = getApiPort();
     if (!port) { return; }  // no port yet — events queued until next hover/click
     var eventName = String(evt && evt.event || "").toLowerCase();
-    if (eventName === "hover" || eventName === "move") {
+    var pointerType = String(evt && (evt.pointerType || evt.pointer_type) || "mouse");
+    if ((eventName === "hover" || eventName === "move") && pointerType !== "touch") {
       _vfPointerStreamPending = evt;
       flushPointerStreamEventQueue(port);
       return;
@@ -742,7 +743,11 @@
         ctrl: !!(e && e.ctrlKey),
         shift: !!(e && e.shiftKey),
         alt: !!(e && e.altKey),
-        meta: !!(e && e.metaKey)
+        meta: !!(e && e.metaKey),
+        pointerId: Number(e.pointerId) || 0,
+        pointerType: String(e.pointerType || "mouse"),
+        pressure: Number(e.pressure) || 0,
+        isPrimary: e.isPrimary !== false
       };
       if (!body.__vfGeomPickRuntime) { return; }
       body.__vfGeomPickRuntime.enqueue({
@@ -791,6 +796,9 @@
         button: 0,
         buttons: buttons,
         pointerId: Number(e.pointerId) || 0,
+        pointerType: String(e.pointerType || "mouse"),
+        pressure: Number(e.pressure) || 0,
+        isPrimary: e.isPrimary !== false,
         ctrl: !!e.ctrlKey,
         shift: !!e.shiftKey,
         alt: !!e.altKey,

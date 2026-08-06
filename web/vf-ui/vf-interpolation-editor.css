@@ -1,0 +1,6 @@
+@media (max-width: 900px) {
+  .interpolation-editor-container {
+    min-width: 0;
+    min-height: 0;
+  }
+}

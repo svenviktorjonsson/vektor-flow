@@ -417,8 +417,9 @@ function createFakeAdapter() {
   runtime.step(encoder, 1 / 60);
   assert.deepEqual(
     calls.slice(runningStart).filter((call) => call.op === "setPipeline").map((call) => call.entryPoint),
-    ["integrate", "resolve_contacts", "resolve_contacts", "write_render_vertices"]
+    ["integrate", "resolve_contacts", "write_render_vertices"]
   );
+  assert.equal(calls.slice(runningStart).some((call) => call.op === "copyBufferToBuffer"), false);
   const resetWrites = calls.filter((call) => call.op === "writeBuffer" && call.buffer === runtime.bodyBuffer).length;
   runtime.reset();
   assert.equal(

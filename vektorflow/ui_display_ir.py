@@ -660,6 +660,8 @@ def _hover_key(payload: Mapping[str, Any]) -> tuple[Any, ...]:
         hover = {}
     return (
         payload.get("event", ""),
+        payload.get("pointer_type", payload.get("pointerType", "mouse")),
+        payload.get("pointer_id", payload.get("pointerId", 0)),
         payload.get("frame_id", hover.get("frame_id", "")),
         hover.get("object_id", payload.get("object_id", payload.get("shape_id", ""))),
         hover.get("kind", ""),

@@ -1072,6 +1072,7 @@ class VFunction:
     docstring: str | None = None
     field_sources: dict[str, Any] = field(default_factory=dict)
     ip: Any = field(default=None, repr=False)
+    last_call_scope: dict[str, Any] | None = field(default=None, init=False, repr=False)
 
     def __call__(self, *args: Any) -> Any:
         """Allow VFunction to be used as a Python callable (e.g. event handlers)."""
@@ -2334,6 +2335,7 @@ class Interpreter:
                     if fn.func_type is not None:
                         resolved_return = resolve_return_type(fn.func_type.codomain, size_bindings)
                         result, _ = coerce_typed_value(result, resolved_return, self.types, size_bindings)
+                    fn.last_call_scope = loc
                     return result
             except RecursionError:
                 self._raise_recursion_error(fn.name or "$")

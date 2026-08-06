@@ -215,9 +215,7 @@
         if (state.pendingDisplayReplacePacket) {
           var pendingDisplay = state.pendingDisplayReplacePacket;
           state.pendingDisplayReplacePacket = null;
-          global.setTimeout(function() {
-            routeRuntimePacket(pendingDisplay);
-          }, 0);
+          deps.display.applyRuntimePacket(pendingDisplay);
         }
         return;
       }

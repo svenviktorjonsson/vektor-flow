@@ -6,8 +6,13 @@
   "exports": {
     ".": "./index.js",
     "./axis2d-ticks": "./web/vf-ui/vf-axis2d-ticks.js",
+    "./coordinate-grid": "./web/vf-ui/vf-coordinate-grid.mjs",
+    "./color-field": "./web/vf-ui/vf-color-field.mjs",
     "./color-scale": "./web/vf-ui/vf-color-scale.mjs",
     "./colorbar": "./web/vf-ui/vf-colorbar-view.mjs",
+    "./interpolation": "./web/vf-ui/vf-interpolation.mjs",
+    "./interpolation-editor": "./web/vf-ui/vf-interpolation-editor.mjs",
+    "./property-program": "./web/vf-ui/vf-property-program.mjs",
     "./screen-simplex-renderer": "./web/vf-ui/geom/vf-screen-simplex-renderer.mjs",
     "./symbolic-kernel": "./web/vf-ui/vf-symbolic-kernel-runtime.mjs",
     "./symbolic-plot-renderer": "./web/vf-ui/geom/vf-symbolic-plot-renderer.mjs",
@@ -34,6 +39,9 @@
     "build:symbolic-kernel": "node tools/build-symbolic-kernel.mjs",
     "check:symbolic-kernel": "node tools/build-symbolic-kernel.mjs --check",
     "test:package": "node --test tests/js/package-exports.test.mjs tests/js/package-archive.integration.mjs"
+  },
+  "dependencies": {
+    "interpolation-editor": "github:svenviktorjonsson/interpolation-editor#2657860985bdeb29e4af3f94c8d7a2f66543ff98"
   },
   "keywords": [],
   "author": "",

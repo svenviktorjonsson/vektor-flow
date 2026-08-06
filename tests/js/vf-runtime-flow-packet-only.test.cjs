@@ -76,7 +76,7 @@ function createFlow(options) {
   }
 
   {
-    const state = { legacyFallbackActive: true };
+    const state = { legacyFallbackActive: true, packetRuntimeState: "active-stream" };
     const flow = createFlow({
       config: { strictPacketOnly: true },
       state,
