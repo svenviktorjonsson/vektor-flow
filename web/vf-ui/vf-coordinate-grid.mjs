@@ -13,6 +13,7 @@ export function buildCoordinateGridScene(spec = {}) {
   const axisMode = AXIS_DISPLAY_MODES.includes(spec.axisMode) ? spec.axisMode : 'none';
   const xInterval = positive(spec.xInterval, positive(spec.interval, 1));
   const yInterval = positive(spec.yInterval, xInterval);
+  const tickLength = positive(spec.tickLength, 6);
   const bounds = visibleBounds(width, height, screenToWorld);
   const xValues = multiples(bounds.x[0], bounds.x[1], xInterval);
   const yValues = multiples(bounds.y[0], bounds.y[1], yInterval);
@@ -38,6 +39,9 @@ export function buildCoordinateGridScene(spec = {}) {
     line(worldToScreen([bounds.x[0], 0]), worldToScreen([bounds.x[1], 0]), 'axis-x'),
     line(worldToScreen([0, bounds.y[0]]), worldToScreen([0, bounds.y[1]]), 'axis-y')
   ];
+  const ticks = axisMode === 'none' ? [] : axisTicks({
+    xValues, yValues, xInterval, yInterval, tickLength, worldToScreen
+  });
   const labels = axisMode === 'none' ? [] : tickLabels({
     bounds, xValues, yValues, xInterval, yInterval, worldToScreen, width, height
   });
@@ -61,9 +65,29 @@ export function buildCoordinateGridScene(spec = {}) {
     points: Object.freeze(points),
     circles: Object.freeze(circles),
     axes: Object.freeze(axes),
+    ticks: Object.freeze(ticks),
     labels: Object.freeze(labels),
     axisLabels: Object.freeze(axisLabels)
   });
+}
+
+function axisTicks({ xValues, yValues, xInterval, yInterval, tickLength, worldToScreen }) {
+  const ticks = [];
+  const origin = worldToScreen([0, 0]);
+  const xNormal = unit(subtract(worldToScreen([0, 1]), origin));
+  const yNormal = unit(subtract(worldToScreen([1, 0]), origin));
+  const half = tickLength / 2;
+  for (const value of xValues) {
+    if (nearZero(value, xInterval)) continue;
+    const at = worldToScreen([value, 0]);
+    ticks.push(line(offset(at, xNormal, -half), offset(at, xNormal, half), 'axis-tick-x'));
+  }
+  for (const value of yValues) {
+    if (nearZero(value, yInterval)) continue;
+    const at = worldToScreen([0, value]);
+    ticks.push(line(offset(at, yNormal, -half), offset(at, yNormal, half), 'axis-tick-y'));
+  }
+  return ticks;
 }
 
 function appendTriangularGrid(points, bounds, interval, worldToScreen) {
@@ -193,6 +217,13 @@ function line(from, to, kind) {
 
 function freezePoint(point) { return Object.freeze([Number(point[0]), Number(point[1])]); }
 function subtract(a, b) { return [a[0] - b[0], a[1] - b[1]]; }
+function unit(vector) {
+  const length = Math.hypot(...vector);
+  return length > 0 ? [vector[0] / length, vector[1] / length] : [1, 0];
+}
+function offset(point, direction, distance) {
+  return [point[0] + direction[0] * distance, point[1] + direction[1] * distance];
+}
 function nearZero(value, interval) { return Math.abs(value) <= interval * 1e-9; }
 function inside([x, y], width, height) { return x >= 0 && x <= width && y >= 0 && y <= height; }
 function positive(value, fallback) { return Number.isFinite(value) && value > 0 ? value : fallback; }

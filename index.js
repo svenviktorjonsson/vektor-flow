@@ -8,6 +8,7 @@ const browserModules = Object.freeze({
   interpolation: "vektor-flow/interpolation",
   interpolationEditor: "vektor-flow/interpolation-editor",
   propertyProgram: "vektor-flow/property-program",
+  selectionInteraction: "vektor-flow/selection-interaction",
   screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
   symbolicKernel: "vektor-flow/symbolic-kernel",
   symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
@@ -16,6 +17,8 @@ const browserModules = Object.freeze({
   symbolicPlotController: "vektor-flow/symbolic-plot-controller",
   symbolicTextChannel: "vektor-flow/symbolic-text-channel",
   uiMath: "vektor-flow/ui-math",
+  uiModifiers: "vektor-flow/ui-modifiers",
+  uiTheme: "vektor-flow/ui-theme",
 });
 
 module.exports = Object.freeze({

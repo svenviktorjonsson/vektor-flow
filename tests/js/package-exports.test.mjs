@@ -15,6 +15,7 @@ test("package root resolves to the deterministic browser module manifest", () =>
     interpolation: "vektor-flow/interpolation",
     interpolationEditor: "vektor-flow/interpolation-editor",
     propertyProgram: "vektor-flow/property-program",
+    selectionInteraction: "vektor-flow/selection-interaction",
     screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
     symbolicKernel: "vektor-flow/symbolic-kernel",
     symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
@@ -23,6 +24,8 @@ test("package root resolves to the deterministic browser module manifest", () =>
     symbolicPlotController: "vektor-flow/symbolic-plot-controller",
     symbolicTextChannel: "vektor-flow/symbolic-text-channel",
     uiMath: "vektor-flow/ui-math",
+    uiModifiers: "vektor-flow/ui-modifiers",
+    uiTheme: "vektor-flow/ui-theme",
   });
   assert.ok(Object.isFrozen(packageRoot));
   assert.ok(Object.isFrozen(packageRoot.browserModules));
@@ -35,12 +38,15 @@ test("named browser exports resolve to their implemented modules", async () => {
   const colorbar = await import("vektor-flow/colorbar");
   const interpolation = await import("vektor-flow/interpolation");
   const propertyProgram = await import("vektor-flow/property-program");
+  const selectionInteraction = await import("vektor-flow/selection-interaction");
   const renderer = await import("vektor-flow/screen-simplex-renderer");
   const symbolicKernel = await import("vektor-flow/symbolic-kernel");
   const symbolicPlot = await import("vektor-flow/symbolic-plot-renderer");
   const symbolicPlotController = await import("vektor-flow/symbolic-plot-controller");
   const symbolicText = await import("vektor-flow/symbolic-text-channel");
   const uiMath = await import("vektor-flow/ui-math");
+  const uiModifiers = await import("vektor-flow/ui-modifiers");
+  const uiTheme = await import("vektor-flow/ui-theme");
 
   assert.equal(typeof axis2d.default, "object");
   assert.equal(typeof colorScale.normalizeColorScale, "function");
@@ -50,6 +56,7 @@ test("named browser exports resolve to their implemented modules", async () => {
   assert.equal(typeof colorbar.createColorbarGestureController, "function");
   assert.equal(typeof interpolation.interpolateDirectedPath, "function");
   assert.equal(typeof propertyProgram.parsePropertyProgram, "function");
+  assert.equal(typeof selectionInteraction.createSelectionInteractionFsm, "function");
   assert.equal(typeof symbolicKernel.createSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadPackagedSymbolicKernel, "function");
@@ -59,6 +66,8 @@ test("named browser exports resolve to their implemented modules", async () => {
   assert.equal(typeof symbolicText.createSymbolicWasmTextChannel, "function");
   assert.equal(typeof symbolicText.loadSymbolicWasmTextChannel, "function");
   assert.equal(typeof uiMath.default, "object");
+  assert.equal(typeof uiModifiers.default.createUiModifiers, "function");
+  assert.equal(typeof uiTheme.createUiTheme, "function");
 });
 
 test("existing web module paths remain resolvable", async () => {

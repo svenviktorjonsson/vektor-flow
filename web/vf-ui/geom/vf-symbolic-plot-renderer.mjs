@@ -740,7 +740,7 @@ async function createWebGpuBackend(canvas) {
     vertex: { module: shader, entryPoint: 'strokeVertex', buffers: [segmentVertexLayout] },
     fragment: {
       module: shader,
-      entryPoint: 'plotFragment',
+      entryPoint: 'strokeFragment',
       targets: [{
         format,
         blend: {
@@ -1302,6 +1302,12 @@ export function webGpuShaderSource() {
       @location(0) color: vec4f,
       @location(1) unitOffset: vec2f,
     }
+    struct StrokeOutput {
+      @builtin(position) position: vec4f,
+      @location(0) color: vec4f,
+      @location(1) edgeDistance: f32,
+      @location(2) halfWidth: f32,
+    }
     struct StrokeInput {
       @location(2) previousPosition: vec2f,
       @location(3) fromPosition: vec2f,
@@ -1396,20 +1402,24 @@ export function webGpuShaderSource() {
       return miter * scale;
     }
 
-    @vertex fn strokeVertex(input: StrokeInput, @builtin(vertex_index) vertexIndex: u32) -> PlotOutput {
+    @vertex fn strokeVertex(input: StrokeInput, @builtin(vertex_index) vertexIndex: u32) -> StrokeOutput {
       let along = select(1.0, 0.0, vertexIndex == 0u || vertexIndex == 1u || vertexIndex == 3u);
       let side = select(-1.0, 1.0, vertexIndex == 0u || vertexIndex == 3u || vertexIndex == 5u);
       let fromScreen = vec2f(dot(view.xRow.xyz, vec3f(input.fromPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.fromPosition, 1.0)));
       let toScreen = vec2f(dot(view.xRow.xyz, vec3f(input.toPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.toPosition, 1.0)));
       let previousScreen = vec2f(dot(view.xRow.xyz, vec3f(input.previousPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.previousPosition, 1.0)));
       let nextScreen = vec2f(dot(view.xRow.xyz, vec3f(input.nextPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.nextPosition, 1.0)));
-      let distance = stroke.geometry.y + side * stroke.geometry.x * 0.5;
+      let halfWidth = stroke.geometry.x * 0.5;
+      let edgeDistance = side * (halfWidth + 1.0);
+      let distance = stroke.geometry.y + edgeDistance;
       let fromOffset = joinedStrokeOffset(previousScreen, fromScreen, toScreen, distance);
       let toOffset = joinedStrokeOffset(fromScreen, toScreen, nextScreen, distance);
       let screen = mix(fromScreen + fromOffset, toScreen + toOffset, along);
-      var output: PlotOutput;
+      var output: StrokeOutput;
       output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
       output.color = select(mix(input.fromColor, input.toColor, along), stroke.color, stroke.geometry.z > 0.5);
+      output.edgeDistance = edgeDistance;
+      output.halfWidth = halfWidth;
       return output;
     }
 
@@ -1433,6 +1443,16 @@ export function webGpuShaderSource() {
 
     @fragment fn plotFragment(input: PlotOutput) -> @location(0) vec4f {
       return input.color;
+    }
+
+    @fragment fn strokeFragment(input: StrokeOutput) -> @location(0) vec4f {
+      let antialias = max(fwidth(input.edgeDistance), 1.0);
+      let coverage = 1.0 - smoothstep(
+        input.halfWidth,
+        input.halfWidth + antialias,
+        abs(input.edgeDistance)
+      );
+      return vec4f(input.color.rgb, input.color.a * coverage);
     }
 
     @fragment fn pointFragment(input: PointOutput) -> @location(0) vec4f {
@@ -1473,7 +1493,7 @@ function createWebGl2Backend(canvas) {
   const pointProgram = createWebGlProgram(gl, webGlPointVertexSource(), webGlPointFragmentSource());
   const faceSelectionProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlSolidFragmentSource());
   const clipProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlFragmentSource(false));
-  const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlFragmentSource(true));
+  const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlStrokeFragmentSource());
   const pickProgram = createWebGlProgram(gl, webGlPickVertexSource(), webGlPickFragmentSource());
   const facePickProgram = createWebGlProgram(gl, webGlFacePickVertexSource(), webGlPickFragmentSource());
   const plotBuffer = gl.createBuffer();
@@ -2173,6 +2193,8 @@ function webGlStrokeVertexSource() {
     uniform float u_override;
     uniform vec4 u_override_color;
     out vec4 v_color;
+    out float v_edge_distance;
+    out float v_half_width;
     vec2 joined_stroke_offset(vec2 previous, vec2 point, vec2 next, float distance_value) {
       vec2 incoming = point - previous;
       vec2 outgoing = next - point;
@@ -2203,12 +2225,35 @@ function webGlStrokeVertexSource() {
       vec2 to_screen = (u_transform * vec3(a_to_position, 1.0)).xy;
       vec2 previous_screen = (u_transform * vec3(a_previous_position, 1.0)).xy;
       vec2 next_screen = (u_transform * vec3(a_next_position, 1.0)).xy;
-      float distance_value = u_offset + side * u_width * 0.5;
+      float half_width = u_width * 0.5;
+      float edge_distance = side * (half_width + 1.0);
+      float distance_value = u_offset + edge_distance;
       vec2 from_offset = joined_stroke_offset(previous_screen, from_screen, to_screen, distance_value);
       vec2 to_offset = joined_stroke_offset(from_screen, to_screen, next_screen, distance_value);
       vec2 screen = mix(from_screen + from_offset, to_screen + to_offset, along);
       gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
       v_color = u_override > 0.5 ? u_override_color : mix(a_from_color, a_to_color, along);
+      v_edge_distance = edge_distance;
+      v_half_width = half_width;
+    }
+  `;
+}
+
+export function webGlStrokeFragmentSource() {
+  return `#version 300 es
+    precision highp float;
+    in vec4 v_color;
+    in float v_edge_distance;
+    in float v_half_width;
+    out vec4 out_color;
+    void main() {
+      float antialias = max(fwidth(v_edge_distance), 1.0);
+      float coverage = 1.0 - smoothstep(
+        v_half_width,
+        v_half_width + antialias,
+        abs(v_edge_distance)
+      );
+      out_color = vec4(v_color.rgb, v_color.a * coverage);
     }
   `;
 }

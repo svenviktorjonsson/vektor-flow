@@ -8,12 +8,13 @@
       require("./vf-vkf-ui-kernel-adapter.js"),
       require("./vf-compiled-runtime-bridge.js"),
       require("./vf-vkf-ui-wasm-kernel-adapter.js"),
-      require("./vf-compiled-ui-module-registry.js")
+      require("./vf-compiled-ui-module-registry.js"),
+      require("./vf-ui-modifiers.js")
     );
     return;
   }
-  root.VfVkfUiRuntime = factory(root || globalThis, root.VfSharedRuntime, root.VfVkfUiMath, root.VfVkfUiKernel, root.VfVkfUiKernelAdapter, root.VfCompiledRuntimeBridge, root.VfVkfUiWasmKernelAdapter, root.VfCompiledUiModuleRegistry);
-})(typeof globalThis !== "undefined" ? globalThis : this, function(global, shared, math, kernel, kernelAdapterModule, compiledRuntimeBridge, wasmKernelAdapterModule, compiledModuleRegistry) {
+  root.VfVkfUiRuntime = factory(root || globalThis, root.VfSharedRuntime, root.VfVkfUiMath, root.VfVkfUiKernel, root.VfVkfUiKernelAdapter, root.VfCompiledRuntimeBridge, root.VfVkfUiWasmKernelAdapter, root.VfCompiledUiModuleRegistry, root.VfUiModifiers);
+})(typeof globalThis !== "undefined" ? globalThis : this, function(global, shared, math, kernel, kernelAdapterModule, compiledRuntimeBridge, wasmKernelAdapterModule, compiledModuleRegistry, uiModifiersModule) {
   "use strict";
 
   var HOVER_OBJECT = 1;
@@ -861,6 +862,9 @@
       };
     }
 
+    var modifierRuntime = uiModifiersModule && typeof uiModifiersModule.createUiModifiers === "function"
+      ? uiModifiersModule.createUiModifiers()
+      : null;
     var ui = {
       MOUSE_DRAG: "mouse_drag",
       MOUSE_MOVE: "mouse_move",
@@ -872,7 +876,7 @@
           this.mode = mode;
         }
       },
-      keyboard: {
+      keyboard: modifierRuntime ? modifierRuntime.keyboard : {
         mask: 0,
         modifiers: { ctrl: false, shift: false, alt: false, meta: false },
         set_mask: function(mask) {
@@ -945,6 +949,13 @@
         }
       }
     };
+
+    if (modifierRuntime) {
+      Object.defineProperty(ui, "modifiers", {
+        enumerable: true,
+        get: function() { return modifierRuntime.modifiers; }
+      });
+    }
 
     return {
       ui: ui

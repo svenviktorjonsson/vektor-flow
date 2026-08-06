@@ -51,3 +51,6 @@ assert.deepEqual(regular.axisLabels.map(({ latex }) => latex), ['x', 'y']);
 
 const complex = buildCoordinateGridScene({ ...base, gridMode: 'none', axisMode: 'complex' });
 assert.deepEqual(complex.axisLabels.map(({ latex }) => latex), ['\\operatorname{Re}', '\\operatorname{Im}']);
+assert.ok(complex.ticks.length > 0, 'axis ticks remain visible when the grid is hidden');
+assert.ok(complex.ticks.every((tick) => tick.kind.startsWith('axis-tick-')));
+assert.equal(dotted.ticks.length, 0, 'ticks belong to the axis, not the grid');

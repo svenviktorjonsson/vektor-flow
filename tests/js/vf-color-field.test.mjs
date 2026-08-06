@@ -3,12 +3,29 @@ import test from 'node:test';
 
 import {
   createCanvasColorFieldRenderer,
+  evaluateColorFieldRgba,
   evaluateColorFieldRgb,
   pointSourceRgb,
   segmentSourceRgb,
 } from '../../web/vf-ui/vf-color-field.mjs';
 
 const inverseSquare = ({ x, y }) => 1 / (x * x + y * y);
+
+test('samples coordinate color fields through the supplied local frame', () => {
+  const seen = [];
+  const rgba = evaluateColorFieldRgba([5, 7], {
+    kind: 'coordinate-colormap',
+    worldToLocal: ([x, y]) => [y - 6, x - 5],
+    evaluator: ({ x, y }) => {
+      seen.push([x, y]);
+      return x;
+    },
+    sampler: (value) => [Math.round(value * 255), 0, 0, 255],
+  });
+
+  assert.deepEqual(seen, [[1, 0]]);
+  assert.deepEqual(rgba, [255, 0, 0, 255]);
+});
 
 test('normalizes point-source weights in source-relative coordinates', () => {
   assert.deepEqual(pointSourceRgb(
@@ -70,4 +87,37 @@ test('canvas adapter owns raster bounds, sampling, and buffer upload', () => {
   assert.deepEqual([canvas.width, canvas.height], [2, 2]);
   assert.equal(uploads.length, 1);
   assert.deepEqual(draws[0].slice(1), [1, 2]);
+});
+
+test('canvas adapter reuses an unchanged field raster', () => {
+  const canvas = { width: 0, height: 0 };
+  const context = {
+    createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+    putImageData() {},
+  };
+  let evaluations = 0;
+  const field = {
+    kind: 'coordinate-colormap',
+    worldToLocal: (point) => point,
+    evaluator: ({ x }) => {
+      evaluations += 1;
+      return x;
+    },
+    sampler: () => [0, 0, 0, 255],
+  };
+  const renderer = createCanvasColorFieldRenderer({
+    canvas,
+    context,
+    screenToWorld: (point) => point,
+  });
+  const request = {
+    targetContext: { drawImage() {} },
+    screenPoints: [[0, 0], [2, 2]],
+    targetSize: [10, 10],
+    field,
+  };
+
+  renderer.draw(request);
+  renderer.draw(request);
+  assert.equal(evaluations, 4);
 });

@@ -16,6 +16,8 @@ import {
   symbolicPlotPointDraws,
   webGlPointFragmentSource,
   webGlPointVertexSource,
+  webGlStrokeFragmentSource,
+  webGpuShaderSource,
   symbolicPlotClipStencilDraws,
   triangulateSymbolicPlotClip,
   triangulateSymbolicPlotClipRegion
@@ -279,6 +281,13 @@ test('expands symbolic points into smooth GPU circle instances', () => {
   assert.match(webGlPointVertexSource(), /gl_VertexID/);
   assert.match(webGlPointFragmentSource(), /fwidth/);
   assert.match(webGlPointFragmentSource(), /smoothstep/);
+});
+
+test('renders plotted curve strokes with analytic edge antialiasing on every GPU backend', () => {
+  assert.match(webGpuShaderSource(), /strokeFragment/);
+  assert.match(webGpuShaderSource(), /fwidth\(input\.edgeDistance\)/);
+  assert.match(webGlStrokeFragmentSource(), /fwidth\(v_edge_distance\)/);
+  assert.match(webGlStrokeFragmentSource(), /smoothstep/);
 });
 test('triangulates a concave clip polygon with exact polygon area', () => {
   const polygon = [[0, 0], [4, 0], [4, 4], [2, 2], [0, 4]];

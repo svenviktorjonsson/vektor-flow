@@ -36,6 +36,23 @@ export function evaluateColorFieldRgb(point, field = {}) {
   throw new TypeError(`Unsupported color field kind: ${String(field.kind)}`);
 }
 
+export function evaluateColorFieldRgba(point, field = {}) {
+  if (field.kind === 'coordinate-colormap') {
+    if (typeof field.worldToLocal !== 'function'
+      || typeof field.evaluator !== 'function'
+      || typeof field.sampler !== 'function') {
+      throw new TypeError('coordinate-colormap requires worldToLocal, evaluator, and sampler');
+    }
+    const local = field.worldToLocal(point);
+    const sampled = field.sampler(clamp01(evaluatedNumber(field.evaluator, {
+      x: local?.[0],
+      y: local?.[1],
+    }, 0)));
+    return normalizedRgba(sampled);
+  }
+  return [...evaluateColorFieldRgb(point, field), 255];
+}
+
 export function rasterizeColorField({ width, height, pointAt, field }) {
   const columns = positiveInteger(width, 'width');
   const rows = positiveInteger(height, 'height');
@@ -43,21 +60,42 @@ export function rasterizeColorField({ width, height, pointAt, field }) {
   const rgba = new Uint8ClampedArray(columns * rows * 4);
   for (let y = 0; y < rows; y += 1) {
     for (let x = 0; x < columns; x += 1) {
-      const rgb = evaluateColorFieldRgb(pointAt(x, y), field);
+      const rgbaValue = evaluateColorFieldRgba(pointAt(x, y), field);
       const offset = (y * columns + x) * 4;
-      rgba[offset] = rgb[0];
-      rgba[offset + 1] = rgb[1];
-      rgba[offset + 2] = rgb[2];
-      rgba[offset + 3] = 255;
+      rgba[offset] = rgbaValue[0];
+      rgba[offset + 1] = rgbaValue[1];
+      rgba[offset + 2] = rgbaValue[2];
+      rgba[offset + 3] = rgbaValue[3];
     }
   }
   return rgba;
+}
+
+function evaluatedNumber(evaluator, variables, fallback) {
+  try {
+    const value = Number(evaluator(variables));
+    return Number.isFinite(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function normalizedRgba(value) {
+  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) return [...FALLBACK_RGB, 255];
+  return [0, 1, 2, 3].map((index) => Math.round(Math.min(255, Math.max(0,
+    Number(value[index] ?? (index === 3 ? 255 : FALLBACK_RGB[index])) || 0
+  ))));
 }
 
 export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld }) {
   if (!canvas || !context || typeof screenToWorld !== 'function') {
     throw new TypeError('canvas, context, and screenToWorld are required');
   }
+  const rasterCache = new WeakMap();
   return Object.freeze({
     draw({ targetContext, field, screenPoints = [], targetSize = [] }) {
       if (!targetContext || !screenPoints.length) return false;
@@ -76,20 +114,34 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
       const yStepPoint = screenToWorld([left + 0.5, top + 1.5]);
       const xStep = [xStepPoint[0] - origin[0], xStepPoint[1] - origin[1]];
       const yStep = [yStepPoint[0] - origin[0], yStepPoint[1] - origin[1]];
-      image.data.set(rasterizeColorField({
-        width,
-        height,
-        field,
-        pointAt: (x, y) => [
-          origin[0] + x * xStep[0] + y * yStep[0],
-          origin[1] + x * xStep[1] + y * yStep[1],
-        ],
-      }));
+      const signature = [width, height, ...origin, ...xStep, ...yStep];
+      const cached = field && typeof field === 'object' ? rasterCache.get(field) : null;
+      const rgba = cached && sameNumbers(cached.signature, signature)
+        ? cached.rgba
+        : rasterizeColorField({
+            width,
+            height,
+            field,
+            pointAt: (x, y) => [
+              origin[0] + x * xStep[0] + y * yStep[0],
+              origin[1] + x * xStep[1] + y * yStep[1],
+            ],
+          });
+      if (field && typeof field === 'object' && rgba !== cached?.rgba) {
+        rasterCache.set(field, { signature, rgba });
+      }
+      image.data.set(rgba);
       context.putImageData(image, 0, 0);
       targetContext.drawImage(canvas, left, top);
       return true;
     },
   });
+}
+
+function sameNumbers(left, right) {
+  return Array.isArray(left)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]);
 }
 
 function normalizedWeightedRgb(weights, colors) {

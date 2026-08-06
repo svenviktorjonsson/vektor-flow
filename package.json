@@ -13,6 +13,7 @@
     "./interpolation": "./web/vf-ui/vf-interpolation.mjs",
     "./interpolation-editor": "./web/vf-ui/vf-interpolation-editor.mjs",
     "./property-program": "./web/vf-ui/vf-property-program.mjs",
+    "./selection-interaction": "./web/vf-ui/vf-selection-interaction.mjs",
     "./screen-simplex-renderer": "./web/vf-ui/geom/vf-screen-simplex-renderer.mjs",
     "./symbolic-kernel": "./web/vf-ui/vf-symbolic-kernel-runtime.mjs",
     "./symbolic-plot-renderer": "./web/vf-ui/geom/vf-symbolic-plot-renderer.mjs",
@@ -22,6 +23,8 @@
     "./symbolic-text-channel": "./web/vf-ui/vf-symbolic-wasm-runtime.mjs",
     "./surface-context": "./web/vf-ui/vf-surface-context.mjs",
     "./ui-math": "./web/vf-ui/vf-vkf-ui-math.js",
+    "./ui-modifiers": "./web/vf-ui/vf-ui-modifiers.js",
+    "./ui-theme": "./web/vf-ui/vf-ui-theme.mjs",
     "./web/vf-ui/*": "./web/vf-ui/*"
   },
   "files": [
