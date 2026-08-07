@@ -127,7 +127,7 @@ test('canvas adapter reuses an unchanged field raster', () => {
   assert.equal(evaluations, 4);
 });
 
-test('canvas adapter bounds interactive raster work while covering exact target bounds', () => {
+test('canvas adapter never reduces raster quality during interaction', () => {
   const canvas = { width: 0, height: 0 };
   const draws = [];
   let evaluations = 0;
@@ -153,7 +153,56 @@ test('canvas adapter bounds interactive raster work while covering exact target 
     },
   });
 
-  assert.deepEqual([canvas.width, canvas.height], [100, 100]);
+  assert.deepEqual([canvas.width, canvas.height], [1000, 1000]);
+  assert.equal(evaluations, 1_000_000);
+  assert.deepEqual(draws[0].slice(1), [0, 0]);
+});
+
+test('canvas adapter reuses the exact full-resolution local raster during rigid drag', () => {
+  const canvas = { width: 0, height: 0 };
+  const draws = [];
+  let evaluations = 0;
+  const contentKey = {};
+  const evaluator = ({ x }) => { evaluations += 1; return x; };
+  const sampler = () => [0, 0, 0, 255];
+  const renderer = createCanvasColorFieldRenderer({
+    canvas,
+    context: {
+      createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData() {},
+    },
+    screenToWorld: (point) => point,
+  });
+  const targetContext = { drawImage: (...args) => draws.push(args) };
+
+  renderer.draw({
+    targetContext,
+    screenPoints: [[0, 0], [100, 100]],
+    targetSize: [200, 200],
+    field: {
+      kind: 'coordinate-colormap',
+      cacheKey: 'face-1',
+      contentKey,
+      worldToLocal: (point) => point,
+      evaluator,
+      sampler,
+    },
+  });
+  renderer.draw({
+    targetContext,
+    screenPoints: [[10, 20], [110, 120]],
+    targetSize: [200, 200],
+    field: {
+      kind: 'coordinate-colormap',
+      cacheKey: 'face-1',
+      contentKey,
+      worldToLocal: ([x, y]) => [x - 10, y - 20],
+      evaluator,
+      sampler,
+    },
+  });
+
   assert.equal(evaluations, 10_000);
-  assert.deepEqual(draws[0].slice(1), [0, 0, 1000, 1000]);
+  assert.deepEqual(draws.map((args) => args.slice(1)), [[0, 0], [10, 20]]);
+  assert.deepEqual([canvas.width, canvas.height], [100, 100]);
 });

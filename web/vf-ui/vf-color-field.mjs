@@ -95,8 +95,9 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
     throw new TypeError('canvas, context, and screenToWorld are required');
   }
   const rasterCache = new WeakMap();
+  const keyedRasterCache = new Map();
   return Object.freeze({
-    draw({ targetContext, field, screenPoints = [], targetSize = [], maxRasterPixels = Infinity }) {
+    draw({ targetContext, field, screenPoints = [], targetSize = [] }) {
       if (!targetContext || !screenPoints.length) return false;
       const left = Math.max(0, Math.floor(Math.min(...screenPoints.map(([x]) => x))));
       const top = Math.max(0, Math.floor(Math.min(...screenPoints.map(([, y]) => y))));
@@ -105,53 +106,60 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
       const width = right - left;
       const height = bottom - top;
       if (width <= 0 || height <= 0) return false;
-      const rasterScale = Number.isFinite(maxRasterPixels) && maxRasterPixels > 0
-        ? Math.min(1, Math.sqrt(maxRasterPixels / (width * height)))
-        : 1;
-      const rasterWidth = Math.max(1, Math.floor(width * rasterScale));
-      const rasterHeight = Math.max(1, Math.floor(height * rasterScale));
-      const screenStepX = width / rasterWidth;
-      const screenStepY = height / rasterHeight;
-      canvas.width = rasterWidth;
-      canvas.height = rasterHeight;
-      const image = context.createImageData(rasterWidth, rasterHeight);
-      const origin = screenToWorld([left + screenStepX / 2, top + screenStepY / 2]);
-      const xStepPoint = screenToWorld([left + screenStepX * 1.5, top + screenStepY / 2]);
-      const yStepPoint = screenToWorld([left + screenStepX / 2, top + screenStepY * 1.5]);
+      canvas.width = width;
+      canvas.height = height;
+      const image = context.createImageData(width, height);
+      const origin = screenToWorld([left + 0.5, top + 0.5]);
+      const xStepPoint = screenToWorld([left + 1.5, top + 0.5]);
+      const yStepPoint = screenToWorld([left + 0.5, top + 1.5]);
       const xStep = [xStepPoint[0] - origin[0], xStepPoint[1] - origin[1]];
       const yStep = [yStepPoint[0] - origin[0], yStepPoint[1] - origin[1]];
-      const signature = [rasterWidth, rasterHeight, ...origin, ...xStep, ...yStep];
-      const cached = field && typeof field === 'object' ? rasterCache.get(field) : null;
-      const rgba = cached && sameNumbers(cached.signature, signature)
+      const signaturePoints = field?.kind === 'coordinate-colormap'
+        ? [origin, xStepPoint, yStepPoint].map((point) => field.worldToLocal(point))
+        : [origin, xStepPoint, yStepPoint];
+      const signatureOrigin = signaturePoints[0];
+      const signatureXStep = subtractPoint(signaturePoints[1], signatureOrigin);
+      const signatureYStep = subtractPoint(signaturePoints[2], signatureOrigin);
+      const signature = [width, height, ...signatureOrigin, ...signatureXStep, ...signatureYStep];
+      const keyed = field?.cacheKey != null && field?.contentKey != null;
+      const cached = keyed
+        ? keyedRasterCache.get(field.cacheKey)
+        : field && typeof field === 'object' ? rasterCache.get(field) : null;
+      const cacheHit = cached
+        && (!keyed || cached.contentKey === field.contentKey)
+        && sameNumbers(cached.signature, signature);
+      const rgba = cacheHit
         ? cached.rgba
         : rasterizeColorField({
-            width: rasterWidth,
-            height: rasterHeight,
+            width,
+            height,
             field,
             pointAt: (x, y) => [
               origin[0] + x * xStep[0] + y * yStep[0],
               origin[1] + x * xStep[1] + y * yStep[1],
             ],
           });
-      if (field && typeof field === 'object' && rgba !== cached?.rgba) {
-        rasterCache.set(field, { signature, rgba });
+      if (field && typeof field === 'object' && !cacheHit) {
+        const entry = { signature, rgba, contentKey: field.contentKey };
+        if (keyed) setBoundedCache(keyedRasterCache, field.cacheKey, entry);
+        else rasterCache.set(field, entry);
       }
       image.data.set(rgba);
       context.putImageData(image, 0, 0);
-      if (rasterWidth === width && rasterHeight === height) {
-        targetContext.drawImage(canvas, left, top);
-      } else {
-        const priorSmoothing = targetContext.imageSmoothingEnabled;
-        const priorQuality = targetContext.imageSmoothingQuality;
-        targetContext.imageSmoothingEnabled = true;
-        targetContext.imageSmoothingQuality = 'high';
-        targetContext.drawImage(canvas, left, top, width, height);
-        targetContext.imageSmoothingEnabled = priorSmoothing;
-        targetContext.imageSmoothingQuality = priorQuality;
-      }
+      targetContext.drawImage(canvas, left, top);
       return true;
     },
   });
+}
+
+function subtractPoint(point, origin) {
+  return [point[0] - origin[0], point[1] - origin[1]];
+}
+
+function setBoundedCache(cache, key, value, maximumSize = 64) {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > maximumSize) cache.delete(cache.keys().next().value);
 }
 
 function sameNumbers(left, right) {
