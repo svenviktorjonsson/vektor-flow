@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { createSymbolicKernel } from '../../web/vf-ui/vf-symbolic-kernel-runtime.mjs';
-import { symbolicPlotSnapGeometry } from '../../web/vf-ui/vf-symbolic-plot-controller.mjs';
+import {
+  symbolicPlotSeriesCount,
+  symbolicPlotSnapGeometry
+} from '../../web/vf-ui/vf-symbolic-plot-controller.mjs';
 
 const artifactRoot = new URL('../../web/vf-ui/artifacts/', import.meta.url);
 const view = {
@@ -101,6 +104,7 @@ test('plots a symbolic base with a range exponent as one multi-range curve famil
   const result = plotGeometry(kernel, workspace, 'x^(1..4)');
 
   assert.equal(result.program.classification, 'y-of-x-family');
+  assert.equal(symbolicPlotSeriesCount(result.program), 4);
   assert.equal(result.program.latex, '{x}^{\\left(1..4\\right)}');
   assert.deepEqual(
     result.arena.ranges.map(({ mode, first, count }) => ({ mode, first, count })),
@@ -131,6 +135,22 @@ test('plots a symbolic base with a range exponent as one multi-range curve famil
     assert.deepEqual(equivalent.arena.ranges, result.arena.ranges, source);
     assert.deepEqual(equivalent.packed, result.packed, source);
   }
+});
+
+test('plots a set of x-dependent scalars as separate ordered graph series', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(kernel, workspace, '{sin(x),cos(x)}');
+
+  assert.equal(result.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(result.program), 2);
+  assert.deepEqual(
+    result.arena.ranges.map(({ mode, count }) => ({ mode, count })),
+    [
+      { mode: 'time-curve', count: view.xSteps },
+      { mode: 'time-curve', count: view.xSteps }
+    ]
+  );
 });
 test('distributes a set-valued relation into one analytical family while preserving tuples', async () => {
   const kernel = await createKernel();

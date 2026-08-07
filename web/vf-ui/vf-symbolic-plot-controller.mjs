@@ -49,6 +49,7 @@ export async function createSymbolicPlotController({
     colors,
     colormapPoints = null,
     colorScale = null,
+    seriesColorRange = null,
     revision = 0,
     frameRevision = null,
     frameEpoch = 0,
@@ -77,7 +78,7 @@ export async function createSymbolicPlotController({
       return lastResult;
     }
     const compatibilityKey = symbolicPlotCompatibilityKey({
-      source, revision, context, view, style, transform, clip: localClip
+      source, revision, context, view, style, transform, clip: localClip, seriesColorRange
     });
     const requestOrder = ++plotRequestOrder;
     latestPlotRequest = { order: requestOrder, compatibilityKey };
@@ -117,7 +118,11 @@ export async function createSymbolicPlotController({
           kernel.memory,
           requestOrder
         )));
-      nextArena = combineSymbolicPlotArenas(arenas, requestOrder);
+      nextArena = colorSymbolicPlotSeries(
+        combineSymbolicPlotArenas(arenas, requestOrder),
+        style.colormapPoints,
+        seriesColorRange
+      );
       nextSnapGeometry = symbolicPlotSnapGeometry(nextArena);
     } else {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
@@ -304,7 +309,9 @@ function symbolicViewSpatialKey(transform, clip) {
   return compatibilityKey([transform, clip]);
 }
 
-function symbolicPlotCompatibilityKey({ source, revision, context, view, style, transform, clip }) {
+function symbolicPlotCompatibilityKey({
+  source, revision, context, view, style, transform, clip, seriesColorRange
+}) {
   return compatibilityKey([
     source,
     revision,
@@ -331,7 +338,8 @@ function symbolicPlotCompatibilityKey({ source, revision, context, view, style, 
       vectorArrowLength: view.vectorArrowLength,
       vectorArrowWidth: view.vectorArrowWidth
     },
-    style
+    style,
+    seriesColorRange
   ]);
 }
 
@@ -667,6 +675,76 @@ export function buildSymbolicPlotView(viewport, context = globalSymbolicContext(
       'viewport.vectorArrowWidth'
     )
   });
+}
+
+export function symbolicPlotSeriesCount(compilation) {
+  const programs = Array.isArray(compilation?.document?.programs)
+    ? compilation.document.programs.map(({ program }) => program).filter(Boolean)
+    : [compilation?.value?.program ?? compilation?.value ?? compilation].filter(Boolean);
+  return programs.reduce((total, program) => total + symbolicProgramSeriesCount(program), 0);
+}
+
+export function colorSymbolicPlotSeries(arena, colormapPoints, range = null) {
+  if (!arena || !(arena.data instanceof Float32Array) || !Array.isArray(colormapPoints) || !range) {
+    return arena;
+  }
+  const edgeRanges = (arena.ranges || []).filter(({ part }) => part === 'edge');
+  if (!edgeRanges.length) return arena;
+  const total = Math.max(1, Math.trunc(Number(range.total) || edgeRanges.length));
+  const offset = Math.max(0, Math.trunc(Number(range.offset) || 0));
+  const data = new Float32Array(arena.data);
+  const stride = arena.stride / Float32Array.BYTES_PER_ELEMENT;
+  edgeRanges.forEach((series, seriesIndex) => {
+    const unit = total === 1 ? 0.5 : (offset + seriesIndex) / (total - 1);
+    const color = sampleSeriesColormap(colormapPoints, unit);
+    for (let index = 0; index < series.count; index += 1) {
+      const colorOffset = (series.first + index) * stride + 2;
+      data.set(color, colorOffset);
+    }
+  });
+  return Object.freeze({ ...arena, data });
+}
+
+function symbolicProgramSeriesCount(program) {
+  if (!program) return 0;
+  if (program.classification === 'y-of-x-family' || program.classification === 'x-of-y-family') {
+    return symbolicCollectionCount(program.ast?.right) || 1;
+  }
+  const variants = Array.isArray(program.variants) ? program.variants.length : 0;
+  return Math.max(1, variants);
+}
+
+function symbolicCollectionCount(node) {
+  if (!node) return 0;
+  if (node.kind === 'multiset') return Array.isArray(node.items) ? node.items.length : 0;
+  if (node.kind !== 'range') return 0;
+  const start = Number(node.start?.value ?? node.start);
+  const end = Number(node.end?.value ?? node.end);
+  const step = Number(node.step?.value ?? node.step ?? (end >= start ? 1 : -1));
+  if (![start, end, step].every(Number.isFinite) || step === 0) return 0;
+  return Math.max(0, Math.floor((end - start) / step) + 1);
+}
+
+function sampleSeriesColormap(points, value) {
+  const ordered = points
+    .map((point) => ({
+      pos: clampUnit(Number(point.pos)),
+      color: point.color.slice(0, 3).map((channel) => clampByte(Number(channel)) / 255),
+      alpha: clampUnit(Number(point.alpha ?? 1))
+    }))
+    .sort((left, right) => left.pos - right.pos);
+  if (!ordered.length) return [1, 1, 1, 1];
+  const unit = clampUnit(value);
+  const upperIndex = ordered.findIndex(({ pos }) => pos >= unit);
+  if (upperIndex <= 0) return [...ordered[0].color, ordered[0].alpha];
+  if (upperIndex < 0) return [...ordered.at(-1).color, ordered.at(-1).alpha];
+  const left = ordered[upperIndex - 1];
+  const right = ordered[upperIndex];
+  const span = right.pos - left.pos;
+  const mix = span > 0 ? (unit - left.pos) / span : 1;
+  return [0, 1, 2].map((channel) => left.color[channel]
+    + (right.color[channel] - left.color[channel]) * mix)
+    .concat(left.alpha + (right.alpha - left.alpha) * mix);
 }
 
 function optionalPositive(value) {

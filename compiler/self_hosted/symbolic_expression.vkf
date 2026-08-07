@@ -1629,9 +1629,15 @@ symbolic_classification(ast:any, variables:any, value_kind:str):
     ast.kind??
         "definition" => "definition"
         "tuple" => "linked-tuple"
-        "multiset" => "point-set"
+        "multiset" => symbolic_multiset_classification(variables, value_kind)
         "binary" => symbolic_binary_classification(ast, variables, value_kind)
         symbolic_variable_classification(variables, value_kind)
+
+symbolic_multiset_classification(variables:any, valueKind:str):
+    member_classification: symbolic_variable_classification(variables, valueKind)
+    member_classification = "literal"?
+        @: "point-set"
+    member_classification
 
 symbolic_binary_classification(ast:any, variables:any, valueKind:str):
     ast.op??

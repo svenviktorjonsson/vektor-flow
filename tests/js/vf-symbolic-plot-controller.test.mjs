@@ -9,6 +9,8 @@ import {
   symbolicClipInLocalCoordinates,
   symbolicCssPixelTransform,
   symbolicDataToScreenTransform,
+  symbolicPlotSeriesCount,
+  colorSymbolicPlotSeries,
   symbolicPlotSnapGeometry
 } from 'vektor-flow/symbolic-plot-controller';
 
@@ -233,6 +235,43 @@ test('adapts curve and field samples to pixel coverage', () => {
   assert.equal(view.ySteps, 322);
   assert.equal(view.fieldXSteps, 17);
   assert.equal(view.fieldYSteps, 17);
+});
+
+test('counts and colors ordered graph ranges across a shared label domain', () => {
+  const compilation = {
+    value: { program: { classification: 'y-of-x', variants: [{}, {}] } }
+  };
+  assert.equal(symbolicPlotSeriesCount(compilation), 2);
+
+  const arena = {
+    data: new Float32Array([
+      0, 0, 1, 1, 1, 1,
+      1, 1, 1, 1, 1, 1,
+      2, 2, 1, 1, 1, 1,
+      3, 3, 1, 1, 1, 1
+    ]),
+    count: 4,
+    stride: 24,
+    revision: 1,
+    ranges: [
+      { part: 'edge', first: 0, count: 2 },
+      { part: 'edge', first: 2, count: 2 }
+    ]
+  };
+  const colored = colorSymbolicPlotSeries(arena, [
+    { pos: 0, color: [255, 0, 0], alpha: 1 },
+    { pos: 1, color: [0, 0, 255], alpha: 1 }
+  ], { offset: 1, total: 4 });
+
+  assert.deepEqual(
+    Array.from(colored.data.slice(2, 6)),
+    Array.from(new Float32Array([2 / 3, 0, 1 / 3, 1]))
+  );
+  assert.deepEqual(
+    Array.from(colored.data.slice(14, 18)),
+    Array.from(new Float32Array([1 / 3, 0, 2 / 3, 1]))
+  );
+  assert.deepEqual(Array.from(arena.data.slice(2, 6)), [1, 1, 1, 1]);
 });
 
 test('anchors vector samples to the data grid without pan-relative resampling', () => {
