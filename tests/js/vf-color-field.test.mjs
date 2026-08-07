@@ -43,12 +43,17 @@ test('normalizes point-source weights in source-relative coordinates', () => {
 });
 
 test('normalizes segment-source weights from distance to complete segments', () => {
+  const seen = [];
   assert.deepEqual(segmentSourceRgb(
     [0, 1],
     [[[0, 0], [10, 0]], [[0, 10], [10, 10]]],
     ['#ff0000', '#0000ff'],
-    inverseSquare,
+    (variables) => {
+      seen.push(variables);
+      return 1 / variables.r ** 2;
+    },
   ), [252, 0, 3]);
+  assert.deepEqual(seen, [{ r: 1 }, { r: 9 }]);
 });
 
 test('evaluates point and segment field descriptors through one interface', () => {

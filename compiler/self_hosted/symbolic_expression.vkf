@@ -127,7 +127,9 @@ symbolic_global_context():
         basisXX: 1,
         basisXY: 0,
         basisYX: 0,
-        basisYY: 1
+        basisYY: 1,
+        n: 0,
+        N: 1
     )
 
 symbolic_affine_context(
@@ -726,8 +728,14 @@ symbolic_relation_node(left:any, op:str, right:any, location:SymbolicLocation):
                 right,
                 location
             )
+            "variable" => symbolic_variable_relation(left, right, location)
             symbolic_binary(op, left, right, location)
     symbolic_binary(op, left, right, location)
+
+symbolic_variable_relation(left:any, right:any, location:SymbolicLocation):
+    left.name = "x" \/ left.name = "y" \/ left.name = "z" \/ left.name = "r" \/ left.name = "phi" \/ left.name = "t" \/ left.name = "n" \/ left.name = "N"?
+        @: symbolic_binary("=", left, right, location)
+    symbolic_definition(left.name, vkf_list_empty(), right, location)
 
 symbolic_parse_tokens(lexed:SymbolicLexResult):
     state: symbolic_parse_state(lexed.tokens, 0, lexed.diagnostics)
@@ -823,6 +831,8 @@ symbolic_function_application_latex(name:str):
         symbolic_function_latex(name) & "\\!"
 
 symbolic_definition_latex(node:any):
+    vkf_list_length(node.parameters) = 0?
+        @: symbolic_variable_latex(node.name) & " = " & symbolic_latex(node.value)
     symbolic_function_application_latex(node.name) & "\\left(" & symbolic_latex_items(node.parameters, 0) & "\\right) = " & symbolic_latex(node.value)
 
 symbolic_variable_latex(name:str):
@@ -883,6 +893,7 @@ symbolic_evaluate(
         "variable" => symbolic_variable_value(
             node.name,
             evaluation,
+            workspace,
             parameterNames,
             parameterValues
         )
@@ -988,6 +999,7 @@ symbolic_parameter_value(names:any, values:any, index:num, name:str):
 symbolic_variable_value(
     name:str,
     evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace,
     parameterNames:any,
     parameterValues:any
 ):
@@ -996,6 +1008,8 @@ symbolic_variable_value(
         "y" => evaluation.y
         "z" => symbolic_z_value(evaluation)
         "t" => evaluation.t
+        "n" => symbolic_context_index(evaluation.context)
+        "N" => symbolic_context_count(evaluation.context)
         "r" => vkf_math_sqrt(evaluation.x * evaluation.x + evaluation.y * evaluation.y)
         "phi" => symbolic_atan2(evaluation.y, evaluation.x)
         "pi" => 3.141592653589793
@@ -1003,6 +1017,7 @@ symbolic_variable_value(
         symbolic_free_variable_value(
             name,
             evaluation,
+            workspace,
             parameterNames,
             parameterValues
         )
@@ -1010,13 +1025,47 @@ symbolic_variable_value(
 symbolic_free_variable_value(
     name:str,
     evaluation:SymbolicEvaluation,
+    workspace:SymbolicWorkspace,
     parameterNames:any,
     parameterValues:any
 ):
     value: symbolic_parameter_value(parameterNames, parameterValues, 0, name)
-    value = null?
-        @: evaluation.t
-    value
+    value != null?
+        @: value
+    definition: symbolic_find_definition(workspace, 0, name)
+    definition != null /\ vkf_list_length(definition.parameters) = 0?
+        @: symbolic_evaluate(
+            definition.value,
+            evaluation,
+            workspace,
+            vkf_list_empty(),
+            vkf_list_empty()
+        )
+    evaluation.t
+
+symbolic_context_index(context:any):
+    context.n = null?
+        @: 0
+    context.n
+
+symbolic_context_count(context:any):
+    context.N = null?
+        @: 1
+    context.N
+
+symbolic_owned_context(context:any):
+    (
+        kind: context.kind,
+        dimension: symbolic_context_dimension(context),
+        originX: context.originX,
+        originY: context.originY,
+        basisXX: context.basisXX,
+        basisXY: context.basisXY,
+        basisYX: context.basisYX,
+        basisYY: context.basisYY,
+        n: symbolic_context_index(context),
+        N: symbolic_context_count(context)
+    )
 
 symbolic_z_value(evaluation:SymbolicEvaluation):
     symbolic_context_dimension(evaluation.context) = 2?
@@ -1651,7 +1700,7 @@ symbolic_binary_classification(ast:any, variables:any, valueKind:str):
 symbolic_parameter_variable_count(variables:any, index:num):
     index >= vkf_list_length(variables)?
         @: 0
-    variables.(index) = "t"?
+    variables.(index) = "t" \/ variables.(index) = "n" \/ variables.(index) = "N"?
         @: symbolic_parameter_variable_count(variables, index + 1)
     rest: symbolic_parameter_variable_count(variables, index + 1)
     rest + 1
@@ -1825,7 +1874,8 @@ symbolic_compile_with_context(source:str, context:any, clip:any):
     lexed: symbolic_tokenize(source)
     parsed: symbolic_parse_tokens(lexed)
     variables: symbolic_variables(parsed.ast)
-    value_kind: symbolic_value_kind_for_context(parsed.ast, context)
+    active_context: symbolic_owned_context(context)
+    value_kind: symbolic_value_kind_for_context(parsed.ast, active_context)
     symbolic_program(
         parsed.ast,
         parsed.next.diagnostics & symbolic_semantic_diagnostics(parsed.ast),
@@ -1833,7 +1883,7 @@ symbolic_compile_with_context(source:str, context:any, clip:any):
         variables,
         symbolic_classification(parsed.ast, variables, value_kind),
         value_kind,
-        context,
+        active_context,
         clip
     )
 

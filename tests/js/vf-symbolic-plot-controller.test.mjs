@@ -5,6 +5,7 @@ import {
   buildSymbolicPlotView,
   createSymbolicCompiler,
   createSymbolicPlotController,
+  globalSymbolicContext,
   hitTestSymbolicPlotGeometry,
   symbolicClipInLocalCoordinates,
   symbolicCssPixelTransform,
@@ -13,6 +14,11 @@ import {
   colorSymbolicPlotSeries,
   symbolicPlotSnapGeometry
 } from 'vektor-flow/symbolic-plot-controller';
+
+test('global symbolic context defaults to one unindexed instance', () => {
+  assert.equal(globalSymbolicContext().n, 0);
+  assert.equal(globalSymbolicContext().N, 1);
+});
 
 const viewport = Object.freeze({
   xMin: -8,

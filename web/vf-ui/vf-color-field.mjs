@@ -19,8 +19,7 @@ export function pointSourceRgb(point, sourcePoints, colors, weightEvaluator) {
 export function segmentSourceRgb(point, segments, colors, weightEvaluator) {
   return normalizedWeightedRgb(
     segments.map((segment) => positiveWeight(weightEvaluator, {
-      x: Math.max(1e-9, pointToSegmentDistance(point, segment)),
-      y: 0,
+      r: Math.max(1e-9, pointToSegmentDistance(point, segment)),
     })),
     colors.map(parseCssRgb),
   );

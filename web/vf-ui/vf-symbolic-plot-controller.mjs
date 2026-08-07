@@ -611,7 +611,9 @@ export function globalSymbolicContext() {
     basisXX: 1,
     basisXY: 0,
     basisYX: 0,
-    basisYY: 1
+    basisYY: 1,
+    n: 0,
+    N: 1
   });
 }
 

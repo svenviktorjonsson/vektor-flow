@@ -30,10 +30,15 @@ async function createKernel() {
   return createSymbolicKernel({ instance, manifest });
 }
 
-function plotGeometry(kernel, workspace, source, viewOverrides = {}) {
-  const program = kernel.compile(source);
-  assert.deepEqual(program.value.diagnostics, [], source);
-  const arena = kernel.plot(program.handle, workspace, { ...view, ...viewOverrides }, style, 1);
+function plotGeometry(kernel, workspace, source, viewOverrides = {}, context = null) {
+  const compiled = context
+    ? kernel.workspaceCompile(workspace, source, context)
+    : kernel.compile(source);
+  const programValue = context ? compiled.value.program : compiled.value;
+  const programHandle = context ? compiled.program : compiled.handle;
+  const activeWorkspace = context ? compiled.workspace : workspace;
+  assert.deepEqual(programValue.diagnostics, [], source);
+  const arena = kernel.plot(programHandle, activeWorkspace, { ...view, ...viewOverrides }, style, 1);
   const data = arena.data;
   const ranges = arena.ranges.map((range) => ({
     ...range,
@@ -44,7 +49,7 @@ function plotGeometry(kernel, workspace, source, viewOverrides = {}) {
         : 'line-list'
   }));
   return {
-    program: program.value,
+    program: programValue,
     arena,
     packed: Array.from(data),
     geometry: symbolicPlotSnapGeometry({ data, ranges })
@@ -297,4 +302,39 @@ test('t is fixed per frame across curves, fields, and relations', async () => {
       throw error;
     }
   }
+});
+
+test('evaluates n and N from immutable plot context constants', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const context = {
+    kind: 'vertex', dimension: 2,
+    originX: 0, originY: 0,
+    basisXX: 1, basisXY: 0, basisYX: 0, basisYY: 1,
+    n: 2, N: 4
+  };
+  const result = plotGeometry(kernel, workspace, 'x^n+n/(N-1)-2/3', {}, context);
+
+  assert.equal(result.program.classification, 'y-of-x');
+  assert.deepEqual(result.geometry.segments[0][0], [-5, 25]);
+  assert.deepEqual(result.geometry.segments.at(-1)[1], [5, 25]);
+});
+
+test('plots named functions and constants from earlier workspace relations', async () => {
+  const kernel = await createKernel();
+  const context = {
+    kind: 'global', dimension: 2,
+    originX: 0, originY: 0, basisXX: 1, basisXY: 0, basisYX: 0, basisYY: 1,
+    n: 0, N: 1
+  };
+  let workspace = kernel.createWorkspace().handle;
+  workspace = kernel.workspaceCompile(workspace, 'f(x)=x^2', context).workspace;
+  workspace = kernel.workspaceCompile(workspace, 'p=4', context).workspace;
+  const compiled = kernel.workspaceCompile(workspace, 'f(x)^2+x^p-x^4', context);
+  const arena = kernel.plot(compiled.program, compiled.workspace, view, style, 1);
+  const geometry = symbolicPlotSnapGeometry({ data: arena.data, ranges: arena.ranges });
+
+  assert.equal(compiled.value.program.classification, 'y-of-x');
+  assert.deepEqual(geometry.segments[0][0], [-5, 625]);
+  assert.deepEqual(geometry.segments.at(-1)[1], [5, 625]);
 });
