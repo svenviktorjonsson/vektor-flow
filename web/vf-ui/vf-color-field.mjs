@@ -96,7 +96,7 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
   }
   const rasterCache = new WeakMap();
   return Object.freeze({
-    draw({ targetContext, field, screenPoints = [], targetSize = [] }) {
+    draw({ targetContext, field, screenPoints = [], targetSize = [], maxRasterPixels = Infinity }) {
       if (!targetContext || !screenPoints.length) return false;
       const left = Math.max(0, Math.floor(Math.min(...screenPoints.map(([x]) => x))));
       const top = Math.max(0, Math.floor(Math.min(...screenPoints.map(([, y]) => y))));
@@ -105,21 +105,28 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
       const width = right - left;
       const height = bottom - top;
       if (width <= 0 || height <= 0) return false;
-      canvas.width = width;
-      canvas.height = height;
-      const image = context.createImageData(width, height);
-      const origin = screenToWorld([left + 0.5, top + 0.5]);
-      const xStepPoint = screenToWorld([left + 1.5, top + 0.5]);
-      const yStepPoint = screenToWorld([left + 0.5, top + 1.5]);
+      const rasterScale = Number.isFinite(maxRasterPixels) && maxRasterPixels > 0
+        ? Math.min(1, Math.sqrt(maxRasterPixels / (width * height)))
+        : 1;
+      const rasterWidth = Math.max(1, Math.floor(width * rasterScale));
+      const rasterHeight = Math.max(1, Math.floor(height * rasterScale));
+      const screenStepX = width / rasterWidth;
+      const screenStepY = height / rasterHeight;
+      canvas.width = rasterWidth;
+      canvas.height = rasterHeight;
+      const image = context.createImageData(rasterWidth, rasterHeight);
+      const origin = screenToWorld([left + screenStepX / 2, top + screenStepY / 2]);
+      const xStepPoint = screenToWorld([left + screenStepX * 1.5, top + screenStepY / 2]);
+      const yStepPoint = screenToWorld([left + screenStepX / 2, top + screenStepY * 1.5]);
       const xStep = [xStepPoint[0] - origin[0], xStepPoint[1] - origin[1]];
       const yStep = [yStepPoint[0] - origin[0], yStepPoint[1] - origin[1]];
-      const signature = [width, height, ...origin, ...xStep, ...yStep];
+      const signature = [rasterWidth, rasterHeight, ...origin, ...xStep, ...yStep];
       const cached = field && typeof field === 'object' ? rasterCache.get(field) : null;
       const rgba = cached && sameNumbers(cached.signature, signature)
         ? cached.rgba
         : rasterizeColorField({
-            width,
-            height,
+            width: rasterWidth,
+            height: rasterHeight,
             field,
             pointAt: (x, y) => [
               origin[0] + x * xStep[0] + y * yStep[0],
@@ -131,7 +138,17 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
       }
       image.data.set(rgba);
       context.putImageData(image, 0, 0);
-      targetContext.drawImage(canvas, left, top);
+      if (rasterWidth === width && rasterHeight === height) {
+        targetContext.drawImage(canvas, left, top);
+      } else {
+        const priorSmoothing = targetContext.imageSmoothingEnabled;
+        const priorQuality = targetContext.imageSmoothingQuality;
+        targetContext.imageSmoothingEnabled = true;
+        targetContext.imageSmoothingQuality = 'high';
+        targetContext.drawImage(canvas, left, top, width, height);
+        targetContext.imageSmoothingEnabled = priorSmoothing;
+        targetContext.imageSmoothingQuality = priorQuality;
+      }
       return true;
     },
   });

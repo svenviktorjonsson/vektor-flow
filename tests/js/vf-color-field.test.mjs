@@ -126,3 +126,34 @@ test('canvas adapter reuses an unchanged field raster', () => {
   renderer.draw(request);
   assert.equal(evaluations, 4);
 });
+
+test('canvas adapter bounds interactive raster work while covering exact target bounds', () => {
+  const canvas = { width: 0, height: 0 };
+  const draws = [];
+  let evaluations = 0;
+  const renderer = createCanvasColorFieldRenderer({
+    canvas,
+    context: {
+      createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData() {},
+    },
+    screenToWorld: (point) => point,
+  });
+
+  renderer.draw({
+    targetContext: { drawImage: (...args) => draws.push(args) },
+    screenPoints: [[0, 0], [1000, 1000]],
+    targetSize: [1000, 1000],
+    maxRasterPixels: 10_000,
+    field: {
+      kind: 'coordinate-colormap',
+      worldToLocal: (point) => point,
+      evaluator: () => { evaluations += 1; return 0.5; },
+      sampler: () => [0, 0, 0, 255],
+    },
+  });
+
+  assert.deepEqual([canvas.width, canvas.height], [100, 100]);
+  assert.equal(evaluations, 10_000);
+  assert.deepEqual(draws[0].slice(1), [0, 0, 1000, 1000]);
+});
