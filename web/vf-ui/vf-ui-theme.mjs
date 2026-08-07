@@ -63,6 +63,13 @@ function adaptHexColor(color) {
     .join('')}`;
 }
 
+function isNeutralHexColor(color) {
+  const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+  const maximum = Math.max(...channels);
+  const minimum = Math.min(...channels);
+  return maximum === 0 || (maximum - minimum) / maximum <= 0.12;
+}
+
 function adaptCssColor(color) {
   const match = String(color || '').trim().match(
     /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*([\d.]+))?\s*\)$/i
@@ -88,7 +95,7 @@ export function themeDisplayColor(color, {
   if (!hex) {
     return adaptAppliedColors || invertAppliedGrayscales ? adaptCssColor(color) || color : color;
   }
-  return defaults.has(hex) || adaptAppliedColors || invertAppliedGrayscales
+  return (defaults.has(hex) && isNeutralHexColor(hex)) || adaptAppliedColors || invertAppliedGrayscales
     ? adaptHexColor(hex)
     : color;
 }

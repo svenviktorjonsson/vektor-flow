@@ -19,7 +19,7 @@ test('VKF owns mutable light/dark theme state and semantic drawing palettes', ()
   assert.ok(Object.isFrozen(uiThemePalette('light')));
 });
 
-test('light themes invert supplied default colors through HSB brightness', () => {
+test('light themes invert supplied achromatic defaults without destroying chromatic defaults', () => {
   assert.equal(themeDisplayColor('#ffffff', {
     theme: 'light',
     defaultColors: ['#ffffff']
@@ -31,7 +31,7 @@ test('light themes invert supplied default colors through HSB brightness', () =>
   assert.equal(themeDisplayColor('#ff4444', {
     theme: 'light',
     defaultColors: ['#ff4444']
-  }), '#000000');
+  }), '#ff4444');
   assert.equal(themeDisplayColor('#ffffff', {
     theme: 'dark',
     defaultColors: ['#ffffff']
