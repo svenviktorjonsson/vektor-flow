@@ -538,7 +538,10 @@ export async function createSymbolicCompiler({
         [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
       );
       const result = kernel.compileWithContext(expanded, context, clip);
-      return publicProgramResult(result.value?.program ?? result.value);
+      return scopedPublicProgramResult(
+        result.value?.program ?? result.value,
+        [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+      );
     },
     compileDocument(source, {
       profile = 'default',
@@ -596,7 +599,10 @@ export async function createSymbolicCompiler({
       );
       return Object.freeze({
         ...compiled,
-        result: publicProgramResult(compiled.value?.program ?? compiled.value)
+        result: scopedPublicProgramResult(
+          compiled.value?.program ?? compiled.value,
+          [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+        )
       });
     }
   });
@@ -1084,6 +1090,18 @@ function publicDocumentResult(document, retainedProgram = null) {
     complete: document?.complete === true,
     recoverable: document?.recoverable === true,
     plottable: document?.plottable === true && programs.some(({ result }) => result.plottable)
+  });
+}
+
+function scopedPublicProgramResult(program, definitionSources) {
+  const result = publicProgramResult(program);
+  const bound = new Set(definitionSources
+    .map(parseSymbolicDefinition)
+    .filter(Boolean)
+    .map(({ name }) => name));
+  return Object.freeze({
+    ...result,
+    variables: Object.freeze([...new Set(result.variables.filter((name) => !bound.has(name)))])
   });
 }
 

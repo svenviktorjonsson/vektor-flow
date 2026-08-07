@@ -123,6 +123,14 @@ test('expands $name and $(expression) for presentation and identical evaluation'
   ), 20);
 });
 
+test('removes resolved relation names from scoped free variables', async () => {
+  const compiler = await createCompiler();
+  compiler.setDefinitions({ global: ['f(x)=x^2', 'p=4'] });
+  const result = compiler.compileScoped('f(x)^2+x^p');
+  assert.deepEqual(result.variables, ['x']);
+  assert.equal(result.plottable, true);
+});
+
 test('keeps identifier-like prose intact around multiple executable expressions', async () => {
   const compiler = await createCompiler();
   const document = compiler.compileDocument(
