@@ -2787,7 +2787,7 @@ symbolic_plot_into_builder(
         "y-of-x" => symbolic_sample_explicit_x(program, workspace, view, style, builder, 0)
         "x-of-y" => symbolic_sample_explicit_y(program, workspace, view, style, builder, 0)
         "parametric" => symbolic_sample_parametric(program, workspace, view, style, builder, 0)
-        "vector-field" => symbolic_sample_vector_field(program, workspace, view, style, builder, 0, 0)
+        "vector-field" => symbolic_plot_vector_field(program, workspace, view, style, builder)
         "scalar-field" => symbolic_sample_scalar_field(program, workspace, view, style, builder, 0, 0)
         "complex-field" => symbolic_sample_complex_field(program, workspace, view, style, builder, 0, 0)
         "implicit-curve" => symbolic_sample_implicit(program, workspace, view, style, builder, 0, 0)
@@ -2943,6 +2943,31 @@ symbolic_literal_point(value:any):
         "vector" => vkf_list_pair(value.x, value.y)
         vkf_list_pair(value, 0)
 
+symbolic_plot_vector_field(program:any, workspace:any, view:any, style:any, builder:any):
+    maximum: symbolic_vector_field_max_magnitude(program, workspace, view, 0, 0, 0)
+    symbolic_sample_vector_field(program, workspace, view, style, builder, 0, 0, maximum)
+
+symbolic_vector_field_max_magnitude(
+    program:any,
+    workspace:any,
+    view:any,
+    xIndex:num,
+    yIndex:num,
+    maximum:num
+):
+    xIndex >= view.fieldXSteps?
+        @: maximum
+    yIndex >= view.fieldYSteps?
+        @: symbolic_vector_field_max_magnitude(program, workspace, view, xIndex + 1, 0, maximum)
+    x: view.fieldXMin + xIndex * view.fieldXInterval
+    y: view.fieldYMin + yIndex * view.fieldYInterval
+    value: symbolic_program_evaluate_local_at(program, x, y, 0, view.t, workspace)
+    vector: symbolic_plot_vector(value)
+    magnitude: vkf_math_sqrt(vector.(0) * vector.(0) + vector.(1) * vector.(1))
+    magnitude > maximum?
+        @: symbolic_vector_field_max_magnitude(program, workspace, view, xIndex, yIndex + 1, magnitude)
+    symbolic_vector_field_max_magnitude(program, workspace, view, xIndex, yIndex + 1, maximum)
+
 symbolic_sample_vector_field(
     program:any,
     workspace:any,
@@ -2950,8 +2975,11 @@ symbolic_sample_vector_field(
     style:any,
     builder:any,
     xIndex:num,
-    yIndex:num
+    yIndex:num,
+    maximum:num
 ):
+    maximum <= 0.000000001?
+        @: builder
     xIndex >= view.fieldXSteps?
         @: builder
     yIndex >= view.fieldYSteps?
@@ -2962,7 +2990,8 @@ symbolic_sample_vector_field(
             style,
             builder,
             xIndex + 1,
-            0
+            0,
+            maximum
         )
     x: view.fieldXMin + xIndex * view.fieldXInterval
     y: view.fieldYMin + yIndex * view.fieldYInterval
@@ -2975,7 +3004,7 @@ symbolic_sample_vector_field(
         workspace
     )
     vector: symbolic_plot_vector(value)
-    scale: view.vectorScale
+    scale: view.vectorScale / maximum
     glyph: symbolic_push_vector_glyph(
         builder,
         x,
@@ -2994,7 +3023,8 @@ symbolic_sample_vector_field(
         style,
         glyph,
         xIndex,
-        yIndex + 1
+        yIndex + 1,
+        maximum
     )
 
 symbolic_push_vector_glyph(

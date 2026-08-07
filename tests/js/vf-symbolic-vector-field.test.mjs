@@ -42,3 +42,29 @@ test('starts vector glyphs on data-grid crossings and terminates them with arrow
   assert.equal(xy(4)[1], -1);
   assert.ok(Math.abs(xy(5)[1] - -1.07) < 1e-6);
 });
+
+test('normalizes one vector field proportionally below its grid spacing', async () => {
+  const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
+  const manifest = JSON.parse(await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8'));
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  const program = kernel.compile('[1+x+0*y,0]');
+  const arena = kernel.plot(program.handle, kernel.createWorkspace().handle, {
+    xMin: 0, xMax: 1, yMin: 0, yMax: 1,
+    xSteps: 65, ySteps: 65,
+    fieldXMin: 0, fieldYMin: 0,
+    fieldXInterval: 1, fieldYInterval: 1,
+    fieldXSteps: 2, fieldYSteps: 1,
+    tMin: 0, tMax: 1, tSteps: 65, t: 0,
+    vectorScale: 0.8, vectorArrowLength: 0.12, vectorArrowWidth: 0.07
+  }, {
+    edgeR: 1, edgeG: 1, edgeB: 1, edgeA: 1,
+    faceR: 1, faceG: 1, faceB: 1, faceA: 1,
+    valueMin: 0, valueMax: 1, colormapPoints: null
+  }, 1);
+
+  const x = (vertex) => arena.data[vertex * 6];
+  assert.ok(Math.abs((x(1) - x(0)) - 0.4) < 1e-6);
+  assert.ok(Math.abs((x(7) - x(6)) - 0.8) < 1e-6);
+  assert.ok(x(7) - x(6) < 1);
+});
