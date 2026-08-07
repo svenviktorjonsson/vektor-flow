@@ -6,7 +6,7 @@ import {
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const DEFAULT_TRANSFORM = Object.freeze([1, 0, 0, 1, 0, 0]);
-const FLOATS_PER_SEGMENT = 16;
+const FLOATS_PER_SEGMENT = 17;
 
 export const SYMBOLIC_PLOT_EDGE_WIDTH = 2;
 export const SYMBOLIC_PLOT_POINT_RADIUS = 6;
@@ -62,7 +62,7 @@ function interactionAlpha(state) {
 export function packSymbolicPlotSegments(arena) {
   if (!arena?.data || !(arena.data instanceof Float32Array)) return new Float32Array();
   const packed = [];
-  const append = (previous, from, to, next) => {
+  const append = (previous, from, to, next, strokeScale) => {
     const previousOffset = previous * FLOATS_PER_VERTEX;
     const fromOffset = from * FLOATS_PER_VERTEX;
     const toOffset = to * FLOATS_PER_VERTEX;
@@ -70,14 +70,17 @@ export function packSymbolicPlotSegments(arena) {
     packed.push(arena.data[previousOffset], arena.data[previousOffset + 1]);
     for (let index = 0; index < FLOATS_PER_VERTEX; index += 1) packed.push(arena.data[fromOffset + index]);
     for (let index = 0; index < FLOATS_PER_VERTEX; index += 1) packed.push(arena.data[toOffset + index]);
-    packed.push(arena.data[nextOffset], arena.data[nextOffset + 1]);
+    packed.push(arena.data[nextOffset], arena.data[nextOffset + 1], strokeScale);
   };
   for (const range of arena.ranges || []) {
+    const strokeScale = Number.isFinite(range.strokeScale)
+      ? range.strokeScale
+      : range.mode === SymbolicPlotMode.VECTOR_FIELD_GLYPHS ? 0.5 : 1;
     if (range.topology === 'line-list') {
       for (let index = 0; index + 1 < range.count; index += 2) {
         const from = range.first + index;
         const to = from + 1;
-        append(from, from, to, to);
+        append(from, from, to, to, strokeScale);
       }
     } else if (range.topology === 'line-strip') {
       for (let index = 0; index + 1 < range.count; index += 1) {
@@ -87,7 +90,8 @@ export function packSymbolicPlotSegments(arena) {
           index > 0 ? from - 1 : from,
           from,
           to,
-          index + 2 < range.count ? to + 1 : to
+          index + 2 < range.count ? to + 1 : to,
+          strokeScale
         );
       }
     }
@@ -538,7 +542,8 @@ function normalizeRanges(ranges, count, defaultMode) {
     const defaultPart = topology === 'triangle-list' ? 'face' : 'edge';
     const part = range?.part == null ? defaultPart : String(range.part);
     if (!['face', 'edge'].includes(part)) throw new RangeError(`unsupported symbolic plot part: ${part}`);
-    return Object.freeze({ mode, part, topology, first, count: rangeCount });
+    const strokeScale = mode === SymbolicPlotMode.VECTOR_FIELD_GLYPHS ? 0.5 : 1;
+    return Object.freeze({ mode, part, topology, first, count: rangeCount, strokeScale });
   }));
 }
 
@@ -673,7 +678,8 @@ async function createWebGpuBackend(canvas) {
       { shaderLocation: 4, offset: 16, format: 'float32x4' },
       { shaderLocation: 5, offset: 32, format: 'float32x2' },
       { shaderLocation: 6, offset: 40, format: 'float32x4' },
-      { shaderLocation: 7, offset: 56, format: 'float32x2' }
+      { shaderLocation: 7, offset: 56, format: 'float32x2' },
+      { shaderLocation: 8, offset: 64, format: 'float32' }
     ]
   };
   const depthStencil = (compare, passOp = 'keep') => ({
@@ -1315,6 +1321,7 @@ export function webGpuShaderSource() {
       @location(5) toPosition: vec2f,
       @location(6) toColor: vec4f,
       @location(7) nextPosition: vec2f,
+      @location(8) strokeScale: f32,
     }
     struct PickOutput {
       @builtin(position) position: vec4f,
@@ -1409,7 +1416,7 @@ export function webGpuShaderSource() {
       let toScreen = vec2f(dot(view.xRow.xyz, vec3f(input.toPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.toPosition, 1.0)));
       let previousScreen = vec2f(dot(view.xRow.xyz, vec3f(input.previousPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.previousPosition, 1.0)));
       let nextScreen = vec2f(dot(view.xRow.xyz, vec3f(input.nextPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.nextPosition, 1.0)));
-      let halfWidth = stroke.geometry.x * 0.5;
+      let halfWidth = stroke.geometry.x * input.strokeScale * 0.5;
       let edgeDistance = side * (halfWidth + 1.0);
       let distance = stroke.geometry.y + edgeDistance;
       let fromOffset = joinedStrokeOffset(previousScreen, fromScreen, toScreen, distance);
@@ -1434,7 +1441,7 @@ export function webGpuShaderSource() {
       let toScreen = vec2f(dot(view.xRow.xyz, vec3f(input.toPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.toPosition, 1.0)));
       let delta = toScreen - fromScreen;
       let normal = vec2f(-delta.y, delta.x) / max(length(delta), 0.0001);
-      let screen = mix(fromScreen, toScreen, along) + normal * side * stroke.geometry.x * 0.5;
+      let screen = mix(fromScreen, toScreen, along) + normal * side * stroke.geometry.x * input.strokeScale * 0.5;
       var output: PickOutput;
       output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
       output.id = bitcast<u32>(stroke.geometry.w) + instanceIndex + 1u;
@@ -1806,10 +1813,13 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
   setWebGlView(gl, locations, transform, size);
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   const attributes = [
-    [locations.fromPosition, 2, 0],
-    [locations.fromColor, 4, 8],
-    [locations.toPosition, 2, 24],
-    [locations.toColor, 4, 32]
+    [locations.previousPosition, 2, 0],
+    [locations.fromPosition, 2, 8],
+    [locations.fromColor, 4, 16],
+    [locations.toPosition, 2, 32],
+    [locations.toColor, 4, 40],
+    [locations.nextPosition, 2, 56],
+    [locations.strokeScale, 1, 64]
   ];
   for (const [location, sizeValue, offset] of attributes) {
     gl.enableVertexAttribArray(location);
@@ -1849,8 +1859,9 @@ function drawWebGlPick(gl, program, buffer, locations, transform, size, count, w
   gl.uniform1ui(locations.pickBase, pickBase);
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   for (const [location, sizeValue, offset] of [
-    [locations.fromPosition, 2, 0],
-    [locations.toPosition, 2, 24]
+    [locations.fromPosition, 2, 8],
+    [locations.toPosition, 2, 32],
+    [locations.strokeScale, 1, 64]
   ]) {
     gl.enableVertexAttribArray(location);
     gl.vertexAttribPointer(location, sizeValue, gl.FLOAT, false, FLOATS_PER_SEGMENT * 4, offset);
@@ -1859,6 +1870,7 @@ function drawWebGlPick(gl, program, buffer, locations, transform, size, count, w
   gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   gl.vertexAttribDivisor(locations.fromPosition, 0);
   gl.vertexAttribDivisor(locations.toPosition, 0);
+  gl.vertexAttribDivisor(locations.strokeScale, 0);
   gl.disable(gl.STENCIL_TEST);
   gl.stencilMask(0xff);
 }
@@ -1902,6 +1914,7 @@ function getWebGlStrokeLocations(gl, program) {
     toPosition: gl.getAttribLocation(program, 'a_to_position'),
     toColor: gl.getAttribLocation(program, 'a_to_color'),
     nextPosition: gl.getAttribLocation(program, 'a_next_position'),
+    strokeScale: gl.getAttribLocation(program, 'a_stroke_scale'),
     transform: gl.getUniformLocation(program, 'u_transform'),
     viewport: gl.getUniformLocation(program, 'u_viewport'),
     width: gl.getUniformLocation(program, 'u_width'),
@@ -1915,6 +1928,7 @@ function getWebGlPickLocations(gl, program) {
   return {
     fromPosition: gl.getAttribLocation(program, 'a_from_position'),
     toPosition: gl.getAttribLocation(program, 'a_to_position'),
+    strokeScale: gl.getAttribLocation(program, 'a_stroke_scale'),
     transform: gl.getUniformLocation(program, 'u_transform'),
     viewport: gl.getUniformLocation(program, 'u_viewport'),
     width: gl.getUniformLocation(program, 'u_width'),
@@ -2186,6 +2200,7 @@ function webGlStrokeVertexSource() {
     in vec2 a_to_position;
     in vec4 a_to_color;
     in vec2 a_next_position;
+    in float a_stroke_scale;
     uniform mat3 u_transform;
     uniform vec2 u_viewport;
     uniform float u_width;
@@ -2225,7 +2240,7 @@ function webGlStrokeVertexSource() {
       vec2 to_screen = (u_transform * vec3(a_to_position, 1.0)).xy;
       vec2 previous_screen = (u_transform * vec3(a_previous_position, 1.0)).xy;
       vec2 next_screen = (u_transform * vec3(a_next_position, 1.0)).xy;
-      float half_width = u_width * 0.5;
+      float half_width = u_width * a_stroke_scale * 0.5;
       float edge_distance = side * (half_width + 1.0);
       float distance_value = u_offset + edge_distance;
       vec2 from_offset = joined_stroke_offset(previous_screen, from_screen, to_screen, distance_value);
@@ -2262,6 +2277,7 @@ function webGlPickVertexSource() {
   return `#version 300 es
     in vec2 a_from_position;
     in vec2 a_to_position;
+    in float a_stroke_scale;
     uniform mat3 u_transform;
     uniform vec2 u_viewport;
     uniform float u_width;
@@ -2274,7 +2290,7 @@ function webGlPickVertexSource() {
       vec2 to_screen = (u_transform * vec3(a_to_position, 1.0)).xy;
       vec2 delta = to_screen - from_screen;
       vec2 normal = vec2(-delta.y, delta.x) / max(length(delta), 0.0001);
-      vec2 screen = mix(from_screen, to_screen, along) + normal * side * u_width * 0.5;
+      vec2 screen = mix(from_screen, to_screen, along) + normal * side * u_width * a_stroke_scale * 0.5;
       gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
       v_pick_id = u_pick_base + uint(gl_InstanceID + 1);
     }

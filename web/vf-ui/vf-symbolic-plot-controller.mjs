@@ -320,10 +320,16 @@ function symbolicPlotCompatibilityKey({ source, revision, context, view, style, 
       ySteps: view.ySteps,
       fieldXSteps: view.fieldXSteps,
       fieldYSteps: view.fieldYSteps,
+      fieldXMin: view.fieldXMin,
+      fieldYMin: view.fieldYMin,
+      fieldXInterval: view.fieldXInterval,
+      fieldYInterval: view.fieldYInterval,
       tMin: view.tMin,
       tMax: view.tMax,
       tSteps: view.tSteps,
-      vectorScale: view.vectorScale
+      vectorScale: view.vectorScale,
+      vectorArrowLength: view.vectorArrowLength,
+      vectorArrowWidth: view.vectorArrowWidth
     },
     style
   ]);
@@ -616,6 +622,23 @@ export function buildSymbolicPlotView(viewport, context = globalSymbolicContext(
   const yPixels = Math.hypot(transform[2], transform[3]) * (yMax - yMin);
   const xSteps = sampleSteps(xPixels, MIN_CURVE_STEPS, MAX_CURVE_STEPS, 1);
   const ySteps = sampleSteps(yPixels, MIN_CURVE_STEPS, MAX_CURVE_STEPS, 1);
+  const gridXInterval = optionalPositive(viewport.gridXInterval);
+  const gridYInterval = optionalPositive(viewport.gridYInterval) ?? gridXInterval;
+  const fieldXMin = gridXInterval == null
+    ? xMin
+    : firstGridCrossing(xMin, gridXInterval);
+  const fieldYMin = gridYInterval == null
+    ? yMin
+    : firstGridCrossing(yMin, gridYInterval);
+  const fieldXSteps = gridXInterval == null
+    ? sampleSteps(xPixels, MIN_FIELD_STEPS, MAX_FIELD_STEPS, 12)
+    : gridCrossingCount(fieldXMin, xMax, gridXInterval);
+  const fieldYSteps = gridYInterval == null
+    ? sampleSteps(yPixels, MIN_FIELD_STEPS, MAX_FIELD_STEPS, 12)
+    : gridCrossingCount(fieldYMin, yMax, gridYInterval);
+  const fieldXInterval = gridXInterval ?? ((xMax - xMin) / Math.max(1, fieldXSteps - 1));
+  const fieldYInterval = gridYInterval ?? ((yMax - yMin) / Math.max(1, fieldYSteps - 1));
+  const glyphUnit = Math.min(fieldXInterval, fieldYInterval);
 
   return Object.freeze({
     xMin,
@@ -624,14 +647,42 @@ export function buildSymbolicPlotView(viewport, context = globalSymbolicContext(
     yMax,
     xSteps,
     ySteps,
-    fieldXSteps: sampleSteps(xPixels, MIN_FIELD_STEPS, MAX_FIELD_STEPS, 12),
-    fieldYSteps: sampleSteps(yPixels, MIN_FIELD_STEPS, MAX_FIELD_STEPS, 12),
+    fieldXMin,
+    fieldYMin,
+    fieldXInterval,
+    fieldYInterval,
+    fieldXSteps,
+    fieldYSteps,
     tMin: finite(viewport.tMin ?? xMin, 'viewport.tMin'),
     tMax: finite(viewport.tMax ?? xMax, 'viewport.tMax'),
     tSteps: Math.max(xSteps, ySteps),
     t: finite(viewport.t ?? 0, 'viewport.t'),
-    vectorScale: finite(viewport.vectorScale ?? 0.35, 'viewport.vectorScale')
+    vectorScale: finite(viewport.vectorScale ?? glyphUnit * 0.35, 'viewport.vectorScale'),
+    vectorArrowLength: finite(
+      viewport.vectorArrowLength ?? glyphUnit * 0.12,
+      'viewport.vectorArrowLength'
+    ),
+    vectorArrowWidth: finite(
+      viewport.vectorArrowWidth ?? glyphUnit * 0.07,
+      'viewport.vectorArrowWidth'
+    )
   });
+}
+
+function optionalPositive(value) {
+  if (value == null) return null;
+  const number = finite(value, 'grid interval');
+  if (number <= 0) throw new RangeError('grid interval must be positive');
+  return number;
+}
+
+function firstGridCrossing(minimum, interval) {
+  return Math.ceil((minimum - interval * 1e-9) / interval) * interval;
+}
+
+function gridCrossingCount(first, maximum, interval) {
+  if (first > maximum + interval * 1e-9) return 0;
+  return Math.floor((maximum - first + interval * 1e-9) / interval) + 1;
 }
 
 export function symbolicDataToScreenTransform(viewport, context = globalSymbolicContext()) {

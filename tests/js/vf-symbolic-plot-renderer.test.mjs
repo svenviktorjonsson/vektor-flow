@@ -120,16 +120,18 @@ test('packs line strips with adjacent vertices for continuous screen-space joins
     data,
     ranges: [{ topology: 'line-strip', first: 0, count: 3 }]
   });
-  assert.equal(segments.length, 32);
-  assert.deepEqual(Array.from(segments.slice(0, 16)), [
+  assert.equal(segments.length, 34);
+  assert.deepEqual(Array.from(segments.slice(0, 17)), [
     1, 2,
     ...Array.from(data.slice(0, 12)),
-    5, 6
+    5, 6,
+    1
   ]);
-  assert.deepEqual(Array.from(segments.slice(16)), [
+  assert.deepEqual(Array.from(segments.slice(17)), [
     1, 2,
     ...Array.from(data.slice(6, 18)),
-    5, 6
+    5, 6,
+    1
   ]);
 });
 
@@ -251,6 +253,7 @@ test('validates all plot primitive modes without repacking vertex data', () => {
     ['point-list', 'line-list', 'triangle-list', 'triangle-list', 'line-list', 'line-strip']
   );
   assert.equal(arena.ranges[2].part, 'face');
+  assert.equal(arena.ranges[4].strokeScale, 0.5);
   assert.throws(
     () => resolveSymbolicPlotArena({
       data,

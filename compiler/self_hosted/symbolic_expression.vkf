@@ -2115,7 +2115,7 @@ symbolic_plot_single_capacity(program:any, workspace:any, view:any):
         "y-of-x" => view.xSteps
         "x-of-y" => view.ySteps
         "parametric" => view.tSteps
-        "vector-field" => view.fieldXSteps * view.fieldYSteps * 2
+        "vector-field" => view.fieldXSteps * view.fieldYSteps * 6
         "scalar-field" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 6
         "complex-field" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 6
         "implicit-curve" => (view.fieldXSteps - 1) * (view.fieldYSteps - 1) * 4
@@ -2908,18 +2908,8 @@ symbolic_sample_vector_field(
             xIndex + 1,
             0
         )
-    x: symbolic_sample_coordinate(
-        view.xMin,
-        view.xMax,
-        view.fieldXSteps,
-        xIndex
-    )
-    y: symbolic_sample_coordinate(
-        view.yMin,
-        view.yMax,
-        view.fieldYSteps,
-        yIndex
-    )
+    x: view.fieldXMin + xIndex * view.fieldXInterval
+    y: view.fieldYMin + yIndex * view.fieldYInterval
     value: symbolic_program_evaluate_local_at(
         program,
         x,
@@ -2930,17 +2920,16 @@ symbolic_sample_vector_field(
     )
     vector: symbolic_plot_vector(value)
     scale: view.vectorScale
-    start: symbolic_plot_builder_push(
+    glyph: symbolic_push_vector_glyph(
         builder,
-        symbolic_line_vertex(x, y, style)
-    )
-    glyph: symbolic_plot_builder_push(
-        start,
-        symbolic_line_vertex(
-            x + vector.(0) * scale,
-            y + vector.(1) * scale,
-            style
-        )
+        x,
+        y,
+        vector.(0),
+        vector.(1),
+        scale,
+        view.vectorArrowLength,
+        view.vectorArrowWidth,
+        style
     )
     symbolic_sample_vector_field(
         program,
@@ -2951,6 +2940,37 @@ symbolic_sample_vector_field(
         xIndex,
         yIndex + 1
     )
+
+symbolic_push_vector_glyph(
+    builder:any,
+    x:num,
+    y:num,
+    vx:num,
+    vy:num,
+    scale:num,
+    arrowLength:num,
+    arrowWidth:num,
+    style:any
+):
+    endX: x + vx * scale
+    endY: y + vy * scale
+    shaftStart: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
+    shaft: symbolic_plot_builder_push(shaftStart, symbolic_line_vertex(endX, endY, style))
+    magnitude: vkf_math_sqrt(vx * vx + vy * vy)
+    magnitude <= 0.000000001?
+        @: shaft
+    ux: vx / magnitude
+    uy: vy / magnitude
+    backX: endX - ux * arrowLength
+    backY: endY - uy * arrowLength
+    leftX: backX - uy * arrowWidth
+    leftY: backY + ux * arrowWidth
+    rightX: backX + uy * arrowWidth
+    rightY: backY - ux * arrowWidth
+    leftStart: symbolic_plot_builder_push(shaft, symbolic_line_vertex(endX, endY, style))
+    left: symbolic_plot_builder_push(leftStart, symbolic_line_vertex(leftX, leftY, style))
+    rightStart: symbolic_plot_builder_push(left, symbolic_line_vertex(endX, endY, style))
+    symbolic_plot_builder_push(rightStart, symbolic_line_vertex(rightX, rightY, style))
 
 symbolic_plot_vector(value:any):
     value.kind??

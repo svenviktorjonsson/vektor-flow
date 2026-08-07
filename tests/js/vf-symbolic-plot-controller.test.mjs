@@ -235,6 +235,29 @@ test('adapts curve and field samples to pixel coverage', () => {
   assert.equal(view.fieldYSteps, 17);
 });
 
+test('anchors vector samples to the data grid without pan-relative resampling', () => {
+  const first = buildSymbolicPlotView({
+    ...viewport,
+    xMin: -2.4, xMax: 2.4, yMin: -1.4, yMax: 1.4,
+    gridXInterval: 1, gridYInterval: 1
+  });
+  const panned = buildSymbolicPlotView({
+    ...viewport,
+    xMin: -2.1, xMax: 2.7, yMin: -1.1, yMax: 1.7,
+    gridXInterval: 1, gridYInterval: 1
+  });
+
+  assert.deepEqual(
+    [first.fieldXMin, first.fieldYMin, first.fieldXSteps, first.fieldYSteps],
+    [-2, -1, 5, 3]
+  );
+  assert.deepEqual(
+    [panned.fieldXMin, panned.fieldYMin],
+    [-2, -1]
+  );
+  assert.equal(first.vectorScale, 0.35);
+});
+
 test('extracts snap points and line segments from symbolic plot ranges', () => {
   const data = new Float32Array([
     1, 2, 0, 0, 0, 0,
