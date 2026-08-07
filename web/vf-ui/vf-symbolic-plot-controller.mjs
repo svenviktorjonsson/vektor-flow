@@ -732,7 +732,7 @@ function requireKernel(kernel) {
 
 function publicDraftResult(draft) {
   return Object.freeze({
-    latex: typeof draft?.latex === 'string' ? draft.latex : '',
+    latex: publicLatex(draft?.latex),
     complete: draft?.complete === true,
     recoverable: draft?.recoverable === true,
     diagnostics: Object.freeze(Array.isArray(draft?.diagnostics) ? [...draft.diagnostics] : [])
@@ -748,7 +748,7 @@ function publicProgramResult(program) {
     : 'invalid';
   return Object.freeze({
     diagnostics,
-    latex: typeof program?.latex === 'string' ? program.latex : '',
+    latex: publicLatex(program?.latex),
     variables: Object.freeze(Array.isArray(program?.variables)
       ? program.variables.filter((name) => typeof name === 'string')
       : []),
@@ -770,6 +770,7 @@ function publicDocumentResult(document, retainedProgram = null) {
   const spans = Object.freeze((Array.isArray(document?.spans) ? document.spans : [])
     .map((span) => Object.freeze({
       ...span,
+      latex: publicLatex(span?.latex),
       roles: Object.freeze(Array.isArray(span?.roles) ? [...span.roles] : [])
     })));
   const diagnostics = Object.freeze(
@@ -777,7 +778,7 @@ function publicDocumentResult(document, retainedProgram = null) {
   );
   return Object.freeze({
     source: typeof document?.source === 'string' ? document.source : '',
-    latex: typeof document?.latex === 'string' ? document.latex : '',
+    latex: publicLatex(document?.latex),
     spans,
     programs,
     program: retainedProgram,
@@ -787,6 +788,14 @@ function publicDocumentResult(document, retainedProgram = null) {
     recoverable: document?.recoverable === true,
     plottable: document?.plottable === true && programs.some(({ result }) => result.plottable)
   });
+}
+
+function publicLatex(latex) {
+  if (typeof latex !== 'string') return '';
+  return latex.replace(
+    /(\\(?:sin|cos|tan)|\\operatorname\{[^{}]+\})\\left\(/g,
+    '$1\\mkern-3mu\\left('
+  );
 }
 
 const PLOTTABLE_CLASSIFICATIONS = new Set([

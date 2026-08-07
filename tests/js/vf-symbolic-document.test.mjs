@@ -79,6 +79,13 @@ test('classifies prose, executable math, and incomplete math as independent span
   assert.doesNotMatch(document.spans[5].latex, /\\mathrm/);
 });
 
+test('keeps function-call parentheses visually attached to the function name', async () => {
+  const compiler = await createCompiler();
+  const document = compiler.compileDocument('som sin(x)^2', { profile: 'platonic' });
+
+  assert.equal(document.latex, String.raw`\mathrm{som\ }{\sin\mkern-3mu\left(x\right)}^{2}`);
+});
+
 test('keeps identifier-like prose intact around multiple executable expressions', async () => {
   const compiler = await createCompiler();
   const document = compiler.compileDocument(
