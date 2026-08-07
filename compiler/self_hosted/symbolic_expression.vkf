@@ -1146,7 +1146,7 @@ symbolic_parameter_names(parameters:any, index:num):
 symbolic_find_definition(workspace:SymbolicWorkspace, index:num, name:str):
     index >= vkf_list_length(workspace)?
         @: null
-    program: workspace.(index)
+    program: workspace.(vkf_list_length(workspace) - index - 1)
     program.ast.kind??
         "definition" => symbolic_definition_or_next(
             workspace,

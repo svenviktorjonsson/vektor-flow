@@ -92,6 +92,37 @@ test('renders mathematical function names by their identifier length', async () 
   assert.equal(compiler.compile('c^2').latex, String.raw`{c}^{2}`);
 });
 
+test('resolves global definitions and isolates local overrides by expression scope', async () => {
+  const kernel = await createKernel();
+  const compiler = await createSymbolicCompiler({ kernel });
+  compiler.setDefinitions({
+    global: ['f(x)=x^2', 'p=4'],
+    local: { labelA: ['p=3'] }
+  });
+
+  const local = compiler.compileScopedProgram('f(x)^2+x^p-x^4', { scopeId: 'labelA' });
+  const global = compiler.compileScopedProgram('f(x)^2+x^p-x^4', { scopeId: 'labelB' });
+  assert.equal(kernel.workspaceEvaluate(
+    local.workspace, local.value.handle, 2, 0
+  ), 16 + 8 - 16);
+  assert.equal(kernel.workspaceEvaluate(
+    global.workspace, global.value.handle, 2, 0
+  ), 16 + 16 - 16);
+});
+
+test('expands $name and $(expression) for presentation and identical evaluation', async () => {
+  const kernel = await createKernel();
+  const compiler = await createSymbolicCompiler({ kernel });
+  compiler.setDefinitions({ global: ['f(x)=x^2', 'p=4'] });
+
+  const display = compiler.compileScoped('x^$p+$(f(x))');
+  assert.equal(display.latex, String.raw`{x}^{4} + {x}^{2}`);
+  const program = compiler.compileScopedProgram('x^$p+$(f(x))');
+  assert.equal(kernel.workspaceEvaluate(
+    program.workspace, program.value.handle, 2, 0
+  ), 20);
+});
+
 test('keeps identifier-like prose intact around multiple executable expressions', async () => {
   const compiler = await createCompiler();
   const document = compiler.compileDocument(

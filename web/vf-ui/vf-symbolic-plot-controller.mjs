@@ -490,13 +490,54 @@ export async function createSymbolicCompiler({
     throw new TypeError('symbolic compiler kernel must provide compileDraft');
   }
   let workspace = kernel.createWorkspace().handle;
+  let definitionWorkspace = kernel.createWorkspace().handle;
+  let globalDefinitionSources = Object.freeze([]);
+  let localDefinitions = new Map();
+
+  function appendDefinitions(base, sources, context = globalSymbolicContext()) {
+    let next = base;
+    for (const source of sources || []) {
+      next = kernel.workspaceCompile(next, String(source ?? ''), context, null).workspace;
+    }
+    return next;
+  }
 
   return Object.freeze({
+    setDefinitions({ global = [], local = {} } = {}) {
+      globalDefinitionSources = Object.freeze([...(global || [])].map(String));
+      definitionWorkspace = appendDefinitions(
+        kernel.createWorkspace().handle,
+        globalDefinitionSources
+      );
+      localDefinitions = new Map(Object.entries(local).map(([scopeId, sources]) => [
+        scopeId,
+        Object.freeze([...(sources || [])].map(String))
+      ]));
+    },
     preview(source) {
       return publicDraftResult(kernel.compileDraft(String(source ?? '')).value);
     },
+    previewScoped(source, { scopeId = null } = {}) {
+      const expanded = expandSymbolicReferences(
+        String(source ?? ''),
+        [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+      );
+      return publicDraftResult(kernel.compileDraft(expanded).value);
+    },
     compile(source, context = globalSymbolicContext(), clip = null) {
       const result = kernel.compileWithContext(String(source ?? ''), context, clip);
+      return publicProgramResult(result.value?.program ?? result.value);
+    },
+    compileScoped(source, {
+      scopeId = null,
+      context = globalSymbolicContext(),
+      clip = null
+    } = {}) {
+      const expanded = expandSymbolicReferences(
+        String(source ?? ''),
+        [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+      );
+      const result = kernel.compileWithContext(expanded, context, clip);
       return publicProgramResult(result.value?.program ?? result.value);
     },
     compileDocument(source, {
@@ -529,6 +570,30 @@ export async function createSymbolicCompiler({
     compileProgram(source, context = globalSymbolicContext(), clip = null) {
       const compiled = kernel.workspaceCompile(workspace, String(source ?? ''), context, clip);
       workspace = compiled.workspace;
+      return Object.freeze({
+        ...compiled,
+        result: publicProgramResult(compiled.value?.program ?? compiled.value)
+      });
+    },
+    compileScopedProgram(source, {
+      scopeId = null,
+      context = globalSymbolicContext(),
+      clip = null
+    } = {}) {
+      const scopedWorkspace = appendDefinitions(
+        definitionWorkspace,
+        localDefinitions.get(String(scopeId)) || [],
+        context
+      );
+      const compiled = kernel.workspaceCompile(
+        scopedWorkspace,
+        expandSymbolicReferences(
+          String(source ?? ''),
+          [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+        ),
+        context,
+        clip
+      );
       return Object.freeze({
         ...compiled,
         result: publicProgramResult(compiled.value?.program ?? compiled.value)
@@ -677,6 +742,108 @@ export function buildSymbolicPlotView(viewport, context = globalSymbolicContext(
       'viewport.vectorArrowWidth'
     )
   });
+}
+
+function expandSymbolicReferences(source, definitionSources) {
+  const definitions = new Map();
+  for (const sourceText of definitionSources) {
+    const definition = parseSymbolicDefinition(sourceText);
+    if (definition) definitions.set(definition.name, definition);
+  }
+  let result = '';
+  for (let index = 0; index < source.length;) {
+    if (source[index] !== '$') {
+      result += source[index++];
+      continue;
+    }
+    if (source[index + 1] === '(') {
+      const end = balancedDelimiterEnd(source, index + 1);
+      if (end > index + 1) {
+        result += expandSymbolicTarget(source.slice(index + 2, end - 1), definitions);
+        index = end;
+        continue;
+      }
+    }
+    const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(index + 1));
+    const definition = match && definitions.get(match[0]);
+    if (definition?.parameters.length === 0) {
+      result += definition.body;
+      index += match[0].length + 1;
+      continue;
+    }
+    result += source[index++];
+  }
+  return result;
+}
+
+function expandSymbolicTarget(target, definitions) {
+  const invocation = /^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$/.exec(target.trim());
+  if (invocation) {
+    const definition = definitions.get(invocation[1]);
+    const args = splitSymbolicArguments(invocation[2]);
+    if (definition && definition.parameters.length === args.length) {
+      let body = definition.body;
+      definition.parameters.forEach((parameter, index) => {
+        body = body.replace(new RegExp(`\\b${parameter}\\b`, 'g'), `(${args[index]})`);
+      });
+      return expandSymbolicReferences(body, [...definitions.values()].map(formatSymbolicDefinition));
+    }
+  }
+  const constant = definitions.get(target.trim());
+  if (constant?.parameters.length === 0) return constant.body;
+  return expandSymbolicReferences(target, [...definitions.values()].map(formatSymbolicDefinition));
+}
+
+function parseSymbolicDefinition(source) {
+  const text = String(source ?? '').trim();
+  let depth = 0;
+  let separator = -1;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '(') depth += 1;
+    else if (text[index] === ')') depth -= 1;
+    else if ((text[index] === '=' || text[index] === ':') && depth === 0) {
+      separator = index;
+      break;
+    }
+  }
+  if (separator < 0) return null;
+  const left = text.slice(0, separator).trim();
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\((.*)\))?$/.exec(left);
+  if (!match) return null;
+  return Object.freeze({
+    name: match[1],
+    parameters: Object.freeze(match[2] == null ? [] : splitSymbolicArguments(match[2])),
+    body: text.slice(separator + 1).trim()
+  });
+}
+
+function formatSymbolicDefinition({ name, parameters, body }) {
+  return `${name}${parameters.length ? `(${parameters.join(',')})` : ''}=${body}`;
+}
+
+function balancedDelimiterEnd(source, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    if (source[index] === '(') depth += 1;
+    else if (source[index] === ')' && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
+function splitSymbolicArguments(source) {
+  const args = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === '(') depth += 1;
+    else if (source[index] === ')') depth -= 1;
+    else if (source[index] === ',' && depth === 0) {
+      args.push(source.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  if (source.trim() || start > 0) args.push(source.slice(start).trim());
+  return args;
 }
 
 export function symbolicPlotSeriesCount(compilation) {
