@@ -490,9 +490,8 @@ export async function createSymbolicCompiler({
       context = globalSymbolicContext(),
       clip = null
     } = {}) {
-      return compilePublicDocument(
-        kernel, String(source ?? ''), profile, context, clip
-      ).document;
+      const compiled = kernel.compileDocument(String(source ?? ''), profile, context, clip);
+      return publicDocumentResult(compiled.value, compiled.program);
     },
     compileDocumentPrograms(source, options = {}) {
       return this.compileDocument(source, options).programs;
@@ -502,15 +501,15 @@ export async function createSymbolicCompiler({
       context = globalSymbolicContext(),
       clip = null
     } = {}) {
-      const compiled = compilePublicDocument(
-        kernel, String(source ?? ''), profile, context, clip
-      );
+      const compiled = kernel.compileDocument(String(source ?? ''), profile, context, clip);
+      const document = publicDocumentResult(compiled.value, compiled.program);
+      const program = compiled.value?.program ?? null;
       return Object.freeze({
-        value: Object.freeze({ program: compiled.valueProgram }),
-        program: compiled.retainedProgram,
+        value: Object.freeze({ program }),
+        program: compiled.program,
         workspace,
-        document: compiled.document,
-        result: publicProgramResult(compiled.valueProgram)
+        document,
+        result: publicProgramResult(program)
       });
     },
     compileProgram(source, context = globalSymbolicContext(), clip = null) {
@@ -733,7 +732,7 @@ function requireKernel(kernel) {
 
 function publicDraftResult(draft) {
   return Object.freeze({
-    latex: publicLatex(draft?.latex),
+    latex: typeof draft?.latex === 'string' ? draft.latex : '',
     complete: draft?.complete === true,
     recoverable: draft?.recoverable === true,
     diagnostics: Object.freeze(Array.isArray(draft?.diagnostics) ? [...draft.diagnostics] : [])
@@ -749,7 +748,7 @@ function publicProgramResult(program) {
     : 'invalid';
   return Object.freeze({
     diagnostics,
-    latex: publicLatex(program?.latex),
+    latex: typeof program?.latex === 'string' ? program.latex : '',
     variables: Object.freeze(Array.isArray(program?.variables)
       ? program.variables.filter((name) => typeof name === 'string')
       : []),
@@ -771,7 +770,6 @@ function publicDocumentResult(document, retainedProgram = null) {
   const spans = Object.freeze((Array.isArray(document?.spans) ? document.spans : [])
     .map((span) => Object.freeze({
       ...span,
-      latex: publicLatex(span?.latex),
       roles: Object.freeze(Array.isArray(span?.roles) ? [...span.roles] : [])
     })));
   const diagnostics = Object.freeze(
@@ -779,7 +777,7 @@ function publicDocumentResult(document, retainedProgram = null) {
   );
   return Object.freeze({
     source: typeof document?.source === 'string' ? document.source : '',
-    latex: publicLatex(document?.latex),
+    latex: typeof document?.latex === 'string' ? document.latex : '',
     spans,
     programs,
     program: retainedProgram,
@@ -789,88 +787,6 @@ function publicDocumentResult(document, retainedProgram = null) {
     recoverable: document?.recoverable === true,
     plottable: document?.plottable === true && programs.some(({ result }) => result.plottable)
   });
-}
-
-function compilePublicDocument(kernel, source, profile, context, clip) {
-  const compiled = kernel.compileDocument(source, profile, context, clip);
-  const document = publicDocumentResult(compiled.value, compiled.program);
-  if (!shouldRecoverSingleLetterMath(source, profile, document)) {
-    return Object.freeze({
-      document,
-      valueProgram: compiled.value?.program ?? null,
-      retainedProgram: compiled.program
-    });
-  }
-
-  const recovered = kernel.compileWithContext(source, context, clip);
-  const valueProgram = recovered.value?.program ?? recovered.value;
-  const result = publicProgramResult(valueProgram);
-  if (result.diagnostics.length > 0 || result.variables.some((name) => name.length !== 1)) {
-    return Object.freeze({
-      document,
-      valueProgram: compiled.value?.program ?? null,
-      retainedProgram: compiled.program
-    });
-  }
-  const latex = publicLatex(valueProgram?.latex);
-  const span = Object.freeze({
-    kind: 'math',
-    source,
-    start: 0,
-    end: source.length,
-    latex,
-    executable: true,
-    programIndex: 0,
-    roles: Object.freeze([])
-  });
-  const entry = Object.freeze({
-    source,
-    start: 0,
-    end: source.length,
-    program: valueProgram,
-    result
-  });
-  return Object.freeze({
-    document: Object.freeze({
-      source,
-      latex,
-      spans: Object.freeze([span]),
-      programs: Object.freeze([entry]),
-      program: recovered.handle,
-      result,
-      diagnostics: Object.freeze([]),
-      complete: true,
-      recoverable: true,
-      plottable: result.plottable
-    }),
-    valueProgram,
-    retainedProgram: recovered.handle
-  });
-}
-
-function shouldRecoverSingleLetterMath(source, profile, document) {
-  return profile === 'platonic'
-    && document.programs.length === 0
-    && !/\s/.test(source)
-    && /[+\-*/^=<>]/.test(source)
-    && /^[\p{L}\p{N}_.()+\-*/^=<>]+$/u.test(source);
-}
-
-function publicLatex(latex) {
-  if (typeof latex !== 'string') return '';
-  return latex
-    .replace(
-      /\\(sin|cos|tan)(?:\\mkern-3mu)?\\left\(/g,
-      '\\operatorname{$1}\\!\\left('
-    )
-    .replace(
-      /\\operatorname\{([^{}])\}(?:\\mkern-3mu)?\\left\(/g,
-      '$1\\left('
-    )
-    .replace(
-      /\\operatorname\{([^{}]{2,})\}(?:\\mkern-3mu)?\\left\(/g,
-      '\\operatorname{$1}\\!\\left('
-    );
 }
 
 const PLOTTABLE_CLASSIFICATIONS = new Set([

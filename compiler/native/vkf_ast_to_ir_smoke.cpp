@@ -232,7 +232,8 @@ std::string type_annotation_name(const vf::JsonValue& value) {
     if (kind != "type_annotation") {
         throw IRFailure("unsupported type annotation kind " + kind);
     }
-    return string_field(object, "name", "type annotation");
+    const std::string name = string_field(object, "name", "type annotation");
+    return name == "bool" ? "bit" : name;
 }
 
 vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& target_type, const std::string& context) {
@@ -711,7 +712,11 @@ private:
                             const bool is_variadic = (i < function->variadic_positional.size() && function->variadic_positional[i])
                                 || (i < function->variadic_named.size() && function->variadic_named[i]);
                             if (!is_variadic) {
-                                args[i] = coerce_value_to_type(std::move(args[i]), function->param_types[i], "call arg");
+                                args[i] = coerce_value_to_type(
+                                    std::move(args[i]),
+                                    function->param_types[i],
+                                    "call arg " + std::to_string(i) + " for " + function->name
+                                );
                                 arg_types[i] = vf::JsonValue(function->param_types[i]);
                             }
                         }

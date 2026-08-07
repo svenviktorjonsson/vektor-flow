@@ -329,7 +329,7 @@ inline std::string vkf_sym_latex_node(const std::shared_ptr<const VkfSymbolicNod
             return "\\sum_{" + vkf_sym_latex_node(node->children[1]) + "=" + vkf_sym_latex_node(node->children[2])
                 + "}^{" + end + "} " + vkf_sym_latex_node(node->children[0]);
         }
-        std::string out = node->text.size() > 1 ? "\\operatorname{" + node->text + "}\\left(" : node->text + "\\left(";
+        std::string out = node->text.size() > 1 ? "\\operatorname{" + node->text + "}\\!\\left(" : node->text + "\\left(";
         for (std::size_t i = 0; i < node->children.size(); ++i) {
             if (i) out += ", ";
             out += vkf_sym_latex_node(node->children[i]);

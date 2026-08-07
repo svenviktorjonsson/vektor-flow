@@ -55,7 +55,7 @@ test('renders known call structure incrementally without inventing sum execution
   assert.equal(partial.recoverable, true);
 
   const compiled = kernel.compile('sum(k,0,4,k^2)');
-  assert.equal(compiled.value.latex, '\\operatorname{sum}\\left(k, 0, 4, {k}^{2}\\right)');
+  assert.equal(compiled.value.latex, '\\operatorname{sum}\\!\\left(k, 0, 4, {k}^{2}\\right)');
 });
 
 test('cancel rolls an invalid editor draft back to the latest valid executable expression', async () => {

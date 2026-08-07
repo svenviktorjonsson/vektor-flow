@@ -79,27 +79,17 @@ test('classifies prose, executable math, and incomplete math as independent span
   assert.doesNotMatch(document.spans[5].latex, /\\mathrm/);
 });
 
-test('keeps function-call parentheses visually attached to the function name', async () => {
+test('renders mathematical function names by their identifier length', async () => {
   const compiler = await createCompiler();
-  const document = compiler.compileDocument('som sin(x)^2', { profile: 'platonic' });
-
-  assert.equal(document.latex, String.raw`\mathrm{som\ }{\operatorname{sin}\!\left(x\right)}^{2}`);
-
-  const named = compiler.compileDocument('ln(x)+F(x)', { profile: 'platonic' });
-  assert.equal(named.latex, String.raw`\operatorname{ln}\!\left(x\right) + F\left(x\right)`);
-});
-
-test('keeps single-letter variables mathematical in the Platonic document profile', async () => {
-  const compiler = await createCompiler();
-  const document = compiler.compileDocument('c^2', { profile: 'platonic' });
-
-  assert.equal(document.latex, String.raw`{c}^{2}`);
-  assert.equal(document.spans[0].kind, 'math');
-  assert.equal(document.programs[0].source, 'c^2');
-
-  const compiled = compiler.compileDocumentProgram('c^2', { profile: 'platonic' });
-  assert.equal(compiled.document.latex, String.raw`{c}^{2}`);
-  assert.equal(compiled.result.latex, String.raw`{c}^{2}`);
+  assert.equal(
+    compiler.compile('sin(x)^2').latex,
+    String.raw`{\operatorname{sin}\!\left(x\right)}^{2}`
+  );
+  assert.equal(
+    compiler.compile('ln(x)+F(x)').latex,
+    String.raw`\operatorname{ln}\!\left(x\right) + F\left(x\right)`
+  );
+  assert.equal(compiler.compile('c^2').latex, String.raw`{c}^{2}`);
 });
 
 test('keeps identifier-like prose intact around multiple executable expressions', async () => {

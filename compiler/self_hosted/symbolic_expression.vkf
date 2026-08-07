@@ -810,18 +810,20 @@ symbolic_call_latex(node:any):
         "abs" => "\\left|" & symbolic_latex(node.args.(0)) & "\\right|"
         "vector" => "\\begin{pmatrix}" & symbolic_latex(node.args.(0)) & "\\\\" & symbolic_latex(node.args.(1)) & "\\end{pmatrix}"
         "complex" => symbolic_latex(node.args.(0)) & " + " & symbolic_latex(node.args.(1)) & "\\mathrm{i}"
-        symbolic_function_latex(node.name) & "\\left(" & symbolic_latex_items(node.args, 0) & "\\right)"
+        symbolic_function_application_latex(node.name) & "\\left(" & symbolic_latex_items(node.args, 0) & "\\right)"
 
 symbolic_function_latex(name:str):
-    name??
-        "sin" => "\\sin"
-        "cos" => "\\cos"
-        "tan" => "\\tan"
-        "atan2" => "\\operatorname{atan2}"
+    symbolic_document_source_end(name, 0)??
+        1 => name
         "\\operatorname{" & name & "}"
 
+symbolic_function_application_latex(name:str):
+    symbolic_document_source_end(name, 0)??
+        1 => name
+        symbolic_function_latex(name) & "\\!"
+
 symbolic_definition_latex(node:any):
-    symbolic_function_latex(node.name) & "\\left(" & symbolic_latex_items(node.parameters, 0) & "\\right) = " & symbolic_latex(node.value)
+    symbolic_function_application_latex(node.name) & "\\left(" & symbolic_latex_items(node.parameters, 0) & "\\right) = " & symbolic_latex(node.value)
 
 symbolic_variable_latex(name:str):
     name??
