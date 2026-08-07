@@ -2,12 +2,41 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  compileColorFieldExpressionGlsl,
+  colorFieldQuadWorldFrame,
   createCanvasColorFieldRenderer,
   evaluateColorFieldRgba,
   evaluateColorFieldRgb,
   pointSourceRgb,
   segmentSourceRgb,
 } from '../../web/vf-ui/vf-color-field.mjs';
+
+test('maps the GPU quad across the complete pixel-center world span', () => {
+  assert.deepEqual(colorFieldQuadWorldFrame({
+    left: 10,
+    top: 20,
+    width: 100,
+    height: 50,
+    screenToWorld: ([x, y]) => [x / 10, -y / 10],
+  }), {
+    origin: [1, -2],
+    spanX: [10, 0],
+    spanY: [0, -5],
+  });
+});
+
+test('compiles arbitrary VKF color expressions for GPU evaluation', () => {
+  const ast = {
+    kind: 'binary', op: '+',
+    left: { kind: 'call', name: 'sin', args: [{ kind: 'variable', name: 'x' }] },
+    right: {
+      kind: 'binary', op: '/',
+      left: { kind: 'variable', name: 'n' },
+      right: { kind: 'variable', name: 'N' }
+    }
+  };
+  assert.equal(compileColorFieldExpressionGlsl(ast), '(sin(x)+(n/N))');
+});
 
 const inverseSquare = ({ x, y }) => 1 / (x * x + y * y);
 
@@ -125,6 +154,39 @@ test('canvas adapter reuses an unchanged field raster', () => {
   renderer.draw(request);
   renderer.draw(request);
   assert.equal(evaluations, 4);
+});
+
+test('canvas adapter reuses keyed inherited color rasters across fresh field objects', () => {
+  const canvas = { width: 0, height: 0 };
+  const context = {
+    createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+    putImageData() {},
+  };
+  let evaluations = 0;
+  const renderer = createCanvasColorFieldRenderer({
+    canvas,
+    context,
+    screenToWorld: (point) => point,
+  });
+  const draw = () => renderer.draw({
+    targetContext: { drawImage() {} },
+    screenPoints: [[0, 0], [2, 2]],
+    targetSize: [10, 10],
+    field: {
+      kind: 'point-distance',
+      cacheKey: 'face:f0',
+      contentKey: 'same-geometry-and-colors',
+      points: [[0, 0], [2, 0]],
+      colors: ['#ff0000', '#0000ff'],
+      weightEvaluator: ({ x, y }) => {
+        evaluations += 1;
+        return 1 / Math.max(1e-6, x * x + y * y);
+      },
+    },
+  });
+  draw();
+  draw();
+  assert.equal(evaluations, 8);
 });
 
 test('canvas adapter never reduces raster quality during interaction', () => {

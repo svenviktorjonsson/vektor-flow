@@ -1,6 +1,60 @@
 const FALLBACK_RGB = Object.freeze([128, 128, 128]);
 const SOURCE_EPSILON = 1e-12;
 
+export function compileColorFieldExpressionGlsl(ast) {
+  const result = emitColorFieldGlsl(ast);
+  if (!result) throw new TypeError('Unsupported VKF color-field expression AST');
+  return result;
+}
+
+export function colorFieldQuadWorldFrame({ left, top, width, height, screenToWorld }) {
+  if (typeof screenToWorld !== 'function') throw new TypeError('screenToWorld is required');
+  const origin = screenToWorld([left, top]);
+  const xEnd = screenToWorld([left + width, top]);
+  const yEnd = screenToWorld([left, top + height]);
+  return Object.freeze({
+    origin: Object.freeze([...origin]),
+    spanX: Object.freeze(subtractPoint(xEnd, origin)),
+    spanY: Object.freeze(subtractPoint(yEnd, origin)),
+  });
+}
+
+function emitColorFieldGlsl(node) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.kind === 'number') {
+    const value = Number(node.value);
+    if (!Number.isFinite(value)) return null;
+    const text = String(value);
+    return /[.eE]/.test(text) ? text : `${text}.0`;
+  }
+  if (node.kind === 'variable') {
+    if (['x', 'y', 'r', 'phi', 't', 'n', 'N'].includes(node.name)) return node.name;
+    if (node.name === 'pi') return '3.141592653589793';
+    return null;
+  }
+  if (node.kind === 'unary' && ['+', '-'].includes(node.op)) {
+    const operand = emitColorFieldGlsl(node.operand);
+    return operand ? `(${node.op}${operand})` : null;
+  }
+  if (node.kind === 'binary') {
+    const left = emitColorFieldGlsl(node.left);
+    const right = emitColorFieldGlsl(node.right);
+    if (!left || !right) return null;
+    if (node.op === '^') return `pow(${left},${right})`;
+    return ['+', '-', '*', '/'].includes(node.op) ? `(${left}${node.op}${right})` : null;
+  }
+  if (node.kind === 'call' && Array.isArray(node.args)) {
+    const name = {
+      abs:'abs', acos:'acos', asin:'asin', atan:'atan', atan2:'atan', ceil:'ceil',
+      cos:'cos', exp:'exp', floor:'floor', ln:'log', log:'log', max:'max', min:'min',
+      pow:'pow', round:'round', sign:'sign', sin:'sin', sqrt:'sqrt', tan:'tan'
+    }[node.name];
+    const args = node.args.map(emitColorFieldGlsl);
+    return name && args.every(Boolean) ? `${name}(${args.join(',')})` : null;
+  }
+  return null;
+}
+
 export function pointSourceRgb(point, sourcePoints, colors, weightEvaluator) {
   const channels = colors.map(parseCssRgb);
   const exactSource = sourcePoints.findIndex((source) =>
@@ -122,8 +176,11 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
       const signatureYStep = subtractPoint(signaturePoints[2], signatureOrigin);
       const signature = [width, height, ...signatureOrigin, ...signatureXStep, ...signatureYStep];
       const keyed = field?.cacheKey != null && field?.contentKey != null;
+      const rasterKey = keyed
+        ? `${field.cacheKey}\u0000${field.contentKey}\u0000${signature.join(',')}`
+        : null;
       const cached = keyed
-        ? keyedRasterCache.get(field.cacheKey)
+        ? keyedRasterCache.get(rasterKey)
         : field && typeof field === 'object' ? rasterCache.get(field) : null;
       const cacheHit = cached
         && (!keyed || cached.contentKey === field.contentKey)
@@ -141,7 +198,7 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
           });
       if (field && typeof field === 'object' && !cacheHit) {
         const entry = { signature, rgba, contentKey: field.contentKey };
-        if (keyed) setBoundedCache(keyedRasterCache, field.cacheKey, entry);
+        if (keyed) setBoundedCache(keyedRasterCache, rasterKey, entry);
         else rasterCache.set(field, entry);
       }
       image.data.set(rgba);
@@ -150,6 +207,109 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
       return true;
     },
   });
+}
+
+// Geometry fields are rendered by VKF's GPU path.  This is deliberately a
+// separate renderer: callers must not silently fall back to per-pixel JS.
+export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
+  if (!canvas || typeof screenToWorld !== 'function') {
+    throw new TypeError('canvas and screenToWorld are required');
+  }
+  const gl = canvas.getContext('webgl2', { premultipliedAlpha: false, antialias: true });
+  if (!gl) throw new Error('gpu_color_field_unavailable');
+  const vertexSource = `#version 300 es
+    in vec2 p; out vec2 uv; void main(){ uv=p*.5+.5; gl_Position=vec4(p,0.,1.); }`;
+  const programCache = new Map();
+  const programFor = (expression) => {
+    const key = expression || 'x';
+    if (programCache.has(key)) return programCache.get(key);
+    const vertex = compile(gl, gl.VERTEX_SHADER, vertexSource);
+    const fragment = compile(gl, gl.FRAGMENT_SHADER, `#version 300 es
+    precision highp float; in vec2 uv; out vec4 outColor;
+    uniform vec2 origin, stepX, stepY, localOrigin, localStepX, localStepY; uniform float t,n,N; uniform int count; uniform int kind;
+    uniform vec2 sourceP[32]; uniform vec4 sourceC[32]; uniform vec2 segA[32], segB[32];
+    uniform sampler2D cmap;
+    float evaluate(float x,float y,float r,float phi){ return float(${key}); }
+    vec4 blendPoint(vec2 q){ vec4 c=vec4(0.); float total=0.;
+      for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=q-sourceP[i]; float r=length(d); float w=max(0.,evaluate(d.x,d.y,r,atan(d.y,d.x))); c+=sourceC[i]*w; total+=w; }
+      return total>0. ? c/total : sourceC[0]; }
+    vec4 blendEdge(vec2 q){ vec4 c=vec4(0.); float total=0.;
+      for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=segB[i]-segA[i]; float h=clamp(dot(q-segA[i],d)/max(dot(d,d),1e-12),0.,1.); float r=distance(q,segA[i]+h*d); float w=max(0.,evaluate(r,0.,r,0.)); c+=sourceC[i]*w; total+=w; }
+      return total>0. ? c/total : sourceC[0]; }
+    vec4 coordinateMap(vec2 q){ vec2 local=localOrigin+uv.x*localStepX+uv.y*localStepY; float v=clamp(evaluate(local.x,local.y,length(local),atan(local.y,local.x)),0.,1.); return texture(cmap,vec2(v,.5)); }
+    void main(){ vec2 q=origin+uv.x*stepX+uv.y*stepY; outColor=kind==0?blendPoint(q):(kind==1?blendEdge(q):coordinateMap(q)); }`);
+    const program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+    const loc = (name) => gl.getUniformLocation(program, name);
+    const bundle = { program, uniforms: { origin:loc('origin'), stepX:loc('stepX'), stepY:loc('stepY'), t:loc('t'), n:loc('n'), N:loc('N'), count:loc('count'), kind:loc('kind'), sourceP:loc('sourceP'), sourceC:loc('sourceC'), segA:loc('segA'), segB:loc('segB'), localOrigin:loc('localOrigin'), localStepX:loc('localStepX'), localStepY:loc('localStepY'), cmap:loc('cmap') } };
+    programCache.set(key, bundle);
+    return bundle;
+  };
+  const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+  const cmapTexture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, cmapTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return Object.freeze({
+    draw({ targetContext, field, screenPoints = [], targetSize = [] }) {
+      if (!targetContext || screenPoints.length < 3) return false;
+      const left=Math.max(0,Math.floor(Math.min(...screenPoints.map(([x])=>x))));
+      const top=Math.max(0,Math.floor(Math.min(...screenPoints.map(([,y])=>y))));
+      const right=Math.min(targetSize[0]??canvas.width,Math.ceil(Math.max(...screenPoints.map(([x])=>x))));
+      const bottom=Math.min(targetSize[1]??canvas.height,Math.ceil(Math.max(...screenPoints.map(([,y])=>y))));
+      const width=right-left,height=bottom-top; if(width<=0||height<=0)return false;
+      const evaluator = field.kind === 'coordinate-colormap'
+        ? field.evaluatorGlsl
+        : field.weightEvaluator?.__colorModeGlsl;
+      if (!evaluator) throw new Error('gpu_color_field_expression_unavailable');
+      const { program, uniforms } = programFor(evaluator);
+      canvas.width=width; canvas.height=height; gl.viewport(0,0,width,height); gl.useProgram(program);
+      gl.bindBuffer(gl.ARRAY_BUFFER,buffer); const p=gl.getAttribLocation(program,'p'); gl.enableVertexAttribArray(p); gl.vertexAttribPointer(p,2,gl.FLOAT,false,0,0);
+      const { origin, spanX, spanY } = colorFieldQuadWorldFrame({
+        left, top, width, height, screenToWorld,
+      });
+      const sx=[origin[0]+spanX[0],origin[1]+spanX[1]], sy=[origin[0]+spanY[0],origin[1]+spanY[1]];
+      gl.uniform2f(uniforms.origin, ...origin); gl.uniform2f(uniforms.stepX, ...spanX); gl.uniform2f(uniforms.stepY, ...spanY);
+      const localOrigin=typeof field.worldToLocal==='function'?field.worldToLocal(origin):origin;
+      const localX=typeof field.worldToLocal==='function'?field.worldToLocal(sx):sx;
+      const localY=typeof field.worldToLocal==='function'?field.worldToLocal(sy):sy;
+      gl.uniform2f(uniforms.localOrigin, ...localOrigin); gl.uniform2f(uniforms.localStepX, localX[0]-localOrigin[0],localX[1]-localOrigin[1]); gl.uniform2f(uniforms.localStepY, localY[0]-localOrigin[0],localY[1]-localOrigin[1]);
+      const variables = field.kind === 'coordinate-colormap'
+        ? field.evaluatorVariables || {}
+        : field.weightEvaluator?.__colorModeVariables || {};
+      gl.uniform1f(uniforms.t, Number(field.time || 0));
+      gl.uniform1f(uniforms.n, Number(variables.n || 0));
+      gl.uniform1f(uniforms.N, Math.max(1, Number(variables.N || 1)));
+      if (field.kind === 'coordinate-colormap') {
+        const rgba = new Uint8Array(256 * 4);
+        for (let i = 0; i < 256; i += 1) {
+          const sample = field.sampler?.(i / 255) || [128,128,128,255];
+          for (let channel = 0; channel < 4; channel += 1) rgba[i * 4 + channel] = Math.round(Math.max(0, Math.min(255, Number(sample[channel] ?? (channel === 3 ? 255 : 128)))));
+        }
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, cmapTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+        gl.uniform1i(uniforms.cmap, 0);
+      }
+      const colors=(field.colors||[]).map(parseCssRgba).slice(0,32); const n=Math.max(1,colors.length); gl.uniform1i(uniforms.count,n); gl.uniform1i(uniforms.kind,field.kind==='point-distance'?0:(field.kind==='edge-distance'?1:2));
+      const points=(field.points||[]).slice(0,32).flat(); gl.uniform2fv(uniforms.sourceP,new Float32Array(points.length?points:[0,0]));
+      gl.uniform4fv(uniforms.sourceC,new Float32Array((colors.length?colors:[[.5,.5,.5,1]]).flat().concat(new Array(Math.max(0,32-colors.length)*4).fill(0))));
+      const a=(field.segments||[]).map(s=>s[0]).slice(0,32).flat(), b=(field.segments||[]).map(s=>s[1]).slice(0,32).flat(); gl.uniform2fv(uniforms.segA,new Float32Array(a.length?a:[0,0])); gl.uniform2fv(uniforms.segB,new Float32Array(b.length?b:[0,0]));
+      gl.drawArrays(gl.TRIANGLE_STRIP,0,4); targetContext.drawImage(canvas,left,top); return true;
+    }
+  });
+}
+
+function compile(gl, type, source) { const shader=gl.createShader(type); gl.shaderSource(shader,source); gl.compileShader(shader); if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader)); return shader; }
+function parseCssRgba(value){
+  const source=String(value||'').trim();
+  const hex=source.match(/^#([0-9a-f]{6})$/i);
+  if(hex)return [0,1,2].map(i=>parseInt(hex[1].slice(i*2,i*2+2),16)/255).concat(1);
+  const rgb=source.match(/^rgba?\(([^)]+)\)/i);
+  if(rgb){
+    const channels=rgb[1].match(/[\d.]+/g)?.slice(0,3);
+    if(channels?.length===3)return channels.map(Number).map(v=>v>1?v/255:v).concat(1);
+  }
+  return [.5,.5,.5,1];
 }
 
 function subtractPoint(point, origin) {
