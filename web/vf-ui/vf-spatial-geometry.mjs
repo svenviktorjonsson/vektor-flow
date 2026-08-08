@@ -146,6 +146,39 @@ export function lexicographicMinimumPoint(points) {
   ))[0]);
 }
 
+export function clipSpatialGeometryToConvexVolume(geometry = {}, shellTriangles = []) {
+  const triangles = (shellTriangles || []).filter((triangle) => (
+    Array.isArray(triangle) && triangle.length === 3 && triangle.every(finitePoint)
+  ));
+  if (!triangles.length) return freezeSpatialGeometry(geometry);
+  const shellPoints = uniquePoints(triangles.flat().map(vec3));
+  const center = scale(shellPoints.reduce(add, [0,0,0]), 1 / shellPoints.length);
+  const planes = triangles.map((triangle) => {
+    const point = vec3(triangle[0]);
+    let normal = normalize(cross3(subtract(triangle[1], point), subtract(triangle[2], point)));
+    if (dot(subtract(center, point), normal) > 0) normal = scale(normal, -1);
+    return { point, normal };
+  });
+  const points = (geometry.points || []).filter((point) => insidePlanes(point, planes)).map(vec3);
+  const paths = (geometry.paths || []).flatMap((path) => {
+    const segments = [];
+    for (let index = 1; index < path.length; index += 1) {
+      const segment = clipSegmentToPlanes(path[index - 1], path[index], planes);
+      if (segment) segments.push(segment);
+    }
+    return segments;
+  });
+  const clippedTriangles = (geometry.triangles || []).flatMap((triangle) => {
+    let polygon = triangle.map(vec3);
+    for (const plane of planes) polygon = clipPolygonToPlane(polygon, plane);
+    if (polygon.length < 3) return [];
+    return Array.from({ length: polygon.length - 2 }, (_, index) => (
+      [polygon[0], polygon[index + 1], polygon[index + 2]]
+    ));
+  });
+  return freezeSpatialGeometry({ ...geometry, points, paths, triangles: clippedTriangles });
+}
+
 function polygonNormal(points) {
   const normal = [0, 0, 0];
   for (let index = 0; index < points.length; index += 1) {
@@ -165,6 +198,59 @@ function freezeFrame(origin, xAxis, yAxis, zAxis, dimension) {
     yAxis: Object.freeze(cleanVector(yAxis)),
     zAxis: Object.freeze(cleanVector(zAxis)),
     dimension
+  });
+}
+
+function insidePlanes(point, planes) {
+  const value = vec3(point);
+  return planes.every((plane) => dot(subtract(value, plane.point), plane.normal) <= EPSILON);
+}
+
+function clipSegmentToPlanes(fromValue, toValue, planes) {
+  const from = vec3(fromValue);
+  const to = vec3(toValue);
+  const direction = subtract(to, from);
+  let minimum = 0;
+  let maximum = 1;
+  for (const plane of planes) {
+    const start = dot(subtract(from, plane.point), plane.normal);
+    const change = dot(direction, plane.normal);
+    if (Math.abs(change) <= EPSILON) {
+      if (start > EPSILON) return null;
+      continue;
+    }
+    const crossing = -start / change;
+    if (change > 0) maximum = Math.min(maximum, crossing);
+    else minimum = Math.max(minimum, crossing);
+    if (minimum > maximum + EPSILON) return null;
+  }
+  return [add(from, scale(direction, minimum)), add(from, scale(direction, maximum))];
+}
+
+function clipPolygonToPlane(polygon, plane) {
+  if (!polygon.length) return [];
+  const result = [];
+  for (let index = 0; index < polygon.length; index += 1) {
+    const from = polygon[index];
+    const to = polygon[(index + 1) % polygon.length];
+    const fromDistance = dot(subtract(from, plane.point), plane.normal);
+    const toDistance = dot(subtract(to, plane.point), plane.normal);
+    const fromInside = fromDistance <= EPSILON;
+    const toInside = toDistance <= EPSILON;
+    if (fromInside) result.push(from);
+    if (fromInside === toInside) continue;
+    const amount = fromDistance / (fromDistance - toDistance);
+    result.push(from.map((value, axis) => value + (to[axis] - value) * amount));
+  }
+  return uniquePoints(result);
+}
+
+function freezeSpatialGeometry(geometry) {
+  return Object.freeze({
+    ...geometry,
+    points: Object.freeze((geometry.points || []).map((point) => Object.freeze(vec3(point)))),
+    paths: Object.freeze((geometry.paths || []).map((path) => Object.freeze(path.map((point) => Object.freeze(vec3(point)))))),
+    triangles: Object.freeze((geometry.triangles || []).map((triangle) => Object.freeze(triangle.map((point) => Object.freeze(vec3(point))))))
   });
 }
 

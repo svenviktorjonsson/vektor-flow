@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   cameraFacingPolygonFrame,
+  clipSpatialGeometryToConvexVolume,
   closedFacesFromCornerWalk,
   closeLinkedSpatialGeometry,
   guidedPlaneExtrusionPositions,
@@ -34,6 +35,25 @@ test('anchors internal volume coordinates at the lowest x then y then z', () => 
   assert.deepEqual(lexicographicMinimumPoint([
     [1,-4,0], [-2,5,9], [-2,5,3], [-2,4,8]
   ]), [-2,4,8]);
+});
+
+test('clips spatial graphs against convex volume walls', () => {
+  const shell = [
+    [[-1,-1,-1],[1,-1,-1],[1,1,-1]], [[-1,-1,-1],[1,1,-1],[-1,1,-1]],
+    [[-1,-1,1],[1,1,1],[1,-1,1]], [[-1,-1,1],[-1,1,1],[1,1,1]],
+    [[-1,-1,-1],[-1,-1,1],[1,-1,1]], [[-1,-1,-1],[1,-1,1],[1,-1,-1]],
+    [[1,-1,-1],[1,-1,1],[1,1,1]], [[1,-1,-1],[1,1,1],[1,1,-1]],
+    [[1,1,-1],[1,1,1],[-1,1,1]], [[1,1,-1],[-1,1,1],[-1,1,-1]],
+    [[-1,1,-1],[-1,1,1],[-1,-1,1]], [[-1,1,-1],[-1,-1,1],[-1,-1,-1]]
+  ];
+  const clipped = clipSpatialGeometryToConvexVolume({
+    classification: 'curve',
+    points: [[0,0,0],[3,0,0]],
+    paths: [[[-2,0,0],[2,0,0]]],
+    triangles: []
+  }, shell);
+  assert.deepEqual(clipped.points, [[0,0,0]]);
+  assert.deepEqual(clipped.paths, [[[-1,0,0],[1,0,0]]]);
 });
 
 test('extrudes a guided plane without changing topology', () => {
