@@ -1,6 +1,6 @@
 {
   "name": "vektor-flow",
-  "version": "1.2.48",
+  "version": "1.2.49",
   "description": "Vektor Flow is a functional, scope-based language for shaping data, describing\r geometry, and driving interactive visual programs. The important thing is not\r just the syntax. The important thing is the model:",
   "main": "index.js",
   "exports": {
@@ -13,6 +13,7 @@
     "./interpolation": "./web/vf-ui/vf-interpolation.mjs",
     "./interpolation-editor": "./web/vf-ui/vf-interpolation-editor.mjs",
     "./property-program": "./web/vf-ui/vf-property-program.mjs",
+    "./physics-engine": "./web/vf-ui/vf-physics-engine.mjs",
     "./selection-interaction": "./web/vf-ui/vf-selection-interaction.mjs",
     "./spatial-geometry": "./web/vf-ui/vf-spatial-geometry.mjs",
     "./screen-simplex-renderer": "./web/vf-ui/geom/vf-screen-simplex-renderer.mjs",

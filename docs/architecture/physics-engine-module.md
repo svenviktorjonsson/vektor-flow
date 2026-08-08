@@ -121,7 +121,7 @@ The current mass-property implementation is exact for tetra volume elements. A
 future closed-polyhedron adapter should use Mirtich-style mass properties and
 then feed the same rigid-body interface.
 
-## Planned Internal Seams
+## Internal Solver Seams
 
 These are not separate packages yet. They are named now so future work has
 locality and does not spread formulas across renderers or examples.
@@ -149,6 +149,11 @@ Owns:
 - conduction and diffusion
 - heat sources and sinks
 - thermal coupling to material properties
+- emissive Stefan-Boltzmann exchange with an environment
+
+The browser reference implementation is exported from `vektor-flow/physics-engine`.
+It provides conservative thermal networks and explicit finite-difference heat
+fields with a checked stability limit.
 
 The `T` property belongs to the physics property core, but diffusion and heat
 transfer belong here.
@@ -174,6 +179,12 @@ Owns:
 - electric and magnetic fields
 - Maxwell-equation stepping
 - coupling between fields, charges, and motion
+
+The browser reference implementation provides electrostatic Poisson solving and
+time-domain Maxwell stepping for every vector component in one through three
+spatial dimensions. It checks the Courant limit and publishes `E` and `B` as
+global fields. Geometry properties marked as escaping use the same global-field
+registry; disabled modules publish no symbols or fields.
 
 The `q` and `sigma_*` properties belong to the physics property core; field
 evolution belongs here.

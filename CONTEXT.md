@@ -25,9 +25,11 @@
   inertia tensor, rigid stiffness semantics, gravity, force, and torque stepping.
 - **Contact core**: The future physics module that will own collision detection,
   contact manifolds, friction constraints, and collision matrix solving.
-- **Thermal core**: The future physics module that will own temperature,
-  diffusion, heat transfer, and thermal coupling.
+- **Thermal core**: The physics module that owns temperature diffusion,
+  conductive networks, heat sources, and emissive radiative exchange.
 - **Transport core**: The future physics module that will own air friction,
   viscosity, liquid motion, sand, and other continuum or particle transport.
-- **Electromagnetic core**: The future physics module that will own charge
-  transfer and Maxwell-equation simulation.
+- **Electromagnetic core**: The physics module that owns electrostatic Poisson
+  solving, Maxwell-equation stepping, and global electric and magnetic fields.
+- **Escaping property**: A geometry-authored field source whose influence leaves
+  its source geometry and is therefore published as a globally sampleable field.
