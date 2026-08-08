@@ -7,6 +7,8 @@ import {
   createColorbarView,
   createVerticalColormapGradient,
   formatColorbarTicks,
+  panColorbarDomain,
+  zoomColorbarDomain,
 } from '../../web/vf-ui/vf-colorbar-view.mjs';
 
 const contacts = (first, second, reverse = false) => {
@@ -24,6 +26,7 @@ function valueAt(domain, position, extent = 100) {
 test('colorbar presentation renders stable ticks and a vertical cyclic gradient', () => {
   const presentation = createColorbarPresentation({
     id: 'field-1',
+    labelLatex: 'x^2+y^2',
     colorScale: { domain: [-2, 2], mode: 'cyclic' },
     colormapPoints: [
       { pos: 0, color: [255, 0, 0], alpha: 1 },
@@ -35,6 +38,7 @@ test('colorbar presentation renders stable ticks and a vertical cyclic gradient'
   assert.match(presentation.gradient, /^linear-gradient\(to top,/);
   assert.match(presentation.gradient, /rgba\(255, 0, 0, 1\) 100%/);
   assert.match(presentation.ariaLabel, /repeated cyclically$/);
+  assert.equal(presentation.labelLatex, 'x^2+y^2');
   assert.equal(
     createVerticalColormapGradient([], 'clamp'),
     'linear-gradient(to top, transparent 0%, transparent 100%)'
@@ -68,15 +72,77 @@ test('axis-neutral gesture zooms independent of contact array order', () => {
   assert.ok(Math.abs(valueAt(domain, 100) - 0.5) < 1e-12);
 });
 
+test('mouse pan and wheel zoom preserve the scalar under the pointer', () => {
+  assert.deepEqual(panColorbarDomain([0, 1], 10, 100), [-0.1, 0.9]);
+  assert.deepEqual(zoomColorbarDomain([0, 1], 50, 100, 0.5), [0.25, 0.75]);
+});
+
+test('DOM colorbar supports mouse pan and pointer-anchored wheel zoom', () => {
+  const changes = [];
+  const view = createColorbarView({
+    document: createFakeDocument(),
+    onDomainChange: (scale, metadata) => changes.push({ scale, metadata }),
+  });
+  view.update({
+    id: 'field',
+    colorScale: { domain: [0, 1] },
+    colormapPoints: [{ pos: 0, color: [0, 0, 0] }],
+  });
+
+  view.element.dispatch('pointerdown', pointer(1, 75, 'mouse'));
+  view.element.dispatch('pointermove', pointer(1, 65, 'mouse'));
+  view.element.dispatch('pointerup', pointer(1, 65, 'mouse'));
+  assert.deepEqual(changes.at(-1).scale.domain, [-0.1, 0.9]);
+  assert.equal(changes.at(-1).metadata.committed, true);
+
+  const wheelEvent = wheel(50, -100);
+  view.element.dispatch('wheel', wheelEvent);
+  const zoomed = changes.at(-1).scale.domain;
+  assert.ok(zoomed[1] - zoomed[0] < 1);
+  assert.ok(Math.abs((zoomed[0] + zoomed[1]) / 2 - 0.4) < 1e-12);
+  assert.equal(wheelEvent.prevented, true);
+});
+
+test('first mobile touch is captured and two-touch normalization remains continuous', () => {
+  const changes = [];
+  const view = createColorbarView({
+    document: createFakeDocument(),
+    onDomainChange: (scale, metadata) => changes.push({ scale, metadata }),
+  });
+  view.update({
+    id: 'field',
+    colorScale: { domain: [0, 1] },
+    colormapPoints: [{ pos: 0, color: [0, 0, 0] }],
+  });
+
+  const first = pointer(1, 75, 'touch');
+  view.element.dispatch('pointerdown', first);
+  assert.equal(first.prevented, true);
+  assert.equal(view.element.captured.has(1), true);
+  assert.equal(changes.length, 0);
+  view.element.dispatch('pointerdown', pointer(2, 25, 'touch'));
+  view.element.dispatch('pointermove', pointer(1, 65, 'touch'));
+  view.element.dispatch('pointermove', pointer(2, 15, 'touch'));
+  assert.ok(changes.length >= 3);
+  view.element.dispatch('pointerup', pointer(1, 65, 'touch'));
+  assert.equal(changes.at(-1).metadata.committed, true);
+});
+
 test('DOM colorbar updates, hides, destroys, and publishes two-pointer domains', () => {
   const document = createFakeDocument();
   const changes = [];
+  const labels = [];
   const view = createColorbarView({
     document,
+    renderLabel: (element, latex) => {
+      labels.push(latex);
+      element.textContent = latex;
+    },
     onDomainChange: (scale, metadata) => changes.push({ scale, metadata }),
   });
   const presentation = view.update({
     id: 'scalar-field',
+    labelLatex: 'x+y',
     colorScale: { domain: [0, 1], magnitudeDomain: [0, 4], mode: 'cyclic' },
     colormapPoints: [
       { pos: 0, color: [0, 0, 0], alpha: 1 },
@@ -87,6 +153,8 @@ test('DOM colorbar updates, hides, destroys, and publishes two-pointer domains',
   assert.equal(view.element.hidden, false);
   assert.equal(view.element.dataset.colorbarId, 'scalar-field');
   assert.equal(presentation.colorScale.mode, 'cyclic');
+  assert.deepEqual(labels, ['x+y']);
+  assert.equal(view.element.children.at(-1).textContent, 'x+y');
 
   view.element.dispatch('pointerdown', pointer(1, 75));
   view.element.dispatch('pointerdown', pointer(2, 25));
@@ -109,11 +177,24 @@ test('DOM colorbar updates, hides, destroys, and publishes two-pointer domains',
   assert.throws(() => view.update({}), /destroyed/);
 });
 
-function pointer(pointerId, clientY) {
+function pointer(pointerId, clientY, pointerType = 'touch') {
   return {
     pointerId,
     clientY,
-    preventDefault() {},
+    pointerType,
+    button: 0,
+    prevented: false,
+    preventDefault() { this.prevented = true; },
+    stopPropagation() {},
+  };
+}
+
+function wheel(clientY, deltaY) {
+  return {
+    clientY,
+    deltaY,
+    prevented: false,
+    preventDefault() { this.prevented = true; },
     stopPropagation() {},
   };
 }

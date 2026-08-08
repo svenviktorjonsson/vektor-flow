@@ -56,6 +56,107 @@ export function buildScreenSpaceSimplexVertices(scene = {}) {
   return new Float32Array(packed);
 }
 
+export function createRetainedScreenSpaceSimplexScene() {
+  const records = new Map();
+  let packed = new Float32Array();
+  let dirty = false;
+
+  function upsert(id, primitive) {
+    const key = String(id);
+    const current = records.get(key);
+    if (current?.primitive === primitive) return false;
+    const nextPacked = buildScreenSpaceSimplexVertices({ primitives: [primitive] });
+    if (current && equalPackedVertices(current.packed, nextPacked)) {
+      records.set(key, { primitive, packed: current.packed });
+      return false;
+    }
+    records.set(key, { primitive, packed: nextPacked });
+    dirty = true;
+    return true;
+  }
+
+  function remove(id) {
+    const changed = records.delete(String(id));
+    dirty ||= changed;
+    return changed;
+  }
+
+  function replace(nextRecords = []) {
+    const next = new Map();
+    for (const [id, primitive] of nextRecords) {
+      const key = String(id);
+      const current = records.get(key);
+      if (current?.primitive === primitive) {
+        next.set(key, current);
+        continue;
+      }
+      const nextPacked = buildScreenSpaceSimplexVertices({ primitives: [primitive] });
+      if (current && equalPackedVertices(current.packed, nextPacked)) {
+        next.set(key, { primitive, packed: current.packed });
+        continue;
+      }
+      next.set(key, { primitive, packed: nextPacked });
+      dirty = true;
+    }
+    const previousKeys = [...records.keys()];
+    const nextKeys = [...next.keys()];
+    if (previousKeys.length !== nextKeys.length
+      || previousKeys.some((key, index) => key !== nextKeys[index])) {
+      dirty = true;
+    }
+    records.clear();
+    for (const [key, record] of next) records.set(key, record);
+    return dirty;
+  }
+
+  function commit(renderer) {
+    if (!dirty) return false;
+    const previous = packed;
+    const length = [...records.values()].reduce((sum, record) => sum + record.packed.length, 0);
+    packed = new Float32Array(length);
+    let offset = 0;
+    for (const record of records.values()) {
+      packed.set(record.packed, offset);
+      offset += record.packed.length;
+    }
+    renderer.setPackedVertices(packed, packedVertexDirtyRange(previous, packed));
+    dirty = false;
+    return true;
+  }
+
+  return Object.freeze({
+    upsert,
+    remove,
+    replace,
+    commit,
+    get size() {
+      return records.size;
+    },
+    get packedVertices() {
+      return packed;
+    }
+  });
+}
+
+function packedVertexDirtyRange(previous, next) {
+  if (previous.length !== next.length) {
+    return Object.freeze({ floatOffset: 0, floatLength: next.length });
+  }
+  let start = 0;
+  while (start < next.length && previous[start] === next[start]) start += 1;
+  let end = next.length;
+  while (end > start && previous[end - 1] === next[end - 1]) end -= 1;
+  return Object.freeze({ floatOffset: start, floatLength: end - start });
+}
+
+function equalPackedVertices(left, right) {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
 export function requirePackedSimplexVertices(value) {
   if (!(value instanceof Float32Array)) {
     throw new TypeError('packed simplex vertices must be a Float32Array');
@@ -94,11 +195,11 @@ export function createScreenSpaceSimplexRenderer(canvas, options = {}) {
     backend?.render(vertices);
   }
 
-  function setPackedVertices(nextVertices) {
+  function setPackedVertices(nextVertices, dirtyRange = null) {
     assertAlive();
     scene = null;
     vertices = requirePackedSimplexVertices(nextVertices);
-    backend?.render(vertices);
+    backend?.render(vertices, dirtyRange);
   }
 
   function resize(width = canvas.clientWidth, height = canvas.clientHeight) {
@@ -314,8 +415,9 @@ async function createWebGpuBackend(canvas) {
       context.configure({ device, format, alphaMode: 'premultiplied' });
       device.queue.writeBuffer(viewportBuffer, 0, new Float32Array([width, height, 0, 0]));
     },
-    render(vertices) {
+    render(vertices, dirtyRange = null) {
       vertexCount = vertices.length / FLOATS_PER_VERTEX;
+      let replacedBuffer = false;
       if (vertices.byteLength > vertexCapacity) {
         vertexBuffer?.destroy();
         vertexCapacity = growPackedVertexCapacity(
@@ -326,9 +428,22 @@ async function createWebGpuBackend(canvas) {
           size: vertexCapacity,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
         });
+        replacedBuffer = true;
       }
       if (vertices.byteLength) {
-        device.queue.writeBuffer(vertexBuffer, 0, vertices);
+        if (!replacedBuffer && dirtyRange && dirtyRange.floatLength < vertices.length) {
+          if (dirtyRange.floatLength > 0) {
+            device.queue.writeBuffer(
+              vertexBuffer,
+              dirtyRange.floatOffset * Float32Array.BYTES_PER_ELEMENT,
+              vertices,
+              dirtyRange.floatOffset,
+              dirtyRange.floatLength
+            );
+          }
+        } else {
+          device.queue.writeBuffer(vertexBuffer, 0, vertices);
+        }
       }
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
@@ -401,7 +516,7 @@ function createWebGl2Backend(canvas) {
       cssSize = [width, height];
       gl.viewport(0, 0, canvas.width, canvas.height);
     },
-    render(vertices) {
+    render(vertices, dirtyRange = null) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -409,14 +524,27 @@ function createWebGl2Backend(canvas) {
       gl.useProgram(program);
       gl.uniform2f(viewportLocation, cssSize[0], cssSize[1]);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      if (vertices.byteLength > bufferCapacity) {
+      const replacedBuffer = vertices.byteLength > bufferCapacity;
+      if (replacedBuffer) {
         bufferCapacity = growPackedVertexCapacity(
           bufferCapacity,
           vertices.byteLength,
         );
         gl.bufferData(gl.ARRAY_BUFFER, bufferCapacity, gl.DYNAMIC_DRAW);
       }
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
+      if (!replacedBuffer && dirtyRange && dirtyRange.floatLength < vertices.length) {
+        if (dirtyRange.floatLength > 0) {
+          gl.bufferSubData(
+            gl.ARRAY_BUFFER,
+            dirtyRange.floatOffset * Float32Array.BYTES_PER_ELEMENT,
+            vertices,
+            dirtyRange.floatOffset,
+            dirtyRange.floatLength
+          );
+        }
+      } else {
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertices);
+      }
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, BYTES_PER_VERTEX, 0);
       gl.enableVertexAttribArray(colorLocation);

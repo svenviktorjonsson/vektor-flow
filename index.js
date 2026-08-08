@@ -9,6 +9,7 @@ const browserModules = Object.freeze({
   interpolationEditor: "vektor-flow/interpolation-editor",
   propertyProgram: "vektor-flow/property-program",
   selectionInteraction: "vektor-flow/selection-interaction",
+  spatialGeometry: "vektor-flow/spatial-geometry",
   screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
   symbolicKernel: "vektor-flow/symbolic-kernel",
   symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",

@@ -16,6 +16,7 @@ test("package root resolves to the deterministic browser module manifest", () =>
     interpolationEditor: "vektor-flow/interpolation-editor",
     propertyProgram: "vektor-flow/property-program",
     selectionInteraction: "vektor-flow/selection-interaction",
+    spatialGeometry: "vektor-flow/spatial-geometry",
     screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
     symbolicKernel: "vektor-flow/symbolic-kernel",
     symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
@@ -39,6 +40,7 @@ test("named browser exports resolve to their implemented modules", async () => {
   const interpolation = await import("vektor-flow/interpolation");
   const propertyProgram = await import("vektor-flow/property-program");
   const selectionInteraction = await import("vektor-flow/selection-interaction");
+  const spatialGeometry = await import("vektor-flow/spatial-geometry");
   const renderer = await import("vektor-flow/screen-simplex-renderer");
   const symbolicKernel = await import("vektor-flow/symbolic-kernel");
   const symbolicPlot = await import("vektor-flow/symbolic-plot-renderer");
@@ -57,6 +59,7 @@ test("named browser exports resolve to their implemented modules", async () => {
   assert.equal(typeof interpolation.interpolateDirectedPath, "function");
   assert.equal(typeof propertyProgram.parsePropertyProgram, "function");
   assert.equal(typeof selectionInteraction.createSelectionInteractionFsm, "function");
+  assert.equal(typeof spatialGeometry.guidedPlaneExtrusionPositions, "function");
   assert.equal(typeof symbolicKernel.createSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadSymbolicKernel, "function");
   assert.equal(typeof symbolicKernel.loadPackagedSymbolicKernel, "function");

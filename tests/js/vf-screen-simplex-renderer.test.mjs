@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildScreenSpaceSimplexVertices,
   colorToRgba,
+  createRetainedScreenSpaceSimplexScene,
   growPackedVertexCapacity,
   requirePackedSimplexVertices
 } from '../../web/vf-ui/geom/vf-screen-simplex-renderer.mjs';
@@ -114,4 +115,76 @@ test('grows GPU vertex capacity geometrically and reuses it', () => {
   assert.equal(growPackedVertexCapacity(256, 18 * 4), 256);
   assert.equal(growPackedVertexCapacity(256, 257), 512);
   assert.equal(growPackedVertexCapacity(512, 257), 512);
+});
+
+test('uploads a retained simplex scene only when its records change', () => {
+  const uploads = [];
+  const renderer = { setPackedVertices: (vertices) => uploads.push(vertices) };
+  const scene = createRetainedScreenSpaceSimplexScene();
+  const face = {
+    kind: 'face',
+    points: [[0, 0], [10, 0], [0, 10]],
+    color: '#ff0000'
+  };
+
+  scene.upsert('face:f0', face);
+  assert.equal(scene.commit(renderer), true);
+  assert.equal(scene.commit(renderer), false);
+  scene.upsert('face:f0', face);
+  assert.equal(scene.commit(renderer), false);
+  scene.upsert('face:f0', {
+    ...face,
+    points: face.points.map((point) => [...point])
+  });
+  assert.equal(scene.commit(renderer), false);
+  scene.upsert('face:f0', { ...face, color: '#0000ff' });
+  assert.equal(scene.commit(renderer), true);
+
+  assert.equal(uploads.length, 2);
+  assert.equal(scene.size, 1);
+});
+
+test('uploads only the changed packed range when retained record sizes stay stable', () => {
+  const uploads = [];
+  const renderer = {
+    setPackedVertices: (vertices, dirtyRange) => uploads.push({ vertices, dirtyRange })
+  };
+  const scene = createRetainedScreenSpaceSimplexScene();
+  scene.upsert('left', {
+    kind: 'face', points: [[0, 0], [10, 0], [0, 10]], color: '#ff0000'
+  });
+  scene.upsert('right', {
+    kind: 'face', points: [[20, 0], [30, 0], [20, 10]], color: '#00ff00'
+  });
+  scene.commit(renderer);
+  scene.upsert('right', {
+    kind: 'face', points: [[21, 0], [31, 0], [21, 10]], color: '#00ff00'
+  });
+  scene.commit(renderer);
+
+  assert.deepEqual(uploads[1].dirtyRange, {
+    floatOffset: 18,
+    floatLength: 13
+  });
+});
+
+test('restores requested layer order when a retained record reappears', () => {
+  const uploads = [];
+  const renderer = { setPackedVertices: (vertices) => uploads.push(vertices) };
+  const scene = createRetainedScreenSpaceSimplexScene();
+  const triangle = (x, color) => ({
+    kind: 'face', points: [[x, 0], [x + 1, 0], [x, 1]], color
+  });
+  const face = triangle(0, '#ff0000');
+  const edge = triangle(2, '#00ff00');
+  const vertex = triangle(4, '#0000ff');
+
+  scene.replace([['face', face], ['edge', edge], ['vertex', vertex]]);
+  scene.commit(renderer);
+  scene.replace([['edge', edge], ['vertex', vertex]]);
+  scene.commit(renderer);
+  scene.replace([['face', face], ['edge', edge], ['vertex', vertex]]);
+  scene.commit(renderer);
+
+  assert.deepEqual(Array.from(uploads.at(-1).slice(2, 5)), [1, 0, 0]);
 });

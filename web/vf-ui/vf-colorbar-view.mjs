@@ -2,6 +2,7 @@ import { normalizeColorScale } from './vf-color-scale.mjs';
 
 export function createColorbarPresentation({
   id = '',
+  labelLatex = 'c',
   colorScale = {},
   colormapPoints = []
 } = {}) {
@@ -11,6 +12,7 @@ export function createColorbarPresentation({
   const repeated = scale.mode === 'cyclic' ? ', repeated cyclically' : '';
   return Object.freeze({
     id: String(id),
+    labelLatex: String(labelLatex || 'c'),
     colorScale: scale,
     gradient,
     ticks,
@@ -110,9 +112,34 @@ export function createColorbarGestureController({ minimumSeparation = 1 } = {}) 
   return Object.freeze({ begin, update, end, cancel });
 }
 
+export function panColorbarDomain(domain, deltaPosition, extent) {
+  const [minimum, maximum] = normalizeColorScale({ domain }).domain;
+  const size = validExtent(extent);
+  const delta = Number(deltaPosition);
+  if (!Number.isFinite(delta)) throw new TypeError('colorbar pan delta must be finite');
+  const shift = -delta / size * (maximum - minimum);
+  return Object.freeze([minimum + shift, maximum + shift]);
+}
+
+export function zoomColorbarDomain(domain, anchorPosition, extent, factor) {
+  const [minimum, maximum] = normalizeColorScale({ domain }).domain;
+  const size = validExtent(extent);
+  const anchor = clamp(Number(anchorPosition) / size, 0, 1);
+  const zoom = Number(factor);
+  if (!(Number.isFinite(zoom) && zoom > 0)) {
+    throw new RangeError('colorbar zoom factor must be positive');
+  }
+  const span = maximum - minimum;
+  const anchorValue = minimum + anchor * span;
+  const nextSpan = span * zoom;
+  const nextMinimum = anchorValue - anchor * nextSpan;
+  return Object.freeze([nextMinimum, nextMinimum + nextSpan]);
+}
+
 export function createColorbarView({
   document: documentRef = globalThis.document,
   onDomainChange = () => {},
+  renderLabel = (element, latex) => { element.textContent = latex; },
   gestureController = createColorbarGestureController()
 } = {}) {
   if (!documentRef?.createElement) {
@@ -121,11 +148,15 @@ export function createColorbarView({
   if (typeof onDomainChange !== 'function') {
     throw new TypeError('onDomainChange must be a function');
   }
+  if (typeof renderLabel !== 'function') {
+    throw new TypeError('renderLabel must be a function');
+  }
 
   const root = documentRef.createElement('figure');
   const maximumTick = documentRef.createElement('span');
   const gradient = documentRef.createElement('div');
   const minimumTick = documentRef.createElement('span');
+  const axisLabel = documentRef.createElement('figcaption');
   let binding = null;
   let destroyed = false;
 
@@ -134,9 +165,10 @@ export function createColorbarView({
   root.setAttribute('role', 'group');
   root.style.cssText = [
     'display:grid',
+    'grid-template-columns:auto 28px auto',
     'grid-template-rows:auto minmax(96px,1fr) auto',
-    'justify-items:end',
-    'gap:4px',
+    'align-items:center',
+    'gap:4px 8px',
     'margin:0',
     'touch-action:none',
     'user-select:none'
@@ -152,9 +184,10 @@ export function createColorbarView({
   ].join(';');
   maximumTick.className = 'vf-colorbar__tick vf-colorbar__tick--maximum';
   minimumTick.className = 'vf-colorbar__tick vf-colorbar__tick--minimum';
+  axisLabel.className = 'vf-colorbar__label';
   maximumTick.style.fontVariantNumeric = 'tabular-nums';
   minimumTick.style.fontVariantNumeric = 'tabular-nums';
-  root.append(maximumTick, gradient, minimumTick);
+  root.append(maximumTick, gradient, minimumTick, axisLabel);
 
   const pointerBinding = bindPointerGestures(root, {
     gestureController,
@@ -168,6 +201,7 @@ export function createColorbarView({
     const presentation = createColorbarPresentation(nextBinding);
     binding = Object.freeze({
       id: presentation.id,
+      labelLatex: presentation.labelLatex,
       colorScale: presentation.colorScale,
       colormapPoints: Object.freeze([...(nextBinding.colormapPoints ?? [])])
     });
@@ -178,6 +212,7 @@ export function createColorbarView({
     gradient.style.background = presentation.gradient;
     maximumTick.textContent = presentation.ticks.maximum;
     minimumTick.textContent = presentation.ticks.minimum;
+    renderLabel(axisLabel, presentation.labelLatex);
     return presentation;
   }
 
@@ -225,6 +260,7 @@ function bindPointerGestures(element, {
   onDomainChange
 }) {
   const activePointers = new Map();
+  let singlePointerBaseline = null;
 
   function gestureInput() {
     const current = getBinding();
@@ -242,50 +278,95 @@ function bindPointerGestures(element, {
   }
 
   function consume(event) {
-    if (activePointers.size < 2) return false;
     event.preventDefault();
     event.stopPropagation();
-    for (const pointerId of activePointers.keys()) {
-      element.setPointerCapture?.(pointerId);
-    }
-    return true;
   }
 
   function pointerDown(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
     activePointers.set(event.pointerId, event);
-    if (!consume(event)) return;
-    const input = gestureInput();
-    if (input) onDomainChange(gestureController.begin(input), false);
+    consume(event);
+    element.setPointerCapture?.(event.pointerId);
+    if (activePointers.size === 2) {
+      singlePointerBaseline = null;
+      const input = gestureInput();
+      if (input) onDomainChange(gestureController.begin(input), false);
+      return;
+    }
+    if (event.pointerType !== 'touch') {
+      const bounds = element.getBoundingClientRect();
+      singlePointerBaseline = Object.freeze({
+        pointerId: event.pointerId,
+        domain: getBinding()?.colorScale?.domain,
+        extent: bounds.height,
+        position: bounds.bottom - event.clientY
+      });
+    }
   }
 
   function pointerMove(event) {
     if (!activePointers.has(event.pointerId)) return;
     activePointers.set(event.pointerId, event);
-    if (!consume(event)) return;
-    const input = gestureInput();
-    if (input) onDomainChange(gestureController.update(input), false);
+    consume(event);
+    if (activePointers.size === 2) {
+      const input = gestureInput();
+      if (input) onDomainChange(gestureController.update(input), false);
+      return;
+    }
+    if (singlePointerBaseline?.pointerId === event.pointerId) {
+      const bounds = element.getBoundingClientRect();
+      const position = bounds.bottom - event.clientY;
+      onDomainChange(panColorbarDomain(
+        singlePointerBaseline.domain,
+        position - singlePointerBaseline.position,
+        singlePointerBaseline.extent
+      ), false);
+    }
   }
 
   function finish(cancelled, event) {
     if (!activePointers.has(event.pointerId)) return;
-    const wasGesture = consume(event);
-    if (wasGesture) {
+    consume(event);
+    if (activePointers.size === 2) {
       onDomainChange(
         cancelled ? gestureController.cancel() : gestureController.end(),
         !cancelled
       );
+    } else if (singlePointerBaseline?.pointerId === event.pointerId) {
+      onDomainChange(
+        cancelled ? singlePointerBaseline.domain : getBinding()?.colorScale?.domain,
+        !cancelled
+      );
     }
+    singlePointerBaseline = null;
     activePointers.delete(event.pointerId);
     if (element.hasPointerCapture?.(event.pointerId)) {
       element.releasePointerCapture(event.pointerId);
     }
   }
 
+  function wheel(event) {
+    const current = getBinding();
+    if (!current) return;
+    consume(event);
+    const bounds = element.getBoundingClientRect();
+    const deltaUnit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? bounds.height : 1;
+    const delta = clamp(Number(event.deltaY) * deltaUnit, -1000, 1000);
+    const factor = Math.exp(delta * 0.001);
+    onDomainChange(zoomColorbarDomain(
+      current.colorScale.domain,
+      bounds.bottom - event.clientY,
+      bounds.height,
+      factor
+    ), true);
+  }
+
   const listeners = {
     pointerdown: pointerDown,
     pointermove: pointerMove,
     pointerup: (event) => finish(false, event),
-    pointercancel: (event) => finish(true, event)
+    pointercancel: (event) => finish(true, event),
+    wheel
   };
   for (const [type, listener] of Object.entries(listeners)) {
     element.addEventListener(type, listener);
@@ -297,6 +378,7 @@ function bindPointerGestures(element, {
         element.removeEventListener(type, listener);
       }
       activePointers.clear();
+      singlePointerBaseline = null;
     }
   });
 }

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   compileColorFieldExpressionGlsl,
+  gpuColorFieldFragmentSource,
   colorFieldQuadWorldFrame,
   createCanvasColorFieldRenderer,
   evaluateColorFieldRgba,
@@ -10,6 +11,13 @@ import {
   pointSourceRgb,
   segmentSourceRgb,
 } from '../../web/vf-ui/vf-color-field.mjs';
+
+test('maps framebuffer UV into top-down screen coordinates in GPU fields', () => {
+  const source = gpuColorFieldFragmentSource('x');
+  assert.match(source, /vec2 screenUv=vec2\(uv\.x,1\.-uv\.y\)/);
+  assert.match(source, /origin\+screenUv\.x\*stepX\+screenUv\.y\*stepY/);
+  assert.match(source, /localOrigin\+screenUv\.x\*localStepX\+screenUv\.y\*localStepY/);
+});
 
 test('maps the GPU quad across the complete pixel-center world span', () => {
   assert.deepEqual(colorFieldQuadWorldFrame({

@@ -211,6 +211,23 @@ export function createCanvasColorFieldRenderer({ canvas, context, screenToWorld 
 
 // Geometry fields are rendered by VKF's GPU path.  This is deliberately a
 // separate renderer: callers must not silently fall back to per-pixel JS.
+export function gpuColorFieldFragmentSource(expression) {
+  return `#version 300 es
+    precision highp float; in vec2 uv; out vec4 outColor;
+    uniform vec2 origin, stepX, stepY, localOrigin, localStepX, localStepY; uniform float t,n,N; uniform int count; uniform int kind;
+    uniform vec2 sourceP[32]; uniform vec4 sourceC[32]; uniform vec2 segA[32], segB[32];
+    uniform sampler2D cmap;
+    float evaluate(float x,float y,float r,float phi){ return float(${expression}); }
+    vec4 blendPoint(vec2 q){ vec4 c=vec4(0.); float total=0.;
+      for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=q-sourceP[i]; float r=length(d); float w=max(0.,evaluate(d.x,d.y,r,atan(d.y,d.x))); c+=sourceC[i]*w; total+=w; }
+      return total>0. ? c/total : sourceC[0]; }
+    vec4 blendEdge(vec2 q){ vec4 c=vec4(0.); float total=0.;
+      for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=segB[i]-segA[i]; float h=clamp(dot(q-segA[i],d)/max(dot(d,d),1e-12),0.,1.); float r=distance(q,segA[i]+h*d); float w=max(0.,evaluate(r,0.,r,0.)); c+=sourceC[i]*w; total+=w; }
+      return total>0. ? c/total : sourceC[0]; }
+    vec4 coordinateMap(vec2 screenUv){ vec2 local=localOrigin+screenUv.x*localStepX+screenUv.y*localStepY; float v=clamp(evaluate(local.x,local.y,length(local),atan(local.y,local.x)),0.,1.); return texture(cmap,vec2(v,.5)); }
+    void main(){ vec2 screenUv=vec2(uv.x,1.-uv.y); vec2 q=origin+screenUv.x*stepX+screenUv.y*stepY; outColor=kind==0?blendPoint(q):(kind==1?blendEdge(q):coordinateMap(screenUv)); }`;
+}
+
 export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
   if (!canvas || typeof screenToWorld !== 'function') {
     throw new TypeError('canvas and screenToWorld are required');
@@ -224,20 +241,7 @@ export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
     const key = expression || 'x';
     if (programCache.has(key)) return programCache.get(key);
     const vertex = compile(gl, gl.VERTEX_SHADER, vertexSource);
-    const fragment = compile(gl, gl.FRAGMENT_SHADER, `#version 300 es
-    precision highp float; in vec2 uv; out vec4 outColor;
-    uniform vec2 origin, stepX, stepY, localOrigin, localStepX, localStepY; uniform float t,n,N; uniform int count; uniform int kind;
-    uniform vec2 sourceP[32]; uniform vec4 sourceC[32]; uniform vec2 segA[32], segB[32];
-    uniform sampler2D cmap;
-    float evaluate(float x,float y,float r,float phi){ return float(${key}); }
-    vec4 blendPoint(vec2 q){ vec4 c=vec4(0.); float total=0.;
-      for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=q-sourceP[i]; float r=length(d); float w=max(0.,evaluate(d.x,d.y,r,atan(d.y,d.x))); c+=sourceC[i]*w; total+=w; }
-      return total>0. ? c/total : sourceC[0]; }
-    vec4 blendEdge(vec2 q){ vec4 c=vec4(0.); float total=0.;
-      for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=segB[i]-segA[i]; float h=clamp(dot(q-segA[i],d)/max(dot(d,d),1e-12),0.,1.); float r=distance(q,segA[i]+h*d); float w=max(0.,evaluate(r,0.,r,0.)); c+=sourceC[i]*w; total+=w; }
-      return total>0. ? c/total : sourceC[0]; }
-    vec4 coordinateMap(vec2 q){ vec2 local=localOrigin+uv.x*localStepX+uv.y*localStepY; float v=clamp(evaluate(local.x,local.y,length(local),atan(local.y,local.x)),0.,1.); return texture(cmap,vec2(v,.5)); }
-    void main(){ vec2 q=origin+uv.x*stepX+uv.y*stepY; outColor=kind==0?blendPoint(q):(kind==1?blendEdge(q):coordinateMap(q)); }`);
+    const fragment = compile(gl, gl.FRAGMENT_SHADER, gpuColorFieldFragmentSource(key));
     const program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     const loc = (name) => gl.getUniformLocation(program, name);
