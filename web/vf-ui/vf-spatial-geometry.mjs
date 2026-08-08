@@ -35,6 +35,66 @@ export function nearestSpatialPointToLine(points, {
   });
 }
 
+export function constrainSpatialPointDrag({
+  originalPoint,
+  incidentPolygons = [],
+  linePoint,
+  lineDirection,
+  minimumPlaneVertices = 4
+} = {}) {
+  const origin = vec3(originalPoint);
+  const cursorLinePoint = vec3(linePoint);
+  const cursorLineDirection = normalize(lineDirection);
+  const minimumVertices = Math.max(3, Math.trunc(Number(minimumPlaneVertices)) || 4);
+  const normals = [];
+  for (const polygon of incidentPolygons) {
+    if (!Array.isArray(polygon) || polygon.length < minimumVertices) continue;
+    const points = requirePoints(polygon, minimumVertices);
+    let normal;
+    try {
+      normal = polygonNormal(points);
+    } catch {
+      continue;
+    }
+    if (normals.length === 0) {
+      normals.push(normal);
+      continue;
+    }
+    if (normals.length === 1) {
+      if (magnitude(cross3(normals[0], normal)) > EPSILON) normals.push(normal);
+      continue;
+    }
+    const intersectionDirection = normalize(cross3(normals[0], normals[1]));
+    if (Math.abs(dot(intersectionDirection, normal)) > EPSILON) {
+      normals.push(normal);
+      break;
+    }
+  }
+  const planeCount = normals.length;
+  if (planeCount === 0) {
+    return Object.freeze({ point: null, freedom: 3, planeCount: 0 });
+  }
+  if (planeCount >= 3) {
+    return freezeDragConstraint(origin, 0, planeCount);
+  }
+  const denominator = dot(cursorLineDirection, normals[0]);
+  if (Math.abs(denominator) <= EPSILON) {
+    return freezeDragConstraint(origin, 3 - planeCount, planeCount);
+  }
+  const lineParameter = dot(subtract(origin, cursorLinePoint), normals[0]) / denominator;
+  const planeTarget = add(cursorLinePoint, scale(cursorLineDirection, lineParameter));
+  if (planeCount === 1) {
+    return freezeDragConstraint(planeTarget, 2, planeCount);
+  }
+  const constraintDirection = normalize(cross3(normals[0], normals[1]));
+  const projectedDistance = dot(subtract(planeTarget, origin), constraintDirection);
+  return freezeDragConstraint(
+    add(origin, scale(constraintDirection, projectedDistance)),
+    1,
+    planeCount
+  );
+}
+
 export function projectSpatialPointsToDominantPlane(points, { sampleIndices = null } = {}) {
   const spatialPoints = requirePoints(points, 1);
   const indices = sampleIndices == null
@@ -429,4 +489,5 @@ function dot2(a,b) { return a[0]*b[0]+a[1]*b[1]; }
 function magnitude(v) { return Math.hypot(...v); }
 function normalize(v) { const value=vec3(v); const size=magnitude(value); if(size<=EPSILON) throw new RangeError('Spatial direction must be non-zero.'); return scale(value,1/size); }
 function cleanVector(value) { return value.map((entry) => Math.abs(entry) <= EPSILON ? 0 : entry); }
+function freezeDragConstraint(point, freedom, planeCount) { return Object.freeze({ point:Object.freeze(cleanVector(point)), freedom, planeCount }); }
 function finite(value,label) { const number=Number(value); if(!Number.isFinite(number)) throw new TypeError(`${label} must be finite.`); return number; }

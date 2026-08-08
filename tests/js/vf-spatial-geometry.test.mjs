@@ -6,6 +6,7 @@ import {
   clipSpatialGeometryToConvexVolume,
   closedFacesFromCornerWalk,
   closeLinkedSpatialGeometry,
+  constrainSpatialPointDrag,
   guidedPlaneExtrusionPositions,
   lexicographicMinimumPoint,
   nearestSpatialPointToLine,
@@ -28,6 +29,34 @@ test('selects the nearest world point to a line and resolves visual depth ties f
     distance: 0.5,
     lineParameter: -3
   });
+});
+
+test('constrains a spatial point drag by independent non-triangular face planes', () => {
+  const xy = [[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]];
+  const xz = [[-1,0,-1],[1,0,-1],[1,0,1],[-1,0,1]];
+  const yz = [[0,-1,-1],[0,1,-1],[0,1,1],[0,-1,1]];
+  const viewLine = { linePoint: [2,3,5], lineDirection: [0,0,-1] };
+
+  assert.deepEqual(constrainSpatialPointDrag({
+    originalPoint: [0,0,0], incidentPolygons: [xy], ...viewLine
+  }), { point: [2,3,0], freedom: 2, planeCount: 1 });
+
+  assert.deepEqual(constrainSpatialPointDrag({
+    originalPoint: [0,0,0], incidentPolygons: [xy,xz], ...viewLine
+  }), { point: [2,0,0], freedom: 1, planeCount: 2 });
+
+  assert.deepEqual(constrainSpatialPointDrag({
+    originalPoint: [0,0,0], incidentPolygons: [xy,xz,yz], ...viewLine
+  }), { point: [0,0,0], freedom: 0, planeCount: 3 });
+});
+
+test('triangles do not constrain a spatial point drag', () => {
+  assert.deepEqual(constrainSpatialPointDrag({
+    originalPoint: [0,0,0],
+    incidentPolygons: [[[0,0,0],[1,0,0],[0,1,0]]],
+    linePoint: [2,3,5],
+    lineDirection: [0,0,-1]
+  }), { point: null, freedom: 3, planeCount: 0 });
 });
 
 test('projects an edge-on spatial plane onto its strongest coordinate pair', () => {
