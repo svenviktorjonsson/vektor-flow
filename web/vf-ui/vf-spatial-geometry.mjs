@@ -104,6 +104,48 @@ export function volumeCutPlanePolygons(triangles, {
   return Object.freeze(stitchLoops(segments).map((loop) => Object.freeze(loop.map(Object.freeze))));
 }
 
+export function spatialFrameFromDirections({
+  origin = [0, 0, 0],
+  directions = [],
+  globalUp = [0, 0, 1]
+} = {}) {
+  const frameOrigin = vec3(origin);
+  const axes = (Array.isArray(directions) ? directions : [])
+    .map(vec3)
+    .filter((direction) => magnitude(direction) > EPSILON)
+    .slice(0, 3)
+    .map(normalize);
+  if (!axes.length) {
+    return freezeFrame(frameOrigin, [1,0,0], [0,1,0], [0,0,1], 0);
+  }
+  if (axes.length === 1) {
+    const xAxis = axes[0];
+    let zAxis = normalize(globalUp);
+    if (magnitude(cross3(zAxis, xAxis)) <= EPSILON) {
+      zAxis = Math.abs(xAxis[1]) < 0.9 ? [0,1,0] : [1,0,0];
+    }
+    const yAxis = normalize(cross3(zAxis, xAxis));
+    zAxis = normalize(cross3(xAxis, yAxis));
+    return freezeFrame(frameOrigin, xAxis, yAxis, zAxis, 1);
+  }
+  const crossAxis = cross3(axes[0], axes[1]);
+  if (magnitude(crossAxis) <= EPSILON) {
+    throw new RangeError('Selected spatial directions must be independent.');
+  }
+  const zAxis = axes.length >= 3 ? axes[2] : normalize(crossAxis);
+  if (axes.length >= 3 && Math.abs(dot(normalize(crossAxis), zAxis)) <= EPSILON) {
+    throw new RangeError('Three selected spatial directions must span a volume.');
+  }
+  return freezeFrame(frameOrigin, axes[0], axes[1], zAxis, axes.length);
+}
+
+export function lexicographicMinimumPoint(points) {
+  const values = requirePoints(points, 1);
+  return Object.freeze([...values].sort((left, right) => (
+    left[0] - right[0] || left[1] - right[1] || left[2] - right[2]
+  ))[0]);
+}
+
 function polygonNormal(points) {
   const normal = [0, 0, 0];
   for (let index = 0; index < points.length; index += 1) {
@@ -114,6 +156,16 @@ function polygonNormal(points) {
     normal[2] += (point[0] - next[0]) * (point[1] + next[1]);
   }
   return normalize(normal);
+}
+
+function freezeFrame(origin, xAxis, yAxis, zAxis, dimension) {
+  return Object.freeze({
+    origin: Object.freeze(cleanVector(origin)),
+    xAxis: Object.freeze(cleanVector(xAxis)),
+    yAxis: Object.freeze(cleanVector(yAxis)),
+    zAxis: Object.freeze(cleanVector(zAxis)),
+    dimension
+  });
 }
 
 function inferEdgeCycles(pointCount, edges, addFace) {
@@ -212,7 +264,9 @@ function add(a,b) { return [a[0]+b[0],a[1]+b[1],a[2]+b[2]]; }
 function subtract(a,b) { return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
 function scale(v,s) { return v.map((value) => value*s); }
 function dot(a,b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+function cross3(a,b) { return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]; }
 function dot2(a,b) { return a[0]*b[0]+a[1]*b[1]; }
 function magnitude(v) { return Math.hypot(...v); }
 function normalize(v) { const value=vec3(v); const size=magnitude(value); if(size<=EPSILON) throw new RangeError('Spatial direction must be non-zero.'); return scale(value,1/size); }
+function cleanVector(value) { return value.map((entry) => Math.abs(entry) <= EPSILON ? 0 : entry); }
 function finite(value,label) { const number=Number(value); if(!Number.isFinite(number)) throw new TypeError(`${label} must be finite.`); return number; }

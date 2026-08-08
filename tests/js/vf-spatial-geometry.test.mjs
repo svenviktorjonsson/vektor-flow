@@ -6,9 +6,35 @@ import {
   closedFacesFromCornerWalk,
   closeLinkedSpatialGeometry,
   guidedPlaneExtrusionPositions,
+  lexicographicMinimumPoint,
   projectedNormalDragDistance,
+  spatialFrameFromDirections,
   volumeCutPlanePolygons
 } from '../../web/vf-ui/vf-spatial-geometry.mjs';
+
+test('derives stable spatial axes from selected incident directions', () => {
+  assert.deepEqual(spatialFrameFromDirections({
+    origin: [2,3,4], directions: [[2,0,0]]
+  }), {
+    origin: [2,3,4], xAxis: [1,0,0], yAxis: [0,1,0], zAxis: [0,0,1], dimension: 1
+  });
+  assert.deepEqual(spatialFrameFromDirections({
+    origin: [0,0,0], directions: [[1,0,0],[1,1,0]]
+  }), {
+    origin: [0,0,0], xAxis: [1,0,0], yAxis: [1/Math.sqrt(2),1/Math.sqrt(2),0], zAxis: [0,0,1], dimension: 2
+  });
+  assert.deepEqual(spatialFrameFromDirections({
+    origin: [0,0,0], directions: [[1,0,0],[0,1,0],[0,0,-2]]
+  }), {
+    origin: [0,0,0], xAxis: [1,0,0], yAxis: [0,1,0], zAxis: [0,0,-1], dimension: 3
+  });
+});
+
+test('anchors internal volume coordinates at the lowest x then y then z', () => {
+  assert.deepEqual(lexicographicMinimumPoint([
+    [1,-4,0], [-2,5,9], [-2,5,3], [-2,4,8]
+  ]), [-2,4,8]);
+});
 
 test('extrudes a guided plane without changing topology', () => {
   const points = [[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
