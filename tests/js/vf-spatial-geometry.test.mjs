@@ -8,10 +8,20 @@ import {
   closeLinkedSpatialGeometry,
   guidedPlaneExtrusionPositions,
   lexicographicMinimumPoint,
+  projectSpatialPointsToDominantPlane,
   projectedNormalDragDistance,
   spatialFrameFromDirections,
   volumeCutPlanePolygons
 } from '../../web/vf-ui/vf-spatial-geometry.mjs';
+
+test('projects an edge-on spatial plane onto its strongest coordinate pair', () => {
+  assert.deepEqual(projectSpatialPointsToDominantPlane([
+    [0,0,0], [2,0,0], [2,0,2], [0,0,2]
+  ]), {
+    axes: [0,2],
+    points: [[0,0], [2,0], [2,2], [0,2]]
+  });
+});
 
 test('derives stable spatial axes from selected incident directions', () => {
   assert.deepEqual(spatialFrameFromDirections({

@@ -1,5 +1,44 @@
 const EPSILON = 1e-8;
 
+export function projectSpatialPointsToDominantPlane(points, { sampleIndices = null } = {}) {
+  const spatialPoints = requirePoints(points, 1);
+  const indices = sampleIndices == null
+    ? spatialPoints.map((_, index) => index)
+    : [...new Set(sampleIndices.map(Number))];
+  if (!indices.length || indices.some((index) => !Number.isInteger(index) || !spatialPoints[index])) {
+    throw new RangeError('Dominant-plane samples must reference spatial points.');
+  }
+  const samples = indices.map((index) => spatialPoints[index]);
+  let axes = [0, 1];
+  let bestAreaScore = -1;
+  for (const candidate of [[0,1], [0,2], [1,2]]) {
+    const [first, second] = candidate;
+    const centerFirst = samples.reduce((sum, point) => sum + point[first], 0) / samples.length;
+    const centerSecond = samples.reduce((sum, point) => sum + point[second], 0) / samples.length;
+    let firstVariance = 0;
+    let secondVariance = 0;
+    let covariance = 0;
+    for (const point of samples) {
+      const a = point[first] - centerFirst;
+      const b = point[second] - centerSecond;
+      firstVariance += a * a;
+      secondVariance += b * b;
+      covariance += a * b;
+    }
+    const areaScore = firstVariance * secondVariance - covariance * covariance;
+    if (areaScore > bestAreaScore) {
+      bestAreaScore = areaScore;
+      axes = candidate;
+    }
+  }
+  return Object.freeze({
+    axes: Object.freeze([...axes]),
+    points: Object.freeze(spatialPoints.map((point) => Object.freeze([
+      point[axes[0]], point[axes[1]]
+    ])))
+  });
+}
+
 export function cameraFacingPolygonFrame(points, { cameraPosition = null } = {}) {
   const polygon = requirePoints(points, 3);
   const center = scale(polygon.reduce(add, [0, 0, 0]), 1 / polygon.length);
