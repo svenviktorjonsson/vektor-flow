@@ -71,6 +71,69 @@ export function buildCoordinateGridScene(spec = {}) {
   });
 }
 
+export function buildCoordinateCrosshair3dScene(spec = {}) {
+  const width = positive(spec.width, 1);
+  const height = positive(spec.height, 1);
+  const worldToScreen = requiredTransform(spec.worldToScreen, 'worldToScreen');
+  const interval = positive(spec.interval, 1);
+  const tickLength = positive(spec.tickLength, 6);
+  const originWorld = freezeWorldPoint(spec.origin || [0, 0, 0]);
+  const origin = freezePoint(worldToScreen(originWorld));
+  const axes = [];
+  const ticks = [];
+  const labels = [];
+  const axisLabels = [];
+  const names = ['x', 'y', 'z'];
+
+  for (let axisIndex = 0; axisIndex < 3; axisIndex += 1) {
+    const unitWorld = [...originWorld];
+    unitWorld[axisIndex] += 1;
+    const unitScreen = freezePoint(worldToScreen(unitWorld));
+    const direction = subtract(unitScreen, origin);
+    const pixelsPerUnit = Math.hypot(...direction);
+    if (!(pixelsPerUnit > 1e-9)) continue;
+    const clipped = clipInfiniteLineToRect(origin, direction, width, height);
+    if (!clipped) continue;
+    const axis = names[axisIndex];
+    axes.push(Object.freeze({
+      from: freezePoint(clipped.from),
+      to: freezePoint(clipped.to),
+      axis,
+      kind: `axis-${axis}`
+    }));
+    const normal = unit([-direction[1], direction[0]]);
+    const halfTick = tickLength / 2;
+    const minimum = Math.min(clipped.fromParameter, clipped.toParameter);
+    const maximum = Math.max(clipped.fromParameter, clipped.toParameter);
+    for (const value of multiples(minimum, maximum, interval)) {
+      if (nearZero(value, interval)) continue;
+      const at = offset(origin, direction, value);
+      ticks.push(line(
+        offset(at, normal, -halfTick),
+        offset(at, normal, halfTick),
+        `axis-tick-${axis}`
+      ));
+      if (inside(at, width, height)) labels.push(label(value, interval, axis, at));
+    }
+    axisLabels.push(Object.freeze({
+      latex: axis,
+      axis: `axis-${axis}`,
+      at: freezePoint(clipped.toParameter >= clipped.fromParameter ? clipped.to : clipped.from)
+    }));
+  }
+
+  if (inside(origin, width, height)) {
+    labels.push(Object.freeze({ latex: '0', value: 0, axis: 'origin', at: origin }));
+  }
+  return Object.freeze({
+    axisMode: axes.length ? 'regular' : 'none',
+    axes: Object.freeze(axes),
+    ticks: Object.freeze(ticks),
+    labels: Object.freeze(labels),
+    axisLabels: Object.freeze(axisLabels)
+  });
+}
+
 function axisTicks({ xValues, yValues, xInterval, yInterval, tickLength, worldToScreen }) {
   const ticks = [];
   const origin = worldToScreen([0, 0]);
@@ -202,6 +265,37 @@ function visibleBounds(width, height, screenToWorld) {
   });
 }
 
+function clipInfiniteLineToRect(origin, direction, width, height) {
+  const candidates = [];
+  const append = (parameter, x, y) => {
+    if (!Number.isFinite(parameter) || x < -1e-9 || x > width + 1e-9 || y < -1e-9 || y > height + 1e-9) return;
+    if (candidates.some(({ point }) => Math.hypot(point[0] - x, point[1] - y) < 1e-8)) return;
+    candidates.push({ parameter, point: [clampEdge(x, width), clampEdge(y, height)] });
+  };
+  if (Math.abs(direction[0]) > 1e-12) {
+    for (const x of [0, width]) {
+      const parameter = (x - origin[0]) / direction[0];
+      append(parameter, x, origin[1] + parameter * direction[1]);
+    }
+  }
+  if (Math.abs(direction[1]) > 1e-12) {
+    for (const y of [0, height]) {
+      const parameter = (y - origin[1]) / direction[1];
+      append(parameter, origin[0] + parameter * direction[0], y);
+    }
+  }
+  if (candidates.length < 2) return null;
+  candidates.sort((left, right) => left.parameter - right.parameter);
+  const from = candidates[0];
+  const to = candidates.at(-1);
+  return {
+    from: from.point,
+    to: to.point,
+    fromParameter: from.parameter,
+    toParameter: to.parameter
+  };
+}
+
 function multiples(minimum, maximum, interval) {
   const values = [];
   const start = Math.ceil(minimum / interval) * interval;
@@ -216,6 +310,14 @@ function line(from, to, kind) {
 }
 
 function freezePoint(point) { return Object.freeze([Number(point[0]), Number(point[1])]); }
+function freezeWorldPoint(point) {
+  return Object.freeze([0, 1, 2].map((index) => Number(point?.[index]) || 0));
+}
+function clampEdge(value, maximum) {
+  if (Math.abs(value) < 1e-9) return 0;
+  if (Math.abs(value - maximum) < 1e-9) return maximum;
+  return value;
+}
 function subtract(a, b) { return [a[0] - b[0], a[1] - b[1]]; }
 function unit(vector) {
   const length = Math.hypot(...vector);

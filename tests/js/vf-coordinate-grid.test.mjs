@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import {
   AXIS_DISPLAY_MODES,
   GRID_DISPLAY_MODES,
-  buildCoordinateGridScene
+  buildCoordinateGridScene,
+  buildCoordinateCrosshair3dScene
 } from '../../web/vf-ui/vf-coordinate-grid.mjs';
 
 const worldToScreen = ([x, y]) => [160 + x * 40, 100 - y * 40];
@@ -54,3 +55,17 @@ assert.deepEqual(complex.axisLabels.map(({ latex }) => latex), ['\\operatorname{
 assert.ok(complex.ticks.length > 0, 'axis ticks remain visible when the grid is hidden');
 assert.ok(complex.ticks.every((tick) => tick.kind.startsWith('axis-tick-')));
 assert.equal(dotted.ticks.length, 0, 'ticks belong to the axis, not the grid');
+
+const crosshair3d = buildCoordinateCrosshair3dScene({
+  width: 320,
+  height: 200,
+  interval: 1,
+  worldToScreen: ([x, y, z]) => [160 + (x - y) * 20, 100 - (x + y - 2 * z) * 10]
+});
+assert.deepEqual(crosshair3d.axes.map(({ axis }) => axis), ['x', 'y', 'z']);
+assert.ok(crosshair3d.axes.every(({ from, to }) =>
+  [from, to].some(([x, y]) => x === 0 || x === 320 || y === 0 || y === 200)
+));
+assert.ok(crosshair3d.ticks.length > 0);
+assert.ok(crosshair3d.labels.length > 0);
+assert.deepEqual(crosshair3d.axisLabels.map(({ latex }) => latex), ['x', 'y', 'z']);
