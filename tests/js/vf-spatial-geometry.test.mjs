@@ -8,11 +8,27 @@ import {
   closeLinkedSpatialGeometry,
   guidedPlaneExtrusionPositions,
   lexicographicMinimumPoint,
+  nearestSpatialPointToLine,
   projectSpatialPointsToDominantPlane,
   projectedNormalDragDistance,
   spatialFrameFromDirections,
   volumeCutPlanePolygons
 } from '../../web/vf-ui/vf-spatial-geometry.mjs';
+
+test('selects the nearest world point to a line and resolves visual depth ties front-first', () => {
+  assert.deepEqual(nearestSpatialPointToLine([
+    [1,0,0], [0.5,0,100], [0.5,0,-3]
+  ], {
+    linePoint: [0,0,0],
+    lineDirection: [0,0,1],
+    cameraForward: [0,0,1]
+  }), {
+    index: 2,
+    point: [0.5,0,-3],
+    distance: 0.5,
+    lineParameter: -3
+  });
+});
 
 test('projects an edge-on spatial plane onto its strongest coordinate pair', () => {
   assert.deepEqual(projectSpatialPointsToDominantPlane([

@@ -1,5 +1,40 @@
 const EPSILON = 1e-8;
 
+export function nearestSpatialPointToLine(points, {
+  linePoint,
+  lineDirection,
+  cameraForward = lineDirection
+} = {}) {
+  const candidates = requirePoints(points, 1);
+  const origin = vec3(linePoint);
+  const direction = normalize(lineDirection);
+  const forward = normalize(cameraForward);
+  const ranked = candidates.map((point, index) => {
+    const delta = subtract(point, origin);
+    const lineParameter = dot(delta, direction);
+    const closest = add(origin, scale(direction, lineParameter));
+    return {
+      index,
+      point,
+      distance: magnitude(subtract(point, closest)),
+      lineParameter,
+      visualDepth: dot(delta, forward)
+    };
+  }).sort((left, right) => {
+    const distanceDelta = left.distance - right.distance;
+    return Math.abs(distanceDelta) > EPSILON
+      ? distanceDelta
+      : left.visualDepth - right.visualDepth || left.index - right.index;
+  });
+  const nearest = ranked[0];
+  return Object.freeze({
+    index: nearest.index,
+    point: Object.freeze([...nearest.point]),
+    distance: nearest.distance,
+    lineParameter: nearest.lineParameter
+  });
+}
+
 export function projectSpatialPointsToDominantPlane(points, { sampleIndices = null } = {}) {
   const spatialPoints = requirePoints(points, 1);
   const indices = sampleIndices == null
