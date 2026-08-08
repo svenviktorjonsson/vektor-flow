@@ -6,6 +6,11 @@ density, the center of mass is the average of its four vertices and the second
 moment matrix is integrated over the tetra volume before converting to the
 inertia tensor.
 
+The canonical equations live in
+`compiler/self_hosted/stdlib/rigid_body.vkf`. Native and WASM artifacts compile
+that module. `vektorflow.physics.rigid_body` is a compatibility adapter and must
+not duplicate the equations in Python.
+
 For closed polygonal surface meshes without authored tetra volume elements, the
 target algorithm is Mirtich-style polyhedral mass properties: reduce volume
 integrals to surface integrals, then aggregate mass, center of mass, and inertia

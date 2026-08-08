@@ -23,7 +23,9 @@ STDLIB_SOURCE = ROOT / "compiler" / "self_hosted" / "stdlib.vkf"
 MATH_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "math.vkf"
 IO_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "io.vkf"
 PHYSICS_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics.vkf"
+RIGID_BODY_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "rigid_body.vkf"
 PHYSICS_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_collision_matrix_smoke.vkf"
+PHYSICS_RIGID_BODY_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_rigid_body_smoke.vkf"
 PHYSICS_DICE_SCENE = ROOT / "compiler" / "self_hosted" / "stdlib" / "dice_roll_scene.vkf"
 
 
@@ -146,7 +148,9 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     source = PHYSICS_FIXTURE.read_text(encoding="utf-8")
 
     module = parse_module(source, filename=PHYSICS_FIXTURE.as_posix())
-    rendered = repr(module)
+    rendered = repr(module) + repr(parse_module(
+        RIGID_BODY_FIXTURE.read_text(encoding="utf-8"), filename=RIGID_BODY_FIXTURE.as_posix()
+    ))
 
     assert "physics_collision_matrix_seed" in rendered
     assert "collision_matrix3" in rendered
@@ -159,6 +163,10 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     assert "dice_body3 provides cube inertia, material, six-face dice texture, and initial state" in rendered
     assert "clamps static and dynamic friction in the Coulomb cone" in rendered
     assert "position and velocity updates can live in the runtime variable ledger" in rendered
+    assert "tetra_mass_properties3" in rendered
+    assert "parallel_axis_shift3" in rendered
+    assert "step_rigid_body_momentum3" in rendered
+    assert "F = p dot and tau = L dot" in rendered
 
 
 def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(capsys: pytest.CaptureFixture[str]) -> None:
@@ -168,6 +176,33 @@ def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(capsys: pyte
     Interpreter(file_path=PHYSICS_SMOKE).run_module(module)
 
     assert capsys.readouterr().out.splitlines() == ["0.8333333333333333", "10.8"]
+
+
+def test_rigid_body_vkf_source_owns_mass_inertia_and_momentum_stepping(capsys: pytest.CaptureFixture[str]) -> None:
+    source = PHYSICS_RIGID_BODY_SMOKE.read_text(encoding="utf-8")
+    module = parse_module(source, filename=PHYSICS_RIGID_BODY_SMOKE.as_posix())
+    Interpreter(file_path=PHYSICS_RIGID_BODY_SMOKE).run_module(module)
+
+    values = [float(value) for value in capsys.readouterr().out.splitlines()]
+    assert values == pytest.approx([1.0, 0.25, 0.075, 0.1, 1.4])
+
+
+def test_rigid_body_vkf_compiles_to_native_binary(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:
+    result = json.loads(_run_driver(PHYSICS_RIGID_BODY_SMOKE, smoke_exes).stdout)
+    assert result["status"] in {"compiled", "current"}
+    assert [float(value) for value in result["stdout"].splitlines()] == pytest.approx(
+        [1.0, 0.25, 0.075, 0.1, 1.4]
+    )
+    manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
+    assert {dependency["name"] for dependency in manifest["dependencies"]} == {"import:<spill>"}
+    assert {Path(dependency["path"]).stem for dependency in manifest["dependencies"]} == {"rigid_body"}
+
+
+def test_rigid_body_vkf_compiles_to_wasm(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:
+    result = json.loads(_run_driver_wasm(PHYSICS_RIGID_BODY_SMOKE, smoke_exes).stdout)
+    artifact = Path(result["wasm_artifact_path"])
+    assert result["wasm_status"] in {"compiled", "current"}
+    assert artifact.read_bytes()[:4] == b"\x00asm"
 
 
 def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: pytest.CaptureFixture[str]) -> None:

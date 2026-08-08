@@ -4,6 +4,7 @@
 # compile the same source on web, desktop, and mobile hosts.
 
 :.math
+:.rigid_body
 
 vec2(x:num, y:num):
     [x, y]
@@ -442,6 +443,8 @@ physics_stdlib_capability:
         "dice_roll_path3 returns transform frames from launch to rest for scene_3d animation"
     ]
     ledger: [
+        "tetra mass properties, parallel-axis aggregation, and rigid stepping are VKF source",
+        "F = p dot and tau = L dot",
         "position and velocity updates can live in the runtime variable ledger",
         "code changes define functions while running loops consume mutable state"
     ]

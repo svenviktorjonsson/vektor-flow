@@ -35,6 +35,12 @@ physics_collision_matrix3:
 physics_normal_restitution_impulse3:
     stdlib_function("physics", "normal_restitution_impulse3", "fn(any,[num:3],[num:3],num)->any")
 
+rigid_body_tetra_mass_properties3:
+    stdlib_function("rigid_body", "tetra_mass_properties3", "fn(any,any,any,any,num)->any")
+
+rigid_body_step_momentum3:
+    stdlib_function("rigid_body", "step_rigid_body_momentum3", "fn(any,any,num,any,any)->any")
+
 stdlib_dependency_capability:
     name: "self_hosted_stdlib_seed"
     driver_owned_dependencies: [
@@ -58,12 +64,14 @@ stdlib_dependency_capability:
     ]
     physics_exports: [
         "physics.collision_matrix3",
-        "physics.normal_restitution_impulse3"
+        "physics.normal_restitution_impulse3",
+        "rigid_body.tetra_mass_properties3",
+        "rigid_body.step_rigid_body_momentum3"
     ]
     pipeline: [
         "source uses math.pi or math.tau",
         "source uses io.print or bare print alias",
-        "source can use physics collision-matrix helpers from VKF stdlib source",
+        "source can use physics collision-matrix and rigid-body helpers from VKF stdlib source",
         "native typed IR resolves constant to num const",
         "native typed IR records source-visible io.print as stdlib function",
         "native artifact emits runnable script output"

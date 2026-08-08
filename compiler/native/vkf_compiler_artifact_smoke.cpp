@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <variant>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -55,7 +56,7 @@ using StdlibExportTable = std::map<std::string, std::string>;
 
 struct ImportedFunction {
     std::vector<std::string> params;
-    std::string body_expr;
+    std::vector<std::string> body_lines;
 };
 
 struct ImportedModule {
@@ -473,9 +474,9 @@ std::vector<std::string> parse_flat_sequence_string(const std::string& text, cha
     int depth = 0;
     for (std::size_t index = 1; index + 1 < text.size(); ++index) {
         const char ch = text[index];
-        if ((ch == '(' || ch == '[' || ch == '{') && ch != open) {
+        if (ch == '(' || ch == '[' || ch == '{') {
             depth += 1;
-        } else if ((ch == ')' || ch == ']' || ch == '}') && ch != close && depth > 0) {
+        } else if ((ch == ')' || ch == ']' || ch == '}') && depth > 0) {
             depth -= 1;
         }
         if (ch == ',' && depth == 0) {
@@ -807,19 +808,48 @@ ImportedModule parse_imported_module_file(const std::filesystem::path& path) {
     std::string line;
     std::string active_name;
     std::vector<std::string> active_params;
-    std::string active_body;
+    std::vector<std::string> active_body;
+    std::string pending_header;
 
     auto commit_active = [&]() {
         if (active_name.empty()) {
             return;
         }
         if (active_body.empty()) {
-            throw ArtifactFailure("imported module function " + active_name + " must have a single expression body");
+            throw ArtifactFailure("imported module function " + active_name + " must have a body");
         }
-        module.functions[active_name] = ImportedFunction{active_params, trim_copy(active_body)};
+        module.functions[active_name] = ImportedFunction{active_params, active_body};
         active_name.clear();
         active_params.clear();
         active_body.clear();
+    };
+
+    auto begin_function = [&](const std::string& header) {
+        const std::size_t open = header.find('(');
+        const std::size_t close = header.rfind(')');
+        const std::size_t colon = close == std::string::npos ? std::string::npos : header.find(':', close);
+        if (open == std::string::npos || close == std::string::npos || close < open || colon == std::string::npos) {
+            return false;
+        }
+        active_name = trim_copy(header.substr(0, open));
+        const std::string params_text = header.substr(open + 1, close - open - 1);
+        std::size_t start = 0;
+        while (start <= params_text.size()) {
+            const std::size_t comma = params_text.find(',', start);
+            const std::string piece = trim_copy(params_text.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
+            if (!piece.empty()) {
+                const std::size_t type_colon = piece.find(':');
+                active_params.push_back(trim_copy(piece.substr(0, type_colon)));
+            }
+            if (comma == std::string::npos) break;
+            start = comma + 1;
+        }
+        const std::string inline_body = trim_copy(header.substr(colon + 1));
+        if (!inline_body.empty()) {
+            active_body.push_back(inline_body);
+            commit_active();
+        }
+        return true;
     };
 
     while (std::getline(lines, line)) {
@@ -831,62 +861,90 @@ ImportedModule parse_imported_module_file(const std::filesystem::path& path) {
             continue;
         }
         const bool indented = !line.empty() && (line[0] == ' ' || line[0] == '\t');
+        if (!pending_header.empty()) {
+            pending_header += " " + trimmed;
+            if (trimmed.find("):") != std::string::npos) {
+                if (!begin_function(pending_header)) {
+                    throw ArtifactFailure("invalid multiline imported function header");
+                }
+                pending_header.clear();
+            }
+            continue;
+        }
         if (!indented) {
             commit_active();
             const std::size_t open = trimmed.find('(');
             const std::size_t close = trimmed.rfind(')');
-            if (open == std::string::npos || close == std::string::npos || close < open || close + 1 >= trimmed.size()) {
+            if (open != std::string::npos && close == std::string::npos) {
+                pending_header = trimmed;
                 continue;
             }
-            const std::size_t colon = trimmed.find(':', close);
-            if (colon == std::string::npos) {
+            if (open == std::string::npos || close == std::string::npos || close < open) {
                 continue;
             }
-            active_name = trim_copy(trimmed.substr(0, open));
-            const std::string params_text = trimmed.substr(open + 1, close - open - 1);
-            std::size_t start = 0;
-            while (start <= params_text.size()) {
-                const std::size_t comma = params_text.find(',', start);
-                const std::string piece = trim_copy(params_text.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
-                if (!piece.empty()) {
-                    active_params.push_back(piece);
-                }
-                if (comma == std::string::npos) {
-                    break;
-                }
-                start = comma + 1;
-            }
-            const std::string inline_body = trim_copy(trimmed.substr(colon + 1));
-            if (!inline_body.empty()) {
-                active_body = inline_body;
-                commit_active();
-            }
+            (void)begin_function(trimmed);
             continue;
         }
         if (active_name.empty()) {
-            throw ArtifactFailure("unexpected indented line in imported module " + path.string());
+            // Imported modules may also contain top-level capability records and
+            // constants. They are irrelevant to function artifact evaluation.
+            continue;
         }
-        if (!active_body.empty()) {
-            throw ArtifactFailure("artifact emission only supports single-expression imported function bodies");
-        }
-        active_body = trimmed;
+        active_body.push_back(trimmed);
     }
     commit_active();
     return module;
 }
 
+struct ImportedValue {
+    using Sequence = std::vector<ImportedValue>;
+    using Record = std::map<std::string, ImportedValue>;
+    std::variant<double, Sequence, Record, std::string> data;
+
+    explicit ImportedValue(double value = 0.0) : data(value) {}
+    explicit ImportedValue(Sequence value) : data(std::move(value)) {}
+    explicit ImportedValue(Record value) : data(std::move(value)) {}
+    explicit ImportedValue(std::string value) : data(std::move(value)) {}
+
+    double number(const std::string& context) const {
+        if (const auto* value = std::get_if<double>(&data)) return *value;
+        throw ArtifactFailure("expected numeric imported value for " + context);
+    }
+
+    std::string render() const {
+        if (const auto* value = std::get_if<double>(&data)) return format_number(*value);
+        if (const auto* value = std::get_if<std::string>(&data)) return *value;
+        if (const auto* sequence = std::get_if<Sequence>(&data)) {
+            std::string out = "[";
+            for (std::size_t index = 0; index < sequence->size(); ++index) {
+                if (index != 0) out += ", ";
+                out += (*sequence)[index].render();
+            }
+            return out + "]";
+        }
+        const auto& record = std::get<Record>(data);
+        std::string out = "(";
+        std::size_t index = 0;
+        for (const auto& [name, value] : record) {
+            if (index++ != 0) out += ", ";
+            out += name + ": " + value.render();
+        }
+        return out + ")";
+    }
+};
+
 class ImportedExprParser {
 public:
     ImportedExprParser(
         const ImportedModule& module,
-        std::map<std::string, double> env,
+        std::map<std::string, ImportedValue> env,
         std::string text
     )
         : module_(module), env_(std::move(env)), text_(std::move(text)) {}
 
-    double parse() {
+    ImportedValue parse_value() {
         skip_ws();
-        const double value = parse_expr();
+        ImportedValue value = parse_expr();
         skip_ws();
         if (pos_ != text_.size()) {
             throw ArtifactFailure("unsupported imported module expression tail: " + text_.substr(pos_));
@@ -894,55 +952,73 @@ public:
         return value;
     }
 
+    double parse() { return parse_value().number("compiled imported function result"); }
+
 private:
-    double parse_expr() {
-        double value = parse_term();
+    ImportedValue parse_expr() {
+        ImportedValue value = parse_term();
         while (true) {
             skip_ws();
             if (match('+')) {
-                value += parse_term();
+                value = ImportedValue(value.number("addition") + parse_term().number("addition"));
                 continue;
             }
             if (match('-')) {
-                value -= parse_term();
+                value = ImportedValue(value.number("subtraction") - parse_term().number("subtraction"));
                 continue;
             }
             return value;
         }
     }
 
-    double parse_term() {
-        double value = parse_power();
+    ImportedValue parse_term() {
+        ImportedValue value = parse_power();
         while (true) {
             skip_ws();
             if (match('*')) {
-                value *= parse_power();
+                value = ImportedValue(value.number("multiplication") * parse_power().number("multiplication"));
                 continue;
             }
             if (match('/')) {
-                value /= parse_power();
+                value = ImportedValue(value.number("division") / parse_power().number("division"));
                 continue;
             }
             return value;
         }
     }
 
-    double parse_power() {
-        double value = parse_factor();
+    ImportedValue parse_power() {
+        ImportedValue value = parse_factor();
         skip_ws();
         if (match('^')) {
-            value = std::pow(value, parse_power());
+            value = ImportedValue(std::pow(value.number("power"), parse_power().number("power")));
         }
         return value;
     }
 
-    double parse_factor() {
+    ImportedValue parse_factor() {
         skip_ws();
         if (match('-')) {
-            return -parse_factor();
+            return ImportedValue(-parse_factor().number("unary minus"));
         }
         if (match('(')) {
-            const double value = parse_expr();
+            if (looks_like_record()) {
+                ImportedValue::Record fields;
+                skip_ws();
+                if (!match(')')) {
+                    while (true) {
+                        const std::string name = parse_identifier();
+                        skip_ws();
+                        if (!match(':')) throw ArtifactFailure("expected ':' in imported record");
+                        fields[name] = parse_expr();
+                        skip_ws();
+                        if (match(')')) break;
+                        if (!match(',')) throw ArtifactFailure("expected ',' in imported record");
+                    }
+                }
+                return parse_postfix(ImportedValue(std::move(fields)));
+            }
+            ImportedValue value = parse_expr();
             skip_ws();
             if (!match(')')) {
                 throw ArtifactFailure("missing closing ')' in imported module expression");
@@ -950,12 +1026,25 @@ private:
             return value;
         }
         if (peek_is_digit()) {
-            return parse_number();
+            return ImportedValue(parse_number());
+        }
+        if (match('[')) {
+            ImportedValue::Sequence items;
+            skip_ws();
+            if (!match(']')) {
+                while (true) {
+                    items.push_back(parse_expr());
+                    skip_ws();
+                    if (match(']')) break;
+                    if (!match(',')) throw ArtifactFailure("expected ',' in imported sequence");
+                }
+            }
+            return ImportedValue(std::move(items));
         }
         const std::string ident = parse_identifier();
         skip_ws();
         if (match('(')) {
-            std::vector<double> args;
+            std::vector<ImportedValue> args;
             skip_ws();
             if (!match(')')) {
                 while (true) {
@@ -969,16 +1058,67 @@ private:
                     }
                 }
             }
-            return call_function(ident, args);
+            return parse_postfix(call_function(ident, args));
         }
         const auto found = env_.find(ident);
         if (found == env_.end()) {
             throw ArtifactFailure("unknown imported module identifier " + ident);
         }
-        return found->second;
+        return parse_postfix(found->second);
     }
 
-    double call_function(const std::string& name, const std::vector<double>& args) {
+    bool looks_like_record() const {
+        int depth = 0;
+        for (std::size_t index = pos_; index < text_.size(); ++index) {
+            const char ch = text_[index];
+            if (ch == '(' || ch == '[' || ch == '{') ++depth;
+            if (ch == ')' && depth == 0) return false;
+            if (ch == ')' || ch == ']' || ch == '}') --depth;
+            if (ch == ':' && depth == 0) return true;
+        }
+        return false;
+    }
+
+    ImportedValue parse_postfix(ImportedValue value) {
+        while (true) {
+            skip_ws();
+            if (!match('.')) return value;
+            skip_ws();
+            std::string field_name;
+            if (match('(')) {
+                const double raw = parse_expr().number("imported index");
+                if (!match(')')) throw ArtifactFailure("missing ')' in imported index");
+                field_name = std::to_string(static_cast<std::size_t>(raw));
+            } else if (pos_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[pos_]))) {
+                const std::size_t start = pos_;
+                while (pos_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[pos_]))) ++pos_;
+                field_name = text_.substr(start, pos_ - start);
+            } else {
+                field_name = parse_identifier();
+            }
+            if (const auto* seq = std::get_if<ImportedValue::Sequence>(&value.data)) {
+                const std::size_t index = static_cast<std::size_t>(std::stoull(field_name));
+                if (index >= seq->size()) throw ArtifactFailure("imported sequence index out of range");
+                value = (*seq)[index];
+            } else if (const auto* record = std::get_if<ImportedValue::Record>(&value.data)) {
+                const auto found = record->find(field_name);
+                if (found == record->end()) throw ArtifactFailure("unknown imported record field " + field_name);
+                value = found->second;
+            } else {
+                throw ArtifactFailure("field access requires imported sequence or record");
+            }
+        }
+    }
+
+    ImportedValue call_function(const std::string& name, const std::vector<ImportedValue>& args) {
+        if (name == "abs_num" || name == "rb_abs") {
+            if (args.size() != 1) throw ArtifactFailure("wrong arity for " + name);
+            return ImportedValue(std::abs(args[0].number(name)));
+        }
+        if (name == "sqrt") {
+            if (args.size() != 1) throw ArtifactFailure("wrong arity for sqrt");
+            return ImportedValue(std::sqrt(args[0].number("sqrt")));
+        }
         const auto found = module_.functions.find(name);
         if (found == module_.functions.end()) {
             throw ArtifactFailure("unknown imported module function " + name);
@@ -987,11 +1127,59 @@ private:
         if (args.size() != function.params.size()) {
             throw ArtifactFailure("wrong arity for imported module function " + name);
         }
-        std::map<std::string, double> nested_env;
+        std::map<std::string, ImportedValue> nested_env;
         for (std::size_t index = 0; index < args.size(); ++index) {
             nested_env[function.params[index]] = args[index];
         }
-        return ImportedExprParser(module_, std::move(nested_env), function.body_expr).parse();
+        return eval_function(function, std::move(nested_env));
+    }
+
+    ImportedValue eval_function(const ImportedFunction& function, std::map<std::string, ImportedValue> env) {
+        std::vector<std::string> statements;
+        std::string active;
+        int depth = 0;
+        for (const auto& raw : function.body_lines) {
+            const std::string line = trim_copy(raw);
+            if (line.empty() || line[0] == '#') continue;
+            if (!active.empty()) active += " ";
+            active += line;
+            for (char ch : line) {
+                if (ch == '(' || ch == '[' || ch == '{') ++depth;
+                if (ch == ')' || ch == ']' || ch == '}') --depth;
+            }
+            const char tail = line.empty() ? '\0' : line.back();
+            const bool continues = tail == '+' || tail == '-' || tail == '*' || tail == '/'
+                || tail == '^' || tail == ',';
+            if (depth == 0 && !continues) {
+                statements.push_back(active);
+                active.clear();
+            }
+        }
+        if (!active.empty()) statements.push_back(active);
+        ImportedValue last;
+        for (const auto& statement : statements) {
+            if (statement == ":") return ImportedValue(ImportedValue::Record(env.begin(), env.end()));
+            const std::size_t colon = statement.find(':');
+            if (colon != std::string::npos && statement.find("?:") == std::string::npos) {
+                const std::string name = trim_copy(statement.substr(0, colon));
+                const std::string expression = trim_copy(statement.substr(colon + 1));
+                if (!name.empty() && !expression.empty()) {
+                    try {
+                        last = ImportedExprParser(module_, env, expression).parse_value();
+                    } catch (const ArtifactFailure& failure) {
+                        throw ArtifactFailure("in imported binding " + name + " = " + expression + ": " + failure.what());
+                    }
+                    env[name] = last;
+                    continue;
+                }
+            }
+            try {
+                last = ImportedExprParser(module_, env, statement).parse_value();
+            } catch (const ArtifactFailure& failure) {
+                throw ArtifactFailure("in imported expression " + statement + ": " + failure.what());
+            }
+        }
+        return last;
     }
 
     double parse_number() {
@@ -1034,10 +1222,24 @@ private:
     }
 
     const ImportedModule& module_;
-    std::map<std::string, double> env_;
+    std::map<std::string, ImportedValue> env_;
     std::string text_;
     std::size_t pos_ = 0;
 };
+
+std::string eval_imported_call(
+    const ImportedModule& module,
+    const std::string& function_name,
+    const std::vector<std::string>& rendered_args
+) {
+    std::string expression = function_name + "(";
+    for (std::size_t index = 0; index < rendered_args.size(); ++index) {
+        if (index != 0) expression += ", ";
+        expression += rendered_args[index];
+    }
+    expression += ")";
+    return ImportedExprParser(module, {}, std::move(expression)).parse_value().render();
+}
 
 using ImportTable = std::map<std::string, ImportedModule>;
 struct LocalReturnSignal {
@@ -1167,19 +1369,15 @@ std::string eval_call(
                 if (spill_import_it != imports.end()) {
                     const auto imported_function_it = spill_import_it->second.functions.find(callee_name);
                     if (imported_function_it != spill_import_it->second.functions.end()) {
-                        std::vector<double> args;
+                        std::vector<std::string> args;
                         for (const auto& arg : array_of(field(object, "args", "call"), "call.args")) {
-                            args.push_back(eval_numeric_value(arg, values, imports, functions, stdlib_exports, ctor_name));
+                            args.push_back(eval_value(arg, values, imports, functions, stdlib_exports, ctor_name));
                         }
                         const ImportedFunction& function = imported_function_it->second;
                         if (args.size() < function.params.size()) {
                             throw ArtifactFailure("wrong arity for imported function " + callee_name);
                         }
-                        std::map<std::string, double> env;
-                        for (std::size_t index = 0; index < function.params.size(); ++index) {
-                            env[function.params[index]] = args[index];
-                        }
-                        return format_number(ImportedExprParser(spill_import_it->second, std::move(env), function.body_expr).parse());
+                        return eval_imported_call(spill_import_it->second, callee_name, args);
                     }
                 }
                 const auto stdlib_it = stdlib_exports.find(callee_name);
@@ -1462,23 +1660,19 @@ std::string eval_call(
                 const auto nested_module_it = imports.find(root_alias);
                 if (nested_module_it != imports.end() && nested_name == "mod") {
                     const std::string function_name = string_field(callee, "field", "field_access");
-                    std::vector<double> args;
+                    std::vector<std::string> args;
                     for (const auto& arg : array_of(field(object, "args", "call"), "call.args")) {
-                        args.push_back(eval_numeric_value(arg, values, imports, functions, stdlib_exports, ctor_name));
+                        args.push_back(eval_value(arg, values, imports, functions, stdlib_exports, ctor_name));
                     }
                     const auto function_it = nested_module_it->second.functions.find(function_name);
                     if (function_it == nested_module_it->second.functions.end()) {
                         throw ArtifactFailure("unknown imported function " + root_alias + "." + nested_name + "." + function_name);
                     }
-                    std::map<std::string, double> env;
                     const ImportedFunction& function = function_it->second;
                     if (args.size() != function.params.size()) {
                         throw ArtifactFailure("wrong arity for imported function " + root_alias + "." + nested_name + "." + function_name);
                     }
-                    for (std::size_t index = 0; index < args.size(); ++index) {
-                        env[function.params[index]] = args[index];
-                    }
-                    return format_number(ImportedExprParser(nested_module_it->second, std::move(env), function.body_expr).parse());
+                    return eval_imported_call(nested_module_it->second, function_name, args);
                 }
             }
             throw ArtifactFailure("artifact emission only supports imported namespace function field calls");
@@ -1542,23 +1736,19 @@ std::string eval_call(
             }
             throw ArtifactFailure("unknown imported module alias " + alias);
         }
-        std::vector<double> args;
+        std::vector<std::string> args;
         for (const auto& arg : array_of(field(object, "args", "call"), "call.args")) {
-            args.push_back(eval_numeric_value(arg, values, imports, functions, stdlib_exports, ctor_name));
+            args.push_back(eval_value(arg, values, imports, functions, stdlib_exports, ctor_name));
         }
         const auto function_it = module_it->second.functions.find(function_name);
         if (function_it == module_it->second.functions.end()) {
             throw ArtifactFailure("unknown imported function " + alias + "." + function_name);
         }
-        std::map<std::string, double> env;
         const ImportedFunction& function = function_it->second;
         if (args.size() < function.params.size()) {
             throw ArtifactFailure("wrong arity for imported function " + alias + "." + function_name);
         }
-        for (std::size_t index = 0; index < function.params.size(); ++index) {
-            env[function.params[index]] = args[index];
-        }
-        return format_number(ImportedExprParser(module_it->second, std::move(env), function.body_expr).parse());
+        return eval_imported_call(module_it->second, function_name, args);
     } else {
         throw ArtifactFailure("artifact emission only supports io.print call targets");
     }
@@ -1989,6 +2179,15 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
                         }
                         return (*items)[index];
                     }
+                }
+                const std::string rendered = eval_value(
+                    base_value, values, imports, functions, stdlib_exports, ctor_name, output_lines
+                );
+                const std::vector<std::string>* items = &cached_flat_sequence_string(rendered, '(', ')');
+                if (items->empty()) items = &cached_flat_sequence_string(rendered, '[', ']');
+                if (!items->empty()) {
+                    if (index >= items->size()) throw ArtifactFailure("rendered dotted_index out of range");
+                    return (*items)[index];
                 }
             }
         }

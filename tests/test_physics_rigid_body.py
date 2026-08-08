@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,18 @@ from vektorflow.physics_rigid_body import (
     tetra_mass_properties,
 )
 from vektorflow.physics_properties import PhysicsGeometry
+
+
+def test_python_rigid_body_is_only_a_vkf_compatibility_adapter() -> None:
+    root = Path(__file__).resolve().parents[1]
+    adapter = (root / "vektorflow" / "physics" / "rigid_body.py").read_text(encoding="utf-8")
+    kernel = (root / "compiler" / "self_hosted" / "stdlib" / "rigid_body.vkf").read_text(encoding="utf-8")
+
+    assert "tetra_mass_properties3" in kernel
+    assert "step_rigid_body_momentum3" in kernel
+    assert "_KERNEL_PATH" in adapter
+    assert "def _cross" not in adapter
+    assert "def _inverse_mat3" not in adapter
 
 
 def _flat(matrix: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]) -> tuple[float, ...]:

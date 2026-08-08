@@ -840,7 +840,16 @@ bool parse_update_function(const vf::JsonValue::Object& stmt, const std::vector<
 }
 
 WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
-    const auto module = vkf::wasm::parse_typed_module(root);
+    auto filtered_root = object_of(root, "typed IR root");
+    vf::JsonValue::Array filtered_body;
+    for (const auto& item : array_of(field(filtered_root, "body", "typed IR root"), "typed IR root.body")) {
+        const auto& declaration = object_of(item, "typed IR declaration");
+        if (string_field(declaration, "kind", "typed IR declaration") != "module_import") {
+            filtered_body.push_back(item);
+        }
+    }
+    filtered_root["body"] = vf::JsonValue(std::move(filtered_body));
+    const auto module = vkf::wasm::parse_typed_module(vf::JsonValue(std::move(filtered_root)));
     WasmModulePlan plan;
     for (const auto& item : module.items) {
         if (item.kind == vkf::wasm::ModuleItemKind::TypeAlias
@@ -852,7 +861,15 @@ WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
                 module.runtime_bindings[item.category_index].declaration,
                 "typed IR runtime binding"
             );
-            plan.bindings.push_back(binding_from_store(stmt, plan.bindings));
+            try {
+                plan.bindings.push_back(binding_from_store(stmt, plan.bindings));
+            } catch (const WasmArtifactFailure&) {
+                // Imported and structured `any` values remain in the dependency
+                // module; scalar runtime kernels are emitted by the symbolic
+                // bytecode artifact path.
+                if (string_field(stmt, "type", "typed IR runtime binding") == "any") continue;
+                throw;
+            }
             continue;
         }
         if (item.kind == vkf::wasm::ModuleItemKind::Function) {

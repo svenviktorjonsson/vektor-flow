@@ -5,8 +5,8 @@ prefixes, and quantity checks. Geometry-owned values such as edge length, face
 area, and body volume belong to the geometry/UI model that creates the
 topology, not to the public `:physics` namespace.
 
-The compiler implementation still keeps physics-engine formulas in one internal
-area so running mode has a single source of truth for dynamics. UI rendering,
+The compiler keeps physics-engine formulas in VKF stdlib modules so native and
+WASM running modes share one source of truth for dynamics. UI rendering,
 native scene staging, and symbolic display may inspect physics state, but they
 should not reimplement physics formulas.
 
@@ -106,7 +106,9 @@ body collision or contact solving.
 
 ### Rigid Body Core
 
-File: `vektorflow/physics/rigid_body.py`
+Canonical source: `compiler/self_hosted/stdlib/rigid_body.vkf`
+
+Compatibility adapter: `vektorflow/physics/rigid_body.py`
 
 Interface:
 
@@ -116,6 +118,10 @@ Interface:
 - inertia tensor
 - parallel-axis shifting
 - gravity, force, and torque stepping
+
+The VKF module compiles through the native artifact path and to a WASM artifact.
+The Python module only translates the historical dataclasses and geometry API
+to the VKF kernel; it owns no rigid-body formulas.
 
 The current mass-property implementation is exact for tetra volume elements. A
 future closed-polyhedron adapter should use Mirtich-style mass properties and
@@ -194,7 +200,7 @@ evolution belongs here.
 The package interface should stay small and data-oriented. Future performance
 adapters may include:
 
-- Python reference implementation for correctness
+- Python compatibility adapters that execute canonical VKF source in tests/tools
 - native implementation for runtime stepping
 - GPU implementation for field, fluid, granular, or electromagnetic solvers
 
