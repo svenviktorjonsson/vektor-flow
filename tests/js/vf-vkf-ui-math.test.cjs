@@ -1,6 +1,11 @@
 const assert = require("node:assert/strict");
 const math = require("../../web/vf-ui/vf-vkf-ui-math.js");
 
+assert.strictEqual(math.lengthMeasurementLatex(Math.sqrt(2), 2, "m"), "\\sqrt{2}\\,\\mathrm{m}");
+assert.strictEqual(math.lengthMeasurementLatex(Math.sqrt(8), 8, ""), "2\\sqrt{2}");
+assert.strictEqual(math.lengthMeasurementLatex(3, 9, "m"), "3\\,\\mathrm{m}");
+assert.strictEqual(math.angleMeasurementLatex(Math.PI / 4), "45^{\\circ}");
+
 assert.deepEqual(math.cloneVec2([3, 4]), [3, 4]);
 assert.deepEqual(math.cloneVec3([3, 4, 5]), [3, 4, 5]);
 

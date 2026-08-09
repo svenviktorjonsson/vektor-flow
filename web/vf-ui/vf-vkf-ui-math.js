@@ -103,6 +103,40 @@
     return { distance: length2(sub2(point, closest)), closest: closest };
   }
 
+  function formatMeasurementNumber(value) {
+    var number = Number(value);
+    if (!Number.isFinite(number)) { return "\\text{--}"; }
+    if (number === 0) { return "0"; }
+    var magnitude = Math.abs(number);
+    if (magnitude >= 1e4 || magnitude < 1e-3) { return number.toExponential(2); }
+    return String(Number(number.toPrecision(4)));
+  }
+
+  function lengthMeasurementLatex(value, squaredValue, unit) {
+    var squared = Number(squaredValue);
+    var latex = formatMeasurementNumber(value);
+    var integer = Math.round(squared);
+    if (Number.isFinite(squared) && integer >= 0 && Math.abs(squared - integer) <= 1e-10) {
+      var outside = 1;
+      var inside = integer;
+      for (var factor = Math.floor(Math.sqrt(integer)); factor >= 2; factor -= 1) {
+        if (integer % (factor * factor) === 0) {
+          outside = factor;
+          inside = integer / (factor * factor);
+          break;
+        }
+      }
+      if (inside === 1) { latex = String(outside); }
+      else if (inside > 1) { latex = (outside === 1 ? "" : String(outside)) + "\\sqrt{" + inside + "}"; }
+    }
+    var unitText = String(unit || "").replace(/([{}\\])/g, "\\$1");
+    return latex + (unitText ? "\\,\\mathrm{" + unitText + "}" : "");
+  }
+
+  function angleMeasurementLatex(radians) {
+    return formatMeasurementNumber(Number(radians) * 180 / Math.PI) + "^{\\circ}";
+  }
+
   return {
     cloneVec2: cloneVec2,
     cloneVec3: cloneVec3,
@@ -116,6 +150,8 @@
     length2: length2,
     normalize2: normalize2,
     pointInPolygon: pointInPolygon,
-    distancePointToSegment: distancePointToSegment
+    distancePointToSegment: distancePointToSegment,
+    lengthMeasurementLatex: lengthMeasurementLatex,
+    angleMeasurementLatex: angleMeasurementLatex
   };
 });
