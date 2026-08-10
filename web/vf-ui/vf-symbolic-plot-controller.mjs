@@ -4,7 +4,8 @@ import { createSymbolicPlotRenderer } from './geom/vf-symbolic-plot-renderer.mjs
 
 const IDENTITY_AFFINE = Object.freeze([1, 0, 0, 1, 0, 0]);
 const MIN_CURVE_STEPS = 65;
-const MAX_CURVE_STEPS = 2049;
+const MAX_CURVE_STEPS = 4097;
+const CURVE_PIXELS_PER_SAMPLE = 0.5;
 const MIN_FIELD_STEPS = 17;
 const MAX_FIELD_STEPS = 17;
 const FLOATS_PER_VERTEX = 6;
@@ -702,8 +703,12 @@ export function buildSymbolicPlotView(viewport, context = globalSymbolicContext(
   const transform = symbolicDataToScreenTransform(viewport, context);
   const xPixels = Math.hypot(transform[0], transform[1]) * (xMax - xMin);
   const yPixels = Math.hypot(transform[2], transform[3]) * (yMax - yMin);
-  const xSteps = sampleSteps(xPixels, MIN_CURVE_STEPS, MAX_CURVE_STEPS, 1);
-  const ySteps = sampleSteps(yPixels, MIN_CURVE_STEPS, MAX_CURVE_STEPS, 1);
+  const xSteps = sampleSteps(
+    xPixels, MIN_CURVE_STEPS, MAX_CURVE_STEPS, CURVE_PIXELS_PER_SAMPLE
+  );
+  const ySteps = sampleSteps(
+    yPixels, MIN_CURVE_STEPS, MAX_CURVE_STEPS, CURVE_PIXELS_PER_SAMPLE
+  );
   const gridXInterval = optionalPositive(viewport.gridXInterval);
   const gridYInterval = optionalPositive(viewport.gridYInterval) ?? gridXInterval;
   const fieldXMin = gridXInterval == null

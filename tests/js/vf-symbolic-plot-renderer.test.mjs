@@ -16,12 +16,21 @@ import {
   symbolicPlotPointDraws,
   webGlPointFragmentSource,
   webGlPointVertexSource,
+  webGlStrokeVertexSource,
   webGlStrokeFragmentSource,
   webGpuShaderSource,
   symbolicPlotClipStencilDraws,
   triangulateSymbolicPlotClip,
   triangulateSymbolicPlotClipRegion
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
+
+test('caps curve stroke joins so selection contours cannot form miter spikes', () => {
+  const shaders = [webGpuShaderSource(), webGlStrokeVertexSource()];
+  for (const shader of shaders) {
+    assert.match(shader, /abs\(distance(?:_value)?\) \* 1\.25/);
+    assert.doesNotMatch(shader, /abs\(distance(?:_value)?\) \* 4\.0/);
+  }
+});
 
 function createCanvas() {
   return {

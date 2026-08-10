@@ -14,6 +14,7 @@ export const SYMBOLIC_PLOT_POINT_VERTICES = 6;
 export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
 export const SYMBOLIC_PLOT_SELECTION_WIDTH = 2;
 export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255, 211 / 255]);
+export const SYMBOLIC_PLOT_STROKE_MITER_LIMIT = 1.25;
 
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
 
@@ -1405,7 +1406,11 @@ export function webGpuShaderSource() {
       if (abs(denominator) < 0.0001) {
         return outgoingNormal * distance;
       }
-      let scale = clamp(distance / denominator, -abs(distance) * 4.0, abs(distance) * 4.0);
+      let scale = clamp(
+        distance / denominator,
+        -abs(distance) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)},
+        abs(distance) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)}
+      );
       return miter * scale;
     }
 
@@ -2192,7 +2197,7 @@ function webGlSolidFragmentSource() {
   `;
 }
 
-function webGlStrokeVertexSource() {
+export function webGlStrokeVertexSource() {
   return `#version 300 es
     in vec2 a_previous_position;
     in vec2 a_from_position;
@@ -2230,7 +2235,11 @@ function webGlStrokeVertexSource() {
       vec2 miter = normalize(normal_sum);
       float denominator = dot(miter, outgoing_normal);
       if (abs(denominator) < 0.0001) return outgoing_normal * distance_value;
-      float scale = clamp(distance_value / denominator, -abs(distance_value) * 4.0, abs(distance_value) * 4.0);
+      float scale = clamp(
+        distance_value / denominator,
+        -abs(distance_value) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)},
+        abs(distance_value) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)}
+      );
       return miter * scale;
     }
     void main() {

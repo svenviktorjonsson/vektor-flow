@@ -237,8 +237,8 @@ test('maps local context and clip into their matching coordinate spaces', () => 
 
 test('adapts curve and field samples to pixel coverage', () => {
   const view = buildSymbolicPlotView(viewport);
-  assert.equal(view.xSteps, 514);
-  assert.equal(view.ySteps, 322);
+  assert.equal(view.xSteps, 1026);
+  assert.equal(view.ySteps, 643);
   assert.equal(view.fieldXSteps, 17);
   assert.equal(view.fieldYSteps, 17);
 });
