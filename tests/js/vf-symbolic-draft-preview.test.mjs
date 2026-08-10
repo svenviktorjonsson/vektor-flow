@@ -46,12 +46,12 @@ test('uses canonical LaTeX when the symbolic program is complete', async () => {
   assert.deepEqual(draft.diagnostics, []);
 });
 
-test('renders function templates incrementally with visually closed calls', async () => {
+test('renders function templates incrementally with invisible synthetic closers', async () => {
   const kernel = await loadKernel();
   for (const [source, latex] of [
-    ['sin(', '\\operatorname{sin}\\!\\left(\\right)'],
-    ['sin(x', '\\operatorname{sin}\\!\\left(x\\right)'],
-    ['sin(cos(', '\\operatorname{sin}\\!\\left(\\operatorname{cos}\\!\\left(\\right)\\right)'],
+    ['sin(', '\\operatorname{sin}\\!\\left(\\right.'],
+    ['sin(x', '\\operatorname{sin}\\!\\left(x\\right.'],
+    ['sin(cos(', '\\operatorname{sin}\\!\\left(\\operatorname{cos}\\!\\left(\\right.\\right.'],
     ['sum(', '\\sum'],
     ['sum(x^k', '\\sum x^{k}'],
     ['sum(x^k,k', '\\sum_{k=} x^{k}'],
