@@ -818,7 +818,27 @@ symbolic_call_latex(node:any):
         "abs" => "\\left|" & symbolic_latex(node.args.(0)) & "\\right|"
         "vector" => "\\begin{pmatrix}" & symbolic_latex(node.args.(0)) & "\\\\" & symbolic_latex(node.args.(1)) & "\\end{pmatrix}"
         "complex" => symbolic_latex(node.args.(0)) & " + " & symbolic_latex(node.args.(1)) & "\\mathrm{i}"
+        "sum" => symbolic_range_template_latex("\\sum", "sum", node.args)
+        "product" => symbolic_range_template_latex("\\prod", "product", node.args)
+        "integrate" => symbolic_integral_template_latex(node.args)
+        "integral" => symbolic_integral_template_latex(node.args)
+        "integ" => symbolic_integral_template_latex(node.args)
         symbolic_function_application_latex(node.name) & "\\left(" & symbolic_latex_items(node.args, 0) & "\\right)"
+
+symbolic_range_template_latex(operator:str, name:str, args:any):
+    vkf_list_length(args) = 4?
+        @: operator & "_{" & symbolic_latex(args.(1)) & "=" & symbolic_latex(args.(2)) & "}^{" & symbolic_template_bound_latex(args.(3)) & "} " & symbolic_latex(args.(0))
+    symbolic_function_application_latex(name) & "\\left(" & symbolic_latex_items(args, 0) & "\\right)"
+
+symbolic_integral_template_latex(args:any):
+    vkf_list_length(args) = 4?
+        @: "\\int_{" & symbolic_latex(args.(2)) & "}^{" & symbolic_template_bound_latex(args.(3)) & "} " & symbolic_latex(args.(0)) & "\\,d" & symbolic_latex(args.(1))
+    symbolic_function_application_latex("integrate") & "\\left(" & symbolic_latex_items(args, 0) & "\\right)"
+
+symbolic_template_bound_latex(node:any):
+    node.kind = "variable" /\ node.name = "inf"?
+        @: "\\infty"
+    symbolic_latex(node)
 
 symbolic_function_latex(name:str):
     symbolic_document_source_end(name, 0)??
@@ -1821,10 +1841,191 @@ symbolic_draft_latex_tokens(tokens:any, index:num):
     current.kind??
         "EOF" => ""
         "CARET" => symbolic_draft_power_latex(tokens, index)
+        "IDENT" => symbolic_draft_identifier_tail_latex(tokens, index)
         symbolic_draft_token_latex(tokens, index) & symbolic_draft_latex_tokens(
             tokens,
             index + 1
         )
+
+symbolic_draft_identifier_tail_latex(tokens:any, index:num):
+    next: tokens.(index + 1)
+    next.kind = "LPAREN"?
+        preview: symbolic_draft_call_preview(tokens, index)
+        @: preview.latex & symbolic_draft_latex_tokens(tokens, preview.next)
+    symbolic_draft_identifier_latex(tokens, index) & symbolic_draft_latex_tokens(tokens, index + 1)
+
+symbolic_draft_call_preview(tokens:any, index:num):
+    name: tokens.(index).text
+    open: index + 1
+    close: symbolic_draft_call_end(tokens, open + 1, 0)
+    latex: symbolic_draft_call_template_latex(name, tokens, open, close)
+    (
+        latex: latex,
+        next: symbolic_draft_call_next(tokens, close)
+    )
+
+symbolic_draft_call_next(tokens:any, close:num):
+    tokens.(close).kind = "RPAREN"?
+        @: close + 1
+    close
+
+symbolic_draft_call_template_latex(name:str, tokens:any, open:num, close:num):
+    name??
+        "sum" => symbolic_draft_range_template_latex(tokens, open, "\\sum")
+        "product" => symbolic_draft_range_template_latex(tokens, open, "\\prod")
+        "integrate" => symbolic_draft_integral_template_latex(tokens, open)
+        "integral" => symbolic_draft_integral_template_latex(tokens, open)
+        "integ" => symbolic_draft_integral_template_latex(tokens, open)
+        symbolic_function_application_latex(name) & "\\left(" & symbolic_draft_latex_range(tokens, open + 1, close) & "\\right)"
+
+symbolic_draft_call_end(tokens:any, index:num, depth:num):
+    current: tokens.(index)
+    current.kind??
+        "EOF" => index
+        "LPAREN" => symbolic_draft_call_end(tokens, index + 1, depth + 1)
+        "LBRACKET" => symbolic_draft_call_end(tokens, index + 1, depth + 1)
+        "LBRACE" => symbolic_draft_call_end(tokens, index + 1, depth + 1)
+        "RPAREN" => symbolic_draft_call_end_after_close(tokens, index, depth)
+        "RBRACKET" => symbolic_draft_call_end(tokens, index + 1, depth - 1)
+        "RBRACE" => symbolic_draft_call_end(tokens, index + 1, depth - 1)
+        symbolic_draft_call_end(tokens, index + 1, depth)
+
+symbolic_draft_call_end_after_close(tokens:any, index:num, depth:num):
+    depth = 0?
+        @: index
+    symbolic_draft_call_end(tokens, index + 1, depth - 1)
+
+symbolic_draft_call_argument_start(tokens:any, open:num, target:num):
+    target = 0?
+        @: open + 1
+    symbolic_draft_call_argument_start_at(tokens, open + 1, target, 0)
+
+symbolic_draft_call_argument_start_at(tokens:any, index:num, remaining:num, depth:num):
+    current: tokens.(index)
+    current.kind??
+        "EOF" => -1
+        "LPAREN" => symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth + 1)
+        "LBRACKET" => symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth + 1)
+        "LBRACE" => symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth + 1)
+        "RPAREN" => symbolic_draft_argument_start_after_close(tokens, index, remaining, depth)
+        "RBRACKET" => symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth - 1)
+        "RBRACE" => symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth - 1)
+        "COMMA" => symbolic_draft_argument_start_after_comma(tokens, index, remaining, depth)
+        symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth)
+
+symbolic_draft_argument_start_after_close(tokens:any, index:num, remaining:num, depth:num):
+    depth = 0?
+        @: -1
+    symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth - 1)
+
+symbolic_draft_argument_start_after_comma(tokens:any, index:num, remaining:num, depth:num):
+    depth > 0?
+        @: symbolic_draft_call_argument_start_at(tokens, index + 1, remaining, depth)
+    remaining = 1?
+        @: index + 1
+    symbolic_draft_call_argument_start_at(tokens, index + 1, remaining - 1, depth)
+
+symbolic_draft_call_argument_end(tokens:any, index:num, depth:num):
+    current: tokens.(index)
+    current.kind??
+        "EOF" => index
+        "COMMA" => symbolic_draft_argument_end_after_comma(tokens, index, depth)
+        "LPAREN" => symbolic_draft_call_argument_end(tokens, index + 1, depth + 1)
+        "LBRACKET" => symbolic_draft_call_argument_end(tokens, index + 1, depth + 1)
+        "LBRACE" => symbolic_draft_call_argument_end(tokens, index + 1, depth + 1)
+        "RPAREN" => symbolic_draft_argument_end_after_close(tokens, index, depth)
+        "RBRACKET" => symbolic_draft_call_argument_end(tokens, index + 1, depth - 1)
+        "RBRACE" => symbolic_draft_call_argument_end(tokens, index + 1, depth - 1)
+        symbolic_draft_call_argument_end(tokens, index + 1, depth)
+
+symbolic_draft_argument_end_after_comma(tokens:any, index:num, depth:num):
+    depth = 0?
+        @: index
+    symbolic_draft_call_argument_end(tokens, index + 1, depth)
+
+symbolic_draft_argument_end_after_close(tokens:any, index:num, depth:num):
+    depth = 0?
+        @: index
+    symbolic_draft_call_argument_end(tokens, index + 1, depth - 1)
+
+symbolic_draft_call_argument_latex(tokens:any, open:num, target:num):
+    start: symbolic_draft_call_argument_start(tokens, open, target)
+    start < 0?
+        @: ""
+    symbolic_draft_latex_range(tokens, start, symbolic_draft_call_argument_end(tokens, start, 0))
+
+symbolic_draft_call_has_argument(tokens:any, open:num, target:num):
+    symbolic_draft_call_argument_start(tokens, open, target) >= 0
+
+symbolic_draft_range_template_latex(tokens:any, open:num, operator:str):
+    body: symbolic_draft_call_argument_latex(tokens, open, 0)
+    symbolic_draft_call_has_argument(tokens, open, 1) = false?
+        @: operator & symbolic_draft_template_body_latex(body)
+    variable: symbolic_draft_call_argument_latex(tokens, open, 1)
+    lower: symbolic_draft_call_argument_latex(tokens, open, 2)
+    upper: symbolic_draft_call_argument_latex(tokens, open, 3)
+    limits: "_{" & variable & "=" & lower & "}"
+    symbolic_draft_call_has_argument(tokens, open, 3)?
+        @: operator & limits & "^{" & symbolic_draft_template_bound_latex(upper) & "}" & symbolic_draft_template_body_latex(body)
+    operator & limits & symbolic_draft_template_body_latex(body)
+
+symbolic_draft_integral_template_latex(tokens:any, open:num):
+    body: symbolic_draft_call_argument_latex(tokens, open, 0)
+    variable: symbolic_draft_call_argument_latex(tokens, open, 1)
+    lower: symbolic_draft_call_argument_latex(tokens, open, 2)
+    upper: symbolic_draft_call_argument_latex(tokens, open, 3)
+    operator: symbolic_draft_integral_operator(tokens, open, lower, upper)
+    differential: symbolic_draft_integral_differential(tokens, open, variable)
+    operator & symbolic_draft_template_body_latex(body) & differential
+
+symbolic_draft_integral_operator(tokens:any, open:num, lower:str, upper:str):
+    lower_operator: symbolic_draft_integral_lower_operator(tokens, open, lower)
+    symbolic_draft_call_has_argument(tokens, open, 3)?
+        @: lower_operator & "^{" & symbolic_draft_template_bound_latex(upper) & "}"
+    lower_operator
+
+symbolic_draft_integral_lower_operator(tokens:any, open:num, lower:str):
+    symbolic_draft_call_has_argument(tokens, open, 2)?
+        @: "\\int_{" & lower & "}"
+    operator: "\\int"
+    operator
+
+symbolic_draft_integral_differential(tokens:any, open:num, variable:str):
+    symbolic_draft_call_has_argument(tokens, open, 1)?
+        @: "\\,d" & variable
+    empty: ""
+    empty
+
+symbolic_draft_template_body_latex(body:str):
+    body = ""?
+        @: ""
+    padded: " " & body
+    padded
+
+symbolic_draft_template_bound_latex(bound:str):
+    bound = "inf"?
+        @: "\\infty"
+    bound
+
+symbolic_draft_latex_range(tokens:any, index:num, end:num):
+    index >= end?
+        @: ""
+    current: tokens.(index)
+    current.kind = "CARET"?
+        @: symbolic_draft_power_latex_range(tokens, index, end)
+    current.kind = "IDENT" /\ index + 1 < end /\ tokens.(index + 1).kind = "LPAREN"?
+        preview: symbolic_draft_call_preview(tokens, index)
+        @: preview.latex & symbolic_draft_latex_range(tokens, preview.next, end)
+    symbolic_draft_token_latex(tokens, index) & symbolic_draft_latex_range(tokens, index + 1, end)
+
+symbolic_draft_power_latex_range(tokens:any, index:num, end:num):
+    index + 1 >= end?
+        @: "^{}"
+    next: tokens.(index + 1)
+    next.kind??
+        "NUMBER" => "^{" & next.text & "}" & symbolic_draft_latex_range(tokens, index + 2, end)
+        "IDENT" => "^{" & symbolic_variable_latex(next.text) & "}" & symbolic_draft_latex_range(tokens, index + 2, end)
+        "^{}" & symbolic_draft_latex_range(tokens, index + 1, end)
 
 symbolic_draft_power_latex(tokens:any, index:num):
     next: tokens.(index + 1)

@@ -46,16 +46,26 @@ test('uses canonical LaTeX when the symbolic program is complete', async () => {
   assert.deepEqual(draft.diagnostics, []);
 });
 
-test('renders known call structure incrementally without inventing sum execution', async () => {
+test('renders function templates incrementally with visually closed calls', async () => {
   const kernel = await loadKernel();
-  const partial = kernel.compileDraft('sum(k,0,4,k^2').value;
+  for (const [source, latex] of [
+    ['sin(', '\\operatorname{sin}\\!\\left(\\right)'],
+    ['sin(x', '\\operatorname{sin}\\!\\left(x\\right)'],
+    ['sin(cos(', '\\operatorname{sin}\\!\\left(\\operatorname{cos}\\!\\left(\\right)\\right)'],
+    ['sum(', '\\sum'],
+    ['sum(x^k', '\\sum x^{k}'],
+    ['sum(x^k,k', '\\sum_{k=} x^{k}'],
+    ['sum(x^k,k,1', '\\sum_{k=1} x^{k}'],
+    ['sum(x^k,k,1,2', '\\sum_{k=1}^{2} x^{k}']
+  ]) {
+    const partial = kernel.compileDraft(source).value;
+    assert.equal(partial.latex, latex, source);
+    assert.equal(partial.complete, false, source);
+    assert.equal(partial.recoverable, true, source);
+  }
 
-  assert.equal(partial.latex, '\\operatorname{sum}(k, 0, 4, k^{2}');
-  assert.equal(partial.complete, false);
-  assert.equal(partial.recoverable, true);
-
-  const compiled = kernel.compile('sum(k,0,4,k^2)');
-  assert.equal(compiled.value.latex, '\\operatorname{sum}\\!\\left(k, 0, 4, {k}^{2}\\right)');
+  const compiled = kernel.compile('sum(x^k,k,1,2)');
+  assert.equal(compiled.value.latex, '\\sum_{k=1}^{2} {x}^{k}');
 });
 
 test('cancel rolls an invalid editor draft back to the latest valid executable expression', async () => {
