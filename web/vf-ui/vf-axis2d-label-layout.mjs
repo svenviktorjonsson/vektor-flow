@@ -62,6 +62,36 @@ export function solveAxis2dBoundaryLabel({
   });
 }
 
+export function solveAxis2dSideLabel({
+  axisPoint,
+  preferredNormal,
+  labelSize,
+  bounds,
+  axisGap = 5,
+  framePadding = 4
+} = {}) {
+  const anchor = point(axisPoint, 'axisPoint');
+  const normal = unit(preferredNormal, null, 'preferredNormal');
+  const [width, height] = size(labelSize, 'labelSize');
+  const [viewportWidth, viewportHeight] = size(bounds, 'bounds');
+  const gap = Math.max(0, finite(axisGap, 5));
+  const padding = Math.max(0, finite(framePadding, 4));
+  const support = 0.5 * (
+    Math.abs(normal[0]) * width + Math.abs(normal[1]) * height
+  );
+  const requested = add(anchor, scale(normal, gap + support));
+  const center = [
+    clamp(requested[0], padding + width / 2, viewportWidth - padding - width / 2),
+    clamp(requested[1], padding + height / 2, viewportHeight - padding - height / 2)
+  ];
+  return Object.freeze({
+    left: center[0] - width / 2,
+    top: center[1] - height / 2,
+    center: freeze(center),
+    normal: freeze(normal)
+  });
+}
+
 function boundaryAnchor(origin, direction, inset, width, height) {
   const edges = [
     direction[0] > 1e-9 ? { t: (width - inset - origin[0]) / direction[0], side: 'right' } : null,
@@ -129,4 +159,5 @@ function scale(vector, scalar) { return [vector[0] * scalar, vector[1] * scalar]
 function add(left, right) { return [left[0] + right[0], left[1] + right[1]]; }
 function dot(left, right) { return left[0] * right[0] + left[1] * right[1]; }
 function finite(value, fallback) { return Number.isFinite(value) ? Number(value) : fallback; }
+function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
 function freeze(value) { return Object.freeze([...value]); }
