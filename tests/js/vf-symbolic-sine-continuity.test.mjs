@@ -74,6 +74,38 @@ test('emits an ordered smooth sin(x) line strip across negative pi', async () =>
   assert.ok(largestSecondDifference < 1e-4, `unexpected local spike: ${largestSecondDifference}`);
 });
 
+test('resolves the removable singularity in sin(x)/x during core plot evaluation', async () => {
+  const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
+  const manifest = JSON.parse(
+    await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
+  );
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  const workspace = kernel.createWorkspace();
+  const view = {
+    xMin: -1, xMax: 1, yMin: -1, yMax: 2, xSteps: 65, ySteps: 9,
+    fieldXSteps: 9, fieldYSteps: 9,
+    tMin: 0, tMax: 1, tSteps: 9, t: 0, vectorScale: 0.1
+  };
+  const style = {
+    edgeR: 1, edgeG: 1, edgeB: 1, edgeA: 1,
+    faceR: 1, faceG: 1, faceB: 1, faceA: 1,
+    valueMin: -1, valueMax: 2
+  };
+
+  const sinc = kernel.compile('sin(x)/x');
+  assert.ok(Math.abs(kernel.evaluate(sinc.handle, 0, 0) - 1) < 1e-6);
+  const sincPlot = kernel.plot(sinc.handle, workspace.handle, view, style, 1);
+  const centerY = sincPlot.data[Math.floor(view.xSteps / 2) * 6 + 1];
+  assert.ok(Number.isFinite(centerY));
+  assert.ok(Math.abs(centerY - 1) < 1e-6, `expected sinc(0)=1, received ${centerY}`);
+
+  const pole = kernel.compile('1/(x^2)');
+  const polePlot = kernel.plot(pole.handle, workspace.handle, view, style, 2);
+  const poleCenterY = polePlot.data[Math.floor(view.xSteps / 2) * 6 + 1];
+  assert.equal(Number.isFinite(poleCenterY), false);
+});
+
 test('evaluates temporal curves continuously beyond the sampled time window', async () => {
   const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
   const manifest = JSON.parse(

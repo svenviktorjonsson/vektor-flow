@@ -65,6 +65,47 @@ test('maps scalar, complex, and vector literals into complex-plane vertices', as
   assert.deepEqual(plotGeometry(kernel, workspace, '[1,3]').geometry.points, [[1, 3]]);
 });
 
+test('applies workspace inequalities to later curves and marks inclusive endpoints', async () => {
+  const kernel = await createKernel();
+  const context = {
+    kind: 'global', dimension: 2, originX: 0, originY: 0,
+    basisXX: 1, basisXY: 0, basisYX: 0, basisYY: 1
+  };
+
+  const strictConstraint = kernel.workspaceCompile(
+    kernel.createWorkspace().handle, 'x<2', context
+  );
+  const strictCurve = kernel.workspaceCompile(
+    strictConstraint.workspace, 'x^2', context
+  );
+  const strictPlot = kernel.plot(
+    strictCurve.program, strictCurve.workspace,
+    { ...view, xMin: -4, xMax: 4, xSteps: 9 }, style, 1
+  );
+  assert.deepEqual(strictPlot.ranges.map((range) => ({ ...range })), [
+    { mode: 'time-curve', part: 'edge', first: 0, count: 9 }
+  ]);
+  assert.equal(strictPlot.data[6 * 6], 2);
+  assert.equal(strictPlot.data[6 * 6 + 1], 4);
+  assert.equal(Number.isFinite(strictPlot.data[7 * 6 + 1]), false);
+
+  const closedConstraint = kernel.workspaceCompile(
+    kernel.createWorkspace().handle, 'x<=2', context
+  );
+  const closedCurve = kernel.workspaceCompile(
+    closedConstraint.workspace, 'x^2', context
+  );
+  const closedPlot = kernel.plot(
+    closedCurve.program, closedCurve.workspace,
+    { ...view, xMin: -4, xMax: 4, xSteps: 9 }, style, 2
+  );
+  assert.deepEqual(closedPlot.ranges.map((range) => ({ ...range })), [
+    { mode: 'time-curve', part: 'edge', first: 0, count: 9 },
+    { mode: 'points', part: 'edge', first: 9, count: 1 }
+  ]);
+  assert.deepEqual(Array.from(closedPlot.data.slice(9 * 6, 9 * 6 + 2)), [2, 4]);
+});
+
 test('maps exponent sets to points and exponent tuples to open linked geometry', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;

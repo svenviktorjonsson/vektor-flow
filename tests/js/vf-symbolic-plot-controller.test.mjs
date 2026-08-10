@@ -331,7 +331,7 @@ test('hit-tests plot geometry in CSS screen coordinates', () => {
   assert.equal(hitTestSymbolicPlotGeometry(geometry, [10, 0, 0, -10, 100, 50], [110, 56], 5), null);
 });
 
-test('skips non-finite discontinuity samples while hit-testing plot geometry', () => {
+test('skips non-finite samples while hit-testing plot geometry', () => {
   const geometry = {
     points: [[Number.NaN, 1]],
     segments: [
@@ -346,7 +346,7 @@ test('skips non-finite discontinuity samples while hit-testing plot geometry', (
   );
 });
 
-test('omits non-finite samples and discontinuity segments from snap geometry', () => {
+test('omits non-finite samples and invalid adjacent segments from snap geometry', () => {
   const data = new Float32Array([
     -1, 0, 0, 0, 0, 0,
     Number.NaN, Number.NaN, 0, 0, 0, 0,

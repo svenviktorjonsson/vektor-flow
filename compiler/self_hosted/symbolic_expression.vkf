@@ -1929,6 +1929,16 @@ symbolic_program_evaluate_at(
     context:any,
     workspace:SymbolicWorkspace
 ):
+    value: symbolic_raw_program_evaluate_at(program, x, y, z, t, context, workspace)
+    symbolic_number_is_finite(value)?
+        @: value
+    program.classification = "y-of-x"?
+        @: symbolic_recover_world_x_limit(program, x, y, z, t, context, workspace, value)
+    program.classification = "x-of-y"?
+        @: symbolic_recover_world_y_limit(program, x, y, z, t, context, workspace, value)
+    value
+
+symbolic_raw_program_evaluate_at(program:any, x:num, y:num, z:num, t:num, context:any, workspace:any):
     symbolic_evaluate(
         program.ast,
         symbolic_evaluation(x, y, z, t, context),
@@ -1945,6 +1955,16 @@ symbolic_program_evaluate_local_at(
     t:num,
     workspace:SymbolicWorkspace
 ):
+    value: symbolic_raw_program_evaluate_local_at(program, x, y, z, t, workspace)
+    symbolic_number_is_finite(value)?
+        @: value
+    program.classification = "y-of-x"?
+        @: symbolic_recover_local_x_limit(program, x, y, z, t, workspace, value)
+    program.classification = "x-of-y"?
+        @: symbolic_recover_local_y_limit(program, x, y, z, t, workspace, value)
+    value
+
+symbolic_raw_program_evaluate_local_at(program:any, x:num, y:num, z:num, t:num, workspace:any):
     symbolic_evaluate(
         program.ast,
         symbolic_local_evaluation(x, y, z, t, program.context),
@@ -1952,6 +1972,50 @@ symbolic_program_evaluate_local_at(
         vkf_list_empty(),
         vkf_list_empty()
     )
+
+symbolic_recover_world_x_limit(program:any, x:num, y:num, z:num, t:num, context:any, workspace:any, fallback:num):
+    outerDelta: (1 + vkf_math_abs(x)) * 0.0001
+    innerDelta: outerDelta / 2
+    outerLeft: symbolic_raw_program_evaluate_at(program, x - outerDelta, y, z, t, context, workspace)
+    outerRight: symbolic_raw_program_evaluate_at(program, x + outerDelta, y, z, t, context, workspace)
+    innerLeft: symbolic_raw_program_evaluate_at(program, x - innerDelta, y, z, t, context, workspace)
+    innerRight: symbolic_raw_program_evaluate_at(program, x + innerDelta, y, z, t, context, workspace)
+    symbolic_limit_pair_converges(outerLeft, outerRight, innerLeft, innerRight)?
+        @: (innerLeft + innerRight) / 2
+    fallback
+
+symbolic_recover_world_y_limit(program:any, x:num, y:num, z:num, t:num, context:any, workspace:any, fallback:num):
+    outerDelta: (1 + vkf_math_abs(y)) * 0.0001
+    innerDelta: outerDelta / 2
+    outerLeft: symbolic_raw_program_evaluate_at(program, x, y - outerDelta, z, t, context, workspace)
+    outerRight: symbolic_raw_program_evaluate_at(program, x, y + outerDelta, z, t, context, workspace)
+    innerLeft: symbolic_raw_program_evaluate_at(program, x, y - innerDelta, z, t, context, workspace)
+    innerRight: symbolic_raw_program_evaluate_at(program, x, y + innerDelta, z, t, context, workspace)
+    symbolic_limit_pair_converges(outerLeft, outerRight, innerLeft, innerRight)?
+        @: (innerLeft + innerRight) / 2
+    fallback
+
+symbolic_recover_local_x_limit(program:any, x:num, y:num, z:num, t:num, workspace:any, fallback:num):
+    outerDelta: (1 + vkf_math_abs(x)) * 0.0001
+    innerDelta: outerDelta / 2
+    outerLeft: symbolic_raw_program_evaluate_local_at(program, x - outerDelta, y, z, t, workspace)
+    outerRight: symbolic_raw_program_evaluate_local_at(program, x + outerDelta, y, z, t, workspace)
+    innerLeft: symbolic_raw_program_evaluate_local_at(program, x - innerDelta, y, z, t, workspace)
+    innerRight: symbolic_raw_program_evaluate_local_at(program, x + innerDelta, y, z, t, workspace)
+    symbolic_limit_pair_converges(outerLeft, outerRight, innerLeft, innerRight)?
+        @: (innerLeft + innerRight) / 2
+    fallback
+
+symbolic_recover_local_y_limit(program:any, x:num, y:num, z:num, t:num, workspace:any, fallback:num):
+    outerDelta: (1 + vkf_math_abs(y)) * 0.0001
+    innerDelta: outerDelta / 2
+    outerLeft: symbolic_raw_program_evaluate_local_at(program, x, y - outerDelta, z, t, workspace)
+    outerRight: symbolic_raw_program_evaluate_local_at(program, x, y + outerDelta, z, t, workspace)
+    innerLeft: symbolic_raw_program_evaluate_local_at(program, x, y - innerDelta, z, t, workspace)
+    innerRight: symbolic_raw_program_evaluate_local_at(program, x, y + innerDelta, z, t, workspace)
+    symbolic_limit_pair_converges(outerLeft, outerRight, innerLeft, innerRight)?
+        @: (innerLeft + innerRight) / 2
+    fallback
 
 symbolic_workspace_compile(
     workspace:SymbolicWorkspace,
@@ -2033,6 +2097,12 @@ symbolic_plot(
         @: symbolic_linked_power_plot_result(program, workspace, view.t, sampled)
     program.ast.kind = "tuple"?
         @: symbolic_linked_tuple_plot_result(program, sampled)
+    program.classification = "y-of-x"?
+        markedX: symbolic_append_closed_x_constraint_points(program, workspace, view, style, sampled, 0)
+        @: symbolic_constrained_curve_plot_result(markedX, "y-of-x", view.xSteps)
+    program.classification = "x-of-y"?
+        markedY: symbolic_append_closed_y_constraint_points(program, workspace, view, style, sampled, 0)
+        @: symbolic_constrained_curve_plot_result(markedY, "x-of-y", view.ySteps)
     program.classification = "closed-region"?
         @: symbolic_closed_region_plot_result(
             program,
@@ -2162,6 +2232,8 @@ symbolic_plot_capacity(program:any, workspace:any, view:any):
     base: symbolic_plot_single_capacity(program, workspace, view)
     symbolic_has_analytical_variants(program) \/ symbolic_has_literal_variants(program)?
         @: base * vkf_list_length(program.variants)
+    program.classification = "y-of-x" \/ program.classification = "x-of-y"?
+        @: base + vkf_list_length(workspace)
     base
 
 symbolic_plot_single_capacity(program:any, workspace:any, view:any):
@@ -2839,7 +2911,7 @@ symbolic_sample_explicit_x(
     index >= view.xSteps?
         @: builder
     x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
-    y: symbolic_program_evaluate_local_at(
+    rawY: symbolic_program_evaluate_local_at(
         program,
         x,
         0,
@@ -2847,6 +2919,9 @@ symbolic_sample_explicit_x(
         view.t,
         workspace
     )
+    resolvedY: symbolic_resolve_explicit_x_sample(program, workspace, view, x, rawY)
+    allowed: symbolic_workspace_point_within_constraints(program, workspace, x, resolvedY, 0, view.t, 0)
+    y: symbolic_constrained_value(allowed, resolvedY)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
     symbolic_sample_explicit_x(
         program,
@@ -2868,7 +2943,7 @@ symbolic_sample_explicit_y(
     index >= view.ySteps?
         @: builder
     y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
-    x: symbolic_program_evaluate_local_at(
+    rawX: symbolic_program_evaluate_local_at(
         program,
         0,
         y,
@@ -2876,6 +2951,9 @@ symbolic_sample_explicit_y(
         view.t,
         workspace
     )
+    resolvedX: symbolic_resolve_explicit_y_sample(program, workspace, view, y, rawX)
+    allowed: symbolic_workspace_point_within_constraints(program, workspace, resolvedX, y, 0, view.t, 0)
+    x: symbolic_constrained_value(allowed, resolvedX)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
     symbolic_sample_explicit_y(
         program,
@@ -2885,6 +2963,121 @@ symbolic_sample_explicit_y(
         pushed,
         index + 1
     )
+
+symbolic_number_is_finite(value:num):
+    value = value /\ value - value = 0
+
+symbolic_limit_pair_converges(outerLeft:num, outerRight:num, innerLeft:num, innerRight:num):
+    outerAverage: (outerLeft + outerRight) / 2
+    innerAverage: (innerLeft + innerRight) / 2
+    tolerance: 0.00001 * (1 + vkf_math_abs(innerAverage))
+    vkf_math_abs(outerAverage - innerAverage) <= tolerance
+
+symbolic_constrained_value(allowed:bit, value:num):
+    allowed?
+        @: value
+    zero: 0
+    zero / zero
+
+symbolic_workspace_point_within_constraints(program:any, workspace:any, localX:num, localY:num, z:num, t:num, index:num):
+    index >= vkf_list_length(workspace)?
+        @: 1 = 1
+    constraint: workspace.(index)
+    constraint.classification = "open-region" \/ constraint.classification = "closed-region"?
+        worldX: program.context.originX + program.context.basisXX * localX + program.context.basisYX * localY
+        worldY: program.context.originY + program.context.basisXY * localX + program.context.basisYY * localY
+        symbolic_constraint_contains_or_borders(constraint, workspace, worldX, worldY, z, t)?
+            @: symbolic_workspace_point_within_constraints(program, workspace, localX, localY, z, t, index + 1)
+        @: 0 = 1
+    symbolic_workspace_point_within_constraints(program, workspace, localX, localY, z, t, index + 1)
+
+symbolic_constraint_contains_or_borders(constraint:any, workspace:any, worldX:num, worldY:num, z:num, t:num):
+    evaluation: symbolic_evaluation(worldX, worldY, z, t, constraint.context)
+    value: symbolic_evaluate(constraint.ast, evaluation, workspace, vkf_list_empty(), vkf_list_empty())
+    value?
+        @: 1 = 1
+    left: symbolic_evaluate(constraint.ast.left, evaluation, workspace, vkf_list_empty(), vkf_list_empty())
+    right: symbolic_evaluate(constraint.ast.right, evaluation, workspace, vkf_list_empty(), vkf_list_empty())
+    tolerance: 0.000000001 * (1 + vkf_math_abs(left) + vkf_math_abs(right))
+    vkf_math_abs(left - right) <= tolerance
+
+symbolic_simple_closed_x_boundary(constraint:any, workspace:any, frameTime:num):
+    constraint.classification != "closed-region"?
+        @: null
+    constraint.ast.left.kind = "variable" /\ constraint.ast.left.name = "x" /\ symbolic_list_contains(symbolic_variables(constraint.ast.right), 0, "x") = false /\ symbolic_list_contains(symbolic_variables(constraint.ast.right), 0, "y") = false?
+        @: symbolic_evaluate(constraint.ast.right, symbolic_local_evaluation(0, 0, 0, frameTime, constraint.context), workspace, vkf_list_empty(), vkf_list_empty())
+    constraint.ast.right.kind = "variable" /\ constraint.ast.right.name = "x" /\ symbolic_list_contains(symbolic_variables(constraint.ast.left), 0, "x") = false /\ symbolic_list_contains(symbolic_variables(constraint.ast.left), 0, "y") = false?
+        @: symbolic_evaluate(constraint.ast.left, symbolic_local_evaluation(0, 0, 0, frameTime, constraint.context), workspace, vkf_list_empty(), vkf_list_empty())
+    missing: null
+    missing
+
+symbolic_simple_closed_y_boundary(constraint:any, workspace:any, frameTime:num):
+    constraint.classification != "closed-region"?
+        @: null
+    constraint.ast.left.kind = "variable" /\ constraint.ast.left.name = "y" /\ symbolic_list_contains(symbolic_variables(constraint.ast.right), 0, "x") = false /\ symbolic_list_contains(symbolic_variables(constraint.ast.right), 0, "y") = false?
+        @: symbolic_evaluate(constraint.ast.right, symbolic_local_evaluation(0, 0, 0, frameTime, constraint.context), workspace, vkf_list_empty(), vkf_list_empty())
+    constraint.ast.right.kind = "variable" /\ constraint.ast.right.name = "y" /\ symbolic_list_contains(symbolic_variables(constraint.ast.left), 0, "x") = false /\ symbolic_list_contains(symbolic_variables(constraint.ast.left), 0, "y") = false?
+        @: symbolic_evaluate(constraint.ast.left, symbolic_local_evaluation(0, 0, 0, frameTime, constraint.context), workspace, vkf_list_empty(), vkf_list_empty())
+    missing: null
+    missing
+
+symbolic_append_closed_x_constraint_points(program:any, workspace:any, view:any, style:any, builder:any, index:num):
+    index >= vkf_list_length(workspace)?
+        @: builder
+    boundary: symbolic_simple_closed_x_boundary(workspace.(index), workspace, view.t)
+    boundary = null \/ boundary < view.xMin \/ boundary > view.xMax?
+        @: symbolic_append_closed_x_constraint_points(program, workspace, view, style, builder, index + 1)
+    y: symbolic_program_evaluate_local_at(program, boundary, 0, 0, view.t, workspace)
+    pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(boundary, y, style))
+    symbolic_append_closed_x_constraint_points(program, workspace, view, style, pushed, index + 1)
+
+symbolic_append_closed_y_constraint_points(program:any, workspace:any, view:any, style:any, builder:any, index:num):
+    index >= vkf_list_length(workspace)?
+        @: builder
+    boundary: symbolic_simple_closed_y_boundary(workspace.(index), workspace, view.t)
+    boundary = null \/ boundary < view.yMin \/ boundary > view.yMax?
+        @: symbolic_append_closed_y_constraint_points(program, workspace, view, style, builder, index + 1)
+    x: symbolic_program_evaluate_local_at(program, 0, boundary, 0, view.t, workspace)
+    pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, boundary, style))
+    symbolic_append_closed_y_constraint_points(program, workspace, view, style, pushed, index + 1)
+
+symbolic_constrained_curve_plot_result(builder:any, classification:str, lineCount:num):
+    metadata: symbolic_plot_builder_metadata(builder)
+    pointCount: metadata.count - lineCount
+    lineRange: vkf_list_single((mode: "time-curve", part: "edge", first: 0, count: lineCount))
+    pointCount > 0?
+        pointsRange: vkf_list_single((mode: "points", part: "edge", first: lineCount, count: pointCount))
+        @: (pointer: metadata.pointer, count: metadata.count, stride: metadata.stride, revision: metadata.revision, ranges: lineRange & pointsRange)
+    lineOnly: (pointer: metadata.pointer, count: metadata.count, stride: metadata.stride, revision: metadata.revision, ranges: lineRange)
+    lineOnly
+
+symbolic_resolve_explicit_x_sample(program:any, workspace:any, view:any, x:num, value:num):
+    symbolic_number_is_finite(value)?
+        @: value
+    step: vkf_math_abs(view.xMax - view.xMin) / (view.xSteps - 1)
+    outerDelta: step / 1024
+    innerDelta: outerDelta / 2
+    outerLeft: symbolic_program_evaluate_local_at(program, x - outerDelta, 0, 0, view.t, workspace)
+    outerRight: symbolic_program_evaluate_local_at(program, x + outerDelta, 0, 0, view.t, workspace)
+    innerLeft: symbolic_program_evaluate_local_at(program, x - innerDelta, 0, 0, view.t, workspace)
+    innerRight: symbolic_program_evaluate_local_at(program, x + innerDelta, 0, 0, view.t, workspace)
+    symbolic_limit_pair_converges(outerLeft, outerRight, innerLeft, innerRight)?
+        @: (innerLeft + innerRight) / 2
+    value
+
+symbolic_resolve_explicit_y_sample(program:any, workspace:any, view:any, y:num, value:num):
+    symbolic_number_is_finite(value)?
+        @: value
+    step: vkf_math_abs(view.yMax - view.yMin) / (view.ySteps - 1)
+    outerDelta: step / 1024
+    innerDelta: outerDelta / 2
+    outerLeft: symbolic_program_evaluate_local_at(program, 0, y - outerDelta, 0, view.t, workspace)
+    outerRight: symbolic_program_evaluate_local_at(program, 0, y + outerDelta, 0, view.t, workspace)
+    innerLeft: symbolic_program_evaluate_local_at(program, 0, y - innerDelta, 0, view.t, workspace)
+    innerRight: symbolic_program_evaluate_local_at(program, 0, y + innerDelta, 0, view.t, workspace)
+    symbolic_limit_pair_converges(outerLeft, outerRight, innerLeft, innerRight)?
+        @: (innerLeft + innerRight) / 2
+    value
 
 symbolic_sample_parametric(
     program:any,
