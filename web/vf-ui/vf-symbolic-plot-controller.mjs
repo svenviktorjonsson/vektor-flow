@@ -398,10 +398,12 @@ export function hitTestSymbolicPlotGeometry(geometry, transform, screenPoint, ra
     best = Object.freeze({ kind, index, distance: candidate.distance, closest: Object.freeze(candidate.closest) });
   };
   for (const [index, value] of (geometry.points || []).entries()) {
+    if (!finitePlotPoint(value)) continue;
     const screen = applyAffine(affine, value);
     consider({ distance: Math.hypot(point[0] - screen[0], point[1] - screen[1]), closest: screen }, 'point', index);
   }
   for (const [index, segment] of (geometry.segments || []).entries()) {
+    if (!finitePlotPoint(segment?.[0]) || !finitePlotPoint(segment?.[1])) continue;
     const from = applyAffine(affine, segment[0]);
     const to = applyAffine(affine, segment[1]);
     consider(distanceToSegment(point, from, to), 'segment', index);
@@ -434,6 +436,7 @@ export function symbolicPlotSnapGeometry(arena) {
   const segments = [];
   const canonicalPoints = new Map();
   const canonicalPoint = (value) => {
+    if (!finitePlotPoint(value)) return null;
     const point = freezePoint(value);
     const key = `${point[0]},${point[1]}`;
     const existing = canonicalPoints.get(key);
@@ -446,21 +449,19 @@ export function symbolicPlotSnapGeometry(arena) {
     if (topology === 'point-list') {
       for (let index = 0; index < range.count; index += 1) {
         const point = canonicalPoint(vertexAt(arena.data, range.first + index));
-        if (!points.includes(point)) points.push(point);
+        if (point && !points.includes(point)) points.push(point);
       }
     } else if (topology === 'line-list') {
       for (let index = 0; index + 1 < range.count; index += 2) {
-        segments.push([
-          canonicalPoint(vertexAt(arena.data, range.first + index)),
-          canonicalPoint(vertexAt(arena.data, range.first + index + 1))
-        ]);
+        const from = canonicalPoint(vertexAt(arena.data, range.first + index));
+        const to = canonicalPoint(vertexAt(arena.data, range.first + index + 1));
+        if (from && to) segments.push([from, to]);
       }
     } else if (topology === 'line-strip') {
       for (let index = 0; index + 1 < range.count; index += 1) {
-        segments.push([
-          canonicalPoint(vertexAt(arena.data, range.first + index)),
-          canonicalPoint(vertexAt(arena.data, range.first + index + 1))
-        ]);
+        const from = canonicalPoint(vertexAt(arena.data, range.first + index));
+        const to = canonicalPoint(vertexAt(arena.data, range.first + index + 1));
+        if (from && to) segments.push([from, to]);
       }
     }
   }
@@ -1189,6 +1190,13 @@ function freezePoint(point) {
   return Object.freeze([...point].map((coordinate) => (
     Object.is(coordinate, -0) ? 0 : coordinate
   )));
+}
+
+function finitePlotPoint(point) {
+  return (Array.isArray(point) || ArrayBuffer.isView(point))
+    && point.length >= 2
+    && Number.isFinite(Number(point[0]))
+    && Number.isFinite(Number(point[1]));
 }
 
 function emptySnapGeometry() {

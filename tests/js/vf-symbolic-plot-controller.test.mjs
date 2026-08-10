@@ -331,6 +331,38 @@ test('hit-tests plot geometry in CSS screen coordinates', () => {
   assert.equal(hitTestSymbolicPlotGeometry(geometry, [10, 0, 0, -10, 100, 50], [110, 56], 5), null);
 });
 
+test('skips non-finite discontinuity samples while hit-testing plot geometry', () => {
+  const geometry = {
+    points: [[Number.NaN, 1]],
+    segments: [
+      [[-1, 0], [Number.NaN, Number.NaN]],
+      [[0, 0], [2, 0]]
+    ]
+  };
+
+  assert.deepEqual(
+    hitTestSymbolicPlotGeometry(geometry, [10, 0, 0, -10, 100, 50], [110, 54], 5),
+    { kind: 'segment', index: 1, distance: 4, closest: [110, 50] }
+  );
+});
+
+test('omits non-finite samples and discontinuity segments from snap geometry', () => {
+  const data = new Float32Array([
+    -1, 0, 0, 0, 0, 0,
+    Number.NaN, Number.NaN, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0,
+    2, 0, 0, 0, 0, 0
+  ]);
+
+  assert.deepEqual(symbolicPlotSnapGeometry({
+    data,
+    ranges: [{ topology: 'line-strip', first: 0, count: 4 }]
+  }), {
+    points: [],
+    segments: [[[1, 0], [2, 0]]]
+  });
+});
+
 test('controller compiles, plots, renders, and exposes snap geometry', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
