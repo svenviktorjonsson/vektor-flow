@@ -2030,6 +2030,7 @@ symbolic_draft_power_latex_range(tokens:any, index:num, end:num):
     next.kind??
         "NUMBER" => "^{" & next.text & "}" & symbolic_draft_latex_range(tokens, index + 2, end)
         "IDENT" => "^{" & symbolic_variable_latex(next.text) & "}" & symbolic_draft_latex_range(tokens, index + 2, end)
+        "LPAREN" => symbolic_draft_parenthesized_power_latex_range(tokens, index + 1, end)
         "^{}" & symbolic_draft_latex_range(tokens, index + 1, end)
 
 symbolic_draft_power_latex(tokens:any, index:num):
@@ -2043,7 +2044,51 @@ symbolic_draft_power_latex(tokens:any, index:num):
             tokens,
             index + 2
         )
+        "LPAREN" => symbolic_draft_parenthesized_power_latex(tokens, index + 1)
         "^{}" & symbolic_draft_latex_tokens(tokens, index + 1)
+
+symbolic_draft_parenthesized_power_latex(tokens:any, open:num):
+    close: symbolic_draft_power_group_end(tokens, open + 1, 0)
+    "^{" & symbolic_draft_latex_range(tokens, open + 1, close) & "}" & symbolic_draft_latex_tokens(
+        tokens,
+        symbolic_draft_call_next(tokens, close)
+    )
+
+symbolic_draft_parenthesized_power_latex_range(tokens:any, open:num, end:num):
+    close: symbolic_draft_power_group_end_range(tokens, open + 1, end, 0)
+    "^{" & symbolic_draft_latex_range(tokens, open + 1, close) & "}" & symbolic_draft_latex_range(
+        tokens,
+        symbolic_draft_call_next(tokens, close),
+        end
+    )
+
+symbolic_draft_power_group_end(tokens:any, index:num, depth:num):
+    current: tokens.(index)
+    current.kind??
+        "EOF" => index
+        "LPAREN" => symbolic_draft_power_group_end(tokens, index + 1, depth + 1)
+        "RPAREN" => symbolic_draft_power_group_end_after_close(tokens, index, depth)
+        symbolic_draft_power_group_end(tokens, index + 1, depth)
+
+symbolic_draft_power_group_end_after_close(tokens:any, index:num, depth:num):
+    depth = 0?
+        @: index
+    symbolic_draft_power_group_end(tokens, index + 1, depth - 1)
+
+symbolic_draft_power_group_end_range(tokens:any, index:num, end:num, depth:num):
+    index >= end?
+        @: end
+    current: tokens.(index)
+    current.kind??
+        "EOF" => index
+        "LPAREN" => symbolic_draft_power_group_end_range(tokens, index + 1, end, depth + 1)
+        "RPAREN" => symbolic_draft_power_group_end_range_after_close(tokens, index, end, depth)
+        symbolic_draft_power_group_end_range(tokens, index + 1, end, depth)
+
+symbolic_draft_power_group_end_range_after_close(tokens:any, index:num, end:num, depth:num):
+    depth = 0?
+        @: index
+    symbolic_draft_power_group_end_range(tokens, index + 1, end, depth - 1)
 
 symbolic_draft_token_latex(tokens:any, index:num):
     current: tokens.(index)

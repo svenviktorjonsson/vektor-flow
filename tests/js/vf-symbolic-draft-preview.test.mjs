@@ -83,6 +83,21 @@ test('renders function templates incrementally with invisible synthetic closers'
   assert.equal(compiled.value.latex, '\\sum_{k=1}^{2} {x}^{k}');
 });
 
+test('keeps an incomplete parenthesized exponent in superscript position', async () => {
+  const kernel = await loadKernel();
+
+  for (const [source, latex] of [
+    ['e^(', 'e^{}'],
+    ['e^(x', 'e^{x}'],
+    ['e^(x+1', 'e^{x + 1}']
+  ]) {
+    const partial = kernel.compileDraft(source).value;
+    assert.equal(partial.latex, latex, source);
+    assert.equal(partial.complete, false, source);
+    assert.equal(partial.recoverable, true, source);
+  }
+});
+
 test('cancel rolls an invalid editor draft back to the latest valid executable expression', async () => {
   const kernel = await loadKernel();
   const compiler = await createSymbolicCompiler({ kernel });
