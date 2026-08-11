@@ -1,4 +1,5 @@
 import { normalizeColorScale } from './vf-color-scale.mjs';
+import axis2dTicks from './vf-axis2d-ticks.js';
 
 export function createColorbarPresentation({
   id = '',
@@ -8,6 +9,7 @@ export function createColorbarPresentation({
 } = {}) {
   const scale = normalizeColorScale(colorScale);
   const ticks = formatColorbarTicks(scale.domain);
+  const axisTicks = createColorbarAxisTicks(scale.domain);
   const gradient = createVerticalColormapGradient(colormapPoints, scale.mode);
   const repeated = scale.mode === 'cyclic' ? ', repeated cyclically' : '';
   return Object.freeze({
@@ -16,6 +18,7 @@ export function createColorbarPresentation({
     colorScale: scale,
     gradient,
     ticks,
+    axisTicks,
     ariaLabel: `Color scale from ${ticks.minimum} to ${ticks.maximum}${repeated}`
   });
 }
@@ -112,6 +115,31 @@ export function createColorbarGestureController({ minimumSeparation = 1 } = {}) 
   return Object.freeze({ begin, update, end, cancel });
 }
 
+export function createColorbarAxisTicks(domain = [0, 1], {
+  extent = 240,
+  targetSpacing = 52
+} = {}) {
+  const [minimum, maximum] = normalizeColorScale({ domain }).domain;
+  const pixelExtent = Math.max(1, Number(extent) || 240);
+  const step = axis2dTicks.chooseAxisTickStep(
+    (maximum - minimum) / pixelExtent,
+    targetSpacing,
+    [1, 2, 5],
+    targetSpacing * 0.72,
+    targetSpacing * 1.45
+  );
+  const values = axis2dTicks.axisTickValuesForMode(
+    minimum, maximum, step, null, 'linear', false, [1, 2, 5],
+    pixelExtent, targetSpacing, targetSpacing * 0.72, targetSpacing * 1.45
+  );
+  const span = maximum - minimum;
+  return Object.freeze(values.map((value) => Object.freeze({
+    value,
+    unit: (value - minimum) / span,
+    label: axis2dTicks.formatAxisTickLabel(value, step)
+  })));
+}
+
 export function panColorbarDomain(domain, deltaPosition, extent) {
   const [minimum, maximum] = normalizeColorScale({ domain }).domain;
   const size = validExtent(extent);
@@ -153,10 +181,10 @@ export function createColorbarView({
   }
 
   const root = documentRef.createElement('figure');
-  const maximumTick = documentRef.createElement('span');
+  const axis = documentRef.createElement('div');
   const gradient = documentRef.createElement('div');
-  const minimumTick = documentRef.createElement('span');
-  const axisLabel = documentRef.createElement('figcaption');
+  const labelViewport = documentRef.createElement('figcaption');
+  const axisLabel = documentRef.createElement('span');
   let binding = null;
   let destroyed = false;
 
@@ -165,34 +193,35 @@ export function createColorbarView({
   root.setAttribute('role', 'group');
   root.style.cssText = [
     'display:grid',
-    'grid-template-columns:auto 28px auto',
-    'grid-template-rows:auto minmax(96px,1fr) auto',
+    'grid-template-columns:minmax(44px,auto) 40px minmax(0,1fr)',
+    'grid-template-rows:minmax(96px,1fr)',
     'align-items:center',
     'gap:4px 8px',
     'margin:0',
     'touch-action:none',
     'user-select:none'
   ].join(';');
+  axis.className = 'vf-colorbar__axis';
+  axis.style.cssText = 'position:relative;height:100%;min-height:96px';
   gradient.className = 'vf-colorbar__gradient';
   gradient.setAttribute('role', 'img');
   gradient.tabIndex = 0;
   gradient.style.cssText = [
-    'width:28px',
+    'width:40px',
     'min-height:96px',
     'border:1px solid currentColor',
     'box-sizing:border-box'
   ].join(';');
-  maximumTick.className = 'vf-colorbar__tick vf-colorbar__tick--maximum';
-  minimumTick.className = 'vf-colorbar__tick vf-colorbar__tick--minimum';
+  labelViewport.className = 'vf-colorbar__label-viewport';
   axisLabel.className = 'vf-colorbar__label';
-  maximumTick.style.fontVariantNumeric = 'tabular-nums';
-  minimumTick.style.fontVariantNumeric = 'tabular-nums';
-  root.append(maximumTick, gradient, minimumTick, axisLabel);
+  labelViewport.append(axisLabel);
+  root.append(axis, gradient, labelViewport);
 
   const pointerBinding = bindPointerGestures(root, {
     gestureController,
     getBinding: () => binding,
-    onDomainChange: publishDomain
+    onDomainChange: publishDomain,
+    getInteractionBounds: () => gradient.getBoundingClientRect()
   });
 
   function update(nextBinding) {
@@ -210,8 +239,10 @@ export function createColorbarView({
     root.setAttribute('aria-label', presentation.ariaLabel);
     gradient.setAttribute('aria-label', presentation.ariaLabel);
     gradient.style.background = presentation.gradient;
-    maximumTick.textContent = presentation.ticks.maximum;
-    minimumTick.textContent = presentation.ticks.minimum;
+    renderAxisTicks(axis, createColorbarAxisTicks(
+      presentation.colorScale.domain,
+      { extent: gradient.getBoundingClientRect?.().height || 240 }
+    ), documentRef);
     renderLabel(axisLabel, presentation.labelLatex);
     return presentation;
   }
@@ -257,7 +288,8 @@ export function createColorbarView({
 function bindPointerGestures(element, {
   gestureController,
   getBinding,
-  onDomainChange
+  onDomainChange,
+  getInteractionBounds = () => element.getBoundingClientRect()
 }) {
   const activePointers = new Map();
   let singlePointerBaseline = null;
@@ -265,7 +297,7 @@ function bindPointerGestures(element, {
   function gestureInput() {
     const current = getBinding();
     if (!current || activePointers.size !== 2) return null;
-    const bounds = element.getBoundingClientRect();
+    const bounds = getInteractionBounds();
     return Object.freeze({
       domain: current.colorScale.domain,
       extent: bounds.height,
@@ -294,7 +326,7 @@ function bindPointerGestures(element, {
       return;
     }
     if (event.pointerType !== 'touch') {
-      const bounds = element.getBoundingClientRect();
+      const bounds = getInteractionBounds();
       singlePointerBaseline = Object.freeze({
         pointerId: event.pointerId,
         domain: getBinding()?.colorScale?.domain,
@@ -314,7 +346,7 @@ function bindPointerGestures(element, {
       return;
     }
     if (singlePointerBaseline?.pointerId === event.pointerId) {
-      const bounds = element.getBoundingClientRect();
+      const bounds = getInteractionBounds();
       const position = bounds.bottom - event.clientY;
       onDomainChange(panColorbarDomain(
         singlePointerBaseline.domain,
@@ -349,7 +381,7 @@ function bindPointerGestures(element, {
     const current = getBinding();
     if (!current) return;
     consume(event);
-    const bounds = element.getBoundingClientRect();
+    const bounds = getInteractionBounds();
     const deltaUnit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? bounds.height : 1;
     const delta = clamp(Number(event.deltaY) * deltaUnit, -1000, 1000);
     const factor = Math.exp(delta * 0.001);
@@ -381,6 +413,24 @@ function bindPointerGestures(element, {
       singlePointerBaseline = null;
     }
   });
+}
+
+function renderAxisTicks(axis, ticks, documentRef) {
+  if (axis.replaceChildren) axis.replaceChildren();
+  else axis.children.length = 0;
+  for (const tick of ticks) {
+    const node = documentRef.createElement('span');
+    node.className = 'vf-colorbar__tick';
+    node.textContent = tick.label;
+    node.style.cssText = [
+      'position:absolute',
+      'right:0',
+      `bottom:${tick.unit * 100}%`,
+      'transform:translateY(50%)',
+      'font-variant-numeric:tabular-nums'
+    ].join(';');
+    axis.append(node);
+  }
 }
 
 function normalizeColormapPoints(points) {
