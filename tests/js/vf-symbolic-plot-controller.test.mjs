@@ -205,6 +205,45 @@ test('routes every relation in a mixed document through one GPU relation group',
   assert.equal(sampled, 0);
 });
 
+test('routes a scalar field directly to the GPU without CPU sampling', async () => {
+  let analyticInput = null;
+  let sampled = 0;
+  const program = {
+    diagnostics: [], variables: ['x', 'y'], classification: 'scalar-field',
+    valueKind: 'scalar', ast: { kind: 'variable', name: 'x' }
+  };
+  const renderer = {
+    async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+    setAnalyticRelations() { return null; },
+    setAnalyticScalarField(value) { analyticInput = value; return { shader: true }; },
+    setArena() {}, render() {}, resize() {}, destroy() {}
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() { return { value: program }; },
+      createWorkspace() { return { handle: 'workspace-0' }; },
+      workspaceCompile() { return { value: { program }, workspace: 'workspace-0' }; },
+      plot() { sampled += 1; throw new Error('scalar field must not be CPU sampled'); }
+    },
+    createRenderer: () => renderer
+  });
+
+  await controller.plot({
+    source: 'x', viewport,
+    colors: { edge: '#ffffff', face: '#ffffff', valueMin: -1, valueMax: 1 },
+    colormapPoints: [
+      { pos: 0, color: [0, 0, 255] },
+      { pos: 1, color: [255, 0, 0] }
+    ],
+    revision: 1
+  });
+
+  assert.equal(analyticInput.ast, program.ast);
+  assert.equal(sampled, 0);
+});
+
 test('normalizes device transforms at DPR 2 and 3', () => {
   assert.deepEqual(symbolicCssPixelTransform([80, 4, -6, -80, 600, 1000], 2),
     [40, 2, -3, -40, 300, 500]);

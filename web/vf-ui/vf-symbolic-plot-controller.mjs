@@ -126,6 +126,11 @@ export async function createSymbolicPlotController({
       : null;
     const relationPrograms = (documentPrograms || [program])
       .filter((member) => isSymbolicRelation(member?.classification));
+    const allPrograms = documentPrograms || [program];
+    const scalarFieldProgram = allPrograms.length === 1
+      && allPrograms[0]?.classification === 'scalar-field'
+      ? allPrograms[0]
+      : null;
     const relationInputs = relationPrograms.map((member) => ({
       ast: member.ast,
       variants: member.variants,
@@ -138,14 +143,27 @@ export async function createSymbolicPlotController({
     if (relationPrograms.length > 0 && !analyticRelation) {
       throw new Error('VKF GPU relation compiler does not support this expression');
     }
+    const analyticScalarField = relationPrograms.length === 0 && scalarFieldProgram
+      ? renderer.setAnalyticScalarField?.({
+          ast: scalarFieldProgram.ast,
+          style,
+          t: view.t
+        })
+      : (renderer.setAnalyticScalarField?.(null), null);
+    if (scalarFieldProgram && !analyticScalarField) {
+      throw new Error('VKF GPU scalar-field compiler does not support this expression');
+    }
     let nextSnapGeometry;
     let nextArena;
-    if (relationPrograms.length > 0 && relationPrograms.length === (documentPrograms || [program]).length) {
+    if (
+      (relationPrograms.length > 0 && relationPrograms.length === allPrograms.length)
+      || analyticScalarField
+    ) {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(requestOrder);
     } else if (result.diagnostics.length === 0) {
-      const sampledPrograms = (documentPrograms || [program])
-        .filter((member) => !isSymbolicRelation(member?.classification));
+      const sampledPrograms = allPrograms
+        .filter((member) => !isSymbolicRelation(member?.classification) && member !== scalarFieldProgram);
       const arenas = await Promise.all(sampledPrograms.map(async (member) =>
         snapshotSymbolicPlotArena(
           await kernel.plot(member, executionWorkspace, view, style, revision),

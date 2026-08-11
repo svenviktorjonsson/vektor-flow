@@ -1,4 +1,5 @@
 import {
+  compileSymbolicScalarFieldShader,
   compileSymbolicRelationShader,
   compileSymbolicRelationShaderGroup
 } from './vf-symbolic-relation-shader.mjs';
@@ -391,6 +392,20 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     return relation;
   }
 
+  function setAnalyticScalarField(nextField = null) {
+    assertAlive();
+    const shader = nextField
+      ? compileSymbolicScalarFieldShader(nextField.ast, nextField.style)
+      : null;
+    relation = shader ? Object.freeze({
+      shader,
+      style: Object.freeze({ ...nextField.style }),
+      t: Number(nextField.t) || 0
+    }) : null;
+    backend?.updateRelation?.(relation);
+    return relation;
+  }
+
   function updateTransform(nextTransform) {
     assertAlive();
     transform = normalizeTransform(nextTransform);
@@ -476,6 +491,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     updateAppearance,
     setAnalyticRelation,
     setAnalyticRelations,
+    setAnalyticScalarField,
     resize,
     render,
     pick,
@@ -509,7 +525,7 @@ function positive(value, fallback) {
 }
 
 function relationShaderKey(shader) {
-  return shader ? [shader.operator, shader.wgslBoundaryResidual, shader.glslBoundaryResidual, shader.wgslFillResidual, shader.glslFillResidual].join(':') : null;
+  return shader ? JSON.stringify(shader) : null;
 }
 
 function nonNegative(value, fallback) {
@@ -1168,6 +1184,7 @@ function writeWebGpuStrokePasses(device, buffers, appearance) {
 }
 
 export function webGpuRelationShaderSource(shader) {
+  if (shader.kind === 'scalar-field') return webGpuScalarFieldShaderSource(shader);
   const fill = shader.hasFill ? 'fillCoverage' : '0.0';
   const boundary = shader.hasBoundary ? 'boundaryCoverage' : '0.0';
   return `
@@ -2085,6 +2102,7 @@ function webGlRelationVertexSource() {
 }
 
 export function webGlRelationFragmentSource(shader) {
+  if (shader.kind === 'scalar-field') return webGlScalarFieldFragmentSource(shader);
   const fill = shader.hasFill ? 'fill_coverage' : '0.0';
   const boundary = shader.hasBoundary ? 'boundary_coverage' : '0.0';
   return `#version 300 es
@@ -2138,6 +2156,7 @@ export function webGlRelationFragmentSource(shader) {
 }
 
 export function webGlRelationPickFragmentSource(shader) {
+  if (shader.kind === 'scalar-field') return webGlScalarFieldPickFragmentSource();
   const faceHit = shader.hasFill ? 'inside_px >= 0.0' : 'false';
   return `#version 300 es
     precision highp float;
@@ -2172,6 +2191,92 @@ export function webGlRelationPickFragmentSource(shader) {
         discard;
       }
     }
+  `;
+}
+
+function shaderFloat(value) {
+  const number = Number(value);
+  const text = String(Number.isFinite(number) ? number : 0);
+  return /[.eE]/.test(text) ? text : `${text}.0`;
+}
+
+function shaderColor(point, type) {
+  const values = [...point.color, point.alpha].map(shaderFloat).join(', ');
+  return `${type}(${values})`;
+}
+
+function scalarColormapFunction(shader, language) {
+  const wgsl = language === 'wgsl';
+  const type = wgsl ? 'vec4f' : 'vec4';
+  const points = shader.colormapPoints;
+  const first = points[0];
+  const lines = [`${wgsl ? 'fn' : ''} texture${wgsl ? 'C' : '_c'}olor(unit: ${wgsl ? 'f32' : 'float'}) ${wgsl ? '->' : ''} ${type} {`];
+  if (!wgsl) lines[0] = `vec4 texture_color(float unit) {`;
+  lines.push(`  if (unit <= ${shaderFloat(first.pos)}) { return ${shaderColor(first, type)}; }`);
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const point = points[index];
+    const amount = `(unit - ${shaderFloat(previous.pos)}) / ${shaderFloat(Math.max(1e-12, point.pos - previous.pos))}`;
+    lines.push(`  if (unit <= ${shaderFloat(point.pos)}) { return mix(${shaderColor(previous, type)}, ${shaderColor(point, type)}, clamp(${amount}, 0.0, 1.0)); }`);
+  }
+  lines.push(`  return ${shaderColor(points.at(-1), type)};`, '}');
+  return lines.join('\n');
+}
+
+function webGpuScalarFieldShaderSource(shader) {
+  const domain = shaderFloat(Math.max(1e-12, shader.valueMax - shader.valueMin));
+  const normalize = shader.colorScaleMode === 'cyclic'
+    ? `fract((value - ${shaderFloat(shader.valueMin)}) / ${domain})`
+    : `clamp((value - ${shaderFloat(shader.valueMin)}) / ${domain}, 0.0, 1.0)`;
+  return `
+    struct RelationUniforms {
+      xRow: vec4f, yRow: vec4f, viewport: vec4f, faceColor: vec4f,
+      edgeColor: vec4f, selectionColor: vec4f, geometry: vec4f, interaction: vec4f,
+    }
+    @group(0) @binding(0) var<uniform> uniforms: RelationUniforms;
+    struct RelationVertexOutput { @builtin(position) position: vec4f, @location(0) screen: vec2f }
+    @vertex fn relationVertex(@builtin(vertex_index) index: u32) -> RelationVertexOutput {
+      let positions = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(-1.0, 3.0), vec2f(3.0, -1.0));
+      let position = positions[index]; var output: RelationVertexOutput;
+      output.position = vec4f(position, 0.0, 1.0);
+      output.screen = vec2f((position.x + 1.0) * 0.5 * uniforms.viewport.x, (1.0 - position.y) * 0.5 * uniforms.viewport.y);
+      return output;
+    }
+    ${scalarColormapFunction(shader, 'wgsl')}
+    @fragment fn relationFragment(input: RelationVertexOutput) -> @location(0) vec4f {
+      let a = uniforms.xRow.x; let c = uniforms.xRow.y; let e = uniforms.xRow.z;
+      let b = uniforms.yRow.x; let d = uniforms.yRow.y; let f = uniforms.yRow.z;
+      let translated = input.screen - vec2f(e, f); let determinant = a * d - b * c;
+      let local = vec2f((d * translated.x - c * translated.y) / determinant, (-b * translated.x + a * translated.y) / determinant);
+      let x = local.x; let y = local.y; let t = uniforms.interaction.z;
+      let value = ${shader.wgslValue}; let unit = ${normalize};
+      return textureColor(unit);
+    }
+    @fragment fn relationPickFragment() -> @location(0) u32 { return 1u; }
+  `;
+}
+
+function webGlScalarFieldFragmentSource(shader) {
+  const domain = shaderFloat(Math.max(1e-12, shader.valueMax - shader.valueMin));
+  const normalize = shader.colorScaleMode === 'cyclic'
+    ? `fract((value - ${shaderFloat(shader.valueMin)}) / ${domain})`
+    : `clamp((value - ${shaderFloat(shader.valueMin)}) / ${domain}, 0.0, 1.0)`;
+  return `#version 300 es
+    precision highp float; in vec2 v_screen; uniform mat3 u_transform; uniform float u_time;
+    out vec4 out_color; ${scalarColormapFunction(shader, 'glsl')}
+    void main() {
+      vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
+      float x = local.x; float y = local.y; float t = u_time;
+      float value = ${shader.glslValue}; float unit = ${normalize};
+      out_color = texture_color(unit);
+    }
+  `;
+}
+
+function webGlScalarFieldPickFragmentSource() {
+  return `#version 300 es
+    precision highp float; out vec4 out_color;
+    void main() { out_color = vec4(1.0 / 255.0, 0.0, 0.0, 0.0); }
   `;
 }
 

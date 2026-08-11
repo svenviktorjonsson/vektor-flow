@@ -9,6 +9,23 @@ const CALLS = Object.freeze({
   tan: ['tan', 'tan']
 });
 
+export function compileSymbolicScalarFieldShader(ast, style = {}) {
+  const wgslValue = emit(ast, 'wgsl');
+  const glslValue = emit(ast, 'glsl');
+  if (!wgslValue || !glslValue) return null;
+  const points = normalizedShaderColormap(style);
+  return Object.freeze({
+    kind: 'scalar-field',
+    operator: 'scalar-field',
+    wgslValue,
+    glslValue,
+    valueMin: finiteOr(style.valueMin, 0),
+    valueMax: finiteOr(style.valueMax, 1),
+    colorScaleMode: style.colorScaleMode === 'cyclic' ? 'cyclic' : 'clamp',
+    colormapPoints: points
+  });
+}
+
 export function compileSymbolicRelationShader(ast, variants = null) {
   const relations = Array.isArray(variants) && variants.length ? variants : [ast];
   if (!relations.every((relation) => relation?.kind === 'binary' && RELATION_OPERATORS.has(relation.op))) return null;
@@ -19,6 +36,7 @@ export function compileSymbolicRelationShader(ast, variants = null) {
   const boundaryResidual = (residuals) => combine(residuals.map((residual) => `abs(${residual})`), 'min');
   const fillOperator = ['<', '<='].includes(ast.op) ? 'min' : 'max';
   return Object.freeze({
+    kind: 'relation',
     operator: ast.op,
     hasFill: ast.op !== '=',
     hasBoundary: ['=', '<=', '>='].includes(ast.op),
@@ -44,6 +62,7 @@ export function compileSymbolicRelationShaderGroup(programs) {
         `((${shader[`${language}FillResidual`]}) * ${shader.insideSign.toFixed(1)})`), 'max')
     : '-1e20';
   return Object.freeze({
+    kind: 'relation',
     operator: 'group',
     hasFill: fills.length > 0,
     hasBoundary: boundaries.length > 0,
@@ -53,6 +72,28 @@ export function compileSymbolicRelationShaderGroup(programs) {
     wgslFillResidual: fill('wgsl'),
     glslFillResidual: fill('glsl')
   });
+}
+
+function normalizedShaderColormap(style) {
+  const source = Array.isArray(style.colormapPoints) && style.colormapPoints.length
+    ? style.colormapPoints
+    : [
+        { pos: 0, color: [0, 0, 0], alpha: 1 },
+        { pos: 1, color: [255, 255, 255], alpha: 1 }
+      ];
+  return Object.freeze(source
+    .map((point) => Object.freeze({
+      pos: Math.max(0, Math.min(1, finiteOr(point?.pos, 0))),
+      color: Object.freeze([0, 1, 2].map((index) =>
+        Math.max(0, Math.min(255, finiteOr(point?.color?.[index], 0))) / 255)),
+      alpha: Math.max(0, Math.min(1, finiteOr(point?.alpha, 1)))
+    }))
+    .sort((left, right) => left.pos - right.pos));
+}
+
+function finiteOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 

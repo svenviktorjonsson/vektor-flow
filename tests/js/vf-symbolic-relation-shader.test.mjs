@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  compileSymbolicScalarFieldShader,
   compileSymbolicRelationShader,
   compileSymbolicRelationShaderGroup
 } from '../../web/vf-ui/geom/vf-symbolic-relation-shader.mjs';
@@ -12,6 +13,28 @@ import {
 
 const variable = (name) => ({ kind: 'variable', name });
 const call = (name, ...args) => ({ kind: 'call', name, args });
+
+test('compiles scalar fields into per-pixel GPU expressions and colormaps', () => {
+  const shader = compileSymbolicScalarFieldShader({
+    kind: 'binary', op: '-',
+    left: { kind: 'binary', op: '^', left: variable('x'), right: { kind: 'number', value: 4 } },
+    right: { kind: 'binary', op: '^', left: variable('y'), right: { kind: 'number', value: 2 } }
+  }, {
+    valueMin: -2,
+    valueMax: 2,
+    colorScaleMode: 'clamp',
+    colormapPoints: [
+      { pos: 0, color: [0, 0, 255], alpha: 1 },
+      { pos: 1, color: [255, 0, 0], alpha: 1 }
+    ]
+  });
+
+  assert.equal(shader.kind, 'scalar-field');
+  assert.match(shader.wgslValue, /pow\(x, 4\.0\).*pow\(y, 2\.0\)/);
+  assert.match(shader.glslValue, /pow\(x, 4\.0\).*pow\(y, 2\.0\)/);
+  assert.match(webGpuRelationShaderSource(shader), /textureColor/);
+  assert.match(webGlRelationFragmentSource(shader), /texture_color/);
+});
 
 test('compiles a closed relation from the VKF AST without source interpolation', () => {
   const shader = compileSymbolicRelationShader({
