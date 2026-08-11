@@ -122,7 +122,7 @@ test('colorbar gestures use the fixed gradient track rather than panel padding',
     onDomainChange: (scale) => changes.push(scale.domain),
   });
   view.element.bounds = { top: 0, bottom: 200, height: 200 };
-  view.element.children[1].bounds = { top: 0, bottom: 100, height: 100 };
+  view.element.children[0].children[1].bounds = { top: 0, bottom: 100, height: 100 };
   view.update({ id: 'field', colorScale: { domain: [0, 1] } });
 
   view.element.dispatch('pointerdown', pointer(1, 75, 'mouse'));
@@ -181,11 +181,13 @@ test('DOM colorbar updates, hides, destroys, and publishes two-pointer domains',
   assert.equal(view.element.dataset.colorbarId, 'scalar-field');
   assert.equal(presentation.colorScale.mode, 'cyclic');
   assert.deepEqual(labels, ['x+y']);
-  const labelViewport = view.element.children.at(-1);
+  const panel = view.element.children[0];
+  assert.equal(panel.className, 'vf-colorbar__panel');
+  const labelViewport = panel.children.at(-1);
   assert.equal(labelViewport.children[0].textContent, 'x+y');
-  const axis = view.element.children[0];
+  const axis = panel.children[0];
   assert.ok(axis.children.length >= 3);
-  assert.equal(view.element.children[1].className, 'vf-colorbar__gradient');
+  assert.equal(panel.children[1].className, 'vf-colorbar__gradient');
 
   view.element.dispatch('pointerdown', pointer(1, 75));
   view.element.dispatch('pointerdown', pointer(2, 25));

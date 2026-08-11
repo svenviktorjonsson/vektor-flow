@@ -181,6 +181,7 @@ export function createColorbarView({
   }
 
   const root = documentRef.createElement('figure');
+  const panel = documentRef.createElement('div');
   const axis = documentRef.createElement('div');
   const gradient = documentRef.createElement('div');
   const labelViewport = documentRef.createElement('figcaption');
@@ -192,14 +193,19 @@ export function createColorbarView({
   root.hidden = true;
   root.setAttribute('role', 'group');
   root.style.cssText = [
-    'display:grid',
-    'grid-template-columns:minmax(44px,auto) 40px minmax(0,1fr)',
-    'grid-template-rows:minmax(96px,1fr)',
-    'align-items:center',
-    'gap:4px 8px',
+    'display:block',
     'margin:0',
     'touch-action:none',
     'user-select:none'
+  ].join(';');
+  panel.className = 'vf-colorbar__panel';
+  panel.style.cssText = [
+    'display:grid',
+    'grid-template-columns:minmax(32px,auto) 40px 52px',
+    'grid-template-rows:minmax(96px,1fr)',
+    'align-items:center',
+    'gap:0 6px',
+    'height:100%'
   ].join(';');
   axis.className = 'vf-colorbar__axis';
   axis.style.cssText = 'position:relative;height:100%;min-height:96px';
@@ -215,7 +221,8 @@ export function createColorbarView({
   labelViewport.className = 'vf-colorbar__label-viewport';
   axisLabel.className = 'vf-colorbar__label';
   labelViewport.append(axisLabel);
-  root.append(axis, gradient, labelViewport);
+  panel.append(axis, gradient, labelViewport);
+  root.append(panel);
 
   const pointerBinding = bindPointerGestures(root, {
     gestureController,
