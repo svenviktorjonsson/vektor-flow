@@ -144,6 +144,28 @@ test('uploads a retained simplex scene only when its records change', () => {
   assert.equal(scene.size, 1);
 });
 
+test('reuploads a retained simplex scene after its GPU target is invalidated', () => {
+  const uploads = [];
+  const renderer = {
+    setPackedVertices: (vertices, dirtyRange) => uploads.push({ vertices, dirtyRange })
+  };
+  const scene = createRetainedScreenSpaceSimplexScene();
+  scene.upsert('axis:x', {
+    kind: 'edge', from: [0, 0], to: [10, 0], width: 1, color: '#ffffff'
+  });
+
+  assert.equal(scene.commit(renderer), true);
+  assert.equal(scene.commit(renderer), false);
+  scene.invalidate();
+  assert.equal(scene.commit(renderer), true);
+
+  assert.equal(uploads.length, 2);
+  assert.deepEqual(uploads[1].dirtyRange, {
+    floatOffset: 0,
+    floatLength: uploads[1].vertices.length
+  });
+});
+
 test('uploads only the changed packed range when retained record sizes stay stable', () => {
   const uploads = [];
   const renderer = {

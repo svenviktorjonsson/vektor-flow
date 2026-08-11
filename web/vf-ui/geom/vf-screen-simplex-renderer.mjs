@@ -60,6 +60,7 @@ export function createRetainedScreenSpaceSimplexScene() {
   const records = new Map();
   let packed = new Float32Array();
   let dirty = false;
+  let invalidated = false;
 
   function upsert(id, primitive) {
     const key = String(id);
@@ -119,9 +120,20 @@ export function createRetainedScreenSpaceSimplexScene() {
       packed.set(record.packed, offset);
       offset += record.packed.length;
     }
-    renderer.setPackedVertices(packed, packedVertexDirtyRange(previous, packed));
+    renderer.setPackedVertices(
+      packed,
+      invalidated
+        ? Object.freeze({ floatOffset: 0, floatLength: packed.length })
+        : packedVertexDirtyRange(previous, packed)
+    );
     dirty = false;
+    invalidated = false;
     return true;
+  }
+
+  function invalidate() {
+    dirty = true;
+    invalidated = true;
   }
 
   return Object.freeze({
@@ -129,6 +141,7 @@ export function createRetainedScreenSpaceSimplexScene() {
     remove,
     replace,
     commit,
+    invalidate,
     get size() {
       return records.size;
     },
