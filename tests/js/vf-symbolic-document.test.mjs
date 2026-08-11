@@ -268,6 +268,12 @@ test('keeps recoverable mathematical prefixes as math until they become executab
   assert.equal(sum.latex, 'x + ');
   assert.equal(sum.spans[0].kind, 'math-draft');
 
+  const exponent = compiler.compileDocument('e^(', { profile: 'platonic' });
+  assert.equal(exponent.latex, 'e^{}');
+  assert.equal(exponent.complete, false);
+  assert.equal(exponent.recoverable, true);
+  assert.equal(exponent.spans[0].kind, 'math-draft');
+
   const mixed = compiler.compileDocument('This function x+', { profile: 'platonic' });
   assert.equal(mixed.latex, '\\mathrm{This\\ function\\ }x + ');
   assert.equal(mixed.complete, false);

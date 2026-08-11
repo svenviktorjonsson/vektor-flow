@@ -2833,7 +2833,7 @@ symbolic_document_math_anchor(source:str, offset:num, profile:str):
     symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)
 
 symbolic_document_known_identifier(name:str, profile:str):
-    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "phi" \/ name = "pi" \/ name = "i" \/ (profile = "platonic" /\ name = "xy")
+    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "e" \/ name = "phi" \/ name = "pi" \/ name = "i" \/ (profile = "platonic" /\ name = "xy")
 
 symbolic_document_program_supported(program:any, profile:str):
     profile != "platonic"?
