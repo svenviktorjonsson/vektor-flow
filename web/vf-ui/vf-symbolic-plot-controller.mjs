@@ -535,14 +535,25 @@ export async function createSymbolicCompiler({
       context = globalSymbolicContext(),
       clip = null
     } = {}) {
-      const expanded = expandSymbolicReferences(
+      const definitions = [
+        ...globalDefinitionSources,
+        ...(localDefinitions.get(String(scopeId)) || [])
+      ];
+      const displaySource = expandSymbolicReferences(
         String(source ?? ''),
-        [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+        definitions
       );
-      const result = kernel.compileWithContext(expanded, context, clip);
+      const semanticSource = expandBoundSymbolicConstants(displaySource, definitions);
+      const result = kernel.compileWithContext(semanticSource, context, clip);
+      const program = result.value?.program ?? result.value;
+      const displayResult = semanticSource === displaySource
+        ? null
+        : kernel.compileWithContext(displaySource, context, clip);
+      const displayLatex = (displayResult?.value?.program ?? displayResult?.value)?.latex ?? null;
       return scopedPublicProgramResult(
-        result.value?.program ?? result.value,
-        [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+        program,
+        definitions,
+        { latex: displayLatex }
       );
     },
     compileDocument(source, {
@@ -592,8 +603,11 @@ export async function createSymbolicCompiler({
       );
       const compiled = kernel.workspaceCompile(
         scopedWorkspace,
-        expandSymbolicReferences(
-          String(source ?? ''),
+        expandBoundSymbolicConstants(
+          expandSymbolicReferences(
+            String(source ?? ''),
+            [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
+          ),
           [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
         ),
         context,
@@ -784,6 +798,38 @@ function expandSymbolicReferences(source, definitionSources) {
       continue;
     }
     result += source[index++];
+  }
+  return result;
+}
+
+function expandBoundSymbolicConstants(source, definitionSources) {
+  if (parseSymbolicDefinition(source)) return source;
+  const definitions = new Map();
+  for (const sourceText of definitionSources) {
+    const definition = parseSymbolicDefinition(sourceText);
+    if (definition?.parameters.length === 0) definitions.set(definition.name, definition.body);
+  }
+  return expandBoundSymbolicConstantText(source, definitions, new Set());
+}
+
+function expandBoundSymbolicConstantText(source, definitions, active) {
+  let result = '';
+  for (let index = 0; index < source.length;) {
+    const match = /^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(index));
+    if (!match) {
+      result += source[index++];
+      continue;
+    }
+    const name = match[0];
+    const body = definitions.get(name);
+    if (body == null || active.has(name) || source[index - 1] === '$') {
+      result += name;
+    } else {
+      const nested = new Set(active);
+      nested.add(name);
+      result += `(${expandBoundSymbolicConstantText(body, definitions, nested)})`;
+    }
+    index += name.length;
   }
   return result;
 }
@@ -1099,7 +1145,7 @@ function publicDocumentResult(document, retainedProgram = null) {
   });
 }
 
-function scopedPublicProgramResult(program, definitionSources) {
+function scopedPublicProgramResult(program, definitionSources, { latex = null } = {}) {
   const result = publicProgramResult(program);
   const bound = new Set(definitionSources
     .map(parseSymbolicDefinition)
@@ -1107,6 +1153,7 @@ function scopedPublicProgramResult(program, definitionSources) {
     .map(({ name }) => name));
   return Object.freeze({
     ...result,
+    latex: latex ?? result.latex,
     variables: Object.freeze([...new Set(result.variables.filter((name) => !bound.has(name)))])
   });
 }

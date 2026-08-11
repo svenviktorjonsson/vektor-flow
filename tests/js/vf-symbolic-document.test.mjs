@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { createSymbolicKernel } from '../../web/vf-ui/vf-symbolic-kernel-runtime.mjs';
-import { createSymbolicCompiler } from '../../web/vf-ui/vf-symbolic-plot-controller.mjs';
+import {
+  createSymbolicCompiler,
+  symbolicPlotSeriesCount
+} from '../../web/vf-ui/vf-symbolic-plot-controller.mjs';
 
 const artifactRoot = new URL('../../web/vf-ui/artifacts/', import.meta.url);
 
@@ -121,6 +124,21 @@ test('expands $name and $(expression) for presentation and identical evaluation'
   assert.equal(kernel.workspaceEvaluate(
     program.workspace, program.value.handle, 2, 0
   ), 20);
+});
+
+test('distributes plain set-valued definitions without expanding their displayed name', async () => {
+  const compiler = await createCompiler();
+  compiler.setDefinitions({ global: ['a={1,2,3}'] });
+
+  const display = compiler.compileScoped('x^a');
+  const plain = compiler.compileScopedProgram('x^a');
+  const explicit = compiler.compileScopedProgram('x^$a');
+
+  assert.equal(display.latex, String.raw`{x}^{a}`);
+  assert.equal(display.classification, 'y-of-x-family');
+  assert.equal(symbolicPlotSeriesCount(plain), 3);
+  assert.equal(symbolicPlotSeriesCount(explicit), 3);
+  assert.deepEqual(plain.result.variants, explicit.result.variants);
 });
 
 test('removes resolved relation names from scoped free variables', async () => {
