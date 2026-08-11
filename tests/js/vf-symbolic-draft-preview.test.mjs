@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import { createSymbolicKernel } from '../../web/vf-ui/vf-symbolic-kernel-runtime.mjs';
 import {
+  completeTrailingSymbolicScopes,
   createSymbolicCompiler,
   createSymbolicEditorSession
 } from '../../web/vf-ui/vf-symbolic-plot-controller.mjs';
@@ -44,6 +45,20 @@ test('uses canonical LaTeX when the symbolic program is complete', async () => {
   assert.equal(draft.complete, true);
   assert.equal(draft.recoverable, true);
   assert.deepEqual(draft.diagnostics, []);
+});
+
+test('completes only missing trailing symbolic scopes', () => {
+  assert.deepEqual(completeTrailingSymbolicScopes('sin(x'), {
+    source: 'sin(x', completedSource: 'sin(x)', closers: ')', completable: true
+  });
+  assert.deepEqual(completeTrailingSymbolicScopes('[1,{2'), {
+    source: '[1,{2', completedSource: '[1,{2}]', closers: '}]', completable: true
+  });
+  assert.deepEqual(completeTrailingSymbolicScopes('x^{2'), {
+    source: 'x^{2', completedSource: 'x^{2}', closers: '}', completable: true
+  });
+  assert.equal(completeTrailingSymbolicScopes('(x]').completable, false);
+  assert.equal(completeTrailingSymbolicScopes(String.raw`\{x`).completable, false);
 });
 
 test('renders function templates incrementally with invisible synthetic closers', async () => {

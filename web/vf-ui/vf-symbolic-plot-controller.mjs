@@ -9,6 +9,39 @@ const CURVE_PIXELS_PER_SAMPLE = 0.5;
 const MIN_FIELD_STEPS = 17;
 const MAX_FIELD_STEPS = 17;
 const FLOATS_PER_VERTEX = 6;
+const SYMBOLIC_SCOPE_PAIRS = Object.freeze({ '(': ')', '[': ']', '{': '}' });
+const SYMBOLIC_SCOPE_CLOSERS = new Set(Object.values(SYMBOLIC_SCOPE_PAIRS));
+
+export function completeTrailingSymbolicScopes(source) {
+  const text = String(source ?? '');
+  const scopes = [];
+  for (let index = 0; index < text.length; index += 1) {
+    const token = text[index];
+    if (isEscapedSymbolicToken(text, index)) continue;
+    if (SYMBOLIC_SCOPE_PAIRS[token]) {
+      scopes.push(SYMBOLIC_SCOPE_PAIRS[token]);
+    } else if (SYMBOLIC_SCOPE_CLOSERS.has(token)) {
+      if (scopes.pop() !== token) {
+        return Object.freeze({ source: text, completedSource: text, closers: '', completable: false });
+      }
+    }
+  }
+  const closers = scopes.reverse().join('');
+  return Object.freeze({
+    source: text,
+    completedSource: text + closers,
+    closers,
+    completable: closers.length > 0
+  });
+}
+
+function isEscapedSymbolicToken(source, index) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
 
 export async function createSymbolicPlotController({
   canvas,
