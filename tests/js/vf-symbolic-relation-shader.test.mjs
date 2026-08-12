@@ -61,6 +61,7 @@ test('compiles complex fields into per-pixel phase color and magnitude alpha', (
   assert.match(wgsl, /phaseUnit.*textureColor/s);
   assert.match(wgsl, /length\(value\).*alpha/s);
   assert.doesNotMatch(wgsl, /\b(?:cosh|sinh)\s*\(/);
+  assert.doesNotMatch(wgsl, /fn complex(?:Sin|Cos|Sqrt|Div)/);
   assert.match(glsl, /phase_unit.*texture_color/s);
   assert.doesNotMatch(`${wgsl}\n${glsl}`, /17\.0/);
 });

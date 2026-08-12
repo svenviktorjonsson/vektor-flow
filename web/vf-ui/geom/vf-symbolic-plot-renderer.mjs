@@ -2489,7 +2489,7 @@ function scalarColormapFunction(shader, language) {
   return lines.join('\n');
 }
 
-function complexMathFunctions(language) {
+function complexMathFunctions(language, expression) {
   const wgsl = language === 'wgsl';
   const type = wgsl ? 'vec2f' : 'vec2';
   const angle = wgsl ? 'atan2(z.y, z.x)' : 'atan(z.y, z.x)';
@@ -2497,14 +2497,19 @@ function complexMathFunctions(language) {
   const declaration = (name, names) => wgsl
     ? `fn ${name}(${args(names)}) -> ${type}`
     : `${type} ${name}(${args(names)})`;
-  return `
+  const uses = (name) => String(expression).includes(name);
+  const usesPower = uses('complexPow');
+  const functions = [];
+  if (uses('complexMul') || usesPower) functions.push(`
     ${declaration('complexMul', ['a', 'b'])} {
       return ${type}(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
-    }
+    }`);
+  if (uses('complexDiv')) functions.push(`
     ${declaration('complexDiv', ['a', 'b'])} {
       ${wgsl ? 'let' : 'float'} denominator = max(dot(b, b), 1e-20);
       return ${type}((a.x * b.x + a.y * b.y) / denominator, (a.y * b.x - a.x * b.y) / denominator);
-    }
+    }`);
+  if (usesPower) functions.push(`
     ${declaration('complexLog', ['z'])} {
       return ${type}(log(max(length(z), 1e-20)), ${angle});
     }
@@ -2512,27 +2517,30 @@ function complexMathFunctions(language) {
       ${wgsl ? 'let' : 'float'} scale = exp(z.x);
       return scale * ${type}(cos(z.y), sin(z.y));
     }
-    ${declaration('complexPow', ['a', 'b'])} { return complexExp(complexMul(b, complexLog(a))); }
+    ${declaration('complexPow', ['a', 'b'])} { return complexExp(complexMul(b, complexLog(a))); }`);
+  if (uses('complexSin')) functions.push(`
     ${declaration('complexSin', ['z'])} {
       ${wgsl ? 'let' : 'float'} expY = exp(z.y);
       ${wgsl ? 'let' : 'float'} expNegY = exp(-z.y);
       ${wgsl ? 'let' : 'float'} coshY = 0.5 * (expY + expNegY);
       ${wgsl ? 'let' : 'float'} sinhY = 0.5 * (expY - expNegY);
       return ${type}(sin(z.x) * coshY, cos(z.x) * sinhY);
-    }
+    }`);
+  if (uses('complexCos')) functions.push(`
     ${declaration('complexCos', ['z'])} {
       ${wgsl ? 'let' : 'float'} expY = exp(z.y);
       ${wgsl ? 'let' : 'float'} expNegY = exp(-z.y);
       ${wgsl ? 'let' : 'float'} coshY = 0.5 * (expY + expNegY);
       ${wgsl ? 'let' : 'float'} sinhY = 0.5 * (expY - expNegY);
       return ${type}(cos(z.x) * coshY, -sin(z.x) * sinhY);
-    }
+    }`);
+  if (uses('complexSqrt')) functions.push(`
     ${declaration('complexSqrt', ['z'])} {
       ${wgsl ? 'let' : 'float'} radius = sqrt(length(z));
       ${wgsl ? 'let' : 'float'} halfAngle = 0.5 * (${angle});
       return radius * ${type}(cos(halfAngle), sin(halfAngle));
-    }
-  `;
+    }`);
+  return functions.join('\n');
 }
 
 function webGpuComplexFieldShaderSource(shader) {
@@ -2551,7 +2559,7 @@ function webGpuComplexFieldShaderSource(shader) {
       output.screen = vec2f((position.x + 1.0) * 0.5 * uniforms.viewport.x, (1.0 - position.y) * 0.5 * uniforms.viewport.y);
       return output;
     }
-    ${complexMathFunctions('wgsl')}
+    ${complexMathFunctions('wgsl', shader.wgslValue)}
     ${scalarColormapFunction(shader, 'wgsl')}
     @fragment fn relationFragment(input: RelationVertexOutput) -> @location(0) vec4f {
       let a = uniforms.xRow.x; let c = uniforms.xRow.y; let e = uniforms.xRow.z;
@@ -2575,7 +2583,7 @@ function webGlComplexFieldFragmentSource(shader) {
   return `#version 300 es
     precision highp float; in vec2 v_screen; uniform mat3 u_transform; uniform float u_time;
     out vec4 out_color;
-    ${complexMathFunctions('glsl')}
+    ${complexMathFunctions('glsl', shader.glslValue)}
     ${scalarColormapFunction(shader, 'glsl')}
     void main() {
       vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
