@@ -13,6 +13,7 @@ import {
   normalizeSymbolicPlotPickRequest,
   packSymbolicPlotSegments,
   resolveSymbolicPlotArena,
+  symbolicPlotSelectionHalo,
   symbolicPlotPointDraws,
   webGlPointFragmentSource,
   webGlPointVertexSource,
@@ -23,6 +24,16 @@ import {
   triangulateSymbolicPlotClip,
   triangulateSymbolicPlotClipRegion
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
+
+test('uses one centered selection halo instead of self-intersecting offset strokes', () => {
+  const appearance = normalizeSymbolicPlotAppearance({
+    edgeWidth: 2,
+    selectionGap: 4,
+    selectionWidth: 2
+  });
+
+  assert.deepEqual(symbolicPlotSelectionHalo(appearance), { width: 14, offset: 0 });
+});
 
 test('keeps curve selection joins at constant radius so contours cannot fold', () => {
   const shaders = [webGpuShaderSource(), webGlStrokeVertexSource()];

@@ -22,6 +22,14 @@ export const SYMBOLIC_PLOT_STROKE_MITER_LIMIT = 1;
 
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
 
+export function symbolicPlotSelectionHalo(appearance) {
+  return Object.freeze({
+    width: appearance.edgeWidth
+      + 2 * (appearance.selectionGap + appearance.selectionWidth),
+    offset: 0
+  });
+}
+
 export function symbolicPlotPointDraws(arena) {
   return Object.freeze((arena?.ranges || [])
     .filter((range) => range.topology === 'point-list' && range.count > 0)
@@ -1052,8 +1060,6 @@ async function createWebGpuBackend(canvas) {
         if (appearance.edgeSelectionAlpha > 0) {
           pass.setBindGroup(0, bindGroups[1]);
           pass.draw(6, currentArena.segmentCount);
-          pass.setBindGroup(0, bindGroups[2]);
-          pass.draw(6, currentArena.segmentCount);
         }
         pass.setBindGroup(0, bindGroups[0]);
         pass.draw(6, currentArena.segmentCount);
@@ -1173,7 +1179,7 @@ function writeWebGpuTransform(device, buffer, transform, size) {
 }
 
 function writeWebGpuStrokePasses(device, buffers, appearance) {
-  const offset = appearance.edgeWidth / 2 + appearance.selectionGap + appearance.selectionWidth / 2;
+  const halo = symbolicPlotSelectionHalo(appearance);
   const write = (buffer, width, strokeOffset, color, alpha, override) => {
     device.queue.writeBuffer(buffer, 0, new Float32Array([
       width, strokeOffset, override ? 1 : 0, 0,
@@ -1181,8 +1187,8 @@ function writeWebGpuStrokePasses(device, buffers, appearance) {
     ]));
   };
   write(buffers[0], appearance.edgeWidth, 0, [0, 0, 0], 0, false);
-  write(buffers[1], appearance.selectionWidth, -offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
-  write(buffers[2], appearance.selectionWidth, offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+  write(buffers[1], halo.width, halo.offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+  write(buffers[2], 0, 0, appearance.selectionColor, 0, true);
   write(buffers[3], 0, 0, appearance.selectionColor, appearance.faceSelectionAlpha, true);
 }
 
@@ -1859,9 +1865,8 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   };
   if (appearance.edgeSelectionAlpha > 0) {
-    const offset = appearance.edgeWidth / 2 + appearance.selectionGap + appearance.selectionWidth / 2;
-    draw(appearance.selectionWidth, -offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
-    draw(appearance.selectionWidth, offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+    const halo = symbolicPlotSelectionHalo(appearance);
+    draw(halo.width, halo.offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
   }
   draw(appearance.edgeWidth, 0, [0, 0, 0], 0, false);
   for (const [location] of attributes) gl.vertexAttribDivisor(location, 0);
