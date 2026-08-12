@@ -131,32 +131,53 @@ export async function createSymbolicPlotController({
       && allPrograms[0]?.classification === 'scalar-field'
       ? allPrograms[0]
       : null;
+    const complexFieldProgram = allPrograms.length === 1
+      && allPrograms[0]?.classification === 'complex-field'
+      ? allPrograms[0]
+      : null;
     const relationInputs = relationPrograms.map((member) => ({
       ast: member.ast,
       variants: member.variants,
       style,
       t: view.t
     }));
-    const analyticRelation = typeof renderer.setAnalyticRelations === 'function'
-      ? renderer.setAnalyticRelations(relationInputs)
-      : renderer.setAnalyticRelation?.(relationInputs[0] || null);
+    const analyticRelation = relationPrograms.length > 0
+      ? (typeof renderer.setAnalyticRelations === 'function'
+          ? renderer.setAnalyticRelations(relationInputs)
+          : renderer.setAnalyticRelation?.(relationInputs[0] || null))
+      : null;
     if (relationPrograms.length > 0 && !analyticRelation) {
       throw new Error('VKF GPU relation compiler does not support this expression');
     }
-    const analyticScalarField = relationPrograms.length === 0 && scalarFieldProgram
+    const analyticComplexField = relationPrograms.length === 0 && complexFieldProgram
+      ? renderer.setAnalyticComplexField?.({
+          ast: complexFieldProgram.ast,
+          style,
+          t: view.t
+        })
+      : null;
+    if (complexFieldProgram && !analyticComplexField) {
+      throw new Error('VKF GPU complex-field compiler does not support this expression');
+    }
+    const analyticScalarField = relationPrograms.length === 0 && !complexFieldProgram && scalarFieldProgram
       ? renderer.setAnalyticScalarField?.({
           ast: scalarFieldProgram.ast,
           style,
           t: view.t
         })
-      : (renderer.setAnalyticScalarField?.(null), null);
+      : null;
     if (scalarFieldProgram && !analyticScalarField) {
       throw new Error('VKF GPU scalar-field compiler does not support this expression');
+    }
+    if (!analyticRelation && !analyticComplexField && !analyticScalarField) {
+      if (typeof renderer.setAnalyticRelations === 'function') renderer.setAnalyticRelations(null);
+      else renderer.setAnalyticRelation?.(null);
     }
     let nextSnapGeometry;
     let nextArena;
     if (
       (relationPrograms.length > 0 && relationPrograms.length === allPrograms.length)
+      || analyticComplexField
       || analyticScalarField
     ) {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);

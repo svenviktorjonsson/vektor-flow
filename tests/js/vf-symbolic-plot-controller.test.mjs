@@ -548,6 +548,44 @@ test('routes relations directly to the GPU without invoking the sampled CPU plot
   assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
 });
 
+test('routes complex fields directly to per-pixel GPU evaluation', async () => {
+  let sampled = 0;
+  let analyticInput = null;
+  const program = {
+    diagnostics: [], latex: '{z}^{2}', variables: ['x', 'y'],
+    classification: 'complex-field', valueKind: 'complex',
+    ast: {
+      kind: 'binary', op: '^',
+      left: { kind: 'variable', name: 'z' },
+      right: { kind: 'number', value: 2 }
+    }
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: false },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() {},
+      createWorkspace() { return { handle: 1 }; },
+      workspaceCompile() { return { value: { program }, workspace: 1 }; },
+      plot() { sampled += 1; throw new Error('complex field must not be sampled'); }
+    },
+    createRenderer: () => ({
+      async initialize() {},
+      setAnalyticComplexField(value) { analyticInput = value; return value; },
+      setAnalyticRelations() { return null; },
+      updateTransform() {}, updateClip() {}, updateAppearance() {}, setArena() {},
+      render() {}, resize() {}, destroy() {}, async pick() { return null; }
+    })
+  });
+  await controller.plot({
+    source: 'z^2', viewport,
+    colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' }
+  });
+  assert.equal(sampled, 0);
+  assert.equal(analyticInput.ast, program.ast);
+  assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
+});
+
 test('keeps newer synchronous view frames when asynchronous sampling completes stale', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });

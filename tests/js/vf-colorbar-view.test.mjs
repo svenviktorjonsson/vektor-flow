@@ -6,6 +6,7 @@ import {
   createColorbarAxisTicks,
   createColorbarPresentation,
   createColorbarView,
+  createHorizontalColormapGradient,
   createVerticalColormapGradient,
   formatColorbarTicks,
   panColorbarDomain,
@@ -145,6 +146,43 @@ test('colorbar gestures use the fixed gradient track rather than panel padding',
   gradient.dispatch('pointerdown', pointer(1, 75, 'mouse'));
   gradient.dispatch('pointermove', pointer(1, 65, 'mouse'));
   assert.deepEqual(changes.at(-1), [-0.1, 0.9]);
+});
+
+test('complex colorbar fixes phase horizontally and edits magnitude vertically', () => {
+  const presentation = createColorbarPresentation({
+    id: 'complex',
+    classification: 'complex-field',
+    colorScale: { domain: [0, 2 * Math.PI], magnitudeDomain: [0, 4], mode: 'cyclic' },
+    colormapPoints: [
+      { pos: 0, color: [255, 0, 0], alpha: 1 },
+      { pos: 0.5, color: [0, 255, 0], alpha: 1 }
+    ]
+  });
+  assert.equal(presentation.isComplex, true);
+  assert.match(presentation.gradient, /^linear-gradient\(to right,/);
+  assert.match(createHorizontalColormapGradient([
+    { pos: 0, color: [255, 0, 0], alpha: 0.2 }
+  ]), /rgba\(255, 0, 0, 1\)/);
+
+  const changes = [];
+  const labels = [];
+  const view = createColorbarView({
+    document: createFakeDocument(),
+    onDomainChange: (scale) => changes.push(scale),
+    renderLabel: (element, latex) => { labels.push(latex); element.textContent = latex; }
+  });
+  view.update({ ...presentation, colormapPoints: [
+    { pos: 0, color: [255, 0, 0], alpha: 1 }
+  ] });
+  const panel = view.element.children[0];
+  const gradient = panel.children[1];
+  assert.equal(gradient.style.width, '80px');
+  assert.deepEqual(labels.slice(-4), ['0', '\\pi', '2\\pi', 'c']);
+  gradient.dispatch('pointerdown', pointer(1, 75, 'mouse'));
+  gradient.dispatch('pointermove', pointer(1, 65, 'mouse'));
+  gradient.dispatch('pointerup', pointer(1, 65, 'mouse'));
+  assert.deepEqual(changes.at(-1).domain, [0, 2 * Math.PI]);
+  assert.deepEqual(changes.at(-1).magnitudeDomain, [-0.4, 3.6]);
 });
 
 test('first mobile touch is captured and two-touch normalization remains continuous', () => {

@@ -1,4 +1,5 @@
 import {
+  compileSymbolicComplexFieldShader,
   compileSymbolicScalarFieldShader,
   compileSymbolicRelationShader,
   compileSymbolicRelationShaderGroup
@@ -425,6 +426,20 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     return relation;
   }
 
+  function setAnalyticComplexField(nextField = null) {
+    assertAlive();
+    const shader = nextField
+      ? compileSymbolicComplexFieldShader(nextField.ast, nextField.style)
+      : null;
+    relation = shader ? Object.freeze({
+      shader,
+      style: Object.freeze({ ...nextField.style }),
+      t: Number(nextField.t) || 0
+    }) : null;
+    backend?.updateRelation?.(relation);
+    return relation;
+  }
+
   function updateTransform(nextTransform) {
     assertAlive();
     transform = normalizeTransform(nextTransform);
@@ -511,6 +526,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     setAnalyticRelation,
     setAnalyticRelations,
     setAnalyticScalarField,
+    setAnalyticComplexField,
     resize,
     render,
     pick,
@@ -1297,6 +1313,7 @@ function writeWebGpuStrokePasses(device, buffers, appearance) {
 }
 
 export function webGpuRelationShaderSource(shader) {
+  if (shader.kind === 'complex-field') return webGpuComplexFieldShaderSource(shader);
   if (shader.kind === 'scalar-field') return webGpuScalarFieldShaderSource(shader);
   const fill = shader.hasFill ? 'fillCoverage' : '0.0';
   const boundary = shader.hasBoundary ? 'boundaryCoverage' : '0.0';
@@ -2294,6 +2311,7 @@ function webGlRelationVertexSource() {
 }
 
 export function webGlRelationFragmentSource(shader) {
+  if (shader.kind === 'complex-field') return webGlComplexFieldFragmentSource(shader);
   if (shader.kind === 'scalar-field') return webGlScalarFieldFragmentSource(shader);
   const fill = shader.hasFill ? 'fill_coverage' : '0.0';
   const boundary = shader.hasBoundary ? 'boundary_coverage' : '0.0';
@@ -2466,6 +2484,96 @@ function scalarColormapFunction(shader, language) {
   }
   lines.push(`  return ${shaderColor(points.at(-1), type)};`, '}');
   return lines.join('\n');
+}
+
+function complexMathFunctions(language) {
+  const wgsl = language === 'wgsl';
+  const type = wgsl ? 'vec2f' : 'vec2';
+  const angle = wgsl ? 'atan2(z.y, z.x)' : 'atan(z.y, z.x)';
+  const args = (names) => names.map((name) => wgsl ? `${name}: ${type}` : `${type} ${name}`).join(', ');
+  const declaration = (name, names) => wgsl
+    ? `fn ${name}(${args(names)}) -> ${type}`
+    : `${type} ${name}(${args(names)})`;
+  return `
+    ${declaration('complexMul', ['a', 'b'])} {
+      return ${type}(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+    }
+    ${declaration('complexDiv', ['a', 'b'])} {
+      ${wgsl ? 'let' : 'float'} denominator = max(dot(b, b), 1e-20);
+      return ${type}((a.x * b.x + a.y * b.y) / denominator, (a.y * b.x - a.x * b.y) / denominator);
+    }
+    ${declaration('complexLog', ['z'])} {
+      return ${type}(log(max(length(z), 1e-20)), ${angle});
+    }
+    ${declaration('complexExp', ['z'])} {
+      ${wgsl ? 'let' : 'float'} scale = exp(z.x);
+      return scale * ${type}(cos(z.y), sin(z.y));
+    }
+    ${declaration('complexPow', ['a', 'b'])} { return complexExp(complexMul(b, complexLog(a))); }
+    ${declaration('complexSin', ['z'])} { return ${type}(sin(z.x) * cosh(z.y), cos(z.x) * sinh(z.y)); }
+    ${declaration('complexCos', ['z'])} { return ${type}(cos(z.x) * cosh(z.y), -sin(z.x) * sinh(z.y)); }
+    ${declaration('complexSqrt', ['z'])} {
+      ${wgsl ? 'let' : 'float'} radius = sqrt(length(z));
+      ${wgsl ? 'let' : 'float'} halfAngle = 0.5 * (${angle});
+      return radius * ${type}(cos(halfAngle), sin(halfAngle));
+    }
+  `;
+}
+
+function webGpuComplexFieldShaderSource(shader) {
+  const magnitudeSpan = shaderFloat(Math.max(1e-12, shader.magnitudeMax - shader.magnitudeMin));
+  return `
+    struct RelationUniforms {
+      xRow: vec4f, yRow: vec4f, viewport: vec4f, faceColor: vec4f,
+      edgeColor: vec4f, selectionColor: vec4f, geometry: vec4f, interaction: vec4f,
+    }
+    @group(0) @binding(0) var<uniform> uniforms: RelationUniforms;
+    struct RelationVertexOutput { @builtin(position) position: vec4f, @location(0) screen: vec2f }
+    @vertex fn relationVertex(@builtin(vertex_index) index: u32) -> RelationVertexOutput {
+      let positions = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(-1.0, 3.0), vec2f(3.0, -1.0));
+      let position = positions[index]; var output: RelationVertexOutput;
+      output.position = vec4f(position, 0.0, 1.0);
+      output.screen = vec2f((position.x + 1.0) * 0.5 * uniforms.viewport.x, (1.0 - position.y) * 0.5 * uniforms.viewport.y);
+      return output;
+    }
+    ${complexMathFunctions('wgsl')}
+    ${scalarColormapFunction(shader, 'wgsl')}
+    @fragment fn relationFragment(input: RelationVertexOutput) -> @location(0) vec4f {
+      let a = uniforms.xRow.x; let c = uniforms.xRow.y; let e = uniforms.xRow.z;
+      let b = uniforms.yRow.x; let d = uniforms.yRow.y; let f = uniforms.yRow.z;
+      let translated = input.screen - vec2f(e, f); let determinant = a * d - b * c;
+      let local = vec2f((d * translated.x - c * translated.y) / determinant, (-b * translated.x + a * translated.y) / determinant);
+      let x = local.x; let y = local.y; let t = uniforms.interaction.z;
+      let value = ${shader.wgslValue};
+      let phase = atan2(value.y, value.x);
+      let phaseUnit = fract((phase + 6.283185307179586) / 6.283185307179586);
+      let alpha = clamp((length(value) - ${shaderFloat(shader.magnitudeMin)}) / ${magnitudeSpan}, 0.0, 1.0);
+      let color = textureColor(phaseUnit);
+      return vec4f(color.rgb, color.a * alpha);
+    }
+    @fragment fn relationPickFragment() -> @location(0) u32 { return 1u; }
+  `;
+}
+
+function webGlComplexFieldFragmentSource(shader) {
+  const magnitudeSpan = shaderFloat(Math.max(1e-12, shader.magnitudeMax - shader.magnitudeMin));
+  return `#version 300 es
+    precision highp float; in vec2 v_screen; uniform mat3 u_transform; uniform float u_time;
+    out vec4 out_color;
+    ${complexMathFunctions('glsl')}
+    ${scalarColormapFunction(shader, 'glsl')}
+    void main() {
+      vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
+      float x = local.x; float y = local.y; float t = u_time;
+      vec2 value = ${shader.glslValue};
+      if (any(isnan(value)) || any(isinf(value))) discard;
+      float phase = atan(value.y, value.x);
+      float phase_unit = fract((phase + 6.283185307179586) / 6.283185307179586);
+      float alpha = clamp((length(value) - ${shaderFloat(shader.magnitudeMin)}) / ${magnitudeSpan}, 0.0, 1.0);
+      vec4 color = texture_color(phase_unit);
+      out_color = vec4(color.rgb, color.a * alpha);
+    }
+  `;
 }
 
 function webGpuScalarFieldShaderSource(shader) {

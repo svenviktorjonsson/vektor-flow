@@ -4,16 +4,23 @@ import axis2dTicks from './vf-axis2d-ticks.js';
 export function createColorbarPresentation({
   id = '',
   labelLatex = 'c',
+  classification = 'scalar-field',
   colorScale = {},
   colormapPoints = []
 } = {}) {
   const scale = normalizeColorScale(colorScale);
-  const ticks = formatColorbarTicks(scale.domain);
-  const axisTicks = createColorbarAxisTicks(scale.domain);
-  const gradient = createVerticalColormapGradient(colormapPoints, scale.mode);
+  const isComplex = classification === 'complex-field';
+  const editableDomain = isComplex ? scale.magnitudeDomain : scale.domain;
+  const ticks = formatColorbarTicks(editableDomain);
+  const axisTicks = createColorbarAxisTicks(editableDomain);
+  const gradient = isComplex
+    ? createHorizontalColormapGradient(colormapPoints)
+    : createVerticalColormapGradient(colormapPoints, scale.mode);
   const repeated = scale.mode === 'cyclic' ? ', repeated cyclically' : '';
   return Object.freeze({
     id: String(id),
+    classification: isComplex ? 'complex-field' : 'scalar-field',
+    isComplex,
     labelLatex: String(labelLatex || 'c'),
     colorScale: scale,
     gradient,
@@ -141,6 +148,15 @@ export function createColorbarAxisTicks(domain = [0, 1], {
   })));
 }
 
+export function createHorizontalColormapGradient(points = []) {
+  const normalized = normalizeColormapPoints(points);
+  if (normalized.length === 0) return 'linear-gradient(to right, transparent 0%, transparent 100%)';
+  const stops = normalized.map((point) =>
+    `${cssColor({ ...point, alpha: 1 })} ${formatPercentage(point.pos)}`);
+  stops.push(`${cssColor({ ...normalized[0], alpha: 1 })} 100%`);
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
 export function panColorbarDomain(domain, deltaPosition, extent) {
   const [minimum, maximum] = normalizeColorScale({ domain }).domain;
   const size = validExtent(extent);
@@ -185,6 +201,7 @@ export function createColorbarView({
   const panel = documentRef.createElement('div');
   const axis = documentRef.createElement('div');
   const gradient = documentRef.createElement('div');
+  const phaseAxis = documentRef.createElement('div');
   const labelViewport = documentRef.createElement('figcaption');
   const axisLabel = documentRef.createElement('span');
   let binding = null;
@@ -222,9 +239,11 @@ export function createColorbarView({
     'user-select:none'
   ].join(';');
   labelViewport.className = 'vf-colorbar__label-viewport';
+  phaseAxis.className = 'vf-colorbar__phase-axis';
+  phaseAxis.hidden = true;
   axisLabel.className = 'vf-colorbar__label';
   labelViewport.append(axisLabel);
-  panel.append(axis, gradient, labelViewport);
+  panel.append(axis, gradient, phaseAxis, labelViewport);
   root.append(panel);
 
   const pointerBinding = bindPointerGestures(gradient, {
@@ -240,18 +259,43 @@ export function createColorbarView({
     binding = Object.freeze({
       id: presentation.id,
       labelLatex: presentation.labelLatex,
+      classification: presentation.classification,
+      isComplex: presentation.isComplex,
+      editableDomain: presentation.isComplex
+        ? presentation.colorScale.magnitudeDomain
+        : presentation.colorScale.domain,
       colorScale: presentation.colorScale,
       colormapPoints: Object.freeze([...(nextBinding.colormapPoints ?? [])])
     });
     root.hidden = false;
     root.dataset.colorbarId = presentation.id;
+    root.classList?.toggle?.('vf-colorbar--complex', presentation.isComplex);
     root.setAttribute('aria-label', presentation.ariaLabel);
     gradient.setAttribute('aria-label', presentation.ariaLabel);
-    gradient.style.background = presentation.gradient;
+    gradient.style.background = presentation.isComplex ? '' : presentation.gradient;
+    gradient.style.setProperty?.('--vf-complex-phase-gradient', presentation.gradient);
+    panel.style.gridTemplateColumns = presentation.isComplex
+      ? 'minmax(32px,auto) 80px 52px'
+      : 'minmax(32px,auto) 40px 52px';
+    panel.style.gridTemplateRows = presentation.isComplex
+      ? 'minmax(96px,1fr) 24px'
+      : 'minmax(96px,1fr)';
+    gradient.style.width = presentation.isComplex ? '80px' : '40px';
     renderAxisTicks(axis, createColorbarAxisTicks(
       presentation.colorScale.domain,
       { extent: gradient.getBoundingClientRect?.().height || 240 }
     ), documentRef, renderLabel);
+    if (presentation.isComplex) {
+      renderAxisTicks(axis, createColorbarAxisTicks(
+        presentation.colorScale.magnitudeDomain,
+      { extent: gradient.getBoundingClientRect?.().height || 240 }
+      ), documentRef, renderLabel);
+      phaseAxis.hidden = false;
+      renderPhaseTicks(phaseAxis, documentRef, renderLabel);
+    } else {
+      phaseAxis.hidden = true;
+      phaseAxis.replaceChildren?.();
+    }
     renderLabel(axisLabel, presentation.labelLatex);
     return presentation;
   }
@@ -268,7 +312,7 @@ export function createColorbarView({
     if (!binding || !domain) return;
     const colorScale = normalizeColorScale({
       ...binding.colorScale,
-      domain
+      [binding.isComplex ? 'magnitudeDomain' : 'domain']: domain
     });
     binding = Object.freeze({ ...binding, colorScale });
     const presentation = update(binding);
@@ -308,7 +352,7 @@ function bindPointerGestures(element, {
     if (!current || activePointers.size !== 2) return null;
     const bounds = getInteractionBounds();
     return Object.freeze({
-      domain: current.colorScale.domain,
+      domain: current.editableDomain,
       extent: bounds.height,
       contacts: Object.freeze([...activePointers.values()].map((event) =>
         Object.freeze({
@@ -338,7 +382,7 @@ function bindPointerGestures(element, {
       const bounds = getInteractionBounds();
       singlePointerBaseline = Object.freeze({
         pointerId: event.pointerId,
-        domain: getBinding()?.colorScale?.domain,
+        domain: getBinding()?.editableDomain,
         extent: bounds.height,
         position: bounds.bottom - event.clientY
       });
@@ -375,7 +419,7 @@ function bindPointerGestures(element, {
       );
     } else if (singlePointerBaseline?.pointerId === event.pointerId) {
       onDomainChange(
-        cancelled ? singlePointerBaseline.domain : getBinding()?.colorScale?.domain,
+        cancelled ? singlePointerBaseline.domain : getBinding()?.editableDomain,
         !cancelled
       );
     }
@@ -395,7 +439,7 @@ function bindPointerGestures(element, {
     const delta = clamp(Number(event.deltaY) * deltaUnit, -1000, 1000);
     const factor = Math.exp(delta * 0.001);
     onDomainChange(zoomColorbarDomain(
-      current.colorScale.domain,
+      current.editableDomain,
       bounds.bottom - event.clientY,
       bounds.height,
       factor
@@ -437,6 +481,28 @@ function renderAxisTicks(axis, ticks, documentRef, renderLabel) {
       `bottom:${tick.unit * 100}%`,
       'transform:translateY(50%)',
       'font-variant-numeric:tabular-nums'
+    ].join(';');
+    axis.append(node);
+  }
+}
+
+function renderPhaseTicks(axis, documentRef, renderLabel) {
+  if (axis.replaceChildren) axis.replaceChildren();
+  else axis.children.length = 0;
+  for (const tick of [
+    { unit: 0, latex: '0' },
+    { unit: 0.5, latex: '\\pi' },
+    { unit: 1, latex: '2\\pi' }
+  ]) {
+    const node = documentRef.createElement('span');
+    node.className = 'vf-colorbar__phase-tick';
+    renderLabel(node, tick.latex);
+    node.style.cssText = [
+      'position:absolute',
+      `left:${tick.unit * 100}%`,
+      'top:0',
+      'transform:translateX(-50%)',
+      'white-space:nowrap'
     ].join(';');
     axis.append(node);
   }

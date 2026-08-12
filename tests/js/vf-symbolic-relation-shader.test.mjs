@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  compileSymbolicComplexFieldShader,
   compileSymbolicScalarFieldShader,
   compileSymbolicRelationShader,
   compileSymbolicRelationShaderGroup
@@ -34,6 +35,33 @@ test('compiles scalar fields into per-pixel GPU expressions and colormaps', () =
   assert.match(shader.glslValue, /pow\(x, 4\.0\).*pow\(y, 2\.0\)/);
   assert.match(webGpuRelationShaderSource(shader), /textureColor/);
   assert.match(webGlRelationFragmentSource(shader), /texture_color/);
+});
+
+test('compiles complex fields into per-pixel phase color and magnitude alpha', () => {
+  const z = {
+    kind: 'binary', op: '+', left: variable('x'),
+    right: { kind: 'binary', op: '*', left: variable('y'), right: variable('i') }
+  };
+  const shader = compileSymbolicComplexFieldShader({
+    kind: 'binary', op: '^', left: z, right: { kind: 'number', value: 2 }
+  }, {
+    magnitudeMin: 0,
+    magnitudeMax: 4,
+    colormapPoints: [
+      { pos: 0, color: [255, 0, 0], alpha: 1 },
+      { pos: 1, color: [255, 0, 0], alpha: 1 }
+    ]
+  });
+
+  assert.equal(shader.kind, 'complex-field');
+  assert.match(shader.wgslValue, /complexPow/);
+  assert.match(shader.glslValue, /complexPow/);
+  const wgsl = webGpuRelationShaderSource(shader);
+  const glsl = webGlRelationFragmentSource(shader);
+  assert.match(wgsl, /phaseUnit.*textureColor/s);
+  assert.match(wgsl, /length\(value\).*alpha/s);
+  assert.match(glsl, /phase_unit.*texture_color/s);
+  assert.doesNotMatch(`${wgsl}\n${glsl}`, /17\.0/);
 });
 
 test('compiles a closed relation from the VKF AST without source interpolation', () => {
