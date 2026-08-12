@@ -15,7 +15,10 @@ export const SYMBOLIC_PLOT_POINT_VERTICES = 6;
 export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
 export const SYMBOLIC_PLOT_SELECTION_WIDTH = 2;
 export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255, 211 / 255]);
-export const SYMBOLIC_PLOT_STROKE_MITER_LIMIT = 1.25;
+// Keep displaced selection strokes at a constant radius through turns. Any
+// miter extension can make the inner contour fold across itself when the
+// plotted curve bends more tightly than the selection gap.
+export const SYMBOLIC_PLOT_STROKE_MITER_LIMIT = 1;
 
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
 

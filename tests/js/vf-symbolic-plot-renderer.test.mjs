@@ -24,11 +24,11 @@ import {
   triangulateSymbolicPlotClipRegion
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
 
-test('caps curve stroke joins so selection contours cannot form miter spikes', () => {
+test('keeps curve selection joins at constant radius so contours cannot fold', () => {
   const shaders = [webGpuShaderSource(), webGlStrokeVertexSource()];
   for (const shader of shaders) {
-    assert.match(shader, /abs\(distance(?:_value)?\) \* 1\.25/);
-    assert.doesNotMatch(shader, /abs\(distance(?:_value)?\) \* 4\.0/);
+    assert.match(shader, /abs\(distance(?:_value)?\) \* 1\.00/);
+    assert.doesNotMatch(shader, /abs\(distance(?:_value)?\) \* 1\.25/);
   }
 });
 
