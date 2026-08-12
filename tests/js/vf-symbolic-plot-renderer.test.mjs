@@ -19,7 +19,10 @@ import {
   webGlPointVertexSource,
   webGlStrokeVertexSource,
   webGlStrokeFragmentSource,
+  webGlSelectionMaskFragmentSource,
+  webGlSelectionCompositeFragmentSource,
   webGpuShaderSource,
+  webGpuSelectionCompositeShaderSource,
   symbolicPlotClipStencilDraws,
   triangulateSymbolicPlotClip,
   triangulateSymbolicPlotClipRegion
@@ -39,17 +42,25 @@ test('uses one centered selection halo instead of self-intersecting offset strok
   });
 });
 
-test('cuts the graph gap out of the centered selection halo on every GPU backend', () => {
-  assert.match(webGpuShaderSource(), /outerCoverage \* innerCoverage/);
-  assert.match(webGlStrokeFragmentSource(), /outer_coverage \* inner_coverage/);
+test('builds selection from global outer and inner coverage unions on every GPU backend', () => {
+  assert.match(webGpuShaderSource(), /selectionMaskFragment/);
+  assert.match(webGpuShaderSource(), /vec4f\(outerCoverage, innerCoverage/);
+  assert.match(webGpuSelectionCompositeShaderSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
+  assert.match(webGlSelectionMaskFragmentSource(), /vec4\(outer_coverage, inner_coverage/);
+  assert.match(webGlSelectionCompositeFragmentSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
 });
 
-test('keeps curve selection joins at constant radius so contours cannot fold', () => {
-  const shaders = [webGpuShaderSource(), webGlStrokeVertexSource()];
-  for (const shader of shaders) {
-    assert.match(shader, /abs\(distance(?:_value)?\) \* 1\.00/);
-    assert.doesNotMatch(shader, /abs\(distance(?:_value)?\) \* 1\.25/);
-  }
+test('uses nearest-segment capsule ownership so curve selection cannot fold at joins', () => {
+  const gpu = webGpuShaderSource();
+  const glVertex = webGlStrokeVertexSource();
+  const glFragment = webGlStrokeFragmentSource();
+  assert.match(gpu, /fn distanceToSegment/);
+  assert.match(gpu, /ownsPreviousBoundary && ownsNextBoundary/);
+  assert.match(glVertex, /outer_radius/);
+  assert.match(glFragment, /distance_to_segment/);
+  assert.match(glFragment, /owns_previous_boundary && owns_next_boundary/);
+  assert.doesNotMatch(gpu, /joinedStrokeOffset/);
+  assert.doesNotMatch(glVertex, /joined_stroke_offset/);
 });
 
 function createCanvas() {
@@ -317,8 +328,8 @@ test('expands symbolic points into smooth GPU circle instances', () => {
 
 test('renders plotted curve strokes with analytic edge antialiasing on every GPU backend', () => {
   assert.match(webGpuShaderSource(), /strokeFragment/);
-  assert.match(webGpuShaderSource(), /fwidth\(input\.edgeDistance\)/);
-  assert.match(webGlStrokeFragmentSource(), /fwidth\(v_edge_distance\)/);
+  assert.match(webGpuShaderSource(), /fwidth\(distance\)/);
+  assert.match(webGlStrokeFragmentSource(), /fwidth\(distance_value\)/);
   assert.match(webGlStrokeFragmentSource(), /smoothstep/);
 });
 test('triangulates a concave clip polygon with exact polygon area', () => {

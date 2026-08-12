@@ -15,11 +15,6 @@ export const SYMBOLIC_PLOT_POINT_VERTICES = 6;
 export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
 export const SYMBOLIC_PLOT_SELECTION_WIDTH = 2;
 export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255, 211 / 255]);
-// Keep displaced selection strokes at a constant radius through turns. Any
-// miter extension can make the inner contour fold across itself when the
-// plotted curve bends more tightly than the selection gap.
-export const SYMBOLIC_PLOT_STROKE_MITER_LIMIT = 1;
-
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
 
 export function symbolicPlotSelectionHalo(appearance) {
@@ -664,6 +659,7 @@ async function createWebGpuBackend(canvas) {
   if (!context) return null;
   const format = globalThis.navigator.gpu.getPreferredCanvasFormat();
   const shader = device.createShaderModule({ code: webGpuShaderSource() });
+  const selectionCompositeShader = device.createShaderModule({ code: webGpuSelectionCompositeShaderSource() });
   const transformBuffer = device.createBuffer({
     size: 48,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -787,6 +783,52 @@ async function createWebGpuBackend(canvas) {
     primitive: { topology: 'triangle-list' },
     depthStencil: depthStencil(clipped ? 'equal' : 'always')
   })]));
+  const selectionMaskPipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: shader, entryPoint: 'strokeVertex', buffers: [segmentVertexLayout] },
+    fragment: {
+      module: shader,
+      entryPoint: 'selectionMaskFragment',
+      targets: [{
+        format: 'rgba8unorm',
+        blend: {
+          color: { operation: 'max', srcFactor: 'one', dstFactor: 'one' },
+          alpha: { operation: 'max', srcFactor: 'one', dstFactor: 'one' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' }
+  });
+  const selectionCompositeBuffer = device.createBuffer({
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+  const selectionCompositeLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+    ]
+  });
+  const selectionCompositePipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [selectionCompositeLayout]
+  });
+  const selectionCompositePipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
+    layout: selectionCompositePipelineLayout,
+    vertex: { module: selectionCompositeShader, entryPoint: 'selectionCompositeVertex' },
+    fragment: {
+      module: selectionCompositeShader,
+      entryPoint: 'selectionCompositeFragment',
+      targets: [{
+        format,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: depthStencil(clipped ? 'equal' : 'always')
+  })]));
   const faceSelectionPipelines = new Map([false, true].map((clipped) => [clipped, device.createRenderPipeline({
     layout: pipelineLayout,
     vertex: { module: shader, entryPoint: 'selectionFaceVertex', buffers: [vertexLayout] },
@@ -847,6 +889,8 @@ async function createWebGpuBackend(canvas) {
   let currentArena = null;
   let stencilTexture = null;
   let pickTexture = null;
+  let selectionMaskTexture = null;
+  let selectionCompositeBindGroup = null;
   let cssSize = [1, 1];
   let appearance = normalizeSymbolicPlotAppearance();
   let currentTransform = [...DEFAULT_TRANSFORM];
@@ -937,6 +981,7 @@ async function createWebGpuBackend(canvas) {
       context.configure({ device, format, alphaMode: 'premultiplied' });
       stencilTexture?.destroy();
       pickTexture?.destroy();
+      selectionMaskTexture?.destroy();
       stencilTexture = device.createTexture({
         size: [canvas.width, canvas.height],
         format: 'depth24plus-stencil8',
@@ -946,6 +991,18 @@ async function createWebGpuBackend(canvas) {
         size: [canvas.width, canvas.height],
         format: 'r32uint',
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+      });
+      selectionMaskTexture = device.createTexture({
+        size: [canvas.width, canvas.height],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      });
+      selectionCompositeBindGroup = device.createBindGroup({
+        layout: selectionCompositeLayout,
+        entries: [
+          { binding: 0, resource: selectionMaskTexture.createView() },
+          { binding: 1, resource: { buffer: selectionCompositeBuffer } }
+        ]
       });
       writeRelationUniforms();
     },
@@ -968,6 +1025,9 @@ async function createWebGpuBackend(canvas) {
     updateAppearance(nextAppearance) {
       appearance = nextAppearance;
       writeWebGpuStrokePasses(device, strokeBuffers, appearance);
+      device.queue.writeBuffer(selectionCompositeBuffer, 0, new Float32Array([
+        ...appearance.selectionColor, appearance.edgeSelectionAlpha
+      ]));
       writeRelationUniforms();
     },
     updateRelation(nextRelation) {
@@ -994,6 +1054,26 @@ async function createWebGpuBackend(canvas) {
         if (currentArena.segments.byteLength) device.queue.writeBuffer(segmentBuffer, 0, currentArena.segments);
       }
       const encoder = device.createCommandEncoder();
+      if (
+        appearance.edgeSelectionAlpha > 0
+        && selectionMaskTexture
+        && segmentBuffer
+        && currentArena?.segmentCount
+      ) {
+        const selectionPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: selectionMaskTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }]
+        });
+        selectionPass.setPipeline(selectionMaskPipeline);
+        selectionPass.setBindGroup(0, bindGroups[1]);
+        selectionPass.setVertexBuffer(0, segmentBuffer);
+        selectionPass.draw(6, currentArena.segmentCount);
+        selectionPass.end();
+      }
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: context.getCurrentTexture().createView(),
@@ -1054,14 +1134,20 @@ async function createWebGpuBackend(canvas) {
           }
         }
       }
+      if (
+        appearance.edgeSelectionAlpha > 0
+        && selectionCompositeBindGroup
+        && currentArena?.segmentCount
+      ) {
+        pass.setPipeline(selectionCompositePipelines.get(clipped));
+        pass.setBindGroup(0, selectionCompositeBindGroup);
+        pass.setStencilReference(1);
+        pass.draw(3);
+      }
       if (segmentBuffer && currentArena?.segmentCount) {
         pass.setPipeline(strokePipelines.get(clipped));
         pass.setStencilReference(1);
         pass.setVertexBuffer(0, segmentBuffer);
-        if (appearance.edgeSelectionAlpha > 0) {
-          pass.setBindGroup(0, bindGroups[1]);
-          pass.draw(6, currentArena.segmentCount);
-        }
         pass.setBindGroup(0, bindGroups[0]);
         pass.draw(6, currentArena.segmentCount);
       }
@@ -1161,9 +1247,11 @@ async function createWebGpuBackend(canvas) {
       segmentBuffer?.destroy();
       stencilTexture?.destroy();
       pickTexture?.destroy();
+      selectionMaskTexture?.destroy();
       transformBuffer.destroy();
       strokeBuffers.forEach((buffer) => buffer.destroy());
       pickStrokeBuffer.destroy();
+      selectionCompositeBuffer.destroy();
       relationBuffer?.destroy();
       device.destroy();
     }
@@ -1342,9 +1430,13 @@ export function webGpuShaderSource() {
     struct StrokeOutput {
       @builtin(position) position: vec4f,
       @location(0) color: vec4f,
-      @location(1) edgeDistance: f32,
+      @location(1) screenPosition: vec2f,
       @location(2) halfWidth: f32,
       @location(3) innerHalfWidth: f32,
+      @location(4) @interpolate(flat) previousScreen: vec2f,
+      @location(5) @interpolate(flat) fromScreen: vec2f,
+      @location(6) @interpolate(flat) toScreen: vec2f,
+      @location(7) @interpolate(flat) nextScreen: vec2f,
     }
     struct StrokeInput {
       @location(2) previousPosition: vec2f,
@@ -1413,38 +1505,6 @@ export function webGpuShaderSource() {
       return output;
     }
 
-    fn joinedStrokeOffset(previous: vec2f, point: vec2f, next: vec2f, distance: f32) -> vec2f {
-      let incoming = point - previous;
-      let outgoing = next - point;
-      let incomingLength = length(incoming);
-      let outgoingLength = length(outgoing);
-      if (incomingLength < 0.0001) {
-        let direction = outgoing / max(outgoingLength, 0.0001);
-        return vec2f(-direction.y, direction.x) * distance;
-      }
-      if (outgoingLength < 0.0001) {
-        let direction = incoming / incomingLength;
-        return vec2f(-direction.y, direction.x) * distance;
-      }
-      let incomingNormal = vec2f(-incoming.y, incoming.x) / incomingLength;
-      let outgoingNormal = vec2f(-outgoing.y, outgoing.x) / outgoingLength;
-      let normalSum = incomingNormal + outgoingNormal;
-      if (length(normalSum) < 0.0001) {
-        return outgoingNormal * distance;
-      }
-      let miter = normalize(normalSum);
-      let denominator = dot(miter, outgoingNormal);
-      if (abs(denominator) < 0.0001) {
-        return outgoingNormal * distance;
-      }
-      let scale = clamp(
-        distance / denominator,
-        -abs(distance) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)},
-        abs(distance) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)}
-      );
-      return miter * scale;
-    }
-
     @vertex fn strokeVertex(input: StrokeInput, @builtin(vertex_index) vertexIndex: u32) -> StrokeOutput {
       let along = select(1.0, 0.0, vertexIndex == 0u || vertexIndex == 1u || vertexIndex == 3u);
       let side = select(-1.0, 1.0, vertexIndex == 0u || vertexIndex == 3u || vertexIndex == 5u);
@@ -1453,17 +1513,22 @@ export function webGpuShaderSource() {
       let previousScreen = vec2f(dot(view.xRow.xyz, vec3f(input.previousPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.previousPosition, 1.0)));
       let nextScreen = vec2f(dot(view.xRow.xyz, vec3f(input.nextPosition, 1.0)), dot(view.yRow.xyz, vec3f(input.nextPosition, 1.0)));
       let halfWidth = stroke.geometry.x * input.strokeScale * 0.5;
-      let edgeDistance = side * (halfWidth + 1.0);
-      let distance = stroke.geometry.y + edgeDistance;
-      let fromOffset = joinedStrokeOffset(previousScreen, fromScreen, toScreen, distance);
-      let toOffset = joinedStrokeOffset(fromScreen, toScreen, nextScreen, distance);
-      let screen = mix(fromScreen + fromOffset, toScreen + toOffset, along);
+      let outerRadius = halfWidth + 1.0;
+      let segment = toScreen - fromScreen;
+      let direction = segment / max(length(segment), 0.0001);
+      let normal = vec2f(-direction.y, direction.x);
+      let center = mix(fromScreen - direction * outerRadius, toScreen + direction * outerRadius, along);
+      let screen = center + normal * (side * outerRadius + stroke.geometry.y);
       var output: StrokeOutput;
       output.position = vec4f(screen.x / view.viewport.x * 2.0 - 1.0, 1.0 - screen.y / view.viewport.y * 2.0, 0.0, 1.0);
       output.color = select(mix(input.fromColor, input.toColor, along), stroke.color, stroke.geometry.z > 0.5);
-      output.edgeDistance = edgeDistance;
+      output.screenPosition = screen;
       output.halfWidth = halfWidth;
       output.innerHalfWidth = stroke.geometry.w;
+      output.previousScreen = previousScreen;
+      output.fromScreen = fromScreen;
+      output.toScreen = toScreen;
+      output.nextScreen = nextScreen;
       return output;
     }
 
@@ -1489,23 +1554,54 @@ export function webGpuShaderSource() {
       return input.color;
     }
 
-    @fragment fn strokeFragment(input: StrokeOutput) -> @location(0) vec4f {
-      let antialias = max(fwidth(input.edgeDistance), 1.0);
+    fn distanceToSegment(point: vec2f, from: vec2f, to: vec2f) -> f32 {
+      let segment = to - from;
+      let lengthSquared = dot(segment, segment);
+      let along = clamp(dot(point - from, segment) / max(lengthSquared, 0.000001), 0.0, 1.0);
+      return length(point - (from + segment * along));
+    }
+
+    @fragment fn selectionMaskFragment(input: StrokeOutput) -> @location(0) vec4f {
+      let distance = distanceToSegment(input.screenPosition, input.fromScreen, input.toScreen);
+      let antialias = max(fwidth(distance), 0.0001);
       let outerCoverage = 1.0 - smoothstep(
         input.halfWidth,
         input.halfWidth + antialias,
-        abs(input.edgeDistance)
+        distance
+      );
+      let innerCoverage = 1.0 - smoothstep(
+        input.innerHalfWidth,
+        input.innerHalfWidth + antialias,
+        distance
+      );
+      return vec4f(outerCoverage, innerCoverage, 0.0, 0.0);
+    }
+
+    @fragment fn strokeFragment(input: StrokeOutput) -> @location(0) vec4f {
+      let distance = distanceToSegment(input.screenPosition, input.fromScreen, input.toScreen);
+      let previousLengthSquared = dot(input.fromScreen - input.previousScreen, input.fromScreen - input.previousScreen);
+      let nextLengthSquared = dot(input.nextScreen - input.toScreen, input.nextScreen - input.toScreen);
+      let previousDistance = distanceToSegment(input.screenPosition, input.previousScreen, input.fromScreen);
+      let nextDistance = distanceToSegment(input.screenPosition, input.toScreen, input.nextScreen);
+      let ownsPreviousBoundary = previousLengthSquared < 0.000001 || distance <= previousDistance;
+      let ownsNextBoundary = nextLengthSquared < 0.000001 || distance < nextDistance;
+      let antialias = max(fwidth(distance), 0.0001);
+      let outerCoverage = 1.0 - smoothstep(
+        input.halfWidth,
+        input.halfWidth + antialias,
+        distance
       );
       let innerCoverage = select(
         1.0,
         smoothstep(
           input.innerHalfWidth - antialias,
           input.innerHalfWidth + antialias,
-          abs(input.edgeDistance)
+          distance
         ),
         input.innerHalfWidth > 0.0
       );
-      let coverage = outerCoverage * innerCoverage;
+      let ownership = select(0.0, 1.0, ownsPreviousBoundary && ownsNextBoundary);
+      let coverage = outerCoverage * innerCoverage * ownership;
       return vec4f(input.color.rgb, input.color.a * coverage);
     }
 
@@ -1534,6 +1630,31 @@ export function webGpuShaderSource() {
   `;
 }
 
+export function webGpuSelectionCompositeShaderSource() {
+  return `
+    struct SelectionAppearance {
+      color: vec4f,
+    }
+    @group(0) @binding(0) var selectionMask: texture_2d<f32>;
+    @group(0) @binding(1) var<uniform> selection: SelectionAppearance;
+
+    @vertex fn selectionCompositeVertex(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4f {
+      let positions = array<vec2f, 3>(
+        vec2f(-1.0, -1.0),
+        vec2f(3.0, -1.0),
+        vec2f(-1.0, 3.0)
+      );
+      return vec4f(positions[vertexIndex], 0.0, 1.0);
+    }
+
+    @fragment fn selectionCompositeFragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
+      let mask = textureLoad(selectionMask, vec2i(position.xy), 0).rg;
+      let ringCoverage = mask.r * (1.0 - mask.g);
+      return vec4f(selection.color.rgb, selection.color.a * ringCoverage);
+    }
+  `;
+}
+
 function createWebGl2Backend(canvas) {
   const gl = canvas.getContext('webgl2', {
     alpha: true,
@@ -1548,6 +1669,10 @@ function createWebGl2Backend(canvas) {
   const faceSelectionProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlSolidFragmentSource());
   const clipProgram = createWebGlProgram(gl, webGlVertexSource(false), webGlFragmentSource(false));
   const strokeProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlStrokeFragmentSource());
+  const selectionMaskProgram = createWebGlProgram(gl, webGlStrokeVertexSource(), webGlSelectionMaskFragmentSource());
+  const selectionCompositeProgram = createWebGlProgram(
+    gl, webGlSelectionCompositeVertexSource(), webGlSelectionCompositeFragmentSource()
+  );
   const pickProgram = createWebGlProgram(gl, webGlPickVertexSource(), webGlPickFragmentSource());
   const facePickProgram = createWebGlProgram(gl, webGlFacePickVertexSource(), webGlPickFragmentSource());
   const plotBuffer = gl.createBuffer();
@@ -1556,6 +1681,8 @@ function createWebGl2Backend(canvas) {
   const pickFramebuffer = gl.createFramebuffer();
   const pickTexture = gl.createTexture();
   const pickStencil = gl.createRenderbuffer();
+  const selectionFramebuffer = gl.createFramebuffer();
+  const selectionTexture = gl.createTexture();
   const plotLocations = getWebGlLocations(gl, plotProgram, true);
   const pointLocations = getWebGlLocations(gl, pointProgram, true);
   const faceSelectionLocations = {
@@ -1564,6 +1691,11 @@ function createWebGl2Backend(canvas) {
   };
   const clipLocations = getWebGlLocations(gl, clipProgram, false);
   const strokeLocations = getWebGlStrokeLocations(gl, strokeProgram);
+  const selectionMaskLocations = getWebGlStrokeLocations(gl, selectionMaskProgram);
+  const selectionCompositeLocations = {
+    mask: gl.getUniformLocation(selectionCompositeProgram, 'u_selection_mask'),
+    color: gl.getUniformLocation(selectionCompositeProgram, 'u_selection_color')
+  };
   const pickLocations = getWebGlPickLocations(gl, pickProgram);
   const facePickLocations = getWebGlLocations(gl, facePickProgram, false);
   let plotCapacity = 0;
@@ -1597,6 +1729,14 @@ function createWebGl2Backend(canvas) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTexture, 0);
       gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, pickStencil);
+      gl.bindTexture(gl.TEXTURE_2D, selectionTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, selectionFramebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, selectionTexture, 0);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
     updateTransform(nextTransform) {
@@ -1631,10 +1771,11 @@ function createWebGl2Backend(canvas) {
     render(arena, upload) {
       currentArena = arena;
       gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clearStencil(0);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-      if (!currentArena) return;
+      if (!currentArena) {
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+        return;
+      }
       if (upload) {
         plotCapacity = uploadWebGlDynamicBuffer(
           gl, plotBuffer, currentArena.data, plotCapacity
@@ -1643,6 +1784,22 @@ function createWebGl2Backend(canvas) {
           gl, segmentBuffer, currentArena.segments, segmentCapacity
         );
       }
+      if (currentArena && appearance.edgeSelectionAlpha > 0 && currentArena.segmentCount) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, selectionFramebuffer);
+        gl.disable(gl.STENCIL_TEST);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.blendEquation(gl.MAX);
+        drawWebGlSelectionMask(
+          gl, selectionMaskProgram, segmentBuffer, selectionMaskLocations,
+          transform, cssSize, currentArena.segmentCount, appearance
+        );
+        gl.blendEquation(gl.FUNC_ADD);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      }
+      gl.clearColor(0, 0, 0, 0);
+      gl.clearStencil(0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
       const clipped = clipDraws.length > 0;
       if (clipped) drawWebGlClip(gl, clipProgram, clipBuffer, clipLocations, transform, cssSize, clipDraws);
@@ -1668,6 +1825,12 @@ function createWebGl2Backend(canvas) {
         drawWebGlFaceSelection(
           gl, faceSelectionProgram, plotBuffer, faceSelectionLocations,
           transform, cssSize, currentArena, appearance, clipped
+        );
+      }
+      if (appearance.edgeSelectionAlpha > 0 && currentArena.segmentCount) {
+        drawWebGlSelectionComposite(
+          gl, selectionCompositeProgram, selectionCompositeLocations,
+          selectionTexture, appearance, clipped
         );
       }
       drawWebGlStrokes(
@@ -1744,11 +1907,15 @@ function createWebGl2Backend(canvas) {
       gl.deleteFramebuffer(pickFramebuffer);
       gl.deleteTexture(pickTexture);
       gl.deleteRenderbuffer(pickStencil);
+      gl.deleteFramebuffer(selectionFramebuffer);
+      gl.deleteTexture(selectionTexture);
       gl.deleteProgram(plotProgram);
       gl.deleteProgram(pointProgram);
       gl.deleteProgram(faceSelectionProgram);
       gl.deleteProgram(clipProgram);
       gl.deleteProgram(strokeProgram);
+      gl.deleteProgram(selectionMaskProgram);
+      gl.deleteProgram(selectionCompositeProgram);
       gl.deleteProgram(pickProgram);
       gl.deleteProgram(facePickProgram);
       if (relationProgram) gl.deleteProgram(relationProgram);
@@ -1881,13 +2048,6 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
     gl.uniform4f(locations.overrideColor, color[0], color[1], color[2], alpha);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   };
-  if (appearance.edgeSelectionAlpha > 0) {
-    const halo = symbolicPlotSelectionHalo(appearance);
-    draw(
-      halo.width, halo.offset, appearance.selectionColor,
-      appearance.edgeSelectionAlpha, true, halo.innerHalfWidth
-    );
-  }
   draw(appearance.edgeWidth, 0, [0, 0, 0], 0, false);
   for (const [location] of attributes) gl.vertexAttribDivisor(location, 0);
   gl.disable(gl.STENCIL_TEST);
@@ -2223,6 +2383,59 @@ export function webGlRelationPickFragmentSource(shader) {
   `;
 }
 
+function drawWebGlSelectionMask(gl, program, buffer, locations, transform, size, count, appearance) {
+  const halo = symbolicPlotSelectionHalo(appearance);
+  gl.useProgram(program);
+  setWebGlView(gl, locations, transform, size);
+  gl.uniform1f(locations.width, halo.width);
+  gl.uniform1f(locations.offset, 0);
+  gl.uniform1f(locations.innerHalfWidth, halo.innerHalfWidth);
+  gl.uniform1f(locations.override, 1);
+  gl.uniform4f(locations.overrideColor, 0, 0, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  const attributes = [
+    [locations.previousPosition, 2, 0],
+    [locations.fromPosition, 2, 8],
+    [locations.fromColor, 4, 16],
+    [locations.toPosition, 2, 32],
+    [locations.toColor, 4, 40],
+    [locations.nextPosition, 2, 56],
+    [locations.strokeScale, 1, 64]
+  ];
+  for (const [location, sizeValue, offset] of attributes) {
+    if (location < 0) continue;
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, sizeValue, gl.FLOAT, false, FLOATS_PER_SEGMENT * 4, offset);
+    gl.vertexAttribDivisor(location, 1);
+  }
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+  for (const [location] of attributes) {
+    if (location >= 0) gl.vertexAttribDivisor(location, 0);
+  }
+}
+
+function drawWebGlSelectionComposite(gl, program, locations, texture, appearance, clipped) {
+  if (clipped) {
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+  } else {
+    gl.disable(gl.STENCIL_TEST);
+  }
+  gl.useProgram(program);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.uniform1i(locations.mask, 0);
+  gl.uniform4f(
+    locations.color,
+    appearance.selectionColor[0], appearance.selectionColor[1], appearance.selectionColor[2],
+    appearance.edgeSelectionAlpha
+  );
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.STENCIL_TEST);
+  gl.stencilMask(0xff);
+}
+
 function shaderFloat(value) {
   const number = Number(value);
   const text = String(Number.isFinite(number) ? number : 0);
@@ -2348,35 +2561,12 @@ export function webGlStrokeVertexSource() {
     uniform float u_override;
     uniform vec4 u_override_color;
     out vec4 v_color;
-    out float v_edge_distance;
+    out vec2 v_screen_position;
     out float v_half_width;
-    vec2 joined_stroke_offset(vec2 previous, vec2 point, vec2 next, float distance_value) {
-      vec2 incoming = point - previous;
-      vec2 outgoing = next - point;
-      float incoming_length = length(incoming);
-      float outgoing_length = length(outgoing);
-      if (incoming_length < 0.0001) {
-        vec2 direction = outgoing / max(outgoing_length, 0.0001);
-        return vec2(-direction.y, direction.x) * distance_value;
-      }
-      if (outgoing_length < 0.0001) {
-        vec2 direction = incoming / incoming_length;
-        return vec2(-direction.y, direction.x) * distance_value;
-      }
-      vec2 incoming_normal = vec2(-incoming.y, incoming.x) / incoming_length;
-      vec2 outgoing_normal = vec2(-outgoing.y, outgoing.x) / outgoing_length;
-      vec2 normal_sum = incoming_normal + outgoing_normal;
-      if (length(normal_sum) < 0.0001) return outgoing_normal * distance_value;
-      vec2 miter = normalize(normal_sum);
-      float denominator = dot(miter, outgoing_normal);
-      if (abs(denominator) < 0.0001) return outgoing_normal * distance_value;
-      float scale = clamp(
-        distance_value / denominator,
-        -abs(distance_value) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)},
-        abs(distance_value) * ${SYMBOLIC_PLOT_STROKE_MITER_LIMIT.toFixed(2)}
-      );
-      return miter * scale;
-    }
+    flat out vec2 v_previous_screen;
+    flat out vec2 v_from_screen;
+    flat out vec2 v_to_screen;
+    flat out vec2 v_next_screen;
     void main() {
       float along = (gl_VertexID == 0 || gl_VertexID == 1 || gl_VertexID == 3) ? 0.0 : 1.0;
       float side = (gl_VertexID == 0 || gl_VertexID == 3 || gl_VertexID == 5) ? 1.0 : -1.0;
@@ -2385,15 +2575,20 @@ export function webGlStrokeVertexSource() {
       vec2 previous_screen = (u_transform * vec3(a_previous_position, 1.0)).xy;
       vec2 next_screen = (u_transform * vec3(a_next_position, 1.0)).xy;
       float half_width = u_width * a_stroke_scale * 0.5;
-      float edge_distance = side * (half_width + 1.0);
-      float distance_value = u_offset + edge_distance;
-      vec2 from_offset = joined_stroke_offset(previous_screen, from_screen, to_screen, distance_value);
-      vec2 to_offset = joined_stroke_offset(from_screen, to_screen, next_screen, distance_value);
-      vec2 screen = mix(from_screen + from_offset, to_screen + to_offset, along);
+      float outer_radius = half_width + 1.0;
+      vec2 segment = to_screen - from_screen;
+      vec2 direction = segment / max(length(segment), 0.0001);
+      vec2 normal = vec2(-direction.y, direction.x);
+      vec2 center = mix(from_screen - direction * outer_radius, to_screen + direction * outer_radius, along);
+      vec2 screen = center + normal * (side * outer_radius + u_offset);
       gl_Position = vec4(screen.x / u_viewport.x * 2.0 - 1.0, 1.0 - screen.y / u_viewport.y * 2.0, 0.0, 1.0);
       v_color = u_override > 0.5 ? u_override_color : mix(a_from_color, a_to_color, along);
-      v_edge_distance = edge_distance;
+      v_screen_position = screen;
       v_half_width = half_width;
+      v_previous_screen = previous_screen;
+      v_from_screen = from_screen;
+      v_to_screen = to_screen;
+      v_next_screen = next_screen;
     }
   `;
 }
@@ -2402,26 +2597,108 @@ export function webGlStrokeFragmentSource() {
   return `#version 300 es
     precision highp float;
     in vec4 v_color;
-    in float v_edge_distance;
+    in vec2 v_screen_position;
     in float v_half_width;
+    flat in vec2 v_previous_screen;
+    flat in vec2 v_from_screen;
+    flat in vec2 v_to_screen;
+    flat in vec2 v_next_screen;
     uniform float u_inner_half_width;
     out vec4 out_color;
+    float distance_to_segment(vec2 point, vec2 from_point, vec2 to_point) {
+      vec2 segment = to_point - from_point;
+      float length_squared = dot(segment, segment);
+      float along = clamp(dot(point - from_point, segment) / max(length_squared, 0.000001), 0.0, 1.0);
+      return length(point - (from_point + segment * along));
+    }
     void main() {
-      float antialias = max(fwidth(v_edge_distance), 1.0);
+      float distance_value = distance_to_segment(v_screen_position, v_from_screen, v_to_screen);
+      float previous_length_squared = dot(v_from_screen - v_previous_screen, v_from_screen - v_previous_screen);
+      float next_length_squared = dot(v_next_screen - v_to_screen, v_next_screen - v_to_screen);
+      float previous_distance = distance_to_segment(v_screen_position, v_previous_screen, v_from_screen);
+      float next_distance = distance_to_segment(v_screen_position, v_to_screen, v_next_screen);
+      bool owns_previous_boundary = previous_length_squared < 0.000001 || distance_value <= previous_distance;
+      bool owns_next_boundary = next_length_squared < 0.000001 || distance_value < next_distance;
+      float antialias = max(fwidth(distance_value), 0.0001);
       float outer_coverage = 1.0 - smoothstep(
         v_half_width,
         v_half_width + antialias,
-        abs(v_edge_distance)
+        distance_value
       );
       float inner_coverage = u_inner_half_width > 0.0
         ? smoothstep(
             u_inner_half_width - antialias,
             u_inner_half_width + antialias,
-            abs(v_edge_distance)
+            distance_value
           )
         : 1.0;
-      float coverage = outer_coverage * inner_coverage;
+      float ownership = owns_previous_boundary && owns_next_boundary ? 1.0 : 0.0;
+      float coverage = outer_coverage * inner_coverage * ownership;
       out_color = vec4(v_color.rgb, v_color.a * coverage);
+    }
+  `;
+}
+
+export function webGlSelectionMaskFragmentSource() {
+  return `#version 300 es
+    precision highp float;
+    in vec2 v_screen_position;
+    in float v_half_width;
+    flat in vec2 v_from_screen;
+    flat in vec2 v_to_screen;
+    uniform float u_inner_half_width;
+    out vec4 out_color;
+    float distance_to_segment(vec2 point, vec2 from_point, vec2 to_point) {
+      vec2 segment = to_point - from_point;
+      float length_squared = dot(segment, segment);
+      float along = clamp(dot(point - from_point, segment) / max(length_squared, 0.000001), 0.0, 1.0);
+      return length(point - (from_point + segment * along));
+    }
+    void main() {
+      float distance_value = distance_to_segment(v_screen_position, v_from_screen, v_to_screen);
+      float antialias = max(fwidth(distance_value), 0.0001);
+      float outer_coverage = 1.0 - smoothstep(
+        v_half_width,
+        v_half_width + antialias,
+        distance_value
+      );
+      float inner_coverage = 1.0 - smoothstep(
+        u_inner_half_width,
+        u_inner_half_width + antialias,
+        distance_value
+      );
+      out_color = vec4(outer_coverage, inner_coverage, 0.0, 0.0);
+    }
+  `;
+}
+
+export function webGlSelectionCompositeVertexSource() {
+  return `#version 300 es
+    out vec2 v_uv;
+    void main() {
+      vec2 positions[3] = vec2[3](
+        vec2(-1.0, -1.0),
+        vec2(3.0, -1.0),
+        vec2(-1.0, 3.0)
+      );
+      vec2 position = positions[gl_VertexID];
+      gl_Position = vec4(position, 0.0, 1.0);
+      v_uv = position * 0.5 + 0.5;
+    }
+  `;
+}
+
+export function webGlSelectionCompositeFragmentSource() {
+  return `#version 300 es
+    precision highp float;
+    in vec2 v_uv;
+    uniform sampler2D u_selection_mask;
+    uniform vec4 u_selection_color;
+    out vec4 out_color;
+    void main() {
+      vec2 mask = texelFetch(u_selection_mask, ivec2(gl_FragCoord.xy), 0).rg;
+      float ring_coverage = mask.r * (1.0 - mask.g);
+      out_color = vec4(u_selection_color.rgb, u_selection_color.a * ring_coverage);
     }
   `;
 }
