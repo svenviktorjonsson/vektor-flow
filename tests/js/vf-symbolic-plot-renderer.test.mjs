@@ -69,8 +69,11 @@ test('uses one centered selection halo instead of self-intersecting offset strok
 });
 
 test('builds selection from global outer and inner coverage unions on every GPU backend', () => {
-  assert.match(webGpuShaderSource(), /selectionMaskFragment/);
-  assert.match(webGpuShaderSource(), /vec4f\(outerCoverage, innerCoverage/);
+  const webGpu = webGpuShaderSource();
+  assert.match(webGpu, /selectionMaskFragment/);
+  assert.match(webGpu, /vec4f\(outerCoverage, innerCoverage/);
+  assert.doesNotMatch(webGpu, /fn distanceToSegment\([^)]*\bfrom\s*:/);
+  assert.doesNotMatch(webGpu, /fn distanceToSegment\([^)]*\bto\s*:/);
   assert.match(webGpuSelectionCompositeShaderSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
   assert.match(webGlSelectionMaskFragmentSource(), /vec4\(outer_coverage, inner_coverage/);
   assert.match(webGlSelectionCompositeFragmentSource(), /mask\.r \* \(1\.0 - mask\.g\)/);

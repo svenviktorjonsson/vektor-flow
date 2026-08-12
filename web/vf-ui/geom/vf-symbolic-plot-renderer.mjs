@@ -1566,11 +1566,11 @@ export function webGpuShaderSource() {
       return input.color;
     }
 
-    fn distanceToSegment(point: vec2f, from: vec2f, to: vec2f) -> f32 {
-      let segment = to - from;
+    fn distanceToSegment(point: vec2f, fromPoint: vec2f, toPoint: vec2f) -> f32 {
+      let segment = toPoint - fromPoint;
       let lengthSquared = dot(segment, segment);
-      let along = clamp(dot(point - from, segment) / max(lengthSquared, 0.000001), 0.0, 1.0);
-      return length(point - (from + segment * along));
+      let along = clamp(dot(point - fromPoint, segment) / max(lengthSquared, 0.000001), 0.0, 1.0);
+      return length(point - (fromPoint + segment * along));
     }
 
     @fragment fn selectionMaskFragment(input: StrokeOutput) -> @location(0) vec4f {
