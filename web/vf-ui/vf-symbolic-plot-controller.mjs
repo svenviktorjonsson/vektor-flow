@@ -377,6 +377,9 @@ export async function createSymbolicPlotController({
     get snapGeometry() {
       return snapGeometry;
     },
+    get backend() {
+      return renderer.backend || null;
+    },
     get frameRevision() {
       return latestViewRevision;
     },
