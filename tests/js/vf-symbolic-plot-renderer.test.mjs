@@ -32,7 +32,16 @@ test('uses one centered selection halo instead of self-intersecting offset strok
     selectionWidth: 2
   });
 
-  assert.deepEqual(symbolicPlotSelectionHalo(appearance), { width: 14, offset: 0 });
+  assert.deepEqual(symbolicPlotSelectionHalo(appearance), {
+    width: 14,
+    offset: 0,
+    innerHalfWidth: 5
+  });
+});
+
+test('cuts the graph gap out of the centered selection halo on every GPU backend', () => {
+  assert.match(webGpuShaderSource(), /outerCoverage \* innerCoverage/);
+  assert.match(webGlStrokeFragmentSource(), /outer_coverage \* inner_coverage/);
 });
 
 test('keeps curve selection joins at constant radius so contours cannot fold', () => {

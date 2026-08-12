@@ -26,7 +26,8 @@ export function symbolicPlotSelectionHalo(appearance) {
   return Object.freeze({
     width: appearance.edgeWidth
       + 2 * (appearance.selectionGap + appearance.selectionWidth),
-    offset: 0
+    offset: 0,
+    innerHalfWidth: appearance.edgeWidth / 2 + appearance.selectionGap
   });
 }
 
@@ -1180,14 +1181,17 @@ function writeWebGpuTransform(device, buffer, transform, size) {
 
 function writeWebGpuStrokePasses(device, buffers, appearance) {
   const halo = symbolicPlotSelectionHalo(appearance);
-  const write = (buffer, width, strokeOffset, color, alpha, override) => {
+  const write = (buffer, width, strokeOffset, color, alpha, override, innerHalfWidth = 0) => {
     device.queue.writeBuffer(buffer, 0, new Float32Array([
-      width, strokeOffset, override ? 1 : 0, 0,
+      width, strokeOffset, override ? 1 : 0, innerHalfWidth,
       color[0], color[1], color[2], alpha
     ]));
   };
   write(buffers[0], appearance.edgeWidth, 0, [0, 0, 0], 0, false);
-  write(buffers[1], halo.width, halo.offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+  write(
+    buffers[1], halo.width, halo.offset, appearance.selectionColor,
+    appearance.edgeSelectionAlpha, true, halo.innerHalfWidth
+  );
   write(buffers[2], 0, 0, appearance.selectionColor, 0, true);
   write(buffers[3], 0, 0, appearance.selectionColor, appearance.faceSelectionAlpha, true);
 }
@@ -1340,6 +1344,7 @@ export function webGpuShaderSource() {
       @location(0) color: vec4f,
       @location(1) edgeDistance: f32,
       @location(2) halfWidth: f32,
+      @location(3) innerHalfWidth: f32,
     }
     struct StrokeInput {
       @location(2) previousPosition: vec2f,
@@ -1458,6 +1463,7 @@ export function webGpuShaderSource() {
       output.color = select(mix(input.fromColor, input.toColor, along), stroke.color, stroke.geometry.z > 0.5);
       output.edgeDistance = edgeDistance;
       output.halfWidth = halfWidth;
+      output.innerHalfWidth = stroke.geometry.w;
       return output;
     }
 
@@ -1485,11 +1491,21 @@ export function webGpuShaderSource() {
 
     @fragment fn strokeFragment(input: StrokeOutput) -> @location(0) vec4f {
       let antialias = max(fwidth(input.edgeDistance), 1.0);
-      let coverage = 1.0 - smoothstep(
+      let outerCoverage = 1.0 - smoothstep(
         input.halfWidth,
         input.halfWidth + antialias,
         abs(input.edgeDistance)
       );
+      let innerCoverage = select(
+        1.0,
+        smoothstep(
+          input.innerHalfWidth - antialias,
+          input.innerHalfWidth + antialias,
+          abs(input.edgeDistance)
+        ),
+        input.innerHalfWidth > 0.0
+      );
+      let coverage = outerCoverage * innerCoverage;
       return vec4f(input.color.rgb, input.color.a * coverage);
     }
 
@@ -1857,16 +1873,20 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
     gl.vertexAttribPointer(location, sizeValue, gl.FLOAT, false, FLOATS_PER_SEGMENT * 4, offset);
     gl.vertexAttribDivisor(location, 1);
   }
-  const draw = (width, offset, color, alpha, override) => {
+  const draw = (width, offset, color, alpha, override, innerHalfWidth = 0) => {
     gl.uniform1f(locations.width, width);
     gl.uniform1f(locations.offset, offset);
+    gl.uniform1f(locations.innerHalfWidth, innerHalfWidth);
     gl.uniform1f(locations.override, override ? 1 : 0);
     gl.uniform4f(locations.overrideColor, color[0], color[1], color[2], alpha);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   };
   if (appearance.edgeSelectionAlpha > 0) {
     const halo = symbolicPlotSelectionHalo(appearance);
-    draw(halo.width, halo.offset, appearance.selectionColor, appearance.edgeSelectionAlpha, true);
+    draw(
+      halo.width, halo.offset, appearance.selectionColor,
+      appearance.edgeSelectionAlpha, true, halo.innerHalfWidth
+    );
   }
   draw(appearance.edgeWidth, 0, [0, 0, 0], 0, false);
   for (const [location] of attributes) gl.vertexAttribDivisor(location, 0);
@@ -1949,6 +1969,7 @@ function getWebGlStrokeLocations(gl, program) {
     viewport: gl.getUniformLocation(program, 'u_viewport'),
     width: gl.getUniformLocation(program, 'u_width'),
     offset: gl.getUniformLocation(program, 'u_offset'),
+    innerHalfWidth: gl.getUniformLocation(program, 'u_inner_half_width'),
     override: gl.getUniformLocation(program, 'u_override'),
     overrideColor: gl.getUniformLocation(program, 'u_override_color')
   };
@@ -2323,6 +2344,7 @@ export function webGlStrokeVertexSource() {
     uniform vec2 u_viewport;
     uniform float u_width;
     uniform float u_offset;
+    uniform float u_inner_half_width;
     uniform float u_override;
     uniform vec4 u_override_color;
     out vec4 v_color;
@@ -2382,14 +2404,23 @@ export function webGlStrokeFragmentSource() {
     in vec4 v_color;
     in float v_edge_distance;
     in float v_half_width;
+    uniform float u_inner_half_width;
     out vec4 out_color;
     void main() {
       float antialias = max(fwidth(v_edge_distance), 1.0);
-      float coverage = 1.0 - smoothstep(
+      float outer_coverage = 1.0 - smoothstep(
         v_half_width,
         v_half_width + antialias,
         abs(v_edge_distance)
       );
+      float inner_coverage = u_inner_half_width > 0.0
+        ? smoothstep(
+            u_inner_half_width - antialias,
+            u_inner_half_width + antialias,
+            abs(v_edge_distance)
+          )
+        : 1.0;
+      float coverage = outer_coverage * inner_coverage;
       out_color = vec4(v_color.rgb, v_color.a * coverage);
     }
   `;
