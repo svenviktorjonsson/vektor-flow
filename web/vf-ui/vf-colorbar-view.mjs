@@ -136,7 +136,8 @@ export function createColorbarAxisTicks(domain = [0, 1], {
   return Object.freeze(values.map((value) => Object.freeze({
     value,
     unit: (value - minimum) / span,
-    label: axis2dTicks.formatAxisTickLabel(value, step)
+    label: axis2dTicks.formatAxisTickLabel(value, step),
+    latex: colorbarTickLatex(axis2dTicks.formatAxisTickLabel(value, step))
   })));
 }
 
@@ -204,7 +205,7 @@ export function createColorbarView({
     'grid-template-columns:minmax(32px,auto) 40px 52px',
     'grid-template-rows:minmax(96px,1fr)',
     'align-items:center',
-    'gap:0 6px',
+    'gap:0',
     'height:100%'
   ].join(';');
   axis.className = 'vf-colorbar__axis';
@@ -216,7 +217,9 @@ export function createColorbarView({
     'width:40px',
     'min-height:96px',
     'border:1px solid currentColor',
-    'box-sizing:border-box'
+    'box-sizing:border-box',
+    'touch-action:none',
+    'user-select:none'
   ].join(';');
   labelViewport.className = 'vf-colorbar__label-viewport';
   axisLabel.className = 'vf-colorbar__label';
@@ -224,11 +227,10 @@ export function createColorbarView({
   panel.append(axis, gradient, labelViewport);
   root.append(panel);
 
-  const pointerBinding = bindPointerGestures(root, {
+  const pointerBinding = bindPointerGestures(gradient, {
     gestureController,
     getBinding: () => binding,
-    onDomainChange: publishDomain,
-    getInteractionBounds: () => gradient.getBoundingClientRect()
+    onDomainChange: publishDomain
   });
 
   function update(nextBinding) {
@@ -249,7 +251,7 @@ export function createColorbarView({
     renderAxisTicks(axis, createColorbarAxisTicks(
       presentation.colorScale.domain,
       { extent: gradient.getBoundingClientRect?.().height || 240 }
-    ), documentRef);
+    ), documentRef, renderLabel);
     renderLabel(axisLabel, presentation.labelLatex);
     return presentation;
   }
@@ -422,13 +424,13 @@ function bindPointerGestures(element, {
   });
 }
 
-function renderAxisTicks(axis, ticks, documentRef) {
+function renderAxisTicks(axis, ticks, documentRef, renderLabel) {
   if (axis.replaceChildren) axis.replaceChildren();
   else axis.children.length = 0;
   for (const tick of ticks) {
     const node = documentRef.createElement('span');
     node.className = 'vf-colorbar__tick';
-    node.textContent = tick.label;
+    renderLabel(node, tick.latex);
     node.style.cssText = [
       'position:absolute',
       'right:0',
@@ -438,6 +440,14 @@ function renderAxisTicks(axis, ticks, documentRef) {
     ].join(';');
     axis.append(node);
   }
+}
+
+function colorbarTickLatex(label) {
+  const normalized = String(label).replaceAll('−', '-');
+  const scientific = normalized.match(/^(.+?)[eE]([+-]?\d+)$/);
+  return scientific
+    ? `${scientific[1]}\\times 10^{${Number(scientific[2])}}`
+    : normalized;
 }
 
 function normalizeColormapPoints(points) {

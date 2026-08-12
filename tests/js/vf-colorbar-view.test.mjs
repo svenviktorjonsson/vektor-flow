@@ -78,6 +78,7 @@ test('colorbar axis uses regular nice steps that move with the domain', () => {
   const initial = createColorbarAxisTicks([-3.2, 7.8], { extent: 320 });
   assert.deepEqual(initial.map(({ value }) => value), [-2, 0, 2, 4, 6]);
   assert.deepEqual(initial.map(({ label }) => label), ['−2', '0', '2', '4', '6']);
+  assert.deepEqual(initial.map(({ latex }) => latex), ['-2', '0', '2', '4', '6']);
   assert.ok(initial.every(({ unit }) => unit >= 0 && unit <= 1));
 
   const panned = createColorbarAxisTicks([-1.2, 9.8], { extent: 320 });
@@ -91,9 +92,14 @@ test('mouse pan and wheel zoom preserve the scalar under the pointer', () => {
 
 test('DOM colorbar supports mouse pan and pointer-anchored wheel zoom', () => {
   const changes = [];
+  const renderedLatex = [];
   const view = createColorbarView({
     document: createFakeDocument(),
     onDomainChange: (scale, metadata) => changes.push({ scale, metadata }),
+    renderLabel: (element, latex) => {
+      renderedLatex.push(latex);
+      element.textContent = latex;
+    },
   });
   view.update({
     id: 'field',
@@ -101,14 +107,21 @@ test('DOM colorbar supports mouse pan and pointer-anchored wheel zoom', () => {
     colormapPoints: [{ pos: 0, color: [0, 0, 0] }],
   });
 
+  const gradient = view.element.children[0].children[1];
+  assert.ok(renderedLatex.includes('c'));
+  assert.ok(renderedLatex.includes('0'));
+  assert.ok(renderedLatex.includes('1'));
   view.element.dispatch('pointerdown', pointer(1, 75, 'mouse'));
   view.element.dispatch('pointermove', pointer(1, 65, 'mouse'));
-  view.element.dispatch('pointerup', pointer(1, 65, 'mouse'));
+  assert.equal(changes.length, 0);
+  gradient.dispatch('pointerdown', pointer(1, 75, 'mouse'));
+  gradient.dispatch('pointermove', pointer(1, 65, 'mouse'));
+  gradient.dispatch('pointerup', pointer(1, 65, 'mouse'));
   assert.deepEqual(changes.at(-1).scale.domain, [-0.1, 0.9]);
   assert.equal(changes.at(-1).metadata.committed, true);
 
   const wheelEvent = wheel(50, -100);
-  view.element.dispatch('wheel', wheelEvent);
+  gradient.dispatch('wheel', wheelEvent);
   const zoomed = changes.at(-1).scale.domain;
   assert.ok(zoomed[1] - zoomed[0] < 1);
   assert.ok(Math.abs((zoomed[0] + zoomed[1]) / 2 - 0.4) < 1e-12);
@@ -122,11 +135,15 @@ test('colorbar gestures use the fixed gradient track rather than panel padding',
     onDomainChange: (scale) => changes.push(scale.domain),
   });
   view.element.bounds = { top: 0, bottom: 200, height: 200 };
-  view.element.children[0].children[1].bounds = { top: 0, bottom: 100, height: 100 };
+  const gradient = view.element.children[0].children[1];
+  gradient.bounds = { top: 0, bottom: 100, height: 100 };
   view.update({ id: 'field', colorScale: { domain: [0, 1] } });
 
   view.element.dispatch('pointerdown', pointer(1, 75, 'mouse'));
   view.element.dispatch('pointermove', pointer(1, 65, 'mouse'));
+  assert.equal(changes.length, 0);
+  gradient.dispatch('pointerdown', pointer(1, 75, 'mouse'));
+  gradient.dispatch('pointermove', pointer(1, 65, 'mouse'));
   assert.deepEqual(changes.at(-1), [-0.1, 0.9]);
 });
 
@@ -143,15 +160,16 @@ test('first mobile touch is captured and two-touch normalization remains continu
   });
 
   const first = pointer(1, 75, 'touch');
-  view.element.dispatch('pointerdown', first);
+  const gradient = view.element.children[0].children[1];
+  gradient.dispatch('pointerdown', first);
   assert.equal(first.prevented, true);
-  assert.equal(view.element.captured.has(1), true);
+  assert.equal(gradient.captured.has(1), true);
   assert.equal(changes.length, 0);
-  view.element.dispatch('pointerdown', pointer(2, 25, 'touch'));
-  view.element.dispatch('pointermove', pointer(1, 65, 'touch'));
-  view.element.dispatch('pointermove', pointer(2, 15, 'touch'));
+  gradient.dispatch('pointerdown', pointer(2, 25, 'touch'));
+  gradient.dispatch('pointermove', pointer(1, 65, 'touch'));
+  gradient.dispatch('pointermove', pointer(2, 15, 'touch'));
   assert.ok(changes.length >= 3);
-  view.element.dispatch('pointerup', pointer(1, 65, 'touch'));
+  gradient.dispatch('pointerup', pointer(1, 65, 'touch'));
   assert.equal(changes.at(-1).metadata.committed, true);
 });
 
@@ -180,20 +198,22 @@ test('DOM colorbar updates, hides, destroys, and publishes two-pointer domains',
   assert.equal(view.element.hidden, false);
   assert.equal(view.element.dataset.colorbarId, 'scalar-field');
   assert.equal(presentation.colorScale.mode, 'cyclic');
-  assert.deepEqual(labels, ['x+y']);
+  assert.deepEqual(labels, ['0', '0.5', '1', 'x+y']);
   const panel = view.element.children[0];
   assert.equal(panel.className, 'vf-colorbar__panel');
+  assert.match(panel.style.cssText, /gap:0(?:;|$)/);
   const labelViewport = panel.children.at(-1);
   assert.equal(labelViewport.children[0].textContent, 'x+y');
   const axis = panel.children[0];
   assert.ok(axis.children.length >= 3);
   assert.equal(panel.children[1].className, 'vf-colorbar__gradient');
 
-  view.element.dispatch('pointerdown', pointer(1, 75));
-  view.element.dispatch('pointerdown', pointer(2, 25));
-  view.element.dispatch('pointermove', pointer(1, 65));
-  view.element.dispatch('pointermove', pointer(2, 15));
-  view.element.dispatch('pointerup', pointer(1, 65));
+  const gradient = panel.children[1];
+  gradient.dispatch('pointerdown', pointer(1, 75));
+  gradient.dispatch('pointerdown', pointer(2, 25));
+  gradient.dispatch('pointermove', pointer(1, 65));
+  gradient.dispatch('pointermove', pointer(2, 15));
+  gradient.dispatch('pointerup', pointer(1, 65));
 
   const last = changes.at(-1);
   assert.equal(last.metadata.committed, true);
