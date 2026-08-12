@@ -2588,7 +2588,11 @@ function webGlComplexFieldFragmentSource(shader) {
     ${complexMathFunctions('glsl', shader.glslValue)}
     ${scalarColormapFunction(shader, 'glsl')}
     void main() {
-      vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
+      float a = u_transform[0][0]; float b = u_transform[0][1];
+      float c = u_transform[1][0]; float d = u_transform[1][1];
+      float e = u_transform[2][0]; float f = u_transform[2][1];
+      vec2 translated = v_screen - vec2(e, f); float determinant = a * d - b * c;
+      vec2 local = vec2((d * translated.x - c * translated.y) / determinant, (-b * translated.x + a * translated.y) / determinant);
       float x = local.x; float y = local.y; float t = u_time;
       vec2 value = ${shader.glslValue};
       if (any(isnan(value)) || any(isinf(value))) discard;
@@ -2643,7 +2647,11 @@ function webGlScalarFieldFragmentSource(shader) {
     precision highp float; in vec2 v_screen; uniform mat3 u_transform; uniform float u_time;
     out vec4 out_color; ${scalarColormapFunction(shader, 'glsl')}
     void main() {
-      vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
+      float a = u_transform[0][0]; float b = u_transform[0][1];
+      float c = u_transform[1][0]; float d = u_transform[1][1];
+      float e = u_transform[2][0]; float f = u_transform[2][1];
+      vec2 translated = v_screen - vec2(e, f); float determinant = a * d - b * c;
+      vec2 local = vec2((d * translated.x - c * translated.y) / determinant, (-b * translated.x + a * translated.y) / determinant);
       float x = local.x; float y = local.y; float t = u_time;
       float value = ${shader.glslValue}; float unit = ${normalize};
       out_color = texture_color(unit);
