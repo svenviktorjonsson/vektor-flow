@@ -2509,14 +2509,16 @@ function complexMathFunctions(language, expression) {
       ${wgsl ? 'let' : 'float'} denominator = max(dot(b, b), 1e-20);
       return ${type}((a.x * b.x + a.y * b.y) / denominator, (a.y * b.x - a.x * b.y) / denominator);
     }`);
-  if (usesPower) functions.push(`
+  if (uses('complexLog') || usesPower) functions.push(`
     ${declaration('complexLog', ['z'])} {
       return ${type}(log(max(length(z), 1e-20)), ${angle});
-    }
+    }`);
+  if (uses('complexExp') || usesPower) functions.push(`
     ${declaration('complexExp', ['z'])} {
       ${wgsl ? 'let' : 'float'} scale = exp(z.x);
       return scale * ${type}(cos(z.y), sin(z.y));
-    }
+    }`);
+  if (usesPower) functions.push(`
     ${declaration('complexPow', ['a', 'b'])} { return complexExp(complexMul(b, complexLog(a))); }`);
   if (uses('complexSin')) functions.push(`
     ${declaration('complexSin', ['z'])} {

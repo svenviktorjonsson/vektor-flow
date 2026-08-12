@@ -54,8 +54,9 @@ test('compiles complex fields into per-pixel phase color and magnitude alpha', (
   });
 
   assert.equal(shader.kind, 'complex-field');
-  assert.match(shader.wgslValue, /complexPow/);
-  assert.match(shader.glslValue, /complexPow/);
+  assert.match(shader.wgslValue, /complexMul/);
+  assert.match(shader.glslValue, /complexMul/);
+  assert.doesNotMatch(`${shader.wgslValue}\n${shader.glslValue}`, /complexPow/);
   const wgsl = webGpuRelationShaderSource(shader);
   const glsl = webGlRelationFragmentSource(shader);
   assert.match(wgsl, /phaseUnit.*textureColor/s);

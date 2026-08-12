@@ -187,7 +187,16 @@ function emitComplex(node, language) {
     if (node.op === '-') return `(${left} - ${right})`;
     if (node.op === '*') return `complexMul(${left}, ${right})`;
     if (node.op === '/') return `complexDiv(${left}, ${right})`;
-    if (node.op === '^') return `complexPow(${left}, ${right})`;
+    if (node.op === '^') {
+      const exponent = node.right?.kind === 'number' ? Number(node.right.value) : Number.NaN;
+      if (Number.isSafeInteger(exponent) && Math.abs(exponent) <= 16) {
+        const count = Math.abs(exponent);
+        let power = vector('1.0');
+        for (let index = 0; index < count; index += 1) power = `complexMul(${power}, ${left})`;
+        return exponent < 0 ? `complexDiv(${vector('1.0')}, ${power})` : power;
+      }
+      return `complexPow(${left}, ${right})`;
+    }
     return null;
   }
   if (node.kind === 'call' && Array.isArray(node.args)) {
