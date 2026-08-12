@@ -50,15 +50,15 @@ test('builds selection from global outer and inner coverage unions on every GPU 
   assert.match(webGlSelectionCompositeFragmentSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
 });
 
-test('uses nearest-segment capsule ownership so curve selection cannot fold at joins', () => {
+test('keeps visible strokes as complete capsules while selection unions globally', () => {
   const gpu = webGpuShaderSource();
   const glVertex = webGlStrokeVertexSource();
   const glFragment = webGlStrokeFragmentSource();
   assert.match(gpu, /fn distanceToSegment/);
-  assert.match(gpu, /ownsPreviousBoundary && ownsNextBoundary/);
   assert.match(glVertex, /outer_radius/);
   assert.match(glFragment, /distance_to_segment/);
-  assert.match(glFragment, /owns_previous_boundary && owns_next_boundary/);
+  assert.doesNotMatch(gpu, /ownsPreviousBoundary/);
+  assert.doesNotMatch(glFragment, /owns_previous_boundary/);
   assert.doesNotMatch(gpu, /joinedStrokeOffset/);
   assert.doesNotMatch(glVertex, /joined_stroke_offset/);
 });

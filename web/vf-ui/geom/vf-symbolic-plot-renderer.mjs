@@ -1579,12 +1579,6 @@ export function webGpuShaderSource() {
 
     @fragment fn strokeFragment(input: StrokeOutput) -> @location(0) vec4f {
       let distance = distanceToSegment(input.screenPosition, input.fromScreen, input.toScreen);
-      let previousLengthSquared = dot(input.fromScreen - input.previousScreen, input.fromScreen - input.previousScreen);
-      let nextLengthSquared = dot(input.nextScreen - input.toScreen, input.nextScreen - input.toScreen);
-      let previousDistance = distanceToSegment(input.screenPosition, input.previousScreen, input.fromScreen);
-      let nextDistance = distanceToSegment(input.screenPosition, input.toScreen, input.nextScreen);
-      let ownsPreviousBoundary = previousLengthSquared < 0.000001 || distance <= previousDistance;
-      let ownsNextBoundary = nextLengthSquared < 0.000001 || distance < nextDistance;
       let antialias = max(fwidth(distance), 0.0001);
       let outerCoverage = 1.0 - smoothstep(
         input.halfWidth,
@@ -1600,8 +1594,7 @@ export function webGpuShaderSource() {
         ),
         input.innerHalfWidth > 0.0
       );
-      let ownership = select(0.0, 1.0, ownsPreviousBoundary && ownsNextBoundary);
-      let coverage = outerCoverage * innerCoverage * ownership;
+      let coverage = outerCoverage * innerCoverage;
       return vec4f(input.color.rgb, input.color.a * coverage);
     }
 
@@ -1790,11 +1783,13 @@ function createWebGl2Backend(canvas) {
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.blendEquation(gl.MAX);
+        gl.blendFunc(gl.ONE, gl.ONE);
         drawWebGlSelectionMask(
           gl, selectionMaskProgram, segmentBuffer, selectionMaskLocations,
           transform, cssSize, currentArena.segmentCount, appearance
         );
         gl.blendEquation(gl.FUNC_ADD);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
       gl.clearColor(0, 0, 0, 0);
@@ -2613,12 +2608,6 @@ export function webGlStrokeFragmentSource() {
     }
     void main() {
       float distance_value = distance_to_segment(v_screen_position, v_from_screen, v_to_screen);
-      float previous_length_squared = dot(v_from_screen - v_previous_screen, v_from_screen - v_previous_screen);
-      float next_length_squared = dot(v_next_screen - v_to_screen, v_next_screen - v_to_screen);
-      float previous_distance = distance_to_segment(v_screen_position, v_previous_screen, v_from_screen);
-      float next_distance = distance_to_segment(v_screen_position, v_to_screen, v_next_screen);
-      bool owns_previous_boundary = previous_length_squared < 0.000001 || distance_value <= previous_distance;
-      bool owns_next_boundary = next_length_squared < 0.000001 || distance_value < next_distance;
       float antialias = max(fwidth(distance_value), 0.0001);
       float outer_coverage = 1.0 - smoothstep(
         v_half_width,
@@ -2632,8 +2621,7 @@ export function webGlStrokeFragmentSource() {
             distance_value
           )
         : 1.0;
-      float ownership = owns_previous_boundary && owns_next_boundary ? 1.0 : 0.0;
-      float coverage = outer_coverage * inner_coverage * ownership;
+      float coverage = outer_coverage * inner_coverage;
       out_color = vec4(v_color.rgb, v_color.a * coverage);
     }
   `;
