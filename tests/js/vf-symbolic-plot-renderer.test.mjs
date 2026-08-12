@@ -7,6 +7,7 @@ import {
   SYMBOLIC_PLOT_POINT_RADIUS,
   SYMBOLIC_PLOT_POINT_VERTICES,
   SymbolicPlotMode,
+  bindWebGlInstancedAttributes,
   createSymbolicPlotRenderer,
   growSymbolicPlotCapacity,
   normalizeSymbolicPlotAppearance,
@@ -27,6 +28,31 @@ import {
   triangulateSymbolicPlotClip,
   triangulateSymbolicPlotClipRegion
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
+
+test('ignores shader attributes optimized out of the WebGL fallback', () => {
+  const enabled = [];
+  const pointers = [];
+  const divisors = [];
+  const gl = {
+    FLOAT: 0x1406,
+    enableVertexAttribArray: (location) => enabled.push(location),
+    vertexAttribPointer: (...args) => pointers.push(args),
+    vertexAttribDivisor: (...args) => divisors.push(args)
+  };
+
+  assert.deepEqual(bindWebGlInstancedAttributes(gl, [
+    [-1, 2, 0],
+    [3, 2, 8],
+    [-1, 2, 56],
+    [7, 1, 64]
+  ]), [3, 7]);
+  assert.deepEqual(enabled, [3, 7]);
+  assert.deepEqual(pointers, [
+    [3, 2, gl.FLOAT, false, 68, 8],
+    [7, 1, gl.FLOAT, false, 68, 64]
+  ]);
+  assert.deepEqual(divisors, [[3, 1], [7, 1]]);
+});
 
 test('uses one centered selection halo instead of self-intersecting offset strokes', () => {
   const appearance = normalizeSymbolicPlotAppearance({

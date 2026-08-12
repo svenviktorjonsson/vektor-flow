@@ -175,6 +175,18 @@ export function uploadWebGlDynamicBuffer(gl, buffer, data, currentCapacity = 0) 
   return capacity;
 }
 
+export function bindWebGlInstancedAttributes(gl, attributes, stride = FLOATS_PER_SEGMENT * 4) {
+  const enabled = [];
+  for (const [location, size, offset] of attributes) {
+    if (!Number.isInteger(location) || location < 0) continue;
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset);
+    gl.vertexAttribDivisor(location, 1);
+    enabled.push(location);
+  }
+  return enabled;
+}
+
 export function resolveSymbolicPlotArena(spec, previous = null) {
   if (!spec || typeof spec !== 'object') {
     throw new TypeError('symbolic plot arena must be an object');
@@ -2030,11 +2042,7 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
     [locations.nextPosition, 2, 56],
     [locations.strokeScale, 1, 64]
   ];
-  for (const [location, sizeValue, offset] of attributes) {
-    gl.enableVertexAttribArray(location);
-    gl.vertexAttribPointer(location, sizeValue, gl.FLOAT, false, FLOATS_PER_SEGMENT * 4, offset);
-    gl.vertexAttribDivisor(location, 1);
-  }
+  const enabledAttributes = bindWebGlInstancedAttributes(gl, attributes);
   const draw = (width, offset, color, alpha, override, innerHalfWidth = 0) => {
     gl.uniform1f(locations.width, width);
     gl.uniform1f(locations.offset, offset);
@@ -2044,7 +2052,7 @@ function drawWebGlStrokes(gl, program, buffer, locations, transform, size, count
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
   };
   draw(appearance.edgeWidth, 0, [0, 0, 0], 0, false);
-  for (const [location] of attributes) gl.vertexAttribDivisor(location, 0);
+  for (const location of enabledAttributes) gl.vertexAttribDivisor(location, 0);
   gl.disable(gl.STENCIL_TEST);
   gl.stencilMask(0xff);
 }
