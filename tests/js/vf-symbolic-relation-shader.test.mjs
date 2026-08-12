@@ -122,6 +122,29 @@ test('renders a simple equality through the current boundary and fill residual c
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /undefined/);
 });
 
+test('compiles time-dependent equality and every inequality entirely into GPU residuals', () => {
+  for (const op of ['=', '<', '>', '<=', '>=']) {
+    const shader = compileSymbolicRelationShader({
+      kind: 'binary', op,
+      left: {
+        kind: 'binary', op: '+',
+        left: { kind: 'binary', op: '^', left: variable('x'), right: { kind: 'number', value: 2 } },
+        right: variable('t')
+      },
+      right: {
+        kind: 'binary', op: '-',
+        left: { kind: 'binary', op: '^', left: variable('y'), right: { kind: 'number', value: 2 } },
+        right: variable('t')
+      }
+    });
+    assert.ok(shader, op);
+    assert.match(shader.glslFillResidual, /t/, op);
+    assert.match(shader.wgslFillResidual, /t/, op);
+    assert.equal(shader.hasFill, op !== '=', op);
+    assert.equal(shader.hasBoundary, ['=', '<=', '>='].includes(op), op);
+  }
+});
+
 
 test('combines a set-distributed equality into concentric GPU boundaries', () => {
   const squaredRadius = (value) => ({

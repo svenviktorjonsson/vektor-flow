@@ -127,6 +127,8 @@ export async function createSymbolicPlotController({
     const relationPrograms = (documentPrograms || [program])
       .filter((member) => isSymbolicRelation(member?.classification));
     const allPrograms = documentPrograms || [program];
+    const explicitCurvePrograms = allPrograms
+      .filter((member) => isExplicitSymbolicCurve(member?.classification));
     const scalarFieldProgram = allPrograms.length === 1
       && allPrograms[0]?.classification === 'scalar-field'
       ? allPrograms[0]
@@ -135,19 +137,23 @@ export async function createSymbolicPlotController({
       && allPrograms[0]?.classification === 'complex-field'
       ? allPrograms[0]
       : null;
-    const relationInputs = relationPrograms.map((member) => ({
-      ast: member.ast,
-      variants: member.variants,
+    const analyticCurveInputs = explicitCurvePrograms.flatMap(explicitCurveRelationInputs);
+    const relationInputs = [
+      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants })),
+      ...analyticCurveInputs
+    ].map(({ ast, variants }) => ({
+      ast,
+      variants,
       style,
       t: view.t
     }));
-    const analyticRelation = relationPrograms.length > 0
+    const analyticRelation = relationInputs.length > 0
       ? (typeof renderer.setAnalyticRelations === 'function'
           ? renderer.setAnalyticRelations(relationInputs)
           : renderer.setAnalyticRelation?.(relationInputs[0] || null))
       : null;
-    if (relationPrograms.length > 0 && !analyticRelation) {
-      throw new Error('VKF GPU relation compiler does not support this expression');
+    if (relationInputs.length > 0 && !analyticRelation) {
+      throw new Error('VKF GPU curve/relation compiler does not support this expression');
     }
     const analyticComplexField = relationPrograms.length === 0 && complexFieldProgram
       ? renderer.setAnalyticComplexField?.({
@@ -176,15 +182,20 @@ export async function createSymbolicPlotController({
     let nextSnapGeometry;
     let nextArena;
     if (
-      (relationPrograms.length > 0 && relationPrograms.length === allPrograms.length)
+      (relationInputs.length > 0
+        && relationPrograms.length + explicitCurvePrograms.length === allPrograms.length)
       || analyticComplexField
       || analyticScalarField
     ) {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(requestOrder);
     } else if (result.diagnostics.length === 0) {
-      const sampledPrograms = allPrograms
-        .filter((member) => !isSymbolicRelation(member?.classification) && member !== scalarFieldProgram);
+      const sampledPrograms = allPrograms.filter((member) => (
+        !isSymbolicRelation(member?.classification)
+        && !isExplicitSymbolicCurve(member?.classification)
+        && member !== scalarFieldProgram
+        && member !== complexFieldProgram
+      ));
       const arenas = await Promise.all(sampledPrograms.map(async (member) =>
         snapshotSymbolicPlotArena(
           await kernel.plot(member, executionWorkspace, view, style, revision),
@@ -457,6 +468,27 @@ function normalizePartInteractionState(value) {
 
 function isSymbolicRelation(classification) {
   return ['implicit-curve', 'open-region', 'closed-region'].includes(classification);
+}
+
+function isExplicitSymbolicCurve(classification) {
+  return ['y-of-x', 'x-of-y', 'y-of-x-family', 'x-of-y-family'].includes(classification);
+}
+
+function explicitCurveRelationInputs(program) {
+  const yOfX = program?.classification === 'y-of-x'
+    || program?.classification === 'y-of-x-family';
+  const expressions = Array.isArray(program?.variants) && program.variants.length
+    ? program.variants
+    : [program?.ast];
+  return expressions.filter(Boolean).map((expression) => ({
+    ast: {
+      kind: 'binary',
+      op: '=',
+      left: { kind: 'variable', name: yOfX ? 'y' : 'x' },
+      right: expression
+    },
+    variants: null
+  }));
 }
 
 export function hitTestSymbolicPlotGeometry(geometry, transform, screenPoint, radius = 7) {

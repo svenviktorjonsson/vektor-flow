@@ -49,7 +49,7 @@ test('compiler exposes plot capability only for supported classifications', asyn
   assert.equal(compiler.compile('x^(1..4)').plottable, true);
 });
 
-test('owns a four-range curve family in one controller arena', async () => {
+test('renders a four-member curve family as analytic GPU boundaries', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
   const vertices = new Float32Array(memory.buffer, 0, 48);
@@ -62,7 +62,11 @@ test('owns a four-range curve family in one controller arena', async () => {
     latex: '{x}^{\\left(1..4\\right)}',
     variables: ['x'],
     classification: 'y-of-x-family',
-    valueKind: 'scalar'
+    valueKind: 'scalar',
+    ast: { kind: 'binary', op: '^', left: { kind: 'variable', name: 'x' }, right: { kind: 'number', value: 1 } },
+    variants: [1, 2, 3, 4].map((value) => ({
+      kind: 'binary', op: '^', left: { kind: 'variable', name: 'x' }, right: { kind: 'number', value }
+    }))
   };
   const ranges = [0, 1, 2, 3].map((index) => ({
     topology: 'line-strip', mode: 'time-curve', first: index * 2, count: 2
@@ -78,6 +82,7 @@ test('owns a four-range curve family in one controller arena', async () => {
     async initialize() {},
     updateTransform() {}, updateClip() {},
     updateAppearance(value) { calls.push(['appearance', value]); },
+    setAnalyticRelations(value) { calls.push(['relations', value]); return { shader: true }; },
     setArena(value) { calls.push(['arena', value]); },
     render() {}, resize() {}, destroy() {},
     async pick() { calls.push(['pick']); return { kind: 'segment', rangeIndex: 2, index: 4 }; }
@@ -91,10 +96,11 @@ test('owns a four-range curve family in one controller arena', async () => {
 
   assert.equal(result.plottable, true);
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
+  assert.equal(calls.find(([name]) => name === 'relations')[1].length, 4);
   const arenas = calls.filter(([name]) => name === 'arena');
   assert.equal(arenas.length, 1);
-  assert.deepEqual(arenas[0][1].ranges, ranges);
+  assert.deepEqual(arenas[0][1].ranges, []);
   assert.deepEqual(await controller.pick([0, 0]), { kind: 'segment', rangeIndex: 2, index: 4 });
   controller.setInteractionState('selected');
   assert.deepEqual(calls.filter(([name]) => name === 'appearance').at(-1)[1].partStates, {
@@ -105,7 +111,7 @@ test('owns a four-range curve family in one controller arena', async () => {
   controller.destroy();
 });
 
-test('renders a mixed document plot group in one GPU arena', async () => {
+test('renders explicit x/y curves as analytic GPU relations without CPU sampling', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
   new Float32Array(memory.buffer, 0, 24).set([
@@ -113,13 +119,20 @@ test('renders a mixed document plot group in one GPU arena', async () => {
     -1, -1, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0
   ]);
   const members = [
-    { diagnostics: [], variables: ['x'], classification: 'y-of-x', valueKind: 'scalar' },
-    { diagnostics: [], variables: ['y'], classification: 'x-of-y', valueKind: 'scalar' }
+    {
+      diagnostics: [], variables: ['x'], classification: 'y-of-x', valueKind: 'scalar',
+      ast: { kind: 'binary', op: '^', left: { kind: 'variable', name: 'x' }, right: { kind: 'number', value: 2 } }
+    },
+    {
+      diagnostics: [], variables: ['y'], classification: 'x-of-y', valueKind: 'scalar',
+      ast: { kind: 'binary', op: '^', left: { kind: 'variable', name: 'y' }, right: { kind: 'number', value: 2 } }
+    }
   ];
   const aggregate = {
     diagnostics: [], variables: ['x', 'y'], classification: 'plot-group', valueKind: 'group'
   };
   let plotIndex = 0;
+  let analyticInputs = null;
   const kernel = {
     memory,
     compileWithContext() { return { value: aggregate }; },
@@ -138,7 +151,7 @@ test('renders a mixed document plot group in one GPU arena', async () => {
   };
   const renderer = {
     async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
-    setAnalyticRelation() { return null; },
+    setAnalyticRelations(inputs) { analyticInputs = inputs; return { shader: true }; },
     setArena(arena) { calls.push(arena); }, render() {}, resize() {}, destroy() {}
   };
   const controller = await createSymbolicPlotController({
@@ -157,11 +170,15 @@ test('renders a mixed document plot group in one GPU arena', async () => {
     revision: 1
   });
 
-  assert.equal(plotIndex, 2);
-  assert.equal(calls[0].count, 4);
-  assert.deepEqual(calls[0].ranges.map(({ first, count }) => ({ first, count })), [
-    { first: 0, count: 2 },
-    { first: 2, count: 2 }
+  assert.equal(plotIndex, 0);
+  assert.equal(analyticInputs.length, 2);
+  assert.deepEqual(analyticInputs.map(({ ast }) => ({
+    op: ast.op,
+    dependent: ast.left.name,
+    expression: ast.right
+  })), [
+    { op: '=', dependent: 'y', expression: members[0].ast },
+    { op: '=', dependent: 'x', expression: members[1].ast }
   ]);
 });
 
@@ -402,7 +419,7 @@ test('omits non-finite samples and invalid adjacent segments from snap geometry'
   });
 });
 
-test('controller compiles, plots, renders, and exposes snap geometry', async () => {
+test('controller compiles and renders an explicit curve without CPU plot geometry', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
   const vertices = new Float32Array(memory.buffer, 0, 12);
@@ -412,7 +429,8 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
     latex: 'x^{2}',
     variables: ['x'],
     classification: 'y-of-x',
-    valueKind: 'number'
+    valueKind: 'number',
+    ast: { kind: 'binary', op: '^', left: { kind: 'variable', name: 'x' }, right: { kind: 'number', value: 2 } }
   };
   const kernel = {
     memory,
@@ -438,6 +456,7 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
     updateTransform(value) { calls.push(['transform', value]); },
     updateClip(value) { calls.push(['clip', value]); },
     updateAppearance(value) { calls.push(['appearance', value]); },
+    setAnalyticRelations(value) { calls.push(['relations', value]); return { shader: true }; },
     setArena(value) { calls.push(['arena', value]); },
     render() { calls.push(['render']); },
     async pick(point, radius) { calls.push(['pick', point, radius]); return { kind: 'segment', index: 0 }; },
@@ -467,8 +486,9 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
 
   assert.equal(result.classification, 'y-of-x');
   assert.equal(result.plottable, true);
-  assert.deepEqual(controller.snapGeometry.segments, [[[1, 2], [3, 4]]]);
-  assert.equal(controller.hitTest([328, 177], 2)?.kind, 'segment');
+  assert.deepEqual(controller.snapGeometry.segments, []);
+  assert.equal(controller.hitTest([328, 177], 2), null);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
   assert.deepEqual(await controller.pick([328, 177], 8), { kind: 'segment', index: 0 });
   assert.deepEqual(calls.find(([name]) => name === 'pick').slice(1), [[328, 177], 8]);
   controller.setInteractionState('selected');
@@ -485,7 +505,7 @@ test('controller compiles, plots, renders, and exposes snap geometry', async () 
     edge: 'normal', face: 'hovered'
   });
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
   assert.equal(calls.find(([name]) => name === 'compile')[4], clipRegion);
   assert.deepEqual(calls.find(([name]) => name === 'clip')[1], clipRegion);
   assert.equal(calls.filter(([name]) => name === 'render').length, 4);
@@ -645,7 +665,10 @@ test('commits delayed temporal samples when only time advances in the same spati
   const pendingArena = new Promise((resolve) => { resolvePlot = resolve; });
   const program = {
     diagnostics: [], latex: '\\sin(x-t)', variables: ['x', 't'],
-    classification: 'y-of-x', valueKind: 'number'
+    classification: 'y-of-x', valueKind: 'number',
+    ast: { kind: 'call', name: 'sin', args: [{
+      kind: 'binary', op: '-', left: { kind: 'variable', name: 'x' }, right: { kind: 'variable', name: 't' }
+    }] }
   };
   const kernel = {
     memory,
@@ -659,6 +682,7 @@ test('commits delayed temporal samples when only time advances in the same spati
     updateTransform(value) { calls.push(['transform', value]); },
     updateClip() {},
     updateAppearance() {},
+    setAnalyticRelations(value) { calls.push(['relations', value]); return { shader: true }; },
     setArena(value) { calls.push(['arena', value]); },
     render() {},
     async pick() { return { kind: 'segment', index: 0 }; },
@@ -687,7 +711,8 @@ test('commits delayed temporal samples when only time advances in the same spati
   assert.equal(controller.frameRevision, 5);
   assert.equal(controller.frameEpoch, 2);
   assert.equal(calls.filter(([name]) => name === 'arena').length, 1);
-  assert.equal(controller.hitTest([300, 240], 2)?.kind, 'segment');
+  assert.equal(controller.hitTest([300, 240], 2), null);
+  assert.equal(calls.find(([name]) => name === 'relations')[1][0].t, 0);
   assert.deepEqual(await controller.pick([300, 240], 8), { kind: 'segment', index: 0 });
 });
 
@@ -698,7 +723,10 @@ test('assigns a fresh GPU arena revision to every committed temporal sample', as
   let sample = 0;
   const program = {
     diagnostics: [], latex: '\\sin(x-t)', variables: ['x', 't'],
-    classification: 'y-of-x', valueKind: 'number'
+    classification: 'y-of-x', valueKind: 'number',
+    ast: { kind: 'call', name: 'sin', args: [{
+      kind: 'binary', op: '-', left: { kind: 'variable', name: 'x' }, right: { kind: 'variable', name: 't' }
+    }] }
   };
   const controller = await createSymbolicPlotController({
     canvas: { hidden: true },
@@ -718,6 +746,7 @@ test('assigns a fresh GPU arena revision to every committed temporal sample', as
     },
     createRenderer: () => ({
       async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setAnalyticRelations() { return { shader: true }; },
       setArena(value) { arenas.push(value); }, render() {}, async pick() { return null; },
       resize() {}, destroy() {}
     })
@@ -733,7 +762,7 @@ test('assigns a fresh GPU arena revision to every committed temporal sample', as
 
   assert.equal(arenas.length, 2);
   assert.notEqual(arenas[0].revision, arenas[1].revision);
-  assert.deepEqual(controller.snapGeometry.segments, [[[2, 0], [3, 1]]]);
+  assert.deepEqual(controller.snapGeometry.segments, []);
 });
 
 test('rejects delayed samples from an epoch before reset', async () => {
