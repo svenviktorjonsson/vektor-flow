@@ -9,6 +9,7 @@ import {
 } from '../../web/vf-ui/geom/vf-symbolic-relation-shader.mjs';
 import {
   webGlRelationFragmentSource,
+  webGlRelationPickFragmentSource,
   webGpuRelationShaderSource
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
 
@@ -72,6 +73,9 @@ test('compiles complex fields into per-pixel phase color and magnitude alpha', (
   assert.doesNotMatch(wgsl, /fn complex(?:Sin|Cos|Sqrt|Div)/);
   assert.match(glsl, /phase_unit.*texture_color/s);
   assert.doesNotMatch(`${wgsl}\n${glsl}`, /17\.0/);
+  const pickGlsl = webGlRelationPickFragmentSource(shader);
+  assert.match(pickGlsl, /out_color = vec4\(1\.0 \/ 255\.0/);
+  assert.doesNotMatch(pickGlsl, /undefined/);
 });
 
 test('compiles a closed relation from the VKF AST without source interpolation', () => {

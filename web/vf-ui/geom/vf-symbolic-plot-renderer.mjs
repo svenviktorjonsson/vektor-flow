@@ -2369,7 +2369,9 @@ export function webGlRelationFragmentSource(shader) {
 }
 
 export function webGlRelationPickFragmentSource(shader) {
-  if (shader.kind === 'scalar-field') return webGlScalarFieldPickFragmentSource();
+  if (shader.kind === 'scalar-field' || shader.kind === 'complex-field') {
+    return webGlScalarFieldPickFragmentSource();
+  }
   const faceHit = shader.hasFill ? 'inside_px >= 0.0' : 'false';
   return `#version 300 es
     precision highp float;
