@@ -37,7 +37,7 @@ export function compileSymbolicComplexFieldShader(ast, style = {}) {
     glslValue,
     magnitudeMin: finiteOr(style.magnitudeMin, 0),
     magnitudeMax: finiteOr(style.magnitudeMax, 1),
-    colormapPoints: normalizedShaderColormap(style)
+    colormapPoints: normalizedShaderColormap(style, 'phase')
   });
 }
 
@@ -89,10 +89,18 @@ export function compileSymbolicRelationShaderGroup(programs) {
   });
 }
 
-function normalizedShaderColormap(style) {
+function normalizedShaderColormap(style, fallback = 'gray') {
   const source = Array.isArray(style.colormapPoints) && style.colormapPoints.length
     ? style.colormapPoints
-    : [
+    : fallback === 'phase' ? [
+        { pos: 0, color: [255, 0, 0], alpha: 1 },
+        { pos: 1 / 6, color: [255, 255, 0], alpha: 1 },
+        { pos: 2 / 6, color: [0, 255, 0], alpha: 1 },
+        { pos: 3 / 6, color: [0, 255, 255], alpha: 1 },
+        { pos: 4 / 6, color: [0, 0, 255], alpha: 1 },
+        { pos: 5 / 6, color: [255, 0, 255], alpha: 1 },
+        { pos: 1, color: [255, 0, 0], alpha: 1 }
+      ] : [
         { pos: 0, color: [0, 0, 0], alpha: 1 },
         { pos: 1, color: [255, 255, 255], alpha: 1 }
       ];
