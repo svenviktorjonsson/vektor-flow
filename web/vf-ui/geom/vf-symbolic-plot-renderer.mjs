@@ -2513,8 +2513,20 @@ function complexMathFunctions(language) {
       return scale * ${type}(cos(z.y), sin(z.y));
     }
     ${declaration('complexPow', ['a', 'b'])} { return complexExp(complexMul(b, complexLog(a))); }
-    ${declaration('complexSin', ['z'])} { return ${type}(sin(z.x) * cosh(z.y), cos(z.x) * sinh(z.y)); }
-    ${declaration('complexCos', ['z'])} { return ${type}(cos(z.x) * cosh(z.y), -sin(z.x) * sinh(z.y)); }
+    ${declaration('complexSin', ['z'])} {
+      ${wgsl ? 'let' : 'float'} expY = exp(z.y);
+      ${wgsl ? 'let' : 'float'} expNegY = exp(-z.y);
+      ${wgsl ? 'let' : 'float'} coshY = 0.5 * (expY + expNegY);
+      ${wgsl ? 'let' : 'float'} sinhY = 0.5 * (expY - expNegY);
+      return ${type}(sin(z.x) * coshY, cos(z.x) * sinhY);
+    }
+    ${declaration('complexCos', ['z'])} {
+      ${wgsl ? 'let' : 'float'} expY = exp(z.y);
+      ${wgsl ? 'let' : 'float'} expNegY = exp(-z.y);
+      ${wgsl ? 'let' : 'float'} coshY = 0.5 * (expY + expNegY);
+      ${wgsl ? 'let' : 'float'} sinhY = 0.5 * (expY - expNegY);
+      return ${type}(cos(z.x) * coshY, -sin(z.x) * sinhY);
+    }
     ${declaration('complexSqrt', ['z'])} {
       ${wgsl ? 'let' : 'float'} radius = sqrt(length(z));
       ${wgsl ? 'let' : 'float'} halfAngle = 0.5 * (${angle});

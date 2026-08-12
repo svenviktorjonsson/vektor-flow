@@ -60,6 +60,7 @@ test('compiles complex fields into per-pixel phase color and magnitude alpha', (
   const glsl = webGlRelationFragmentSource(shader);
   assert.match(wgsl, /phaseUnit.*textureColor/s);
   assert.match(wgsl, /length\(value\).*alpha/s);
+  assert.doesNotMatch(wgsl, /\b(?:cosh|sinh)\s*\(/);
   assert.match(glsl, /phase_unit.*texture_color/s);
   assert.doesNotMatch(`${wgsl}\n${glsl}`, /17\.0/);
 });
