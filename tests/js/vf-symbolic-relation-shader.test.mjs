@@ -54,9 +54,13 @@ test('compiles complex fields into per-pixel phase color and magnitude alpha', (
   });
 
   assert.equal(shader.kind, 'complex-field');
-  assert.equal(shader.colormapPoints.length, 7);
+  assert.equal(shader.colormapPoints.length, 2);
   assert.deepEqual(shader.colormapPoints[0].color, [1, 0, 0]);
   assert.deepEqual(shader.colormapPoints.at(-1).color, [1, 0, 0]);
+  const defaultPhaseShader = compileSymbolicComplexFieldShader(z);
+  assert.equal(defaultPhaseShader.colormapPoints.length, 7);
+  assert.deepEqual(defaultPhaseShader.colormapPoints[0].color, [1, 0, 0]);
+  assert.deepEqual(defaultPhaseShader.colormapPoints.at(-1).color, [1, 0, 0]);
   assert.match(shader.wgslValue, /complexMul/);
   assert.match(shader.glslValue, /complexMul/);
   assert.doesNotMatch(`${shader.wgslValue}\n${shader.glslValue}`, /complexPow/);
