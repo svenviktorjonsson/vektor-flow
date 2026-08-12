@@ -234,6 +234,11 @@ test('uses the Platonic profile for xy and groups multiple executable islands', 
   assert.equal(xy.programs[0].result.classification, 'scalar-field');
   assert.deepEqual(xy.programs[0].result.variables, ['x', 'y']);
 
+  const imaginaryProduct = compiler.compileDocument('ix+y', { profile: 'platonic' });
+  assert.equal(imaginaryProduct.programs[0].result.classification, 'complex-field');
+  assert.deepEqual(imaginaryProduct.programs[0].result.variables, ['x', 'y']);
+  assert.equal(imaginaryProduct.latex, 'ix + y');
+
   const mixed = compiler.compileDocument('Compare x^2 and y^2', { profile: 'platonic' });
   assert.equal(mixed.programs.length, 2);
   assert.equal(mixed.result.classification, 'plot-group');

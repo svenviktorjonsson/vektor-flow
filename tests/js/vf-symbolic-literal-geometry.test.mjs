@@ -129,17 +129,17 @@ test('preserves set, tuple, and range-tuple exponent semantics in latex and geom
   const workspace = kernel.createWorkspace().handle;
 
   const unlinked = plotGeometry(kernel, workspace, 'i^{1,2}');
-  assert.equal(unlinked.program.latex, '{\\mathrm{i}}^{\\left\\{1, 2\\right\\}}');
+  assert.equal(unlinked.program.latex, '{i}^{\\left\\{1, 2\\right\\}}');
   assert.deepEqual(unlinked.geometry.points, [[0, 1], [-1, 0]]);
   assert.deepEqual(unlinked.geometry.segments, []);
 
   const linked = plotGeometry(kernel, workspace, 'i^(1,2)');
-  assert.equal(linked.program.latex, '{\\mathrm{i}}^{\\left(1, 2\\right)}');
+  assert.equal(linked.program.latex, '{i}^{\\left(1, 2\\right)}');
   assert.deepEqual(linked.geometry.points, [[0, 1], [-1, 0]]);
   assert.deepEqual(linked.geometry.segments, [[[0, 1], [-1, 0]]]);
 
   const closed = plotGeometry(kernel, workspace, 'i^(1..5)');
-  assert.equal(closed.program.latex, '{\\mathrm{i}}^{\\left(1..5\\right)}');
+  assert.equal(closed.program.latex, '{i}^{\\left(1..5\\right)}');
   assert.equal(closed.geometry.points.length, 4);
   assert.equal(closed.geometry.segments.length, 4);
 });
