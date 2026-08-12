@@ -145,22 +145,24 @@ test('evaluates temporal curves continuously beyond the sampled time window', as
   assert.ok(points.some((point) => Math.abs(point.y - Math.sin(point.x)) > 0.1));
 });
 
-test('controller commits distinct packaged sin(x-t) samples beyond t=1', async () => {
+test('controller updates analytic sin(x-t) GPU time beyond t=1', async () => {
   const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
   const manifest = JSON.parse(
     await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
   );
   const { instance } = await WebAssembly.instantiate(wasm);
   const kernel = createSymbolicKernel({ instance, manifest });
-  const samples = [];
+  const relations = [];
   const controller = await createSymbolicPlotController({
     canvas: { hidden: true },
     kernel,
     createRenderer: () => ({
       async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
-      setArena(arena) {
-        samples.push(arena);
+      setAnalyticRelations(inputs) {
+        relations.push(inputs);
+        return { kind: 'relation-group' };
       },
+      setArena() {},
       render() {}, async pick() { return null; }, resize() {}, destroy() {}
     })
   });
@@ -177,12 +179,9 @@ test('controller commits distinct packaged sin(x-t) samples beyond t=1', async (
     });
   }
 
-  assert.equal(samples.length, 5);
-  assert.equal(new Set(samples.map(({ revision }) => revision)).size, 5);
-  assert.equal(new Set(samples.map(({ data }) => data.buffer)).size, 5);
-  assert.ok(samples.every(({ data }, index) => (
-    Math.abs(data[1] - Math.sin(viewport.xMin - index * 0.5)) < 1e-5
-  )));
+  assert.equal(relations.length, 5);
+  assert.deepEqual(relations.map(([relation]) => relation.t), [0, 0.5, 1, 1.5, 2]);
+  assert.ok(relations.every(([relation]) => relation.ast));
 });
 
 test('keeps transient plot memory bounded across 300 temporal frames', async () => {
@@ -192,13 +191,17 @@ test('keeps transient plot memory bounded across 300 temporal frames', async () 
   );
   const { instance } = await WebAssembly.instantiate(wasm);
   const kernel = createSymbolicKernel({ instance, manifest });
-  const arenas = [];
+  const relations = [];
   const controller = await createSymbolicPlotController({
     canvas: { hidden: true },
     kernel,
     createRenderer: () => ({
       async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
-      setArena(arena) { arenas.push(arena); return arena; },
+      setAnalyticRelations(inputs) {
+        relations.push(inputs);
+        return { kind: 'relation-group' };
+      },
+      setArena() {},
       render() {}, async pick() {
         return { kind: 'segment', index: 0, part: 'edge', rangeIndex: 0, primitiveIndex: 0 };
       },
@@ -234,24 +237,9 @@ test('keeps transient plot memory bounded across 300 temporal frames', async () 
     });
   }
 
-  assert.equal(arenas.length, 300);
+  assert.equal(relations.length, 300);
   assert.equal(instance.exports.vkf_vm_heap_ptr(), persistentHeapEnd);
-  assert.notDeepEqual(
-    Array.from(arenas[0].data.slice(0, 12)),
-    Array.from(arenas.at(-1).data.slice(0, 12))
-  );
-  assert.ok(controller.snapGeometry.segments.length > 0);
-  const segment = controller.snapGeometry.segments[0];
-  const midpoint = [
-    (segment[0][0] + segment[1][0]) / 2,
-    (segment[0][1] + segment[1][1]) / 2
-  ];
-  const screen = [
-    viewport.transform[0] * midpoint[0] + viewport.transform[4],
-    viewport.transform[3] * midpoint[1] + viewport.transform[5]
-  ];
-  assert.equal(controller.hitTest(screen, 2)?.kind, 'segment');
-  assert.deepEqual(await controller.pick(screen, 8), {
-    kind: 'segment', index: 0, part: 'edge', rangeIndex: 0, primitiveIndex: 0
-  });
+  assert.equal(relations[0][0].t, 0);
+  assert.equal(relations.at(-1)[0].t, 299 / 60);
+  assert.equal(controller.snapGeometry.segments.length, 0);
 });

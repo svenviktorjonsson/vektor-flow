@@ -4,6 +4,7 @@ import {
   compileSymbolicRelationShader,
   compileSymbolicRelationShaderGroup
 } from './vf-symbolic-relation-shader.mjs';
+import { createWebGpuProbeCanvas } from './vf-gpu-backend-probe.mjs';
 
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
@@ -680,6 +681,8 @@ async function createDefaultBackend(canvas) {
 
 async function createWebGpuBackend(canvas) {
   if (!globalThis.navigator?.gpu) return null;
+  const probeCanvas = createWebGpuProbeCanvas(canvas);
+  if (!probeCanvas?.getContext?.('webgpu')) return null;
   const adapter = await globalThis.navigator.gpu.requestAdapter();
   if (!adapter) return null;
   const device = await adapter.requestDevice();

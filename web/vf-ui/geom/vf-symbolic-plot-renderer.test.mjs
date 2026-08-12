@@ -59,7 +59,7 @@ function createObservedBackend() {
         observations.transforms.push([...transform]);
       },
       updateClip(triangles) {
-        observations.clips.push(new Float32Array(triangles));
+        observations.clips.push(new Float32Array(triangles.vertices));
       },
       updateAppearance() {},
       render(arena, upload) {

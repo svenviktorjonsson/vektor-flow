@@ -1,3 +1,5 @@
+import { createWebGpuProbeCanvas } from './vf-gpu-backend-probe.mjs';
+
 const FLOATS_PER_VERTEX = 6;
 const BYTES_PER_VERTEX = FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 const DEFAULT_COLOR = Object.freeze([1, 1, 1, 1]);
@@ -337,6 +339,8 @@ function clampUnit(value) {
 
 async function createWebGpuBackend(canvas) {
   if (!globalThis.navigator?.gpu) return null;
+  const probeCanvas = createWebGpuProbeCanvas(canvas);
+  if (!probeCanvas?.getContext?.('webgpu')) return null;
   const adapter = await globalThis.navigator.gpu.requestAdapter();
   if (!adapter) return null;
   const device = await adapter.requestDevice();
