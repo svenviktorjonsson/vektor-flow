@@ -47,7 +47,8 @@ export async function createSymbolicPlotController({
   canvas,
   kernel: suppliedKernel = null,
   loadKernel = loadPackagedSymbolicKernel,
-  createRenderer = createSymbolicPlotRenderer
+  createRenderer = createSymbolicPlotRenderer,
+  appearance = {}
 }) {
   if (!canvas) throw new TypeError('symbolic plot requires a canvas');
   if (typeof loadKernel !== 'function') throw new TypeError('loadKernel must be a function');
@@ -66,6 +67,7 @@ export async function createSymbolicPlotController({
   let snapGeometry = symbolicPlotSnapGeometry(null);
   let dataToScreenTransform = [...IDENTITY_AFFINE];
   let interactionState = Object.freeze({ edge: 'normal', face: 'normal' });
+  let plotAppearance = { ...appearance };
   let latestViewRevision = null;
   let latestViewSpatialKey = null;
   let latestViewEpoch = 0;
@@ -74,6 +76,7 @@ export async function createSymbolicPlotController({
   let latestCommittedPlotOrder = 0;
   let latestCommittedPlotRevision = null;
   canvas.hidden = false;
+  renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
 
   async function plot({
     source,
@@ -326,9 +329,20 @@ export async function createSymbolicPlotController({
     }
     if (next.edge === interactionState.edge && next.face === interactionState.face) return interactionState;
     interactionState = next;
-    renderer.updateAppearance({ partStates: interactionState });
+    renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
     if (visible) renderer.render();
     return interactionState;
+  }
+
+  function setAppearance(nextAppearance = {}) {
+    assertAlive();
+    if (!nextAppearance || typeof nextAppearance !== 'object' || Array.isArray(nextAppearance)) {
+      throw new TypeError('symbolic plot appearance must be an object');
+    }
+    plotAppearance = { ...plotAppearance, ...nextAppearance };
+    const next = renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
+    if (visible) renderer.render();
+    return next;
   }
 
   function hitTest(screenPoint, radius = 7) {
@@ -357,6 +371,7 @@ export async function createSymbolicPlotController({
     updateView,
     resize,
     setVisible,
+    setAppearance,
     setInteractionState,
     hitTest,
     pick,

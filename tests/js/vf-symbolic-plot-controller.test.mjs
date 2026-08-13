@@ -562,6 +562,34 @@ test('routes relations directly to the GPU without invoking the sampled CPU plot
   assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
 });
 
+test('keeps configured edge width while interaction state changes', async () => {
+  const appearances = [];
+  const renderer = {
+    async initialize() {},
+    updateTransform() {}, updateClip() {},
+    updateAppearance(value) { appearances.push(value); return value; },
+    setArena() {}, render() {}, resize() {}, destroy() {}
+  };
+  const kernel = {
+    memory: new WebAssembly.Memory({ initial: 1 }),
+    compileWithContext() { return { value: {} }; },
+    createWorkspace() { return { handle: 'workspace-0' }; },
+    workspaceCompile() { return { value: { program: {} }, workspace: 'workspace-0' }; },
+    plot() { return { pointer: 0, count: 0, stride: 24, ranges: [] }; }
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true }, kernel, createRenderer: () => renderer,
+    appearance: { edgeWidth: 3 }
+  });
+
+  controller.setInteractionState('selected');
+  controller.setAppearance({ edgeWidth: 2 });
+
+  assert.equal(appearances.at(-2).edgeWidth, 3);
+  assert.deepEqual(appearances.at(-2).partStates, { edge: 'selected', face: 'selected' });
+  assert.equal(appearances.at(-1).edgeWidth, 2);
+});
+
 test('passes face colormap normalization into analytic relations', async () => {
   const program = {
     diagnostics: [], latex: 'r>1', variables: ['x', 'y'],
