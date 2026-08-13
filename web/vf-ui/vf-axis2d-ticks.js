@@ -30,7 +30,8 @@
 
   function chooseAxisTickStep(dataPerPixel, tickDist, hints, minTickDist, maxTickDist) {
     var band = tickDistanceBand(tickDist, minTickDist, maxTickDist);
-    var target = Math.max(1e-12, Math.abs(Number(dataPerPixel) || 0) * Math.max(1, Number(tickDist) || 72));
+    var dataScale = positiveMagnitude(dataPerPixel);
+    var target = dataScale * Math.max(1, Number(tickDist) || 72);
     var rawHints = Array.isArray(hints) && hints.length ? hints : [1, 2, 5];
     var cleanHints = [];
     for (var hi = 0; hi < rawHints.length; hi += 1) {
@@ -45,7 +46,7 @@
       var scale = Math.pow(10, pi);
       for (var ci = 0; ci < cleanHints.length; ci += 1) {
         var cand = cleanHints[ci] * scale;
-        var spacingPx = cand / Math.max(1e-12, Math.abs(Number(dataPerPixel) || 0));
+        var spacingPx = cand / dataScale;
         var score = tickSpacingScore(spacingPx, band);
         if (score < bestScore) {
           bestScore = score;
@@ -78,7 +79,7 @@
   }
 
   function chooseReadableLinearTickStep(minValue, maxValue, step, explicitValues, mode, hints, pixelSpan, tickDist, minTickDist, maxTickDist, fontSize) {
-    var current = Math.max(1e-12, Math.abs(Number(step) || 0));
+    var current = positiveMagnitude(step);
     var span = Math.max(1, Number(pixelSpan) || 1);
     var dataPerPixel = (Number(maxValue) - Number(minValue)) / span;
     var explicit = explicitAxisTicks(explicitValues);
@@ -90,7 +91,7 @@
       if (vals.length < 2) { return current; }
       var off = axisLabelOffset(vals, minValue, maxValue);
       var labelMinDist = maxEstimatedTickLabelWidthPx(vals, mode, minValue, maxValue, off, current, fontSize) + 8;
-      var spacingPx = current / Math.max(1e-12, Math.abs(dataPerPixel));
+      var spacingPx = current / positiveMagnitude(dataPerPixel);
       if (spacingPx >= Math.max(safeMinDist, labelMinDist)) { return current; }
       current = chooseAxisTickStep(dataPerPixel, Math.max(Number(tickDist) || 72, labelMinDist), rawHints, Math.max(safeMinDist, labelMinDist), maxTickDist);
       if (!(current > 0)) { return step; }
@@ -190,7 +191,7 @@
     if (decimals !== null) {
       v = snapTickValueForLabel(v, step);
     }
-    if (Math.abs(v) < 1e-12) { v = 0; }
+    if (Math.abs(v) < positiveMagnitude(step) * 1e-10) { v = 0; }
     var av = Math.abs(v);
     if (av !== 0 && (av < 0.01 || av >= 1e4)) {
       return "$" + formatScientificBody(v) + "$";
@@ -209,6 +210,11 @@
     var v = Number(offset) || 0;
     if (v === 0) { return ""; }
     return "$" + (v > 0 ? "+ " : "- ") + formatScientificBody(Math.abs(v)) + "$";
+  }
+
+  function positiveMagnitude(value) {
+    var magnitude = Math.abs(Number(value));
+    return Number.isFinite(magnitude) && magnitude > 0 ? magnitude : Number.MIN_VALUE;
   }
 
   function axisLabelOffset(values, minValue, maxValue) {

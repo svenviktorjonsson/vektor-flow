@@ -1,5 +1,5 @@
 import { normalizeColorScale } from './vf-color-scale.mjs';
-import axis2dTicks from './vf-axis2d-ticks.js';
+import axis2dTicks from './vf-axis2d-ticks.mjs';
 
 export function createColorbarPresentation({
   id = '',

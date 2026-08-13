@@ -33,3 +33,8 @@
   solving, Maxwell-equation stepping, and global electric and magnetic fields.
 - **Escaping property**: A geometry-authored field source whose influence leaves
   its source geometry and is therefore published as a globally sampleable field.
+- **Layered Screen Scene**: the retained VKF scene compositor that guarantees
+  Face, Edge, Vertex, overlay, and selection ordering before GPU-buffer commit.
+- **Symbolic Document Runtime**: the VKF module that owns scoped definitions,
+  incremental document-island compilation, and compiler publication order while
+  products provide only their document-segmentation profile.

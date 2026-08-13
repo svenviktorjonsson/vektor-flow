@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  compileSymbolicExplicitCurveShaderGroup,
   compileSymbolicComplexFieldShader,
   compileSymbolicScalarFieldShader,
   compileSymbolicRelationShader,
   compileSymbolicRelationShaderGroup
 } from '../../web/vf-ui/geom/vf-symbolic-relation-shader.mjs';
 import {
+  closestExplicitCurveScreenDistance,
   webGlRelationFragmentSource,
   webGlRelationPickFragmentSource,
   webGpuRelationShaderSource
@@ -124,6 +126,78 @@ test('both GPU backends derive antialiased coverage from the analytic residual',
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /undefined/);
 });
 
+test('both GPU backends project to the analytic boundary before drawing fixed-distance rings', () => {
+  const shader = compileSymbolicRelationShader({
+    kind: 'binary', op: '=', left: variable('y'), right: call('sin', variable('x'))
+  });
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.match(glsl, /projected_boundary_distance_px\(v_screen, t\)/);
+  assert.match(glsl, /for \(int iteration = 0; iteration < 6; iteration \+= 1\)/);
+  assert.match(glsl, /length\(screen - projected\) \* u_geometry\.w/);
+  assert.match(wgsl, /projectedBoundaryDistancePx\(input\.screen, t\)/);
+  assert.match(wgsl, /for \(var iteration = 0; iteration < 6; iteration \+= 1\)/);
+  assert.match(wgsl, /length\(screen - projected\) \* uniforms\.geometry\.w/);
+  assert.match(glsl, /return \(\(y\) - \(sin\(x\)\)\)/);
+  assert.match(wgsl, /return \(\(y\) - \(sin\(x\)\)\)/);
+  assert.match(glsl, /fwidth\(exact_boundary_distance_px\)/);
+  assert.match(wgsl, /fwidth\(boundaryDistancePx\)/);
+  assert.match(glsl, /exact_boundary_distance_px = abs\(approximate_boundary_distance_px\)/);
+  assert.match(wgsl, /boundaryDistancePx = abs\(approximateBoundaryDistancePx\)/);
+  assert.match(glsl, /return -1\.0/);
+  assert.match(wgsl, /return -1\.0/);
+  assert.match(glsl, /projected_distance_px >= 0\.0/);
+  assert.match(wgsl, /projectedDistancePx >= 0\.0/);
+  assert.match(glsl, /projected_distance_px : 1e20/);
+  assert.match(wgsl, /select\(1e20, projectedDistancePx/);
+  assert.match(glsl, /fill_coverage \* u_interaction\.y \* 0\.0/);
+  assert.match(wgsl, /fillCoverage \* uniforms\.interaction\.y \* 0\.0/);
+  assert.doesNotMatch(wgsl, /select\([^;]*projectedBoundaryDistancePx\(/);
+  assert.doesNotMatch(`${glsl}\n${wgsl}`, /offset.*polyline/i);
+});
+
+test('explicit curves use a fast one-dimensional analytic closest-point solver', () => {
+  const expression = call('sin', variable('x'));
+  const shader = compileSymbolicExplicitCurveShaderGroup([{
+    explicitCurve: { dependent: 'y', parameter: 'x', expression }
+  }]);
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.equal(shader.boundaryDistanceMode, 'explicit');
+  assert.match(glsl, /for \(int iteration = 0; iteration < 3; iteration \+= 1\)/);
+  assert.match(wgsl, /for \(var iteration = 0; iteration < 3; iteration \+= 1\)/);
+  assert.match(`${glsl}\n${wgsl}`, /cos\(x\)/);
+  assert.match(glsl, /step_limit_px.*u_geometry/);
+  assert.match(glsl, /clamp\(gauss_newton_step,\s*-parameter_step_limit,\s*parameter_step_limit\)/);
+  assert.match(wgsl, /stepLimitPx.*uniforms\.geometry/);
+  assert.match(wgsl, /clamp\(gaussNewtonStep,\s*-parameterStepLimit,\s*parameterStepLimit\)/);
+  assert.doesNotMatch(`${glsl}\n${wgsl}`, /dot\(delta, screenAcceleration\)/);
+  assert.match(glsl, /clamp\(fwidth\(exact_boundary_distance_px\), 0\.5, 1\.0\)/);
+  assert.match(wgsl, /clamp\(fwidth\(boundaryDistancePx\), 0\.5, 1\.0\)/);
+  assert.match(glsl, /exact_boundary_distance_px = 1e20/);
+  assert.match(wgsl, /boundaryDistancePx = 1e20/);
+  assert.match(glsl, /selection_outer \+ 4\.0 \* u_geometry\.w/);
+  assert.match(wgsl, /selectionOuter \+ 4\.0 \* uniforms\.geometry\.w/);
+  assert.doesNotMatch(glsl, /exact_boundary_distance_px = abs\(approximate_boundary_distance_px\)/);
+  assert.doesNotMatch(wgsl, /boundaryDistancePx = abs\(approximateBoundaryDistancePx\)/);
+  assert.doesNotMatch(`${glsl}\n${wgsl}`, /projected.*residual|epsilon|iteration < 6/i);
+});
+
+test('explicit screen distance is invariant under positive and negative slope', () => {
+  for (const slope of [-12, -3, 0, 3, 12]) {
+    const normalLength = Math.hypot(slope, 1);
+    const distance = closestExplicitCurveScreenDistance({
+      point: [200 + slope * 7 / normalLength, 200 + 7 / normalLength],
+      value: (x) => slope * x,
+      first: () => slope,
+      transform: [20, 0, 0, -20, 200, 200]
+    });
+    assert.ok(Math.abs(distance - 7) < 1e-8, `slope ${slope} gave ${distance}`);
+  }
+});
+
 test('renders a simple equality through the current boundary and fill residual contract', () => {
   const shader = compileSymbolicRelationShader({
     kind: 'binary', op: '=', left: variable('x'), right: { kind: 'number', value: 1 }
@@ -131,8 +205,8 @@ test('renders a simple equality through the current boundary and fill residual c
   const glsl = webGlRelationFragmentSource(shader);
   const wgsl = webGpuRelationShaderSource(shader);
 
-  assert.match(glsl, /boundary_residual = .*x.*1\.0/);
-  assert.match(wgsl, /boundaryResidual = .*x.*1\.0/);
+  assert.match(glsl, /return .*x.*1\.0/);
+  assert.match(wgsl, /return .*x.*1\.0/);
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /undefined/);
 });
 

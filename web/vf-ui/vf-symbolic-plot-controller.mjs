@@ -127,8 +127,6 @@ export async function createSymbolicPlotController({
     const relationPrograms = (documentPrograms || [program])
       .filter((member) => isSymbolicRelation(member?.classification));
     const allPrograms = documentPrograms || [program];
-    const explicitCurvePrograms = allPrograms
-      .filter((member) => isExplicitSymbolicCurve(member?.classification));
     const scalarFieldProgram = allPrograms.length === 1
       && allPrograms[0]?.classification === 'scalar-field'
       ? allPrograms[0]
@@ -137,13 +135,12 @@ export async function createSymbolicPlotController({
       && allPrograms[0]?.classification === 'complex-field'
       ? allPrograms[0]
       : null;
-    const analyticCurveInputs = explicitCurvePrograms.flatMap(explicitCurveRelationInputs);
     const relationInputs = [
-      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants })),
-      ...analyticCurveInputs
-    ].map(({ ast, variants }) => ({
+      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants }))
+    ].map(({ ast, variants, explicitCurve }) => ({
       ast,
       variants,
+      explicitCurve,
       style,
       t: view.t
     }));
@@ -183,7 +180,7 @@ export async function createSymbolicPlotController({
     let nextArena;
     if (
       (relationInputs.length > 0
-        && relationPrograms.length + explicitCurvePrograms.length === allPrograms.length)
+        && relationPrograms.length === allPrograms.length)
       || analyticComplexField
       || analyticScalarField
     ) {
@@ -192,7 +189,6 @@ export async function createSymbolicPlotController({
     } else if (result.diagnostics.length === 0) {
       const sampledPrograms = allPrograms.filter((member) => (
         !isSymbolicRelation(member?.classification)
-        && !isExplicitSymbolicCurve(member?.classification)
         && member !== scalarFieldProgram
         && member !== complexFieldProgram
       ));
@@ -490,7 +486,12 @@ function explicitCurveRelationInputs(program) {
       left: { kind: 'variable', name: yOfX ? 'y' : 'x' },
       right: expression
     },
-    variants: null
+    variants: null,
+    explicitCurve: {
+      dependent: yOfX ? 'y' : 'x',
+      parameter: yOfX ? 'x' : 'y',
+      expression
+    }
   }));
 }
 
@@ -949,7 +950,10 @@ function expandSymbolicTarget(target, definitions) {
     if (definition && definition.parameters.length === args.length) {
       let body = definition.body;
       definition.parameters.forEach((parameter, index) => {
-        body = body.replace(new RegExp(`\\b${parameter}\\b`, 'g'), `(${args[index]})`);
+        body = body.replace(
+          new RegExp(`\\b${parameter}\\b`, 'g'),
+          symbolicSubstitutionArgument(args[index])
+        );
       });
       return expandSymbolicReferences(body, [...definitions.values()].map(formatSymbolicDefinition));
     }
@@ -957,6 +961,13 @@ function expandSymbolicTarget(target, definitions) {
   const constant = definitions.get(target.trim());
   if (constant?.parameters.length === 0) return constant.body;
   return expandSymbolicReferences(target, [...definitions.values()].map(formatSymbolicDefinition));
+}
+
+function symbolicSubstitutionArgument(argument) {
+  const source = String(argument ?? '').trim();
+  return /^(?:[A-Za-z_][A-Za-z0-9_]*|(?:\d+(?:\.\d*)?|\.\d+))$/.test(source)
+    ? source
+    : `(${source})`;
 }
 
 function parseSymbolicDefinition(source) {
@@ -1050,6 +1061,7 @@ function symbolicProgramSeriesCount(program) {
 
 function symbolicCollectionCount(node) {
   if (!node) return 0;
+  if (node.kind === 'group') return symbolicCollectionCount(node.expression);
   if (node.kind === 'multiset') return Array.isArray(node.items) ? node.items.length : 0;
   if (node.kind !== 'range') return 0;
   const start = Number(node.start?.value ?? node.start);

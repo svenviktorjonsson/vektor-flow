@@ -8,6 +8,28 @@ const axis2d = require("../../web/vf-ui/vf-axis2d-ticks.js");
 }
 
 {
+  const step = axis2d.chooseAxisTickStep(1e-302, 80, [1, 2, 5], 40, 120);
+  assert.ok(step > 0 && step < 1e-299);
+  const state = axis2d.buildAxisCrosshairTickState({
+    width: 400,
+    height: 200,
+    x_visible_min: -2e-300,
+    x_visible_max: 2e-300,
+    y_visible_min: -1e-300,
+    y_visible_max: 1e-300,
+    x_mode: "linear",
+    y_mode: "linear",
+    hints: [1, 2, 5],
+    dist: 80,
+    min_dist: 40,
+    max_dist: 120,
+    tick_label_font_size: 11
+  });
+  assert.ok(state.x.step > 0 && state.x.step < 1e-299);
+  assert.ok(state.x.values.some((value) => value !== 0));
+}
+
+{
   const values = axis2d.axisTickValuesForMode(0, 100, 20, null, "linear", false, [1, 2, 5], 400, 80, 40, 120);
   assert.deepEqual(values, [0, 20, 40, 60, 80, 100]);
 }

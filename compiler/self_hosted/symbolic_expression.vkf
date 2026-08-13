@@ -72,6 +72,9 @@ symbolic_variable(name:str, location:SymbolicLocation):
 symbolic_unary(op:str, operand:any, location:SymbolicLocation):
     (kind: "unary", op: op, operand: operand, location: location)
 
+symbolic_group(expression:any, location:SymbolicLocation):
+    (kind: "group", expression: expression, location: location)
+
 symbolic_binary(op:str, left:any, right:any, location:SymbolicLocation):
     (kind: "binary", op: op, left: left, right: right, location: location)
 
@@ -479,7 +482,7 @@ symbolic_parse_parenthesized_inner(
     close: symbolic_state_current(inner.next)
     close.kind??
         "RPAREN" => symbolic_parse_result(
-            inner.ast,
+            symbolic_group(inner.ast, open.location),
             symbolic_state_advance(inner.next)
         )
         "COMMA" => symbolic_parse_tuple_items(
@@ -774,6 +777,7 @@ symbolic_precedence(node:any):
         "definition" => 1
         "binary" => symbolic_binary_precedence(node.op)
         "unary" => 5
+        "group" => 6
         6
 
 symbolic_binary_precedence(op:str):
@@ -795,6 +799,7 @@ symbolic_latex_unwrapped(node:any, precedence:num):
         "number" => node.text
         "variable" => symbolic_variable_latex(node.name)
         "unary" => "-" & symbolic_latex_at(node.operand, precedence)
+        "group" => "\\left(" & symbolic_latex(node.expression) & "\\right)"
         "binary" => symbolic_binary_latex(node, precedence)
         "call" => symbolic_call_latex(node)
         "vector" => "\\begin{pmatrix}" & symbolic_latex(node.x) & "\\\\" & symbolic_latex(node.y) & "\\end{pmatrix}"
@@ -878,9 +883,23 @@ symbolic_binary_latex(node:any, precedence:num):
 
 symbolic_power_latex(node:any):
     exponent: symbolic_power_exponent_latex(node.right)
-    "{" & symbolic_latex(node.left) & "}^{" & exponent & "}"
+    "{" & symbolic_power_base_latex(node.left) & "}^{" & exponent & "}"
+
+symbolic_power_base_latex(node:any):
+    node.kind = "group"?
+        @: symbolic_latex(node)
+    node.kind = "binary" \/ node.kind = "unary"?
+        @: "\\left(" & symbolic_latex(node) & "\\right)"
+    symbolic_latex(node)
 
 symbolic_power_exponent_latex(node:any):
+    node.kind = "group"?
+        @: symbolic_grouped_power_exponent_latex(node.expression)
+    node.kind = "range"?
+        @: "\\left(" & symbolic_latex(node) & "\\right)"
+    symbolic_latex(node)
+
+symbolic_grouped_power_exponent_latex(node:any):
     node.kind = "range"?
         @: "\\left(" & symbolic_latex(node) & "\\right)"
     symbolic_latex(node)
@@ -926,6 +945,13 @@ symbolic_evaluate(
                 parameterValues
             ),
             symbolic_value_kind_for_context(node.operand, evaluation.context)
+        )
+        "group" => symbolic_evaluate(
+            node.expression,
+            evaluation,
+            workspace,
+            parameterNames,
+            parameterValues
         )
         "binary" => symbolic_binary_value(
             node,
@@ -1437,6 +1463,7 @@ symbolic_value_kind(node:any):
         "number" => "scalar"
         "variable" => symbolic_variable_value_kind(node.name)
         "unary" => symbolic_value_kind(node.operand)
+        "group" => symbolic_value_kind(node.expression)
         "binary" => symbolic_binary_node_value_kind(node)
         "call" => symbolic_call_value_kind(node.name)
         "vector" => "vector"
@@ -1450,6 +1477,7 @@ symbolic_value_kind_for_context(node:any, context:any):
     node.kind??
         "variable" => symbolic_variable_value_kind_for_context(node.name, context)
         "unary" => symbolic_value_kind_for_context(node.operand, context)
+        "group" => symbolic_value_kind_for_context(node.expression, context)
         "binary" => symbolic_binary_value_kind_for_context(node, context)
         "definition" => symbolic_value_kind_for_context(node.value, context)
         symbolic_value_kind(node)
@@ -1511,6 +1539,7 @@ symbolic_variables(node:any):
     node.kind??
         "variable" => symbolic_variable_dependencies(node.name)
         "unary" => symbolic_variables(node.operand)
+        "group" => symbolic_variables(node.expression)
         "binary" => symbolic_variables(node.left) & symbolic_variables(node.right)
         "call" => symbolic_items_variables(node.args, 0)
         "vector" => symbolic_variables(node.x) & symbolic_variables(node.y)
@@ -1527,7 +1556,8 @@ symbolic_binary_scalar_variant(node:any, left:any, right:any):
     symbolic_binary(node.op, left, right, node.location)
 
 symbolic_is_linked_collection(node:any):
-    node.kind = "tuple" \/ (node.kind = "binary" /\ node.op = "^" /\ (node.right.kind = "tuple" \/ node.right.kind = "range"))
+    unwrapped: symbolic_ungroup(node)
+    unwrapped.kind = "tuple" \/ (unwrapped.kind = "binary" /\ unwrapped.op = "^" /\ (symbolic_ungroup(unwrapped.right).kind = "tuple" \/ symbolic_ungroup(unwrapped.right).kind = "range"))
 
 symbolic_linked_collection_items(node:any):
     node.kind = "tuple"?
@@ -1648,12 +1678,18 @@ symbolic_ast_variants(node:any):
     node.kind??
         "multiset" => symbolic_multiset_variants(node.items, 0)
         "unary" => symbolic_unary_variants(node, symbolic_ast_variants(node.operand), 0)
+        "group" => symbolic_group_variants(node, symbolic_ast_variants(node.expression), 0)
         "binary" => symbolic_binary_variants(node, symbolic_ast_variants(node.left), symbolic_ast_variants(node.right), 0, 0)
         "call" => symbolic_call_variants(node, symbolic_argument_variant_lists(node.args, 0, vkf_list_single(vkf_list_empty())), 0)
         "tuple" => symbolic_tuple_variants(node, symbolic_argument_variant_lists(node.items, 0, vkf_list_single(vkf_list_empty())), 0)
         "vector" => symbolic_vector_variants(node, symbolic_ast_variants(node.x), symbolic_ast_variants(node.y), 0, 0)
         "definition" => symbolic_definition_variants(node, symbolic_ast_variants(node.value), 0)
         vkf_list_single(node)
+
+symbolic_group_variants(node:any, variants:any, index:num):
+    index >= vkf_list_length(variants)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_group(variants.(index), node.location)) & symbolic_group_variants(node, variants, index + 1)
 
 symbolic_empty_variables():
     vkf_list_empty()
@@ -1670,13 +1706,21 @@ symbolic_variable_dependencies(name:str):
         symbolic_single_variable(name)
 
 symbolic_is_power_family_collection(node:any):
-    node.kind = "range" \/ node.kind = "multiset"
+    unwrapped: symbolic_ungroup(node)
+    unwrapped.kind = "range" \/ unwrapped.kind = "multiset"
+
+symbolic_ungroup(node:any):
+    node.kind = "group"?
+        @: symbolic_ungroup(node.expression)
+    node
 
 symbolic_is_y_of_x_power_family(ast:any):
-    ast.kind = "binary" /\ ast.op = "^" /\ symbolic_is_power_family_collection(ast.right) /\ symbolic_power_base_has_x_only(ast.left)
+    unwrapped: symbolic_ungroup(ast)
+    unwrapped.kind = "binary" /\ unwrapped.op = "^" /\ symbolic_is_power_family_collection(unwrapped.right) /\ symbolic_power_base_has_x_only(unwrapped.left)
 
 symbolic_is_x_of_y_power_family(ast:any):
-    ast.kind = "binary" /\ ast.op = "^" /\ symbolic_is_power_family_collection(ast.right) /\ symbolic_power_base_has_y_only(ast.left)
+    unwrapped: symbolic_ungroup(ast)
+    unwrapped.kind = "binary" /\ unwrapped.op = "^" /\ symbolic_is_power_family_collection(unwrapped.right) /\ symbolic_power_base_has_y_only(unwrapped.left)
 
 symbolic_power_base_has_x_only(base:any):
     variables: symbolic_variables(base)
@@ -1842,10 +1886,19 @@ symbolic_draft_latex_tokens(tokens:any, index:num):
         "EOF" => ""
         "CARET" => symbolic_draft_power_latex(tokens, index)
         "IDENT" => symbolic_draft_identifier_tail_latex(tokens, index)
+        "LPAREN" => symbolic_draft_parenthesized_latex(tokens, index)
         symbolic_draft_token_latex(tokens, index) & symbolic_draft_latex_tokens(
             tokens,
             index + 1
         )
+
+symbolic_draft_parenthesized_latex(tokens:any, open:num):
+    close: symbolic_draft_power_group_end(tokens, open + 1, 0)
+    closer: symbolic_draft_call_closer(tokens, close)
+    "\\left(" & symbolic_draft_latex_range(tokens, open + 1, close) & closer & symbolic_draft_latex_tokens(
+        tokens,
+        symbolic_draft_call_next(tokens, close)
+    )
 
 symbolic_draft_identifier_tail_latex(tokens:any, index:num):
     next: tokens.(index + 1)
@@ -2018,10 +2071,21 @@ symbolic_draft_latex_range(tokens:any, index:num, end:num):
     current: tokens.(index)
     current.kind = "CARET"?
         @: symbolic_draft_power_latex_range(tokens, index, end)
+    current.kind = "LPAREN"?
+        @: symbolic_draft_parenthesized_latex_range(tokens, index, end)
     current.kind = "IDENT" /\ index + 1 < end /\ tokens.(index + 1).kind = "LPAREN"?
         preview: symbolic_draft_call_preview(tokens, index)
         @: preview.latex & symbolic_draft_latex_range(tokens, preview.next, end)
     symbolic_draft_token_latex(tokens, index) & symbolic_draft_latex_range(tokens, index + 1, end)
+
+symbolic_draft_parenthesized_latex_range(tokens:any, open:num, end:num):
+    close: symbolic_draft_power_group_end_range(tokens, open + 1, end, 0)
+    closer: symbolic_draft_call_closer(tokens, close)
+    "\\left(" & symbolic_draft_latex_range(tokens, open + 1, close) & closer & symbolic_draft_latex_range(
+        tokens,
+        symbolic_draft_call_next(tokens, close),
+        end
+    )
 
 symbolic_draft_power_latex_range(tokens:any, index:num, end:num):
     index + 1 >= end?
@@ -2124,19 +2188,45 @@ symbolic_draft_identifier_latex(tokens:any, index:num):
 symbolic_compile_with_context(source:str, context:any, clip:any):
     lexed: symbolic_tokenize(source)
     parsed: symbolic_parse_tokens(lexed)
-    variables: symbolic_variables(parsed.ast)
+    semantic_ast: symbolic_strip_groups(parsed.ast)
+    variables: symbolic_variables(semantic_ast)
     active_context: symbolic_owned_context(context)
-    value_kind: symbolic_value_kind_for_context(parsed.ast, active_context)
+    value_kind: symbolic_value_kind_for_context(semantic_ast, active_context)
     symbolic_program(
-        parsed.ast,
-        parsed.next.diagnostics & symbolic_semantic_diagnostics(parsed.ast),
+        semantic_ast,
+        parsed.next.diagnostics & symbolic_semantic_diagnostics(semantic_ast),
         symbolic_latex(parsed.ast),
         variables,
-        symbolic_classification(parsed.ast, variables, value_kind),
+        symbolic_classification(semantic_ast, variables, value_kind),
         value_kind,
         active_context,
         clip
     )
+
+symbolic_strip_groups(node:any):
+    node.kind??
+        "group" => symbolic_strip_groups(node.expression)
+        "unary" => symbolic_unary(node.op, symbolic_strip_groups(node.operand), node.location)
+        "binary" => symbolic_strip_groups_binary(node)
+        "call" => symbolic_call(node.name, symbolic_strip_group_items(node.args, 0), node.location)
+        "vector" => symbolic_vector_node(symbolic_strip_groups(node.x), symbolic_strip_groups(node.y), node.location)
+        "range" => symbolic_range(symbolic_strip_groups(node.start), symbolic_strip_groups(node.end), node.location)
+        "tuple" => symbolic_tuple(symbolic_strip_group_items(node.items, 0), node.location)
+        "multiset" => symbolic_multiset(symbolic_strip_group_items(node.items, 0), node.location)
+        "definition" => symbolic_definition(node.name, node.parameters, symbolic_strip_groups(node.value), node.location)
+        node
+
+symbolic_strip_groups_binary(node:any):
+    left: symbolic_strip_groups(node.left)
+    right: symbolic_strip_groups(node.right)
+    node.implicit = true?
+        @: symbolic_implicit_multiplication(left, right, node.location)
+    symbolic_binary(node.op, left, right, node.location)
+
+symbolic_strip_group_items(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_strip_groups(items.(index))) & symbolic_strip_group_items(items, index + 1)
 
 symbolic_program(
     ast:any,
@@ -4284,6 +4374,7 @@ symbolic_semantic_diagnostics(ast:any):
         "call" => symbolic_call_diagnostics(ast)
         "definition" => symbolic_definition_diagnostics(ast)
         "unary" => symbolic_semantic_diagnostics(ast.operand)
+        "group" => symbolic_semantic_diagnostics(ast.expression)
         "binary" => symbolic_semantic_diagnostics(ast.left) & symbolic_semantic_diagnostics(ast.right)
         "vector" => symbolic_semantic_diagnostics(ast.x) & symbolic_semantic_diagnostics(ast.y)
         "range" => symbolic_semantic_diagnostics(ast.start) & symbolic_semantic_diagnostics(ast.end)

@@ -95,6 +95,22 @@ test('renders mathematical function names by their identifier length', async () 
   assert.equal(compiler.compile('c^2').latex, String.raw`{c}^{2}`);
 });
 
+test('preserves grouped power bases in rendered mathematics', async () => {
+  const compiler = await createCompiler();
+  assert.equal(
+    compiler.compile('(x^2+y^2)^3').latex,
+    String.raw`{\left({x}^{2} + {y}^{2}\right)}^{3}`
+  );
+  assert.equal(
+    compiler.compile('e^((x^2+y^2))').latex,
+    String.raw`{e}^{\left({x}^{2} + {y}^{2}\right)}`
+  );
+  assert.equal(
+    compiler.compile('(x)^2').latex,
+    String.raw`{\left(x\right)}^{2}`
+  );
+});
+
 test('resolves global definitions and isolates local overrides by expression scope', async () => {
   const kernel = await createKernel();
   const compiler = await createSymbolicCompiler({ kernel });

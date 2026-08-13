@@ -49,6 +49,7 @@ export function compileSymbolicRelationShader(ast, variants = null, style = {}) 
   const glslResiduals = relations.map((relation) => emitResidual(relation, 'glsl'));
   if (![...wgslResiduals, ...glslResiduals].every(Boolean)) return null;
   const boundaryResidual = (residuals) => combine(residuals.map((residual) => `abs(${residual})`), 'min');
+  const projectionResidual = (residuals, language) => closestSignedResidual(residuals, language);
   const fillOperator = ['<', '<='].includes(ast.op) ? 'min' : 'max';
   const insideSign = ['<', '<='].includes(ast.op) ? -1 : 1;
   const wgslFillResidual = combine(wgslResiduals, fillOperator);
@@ -61,6 +62,8 @@ export function compileSymbolicRelationShader(ast, variants = null, style = {}) 
     insideSign,
     wgslBoundaryResidual: boundaryResidual(wgslResiduals),
     glslBoundaryResidual: boundaryResidual(glslResiduals),
+    wgslBoundaryProjectionResidual: projectionResidual(wgslResiduals, 'wgsl'),
+    glslBoundaryProjectionResidual: projectionResidual(glslResiduals, 'glsl'),
     wgslFillResidual,
     glslFillResidual,
     wgslInsideResidual: `((${wgslFillResidual}) * ${insideSign.toFixed(1)})`,
@@ -82,6 +85,12 @@ export function compileSymbolicRelationShaderGroup(programs, style = {}) {
   const boundary = (language) => boundaries.length
     ? combine(boundaries.map((shader) => shader[`${language}BoundaryResidual`]), 'min')
     : '1e20';
+  const projectionBoundary = (language) => boundaries.length
+    ? closestSignedResidual(
+        boundaries.map((shader) => shader[`${language}BoundaryProjectionResidual`]),
+        language
+      )
+    : '1e20';
   const fill = (language) => fills.length
     ? combine(fills.map((shader) =>
         `((${shader[`${language}FillResidual`]}) * ${shader.insideSign.toFixed(1)})`), 'max')
@@ -94,6 +103,8 @@ export function compileSymbolicRelationShaderGroup(programs, style = {}) {
     insideSign: 1,
     wgslBoundaryResidual: boundary('wgsl'),
     glslBoundaryResidual: boundary('glsl'),
+    wgslBoundaryProjectionResidual: projectionBoundary('wgsl'),
+    glslBoundaryProjectionResidual: projectionBoundary('glsl'),
     wgslFillResidual: fill('wgsl'),
     glslFillResidual: fill('glsl'),
     wgslInsideResidual: fill('wgsl'),
@@ -104,6 +115,49 @@ export function compileSymbolicRelationShaderGroup(programs, style = {}) {
     colorScaleMode: style.colorScaleMode === 'cyclic' ? 'cyclic' : 'clamp',
     colormapPoints: normalizedShaderColormap(style)
   });
+}
+
+export function compileSymbolicExplicitCurveShaderGroup(programs, style = {}) {
+  if (!Array.isArray(programs) || programs.length === 0) return null;
+  const curves = programs.map(({ explicitCurve }) => explicitCurve).filter(Boolean);
+  if (curves.length !== programs.length) return null;
+  const compiledCurves = curves.map((curve) => {
+    if (!['x', 'y'].includes(curve.parameter) || !['x', 'y'].includes(curve.dependent)
+      || curve.parameter === curve.dependent) return null;
+    const wgsl = emitJet(curve.expression, 'wgsl', curve.parameter);
+    const glsl = emitJet(curve.expression, 'glsl', curve.parameter);
+    if (!wgsl || !glsl) return null;
+    return Object.freeze({
+      dependent: curve.dependent,
+      parameter: curve.parameter,
+      wgsl: Object.freeze(wgsl),
+      glsl: Object.freeze(glsl)
+    });
+  });
+  if (compiledCurves.some((curve) => curve == null)) return null;
+  const relationPrograms = programs.map((program) => program.ast ? program : ({
+    ...program,
+    ast: {
+      kind: 'binary', op: '=',
+      left: { kind: 'variable', name: program.explicitCurve.dependent },
+      right: program.explicitCurve.expression
+    }
+  }));
+  const relation = relationPrograms.length === 1
+    ? compileSymbolicRelationShader(relationPrograms[0].ast, null, style)
+    : compileSymbolicRelationShaderGroup(relationPrograms, style);
+  return relation ? Object.freeze({
+    ...relation,
+    boundaryDistanceMode: 'explicit',
+    explicitCurves: Object.freeze(compiledCurves)
+  }) : null;
+}
+
+function closestSignedResidual(residuals, language) {
+  if (residuals.length === 0) return '1e20';
+  return residuals.slice(1).reduce((closest, candidate) => language === 'wgsl'
+    ? `select((${closest}), (${candidate}), abs(${candidate}) < abs(${closest}))`
+    : `((abs(${candidate}) < abs(${closest})) ? (${candidate}) : (${closest}))`, residuals[0]);
 }
 
 function normalizedShaderColormap(style, fallback = 'gray') {
@@ -149,6 +203,7 @@ function combine(values, operator) {
 
 function emit(node, language) {
   if (!node || typeof node !== 'object') return null;
+  if (node.kind === 'group') return emit(node.expression, language);
   if (node.kind === 'number') {
     const value = Number(node.value);
     return Number.isFinite(value) ? shaderNumber(value) : null;
@@ -183,8 +238,85 @@ function emit(node, language) {
   return null;
 }
 
+function emitJet(node, language, parameter) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.kind === 'group') return emitJet(node.expression, language, parameter);
+  const constant = (value) => [value, '0.0', '0.0'];
+  if (node.kind === 'number') {
+    const value = Number(node.value);
+    return Number.isFinite(value) ? constant(shaderNumber(value)) : null;
+  }
+  if (node.kind === 'variable') {
+    const value = emit(node, language);
+    if (!value) return null;
+    return node.name === parameter ? [value, '1.0', '0.0'] : constant(value);
+  }
+  if (node.kind === 'unary' && ['+', '-'].includes(node.op)) {
+    const operand = emitJet(node.operand, language, parameter);
+    if (!operand) return null;
+    return node.op === '+' ? operand : operand.map((value) => `(-${value})`);
+  }
+  if (node.kind === 'binary') {
+    const left = emitJet(node.left, language, parameter);
+    const right = emitJet(node.right, language, parameter);
+    if (!left || !right) return null;
+    const [a, a1, a2] = left;
+    const [b, b1, b2] = right;
+    if (node.op === '+' || node.op === '-') return [
+      `(${a} ${node.op} ${b})`, `(${a1} ${node.op} ${b1})`, `(${a2} ${node.op} ${b2})`
+    ];
+    if (node.op === '*') return [
+      `(${a} * ${b})`,
+      `((${a1} * ${b}) + (${a} * ${b1}))`,
+      `((${a2} * ${b}) + (2.0 * ${a1} * ${b1}) + (${a} * ${b2}))`
+    ];
+    if (node.op === '/') {
+      const value = `(${a} / ${b})`;
+      const q = `((${a1} * ${b} - ${a} * ${b1}) / (${b} * ${b}))`;
+      return [value, q,
+        `((${a2} / ${b}) - (2.0 * ${a1} * ${b1} / (${b} * ${b})) - (${a} * ${b2} / (${b} * ${b})) + (2.0 * ${a} * ${b1} * ${b1} / (${b} * ${b} * ${b})))`];
+    }
+    if (node.op === '^' && node.right?.kind === 'number') {
+      const exponent = Number(node.right.value);
+      if (!Number.isFinite(exponent)) return null;
+      const n = shaderNumber(exponent);
+      const nMinusOne = shaderNumber(exponent - 1);
+      const nMinusTwo = shaderNumber(exponent - 2);
+      const value = `pow(${a}, ${n})`;
+      return [value,
+        `(${n} * pow(${a}, ${nMinusOne}) * ${a1})`,
+        `((${n} * ${nMinusOne} * pow(${a}, ${nMinusTwo}) * ${a1} * ${a1}) + (${n} * pow(${a}, ${nMinusOne}) * ${a2}))`];
+    }
+    return null;
+  }
+  if (node.kind === 'call' && Array.isArray(node.args) && node.args.length === 1) {
+    const argument = emitJet(node.args[0], language, parameter);
+    if (!argument) return null;
+    const [a, a1, a2] = argument;
+    if (node.name === 'sin') return [
+      `sin(${a})`, `(cos(${a}) * ${a1})`,
+      `((-sin(${a}) * ${a1} * ${a1}) + (cos(${a}) * ${a2}))`
+    ];
+    if (node.name === 'cos') return [
+      `cos(${a})`, `(-sin(${a}) * ${a1})`,
+      `((-cos(${a}) * ${a1} * ${a1}) - (sin(${a}) * ${a2}))`
+    ];
+    if (node.name === 'tan') {
+      const sec2 = `(1.0 / (cos(${a}) * cos(${a})))`;
+      return [`tan(${a})`, `(${sec2} * ${a1})`,
+        `((${sec2} * ${a2}) + (2.0 * ${sec2} * tan(${a}) * ${a1} * ${a1}))`];
+    }
+    if (node.name === 'sqrt') return [
+      `sqrt(${a})`, `(${a1} / (2.0 * sqrt(${a})))`,
+      `((${a2} / (2.0 * sqrt(${a}))) - (${a1} * ${a1} / (4.0 * pow(${a}, 1.5))))`
+    ];
+  }
+  return null;
+}
+
 function emitComplex(node, language) {
   if (!node || typeof node !== 'object') return null;
+  if (node.kind === 'group') return emitComplex(node.expression, language);
   const vector = (real, imaginary = '0.0') =>
     `${language === 'wgsl' ? 'vec2f' : 'vec2'}(${real}, ${imaginary})`;
   if (node.kind === 'number') {

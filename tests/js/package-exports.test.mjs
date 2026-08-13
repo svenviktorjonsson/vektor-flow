@@ -84,3 +84,11 @@ test("existing web module paths remain resolvable", async () => {
   assert.equal(typeof axis2d.default, "object");
   assert.equal(typeof renderer.createScreenSpaceSimplexRenderer, "function");
 });
+
+test("colorbar consumes legacy axis ticks without requiring a synthetic default", async () => {
+  const colorbar = await import("vektor-flow/colorbar");
+  const ticks = colorbar.createColorbarAxisTicks([0, 1]);
+
+  assert.ok(ticks.length > 0);
+  assert.equal(typeof ticks[0].latex, "string");
+});

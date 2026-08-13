@@ -26,7 +26,7 @@ test('emits recoverable draft LaTeX without making incomplete source executable'
   for (const [source, expectedLatex] of [
     ['x+', 'x + '],
     ['[1,2', '[1, 2'],
-    ['(x+2', '(x + 2'],
+    ['(x+2', '\\left(x + 2\\right.'],
     ['{x,y', '\\{x, y']
   ]) {
     const draft = kernel.compileDraft(source).value;
@@ -45,6 +45,18 @@ test('uses canonical LaTeX when the symbolic program is complete', async () => {
   assert.equal(draft.complete, true);
   assert.equal(draft.recoverable, true);
   assert.deepEqual(draft.diagnostics, []);
+});
+
+test('uses scalable parentheses and an invisible closer while grouping is incomplete', async () => {
+  const kernel = await loadKernel();
+  assert.equal(
+    kernel.compileDraft('(x^2+y^2').value.latex,
+    String.raw`\left(x^{2} + y^{2}\right.`
+  );
+  assert.equal(
+    kernel.compile('(x^2+y^2)^3').value.latex,
+    String.raw`{\left({x}^{2} + {y}^{2}\right)}^{3}`
+  );
 });
 
 test('completes only missing trailing symbolic scopes', () => {
