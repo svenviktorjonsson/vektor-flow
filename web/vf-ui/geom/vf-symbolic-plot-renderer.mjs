@@ -401,8 +401,10 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
       relation = null;
     } else {
       const shader = nextRelations.length === 1
-        ? compileSymbolicRelationShader(nextRelations[0].ast, nextRelations[0].variants)
-        : compileSymbolicRelationShaderGroup(nextRelations);
+        ? compileSymbolicRelationShader(
+            nextRelations[0].ast, nextRelations[0].variants, nextRelations[0].style
+          )
+        : compileSymbolicRelationShaderGroup(nextRelations, nextRelations[0].style);
       relation = shader ? Object.freeze({
         shader,
         style: Object.freeze({ ...nextRelations[0].style }),
@@ -1320,6 +1322,15 @@ export function webGpuRelationShaderSource(shader) {
   if (shader.kind === 'scalar-field') return webGpuScalarFieldShaderSource(shader);
   const fill = shader.hasFill ? 'fillCoverage' : '0.0';
   const boundary = shader.hasBoundary ? 'boundaryCoverage' : '0.0';
+  const fillDomain = shaderFloat(Math.max(1e-12, shader.valueMax - shader.valueMin));
+  const faceColorSource = shader.faceColormap
+    ? `let fillValue = ${shader.wgslInsideResidual};
+      let fillUnit = ${shader.colorScaleMode === 'cyclic'
+        ? `fract((fillValue - ${shaderFloat(shader.valueMin)}) / ${fillDomain})`
+        : `clamp((fillValue - ${shaderFloat(shader.valueMin)}) / ${fillDomain}, 0.0, 1.0)`};
+      let mappedFaceColor = textureColor(fillUnit);
+      var color = vec4f(mappedFaceColor.rgb, mappedFaceColor.a * ${fill});`
+    : `var color = vec4f(uniforms.faceColor.rgb, uniforms.faceColor.a * ${fill});`;
   return `
     struct RelationUniforms {
       xRow: vec4f,
@@ -1359,6 +1370,8 @@ export function webGpuRelationShaderSource(shader) {
       );
     }
 
+    ${shader.faceColormap ? scalarColormapFunction(shader, 'wgsl') : ''}
+
     @fragment fn relationFragment(input: RelationVertexOutput) -> @location(0) vec4f {
       let a = uniforms.xRow.x;
       let c = uniforms.xRow.y;
@@ -1392,7 +1405,7 @@ export function webGpuRelationShaderSource(shader) {
         uniforms.geometry.z * 0.5 + 0.75,
         selectionDelta
       )) * uniforms.interaction.x;
-      var color = vec4f(uniforms.faceColor.rgb, uniforms.faceColor.a * ${fill});
+      ${faceColorSource}
       color = over(vec4f(uniforms.selectionColor.rgb, fillCoverage * uniforms.interaction.y), color);
       color = over(vec4f(uniforms.selectionColor.rgb, edgeSelection), color);
       color = over(vec4f(uniforms.edgeColor.rgb, uniforms.edgeColor.a * ${boundary}), color);
@@ -2318,6 +2331,16 @@ export function webGlRelationFragmentSource(shader) {
   if (shader.kind === 'scalar-field') return webGlScalarFieldFragmentSource(shader);
   const fill = shader.hasFill ? 'fill_coverage' : '0.0';
   const boundary = shader.hasBoundary ? 'boundary_coverage' : '0.0';
+  const faceColorSource = shader.faceColormap
+    ? `float fill_value = ${shader.glslInsideResidual};
+      float value_min = ${shaderFloat(shader.valueMin)};
+      float value_max = ${shaderFloat(shader.valueMax)};
+      float fill_unit = ${shader.colorScaleMode === 'cyclic'
+        ? 'fract((fill_value - value_min) / max(value_max - value_min, 0.000000000001))'
+        : 'clamp((fill_value - value_min) / max(value_max - value_min, 0.000000000001), 0.0, 1.0)'};
+      vec4 mapped_face_color = texture_color(fill_unit);
+      vec4 color = vec4(mapped_face_color.rgb, mapped_face_color.a * ${fill});`
+    : `vec4 color = vec4(u_face_color.rgb, u_face_color.a * ${fill});`;
   return `#version 300 es
     precision highp float;
     in vec2 v_screen;
@@ -2340,6 +2363,8 @@ export function webGlRelationFragmentSource(shader) {
       );
     }
 
+    ${shader.faceColormap ? scalarColormapFunction(shader, 'glsl') : ''}
+
     void main() {
       vec2 local = (inverse(u_transform) * vec3(v_screen, 1.0)).xy;
       float x = local.x;
@@ -2358,7 +2383,7 @@ export function webGlRelationFragmentSource(shader) {
       float selection_center = edge_half_width + u_geometry.y + u_geometry.z * 0.5;
       float selection_delta = abs(abs(boundary_distance_px) - selection_center);
       float edge_selection = (1.0 - smoothstep(u_geometry.z * 0.5 - 0.75, u_geometry.z * 0.5 + 0.75, selection_delta)) * u_interaction.x;
-      vec4 color = vec4(u_face_color.rgb, u_face_color.a * ${fill});
+      ${faceColorSource}
       color = over(vec4(u_selection_color.rgb, fill_coverage * u_interaction.y), color);
       color = over(vec4(u_selection_color.rgb, edge_selection), color);
       color = over(vec4(u_edge_color.rgb, u_edge_color.a * ${boundary}), color);

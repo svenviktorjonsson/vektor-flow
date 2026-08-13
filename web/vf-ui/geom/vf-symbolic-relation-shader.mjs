@@ -41,7 +41,7 @@ export function compileSymbolicComplexFieldShader(ast, style = {}) {
   });
 }
 
-export function compileSymbolicRelationShader(ast, variants = null) {
+export function compileSymbolicRelationShader(ast, variants = null, style = {}) {
   const relations = Array.isArray(variants) && variants.length ? variants : [ast];
   if (!relations.every((relation) => relation?.kind === 'binary' && RELATION_OPERATORS.has(relation.op))) return null;
   if (!relations.every((relation) => relation.op === ast.op)) return null;
@@ -50,22 +50,32 @@ export function compileSymbolicRelationShader(ast, variants = null) {
   if (![...wgslResiduals, ...glslResiduals].every(Boolean)) return null;
   const boundaryResidual = (residuals) => combine(residuals.map((residual) => `abs(${residual})`), 'min');
   const fillOperator = ['<', '<='].includes(ast.op) ? 'min' : 'max';
+  const insideSign = ['<', '<='].includes(ast.op) ? -1 : 1;
+  const wgslFillResidual = combine(wgslResiduals, fillOperator);
+  const glslFillResidual = combine(glslResiduals, fillOperator);
   return Object.freeze({
     kind: 'relation',
     operator: ast.op,
     hasFill: ast.op !== '=',
     hasBoundary: ['=', '<=', '>='].includes(ast.op),
-    insideSign: ['<', '<='].includes(ast.op) ? -1 : 1,
+    insideSign,
     wgslBoundaryResidual: boundaryResidual(wgslResiduals),
     glslBoundaryResidual: boundaryResidual(glslResiduals),
-    wgslFillResidual: combine(wgslResiduals, fillOperator),
-    glslFillResidual: combine(glslResiduals, fillOperator)
+    wgslFillResidual,
+    glslFillResidual,
+    wgslInsideResidual: `((${wgslFillResidual}) * ${insideSign.toFixed(1)})`,
+    glslInsideResidual: `((${glslFillResidual}) * ${insideSign.toFixed(1)})`,
+    faceColormap: style.faceColormap === true && ast.op !== '=',
+    valueMin: finiteOr(style.valueMin, 0),
+    valueMax: finiteOr(style.valueMax, 1),
+    colorScaleMode: style.colorScaleMode === 'cyclic' ? 'cyclic' : 'clamp',
+    colormapPoints: normalizedShaderColormap(style)
   });
 }
 
-export function compileSymbolicRelationShaderGroup(programs) {
+export function compileSymbolicRelationShaderGroup(programs, style = {}) {
   if (!Array.isArray(programs) || programs.length === 0) return null;
-  const shaders = programs.map(({ ast, variants }) => compileSymbolicRelationShader(ast, variants));
+  const shaders = programs.map(({ ast, variants }) => compileSymbolicRelationShader(ast, variants, style));
   if (shaders.some((shader) => shader == null)) return null;
   const boundaries = shaders.filter(({ hasBoundary }) => hasBoundary);
   const fills = shaders.filter(({ hasFill }) => hasFill);
@@ -85,7 +95,14 @@ export function compileSymbolicRelationShaderGroup(programs) {
     wgslBoundaryResidual: boundary('wgsl'),
     glslBoundaryResidual: boundary('glsl'),
     wgslFillResidual: fill('wgsl'),
-    glslFillResidual: fill('glsl')
+    glslFillResidual: fill('glsl'),
+    wgslInsideResidual: fill('wgsl'),
+    glslInsideResidual: fill('glsl'),
+    faceColormap: style.faceColormap === true && fills.length > 0,
+    valueMin: finiteOr(style.valueMin, 0),
+    valueMax: finiteOr(style.valueMax, 1),
+    colorScaleMode: style.colorScaleMode === 'cyclic' ? 'cyclic' : 'clamp',
+    colormapPoints: normalizedShaderColormap(style)
   });
 }
 

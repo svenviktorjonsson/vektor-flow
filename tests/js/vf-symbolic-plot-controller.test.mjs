@@ -568,6 +568,49 @@ test('routes relations directly to the GPU without invoking the sampled CPU plot
   assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
 });
 
+test('passes face colormap normalization into analytic relations', async () => {
+  const program = {
+    diagnostics: [], latex: 'r>1', variables: ['x', 'y'],
+    classification: 'open-region', valueKind: 'scalar',
+    ast: {
+      kind: 'binary', op: '>',
+      left: { kind: 'variable', name: 'r' },
+      right: { kind: 'number', value: 1 }
+    }
+  };
+  let analyticInput;
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: false },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() {},
+      createWorkspace() { return { handle: 1 }; },
+      workspaceCompile() { return { value: { program }, workspace: 1 }; },
+      plot() { throw new Error('relation must remain analytic'); }
+    },
+    createRenderer: () => ({
+      async initialize() {},
+      setAnalyticRelations(value) { analyticInput = value; return value; },
+      updateTransform() {}, updateClip() {}, updateAppearance() {}, setArena() {},
+      render() {}, resize() {}, destroy() {}, async pick() { return null; }
+    })
+  });
+  await controller.plot({
+    source: 'r>1', viewport,
+    colors: { edge: '#ffffff', face: '#888888', faceColormap: true },
+    colormapPoints: [
+      { pos: 0, color: [255, 0, 0], alpha: 1 },
+      { pos: 1, color: [0, 0, 255], alpha: 1 }
+    ],
+    colorScale: { domain: [2, 6], mode: 'clamp' }
+  });
+  assert.equal(analyticInput[0].style.faceColormap, true);
+  assert.deepEqual(
+    [analyticInput[0].style.valueMin, analyticInput[0].style.valueMax],
+    [2, 6]
+  );
+});
+
 test('routes complex fields directly to per-pixel GPU evaluation', async () => {
   let sampled = 0;
   let analyticInput = null;

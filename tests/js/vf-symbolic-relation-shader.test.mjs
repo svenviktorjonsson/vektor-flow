@@ -136,6 +136,34 @@ test('renders a simple equality through the current boundary and fill residual c
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /undefined/);
 });
 
+test('colors inequality faces by their positive inside residual', () => {
+  const colormapStyle = {
+    faceColormap: true,
+    valueMin: 0,
+    valueMax: 4,
+    colorScaleMode: 'clamp',
+    colormapPoints: [
+      { pos: 0, color: [255, 0, 0], alpha: 1 },
+      { pos: 1, color: [0, 0, 255], alpha: 1 }
+    ]
+  };
+  const greater = compileSymbolicRelationShader({
+    kind: 'binary', op: '>', left: variable('r'), right: { kind: 'number', value: 1 }
+  }, null, colormapStyle);
+  const less = compileSymbolicRelationShader({
+    kind: 'binary', op: '<', left: variable('r'), right: { kind: 'number', value: 1 }
+  }, null, colormapStyle);
+
+  assert.equal(greater.faceColormap, true);
+  assert.match(greater.glslInsideResidual, /r.*1\.0/);
+  assert.doesNotMatch(greater.glslInsideResidual, /^-/);
+  assert.match(less.glslInsideResidual, /\* -1\.0/);
+  assert.match(webGlRelationFragmentSource(greater), /texture_color\(fill_unit\)/);
+  assert.match(webGlRelationFragmentSource(greater), /value_min = 0\.0/);
+  assert.match(webGlRelationFragmentSource(greater), /value_max = 4\.0/);
+  assert.match(webGpuRelationShaderSource(less), /textureColor\(fillUnit\)/);
+});
+
 test('compiles time-dependent equality and every inequality entirely into GPU residuals', () => {
   for (const op of ['=', '<', '>', '<=', '>=']) {
     const shader = compileSymbolicRelationShader({

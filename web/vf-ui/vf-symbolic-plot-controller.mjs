@@ -1164,6 +1164,7 @@ export function buildSymbolicPlotStyle(colors, colormapPoints = null, colorScale
     magnitudeMin: scale.magnitudeDomain[0],
     magnitudeMax: scale.magnitudeDomain[1],
     colorScaleMode: scale.mode,
+    faceColormap: colors.faceColormap === true,
     colormapPoints: normalizeColormapPoints(colormapPoints)
   });
 }
