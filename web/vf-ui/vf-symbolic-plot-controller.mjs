@@ -196,9 +196,35 @@ export async function createSymbolicPlotController({
         && member !== scalarFieldProgram
         && member !== complexFieldProgram
       ));
-      const arenas = await Promise.all(sampledPrograms.map(async (member) =>
+      const retainedSampledProgram = sampledPrograms.length === 1
+        ? compiled.program ?? null
+        : null;
+      const retainedVariants = retainedSampledProgram
+        && sampledPrograms[0]?.variants?.length > 1
+        && typeof kernel.plotVariant === 'function'
+        ? sampledPrograms[0].variants
+        : null;
+      const plotInputs = retainedVariants
+        ? retainedVariants.map((_, variantIndex) => ({
+            program: retainedSampledProgram,
+            variantIndex
+          }))
+        : sampledPrograms.map((member) => ({
+            program: retainedSampledProgram || member,
+            variantIndex: null
+          }));
+      const arenas = await Promise.all(plotInputs.map(async ({ program: member, variantIndex }) =>
         snapshotSymbolicPlotArena(
-          await kernel.plot(member, executionWorkspace, view, style, revision),
+          await (variantIndex == null
+            ? kernel.plot(member, executionWorkspace, view, style, revision)
+            : kernel.plotVariant(
+                member,
+                executionWorkspace,
+                view,
+                style,
+                revision,
+                variantIndex
+              )),
           kernel.memory,
           requestOrder
         )));

@@ -2583,6 +2583,24 @@ symbolic_plot(
     metadata: symbolic_plot_builder_metadata(sampled)
     symbolic_plot_result(metadata, program.classification)
 
+symbolic_plot_variant(
+    program:SymbolicProgram,
+    workspace:SymbolicWorkspace,
+    view:any,
+    style:any,
+    revision:num,
+    variantIndex:num
+):
+    variantIndex < 0 \/ variantIndex >= vkf_list_length(program.variants)?
+        @: null
+    symbolic_plot(
+        symbolic_variant_program(program, program.variants.(variantIndex)),
+        workspace,
+        view,
+        style,
+        revision
+    )
+
 symbolic_is_linked_power_collection(node:any):
     node.kind = "binary" /\ node.op = "^" /\ (node.right.kind = "tuple" \/ node.right.kind = "range")
 
@@ -3361,25 +3379,45 @@ symbolic_power_family_value(program:any, workspace:any, x:num, y:num, frameTime:
     baseKind: symbolic_value_kind_for_context(program.ast.left, program.context)
     symbolic_power_collection_value(base, baseKind, exponent)
 
+symbolic_sample_chunk_end(index:num, count:num):
+    end: index + 64
+    end > count?
+        @: count
+    end
+
 symbolic_sample_explicit_x_family(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num):
     exponentIndex >= symbolic_power_exponent_count(program.ast, program, workspace, view.t)?
         @: builder
     index >= view.xSteps?
         @: symbolic_sample_explicit_x_family(program, workspace, view, style, builder, exponentIndex + 1, 0)
+    stop: symbolic_sample_chunk_end(index, view.xSteps)
+    sampled: symbolic_sample_explicit_x_family_chunk(program, workspace, view, style, builder, exponentIndex, index, stop)
+    symbolic_sample_explicit_x_family(program, workspace, view, style, sampled, exponentIndex, stop)
+
+symbolic_sample_explicit_x_family_chunk(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num, stop:num):
+    index >= stop?
+        @: builder
     x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
     y: symbolic_power_family_value(program, workspace, x, 0, view.t, exponentIndex)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_x_family(program, workspace, view, style, pushed, exponentIndex, index + 1)
+    symbolic_sample_explicit_x_family_chunk(program, workspace, view, style, pushed, exponentIndex, index + 1, stop)
 
 symbolic_sample_explicit_y_family(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num):
     exponentIndex >= symbolic_power_exponent_count(program.ast, program, workspace, view.t)?
         @: builder
     index >= view.ySteps?
         @: symbolic_sample_explicit_y_family(program, workspace, view, style, builder, exponentIndex + 1, 0)
+    stop: symbolic_sample_chunk_end(index, view.ySteps)
+    sampled: symbolic_sample_explicit_y_family_chunk(program, workspace, view, style, builder, exponentIndex, index, stop)
+    symbolic_sample_explicit_y_family(program, workspace, view, style, sampled, exponentIndex, stop)
+
+symbolic_sample_explicit_y_family_chunk(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num, stop:num):
+    index >= stop?
+        @: builder
     y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
     x: symbolic_power_family_value(program, workspace, 0, y, view.t, exponentIndex)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_y_family(program, workspace, view, style, pushed, exponentIndex, index + 1)
+    symbolic_sample_explicit_y_family_chunk(program, workspace, view, style, pushed, exponentIndex, index + 1, stop)
 
 symbolic_sample_explicit_x(
     program:any,
@@ -3390,6 +3428,13 @@ symbolic_sample_explicit_x(
     index:num
 ):
     index >= view.xSteps?
+        @: builder
+    stop: symbolic_sample_chunk_end(index, view.xSteps)
+    sampled: symbolic_sample_explicit_x_chunk(program, workspace, view, style, builder, index, stop)
+    symbolic_sample_explicit_x(program, workspace, view, style, sampled, stop)
+
+symbolic_sample_explicit_x_chunk(program:any, workspace:any, view:any, style:any, builder:any, index:num, stop:num):
+    index >= stop?
         @: builder
     x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
     rawY: symbolic_program_evaluate_local_at(
@@ -3404,13 +3449,14 @@ symbolic_sample_explicit_x(
     allowed: symbolic_workspace_point_within_constraints(program, workspace, x, resolvedY, 0, view.t, 0)
     y: symbolic_constrained_value(allowed, resolvedY)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_x(
+    symbolic_sample_explicit_x_chunk(
         program,
         workspace,
         view,
         style,
         pushed,
-        index + 1
+        index + 1,
+        stop
     )
 
 symbolic_sample_explicit_y(
@@ -3422,6 +3468,13 @@ symbolic_sample_explicit_y(
     index:num
 ):
     index >= view.ySteps?
+        @: builder
+    stop: symbolic_sample_chunk_end(index, view.ySteps)
+    sampled: symbolic_sample_explicit_y_chunk(program, workspace, view, style, builder, index, stop)
+    symbolic_sample_explicit_y(program, workspace, view, style, sampled, stop)
+
+symbolic_sample_explicit_y_chunk(program:any, workspace:any, view:any, style:any, builder:any, index:num, stop:num):
+    index >= stop?
         @: builder
     y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
     rawX: symbolic_program_evaluate_local_at(
@@ -3436,13 +3489,14 @@ symbolic_sample_explicit_y(
     allowed: symbolic_workspace_point_within_constraints(program, workspace, resolvedX, y, 0, view.t, 0)
     x: symbolic_constrained_value(allowed, resolvedX)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_y(
+    symbolic_sample_explicit_y_chunk(
         program,
         workspace,
         view,
         style,
         pushed,
-        index + 1
+        index + 1,
+        stop
     )
 
 symbolic_number_is_finite(value:num):
@@ -4600,7 +4654,8 @@ symbolic_expression_capability:
         "symbolic_workspace_append(workspace, source, context, clip)",
         "symbolic_workspace_evaluate(workspace, handle, x, y, z, t)",
         "symbolic_program_evaluate_at(program, x, y, z, t, context, workspace)",
-        "symbolic_plot(program, workspace, view, style, revision)"
+        "symbolic_plot(program, workspace, view, style, revision)",
+        "symbolic_plot_variant(program, workspace, view, style, revision, variantIndex)"
     ]
     classifications: [
         "literal",

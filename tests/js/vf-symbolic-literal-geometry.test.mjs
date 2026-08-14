@@ -202,7 +202,13 @@ test('plots a set of x-dependent scalars as separate ordered graph series', asyn
 test('plots independent coefficient ranges as a Cartesian curve family', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
-  const result = plotGeometry(kernel, workspace, '5sin({1..3}x-{1..4}t)');
+  const result = plotGeometry(
+    kernel,
+    workspace,
+    '5sin({1..3}x-{1..4}t)',
+    { t: 66.95 },
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
 
   assert.equal(result.program.classification, 'y-of-x');
   assert.equal(symbolicPlotSeriesCount(result.program), 12);
@@ -210,6 +216,24 @@ test('plots independent coefficient ranges as a Cartesian curve family', async (
   assert.ok(result.arena.ranges.every(({ mode, count }) => (
     mode === 'time-curve' && count === view.xSteps
   )));
+
+  const compiled = kernel.workspaceCompile(
+    workspace,
+    '5sin({1..3}x-{1..4}t)',
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+  for (let variantIndex = 0; variantIndex < 12; variantIndex += 1) {
+    const arena = kernel.plotVariant(
+      compiled.program,
+      compiled.workspace,
+      { ...view, t: 66.95, xSteps: 1122 },
+      style,
+      1,
+      variantIndex
+    );
+    assert.equal(arena.ranges.length, 1);
+    assert.equal(arena.ranges[0].count, 1122);
+  }
 });
 
 test('zips equal tuples inside functions and relations', async () => {
