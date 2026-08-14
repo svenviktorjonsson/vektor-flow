@@ -47,6 +47,15 @@ test('uses canonical LaTeX when the symbolic program is complete', async () => {
   assert.deepEqual(draft.diagnostics, []);
 });
 
+test('renders Greek identifiers canonically while the expression is incomplete', async () => {
+  const kernel = await loadKernel();
+  const draft = kernel.compileDraft('alpha+').value;
+
+  assert.equal(draft.latex, String.raw`\alpha + `);
+  assert.equal(draft.complete, false);
+  assert.equal(draft.recoverable, true);
+});
+
 test('uses scalable parentheses and an invisible closer while grouping is incomplete', async () => {
   const kernel = await loadKernel();
   assert.equal(

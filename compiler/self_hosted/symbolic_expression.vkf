@@ -862,10 +862,108 @@ symbolic_definition_latex(node:any):
 
 symbolic_variable_latex(name:str):
     name??
+        "alpha" => "\\alpha"
+        "beta" => "\\beta"
+        "gamma" => "\\gamma"
+        "delta" => "\\delta"
+        "epsilon" => "\\epsilon"
+        "zeta" => "\\zeta"
+        "eta" => "\\eta"
+        "theta" => "\\theta"
+        "iota" => "\\iota"
+        "kappa" => "\\kappa"
+        "lambda" => "\\lambda"
+        "mu" => "\\mu"
+        "nu" => "\\nu"
+        "xi" => "\\xi"
+        "omicron" => "o"
         "pi" => "\\pi"
+        "rho" => "\\rho"
+        "sigma" => "\\sigma"
+        "tau" => "\\tau"
+        "upsilon" => "\\upsilon"
         "phi" => "\\phi"
+        "chi" => "\\chi"
+        "psi" => "\\psi"
+        "omega" => "\\omega"
+        "Alpha" => "\\mathrm{A}"
+        "Beta" => "\\mathrm{B}"
+        "Gamma" => "\\Gamma"
+        "Delta" => "\\Delta"
+        "Epsilon" => "\\mathrm{E}"
+        "Zeta" => "\\mathrm{Z}"
+        "Eta" => "\\mathrm{H}"
+        "Theta" => "\\Theta"
+        "Iota" => "\\mathrm{I}"
+        "Kappa" => "\\mathrm{K}"
+        "Lambda" => "\\Lambda"
+        "Mu" => "\\mathrm{M}"
+        "Nu" => "\\mathrm{N}"
+        "Xi" => "\\Xi"
+        "Omicron" => "\\mathrm{O}"
+        "Pi" => "\\Pi"
+        "Rho" => "\\mathrm{P}"
+        "Sigma" => "\\Sigma"
+        "Tau" => "\\mathrm{T}"
+        "Upsilon" => "\\Upsilon"
+        "Phi" => "\\Phi"
+        "Chi" => "\\mathrm{X}"
+        "Psi" => "\\Psi"
+        "Omega" => "\\Omega"
         "i" => "i"
         name
+
+symbolic_greek_identifier(name:str):
+    name??
+        "alpha" => true
+        "beta" => true
+        "gamma" => true
+        "delta" => true
+        "epsilon" => true
+        "zeta" => true
+        "eta" => true
+        "theta" => true
+        "iota" => true
+        "kappa" => true
+        "lambda" => true
+        "mu" => true
+        "nu" => true
+        "xi" => true
+        "omicron" => true
+        "pi" => true
+        "rho" => true
+        "sigma" => true
+        "tau" => true
+        "upsilon" => true
+        "phi" => true
+        "chi" => true
+        "psi" => true
+        "omega" => true
+        "Alpha" => true
+        "Beta" => true
+        "Gamma" => true
+        "Delta" => true
+        "Epsilon" => true
+        "Zeta" => true
+        "Eta" => true
+        "Theta" => true
+        "Iota" => true
+        "Kappa" => true
+        "Lambda" => true
+        "Mu" => true
+        "Nu" => true
+        "Xi" => true
+        "Omicron" => true
+        "Pi" => true
+        "Rho" => true
+        "Sigma" => true
+        "Tau" => true
+        "Upsilon" => true
+        "Phi" => true
+        "Chi" => true
+        "Psi" => true
+        "Omega" => true
+        false
 
 symbolic_binary_latex(node:any, precedence:num):
     node.op??
@@ -3099,7 +3197,7 @@ symbolic_document_math_anchor(source:str, offset:num, profile:str):
     symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)
 
 symbolic_document_known_identifier(name:str, profile:str):
-    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "e" \/ name = "phi" \/ name = "pi" \/ name = "i" \/ (profile = "platonic" /\ symbolic_document_platonic_implicit_product(name) != "")
+    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "e" \/ name = "i" \/ symbolic_greek_identifier(name) \/ (profile = "platonic" /\ symbolic_document_platonic_implicit_product(name) != "")
 
 symbolic_document_platonic_implicit_product(name:str):
     name??
