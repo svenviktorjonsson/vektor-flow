@@ -206,7 +206,7 @@ test('explicit curve families keep a distinct GPU color for each series', () => 
   assert.match(wgsl, /boundaryColor = vec4f\(0\.0, 0\.0, 1\.0, 1\.0\)/);
 });
 
-test('explicit curve selection smooths crossing junctions independently of graph distance', () => {
+test('explicit curve selection unions each curve halo before compositing the graph', () => {
   const shader = compileSymbolicExplicitCurveShaderGroup([
     { explicitCurve: { dependent: 'y', parameter: 'x', expression: variable('x') } },
     {
@@ -219,12 +219,16 @@ test('explicit curve selection smooths crossing junctions independently of graph
   const glsl = webGlRelationFragmentSource(shader);
   const wgsl = webGpuRelationShaderSource(shader);
 
-  assert.match(glsl, /smooth_minimum_distance/);
-  assert.match(glsl, /selection_boundary_distance_px/);
-  assert.match(wgsl, /smoothMinimumDistance/);
-  assert.match(wgsl, /selectionBoundaryDistancePx/);
-  assert.match(glsl, /selection_delta = abs\(selection_boundary_distance_px/);
-  assert.match(wgsl, /selectionDelta = abs\(selectionBoundaryDistancePx/);
+  assert.match(glsl, /vec3 explicit_boundary_sample_px/);
+  assert.match(wgsl, /fn explicitBoundarySamplePx[^\n]+-> vec3f/);
+  assert.match(glsl, /selection_delta = abs\(distance_0 - selection_center\)/);
+  assert.match(wgsl, /selectionDelta = abs\(distance0 - selectionCenter\)/);
+  assert.match(glsl, /selection_delta = projected_sample\.z/);
+  assert.match(wgsl, /selectionDelta = projectedSample\.z/);
+  assert.equal((glsl.match(/explicit_curve_distance_0\(screen_point, time_value\)/g) || []).length, 1);
+  assert.equal((wgsl.match(/explicitCurveDistance0\(screen, timeValue\)/g) || []).length, 1);
+  assert.doesNotMatch(glsl, /abs\(selection_boundary_distance_px - selection_center\)/);
+  assert.doesNotMatch(wgsl, /abs\(selectionBoundaryDistancePx - selectionCenter\)/);
 });
 
 test('explicit screen distance is invariant under positive and negative slope', () => {
