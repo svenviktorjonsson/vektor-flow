@@ -270,6 +270,17 @@ test('expands a parenthesized range inside a function like a set range', async (
   assert.equal(symbolicPlotSeriesCount(result.program), 4);
   assert.equal(result.program.variants.length, 4);
   assert.equal(result.arena.ranges.length, 4);
+
+  const zipped = plotGeometry(
+    kernel,
+    workspace,
+    '(2,3,4,5)sin(x-(1..4)t)',
+    { t: 1 },
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+  assert.equal(symbolicPlotSeriesCount(zipped.program), 4);
+  assert.equal(zipped.program.variants.length, 4);
+  assert.equal(zipped.arena.ranges.length, 4);
 });
 
 test('zips equal tuples inside functions and relations', async () => {
