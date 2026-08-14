@@ -130,6 +130,8 @@ export async function createSymbolicPlotController({
     const relationPrograms = (documentPrograms || [program])
       .filter((member) => isSymbolicRelation(member?.classification));
     const allPrograms = documentPrograms || [program];
+    const explicitCurvePrograms = allPrograms
+      .filter((member) => isExplicitSymbolicCurve(member?.classification));
     const scalarFieldProgram = allPrograms.length === 1
       && allPrograms[0]?.classification === 'scalar-field'
       ? allPrograms[0]
@@ -138,12 +140,23 @@ export async function createSymbolicPlotController({
       && allPrograms[0]?.classification === 'complex-field'
       ? allPrograms[0]
       : null;
+    const explicitCurveInputs = explicitCurvePrograms.flatMap(explicitCurveRelationInputs);
+    const explicitCurveColors = symbolicSeriesColors(
+      explicitCurveInputs.length,
+      style.colormapPoints,
+      seriesColorRange
+    );
     const relationInputs = [
-      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants }))
-    ].map(({ ast, variants, explicitCurve }) => ({
+      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants })),
+      ...explicitCurveInputs.map((input, index) => ({
+        ...input,
+        edgeColor: explicitCurveColors?.[index] ?? null
+      }))
+    ].map(({ ast, variants, explicitCurve, edgeColor }) => ({
       ast,
       variants,
       explicitCurve,
+      edgeColor,
       style,
       t: view.t
     }));
@@ -183,7 +196,7 @@ export async function createSymbolicPlotController({
     let nextArena;
     const analyticalPlot = (
       (relationInputs.length > 0
-        && relationPrograms.length === allPrograms.length)
+        && relationPrograms.length + explicitCurvePrograms.length === allPrograms.length)
       || analyticComplexField
       || analyticScalarField
     );
@@ -1346,6 +1359,15 @@ function assertPlottableOutput(result, arena, analytical) {
     && arena.ranges.some(({ count }) => Number(count) > 0);
   if (hasGeometry) return;
   throw new Error(`VKF plottable ${result.classification} produced no geometry`);
+}
+
+function symbolicSeriesColors(count, colormapPoints, range) {
+  if (!range || count <= 0 || !Array.isArray(colormapPoints)) return null;
+  const total = Math.max(1, Math.trunc(Number(range.total) || count));
+  const offset = Math.max(0, Math.trunc(Number(range.offset) || 0));
+  return Object.freeze(Array.from({ length: count }, (_, index) => Object.freeze(
+    sampleSeriesColormap(colormapPoints, total === 1 ? 0.5 : (offset + index) / (total - 1))
+  )));
 }
 
 function emptyArena(revision) {

@@ -1500,8 +1500,13 @@ export function webGpuRelationShaderSource(shader) {
       let selectionCenter = edgeHalfWidth + uniforms.geometry.y + uniforms.geometry.z * 0.5;
       let selectionOuter = selectionCenter + uniforms.geometry.z * 0.5;
       var boundaryDistancePx = ${explicitDistance ? '1e20' : 'abs(approximateBoundaryDistancePx)'};
+      var boundaryCurveIndex = 0.0;
       if (abs(approximateBoundaryDistancePx) <= selectionOuter + 4.0 * uniforms.geometry.w) {
-        let projectedDistancePx = ${explicitDistance ? 'explicitBoundaryDistancePx' : 'projectedBoundaryDistancePx'}(input.screen, t);
+        ${explicitDistance
+          ? `let projectedSample = explicitBoundarySamplePx(input.screen, t);
+        let projectedDistancePx = projectedSample.x;
+        boundaryCurveIndex = projectedSample.y;`
+          : 'let projectedDistancePx = projectedBoundaryDistancePx(input.screen, t);'}
         boundaryDistancePx = select(1e20, projectedDistancePx, projectedDistancePx >= 0.0);
       }
       let boundaryAntialias = clamp(fwidth(boundaryDistancePx), 0.5, 1.0);
@@ -1518,9 +1523,11 @@ export function webGpuRelationShaderSource(shader) {
         selectionDelta
       )) * uniforms.interaction.x;
       ${faceColorSource}
+      var boundaryColor = uniforms.edgeColor;
+      ${explicitDistance ? explicitBoundaryColorSource(shader, 'wgsl') : ''}
       color = over(vec4f(uniforms.selectionColor.rgb, ${faceSelection}), color);
       color = over(vec4f(uniforms.selectionColor.rgb, edgeSelection), color);
-      color = over(vec4f(uniforms.edgeColor.rgb, uniforms.edgeColor.a * ${boundary}), color);
+      color = over(vec4f(boundaryColor.rgb, boundaryColor.a * ${boundary}), color);
       return color;
     }
 
@@ -1878,18 +1885,44 @@ function explicitCurveDistanceFunction(curve, index, language) {
 
 function explicitBoundaryDistanceSource(shader, language) {
   const wgsl = language === 'wgsl';
-  const vector = wgsl ? 'vec2f' : 'vec2';
-  const scalar = wgsl ? 'f32' : 'float';
   const functions = shader.explicitCurves.map((curve, index) =>
     explicitCurveDistanceFunction(curve, index, language)).join('\n');
   const calls = shader.explicitCurves.map((_, index) => wgsl
     ? `explicitCurveDistance${index}(screen, timeValue)`
     : `explicit_curve_distance_${index}(screen_point, time_value)`);
-  const minimum = calls.slice(1).reduce((result, call) => `min(${result}, ${call})`, calls[0]);
+  const candidates = calls.slice(1).map((call, index) => wgsl
+    ? `let candidate${index + 1} = ${call};
+      if (candidate${index + 1} < bestDistance) {
+        bestDistance = candidate${index + 1};
+        bestIndex = ${shaderFloat(index + 1)};
+      }`
+    : `float candidate_${index + 1} = ${call};
+      if (candidate_${index + 1} < best_distance) {
+        best_distance = candidate_${index + 1};
+        best_index = ${shaderFloat(index + 1)};
+      }`).join('\n');
   return `${functions}
+    ${wgsl ? 'fn explicitBoundarySamplePx(screen: vec2f, timeValue: f32) -> vec2f' : 'vec2 explicit_boundary_sample_px(vec2 screen_point, float time_value)'} {
+      ${wgsl
+        ? `var bestDistance = ${calls[0]}; var bestIndex = 0.0;`
+        : `float best_distance = ${calls[0]}; float best_index = 0.0;`}
+      ${candidates}
+      return ${wgsl ? 'vec2f(bestDistance, bestIndex)' : 'vec2(best_distance, best_index)'};
+    }
     ${wgsl ? 'fn explicitBoundaryDistancePx(screen: vec2f, timeValue: f32) -> f32' : 'float explicit_boundary_distance_px(vec2 screen_point, float time_value)'} {
-      return ${minimum};
+      return ${wgsl
+        ? 'explicitBoundarySamplePx(screen, timeValue).x'
+        : 'explicit_boundary_sample_px(screen_point, time_value).x'};
     }`;
+}
+
+function explicitBoundaryColorSource(shader, language) {
+  const colors = shader.explicitCurveColors;
+  if (!Array.isArray(colors) || colors.length !== shader.explicitCurves.length) return '';
+  const wgsl = language === 'wgsl';
+  return colors.map((color, index) => `${index === 0 ? 'if' : 'else if'} (
+      boundaryCurveIndex < ${shaderFloat(index + 0.5)}
+    ) { boundaryColor = ${wgsl ? 'vec4f' : 'vec4'}(${color.map(shaderFloat).join(', ')}); }`).join('\n');
 }
 
 function webGpuExplicitBoundaryDistanceSource(shader) {
@@ -2656,8 +2689,13 @@ export function webGlRelationFragmentSource(shader) {
       float selection_center = edge_half_width + u_geometry.y + u_geometry.z * 0.5;
       float selection_outer = selection_center + u_geometry.z * 0.5;
       float exact_boundary_distance_px = ${explicitDistance ? '1e20' : 'abs(approximate_boundary_distance_px)'};
+      float boundaryCurveIndex = 0.0;
       if (abs(approximate_boundary_distance_px) <= selection_outer + 4.0 * u_geometry.w) {
-        float projected_distance_px = ${boundaryDistanceFunction}(v_screen, t);
+        ${explicitDistance
+          ? `vec2 projected_sample = explicit_boundary_sample_px(v_screen, t);
+        float projected_distance_px = projected_sample.x;
+        boundaryCurveIndex = projected_sample.y;`
+          : `float projected_distance_px = ${boundaryDistanceFunction}(v_screen, t);`}
         exact_boundary_distance_px = projected_distance_px >= 0.0 ? projected_distance_px : 1e20;
       }
       float boundary_antialias = clamp(fwidth(exact_boundary_distance_px), 0.5, 1.0);
@@ -2674,9 +2712,11 @@ export function webGlRelationFragmentSource(shader) {
         selection_delta
       )) * u_interaction.x;
       ${faceColorSource}
+      vec4 boundaryColor = u_edge_color;
+      ${explicitDistance ? explicitBoundaryColorSource(shader, 'glsl') : ''}
       color = over(vec4(u_selection_color.rgb, ${faceSelection}), color);
       color = over(vec4(u_selection_color.rgb, edge_selection), color);
-      color = over(vec4(u_edge_color.rgb, u_edge_color.a * ${boundary}), color);
+      color = over(vec4(boundaryColor.rgb, boundaryColor.a * ${boundary}), color);
       if (color.a <= 0.000001) discard;
       out_color = color;
     }

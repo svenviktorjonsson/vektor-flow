@@ -149,8 +149,17 @@ export function compileSymbolicExplicitCurveShaderGroup(programs, style = {}) {
   return relation ? Object.freeze({
     ...relation,
     boundaryDistanceMode: 'explicit',
-    explicitCurves: Object.freeze(compiledCurves)
+    explicitCurves: Object.freeze(compiledCurves),
+    explicitCurveColors: programs.every(({ edgeColor }) => validShaderColor(edgeColor))
+      ? Object.freeze(programs.map(({ edgeColor }) => Object.freeze(edgeColor.map(Number))))
+      : null
   }) : null;
+}
+
+function validShaderColor(value) {
+  return (Array.isArray(value) || ArrayBuffer.isView(value))
+    && value.length === 4
+    && Array.from(value).every(Number.isFinite);
 }
 
 function closestSignedResidual(residuals, language) {

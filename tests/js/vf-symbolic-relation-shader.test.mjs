@@ -185,6 +185,27 @@ test('explicit curves use a fast one-dimensional analytic closest-point solver',
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /projected.*residual|epsilon|iteration < 6/i);
 });
 
+test('explicit curve families keep a distinct GPU color for each series', () => {
+  const curves = [0, 1].map((offset) => ({
+    explicitCurve: {
+      dependent: 'y', parameter: 'x',
+      expression: {
+        kind: 'binary', op: '+', left: variable('x'), right: { kind: 'number', value: offset }
+      }
+    },
+    edgeColor: offset === 0 ? [1, 0, 0, 1] : [0, 0, 1, 1]
+  }));
+  const shader = compileSymbolicExplicitCurveShaderGroup(curves);
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.deepEqual(shader.explicitCurveColors, [[1, 0, 0, 1], [0, 0, 1, 1]]);
+  assert.match(glsl, /boundaryColor = vec4\(1\.0, 0\.0, 0\.0, 1\.0\)/);
+  assert.match(glsl, /boundaryColor = vec4\(0\.0, 0\.0, 1\.0, 1\.0\)/);
+  assert.match(wgsl, /boundaryColor = vec4f\(1\.0, 0\.0, 0\.0, 1\.0\)/);
+  assert.match(wgsl, /boundaryColor = vec4f\(0\.0, 0\.0, 1\.0, 1\.0\)/);
+});
+
 test('explicit screen distance is invariant under positive and negative slope', () => {
   for (const slope of [-12, -3, 0, 3, 12]) {
     const normalLength = Math.hypot(slope, 1);

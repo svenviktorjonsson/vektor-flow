@@ -49,7 +49,7 @@ test('compiler exposes plot capability only for supported classifications', asyn
   assert.equal(compiler.compile('x^(1..4)').plottable, true);
 });
 
-test('renders a four-member curve family as joined line strips', async () => {
+test('renders a four-member curve family analytically on the GPU', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
   const vertices = new Float32Array(memory.buffer, 0, 48);
@@ -96,11 +96,11 @@ test('renders a four-member curve family as joined line strips', async () => {
 
   assert.equal(result.plottable, true);
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
-  assert.equal(calls.find(([name]) => name === 'relations')[1], null);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
+  assert.equal(calls.find(([name]) => name === 'relations')[1].length, 4);
   const arenas = calls.filter(([name]) => name === 'arena');
   assert.equal(arenas.length, 1);
-  assert.deepEqual(arenas[0][1].ranges, ranges);
+  assert.deepEqual(arenas[0][1].ranges, []);
   assert.deepEqual(await controller.pick([0, 0]), { kind: 'segment', rangeIndex: 2, index: 4 });
   controller.setInteractionState('selected');
   assert.deepEqual(calls.filter(([name]) => name === 'appearance').at(-1)[1].partStates, {
@@ -113,7 +113,7 @@ test('renders a four-member curve family as joined line strips', async () => {
 
 test('rejects silent empty output from a plottable sampled program', async () => {
   const program = {
-    diagnostics: [], latex: 'x', variables: ['x'], classification: 'y-of-x',
+    diagnostics: [], latex: '(u,u)', variables: ['u'], classification: 'parametric',
     valueKind: 'scalar', ast: { kind: 'variable', name: 'x' }, variants: [{ kind: 'variable', name: 'x' }]
   };
   const renderer = {
@@ -135,10 +135,10 @@ test('rejects silent empty output from a plottable sampled program', async () =>
   await assert.rejects(controller.plot({
     source: 'x', viewport,
     colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' }, revision: 1
-  }), /plottable y-of-x produced no geometry/);
+  }), /plottable parametric produced no geometry/);
 });
 
-test('renders explicit x/y curves as joined GPU-antialiased line strips', async () => {
+test('renders explicit x/y curves through one analytic GPU group', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
   new Float32Array(memory.buffer, 0, 24).set([
@@ -197,10 +197,13 @@ test('renders explicit x/y curves as joined GPU-antialiased line strips', async 
     revision: 1
   });
 
-  assert.equal(plotIndex, 2);
-  assert.equal(analyticInputs, null);
-  assert.equal(calls[0].ranges.length, 2);
-  assert.ok(calls[0].ranges.every(({ topology }) => topology === 'line-strip'));
+  assert.equal(plotIndex, 0);
+  assert.equal(analyticInputs.length, 2);
+  assert.deepEqual(
+    analyticInputs.map(({ explicitCurve }) => [explicitCurve.dependent, explicitCurve.parameter]),
+    [['y', 'x'], ['x', 'y']]
+  );
+  assert.equal(calls[0].ranges.length, 0);
 });
 
 test('routes every relation in a mixed document through one GPU relation group', async () => {
@@ -440,7 +443,7 @@ test('omits non-finite samples and invalid adjacent segments from snap geometry'
   });
 });
 
-test('controller compiles an explicit curve into joined line-strip geometry', async () => {
+test('controller compiles an explicit curve into analytic GPU geometry', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });
   const vertices = new Float32Array(memory.buffer, 0, 12);
@@ -507,9 +510,9 @@ test('controller compiles an explicit curve into joined line-strip geometry', as
 
   assert.equal(result.classification, 'y-of-x');
   assert.equal(result.plottable, true);
-  assert.deepEqual(controller.snapGeometry.segments, [[[1, 2], [3, 4]]]);
-  assert.equal(controller.hitTest([328, 177], 2)?.kind, 'segment');
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  assert.deepEqual(controller.snapGeometry.segments, []);
+  assert.equal(controller.hitTest([328, 177], 2), null);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
   assert.deepEqual(await controller.pick([328, 177], 8), { kind: 'segment', index: 0 });
   assert.deepEqual(calls.find(([name]) => name === 'pick').slice(1), [[328, 177], 8]);
   controller.setInteractionState('selected');
@@ -526,7 +529,7 @@ test('controller compiles an explicit curve into joined line-strip geometry', as
     edge: 'normal', face: 'hovered'
   });
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
   assert.equal(calls.find(([name]) => name === 'compile')[4], clipRegion);
   assert.deepEqual(calls.find(([name]) => name === 'clip')[1], clipRegion);
   assert.equal(calls.filter(([name]) => name === 'render').length, 4);
@@ -757,7 +760,7 @@ test('commits delayed temporal samples when only time advances in the same spati
   const pendingArena = new Promise((resolve) => { resolvePlot = resolve; });
   const program = {
     diagnostics: [], latex: '\\sin(x-t)', variables: ['x', 't'],
-    classification: 'y-of-x', valueKind: 'number',
+    classification: 'parametric', valueKind: 'number',
     ast: { kind: 'call', name: 'sin', args: [{
       kind: 'binary', op: '-', left: { kind: 'variable', name: 'x' }, right: { kind: 'variable', name: 't' }
     }] }
@@ -815,7 +818,7 @@ test('assigns a fresh GPU arena revision to every committed temporal sample', as
   let sample = 0;
   const program = {
     diagnostics: [], latex: '\\sin(x-t)', variables: ['x', 't'],
-    classification: 'y-of-x', valueKind: 'number',
+    classification: 'parametric', valueKind: 'number',
     ast: { kind: 'call', name: 'sin', args: [{
       kind: 'binary', op: '-', left: { kind: 'variable', name: 'x' }, right: { kind: 'variable', name: 't' }
     }] }
