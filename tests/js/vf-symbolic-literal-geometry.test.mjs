@@ -184,6 +184,25 @@ test('plots a symbolic base with a range exponent as one multi-range curve famil
   }
 });
 
+test('links tuples only when their expanded elements contain at most t', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+
+  const movingGeometry = plotGeometry(kernel, workspace, '(t,t+1)', { t: 2 });
+  assert.equal(movingGeometry.program.classification, 'linked-tuple');
+  assert.deepEqual(movingGeometry.geometry.segments, [[[2, 0], [3, 0]]]);
+
+  const powerFunctions = plotGeometry(kernel, workspace, 'x^(1,2,3)');
+  assert.equal(powerFunctions.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(powerFunctions.program), 3);
+  assert.equal(powerFunctions.arena.ranges.length, 3);
+
+  const tupleFunctions = plotGeometry(kernel, workspace, '(x,x^2)');
+  assert.equal(tupleFunctions.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(tupleFunctions.program), 2);
+  assert.equal(tupleFunctions.arena.ranges.length, 2);
+});
+
 test('plots a set of x-dependent scalars as separate ordered graph series', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;

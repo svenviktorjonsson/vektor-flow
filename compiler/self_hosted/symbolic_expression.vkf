@@ -1858,6 +1858,20 @@ symbolic_power_base_has_y_only(base:any):
     variables: symbolic_variables(base)
     symbolic_list_contains(variables, 0, "y") /\ symbolic_list_contains(variables, 0, "x") = false /\ symbolic_list_contains(variables, 0, "z") = false
 
+symbolic_variables_are_temporal_only(variables:any, index:num):
+    index >= vkf_list_length(variables)?
+        @: true
+    current: variables.(index)
+    (current = "t" \/ current = "n" \/ current = "N")?
+        @: symbolic_variables_are_temporal_only(variables, index + 1)
+    temporalOnly: false
+    temporalOnly
+
+symbolic_tuple_classification(variables:any, valueKind:str):
+    symbolic_variables_are_temporal_only(variables, 0)?
+        @: "linked-tuple"
+    symbolic_variable_classification(variables, valueKind)
+
 symbolic_classification(ast:any, variables:any, value_kind:str):
     symbolic_is_y_of_x_power_family(ast)?
         @: "y-of-x-family"
@@ -1866,10 +1880,10 @@ symbolic_classification(ast:any, variables:any, value_kind:str):
     ast.kind = "binary" /\ ast.op = "^" /\ ast.right.kind = "multiset"?
         @: "point-set"
     ast.kind = "binary" /\ ast.op = "^" /\ ast.right.kind = "tuple"?
-        @: "linked-tuple"
+        @: symbolic_tuple_classification(variables, value_kind)
     ast.kind??
         "definition" => "definition"
-        "tuple" => "linked-tuple"
+        "tuple" => symbolic_tuple_classification(variables, value_kind)
         "multiset" => symbolic_multiset_classification(variables, value_kind)
         "binary" => symbolic_binary_classification(ast, variables, value_kind)
         symbolic_variable_classification(variables, value_kind)
