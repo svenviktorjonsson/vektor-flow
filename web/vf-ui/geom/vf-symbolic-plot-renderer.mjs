@@ -19,6 +19,7 @@ export const SYMBOLIC_PLOT_SELECTION_GAP = 4;
 export const SYMBOLIC_PLOT_SELECTION_WIDTH = 2;
 export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255, 211 / 255]);
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
+export const SYMBOLIC_RELATION_PICK_RADIUS_FLOAT_OFFSET = 31;
 
 export function closestExplicitCurveScreenDistance({ point, value, first, transform, iterations = 4 }) {
   if (![point?.[0], point?.[1], ...transform].every(Number.isFinite)) {
@@ -1235,7 +1236,7 @@ async function createWebGpuBackend(canvas) {
       new Uint32Array(pickUniform)[3] = currentArena?.primitives.facePickCapacity || 0;
       device.queue.writeBuffer(pickStrokeBuffer, 0, pickUniform);
       if (relationBuffer && relation) {
-        device.queue.writeBuffer(relationBuffer, 27 * Float32Array.BYTES_PER_ELEMENT, new Float32Array([
+        device.queue.writeBuffer(relationBuffer, SYMBOLIC_RELATION_PICK_RADIUS_FLOAT_OFFSET * Float32Array.BYTES_PER_ELEMENT, new Float32Array([
           request.radius * Math.max(1, canvas.width / Math.max(1, cssSize[0]))
         ]));
       }
@@ -1552,7 +1553,7 @@ export function webGpuRelationShaderSource(shader) {
       let fillGradient = max(length(vec2f(dpdx(fillResidual), dpdy(fillResidual))), 0.0000001);
       let fillDistancePx = fillResidual / fillGradient;
       let insidePx = fillDistancePx * ${shader.insideSign.toFixed(1)};
-      if (${shader.hasBoundary ? 'boundaryDistancePx >= 0.0 && boundaryDistancePx <= uniforms.geometry.x * 0.5 + uniforms.geometry.w' : 'false'}) {
+      if (${shader.hasBoundary ? 'boundaryDistancePx >= 0.0 && boundaryDistancePx <= uniforms.geometry.x * 0.5 + uniforms.interaction.w' : 'false'}) {
         return 2u;
       }
       if (${shader.hasFill ? 'insidePx >= 0.0' : 'false'}) { return 1u; }

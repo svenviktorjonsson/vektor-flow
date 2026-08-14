@@ -219,6 +219,19 @@ test('explicit screen distance is invariant under positive and negative slope', 
   }
 });
 
+test('GPU picking keeps its radius separate from render pixel ratio', () => {
+  const shader = compileSymbolicRelationShader({
+    kind: 'binary', op: '=', left: variable('y'), right: variable('x')
+  });
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.match(wgsl, /boundaryDistancePx <= uniforms\.geometry\.x \* 0\.5 \+ uniforms\.interaction\.w/);
+  assert.doesNotMatch(
+    wgsl,
+    /boundaryDistancePx <= uniforms\.geometry\.x \* 0\.5 \+ uniforms\.geometry\.w/
+  );
+});
+
 test('renders a simple equality through the current boundary and fill residual contract', () => {
   const shader = compileSymbolicRelationShader({
     kind: 'binary', op: '=', left: variable('x'), right: { kind: 'number', value: 1 }
