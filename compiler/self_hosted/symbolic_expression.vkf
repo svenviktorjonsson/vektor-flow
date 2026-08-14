@@ -1674,12 +1674,19 @@ symbolic_multiset_variants(items:any, index:num):
     current: symbolic_item_variants(items.(index))
     current & symbolic_multiset_variants(items, index + 1)
 
+symbolic_binary_right_variants(node:any):
+    unwrapped: symbolic_ungroup(node.right)
+    node.op = "^" /\ unwrapped.kind = "range"?
+        @: vkf_list_single(node.right)
+    symbolic_ast_variants(node.right)
+
 symbolic_ast_variants(node:any):
     node.kind??
         "multiset" => symbolic_multiset_variants(node.items, 0)
+        "range" => symbolic_static_range_variants(node)
         "unary" => symbolic_unary_variants(node, symbolic_ast_variants(node.operand), 0)
         "group" => symbolic_group_variants(node, symbolic_ast_variants(node.expression), 0)
-        "binary" => symbolic_binary_variants(node, symbolic_ast_variants(node.left), symbolic_ast_variants(node.right), 0, 0)
+        "binary" => symbolic_binary_variants(node, symbolic_ast_variants(node.left), symbolic_binary_right_variants(node), 0, 0)
         "call" => symbolic_call_variants(node, symbolic_argument_variant_lists(node.args, 0, vkf_list_single(vkf_list_empty())), 0)
         "tuple" => symbolic_tuple_variants(node, symbolic_argument_variant_lists(node.items, 0, vkf_list_single(vkf_list_empty())), 0)
         "vector" => symbolic_vector_variants(node, symbolic_ast_variants(node.x), symbolic_ast_variants(node.y), 0, 0)

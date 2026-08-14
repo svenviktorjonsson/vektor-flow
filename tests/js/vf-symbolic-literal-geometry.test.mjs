@@ -236,6 +236,22 @@ test('plots independent coefficient ranges as a Cartesian curve family', async (
   }
 });
 
+test('expands a parenthesized range inside a function like a set range', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(
+    kernel,
+    workspace,
+    '5sin(x-(1..4)t)',
+    { t: 74.43 },
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+
+  assert.equal(symbolicPlotSeriesCount(result.program), 4);
+  assert.equal(result.program.variants.length, 4);
+  assert.equal(result.arena.ranges.length, 4);
+});
+
 test('zips equal tuples inside functions and relations', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
@@ -283,8 +299,11 @@ test('distributes a set-valued relation into one analytical family while preserv
   assert.deepEqual(relation.variants.map(({ right }) => right.value), [1, 2, 3, 4, 5]);
 
   const tupleRelation = kernel.compile('x^2+y^2=(1..5)').value;
-  assert.equal(tupleRelation.variants.length, 1);
-  assert.equal(tupleRelation.ast.right.kind, 'range');
+  assert.equal(tupleRelation.variants.length, 5);
+  assert.deepEqual(
+    tupleRelation.variants.map(({ right }) => right.value),
+    [1, 2, 3, 4, 5]
+  );
 });
 
 test('distributes sets cartesianly while translating linked tuples as whole graphs', async () => {
