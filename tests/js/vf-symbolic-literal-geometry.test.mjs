@@ -124,7 +124,7 @@ test('maps exponent sets to points and exponent tuples to open linked geometry',
   ]);
 });
 
-test('preserves set, tuple, and range-tuple exponent semantics in latex and geometry', async () => {
+test('preserves set and tuple exponent semantics while grouped ranges equal sets', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
 
@@ -138,10 +138,11 @@ test('preserves set, tuple, and range-tuple exponent semantics in latex and geom
   assert.deepEqual(linked.geometry.points, [[0, 1], [-1, 0]]);
   assert.deepEqual(linked.geometry.segments, [[[0, 1], [-1, 0]]]);
 
-  const closed = plotGeometry(kernel, workspace, 'i^(1..5)');
-  assert.equal(closed.program.latex, '{i}^{\\left(1..5\\right)}');
-  assert.equal(closed.geometry.points.length, 4);
-  assert.equal(closed.geometry.segments.length, 4);
+  const groupedRange = plotGeometry(kernel, workspace, 'i^(1..5)');
+  const setRange = plotGeometry(kernel, workspace, 'i^{1..5}');
+  assert.deepEqual(groupedRange.geometry, setRange.geometry);
+  assert.equal(groupedRange.geometry.points.length, 4);
+  assert.equal(groupedRange.geometry.segments.length, 0);
 });
 
 test('plots a symbolic base with a range exponent as one multi-range curve family', async () => {
@@ -306,7 +307,7 @@ test('distributes a set-valued relation into one analytical family while preserv
   );
 });
 
-test('distributes sets cartesianly while translating linked tuples as whole graphs', async () => {
+test('distributes sets cartesianly as unlinked points', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
 
@@ -317,34 +318,6 @@ test('distributes sets cartesianly while translating linked tuples as whole grap
     [...grid.points].sort(([ax, ay], [bx, by]) => ax - bx || ay - by),
     [1, 2, 3, 4].flatMap((x) => [1, 2, 3, 4].map((y) => [x, y]))
   );
-
-  const squarePlot = plotGeometry(kernel, workspace, 'i^(1..5)+4i^{1..4}');
-  assert.equal(squarePlot.program.variants.length, 4);
-  assert.ok(squarePlot.program.variants.every(({ kind }) => kind === 'tuple'));
-  assert.deepEqual(
-    squarePlot.arena.ranges.map(({ mode, count }) => ({ mode, count })),
-    [1, 2, 3, 4].flatMap(() => [
-      { mode: 'points', count: 5 },
-      { mode: 'linked-line-segments', count: 8 }
-    ])
-  );
-  assert.equal(squarePlot.geometry.points.length, 16);
-  assert.equal(squarePlot.geometry.segments.length, 16);
-
-  const centers = squarePlot.geometry.points.reduce((groups, point, index) => {
-    const group = Math.floor(index / 4);
-    groups[group][0] += point[0] / 4;
-    groups[group][1] += point[1] / 4;
-    return groups;
-  }, [[0, 0], [0, 0], [0, 0], [0, 0]]);
-  assert.deepEqual(centers, [[0, 4], [-4, 0], [0, -4], [4, 0]]);
-  for (let square = 0; square < 4; square += 1) {
-    const vertices = squarePlot.geometry.points.slice(square * 4, square * 4 + 4);
-    const segments = squarePlot.geometry.segments.slice(square * 4, square * 4 + 4);
-    assert.deepEqual(segments.map(([from, to]) => [vertices.indexOf(from), vertices.indexOf(to)]), [
-      [0, 1], [1, 2], [2, 3], [3, 0]
-    ]);
-  }
 });
 
 test('emits ordinary linked tuple vertices before linked edges', async () => {
@@ -376,20 +349,16 @@ test('preserves multiset multiplicity while canonicalizing equal graph vertices'
   assert.deepEqual(result.geometry.segments, []);
 });
 
-test('expands inclusive exponent ranges and closes through a canonical repeated point', async () => {
+test('treats a grouped exponent range exactly like a set exponent range', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
-  const geometry = plotGeometry(kernel, workspace, 'i^(1..5)').geometry;
+  const grouped = plotGeometry(kernel, workspace, 'i^(1..5)').geometry;
+  const set = plotGeometry(kernel, workspace, 'i^{1..5}').geometry;
   const [i, minusOne, minusI, one] = [[0, 1], [-1, 0], [0, -1], [1, 0]];
 
-  assert.deepEqual(geometry.points, [i, minusOne, minusI, one]);
-  assert.deepEqual(geometry.segments, [
-    [i, minusOne],
-    [minusOne, minusI],
-    [minusI, one],
-    [one, i]
-  ]);
-  assert.equal(geometry.segments.at(-1)[1], geometry.points[0]);
+  assert.deepEqual(grouped, set);
+  assert.deepEqual(grouped.points, [i, minusOne, minusI, one]);
+  assert.deepEqual(grouped.segments, []);
 });
 
 test('t changes the current 2D frame without changing its geometry category', async () => {
