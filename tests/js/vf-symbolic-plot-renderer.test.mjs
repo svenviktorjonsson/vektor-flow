@@ -84,6 +84,14 @@ test('builds selection from global outer and inner coverage unions on every GPU 
   assert.match(webGlSelectionCompositeFragmentSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
 });
 
+test('rounds explicit-curve junctions and keeps selection as thick as the graph', () => {
+  const appearance = normalizeSymbolicPlotAppearance({
+    edgeWidth: 4,
+    selectionWidth: 1
+  });
+  assert.equal(appearance.selectionWidth, 4);
+});
+
 test('keeps visible strokes as complete capsules while selection unions globally', () => {
   const gpu = webGpuShaderSource();
   const glVertex = webGlStrokeVertexSource();

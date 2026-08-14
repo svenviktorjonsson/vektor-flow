@@ -206,6 +206,27 @@ test('explicit curve families keep a distinct GPU color for each series', () => 
   assert.match(wgsl, /boundaryColor = vec4f\(0\.0, 0\.0, 1\.0, 1\.0\)/);
 });
 
+test('explicit curve selection smooths crossing junctions independently of graph distance', () => {
+  const shader = compileSymbolicExplicitCurveShaderGroup([
+    { explicitCurve: { dependent: 'y', parameter: 'x', expression: variable('x') } },
+    {
+      explicitCurve: {
+        dependent: 'y', parameter: 'x',
+        expression: { kind: 'unary', op: '-', operand: variable('x') }
+      }
+    }
+  ]);
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.match(glsl, /smooth_minimum_distance/);
+  assert.match(glsl, /selection_boundary_distance_px/);
+  assert.match(wgsl, /smoothMinimumDistance/);
+  assert.match(wgsl, /selectionBoundaryDistancePx/);
+  assert.match(glsl, /selection_delta = abs\(selection_boundary_distance_px/);
+  assert.match(wgsl, /selectionDelta = abs\(selectionBoundaryDistancePx/);
+});
+
 test('explicit screen distance is invariant under positive and negative slope', () => {
   for (const slope of [-12, -3, 0, 3, 12]) {
     const normalLength = Math.hypot(slope, 1);

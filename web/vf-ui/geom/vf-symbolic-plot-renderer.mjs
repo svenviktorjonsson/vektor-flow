@@ -79,12 +79,13 @@ export function normalizeSymbolicPlotAppearance(value = {}) {
   });
   const edgeSelectionAlpha = interactionAlpha(partStates.edge);
   const faceSelectionAlpha = interactionAlpha(partStates.face);
+  const edgeWidth = positive(value.edgeWidth, SYMBOLIC_PLOT_EDGE_WIDTH);
   return Object.freeze({
     state: partStates.edge === partStates.face ? partStates.edge : 'mixed',
     partStates,
-    edgeWidth: positive(value.edgeWidth, SYMBOLIC_PLOT_EDGE_WIDTH),
+    edgeWidth,
     selectionGap: nonNegative(value.selectionGap, SYMBOLIC_PLOT_SELECTION_GAP),
-    selectionWidth: positive(value.selectionWidth, SYMBOLIC_PLOT_SELECTION_WIDTH),
+    selectionWidth: edgeWidth,
     selectionColor: Object.freeze(normalizeRgb(value.selectionColor, SYMBOLIC_PLOT_SELECTION_COLOR)),
     selectionAlpha: Math.max(edgeSelectionAlpha, faceSelectionAlpha),
     edgeSelectionAlpha,
@@ -1501,14 +1502,19 @@ export function webGpuRelationShaderSource(shader) {
       let selectionCenter = edgeHalfWidth + uniforms.geometry.y + uniforms.geometry.z * 0.5;
       let selectionOuter = selectionCenter + uniforms.geometry.z * 0.5;
       var boundaryDistancePx = ${explicitDistance ? '1e20' : 'abs(approximateBoundaryDistancePx)'};
+      var selectionBoundaryDistancePx = boundaryDistancePx;
       var boundaryCurveIndex = 0.0;
       if (abs(approximateBoundaryDistancePx) <= selectionOuter + 4.0 * uniforms.geometry.w) {
         ${explicitDistance
           ? `let projectedSample = explicitBoundarySamplePx(input.screen, t);
         let projectedDistancePx = projectedSample.x;
-        boundaryCurveIndex = projectedSample.y;`
+        boundaryCurveIndex = projectedSample.y;
+        selectionBoundaryDistancePx = explicitBoundarySelectionDistancePx(
+          input.screen, t, max(selectionOuter, 1.0)
+        );`
           : 'let projectedDistancePx = projectedBoundaryDistancePx(input.screen, t);'}
         boundaryDistancePx = select(1e20, projectedDistancePx, projectedDistancePx >= 0.0);
+        ${explicitDistance ? '' : 'selectionBoundaryDistancePx = boundaryDistancePx;'}
       }
       let boundaryAntialias = clamp(fwidth(boundaryDistancePx), 0.5, 1.0);
       let boundaryCoverage = 1.0 - smoothstep(
@@ -1516,7 +1522,7 @@ export function webGpuRelationShaderSource(shader) {
         edgeHalfWidth + boundaryAntialias,
         boundaryDistancePx
       );
-      let selectionDelta = abs(boundaryDistancePx - selectionCenter);
+      let selectionDelta = abs(selectionBoundaryDistancePx - selectionCenter);
       let selectionAntialias = clamp(fwidth(selectionDelta), 0.5, 1.0);
       let edgeSelection = (1.0 - smoothstep(
         uniforms.geometry.z * 0.5 - selectionAntialias,
@@ -1902,7 +1908,27 @@ function explicitBoundaryDistanceSource(shader, language) {
         best_distance = candidate_${index + 1};
         best_index = ${shaderFloat(index + 1)};
       }`).join('\n');
+  const selectionCandidates = calls.slice(1).map((call, index) => wgsl
+    ? `let selectionCandidate${index + 1} = ${call};
+      selectionDistance = smoothMinimumDistance(
+        selectionDistance, selectionCandidate${index + 1}, smoothingPx
+      );`
+    : `float selection_candidate_${index + 1} = ${call};
+      selection_distance = smooth_minimum_distance(
+        selection_distance, selection_candidate_${index + 1}, smoothing_px
+      );`).join('\n');
   return `${functions}
+    ${wgsl
+      ? `fn smoothMinimumDistance(left: f32, right: f32, radius: f32) -> f32 {
+      let safeRadius = max(radius, 0.0001);
+      let blend = max(safeRadius - abs(left - right), 0.0) / safeRadius;
+      return max(0.0, min(left, right) - blend * blend * safeRadius * 0.25);
+    }`
+      : `float smooth_minimum_distance(float left, float right, float radius) {
+      float safe_radius = max(radius, 0.0001);
+      float blend = max(safe_radius - abs(left - right), 0.0) / safe_radius;
+      return max(0.0, min(left, right) - blend * blend * safe_radius * 0.25);
+    }`}
     ${wgsl ? 'fn explicitBoundarySamplePx(screen: vec2f, timeValue: f32) -> vec2f' : 'vec2 explicit_boundary_sample_px(vec2 screen_point, float time_value)'} {
       ${wgsl
         ? `var bestDistance = ${calls[0]}; var bestIndex = 0.0;`
@@ -1914,6 +1940,15 @@ function explicitBoundaryDistanceSource(shader, language) {
       return ${wgsl
         ? 'explicitBoundarySamplePx(screen, timeValue).x'
         : 'explicit_boundary_sample_px(screen_point, time_value).x'};
+    }
+    ${wgsl
+      ? 'fn explicitBoundarySelectionDistancePx(screen: vec2f, timeValue: f32, smoothingPx: f32) -> f32'
+      : 'float explicit_boundary_selection_distance_px(vec2 screen_point, float time_value, float smoothing_px)'} {
+      ${wgsl
+        ? `var selectionDistance = ${calls[0]};`
+        : `float selection_distance = ${calls[0]};`}
+      ${selectionCandidates}
+      return ${wgsl ? 'selectionDistance' : 'selection_distance'};
     }`;
 }
 
@@ -2690,14 +2725,19 @@ export function webGlRelationFragmentSource(shader) {
       float selection_center = edge_half_width + u_geometry.y + u_geometry.z * 0.5;
       float selection_outer = selection_center + u_geometry.z * 0.5;
       float exact_boundary_distance_px = ${explicitDistance ? '1e20' : 'abs(approximate_boundary_distance_px)'};
+      float selection_boundary_distance_px = exact_boundary_distance_px;
       float boundaryCurveIndex = 0.0;
       if (abs(approximate_boundary_distance_px) <= selection_outer + 4.0 * u_geometry.w) {
         ${explicitDistance
           ? `vec2 projected_sample = explicit_boundary_sample_px(v_screen, t);
         float projected_distance_px = projected_sample.x;
-        boundaryCurveIndex = projected_sample.y;`
+        boundaryCurveIndex = projected_sample.y;
+        selection_boundary_distance_px = explicit_boundary_selection_distance_px(
+          v_screen, t, max(selection_outer, 1.0)
+        );`
           : `float projected_distance_px = ${boundaryDistanceFunction}(v_screen, t);`}
         exact_boundary_distance_px = projected_distance_px >= 0.0 ? projected_distance_px : 1e20;
+        ${explicitDistance ? '' : 'selection_boundary_distance_px = exact_boundary_distance_px;'}
       }
       float boundary_antialias = clamp(fwidth(exact_boundary_distance_px), 0.5, 1.0);
       float boundary_coverage = 1.0 - smoothstep(
@@ -2705,7 +2745,7 @@ export function webGlRelationFragmentSource(shader) {
         edge_half_width + boundary_antialias,
         exact_boundary_distance_px
       );
-      float selection_delta = abs(exact_boundary_distance_px - selection_center);
+      float selection_delta = abs(selection_boundary_distance_px - selection_center);
       float selection_antialias = clamp(fwidth(selection_delta), 0.5, 1.0);
       float edge_selection = (1.0 - smoothstep(
         u_geometry.z * 0.5 - selection_antialias,
