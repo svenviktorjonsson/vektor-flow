@@ -198,6 +198,57 @@ test('plots a set of x-dependent scalars as separate ordered graph series', asyn
     ]
   );
 });
+
+test('plots independent coefficient ranges as a Cartesian curve family', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(kernel, workspace, '5sin({1..3}x-{1..4}t)');
+
+  assert.equal(result.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(result.program), 12);
+  assert.equal(result.arena.ranges.length, 12);
+  assert.ok(result.arena.ranges.every(({ mode, count }) => (
+    mode === 'time-curve' && count === view.xSteps
+  )));
+});
+
+test('zips equal tuples inside functions and relations', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const curve = plotGeometry(kernel, workspace, 'sin((1,2,3)x-(4,5,6)t)');
+  const relation = kernel.compile('y=(1,2,3)x').value;
+
+  assert.equal(symbolicPlotSeriesCount(curve.program), 3);
+  assert.equal(curve.arena.ranges.length, 3);
+  assert.equal(relation.variants.length, 3);
+});
+
+test('combines zipped tuples with Cartesian sets', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(kernel, workspace, 'sin((1,2,3)x-{1..4}t)');
+
+  assert.equal(symbolicPlotSeriesCount(result.program), 12);
+  assert.equal(result.arena.ranges.length, 12);
+});
+
+test('rejects mismatched tuples inside one function or relation', async () => {
+  const kernel = await createKernel();
+  const mismatch = kernel.compile('sin((1,2)x-(3,4,5)t)').value;
+
+  assert.equal(mismatch.diagnostics.length, 1);
+  assert.equal(mismatch.diagnostics[0].code, 'tuple-length-mismatch');
+});
+
+test('keeps a standalone tuple as linked geometry', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const standalone = plotGeometry(kernel, workspace, '(1,2,3)');
+
+  assert.equal(standalone.program.classification, 'linked-tuple');
+  assert.equal(standalone.geometry.points.length, 3);
+  assert.equal(standalone.geometry.segments.length, 2);
+});
 test('distributes a set-valued relation into one analytical family while preserving tuples', async () => {
   const kernel = await createKernel();
   const relation = kernel.compile('x^2+y^2={1..5}').value;

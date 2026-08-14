@@ -111,6 +111,33 @@ test('renders a four-member curve family as joined line strips', async () => {
   controller.destroy();
 });
 
+test('rejects silent empty output from a plottable sampled program', async () => {
+  const program = {
+    diagnostics: [], latex: 'x', variables: ['x'], classification: 'y-of-x',
+    valueKind: 'scalar', ast: { kind: 'variable', name: 'x' }, variants: [{ kind: 'variable', name: 'x' }]
+  };
+  const renderer = {
+    async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
+    setAnalyticRelations() { return null; }, setArena() {}, render() {}, resize() {}, destroy() {}
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() { return { value: program }; },
+      createWorkspace() { return { handle: 'workspace-0' }; },
+      workspaceCompile() { return { value: { program }, workspace: 'workspace-0' }; },
+      plot() { return { pointer: 0, count: 0, stride: 24, revision: 1, ranges: [] }; }
+    },
+    createRenderer: () => renderer
+  });
+
+  await assert.rejects(controller.plot({
+    source: 'x', viewport,
+    colors: { edge: '#ffffff', face: 'rgba(255,255,255,0.5)' }, revision: 1
+  }), /plottable y-of-x produced no geometry/);
+});
+
 test('renders explicit x/y curves as joined GPU-antialiased line strips', async () => {
   const calls = [];
   const memory = new WebAssembly.Memory({ initial: 1 });

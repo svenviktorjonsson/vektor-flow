@@ -181,12 +181,13 @@ export async function createSymbolicPlotController({
     }
     let nextSnapGeometry;
     let nextArena;
-    if (
+    const analyticalPlot = (
       (relationInputs.length > 0
         && relationPrograms.length === allPrograms.length)
       || analyticComplexField
       || analyticScalarField
-    ) {
+    );
+    if (analyticalPlot) {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(requestOrder);
     } else if (result.diagnostics.length === 0) {
@@ -221,6 +222,7 @@ export async function createSymbolicPlotController({
       && latestPlotRequest.compatibilityKey !== compatibilityKey
     ) return lastResult;
     if (requestOrder < latestCommittedPlotOrder) return lastResult;
+    assertPlottableOutput(result, nextArena, analyticalPlot);
     if (latestViewRevision == null || (
       requestedFrameRevision != null && requestedFrameRevision >= latestViewRevision
     )) {
@@ -1310,6 +1312,15 @@ const PLOTTABLE_CLASSIFICATIONS = new Set([
   'closed-region',
   'plot-group'
 ]);
+
+function assertPlottableOutput(result, arena, analytical) {
+  if (analytical || !PLOTTABLE_CLASSIFICATIONS.has(result?.classification)) return;
+  if (Array.isArray(result?.diagnostics) && result.diagnostics.length) return;
+  const hasGeometry = Array.isArray(arena?.ranges)
+    && arena.ranges.some(({ count }) => Number(count) > 0);
+  if (hasGeometry) return;
+  throw new Error(`VKF plottable ${result.classification} produced no geometry`);
+}
 
 function emptyArena(revision) {
   return { data: new Float32Array(), count: 0, stride: 24, revision, ranges: [] };

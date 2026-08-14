@@ -1686,6 +1686,133 @@ symbolic_ast_variants(node:any):
         "definition" => symbolic_definition_variants(node, symbolic_ast_variants(node.value), 0)
         vkf_list_single(node)
 
+# Tuples are linked geometry only as standalone geometry. Inside an expression
+# they are lanes: equal-length tuples zip, while sets still Cartesian-expand.
+symbolic_tuple_length_merge(left:num, right:num):
+    left < 0 \/ right < 0?
+        @: -1
+    left = 0?
+        @: right
+    right = 0?
+        @: left
+    left = right?
+        @: left
+    mismatch: 0 - 1
+    mismatch
+
+symbolic_expression_tuple_length_items(items:any, index:num, current:num):
+    index >= vkf_list_length(items)?
+        @: current
+    next: symbolic_tuple_length_merge(current, symbolic_expression_tuple_length(items.(index)))
+    symbolic_expression_tuple_length_items(items, index + 1, next)
+
+symbolic_expression_tuple_length(node:any):
+    node.kind??
+        "tuple" => symbolic_tuple_length_merge(
+            vkf_list_length(node.items),
+            symbolic_expression_tuple_length_items(node.items, 0, 0)
+        )
+        "unary" => symbolic_expression_tuple_length(node.operand)
+        "group" => symbolic_expression_tuple_length(node.expression)
+        "binary" => symbolic_tuple_length_merge(
+            symbolic_expression_tuple_length(node.left),
+            symbolic_expression_tuple_length(node.right)
+        )
+        "call" => symbolic_expression_tuple_length_items(node.args, 0, 0)
+        "vector" => symbolic_tuple_length_merge(
+            symbolic_expression_tuple_length(node.x),
+            symbolic_expression_tuple_length(node.y)
+        )
+        "range" => symbolic_tuple_length_merge(
+            symbolic_expression_tuple_length(node.start),
+            symbolic_expression_tuple_length(node.end)
+        )
+        "multiset" => symbolic_expression_tuple_length_items(node.items, 0, 0)
+        "definition" => symbolic_expression_tuple_length(node.value)
+        0
+
+symbolic_tuple_lane_items(items:any, index:num, lane:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_tuple_lane(items.(index), lane)) & symbolic_tuple_lane_items(items, index + 1, lane)
+
+symbolic_tuple_lane_binary(node:any, lane:num):
+    left: symbolic_tuple_lane(node.left, lane)
+    right: symbolic_tuple_lane(node.right, lane)
+    node.implicit = true?
+        @: symbolic_implicit_multiplication(left, right, node.location)
+    symbolic_binary(node.op, left, right, node.location)
+
+symbolic_tuple_lane(node:any, lane:num):
+    node.kind??
+        "tuple" => symbolic_tuple_lane(node.items.(lane), lane)
+        "unary" => symbolic_unary(node.op, symbolic_tuple_lane(node.operand, lane), node.location)
+        "group" => symbolic_group(symbolic_tuple_lane(node.expression, lane), node.location)
+        "binary" => symbolic_tuple_lane_binary(node, lane)
+        "call" => symbolic_call(node.name, symbolic_tuple_lane_items(node.args, 0, lane), node.location)
+        "vector" => symbolic_vector_node(
+            symbolic_tuple_lane(node.x, lane),
+            symbolic_tuple_lane(node.y, lane),
+            node.location
+        )
+        "range" => symbolic_range(
+            symbolic_tuple_lane(node.start, lane),
+            symbolic_tuple_lane(node.end, lane),
+            node.location
+        )
+        "multiset" => symbolic_multiset(symbolic_tuple_lane_items(node.items, 0, lane), node.location)
+        "definition" => symbolic_definition(
+            node.name,
+            node.parameters,
+            symbolic_tuple_lane(node.value, lane),
+            node.location
+        )
+        node
+
+symbolic_tuple_lane_variants(ast:any, lane:num, tupleLength:num):
+    lane >= tupleLength?
+        @: vkf_list_empty()
+    symbolic_ast_variants(symbolic_tuple_lane(ast, lane)) & symbolic_tuple_lane_variants(ast, lane + 1, tupleLength)
+
+symbolic_geometry_preserves_tuples(classification:str):
+    classification = "linked-tuple" \/ classification = "point-set"
+
+symbolic_ast_items_contain_call(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: false
+    symbolic_ast_contains_call(items.(index)) \/ symbolic_ast_items_contain_call(items, index + 1)
+
+symbolic_ast_contains_call(node:any):
+    node.kind??
+        "call" => true
+        "unary" => symbolic_ast_contains_call(node.operand)
+        "group" => symbolic_ast_contains_call(node.expression)
+        "binary" => symbolic_ast_contains_call(node.left) \/ symbolic_ast_contains_call(node.right)
+        "tuple" => symbolic_ast_items_contain_call(node.items, 0)
+        "vector" => symbolic_ast_contains_call(node.x) \/ symbolic_ast_contains_call(node.y)
+        "range" => symbolic_ast_contains_call(node.start) \/ symbolic_ast_contains_call(node.end)
+        "multiset" => symbolic_ast_items_contain_call(node.items, 0)
+        "definition" => symbolic_ast_contains_call(node.value)
+        false
+
+symbolic_tuple_lanes_enabled(ast:any, classification:str):
+    symbolic_geometry_preserves_tuples(classification)?
+        @: false
+    classification = "definition"?
+        @: false
+    classification = "literal"?
+        @: symbolic_ast_contains_call(ast)
+    enabled: true
+    enabled
+
+symbolic_program_variants(ast:any, classification:str):
+    symbolic_tuple_lanes_enabled(ast, classification) = false?
+        @: symbolic_ast_variants(ast)
+    tupleLength: symbolic_expression_tuple_length(ast)
+    tupleLength > 0?
+        @: symbolic_tuple_lane_variants(ast, 0, tupleLength)
+    symbolic_ast_variants(ast)
+
 symbolic_group_variants(node:any, variants:any, index:num):
     index >= vkf_list_length(variants)?
         @: vkf_list_empty()
@@ -2192,12 +2319,13 @@ symbolic_compile_with_context(source:str, context:any, clip:any):
     variables: symbolic_variables(semantic_ast)
     active_context: symbolic_owned_context(context)
     value_kind: symbolic_value_kind_for_context(semantic_ast, active_context)
+    classification: symbolic_classification(semantic_ast, variables, value_kind)
     symbolic_program(
         semantic_ast,
-        parsed.next.diagnostics & symbolic_semantic_diagnostics(semantic_ast),
+        parsed.next.diagnostics & symbolic_semantic_diagnostics(semantic_ast) & symbolic_tuple_length_diagnostics(semantic_ast, classification),
         symbolic_latex(parsed.ast),
         variables,
-        symbolic_classification(semantic_ast, variables, value_kind),
+        classification,
         value_kind,
         active_context,
         clip
@@ -2240,7 +2368,7 @@ symbolic_program(
 ):
     (
         ast: ast,
-        variants: symbolic_ast_variants(ast),
+        variants: symbolic_program_variants(ast, classification),
         diagnostics: diagnostics,
         latex: latex,
         variables: variables,
@@ -4381,6 +4509,19 @@ symbolic_semantic_diagnostics(ast:any):
         "tuple" => symbolic_items_diagnostics(ast.items, 0)
         "multiset" => symbolic_items_diagnostics(ast.items, 0)
         vkf_list_empty()
+
+symbolic_tuple_length_diagnostics(ast:any, classification:str):
+    symbolic_tuple_lanes_enabled(ast, classification) = false?
+        @: vkf_list_empty()
+    symbolic_expression_tuple_length(ast) < 0?
+        @: vkf_list_single(
+            symbolic_diagnostic(
+                "tuple-length-mismatch",
+                "tuples in one expression must have equal lengths",
+                ast.location
+            )
+        )
+    vkf_list_empty()
 
 symbolic_items_diagnostics(items:any, index:num):
     index >= vkf_list_length(items)?
