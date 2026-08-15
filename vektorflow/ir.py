@@ -62,6 +62,7 @@ class CallExpr:
 @dataclass(frozen=True, slots=True)
 class ListExpr:
     elements: list[IRNode] = field(default_factory=list)
+    literal_zero_elements: frozenset[int] = field(default_factory=frozenset, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -660,14 +661,17 @@ def lower_expr(node: Any) -> IRNode:
         return CallExpr(lower_expr(node.func), args, kwargs, spreads)
     if isinstance(node, ast.ListLit):
         elements: list[IRNode] = []
+        literal_zero_elements: set[int] = set()
         for e in node.elements:
             if isinstance(e, ast.MsetSpill):
                 elements.append(SpliceExpr(lower_expr(e.expr)))
                 continue
             if isinstance(e, ast.SpreadArg):
                 raise NotImplementedError("IR lowering does not yet support tuple spread elements in list literals")
+            if isinstance(e, ast.NumberLit) and not isinstance(e.value, bool) and e.value == 0:
+                literal_zero_elements.add(len(elements))
             elements.append(lower_expr(e))
-        return ListExpr(elements)
+        return ListExpr(elements, frozenset(literal_zero_elements))
     if isinstance(node, ast.TupleLit):
         elements: list[IRNode] = []
         for e in node.elements:
