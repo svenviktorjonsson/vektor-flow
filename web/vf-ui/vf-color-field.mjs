@@ -347,7 +347,9 @@ export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
         gl.uniform2f(uniforms.gridOrigin, Number(xBounds[0]), Number(yBounds[0]));
         gl.uniform2f(uniforms.gridSize, Number(xBounds[1]) - Number(xBounds[0]), Number(yBounds[1]) - Number(yBounds[0]));
         gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, scalarGridTexture);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, columns, rows, 0, gl.RED, gl.UNSIGNED_BYTE, normalized);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
         gl.uniform1i(uniforms.scalarGrid, 1);
         const rgba = new Uint8Array(256 * 4);
         for (let i = 0; i < 256; i += 1) {
