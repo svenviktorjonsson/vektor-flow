@@ -206,7 +206,7 @@ test('explicit curve families keep a distinct GPU color for each series', () => 
   assert.match(wgsl, /boundaryColor = vec4f\(0\.0, 0\.0, 1\.0, 1\.0\)/);
 });
 
-test('explicit curve selection unions each curve halo before compositing the graph', () => {
+test('explicit curve selection subtracts the inner tube union from the outer tube union', () => {
   const shader = compileSymbolicExplicitCurveShaderGroup([
     { explicitCurve: { dependent: 'y', parameter: 'x', expression: variable('x') } },
     {
@@ -220,11 +220,17 @@ test('explicit curve selection unions each curve halo before compositing the gra
   const wgsl = webGpuRelationShaderSource(shader);
 
   assert.match(glsl, /vec3 explicit_boundary_sample_px/);
-  assert.match(wgsl, /fn explicitBoundarySamplePx[^\n]+-> vec3f/);
-  assert.match(glsl, /selection_delta = abs\(distance_0 - selection_center\)/);
-  assert.match(wgsl, /selectionDelta = abs\(distance0 - selectionCenter\)/);
-  assert.match(glsl, /selection_delta = projected_sample\.z/);
-  assert.match(wgsl, /selectionDelta = projectedSample\.z/);
+  assert.match(wgsl, /fn explicitBoundarySamplePx\(/);
+  assert.match(glsl, /outer_selection_coverage/);
+  assert.match(glsl, /inner_selection_coverage/);
+  assert.match(wgsl, /outerSelectionCoverage/);
+  assert.match(wgsl, /innerSelectionCoverage/);
+  assert.match(glsl, /outer_selection_coverage \* \(1\.0 - inner_selection_coverage\)/);
+  assert.match(wgsl, /outerSelectionCoverage \* \(1\.0 - innerSelectionCoverage\)/);
+  assert.match(glsl, /edge_selection = projected_sample\.z \* u_interaction\.x/);
+  assert.match(wgsl, /edgeSelection = projectedSample\.z \* uniforms\.interaction\.x/);
+  assert.doesNotMatch(glsl, /selection_delta = min/);
+  assert.doesNotMatch(wgsl, /selectionDelta = min/);
   assert.equal((glsl.match(/explicit_curve_distance_0\(screen_point, time_value\)/g) || []).length, 1);
   assert.equal((wgsl.match(/explicitCurveDistance0\(screen, timeValue\)/g) || []).length, 1);
   assert.doesNotMatch(glsl, /abs\(selection_boundary_distance_px - selection_center\)/);

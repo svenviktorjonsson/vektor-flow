@@ -1499,17 +1499,21 @@ export function webGpuRelationShaderSource(shader) {
       let insidePx = fillDistancePx * ${shader.insideSign.toFixed(1)};
       let fillCoverage = smoothstep(-0.75, 0.75, insidePx);
       let edgeHalfWidth = uniforms.geometry.x * 0.5;
-      let selectionCenter = edgeHalfWidth + uniforms.geometry.y + uniforms.geometry.z * 0.5;
-      let selectionOuter = selectionCenter + uniforms.geometry.z * 0.5;
+      let selectionInner = edgeHalfWidth + uniforms.geometry.y;
+      let selectionCenter = selectionInner + uniforms.geometry.z * 0.5;
+      let selectionOuter = selectionInner + uniforms.geometry.z;
       var boundaryDistancePx = ${explicitDistance ? '1e20' : 'abs(approximateBoundaryDistancePx)'};
       var selectionDelta = abs(boundaryDistancePx - selectionCenter);
+      var edgeSelection = 0.0;
       var boundaryCurveIndex = 0.0;
       if (abs(approximateBoundaryDistancePx) <= selectionOuter + 4.0 * uniforms.geometry.w) {
         ${explicitDistance
-          ? `let projectedSample = explicitBoundarySamplePx(input.screen, t, selectionCenter);
+          ? `let projectedSample = explicitBoundarySamplePx(
+          input.screen, t, selectionInner, selectionOuter, 0.75
+        );
         let projectedDistancePx = projectedSample.x;
         boundaryCurveIndex = projectedSample.y;
-        selectionDelta = projectedSample.z;`
+        edgeSelection = projectedSample.z * uniforms.interaction.x;`
           : 'let projectedDistancePx = projectedBoundaryDistancePx(input.screen, t);'}
         boundaryDistancePx = select(1e20, projectedDistancePx, projectedDistancePx >= 0.0);
         ${explicitDistance ? '' : 'selectionDelta = abs(boundaryDistancePx - selectionCenter);'}
@@ -1520,12 +1524,12 @@ export function webGpuRelationShaderSource(shader) {
         edgeHalfWidth + boundaryAntialias,
         boundaryDistancePx
       );
-      let selectionAntialias = clamp(fwidth(selectionDelta), 0.5, 1.0);
-      let edgeSelection = (1.0 - smoothstep(
+      ${explicitDistance ? '' : `let selectionAntialias = clamp(fwidth(selectionDelta), 0.5, 1.0);
+      edgeSelection = (1.0 - smoothstep(
         uniforms.geometry.z * 0.5 - selectionAntialias,
         uniforms.geometry.z * 0.5 + selectionAntialias,
         selectionDelta
-      )) * uniforms.interaction.x;
+      )) * uniforms.interaction.x;`}
       ${faceColorSource}
       var boundaryColor = uniforms.edgeColor;
       ${explicitDistance ? explicitBoundaryColorSource(shader, 'wgsl') : ''}
@@ -1896,33 +1900,79 @@ function explicitBoundaryDistanceSource(shader, language) {
     : `explicit_curve_distance_${index}(screen_point, time_value)`);
   const candidates = calls.slice(1).map((call, index) => wgsl
     ? `let candidate${index + 1} = ${call};
-      selectionDelta = min(selectionDelta, abs(candidate${index + 1} - selectionCenter));
+      outerSelectionCoverage = max(outerSelectionCoverage, 1.0 - smoothstep(
+        selectionOuter - selectionAntialias,
+        selectionOuter + selectionAntialias,
+        candidate${index + 1}
+      ));
+      innerSelectionCoverage = max(innerSelectionCoverage, 1.0 - smoothstep(
+        selectionInner - selectionAntialias,
+        selectionInner + selectionAntialias,
+        candidate${index + 1}
+      ));
       if (candidate${index + 1} < bestDistance) {
         bestDistance = candidate${index + 1};
         bestIndex = ${shaderFloat(index + 1)};
       }`
     : `float candidate_${index + 1} = ${call};
-      selection_delta = min(selection_delta, abs(candidate_${index + 1} - selection_center));
+      outer_selection_coverage = max(outer_selection_coverage, 1.0 - smoothstep(
+        selection_outer - selection_antialias,
+        selection_outer + selection_antialias,
+        candidate_${index + 1}
+      ));
+      inner_selection_coverage = max(inner_selection_coverage, 1.0 - smoothstep(
+        selection_inner - selection_antialias,
+        selection_inner + selection_antialias,
+        candidate_${index + 1}
+      ));
       if (candidate_${index + 1} < best_distance) {
         best_distance = candidate_${index + 1};
         best_index = ${shaderFloat(index + 1)};
       }`).join('\n');
   return `${functions}
-    ${wgsl ? 'fn explicitBoundarySamplePx(screen: vec2f, timeValue: f32, selectionCenter: f32) -> vec3f' : 'vec3 explicit_boundary_sample_px(vec2 screen_point, float time_value, float selection_center)'} {
+    ${wgsl
+      ? `fn explicitBoundarySamplePx(
+      screen: vec2f, timeValue: f32, selectionInner: f32,
+      selectionOuter: f32, selectionAntialias: f32
+    ) -> vec3f`
+      : `vec3 explicit_boundary_sample_px(
+      vec2 screen_point, float time_value, float selection_inner,
+      float selection_outer, float selection_antialias
+    )`} {
       ${wgsl
         ? `let distance0 = ${calls[0]};
       var bestDistance = distance0; var bestIndex = 0.0;
-      var selectionDelta = abs(distance0 - selectionCenter);`
+      var outerSelectionCoverage = 1.0 - smoothstep(
+        selectionOuter - selectionAntialias,
+        selectionOuter + selectionAntialias,
+        distance0
+      );
+      var innerSelectionCoverage = 1.0 - smoothstep(
+        selectionInner - selectionAntialias,
+        selectionInner + selectionAntialias,
+        distance0
+      );`
         : `float distance_0 = ${calls[0]};
       float best_distance = distance_0; float best_index = 0.0;
-      float selection_delta = abs(distance_0 - selection_center);`}
+      float outer_selection_coverage = 1.0 - smoothstep(
+        selection_outer - selection_antialias,
+        selection_outer + selection_antialias,
+        distance_0
+      );
+      float inner_selection_coverage = 1.0 - smoothstep(
+        selection_inner - selection_antialias,
+        selection_inner + selection_antialias,
+        distance_0
+      );`}
       ${candidates}
-      return ${wgsl ? 'vec3f(bestDistance, bestIndex, selectionDelta)' : 'vec3(best_distance, best_index, selection_delta)'};
+      return ${wgsl
+        ? 'vec3f(bestDistance, bestIndex, outerSelectionCoverage * (1.0 - innerSelectionCoverage))'
+        : 'vec3(best_distance, best_index, outer_selection_coverage * (1.0 - inner_selection_coverage))'};
     }
     ${wgsl ? 'fn explicitBoundaryDistancePx(screen: vec2f, timeValue: f32) -> f32' : 'float explicit_boundary_distance_px(vec2 screen_point, float time_value)'} {
       return ${wgsl
-        ? 'explicitBoundarySamplePx(screen, timeValue, 0.0).x'
-        : 'explicit_boundary_sample_px(screen_point, time_value, 0.0).x'};
+        ? 'explicitBoundarySamplePx(screen, timeValue, 0.0, 0.0, 0.75).x'
+        : 'explicit_boundary_sample_px(screen_point, time_value, 0.0, 0.0, 0.75).x'};
     }`;
 }
 
@@ -2696,17 +2746,21 @@ export function webGlRelationFragmentSource(shader) {
       float inside_px = fill_distance_px * ${shader.insideSign.toFixed(1)};
       float fill_coverage = smoothstep(-0.75, 0.75, inside_px);
       float edge_half_width = u_geometry.x * 0.5;
-      float selection_center = edge_half_width + u_geometry.y + u_geometry.z * 0.5;
-      float selection_outer = selection_center + u_geometry.z * 0.5;
+      float selection_inner = edge_half_width + u_geometry.y;
+      float selection_center = selection_inner + u_geometry.z * 0.5;
+      float selection_outer = selection_inner + u_geometry.z;
       float exact_boundary_distance_px = ${explicitDistance ? '1e20' : 'abs(approximate_boundary_distance_px)'};
       float selection_delta = abs(exact_boundary_distance_px - selection_center);
+      float edge_selection = 0.0;
       float boundaryCurveIndex = 0.0;
       if (abs(approximate_boundary_distance_px) <= selection_outer + 4.0 * u_geometry.w) {
         ${explicitDistance
-          ? `vec3 projected_sample = explicit_boundary_sample_px(v_screen, t, selection_center);
+          ? `vec3 projected_sample = explicit_boundary_sample_px(
+          v_screen, t, selection_inner, selection_outer, 0.75
+        );
         float projected_distance_px = projected_sample.x;
         boundaryCurveIndex = projected_sample.y;
-        selection_delta = projected_sample.z;`
+        edge_selection = projected_sample.z * u_interaction.x;`
           : `float projected_distance_px = ${boundaryDistanceFunction}(v_screen, t);`}
         exact_boundary_distance_px = projected_distance_px >= 0.0 ? projected_distance_px : 1e20;
         ${explicitDistance ? '' : 'selection_delta = abs(exact_boundary_distance_px - selection_center);'}
@@ -2717,12 +2771,12 @@ export function webGlRelationFragmentSource(shader) {
         edge_half_width + boundary_antialias,
         exact_boundary_distance_px
       );
-      float selection_antialias = clamp(fwidth(selection_delta), 0.5, 1.0);
-      float edge_selection = (1.0 - smoothstep(
+      ${explicitDistance ? '' : `float selection_antialias = clamp(fwidth(selection_delta), 0.5, 1.0);
+      edge_selection = (1.0 - smoothstep(
         u_geometry.z * 0.5 - selection_antialias,
         u_geometry.z * 0.5 + selection_antialias,
         selection_delta
-      )) * u_interaction.x;
+      )) * u_interaction.x;`}
       ${faceColorSource}
       vec4 boundaryColor = u_edge_color;
       ${explicitDistance ? explicitBoundaryColorSource(shader, 'glsl') : ''}
