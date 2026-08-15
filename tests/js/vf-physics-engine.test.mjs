@@ -8,11 +8,91 @@ import {
   maxwellCflLimit,
   solveElectrostaticPotential,
   sampleGlobalField,
+  stepDoublePendulum,
   stepHeatField,
   stepInertialBodies,
   stepMaxwellField,
+  stepRigidPolygonWorld2D,
   stepThermalNetwork
 } from '../../web/vf-ui/vf-physics-engine.mjs';
+
+test('double pendulum advances two horizontal one-metre links under gravity', () => {
+  const initial = {
+    theta1: Math.PI / 2,
+    theta2: Math.PI / 2,
+    omega1: 0,
+    omega2: 0,
+    length1: 1,
+    length2: 1,
+    mass1: 1,
+    mass2: 1,
+    gravity: 9.82
+  };
+  const next = stepDoublePendulum(initial, 1 / 120);
+  assert.ok(next.theta1 < initial.theta1);
+  assert.ok(Math.abs(next.theta2 - initial.theta2) < 1e-5);
+  assert.ok(next.omega1 < 0);
+  assert.ok(Number.isFinite(next.energy));
+});
+
+test('rigid polygon world applies gravity while preserving its public body contract', () => {
+  const world = {
+    width: 2,
+    height: 2,
+    gravity: [0, -9.82],
+    bodies: [{
+      id: 'square',
+      localVertices: [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]],
+      position: [0, 0.5],
+      velocity: [0, 0],
+      angle: 0,
+      angularVelocity: 0,
+      mass: 1,
+      restitution: 1,
+      friction: 0
+    }]
+  };
+  const next = stepRigidPolygonWorld2D(world, 0.1);
+  assert.equal(next.bodies[0].id, 'square');
+  assert.deepEqual(next.bodies[0].localVertices, world.bodies[0].localVertices);
+  assert.ok(next.bodies[0].position[1] < 0.5);
+  assert.ok(next.bodies[0].velocity[1] < 0);
+});
+
+test('rigid polygon bounces from the fixed centred 2x2 boundary with restitution', () => {
+  const square = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
+  const next = stepRigidPolygonWorld2D({
+    width: 2,
+    height: 2,
+    gravity: [0, 0],
+    maxStep: 0.1,
+    bodies: [{ localVertices: square, position: [0, -0.85], velocity: [0, -2], restitution: 1, friction: 0 }]
+  }, 0.1);
+  assert.ok(next.bodies[0].position[1] >= -0.9 - 1e-12);
+  assert.ok(next.bodies[0].velocity[1] > 1.99);
+});
+
+test('convex rigid bodies exchange impulse and friction damps contact slip', () => {
+  const square = [[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2]];
+  const triangle = [[-0.2, -0.2], [0.2, -0.2], [0, 0.2]];
+  const collide = (friction) => stepRigidPolygonWorld2D({
+    width: 4,
+    height: 4,
+    gravity: [0, 0],
+    maxStep: 0.05,
+    bodies: [
+      { id: 'square', localVertices: square, position: [-0.25, 0], velocity: [1, 0.4], mass: 1, restitution: 1, friction },
+      { id: 'triangle', localVertices: triangle, position: [0.25, 0], velocity: [-1, 0], mass: 1, restitution: 1, friction }
+    ]
+  }, 0.1);
+  const next = collide(0.8);
+  const frictionless = collide(0);
+  assert.ok(next.bodies[0].velocity[0] < 0);
+  assert.ok(next.bodies[1].velocity[0] > 0);
+  const slip = Math.abs(next.bodies[0].velocity[1] - next.bodies[1].velocity[1]);
+  const frictionlessSlip = Math.abs(frictionless.bodies[0].velocity[1] - frictionless.bodies[1].velocity[1]);
+  assert.ok(slip < frictionlessSlip);
+});
 
 test('disabled modules export no names while authored properties always remain', () => {
   const scope = createPhysicsScope({
