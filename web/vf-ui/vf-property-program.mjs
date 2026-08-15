@@ -36,6 +36,13 @@ const PROPERTY_DESCRIPTORS = Object.freeze([
   descriptor('c', ['vertex', 'edge', 'face'], 'color-coordinate')
 ]);
 
+const PROPERTY_UNIT_SUFFIXES = Object.freeze([
+  'W/(m^2*K)', 'J/(kg*K)', 'W/(m*K)', 'kg/m^3', 'kg/m^2', 'C/m^3', 'C/m^2',
+  'g/m^3', 'g/m^2', 'm^2/s', 'kg/m', 'C/m', 'cm/s', 'g/m', 'mm/s', 'Pa*s',
+  'F/m', 'H/m', 'S/m', 'V/m', 'N/m', 'm/s', 'cm', 'kg', 'mm', 'Pa', 'C', 'K',
+  'T', 'V', 'g', 'm'
+].sort((left, right) => right.length - left.length));
+
 export function reachablePropertyDescriptors({
   geometryKinds = [],
   dimension = 2,
@@ -76,11 +83,17 @@ export function parsePropertyProgram(source) {
     if (!line || line.startsWith('#')) continue;
     const property = /^\.([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$/.exec(line);
     if (property) {
-      properties.push({ name: property[1], expression: property[2].trim() });
+      properties.push({
+        name: property[1],
+        expression: normalizeTrailingPropertyUnit(property[2].trim())
+      });
       continue;
     }
     const definition = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*\([^)]*\))?\s*:/.exec(line);
-    bindings.push({ source: line, ...(definition ? { name: definition[1] } : {}) });
+    bindings.push({
+      source: normalizeTrailingPropertyUnit(line),
+      ...(definition ? { name: definition[1] } : {})
+    });
   }
   return { properties, bindings };
 }
@@ -161,6 +174,17 @@ function descriptor(name, geometryKinds, quantity, options = {}) {
     overrides: Object.freeze(options.overrides || []),
     directed: options.directed === true
   });
+}
+
+function normalizeTrailingPropertyUnit(source) {
+  const text = String(source ?? '').trimEnd();
+  for (const unit of PROPERTY_UNIT_SUFFIXES) {
+    if (!text.endsWith(unit)) continue;
+    const prefix = text.slice(0, -unit.length);
+    if (!prefix || /\s$/.test(prefix)) return text;
+    if (/[\d.)\]]$/.test(prefix)) return `${prefix} ${unit}`;
+  }
+  return text;
 }
 
 function serializeValue(value) {

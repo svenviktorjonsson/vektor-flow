@@ -46,6 +46,24 @@ F(x):x^2
   });
 });
 
+test('canonicalizes adjacent numeric unit suffixes without treating symbols as units', () => {
+  assert.deepEqual(parsePropertyProgram(`
+.m:10kg
+.L:(1,2)mm
+speed:3m/s
+gain:2alpha
+`), {
+    properties: [
+      { name: 'm', expression: '10 kg' },
+      { name: 'L', expression: '(1,2) mm' }
+    ],
+    bindings: [
+      { source: 'speed:3 m/s', name: 'speed' },
+      { source: 'gain:2alpha', name: 'gain' }
+    ]
+  });
+});
+
 test('serializes current property tuples for deterministic dot reopening', () => {
   assert.equal(serializePropertyProgram({ x: [1, 2], y: [3, 4] }), '.x:(1,2)\n.y:(3,4)');
 });
