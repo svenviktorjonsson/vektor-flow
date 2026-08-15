@@ -386,7 +386,7 @@ def fold_expr(node: Any) -> Any:
                 folded.append(ir.SpliceExpr(fold_expr(e.expr)))
                 continue
             folded.append(fold_expr(e))
-        return ir.ListExpr(folded)
+        return ir.ListExpr(folded, node.literal_zero_elements)
     if isinstance(node, ir.TupleExpr):
         folded: list[Any] = []
         for e in node.elements:
@@ -719,7 +719,7 @@ def _strip_expr(node: Any, typed: TypedModuleInfo) -> Any:
                 stripped.append(ir.SpliceExpr(_strip_expr(e.expr, typed)))
                 continue
             stripped.append(_strip_expr(e, typed))
-        return ir.ListExpr(stripped)
+        return ir.ListExpr(stripped, node.literal_zero_elements)
     if isinstance(node, ir.TupleExpr):
         stripped: list[Any] = []
         for e in node.elements:

@@ -191,6 +191,48 @@ class Quantity:
         return f"Quantity(value={self.value!r}, dimension={self.dimension!r}, symbol={self.symbol!r})"
 
 
+def normalize_physical_vector_components(
+    values: Any,
+    *,
+    literal_zero_indices: Any = (),
+) -> list[Any]:
+    """Make a vector dimensionally homogeneous, promoting only literal zeros.
+
+    A bare ``0`` has no preferred unit, so inside a physical vector it adopts
+    the dimension shared by the unit-bearing components. Nonzero dimensionless
+    values never receive this coercion.
+    """
+    components = list(values)
+    quantities = [value for value in components if isinstance(value, Quantity)]
+    if not quantities:
+        return components
+    dimension = quantities[0].dimension
+    literal_zeros = frozenset(int(index) for index in literal_zero_indices)
+    normalized: list[Any] = []
+    for index, value in enumerate(components):
+        if isinstance(value, Quantity):
+            if value.dimension != dimension:
+                raise ValueError(
+                    "physical vector components must have equal dimensions; "
+                    f"got {_dimension_label(dimension)} and {value.dimension_label}"
+                )
+            normalized.append(value)
+            continue
+        if (
+            index in literal_zeros
+            and not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and value == 0
+        ):
+            normalized.append(Quantity(0.0, dimension))
+            continue
+        raise ValueError(
+            "physical vector components must have equal dimensions; "
+            "only literal zero may adopt the vector dimension"
+        )
+    return normalized
+
+
 @dataclass(frozen=True)
 class Dimensions:
     L: Quantity = Quantity(1.0, _dimension_at(0), "L")

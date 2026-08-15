@@ -47,6 +47,7 @@ from .runtime.type_surface import runtime_type_surface_metadata
 from .runtime.absnorm import abs_or_norm
 from .runtime.type_values import infer_type
 from .stdlib import STDLIB_MODULES, resolve_stdlib
+from .stdlib.physics import normalize_physical_vector_components
 from .stdlib.events import event_match_specificity
 from . import ir
 
@@ -331,7 +332,8 @@ class IRExecutor:
                     return LazyList(inner)
                 return list(inner)
             out: list[Any] = []
-            for element in node.elements:
+            literal_zero_indices: set[int] = set()
+            for element_index, element in enumerate(node.elements):
                 if isinstance(element, ir.SpliceExpr):
                     spread_value = self.eval_expr(element.expr, env)
                     if isinstance(spread_value, list):
@@ -339,8 +341,12 @@ class IRExecutor:
                         continue
                     out.extend(_spill_values_for_vector(spread_value))
                     continue
+                if element_index in node.literal_zero_elements:
+                    literal_zero_indices.add(len(out))
                 out.append(self.eval_expr(element, env))
-            return out
+            return normalize_physical_vector_components(
+                out, literal_zero_indices=literal_zero_indices
+            )
         if isinstance(node, ir.TupleExpr):
             out: list[Any] = []
             for element in node.elements:

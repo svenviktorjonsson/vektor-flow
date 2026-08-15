@@ -34,6 +34,7 @@ from .runtime.multiset import (
     multiset_union,
 )
 from .stdlib import STDLIB_MODULES, resolve_stdlib
+from .stdlib.physics import normalize_physical_vector_components
 from .stdlib.events import MouseEvent, KeyboardEvent, KeyEvent, TouchEvent, matches_event_code
 from .runtime.branch_dispatch import BranchCandidate, branch_match_specificity, select_branch
 from .use_resolve import resolve_dot_module, resolve_use_path
@@ -1992,10 +1993,14 @@ class Interpreter:
                 seq = VFVector(r)
                 return seq
             out = VFVectorBuilder()
+            literal_zero_indices: set[int] = set()
+            output_index = 0
             for e in node.elements:
                 if isinstance(e, ast.MsetSpill):
                     m = self.eval_expr(e.expr, env)
-                    out.extend(_spill_values_for_vector(m))
+                    spilled = tuple(_spill_values_for_vector(m))
+                    out.extend(spilled)
+                    output_index += len(spilled)
                     continue
                 if isinstance(e, ast.VectorRepeat):
                     v = self.eval_expr(e.value, env)
@@ -2008,10 +2013,18 @@ class Interpreter:
                     if k < 0:
                         raise EvalError("vector repeat count must be non-negative")
                     for _ in range(k):
+                        if _is_literal_zero_expression(e.value):
+                            literal_zero_indices.add(output_index)
                         out.append(v)
+                        output_index += 1
                     continue
+                if _is_literal_zero_expression(e):
+                    literal_zero_indices.add(output_index)
                 out.append(self.eval_expr(e, env))
-            return out.build()
+                output_index += 1
+            return VFVector(normalize_physical_vector_components(
+                out.build(), literal_zero_indices=literal_zero_indices
+            ))
         if isinstance(node, ast.StructLit):
             return {
                 name: self.eval_expr(val, env)
@@ -3224,6 +3237,14 @@ def _disallow_vector_truthiness(v: Any, what: str) -> None:
             f"{what}: a vector cannot be used as a boolean "
             "(use element-wise `=`, `<`, `>`, …, or a `??` match on a value)"
         )
+
+
+def _is_literal_zero_expression(node: Any) -> bool:
+    return (
+        isinstance(node, ast.NumberLit)
+        and not isinstance(node.value, bool)
+        and node.value == 0
+    )
 
 
 def _axis_broadcast_tagged_binop(op: str, a: AxisTaggedValue, b: AxisTaggedValue) -> Any:
