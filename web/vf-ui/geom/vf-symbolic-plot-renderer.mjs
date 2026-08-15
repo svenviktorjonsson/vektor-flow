@@ -21,7 +21,10 @@ export const SYMBOLIC_PLOT_SELECTION_COLOR = Object.freeze([120 / 255, 183 / 255
 export const SYMBOLIC_PLOT_VERTEX_STRIDE = BYTES_PER_VERTEX;
 export const SYMBOLIC_RELATION_PICK_RADIUS_FLOAT_OFFSET = 31;
 
-export function closestExplicitCurveScreenDistance({ point, value, first, transform, iterations = 4 }) {
+export function closestExplicitCurveScreenDistance({
+  point, value, first, second = null, transform, iterations = 4,
+  searchRadiusPx = 0, seeds = 1
+}) {
   if (![point?.[0], point?.[1], ...transform].every(Number.isFinite)) {
     throw new TypeError('explicit curve distance inputs must be finite');
   }
@@ -30,23 +33,59 @@ export function closestExplicitCurveScreenDistance({ point, value, first, transf
   if (Math.abs(determinant) <= 1e-12) throw new RangeError('explicit curve transform must be invertible');
   const translatedX = point[0] - e;
   const translatedY = point[1] - f;
-  let parameter = (d * translatedX - c * translatedY) / determinant;
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
+  const initialParameter = (d * translatedX - c * translatedY) / determinant;
+  const parameterScreenGradient = [d / determinant, -c / determinant];
+  const parameterRadius = Math.max(0, Number(searchRadiusPx) || 0)
+    * Math.hypot(...parameterScreenGradient);
+  const seedCount = second && parameterRadius > 0
+    ? Math.max(2, Math.floor(Number(seeds) || 1))
+    : 1;
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+
+  const refine = (seed) => {
+    let parameter = seed;
+    for (let iteration = 0; iteration < iterations; iteration += 1) {
+      const curveValue = value(parameter);
+      const curveFirst = first(parameter);
+      const curveX = a * parameter + c * curveValue + e;
+      const curveY = b * parameter + d * curveValue + f;
+      const tangentX = a + c * curveFirst;
+      const tangentY = b + d * curveFirst;
+      const deltaX = curveX - point[0];
+      const deltaY = curveY - point[1];
+      bestDistanceSquared = Math.min(bestDistanceSquared, deltaX * deltaX + deltaY * deltaY);
+      const tangentSquared = tangentX * tangentX + tangentY * tangentY;
+      if (tangentSquared <= 1e-12) break;
+      let denominator = tangentSquared;
+      if (second) {
+        const curveSecond = second(parameter);
+        denominator += deltaX * c * curveSecond + deltaY * d * curveSecond;
+        if (Math.abs(denominator) <= 1e-12) denominator = tangentSquared;
+      }
+      const step = (deltaX * tangentX + deltaY * tangentY) / denominator;
+      const limit = parameterRadius > 0 ? parameterRadius / 3 : Number.POSITIVE_INFINITY;
+      parameter -= Math.max(-limit, Math.min(limit, step));
+      if (parameterRadius > 0) {
+        parameter = Math.max(
+          initialParameter - parameterRadius,
+          Math.min(initialParameter + parameterRadius, parameter)
+        );
+      }
+    }
     const curveValue = value(parameter);
-    const curveFirst = first(parameter);
     const curveX = a * parameter + c * curveValue + e;
     const curveY = b * parameter + d * curveValue + f;
-    const tangentX = a + c * curveFirst;
-    const tangentY = b + d * curveFirst;
-    const denominator = tangentX * tangentX + tangentY * tangentY;
-    if (denominator <= 1e-12) break;
-    parameter -= ((curveX - point[0]) * tangentX + (curveY - point[1]) * tangentY) / denominator;
+    bestDistanceSquared = Math.min(
+      bestDistanceSquared,
+      (curveX - point[0]) ** 2 + (curveY - point[1]) ** 2
+    );
+  };
+
+  for (let seed = 0; seed < seedCount; seed += 1) {
+    const unit = seedCount === 1 ? 0.5 : seed / (seedCount - 1);
+    refine(initialParameter + (2 * unit - 1) * parameterRadius);
   }
-  const curveValue = value(parameter);
-  return Math.hypot(
-    a * parameter + c * curveValue + e - point[0],
-    b * parameter + d * curveValue + f - point[1]
-  );
+  return Math.sqrt(bestDistanceSquared);
 }
 
 export function symbolicPlotSelectionHalo(appearance) {
@@ -1843,7 +1882,7 @@ function explicitCurveDistanceFunction(curve, index, language) {
   const geometry = wgsl ? 'uniforms.geometry.w' : 'u_geometry.w';
   const xRow = wgsl ? 'uniforms.xRow' : 'vec3(u_transform[0][0], u_transform[1][0], u_transform[2][0])';
   const yRow = wgsl ? 'uniforms.yRow' : 'vec3(u_transform[0][1], u_transform[1][1], u_transform[2][1])';
-  const [value, first] = curve[language];
+  const [value, first, second] = curve[language];
   const parameterIsX = curve.parameter === 'x';
   const localScalar = wgsl ? 'let' : 'float';
   const declarations = parameterIsX
@@ -1855,6 +1894,7 @@ function explicitCurveDistanceFunction(curve, index, language) {
   const finalDeclarations = declarations;
   const point = parameterIsX ? `${vector}(u, value)` : `${vector}(value, u)`;
   const tangent = parameterIsX ? `${vector}(1.0, first)` : `${vector}(first, 1.0)`;
+  const acceleration = parameterIsX ? `${vector}(0.0, second)` : `${vector}(second, 0.0)`;
   const variable = wgsl ? 'var' : '';
   const immutable = wgsl ? 'let' : '';
   const rowType = wgsl ? '' : 'vec3';
@@ -1872,6 +1912,45 @@ function explicitCurveDistanceFunction(curve, index, language) {
         ${parameterScreenGradient};
       ${immutable} ${declaredScalar} t = ${timeName};
       ${variable} ${declaredScalar} u = local.${curve.parameter};
+      ${immutable} ${declaredScalar} base${wgsl ? 'U' : '_u'} = u;
+      ${immutable} ${declaredScalar} step${wgsl ? 'LimitPx' : '_limit_px'} =
+        (${wgsl ? 'uniforms.geometry.x * 0.5 + uniforms.geometry.y + uniforms.geometry.z + 1.0'
+          : 'u_geometry.x * 0.5 + u_geometry.y + u_geometry.z + 1.0'});
+      ${immutable} ${declaredScalar} parameter${wgsl ? 'StepLimit' : '_step_limit'} =
+        step${wgsl ? 'LimitPx' : '_limit_px'}
+          * length(parameter${wgsl ? 'ScreenGradient' : '_screen_gradient'}) / ${geometry};
+      ${variable} ${wgsl ? '' : 'bool'} wide${wgsl ? 'Search' : '_search'} = false;
+      {
+      ${declarations}
+      ${immutable} ${declaredScalar} seed${wgsl ? 'Value' : '_value'} = ${value};
+      ${immutable} ${declaredScalar} seed${wgsl ? 'First' : '_first'} = ${first};
+      ${immutable} ${declaredScalar} seed${wgsl ? 'Second' : '_second'} = ${second};
+      ${immutable} ${wgsl ? '' : vector} seed${wgsl ? 'WorldPoint' : '_world_point'} = ${parameterIsX
+        ? `${vector}(u, seed${wgsl ? 'Value' : '_value'})`
+        : `${vector}(seed${wgsl ? 'Value' : '_value'}, u)`};
+      ${immutable} ${wgsl ? '' : vector} seed${wgsl ? 'WorldTangent' : '_world_tangent'} = ${parameterIsX
+        ? `${vector}(1.0, seed${wgsl ? 'First' : '_first'})`
+        : `${vector}(seed${wgsl ? 'First' : '_first'}, 1.0)`};
+      ${immutable} ${wgsl ? '' : vector} seed${wgsl ? 'WorldAcceleration' : '_world_acceleration'} = ${parameterIsX
+        ? `${vector}(0.0, seed${wgsl ? 'Second' : '_second'})`
+        : `${vector}(seed${wgsl ? 'Second' : '_second'}, 0.0)`};
+      ${immutable} ${wgsl ? '' : vector} seed${wgsl ? 'ScreenTangent' : '_screen_tangent'} = ${vector}(
+        xr.x * seed${wgsl ? 'WorldTangent' : '_world_tangent'}.x + xr.y * seed${wgsl ? 'WorldTangent' : '_world_tangent'}.y,
+        yr.x * seed${wgsl ? 'WorldTangent' : '_world_tangent'}.x + yr.y * seed${wgsl ? 'WorldTangent' : '_world_tangent'}.y);
+      ${immutable} ${wgsl ? '' : vector} seed${wgsl ? 'ScreenAcceleration' : '_screen_acceleration'} = ${vector}(
+        xr.x * seed${wgsl ? 'WorldAcceleration' : '_world_acceleration'}.x + xr.y * seed${wgsl ? 'WorldAcceleration' : '_world_acceleration'}.y,
+        yr.x * seed${wgsl ? 'WorldAcceleration' : '_world_acceleration'}.x + yr.y * seed${wgsl ? 'WorldAcceleration' : '_world_acceleration'}.y);
+      ${immutable} ${declaredScalar} screen${wgsl ? 'Curvature' : '_curvature'} = abs(
+        seed${wgsl ? 'ScreenTangent' : '_screen_tangent'}.x * seed${wgsl ? 'ScreenAcceleration' : '_screen_acceleration'}.y
+          - seed${wgsl ? 'ScreenTangent' : '_screen_tangent'}.y * seed${wgsl ? 'ScreenAcceleration' : '_screen_acceleration'}.x
+      ) / max(pow(length(seed${wgsl ? 'ScreenTangent' : '_screen_tangent'}), 3.0), 0.000000001);
+      ${immutable} ${declaredScalar} screen${wgsl ? 'CurvatureSpan' : '_curvature_span'} =
+        screen${wgsl ? 'Curvature' : '_curvature'} * step${wgsl ? 'LimitPx' : '_limit_px'} / ${geometry};
+      wide${wgsl ? 'Search' : '_search'} =
+        ${wgsl ? 'uniforms.interaction.x' : 'u_interaction.x'} > 0.0
+          && screen${wgsl ? 'CurvatureSpan' : '_curvature_span'} > 0.2;
+      }
+      ${variable} ${declaredScalar} best${wgsl ? 'DistanceSquared' : '_distance_squared'} = 1e38;
       for (${wgsl ? 'var' : 'int'} iteration = 0; iteration < 3; iteration += 1) {
         ${declarations}
         ${immutable} ${declaredScalar} value = ${value};
@@ -1885,19 +1964,18 @@ function explicitCurveDistanceFunction(curve, index, language) {
           xr.x * worldTangent.x + xr.y * worldTangent.y,
           yr.x * worldTangent.x + yr.y * worldTangent.y);
         ${immutable} ${wgsl ? '' : vector} delta = curveScreen - ${screenName};
+        best${wgsl ? 'DistanceSquared' : '_distance_squared'} = min(
+          best${wgsl ? 'DistanceSquared' : '_distance_squared'}, dot(delta, delta));
         ${immutable} ${declaredScalar} denominator = dot(screenTangent, screenTangent);
-        ${immutable} ${declaredScalar} step${wgsl ? 'LimitPx' : '_limit_px'} =
-          (${wgsl ? 'uniforms.geometry.x + uniforms.geometry.y + uniforms.geometry.z + 2.0'
-            : 'u_geometry.x + u_geometry.y + u_geometry.z + 2.0'});
-        ${immutable} ${declaredScalar} parameter${wgsl ? 'StepLimit' : '_step_limit'} =
-          step${wgsl ? 'LimitPx' : '_limit_px'}
-            * length(parameter${wgsl ? 'ScreenGradient' : '_screen_gradient'}) / ${geometry};
         if (abs(denominator) > 0.000000000001) {
           ${immutable} ${declaredScalar} gauss${wgsl ? 'NewtonStep' : '_newton_step'} =
             dot(delta, screenTangent) / denominator;
           u -= clamp(gauss${wgsl ? 'NewtonStep' : '_newton_step'},
             -parameter${wgsl ? 'StepLimit' : '_step_limit'},
             parameter${wgsl ? 'StepLimit' : '_step_limit'});
+          u = clamp(u,
+            base${wgsl ? 'U' : '_u'} - parameter${wgsl ? 'StepLimit' : '_step_limit'},
+            base${wgsl ? 'U' : '_u'} + parameter${wgsl ? 'StepLimit' : '_step_limit'});
         }
       }
       ${finalDeclarations}
@@ -1906,7 +1984,59 @@ function explicitCurveDistanceFunction(curve, index, language) {
       ${immutable} ${wgsl ? '' : vector} curveScreen = ${vector}(
         xr.x * worldPoint.x + xr.y * worldPoint.y + xr.z,
         yr.x * worldPoint.x + yr.y * worldPoint.y + yr.z);
-      return length(curveScreen - ${screenName}) * ${geometry};
+      best${wgsl ? 'DistanceSquared' : '_distance_squared'} = min(
+        best${wgsl ? 'DistanceSquared' : '_distance_squared'},
+        dot(curveScreen - ${screenName}, curveScreen - ${screenName}));
+      if (wide${wgsl ? 'Search' : '_search'}) {
+        for (${wgsl ? 'var' : 'int'} seed = 0; seed < 5; seed += 1) {
+          ${variable} ${declaredScalar} candidate${wgsl ? 'U' : '_u'} = base${wgsl ? 'U' : '_u'}
+            + (${wgsl ? 'f32(seed)' : 'float(seed)'} * 0.5 - 1.0)
+              * parameter${wgsl ? 'StepLimit' : '_step_limit'};
+          for (${wgsl ? 'var' : 'int'} refinement = 0; refinement < 4; refinement += 1) {
+            ${parameterIsX
+              ? `${localScalar} x = candidate${wgsl ? 'U' : '_u'}; ${localScalar} y = local.y;`
+              : `${localScalar} x = local.x; ${localScalar} y = candidate${wgsl ? 'U' : '_u'};`}
+            ${immutable} ${declaredScalar} value = ${value};
+            ${immutable} ${declaredScalar} first = ${first};
+            ${immutable} ${declaredScalar} second = ${second};
+            ${immutable} ${wgsl ? '' : vector} worldPoint = ${parameterIsX
+              ? `${vector}(candidate${wgsl ? 'U' : '_u'}, value)`
+              : `${vector}(value, candidate${wgsl ? 'U' : '_u'})`};
+            ${immutable} ${wgsl ? '' : vector} worldTangent = ${tangent};
+            ${immutable} ${wgsl ? '' : vector} worldAcceleration = ${acceleration};
+            ${immutable} ${wgsl ? '' : vector} curveScreen = ${vector}(
+              xr.x * worldPoint.x + xr.y * worldPoint.y + xr.z,
+              yr.x * worldPoint.x + yr.y * worldPoint.y + yr.z);
+            ${immutable} ${wgsl ? '' : vector} screenTangent = ${vector}(
+              xr.x * worldTangent.x + xr.y * worldTangent.y,
+              yr.x * worldTangent.x + yr.y * worldTangent.y);
+            ${immutable} ${wgsl ? '' : vector} screenAcceleration = ${vector}(
+              xr.x * worldAcceleration.x + xr.y * worldAcceleration.y,
+              yr.x * worldAcceleration.x + yr.y * worldAcceleration.y);
+            ${immutable} ${wgsl ? '' : vector} delta = curveScreen - ${screenName};
+            best${wgsl ? 'DistanceSquared' : '_distance_squared'} = min(
+              best${wgsl ? 'DistanceSquared' : '_distance_squared'}, dot(delta, delta));
+            ${immutable} ${declaredScalar} tangent${wgsl ? 'Squared' : '_squared'} =
+              dot(screenTangent, screenTangent);
+            ${immutable} ${declaredScalar} hessian =
+              tangent${wgsl ? 'Squared' : '_squared'} + dot(delta, screenAcceleration);
+            ${immutable} ${declaredScalar} safe${wgsl ? 'Denominator' : '_denominator'} = ${wgsl
+              ? 'select(tangentSquared, hessian, abs(hessian) > 0.000000000001)'
+              : '(abs(hessian) > 0.000000000001 ? hessian : tangent_squared)'};
+            if (abs(safe${wgsl ? 'Denominator' : '_denominator'}) > 0.000000000001) {
+              ${immutable} ${declaredScalar} newton${wgsl ? 'Step' : '_step'} =
+                dot(delta, screenTangent) / safe${wgsl ? 'Denominator' : '_denominator'};
+              candidate${wgsl ? 'U' : '_u'} -= clamp(newton${wgsl ? 'Step' : '_step'},
+                -parameter${wgsl ? 'StepLimit' : '_step_limit'} / 3.0,
+                parameter${wgsl ? 'StepLimit' : '_step_limit'} / 3.0);
+              candidate${wgsl ? 'U' : '_u'} = clamp(candidate${wgsl ? 'U' : '_u'},
+                base${wgsl ? 'U' : '_u'} - parameter${wgsl ? 'StepLimit' : '_step_limit'},
+                base${wgsl ? 'U' : '_u'} + parameter${wgsl ? 'StepLimit' : '_step_limit'});
+            }
+          }
+        }
+      }
+      return sqrt(best${wgsl ? 'DistanceSquared' : '_distance_squared'}) * ${geometry};
     }`;
 }
 

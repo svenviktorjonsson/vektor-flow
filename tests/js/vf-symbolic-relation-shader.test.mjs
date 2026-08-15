@@ -179,7 +179,7 @@ test('explicit curves use a fast one-dimensional analytic closest-point solver',
   assert.match(wgsl, /clamp\(gaussNewtonStep,\s*-parameterStepLimit,\s*parameterStepLimit\)/);
   assert.doesNotMatch(glsl, /step_limit_px \/ \(tangentLength \* u_geometry\.w\)/);
   assert.doesNotMatch(wgsl, /stepLimitPx \/ \(tangentLength \* uniforms\.geometry\.w\)/);
-  assert.doesNotMatch(`${glsl}\n${wgsl}`, /dot\(delta, screenAcceleration\)/);
+  assert.match(`${glsl}\n${wgsl}`, /dot\(delta, screenAcceleration\)/);
   assert.match(glsl, /clamp\(fwidth\(exact_boundary_distance_px\), 0\.5, 1\.0\)/);
   assert.match(wgsl, /clamp\(fwidth\(boundaryDistancePx\), 0\.5, 1\.0\)/);
   assert.match(glsl, /exact_boundary_distance_px = 1e20/);
@@ -290,6 +290,37 @@ test('explicit screen distance is invariant under positive and negative slope', 
     });
     assert.ok(Math.abs(distance - 7) < 1e-8, `slope ${slope} gave ${distance}`);
   }
+});
+
+test('explicit screen distance keeps the closest oscillation branch at far zoom', () => {
+  const distance = closestExplicitCurveScreenDistance({
+    point: [-30, 45],
+    value: (x) => 5 * Math.sin(4 * x),
+    first: (x) => 20 * Math.cos(4 * x),
+    second: (x) => -80 * Math.sin(4 * x),
+    transform: [15, 0, 0, -15, 0, 0],
+    searchRadiusPx: 7,
+    seeds: 5
+  });
+
+  assert.ok(Math.abs(distance - 2.92407) < 0.001, `far-zoom distance was ${distance}`);
+});
+
+test('explicit GPU distance widens its search only for unresolved curvature', () => {
+  const expression = call('sin', {
+    kind: 'binary', op: '*', left: { kind: 'number', value: 4 }, right: variable('x')
+  });
+  const shader = compileSymbolicExplicitCurveShaderGroup([{
+    explicitCurve: { dependent: 'y', parameter: 'x', expression }
+  }]);
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.match(glsl, /screen_curvature_span/);
+  assert.match(wgsl, /screenCurvatureSpan/);
+  assert.match(glsl, /for \(int seed = 0; seed < 5; seed \+= 1\)/);
+  assert.match(wgsl, /for \(var seed = 0; seed < 5; seed \+= 1\)/);
+  assert.match(`${glsl}\n${wgsl}`, /screenAcceleration/);
 });
 
 test('GPU picking keeps its radius separate from render pixel ratio', () => {
