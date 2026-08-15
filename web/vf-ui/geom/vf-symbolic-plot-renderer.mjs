@@ -1490,9 +1490,11 @@ export function webGpuRelationShaderSource(shader) {
       let x = local.x;
       let y = local.y;
       let t = uniforms.interaction.z;
-      let boundaryResidual = boundaryResidualAt(input.screen, t);
+      ${explicitDistance
+        ? explicitBoundaryApproximateDistanceSource(shader, 'wgsl')
+        : `let boundaryResidual = boundaryResidualAt(input.screen, t);
       let boundaryGradient = max(length(vec2f(dpdx(boundaryResidual), dpdy(boundaryResidual))), 0.0000001);
-      let approximateBoundaryDistancePx = boundaryResidual / boundaryGradient;
+      let approximateBoundaryDistancePx = boundaryResidual / boundaryGradient;`}
       let fillResidual = ${shader.wgslFillResidual};
       let fillGradient = max(length(vec2f(dpdx(fillResidual), dpdy(fillResidual))), 0.0000001);
       let fillDistancePx = fillResidual / fillGradient;
@@ -1835,6 +1837,9 @@ function explicitCurveDistanceFunction(curve, index, language) {
   const declarations = parameterIsX
     ? `${localScalar} x = u; ${localScalar} y = local.y;`
     : `${localScalar} x = local.x; ${localScalar} y = u;`;
+  const parameterScreenGradient = parameterIsX
+    ? `${vector}(yr.y, -xr.y) / determinant`
+    : `${vector}(-yr.x, xr.x) / determinant`;
   const finalDeclarations = declarations;
   const point = parameterIsX ? `${vector}(u, value)` : `${vector}(value, u)`;
   const tangent = parameterIsX ? `${vector}(1.0, first)` : `${vector}(first, 1.0)`;
@@ -1851,6 +1856,8 @@ function explicitCurveDistanceFunction(curve, index, language) {
       ${immutable} ${wgsl ? '' : vector} local = ${vector}(
         (yr.y * translated.x - xr.y * translated.y) / determinant,
         (-yr.x * translated.x + xr.x * translated.y) / determinant);
+      ${immutable} ${wgsl ? '' : vector} parameter${wgsl ? 'ScreenGradient' : '_screen_gradient'} =
+        ${parameterScreenGradient};
       ${immutable} ${declaredScalar} t = ${timeName};
       ${variable} ${declaredScalar} u = local.${curve.parameter};
       for (${wgsl ? 'var' : 'int'} iteration = 0; iteration < 3; iteration += 1) {
@@ -1867,12 +1874,12 @@ function explicitCurveDistanceFunction(curve, index, language) {
           yr.x * worldTangent.x + yr.y * worldTangent.y);
         ${immutable} ${wgsl ? '' : vector} delta = curveScreen - ${screenName};
         ${immutable} ${declaredScalar} denominator = dot(screenTangent, screenTangent);
-        ${immutable} ${declaredScalar} tangentLength = max(length(screenTangent), 0.000001);
         ${immutable} ${declaredScalar} step${wgsl ? 'LimitPx' : '_limit_px'} =
           (${wgsl ? 'uniforms.geometry.x + uniforms.geometry.y + uniforms.geometry.z + 2.0'
             : 'u_geometry.x + u_geometry.y + u_geometry.z + 2.0'});
         ${immutable} ${declaredScalar} parameter${wgsl ? 'StepLimit' : '_step_limit'} =
-          step${wgsl ? 'LimitPx' : '_limit_px'} / (tangentLength * ${geometry});
+          step${wgsl ? 'LimitPx' : '_limit_px'}
+            * length(parameter${wgsl ? 'ScreenGradient' : '_screen_gradient'}) / ${geometry};
         if (abs(denominator) > 0.000000000001) {
           ${immutable} ${declaredScalar} gauss${wgsl ? 'NewtonStep' : '_newton_step'} =
             dot(delta, screenTangent) / denominator;
@@ -1974,6 +1981,35 @@ function explicitBoundaryDistanceSource(shader, language) {
         ? 'explicitBoundarySamplePx(screen, timeValue, 0.0, 0.0, 0.75).x'
         : 'explicit_boundary_sample_px(screen_point, time_value, 0.0, 0.0, 0.75).x'};
     }`;
+}
+
+function explicitBoundaryApproximateDistanceSource(shader, language) {
+  const wgsl = language === 'wgsl';
+  const distances = shader.explicitCurves.map((curve, index) => {
+    const [value] = curve[language];
+    const residual = wgsl ? `explicitResidual${index}` : `explicit_residual_${index}`;
+    const gradient = wgsl ? `explicitGradient${index}` : `explicit_gradient_${index}`;
+    const distance = wgsl
+      ? `explicitApproximateDistance${index}Px`
+      : `explicit_approximate_distance_${index}_px`;
+    const dependent = curve.dependent;
+    return {
+      distance,
+      source: wgsl
+        ? `let ${residual} = ${dependent} - (${value});
+      let ${gradient} = max(length(vec2f(dpdx(${residual}), dpdy(${residual}))), 0.0000001);
+      let ${distance} = abs(${residual}) / ${gradient};`
+        : `float ${residual} = ${dependent} - (${value});
+      float ${gradient} = max(length(vec2(dFdx(${residual}), dFdy(${residual}))), 0.0000001);
+      float ${distance} = abs(${residual}) / ${gradient};`
+    };
+  });
+  const minimum = distances.slice(1).reduce(
+    (closest, { distance }) => `min(${closest}, ${distance})`,
+    distances[0].distance
+  );
+  return `${distances.map(({ source }) => source).join('\n      ')}
+      ${wgsl ? 'let approximateBoundaryDistancePx' : 'float approximate_boundary_distance_px'} = ${minimum};`;
 }
 
 function explicitBoundaryColorSource(shader, language) {
@@ -2737,9 +2773,11 @@ export function webGlRelationFragmentSource(shader) {
       float x = local.x;
       float y = local.y;
       float t = u_time;
-      float boundary_residual = boundary_residual_at(v_screen, t);
+      ${explicitDistance
+        ? explicitBoundaryApproximateDistanceSource(shader, 'glsl')
+        : `float boundary_residual = boundary_residual_at(v_screen, t);
       float boundary_gradient = max(length(vec2(dFdx(boundary_residual), dFdy(boundary_residual))), 0.0000001);
-      float approximate_boundary_distance_px = boundary_residual / boundary_gradient;
+      float approximate_boundary_distance_px = boundary_residual / boundary_gradient;`}
       float fill_residual = ${shader.glslFillResidual};
       float fill_gradient = max(length(vec2(dFdx(fill_residual), dFdy(fill_residual))), 0.0000001);
       float fill_distance_px = fill_residual / fill_gradient;

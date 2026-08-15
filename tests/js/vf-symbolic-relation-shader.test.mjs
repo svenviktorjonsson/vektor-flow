@@ -169,10 +169,16 @@ test('explicit curves use a fast one-dimensional analytic closest-point solver',
   assert.match(glsl, /for \(int iteration = 0; iteration < 3; iteration \+= 1\)/);
   assert.match(wgsl, /for \(var iteration = 0; iteration < 3; iteration \+= 1\)/);
   assert.match(`${glsl}\n${wgsl}`, /cos\(x\)/);
-  assert.match(glsl, /step_limit_px.*u_geometry/);
+  assert.match(glsl, /step_limit_px[\s\S]*u_geometry/);
+  assert.match(glsl, /parameter_screen_gradient/);
+  assert.match(glsl, /step_limit_px\s*\*\s*length\(parameter_screen_gradient\)\s*\/\s*u_geometry\.w/);
   assert.match(glsl, /clamp\(gauss_newton_step,\s*-parameter_step_limit,\s*parameter_step_limit\)/);
-  assert.match(wgsl, /stepLimitPx.*uniforms\.geometry/);
+  assert.match(wgsl, /stepLimitPx[\s\S]*uniforms\.geometry/);
+  assert.match(wgsl, /parameterScreenGradient/);
+  assert.match(wgsl, /stepLimitPx\s*\*\s*length\(parameterScreenGradient\)\s*\/\s*uniforms\.geometry\.w/);
   assert.match(wgsl, /clamp\(gaussNewtonStep,\s*-parameterStepLimit,\s*parameterStepLimit\)/);
+  assert.doesNotMatch(glsl, /step_limit_px \/ \(tangentLength \* u_geometry\.w\)/);
+  assert.doesNotMatch(wgsl, /stepLimitPx \/ \(tangentLength \* uniforms\.geometry\.w\)/);
   assert.doesNotMatch(`${glsl}\n${wgsl}`, /dot\(delta, screenAcceleration\)/);
   assert.match(glsl, /clamp\(fwidth\(exact_boundary_distance_px\), 0\.5, 1\.0\)/);
   assert.match(wgsl, /clamp\(fwidth\(boundaryDistancePx\), 0\.5, 1\.0\)/);
@@ -235,6 +241,42 @@ test('explicit curve selection subtracts the inner tube union from the outer tub
   assert.equal((wgsl.match(/explicitCurveDistance0\(screen, timeValue\)/g) || []).length, 1);
   assert.doesNotMatch(glsl, /abs\(selection_boundary_distance_px - selection_center\)/);
   assert.doesNotMatch(wgsl, /abs\(selectionBoundaryDistancePx - selectionCenter\)/);
+});
+
+test('explicit curve gate compares per-curve screen distances instead of raw residuals', () => {
+  const shader = compileSymbolicExplicitCurveShaderGroup([
+    {
+      explicitCurve: {
+        dependent: 'y', parameter: 'x',
+        expression: {
+          kind: 'binary', op: '*',
+          left: { kind: 'number', value: -0.55 }, right: variable('x')
+        }
+      }
+    },
+    {
+      explicitCurve: {
+        dependent: 'y', parameter: 'x',
+        expression: {
+          kind: 'binary', op: '*',
+          left: { kind: 'number', value: 15 }, right: variable('x')
+        }
+      }
+    }
+  ]);
+  const glsl = webGlRelationFragmentSource(shader);
+  const wgsl = webGpuRelationShaderSource(shader);
+
+  assert.match(glsl, /explicit_residual_0/);
+  assert.match(glsl, /explicit_approximate_distance_0_px/);
+  assert.match(glsl, /explicit_approximate_distance_1_px/);
+  assert.match(glsl, /min\(explicit_approximate_distance_0_px, explicit_approximate_distance_1_px\)/);
+  assert.match(wgsl, /explicitResidual0/);
+  assert.match(wgsl, /explicitApproximateDistance0Px/);
+  assert.match(wgsl, /explicitApproximateDistance1Px/);
+  assert.match(wgsl, /min\(explicitApproximateDistance0Px, explicitApproximateDistance1Px\)/);
+  assert.doesNotMatch(glsl, /float approximate_boundary_distance_px = boundary_residual \/ boundary_gradient/);
+  assert.doesNotMatch(wgsl, /let approximateBoundaryDistancePx = boundaryResidual \/ boundaryGradient/);
 });
 
 test('explicit screen distance is invariant under positive and negative slope', () => {
