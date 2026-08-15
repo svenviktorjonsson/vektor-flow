@@ -111,6 +111,64 @@ test('renders a four-member curve family analytically on the GPU', async () => {
   controller.destroy();
 });
 
+test('advances analytic animation through one GPU time uniform update', async () => {
+  const calls = [];
+  const program = {
+    diagnostics: [],
+    latex: '\\sin(x-t)',
+    variables: ['x', 't'],
+    classification: 'y-of-x',
+    valueKind: 'number',
+    ast: {
+      kind: 'call', name: 'sin', args: [{
+        kind: 'binary', op: '-',
+        left: { kind: 'variable', name: 'x' },
+        right: { kind: 'variable', name: 't' }
+      }]
+    }
+  };
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: true },
+    kernel: {
+      memory: new WebAssembly.Memory({ initial: 1 }),
+      compileWithContext() { return { value: program }; },
+      createWorkspace() { return { handle: 'workspace-0' }; },
+      workspaceCompile() {
+        calls.push(['compile']);
+        return { value: { program }, workspace: 'workspace-1' };
+      },
+      plot() { throw new Error('analytic animation must not use CPU sampling'); }
+    },
+    createRenderer: () => ({
+      async initialize() {},
+      updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setAnalyticRelations(value) { calls.push(['relations', value]); return { shader: true }; },
+      updateTime(value) { calls.push(['time', value]); return true; },
+      setArena() {}, render() { calls.push(['render']); }, resize() {}, destroy() {}
+    })
+  });
+
+  await controller.plot({
+    source: 'sin(x-t)', viewport: { ...viewport, t: 0 },
+    colors: { edge: '#ffffff', face: '#00000000' },
+    frameRevision: 1, frameEpoch: 2
+  });
+  const rendersAfterPlot = calls.filter(([name]) => name === 'render').length;
+  assert.equal(controller.updateView({
+    transform: viewport.transform,
+    frameRevision: 2,
+    frameEpoch: 2
+  }), true);
+  assert.equal(calls.filter(([name]) => name === 'render').length, rendersAfterPlot);
+  assert.equal(controller.updateTime({ t: 3.5, frameRevision: 2, frameEpoch: 2 }), true);
+  assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'relations').length, 1);
+  assert.deepEqual(calls.filter(([name]) => name === 'time'), [['time', 3.5]]);
+  assert.equal(calls.filter(([name]) => name === 'render').length, rendersAfterPlot + 1);
+  assert.equal(controller.result.view.t, 3.5);
+  assert.equal(controller.frameRevision, 2);
+});
+
 test('rejects silent empty output from a plottable sampled program', async () => {
   const program = {
     diagnostics: [], latex: '(u,u)', variables: ['u'], classification: 'parametric',

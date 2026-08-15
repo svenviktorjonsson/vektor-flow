@@ -488,6 +488,17 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
     backend?.updateTransform(transform);
   }
 
+  function updateTime(nextTime) {
+    assertAlive();
+    if (!relation) return false;
+    const t = Number(nextTime);
+    if (!Number.isFinite(t)) throw new TypeError('symbolic plot time must be finite');
+    if (relation.t === t) return true;
+    relation = Object.freeze({ ...relation, t });
+    backend?.updateRelation?.(relation);
+    return true;
+  }
+
   function updateClip(clip = null) {
     assertAlive();
     clipGeometry = triangulateSymbolicPlotClipRegion(clip);
@@ -562,6 +573,7 @@ export function createSymbolicPlotRenderer(canvas, options = {}) {
   return Object.freeze({
     initialize,
     setArena,
+    updateTime,
     updateTransform,
     updateClip,
     updateAppearance,

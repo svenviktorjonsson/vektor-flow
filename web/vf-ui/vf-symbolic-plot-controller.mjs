@@ -75,6 +75,7 @@ export async function createSymbolicPlotController({
   let latestPlotRequest = null;
   let latestCommittedPlotOrder = 0;
   let latestCommittedPlotRevision = null;
+  let analyticTimeUniform = false;
   canvas.hidden = false;
   renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
 
@@ -270,6 +271,7 @@ export async function createSymbolicPlotController({
     }
     latestCommittedPlotOrder = requestOrder;
     latestCommittedPlotRevision = requestedFrameRevision;
+    analyticTimeUniform = analyticalPlot;
     if (!compilation) workspace = executionWorkspace;
     dataToScreenTransform = [...transform];
     renderer.updateTransform(transform);
@@ -308,6 +310,7 @@ export async function createSymbolicPlotController({
     const nextTransform = symbolicDataToScreenTransform({ transform: cssTransform }, context);
     const localClip = symbolicClipInLocalCoordinates(clip, context);
     const spatialKey = symbolicViewSpatialKey(nextTransform, localClip);
+    const spatialChanged = spatialKey !== latestViewSpatialKey;
     if (requestedFrameEpoch < latestViewEpoch) return false;
     if (requestedFrameEpoch > latestViewEpoch) {
       latestViewEpoch = requestedFrameEpoch;
@@ -326,8 +329,36 @@ export async function createSymbolicPlotController({
       }
     }
     dataToScreenTransform = nextTransform;
+    if (!spatialChanged) return true;
     renderer.updateTransform(dataToScreenTransform);
     renderer.updateClip(localClip);
+    if (visible) renderer.render();
+    return true;
+  }
+
+  function updateTime({ t, frameRevision = null, frameEpoch = 0 }) {
+    assertAlive();
+    if (!analyticTimeUniform || !lastResult || typeof renderer.updateTime !== 'function') return false;
+    const time = finite(t, 'symbolic plot time');
+    const requestedFrameRevision = normalizeFrameRevision(frameRevision);
+    const requestedFrameEpoch = normalizeFrameEpoch(frameEpoch);
+    if (requestedFrameEpoch < latestViewEpoch) return false;
+    if (
+      requestedFrameEpoch === latestViewEpoch
+      && isStaleFrameRevision(requestedFrameRevision, latestViewRevision)
+    ) return false;
+    if (!renderer.updateTime(time)) return false;
+    latestViewEpoch = requestedFrameEpoch;
+    if (latestViewRevision == null || (
+      requestedFrameRevision != null && requestedFrameRevision >= latestViewRevision
+    )) latestViewRevision = requestedFrameRevision;
+    latestCommittedPlotRevision = requestedFrameRevision;
+    lastResult = Object.freeze({
+      ...lastResult,
+      view: Object.freeze({ ...lastResult.view, t: time }),
+      frameRevision: requestedFrameRevision,
+      frameEpoch: requestedFrameEpoch
+    });
     if (visible) renderer.render();
     return true;
   }
@@ -410,6 +441,7 @@ export async function createSymbolicPlotController({
   return Object.freeze({
     plot,
     updateView,
+    updateTime,
     resize,
     setVisible,
     setAppearance,
