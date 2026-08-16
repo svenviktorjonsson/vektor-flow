@@ -151,6 +151,39 @@
     return true;
   }
 
+  function snapViewDirectionToNearestAxis(camera, cfg, options) {
+    options = options && typeof options === "object" ? options : {};
+    var center = rotationCenter(cfg || {});
+    var pos = vec3Array(camera && camera.pos, [4, 4, 5.657]);
+    var target = vec3Array(camera && camera.target, center);
+    var forward = normalizeVec3Local([
+      target[0] - pos[0],
+      target[1] - pos[1],
+      target[2] - pos[2]
+    ], [0, 0, -1]);
+    var axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    var best = null;
+    for (var axisIndex = 0; axisIndex < axes.length; axisIndex += 1) {
+      var signedDot = dot3(forward, axes[axisIndex]);
+      var absoluteDot = Math.max(0, Math.min(1, Math.abs(signedDot)));
+      var candidate = {
+        axisIndex: axisIndex,
+        sign: signedDot >= 0 ? 1 : -1,
+        angleDeg: Math.acos(absoluteDot) * (180 / Math.PI)
+      };
+      if (!best || candidate.angleDeg < best.angleDeg) { best = candidate; }
+    }
+    var snapAngleDeg = Math.max(
+      0,
+      Number(options.snapAngleDeg != null
+        ? options.snapAngleDeg
+        : (cfg && cfg.axis_direction_snap_angle_deg)) || 15
+    );
+    if (!best || best.angleDeg > snapAngleDeg) { return null; }
+    alignAxisToViewSnap(camera, cfg || {}, best.axisIndex, best.sign);
+    return best;
+  }
+
   function virtualTrackballPoint(rectLike, px, py, marginPx) {
     var w = Math.max(1, Number(rectLike && rectLike.width) || 1);
     var h = Math.max(1, Number(rectLike && rectLike.height) || 1);
@@ -281,6 +314,7 @@
     preserveTargetOffsetOnRotate: preserveTargetOffsetOnRotate,
     cloneCamera: cloneCamera,
     alignAxisToViewSnap: alignAxisToViewSnap,
+    snapViewDirectionToNearestAxis: snapViewDirectionToNearestAxis,
     virtualTrackballPoint: virtualTrackballPoint,
     virtualTrackballRotate: virtualTrackballRotate,
     dragWorldDelta: dragWorldDelta,

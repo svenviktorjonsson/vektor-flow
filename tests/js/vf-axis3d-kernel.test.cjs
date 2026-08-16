@@ -59,6 +59,38 @@ const axis3d = require("../../web/vf-ui/vf-axis3d-kernel.js");
 }
 
 {
+  const angle = 10 * Math.PI / 180;
+  const camera = {
+    pos: [-4 * Math.cos(angle), -4 * Math.sin(angle), 0],
+    target: [0, 0, 0],
+    up: [0, 0, 1]
+  };
+  const snapped = axis3d.snapViewDirectionToNearestAxis(camera, { mode: "crosshair" }, {
+    snapAngleDeg: 15
+  });
+  assert.deepEqual(snapped && [snapped.axisIndex, snapped.sign], [0, 1]);
+  const forward = axis3d.screenBasis(camera, [0, 0, 0]).forward;
+  assert.ok(Math.abs(forward[0] - 1) <= 1e-9);
+  assert.ok(Math.abs(forward[1]) <= 1e-9);
+  assert.ok(Math.abs(forward[2]) <= 1e-9);
+}
+
+{
+  const angle = 16 * Math.PI / 180;
+  const camera = {
+    pos: [-4 * Math.cos(angle), -4 * Math.sin(angle), 0],
+    target: [0, 0, 0],
+    up: [0, 0, 1]
+  };
+  const before = axis3d.cloneCamera(camera);
+  const snapped = axis3d.snapViewDirectionToNearestAxis(camera, { mode: "crosshair" }, {
+    snapAngleDeg: 15
+  });
+  assert.equal(snapped, null);
+  assert.deepEqual(camera, before);
+}
+
+{
   const center = axis3d.virtualTrackballPoint({ width: 400, height: 300 }, 200, 150, 20);
   assert.equal(center.inside, true);
   assert.ok(Math.abs(center.radius - 130) <= 1e-9);

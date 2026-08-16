@@ -15,6 +15,7 @@
       applyWorldRotation: overrides.applyWorldRotation || (kernel && kernel.applyWorldRotation),
       cloneCamera: overrides.cloneCamera || (kernel && kernel.cloneCamera),
       alignAxisToViewSnap: overrides.alignAxisToViewSnap || (kernel && kernel.alignAxisToViewSnap),
+      snapViewDirectionToNearestAxis: overrides.snapViewDirectionToNearestAxis || (kernel && kernel.snapViewDirectionToNearestAxis),
       virtualTrackballPoint: overrides.virtualTrackballPoint || (kernel && kernel.virtualTrackballPoint),
       virtualTrackballRotate: overrides.virtualTrackballRotate || (kernel && kernel.virtualTrackballRotate),
       dragWorldDelta: overrides.dragWorldDelta || (kernel && kernel.dragWorldDelta),
