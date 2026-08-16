@@ -6,6 +6,7 @@ import {
   SYMBOLIC_PLOT_EDGE_WIDTH,
   SYMBOLIC_PLOT_POINT_RADIUS,
   SYMBOLIC_PLOT_POINT_VERTICES,
+  SYMBOLIC_RELATION_PICK_RADIUS_FLOAT_OFFSET,
   SymbolicPlotMode,
   bindWebGlInstancedAttributes,
   createSymbolicPlotRenderer,
@@ -28,6 +29,10 @@ import {
   triangulateSymbolicPlotClip,
   triangulateSymbolicPlotClipRegion
 } from '../../web/vf-ui/geom/vf-symbolic-plot-renderer.mjs';
+
+test('stores transient relation pick radius outside render geometry uniforms', () => {
+  assert.equal(SYMBOLIC_RELATION_PICK_RADIUS_FLOAT_OFFSET, 31);
+});
 
 test('ignores shader attributes optimized out of the WebGL fallback', () => {
   const enabled = [];
@@ -77,6 +82,14 @@ test('builds selection from global outer and inner coverage unions on every GPU 
   assert.match(webGpuSelectionCompositeShaderSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
   assert.match(webGlSelectionMaskFragmentSource(), /vec4\(outer_coverage, inner_coverage/);
   assert.match(webGlSelectionCompositeFragmentSource(), /mask\.r \* \(1\.0 - mask\.g\)/);
+});
+
+test('rounds explicit-curve junctions and keeps selection as thick as the graph', () => {
+  const appearance = normalizeSymbolicPlotAppearance({
+    edgeWidth: 4,
+    selectionWidth: 1
+  });
+  assert.equal(appearance.selectionWidth, 4);
 });
 
 test('keeps visible strokes as complete capsules while selection unions globally', () => {

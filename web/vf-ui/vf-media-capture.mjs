@@ -106,6 +106,55 @@ export function downloadCapturedMedia({ url, filename }, documentRef = globalThi
   anchor.click();
 }
 
+export function createLayeredCanvasCaptureStream(options = {}) {
+  const layers = Array.isArray(options.layers) ? options.layers : [];
+  const documentRef = options.document || options.documentRef || globalThis.document;
+  const frameRate = Math.max(1, Number(options.frameRate) || 60);
+  const requestFrame = options.requestFrame
+    || globalThis.requestAnimationFrame?.bind(globalThis)
+    || ((callback) => setTimeout(callback, 1000 / frameRate));
+  const output = documentRef?.createElement?.('canvas');
+  const context = output?.getContext?.('2d');
+  if (!output || !context || typeof output.captureStream !== 'function') {
+    throw new Error('Layered canvas capture is unavailable');
+  }
+
+  const resolveLayers = () => layers
+    .map((layer) => typeof layer === 'function' ? layer() : layer)
+    .filter((layer) => layer?.width > 0 && layer?.height > 0);
+  const initialLayers = resolveLayers();
+  if (!initialLayers.length) throw new Error('Layered canvas capture requires a canvas layer');
+  output.width = initialLayers[0].width;
+  output.height = initialLayers[0].height;
+
+  const stream = output.captureStream(frameRate);
+  const videoTracks = () => stream?.getVideoTracks?.() || [];
+
+  const compositeFrame = () => {
+    const tracks = videoTracks();
+    if (tracks.length && tracks.every((track) => track.readyState === 'ended')) return;
+
+    options.beforeDraw?.();
+    const activeLayers = resolveLayers();
+    const primary = activeLayers[0];
+    if (primary && (output.width !== primary.width || output.height !== primary.height)) {
+      output.width = primary.width;
+      output.height = primary.height;
+    }
+    context.clearRect(0, 0, output.width, output.height);
+    for (const layer of activeLayers) {
+      context.drawImage(layer, 0, 0, output.width, output.height);
+    }
+    for (const track of tracks) {
+      if (track.readyState !== 'ended') track.requestFrame?.();
+    }
+    requestFrame(compositeFrame);
+  };
+
+  compositeFrame();
+  return stream;
+}
+
 export async function requestSceneCaptureStream({
   kind = 'image',
   mediaDevices = globalThis.navigator?.mediaDevices,

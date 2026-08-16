@@ -64,6 +64,22 @@ test('samples coordinate color fields through the supplied local frame', () => {
   assert.deepEqual(rgba, [255, 0, 0, 255]);
 });
 
+test('samples a scalar grid as a continuous colormap field', () => {
+  const rgba = evaluateColorFieldRgba([0.5, 0.5], {
+    kind: 'scalar-grid-colormap',
+    grid: {
+      shape: [2, 2],
+      bounds: { x: [0, 1], y: [0, 1] },
+      values: [0, 1, 2, 3],
+      domain: [0, 3],
+    },
+    sampler: (value) => [Math.round(value * 255), 0, 0, 255],
+  });
+
+  assert.deepEqual(rgba, [128, 0, 0, 255]);
+  assert.match(gpuColorFieldFragmentSource('x'), /scalarGridMap/);
+});
+
 test('normalizes point-source weights in source-relative coordinates', () => {
   assert.deepEqual(pointSourceRgb(
     [1, 1],

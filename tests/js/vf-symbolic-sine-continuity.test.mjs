@@ -145,7 +145,7 @@ test('evaluates temporal curves continuously beyond the sampled time window', as
   assert.ok(points.some((point) => Math.abs(point.y - Math.sin(point.x)) > 0.1));
 });
 
-test('controller updates joined sin(x-t) line strips beyond t=1', async () => {
+test('controller updates analytic sin(x-t) GPU uniforms beyond t=1', async () => {
   const wasm = await readFile(new URL('vkf-symbolic-kernel.wasm', artifactRoot));
   const manifest = JSON.parse(
     await readFile(new URL('vkf-symbolic-kernel.json', artifactRoot), 'utf8')
@@ -153,12 +153,13 @@ test('controller updates joined sin(x-t) line strips beyond t=1', async () => {
   const { instance } = await WebAssembly.instantiate(wasm);
   const kernel = createSymbolicKernel({ instance, manifest });
   const arenas = [];
+  const relations = [];
   const controller = await createSymbolicPlotController({
     canvas: { hidden: true },
     kernel,
     createRenderer: () => ({
       async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
-      setAnalyticRelations() { return null; },
+      setAnalyticRelations(value) { relations.push(value); return { shader: true }; },
       setArena(arena) { arenas.push(arena); },
       render() {}, async pick() { return null; }, resize() {}, destroy() {}
     })
@@ -176,10 +177,9 @@ test('controller updates joined sin(x-t) line strips beyond t=1', async () => {
     });
   }
 
-  const curveArenas = arenas.filter((arena) => arena.ranges.length > 0);
-  assert.equal(curveArenas.length, 5);
-  assert.ok(curveArenas.every((arena) => arena.ranges[0]?.mode === 'time-curve'));
-  assert.notDeepEqual(Array.from(curveArenas[0].data), Array.from(curveArenas.at(-1).data));
+  assert.equal(arenas.length, 5);
+  assert.ok(arenas.every((arena) => arena.ranges.length === 0));
+  assert.deepEqual(relations.map((value) => value[0].t), [0, 0.5, 1, 1.5, 2]);
 });
 
 test('keeps transient plot memory bounded across 300 temporal frames', async () => {
@@ -190,12 +190,13 @@ test('keeps transient plot memory bounded across 300 temporal frames', async () 
   const { instance } = await WebAssembly.instantiate(wasm);
   const kernel = createSymbolicKernel({ instance, manifest });
   const arenas = [];
+  const relations = [];
   const controller = await createSymbolicPlotController({
     canvas: { hidden: true },
     kernel,
     createRenderer: () => ({
       async initialize() {}, updateTransform() {}, updateClip() {}, updateAppearance() {},
-      setAnalyticRelations() { return null; },
+      setAnalyticRelations(value) { relations.push(value); return { shader: true }; },
       setArena(arena) { arenas.push(arena); },
       render() {}, async pick() {
         return { kind: 'segment', index: 0, part: 'edge', rangeIndex: 0, primitiveIndex: 0 };
@@ -232,9 +233,9 @@ test('keeps transient plot memory bounded across 300 temporal frames', async () 
     });
   }
 
-  const curveArenas = arenas.filter((arena) => arena.ranges.length > 0);
-  assert.equal(curveArenas.length, 300);
+  assert.equal(arenas.length, 300);
+  assert.equal(relations.length, 300);
   assert.equal(instance.exports.vkf_vm_heap_ptr(), persistentHeapEnd);
-  assert.ok(curveArenas.every((arena) => arena.ranges[0]?.mode === 'time-curve'));
-  assert.ok(controller.snapGeometry.segments.length > 0);
+  assert.ok(arenas.every((arena) => arena.ranges.length === 0));
+  assert.equal(controller.snapGeometry.segments.length, 0);
 });

@@ -70,7 +70,10 @@ def _lower_expr(expr: Any, slots: dict[str, int]) -> Any:
     if isinstance(expr, ir.CallExpr):
         return ir.CallExpr(_lower_expr(expr.func, slots), [_lower_expr(a, slots) for a in expr.args])
     if isinstance(expr, ir.ListExpr):
-        return ir.ListExpr([_lower_expr(e, slots) for e in expr.elements])
+        return ir.ListExpr(
+            [_lower_expr(e, slots) for e in expr.elements],
+            expr.literal_zero_elements,
+        )
     if isinstance(expr, ir.MultisetExpr):
         return ir.MultisetExpr([(_lower_expr(val, slots), _lower_expr(count, slots)) for val, count in expr.pairs])
     if isinstance(expr, ir.MapExpr):

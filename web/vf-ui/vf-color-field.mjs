@@ -103,7 +103,39 @@ export function evaluateColorFieldRgba(point, field = {}) {
     }, 0)));
     return normalizedRgba(sampled);
   }
+  if (field.kind === 'scalar-grid-colormap') {
+    if (typeof field.sampler !== 'function') {
+      throw new TypeError('scalar-grid-colormap requires a sampler');
+    }
+    return normalizedRgba(field.sampler(normalizedScalarGridValue(point, field.grid)));
+  }
   return [...evaluateColorFieldRgb(point, field), 255];
+}
+
+function normalizedScalarGridValue(point, grid = {}) {
+  const shape = grid.shape || [];
+  const columns = positiveInteger(shape[0], 'grid columns');
+  const rows = positiveInteger(shape[1], 'grid rows');
+  const values = Array.from(grid.values || [], Number);
+  if (values.length !== columns * rows || values.some((value) => !Number.isFinite(value))) {
+    throw new TypeError('scalar grid values must match its shape');
+  }
+  const xBounds = grid.bounds?.x || [0, 1];
+  const yBounds = grid.bounds?.y || [0, 1];
+  const xSpan = Number(xBounds[1]) - Number(xBounds[0]);
+  const ySpan = Number(yBounds[1]) - Number(yBounds[0]);
+  if (!(xSpan > 0) || !(ySpan > 0)) throw new RangeError('scalar grid bounds must increase');
+  const x = clamp01((Number(point?.[0]) - Number(xBounds[0])) / xSpan) * (columns - 1);
+  const y = clamp01((Number(point?.[1]) - Number(yBounds[0])) / ySpan) * (rows - 1);
+  const x0 = Math.floor(x), x1 = Math.min(columns - 1, x0 + 1);
+  const y0 = Math.floor(y), y1 = Math.min(rows - 1, y0 + 1);
+  const mix = (left, right, amount) => left + (right - left) * amount;
+  const low = mix(values[x0 + columns * y0], values[x1 + columns * y0], x - x0);
+  const high = mix(values[x0 + columns * y1], values[x1 + columns * y1], x - x0);
+  const value = mix(low, high, y - y0);
+  const domain = grid.domain || [Math.min(...values), Math.max(...values)];
+  const span = Number(domain[1]) - Number(domain[0]);
+  return span > 0 ? clamp01((value - Number(domain[0])) / span) : 0;
 }
 
 export function rasterizeColorField({ width, height, pointAt, field }) {
@@ -216,7 +248,7 @@ export function gpuColorFieldFragmentSource(expression) {
     precision highp float; in vec2 uv; out vec4 outColor;
     uniform vec2 origin, stepX, stepY, localOrigin, localStepX, localStepY; uniform float t,n,N; uniform int count; uniform int kind;
     uniform vec2 sourceP[32]; uniform vec4 sourceC[32]; uniform vec2 segA[32], segB[32];
-    uniform sampler2D cmap;
+    uniform sampler2D cmap, scalarGrid; uniform vec2 gridOrigin, gridSize;
     float evaluate(float x,float y,float r,float phi){ return float(${expression}); }
     vec4 blendPoint(vec2 q){ vec4 c=vec4(0.); float total=0.;
       for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=q-sourceP[i]; float r=length(d); float w=max(0.,evaluate(d.x,d.y,r,atan(d.y,d.x))); c+=sourceC[i]*w; total+=w; }
@@ -225,7 +257,8 @@ export function gpuColorFieldFragmentSource(expression) {
       for(int i=0;i<32;i++){ if(i>=count) break; vec2 d=segB[i]-segA[i]; float h=clamp(dot(q-segA[i],d)/max(dot(d,d),1e-12),0.,1.); float r=distance(q,segA[i]+h*d); float w=max(0.,evaluate(r,0.,r,0.)); c+=sourceC[i]*w; total+=w; }
       return total>0. ? c/total : sourceC[0]; }
     vec4 coordinateMap(vec2 screenUv){ vec2 local=localOrigin+screenUv.x*localStepX+screenUv.y*localStepY; float v=clamp(evaluate(local.x,local.y,length(local),atan(local.y,local.x)),0.,1.); return texture(cmap,vec2(v,.5)); }
-    void main(){ vec2 screenUv=vec2(uv.x,1.-uv.y); vec2 q=origin+screenUv.x*stepX+screenUv.y*stepY; outColor=kind==0?blendPoint(q):(kind==1?blendEdge(q):coordinateMap(screenUv)); }`;
+    vec4 scalarGridMap(vec2 q){ vec2 fieldUv=clamp((q-gridOrigin)/gridSize,vec2(0.),vec2(1.)); return texture(cmap,vec2(texture(scalarGrid,fieldUv).r,.5)); }
+    void main(){ vec2 screenUv=vec2(uv.x,1.-uv.y); vec2 q=origin+screenUv.x*stepX+screenUv.y*stepY; outColor=kind==0?blendPoint(q):(kind==1?blendEdge(q):(kind==3?scalarGridMap(q):coordinateMap(screenUv))); }`;
 }
 
 export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
@@ -245,13 +278,16 @@ export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
     const program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     const loc = (name) => gl.getUniformLocation(program, name);
-    const bundle = { program, uniforms: { origin:loc('origin'), stepX:loc('stepX'), stepY:loc('stepY'), t:loc('t'), n:loc('n'), N:loc('N'), count:loc('count'), kind:loc('kind'), sourceP:loc('sourceP'), sourceC:loc('sourceC'), segA:loc('segA'), segB:loc('segB'), localOrigin:loc('localOrigin'), localStepX:loc('localStepX'), localStepY:loc('localStepY'), cmap:loc('cmap') } };
+    const bundle = { program, uniforms: { origin:loc('origin'), stepX:loc('stepX'), stepY:loc('stepY'), t:loc('t'), n:loc('n'), N:loc('N'), count:loc('count'), kind:loc('kind'), sourceP:loc('sourceP'), sourceC:loc('sourceC'), segA:loc('segA'), segB:loc('segB'), localOrigin:loc('localOrigin'), localStepX:loc('localStepX'), localStepY:loc('localStepY'), cmap:loc('cmap'), scalarGrid:loc('scalarGrid'), gridOrigin:loc('gridOrigin'), gridSize:loc('gridSize') } };
     programCache.set(key, bundle);
     return bundle;
   };
   const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
   const cmapTexture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, cmapTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const scalarGridTexture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, scalarGridTexture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   return Object.freeze({
@@ -264,7 +300,7 @@ export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
       const width=right-left,height=bottom-top; if(width<=0||height<=0)return false;
       const evaluator = field.kind === 'coordinate-colormap'
         ? field.evaluatorGlsl
-        : field.weightEvaluator?.__colorModeGlsl;
+        : field.kind === 'scalar-grid-colormap' ? 'x' : field.weightEvaluator?.__colorModeGlsl;
       if (!evaluator) throw new Error('gpu_color_field_expression_unavailable');
       const { program, uniforms } = programFor(evaluator);
       canvas.width=width; canvas.height=height; gl.viewport(0,0,width,height); gl.useProgram(program);
@@ -294,7 +330,37 @@ export function createGpuColorFieldRenderer({ canvas, screenToWorld }) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
         gl.uniform1i(uniforms.cmap, 0);
       }
-      const colors=(field.colors||[]).map(parseCssRgba).slice(0,32); const n=Math.max(1,colors.length); gl.uniform1i(uniforms.count,n); gl.uniform1i(uniforms.kind,field.kind==='point-distance'?0:(field.kind==='edge-distance'?1:2));
+      if (field.kind === 'scalar-grid-colormap') {
+        const grid = field.grid || {};
+        const columns = positiveInteger(grid.shape?.[0], 'grid columns');
+        const rows = positiveInteger(grid.shape?.[1], 'grid rows');
+        const values = Array.from(grid.values || [], Number);
+        if (values.length !== columns * rows || values.some((value) => !Number.isFinite(value))) {
+          throw new TypeError('scalar grid values must match its shape');
+        }
+        const domain = grid.domain || [Math.min(...values), Math.max(...values)];
+        const span = Number(domain[1]) - Number(domain[0]);
+        const normalized = new Uint8Array(values.map((value) => Math.round(255 * (span > 0
+          ? clamp01((value - Number(domain[0])) / span)
+          : 0))));
+        const xBounds = grid.bounds?.x || [0, 1], yBounds = grid.bounds?.y || [0, 1];
+        gl.uniform2f(uniforms.gridOrigin, Number(xBounds[0]), Number(yBounds[0]));
+        gl.uniform2f(uniforms.gridSize, Number(xBounds[1]) - Number(xBounds[0]), Number(yBounds[1]) - Number(yBounds[0]));
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, scalarGridTexture);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, columns, rows, 0, gl.RED, gl.UNSIGNED_BYTE, normalized);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.uniform1i(uniforms.scalarGrid, 1);
+        const rgba = new Uint8Array(256 * 4);
+        for (let i = 0; i < 256; i += 1) {
+          const sample = field.sampler?.(i / 255) || [128,128,128,255];
+          for (let channel = 0; channel < 4; channel += 1) rgba[i * 4 + channel] = Math.round(Math.max(0, Math.min(255, Number(sample[channel] ?? (channel === 3 ? 255 : 128)))));
+        }
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, cmapTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+        gl.uniform1i(uniforms.cmap, 0);
+      }
+      const colors=(field.colors||[]).map(parseCssRgba).slice(0,32); const n=Math.max(1,colors.length); gl.uniform1i(uniforms.count,n); gl.uniform1i(uniforms.kind,field.kind==='point-distance'?0:(field.kind==='edge-distance'?1:(field.kind==='scalar-grid-colormap'?3:2)));
       const points=(field.points||[]).slice(0,32).flat(); gl.uniform2fv(uniforms.sourceP,new Float32Array(points.length?points:[0,0]));
       gl.uniform4fv(uniforms.sourceC,new Float32Array((colors.length?colors:[[.5,.5,.5,1]]).flat().concat(new Array(Math.max(0,32-colors.length)*4).fill(0))));
       const a=(field.segments||[]).map(s=>s[0]).slice(0,32).flat(), b=(field.segments||[]).map(s=>s[1]).slice(0,32).flat(); gl.uniform2fv(uniforms.segA,new Float32Array(a.length?a:[0,0])); gl.uniform2fv(uniforms.segB,new Float32Array(b.length?b:[0,0]));

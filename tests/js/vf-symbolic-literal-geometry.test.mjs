@@ -124,7 +124,7 @@ test('maps exponent sets to points and exponent tuples to open linked geometry',
   ]);
 });
 
-test('preserves set, tuple, and range-tuple exponent semantics in latex and geometry', async () => {
+test('preserves set and tuple exponent semantics while grouped ranges equal sets', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
 
@@ -138,10 +138,11 @@ test('preserves set, tuple, and range-tuple exponent semantics in latex and geom
   assert.deepEqual(linked.geometry.points, [[0, 1], [-1, 0]]);
   assert.deepEqual(linked.geometry.segments, [[[0, 1], [-1, 0]]]);
 
-  const closed = plotGeometry(kernel, workspace, 'i^(1..5)');
-  assert.equal(closed.program.latex, '{i}^{\\left(1..5\\right)}');
-  assert.equal(closed.geometry.points.length, 4);
-  assert.equal(closed.geometry.segments.length, 4);
+  const groupedRange = plotGeometry(kernel, workspace, 'i^(1..5)');
+  const setRange = plotGeometry(kernel, workspace, 'i^{1..5}');
+  assert.deepEqual(groupedRange.geometry, setRange.geometry);
+  assert.equal(groupedRange.geometry.points.length, 4);
+  assert.equal(groupedRange.geometry.segments.length, 0);
 });
 
 test('plots a symbolic base with a range exponent as one multi-range curve family', async () => {
@@ -183,6 +184,25 @@ test('plots a symbolic base with a range exponent as one multi-range curve famil
   }
 });
 
+test('links tuples only when their expanded elements contain at most t', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+
+  const movingGeometry = plotGeometry(kernel, workspace, '(t,t+1)', { t: 2 });
+  assert.equal(movingGeometry.program.classification, 'linked-tuple');
+  assert.deepEqual(movingGeometry.geometry.segments, [[[2, 0], [3, 0]]]);
+
+  const powerFunctions = plotGeometry(kernel, workspace, 'x^(1,2,3)');
+  assert.equal(powerFunctions.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(powerFunctions.program), 3);
+  assert.equal(powerFunctions.arena.ranges.length, 3);
+
+  const tupleFunctions = plotGeometry(kernel, workspace, '(x,x^2)');
+  assert.equal(tupleFunctions.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(tupleFunctions.program), 2);
+  assert.equal(tupleFunctions.arena.ranges.length, 2);
+});
+
 test('plots a set of x-dependent scalars as separate ordered graph series', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
@@ -198,6 +218,108 @@ test('plots a set of x-dependent scalars as separate ordered graph series', asyn
     ]
   );
 });
+
+test('plots independent coefficient ranges as a Cartesian curve family', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(
+    kernel,
+    workspace,
+    '5sin({1..3}x-{1..4}t)',
+    { t: 66.95 },
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+
+  assert.equal(result.program.classification, 'y-of-x');
+  assert.equal(symbolicPlotSeriesCount(result.program), 12);
+  assert.equal(result.arena.ranges.length, 12);
+  assert.ok(result.arena.ranges.every(({ mode, count }) => (
+    mode === 'time-curve' && count === view.xSteps
+  )));
+
+  const compiled = kernel.workspaceCompile(
+    workspace,
+    '5sin({1..3}x-{1..4}t)',
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+  for (let variantIndex = 0; variantIndex < 12; variantIndex += 1) {
+    const arena = kernel.plotVariant(
+      compiled.program,
+      compiled.workspace,
+      { ...view, t: 66.95, xSteps: 1122 },
+      style,
+      1,
+      variantIndex
+    );
+    assert.equal(arena.ranges.length, 1);
+    assert.equal(arena.ranges[0].count, 1122);
+  }
+});
+
+test('expands a parenthesized range inside a function like a set range', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(
+    kernel,
+    workspace,
+    '5sin(x-(1..4)t)',
+    { t: 74.43 },
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+
+  assert.equal(symbolicPlotSeriesCount(result.program), 4);
+  assert.equal(result.program.variants.length, 4);
+  assert.equal(result.arena.ranges.length, 4);
+
+  const zipped = plotGeometry(
+    kernel,
+    workspace,
+    '(2,3,4,5)sin(x-(1..4)t)',
+    { t: 1 },
+    { kind: 'global', dimension: 2, n: 0, N: 1 }
+  );
+  assert.equal(symbolicPlotSeriesCount(zipped.program), 4);
+  assert.equal(zipped.program.variants.length, 4);
+  assert.equal(zipped.arena.ranges.length, 4);
+});
+
+test('zips equal tuples inside functions and relations', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const curve = plotGeometry(kernel, workspace, 'sin((1,2,3)x-(4,5,6)t)');
+  const relation = kernel.compile('y=(1,2,3)x').value;
+
+  assert.equal(symbolicPlotSeriesCount(curve.program), 3);
+  assert.equal(curve.arena.ranges.length, 3);
+  assert.equal(relation.variants.length, 3);
+});
+
+test('combines zipped tuples with Cartesian sets', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const result = plotGeometry(kernel, workspace, 'sin((1,2,3)x-{1..4}t)');
+
+  assert.equal(symbolicPlotSeriesCount(result.program), 12);
+  assert.equal(result.arena.ranges.length, 12);
+});
+
+test('rejects mismatched tuples inside one function or relation', async () => {
+  const kernel = await createKernel();
+  const mismatch = kernel.compile('sin((1,2)x-(3,4,5)t)').value;
+
+  assert.equal(mismatch.diagnostics.length, 1);
+  assert.equal(mismatch.diagnostics[0].code, 'tuple-length-mismatch');
+});
+
+test('keeps a standalone tuple as linked geometry', async () => {
+  const kernel = await createKernel();
+  const workspace = kernel.createWorkspace().handle;
+  const standalone = plotGeometry(kernel, workspace, '(1,2,3)');
+
+  assert.equal(standalone.program.classification, 'linked-tuple');
+  assert.equal(standalone.geometry.points.length, 3);
+  assert.equal(standalone.geometry.segments.length, 2);
+});
 test('distributes a set-valued relation into one analytical family while preserving tuples', async () => {
   const kernel = await createKernel();
   const relation = kernel.compile('x^2+y^2={1..5}').value;
@@ -208,11 +330,14 @@ test('distributes a set-valued relation into one analytical family while preserv
   assert.deepEqual(relation.variants.map(({ right }) => right.value), [1, 2, 3, 4, 5]);
 
   const tupleRelation = kernel.compile('x^2+y^2=(1..5)').value;
-  assert.equal(tupleRelation.variants.length, 1);
-  assert.equal(tupleRelation.ast.right.kind, 'range');
+  assert.equal(tupleRelation.variants.length, 5);
+  assert.deepEqual(
+    tupleRelation.variants.map(({ right }) => right.value),
+    [1, 2, 3, 4, 5]
+  );
 });
 
-test('distributes sets cartesianly while translating linked tuples as whole graphs', async () => {
+test('distributes sets cartesianly as unlinked points', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
 
@@ -223,34 +348,6 @@ test('distributes sets cartesianly while translating linked tuples as whole grap
     [...grid.points].sort(([ax, ay], [bx, by]) => ax - bx || ay - by),
     [1, 2, 3, 4].flatMap((x) => [1, 2, 3, 4].map((y) => [x, y]))
   );
-
-  const squarePlot = plotGeometry(kernel, workspace, 'i^(1..5)+4i^{1..4}');
-  assert.equal(squarePlot.program.variants.length, 4);
-  assert.ok(squarePlot.program.variants.every(({ kind }) => kind === 'tuple'));
-  assert.deepEqual(
-    squarePlot.arena.ranges.map(({ mode, count }) => ({ mode, count })),
-    [1, 2, 3, 4].flatMap(() => [
-      { mode: 'points', count: 5 },
-      { mode: 'linked-line-segments', count: 8 }
-    ])
-  );
-  assert.equal(squarePlot.geometry.points.length, 16);
-  assert.equal(squarePlot.geometry.segments.length, 16);
-
-  const centers = squarePlot.geometry.points.reduce((groups, point, index) => {
-    const group = Math.floor(index / 4);
-    groups[group][0] += point[0] / 4;
-    groups[group][1] += point[1] / 4;
-    return groups;
-  }, [[0, 0], [0, 0], [0, 0], [0, 0]]);
-  assert.deepEqual(centers, [[0, 4], [-4, 0], [0, -4], [4, 0]]);
-  for (let square = 0; square < 4; square += 1) {
-    const vertices = squarePlot.geometry.points.slice(square * 4, square * 4 + 4);
-    const segments = squarePlot.geometry.segments.slice(square * 4, square * 4 + 4);
-    assert.deepEqual(segments.map(([from, to]) => [vertices.indexOf(from), vertices.indexOf(to)]), [
-      [0, 1], [1, 2], [2, 3], [3, 0]
-    ]);
-  }
 });
 
 test('emits ordinary linked tuple vertices before linked edges', async () => {
@@ -282,20 +379,16 @@ test('preserves multiset multiplicity while canonicalizing equal graph vertices'
   assert.deepEqual(result.geometry.segments, []);
 });
 
-test('expands inclusive exponent ranges and closes through a canonical repeated point', async () => {
+test('treats a grouped exponent range exactly like a set exponent range', async () => {
   const kernel = await createKernel();
   const workspace = kernel.createWorkspace().handle;
-  const geometry = plotGeometry(kernel, workspace, 'i^(1..5)').geometry;
+  const grouped = plotGeometry(kernel, workspace, 'i^(1..5)').geometry;
+  const set = plotGeometry(kernel, workspace, 'i^{1..5}').geometry;
   const [i, minusOne, minusI, one] = [[0, 1], [-1, 0], [0, -1], [1, 0]];
 
-  assert.deepEqual(geometry.points, [i, minusOne, minusI, one]);
-  assert.deepEqual(geometry.segments, [
-    [i, minusOne],
-    [minusOne, minusI],
-    [minusI, one],
-    [one, i]
-  ]);
-  assert.equal(geometry.segments.at(-1)[1], geometry.points[0]);
+  assert.deepEqual(grouped, set);
+  assert.deepEqual(grouped.points, [i, minusOne, minusI, one]);
+  assert.deepEqual(grouped.segments, []);
 });
 
 test('t changes the current 2D frame without changing its geometry category', async () => {

@@ -9,7 +9,8 @@ const PROPERTY_DESCRIPTORS = Object.freeze([
   descriptor('vz', ['vertex'], 'velocity', { temporal: true, minimumDimension: 3 }),
   descriptor('a', ['vertex'], 'acceleration', { temporal: true, tuple: true, complex: true }),
   descriptor('L', ['edge'], 'length', { directed: true }),
-  descriptor('k', ['edge'], 'linear-spring-constant'),
+  descriptor('k', ['edge'], 'linear-spring-constant', { dimension: [0, 1, -2, 0, 0, 0, 0] }),
+  descriptor('k_theta', ['edge'], 'angular-spring-constant', { dimension: [2, 1, -2, 0, 0, 0, 0] }),
   descriptor('m', ['vertex'], 'mass'),
   descriptor('q', ['vertex'], 'charge'),
   descriptor('lambda_m', ['edge'], 'line-mass-density'),
@@ -35,6 +36,22 @@ const PROPERTY_DESCRIPTORS = Object.freeze([
   descriptor('phi', ['vertex', 'edge', 'face', 'volume'], 'electric-potential', { field: true }),
   descriptor('c', ['vertex', 'edge', 'face'], 'color-coordinate')
 ]);
+
+const PROPERTY_UNIT_SUFFIXES = Object.freeze([
+  'W/(m^2*K)', 'J/(kg*K)', 'W/(m*K)', 'kg/m^3', 'kg/m^2', 'C/m^3', 'C/m^2',
+  'g/m^3', 'g/m^2', 'm^2/s', 'kg/m', 'C/m', 'cm/s', 'g/m', 'mm/s', 'Pa*s',
+  'F/m', 'H/m', 'S/m', 'V/m', 'kN/m', 'mN/m', 'dyn/cm', 'kdyn/cm', 'lbf/ft',
+  'lbf/in', 'N/m', 'kN*m', 'mN*m', 'dyn*cm', 'kdyn*cm', 'lbf*ft', 'lbf*in', 'N*m',
+  '1/nm', '1/um', '1/mm', '1/cm', '1/km', '1/in', '1/ft', '1/yd', '1/mi', '1/au',
+  '1/ly', '1/m', 'm/s', 'nm', 'um', 'cm', 'kg', 'mm', 'km', 'in', 'ft', 'yd', 'mi',
+  'au', 'ly', 'Pa', 'C', 'K', 'T', 'V', 'g', 'm'
+].sort((left, right) => right.length - left.length));
+
+const PROPERTY_UNIT_PATTERN = PROPERTY_UNIT_SUFFIXES.map(escapeRegExp).join('|');
+const PROPERTY_HIGHLIGHT_PATTERN = new RegExp(
+  `(\\.[A-Za-z_][A-Za-z0-9_]*)|(\\$[A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(?:\\([^\\n)]*\\))?\\s*:)|(${PROPERTY_UNIT_PATTERN})(?=\\s|$)|([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?)|(#[^\\n]*)|([A-Za-z_][A-Za-z0-9_]*)|(\\s+|[^\\s])`,
+  'giy'
+);
 
 export function reachablePropertyDescriptors({
   geometryKinds = [],
@@ -76,11 +93,17 @@ export function parsePropertyProgram(source) {
     if (!line || line.startsWith('#')) continue;
     const property = /^\.([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$/.exec(line);
     if (property) {
-      properties.push({ name: property[1], expression: property[2].trim() });
+      properties.push({
+        name: property[1],
+        expression: normalizeTrailingPropertyUnit(property[2].trim())
+      });
       continue;
     }
     const definition = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*\([^)]*\))?\s*:/.exec(line);
-    bindings.push({ source: line, ...(definition ? { name: definition[1] } : {}) });
+    bindings.push({
+      source: normalizeTrailingPropertyUnit(line),
+      ...(definition ? { name: definition[1] } : {})
+    });
   }
   return { properties, bindings };
 }
@@ -132,9 +155,8 @@ export function expandEvaluatedReferences(source, bindings = {}) {
 
 export function highlightPropertyProgram(source) {
   const text = String(source ?? '');
-  const pattern = /(\.[A-Za-z_][A-Za-z0-9_]*)|(\$[A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?:\([^\n)]*\))?\s*:)|(W\/\(m\^2\*K\)|W\/\(m\*K\)|J\/\(kg\*K\)|kg\/m\^[123]|g\/m\^[123]|C\/m\^[123]|m\^2\/s|Pa\*s|F\/m|H\/m|S\/m|V\/m|N\/m|kg\/m|g\/m|C\/m|mm\/s|cm\/s|m\/s|mm|cm|kg|Pa|K|C|T|V|g|m)(?=\s|$)|([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)|(#[^\n]*)|([A-Za-z_][A-Za-z0-9_]*)|(\s+|[^\s])/giy;
   const tokens = [];
-  for (const match of text.matchAll(pattern)) {
+  for (const match of text.matchAll(PROPERTY_HIGHLIGHT_PATTERN)) {
     const role = match[1] ? 'update'
       : match[2] ? 'reference'
         : match[3] ? 'definition'
@@ -158,9 +180,25 @@ function descriptor(name, geometryKinds, quantity, options = {}) {
     tuple: options.tuple === true,
     complex: options.complex === true,
     field: options.field === true,
+    dimension: options.dimension ? Object.freeze([...options.dimension]) : null,
     overrides: Object.freeze(options.overrides || []),
     directed: options.directed === true
   });
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeTrailingPropertyUnit(source) {
+  const text = String(source ?? '').trimEnd();
+  for (const unit of PROPERTY_UNIT_SUFFIXES) {
+    if (!text.endsWith(unit)) continue;
+    const prefix = text.slice(0, -unit.length);
+    if (!prefix || /\s$/.test(prefix)) return text;
+    if (/[\d.)\]]$/.test(prefix)) return `${prefix} ${unit}`;
+  }
+  return text;
 }
 
 function serializeValue(value) {

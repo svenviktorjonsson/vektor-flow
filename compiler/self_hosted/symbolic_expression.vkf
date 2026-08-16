@@ -862,10 +862,108 @@ symbolic_definition_latex(node:any):
 
 symbolic_variable_latex(name:str):
     name??
+        "alpha" => "\\alpha"
+        "beta" => "\\beta"
+        "gamma" => "\\gamma"
+        "delta" => "\\delta"
+        "epsilon" => "\\epsilon"
+        "zeta" => "\\zeta"
+        "eta" => "\\eta"
+        "theta" => "\\theta"
+        "iota" => "\\iota"
+        "kappa" => "\\kappa"
+        "lambda" => "\\lambda"
+        "mu" => "\\mu"
+        "nu" => "\\nu"
+        "xi" => "\\xi"
+        "omicron" => "o"
         "pi" => "\\pi"
+        "rho" => "\\rho"
+        "sigma" => "\\sigma"
+        "tau" => "\\tau"
+        "upsilon" => "\\upsilon"
         "phi" => "\\phi"
+        "chi" => "\\chi"
+        "psi" => "\\psi"
+        "omega" => "\\omega"
+        "Alpha" => "\\mathrm{A}"
+        "Beta" => "\\mathrm{B}"
+        "Gamma" => "\\Gamma"
+        "Delta" => "\\Delta"
+        "Epsilon" => "\\mathrm{E}"
+        "Zeta" => "\\mathrm{Z}"
+        "Eta" => "\\mathrm{H}"
+        "Theta" => "\\Theta"
+        "Iota" => "\\mathrm{I}"
+        "Kappa" => "\\mathrm{K}"
+        "Lambda" => "\\Lambda"
+        "Mu" => "\\mathrm{M}"
+        "Nu" => "\\mathrm{N}"
+        "Xi" => "\\Xi"
+        "Omicron" => "\\mathrm{O}"
+        "Pi" => "\\Pi"
+        "Rho" => "\\mathrm{P}"
+        "Sigma" => "\\Sigma"
+        "Tau" => "\\mathrm{T}"
+        "Upsilon" => "\\Upsilon"
+        "Phi" => "\\Phi"
+        "Chi" => "\\mathrm{X}"
+        "Psi" => "\\Psi"
+        "Omega" => "\\Omega"
         "i" => "i"
         name
+
+symbolic_greek_identifier(name:str):
+    name??
+        "alpha" => true
+        "beta" => true
+        "gamma" => true
+        "delta" => true
+        "epsilon" => true
+        "zeta" => true
+        "eta" => true
+        "theta" => true
+        "iota" => true
+        "kappa" => true
+        "lambda" => true
+        "mu" => true
+        "nu" => true
+        "xi" => true
+        "omicron" => true
+        "pi" => true
+        "rho" => true
+        "sigma" => true
+        "tau" => true
+        "upsilon" => true
+        "phi" => true
+        "chi" => true
+        "psi" => true
+        "omega" => true
+        "Alpha" => true
+        "Beta" => true
+        "Gamma" => true
+        "Delta" => true
+        "Epsilon" => true
+        "Zeta" => true
+        "Eta" => true
+        "Theta" => true
+        "Iota" => true
+        "Kappa" => true
+        "Lambda" => true
+        "Mu" => true
+        "Nu" => true
+        "Xi" => true
+        "Omicron" => true
+        "Pi" => true
+        "Rho" => true
+        "Sigma" => true
+        "Tau" => true
+        "Upsilon" => true
+        "Phi" => true
+        "Chi" => true
+        "Psi" => true
+        "Omega" => true
+        false
 
 symbolic_binary_latex(node:any, precedence:num):
     node.op??
@@ -1557,7 +1655,7 @@ symbolic_binary_scalar_variant(node:any, left:any, right:any):
 
 symbolic_is_linked_collection(node:any):
     unwrapped: symbolic_ungroup(node)
-    unwrapped.kind = "tuple" \/ (unwrapped.kind = "binary" /\ unwrapped.op = "^" /\ (symbolic_ungroup(unwrapped.right).kind = "tuple" \/ symbolic_ungroup(unwrapped.right).kind = "range"))
+    unwrapped.kind = "tuple" \/ (unwrapped.kind = "binary" /\ unwrapped.op = "^" /\ symbolic_ungroup(unwrapped.right).kind = "tuple")
 
 symbolic_linked_collection_items(node:any):
     node.kind = "tuple"?
@@ -1663,6 +1761,18 @@ symbolic_static_range_numbers_descending(current:num, end:num, location:any):
         @: vkf_list_empty()
     vkf_list_single(symbolic_number(current, "", location)) & symbolic_static_range_numbers_descending(current - 1, end, location)
 
+symbolic_static_range_length(node:any):
+    node.kind != "range" \/ node.start.kind != "number" \/ node.end.kind != "number"?
+        @: 0
+    node.end.value >= node.start.value?
+        @: node.end.value - node.start.value + 1
+    node.start.value - node.end.value + 1
+
+symbolic_static_range_lane(node:any, lane:num):
+    node.end.value >= node.start.value?
+        @: symbolic_number(node.start.value + lane, "", node.location)
+    symbolic_number(node.start.value - lane, "", node.location)
+
 symbolic_item_variants(item:any):
     item.kind = "range"?
         @: symbolic_static_range_variants(item)
@@ -1677,6 +1787,7 @@ symbolic_multiset_variants(items:any, index:num):
 symbolic_ast_variants(node:any):
     node.kind??
         "multiset" => symbolic_multiset_variants(node.items, 0)
+        "range" => symbolic_static_range_variants(node)
         "unary" => symbolic_unary_variants(node, symbolic_ast_variants(node.operand), 0)
         "group" => symbolic_group_variants(node, symbolic_ast_variants(node.expression), 0)
         "binary" => symbolic_binary_variants(node, symbolic_ast_variants(node.left), symbolic_ast_variants(node.right), 0, 0)
@@ -1685,6 +1796,136 @@ symbolic_ast_variants(node:any):
         "vector" => symbolic_vector_variants(node, symbolic_ast_variants(node.x), symbolic_ast_variants(node.y), 0, 0)
         "definition" => symbolic_definition_variants(node, symbolic_ast_variants(node.value), 0)
         vkf_list_single(node)
+
+# Tuples are linked geometry only as standalone geometry. Inside an expression
+# they are lanes: equal-length tuples zip, while sets still Cartesian-expand.
+symbolic_tuple_length_merge(left:num, right:num):
+    left < 0 \/ right < 0?
+        @: -1
+    left = 0?
+        @: right
+    right = 0?
+        @: left
+    left = right?
+        @: left
+    mismatch: 0 - 1
+    mismatch
+
+symbolic_expression_tuple_length_items(items:any, index:num, current:num):
+    index >= vkf_list_length(items)?
+        @: current
+    next: symbolic_tuple_length_merge(current, symbolic_expression_tuple_length(items.(index)))
+    symbolic_expression_tuple_length_items(items, index + 1, next)
+
+symbolic_group_tuple_length(node:any):
+    node.expression.kind = "range"?
+        @: symbolic_static_range_length(node.expression)
+    symbolic_expression_tuple_length(node.expression)
+
+symbolic_expression_tuple_length(node:any):
+    node.kind??
+        "tuple" => symbolic_tuple_length_merge(
+            vkf_list_length(node.items),
+            symbolic_expression_tuple_length_items(node.items, 0, 0)
+        )
+        "unary" => symbolic_expression_tuple_length(node.operand)
+        "group" => symbolic_group_tuple_length(node)
+        "binary" => symbolic_tuple_length_merge(
+            symbolic_expression_tuple_length(node.left),
+            symbolic_expression_tuple_length(node.right)
+        )
+        "call" => symbolic_expression_tuple_length_items(node.args, 0, 0)
+        "vector" => symbolic_tuple_length_merge(
+            symbolic_expression_tuple_length(node.x),
+            symbolic_expression_tuple_length(node.y)
+        )
+        "range" => symbolic_static_range_length(node)
+        "multiset" => 0
+        "definition" => symbolic_expression_tuple_length(node.value)
+        0
+
+symbolic_tuple_lane_items(items:any, index:num, lane:num):
+    index >= vkf_list_length(items)?
+        @: vkf_list_empty()
+    vkf_list_single(symbolic_tuple_lane(items.(index), lane)) & symbolic_tuple_lane_items(items, index + 1, lane)
+
+symbolic_tuple_lane_binary(node:any, lane:num):
+    left: symbolic_tuple_lane(node.left, lane)
+    right: symbolic_tuple_lane(node.right, lane)
+    node.implicit = true?
+        @: symbolic_implicit_multiplication(left, right, node.location)
+    symbolic_binary(node.op, left, right, node.location)
+
+symbolic_group_tuple_lane(node:any, lane:num):
+    node.expression.kind = "range"?
+        @: symbolic_group(symbolic_static_range_lane(node.expression, lane), node.location)
+    symbolic_group(symbolic_tuple_lane(node.expression, lane), node.location)
+
+symbolic_tuple_lane(node:any, lane:num):
+    node.kind??
+        "tuple" => symbolic_tuple_lane(node.items.(lane), lane)
+        "unary" => symbolic_unary(node.op, symbolic_tuple_lane(node.operand, lane), node.location)
+        "group" => symbolic_group_tuple_lane(node, lane)
+        "binary" => symbolic_tuple_lane_binary(node, lane)
+        "call" => symbolic_call(node.name, symbolic_tuple_lane_items(node.args, 0, lane), node.location)
+        "vector" => symbolic_vector_node(
+            symbolic_tuple_lane(node.x, lane),
+            symbolic_tuple_lane(node.y, lane),
+            node.location
+        )
+        "range" => symbolic_static_range_lane(node, lane)
+        "multiset" => node
+        "definition" => symbolic_definition(
+            node.name,
+            node.parameters,
+            symbolic_tuple_lane(node.value, lane),
+            node.location
+        )
+        node
+
+symbolic_tuple_lane_variants(ast:any, lane:num, tupleLength:num):
+    lane >= tupleLength?
+        @: vkf_list_empty()
+    symbolic_ast_variants(symbolic_tuple_lane(ast, lane)) & symbolic_tuple_lane_variants(ast, lane + 1, tupleLength)
+
+symbolic_geometry_preserves_tuples(classification:str):
+    classification = "linked-tuple" \/ classification = "point-set"
+
+symbolic_ast_items_contain_call(items:any, index:num):
+    index >= vkf_list_length(items)?
+        @: false
+    symbolic_ast_contains_call(items.(index)) \/ symbolic_ast_items_contain_call(items, index + 1)
+
+symbolic_ast_contains_call(node:any):
+    node.kind??
+        "call" => true
+        "unary" => symbolic_ast_contains_call(node.operand)
+        "group" => symbolic_ast_contains_call(node.expression)
+        "binary" => symbolic_ast_contains_call(node.left) \/ symbolic_ast_contains_call(node.right)
+        "tuple" => symbolic_ast_items_contain_call(node.items, 0)
+        "vector" => symbolic_ast_contains_call(node.x) \/ symbolic_ast_contains_call(node.y)
+        "range" => symbolic_ast_contains_call(node.start) \/ symbolic_ast_contains_call(node.end)
+        "multiset" => symbolic_ast_items_contain_call(node.items, 0)
+        "definition" => symbolic_ast_contains_call(node.value)
+        false
+
+symbolic_tuple_lanes_enabled(ast:any, classification:str):
+    symbolic_geometry_preserves_tuples(classification)?
+        @: false
+    classification = "definition"?
+        @: false
+    classification = "literal"?
+        @: symbolic_ast_contains_call(ast)
+    enabled: true
+    enabled
+
+symbolic_program_variants(ast:any, classification:str):
+    symbolic_tuple_lanes_enabled(ast, classification) = false?
+        @: symbolic_ast_variants(ast)
+    tupleLength: symbolic_expression_tuple_length(ast)
+    tupleLength > 0?
+        @: symbolic_tuple_lane_variants(ast, 0, tupleLength)
+    symbolic_ast_variants(ast)
 
 symbolic_group_variants(node:any, variants:any, index:num):
     index >= vkf_list_length(variants)?
@@ -1730,6 +1971,20 @@ symbolic_power_base_has_y_only(base:any):
     variables: symbolic_variables(base)
     symbolic_list_contains(variables, 0, "y") /\ symbolic_list_contains(variables, 0, "x") = false /\ symbolic_list_contains(variables, 0, "z") = false
 
+symbolic_variables_are_temporal_only(variables:any, index:num):
+    index >= vkf_list_length(variables)?
+        @: true
+    current: variables.(index)
+    (current = "t" \/ current = "n" \/ current = "N")?
+        @: symbolic_variables_are_temporal_only(variables, index + 1)
+    temporalOnly: false
+    temporalOnly
+
+symbolic_tuple_classification(variables:any, valueKind:str):
+    symbolic_variables_are_temporal_only(variables, 0)?
+        @: "linked-tuple"
+    symbolic_variable_classification(variables, valueKind)
+
 symbolic_classification(ast:any, variables:any, value_kind:str):
     symbolic_is_y_of_x_power_family(ast)?
         @: "y-of-x-family"
@@ -1737,11 +1992,11 @@ symbolic_classification(ast:any, variables:any, value_kind:str):
         @: "x-of-y-family"
     ast.kind = "binary" /\ ast.op = "^" /\ ast.right.kind = "multiset"?
         @: "point-set"
-    ast.kind = "binary" /\ ast.op = "^" /\ (ast.right.kind = "tuple" \/ ast.right.kind = "range")?
-        @: "linked-tuple"
+    ast.kind = "binary" /\ ast.op = "^" /\ ast.right.kind = "tuple"?
+        @: symbolic_tuple_classification(variables, value_kind)
     ast.kind??
         "definition" => "definition"
-        "tuple" => "linked-tuple"
+        "tuple" => symbolic_tuple_classification(variables, value_kind)
         "multiset" => symbolic_multiset_classification(variables, value_kind)
         "binary" => symbolic_binary_classification(ast, variables, value_kind)
         symbolic_variable_classification(variables, value_kind)
@@ -2192,12 +2447,13 @@ symbolic_compile_with_context(source:str, context:any, clip:any):
     variables: symbolic_variables(semantic_ast)
     active_context: symbolic_owned_context(context)
     value_kind: symbolic_value_kind_for_context(semantic_ast, active_context)
+    classification: symbolic_classification(semantic_ast, variables, value_kind)
     symbolic_program(
         semantic_ast,
-        parsed.next.diagnostics & symbolic_semantic_diagnostics(semantic_ast),
+        parsed.next.diagnostics & symbolic_semantic_diagnostics(semantic_ast) & symbolic_tuple_length_diagnostics(semantic_ast, classification),
         symbolic_latex(parsed.ast),
         variables,
-        symbolic_classification(semantic_ast, variables, value_kind),
+        classification,
         value_kind,
         active_context,
         clip
@@ -2240,7 +2496,7 @@ symbolic_program(
 ):
     (
         ast: ast,
-        variants: symbolic_ast_variants(ast),
+        variants: symbolic_program_variants(ast, classification),
         diagnostics: diagnostics,
         latex: latex,
         variables: variables,
@@ -2455,8 +2711,26 @@ symbolic_plot(
     metadata: symbolic_plot_builder_metadata(sampled)
     symbolic_plot_result(metadata, program.classification)
 
+symbolic_plot_variant(
+    program:SymbolicProgram,
+    workspace:SymbolicWorkspace,
+    view:any,
+    style:any,
+    revision:num,
+    variantIndex:num
+):
+    variantIndex < 0 \/ variantIndex >= vkf_list_length(program.variants)?
+        @: null
+    symbolic_plot(
+        symbolic_variant_program(program, program.variants.(variantIndex)),
+        workspace,
+        view,
+        style,
+        revision
+    )
+
 symbolic_is_linked_power_collection(node:any):
-    node.kind = "binary" /\ node.op = "^" /\ (node.right.kind = "tuple" \/ node.right.kind = "range")
+    node.kind = "binary" /\ node.op = "^" /\ node.right.kind = "tuple"
 
 symbolic_curve_family_points_per_curve(classification:str, view:any):
     classification = "y-of-x-family"?
@@ -2923,7 +3197,7 @@ symbolic_document_math_anchor(source:str, offset:num, profile:str):
     symbolic_document_known_identifier(name, profile) \/ symbolic_document_identifier_is_call(source, end)
 
 symbolic_document_known_identifier(name:str, profile:str):
-    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "e" \/ name = "phi" \/ name = "pi" \/ name = "i" \/ (profile = "platonic" /\ symbolic_document_platonic_implicit_product(name) != "")
+    name = "x" \/ name = "y" \/ name = "z" \/ name = "t" \/ name = "r" \/ name = "e" \/ name = "i" \/ symbolic_greek_identifier(name) \/ (profile = "platonic" /\ symbolic_document_platonic_implicit_product(name) != "")
 
 symbolic_document_platonic_implicit_product(name:str):
     name??
@@ -3233,25 +3507,45 @@ symbolic_power_family_value(program:any, workspace:any, x:num, y:num, frameTime:
     baseKind: symbolic_value_kind_for_context(program.ast.left, program.context)
     symbolic_power_collection_value(base, baseKind, exponent)
 
+symbolic_sample_chunk_end(index:num, count:num):
+    end: index + 64
+    end > count?
+        @: count
+    end
+
 symbolic_sample_explicit_x_family(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num):
     exponentIndex >= symbolic_power_exponent_count(program.ast, program, workspace, view.t)?
         @: builder
     index >= view.xSteps?
         @: symbolic_sample_explicit_x_family(program, workspace, view, style, builder, exponentIndex + 1, 0)
+    stop: symbolic_sample_chunk_end(index, view.xSteps)
+    sampled: symbolic_sample_explicit_x_family_chunk(program, workspace, view, style, builder, exponentIndex, index, stop)
+    symbolic_sample_explicit_x_family(program, workspace, view, style, sampled, exponentIndex, stop)
+
+symbolic_sample_explicit_x_family_chunk(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num, stop:num):
+    index >= stop?
+        @: builder
     x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
     y: symbolic_power_family_value(program, workspace, x, 0, view.t, exponentIndex)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_x_family(program, workspace, view, style, pushed, exponentIndex, index + 1)
+    symbolic_sample_explicit_x_family_chunk(program, workspace, view, style, pushed, exponentIndex, index + 1, stop)
 
 symbolic_sample_explicit_y_family(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num):
     exponentIndex >= symbolic_power_exponent_count(program.ast, program, workspace, view.t)?
         @: builder
     index >= view.ySteps?
         @: symbolic_sample_explicit_y_family(program, workspace, view, style, builder, exponentIndex + 1, 0)
+    stop: symbolic_sample_chunk_end(index, view.ySteps)
+    sampled: symbolic_sample_explicit_y_family_chunk(program, workspace, view, style, builder, exponentIndex, index, stop)
+    symbolic_sample_explicit_y_family(program, workspace, view, style, sampled, exponentIndex, stop)
+
+symbolic_sample_explicit_y_family_chunk(program:any, workspace:any, view:any, style:any, builder:any, exponentIndex:num, index:num, stop:num):
+    index >= stop?
+        @: builder
     y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
     x: symbolic_power_family_value(program, workspace, 0, y, view.t, exponentIndex)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_y_family(program, workspace, view, style, pushed, exponentIndex, index + 1)
+    symbolic_sample_explicit_y_family_chunk(program, workspace, view, style, pushed, exponentIndex, index + 1, stop)
 
 symbolic_sample_explicit_x(
     program:any,
@@ -3262,6 +3556,13 @@ symbolic_sample_explicit_x(
     index:num
 ):
     index >= view.xSteps?
+        @: builder
+    stop: symbolic_sample_chunk_end(index, view.xSteps)
+    sampled: symbolic_sample_explicit_x_chunk(program, workspace, view, style, builder, index, stop)
+    symbolic_sample_explicit_x(program, workspace, view, style, sampled, stop)
+
+symbolic_sample_explicit_x_chunk(program:any, workspace:any, view:any, style:any, builder:any, index:num, stop:num):
+    index >= stop?
         @: builder
     x: symbolic_sample_coordinate(view.xMin, view.xMax, view.xSteps, index)
     rawY: symbolic_program_evaluate_local_at(
@@ -3276,13 +3577,14 @@ symbolic_sample_explicit_x(
     allowed: symbolic_workspace_point_within_constraints(program, workspace, x, resolvedY, 0, view.t, 0)
     y: symbolic_constrained_value(allowed, resolvedY)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_x(
+    symbolic_sample_explicit_x_chunk(
         program,
         workspace,
         view,
         style,
         pushed,
-        index + 1
+        index + 1,
+        stop
     )
 
 symbolic_sample_explicit_y(
@@ -3294,6 +3596,13 @@ symbolic_sample_explicit_y(
     index:num
 ):
     index >= view.ySteps?
+        @: builder
+    stop: symbolic_sample_chunk_end(index, view.ySteps)
+    sampled: symbolic_sample_explicit_y_chunk(program, workspace, view, style, builder, index, stop)
+    symbolic_sample_explicit_y(program, workspace, view, style, sampled, stop)
+
+symbolic_sample_explicit_y_chunk(program:any, workspace:any, view:any, style:any, builder:any, index:num, stop:num):
+    index >= stop?
         @: builder
     y: symbolic_sample_coordinate(view.yMin, view.yMax, view.ySteps, index)
     rawX: symbolic_program_evaluate_local_at(
@@ -3308,13 +3617,14 @@ symbolic_sample_explicit_y(
     allowed: symbolic_workspace_point_within_constraints(program, workspace, resolvedX, y, 0, view.t, 0)
     x: symbolic_constrained_value(allowed, resolvedX)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
-    symbolic_sample_explicit_y(
+    symbolic_sample_explicit_y_chunk(
         program,
         workspace,
         view,
         style,
         pushed,
-        index + 1
+        index + 1,
+        stop
     )
 
 symbolic_number_is_finite(value:num):
@@ -4382,6 +4692,19 @@ symbolic_semantic_diagnostics(ast:any):
         "multiset" => symbolic_items_diagnostics(ast.items, 0)
         vkf_list_empty()
 
+symbolic_tuple_length_diagnostics(ast:any, classification:str):
+    symbolic_tuple_lanes_enabled(ast, classification) = false?
+        @: vkf_list_empty()
+    symbolic_expression_tuple_length(ast) < 0?
+        @: vkf_list_single(
+            symbolic_diagnostic(
+                "tuple-length-mismatch",
+                "tuples in one expression must have equal lengths",
+                ast.location
+            )
+        )
+    vkf_list_empty()
+
 symbolic_items_diagnostics(items:any, index:num):
     index >= vkf_list_length(items)?
         @: vkf_list_empty()
@@ -4459,7 +4782,8 @@ symbolic_expression_capability:
         "symbolic_workspace_append(workspace, source, context, clip)",
         "symbolic_workspace_evaluate(workspace, handle, x, y, z, t)",
         "symbolic_program_evaluate_at(program, x, y, z, t, context, workspace)",
-        "symbolic_plot(program, workspace, view, style, revision)"
+        "symbolic_plot(program, workspace, view, style, revision)",
+        "symbolic_plot_variant(program, workspace, view, style, revision, variantIndex)"
     ]
     classifications: [
         "literal",

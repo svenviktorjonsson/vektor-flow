@@ -47,7 +47,8 @@ export async function createSymbolicPlotController({
   canvas,
   kernel: suppliedKernel = null,
   loadKernel = loadPackagedSymbolicKernel,
-  createRenderer = createSymbolicPlotRenderer
+  createRenderer = createSymbolicPlotRenderer,
+  appearance = {}
 }) {
   if (!canvas) throw new TypeError('symbolic plot requires a canvas');
   if (typeof loadKernel !== 'function') throw new TypeError('loadKernel must be a function');
@@ -66,6 +67,7 @@ export async function createSymbolicPlotController({
   let snapGeometry = symbolicPlotSnapGeometry(null);
   let dataToScreenTransform = [...IDENTITY_AFFINE];
   let interactionState = Object.freeze({ edge: 'normal', face: 'normal' });
+  let plotAppearance = { ...appearance };
   let latestViewRevision = null;
   let latestViewSpatialKey = null;
   let latestViewEpoch = 0;
@@ -73,7 +75,9 @@ export async function createSymbolicPlotController({
   let latestPlotRequest = null;
   let latestCommittedPlotOrder = 0;
   let latestCommittedPlotRevision = null;
+  let analyticTimeUniform = false;
   canvas.hidden = false;
+  renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
 
   async function plot({
     source,
@@ -127,6 +131,8 @@ export async function createSymbolicPlotController({
     const relationPrograms = (documentPrograms || [program])
       .filter((member) => isSymbolicRelation(member?.classification));
     const allPrograms = documentPrograms || [program];
+    const explicitCurvePrograms = allPrograms
+      .filter((member) => isExplicitSymbolicCurve(member?.classification));
     const scalarFieldProgram = allPrograms.length === 1
       && allPrograms[0]?.classification === 'scalar-field'
       ? allPrograms[0]
@@ -135,12 +141,23 @@ export async function createSymbolicPlotController({
       && allPrograms[0]?.classification === 'complex-field'
       ? allPrograms[0]
       : null;
+    const explicitCurveInputs = explicitCurvePrograms.flatMap(explicitCurveRelationInputs);
+    const explicitCurveColors = symbolicSeriesColors(
+      explicitCurveInputs.length,
+      style.colormapPoints,
+      seriesColorRange
+    );
     const relationInputs = [
-      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants }))
-    ].map(({ ast, variants, explicitCurve }) => ({
+      ...relationPrograms.map((member) => ({ ast: member.ast, variants: member.variants })),
+      ...explicitCurveInputs.map((input, index) => ({
+        ...input,
+        edgeColor: explicitCurveColors?.[index] ?? null
+      }))
+    ].map(({ ast, variants, explicitCurve, edgeColor }) => ({
       ast,
       variants,
       explicitCurve,
+      edgeColor,
       style,
       t: view.t
     }));
@@ -178,12 +195,13 @@ export async function createSymbolicPlotController({
     }
     let nextSnapGeometry;
     let nextArena;
-    if (
+    const analyticalPlot = (
       (relationInputs.length > 0
-        && relationPrograms.length === allPrograms.length)
+        && relationPrograms.length + explicitCurvePrograms.length === allPrograms.length)
       || analyticComplexField
       || analyticScalarField
-    ) {
+    );
+    if (analyticalPlot) {
       nextSnapGeometry = symbolicPlotSnapGeometry(null);
       nextArena = emptyArena(requestOrder);
     } else if (result.diagnostics.length === 0) {
@@ -192,9 +210,35 @@ export async function createSymbolicPlotController({
         && member !== scalarFieldProgram
         && member !== complexFieldProgram
       ));
-      const arenas = await Promise.all(sampledPrograms.map(async (member) =>
+      const retainedSampledProgram = sampledPrograms.length === 1
+        ? compiled.program ?? null
+        : null;
+      const retainedVariants = retainedSampledProgram
+        && sampledPrograms[0]?.variants?.length > 1
+        && typeof kernel.plotVariant === 'function'
+        ? sampledPrograms[0].variants
+        : null;
+      const plotInputs = retainedVariants
+        ? retainedVariants.map((_, variantIndex) => ({
+            program: retainedSampledProgram,
+            variantIndex
+          }))
+        : sampledPrograms.map((member) => ({
+            program: retainedSampledProgram || member,
+            variantIndex: null
+          }));
+      const arenas = await Promise.all(plotInputs.map(async ({ program: member, variantIndex }) =>
         snapshotSymbolicPlotArena(
-          await kernel.plot(member, executionWorkspace, view, style, revision),
+          await (variantIndex == null
+            ? kernel.plot(member, executionWorkspace, view, style, revision)
+            : kernel.plotVariant(
+                member,
+                executionWorkspace,
+                view,
+                style,
+                revision,
+                variantIndex
+              )),
           kernel.memory,
           requestOrder
         )));
@@ -218,6 +262,7 @@ export async function createSymbolicPlotController({
       && latestPlotRequest.compatibilityKey !== compatibilityKey
     ) return lastResult;
     if (requestOrder < latestCommittedPlotOrder) return lastResult;
+    assertPlottableOutput(result, nextArena, analyticalPlot);
     if (latestViewRevision == null || (
       requestedFrameRevision != null && requestedFrameRevision >= latestViewRevision
     )) {
@@ -226,6 +271,7 @@ export async function createSymbolicPlotController({
     }
     latestCommittedPlotOrder = requestOrder;
     latestCommittedPlotRevision = requestedFrameRevision;
+    analyticTimeUniform = analyticalPlot;
     if (!compilation) workspace = executionWorkspace;
     dataToScreenTransform = [...transform];
     renderer.updateTransform(transform);
@@ -264,6 +310,7 @@ export async function createSymbolicPlotController({
     const nextTransform = symbolicDataToScreenTransform({ transform: cssTransform }, context);
     const localClip = symbolicClipInLocalCoordinates(clip, context);
     const spatialKey = symbolicViewSpatialKey(nextTransform, localClip);
+    const spatialChanged = spatialKey !== latestViewSpatialKey;
     if (requestedFrameEpoch < latestViewEpoch) return false;
     if (requestedFrameEpoch > latestViewEpoch) {
       latestViewEpoch = requestedFrameEpoch;
@@ -282,8 +329,36 @@ export async function createSymbolicPlotController({
       }
     }
     dataToScreenTransform = nextTransform;
+    if (!spatialChanged) return true;
     renderer.updateTransform(dataToScreenTransform);
     renderer.updateClip(localClip);
+    if (visible) renderer.render();
+    return true;
+  }
+
+  function updateTime({ t, frameRevision = null, frameEpoch = 0 }) {
+    assertAlive();
+    if (!analyticTimeUniform || !lastResult || typeof renderer.updateTime !== 'function') return false;
+    const time = finite(t, 'symbolic plot time');
+    const requestedFrameRevision = normalizeFrameRevision(frameRevision);
+    const requestedFrameEpoch = normalizeFrameEpoch(frameEpoch);
+    if (requestedFrameEpoch < latestViewEpoch) return false;
+    if (
+      requestedFrameEpoch === latestViewEpoch
+      && isStaleFrameRevision(requestedFrameRevision, latestViewRevision)
+    ) return false;
+    if (!renderer.updateTime(time)) return false;
+    latestViewEpoch = requestedFrameEpoch;
+    if (latestViewRevision == null || (
+      requestedFrameRevision != null && requestedFrameRevision >= latestViewRevision
+    )) latestViewRevision = requestedFrameRevision;
+    latestCommittedPlotRevision = requestedFrameRevision;
+    lastResult = Object.freeze({
+      ...lastResult,
+      view: Object.freeze({ ...lastResult.view, t: time }),
+      frameRevision: requestedFrameRevision,
+      frameEpoch: requestedFrameEpoch
+    });
     if (visible) renderer.render();
     return true;
   }
@@ -326,9 +401,20 @@ export async function createSymbolicPlotController({
     }
     if (next.edge === interactionState.edge && next.face === interactionState.face) return interactionState;
     interactionState = next;
-    renderer.updateAppearance({ partStates: interactionState });
+    renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
     if (visible) renderer.render();
     return interactionState;
+  }
+
+  function setAppearance(nextAppearance = {}) {
+    assertAlive();
+    if (!nextAppearance || typeof nextAppearance !== 'object' || Array.isArray(nextAppearance)) {
+      throw new TypeError('symbolic plot appearance must be an object');
+    }
+    plotAppearance = { ...plotAppearance, ...nextAppearance };
+    const next = renderer.updateAppearance({ ...plotAppearance, partStates: interactionState });
+    if (visible) renderer.render();
+    return next;
   }
 
   function hitTest(screenPoint, radius = 7) {
@@ -355,8 +441,10 @@ export async function createSymbolicPlotController({
   return Object.freeze({
     plot,
     updateView,
+    updateTime,
     resize,
     setVisible,
+    setAppearance,
     setInteractionState,
     hitTest,
     pick,
@@ -1295,6 +1383,24 @@ const PLOTTABLE_CLASSIFICATIONS = new Set([
   'closed-region',
   'plot-group'
 ]);
+
+function assertPlottableOutput(result, arena, analytical) {
+  if (analytical || !PLOTTABLE_CLASSIFICATIONS.has(result?.classification)) return;
+  if (Array.isArray(result?.diagnostics) && result.diagnostics.length) return;
+  const hasGeometry = Array.isArray(arena?.ranges)
+    && arena.ranges.some(({ count }) => Number(count) > 0);
+  if (hasGeometry) return;
+  throw new Error(`VKF plottable ${result.classification} produced no geometry`);
+}
+
+function symbolicSeriesColors(count, colormapPoints, range) {
+  if (!range || count <= 0 || !Array.isArray(colormapPoints)) return null;
+  const total = Math.max(1, Math.trunc(Number(range.total) || count));
+  const offset = Math.max(0, Math.trunc(Number(range.offset) || 0));
+  return Object.freeze(Array.from({ length: count }, (_, index) => Object.freeze(
+    sampleSeriesColormap(colormapPoints, total === 1 ? 0.5 : (offset + index) / (total - 1))
+  )));
+}
 
 function emptyArena(revision) {
   return { data: new Float32Array(), count: 0, stride: 24, revision, ranges: [] };

@@ -15,6 +15,7 @@ from vektorflow.parser import parse_module
 from vektorflow.runtime.type_values import PrimType
 from vektorflow.runtime.axis_tagged import axis_tagged_data, axis_tagged_idx
 from vektorflow.stdlib.events import encode_event_code, encode_frame_pattern, encode_ui_pattern, encode_widget_pattern
+from vektorflow.stdlib.physics import Quantity
 
 
 def _run_both(src: str) -> tuple[object, dict[str, object], object, dict[str, object]]:
@@ -51,6 +52,29 @@ flag: c > 20
     assert ir_globals["b"] == ast_globals["b"] == 6
     assert ir_globals["c"] == ast_globals["c"] == 27
     assert ir_globals["flag"] == ast_globals["flag"] is True
+
+
+def test_ir_parity_physical_vectors_promote_only_literal_zero() -> None:
+    source = """
+:.physics
+g: 9.82 m/s^2
+velocity: [0, 1 m/s]
+acceleration: [0, -g]
+"""
+    _ast_ret, ast_globals, _ir_ret, ir_globals = _run_both(source)
+    for globals_ in (ast_globals, ir_globals):
+        assert isinstance(globals_["velocity"][0], Quantity)
+        assert globals_["velocity"][0].dimension == globals_["velocity"][1].dimension
+        assert globals_["acceleration"][0].dimension == globals_["acceleration"][1].dimension
+
+    for expression in ("[1, 1 m/s]", "[1, -g]", "[1-1, 1 m/s]"):
+        module = parse_module(f":.physics\ng: 9.82 m/s^2\ninvalid: {expression}\n")
+        with pytest.raises(ValueError, match="physical vector components"):
+            Interpreter(Path(__file__)).run_module(module)
+        with pytest.raises(ValueError, match="physical vector components"):
+            IRExecutor(Path(__file__)).run_module(lower_module(module))
+        with pytest.raises(ValueError, match="physical vector components"):
+            IRExecutor(Path(__file__)).run_module(optimize_module(lower_module(module)))
 
 
 def test_ir_parity_mixed_string_operator_fallbacks() -> None:

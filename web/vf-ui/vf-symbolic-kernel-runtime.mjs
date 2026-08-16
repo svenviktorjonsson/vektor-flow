@@ -394,6 +394,13 @@ export function createSymbolicKernel({ instance, manifest }) {
         snapshotPlotArena,
       );
     },
+    plotVariant(program, workspace, view, style, revision, variantIndex) {
+      return invokeTransient(
+        "symbolic_plot_variant",
+        [program, workspace, view, style, revision, variantIndex],
+        snapshotPlotArena,
+      );
+    },
     get memory() {
       return exportsObject.memory;
     },

@@ -134,6 +134,29 @@ def test_vkf_rejects_dimension_mismatched_addition_and_comparison() -> None:
         )
 
 
+def test_physical_vectors_infer_literal_zero_units_but_reject_nonzero_mismatches() -> None:
+    assert _run(
+        """
+:.physics
+g: 9.82 m/s^2
+velocity: [0, 1 m/s]
+acceleration: [0, -g]
+:: velocity.0.dimension_label
+:: acceleration.0.dimension_label
+"""
+    ) == ["L T^-1", "L T^-2"]
+
+    for expression in ("[1, 1 m/s]", "[1, -g]"):
+        with pytest.raises(ValueError, match="physical vector components"):
+            _run(
+                f"""
+:.physics
+g: 9.82 m/s^2
+invalid: {expression}
+"""
+            )
+
+
 def test_math_stdlib_requires_unitless_quantities() -> None:
     assert _run(
         """

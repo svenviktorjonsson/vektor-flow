@@ -95,6 +95,31 @@ test('renders mathematical function names by their identifier length', async () 
   assert.equal(compiler.compile('c^2').latex, String.raw`{c}^{2}`);
 });
 
+test('treats named Greek letters as symbolic identifiers with canonical LaTeX', async () => {
+  const compiler = await createCompiler();
+
+  for (const [source, latex] of [
+    ['alpha', String.raw`\alpha`],
+    ['beta', String.raw`\beta`],
+    ['Gamma', String.raw`\Gamma`],
+    ['Alpha', String.raw`\mathrm{A}`],
+    ['omega', String.raw`\omega`],
+    ['Omega', String.raw`\Omega`]
+  ]) {
+    assert.equal(compiler.compile(source).latex, latex, source);
+    assert.equal(
+      compiler.compileDocument(source, { profile: 'platonic' }).spans[0].kind,
+      'math',
+      source
+    );
+  }
+
+  assert.equal(
+    compiler.compile('alpha=130').latex,
+    String.raw`\alpha = 130`
+  );
+});
+
 test('preserves grouped power bases in rendered mathematics', async () => {
   const compiler = await createCompiler();
   assert.equal(

@@ -100,6 +100,102 @@ export function stepInertialBodies(bodies, dt) {
   });
 }
 
+/** Advance a planar double pendulum with an RK4 integration step.
+ * Angles are measured from the downward vertical, in radians.
+ */
+export function stepDoublePendulum(state, dt) {
+  const step = finiteNonNegative(dt, 'dt');
+  const length1 = finitePositive(state.length1 ?? 1, 'length1');
+  const length2 = finitePositive(state.length2 ?? 1, 'length2');
+  const mass1 = finitePositive(state.mass1 ?? 1, 'mass1');
+  const mass2 = finitePositive(state.mass2 ?? 1, 'mass2');
+  const gravity = finiteNonNegative(state.gravity ?? 9.82, 'gravity');
+  const initial = [
+    finiteNumber(state.theta1, 'theta1'),
+    finiteNumber(state.omega1 ?? 0, 'omega1'),
+    finiteNumber(state.theta2, 'theta2'),
+    finiteNumber(state.omega2 ?? 0, 'omega2')
+  ];
+  const derivative = ([theta1, omega1, theta2, omega2]) => {
+    const delta = theta1 - theta2;
+    const denominator = 2 * mass1 + mass2 - mass2 * Math.cos(2 * delta);
+    const alpha1 = (
+      -gravity * (2 * mass1 + mass2) * Math.sin(theta1)
+      - mass2 * gravity * Math.sin(theta1 - 2 * theta2)
+      - 2 * Math.sin(delta) * mass2 * (
+        omega2 * omega2 * length2 + omega1 * omega1 * length1 * Math.cos(delta)
+      )
+    ) / (length1 * denominator);
+    const alpha2 = 2 * Math.sin(delta) * (
+      omega1 * omega1 * length1 * (mass1 + mass2)
+      + gravity * (mass1 + mass2) * Math.cos(theta1)
+      + omega2 * omega2 * length2 * mass2 * Math.cos(delta)
+    ) / (length2 * denominator);
+    return [omega1, alpha1, omega2, alpha2];
+  };
+  const offset = (values, slope, amount) => values.map((value, index) => value + slope[index] * amount);
+  const k1 = derivative(initial);
+  const k2 = derivative(offset(initial, k1, step * 0.5));
+  const k3 = derivative(offset(initial, k2, step * 0.5));
+  const k4 = derivative(offset(initial, k3, step));
+  const [theta1, omega1, theta2, omega2] = initial.map((value, index) => value + step * (
+    k1[index] + 2 * k2[index] + 2 * k3[index] + k4[index]
+  ) / 6);
+  const delta = theta1 - theta2;
+  const kinetic = 0.5 * mass1 * length1 ** 2 * omega1 ** 2
+    + 0.5 * mass2 * (length1 ** 2 * omega1 ** 2 + length2 ** 2 * omega2 ** 2
+      + 2 * length1 * length2 * omega1 * omega2 * Math.cos(delta));
+  const potential = -(mass1 + mass2) * gravity * length1 * Math.cos(theta1)
+    - mass2 * gravity * length2 * Math.cos(theta2);
+  return { ...state, theta1, theta2, omega1, omega2, length1, length2, mass1, mass2, gravity, energy: kinetic + potential };
+}
+
+/**
+ * Advance convex rigid polygons inside a fixed, axis-aligned world rectangle.
+ * The rectangle is centred on the origin. Bodies retain authored fields while
+ * position, velocity, angle, and angularVelocity are replaced by stepped values.
+ */
+export function stepRigidPolygonWorld2D(world, dt) {
+  const step = finiteNonNegative(dt, 'dt');
+  const width = finitePositive(world.width ?? 2, 'world width');
+  const height = finitePositive(world.height ?? 2, 'world height');
+  const gravity = vector2(world.gravity ?? [0, -9.82], 'gravity');
+  const iterations = Math.max(1, Math.trunc(Number(world.solverIterations ?? world.solver_iterations ?? 6)));
+  const maxStep = finitePositive(world.maxStep ?? world.step_dt ?? 1 / 120, 'maxStep');
+  const substeps = Math.max(1, Math.ceil(step / maxStep));
+  const h = substeps ? step / substeps : 0;
+  const bodies = (world.bodies || []).map(normalizeRigidPolygonBody);
+  for (let substep = 0; substep < substeps; substep += 1) {
+    for (const body of bodies) {
+      if (body.inverseMass === 0) continue;
+      body.velocity[0] += gravity[0] * h;
+      body.velocity[1] += gravity[1] * h;
+      body.position[0] += body.velocity[0] * h;
+      body.position[1] += body.velocity[1] * h;
+      body.angle += body.angularVelocity * h;
+    }
+    for (let iteration = 0; iteration < iterations; iteration += 1) {
+      for (const body of bodies) resolveRigidBoundary(body, width, height);
+      for (let a = 0; a < bodies.length; a += 1) {
+        for (let b = a + 1; b < bodies.length; b += 1) resolveRigidPair(bodies[a], bodies[b]);
+      }
+    }
+  }
+  return {
+    ...world,
+    width,
+    height,
+    gravity,
+    bodies: bodies.map(({ authored, position, velocity, angle, angularVelocity }) => ({
+      ...authored,
+      position: [...position],
+      velocity: [...velocity],
+      angle,
+      angularVelocity
+    }))
+  };
+}
+
 export function stepThermalNetwork(network, dt) {
   const step = finiteNonNegative(dt, 'dt');
   const temperature = numericArray(network.temperatures, 'temperatures');
@@ -479,6 +575,184 @@ function offsetCoordinate(coordinates, axis, amount) {
   return next;
 }
 
+function normalizeRigidPolygonBody(body, index) {
+  const vertices = body.localVertices ?? body.local_vertices ?? body.contours?.[0];
+  if (!Array.isArray(vertices) || vertices.length < 3) {
+    throw new TypeError(`rigid body ${body.id ?? index} requires at least three localVertices`);
+  }
+  const localVertices = vertices.map((point) => vector2(point, 'local vertex'));
+  let signedArea2 = 0;
+  let inertiaFactor = 0;
+  for (let i = 0; i < localVertices.length; i += 1) {
+    const a = localVertices[i];
+    const b = localVertices[(i + 1) % localVertices.length];
+    const cross = cross2(a, b);
+    signedArea2 += cross;
+    inertiaFactor += cross * (dot2(a, a) + dot2(a, b) + dot2(b, b));
+  }
+  const area = Math.abs(signedArea2) / 2;
+  if (!(area > 1e-12)) throw new RangeError(`rigid body ${body.id ?? index} has zero area`);
+  const fixed = body.fixed === true || body.static === true || body.mass === Number.POSITIVE_INFINITY;
+  const mass = fixed ? Number.POSITIVE_INFINITY : finitePositive(body.mass ?? finitePositive(body.density ?? 1, 'body density') * area, 'body mass');
+  const inertia = fixed ? Number.POSITIVE_INFINITY : Math.max(1e-12, mass * Math.abs(inertiaFactor) / (6 * Math.abs(signedArea2)));
+  return {
+    authored: { ...body, localVertices: localVertices.map((point) => [...point]) },
+    localVertices,
+    position: vector2(body.position ?? [0, 0], 'body position'),
+    velocity: vector2(body.velocity ?? [0, 0], 'body velocity'),
+    angle: finiteNumber(body.angle ?? 0, 'body angle'),
+    angularVelocity: finiteNumber(body.angularVelocity ?? body.angular_velocity ?? 0, 'body angularVelocity'),
+    inverseMass: fixed ? 0 : 1 / mass,
+    inverseInertia: fixed ? 0 : 1 / inertia,
+    restitution: unitInterval(body.restitution ?? 0.35, 'body restitution'),
+    friction: finiteNonNegative(body.friction ?? body.dynamic_friction ?? 0.45, 'body friction')
+  };
+}
+
+function rigidWorldVertices(body) {
+  const cosine = Math.cos(body.angle);
+  const sine = Math.sin(body.angle);
+  return body.localVertices.map(([x, y]) => [
+    body.position[0] + cosine * x - sine * y,
+    body.position[1] + sine * x + cosine * y
+  ]);
+}
+
+function resolveRigidBoundary(body, width, height) {
+  if (body.inverseMass === 0) return;
+  const vertices = rigidWorldVertices(body);
+  const limits = [
+    { penetration: -width / 2 - Math.min(...vertices.map((v) => v[0])), normal: [1, 0], pick: (a, b) => a[0] < b[0] },
+    { penetration: Math.max(...vertices.map((v) => v[0])) - width / 2, normal: [-1, 0], pick: (a, b) => a[0] > b[0] },
+    { penetration: -height / 2 - Math.min(...vertices.map((v) => v[1])), normal: [0, 1], pick: (a, b) => a[1] < b[1] },
+    { penetration: Math.max(...vertices.map((v) => v[1])) - height / 2, normal: [0, -1], pick: (a, b) => a[1] > b[1] }
+  ];
+  for (const wall of limits) {
+    if (!(wall.penetration > 0)) continue;
+    body.position[0] += wall.normal[0] * wall.penetration;
+    body.position[1] += wall.normal[1] * wall.penetration;
+    const correctedVertices = rigidWorldVertices(body);
+    const extreme = correctedVertices.reduce((chosen, vertex) => wall.pick(vertex, chosen) ? vertex : chosen, correctedVertices[0]);
+    const contacts = correctedVertices.filter((vertex) => Math.abs(dot2(subtract2(vertex, extreme), wall.normal)) < 1e-9);
+    const contact = scale2(contacts.reduce(add2, [0, 0]), 1 / contacts.length);
+    const r = subtract2(contact, body.position);
+    const velocity = velocityAtRigidPoint(body, r);
+    const normalSpeed = dot2(velocity, wall.normal);
+    if (normalSpeed >= 0) continue;
+    const rn = cross2(r, wall.normal);
+    const normalImpulse = -(1 + body.restitution) * normalSpeed
+      / (body.inverseMass + rn * rn * body.inverseInertia);
+    applyRigidImpulse(body, scale2(wall.normal, normalImpulse), r);
+    applyRigidFriction(body, null, r, [0, 0], wall.normal, normalImpulse, body.friction);
+  }
+}
+
+function resolveRigidPair(a, b) {
+  if (a.inverseMass + b.inverseMass === 0) return;
+  const verticesA = rigidWorldVertices(a);
+  const verticesB = rigidWorldVertices(b);
+  let overlap = Number.POSITIVE_INFINITY;
+  let normal = null;
+  for (const vertices of [verticesA, verticesB]) {
+    for (let index = 0; index < vertices.length; index += 1) {
+      const edge = subtract2(vertices[(index + 1) % vertices.length], vertices[index]);
+      const length = Math.hypot(edge[0], edge[1]);
+      if (!(length > 1e-12)) continue;
+      const axis = [-edge[1] / length, edge[0] / length];
+      const projectionA = projectRigidVertices(verticesA, axis);
+      const projectionB = projectRigidVertices(verticesB, axis);
+      const axisOverlap = Math.min(projectionA.max, projectionB.max) - Math.max(projectionA.min, projectionB.min);
+      if (!(axisOverlap > 0)) return;
+      if (axisOverlap < overlap) {
+        overlap = axisOverlap;
+        normal = axis;
+      }
+    }
+  }
+  if (!normal) return;
+  if (dot2(subtract2(b.position, a.position), normal) < 0) normal = scale2(normal, -1);
+  const inverseMass = a.inverseMass + b.inverseMass;
+  const correction = overlap / inverseMass;
+  a.position[0] -= normal[0] * correction * a.inverseMass;
+  a.position[1] -= normal[1] * correction * a.inverseMass;
+  b.position[0] += normal[0] * correction * b.inverseMass;
+  b.position[1] += normal[1] * correction * b.inverseMass;
+
+  const supportA = averageRigidSupport(verticesA, normal, 1);
+  const supportB = averageRigidSupport(verticesB, normal, -1);
+  const contact = scale2(add2(supportA, supportB), 0.5);
+  const rA = subtract2(contact, a.position);
+  const rB = subtract2(contact, b.position);
+  const relativeVelocity = subtract2(velocityAtRigidPoint(b, rB), velocityAtRigidPoint(a, rA));
+  const normalSpeed = dot2(relativeVelocity, normal);
+  if (normalSpeed >= 0) return;
+  const raNormal = cross2(rA, normal);
+  const rbNormal = cross2(rB, normal);
+  const denominator = inverseMass + raNormal ** 2 * a.inverseInertia + rbNormal ** 2 * b.inverseInertia;
+  const normalImpulse = -(1 + Math.min(a.restitution, b.restitution)) * normalSpeed / denominator;
+  const impulse = scale2(normal, normalImpulse);
+  applyRigidImpulse(a, scale2(impulse, -1), rA);
+  applyRigidImpulse(b, impulse, rB);
+  applyRigidFriction(a, b, rA, rB, normal, normalImpulse, Math.sqrt(a.friction * b.friction));
+}
+
+function applyRigidFriction(a, b, rA, rB, normal, normalImpulse, friction) {
+  if (!(friction > 0) || !(normalImpulse > 0)) return;
+  const velocityA = velocityAtRigidPoint(a, rA);
+  const velocityB = b ? velocityAtRigidPoint(b, rB) : [0, 0];
+  const relativeVelocity = b ? subtract2(velocityB, velocityA) : scale2(velocityA, -1);
+  const normalComponent = dot2(relativeVelocity, normal);
+  const tangentRaw = subtract2(relativeVelocity, scale2(normal, normalComponent));
+  const tangentLength = Math.hypot(...tangentRaw);
+  if (!(tangentLength > 1e-12)) return;
+  const tangent = scale2(tangentRaw, 1 / tangentLength);
+  const rtA = cross2(rA, tangent);
+  const rtB = b ? cross2(rB, tangent) : 0;
+  const denominator = a.inverseMass + (b?.inverseMass ?? 0)
+    + rtA ** 2 * a.inverseInertia + rtB ** 2 * (b?.inverseInertia ?? 0);
+  const magnitude = Math.max(-friction * normalImpulse, Math.min(friction * normalImpulse, -dot2(relativeVelocity, tangent) / denominator));
+  const impulse = scale2(tangent, magnitude);
+  applyRigidImpulse(a, scale2(impulse, -1), rA);
+  if (b) applyRigidImpulse(b, impulse, rB);
+}
+
+function applyRigidImpulse(body, impulse, radius) {
+  if (body.inverseMass === 0) return;
+  body.velocity[0] += impulse[0] * body.inverseMass;
+  body.velocity[1] += impulse[1] * body.inverseMass;
+  body.angularVelocity += cross2(radius, impulse) * body.inverseInertia;
+}
+
+function velocityAtRigidPoint(body, radius) {
+  return [
+    body.velocity[0] - body.angularVelocity * radius[1],
+    body.velocity[1] + body.angularVelocity * radius[0]
+  ];
+}
+
+function projectRigidVertices(vertices, axis) {
+  const values = vertices.map((vertex) => dot2(vertex, axis));
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
+
+function averageRigidSupport(vertices, axis, direction) {
+  const projections = vertices.map((vertex) => dot2(vertex, axis) * direction);
+  const extreme = Math.max(...projections);
+  const support = vertices.filter((_, index) => extreme - projections[index] < 1e-9);
+  return scale2(support.reduce(add2, [0, 0]), 1 / support.length);
+}
+
+function vector2(value, name) {
+  const result = numericArray(value, name, 2);
+  return [result[0], result[1]];
+}
+
+function add2(a, b) { return [a[0] + b[0], a[1] + b[1]]; }
+function subtract2(a, b) { return [a[0] - b[0], a[1] - b[1]]; }
+function scale2(value, scalar) { return [value[0] * scalar, value[1] * scalar]; }
+function dot2(a, b) { return a[0] * b[0] + a[1] * b[1]; }
+function cross2(a, b) { return a[0] * b[1] - a[1] * b[0]; }
+
 function validIndex(value, length) {
   const index = Number(value);
   if (!Number.isSafeInteger(index) || index < 0 || index >= length) throw new RangeError(`node index ${value} is out of range`);
@@ -488,6 +762,12 @@ function validIndex(value, length) {
 function finitePositive(value, name) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) throw new RangeError(`${name} must be positive`);
+  return number;
+}
+
+function finiteNumber(value, name) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new TypeError(`${name} must be finite`);
   return number;
 }
 
