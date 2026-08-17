@@ -169,13 +169,14 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     assert "F = p dot and tau = L dot" in rendered
 
 
-def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(capsys: pytest.CaptureFixture[str]) -> None:
-    source = PHYSICS_SMOKE.read_text(encoding="utf-8")
+def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(
+    smoke_exes: dict[str, Path],
+) -> None:
+    result = json.loads(_run_driver(PHYSICS_SMOKE, smoke_exes).stdout)
 
-    module = parse_module(source, filename=PHYSICS_SMOKE.as_posix())
-    Interpreter(file_path=PHYSICS_SMOKE).run_module(module)
-
-    assert capsys.readouterr().out.splitlines() == ["0.8333333333333333", "10.8"]
+    assert [float(value) for value in result["stdout"].splitlines()] == pytest.approx(
+        [0.8333333333333333, 10.8]
+    )
 
 
 def test_rigid_body_vkf_source_owns_mass_inertia_and_momentum_stepping(capsys: pytest.CaptureFixture[str]) -> None:
@@ -310,6 +311,27 @@ def test_driver_prints_explicit_io_print_load(tmp_path: Path, smoke_exes: dict[s
 
     assert result["status"] == "compiled"
     assert result["stdout"].strip() == "Ada"
+
+
+def test_driver_builds_builtin_physics_gpu_spec_without_host_fallback(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "physics_gpu.vkf"
+    source_path.write_text(
+        """\
+physics: .physics
+spheres: physics.demo_hard_spheres(count: 20, width: 4, depth: 3, height: 2)
+gpu: physics.hard_sphere_gpu_runtime(spheres, width: 4, depth: 3, height: 2)
+:: gpu.kind
+:: gpu.particle_count
+""",
+        encoding="utf-8",
+    )
+
+    result = json.loads(_run_driver(source_path, smoke_exes).stdout)
+
+    assert result["stdout"].splitlines() == ["hard_sphere_3d", "20"]
 
 
 def test_driver_prints_io_math_and_records_both_dependencies(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:

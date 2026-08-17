@@ -74,6 +74,7 @@ from .tokens import (
 OPERATOR_FUNC_KINDS = frozenset(
     {
         DOT,
+        EMIT,
         PLUS,
         MINUS,
         STAR,
@@ -99,6 +100,7 @@ OPERATOR_FUNC_KINDS = frozenset(
 def _token_kind_to_op_symbol(kind: str) -> str:
     m = {
         DOT: ".",
+        EMIT: "::",
         PLUS: "+",
         MINUS: "-",
         STAR: "*",
@@ -213,6 +215,7 @@ class Parser:
         self._symbolic_domains_visible = False
         self._physics_domains_visible = False
         self._visible_domain_sources: dict[str, str] = {}
+        self._local_type_names: set[str] = set()
         self.source = source
         self.filename = filename
         self._line_offsets: list[int] | None = None
@@ -491,6 +494,42 @@ class Parser:
             return self.toks[j].kind
         return EOF
 
+    def _paren_is_only_lambda_param_list(self, lparen_idx: int) -> bool:
+        """Return whether ``(...)`` contains only comma-separated parameter names."""
+        if lparen_idx >= len(self.toks) or self.toks[lparen_idx].kind != LPAREN:
+            return False
+        depth = 1
+        j = lparen_idx + 1
+        saw_value = False
+        expect_ident = True
+        while j < len(self.toks) and depth > 0:
+            kind = self.toks[j].kind
+            if kind == LPAREN:
+                return False
+            if kind == RPAREN:
+                depth -= 1
+                j += 1
+                if depth == 0:
+                    return (not saw_value) or not expect_ident
+                continue
+            if depth != 1:
+                return False
+            if kind == NEWLINE:
+                j += 1
+                continue
+            if expect_ident:
+                if kind != IDENT:
+                    return False
+                saw_value = True
+                expect_ident = False
+                j += 1
+                continue
+            if kind != COMMA:
+                return False
+            expect_ident = True
+            j += 1
+        return False
+
     def parse_module(self) -> ast.Module:
         stmts: list[Any] = []
         while True:
@@ -525,6 +564,10 @@ class Parser:
         # Leading ``:: expr`` — print to stdout; ``:: :`` prints the current local scope (see StructIdentity).
         # ``::: expr`` — labeled print: ``expr_text: value`` with newline.
         if self._peek_raw() == EMIT:
+            if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
+                k_after = self._kind_after_balanced_call_from_lparen(self.i + 1)
+                if k_after == COLON:
+                    return self.parse_operator_func_def()
             self._advance()
             if self._peek_raw() == COLON:
                 self._advance()
@@ -644,7 +687,10 @@ class Parser:
             if self.i + 1 < len(self.toks) and self.toks[self.i + 1].kind == LPAREN:
                 k_after = self._kind_after_balanced_call()
                 if k_after in (COLON, ARROW):
-                    return self.parse_func_def()
+                    fn = self.parse_func_def()
+                    if self._name_is_type_bind(fn.name):
+                        self._local_type_names.add(fn.name)
+                    return fn
 
         # ``alias:.path`` — import module bound to alias, no spill (e.g. ``time:.time``)
         if self._peek_raw() == IDENT:
@@ -1264,6 +1310,8 @@ class Parser:
                 if ident == "list":
                     return self._parse_linked_list_value_type()
             ident = str(self.toks[self.i].value)
+            if ident in self._local_type_names:
+                return ast.PrimTypeRef(str(self._advance().value))
             if ident in _SYMBOLIC_DOMAIN_TYPE_IDENTS or ident in _PHYSICS_DOMAIN_TYPE_IDENTS:
                 source = self._visible_domain_sources.get(ident)
                 if source is None:
@@ -1464,13 +1512,12 @@ class Parser:
                 docstring,
             )
         stmts = self.parse_stmt_semicolon_chain()
-        docstring, stmts = self._extract_leading_docstring(stmts)
         return ast.FuncDef(
             name,
             params,
             self._func_body_from_stmts(stmts),
             func_type,
-            docstring,
+            None,
         )
 
     def _name_is_type_bind(self, name: str) -> bool:
@@ -1577,6 +1624,7 @@ class Parser:
         sub._symbolic_domains_visible = self._symbolic_domains_visible
         sub._physics_domains_visible = self._physics_domains_visible
         sub._visible_domain_sources = dict(self._visible_domain_sources)
+        sub._local_type_names = set(self._local_type_names)
         out = sub._parse_type_definition()
         sub._skip_trivia()
         if sub._peek_raw() != EOF:
@@ -2480,6 +2528,19 @@ class Parser:
             self._advance()
             return ast.Ident("$")
         if k == LPAREN:
+            if self._paren_is_only_lambda_param_list(self.i):
+                k_after = self._kind_after_balanced_call_from_lparen(self.i)
+                if k_after == COLON:
+                    self._advance()
+                    pnames: list[str] = []
+                    while self._peek_raw() != RPAREN:
+                        pnames.append(str(self._expect(IDENT).value))
+                        if self._peek_raw() != COMMA:
+                            break
+                        self._advance()
+                    self._expect(RPAREN)
+                    self._expect(COLON)
+                    return ast.Lambda(pnames, self.parse_expr())
             open_paren = self._advance()
             if self._peek_raw() == RPAREN:
                 self._advance()
@@ -2604,11 +2665,14 @@ class Parser:
             pairs: list[tuple[Any, Any]] = []
             while True:
                 ke = self.parse_expr()
-                if self._peek_raw() == COLON:
-                    self._advance()
-                    ce = self.parse_expr()
-                else:
-                    ce = ast.NumberLit(1)
+                if self._peek_raw() != COLON:
+                    raise ParseError(
+                        "multiset literal must use {value:count, …}; "
+                        "use collections.map for a hash map",
+                        self._loc_here(),
+                    )
+                self._advance()
+                ce = self.parse_expr()
                 pairs.append((ke, ce))
                 self._emit_disallowed_in_value_expr("multiset literal")
                 if self._peek_raw() == COMMA:

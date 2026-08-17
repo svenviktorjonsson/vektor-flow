@@ -746,6 +746,60 @@ def _rect_from_tuple(t: Any) -> tuple[float, float, float, float]:
     raise TypeError("rect must be a 4-tuple (x, y, w, h) in normalized 0..1 coordinates")
 
 
+def _points_from_seq(points: Any) -> tuple[tuple[float, float], ...]:
+    try:
+        seq = list(points)
+    except TypeError as exc:
+        raise TypeError("points must be a sequence of (x, y) pairs") from exc
+    if len(seq) < 3:
+        raise ValueError("polygon requires at least 3 points")
+    out: list[tuple[float, float]] = []
+    for point in seq:
+        pair = list(point)
+        if len(pair) != 2:
+            raise ValueError("polygon points must be (x, y) pairs")
+        out.append((float(pair[0]), float(pair[1])))
+    return tuple(out)
+
+
+def _hover_value(hover: Any, key: str, default: Any = None) -> Any:
+    if isinstance(hover, dict):
+        return hover.get(key, default)
+    return getattr(hover, key, default)
+
+
+def _hover_object_id(hover_or_id: Any) -> Any:
+    if isinstance(hover_or_id, dict) or hasattr(hover_or_id, "object_id") or hasattr(hover_or_id, "shape_id"):
+        return _hover_value(hover_or_id, "object_id", _hover_value(hover_or_id, "shape_id", ""))
+    return hover_or_id
+
+
+def _vec2_delta(trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> tuple[float, float]:
+    if trans is None:
+        return float(dx), float(dy)
+    try:
+        return float(trans[0]), float(trans[1])
+    except (TypeError, ValueError, IndexError, KeyError) as exc:
+        raise TypeError("trans must be a vector with at least two numeric entries") from exc
+
+
+def _vec2_apply(op: str, point: Any, value: Any) -> tuple[float, float]:
+    x, y = float(point[0]), float(point[1])
+    if isinstance(value, (int, float)):
+        vx = vy = float(value)
+    else:
+        vx, vy = _vec2_delta(value)
+    if op == "PLUS":
+        return x + vx, y + vy
+    if op == "MINUS":
+        return x - vx, y - vy
+    if op == "STAR":
+        return x * vx, y * vy
+    if op == "SLASH":
+        return x / vx, y / vy
+    raise TypeError(f"unsupported geometry update operator {op!r}")
+
+
 def _rotate_vec3_around_axis(v: list[float], axis: str, angle_deg: float) -> list[float]:
     """Rotate vector v by angle_deg degrees around the named world axis (x/y/z)."""
     a = math.radians(angle_deg)
@@ -3735,6 +3789,142 @@ def axis_2d_tick_labels(widgets: Any, **kwargs: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class VertexRef:
+    """A single polygon vertex addressed by an inherited hit context."""
+
+    __vf_py_attrs__ = True
+    _shape: "RectRef"
+    _index: int
+
+    @property
+    def id(self) -> int:
+        return self._index
+
+    def _points(self) -> list[list[float]]:
+        if self._shape._points is None:
+            raise TypeError("vertex refs require a polygon parent")
+        if not 0 <= self._index < len(self._shape._points):
+            raise IndexError(f"vertex index {self._index} is outside the polygon")
+        return [list(point) for point in self._shape._points]
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "VertexRef":
+        return self.__vf_update__("PLUS", _vec2_delta(trans, dx=dx, dy=dy))
+
+    def __vf_update__(self, op: str, value: Any) -> "VertexRef":
+        points = self._points()
+        points[self._index] = list(_vec2_apply(op, points[self._index], value))
+        self._shape._set_points(points)
+        return self
+
+
+@dataclass
+class EdgeRef:
+    """A polygon edge between vertex ``id`` and the next wrapped vertex."""
+
+    __vf_py_attrs__ = True
+    _shape: "RectRef"
+    _index: int
+
+    @property
+    def id(self) -> int:
+        return self._index
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "EdgeRef":
+        return self.__vf_update__("PLUS", _vec2_delta(trans, dx=dx, dy=dy))
+
+    def __vf_update__(self, op: str, value: Any) -> "EdgeRef":
+        if self._shape._points is None or not 0 <= self._index < len(self._shape._points):
+            raise IndexError(f"edge index {self._index} is outside the polygon")
+        points = [list(point) for point in self._shape._points]
+        next_index = (self._index + 1) % len(points)
+        points[self._index] = list(_vec2_apply(op, points[self._index], value))
+        points[next_index] = list(_vec2_apply(op, points[next_index], value))
+        self._shape._set_points(points)
+        return self
+
+
+@dataclass
+class RectRef:
+    """Mutable 2-D shape whose payload stays live in the frame display list."""
+
+    __vf_py_attrs__ = True
+    _display: "Display"
+    _kind: str
+    _rect: tuple[float, float, float, float]
+    _color: Any
+    _points: tuple[tuple[float, float], ...] | None = None
+    _shape_id: str = ""
+    _interaction: dict[str, Any] | None = None
+    _payload: dict[str, Any] = field(default_factory=dict, repr=False)
+    _tx: float = 0.0
+    _ty: float = 0.0
+    _sx: float = 1.0
+    _sy: float = 1.0
+    _rotation_deg: float = 0.0
+
+    @property
+    def id(self) -> str:
+        return self._shape_id
+
+    def _refresh_payload(self) -> None:
+        self._payload.update({
+            "op": self._kind,
+            "rect": list(self._rect),
+            "color": _color_to_payload(self._color),
+            "transform": [self._sx, 0.0, 0.0, self._sy, self._tx, self._ty],
+        })
+        if self._points is not None:
+            self._payload["points"] = [list(point) for point in self._points]
+        if self._interaction is not None:
+            self._payload["interaction"] = dict(self._interaction)
+
+    def _set_points(self, points: Any) -> None:
+        self._points = tuple((float(point[0]), float(point[1])) for point in points)
+        self._refresh_payload()
+        self._display._sync_all()
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "RectRef":
+        tx, ty = _vec2_delta(trans, dx=dx, dy=dy)
+        self._tx += tx
+        self._ty += ty
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def __vf_update__(self, op: str, value: Any) -> "RectRef":
+        if op == "PLUS":
+            return self.translate(value)
+        if op == "MINUS":
+            x, y = _vec2_delta(value)
+            return self.translate([-x, -y])
+        x, y = (float(value), float(value)) if isinstance(value, (int, float)) else _vec2_delta(value)
+        if op == "STAR":
+            self._sx *= x
+            self._sy *= y
+        elif op == "SLASH":
+            self._sx /= x
+            self._sy /= y
+        else:
+            raise TypeError(f"unsupported geometry update operator {op!r}")
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def vertex(self, vertex_id: int) -> VertexRef:
+        return VertexRef(self, int(vertex_id))
+
+    def edge(self, edge_id: int) -> EdgeRef:
+        return EdgeRef(self, int(edge_id))
+
+    def set_interaction(self, *, cursor: str = "open_hand", pressed_cursor: str = "closed_hand", border: float = 0.08, shape_id: str | None = None) -> "RectRef":
+        self._shape_id = str(shape_id or self._shape_id or self._display._next_shape_id("shape"))
+        self._interaction = {"mode": "transform_2d", "shape_id": self._shape_id, "cursor": str(cursor), "pressed_cursor": str(pressed_cursor), "border": float(border)}
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+
+@dataclass
 class FrameRef:
     """A panel from ``d.frame`` / :meth:`Display.Frame`; use :meth:`add_frame`, then draw commands."""
 
@@ -3749,6 +3939,7 @@ class FrameRef:
     _default_event_handlers: dict[str, Callable[[Any], bool]] = field(default_factory=dict, repr=False)
     _event_observers: list[Callable[[Any], Any]] = field(default_factory=list, repr=False)
     _event_override: Callable[[Any], Any] | None = field(default=None, repr=False)
+    _shape_roots: list[RectRef] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_pending_key", id(self))
@@ -3813,6 +4004,42 @@ class FrameRef:
 
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
+
+    def _add_shape(self, ref: RectRef) -> RectRef:
+        ref._refresh_payload()
+        self._shape_roots.append(ref)
+        if self._placed and self._frame_id:
+            self._display._append_frame_op(self._frame_id, ref._payload)
+        else:
+            self._display._append_pending_frame_op(self._pending_key, ref._payload)
+        self._display._sync_all()
+        return ref
+
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> RectRef:
+        sid = self._display._next_shape_id("rect")
+        return self._add_shape(RectRef(self._display, "rect", _rect_from_tuple(rect), color, _shape_id=sid))
+
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> RectRef:
+        sid = self._display._next_shape_id("poly")
+        interaction = {"mode": "pick_2d", "shape_id": sid, "parent_shape_id": "", "cursor": "open_hand", "pressed_cursor": "closed_hand", "border": 0.035}
+        return self._add_shape(RectRef(self._display, "polygon", (0.0, 0.0, 1.0, 1.0), color, _points_from_seq(points), sid, interaction))
+
+    def get_rect(self, shape_id: Any) -> RectRef | None:
+        wanted = str(_hover_object_id(shape_id))
+        return next((shape for shape in self._shape_roots if shape.id == wanted), None)
+
+    def get_vertex(self, hover: Any) -> VertexRef | None:
+        shape = self.get_rect(hover)
+        index = _hover_value(hover, "vertex_id", -1)
+        return shape.vertex(int(index)) if shape is not None and index is not None and int(index) >= 0 else None
+
+    def get_edge(self, hover: Any) -> EdgeRef | None:
+        shape = self.get_rect(hover)
+        index = _hover_value(hover, "edge_id", -1)
+        return shape.edge(int(index)) if shape is not None and index is not None and int(index) >= 0 else None
+
+    def get(self, hover: Any) -> Any:
+        return self.get_vertex(hover) or self.get_edge(hover) or self.get_rect(hover)
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
@@ -4295,10 +4522,6 @@ class UIRoot:
         self.cursor.poll()
         self.keyboard.poll()
 
-    def sleep(self, seconds: float) -> None:
-        """Host-backed sleep for vkf event loops."""
-        _ui_sleep(float(seconds))
-
     def Frame(self, rect: Any | None = None) -> "FrameRef":  # noqa: N802
         """Create a frame from the root namespace; optionally place it immediately."""
         frame = self.display.Frame()
@@ -4425,6 +4648,7 @@ class Display:
     _frame_parent: dict[str, str | None] = field(default_factory=dict, repr=False)
     _auto_render: bool = field(default=True, repr=False)
     _dirty: bool = field(default=False, repr=False)
+    _next_shape_sequence: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -4436,6 +4660,10 @@ class Display:
                 ensure_ui_session(root)
         except Exception:
             pass
+
+    def _next_shape_id(self, prefix: str = "shape") -> str:
+        self._next_shape_sequence += 1
+        return f"{prefix}_{self._next_shape_sequence}"
 
     # ---- properties -------------------------------------------------------
 
@@ -4459,6 +4687,17 @@ class Display:
 
     def dumps(self) -> str:
         return self._screen.dumps()
+
+    def display_json(self) -> str:
+        """Return the current browser/native display payload without filesystem mirroring."""
+        payload = build_display_payload(
+            screen_ops=self._screen_ops,
+            screen_repr_ops=self._screen_repr_ops,
+            frame_ops=self._frame_ops,
+            frame_repr_ops=self._frame_repr_ops,
+            geom=self._geom,
+        )
+        return json.dumps(payload, indent=2) + "\n"
 
     def widget_set(self, frame_id: str, widget_id: str, props: Any) -> None:
         self._screen.widget_set(frame_id, widget_id, props)
@@ -5419,7 +5658,6 @@ def build_ui_namespace() -> dict[str, Any]:
         "Axis2D": Axis2D,
         "Axis3D": Axis3D,
         "poll": root.poll,
-        "sleep": root.sleep,
         "event_loop": root.event_loop,
         "next_event": root.next_event,
         "set_mode": root.set_mode,

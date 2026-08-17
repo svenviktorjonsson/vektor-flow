@@ -405,7 +405,7 @@ expr: n + 1
         "\\sum_{n=1}^{\\infty} n+1",
         "\\int n+1\\,dn",
         "\\int_{0}^{1} n+1\\,dn",
-        "\\operatorname{sqrt}\\left(n\\right)",
+        "\\operatorname{sqrt}\\!\\left(n\\right)",
     ]
 
 

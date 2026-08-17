@@ -1,6 +1,7 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_symbolic_lowering.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cctype>
 #include <map>
@@ -233,7 +234,91 @@ std::string type_annotation_name(const vf::JsonValue& value) {
         throw IRFailure("unsupported type annotation kind " + kind);
     }
     const std::string name = string_field(object, "name", "type annotation");
-    return name == "bool" ? "bit" : name;
+    if (name == "bool") return "bit";
+    if (name.size() >= 2 && name.front() == '(' && name.back() == ')' && name.find(':') != std::string::npos) {
+        return "record{" + name.substr(1, name.size() - 2) + "}";
+    }
+    return name;
+}
+
+std::vector<std::string> split_top_level_type_parts(const std::string& text) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    int depth = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const char ch = text[index];
+        if (ch == '(' || ch == '[' || ch == '{' || ch == '<') ++depth;
+        if (ch == ')' || ch == ']' || ch == '}' || ch == '>') --depth;
+        if (ch == ',' && depth == 0) {
+            parts.push_back(text.substr(start, index - start));
+            start = index + 1;
+        }
+    }
+    parts.push_back(text.substr(start));
+    return parts;
+}
+
+std::map<std::string, std::string> record_type_fields(const std::string& type_name) {
+    std::map<std::string, std::string> fields;
+    if (!starts_with(type_name, "record{") || type_name.back() != '}') return fields;
+    const std::string inner = type_name.substr(7, type_name.size() - 8);
+    for (const auto& part : split_top_level_type_parts(inner)) {
+        int depth = 0;
+        std::size_t colon = std::string::npos;
+        for (std::size_t index = 0; index < part.size(); ++index) {
+            const char ch = part[index];
+            if (ch == '(' || ch == '[' || ch == '{' || ch == '<') ++depth;
+            if (ch == ')' || ch == ']' || ch == '}' || ch == '>') --depth;
+            if (ch == ':' && depth == 0) { colon = index; break; }
+        }
+        if (colon != std::string::npos) fields[part.substr(0, colon)] = part.substr(colon + 1);
+    }
+    return fields;
+}
+
+bool type_name_coercible(const std::string& source, const std::string& target) {
+    if (source == target || target == "any" || source == "any" || source == "null") return true;
+    if (source == "int" && target == "num") return true;
+    if (starts_with(source, "list<") && source.back() == '>'
+        && target.size() >= 2 && target.front() == '[' && target.back() == ']') {
+        const std::string source_element = source.substr(5, source.size() - 6);
+        const std::string target_inner = target.substr(1, target.size() - 2);
+        const std::size_t separator = target_inner.rfind(':');
+        const std::string target_element = separator == std::string::npos
+            ? target_inner : target_inner.substr(0, separator);
+        return type_name_coercible(source_element, target_element);
+    }
+    if (starts_with(source, "multiset<") && source.back() == '>'
+        && target.size() >= 2 && target.front() == '{' && target.back() == '}') {
+        return type_name_coercible(
+            source.substr(9, source.size() - 10),
+            target.substr(1, target.size() - 2)
+        );
+    }
+    if (source.size() >= 2 && source.front() == '[' && source.back() == ']'
+        && target.size() >= 2 && target.front() == '[' && target.back() == ']') {
+        const std::string source_inner = source.substr(1, source.size() - 2);
+        const std::string target_inner = target.substr(1, target.size() - 2);
+        const std::size_t source_separator = source_inner.rfind(':');
+        const std::size_t target_separator = target_inner.rfind(':');
+        const std::string source_element = source_separator == std::string::npos
+            ? source_inner : source_inner.substr(0, source_separator);
+        const std::string target_element = target_separator == std::string::npos
+            ? target_inner : target_inner.substr(0, target_separator);
+        return type_name_coercible(source_element, target_element);
+    }
+    if (!target.empty() && std::isupper(static_cast<unsigned char>(target.front()))
+        && starts_with(source, "record{")) return true;
+    const auto source_fields = record_type_fields(source);
+    const auto target_fields = record_type_fields(target);
+    if (!source_fields.empty() && source_fields.size() == target_fields.size()) {
+        for (const auto& [name, target_field] : target_fields) {
+            const auto source_it = source_fields.find(name);
+            if (source_it == source_fields.end() || !type_name_coercible(source_it->second, target_field)) return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& target_type, const std::string& context) {
@@ -253,6 +338,108 @@ vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& targe
         object["type"] = vf::JsonValue("num");
         return value;
     }
+    if (target_type.size() >= 3 && target_type.front() == '[' && target_type.back() == ']'
+        && source_type.size() >= 3 && source_type.front() == '[' && source_type.back() == ']') {
+        const std::string target_inner = target_type.substr(1, target_type.size() - 2);
+        const std::string source_inner = source_type.substr(1, source_type.size() - 2);
+        const std::size_t target_separator = target_inner.rfind(':');
+        const std::size_t source_separator = source_inner.rfind(':');
+        const std::string target_element = target_separator == std::string::npos
+            ? target_inner : target_inner.substr(0, target_separator);
+        const std::string source_element = source_separator == std::string::npos
+            ? source_inner : source_inner.substr(0, source_separator);
+        const bool element_coercible = source_element == target_element
+            || source_element == "any"
+            || (source_element == "int" && target_element == "num");
+        bool shape_coercible = true;
+        if (target_separator != std::string::npos && source_separator != std::string::npos) {
+            const std::string target_shape = target_inner.substr(target_separator + 1);
+            const std::string source_shape = source_inner.substr(source_separator + 1);
+            const bool target_numeric = !target_shape.empty()
+                && std::all_of(target_shape.begin(), target_shape.end(), [](unsigned char ch) { return std::isdigit(ch); });
+            const bool source_numeric = !source_shape.empty()
+                && std::all_of(source_shape.begin(), source_shape.end(), [](unsigned char ch) { return std::isdigit(ch); });
+            shape_coercible = !(target_numeric && source_numeric && target_shape != source_shape);
+        }
+        if (element_coercible && shape_coercible) {
+            object["type"] = vf::JsonValue(target_type);
+            return value;
+        }
+    }
+    if (target_type.size() >= 3 && target_type.front() == '[' && target_type.back() == ']'
+        && starts_with(source_type, "list<") && source_type.back() == '>') {
+        const std::string target_inner = target_type.substr(1, target_type.size() - 2);
+        const std::size_t shape_separator = target_inner.rfind(':');
+        const std::string target_element = shape_separator == std::string::npos
+            ? target_inner
+            : target_inner.substr(0, shape_separator);
+        const std::string source_element = source_type.substr(5, source_type.size() - 6);
+        const bool element_coercible = source_element == target_element
+            || source_element == "any"
+            || (source_element == "int" && target_element == "num");
+        auto items_it = object.find("items");
+        if (element_coercible && items_it != object.end() && items_it->second.is_array()) {
+            auto& items = items_it->second.as_array();
+            if (shape_separator != std::string::npos) {
+                const std::string shape = target_inner.substr(shape_separator + 1);
+                const bool numeric_shape = !shape.empty()
+                    && std::all_of(shape.begin(), shape.end(), [](unsigned char ch) { return std::isdigit(ch); });
+                if (numeric_shape && items.size() != static_cast<std::size_t>(std::stoull(shape))) {
+                    throw IRFailure("cannot coerce " + source_type + " to " + target_type
+                        + " in " + context + ": vector length mismatch");
+                }
+            }
+            for (auto& item : items) {
+                item = coerce_value_to_type(std::move(item), target_element, context + " vector item");
+            }
+            object["element_type"] = vf::JsonValue(target_element);
+            object["type"] = vf::JsonValue(target_type);
+            return value;
+        }
+    }
+    if (starts_with(target_type, "record{") && target_type.back() == '}'
+        && starts_with(source_type, "record{") && source_type.back() == '}') {
+        auto target_field_type = [&](const std::string& field_name) -> std::string {
+            const std::string inner = target_type.substr(7, target_type.size() - 8);
+            std::size_t start = 0;
+            while (start <= inner.size()) {
+                const std::size_t comma = inner.find(',', start);
+                const std::string part = inner.substr(
+                    start,
+                    comma == std::string::npos ? std::string::npos : comma - start
+                );
+                const std::size_t colon = part.find(':');
+                if (colon != std::string::npos && part.substr(0, colon) == field_name) {
+                    return part.substr(colon + 1);
+                }
+                if (comma == std::string::npos) break;
+                start = comma + 1;
+            }
+            return "";
+        };
+        auto fields_it = object.find("fields");
+        if (fields_it != object.end() && fields_it->second.is_array()) {
+            for (auto& field_value : fields_it->second.as_array()) {
+                auto& lowered_field = field_value.as_object();
+                const std::string field_name = string_field(lowered_field, "name", context + " record field");
+                const std::string field_target = target_field_type(field_name);
+                if (field_target.empty()) {
+                    throw IRFailure("cannot coerce " + source_type + " to " + target_type
+                        + " in " + context + ": unexpected field " + field_name);
+                }
+                auto value_it = lowered_field.find("value");
+                if (value_it == lowered_field.end()) {
+                    throw IRFailure("missing record field value in " + context);
+                }
+                value_it->second = coerce_value_to_type(
+                    std::move(value_it->second), field_target, context + " field " + field_name
+                );
+                lowered_field["type"] = vf::JsonValue(field_target);
+            }
+            object["type"] = vf::JsonValue(target_type);
+            return value;
+        }
+    }
     if (!target_type.empty()
         && std::isupper(static_cast<unsigned char>(target_type.front()))
         && starts_with(source_type, "record{")) {
@@ -266,6 +453,10 @@ vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& targe
             object["value"] = vf::JsonValue(raw.as_number() == 1.0);
             return value;
         }
+    }
+    if (type_name_coercible(source_type, target_type)) {
+        object["type"] = vf::JsonValue(target_type);
+        return value;
     }
     if (target_type == "bit" && source_type == "int") {
         const vf::JsonValue& raw = field(object, "value", context);
@@ -783,7 +974,10 @@ private:
             const std::string left_type = string_field(left.as_object(), "type", "binary_op.left");
             const std::string right_type = string_field(right.as_object(), "type", "binary_op.right");
             const std::string op = string_field(object, "op", "binary_op");
-            const bool scalar_builtin = ((left_type == "num" || left_type == "int") && (right_type == "num" || right_type == "int"))
+            const auto numeric_scalar = [](const std::string& type) {
+                return type == "int" || type == "num" || type == "f32" || type == "f64";
+            };
+            const bool scalar_builtin = (numeric_scalar(left_type) && numeric_scalar(right_type))
                 || (left_type == "bit" && right_type == "bit")
                 || (left_type == "str" && right_type == "str");
             if (const FunctionInfo* function = functions_.get(op);
@@ -999,6 +1193,7 @@ private:
                 }
                 if (module_name == "stat") {
                     if (field_name == "mean"
+                        || field_name == "sum"
                         || field_name == "std"
                         || field_name == "median"
                         || field_name == "iqr"
@@ -1118,10 +1313,12 @@ private:
                 && left_type == "int" && right_type == "int") {
                 return "int";
             }
-            if ((left_type == "int" || left_type == "num") && (right_type == "int" || right_type == "num")) {
-                return "num";
-            }
-            if (left_type == "num" && right_type == "num") {
+            const auto numeric_scalar = [](const std::string& type) {
+                return type == "int" || type == "num" || type == "f32" || type == "f64";
+            };
+            if (numeric_scalar(left_type) && numeric_scalar(right_type)) {
+                if (left_type == "f64" || right_type == "f64") return "f64";
+                if (left_type == "f32" || right_type == "f32") return "f32";
                 return "num";
             }
             return "any";

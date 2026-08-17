@@ -257,10 +257,7 @@ def test_display_draw_and_frame_draw_match_draw_rect() -> None:
     d.add_frame(f, (0.4, 0.4, 0.2, 0.2))
     f.draw((0.0, 0.0, 0.5, 0.5), color="#030303")
     f.draw_rect((0.5, 0.5, 0.2, 0.2), color="#040404")
-    out = _REPO / "web" / "vf-ui" / "vf-display.json"
-    if not out.is_file():
-        pytest.skip("vf-display.json not written (repo root resolution)")
-    data = json.loads(out.read_text(encoding="utf-8"))
+    data = json.loads(d.display_json())
     assert len(data.get("screen", [])) == 2
     fid = f.id
     assert len((data.get("frames") or {}).get(fid, [])) == 2

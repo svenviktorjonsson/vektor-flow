@@ -143,7 +143,7 @@ def test_default_path_native_tool_sources_have_no_python_process_hooks() -> None
             if marker in source:
                 failures.append(f"{source_path.name}: {marker}")
 
-    assert failures == []
+    assert failures == [], "\n".join(failures)
 
 
 def test_default_path_driver_runs_io_math_without_tool_args(
@@ -236,7 +236,7 @@ def test_default_path_driver_runs_typeof_emit_subset(
 
     summary = json.loads(result.stdout)
     assert summary["ran"] is True
-    assert summary["stdout"] == "(x:num, y:num)\r\n[num]\r\n"
+    assert summary["stdout"] == "(x:int, y:int)\r\n[int]\r\n"
 
 
 def test_default_path_driver_runs_imported_module_function_call_target(
@@ -302,8 +302,9 @@ def test_default_path_driver_runs_parser_shape_subset_examples(
         cwd=ROOT,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
 
     summary = json.loads(result.stdout)
     assert summary["ran"] is True
@@ -925,8 +926,9 @@ vkf_update(state:record{count:f32}, input:record{delta:f32}) -> record{count:f32
         cwd=ROOT,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
 
     summary = json.loads(result.stdout)
     webgpu_artifact_path = Path(summary["webgpu_artifact_path"])
@@ -1447,5 +1449,5 @@ def test_default_path_driver_runs_all_recursive_runnable_examples_without_python
         if "fallback" in proc.stderr.lower() or "python" in proc.stderr.lower():
             failures.append(f"{display_name}: stderr leaked fallback/python markers: {proc.stderr.strip()}")
 
-    assert len(RECURSIVE_RUNNABLE_EXAMPLE_VKF_FILES) == 97
-    assert failures == []
+    assert len(RECURSIVE_RUNNABLE_EXAMPLE_VKF_FILES) >= 97
+    assert failures == [], "\n".join(failures)

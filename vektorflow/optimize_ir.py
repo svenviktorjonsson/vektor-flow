@@ -6,6 +6,8 @@ from typing import Any
 from . import ast, ir
 from .typed_ir import TypedModuleInfo
 from .stdlib.events import event_match_specificity
+from .interpreter import _stringify
+from .runtime.operator_semantics import mixed_string_binary
 
 
 def _load_name(node: Any) -> str | None:
@@ -21,6 +23,11 @@ def _store_name(node: Any) -> str | None:
 
 
 def _const_binop(op: str, left: Any, right: Any) -> Any:
+    mixed_string, mixed_value = mixed_string_binary(
+        op, left, right, lambda value: _stringify(value, {})
+    )
+    if mixed_string:
+        return mixed_value
     if op == "PLUS":
         return left + right
     if op == "MINUS":
@@ -368,6 +375,8 @@ def fold_expr(node: Any) -> Any:
     if isinstance(node, ir.CallExpr):
         func = fold_expr(node.func)
         args = [fold_expr(a) for a in node.args]
+        kwargs = [(name, fold_expr(value)) for name, value in node.kwargs]
+        spreads = [fold_expr(value) for value in node.spreads]
         if (
             isinstance(func, ir.LoadName)
             and len(args) == 1
@@ -378,7 +387,7 @@ def fold_expr(node: Any) -> Any:
                 return ir.Const(_const_cast(func.name, args[0].value))
             except ValueError:
                 pass
-        return ir.CallExpr(func, args)
+        return ir.CallExpr(func, args, kwargs, spreads, list(node.argument_order))
     if isinstance(node, ir.ListExpr):
         folded: list[Any] = []
         for e in node.elements:
@@ -414,7 +423,30 @@ def fold_expr(node: Any) -> Any:
                     return inner
         return ir.AttrExpr(value, node.name)
     if isinstance(node, ir.IndexExpr):
-        return ir.IndexExpr(fold_expr(node.value), [fold_expr(idx) for idx in node.indices])
+        value = fold_expr(node.value)
+        indices = [fold_expr(idx) for idx in node.indices]
+        if indices and all(isinstance(index, ir.Const) for index in indices):
+            constant_values = None
+            if isinstance(value, (ir.MapExpr, ir.StructExpr)) and all(
+                isinstance(field_value, ir.Const) for _name, field_value in value.fields
+            ):
+                fields = {name: field_value.value for name, field_value in value.fields}
+                if all(index.value in fields for index in indices):
+                    constant_values = [fields[index.value] for index in indices]
+            elif isinstance(value, ir.ListExpr) and all(
+                isinstance(element, ir.Const) for element in value.elements
+            ):
+                try:
+                    constant_values = [value.elements[int(index.value)].value for index in indices]
+                except (IndexError, TypeError, ValueError):
+                    constant_values = None
+            if constant_values is not None:
+                return ir.Const(
+                    constant_values[0]
+                    if len(constant_values) == 1
+                    else tuple(constant_values)
+                )
+        return ir.IndexExpr(value, indices)
     if isinstance(node, ir.RangeExpr):
         return ir.RangeExpr(
             None if node.start is None else fold_expr(node.start),
@@ -711,7 +743,13 @@ def _strip_expr(node: Any, typed: TypedModuleInfo) -> Any:
     if isinstance(node, ir.BinaryExpr):
         return ir.BinaryExpr(node.op, _strip_expr(node.left, typed), _strip_expr(node.right, typed))
     if isinstance(node, ir.CallExpr):
-        return ir.CallExpr(_strip_expr(node.func, typed), [_strip_expr(arg, typed) for arg in node.args])
+        return ir.CallExpr(
+            _strip_expr(node.func, typed),
+            [_strip_expr(arg, typed) for arg in node.args],
+            [(name, _strip_expr(value, typed)) for name, value in node.kwargs],
+            [_strip_expr(value, typed) for value in node.spreads],
+            list(node.argument_order),
+        )
     if isinstance(node, ir.ListExpr):
         stripped: list[Any] = []
         for e in node.elements:

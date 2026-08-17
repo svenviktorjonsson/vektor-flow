@@ -214,7 +214,7 @@ def runtime_collection_values(value: Any) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
         return tuple(value)
-    if isinstance(value, (list, tuple, str, frozenset, set)):
+    if isinstance(value, (list, tuple, VFVector, str, frozenset, set)):
         return tuple(value)
     raise TypeError(
         "runtime_collection_values only supports list/queue runtime collections and plain sequences"
@@ -225,7 +225,7 @@ def runtime_collection_expanded_values(value: Any) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
         return runtime_collection_values(value)
-    if isinstance(value, (list, tuple, str, frozenset, set)):
+    if isinstance(value, (list, tuple, VFVector, str, frozenset, set)):
         return runtime_collection_values(value)
     if kind == "multiset":
         return tuple(value.elements())
