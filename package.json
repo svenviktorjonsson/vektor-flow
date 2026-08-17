@@ -27,6 +27,7 @@
     "./symbolic-kernel-manifest": "./web/vf-ui/artifacts/vkf-symbolic-kernel.json",
     "./symbolic-kernel-wasm": "./web/vf-ui/artifacts/vkf-symbolic-kernel.wasm",
     "./symbolic-text-channel": "./web/vf-ui/vf-symbolic-wasm-runtime.mjs",
+    "./prism-language": "./web/editor/prism-vektorflow.mjs",
     "./surface-context": "./web/vf-ui/vf-surface-context.mjs",
     "./world-exchange": "./web/vf-ui/vf-world-exchange.mjs",
     "./world-svg": "./web/vf-ui/vf-world-svg.mjs",
@@ -40,6 +41,7 @@
   "files": [
     "index.js",
     "README.md",
+    "web/editor",
     "web/vf-ui"
   ],
   "directories": {

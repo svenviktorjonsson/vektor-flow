@@ -35,9 +35,20 @@ def _materialize_interpreter_value(value: Any) -> Any:
 def find_top_level_struct_binding(module: ast.Module, name: str, *, source_path: Path | None = None) -> dict[str, Any] | None:
     from .interpreter import Interpreter
 
+    binding_index = next(
+        (
+            index
+            for index, stmt in enumerate(module.statements)
+            if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name
+        ),
+        None,
+    )
+    if binding_index is None:
+        return None
+
     interpreter = Interpreter(source_path or Path("."))
     env = interpreter.globals
-    for stmt in module.statements:
+    for stmt in module.statements[: binding_index + 1]:
         if isinstance(stmt, ast.Bind) and isinstance(stmt.target, ast.Ident) and stmt.target.name == name:
             try:
                 value = interpreter.eval_expr(stmt.value, env)

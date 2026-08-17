@@ -12,6 +12,8 @@ Usage
                              Build through the native-core lexer/token-stream frontend
     vkf package-native-core <file>
                              Build a native-core package directory (.cpp + executable + manifest)
+    vkf export-html <file> -o <directory>
+                             Export vf-ui browser output when the program declares a visual surface
     vkf bench [name ...]     Run curated benchmark examples through interpreter/native paths
     vkf --ui-terminal <file> Run with terminal-attached UI launch behavior
     vkf tokens <file>        Print lexer token stream (diagnostics)
@@ -265,6 +267,25 @@ def cmd_parse_tokens(payload: str) -> int:
 def cmd_eval(source: str, *, filename: str = "<cli>") -> int:
     print("error: eval requires a native compiled execution path; Python interpreter execution is disabled", file=sys.stderr)
     return 1
+
+
+def cmd_export_html(path: Path, out_dir: Path) -> int:
+    try:
+        from .html_output import NoHtmlOutputError, export_html_output
+
+        bundle = export_html_output(path, out_dir)
+        print(bundle.output_dir)
+    except NoHtmlOutputError as exc:
+        print(f"no-html-output: {exc}", file=sys.stderr)
+        return 3
+    except (LexError, ParseError, EvalError) as exc:
+        source = path.read_text(encoding="utf-8") if path.is_file() else ""
+        print(format_source_diagnostic(source, exc), file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_parse_native_core(source: str | None, filename: str, *, filename_label: str | None = None) -> int:
@@ -592,7 +613,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv:
         print(
-            "usage: vkf <file> | vkf cpp <file> | vkf package <file> | vkf package-native-core <file> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet> | vkf -e <snippet>\n"
+            "usage: vkf <file> | vkf cpp <file> | vkf package <file> | vkf export-html <file> -o <directory> | vkf bench [name ...] | vkf tokens <file> | vkf -s <snippet> | vkf -e <snippet>\n"
             "       (omit .vkf: `vkf 01_hello` finds `01_hello.vkf`)",
             file=sys.stderr,
         )
@@ -612,6 +633,8 @@ def main(argv: list[str] | None = None) -> int:
             "                       Build through the native-core lexer/token-stream frontend\n"
             "  vkf package-native-core <file>\n"
             "                       Build a native-core package directory (.cpp + executable + manifest)\n"
+            "  vkf export-html <file> -o <directory>\n"
+            "                       Export a vf-ui browser bundle for visual VKF programs\n"
             "  vkf bench [name ...] Run curated benchmark examples\n"
             "                       add --json for machine-readable output\n"
             "                       add --samples N for median-of-N timing\n"
@@ -872,6 +895,31 @@ def main(argv: list[str] | None = None) -> int:
 
     if argv[0] == "package-native-core":
         return _dispatch_package_subcommand(argv[1:], "package-native-core")
+
+    if argv[0] == "export-html":
+        args = argv[1:]
+        if not args:
+            print("error: vkf export-html <file> -o <directory>", file=sys.stderr)
+            return 1
+        if "-o" not in args:
+            print("error: vkf export-html requires -o <directory>", file=sys.stderr)
+            return 1
+        oi = args.index("-o")
+        if oi + 1 >= len(args):
+            print("error: -o requires a directory", file=sys.stderr)
+            return 1
+        out_dir = Path(args[oi + 1])
+        del args[oi : oi + 2]
+        path_arg = next((a for a in args if not a.startswith("-")), None)
+        if path_arg is None:
+            print("error: missing file path", file=sys.stderr)
+            return 1
+        try:
+            path = resolve_vkf_path(path_arg)
+        except FileNotFoundError:
+            print(f"error: file not found: {path_arg!r}", file=sys.stderr)
+            return 1
+        return cmd_export_html(path, out_dir)
 
     if argv[0] == "bench":
         args = argv[1:]
