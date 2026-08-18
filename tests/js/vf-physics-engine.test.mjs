@@ -72,6 +72,70 @@ test('rigid polygon bounces from the fixed centred 2x2 boundary with restitution
   assert.ok(next.bodies[0].velocity[1] > 1.99);
 });
 
+test('rigid bodies leave an unbounded world when no boundary is authored', () => {
+  const square = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.01,
+    bodies: [{ localVertices: square, position: [0, 0], velocity: [10, 0], restitution: 0 }]
+  }, 0.2);
+
+  assert.ok(next.bodies[0].position[0] > 1.9);
+  assert.ok(next.bodies[0].velocity[0] > 9.9);
+  assert.equal(next.width, undefined);
+  assert.equal(next.height, undefined);
+});
+
+test('an exact circular body stops tangent to an authored static segment', () => {
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.01,
+    segments: [{ id: 'floor', from: [-10, 0], to: [10, 0], restitution: 0, friction: 0 }],
+    bodies: [{
+      id: 'disc',
+      shape: { type: 'circle', radius: 0.25 },
+      position: [0, 0.255],
+      velocity: [0, -1],
+      restitution: 0,
+      friction: 0
+    }]
+  }, 0.01);
+
+  assert.ok(Math.abs(next.bodies[0].position[1] - 0.25) < 1e-12);
+  assert.ok(Math.abs(next.bodies[0].velocity[1]) < 1e-12);
+  assert.deepEqual(next.bodies[0].shape, { type: 'circle', radius: 0.25 });
+});
+
+test('exact circles exchange impulse without polygonizing their boundaries', () => {
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.01,
+    bodies: [
+      { id: 'left', shape: { type: 'circle', radius: 0.25 }, position: [-0.255, 0], velocity: [1, 0], restitution: 1 },
+      { id: 'right', shape: { type: 'circle', radius: 0.25 }, position: [0.255, 0], velocity: [-1, 0], restitution: 1 }
+    ]
+  }, 0.01);
+
+  assert.ok(next.bodies[0].velocity[0] < -0.99);
+  assert.ok(next.bodies[1].velocity[0] > 0.99);
+  assert.ok(next.bodies[1].position[0] - next.bodies[0].position[0] >= 0.5 - 1e-12);
+});
+
+test('an exact circle resolves tangentially against a convex solid body', () => {
+  const square = [[-0.25, -0.25], [0.25, -0.25], [0.25, 0.25], [-0.25, 0.25]];
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.01,
+    bodies: [
+      { id: 'disc', shape: { type: 'circle', radius: 0.2 }, position: [-0.455, 0], velocity: [1, 0], restitution: 0 },
+      { id: 'block', localVertices: square, position: [0, 0], velocity: [0, 0], static: true, restitution: 0 }
+    ]
+  }, 0.01);
+
+  assert.ok(next.bodies[0].position[0] <= -0.45 + 1e-12);
+  assert.ok(Math.abs(next.bodies[0].velocity[0]) < 1e-12);
+});
+
 test('convex rigid bodies exchange centred impulse and friction damps contact slip', () => {
   const square = [[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2]];
   const collide = (friction) => stepRigidPolygonWorld2D({

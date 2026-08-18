@@ -156,14 +156,17 @@ export function stepDoublePendulum(state, dt) {
 }
 
 /**
- * Advance convex rigid polygons inside a fixed, axis-aligned world rectangle.
- * The rectangle is centred on the origin. Bodies retain authored fields while
- * position, velocity, angle, and angularVelocity are replaced by stepped values.
+ * Advance convex rigid polygons and exact circles against authored contact
+ * geometry. A centred axis-aligned rectangle is applied only when both width
+ * and height are explicitly supplied; otherwise the world is unbounded.
  */
 export function stepRigidPolygonWorld2D(world, dt) {
   const step = finiteNonNegative(dt, 'dt');
-  const width = finitePositive(world.width ?? 2, 'world width');
-  const height = finitePositive(world.height ?? 2, 'world height');
+  const hasWidth = world.width != null;
+  const hasHeight = world.height != null;
+  if (hasWidth !== hasHeight) throw new TypeError('rigid world width and height must be supplied together');
+  const width = hasWidth ? finitePositive(world.width, 'world width') : null;
+  const height = hasHeight ? finitePositive(world.height, 'world height') : null;
   const gravity = vector2(world.gravity ?? [0, -9.82], 'gravity');
   const iterations = Math.max(1, Math.trunc(Number(world.solverIterations ?? world.solver_iterations ?? 6)));
   const maxStep = finitePositive(world.maxStep ?? world.step_dt ?? 1 / 120, 'maxStep');
@@ -183,6 +186,7 @@ export function stepRigidPolygonWorld2D(world, dt) {
   const substeps = Math.max(1, Math.ceil(step / maxStep));
   const h = substeps ? step / substeps : 0;
   const bodies = (world.bodies || []).map(normalizeRigidPolygonBody);
+  const segments = (world.segments || []).map(normalizeRigidSegment);
   for (let substep = 0; substep < substeps; substep += 1) {
     for (const body of bodies) {
       body.hadContact = false;
@@ -194,7 +198,12 @@ export function stepRigidPolygonWorld2D(world, dt) {
       body.angle += body.angularVelocity * h;
     }
     for (let iteration = 0; iteration < iterations; iteration += 1) {
-      for (const body of bodies) resolveRigidBoundary(body, width, height);
+      if (width != null) {
+        for (const body of bodies) resolveRigidBoundary(body, width, height);
+      }
+      for (const body of bodies) {
+        for (const segment of segments) resolveRigidSegment(body, segment);
+      }
       for (let a = 0; a < bodies.length; a += 1) {
         for (let b = a + 1; b < bodies.length; b += 1) resolveRigidPair(bodies[a], bodies[b]);
       }
@@ -216,8 +225,7 @@ export function stepRigidPolygonWorld2D(world, dt) {
   }
   return {
     ...world,
-    width,
-    height,
+    ...(width == null ? {} : { width, height }),
     gravity,
     bodies: bodies.map(({ authored, position, velocity, angle, angularVelocity, sleeping, sleepTimer, contactMemory }) => ({
       ...authored,
@@ -612,11 +620,14 @@ function offsetCoordinate(coordinates, axis, amount) {
 }
 
 function normalizeRigidPolygonBody(body, index) {
+  const shape = body.shape?.type === 'circle'
+    ? { type: 'circle', radius: finitePositive(body.shape.radius, 'circle radius') }
+    : null;
   const vertices = body.localVertices ?? body.local_vertices ?? body.contours?.[0];
-  if (!Array.isArray(vertices) || vertices.length < 3) {
+  if (!shape && (!Array.isArray(vertices) || vertices.length < 3)) {
     throw new TypeError(`rigid body ${body.id ?? index} requires at least three localVertices`);
   }
-  const localVertices = vertices.map((point) => vector2(point, 'local vertex'));
+  const localVertices = shape ? [] : vertices.map((point) => vector2(point, 'local vertex'));
   let signedArea2 = 0;
   let inertiaFactor = 0;
   for (let i = 0; i < localVertices.length; i += 1) {
@@ -626,20 +637,27 @@ function normalizeRigidPolygonBody(body, index) {
     signedArea2 += cross;
     inertiaFactor += cross * (dot2(a, a) + dot2(a, b) + dot2(b, b));
   }
-  const area = Math.abs(signedArea2) / 2;
+  const area = shape ? Math.PI * shape.radius ** 2 : Math.abs(signedArea2) / 2;
   if (!(area > 1e-12)) throw new RangeError(`rigid body ${body.id ?? index} has zero area`);
   const fixed = body.fixed === true || body.static === true || body.mass === Number.POSITIVE_INFINITY;
   const mass = fixed ? Number.POSITIVE_INFINITY : finitePositive(body.mass ?? finitePositive(body.density ?? 1, 'body density') * area, 'body mass');
-  const inertia = fixed ? Number.POSITIVE_INFINITY : Math.max(1e-12, mass * Math.abs(inertiaFactor) / (6 * Math.abs(signedArea2)));
+  const inertia = fixed
+    ? Number.POSITIVE_INFINITY
+    : shape
+      ? 0.5 * mass * shape.radius ** 2
+      : Math.max(1e-12, mass * Math.abs(inertiaFactor) / (6 * Math.abs(signedArea2)));
   const muS = finiteNonNegative(body.mu_s ?? body.static_friction ?? body.friction ?? 0.65, 'body mu_s');
   const muD = finiteNonNegative(body.mu_d ?? body.dynamic_friction ?? body.friction ?? Math.min(muS, 0.45), 'body mu_d');
   if (muD > muS) throw new RangeError(`rigid body ${body.id ?? index} requires mu_d <= mu_s`);
   const contactRadius = finitePositive(
-    body.contact_radius ?? Math.max(...localVertices.map((point) => Math.hypot(...point))),
+    body.contact_radius ?? shape?.radius ?? Math.max(...localVertices.map((point) => Math.hypot(...point))),
     'body contact_radius'
   );
   return {
-    authored: { ...body, localVertices: localVertices.map((point) => [...point]) },
+    authored: shape
+      ? { ...body, shape: { ...shape } }
+      : { ...body, localVertices: localVertices.map((point) => [...point]) },
+    shape,
     localVertices,
     position: vector2(body.position ?? [0, 0], 'body position'),
     velocity: vector2(body.velocity ?? [0, 0], 'body velocity'),
@@ -688,41 +706,125 @@ function rigidWorldVertices(body) {
   ]);
 }
 
+function normalizeRigidSegment(segment, index) {
+  const from = vector2(segment.from, `segment ${segment.id ?? index} from`);
+  const to = vector2(segment.to, `segment ${segment.id ?? index} to`);
+  if (!(Math.hypot(to[0] - from[0], to[1] - from[1]) > 1e-12)) {
+    throw new RangeError(`rigid segment ${segment.id ?? index} requires distinct endpoints`);
+  }
+  const materialBody = normalizeRigidPolygonBody({
+    ...segment,
+    static: true,
+    localVertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+  }, `segment ${segment.id ?? index}`);
+  return { authored: { ...segment, from, to }, from, to, material: materialBody.material };
+}
+
 function resolveRigidBoundary(body, width, height) {
   if (body.inverseMass === 0) return;
-  const vertices = rigidWorldVertices(body);
+  const vertices = body.shape?.type === 'circle' ? null : rigidWorldVertices(body);
+  const radius = body.shape?.radius ?? 0;
   const limits = [
-    { penetration: -width / 2 - Math.min(...vertices.map((v) => v[0])), normal: [1, 0], pick: (a, b) => a[0] < b[0] },
-    { penetration: Math.max(...vertices.map((v) => v[0])) - width / 2, normal: [-1, 0], pick: (a, b) => a[0] > b[0] },
-    { penetration: -height / 2 - Math.min(...vertices.map((v) => v[1])), normal: [0, 1], pick: (a, b) => a[1] < b[1] },
-    { penetration: Math.max(...vertices.map((v) => v[1])) - height / 2, normal: [0, -1], pick: (a, b) => a[1] > b[1] }
+    { penetration: -width / 2 - (vertices ? Math.min(...vertices.map((v) => v[0])) : body.position[0] - radius), normal: [1, 0], pick: (a, b) => a[0] < b[0] },
+    { penetration: (vertices ? Math.max(...vertices.map((v) => v[0])) : body.position[0] + radius) - width / 2, normal: [-1, 0], pick: (a, b) => a[0] > b[0] },
+    { penetration: -height / 2 - (vertices ? Math.min(...vertices.map((v) => v[1])) : body.position[1] - radius), normal: [0, 1], pick: (a, b) => a[1] < b[1] },
+    { penetration: (vertices ? Math.max(...vertices.map((v) => v[1])) : body.position[1] + radius) - height / 2, normal: [0, -1], pick: (a, b) => a[1] > b[1] }
   ];
   for (const wall of limits) {
     if (!(wall.penetration > 0)) continue;
-    body.hadContact = true;
-    body.position[0] += wall.normal[0] * wall.penetration;
-    body.position[1] += wall.normal[1] * wall.penetration;
-    const correctedVertices = rigidWorldVertices(body);
-    const extreme = correctedVertices.reduce((chosen, vertex) => wall.pick(vertex, chosen) ? vertex : chosen, correctedVertices[0]);
-    const contacts = correctedVertices.filter((vertex) => Math.abs(dot2(subtract2(vertex, extreme), wall.normal)) < 1e-9);
-    const contact = scale2(contacts.reduce(add2, [0, 0]), 1 / contacts.length);
-    const r = subtract2(contact, body.position);
-    const velocity = velocityAtRigidPoint(body, r);
-    const normalSpeed = dot2(velocity, wall.normal);
-    if (normalSpeed >= 0) continue;
-    const rn = cross2(r, wall.normal);
-    const material = mixRigidContactMaterial(body);
-    const isImpact = -normalSpeed > material.restitutionThreshold;
-    const restitution = isImpact ? material.eN : 0;
-    const normalImpulse = -(1 + restitution) * normalSpeed
-      / (body.inverseMass + rn * rn * body.inverseInertia);
-    applyRigidImpulse(body, scale2(wall.normal, normalImpulse), r);
-    applyRigidContactFriction(null, body, [0, 0], r, wall.normal, normalImpulse, material, isImpact);
+    const contact = vertices
+      ? rigidBoundaryPolygonContact(body, wall)
+      : subtract2(body.position, scale2(wall.normal, radius));
+    resolveRigidStaticContact(body, wall.normal, wall.penetration, contact, mixRigidContactMaterial(body));
   }
+}
+
+function rigidBoundaryPolygonContact(body, wall) {
+  const corrected = add2(body.position, scale2(wall.normal, wall.penetration));
+  const previous = body.position;
+  body.position = corrected;
+  const vertices = rigidWorldVertices(body);
+  body.position = previous;
+  const extreme = vertices.reduce((chosen, vertex) => wall.pick(vertex, chosen) ? vertex : chosen, vertices[0]);
+  const contacts = vertices.filter((vertex) => Math.abs(dot2(subtract2(vertex, extreme), wall.normal)) < 1e-9);
+  return scale2(contacts.reduce(add2, [0, 0]), 1 / contacts.length);
+}
+
+function resolveRigidSegment(body, segment) {
+  if (body.inverseMass === 0) return;
+  const manifold = body.shape?.type === 'circle'
+    ? rigidCircleSegmentManifold(body, segment)
+    : rigidPolygonSegmentManifold(body, segment);
+  if (!manifold) return;
+  resolveRigidStaticContact(
+    body,
+    manifold.normal,
+    manifold.penetration,
+    manifold.contact,
+    mixRigidContactMaterial(body, { material: segment.material })
+  );
+}
+
+function rigidCircleSegmentManifold(body, segment) {
+  const contact = closestPointOnSegment2(body.position, segment.from, segment.to);
+  const delta = subtract2(body.position, contact);
+  const distance = Math.hypot(...delta);
+  const radius = body.shape.radius;
+  if (!(distance < radius)) return null;
+  let normal = distance > 1e-12 ? scale2(delta, 1 / distance) : segmentNormalAgainstVelocity(segment, body.velocity);
+  if (dot2(body.velocity, normal) > 0 && distance < 1e-12) normal = scale2(normal, -1);
+  return { normal, penetration: radius - distance, contact };
+}
+
+function rigidPolygonSegmentManifold(body, segment) {
+  const vertices = rigidWorldVertices(body);
+  const direction = subtract2(segment.to, segment.from);
+  const length = Math.hypot(...direction);
+  const tangent = scale2(direction, 1 / length);
+  let normal = [-tangent[1], tangent[0]];
+  if (dot2(subtract2(body.position, segment.from), normal) < 0) normal = scale2(normal, -1);
+  const tangentProjection = vertices.map((vertex) => dot2(subtract2(vertex, segment.from), tangent));
+  if (Math.max(...tangentProjection) < 0 || Math.min(...tangentProjection) > length) return null;
+  const signed = vertices.map((vertex) => dot2(subtract2(vertex, segment.from), normal));
+  const minimum = Math.min(...signed);
+  if (!(minimum < 0)) return null;
+  const contactVertices = vertices.filter((_, index) => Math.abs(signed[index] - minimum) < 1e-9);
+  const contact = scale2(contactVertices.reduce((sum, vertex) => (
+    add2(sum, closestPointOnSegment2(vertex, segment.from, segment.to))
+  ), [0, 0]), 1 / contactVertices.length);
+  return { normal, penetration: -minimum, contact };
+}
+
+function segmentNormalAgainstVelocity(segment, velocity) {
+  const direction = subtract2(segment.to, segment.from);
+  const length = Math.hypot(...direction);
+  let normal = [-direction[1] / length, direction[0] / length];
+  if (dot2(velocity, normal) > 0) normal = scale2(normal, -1);
+  return normal;
+}
+
+function resolveRigidStaticContact(body, normal, penetration, contact, material) {
+  body.hadContact = true;
+  body.position[0] += normal[0] * penetration;
+  body.position[1] += normal[1] * penetration;
+  const r = subtract2(contact, body.position);
+  const normalSpeed = dot2(velocityAtRigidPoint(body, r), normal);
+  if (normalSpeed >= 0) return;
+  const rn = cross2(r, normal);
+  const isImpact = -normalSpeed > material.restitutionThreshold;
+  const restitution = isImpact ? material.eN : 0;
+  const normalImpulse = -(1 + restitution) * normalSpeed
+    / (body.inverseMass + rn * rn * body.inverseInertia);
+  applyRigidImpulse(body, scale2(normal, normalImpulse), r);
+  applyRigidContactFriction(null, body, [0, 0], r, normal, normalImpulse, material, isImpact);
 }
 
 function resolveRigidPair(a, b) {
   if (a.inverseMass + b.inverseMass === 0) return;
+  if (a.shape?.type === 'circle' || b.shape?.type === 'circle') {
+    resolveRigidRoundPair(a, b);
+    return;
+  }
   const verticesA = rigidWorldVertices(a);
   const verticesB = rigidWorldVertices(b);
   let overlap = Number.POSITIVE_INFINITY;
@@ -755,6 +857,97 @@ function resolveRigidPair(a, b) {
   b.position[1] += normal[1] * correction * b.inverseMass;
 
   const contact = rigidPolygonContactPoint(rigidWorldVertices(a), rigidWorldVertices(b));
+  const rA = subtract2(contact, a.position);
+  const rB = subtract2(contact, b.position);
+  const relativeVelocity = subtract2(velocityAtRigidPoint(b, rB), velocityAtRigidPoint(a, rA));
+  const normalSpeed = dot2(relativeVelocity, normal);
+  if (normalSpeed >= 0) return;
+  const raNormal = cross2(rA, normal);
+  const rbNormal = cross2(rB, normal);
+  const denominator = inverseMass + raNormal ** 2 * a.inverseInertia + rbNormal ** 2 * b.inverseInertia;
+  const material = mixRigidContactMaterial(a, b);
+  const isImpact = -normalSpeed > material.restitutionThreshold;
+  const restitution = isImpact ? material.eN : 0;
+  const normalImpulse = -(1 + restitution) * normalSpeed / denominator;
+  const impulse = scale2(normal, normalImpulse);
+  applyRigidImpulse(a, scale2(impulse, -1), rA);
+  applyRigidImpulse(b, impulse, rB);
+  applyRigidContactFriction(a, b, rA, rB, normal, normalImpulse, material, isImpact);
+}
+
+function resolveRigidRoundPair(a, b) {
+  const manifold = a.shape?.type === 'circle' && b.shape?.type === 'circle'
+    ? rigidCirclePairManifold(a, b)
+    : a.shape?.type === 'circle'
+      ? rigidCirclePolygonManifold(a, b)
+      : invertRigidManifold(rigidCirclePolygonManifold(b, a));
+  if (!manifold) return;
+  resolveRigidPairManifold(a, b, manifold);
+}
+
+function rigidCirclePairManifold(a, b) {
+  const delta = subtract2(b.position, a.position);
+  const distance = Math.hypot(...delta);
+  const radius = a.shape.radius + b.shape.radius;
+  if (!(distance < radius)) return null;
+  const normal = distance > 1e-12 ? scale2(delta, 1 / distance) : [1, 0];
+  return {
+    normal,
+    penetration: radius - distance,
+    contact: add2(a.position, scale2(normal, a.shape.radius))
+  };
+}
+
+function rigidCirclePolygonManifold(circle, polygon) {
+  const vertices = rigidWorldVertices(polygon);
+  let contact = null;
+  let distance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < vertices.length; index += 1) {
+    const candidate = closestPointOnSegment2(circle.position, vertices[index], vertices[(index + 1) % vertices.length]);
+    const candidateDistance = Math.hypot(...subtract2(candidate, circle.position));
+    if (candidateDistance < distance) {
+      distance = candidateDistance;
+      contact = candidate;
+    }
+  }
+  const inside = pointInsideConvexPolygon(circle.position, vertices);
+  if (!inside && !(distance < circle.shape.radius)) return null;
+  const towardPolygon = distance > 1e-12
+    ? scale2(subtract2(contact, circle.position), 1 / distance)
+    : scale2(subtract2(polygon.position, circle.position), 1 / Math.max(1e-12, Math.hypot(...subtract2(polygon.position, circle.position))));
+  return {
+    normal: inside ? scale2(towardPolygon, -1) : towardPolygon,
+    penetration: inside ? circle.shape.radius + distance : circle.shape.radius - distance,
+    contact
+  };
+}
+
+function pointInsideConvexPolygon(point, vertices) {
+  let sign = 0;
+  for (let index = 0; index < vertices.length; index += 1) {
+    const edge = subtract2(vertices[(index + 1) % vertices.length], vertices[index]);
+    const side = cross2(edge, subtract2(point, vertices[index]));
+    if (Math.abs(side) <= 1e-12) continue;
+    const nextSign = Math.sign(side);
+    if (sign && nextSign !== sign) return false;
+    sign = nextSign;
+  }
+  return true;
+}
+
+function invertRigidManifold(manifold) {
+  return manifold ? { ...manifold, normal: scale2(manifold.normal, -1) } : null;
+}
+
+function resolveRigidPairManifold(a, b, { normal, penetration, contact }) {
+  a.hadContact = true;
+  b.hadContact = true;
+  const inverseMass = a.inverseMass + b.inverseMass;
+  const correction = penetration / inverseMass;
+  a.position[0] -= normal[0] * correction * a.inverseMass;
+  a.position[1] -= normal[1] * correction * a.inverseMass;
+  b.position[0] += normal[0] * correction * b.inverseMass;
+  b.position[1] += normal[1] * correction * b.inverseMass;
   const rA = subtract2(contact, a.position);
   const rB = subtract2(contact, b.position);
   const relativeVelocity = subtract2(velocityAtRigidPoint(b, rB), velocityAtRigidPoint(a, rA));
