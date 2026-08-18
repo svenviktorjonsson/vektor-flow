@@ -169,6 +169,25 @@ Callers needing measured pair data should provide a pair material explicitly.
 Settled contact uses configurable linear/angular sleep thresholds and delay to
 turn numerically negligible residual motion into exact persistent rest.
 
+The browser 2D rigid-body reference accepts convex geometry in three forms:
+
+- `localVertices`: a polygonal boundary
+- `shape: { type: 'circle', radius }`: a full analytic circle
+- `shape: { type: 'boundary', edges }`: an ordered, closed boundary whose edges
+  are straight `segment` records or signed circular `arc` records
+
+A segment records `from` and `to`. An arc records `center`, `radius`,
+`startAngle`, and `sweepAngle`; the `cx`, `cy`, `r`, and `sweepRad` authoring
+aliases are also accepted. Body `position` denotes the center of mass, so the
+boundary is recentered internally without changing its authored output.
+
+Mixed segment/arc area, centroid, and polar moment use closed-form Green
+integrals. Collision projections query exact arc support points, and arc
+contacts therefore use radial normals rather than chord normals. No arc
+vertices are generated. Arbitrary interpolated edges remain a separate future
+adapter: they can provide cached adaptive segments because their curvature is
+not a single analytic primitive, while circular arcs should stay exact.
+
 ### Thermal Core
 
 Owns:

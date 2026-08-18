@@ -6,6 +6,7 @@ import {
   createGlobalFieldRegistry,
   createPhysicsScope,
   maxwellCflLimit,
+  rigidBoundaryMassProperties2D,
   solveElectrostaticPotential,
   sampleGlobalField,
   stepDoublePendulum,
@@ -15,6 +16,16 @@ import {
   stepRigidPolygonWorld2D,
   stepThermalNetwork
 } from '../../web/vf-ui/vf-physics-engine.mjs';
+
+const stadiumBoundary = Object.freeze({
+  type: 'boundary',
+  edges: Object.freeze([
+    Object.freeze({ type: 'segment', from: [-1, -1], to: [1, -1] }),
+    Object.freeze({ type: 'arc', center: [1, 0], radius: 1, startAngle: -Math.PI / 2, sweepAngle: Math.PI }),
+    Object.freeze({ type: 'segment', from: [1, 1], to: [-1, 1] }),
+    Object.freeze({ type: 'arc', center: [-1, 0], radius: 1, startAngle: Math.PI / 2, sweepAngle: Math.PI })
+  ])
+});
 
 test('double pendulum advances two horizontal one-metre links under gravity', () => {
   const initial = {
@@ -121,6 +132,19 @@ test('exact circles exchange impulse without polygonizing their boundaries', () 
   assert.ok(next.bodies[1].position[0] - next.bodies[0].position[0] >= 0.5 - 1e-12);
 });
 
+test('concentric exact circles choose a stable separating normal', () => {
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    bodies: [
+      { shape: { type: 'circle', radius: 1 }, position: [0, 0], static: true },
+      { shape: { type: 'circle', radius: 0.5 }, position: [0, 0], velocity: [0, 0] }
+    ]
+  }, 0).bodies[1];
+
+  assert.ok(Math.abs(next.position[0] - 1.5) < 1e-12);
+  assert.ok(Math.abs(next.position[1]) < 1e-12);
+});
+
 test('an exact circle resolves tangentially against a convex solid body', () => {
   const square = [[-0.25, -0.25], [0.25, -0.25], [0.25, 0.25], [-0.25, 0.25]];
   const next = stepRigidPolygonWorld2D({
@@ -134,6 +158,109 @@ test('an exact circle resolves tangentially against a convex solid body', () => 
 
   assert.ok(next.bodies[0].position[0] <= -0.45 + 1e-12);
   assert.ok(Math.abs(next.bodies[0].velocity[0]) < 1e-12);
+});
+
+test('mixed segment and circular-arc boundaries have analytic mass properties', () => {
+  const properties = rigidBoundaryMassProperties2D(stadiumBoundary);
+
+  assert.ok(Math.abs(properties.area - (4 + Math.PI)) < 1e-12);
+  assert.ok(Math.abs(properties.centroid[0]) < 1e-12);
+  assert.ok(Math.abs(properties.centroid[1]) < 1e-12);
+  assert.ok(Math.abs(properties.polarMoment - (16 / 3 + 3 * Math.PI / 2)) < 1e-12);
+  assert.ok(Math.abs(properties.inertiaPerMass - properties.polarMoment / properties.area) < 1e-12);
+});
+
+test('clockwise full arcs retain exact area, centroid, and solid-disc inertia', () => {
+  const properties = rigidBoundaryMassProperties2D({
+    type: 'boundary',
+    edges: [{ type: 'arc', center: [3, -2], radius: 2, startAngle: 0, sweepAngle: -2 * Math.PI }]
+  });
+
+  assert.ok(Math.abs(properties.area - 4 * Math.PI) < 1e-12);
+  assert.ok(Math.abs(properties.centroid[0] - 3) < 1e-12);
+  assert.ok(Math.abs(properties.centroid[1] + 2) < 1e-12);
+  assert.ok(Math.abs(properties.polarMoment - 8 * Math.PI) < 1e-11);
+  assert.ok(Math.abs(properties.inertiaPerMass - 2) < 1e-12);
+});
+
+test('a rotated mixed boundary uses exact curved support against a wall', () => {
+  const angle = Math.PI / 2;
+  const next = stepRigidPolygonWorld2D({
+    width: 20,
+    height: 4,
+    gravity: [0, 0],
+    maxStep: 0.01,
+    bodies: [{
+      shape: stadiumBoundary,
+      position: [0, -0.51],
+      angle,
+      velocity: [0, -1],
+      restitution: 0,
+      friction: 0
+    }]
+  }, 0.01).bodies[0];
+
+  assert.ok(Math.abs(next.position[1]) < 1e-12);
+  assert.ok(Math.abs(next.velocity[1]) < 1e-12);
+  assert.equal(next.angle, angle);
+  assert.deepEqual(next.shape, stadiumBoundary);
+});
+
+test('mixed arc contact resolves along the analytic radial normal', () => {
+  const initial = [2.2, 0.6];
+  const expectedNormalLength = Math.hypot(1.2, 0.6);
+  const expectedNormal = [1.2 / expectedNormalLength, 0.6 / expectedNormalLength];
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.01,
+    bodies: [
+      { id: 'stadium', shape: stadiumBoundary, position: [0, 0], static: true },
+      { id: 'disc', shape: { type: 'circle', radius: 0.5 }, position: initial, velocity: [-1, 0], restitution: 0 }
+    ]
+  }, 0).bodies[1];
+  const correction = [next.position[0] - initial[0], next.position[1] - initial[1]];
+  const correctionLength = Math.hypot(...correction);
+
+  assert.ok(correctionLength > 0.15);
+  assert.ok(Math.abs(correction[0] / correctionLength - expectedNormal[0]) < 1e-10);
+  assert.ok(Math.abs(correction[1] / correctionLength - expectedNormal[1]) < 1e-10);
+});
+
+test('two mixed boundaries exchange centred impulse through their arc ends', () => {
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.01,
+    bodies: [
+      { shape: stadiumBoundary, position: [-2.005, 0], velocity: [1, 0], mass: 1, restitution: 1, friction: 0 },
+      { shape: stadiumBoundary, position: [2.005, 0], velocity: [-1, 0], mass: 1, restitution: 1, friction: 0 }
+    ]
+  }, 0.01).bodies;
+
+  assert.ok(next[0].velocity[0] < -0.99);
+  assert.ok(next[1].velocity[0] > 0.99);
+  assert.ok(Math.abs(next[0].angularVelocity) < 1e-12);
+  assert.ok(Math.abs(next[1].angularVelocity) < 1e-12);
+});
+
+test('off-centre arc contact rotates from the exact mixed-boundary inertia', () => {
+  const inertia = rigidBoundaryMassProperties2D(stadiumBoundary).inertiaPerMass;
+  const lever = Math.SQRT1_2;
+  const expectedAngularVelocity = lever / (inertia + lever ** 2);
+  const body = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    segments: [{ from: [0, -10], to: [0, 10], restitution: 0, friction: 0 }],
+    bodies: [{
+      shape: stadiumBoundary,
+      position: [-1.7, 0],
+      angle: Math.PI / 4,
+      velocity: [1, 0],
+      mass: 1,
+      restitution: 0,
+      friction: 0
+    }]
+  }, 0).bodies[0];
+
+  assert.ok(Math.abs(body.angularVelocity - expectedAngularVelocity) < 1e-12);
 });
 
 test('convex rigid bodies exchange centred impulse and friction damps contact slip', () => {

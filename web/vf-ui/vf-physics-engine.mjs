@@ -619,10 +619,46 @@ function offsetCoordinate(coordinates, axis, amount) {
   return next;
 }
 
+/**
+ * Area properties of an ordered, closed 2D boundary containing straight
+ * segments and circular arcs. Edges follow the boundary winding; arc sweeps
+ * are signed and expressed in radians.
+ */
+export function rigidBoundaryMassProperties2D(shape) {
+  const boundary = normalizeRigidBoundaryShape(shape);
+  return rigidNormalizedBoundaryMassProperties2D(boundary);
+}
+
+function rigidNormalizedBoundaryMassProperties2D(boundary) {
+  const totals = { area: 0, firstX: 0, firstY: 0, polar: 0 };
+  for (const edge of boundary.edges) integrateRigidBoundaryEdge(edge, totals);
+  if (!(Math.abs(totals.area) > 1e-12)) throw new RangeError('rigid boundary has zero area');
+  const orientation = Math.sign(totals.area);
+  const area = Math.abs(totals.area);
+  const centroid = [totals.firstX / totals.area, totals.firstY / totals.area];
+  const polarAtOrigin = orientation * totals.polar;
+  const polarMoment = Math.max(0, polarAtOrigin - area * dot2(centroid, centroid));
+  return {
+    area,
+    centroid,
+    polarMoment,
+    inertiaPerMass: polarMoment / area
+  };
+}
+
 function normalizeRigidPolygonBody(body, index) {
-  const shape = body.shape?.type === 'circle'
+  const circleShape = body.shape?.type === 'circle'
     ? { type: 'circle', radius: finitePositive(body.shape.radius, 'circle radius') }
     : null;
+  const authoredBoundary = body.shape?.type === 'boundary'
+    ? normalizeRigidBoundaryShape(body.shape)
+    : null;
+  const boundaryProperties = authoredBoundary ? rigidNormalizedBoundaryMassProperties2D(authoredBoundary) : null;
+  const boundaryShape = authoredBoundary ? {
+    type: 'boundary',
+    edges: authoredBoundary.edges.map((edge) => shiftRigidBoundaryEdge(edge, boundaryProperties.centroid))
+  } : null;
+  const shape = circleShape ?? boundaryShape;
   const vertices = body.localVertices ?? body.local_vertices ?? body.contours?.[0];
   if (!shape && (!Array.isArray(vertices) || vertices.length < 3)) {
     throw new TypeError(`rigid body ${body.id ?? index} requires at least three localVertices`);
@@ -637,25 +673,29 @@ function normalizeRigidPolygonBody(body, index) {
     signedArea2 += cross;
     inertiaFactor += cross * (dot2(a, a) + dot2(a, b) + dot2(b, b));
   }
-  const area = shape ? Math.PI * shape.radius ** 2 : Math.abs(signedArea2) / 2;
+  const area = circleShape
+    ? Math.PI * circleShape.radius ** 2
+    : boundaryProperties?.area ?? Math.abs(signedArea2) / 2;
   if (!(area > 1e-12)) throw new RangeError(`rigid body ${body.id ?? index} has zero area`);
   const fixed = body.fixed === true || body.static === true || body.mass === Number.POSITIVE_INFINITY;
   const mass = fixed ? Number.POSITIVE_INFINITY : finitePositive(body.mass ?? finitePositive(body.density ?? 1, 'body density') * area, 'body mass');
   const inertia = fixed
     ? Number.POSITIVE_INFINITY
-    : shape
-      ? 0.5 * mass * shape.radius ** 2
-      : Math.max(1e-12, mass * Math.abs(inertiaFactor) / (6 * Math.abs(signedArea2)));
+    : circleShape
+      ? 0.5 * mass * circleShape.radius ** 2
+      : boundaryProperties
+        ? mass * boundaryProperties.inertiaPerMass
+        : Math.max(1e-12, mass * Math.abs(inertiaFactor) / (6 * Math.abs(signedArea2)));
   const muS = finiteNonNegative(body.mu_s ?? body.static_friction ?? body.friction ?? 0.65, 'body mu_s');
   const muD = finiteNonNegative(body.mu_d ?? body.dynamic_friction ?? body.friction ?? Math.min(muS, 0.45), 'body mu_d');
   if (muD > muS) throw new RangeError(`rigid body ${body.id ?? index} requires mu_d <= mu_s`);
   const contactRadius = finitePositive(
-    body.contact_radius ?? shape?.radius ?? Math.max(...localVertices.map((point) => Math.hypot(...point))),
+    body.contact_radius ?? circleShape?.radius ?? rigidShapeContactRadius(shape, localVertices),
     'body contact_radius'
   );
   return {
     authored: shape
-      ? { ...body, shape: { ...shape } }
+      ? { ...body, shape: authoredBoundary ? cloneRigidBoundaryShape(body.shape) : { ...circleShape } }
       : { ...body, localVertices: localVertices.map((point) => [...point]) },
     shape,
     localVertices,
@@ -706,6 +746,136 @@ function rigidWorldVertices(body) {
   ]);
 }
 
+function cloneRigidBoundaryShape(shape) {
+  return {
+    ...shape,
+    edges: shape.edges.map((edge) => ({
+      ...edge,
+      ...(Array.isArray(edge.from) ? { from: [...edge.from] } : {}),
+      ...(Array.isArray(edge.to) ? { to: [...edge.to] } : {}),
+      ...(Array.isArray(edge.center) ? { center: [...edge.center] } : {})
+    }))
+  };
+}
+
+function normalizeRigidBoundaryShape(shape) {
+  if (shape?.type !== 'boundary' || !Array.isArray(shape.edges) || shape.edges.length < 1) {
+    throw new TypeError('rigid boundary shape requires an ordered edges array');
+  }
+  const edges = shape.edges.map((edge, index) => {
+    if (edge?.type === 'segment' || edge?.type === 'line') {
+      const from = vector2(edge.from, `boundary edge ${index} from`);
+      const to = vector2(edge.to, `boundary edge ${index} to`);
+      if (!(Math.hypot(...subtract2(to, from)) > 1e-12)) {
+        throw new RangeError(`boundary edge ${index} requires distinct endpoints`);
+      }
+      return { type: 'segment', from, to };
+    }
+    if (edge?.type !== 'arc' && edge?.type !== 'circular-arc') {
+      throw new TypeError(`boundary edge ${index} must be a segment or circular arc`);
+    }
+    const center = edge.center
+      ? vector2(edge.center, `boundary arc ${index} center`)
+      : vector2([edge.cx, edge.cy], `boundary arc ${index} center`);
+    const radius = finitePositive(edge.radius ?? edge.r, `boundary arc ${index} radius`);
+    const startAngle = edge.startAngle == null
+      ? finiteNumber(
+        Math.atan2(edge.from?.[1] - center[1], edge.from?.[0] - center[0]),
+        `boundary arc ${index} startAngle`
+      )
+      : finiteNumber(edge.startAngle, `boundary arc ${index} startAngle`);
+    const sweepAngle = finiteNumber(
+      edge.sweepAngle ?? edge.sweepRad ?? edge.sweep,
+      `boundary arc ${index} sweepAngle`
+    );
+    if (!(Math.abs(sweepAngle) > 1e-12) || Math.abs(sweepAngle) > Math.PI * 2 + 1e-12) {
+      throw new RangeError(`boundary arc ${index} sweepAngle must be non-zero and at most one turn`);
+    }
+    return { type: 'arc', center, radius, startAngle, sweepAngle };
+  });
+  for (let index = 0; index < edges.length; index += 1) {
+    const end = rigidBoundaryEdgeEnd(edges[index]);
+    const next = rigidBoundaryEdgeStart(edges[(index + 1) % edges.length]);
+    const scale = Math.max(1, Math.hypot(...end), Math.hypot(...next));
+    if (Math.hypot(...subtract2(end, next)) > 1e-9 * scale) {
+      throw new RangeError(`rigid boundary edges ${index} and ${(index + 1) % edges.length} are not connected`);
+    }
+  }
+  return { type: 'boundary', edges };
+}
+
+function shiftRigidBoundaryEdge(edge, offset) {
+  return edge.type === 'segment'
+    ? { ...edge, from: subtract2(edge.from, offset), to: subtract2(edge.to, offset) }
+    : { ...edge, center: subtract2(edge.center, offset) };
+}
+
+function rigidBoundaryEdgeStart(edge) {
+  return edge.type === 'segment'
+    ? edge.from
+    : add2(edge.center, scale2([Math.cos(edge.startAngle), Math.sin(edge.startAngle)], edge.radius));
+}
+
+function rigidBoundaryEdgeEnd(edge) {
+  return edge.type === 'segment'
+    ? edge.to
+    : add2(edge.center, scale2([
+      Math.cos(edge.startAngle + edge.sweepAngle),
+      Math.sin(edge.startAngle + edge.sweepAngle)
+    ], edge.radius));
+}
+
+function integrateRigidBoundaryEdge(edge, totals) {
+  if (edge.type === 'segment') {
+    const cross = cross2(edge.from, edge.to);
+    totals.area += cross / 2;
+    totals.firstX += cross * (edge.from[0] + edge.to[0]) / 6;
+    totals.firstY += cross * (edge.from[1] + edge.to[1]) / 6;
+    totals.polar += cross * (
+      dot2(edge.from, edge.from) + dot2(edge.from, edge.to) + dot2(edge.to, edge.to)
+    ) / 12;
+    return;
+  }
+  const start = edge.startAngle;
+  const end = start + edge.sweepAngle;
+  const [cx, cy] = edge.center;
+  const radius = edge.radius;
+  const deltaSin = Math.sin(end) - Math.sin(start);
+  const deltaNegativeCos = Math.cos(start) - Math.cos(end);
+  const integralCos2 = edge.sweepAngle / 2 + (Math.sin(2 * end) - Math.sin(2 * start)) / 4;
+  const integralSin2 = edge.sweepAngle / 2 - (Math.sin(2 * end) - Math.sin(2 * start)) / 4;
+  const integralCosSin = (Math.sin(end) ** 2 - Math.sin(start) ** 2) / 2;
+  const integralCos3 = deltaSin - (Math.sin(end) ** 3 - Math.sin(start) ** 3) / 3;
+  const integralSin3 = deltaNegativeCos + (Math.cos(end) ** 3 - Math.cos(start) ** 3) / 3;
+  const integralCenterProjection = cx * deltaSin + cy * deltaNegativeCos;
+  const integralCenterProjectionSquared = cx ** 2 * integralCos2
+    + 2 * cx * cy * integralCosSin
+    + cy ** 2 * integralSin2;
+  totals.area += radius * (
+    integralCenterProjection + radius * edge.sweepAngle
+  ) / 2;
+  totals.firstX += radius * (
+    cx ** 2 * deltaSin + 2 * cx * radius * integralCos2 + radius ** 2 * integralCos3
+  ) / 2;
+  totals.firstY += radius * (
+    cy ** 2 * deltaNegativeCos + 2 * cy * radius * integralSin2 + radius ** 2 * integralSin3
+  ) / 2;
+  totals.polar += radius * (
+    (cx ** 2 + cy ** 2 + 3 * radius ** 2) * integralCenterProjection
+    + radius * (cx ** 2 + cy ** 2 + radius ** 2) * edge.sweepAngle
+    + 2 * radius * integralCenterProjectionSquared
+  ) / 4;
+}
+
+function rigidShapeContactRadius(shape, localVertices) {
+  if (shape?.type === 'boundary') {
+    return Math.max(...shape.edges.flatMap((edge) => edge.type === 'segment'
+      ? [Math.hypot(...edge.from), Math.hypot(...edge.to)]
+      : [Math.hypot(...edge.center) + edge.radius]));
+  }
+  return Math.max(...localVertices.map((point) => Math.hypot(...point)));
+}
+
 function normalizeRigidSegment(segment, index) {
   const from = vector2(segment.from, `segment ${segment.id ?? index} from`);
   const to = vector2(segment.to, `segment ${segment.id ?? index} to`);
@@ -722,39 +892,26 @@ function normalizeRigidSegment(segment, index) {
 
 function resolveRigidBoundary(body, width, height) {
   if (body.inverseMass === 0) return;
-  const vertices = body.shape?.type === 'circle' ? null : rigidWorldVertices(body);
-  const radius = body.shape?.radius ?? 0;
+  const left = rigidSupportPoint(body, [-1, 0]);
+  const right = rigidSupportPoint(body, [1, 0]);
+  const bottom = rigidSupportPoint(body, [0, -1]);
+  const top = rigidSupportPoint(body, [0, 1]);
   const limits = [
-    { penetration: -width / 2 - (vertices ? Math.min(...vertices.map((v) => v[0])) : body.position[0] - radius), normal: [1, 0], pick: (a, b) => a[0] < b[0] },
-    { penetration: (vertices ? Math.max(...vertices.map((v) => v[0])) : body.position[0] + radius) - width / 2, normal: [-1, 0], pick: (a, b) => a[0] > b[0] },
-    { penetration: -height / 2 - (vertices ? Math.min(...vertices.map((v) => v[1])) : body.position[1] - radius), normal: [0, 1], pick: (a, b) => a[1] < b[1] },
-    { penetration: (vertices ? Math.max(...vertices.map((v) => v[1])) : body.position[1] + radius) - height / 2, normal: [0, -1], pick: (a, b) => a[1] > b[1] }
+    { penetration: -width / 2 - left[0], normal: [1, 0], support: left },
+    { penetration: right[0] - width / 2, normal: [-1, 0], support: right },
+    { penetration: -height / 2 - bottom[1], normal: [0, 1], support: bottom },
+    { penetration: top[1] - height / 2, normal: [0, -1], support: top }
   ];
   for (const wall of limits) {
     if (!(wall.penetration > 0)) continue;
-    const contact = vertices
-      ? rigidBoundaryPolygonContact(body, wall)
-      : subtract2(body.position, scale2(wall.normal, radius));
+    const contact = add2(wall.support, scale2(wall.normal, wall.penetration));
     resolveRigidStaticContact(body, wall.normal, wall.penetration, contact, mixRigidContactMaterial(body));
   }
 }
 
-function rigidBoundaryPolygonContact(body, wall) {
-  const corrected = add2(body.position, scale2(wall.normal, wall.penetration));
-  const previous = body.position;
-  body.position = corrected;
-  const vertices = rigidWorldVertices(body);
-  body.position = previous;
-  const extreme = vertices.reduce((chosen, vertex) => wall.pick(vertex, chosen) ? vertex : chosen, vertices[0]);
-  const contacts = vertices.filter((vertex) => Math.abs(dot2(subtract2(vertex, extreme), wall.normal)) < 1e-9);
-  return scale2(contacts.reduce(add2, [0, 0]), 1 / contacts.length);
-}
-
 function resolveRigidSegment(body, segment) {
   if (body.inverseMass === 0) return;
-  const manifold = body.shape?.type === 'circle'
-    ? rigidCircleSegmentManifold(body, segment)
-    : rigidPolygonSegmentManifold(body, segment);
+  const manifold = rigidShapeSegmentManifold(body, segment);
   if (!manifold) return;
   resolveRigidStaticContact(
     body,
@@ -765,42 +922,26 @@ function resolveRigidSegment(body, segment) {
   );
 }
 
-function rigidCircleSegmentManifold(body, segment) {
-  const contact = closestPointOnSegment2(body.position, segment.from, segment.to);
-  const delta = subtract2(body.position, contact);
-  const distance = Math.hypot(...delta);
-  const radius = body.shape.radius;
-  if (!(distance < radius)) return null;
-  let normal = distance > 1e-12 ? scale2(delta, 1 / distance) : segmentNormalAgainstVelocity(segment, body.velocity);
-  if (dot2(body.velocity, normal) > 0 && distance < 1e-12) normal = scale2(normal, -1);
-  return { normal, penetration: radius - distance, contact };
-}
-
-function rigidPolygonSegmentManifold(body, segment) {
-  const vertices = rigidWorldVertices(body);
+function rigidShapeSegmentManifold(body, segment) {
   const direction = subtract2(segment.to, segment.from);
   const length = Math.hypot(...direction);
   const tangent = scale2(direction, 1 / length);
   let normal = [-tangent[1], tangent[0]];
-  if (dot2(subtract2(body.position, segment.from), normal) < 0) normal = scale2(normal, -1);
-  const tangentProjection = vertices.map((vertex) => dot2(subtract2(vertex, segment.from), tangent));
-  if (Math.max(...tangentProjection) < 0 || Math.min(...tangentProjection) > length) return null;
-  const signed = vertices.map((vertex) => dot2(subtract2(vertex, segment.from), normal));
-  const minimum = Math.min(...signed);
-  if (!(minimum < 0)) return null;
-  const contactVertices = vertices.filter((_, index) => Math.abs(signed[index] - minimum) < 1e-9);
-  const contact = scale2(contactVertices.reduce((sum, vertex) => (
-    add2(sum, closestPointOnSegment2(vertex, segment.from, segment.to))
-  ), [0, 0]), 1 / contactVertices.length);
-  return { normal, penetration: -minimum, contact };
-}
-
-function segmentNormalAgainstVelocity(segment, velocity) {
-  const direction = subtract2(segment.to, segment.from);
-  const length = Math.hypot(...direction);
-  let normal = [-direction[1] / length, direction[0] / length];
-  if (dot2(velocity, normal) > 0) normal = scale2(normal, -1);
-  return normal;
+  const centerSide = dot2(subtract2(body.position, segment.from), normal);
+  if (centerSide < 0 || (Math.abs(centerSide) <= 1e-12 && dot2(body.velocity, normal) > 0)) {
+    normal = scale2(normal, -1);
+  }
+  const minimumPoint = rigidSupportPoint(body, scale2(normal, -1));
+  const maximumTangent = dot2(subtract2(rigidSupportPoint(body, tangent), segment.from), tangent);
+  const minimumTangent = dot2(subtract2(rigidSupportPoint(body, scale2(tangent, -1)), segment.from), tangent);
+  if (maximumTangent < 0 || minimumTangent > length) return null;
+  const signedDistance = dot2(subtract2(minimumPoint, segment.from), normal);
+  if (!(signedDistance < 0)) return null;
+  return {
+    normal,
+    penetration: -signedDistance,
+    contact: closestPointOnSegment2(minimumPoint, segment.from, segment.to)
+  };
 }
 
 function resolveRigidStaticContact(body, normal, penetration, contact, material) {
@@ -821,122 +962,194 @@ function resolveRigidStaticContact(body, normal, penetration, contact, material)
 
 function resolveRigidPair(a, b) {
   if (a.inverseMass + b.inverseMass === 0) return;
-  if (a.shape?.type === 'circle' || b.shape?.type === 'circle') {
-    resolveRigidRoundPair(a, b);
-    return;
+  const manifold = rigidConvexPairManifold(a, b);
+  if (manifold) resolveRigidPairManifold(a, b, manifold);
+}
+
+function rigidConvexPairManifold(a, b) {
+  const centerDelta = subtract2(b.position, a.position);
+  const axes = [
+    ...rigidStraightAxes(a),
+    ...rigidStraightAxes(b)
+  ];
+  const arcCentersA = rigidArcCenters(a);
+  const arcCentersB = rigidArcCenters(b);
+  const verticesA = rigidFeatureVertices(a);
+  const verticesB = rigidFeatureVertices(b);
+  for (const center of arcCentersA) {
+    for (const vertex of verticesB) axes.push(subtract2(vertex, center));
   }
-  const verticesA = rigidWorldVertices(a);
-  const verticesB = rigidWorldVertices(b);
-  let overlap = Number.POSITIVE_INFINITY;
+  for (const center of arcCentersB) {
+    for (const vertex of verticesA) axes.push(subtract2(center, vertex));
+  }
+  for (const centerA of arcCentersA) {
+    for (const centerB of arcCentersB) axes.push(subtract2(centerB, centerA));
+  }
+  axes.push(centerDelta, [1, 0]);
+
+  let penetration = Number.POSITIVE_INFINITY;
   let normal = null;
-  for (const vertices of [verticesA, verticesB]) {
-    for (let index = 0; index < vertices.length; index += 1) {
-      const edge = subtract2(vertices[(index + 1) % vertices.length], vertices[index]);
-      const length = Math.hypot(edge[0], edge[1]);
-      if (!(length > 1e-12)) continue;
-      const axis = [-edge[1] / length, edge[0] / length];
-      const projectionA = projectRigidVertices(verticesA, axis);
-      const projectionB = projectRigidVertices(verticesB, axis);
-      const axisOverlap = Math.min(projectionA.max, projectionB.max) - Math.max(projectionA.min, projectionB.min);
-      if (!(axisOverlap > 0)) return;
-      if (axisOverlap < overlap) {
-        overlap = axisOverlap;
-        normal = axis;
-      }
+  for (const candidate of axes) {
+    const length = Math.hypot(...candidate);
+    if (!(length > 1e-12)) continue;
+    let axis = scale2(candidate, 1 / length);
+    const projectionA = rigidShapeProjection(a, axis);
+    const projectionB = rigidShapeProjection(b, axis);
+    if (!(projectionA.max > projectionB.min && projectionB.max > projectionA.min)) return null;
+    const forwardPenetration = projectionA.max - projectionB.min;
+    const reversePenetration = projectionB.max - projectionA.min;
+    const directedPenetration = Math.min(forwardPenetration, reversePenetration);
+    if (reversePenetration < forwardPenetration) axis = scale2(axis, -1);
+    if (directedPenetration < penetration) {
+      penetration = directedPenetration;
+      normal = axis;
     }
   }
-  if (!normal) return;
-  a.hadContact = true;
-  b.hadContact = true;
-  if (dot2(subtract2(b.position, a.position), normal) < 0) normal = scale2(normal, -1);
-  const inverseMass = a.inverseMass + b.inverseMass;
-  const correction = overlap / inverseMass;
-  a.position[0] -= normal[0] * correction * a.inverseMass;
-  a.position[1] -= normal[1] * correction * a.inverseMass;
-  b.position[0] += normal[0] * correction * b.inverseMass;
-  b.position[1] += normal[1] * correction * b.inverseMass;
-
-  const contact = rigidPolygonContactPoint(rigidWorldVertices(a), rigidWorldVertices(b));
-  const rA = subtract2(contact, a.position);
-  const rB = subtract2(contact, b.position);
-  const relativeVelocity = subtract2(velocityAtRigidPoint(b, rB), velocityAtRigidPoint(a, rA));
-  const normalSpeed = dot2(relativeVelocity, normal);
-  if (normalSpeed >= 0) return;
-  const raNormal = cross2(rA, normal);
-  const rbNormal = cross2(rB, normal);
-  const denominator = inverseMass + raNormal ** 2 * a.inverseInertia + rbNormal ** 2 * b.inverseInertia;
-  const material = mixRigidContactMaterial(a, b);
-  const isImpact = -normalSpeed > material.restitutionThreshold;
-  const restitution = isImpact ? material.eN : 0;
-  const normalImpulse = -(1 + restitution) * normalSpeed / denominator;
-  const impulse = scale2(normal, normalImpulse);
-  applyRigidImpulse(a, scale2(impulse, -1), rA);
-  applyRigidImpulse(b, impulse, rB);
-  applyRigidContactFriction(a, b, rA, rB, normal, normalImpulse, material, isImpact);
-}
-
-function resolveRigidRoundPair(a, b) {
-  const manifold = a.shape?.type === 'circle' && b.shape?.type === 'circle'
-    ? rigidCirclePairManifold(a, b)
-    : a.shape?.type === 'circle'
-      ? rigidCirclePolygonManifold(a, b)
-      : invertRigidManifold(rigidCirclePolygonManifold(b, a));
-  if (!manifold) return;
-  resolveRigidPairManifold(a, b, manifold);
-}
-
-function rigidCirclePairManifold(a, b) {
-  const delta = subtract2(b.position, a.position);
-  const distance = Math.hypot(...delta);
-  const radius = a.shape.radius + b.shape.radius;
-  if (!(distance < radius)) return null;
-  const normal = distance > 1e-12 ? scale2(delta, 1 / distance) : [1, 0];
+  if (!normal || !(penetration > 0)) return null;
+  const featureA = rigidSupportFeature(a, normal);
+  const featureB = rigidSupportFeature(b, scale2(normal, -1));
   return {
     normal,
-    penetration: radius - distance,
-    contact: add2(a.position, scale2(normal, a.shape.radius))
+    penetration,
+    contact: rigidContactBetweenSupportFeatures(featureA, featureB, normal)
   };
 }
 
-function rigidCirclePolygonManifold(circle, polygon) {
-  const vertices = rigidWorldVertices(polygon);
-  let contact = null;
-  let distance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < vertices.length; index += 1) {
-    const candidate = closestPointOnSegment2(circle.position, vertices[index], vertices[(index + 1) % vertices.length]);
-    const candidateDistance = Math.hypot(...subtract2(candidate, circle.position));
-    if (candidateDistance < distance) {
-      distance = candidateDistance;
-      contact = candidate;
+function rigidShapeProjection(body, axis) {
+  return {
+    min: dot2(rigidSupportPoint(body, scale2(axis, -1)), axis),
+    max: dot2(rigidSupportPoint(body, axis), axis)
+  };
+}
+
+function rigidSupportPoint(body, worldDirection) {
+  const feature = rigidSupportFeature(body, worldDirection);
+  return scale2(feature.reduce(add2, [0, 0]), 1 / feature.length);
+}
+
+function rigidSupportFeature(body, worldDirection) {
+  const cosine = Math.cos(body.angle);
+  const sine = Math.sin(body.angle);
+  const localDirection = [
+    cosine * worldDirection[0] + sine * worldDirection[1],
+    -sine * worldDirection[0] + cosine * worldDirection[1]
+  ];
+  return rigidLocalSupportFeature(body, localDirection).map(([x, y]) => [
+    body.position[0] + cosine * x - sine * y,
+    body.position[1] + sine * x + cosine * y
+  ]);
+}
+
+function rigidLocalSupportFeature(body, direction) {
+  if (body.shape?.type === 'circle') {
+    const length = Math.hypot(...direction);
+    return [length > 1e-12 ? scale2(direction, body.shape.radius / length) : [body.shape.radius, 0]];
+  }
+  const candidates = body.shape?.type === 'boundary'
+    ? body.shape.edges.flatMap((edge) => rigidBoundaryEdgeSupportCandidates(edge, direction))
+    : body.localVertices;
+  let maximum = Number.NEGATIVE_INFINITY;
+  let supports = [];
+  for (const point of candidates) {
+    const projection = dot2(point, direction);
+    if (supports.length === 0) {
+      maximum = projection;
+      supports = [point];
+      continue;
+    }
+    const tolerance = 1e-12 * Math.max(1, Math.abs(maximum), Math.abs(projection));
+    if (projection > maximum + tolerance) {
+      maximum = projection;
+      supports = [point];
+    } else if (Math.abs(projection - maximum) <= tolerance) {
+      supports.push(point);
     }
   }
-  const inside = pointInsideConvexPolygon(circle.position, vertices);
-  if (!inside && !(distance < circle.shape.radius)) return null;
-  const towardPolygon = distance > 1e-12
-    ? scale2(subtract2(contact, circle.position), 1 / distance)
-    : scale2(subtract2(polygon.position, circle.position), 1 / Math.max(1e-12, Math.hypot(...subtract2(polygon.position, circle.position))));
-  return {
-    normal: inside ? scale2(towardPolygon, -1) : towardPolygon,
-    penetration: inside ? circle.shape.radius + distance : circle.shape.radius - distance,
-    contact
-  };
+  return supports;
 }
 
-function pointInsideConvexPolygon(point, vertices) {
-  let sign = 0;
-  for (let index = 0; index < vertices.length; index += 1) {
-    const edge = subtract2(vertices[(index + 1) % vertices.length], vertices[index]);
-    const side = cross2(edge, subtract2(point, vertices[index]));
-    if (Math.abs(side) <= 1e-12) continue;
-    const nextSign = Math.sign(side);
-    if (sign && nextSign !== sign) return false;
-    sign = nextSign;
+function rigidContactBetweenSupportFeatures(featureA, featureB, normal) {
+  const tangent = [-normal[1], normal[0]];
+  const projectionsA = featureA.map((point) => dot2(point, tangent));
+  const projectionsB = featureB.map((point) => dot2(point, tangent));
+  const minimum = Math.max(Math.min(...projectionsA), Math.min(...projectionsB));
+  const maximum = Math.min(Math.max(...projectionsA), Math.max(...projectionsB));
+  const averageA = scale2(featureA.reduce(add2, [0, 0]), 1 / featureA.length);
+  const averageB = scale2(featureB.reduce(add2, [0, 0]), 1 / featureB.length);
+  const tangentCoordinate = minimum <= maximum
+    ? (minimum + maximum) / 2
+    : (dot2(averageA, tangent) + dot2(averageB, tangent)) / 2;
+  const normalA = featureA.reduce((sum, point) => sum + dot2(point, normal), 0) / featureA.length;
+  const normalB = featureB.reduce((sum, point) => sum + dot2(point, normal), 0) / featureB.length;
+  return add2(scale2(normal, (normalA + normalB) / 2), scale2(tangent, tangentCoordinate));
+}
+
+function rigidBoundaryEdgeSupportCandidates(edge, direction) {
+  if (edge.type === 'segment') return [edge.from, edge.to];
+  const candidates = [rigidBoundaryEdgeStart(edge), rigidBoundaryEdgeEnd(edge)];
+  const directionAngle = Math.atan2(direction[1], direction[0]);
+  if (rigidAngleOnArc(directionAngle, edge.startAngle, edge.sweepAngle)) {
+    candidates.push(add2(edge.center, scale2([
+      Math.cos(directionAngle), Math.sin(directionAngle)
+    ], edge.radius)));
   }
-  return true;
+  return candidates;
 }
 
-function invertRigidManifold(manifold) {
-  return manifold ? { ...manifold, normal: scale2(manifold.normal, -1) } : null;
+function rigidAngleOnArc(angle, start, sweep) {
+  if (Math.abs(sweep) >= Math.PI * 2 - 1e-12) return true;
+  const turn = Math.PI * 2;
+  const positiveModulo = (value) => ((value % turn) + turn) % turn;
+  return sweep > 0
+    ? positiveModulo(angle - start) <= sweep + 1e-12
+    : positiveModulo(start - angle) <= -sweep + 1e-12;
+}
+
+function rigidStraightAxes(body) {
+  const localDirections = [];
+  if (body.shape?.type === 'boundary') {
+    for (const edge of body.shape.edges) {
+      if (edge.type === 'segment') localDirections.push(subtract2(edge.to, edge.from));
+    }
+  } else if (!body.shape) {
+    for (let index = 0; index < body.localVertices.length; index += 1) {
+      localDirections.push(subtract2(
+        body.localVertices[(index + 1) % body.localVertices.length],
+        body.localVertices[index]
+      ));
+    }
+  }
+  const cosine = Math.cos(body.angle);
+  const sine = Math.sin(body.angle);
+  return localDirections.map(([x, y]) => {
+    const worldEdge = [cosine * x - sine * y, sine * x + cosine * y];
+    return [-worldEdge[1], worldEdge[0]];
+  });
+}
+
+function rigidArcCenters(body) {
+  if (body.shape?.type === 'circle') return [[...body.position]];
+  if (body.shape?.type !== 'boundary') return [];
+  return body.shape.edges
+    .filter((edge) => edge.type === 'arc')
+    .map((edge) => rigidLocalPointToWorld(body, edge.center));
+}
+
+function rigidFeatureVertices(body) {
+  if (body.shape?.type === 'circle') return [];
+  if (body.shape?.type === 'boundary') {
+    return body.shape.edges.map((edge) => rigidLocalPointToWorld(body, rigidBoundaryEdgeStart(edge)));
+  }
+  return rigidWorldVertices(body);
+}
+
+function rigidLocalPointToWorld(body, [x, y]) {
+  const cosine = Math.cos(body.angle);
+  const sine = Math.sin(body.angle);
+  return [
+    body.position[0] + cosine * x - sine * y,
+    body.position[1] + sine * x + cosine * y
+  ];
 }
 
 function resolveRigidPairManifold(a, b, { normal, penetration, contact }) {
@@ -1038,44 +1251,6 @@ function velocityAtRigidPoint(body, radius) {
     body.velocity[0] - body.angularVelocity * radius[1],
     body.velocity[1] + body.angularVelocity * radius[0]
   ];
-}
-
-function projectRigidVertices(vertices, axis) {
-  const values = vertices.map((vertex) => dot2(vertex, axis));
-  return { min: Math.min(...values), max: Math.max(...values) };
-}
-
-function rigidPolygonContactPoint(verticesA, verticesB) {
-  let minimumDistanceSquared = Number.POSITIVE_INFINITY;
-  let candidates = [];
-  const consider = (point, from, to) => {
-    const closest = closestPointOnSegment2(point, from, to);
-    const dx = point[0] - closest[0];
-    const dy = point[1] - closest[1];
-    const distanceSquared = dx * dx + dy * dy;
-    const candidate = [(point[0] + closest[0]) / 2, (point[1] + closest[1]) / 2];
-    const tolerance = Number.isFinite(minimumDistanceSquared)
-      ? 1e-16 * Math.max(1, minimumDistanceSquared)
-      : 0;
-    if (!Number.isFinite(minimumDistanceSquared) || distanceSquared < minimumDistanceSquared - tolerance) {
-      minimumDistanceSquared = distanceSquared;
-      candidates = [candidate];
-    } else if (Math.abs(distanceSquared - minimumDistanceSquared) <= tolerance) {
-      candidates.push(candidate);
-    }
-  };
-  const compare = (points, edges) => {
-    for (const point of points) {
-      for (let index = 0; index < edges.length; index += 1) {
-        consider(point, edges[index], edges[(index + 1) % edges.length]);
-      }
-    }
-  };
-  compare(verticesA, verticesB);
-  compare(verticesB, verticesA);
-  return candidates.length
-    ? scale2(candidates.reduce(add2, [0, 0]), 1 / candidates.length)
-    : scale2(add2(verticesA[0], verticesB[0]), 0.5);
 }
 
 function closestPointOnSegment2(point, from, to) {
