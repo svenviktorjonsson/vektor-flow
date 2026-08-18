@@ -368,9 +368,15 @@ function createFakeAdapter() {
   global.GPUBufferUsage = { COPY_DST: 8, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
   global.GPUShaderStage = { COMPUTE: 4 };
   const calls = [];
+  const uniformWrites = [];
   const device = {
     queue: {
-      writeBuffer(buffer) { calls.push({ op: "writeBuffer", buffer }); }
+      writeBuffer(buffer, offset, source, sourceOffset, byteLength) {
+        calls.push({ op: "writeBuffer", buffer });
+        if (source instanceof ArrayBuffer && byteLength === 16 * Float32Array.BYTES_PER_ELEMENT) {
+          uniformWrites.push(new Float32Array(source.slice(sourceOffset, sourceOffset + byteLength)));
+        }
+      }
     },
     createBuffer(desc) {
       return { label: desc.label, usage: desc.usage, destroy() {} };
@@ -396,11 +402,14 @@ function createFakeAdapter() {
     bodyCount: 1,
     triangleCount: 1,
     renderVertexCount: 1,
-    initialBodies: [0, 0, 0, 1, 0, 0, 0, 1, 0.4, 0.6, 0.4, 1, 0, 1, 0, 0],
+    initialBodies: [0, 0, 0, 1, 0, 0, 0, 1, 0.4, 0, 0.6, 0.4, 0, 1, 1, 0.5, 0, 1, 0, 0],
     collisionTriangles: [0, 0, 1, 0, 0, 1, 0, 0],
     renderSource: [0, 0, 0, 0, 1, 0, 0, 1],
     wgsl: "shader",
-    solverIterations: 2
+    solverIterations: 2,
+    sleepLinearThreshold: 0.04,
+    sleepAngularThreshold: 0.08,
+    sleepDelay: 0.75
   });
 
   assert.deepEqual(runtime.controlState(), { paused: false, timeScale: 1 });
@@ -420,6 +429,9 @@ function createFakeAdapter() {
     ["integrate", "resolve_contacts", "write_render_vertices"]
   );
   assert.equal(calls.slice(runningStart).some((call) => call.op === "copyBufferToBuffer"), false);
+  assert.ok(Math.abs(uniformWrites.at(-1)[3] - 0.04) < 1e-7);
+  assert.ok(Math.abs(uniformWrites.at(-1)[14] - 0.08) < 1e-7);
+  assert.ok(Math.abs(uniformWrites.at(-1)[15] - 0.75) < 1e-7);
   const resetWrites = calls.filter((call) => call.op === "writeBuffer" && call.buffer === runtime.bodyBuffer).length;
   runtime.reset();
   assert.equal(

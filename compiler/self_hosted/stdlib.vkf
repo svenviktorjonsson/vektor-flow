@@ -35,6 +35,18 @@ physics_collision_matrix3:
 physics_normal_restitution_impulse3:
     stdlib_function("physics", "normal_restitution_impulse3", "fn(any,[num:3],[num:3],num)->any")
 
+physics_rigid_material:
+    stdlib_function("physics", "rigid_material", "fn(str,num,num,num,num,num,num)->any")
+
+physics_contact_material:
+    stdlib_function("physics", "contact_material", "fn(any,any)->any")
+
+physics_coupled_contact_impulse3:
+    stdlib_function("physics", "coupled_contact_impulse3", "fn(any,[num:3],[num:3],[num:3],[num:3],[num:3],num,num,num,any)->any")
+
+physics_solid_contact_impulse3:
+    stdlib_function("physics", "solid_contact_impulse3", "fn(any,[num:3],[num:3],[num:3],[num:3],[num:3],num,num,any)->any")
+
 rigid_body_tetra_mass_properties3:
     stdlib_function("rigid_body", "tetra_mass_properties3", "fn(any,any,any,any,num)->any")
 
@@ -65,6 +77,10 @@ stdlib_dependency_capability:
     physics_exports: [
         "physics.collision_matrix3",
         "physics.normal_restitution_impulse3",
+        "physics.rigid_material",
+        "physics.contact_material",
+        "physics.coupled_contact_impulse3",
+        "physics.solid_contact_impulse3",
         "rigid_body.tetra_mass_properties3",
         "rigid_body.step_rigid_body_momentum3"
     ]

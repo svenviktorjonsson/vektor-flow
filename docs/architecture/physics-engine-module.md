@@ -134,6 +134,8 @@ locality and does not spread formulas across renderers or examples.
 
 ### Contact Core
 
+Canonical model: `compiler/self_hosted/stdlib/physics.vkf`
+
 Owns:
 
 - broad phase
@@ -143,8 +145,29 @@ Owns:
 - collision matrix solving
 - restitution and impulse integration
 
-This is the next high-risk seam. Collision detection and contact solving should
-enter through one interface, not through ad hoc geometry helpers.
+Collision detection and contact solving enter through this interface, not
+through ad hoc geometry helpers.
+
+The rigid, non-compliant material contract is:
+
+- `e_n`: normal restitution, applied only above `restitution_threshold`
+- `e_t`: tangential restitution after a contact enters the sticking branch
+- `mu_s`: static Coulomb limit
+- `mu_d`: dynamic Coulomb limit, constrained by `mu_d <= mu_s`
+- `mu_r`: bounded rolling-resistance moment, scaled by contact radius and normal impulse
+
+The solver maps the generalized impulse `delta P = (delta p, delta L)` through
+all four blocks of the joint collision matrix. Tangential sticking and
+normal-axis spin are solved as one coupled block. Sliding uses `mu_d`; static
+contact uses `mu_s`. Rolling resistance acts in the tangent plane. Relative spin
+acts about the contact normal and is not conflated with rolling. Persistent
+contact uses the normal constraint impulse produced after external forces, so a
+resting or inclined body retains a friction budget even when restitution is off.
+
+Per-body material mixing uses maximum restitution and geometric-mean friction.
+Callers needing measured pair data should provide a pair material explicitly.
+Settled contact uses configurable linear/angular sleep thresholds and delay to
+turn numerically negligible residual motion into exact persistent rest.
 
 ### Thermal Core
 
@@ -215,6 +238,7 @@ The interface is the test surface:
 - dynamics tests lock edge stepping
 - rigid-body tests lock mass properties, center of mass, inertia, gravity, force,
   and torque
-- future contact tests should lock contact manifolds and matrix solve outputs
+- contact tests lock matrix outputs, Coulomb hold/slide thresholds, analytical
+  sliding and rolling acceleration, rolling resistance, and exact settled rest
 - future thermal/transport/electromagnetic tests should lock conservation and
   stability invariants

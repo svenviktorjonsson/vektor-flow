@@ -25,6 +25,7 @@ IO_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "io.vkf"
 PHYSICS_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics.vkf"
 RIGID_BODY_FIXTURE = ROOT / "compiler" / "self_hosted" / "stdlib" / "rigid_body.vkf"
 PHYSICS_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_collision_matrix_smoke.vkf"
+PHYSICS_CONTACT_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_contact_model_smoke.vkf"
 PHYSICS_RIGID_BODY_SMOKE = ROOT / "compiler" / "self_hosted" / "stdlib" / "physics_rigid_body_smoke.vkf"
 PHYSICS_DICE_SCENE = ROOT / "compiler" / "self_hosted" / "stdlib" / "dice_roll_scene.vkf"
 
@@ -161,7 +162,7 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     assert "dice_roll_path3" in rendered
     assert "M_pp maps linear impulse to contact relative linear velocity" in rendered
     assert "dice_body3 provides cube inertia, material, six-face dice texture, and initial state" in rendered
-    assert "clamps static and dynamic friction in the Coulomb cone" in rendered
+    assert "solves tangential p and normal-axis L through all matrix blocks" in rendered
     assert "position and velocity updates can live in the runtime variable ledger" in rendered
     assert "tetra_mass_properties3" in rendered
     assert "parallel_axis_shift3" in rendered
@@ -177,6 +178,20 @@ def test_physics_stdlib_smoke_runs_collision_matrix_and_restitution(
     assert [float(value) for value in result["stdout"].splitlines()] == pytest.approx(
         [0.8333333333333333, 10.8]
     )
+
+
+def test_physics_contact_model_couples_linear_and_angular_impulses(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    smoke_source = PHYSICS_CONTACT_SMOKE.read_text(encoding="utf-8").replace(":.physics\n", "", 1)
+    source = PHYSICS_FIXTURE.read_text(encoding="utf-8") + "\n" + smoke_source
+    module = parse_module(source, filename=PHYSICS_CONTACT_SMOKE.as_posix())
+    ip = Interpreter(file_path=PHYSICS_CONTACT_SMOKE)
+    ip.run_module(module)
+
+    values = [float(value) for value in capsys.readouterr().out.splitlines()]
+    assert values == pytest.approx([0.5, 0.25, 0.6, 0.4, 0.05, 10.8, 10.8, -3.0, -1.25])
+    assert ip.globals["contact_hit"]["friction_mode"] == "static"
 
 
 def test_rigid_body_vkf_source_owns_mass_inertia_and_momentum_stepping(capsys: pytest.CaptureFixture[str]) -> None:
@@ -241,7 +256,9 @@ def test_physics_dice_scene_spills_physics_and_builds_textured_bounce(capsys: py
     assert roll_button["label"] == "Re-toss"
     assert roll_button["action"] == {"kind": "reload"}
     assert ip.globals["settled_face"] in {1, 2, 3, 4, 5, 6}
-    assert contact["normal_restitution"] == pytest.approx(0.42)
+    assert contact["e_n"] == pytest.approx(0.46)
+    assert contact["normal_restitution"] == pytest.approx(0.46)
+    assert contact["mu_s"] == pytest.approx((0.62 * 0.74) ** 0.5)
     assert roll_path["duration_seconds"] == pytest.approx(2.9)
     assert list(roll_path["rest_linear_velocity"]) == [0, 0, 0]
     assert first_bounce["plane_body"]["inv_mass"] == 0

@@ -7843,7 +7843,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           positionCorrection: Number(spec.position_correction == null ? 0.35 : spec.position_correction),
           penetrationSlop: Number(spec.penetration_slop == null ? 0.002 : spec.penetration_slop),
           linearAngularDamping: Number(spec.linear_angular_damping == null ? 0.025 : spec.linear_angular_damping),
-          tangentialRestitution: Number(spec.tangential_restitution == null ? 0.0 : spec.tangential_restitution)
+          tangentialRestitution: Number(spec.tangential_restitution == null ? 0.0 : spec.tangential_restitution),
+          sleepLinearThreshold: Number(spec.sleep_linear_threshold == null ? 0.1 : spec.sleep_linear_threshold),
+          sleepAngularThreshold: Number(spec.sleep_angular_threshold == null ? 0.3 : spec.sleep_angular_threshold),
+          sleepDelay: Number(spec.sleep_delay == null ? 0.5 : spec.sleep_delay)
         });
       }
       var particleCount = Number(spec.particle_count || mesh.instance_count || 0) || 0;

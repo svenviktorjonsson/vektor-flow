@@ -90,7 +90,7 @@ native_scene: (
     position_correction: 1.0,
     penetration_slop: 0.0,
     linear_angular_damping: 0.0001,
-    tangential_restitution: 0.80,
+    restitution_threshold: 0.5,
     step_dt: 0.0083333333,
     max_substeps: 8
   ),
@@ -105,10 +105,11 @@ native_scene: (
       static: true,
       mass: "inf",
       density: 2.0,
-      restitution: 0.94,
-      static_friction: 0.18,
-      dynamic_friction: 0.08,
-      rolling_friction: 0.008,
+      e_n: 0.94,
+      e_t: 0.80,
+      mu_s: 0.18,
+      mu_d: 0.08,
+      mu_r: 0.008,
       color: [0.24, 0.72, 0.96, 1.0]
     ),
     (
@@ -120,10 +121,11 @@ native_scene: (
       velocity: [1.4, 0.2],
       angular_velocity: 2.2,
       density: 0.9,
-      restitution: 0.96,
-      static_friction: 0.14,
-      dynamic_friction: 0.06,
-      rolling_friction: 0.005,
+      e_n: 0.96,
+      e_t: 0.80,
+      mu_s: 0.14,
+      mu_d: 0.06,
+      mu_r: 0.005,
       color: [1.0, 0.76, 0.20, 1.0]
     ),
     (
@@ -136,10 +138,11 @@ native_scene: (
       velocity: [2.0, -0.25],
       angular_velocity: -1.4,
       density: 1.2,
-      restitution: 0.92,
-      static_friction: 0.18,
-      dynamic_friction: 0.08,
-      rolling_friction: 0.008,
+      e_n: 0.92,
+      e_t: 0.80,
+      mu_s: 0.18,
+      mu_d: 0.08,
+      mu_r: 0.008,
       color: [1.0, 0.34, 0.28, 1.0]
     ),
     (
@@ -152,10 +155,11 @@ native_scene: (
       velocity: [-2.1, -0.35],
       angular_velocity: 1.1,
       density: 1.0,
-      restitution: 0.90,
-      static_friction: 0.20,
-      dynamic_friction: 0.09,
-      rolling_friction: 0.009,
+      e_n: 0.90,
+      e_t: 0.80,
+      mu_s: 0.20,
+      mu_d: 0.09,
+      mu_r: 0.009,
       color: [0.42, 0.92, 0.48, 1.0]
     ),
     (
@@ -167,10 +171,11 @@ native_scene: (
       velocity: [1.15, -0.4],
       angular_velocity: 0.8,
       density: 1.45,
-      restitution: 0.94,
-      static_friction: 0.16,
-      dynamic_friction: 0.07,
-      rolling_friction: 0.006,
+      e_n: 0.94,
+      e_t: 0.80,
+      mu_s: 0.16,
+      mu_d: 0.07,
+      mu_r: 0.006,
       color: [0.74, 0.44, 1.0, 1.0]
     ),
     (
@@ -182,10 +187,11 @@ native_scene: (
       velocity: [-1.25, -0.55],
       angular_velocity: -2.0,
       density: 0.8,
-      restitution: 0.96,
-      static_friction: 0.12,
-      dynamic_friction: 0.05,
-      rolling_friction: 0.004,
+      e_n: 0.96,
+      e_t: 0.80,
+      mu_s: 0.12,
+      mu_d: 0.05,
+      mu_r: 0.004,
       color: [1.0, 0.56, 0.16, 1.0]
     )
   ]

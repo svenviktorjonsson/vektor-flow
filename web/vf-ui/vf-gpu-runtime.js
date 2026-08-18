@@ -258,6 +258,7 @@
     out[0] = Number(options.worldWidth || options.width || 1.0) || 1.0;
     out[1] = Number(options.worldHeight || options.height || 1.0) || 1.0;
     out[2] = Math.max(0.0, Number(dt) || 0.0);
+    out[3] = Math.max(0.0, Number(options.sleepLinearThreshold == null ? 0.1 : options.sleepLinearThreshold));
     var gravity = Array.isArray(options.gravity) ? options.gravity : [0.0, -9.81];
     out[4] = Number(gravity[0]) || 0.0;
     out[5] = Number(gravity[1]) || 0.0;
@@ -270,6 +271,9 @@
     // Strict non-penetration projection: apply the full measured correction
     // on every solver pass. Any allowed tolerance comes only from out[9].
     out[12] = 1.0;
+    out[13] = Math.max(1.0, Number(options.solverIterations || 8) || 8.0);
+    out[14] = Math.max(0.0, Number(options.sleepAngularThreshold == null ? 0.3 : options.sleepAngularThreshold));
+    out[15] = Math.max(0.0, Number(options.sleepDelay == null ? 0.5 : options.sleepDelay));
     return out;
   }
 
@@ -289,8 +293,8 @@
     var initialBodies = new Float32Array(bodies);
     var triangles = new Float32Array(options.collisionTriangles || options.triangles || []);
     var renderSource = new Float32Array(options.renderSource || []);
-    if (bodies.length !== bodyCount * 16) {
-      throw new Error("rigid polygon body buffer must contain 16 floats per body");
+    if (bodies.length !== bodyCount * 20) {
+      throw new Error("rigid polygon body buffer must contain 20 floats per body");
     }
     if (triangles.length !== triangleCount * 8) {
       throw new Error("rigid polygon triangle buffer must contain 8 floats per triangle");
@@ -411,7 +415,7 @@
       return { paused: paused, timeScale: timeScale };
     }
     async function readBodies() {
-      var size = bodyCount * 16 * 4;
+      var size = bodyCount * 20 * 4;
       var readback = device.createBuffer({
         label: "vf rigid polygon body readback",
         size: size,

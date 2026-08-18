@@ -784,17 +784,17 @@
     mount(layer, options) {
       const opt = options || {};
       const id = opt.id || "vf-frame-" + Math.random().toString(36).slice(2, 9);
-      const title = opt.title != null ? String(opt.title) : "";
+      let title = opt.title != null ? String(opt.title) : "";
       const frameless = opt.frameless === true;
       const ta = opt.titleAlign;
-      const titleAlign = ta === "center" || ta === "right" ? ta : "left";
+      let titleAlign = ta === "center" || ta === "right" ? ta : "left";
       const draggable = opt.draggable !== false;
       const dockable =
         opt.dockable !== false && (opt.minimizable !== false);
       const resizable = opt.resizable !== false;
       const closable = opt.closable !== false;
       const aspect = opt.aspect != null ? String(opt.aspect).trim().toLowerCase() : "";
-      const alpha = VfFrame._coerceAlpha(opt.alpha, 1);
+      let alpha = VfFrame._coerceAlpha(opt.alpha, 1);
       const master = opt.master === true;
       const exitWhenLastFrameClosed = opt.exitWhenLastFrameClosed === true;
       let zCounter = typeof opt.zIndexBase === "number" ? opt.zIndexBase : 1000;
@@ -1265,6 +1265,22 @@
         expandToFitContent,
         syncPointerPassThrough,
         renderTitle: scheduleRenderTitle,
+        setTitle(nextTitle, nextAlign) {
+          title = nextTitle != null ? String(nextTitle) : "";
+          const normalizedAlign = nextAlign === "center" || nextAlign === "right" ? nextAlign : "left";
+          if (normalizedAlign !== titleAlign) {
+            head.classList.remove("vf-frame__header--title-" + titleAlign);
+            titleAlign = normalizedAlign;
+            head.classList.add("vf-frame__header--title-" + titleAlign);
+          }
+          scheduleRenderTitle();
+        },
+        setAlpha(nextAlpha) {
+          alpha = VfFrame._coerceAlpha(nextAlpha, 1);
+          root.style.setProperty("--vf-ui-alpha", String(alpha));
+          root.dataset.vfAlpha = String(alpha);
+          syncPointerPassThrough();
+        },
         destroy() {
           if (typeof opt.onBeforeDestroy === "function") {
             try {

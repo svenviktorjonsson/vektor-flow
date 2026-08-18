@@ -1369,10 +1369,35 @@ std::optional<std::string> rigid_polygon_mesh_json(
         const double velocity_x = std::stod(literal_number_at_or(velocity_value, 0, "0"));
         const double velocity_y = std::stod(literal_number_at_or(velocity_value, 1, "0"));
         const double angular_velocity = literal_number_or(body, "angular_velocity", 0.0);
-        const double restitution = std::clamp(literal_number_or(body, "restitution", 0.35), 0.0, 1.0);
-        const double static_friction = std::max(0.0, literal_number_or(body, "static_friction", 0.65));
-        const double dynamic_friction = std::max(0.0, literal_number_or(body, "dynamic_friction", 0.45));
-        const double rolling_friction = std::max(0.0, literal_number_or(body, "rolling_friction", 0.08));
+        const double normal_restitution = std::clamp(
+            literal_number_or(body, "e_n", literal_number_or(body, "normal_restitution", literal_number_or(body, "restitution", 0.35))),
+            0.0,
+            1.0
+        );
+        const double tangent_restitution = std::clamp(
+            literal_number_or(body, "e_t", literal_number_or(body, "tangential_restitution", literal_number_or(world_value, "tangential_restitution", 0.0))),
+            0.0,
+            1.0
+        );
+        const double static_friction = std::max(
+            0.0,
+            literal_number_or(body, "mu_s", literal_number_or(body, "static_friction", 0.65))
+        );
+        const double dynamic_friction = std::max(
+            0.0,
+            literal_number_or(body, "mu_d", literal_number_or(body, "dynamic_friction", 0.45))
+        );
+        if (dynamic_friction > static_friction) {
+            throw StagerError("rigid body " + id + " requires mu_d <= mu_s");
+        }
+        const double rolling_friction = std::max(
+            0.0,
+            literal_number_or(body, "mu_r", literal_number_or(body, "rolling_friction", 0.08))
+        );
+        const double restitution_threshold = std::max(
+            0.0,
+            literal_number_or(body, "restitution_threshold", literal_number_or(world_value, "restitution_threshold", 0.5))
+        );
 
         double bounding_radius = 0.0;
         for (const auto& contour : contours) {
@@ -1392,10 +1417,10 @@ std::optional<std::string> rigid_polygon_mesh_json(
         body_buffer.insert(body_buffer.end(), {
             position_x, position_y, angle, is_static ? 0.0 : 1.0 / mass,
             velocity_x, velocity_y, angular_velocity, is_static ? 0.0 : 1.0 / inertia,
-            restitution, static_friction, dynamic_friction, bounding_radius,
-            static_cast<double>(triangle_start), static_cast<double>(body_triangles.size()),
-            rolling_friction,
-            std::max(1.0e-5, literal_number_or(body, "contact_radius", bounding_radius))
+            normal_restitution, tangent_restitution, static_friction, dynamic_friction,
+            rolling_friction, std::max(1.0e-5, literal_number_or(body, "contact_radius", bounding_radius)),
+            bounding_radius, restitution_threshold,
+            static_cast<double>(triangle_start), static_cast<double>(body_triangles.size()), 0.0, 0.0
         });
 
         const VkfLiteralValue* color_value = object_field(body, "color");
@@ -1475,6 +1500,9 @@ std::optional<std::string> rigid_polygon_mesh_json(
         << "\"penetration_slop\":" << literal_number_or(world_value, "penetration_slop", 0.002) << ","
         << "\"linear_angular_damping\":" << literal_number_or(world_value, "linear_angular_damping", 0.025) << ","
         << "\"tangential_restitution\":" << std::clamp(literal_number_or(world_value, "tangential_restitution", 0.0), 0.0, 1.0) << ","
+        << "\"sleep_linear_threshold\":" << std::max(0.0, literal_number_or(world_value, "sleep_linear_threshold", 0.1)) << ","
+        << "\"sleep_angular_threshold\":" << std::max(0.0, literal_number_or(world_value, "sleep_angular_threshold", 0.3)) << ","
+        << "\"sleep_delay\":" << std::max(0.0, literal_number_or(world_value, "sleep_delay", 0.5)) << ","
         << "\"step_dt\":" << literal_number_or(world_value, "step_dt", 1.0 / 120.0) << ","
         << "\"max_substeps\":" << std::max(1.0, literal_number_or(world_value, "max_substeps", 8.0)) << ","
         << "\"wgsl\":\"" << json_escape(solver_wgsl) << "\""

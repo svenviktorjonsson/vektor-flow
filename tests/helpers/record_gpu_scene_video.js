@@ -57,14 +57,14 @@ function polygonsOverlapStrict(readback, epsilon = 1e-6) {
   const boundaries = new Map();
   for (let i = 0; i < count; i += 1) {
     const ti = i * 8, bi = Math.round(tris[ti + 6]), mask = Math.round(tris[ti + 7]);
-    const body = bodies.slice(bi * 16, bi * 16 + 16);
+    const body = bodies.slice(bi * 20, bi * 20 + 20);
     const tri = [transform(body, tris[ti], tris[ti + 1]), transform(body, tris[ti + 2], tris[ti + 3]), transform(body, tris[ti + 4], tris[ti + 5])];
     if (!boundaries.has(bi)) boundaries.set(bi, []);
     for (let e = 0; e < 3; e += 1) if ((mask & (1 << e)) !== 0) boundaries.get(bi).push([tri[e], tri[(e + 1) % 3]]);
   }
   for (let i = 0; i < count; i += 1) {
     const ti = i * 8, bi = Math.round(tris[ti + 6]);
-    const pa = [transform(bodies.slice(bi * 16, bi * 16 + 16), tris[ti], tris[ti + 1]), transform(bodies.slice(bi * 16, bi * 16 + 16), tris[ti + 2], tris[ti + 3]), transform(bodies.slice(bi * 16, bi * 16 + 16), tris[ti + 4], tris[ti + 5])];
+    const pa = [transform(bodies.slice(bi * 20, bi * 20 + 20), tris[ti], tris[ti + 1]), transform(bodies.slice(bi * 20, bi * 20 + 20), tris[ti + 2], tris[ti + 3]), transform(bodies.slice(bi * 20, bi * 20 + 20), tris[ti + 4], tris[ti + 5])];
     for (let j = i + 1; j < count; j += 1) {
       const tj = j * 8, bj = Math.round(tris[tj + 6]);
       if (bi === bj) continue;

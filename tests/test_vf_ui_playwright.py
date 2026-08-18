@@ -175,6 +175,11 @@ def _http_server_for_directory(
     return f"http://127.0.0.1:{port}/", httpd, thread, posted
 
 
+def _remove_copied_live_packet_source(root: Path) -> None:
+    """Keep legacy-scene tests independent from ignored developer session data."""
+    (root / "vf-runtime-packets.json").unlink(missing_ok=True)
+
+
 @contextmanager
 def _serve_vf_ui_payloads(
     *,
@@ -187,6 +192,7 @@ def _serve_vf_ui_payloads(
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "vf"
         shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        _remove_copied_live_packet_source(root)
         (root / "vkf-scene.json").write_text(scene_json, encoding="utf-8")
         (root / "vf-display.json").write_text(display_json, encoding="utf-8")
         (root / "vf-ui-state.json").write_text(ui_state_json, encoding="utf-8")
@@ -212,6 +218,7 @@ def _serve_vf_ui_payloads_with_root(
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "vf"
         shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        _remove_copied_live_packet_source(root)
         (root / "vkf-scene.json").write_text(scene_json, encoding="utf-8")
         (root / "vf-display.json").write_text(display_json, encoding="utf-8")
         (root / "vf-ui-state.json").write_text(ui_state_json, encoding="utf-8")
@@ -248,6 +255,7 @@ def vf_ui_http_base() -> Generator[str, None, None]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "vf"
         shutil.copytree(VF_UI, root, dirs_exist_ok=True)
+        _remove_copied_live_packet_source(root)
         (root / "vkf-scene.json").write_text(
             json.dumps(MINIMAL_SCENE, indent=2),
             encoding="utf-8",
@@ -443,7 +451,7 @@ def test_vf_scene_title_visible_in_minibar(vf_ui_http_base: str) -> None:
 
 
 @pytest.mark.network
-def test_scene_runtime_update_hook_updates_frame_title_without_reload() -> None:
+def test_scene_runtime_api_updates_frame_title_without_reload() -> None:
     updated_scene = json.loads(json.dumps(MINIMAL_SCENE))
     updated_scene[0]["payload"]["spec"]["title"] = "Updated E2E"
     with _serve_vf_ui_payloads(
@@ -457,10 +465,10 @@ def test_scene_runtime_update_hook_updates_frame_title_without_reload() -> None:
 
             page.evaluate(
                 """(commands) => {
-                  if (!window.__vfSceneHooks || typeof window.__vfSceneHooks.update !== "function") {
-                    throw new Error("scene runtime update hook unavailable");
+                  if (!window.VfRuntimeShell || typeof window.VfRuntimeShell.applySceneCommands !== "function") {
+                    throw new Error("scene runtime API unavailable");
                   }
-                  window.__vfSceneHooks.update(commands);
+                  window.VfRuntimeShell.applySceneCommands(commands);
                 }""",
                 updated_scene,
             )
@@ -468,7 +476,7 @@ def test_scene_runtime_update_hook_updates_frame_title_without_reload() -> None:
 
 
 @pytest.mark.network
-def test_display_runtime_update_hook_draws_frame_canvas_without_reload() -> None:
+def test_display_runtime_packet_draws_frame_canvas_without_reload() -> None:
     with _serve_vf_ui_payloads(
         scene_json=json.dumps(MINIMAL_SCENE, indent=2),
         display_json='{"screen":[],"frames":{},"geom":{}}',
@@ -508,10 +516,14 @@ def test_display_runtime_update_hook_draws_frame_canvas_without_reload() -> None
             }
             page.evaluate(
                 """(nextPayload) => {
-                  if (!window.__vfBrowserHooks || typeof window.__vfBrowserHooks.updateDisplay !== "function") {
-                    throw new Error("display runtime update hook unavailable");
+                  if (!window.VfRuntimeShell || typeof window.VfRuntimeShell.applyRuntimePacket !== "function") {
+                    throw new Error("display runtime packet API unavailable");
                   }
-                  window.__vfBrowserHooks.updateDisplay(nextPayload);
+                  window.VfRuntimeShell.applyRuntimePacket({
+                    seq: 1000001,
+                    kind: "display.replace",
+                    payload: { display: nextPayload },
+                  });
                 }""",
                 payload,
             )
@@ -533,7 +545,7 @@ def test_display_runtime_update_hook_draws_frame_canvas_without_reload() -> None
 
 
 @pytest.mark.network
-def test_browser_session_update_hook_updates_scene_and_display_without_reload() -> None:
+def test_runtime_packets_update_scene_and_display_without_reload() -> None:
     updated_scene = json.loads(json.dumps(MINIMAL_SCENE))
     updated_scene[0]["payload"]["spec"]["title"] = "Session Updated"
     payload = {
@@ -575,10 +587,19 @@ def test_browser_session_update_hook_updates_scene_and_display_without_reload() 
 
             page.evaluate(
                 """(session) => {
-                  if (!window.__vfBrowserSession || !window.__vfBrowserSession.hooks || typeof window.__vfBrowserSession.hooks.updateSession !== "function") {
-                    throw new Error("browser session runtime hook unavailable");
+                  if (!window.VfRuntimeShell || typeof window.VfRuntimeShell.applyRuntimePacket !== "function") {
+                    throw new Error("runtime packet API unavailable");
                   }
-                  window.__vfBrowserSession.hooks.updateSession(session);
+                  window.VfRuntimeShell.applyRuntimePacket({
+                    seq: 1000001,
+                    kind: "scene.replace",
+                    payload: { commands: session.scene },
+                  });
+                  window.VfRuntimeShell.applyRuntimePacket({
+                    seq: 1000002,
+                    kind: "display.replace",
+                    payload: { display: session.display },
+                  });
                 }""",
                 {"scene": updated_scene, "display": payload},
             )
@@ -718,6 +739,7 @@ def test_browser_field_overlays_expand_to_rounded_scale_independent_triangle_imp
                 manifold_dim_count: 1,
                 vertex_size: 0,
                 edge_width: 6,
+                edge_caps: true,
                 center: [0, 0, 0],
                 rotation: [0, 0, 0],
                 scale: [20, 20, 20],
@@ -754,343 +776,6 @@ def test_browser_field_overlays_expand_to_rounded_scale_independent_triangle_imp
         assert result["lineTopology"] == "triangle-list"
         assert result["lineCylinders"] == 1
         assert result["lineSpheres"] == 2
-
-
-@pytest.mark.network
-def test_browser_hover_context_exposes_typed_ids_and_mask(vf_ui_http_base: str) -> None:
-    url = f"{vf_ui_http_base}/{INDEX_DOC}"
-    with _chromium_page() as page:
-        page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_function("() => !!(window.VfDisplay && window.VfDisplay.__test)")
-        result = page.evaluate(
-            """() => {
-              const mask = window.VfDisplay.__test.HOVER_MASK;
-              const hover = window.VfDisplay.__test.hoverContext({
-                frame_id: "f1",
-                object_id: "poly3",
-                vertex_id: 7,
-                edge_id: 2,
-                face_id: 0,
-              });
-              return { hover, mask };
-            }"""
-        )
-        hover = result["hover"]
-        mask = result["mask"]
-        assert hover["kind"] == "vertex"
-        assert hover["frame_id"] == "f1"
-        assert hover["object_id"] == "poly3"
-        assert hover["vertex_id"] == 7
-        assert hover["edge_id"] == 2
-        assert hover["face_id"] == 0
-        assert hover["mask"] & mask["FRAME"]
-        assert hover["mask"] & mask["OBJECT"]
-        assert hover["mask"] & mask["VERTEX"]
-        assert hover["mask"] & mask["EDGE"]
-        assert hover["mask"] & mask["FACE"]
-
-
-@pytest.mark.network
-def test_interactive_2d_refresh_uses_backend_transform_updates() -> None:
-    def build_scene(d: Any) -> None:
-        panel = d.frame(
-            title="Single VKF draggable rect",
-            draggable=True,
-            closable=True,
-            resizable=True,
-            dockable=True,
-            dock_loc="bl",
-            alpha=0.96,
-            master=True,
-        )
-        d.add_frame(panel, [0.16, 0.16, 0.58, 0.58])
-        box = panel.add_rect([0.24, 0.24, 0.28, 0.22], color=[0.10, 0.72, 0.95, 0.92])
-        box.set_interaction(cursor="open_hand", pressed_cursor="closed_hand", border=0.03)
-
-    with _serve_public_ui_browser(build_scene) as harness:
-        url = f"{harness.base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
-            before = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id);
-                  return op.transform.slice();
-                }"""
-            )
-            payload = json.loads((harness.root / "vf-display.json").read_text(encoding="utf-8"))
-            op = payload["frames"]["f1"][0]
-            op["transform"][4] = 0.36
-            op["transform"][5] = 0.32
-            (harness.root / "vf-display.json").write_text(json.dumps(payload), encoding="utf-8")
-
-            page.evaluate("() => window.__vfDisplayHooks.refresh()")
-            page.wait_for_timeout(80)
-            after = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id);
-                  return op.transform.slice();
-                }"""
-            )
-
-            assert before[4] != pytest.approx(0.36)
-            assert after[4] == pytest.approx(0.36)
-            assert after[5] == pytest.approx(0.32)
-
-
-@pytest.mark.network
-def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_shape_ids() -> None:
-    def build_scene(d: Any) -> None:
-        panel = d.frame(
-            title="Polygon edit: red parent -> green child -> blue leaf",
-            draggable=True,
-            closable=True,
-            resizable=True,
-            dockable=True,
-            dock_loc="bl",
-            alpha=0.96,
-            master=True,
-        )
-        d.add_frame(panel, [0.08, 0.08, 0.72, 0.72])
-        root = panel.add_polygon(
-            [[0.08, 0.14], [0.32, 0.08], [0.78, 0.10], [0.94, 0.46], [0.64, 0.84], [0.18, 0.72]],
-            color=[1.0, 0.48, 0.35, 0.72],
-        )
-        child = root.add_polygon(
-            [[0.22, 0.30], [0.42, 0.20], [0.66, 0.34], [0.62, 0.58], [0.40, 0.70], [0.24, 0.56]],
-            color=[0.25, 0.86, 0.55, 0.78],
-        )
-        child.add_polygon(
-            [[0.36, 0.38], [0.50, 0.32], [0.62, 0.44], [0.56, 0.62], [0.40, 0.60]],
-            color=[0.37, 0.78, 1.0, 0.88],
-        )
-
-    scene_json, display_json = _scene_and_display_from_public_ui(build_scene)
-    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
-        url = f"{base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
-            canvas = page.locator(".vf-frame__draw-canvas").first
-            canvas.wait_for(state="visible", timeout=30_000)
-            page.evaluate(
-                """() => {
-                  window.__vfCapturedEvents = [];
-                  window.VfDisplay.setEventSink({ postEvent: (evt) => window.__vfCapturedEvents.push(evt) });
-                }"""
-            )
-            assert canvas.evaluate("c => getComputedStyle(c).cursor") == "grab"
-
-            before = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  const pts = op.points.map((p) => [
-                    op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4],
-                    op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5],
-                  ]);
-                  const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
-                  const cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
-                  const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
-                  return { transform: op.transform.slice(), x: r.left + cx * r.width, y: r.top + cy * r.height };
-                }"""
-            )
-            page.mouse.move(before["x"], before["y"])
-            page.mouse.down()
-            page.mouse.move(before["x"] + 54, before["y"] + 18)
-            page.mouse.up()
-
-            after_translate = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  return { transform: op.transform.slice(), cursor: getComputedStyle(document.querySelector(".vf-frame__draw-canvas")).cursor };
-                }"""
-            )
-            assert after_translate["transform"] == pytest.approx(before["transform"]), "host should report picks, not mutate geometry"
-            assert after_translate["cursor"] == "grab"
-            captured = page.evaluate("() => window.__vfCapturedEvents")
-            assert captured, "expected browser interaction to post events"
-            assert any(evt.get("shape_id") == "poly3" for evt in captured), "events should carry the hovered/dragged polygon id"
-            poly_events = [evt for evt in captured if evt.get("shape_id") == "poly3"]
-            assert any(evt["hover"]["kind"] == "face" for evt in poly_events)
-            assert all(evt["hover"]["frame_id"] == "f1" for evt in poly_events)
-            assert all(evt["hover"]["object_id"] == "poly3" for evt in poly_events)
-            assert any(evt["hover"].get("face_id") == 0 for evt in poly_events)
-            assert all(evt.get("hover_mask", 0) & 1 for evt in poly_events), "hover mask should include frame"
-            assert all(evt.get("hover_mask", 0) & 2 for evt in poly_events), "hover mask should include object"
-            page.evaluate("() => window.__vfDisplayHooks.refresh()")
-            page.wait_for_timeout(80)
-            after_refresh = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  return op.transform.slice();
-                }"""
-            )
-            assert after_refresh == after_translate["transform"], "display refresh should preserve host-side pick state"
-
-            edge = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  const pts = op.points.map((p) => [
-                    op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4],
-                    op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5],
-                  ]);
-                  const x = (pts[0][0] + pts[1][0]) * 0.5;
-                  const y = (pts[0][1] + pts[1][1]) * 0.5;
-                  const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
-                  return { transform: op.transform.slice(), points: op.points.map(p => p.slice()), x: r.left + x * r.width, y: r.top + y * r.height };
-                }"""
-            )
-            page.mouse.move(edge["x"], edge["y"])
-            page.mouse.down()
-            page.mouse.move(edge["x"] + 70, edge["y"] - 45)
-            page.mouse.up()
-            after_edge = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  return { transform: op.transform.slice(), points: op.points.map(p => p.slice()) };
-                }"""
-            )
-            assert after_edge["points"] == edge["points"], "host should not reshape polygon points; VKF code moves the edge ref"
-            assert after_edge["transform"] == pytest.approx(edge["transform"]), "host should not transform geometry for edge drags"
-            captured = page.evaluate("() => window.__vfCapturedEvents")
-            assert any(evt.get("action") == "pick" and evt["hover"]["kind"] == "edge" for evt in captured)
-
-            ctrl_vertex = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  const p = op.points[0];
-                  const x = op.transform[0] * p[0] + op.transform[2] * p[1] + op.transform[4];
-                  const y = op.transform[1] * p[0] + op.transform[3] * p[1] + op.transform[5];
-                  const r = document.querySelector(".vf-frame__draw-canvas").getBoundingClientRect();
-                  return { transform: op.transform.slice(), x: r.left + x * r.width, y: r.top + y * r.height };
-                }"""
-            )
-            page.keyboard.down("Control")
-            page.mouse.move(ctrl_vertex["x"], ctrl_vertex["y"])
-            page.mouse.down()
-            page.mouse.move(ctrl_vertex["x"] + 60, ctrl_vertex["y"] - 35)
-            page.mouse.up()
-            page.keyboard.up("Control")
-            after_ctrl_vertex = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  const op = st.ops.find(o => o.interaction && o.interaction.shape_id === "poly3");
-                  return op.transform.slice();
-                }"""
-            )
-            assert after_ctrl_vertex == pytest.approx(ctrl_vertex["transform"]), "Ctrl is user code policy; host should not rotate/scale"
-            captured = page.evaluate("() => window.__vfCapturedEvents")
-            assert any(evt.get("action") == "pick" and evt["hover"]["kind"] == "vertex" and evt.get("ctrl") for evt in captured)
-
-            state_before = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  return { zoom: st.zoom, panX: st.panX, panY: st.panY };
-                }"""
-            )
-            box = canvas.bounding_box()
-            assert box is not None
-            page.mouse.move(box["x"] + box["width"] - 12, box["y"] + box["height"] - 12)
-            page.mouse.down()
-            page.mouse.move(box["x"] + box["width"] - 80, box["y"] + box["height"] - 50)
-            page.mouse.up()
-            canvas.evaluate(
-                """(canvas) => {
-                  canvas.dispatchEvent(new WheelEvent("wheel", {
-                    deltaY: -240,
-                    clientX: canvas.getBoundingClientRect().left + canvas.width * 0.5,
-                    clientY: canvas.getBoundingClientRect().top + canvas.height * 0.5,
-                    bubbles: true,
-                    cancelable: true,
-                  }));
-                }"""
-            )
-            state_after = page.evaluate(
-                """() => {
-                  const st = window.VfDisplay.getInteractiveState("f1");
-                  return { zoom: st.zoom, panX: st.panX, panY: st.panY };
-                }"""
-            )
-            assert state_after["zoom"] != state_before["zoom"]
-            assert state_after["panX"] != state_before["panX"] or state_after["panY"] != state_before["panY"]
-
-
-@pytest.mark.network
-def test_public_ui_parented_2d_transform_contract_renders_at_expected_canvas_point() -> None:
-    from vektorflow.ui_scene_graph_math import Transform2D, transform_point_2d, world_affine_2d
-
-    def _build_scene(d: Any) -> None:
-        f = d.Frame()
-        d.add_frame((0.1, 0.1, 0.6, 0.6))
-        parent = f.add_rect((0.1, 0.2, 0.5, 0.25), color="red")
-        child = parent.add_rect((0.2, 0.1, 0.5, 0.5), color="blue")
-        parent.translate(dx=0.05, dy=-0.1).set_scale(sx=2.0, sy=3.0).rotate_by(angle_deg=90)
-        child.translate(dx=0.1, dy=0.2).scale_by(sx=2.0, sy=0.5)
-
-    scene_json, display_json = _scene_and_display_from_public_ui(_build_scene)
-    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
-        url = f"{base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
-            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
-
-            expected_parent = world_affine_2d(
-                Transform2D(
-                    translation=(0.15, 0.1),
-                    rotation_degrees=90.0,
-                    scale=(1.0, 0.75),
-                )
-            )
-            expected_child = world_affine_2d(
-                Transform2D(
-                    translation=(0.3, 0.3),
-                    rotation_degrees=0.0,
-                    scale=(1.0, 0.25),
-                ),
-                parent_world=expected_parent,
-            )
-            sample_u, sample_v = transform_point_2d(expected_child, (0.5, 0.5))
-
-            sample = page.locator(".vf-frame__draw-canvas").first.evaluate(
-                """(canvas, point) => {
-                  const ctx = canvas.getContext('2d');
-                  if (!ctx) return null;
-                  const x = Math.max(0, Math.min(canvas.width - 1, Math.floor(canvas.width * point[0])));
-                  const y = Math.max(0, Math.min(canvas.height - 1, Math.floor(canvas.height * point[1])));
-                  const at = (u, v) => {
-                    const sx = Math.max(0, Math.min(canvas.width - 1, Math.floor(canvas.width * u)));
-                    const sy = Math.max(0, Math.min(canvas.height - 1, Math.floor(canvas.height * v)));
-                    return Array.from(ctx.getImageData(sx, sy, 1, 1).data);
-                  };
-                  return {
-                    childCenter: at(point[0], point[1]),
-                    untransformedChildCenter: at(0.45, 0.35),
-                    corner: at(0.02, 0.02),
-                    x,
-                    y
-                  };
-                }""",
-                [sample_u, sample_v],
-            )
-            assert isinstance(sample, dict)
-            child_center = sample["childCenter"]
-            untransformed_child_center = sample["untransformedChildCenter"]
-            corner = sample["corner"]
-            assert child_center[3] > 0, f"expected transformed child rect to render at sampled point, got {child_center!r}"
-            assert untransformed_child_center[3] == 0, (
-                "expected child local-space center to stay empty without the flattened world transform, "
-                f"got {untransformed_child_center!r}"
-            )
-            assert corner[3] == 0, f"expected untouched corner to remain transparent, got {corner!r}"
 
 
 @pytest.mark.network

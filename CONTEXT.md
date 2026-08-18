@@ -23,8 +23,8 @@
   and material symbols such as `L`, `A`, `V`, `m`, `q`, `T`, `v`, `w`, and `I`.
 - **Rigid body core**: The physics module that owns mass, center of mass,
   inertia tensor, rigid stiffness semantics, gravity, force, and torque stepping.
-- **Contact core**: The future physics module that will own collision detection,
-  contact manifolds, friction constraints, and collision matrix solving.
+- **Contact core**: The physics module that owns rigid collision response,
+  contact manifolds, friction constraints, and joint linear/angular impulse solving.
 - **Thermal core**: The physics module that owns temperature diffusion,
   conductive networks, heat sources, and emissive radiative exchange.
 - **Transport core**: The future physics module that will own air friction,

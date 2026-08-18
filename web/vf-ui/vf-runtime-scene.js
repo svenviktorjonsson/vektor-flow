@@ -253,6 +253,7 @@
           var dockLocation = frame.normalizeDockLocationKey(rawDock != null ? String(rawDock) : "bl");
           var dockable = flags.dockable !== false && flags.minimizable !== false;
           var panel = livePanelsById[id] || null;
+          var createdPanel = false;
           var needsRemount = false;
           if (panel && panel.root && panel.root.parentElement !== mountLayer) {
             needsRemount = true;
@@ -297,8 +298,15 @@
             });
             panel.root.style.opacity = "0";
             mounted.push({ panel: panel, spec: spec });
+            createdPanel = true;
           }
           livePanelsById[id] = panel;
+          if (!createdPanel && typeof panel.setTitle === "function") {
+            panel.setTitle(title, titleAlign);
+          }
+          if (!createdPanel && typeof panel.setAlpha === "function") {
+            panel.setAlpha(alpha);
+          }
           nextPanelIds[id] = true;
           panel.root.dataset.vfExitCounted = spec.exit_counted === false ? "false" : "true";
           panelById[id] = panel;

@@ -1,0 +1,28 @@
+:.physics
+
+body_a: collision_body3(2, diag_inv3([3, 4, 5]), [0, 0, 0])
+body_b: collision_body3(3, diag_inv3([6, 7, 8]), [0, 0, 0])
+matrix: collision_matrix3(body_a, body_b)
+material: rigid_material("test", 1000, 0.5, 0.25, 0.6, 0.4, 0.05)
+contact: contact_material(material, material)
+contact_hit: solid_contact_impulse3(
+    matrix,
+    [-6, 2, 0],
+    [0.5, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+    1,
+    1,
+    contact
+)
+
+:: contact.e_n
+:: contact.e_t
+:: contact.mu_s
+:: contact.mu_d
+:: contact.mu_r
+:: contact_hit.normal_impulse.0
+:: contact_hit.linear_impulse.0
+:: contact_hit.linear_impulse.1
+:: contact_hit.angular_impulse.0

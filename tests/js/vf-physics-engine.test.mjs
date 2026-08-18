@@ -72,17 +72,16 @@ test('rigid polygon bounces from the fixed centred 2x2 boundary with restitution
   assert.ok(next.bodies[0].velocity[1] > 1.99);
 });
 
-test('convex rigid bodies exchange impulse and friction damps contact slip', () => {
+test('convex rigid bodies exchange centred impulse and friction damps contact slip', () => {
   const square = [[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2]];
-  const triangle = [[-0.2, -0.2], [0.2, -0.2], [0, 0.2]];
   const collide = (friction) => stepRigidPolygonWorld2D({
     width: 4,
     height: 4,
     gravity: [0, 0],
     maxStep: 0.05,
     bodies: [
-      { id: 'square', localVertices: square, position: [-0.25, 0], velocity: [1, 0.4], mass: 1, restitution: 1, friction },
-      { id: 'triangle', localVertices: triangle, position: [0.25, 0], velocity: [-1, 0], mass: 1, restitution: 1, friction }
+      { id: 'square', localVertices: square, position: [-0.25, -0.02], velocity: [1, 0.4], mass: 1, restitution: 1, friction },
+      { id: 'right-square', localVertices: square, position: [0.25, 0], velocity: [-1, 0], mass: 1, restitution: 1, friction }
     ]
   }, 0.1);
   const next = collide(0.8);
@@ -92,6 +91,230 @@ test('convex rigid bodies exchange impulse and friction damps contact slip', () 
   const slip = Math.abs(next.bodies[0].velocity[1] - next.bodies[1].velocity[1]);
   const frictionlessSlip = Math.abs(frictionless.bodies[0].velocity[1] - frictionless.bodies[1].velocity[1]);
   assert.ok(slip < frictionlessSlip);
+});
+
+test('a long static edge resolves impact at the local contact instead of its midpoint', () => {
+  const body = stepRigidPolygonWorld2D({
+    width: 20,
+    height: 20,
+    gravity: [0, 0],
+    maxStep: 1 / 1000,
+    solverIterations: 12,
+    bodies: [
+      {
+        localVertices: [[-0.16, -0.16], [0.16, -0.16], [0.16, 0.16], [-0.16, 0.16]],
+        position: [-0.074, 0.48],
+        velocity: [1, 0],
+        mass: 1,
+        e_n: 1,
+        mu_s: 0,
+        mu_d: 0
+      },
+      {
+        localVertices: [[-1, -0.015], [1, -0.015], [1, 0.015], [-1, 0.015]],
+        position: [0.1, 0],
+        angle: Math.PI / 2,
+        static: true,
+        e_n: 1,
+        mu_s: 0,
+        mu_d: 0
+      }
+    ]
+  }, 1 / 1000).bodies[0];
+
+  assert.ok(body.velocity[0] < -0.99);
+  assert.ok(Math.abs(body.angularVelocity) < 1e-9);
+});
+
+test('solid contact exposes e_n, e_t, mu_s, mu_d, and mu_r', () => {
+  const square = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
+  const impact = (eT) => stepRigidPolygonWorld2D({
+    width: 4,
+    height: 2,
+    gravity: [0, 0],
+    maxStep: 0.1,
+    bodies: [{
+      localVertices: square,
+      position: [0, -0.85],
+      velocity: [1, -2],
+      mass: 1,
+      e_n: 0,
+      e_t: eT,
+      mu_s: 10,
+      mu_d: 10,
+      mu_r: 0
+    }]
+  }, 0.1).bodies[0];
+
+  const stuck = impact(0);
+  const reversed = impact(0.5);
+  assert.ok(Math.abs(stuck.velocity[0] + 0.1 * stuck.angularVelocity) < 1e-12);
+  assert.ok(Math.abs(reversed.velocity[0] + 0.1 * reversed.angularVelocity + 0.5) < 1e-12);
+});
+
+test('static friction holds a block on a shallow incline while dynamic friction lets it slide', () => {
+  const rectangle = (halfWidth, halfHeight) => [
+    [-halfWidth, -halfHeight], [halfWidth, -halfHeight],
+    [halfWidth, halfHeight], [-halfWidth, halfHeight]
+  ];
+  const angle = 0.25;
+  const normal = [-Math.sin(angle), Math.cos(angle)];
+  const tangent = [Math.cos(angle), Math.sin(angle)];
+  const slopePosition = [0, -1];
+  const start = [slopePosition[0] + 0.2 * normal[0], slopePosition[1] + 0.2 * normal[1]];
+  const displacement = (muS, muD) => {
+    const body = stepRigidPolygonWorld2D({
+      width: 20,
+      height: 20,
+      gravity: [0, -9.81],
+      maxStep: 1 / 480,
+      solverIterations: 12,
+      bodies: [
+        { localVertices: rectangle(4, 0.1), position: slopePosition, angle, static: true, e_n: 0, mu_s: muS, mu_d: muD },
+        { localVertices: rectangle(0.1, 0.1), position: start, angle, mass: 1, e_n: 0, mu_s: muS, mu_d: muD }
+      ]
+    }, 0.5).bodies[1];
+    return (body.position[0] - start[0]) * tangent[0]
+      + (body.position[1] - start[1]) * tangent[1];
+  };
+
+  assert.ok(Math.abs(displacement(0.4, 0.3)) < 0.02);
+  assert.ok(displacement(0.1, 0.08) < -0.1);
+});
+
+test('rolling resistance opposes relative angular motion without breaking no-slip rolling', () => {
+  const radius = 0.1;
+  const circle = Array.from({ length: 32 }, (_, index) => {
+    const angle = 2 * Math.PI * index / 32;
+    return [radius * Math.cos(angle), radius * Math.sin(angle)];
+  });
+  const roll = (muR) => stepRigidPolygonWorld2D({
+    width: 10,
+    height: 2,
+    gravity: [0, -9.81],
+    maxStep: 1 / 480,
+    solverIterations: 8,
+    bodies: [{
+      localVertices: circle,
+      position: [0, -0.9],
+      velocity: [1, 0],
+      angular_velocity: -10,
+      mass: 1,
+      e_n: 0,
+      mu_s: 0.9,
+      mu_d: 0.7,
+      mu_r: muR,
+      contact_radius: radius
+    }]
+  }, 0.5).bodies[0];
+
+  const free = roll(0);
+  const resisted = roll(0.02);
+  assert.ok(resisted.velocity[0] < free.velocity[0]);
+  assert.ok(Math.abs(resisted.velocity[0] + radius * resisted.angularVelocity) < 0.01);
+});
+
+test('dynamic sliding acceleration scales as minus mu_d times gravitational load', () => {
+  const square = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
+  const muD = 0.2;
+  const dt = 1 / 1000;
+  for (const gravity of [4, 9.81, 15]) {
+    const body = stepRigidPolygonWorld2D({
+      width: 20,
+      height: 2,
+      gravity: [0, -gravity],
+      maxStep: dt,
+      bodies: [{
+        localVertices: square,
+        position: [0, -0.9],
+        velocity: [5, 0],
+        mass: 1,
+        e_n: 0,
+        mu_s: 0.4,
+        mu_d: muD
+      }]
+    }, dt).bodies[0];
+    const acceleration = (body.velocity[0] - 5) / dt;
+    assert.ok(Math.abs(acceleration + muD * gravity) < 1e-9);
+  }
+});
+
+test('a no-slip solid disc rolls down an incline at two-thirds g sin(theta)', () => {
+  const rectangle = (halfWidth, halfHeight) => [
+    [-halfWidth, -halfHeight], [halfWidth, -halfHeight],
+    [halfWidth, halfHeight], [-halfWidth, halfHeight]
+  ];
+  const radius = 0.1;
+  const circle = Array.from({ length: 96 }, (_, index) => {
+    const angle = 2 * Math.PI * index / 96;
+    return [radius * Math.cos(angle), radius * Math.sin(angle)];
+  });
+  const angle = 0.2;
+  const normal = [-Math.sin(angle), Math.cos(angle)];
+  const tangent = [Math.cos(angle), Math.sin(angle)];
+  const slopePosition = [0, -1];
+  const start = [slopePosition[0] + 0.2 * normal[0], slopePosition[1] + 0.2 * normal[1]];
+  const duration = 0.05;
+  const body = stepRigidPolygonWorld2D({
+    width: 20,
+    height: 20,
+    gravity: [0, -9.81],
+    maxStep: 1 / 1000,
+    solverIterations: 16,
+    sleepDelay: 100,
+    bodies: [
+      { localVertices: rectangle(5, 0.1), position: slopePosition, angle, static: true, e_n: 0, mu_s: 1, mu_d: 0.8 },
+      { localVertices: circle, position: start, mass: 1, e_n: 0, mu_s: 1, mu_d: 0.8, mu_r: 0, contact_radius: radius }
+    ]
+  }, duration).bodies[1];
+  const acceleration = (body.velocity[0] * tangent[0] + body.velocity[1] * tangent[1]) / duration;
+  const expected = -(2 / 3) * 9.81 * Math.sin(angle);
+  assert.ok(Math.abs((acceleration - expected) / expected) < 0.03);
+  assert.ok(Math.abs(
+    body.velocity[0] * tangent[0] + body.velocity[1] * tangent[1] + radius * body.angularVelocity
+  ) < 1e-4);
+});
+
+test('dissipative contact settles bounce, slide, and roll to exact persistent rest', () => {
+  const square = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
+  const radius = 0.1;
+  const circle = Array.from({ length: 64 }, (_, index) => {
+    const angle = 2 * Math.PI * index / 64;
+    return [radius * Math.cos(angle), radius * Math.sin(angle)];
+  });
+  const cases = [
+    { localVertices: square, position: [0, 0], velocity: [0, -1], mass: 1, e_n: 0.5, mu_s: 0, mu_d: 0, mu_r: 0 },
+    { localVertices: square, position: [0, -0.9], velocity: [1, 0], mass: 1, e_n: 0, mu_s: 0.4, mu_d: 0.2, mu_r: 0.02, contact_radius: radius },
+    { localVertices: circle, position: [0, -0.9], velocity: [1, 0], angular_velocity: -10, mass: 1, e_n: 0, mu_s: 0.8, mu_d: 0.6, mu_r: 0.02, contact_radius: radius }
+  ];
+  for (const initial of cases) {
+    const world = {
+      width: 20,
+      height: 2,
+      gravity: [0, -9.81],
+      maxStep: 1 / 480,
+      solverIterations: 12,
+      bodies: [initial]
+    };
+    const settled = stepRigidPolygonWorld2D(world, 8);
+    const body = settled.bodies[0];
+    assert.deepEqual(body.velocity, [0, 0]);
+    assert.equal(body.angularVelocity, 0);
+    assert.equal(body.sleeping, true);
+    const persisted = stepRigidPolygonWorld2D({ ...world, bodies: settled.bodies }, 1).bodies[0];
+    assert.deepEqual(persisted.velocity, [0, 0]);
+    assert.equal(persisted.angularVelocity, 0);
+  }
+});
+
+test('solid contact rejects dynamic friction above static friction', () => {
+  assert.throws(() => stepRigidPolygonWorld2D({
+    bodies: [{
+      localVertices: [[0, 0], [1, 0], [0, 1]],
+      mu_s: 0.2,
+      mu_d: 0.3
+    }]
+  }, 0), /mu_d <= mu_s/);
 });
 
 test('disabled modules export no names while authored properties always remain', () => {

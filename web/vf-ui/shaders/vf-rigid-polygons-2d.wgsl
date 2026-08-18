@@ -1,7 +1,8 @@
 struct Body {
   pose_inv_mass: vec4<f32>,
   velocity_inv_inertia: vec4<f32>,
-  material_radius: vec4<f32>,
+  material: vec4<f32>,
+  contact_geometry: vec4<f32>,
   triangle_range: vec4<f32>,
 }
 
@@ -79,8 +80,10 @@ fn generalized_collision_impulse(
   normal: vec2<f32>, r_a: vec2<f32>, r_b: vec2<f32>,
   inv_mass_a: f32, inv_mass_b: f32,
   inv_inertia_a: f32, inv_inertia_b: f32,
-  restitution: f32, static_friction: f32, dynamic_friction: f32,
-  rolling_friction: f32, contact_radius: f32
+  restitution: f32, tangent_restitution: f32,
+  static_friction: f32, dynamic_friction: f32,
+  rolling_friction: f32, contact_radius: f32,
+  restitution_threshold: f32
 ) -> vec3<f32> {
   let tangent = perpendicular(normal);
   let rp_a = perpendicular(r_a);
@@ -94,7 +97,9 @@ fn generalized_collision_impulse(
   if (k_nn <= 1.0e-10) { return vec3<f32>(0.0); }
   let normal_speed = dot(relative_velocity, normal);
   if (normal_speed >= 0.0) { return vec3<f32>(0.0); }
-  let p_n = -(1.0 + restitution) * normal_speed / k_nn;
+  let is_impact = -normal_speed > restitution_threshold;
+  let active_restitution = select(0.0, restitution, is_impact);
+  let p_n = -(1.0 + active_restitution) * normal_speed / k_nn;
 
   let k_tt = inv_mass_sum +
     inv_inertia_a * dot(rp_a, tangent) * dot(rp_a, tangent) +
@@ -115,21 +120,24 @@ fn generalized_collision_impulse(
   var angular_impulse = 0.0;
   var sticks = false;
   if (determinant > 1.0e-10) {
-    let rhs_t = -(1.0 + params.solver.w) * tangent_speed - k_tn * p_n;
+    let tangent_scale = select(1.0, 1.0 + tangent_restitution, is_impact);
+    let rhs_t = -tangent_scale * tangent_speed - k_tn * p_n;
     let rhs_l = -relative_omega - k_ln * p_n;
-    let candidate_p_t = (rhs_t * k_ll - k_tl * rhs_l) / determinant;
     let candidate_l = (k_tt * rhs_l - k_tl * rhs_t) / determinant;
-    sticks = abs(candidate_p_t) <= static_friction * p_n &&
-      abs(candidate_l) <= static_friction * max(contact_radius, 1.0e-5) * p_n;
+    let rolling_limit = rolling_friction * max(contact_radius, 1.0e-5) * p_n;
+    angular_impulse = clamp(candidate_l, -rolling_limit, rolling_limit);
+    let candidate_p_t = (rhs_t - k_tl * angular_impulse) / k_tt;
+    sticks = abs(candidate_p_t) <= static_friction * p_n;
     if (sticks) {
       p_t = candidate_p_t;
-      angular_impulse = candidate_l;
     }
   }
   if (!sticks) {
     p_t = -sign(tangent_after_normal) * dynamic_friction * p_n;
-    angular_impulse = -sign(omega_after_normal) * rolling_friction *
-      max(contact_radius, 1.0e-5) * p_n;
+    let rolling_limit = rolling_friction * max(contact_radius, 1.0e-5) * p_n;
+    let omega_after_sliding = omega_after_normal + k_tl * p_t;
+    let stop_rolling = abs(omega_after_sliding) / max(k_ll, 1.0e-10);
+    angular_impulse = -sign(omega_after_sliding) * min(rolling_limit, stop_rolling);
   }
   return vec3<f32>(p_n * normal + p_t * tangent, angular_impulse);
 }
@@ -226,7 +234,7 @@ fn swept_bounding_circles_overlap(body_a: Body, body_b: Body, dt: f32) -> bool {
     closest_time = clamp(-dot(relative_position, relative_velocity) / speed_squared, 0.0, dt);
   }
   let closest_delta = relative_position + relative_velocity * closest_time;
-  let radius = body_a.material_radius.w + body_b.material_radius.w;
+  let radius = body_a.contact_geometry.z + body_b.contact_geometry.z;
   return dot(closest_delta, closest_delta) <= radius * radius;
 }
 
@@ -386,11 +394,13 @@ fn apply_pair_impulse(index_a: u32, index_b: u32, contact: Contact) {
     velocity_b - velocity_a, b.velocity_inv_inertia.z - a.velocity_inv_inertia.z,
     contact.normal, r_a, r_b, inv_mass_a, inv_mass_b,
     a.velocity_inv_inertia.w, b.velocity_inv_inertia.w,
-    min(a.material_radius.x, b.material_radius.x),
-    sqrt(a.material_radius.y * b.material_radius.y),
-    sqrt(a.material_radius.z * b.material_radius.z),
-    sqrt(a.triangle_range.z * b.triangle_range.z),
-    min(a.triangle_range.w, b.triangle_range.w)
+    max(a.material.x, b.material.x),
+    max(a.material.y, b.material.y),
+    sqrt(a.material.z * b.material.z),
+    sqrt(a.material.w * b.material.w),
+    sqrt(a.contact_geometry.x * b.contact_geometry.x),
+    min(a.contact_geometry.y, b.contact_geometry.y),
+    max(a.contact_geometry.w, b.contact_geometry.w)
   );
   let linear_impulse = generalized.xy;
   let angular_impulse = generalized.z;
@@ -406,6 +416,8 @@ fn apply_pair_impulse(index_a: u32, index_b: u32, contact: Contact) {
   let correction = correction_magnitude * contact.normal;
   a.pose_inv_mass.xy = a.pose_inv_mass.xy - correction * inv_mass_a;
   b.pose_inv_mass.xy = b.pose_inv_mass.xy + correction * inv_mass_b;
+  if (inv_mass_a > 0.0) { a.triangle_range.w = -1.0; }
+  if (inv_mass_b > 0.0) { b.triangle_range.w = -1.0; }
   bodies[index_a] = a;
   bodies[index_b] = b;
 }
@@ -419,14 +431,15 @@ fn apply_wall(index: u32, point: vec2<f32>, normal: vec2<f32>, penetration: f32)
   let generalized = generalized_collision_impulse(
     contact_velocity, body.velocity_inv_inertia.z, normal, vec2<f32>(0.0), r,
     0.0, inv_mass, 0.0, body.velocity_inv_inertia.w,
-    body.material_radius.x, body.material_radius.y, body.material_radius.z,
-    body.triangle_range.z, body.triangle_range.w
+    body.material.x, body.material.y, body.material.z, body.material.w,
+    body.contact_geometry.x, body.contact_geometry.y, body.contact_geometry.w
   );
   body.velocity_inv_inertia.xy = body.velocity_inv_inertia.xy + generalized.xy * inv_mass;
   body.velocity_inv_inertia.z = body.velocity_inv_inertia.z +
     (cross2(r, generalized.xy) + generalized.z) * body.velocity_inv_inertia.w;
   body.pose_inv_mass.xy = body.pose_inv_mass.xy + normal *
     max(penetration - params.solver.y, 0.0) * params.solver.x * params.padding.x;
+  body.triangle_range.w = -1.0;
   bodies[index] = body;
 }
 
@@ -437,6 +450,8 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
   if (index >= body_count) { return; }
   var body = bodies[index];
   if (body.pose_inv_mass.w <= 0.0) { return; }
+  if (body.triangle_range.w > 0.5) { return; }
+  body.triangle_range.w = 0.0;
   let dt = params.world_dt.z;
   body.velocity_inv_inertia.xy = body.velocity_inv_inertia.xy + params.gravity_counts.xy * dt;
   let damping = max(0.0, 1.0 - params.solver.z * dt);
@@ -459,13 +474,15 @@ fn resolve_contacts(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     bodies[advance_index] = advanced;
   }
+  let solver_iterations = max(1u, u32(params.padding.y));
+  for (var solver_iteration = 0u; solver_iteration < solver_iterations; solver_iteration = solver_iteration + 1u) {
   for (var ia = 0u; ia < body_count; ia = ia + 1u) {
-    let body_a = bodies[ia];
     for (var ib = ia + 1u; ib < body_count; ib = ib + 1u) {
+      let body_a = bodies[ia];
       let body_b = bodies[ib];
       if (body_a.pose_inv_mass.w + body_b.pose_inv_mass.w <= 0.0) { continue; }
       let center_delta = body_b.pose_inv_mass.xy - body_a.pose_inv_mass.xy;
-      let radius_sum = body_a.material_radius.w + body_b.material_radius.w;
+      let radius_sum = body_a.contact_geometry.z + body_b.contact_geometry.z;
       if (dot(center_delta, center_delta) > radius_sum * radius_sum) { continue; }
       var best: Contact;
       best.hit = 0u;
@@ -522,6 +539,7 @@ fn resolve_contacts(@builtin(global_invocation_id) id: vec3<u32>) {
     apply_wall(body_index, min_y_point, vec2<f32>(0.0, 1.0), -half_height - min_y);
     apply_wall(body_index, max_y_point, vec2<f32>(0.0, -1.0), max_y - half_height);
   }
+  }
 
   let remaining = max(params.world_dt.z - event_time, 0.0);
   if (remaining > 0.0) {
@@ -533,6 +551,35 @@ fn resolve_contacts(@builtin(global_invocation_id) id: vec3<u32>) {
         bodies[remainder_index] = remainder_body;
       }
     }
+  }
+
+  for (var sleep_index = 0u; sleep_index < body_count; sleep_index = sleep_index + 1u) {
+    var sleep_body = bodies[sleep_index];
+    if (sleep_body.pose_inv_mass.w <= 0.0) { continue; }
+    if (sleep_body.triangle_range.w > 0.5) {
+      sleep_body.velocity_inv_inertia.xy = vec2<f32>(0.0);
+      sleep_body.velocity_inv_inertia.z = 0.0;
+      bodies[sleep_index] = sleep_body;
+      continue;
+    }
+    let has_contact = sleep_body.triangle_range.w < -0.5;
+    let below_threshold =
+      length(sleep_body.velocity_inv_inertia.xy) <= params.world_dt.w &&
+      abs(sleep_body.velocity_inv_inertia.z) <= params.padding.z;
+    if (has_contact && below_threshold) {
+      sleep_body.triangle_range.z = sleep_body.triangle_range.z + params.world_dt.z;
+      if (sleep_body.triangle_range.z >= params.padding.w) {
+        sleep_body.velocity_inv_inertia.xy = vec2<f32>(0.0);
+        sleep_body.velocity_inv_inertia.z = 0.0;
+        sleep_body.triangle_range.w = 1.0;
+      } else {
+        sleep_body.triangle_range.w = 0.0;
+      }
+    } else {
+      sleep_body.triangle_range.z = 0.0;
+      sleep_body.triangle_range.w = 0.0;
+    }
+    bodies[sleep_index] = sleep_body;
   }
 }
 
