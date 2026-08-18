@@ -49,7 +49,7 @@ click_target_from_object_id(object_id:num) -> ClickTarget:
     object_id > 1?
         object_id < 66? @: (kind:TargetKind.square, file:square_file_from_object_id(object_id), rank:square_rank_from_object_id(object_id), piece_side:Side.none, piece_role:PieceRole.none)
     side: piece_side_from_object_id(object_id)
-    side != Side.none?
+    side ~= Side.none?
         slot: object_id - 65
         side = Side.black? 
             slot: slot - 16

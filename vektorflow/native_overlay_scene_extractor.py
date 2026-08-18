@@ -58,7 +58,13 @@ def find_top_level_struct_binding(module: ast.Module, name: str, *, source_path:
             if not isinstance(value, dict):
                 raise ValueError(f"{name} must be a struct value")
             return value
-        interpreter.eval_stmt(stmt, env)
+        try:
+            interpreter.eval_stmt(stmt, env)
+        except Exception:
+            # This is an optional native-scene probe over arbitrary VKF source.
+            # Statements unrelated to the requested binding must not turn a
+            # non-native program into a frontend failure.
+            continue
     return None
 
 

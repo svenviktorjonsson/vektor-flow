@@ -48,14 +48,14 @@ static std::string json_escape(const std::string& s) {
     std::ostringstream out;
     for (unsigned char ch : s) {
         switch (ch) {
-        case '\\\\': out << "\\\\\\\\"; break;
-        case '"': out << "\\\\\""; break;
-        case '\n': out << "\\\\n"; break;
-        case '\r': out << "\\\\r"; break;
-        case '\t': out << "\\\\t"; break;
+        case '\\': out << "\\\\"; break;
+        case '"': out << "\\\""; break;
+        case '\n': out << "\\n"; break;
+        case '\r': out << "\\r"; break;
+        case '\t': out << "\\t"; break;
         default:
             if (ch < 0x20) {
-                out << "\\\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch)
+                out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch)
                     << std::dec << std::setfill(' ');
             } else {
                 out << static_cast<char>(ch);
@@ -341,10 +341,21 @@ private:
             advance(); emit_at("CARET", tok_line, tok_col); return;
         case '/':
             advance();
-            if (peek() == '/') { advance(); emit_at("FLOOR_DIV", tok_line, tok_col); return; }
+            if (peek() == '\\') { advance(); emit_at("AND", tok_line, tok_col); return; }
+            if (peek() == '/') { advance(); emit_at("FLOORDIV", tok_line, tok_col); return; }
             emit_at("SLASH", tok_line, tok_col); return;
+        case '\\':
+            advance();
+            if (peek() == '/') { advance(); emit_at("OR", tok_line, tok_col); return; }
+            throw std::runtime_error("Unexpected backslash outside a string");
+        case '~':
+            advance();
+            if (peek() == '=') { advance(); emit_at("STRUCT_NEQ", tok_line, tok_col); return; }
+            emit_at("NOT", tok_line, tok_col); return;
         case '&':
             advance(); emit_at("AMPERSAND", tok_line, tok_col); return;
+        case '|':
+            advance(); emit_at("BAR", tok_line, tok_col); return;
         case ',':
             advance(); emit_at("COMMA", tok_line, tok_col); return;
         case '%':
@@ -366,9 +377,20 @@ private:
             return;
         case '@':
             advance();
+            while (peek() == ' ' || peek() == '\t') advance();
             if (peek() == ':') {
                 advance();
+                if (peek() == ':') {
+                    advance();
+                    emit_at("AT_EMIT", tok_line, tok_col);
+                    return;
+                }
                 emit_at("AT_COLON", tok_line, tok_col);
+                return;
+            }
+            if (peek() == '>') {
+                advance();
+                emit_at("AT_GT", tok_line, tok_col);
                 return;
             }
             if (peek() == '|') {
@@ -376,7 +398,13 @@ private:
                 emit_at("AT_BAR", tok_line, tok_col);
                 return;
             }
-            throw std::runtime_error("Unsupported '@' form in native-core lexer subset");
+            if (peek() == '!') {
+                advance();
+                emit_at("AT_BANG", tok_line, tok_col);
+                return;
+            }
+            emit_at("AT", tok_line, tok_col);
+            return;
         case '<':
             advance();
             if (peek() == '=') {
@@ -388,6 +416,11 @@ private:
             return;
         case '>':
             advance();
+            if (peek() == '<') {
+                advance();
+                emit_at("XOR", tok_line, tok_col);
+                return;
+            }
             if (peek() == '>') {
                 advance();
                 emit_at("PIPE", tok_line, tok_col);
@@ -435,6 +468,11 @@ private:
             advance();
             if (peek() == '.') {
                 advance();
+                if (peek() == '.') {
+                    advance();
+                    emit_at("ELLIPSIS", tok_line, tok_col);
+                    return;
+                }
                 emit_at("RANGE", tok_line, tok_col);
                 return;
             }
@@ -474,14 +512,25 @@ private:
 
     void lex_string(int tok_line, int tok_col) {
         advance();  // opening quote
+        const bool triple = peek() == '"' && peek(1) == '"';
+        if (triple) {
+            advance();
+            advance();
+        }
         std::string raw;
         while (pos_ < src_.size()) {
             char ch = advance();
-            if (ch == '"') {
+            if (ch == '"' && triple && peek() == '"' && peek(1) == '"') {
+                advance();
+                advance();
                 emit_string("STRING", decode_string_escapes(raw), tok_line, tok_col);
                 return;
             }
-            if (ch == '\n') {
+            if (ch == '"' && !triple) {
+                emit_string("STRING", decode_string_escapes(raw), tok_line, tok_col);
+                return;
+            }
+            if (ch == '\n' && !triple) {
                 throw std::runtime_error("Unterminated string literal in native-core lexer subset");
             }
             raw.push_back(ch);
@@ -671,25 +720,27 @@ def _decode_python_style_string_escapes(raw: str) -> str:
 
 
 def _extract_string_literal_raw(source: str, line: int, column: int) -> str:
-    source_lines = source.splitlines()
+    source_lines = source.splitlines(keepends=True)
     if line < 1 or line > len(source_lines):
         raise CppEmitError("string token location out of bounds in native core lexer output repair")
-    text = source_lines[line - 1]
-    idx = column - 1
-    if idx < 0 or idx >= len(text) or text[idx] != '"':
+    idx = sum(len(part) for part in source_lines[: line - 1]) + column - 1
+    if idx < 0 or idx >= len(source) or source[idx] != '"':
         raise CppEmitError("string token does not point at opening quote in native core lexer output repair")
-    idx += 1
+    triple = source.startswith('\"\"\"', idx)
+    idx += 3 if triple else 1
     raw_chars: list[str] = []
-    while idx < len(text):
-        ch = text[idx]
-        if ch == '"':
+    while idx < len(source):
+        if triple and source.startswith('\"\"\"', idx):
+            return "".join(raw_chars)
+        ch = source[idx]
+        if ch == '"' and not triple:
             return "".join(raw_chars)
         raw_chars.append(ch)
         idx += 1
         if ch == "\\":
-            if idx >= len(text):
+            if idx >= len(source):
                 raise CppEmitError("unterminated string escape in native core lexer output repair")
-            raw_chars.append(text[idx])
+            raw_chars.append(source[idx])
             idx += 1
     raise CppEmitError("unterminated string literal in native core lexer output repair")
 

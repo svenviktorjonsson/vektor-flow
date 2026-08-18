@@ -27,6 +27,12 @@ from ..ui.display_runtime import (
     publish_display_runtime_payload,
 )
 from ..ui.payloads import publish_geom_color_patch
+from ..ui_scene_graph_math import (
+    IDENTITY_AFFINE_2D,
+    IDENTITY_MATRIX_4X4,
+    resolve_affine_2d_from_scene_fields,
+    resolve_model_matrix_3d_from_scene_fields,
+)
 from ..ui.event_ingress import get_ui_event_ingress
 from ..ui.representation_runtime import (
     build_embedding_scope_draw_ops,
@@ -746,6 +752,60 @@ def _rect_from_tuple(t: Any) -> tuple[float, float, float, float]:
     raise TypeError("rect must be a 4-tuple (x, y, w, h) in normalized 0..1 coordinates")
 
 
+def _points_from_seq(points: Any) -> tuple[tuple[float, float], ...]:
+    try:
+        seq = list(points)
+    except TypeError as exc:
+        raise TypeError("points must be a sequence of (x, y) pairs") from exc
+    if len(seq) < 3:
+        raise ValueError("polygon requires at least 3 points")
+    out: list[tuple[float, float]] = []
+    for point in seq:
+        pair = list(point)
+        if len(pair) != 2:
+            raise ValueError("polygon points must be (x, y) pairs")
+        out.append((float(pair[0]), float(pair[1])))
+    return tuple(out)
+
+
+def _hover_value(hover: Any, key: str, default: Any = None) -> Any:
+    if isinstance(hover, dict):
+        return hover.get(key, default)
+    return getattr(hover, key, default)
+
+
+def _hover_object_id(hover_or_id: Any) -> Any:
+    if isinstance(hover_or_id, dict) or hasattr(hover_or_id, "object_id") or hasattr(hover_or_id, "shape_id"):
+        return _hover_value(hover_or_id, "object_id", _hover_value(hover_or_id, "shape_id", ""))
+    return hover_or_id
+
+
+def _vec2_delta(trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> tuple[float, float]:
+    if trans is None:
+        return float(dx), float(dy)
+    try:
+        return float(trans[0]), float(trans[1])
+    except (TypeError, ValueError, IndexError, KeyError) as exc:
+        raise TypeError("trans must be a vector with at least two numeric entries") from exc
+
+
+def _vec2_apply(op: str, point: Any, value: Any) -> tuple[float, float]:
+    x, y = float(point[0]), float(point[1])
+    if isinstance(value, (int, float)):
+        vx = vy = float(value)
+    else:
+        vx, vy = _vec2_delta(value)
+    if op == "PLUS":
+        return x + vx, y + vy
+    if op == "MINUS":
+        return x - vx, y - vy
+    if op == "STAR":
+        return x * vx, y * vy
+    if op == "SLASH":
+        return x / vx, y / vy
+    raise TypeError(f"unsupported geometry update operator {op!r}")
+
+
 def _rotate_vec3_around_axis(v: list[float], axis: str, angle_deg: float) -> list[float]:
     """Rotate vector v by angle_deg degrees around the named world axis (x/y/z)."""
     a = math.radians(angle_deg)
@@ -1412,12 +1472,24 @@ class SceneBox:
 
     __vf_py_attrs__ = True
 
-    def __init__(self, data: dict[str, Any], display: "Display", frame_id: str) -> None:
+    def __init__(
+        self,
+        data: dict[str, Any],
+        display: "Display",
+        frame_id: str,
+        parent: "SceneBox | None" = None,
+    ) -> None:
         self._data = data          # live dict inside display._geom[fid]["meshes"][i]
         self._display = display
         self._frame_id = frame_id
-        # local rotation accumulator (axis-angle in degrees, stored as euler ZYX)
-        self._rot: list[float] = [0.0, 0.0, 0.0]  # [rx, ry, rz] degrees
+        self._parent = parent
+        self._children: list[SceneBox] = []
+        if parent is not None:
+            parent._children.append(self)
+        self._local_center = tuple(float(v) for v in data.get("center", [0.0, 0.0, 0.0]))
+        self._local_scale = tuple(float(v) for v in data.get("scale", [1.0, 1.0, 1.0]))
+        self._local_rotation = tuple(float(v) for v in data.get("rotation", [0.0, 0.0, 0.0]))
+        self._apply_world_model_recursive()
 
     def _object_id(self) -> int:
         meshes = self._display._geom.get(self._frame_id, {}).get("meshes", [])
@@ -1437,14 +1509,17 @@ class SceneBox:
     def translate(self, delta: Any) -> "SceneBox":
         """Shift center by [dx, dy, dz]. Returns self."""
         d = _vec3(delta, "delta")
-        c = self._data["center"]
-        self._data["center"] = [c[0] + d[0], c[1] + d[1], c[2] + d[2]]
+        self._local_center = tuple(c + offset for c, offset in zip(self._local_center, d))
+        self._data["center"] = list(self._local_center)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
     def set_center(self, center: Any) -> "SceneBox":
         """Move center to [x, y, z]. Returns self."""
-        self._data["center"] = _vec3(center, "center")
+        self._local_center = tuple(_vec3(center, "center"))
+        self._data["center"] = list(self._local_center)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
@@ -1460,8 +1535,11 @@ class SceneBox:
         if ax not in ("x", "y", "z"):
             raise ValueError(f"around must be 'x', 'y', or 'z', got {around!r}")
         idx = {"x": 0, "y": 1, "z": 2}[ax]
-        self._rot[idx] = (self._rot[idx] + angle_deg) % 360.0
-        self._data["rotation"] = list(self._rot)
+        rotation = list(self._local_rotation)
+        rotation[idx] = (rotation[idx] + angle_deg) % 360.0
+        self._local_rotation = tuple(rotation)
+        self._data["rotation"] = list(self._local_rotation)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
@@ -1474,7 +1552,9 @@ class SceneBox:
 
     def set_scale(self, scale: Any) -> "SceneBox":
         """Resize the box. Returns self."""
-        self._data["scale"] = _vec3(scale, "scale")
+        self._local_scale = tuple(_vec3(scale, "scale"))
+        self._data["scale"] = list(self._local_scale)
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
@@ -1487,6 +1567,73 @@ class SceneBox:
             self._data["texture"] = normalized
         self._display._sync_all()
         return self
+
+    def add_box(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        texture: Any = None,
+    ) -> "SceneBox":
+        return self._display._add_box(
+            self._frame_id,
+            center=center,
+            scale=scale,
+            color=color,
+            texture=texture,
+            parent=self,
+        )
+
+    def add_ellipsoid(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        texture: Any = None,
+    ) -> "SceneBox":
+        return self._display._add_ellipsoid(
+            self._frame_id,
+            center=center,
+            scale=scale,
+            color=color,
+            texture=texture,
+            parent=self,
+        )
+
+    def add_torus(
+        self,
+        *,
+        center: Any = None,
+        scale: Any = None,
+        color: Any = None,
+        major_radius: float = 0.65,
+        minor_radius: float = 0.22,
+        texture: Any = None,
+    ) -> "SceneBox":
+        return self._display._add_torus(
+            self._frame_id,
+            center=center,
+            scale=scale,
+            color=color,
+            major_radius=major_radius,
+            minor_radius=minor_radius,
+            texture=texture,
+            parent=self,
+        )
+
+    def add(self, **kwargs: Any) -> "SceneFieldMesh":
+        return self._display._add_field_mesh(self._frame_id, parent=self, **kwargs)
+
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> Any:
+        raise TypeError("3-D nodes cannot parent 2-D nodes")
+
+    def add_oval(self, rect: Any, *, color: Any = "#888888") -> Any:
+        raise TypeError("3-D nodes cannot parent 2-D nodes")
+
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> Any:
+        raise TypeError("3-D nodes cannot parent 2-D nodes")
 
     def remove(self) -> None:
         """Remove this scene object from its frame."""
@@ -1508,11 +1655,42 @@ class SceneBox:
 
     @property
     def center(self) -> list[float]:
-        return list(self._data["center"])
+        return list(self._local_center)
 
     @property
     def scale(self) -> list[float]:
-        return list(self._data["scale"])
+        return list(self._local_scale)
+
+    @property
+    def world_center(self) -> list[float]:
+        parent_world = self._parent._world_model_matrix() if self._parent is not None else None
+        return list(
+            resolve_model_matrix_3d_from_scene_fields(
+                center=self._local_center,
+                rotation=self._local_rotation,
+                scale=self._local_scale,
+                parent_world=parent_world,
+            ).world_translation
+        )
+
+    @property
+    def world_matrix(self) -> list[float]:
+        return list(self._world_model_matrix())
+
+    def _world_model_matrix(self) -> tuple[float, ...]:
+        return tuple(float(v) for v in self._data.get("model_matrix", IDENTITY_MATRIX_4X4))
+
+    def _apply_world_model_recursive(self) -> None:
+        parent_world = self._parent._world_model_matrix() if self._parent is not None else None
+        resolved = resolve_model_matrix_3d_from_scene_fields(
+            center=self._local_center,
+            rotation=self._local_rotation,
+            scale=self._local_scale,
+            parent_world=parent_world,
+        )
+        self._data["model_matrix"] = [float(v) for v in resolved.world]
+        for child in self._children:
+            child._apply_world_model_recursive()
 
     def __repr__(self) -> str:
         return f"SceneBox(center={self._data['center']}, scale={self._data['scale']}, color={self._data['color']!r})"
@@ -1534,8 +1712,9 @@ class SceneFieldMesh(SceneBox):
         display: "Display",
         frame_id: str,
         source_kwargs: dict[str, Any],
+        parent: SceneBox | None = None,
     ) -> None:
-        super().__init__(data, display, frame_id)
+        super().__init__(data, display, frame_id, parent=parent)
         self._source_kwargs = dict(source_kwargs)
 
     @property
@@ -1573,6 +1752,10 @@ class SceneFieldMesh(SceneBox):
         rebuilt = _build_field_mesh_from_kwargs(source)
         for key, value in rebuilt.items():
             self._data[key] = value
+        self._local_center = tuple(float(v) for v in self._data.get("center", [0.0, 0.0, 0.0]))
+        self._local_scale = tuple(float(v) for v in self._data.get("scale", [1.0, 1.0, 1.0]))
+        self._local_rotation = tuple(float(v) for v in self._data.get("rotation", [0.0, 0.0, 0.0]))
+        self._apply_world_model_recursive()
         self._display._sync_all()
         return self
 
@@ -3637,10 +3820,10 @@ def axis_2d(frame: "FrameRef", **kwargs: Any) -> Axis2D:
         raise TypeError(f"axis_2d() got unexpected keyword argument(s): {joined}")
     return Axis2D(
         frame=frame,
-        x_min=float(kwargs.get("x_min", -1.0)),
-        x_max=float(kwargs.get("x_max", 1.0)),
-        y_min=float(kwargs.get("y_min", -1.0)),
-        y_max=float(kwargs.get("y_max", 1.0)),
+        x_min=_real_float(kwargs.get("x_min", -1.0), "axis_2d.x_min"),
+        x_max=_real_float(kwargs.get("x_max", 1.0), "axis_2d.x_max"),
+        y_min=_real_float(kwargs.get("y_min", -1.0), "axis_2d.y_min"),
+        y_max=_real_float(kwargs.get("y_max", 1.0), "axis_2d.y_max"),
         x_label=str(kwargs.get("x_label", "$x$")),
         y_label=str(kwargs.get("y_label", "$y$")),
         prefix=str(kwargs.get("prefix", "axis2d")),
@@ -3658,12 +3841,12 @@ def axis_3d(frame: "FrameRef", **kwargs: Any) -> Axis3D:
         raise TypeError(f"axis_3d() got unexpected keyword argument(s): {joined}")
     return Axis3D(
         frame=frame,
-        x_min=float(kwargs.get("x_min", -1.0)),
-        x_max=float(kwargs.get("x_max", 1.0)),
-        y_min=float(kwargs.get("y_min", -1.0)),
-        y_max=float(kwargs.get("y_max", 1.0)),
-        z_min=float(kwargs.get("z_min", -1.0)),
-        z_max=float(kwargs.get("z_max", 1.0)),
+        x_min=_real_float(kwargs.get("x_min", -1.0), "axis_3d.x_min"),
+        x_max=_real_float(kwargs.get("x_max", 1.0), "axis_3d.x_max"),
+        y_min=_real_float(kwargs.get("y_min", -1.0), "axis_3d.y_min"),
+        y_max=_real_float(kwargs.get("y_max", 1.0), "axis_3d.y_max"),
+        z_min=_real_float(kwargs.get("z_min", -1.0), "axis_3d.z_min"),
+        z_max=_real_float(kwargs.get("z_max", 1.0), "axis_3d.z_max"),
         x_label=str(kwargs.get("x_label", "$x$")),
         y_label=str(kwargs.get("y_label", "$y$")),
         z_label=str(kwargs.get("z_label", "$z$")),
@@ -3735,6 +3918,299 @@ def axis_2d_tick_labels(widgets: Any, **kwargs: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class VertexRef:
+    """A single polygon vertex addressed by an inherited hit context."""
+
+    __vf_py_attrs__ = True
+    _shape: "RectRef"
+    _index: int
+
+    @property
+    def id(self) -> int:
+        return self._index
+
+    def _points(self) -> list[list[float]]:
+        if self._shape._points is None:
+            raise TypeError("vertex refs require a polygon parent")
+        if not 0 <= self._index < len(self._shape._points):
+            raise IndexError(f"vertex index {self._index} is outside the polygon")
+        return [list(point) for point in self._shape._points]
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "VertexRef":
+        return self.__vf_update__("PLUS", _vec2_delta(trans, dx=dx, dy=dy))
+
+    def __vf_update__(self, op: str, value: Any) -> "VertexRef":
+        points = self._points()
+        points[self._index] = list(_vec2_apply(op, points[self._index], value))
+        self._shape._set_points(points)
+        return self
+
+
+@dataclass
+class EdgeRef:
+    """A polygon edge between vertex ``id`` and the next wrapped vertex."""
+
+    __vf_py_attrs__ = True
+    _shape: "RectRef"
+    _index: int
+
+    @property
+    def id(self) -> int:
+        return self._index
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "EdgeRef":
+        return self.__vf_update__("PLUS", _vec2_delta(trans, dx=dx, dy=dy))
+
+    def __vf_update__(self, op: str, value: Any) -> "EdgeRef":
+        if self._shape._points is None or not 0 <= self._index < len(self._shape._points):
+            raise IndexError(f"edge index {self._index} is outside the polygon")
+        points = [list(point) for point in self._shape._points]
+        next_index = (self._index + 1) % len(points)
+        points[self._index] = list(_vec2_apply(op, points[self._index], value))
+        points[next_index] = list(_vec2_apply(op, points[next_index], value))
+        self._shape._set_points(points)
+        return self
+
+
+@dataclass
+class RectRef:
+    """Mutable 2-D shape with parent-relative transforms."""
+
+    __vf_py_attrs__ = True
+    _display: "Display"
+    _kind: str
+    _rect: tuple[float, float, float, float]
+    _color: Any
+    _points: tuple[tuple[float, float], ...] | None = None
+    _shape_id: str = ""
+    _interaction: dict[str, Any] | None = None
+    _children: list["RectRef"] = field(default_factory=list, repr=False)
+    _parent: "RectRef | None" = field(default=None, repr=False)
+    _payload: dict[str, Any] = field(default_factory=dict, repr=False)
+    _tx: float = 0.0
+    _ty: float = 0.0
+    _sx: float = 1.0
+    _sy: float = 1.0
+    _rotation_deg: float = 0.0
+
+    @property
+    def id(self) -> str:
+        return self._shape_id
+
+    def _local_transform(self) -> tuple[float, float, float, float, float, float]:
+        x, y, width, height = self._rect
+        return resolve_affine_2d_from_scene_fields(
+            translation=(x + self._tx, y + self._ty),
+            rotation_degrees=self._rotation_deg,
+            scale=(width * self._sx, height * self._sy),
+        ).local
+
+    def _world_transform(self) -> tuple[float, float, float, float, float, float]:
+        parent_world = IDENTITY_AFFINE_2D if self._parent is None else self._parent._world_transform()
+        x, y, width, height = self._rect
+        return resolve_affine_2d_from_scene_fields(
+            translation=(x + self._tx, y + self._ty),
+            rotation_degrees=self._rotation_deg,
+            scale=(width * self._sx, height * self._sy),
+            parent_world=parent_world,
+        ).world
+
+    def _refresh_payload_from_parent(
+        self,
+        parent_world: tuple[float, float, float, float, float, float],
+    ) -> tuple[float, float, float, float, float, float]:
+        x, y, width, height = self._rect
+        world = resolve_affine_2d_from_scene_fields(
+            translation=(x + self._tx, y + self._ty),
+            rotation_degrees=self._rotation_deg,
+            scale=(width * self._sx, height * self._sy),
+            parent_world=parent_world,
+        ).world
+        self._payload.clear()
+        self._payload.update({
+            "op": self._kind,
+            "rect": [0.0, 0.0, 1.0, 1.0],
+            "color": _color_to_payload(self._color),
+            "transform": list(world),
+        })
+        if self._points is not None:
+            self._payload["points"] = [list(point) for point in self._points]
+        if self._interaction is not None:
+            self._payload["interaction"] = dict(self._interaction)
+        return world
+
+    def _refresh_payload(self) -> None:
+        parent_world = IDENTITY_AFFINE_2D if self._parent is None else self._parent._world_transform()
+        world = self._refresh_payload_from_parent(parent_world)
+        for child in self._children:
+            child._refresh_payload_tree(world)
+
+    def _refresh_payload_tree(
+        self,
+        parent_world: tuple[float, float, float, float, float, float],
+    ) -> None:
+        world = self._refresh_payload_from_parent(parent_world)
+        for child in self._children:
+            child._refresh_payload_tree(world)
+
+    def _collect_payloads(
+        self,
+        parent_world: tuple[float, float, float, float, float, float],
+        out: list[dict[str, Any]],
+    ) -> None:
+        world = self._refresh_payload_from_parent(parent_world)
+        out.append(self._payload)
+        for child in self._children:
+            child._collect_payloads(world, out)
+
+    def _add_child(self, child: "RectRef") -> "RectRef":
+        child._parent = self
+        if child._interaction is not None:
+            child._interaction["parent_shape_id"] = self.id
+        self._children.append(child)
+        self._display._sync_all()
+        return child
+
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> "RectRef":
+        return self._add_child(
+            RectRef(
+                self._display,
+                "rect",
+                _rect_from_tuple(rect),
+                color,
+                _shape_id=self._display._next_shape_id("rect"),
+            )
+        )
+
+    def add_oval(self, rect: Any, *, color: Any = "#888888") -> "RectRef":
+        return self._add_child(
+            RectRef(
+                self._display,
+                "oval",
+                _rect_from_tuple(rect),
+                color,
+                _shape_id=self._display._next_shape_id("oval"),
+            )
+        )
+
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> "RectRef":
+        shape_id = self._display._next_shape_id("poly")
+        return self._add_child(
+            RectRef(
+                self._display,
+                "polygon",
+                (0.0, 0.0, 1.0, 1.0),
+                color,
+                _points=_points_from_seq(points),
+                _shape_id=shape_id,
+                _interaction={
+                    "mode": "pick_2d",
+                    "shape_id": shape_id,
+                    "parent_shape_id": self.id,
+                    "cursor": "open_hand",
+                    "pressed_cursor": "closed_hand",
+                    "border": 0.035,
+                },
+            )
+        )
+
+    def add_box(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes")
+
+    def add_ellipsoid(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes")
+
+    def add_torus(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes")
+
+    def add(self, **kwargs: Any) -> Any:
+        raise TypeError("2-D nodes cannot parent 3-D nodes")
+
+    def _set_points(self, points: Any) -> None:
+        self._points = tuple((float(point[0]), float(point[1])) for point in points)
+        self._refresh_payload()
+        self._display._sync_all()
+
+    def translate(self, trans: Any = None, *, dx: float = 0.0, dy: float = 0.0) -> "RectRef":
+        tx, ty = _vec2_delta(trans, dx=dx, dy=dy)
+        self._tx += tx
+        self._ty += ty
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def set_scale(self, *, sx: float | None = None, sy: float | None = None) -> "RectRef":
+        if sx is not None:
+            self._sx = float(sx)
+        if sy is not None:
+            self._sy = float(sy)
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def scale_by(self, *, sx: float = 1.0, sy: float = 1.0) -> "RectRef":
+        self._sx *= float(sx)
+        self._sy *= float(sy)
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def rotate_by(self, *, angle_deg: float) -> "RectRef":
+        self._rotation_deg += float(angle_deg)
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def __vf_update__(self, op: str, value: Any) -> "RectRef":
+        if op == "PLUS":
+            return self.translate(value)
+        if op == "MINUS":
+            x, y = _vec2_delta(value)
+            return self.translate([-x, -y])
+        x, y = (float(value), float(value)) if isinstance(value, (int, float)) else _vec2_delta(value)
+        if op == "STAR":
+            self._sx *= x
+            self._sy *= y
+        elif op == "SLASH":
+            self._sx /= x
+            self._sy /= y
+        else:
+            raise TypeError(f"unsupported geometry update operator {op!r}")
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def vertex(self, vertex_id: int) -> VertexRef:
+        return VertexRef(self, int(vertex_id))
+
+    def edge(self, edge_id: int) -> EdgeRef:
+        return EdgeRef(self, int(edge_id))
+
+    def set_interaction(self, *, cursor: str = "open_hand", pressed_cursor: str = "closed_hand", border: float = 0.08, shape_id: str | None = None) -> "RectRef":
+        self._shape_id = str(shape_id or self._shape_id or self._display._next_shape_id("shape"))
+        self._interaction = {
+            "mode": "transform_2d",
+            "shape_id": self._shape_id,
+            "parent_shape_id": "" if self._parent is None else self._parent.id,
+            "cursor": str(cursor),
+            "pressed_cursor": str(pressed_cursor),
+            "border": float(border),
+        }
+        self._refresh_payload()
+        self._display._sync_all()
+        return self
+
+    def _find(self, shape_id: str) -> "RectRef | None":
+        if self.id == shape_id:
+            return self
+        for child in self._children:
+            found = child._find(shape_id)
+            if found is not None:
+                return found
+        return None
+
+
+@dataclass
 class FrameRef:
     """A panel from ``d.frame`` / :meth:`Display.Frame`; use :meth:`add_frame`, then draw commands."""
 
@@ -3749,6 +4225,7 @@ class FrameRef:
     _default_event_handlers: dict[str, Callable[[Any], bool]] = field(default_factory=dict, repr=False)
     _event_observers: list[Callable[[Any], Any]] = field(default_factory=list, repr=False)
     _event_override: Callable[[Any], Any] | None = field(default=None, repr=False)
+    _shape_roots: list[RectRef] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_pending_key", id(self))
@@ -3813,6 +4290,48 @@ class FrameRef:
 
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
+
+    def _add_shape(self, ref: RectRef) -> RectRef:
+        ref._refresh_payload()
+        self._shape_roots.append(ref)
+        self._display._sync_all()
+        return ref
+
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> RectRef:
+        sid = self._display._next_shape_id("rect")
+        return self._add_shape(RectRef(self._display, "rect", _rect_from_tuple(rect), color, _shape_id=sid))
+
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> RectRef:
+        sid = self._display._next_shape_id("poly")
+        interaction = {"mode": "pick_2d", "shape_id": sid, "parent_shape_id": "", "cursor": "open_hand", "pressed_cursor": "closed_hand", "border": 0.035}
+        return self._add_shape(RectRef(self._display, "polygon", (0.0, 0.0, 1.0, 1.0), color, _points_from_seq(points), sid, interaction))
+
+    def get_rect(self, shape_id: Any) -> RectRef | None:
+        wanted = str(_hover_object_id(shape_id))
+        for shape in self._shape_roots:
+            found = shape._find(wanted)
+            if found is not None:
+                return found
+        return None
+
+    def get_vertex(self, hover: Any) -> VertexRef | None:
+        shape = self.get_rect(hover)
+        index = _hover_value(hover, "vertex_id", -1)
+        return shape.vertex(int(index)) if shape is not None and index is not None and int(index) >= 0 else None
+
+    def get_edge(self, hover: Any) -> EdgeRef | None:
+        shape = self.get_rect(hover)
+        index = _hover_value(hover, "edge_id", -1)
+        return shape.edge(int(index)) if shape is not None and index is not None and int(index) >= 0 else None
+
+    def get(self, hover: Any) -> Any:
+        return self.get_vertex(hover) or self.get_edge(hover) or self.get_rect(hover)
+
+    def _collect_shape_ops(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for shape in self._shape_roots:
+            shape._collect_payloads(IDENTITY_AFFINE_2D, out)
+        return out
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
@@ -4295,10 +4814,6 @@ class UIRoot:
         self.cursor.poll()
         self.keyboard.poll()
 
-    def sleep(self, seconds: float) -> None:
-        """Host-backed sleep for vkf event loops."""
-        _ui_sleep(float(seconds))
-
     def Frame(self, rect: Any | None = None) -> "FrameRef":  # noqa: N802
         """Create a frame from the root namespace; optionally place it immediately."""
         frame = self.display.Frame()
@@ -4425,6 +4940,8 @@ class Display:
     _frame_parent: dict[str, str | None] = field(default_factory=dict, repr=False)
     _auto_render: bool = field(default=True, repr=False)
     _dirty: bool = field(default=False, repr=False)
+    _next_shape_sequence: int = field(default=0, repr=False)
+    _screen_shape_roots: list[RectRef] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         try:
@@ -4436,6 +4953,10 @@ class Display:
                 ensure_ui_session(root)
         except Exception:
             pass
+
+    def _next_shape_id(self, prefix: str = "shape") -> str:
+        self._next_shape_sequence += 1
+        return f"{prefix}_{self._next_shape_sequence}"
 
     # ---- properties -------------------------------------------------------
 
@@ -4459,6 +4980,10 @@ class Display:
 
     def dumps(self) -> str:
         return self._screen.dumps()
+
+    def display_json(self) -> str:
+        """Return the current browser/native display payload without filesystem mirroring."""
+        return json.dumps(self._build_display_payload(), indent=2) + "\n"
 
     def widget_set(self, frame_id: str, widget_id: str, props: Any) -> None:
         self._screen.widget_set(frame_id, widget_id, props)
@@ -4513,6 +5038,40 @@ class Display:
 
     def draw(self, rect: Any, *, color: str = "#888888") -> None:
         self.draw_rect(rect, color=color)
+
+    def add_rect(self, rect: Any, *, color: Any = "#888888") -> RectRef:
+        ref = RectRef(
+            self,
+            "rect",
+            _rect_from_tuple(rect),
+            color,
+            _shape_id=self._next_shape_id("rect"),
+        )
+        self._screen_shape_roots.append(ref)
+        self._sync_all()
+        return ref
+
+    def add_polygon(self, points: Any, *, color: Any = "#888888") -> RectRef:
+        shape_id = self._next_shape_id("poly")
+        ref = RectRef(
+            self,
+            "polygon",
+            (0.0, 0.0, 1.0, 1.0),
+            color,
+            _points=_points_from_seq(points),
+            _shape_id=shape_id,
+            _interaction={
+                "mode": "pick_2d",
+                "shape_id": shape_id,
+                "parent_shape_id": "",
+                "cursor": "open_hand",
+                "pressed_cursor": "closed_hand",
+                "border": 0.035,
+            },
+        )
+        self._screen_shape_roots.append(ref)
+        self._sync_all()
+        return ref
 
     def draw_rect(self, rect: Any, *, color: str = "#888888") -> None:
         z = _rect_from_tuple(rect)
@@ -4877,6 +5436,7 @@ class Display:
         scale: Any,
         color: Any,
         texture: Any = None,
+        parent: SceneBox | None = None,
     ) -> SceneBox:
         data: dict[str, Any] = {
             "type":     "box",
@@ -4890,7 +5450,7 @@ class Display:
             data["texture"] = normalized_texture
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
-        obj = SceneBox(data, self, fid)
+        obj = SceneBox(data, self, fid, parent=parent)
         idx = len(self._geom_for(fid)["meshes"]) - 1
         self._scene_objects[(fid, idx)] = obj
         return obj
@@ -4903,6 +5463,7 @@ class Display:
         scale: Any,
         color: Any,
         texture: Any = None,
+        parent: SceneBox | None = None,
     ) -> SceneBox:
         data: dict[str, Any] = {
             "type":     "ellipsoid",
@@ -4916,7 +5477,7 @@ class Display:
             data["texture"] = normalized_texture
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
-        obj = SceneBox(data, self, fid)
+        obj = SceneBox(data, self, fid, parent=parent)
         idx = len(self._geom_for(fid)["meshes"]) - 1
         self._scene_objects[(fid, idx)] = obj
         return obj
@@ -4931,6 +5492,7 @@ class Display:
         major_radius: float,
         minor_radius: float,
         texture: Any = None,
+        parent: SceneBox | None = None,
     ) -> SceneBox:
         data: dict[str, Any] = {
             "type":         "torus",
@@ -4946,12 +5508,18 @@ class Display:
             data["texture"] = normalized_texture
         self._geom_for(fid)["meshes"].append(data)
         self._sync_all()
-        obj = SceneBox(data, self, fid)
+        obj = SceneBox(data, self, fid, parent=parent)
         idx = len(self._geom_for(fid)["meshes"]) - 1
         self._scene_objects[(fid, idx)] = obj
         return obj
 
-    def _add_field_mesh(self, fid: str, **kwargs: Any) -> SceneFieldMesh:
+    def _add_field_mesh(
+        self,
+        fid: str,
+        *,
+        parent: SceneBox | None = None,
+        **kwargs: Any,
+    ) -> SceneFieldMesh:
         data = _build_field_mesh_from_kwargs(kwargs)
         self._geom_for(fid)["meshes"].append(data)
         try:
@@ -4969,7 +5537,7 @@ class Display:
         except Exception as exc:
             _plot_debug_line(f"_add_field_mesh log_error={exc!r}")
         self._sync_all()
-        obj = SceneFieldMesh(data, self, fid, kwargs)
+        obj = SceneFieldMesh(data, self, fid, kwargs, parent=parent)
         idx = len(self._geom_for(fid)["meshes"]) - 1
         self._scene_objects[(fid, idx)] = obj
         return obj
@@ -5349,6 +5917,30 @@ class Display:
 
     # ---- sync -------------------------------------------------------------
 
+    def _build_display_payload(self) -> dict[str, Any]:
+        screen_ops = list(self._screen_ops)
+        for shape in self._screen_shape_roots:
+            shape._collect_payloads(IDENTITY_AFFINE_2D, screen_ops)
+
+        frame_ops = {
+            frame_id: list(ops)
+            for frame_id, ops in self._frame_ops.items()
+        }
+        for frame in self._frame_refs:
+            if not frame._placed or not frame._frame_id:
+                continue
+            shape_ops = frame._collect_shape_ops()
+            if shape_ops:
+                frame_ops.setdefault(frame._frame_id, []).extend(shape_ops)
+
+        return build_display_payload(
+            screen_ops=screen_ops,
+            screen_repr_ops=self._screen_repr_ops,
+            frame_ops=frame_ops,
+            frame_repr_ops=self._frame_repr_ops,
+            geom=self._geom,
+        )
+
     def _sync_all(self, *, force: bool = False) -> None:
         if not force and not self._auto_render:
             self._dirty = True
@@ -5358,13 +5950,7 @@ class Display:
         if cmd_count != self._last_scene_cmd_count:
             _write_vkf_scene_to_vf_ui(self._screen._commands)
             self._last_scene_cmd_count = cmd_count
-        payload = build_display_payload(
-            screen_ops=self._screen_ops,
-            screen_repr_ops=self._screen_repr_ops,
-            frame_ops=self._frame_ops,
-            frame_repr_ops=self._frame_repr_ops,
-            geom=self._geom,
-        )
+        payload = self._build_display_payload()
         _write_vf_display_json(payload)
         # Launch UI only when there is placed/visible content.
         # Pending frame ops/geom should not auto-open the host.
@@ -5419,7 +6005,6 @@ def build_ui_namespace() -> dict[str, Any]:
         "Axis2D": Axis2D,
         "Axis3D": Axis3D,
         "poll": root.poll,
-        "sleep": root.sleep,
         "event_loop": root.event_loop,
         "next_event": root.next_event,
         "set_mode": root.set_mode,

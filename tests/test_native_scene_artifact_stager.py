@@ -14,6 +14,11 @@ ROOT = Path(__file__).resolve().parent.parent
 STAGER_SOURCE = ROOT / "compiler" / "native" / "vkf_native_scene_artifact_stager.cpp"
 
 
+@pytest.fixture(autouse=True)
+def _stage_runtime_assets(tmp_path: Path) -> None:
+    shutil.copytree(ROOT / "web" / "vf-ui", tmp_path / "web")
+
+
 def _compiler_command(source: Path, output: Path) -> list[str] | None:
     for compiler in ("clang++", "g++", "c++"):
         path = shutil.which(compiler)
@@ -124,8 +129,8 @@ def test_native_scene_artifact_stager_writes_launcher_contract_without_python(tm
     assert '"geom/vf-geom-wgpu.js"' in html
     assert '"vf-display.js"' in html
     assert "katex/katex.min.js" not in html
-    assert "vf-widgets.js" not in html
-    assert '<script src="../../vf-runtime-shell.js"></script>' in html
+    assert '"vf-widgets.js"' in html
+    assert '<script src="../../vf-runtime-shell.js?v=' in html
     assert "window.__vfNativeSceneConfig=" + scene_config in html
     assert (session_dir / "vf-runtime-packets.json").read_text(encoding="utf-8") == '{"frames":[]}'
     assert (session_dir / "vf-geom-ledger-transport.json").read_text(encoding="utf-8") == "{}"
@@ -175,7 +180,6 @@ native_scene: (
         encoding="utf-8",
     )
     overlay_web = tmp_path / "web"
-    shutil.copytree(ROOT / "web" / "vf-ui", overlay_web)
 
     proc = subprocess.run(
         [str(exe), "--source", str(source), "--overlay-web", str(overlay_web)],
@@ -282,7 +286,7 @@ def test_native_scene_artifact_stager_reads_vkf_scene_json_bindings(tmp_path: Pa
 
     session_dir = overlay_web / "sessions" / "main"
     html = (session_dir / "vkf-scene.html").read_text(encoding="utf-8")
-    assert '<script src="../../vf-runtime-shell.js"></script>' in html
+    assert '<script src="../../vf-runtime-shell.js?v=' in html
     assert 'window.__vfNativeSceneConfigsUrl="vf-native-scene-configs-' in html
     assert "launchManifestUrl:\"vf-launch-manifest.json\"" in html
     assert "mountLaunchFramesFromUrl" in html
@@ -661,7 +665,8 @@ def test_native_scene_artifact_stager_writes_multi_view_scene_contract(tmp_path:
     assert "(nowMs()-start)<6.0" in html
     assert "global.__vfNativeSceneConfig=configs[index]" in html
     assert "var delay=index===0?200:0;global.setTimeout(function(){loadAt(index+1);},delay);" in html
-    assert "vf-native-scene.js?view=" in html
+    assert "vf-native-scene.js?v=" in html
+    assert "&view=" in html
     assert "loadAt(0)" in html
 
 

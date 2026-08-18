@@ -238,6 +238,8 @@ def _prim_from_domain_maybe(d: Any) -> str | None:
         t = d.fields[0][1]
         if isinstance(t, str):
             return t
+        if isinstance(t, (PrimType, ast.PrimTypeRef)):
+            return t.name
     return None
 
 
@@ -654,25 +656,30 @@ def infer_type(
     ):
         return v
 
-    if type(v).__name__ == "VFunction":
+    if type(v).__name__ in {"VFunction", "IRFunctionValue"}:
         ft = getattr(v, "func_type", None)
         if ft is not None:
             return ft
         params = getattr(v, "params", [])
+        param_types = getattr(v, "param_types", [])
+        param_specs = getattr(v, "param_specs", params)
         fields: list[tuple[str, Any]] = []
-        for p in params:
+        for index, p in enumerate(param_specs):
             pft = getattr(p, "param_func_type", None)
             if pft is not None:
                 fields.append((p.name, pft))
             else:
                 pref = getattr(p, "type_ref", None)
+                if pref is None and index < len(param_types):
+                    pref = param_types[index]
                 fields.append((p.name, pref if pref is not None else (p.type_name or "any")))
         domain: Any = (
             ast.TupleTypeExpr([])
             if not fields
             else ast.TypeExpr(fields)
         )
-        return ast.FuncType(domain, ast.PrimTypeRef("any"))
+        codomain = getattr(v, "return_type", None) or ast.PrimTypeRef("any")
+        return ast.FuncType(domain, codomain)
 
     if isinstance(v, AxisTaggedValue):
         return infer_type(v.data, type_registry)

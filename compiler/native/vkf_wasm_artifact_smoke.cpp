@@ -214,6 +214,17 @@ std::string stem_of(const std::filesystem::path& source) {
     return stem.empty() ? "stdin" : stem;
 }
 
+std::string artifact_stem_of(const std::filesystem::path& source) {
+    const std::string stem = stem_of(source);
+    constexpr std::size_t max_stem_length = 24;
+    if (stem.size() <= max_stem_length) {
+        return stem;
+    }
+    constexpr std::size_t hash_length = 8;
+    constexpr std::size_t prefix_length = max_stem_length - hash_length - 1;
+    return stem.substr(0, prefix_length) + "-" + stable_hash(stem).substr(0, hash_length);
+}
+
 std::string sanitize_export_suffix(const std::string& name) {
     std::string out;
     out.reserve(name.size());
@@ -1719,9 +1730,10 @@ int main(int argc, char** argv) {
             dependencies.push_back({dependency.first, dependency.second, stable_hash(read_file(dependency.second))});
         }
 
-        const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / stem_of(args.source);
+        const std::string artifact_stem = artifact_stem_of(args.source);
+        const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / artifact_stem;
         const auto manifest_path = build_dir / "wasm-manifest.json";
-        const auto artifact_path = build_dir / (stem_of(args.source) + ".artifact.wasm");
+        const auto artifact_path = build_dir / (artifact_stem + ".artifact.wasm");
         const std::string desired_manifest_hash = stable_hash(
             manifest_key(source_hash, typed_ir_hash, artifact_hash, dependencies, artifact_path)
         );

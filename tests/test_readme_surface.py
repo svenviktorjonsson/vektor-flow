@@ -195,14 +195,14 @@ point: (y:4, x:3)
         assert _emit(src) == "7"
 
 
-class TestDefaultStructOrder:
-    def test_lt_lexicographic(self) -> None:
+class TestDefaultStructRelations:
+    def test_lt_is_keywise(self) -> None:
         src = """
 a : (x:1, y:2)
 b : (x:1, y:3)
 :: (a < b)
 """
-        assert _emit(src) == "true"
+        assert _emit(src) == "(x:false, y:true)"
 
 
 class TestListRangeAndLambda:

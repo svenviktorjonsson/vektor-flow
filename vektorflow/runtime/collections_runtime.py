@@ -214,7 +214,7 @@ def runtime_collection_values(value: Any) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
         return tuple(value)
-    if isinstance(value, (list, tuple, str, frozenset, set)):
+    if isinstance(value, (list, tuple, VFVector, str, frozenset, set)):
         return tuple(value)
     raise TypeError(
         "runtime_collection_values only supports list/queue runtime collections and plain sequences"
@@ -225,7 +225,7 @@ def runtime_collection_expanded_values(value: Any) -> tuple[Any, ...]:
     kind = runtime_collection_kind(value)
     if kind in {"list", "queue"}:
         return runtime_collection_values(value)
-    if isinstance(value, (list, tuple, str, frozenset, set)):
+    if isinstance(value, (list, tuple, VFVector, str, frozenset, set)):
         return runtime_collection_values(value)
     if kind == "multiset":
         return tuple(value.elements())
@@ -468,13 +468,16 @@ def runtime_object_read_attr(value: Any, name: str) -> Any | None:
     length = runtime_object_length(value)
     if name == "length" and length is not None:
         return length
+    if isinstance(value, TypedVector):
+        if name == "shape":
+            return value.shape
+        if name == "ndim":
+            return value.ndim
     if isinstance(value, VFVector):
         if name == "shape":
             return (len(value),)
         if name == "ndim":
             return 1
-    if isinstance(value, TypedVector) and value.vf_type_expr is not None and name == "shape":
-        return (len(value),)
     return runtime_collection_attr(value, name)
 
 

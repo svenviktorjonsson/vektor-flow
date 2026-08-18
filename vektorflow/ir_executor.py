@@ -22,9 +22,17 @@ from .interpreter import (
     _struct_or_self_base,
     _spill_values_for_vector,
     _binop,
+    _default_struct_elementwise_binop,
+    _format_ft_codomain_part,
+    _format_param_list_display,
     _pick_best_overload,
     _pick_overload_for_symbol,
     _stringify,
+    _struct_merge_concat,
+    _structural_compare,
+    _param_is_custom_typed,
+    _validate_custom_unary_overload,
+    _validate_custom_operator_overload,
 )
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
 from .runtime import (
@@ -37,19 +45,24 @@ from .runtime import (
     runtime_collection_assign_path,
     runtime_collection_ctor_call,
     runtime_collection_elementwise_values,
+    runtime_collection_expanded_values,
     runtime_collection_index_set,
+    runtime_collection_index_read,
+    runtime_collection_kind,
     runtime_collection_pipe_result,
     runtime_collection_preserves_pipe_result,
     runtime_collection_read_attr,
 )
 from .runtime.type_values import PrimType, coerce_typed_value, is_type_value, primitive_signature, resolve_return_type
-from .runtime.type_surface import runtime_type_surface_metadata
+from .runtime.type_surface import runtime_type_member_callable, runtime_type_surface_metadata
+from .runtime.struct_value import is_struct_dict
+from .runtime.operator_semantics import mixed_string_binary
 from .runtime.absnorm import abs_or_norm
 from .runtime.type_values import infer_type
 from .stdlib import STDLIB_MODULES, resolve_stdlib
 from .stdlib.physics import normalize_physical_vector_components
 from .stdlib.events import event_match_specificity
-from . import ir
+from . import ast, ir
 
 
 class IRReturnSignal(Exception):
@@ -66,6 +79,9 @@ class IRContinueSignal(Exception):
     pass
 
 
+_NO_PREVIOUS_DOLLAR = object()
+
+
 @dataclass
 class IRFunctionValue:
     name: str
@@ -75,6 +91,29 @@ class IRFunctionValue:
     param_types: list[Any]
     return_type: Any | None
     param_specs: list[Any] = field(default_factory=list)
+    ip: Any = field(default=None, repr=False, compare=False)
+
+    def __call__(self, *args: Any) -> Any:
+        """Call an IR-backed language function through its owning runtime."""
+        if self.ip is None:
+            raise TypeError("IR function has no interpreter reference")
+        if isinstance(self.ip, IRExecutor):
+            return self.ip._call(self, list(args))
+        return self.ip._call(self, list(args), self.ip.globals)
+
+
+def _stringify_ir_value(value: Any, types: dict[str, Any]) -> str:
+    if isinstance(value, IRFunctionValue):
+        params = (
+            _format_param_list_display(value.param_specs)
+            if value.param_specs
+            else ", ".join(value.params)
+        )
+        head = f"{value.name}({params})"
+        if value.return_type is not None:
+            return f"{head} -> {_format_ft_codomain_part(value.return_type)}"
+        return head
+    return _stringify(value, types)
 
 
 @dataclass
@@ -85,6 +124,7 @@ class IROpCallable:
 @dataclass
 class IRExecutor:
     file_path: Path
+    host_interpreter: Any = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.file_path = self.file_path.resolve()
@@ -95,6 +135,8 @@ class IRExecutor:
         self.op_overloads: dict[str, list[IRFunctionValue]] = {}
         self.cast_overloads: dict[str, list[IRFunctionValue]] = {}
         self.module_cache: dict[Any, Any] = {}
+        self._vf_call_depth = 0
+        self._vf_call_depth_limit = 128
         self._merge_stdlibs()
         self.builtin["i"] = 1j
         self.builtin["j"] = 1j
@@ -119,6 +161,71 @@ class IRExecutor:
             return self.builtin[name]
         raise EvalError(f"undefined name: {name!r}")
 
+    def _resolve_runtime_type_expr(self, type_expr: Any, env: dict[str, Any]) -> Any:
+        if isinstance(type_expr, ast.TypeOf):
+            return self.eval_expr(ir.TypeOfExpr(ir.lower_expr(type_expr.value)), env)
+        if isinstance(type_expr, ast.NamedTypeSpec):
+            return ast.NamedTypeSpec(
+                type_expr.name,
+                self._resolve_runtime_type_expr(type_expr.type_expr, env),
+            )
+        if isinstance(type_expr, ast.TypeUnionExpr):
+            return ast.TypeUnionExpr(
+                [self._resolve_runtime_type_expr(member, env) for member in type_expr.members]
+            )
+        if isinstance(type_expr, ast.TypeIntersectionExpr):
+            return ast.TypeIntersectionExpr(
+                [self._resolve_runtime_type_expr(member, env) for member in type_expr.members]
+            )
+        if isinstance(type_expr, ast.TypePowerExpr):
+            return ast.TypePowerExpr(
+                self._resolve_runtime_type_expr(type_expr.base, env),
+                self._resolve_runtime_type_expr(type_expr.exponent, env),
+            )
+        if isinstance(type_expr, ast.TypeDomainBinOp):
+            return ast.TypeDomainBinOp(
+                type_expr.op,
+                self._resolve_runtime_type_expr(type_expr.left, env),
+                self._resolve_runtime_type_expr(type_expr.right, env),
+            )
+        if isinstance(type_expr, ast.FixedVectorType):
+            return ast.FixedVectorType(
+                self._resolve_runtime_type_expr(type_expr.element_type, env),
+                type_expr.size,
+            )
+        if isinstance(type_expr, ast.MultisetType):
+            return ast.MultisetType(
+                self._resolve_runtime_type_expr(type_expr.element_type, env)
+            )
+        if isinstance(type_expr, ast.TypeExpr):
+            return ast.TypeExpr(
+                [
+                    (name, self._resolve_runtime_type_expr(inner, env))
+                    for name, inner in type_expr.fields
+                ]
+            )
+        if isinstance(type_expr, ast.TupleTypeExpr):
+            return ast.TupleTypeExpr(
+                [self._resolve_runtime_type_expr(inner, env) for inner in type_expr.elements]
+            )
+        if isinstance(type_expr, ast.MapValueType):
+            return ast.MapValueType(
+                [
+                    (name, self._resolve_runtime_type_expr(inner, env))
+                    for name, inner in type_expr.fields
+                ]
+            )
+        if isinstance(type_expr, ast.LinkedListValueType):
+            return ast.LinkedListValueType(
+                [self._resolve_runtime_type_expr(inner, env) for inner in type_expr.elements]
+            )
+        if isinstance(type_expr, ast.FuncType):
+            return ast.FuncType(
+                self._resolve_runtime_type_expr(type_expr.domain, env),
+                self._resolve_runtime_type_expr(type_expr.codomain, env),
+            )
+        return type_expr
+
     def run_module(self, module: ir.Module) -> Any:
         env = self.globals
         try:
@@ -132,6 +239,10 @@ class IRExecutor:
                 self.exec_stmt(stmt, env)
         except IRReturnSignal as r:
             return r.value
+        except IRContinueSignal as exc:
+            raise EvalError("continue is not valid here (use `?>` / `??>` loops)") from exc
+        except IRBreakSignal as exc:
+            raise EvalError("@| break outside >> pipe") from exc
         return None
 
     def exec_block(self, block: ir.Block, env: dict[str, Any]) -> None:
@@ -144,22 +255,45 @@ class IRExecutor:
             result = self.exec_stmt(stmt, env)
         return result
 
+    def _eval_store_value(self, name: str, value: Any, env: dict[str, Any]) -> Any:
+        """Preserve shared vector storage for ``name op: value`` updates."""
+        current = env.get(name)
+        if (
+            current is not None
+            and isinstance(value, ir.BinaryExpr)
+            and isinstance(value.left, (ir.LoadName, ir.LoadSlot))
+            and value.left.name == name
+        ):
+            updater = getattr(current, "__vf_update__", None)
+            if callable(updater):
+                updater(value.op, self.eval_expr(value.right, env))
+                return current
+            if isinstance(current, VFVector):
+                updated = self.eval_expr(value, env)
+                if isinstance(updated, VFVector) and len(updated) == len(current):
+                    current[:] = updated
+                    return current
+                return updated
+        return self.eval_expr(value, env)
+
     def exec_stmt(self, node: Any, env: dict[str, Any]) -> Any:
         if isinstance(node, ir.TypeDef):
-            self.types[node.name] = node.type_expr
+            self.types[node.name] = self._resolve_runtime_type_expr(node.type_expr, env)
             return None
         if isinstance(node, ir.StoreName):
-            val = self.eval_expr(node.value, env)
+            val = self._eval_store_value(node.name, node.value, env)
             if node.declared_type is not None:
-                val, _ = coerce_typed_value(val, node.declared_type, self.types)
+                declared_type = self._resolve_runtime_type_expr(node.declared_type, env)
+                val, _ = coerce_typed_value(val, declared_type, self.types)
             if node.declared_type is None and is_type_value(val):
                 self.types[node.name] = val
             env[node.name] = val
             return val
         if isinstance(node, ir.StoreSlot):
-            val = self.eval_expr(node.value, env)
+            val = self._eval_store_value(node.name, node.value, env)
             if node.declared_type is not None:
-                val, _ = coerce_typed_value(val, node.declared_type, self.types)
+                declared_type = self._resolve_runtime_type_expr(node.declared_type, env)
+                val, _ = coerce_typed_value(val, declared_type, self.types)
             if node.declared_type is None and is_type_value(val):
                 self.types[node.name] = val
             env[node.name] = val
@@ -174,10 +308,34 @@ class IRExecutor:
                 node.return_type,
                 list(node.param_specs),
             )
+            fn.ip = self.host_interpreter or self
             fn.closure[node.name] = fn
-            if node.name in ("num", "str", "bit", "chr") and len(node.param_specs) == 1:
+            if node.name == "::" and len(node.param_specs) == 1:
+                _validate_custom_unary_overload(node.param_specs, "::(value: T)")
+                self.op_overloads.setdefault(node.name, []).append(fn)
+                env[node.name] = IROpCallable(node.name)
+            elif node.name in ("num", "str", "bit", "chr") and len(node.param_specs) == 1:
+                _validate_custom_unary_overload(
+                    node.param_specs, f"{node.name}(value: T)"
+                )
                 self.cast_overloads.setdefault(node.name, []).append(fn)
             elif node.name in OPERATOR_SYMBOLS:
+                if node.name == ".":
+                    if len(node.param_specs) != 2:
+                        raise EvalError("operator '.': expected exactly two parameters")
+                    if not _param_is_custom_typed(node.param_specs[0]):
+                        raise EvalError(
+                            "operator '.': first parameter must be a custom or constructed type"
+                        )
+                    if (
+                        node.param_specs[1].param_func_type is None
+                        and node.param_specs[1].type_name is None
+                    ):
+                        raise EvalError("operator '.': second parameter must be typed")
+                else:
+                    _validate_custom_operator_overload(
+                        node.param_specs, f"operator {node.name!r}"
+                    )
                 self.op_overloads.setdefault(node.name, []).append(fn)
                 env[node.name] = IROpCallable(node.name)
             else:
@@ -187,12 +345,15 @@ class IRExecutor:
             return self.eval_expr(node.expr, env)
         if isinstance(node, ir.PrintStmt):
             value = self.eval_expr(node.value, env)
-            text = _stringify(value, self.types)
+            emit_fn = self._pick_best_ir_overload(self.op_overloads.get("::") or [], [value])
+            if emit_fn is not None:
+                return self._call(emit_fn, [value])
+            text = _stringify_ir_value(value, self.types)
             print(text, end="" if text.endswith("\n") else "\n", flush=True)
             return None
         if isinstance(node, ir.LabelPrintStmt):
             value = self.eval_expr(node.value, env)
-            print(f"{node.expr_text}: {_stringify(value, self.types)}")
+            print(f"{node.expr_text}: {_stringify_ir_value(value, self.types)}")
             return None
         if isinstance(node, ir.ModuleImportStmt):
             mod = self._eval_dot_module_segments(node.path_segments)
@@ -227,36 +388,42 @@ class IRExecutor:
                     break
             return None
         if isinstance(node, ir.MatchStmt):
-            while True:
-                disc = self.eval_expr(node.discriminant, env)
-                chosen: ir.MatchArm | None = None
-                best_spec = -1
-                default_arm: ir.MatchArm | None = None
-                for arm in node.arms:
-                    if arm.condition is None:
-                        if default_arm is None:
-                            default_arm = arm
+            previous_dollar = env.get("$", _NO_PREVIOUS_DOLLAR)
+            try:
+                while True:
+                    disc = self.eval_expr(node.discriminant, env)
+                    env["$"] = disc
+                    chosen: ir.MatchArm | None = None
+                    best_spec = -1
+                    default_arm: ir.MatchArm | None = None
+                    for arm in node.arms:
+                        if arm.condition is None:
+                            if default_arm is None:
+                                default_arm = arm
+                            continue
+                        spec = self._match_specificity(disc, self.eval_expr(arm.condition, env))
+                        if spec is None:
+                            continue
+                        if spec > best_spec:
+                            best_spec = spec
+                            chosen = arm
+                    chosen = chosen if chosen is not None else default_arm
+                    if chosen is None:
+                        return None
+                    if not node.loop:
+                        self.eval_block_result(chosen.body, env)
+                        return None
+                    try:
+                        self.eval_block_result(chosen.body, env)
+                    except IRContinueSignal:
                         continue
-                    spec = self._match_specificity(disc, self.eval_expr(arm.condition, env))
-                    if spec is None:
-                        continue
-                    if spec > best_spec:
-                        best_spec = spec
-                        chosen = arm
-                chosen = chosen if chosen is not None else default_arm
-                if chosen is None:
-                    return None
-                if not node.loop:
-                    self.eval_block_result(chosen.body, env)
-                    return None
-                try:
-                    self.eval_block_result(chosen.body, env)
-                except IRContinueSignal:
-                    if node.loop:
-                        continue
-                except IRBreakSignal:
-                    return None
-            return None
+                    except IRBreakSignal:
+                        return None
+            finally:
+                if previous_dollar is _NO_PREVIOUS_DOLLAR:
+                    env.pop("$", None)
+                else:
+                    env["$"] = previous_dollar
         if isinstance(node, ir.ContinueStmt):
             raise IRContinueSignal()
         if isinstance(node, ir.BreakStmt):
@@ -309,9 +476,13 @@ class IRExecutor:
                         return self._call(cast_fn, args)
                 return fn(*args)
             if isinstance(fn, IRFunctionValue):
-                if kwargs or spreads:
-                    raise EvalError("this IR call does not accept keyword or spread arguments")
-                return self._call(fn, args)
+                return self._call(
+                    fn,
+                    args,
+                    kwargs=kwargs,
+                    spreads=spreads,
+                    argument_order=node.argument_order,
+                )
             if (
                 isinstance(node.func, ir.AttrExpr)
                 and not callable(fn)
@@ -344,9 +515,9 @@ class IRExecutor:
                 if element_index in node.literal_zero_elements:
                     literal_zero_indices.add(len(out))
                 out.append(self.eval_expr(element, env))
-            return normalize_physical_vector_components(
+            return VFVector(normalize_physical_vector_components(
                 out, literal_zero_indices=literal_zero_indices
-            )
+            ))
         if isinstance(node, ir.TupleExpr):
             out: list[Any] = []
             for element in node.elements:
@@ -395,6 +566,32 @@ class IRExecutor:
             return axis_tagged_wrap(value, key)
         if isinstance(node, ir.AttrExpr):
             base = self.eval_expr(node.value, env)
+            if node.name == "idx" and isinstance(base, AxisTaggedValue):
+                return base.idx
+            if isinstance(base, IRFunctionValue):
+                param_names = {spec.name for spec in base.param_specs}
+                if node.name in param_names:
+                    raise EvalError(
+                        f"cannot read parameter {node.name!r} on function; "
+                        "it is only bound when the function is called"
+                    )
+                source = next(
+                    (
+                        stmt.value
+                        for stmt in base.body.statements
+                        if isinstance(stmt, (ir.StoreName, ir.StoreSlot))
+                        and stmt.name == node.name
+                    ),
+                    None,
+                )
+                if source is None:
+                    raise EvalError(f"function has no body binding {node.name!r}")
+                if _ir_expr_refs_names(source, param_names):
+                    return _ir_expr_to_compact_string(source)
+                return self.eval_expr(source, dict(base.closure))
+            type_attr = runtime_type_member_callable(base, node.name)
+            if type_attr is not None:
+                return type_attr
             collection_attr = runtime_collection_read_attr(base, node.name)
             if collection_attr is not None:
                 return collection_attr
@@ -412,26 +609,17 @@ class IRExecutor:
                 if overload is not None:
                     return overload
                 raise EvalError(f"missing field {node.name!r}")
+            if getattr(type(base), "__vf_py_attrs__", False):
+                if not hasattr(base, node.name):
+                    raise EvalError(f"missing attribute {node.name!r}")
+                return getattr(base, node.name)
             raise EvalError("attribute access on non-struct")
         if isinstance(node, ir.IndexExpr):
             base = self.eval_expr(node.value, env)
-            for idx in node.indices:
-                key = self.eval_expr(idx, env)
-                if isinstance(base, (list, tuple, str)) or (
-                    not isinstance(base, dict) and hasattr(base, "__getitem__") and hasattr(base, "__len__")
-                ):
-                    base = base[_ir_normalize_index(key)]
-                    continue
-                if isinstance(base, dict):
-                    if key in base:
-                        base = base[key]
-                        continue
-                    overload = self._dispatch_operator_overload(".", [base, key])
-                    if overload is not None:
-                        base = overload
-                        continue
-                raise EvalError("index access on unsupported IR value")
-            return base
+            keys = [self.eval_expr(idx, env) for idx in node.indices]
+            if len(keys) > 1:
+                return tuple(self._index_value(base, key) for key in keys)
+            return base if not keys else self._index_value(base, keys[0])
         if isinstance(node, ir.RangeExpr):
             if node.end is None:
                 if node.start is None:
@@ -473,7 +661,8 @@ class IRExecutor:
             return _spill_expr_record(self.eval_expr(node.value, env))
         if isinstance(node, ir.CoerceExpr):
             value = self.eval_expr(node.expr, env)
-            value, _ = coerce_typed_value(value, node.target_type, self.types)
+            target_type = self._resolve_runtime_type_expr(node.target_type, env)
+            value, _ = coerce_typed_value(value, target_type, self.types)
             return value
         if isinstance(node, ir.BindExpr):
             value = self.eval_expr(node.value, env)
@@ -499,8 +688,55 @@ class IRExecutor:
                 overload = self._dispatch_operator_overload(sym, [left, right])
                 if overload is not None:
                     return overload
+            mixed_string, mixed_value = mixed_string_binary(
+                node.op, left, right, lambda value: _stringify(value, self.types)
+            )
+            if mixed_string:
+                return mixed_value
+            if is_struct_dict(left) and is_struct_dict(right):
+                if node.op == "AMPERSAND":
+                    return _struct_merge_concat(left, right)
+                if node.op in ("LT", "LE", "GT", "GE", "EQ", "STRUCT_NEQ"):
+                    return _structural_compare(node.op, left, right)
+                if node.op in (
+                    "PLUS",
+                    "MINUS",
+                    "STAR",
+                    "SLASH",
+                    "FLOORDIV",
+                    "PERCENT",
+                    "CARET",
+                ):
+                    defaulted = _default_struct_elementwise_binop(
+                        node.op, left, right, self.types
+                    )
+                    if defaulted is not None:
+                        return defaulted
+                    raise EvalError(
+                        "struct arithmetic requires matching field names and types "
+                        "or an explicit operator overload"
+                    )
             return _binop(node.op, left, right)
         raise EvalError(f"unknown IR expr {type(node).__name__}")
+
+    def _index_value(self, base: Any, key: Any) -> Any:
+        if isinstance(base, AxisTaggedValue):
+            return self._index_value(base.data, key)
+        if runtime_collection_kind(base) == "map":
+            handled, value = runtime_collection_index_read(base, key)
+            if handled:
+                return value
+        if isinstance(base, (list, tuple, str)) or (
+            not isinstance(base, dict) and hasattr(base, "__getitem__") and hasattr(base, "__len__")
+        ):
+            return base[_ir_normalize_index(key)]
+        if isinstance(base, dict):
+            if key in base:
+                return base[key]
+            overload = self._dispatch_operator_overload(".", [base, key])
+            if overload is not None:
+                return overload
+        raise EvalError("index access on unsupported IR value")
 
     def _assign_bind_expr(self, target: Any, value: Any, env: dict[str, Any]) -> None:
         if isinstance(target, (ir.LoadName, ir.LoadSlot)):
@@ -563,37 +799,138 @@ class IRExecutor:
             return
         raise EvalError(f"unsupported IR bind target {type(target).__name__}")
 
-    def _call(self, fn: Any, args: list[Any]) -> Any:
+    def _call(
+        self,
+        fn: Any,
+        args: list[Any],
+        *,
+        kwargs: list[tuple[str, Any]] | None = None,
+        spreads: list[Any] | None = None,
+        argument_order: list[tuple[str, int]] | None = None,
+    ) -> Any:
+        if not isinstance(fn, IRFunctionValue):
+            return self._call_impl(
+                fn,
+                args,
+                kwargs=kwargs,
+                spreads=spreads,
+                argument_order=argument_order,
+            )
+        self._vf_call_depth += 1
+        try:
+            if self._vf_call_depth > self._vf_call_depth_limit:
+                raise RecursionError(
+                    f"infinite recursion or recursion depth exceeded in {fn.name!r}"
+                )
+            return self._call_impl(
+                fn,
+                args,
+                kwargs=kwargs,
+                spreads=spreads,
+                argument_order=argument_order,
+            )
+        except RecursionError as err:
+            if "infinite recursion or recursion depth exceeded" in str(err):
+                raise
+            raise RecursionError(
+                f"infinite recursion or recursion depth exceeded in {fn.name!r}"
+            ) from None
+        finally:
+            self._vf_call_depth -= 1
+
+    def _call_impl(
+        self,
+        fn: Any,
+        args: list[Any],
+        *,
+        kwargs: list[tuple[str, Any]] | None = None,
+        spreads: list[Any] | None = None,
+        argument_order: list[tuple[str, int]] | None = None,
+    ) -> Any:
         if isinstance(fn, IRFunctionValue):
             loc = dict(fn.closure)
             size_bindings: dict[str, int] = {}
-            fixed_param_count = len([spec for spec in fn.param_specs if not getattr(spec, "variadic_positional", False) and not getattr(spec, "variadic_named", False)])
-            arg_index = 0
-            for idx, spec in enumerate(fn.param_specs):
+            positional: list[Any] = []
+            named: dict[str, Any] = {}
+            named_source: dict[str, str] = {}
+            named_started = False
+            kw_values = kwargs or []
+            spread_values = spreads or []
+            order = argument_order or (
+                [("positional", idx) for idx in range(len(args))]
+                + [("named", idx) for idx in range(len(kw_values))]
+                + [("spread", idx) for idx in range(len(spread_values))]
+            )
+            for kind, index in order:
+                if kind == "positional":
+                    if named_started:
+                        raise EvalError("positional arguments cannot appear after named arguments")
+                    positional.append(args[index])
+                    continue
+                if kind == "named":
+                    named_started = True
+                    name, value = kw_values[index]
+                    if named_source.get(name) == "direct":
+                        raise EvalError(f"multiple values for argument {name!r}")
+                    named[name] = value
+                    named_source[name] = "direct"
+                    continue
+                spread = spread_values[index]
+                if isinstance(spread, dict) or runtime_collection_kind(spread) == "map":
+                    named_started = True
+                    for key, value in spread.items():
+                        if str(key).startswith("__vf_"):
+                            continue
+                        if not isinstance(key, str):
+                            raise EvalError("map argument spill requires string keys")
+                        named[key] = value
+                        named_source[key] = "spread"
+                    continue
+                if named_started:
+                    raise EvalError("positional arguments cannot appear after named arguments")
+                try:
+                    positional.extend(runtime_collection_expanded_values(spread))
+                except TypeError as exc:
+                    raise EvalError(
+                        "argument spill requires a vector/list/tuple or record/map value"
+                    ) from exc
+
+            fixed_specs = [
+                (idx, spec)
+                for idx, spec in enumerate(fn.param_specs)
+                if not getattr(spec, "variadic_positional", False)
+                and not getattr(spec, "variadic_named", False)
+            ]
+            var_pos = next((spec for spec in fn.param_specs if getattr(spec, "variadic_positional", False)), None)
+            var_named = next((spec for spec in fn.param_specs if getattr(spec, "variadic_named", False)), None)
+            if len(positional) > len(fixed_specs) and var_pos is None:
+                raise EvalError("too many positional arguments")
+            fixed_names = {spec.name for _, spec in fixed_specs}
+            unknown_named = {key: value for key, value in named.items() if key not in fixed_names}
+            if unknown_named and var_named is None:
+                raise EvalError(f"unknown argument {next(iter(unknown_named))!r}")
+
+            used_named: set[str] = set()
+            for fixed_index, (idx, spec) in enumerate(fixed_specs):
                 declared_type = fn.param_types[idx] if idx < len(fn.param_types) else None
-                if getattr(spec, "variadic_positional", False):
-                    rest = args[arg_index:]
-                    if declared_type is not None:
-                        coerced_rest = []
-                        for raw in rest:
-                            coerced, size_bindings = coerce_typed_value(raw, declared_type, self.types, size_bindings)
-                            coerced_rest.append(coerced)
-                        rest = coerced_rest
-                    loc[spec.name] = tuple(rest)
-                    arg_index = len(args)
-                    continue
-                if getattr(spec, "variadic_named", False):
-                    loc[spec.name] = make_vmap({})
-                    continue
-                if arg_index >= len(args):
+                if spec.name in named:
+                    arg = named[spec.name]
+                    used_named.add(spec.name)
+                elif fixed_index < len(positional):
+                    arg = positional[fixed_index]
+                elif getattr(spec, "default_expr", None) is not None:
+                    arg = self.eval_expr(ir.lower_expr(spec.default_expr), loc)
+                else:
                     raise EvalError(f"missing argument {spec.name!r}")
-                arg = args[arg_index]
-                arg_index += 1
                 if declared_type is not None:
                     arg, size_bindings = coerce_typed_value(arg, declared_type, self.types, size_bindings)
                 loc[spec.name] = arg
-            if arg_index < len(args) and len(fn.param_specs) == fixed_param_count:
-                raise EvalError("too many positional arguments")
+            if var_pos is not None:
+                loc[var_pos.name] = tuple(positional[len(fixed_specs):])
+            if var_named is not None:
+                loc[var_named.name] = make_vmap(
+                    {key: value for key, value in named.items() if key not in used_named and key not in fixed_names}
+                )
             try:
                 result = self.eval_block_result(fn.body, loc)
             except IRReturnSignal as r:
@@ -797,11 +1134,64 @@ def _ir_normalize_index(idx: Any) -> Any:
     raise EvalError("index must be int or str")
 
 
+def _ir_expr_refs_names(node: Any, names: set[str]) -> bool:
+    if isinstance(node, (ir.LoadName, ir.LoadSlot)):
+        return node.name in names
+    if isinstance(node, ir.UnaryExpr):
+        return _ir_expr_refs_names(node.operand, names)
+    if isinstance(node, ir.BinaryExpr):
+        return _ir_expr_refs_names(node.left, names) or _ir_expr_refs_names(node.right, names)
+    if isinstance(node, ir.CallExpr):
+        return (
+            _ir_expr_refs_names(node.func, names)
+            or any(_ir_expr_refs_names(value, names) for value in node.args)
+            or any(_ir_expr_refs_names(value, names) for _, value in node.kwargs)
+            or any(_ir_expr_refs_names(value, names) for value in node.spreads)
+        )
+    if isinstance(node, ir.AttrExpr):
+        return _ir_expr_refs_names(node.value, names)
+    return False
+
+
+def _ir_expr_to_compact_string(node: Any) -> str:
+    if isinstance(node, ir.Const):
+        return _stringify(node.value, {})
+    if isinstance(node, (ir.LoadName, ir.LoadSlot)):
+        return node.name
+    if isinstance(node, ir.UnaryExpr):
+        symbol = UNARY_KIND_TO_SYM.get(node.op, node.op)
+        return f"{symbol}{_ir_expr_to_compact_string(node.operand)}"
+    if isinstance(node, ir.BinaryExpr):
+        if (
+            node.op == "STAR"
+            and isinstance(node.left, ir.Const)
+            and isinstance(node.left.value, (int, float))
+            and not isinstance(node.left.value, bool)
+            and isinstance(node.right, (ir.LoadName, ir.LoadSlot))
+        ):
+            return (
+                f"{_ir_expr_to_compact_string(node.left)}"
+                f"{_ir_expr_to_compact_string(node.right)}"
+            )
+        symbol = BINOP_KIND_TO_SYM.get(node.op, node.op)
+        return (
+            f"{_ir_expr_to_compact_string(node.left)}"
+            f"{symbol}"
+            f"{_ir_expr_to_compact_string(node.right)}"
+        )
+    if isinstance(node, ir.AttrExpr):
+        return f"{_ir_expr_to_compact_string(node.value)}.{node.name}"
+    return type(node).__name__
+
+
 def _ir_dotted_set_one(container: Any, idx: Any, value: Any) -> None:
+    if runtime_collection_kind(container) == "map":
+        if runtime_collection_index_set(container, idx, value):
+            return
     key = _ir_normalize_index(idx)
     if runtime_collection_index_set(container, key, value):
         return
-    if isinstance(container, list):
+    if isinstance(container, (list, VFVector)):
         container[key] = value
         return
     if isinstance(container, dict):

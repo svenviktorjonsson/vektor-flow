@@ -270,7 +270,7 @@ def test_ir_parity_file_module_import_example() -> None:
 
     assert ir_ret == ast_ret
     assert "helpers" in ir_ip.globals
-    assert ast_buf.getvalue() == ir_buf.getvalue() == "20"
+    assert ast_buf.getvalue() == ir_buf.getvalue() == "20\n"
 
 
 def test_ir_parity_scope_identity_and_spill_value_constructor_style() -> None:
@@ -1231,7 +1231,7 @@ right: p.("right")
     assert ip.globals["right"] == 4
 
 
-def test_interpreter_ast_fallback_keeps_dot_attr_write_family_working() -> None:
+def test_interpreter_ir_dispatch_handles_dot_attr_write_family() -> None:
     mod = parse_module(
         """
 seed: 2
@@ -1246,11 +1246,11 @@ out: p.x
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == 7
 
 
-def test_interpreter_ast_fallback_keeps_dot_index_write_family_working() -> None:
+def test_interpreter_ir_dispatch_handles_dot_index_write_family() -> None:
     mod = parse_module(
         """
 collections: .collections
@@ -1265,7 +1265,7 @@ out: m.a
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == 7
 
 
@@ -1322,7 +1322,7 @@ expr: f.scale
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == 2.0
     assert ip.globals["expr"] == 2.0
 
@@ -1341,7 +1341,7 @@ out: f.expr
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == "x+1"
 
 
@@ -1358,7 +1358,7 @@ out: v.idx
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == "ij"
 
 
@@ -1376,7 +1376,7 @@ out: v.idx
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == "ij"
 
 
@@ -1394,7 +1394,7 @@ out: m.("a", "b")
     ip = Interpreter(Path(__file__))
     ret = ip.run_module(mod)
     assert ret is None
-    assert ip.last_execution_engine == "ast"
+    assert ip.last_execution_engine == "ir"
     assert ip.globals["out"] == (1, 2)
 
 

@@ -117,7 +117,8 @@ def test_point_impostors_use_analytic_sphere_lighting_path() -> None:
     assert "@location(6)       radius  : f32" in point_varyings
     assert "o.radius = radius;" in shader
     assert "let sphereWorldPos = i.center + (normal * i.radius);" in point_fs
-    assert "return shadeLitBase(i.color.rgb, i.color.a * mask, sphereWorldPos, normal, false);" in point_fs
+    assert "out.color = shadeLitBase(i.color.rgb, instAlpha * mask, sphereWorldPos, normal, false);" in point_fs
+    assert "out.depth = clamp(sphereClip.z / max(sphereClip.w, 1.0e-6), 0.0, 1.0);" in point_fs
     assert "shadeImpostorBase" not in shader
 
 
@@ -147,13 +148,13 @@ def test_mirror_solkatt_uses_projected_light_path_not_shader_side_branch() -> No
     shader = WGPU_JS.read_text(encoding="utf-8")
     assert 'motion: "mirror_solkatt"' in shader
     assert 'if (resolvedItem && resolvedItem.motion === "mirror_solkatt")' in shader
-    assert "let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), sc.receive_shadow != 0u);" in shader
-    assert "let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), sc.receive_shadow != 0u);" in shader
+    assert "let stableVis2 = select(1.0, shadowMapVisibility2(worldPos, N), (sc.receive_shadow & 1u) != 0u);" in shader
+    assert "let contactVis2 = select(1.0, planarContactVisibility2(worldPos, sc.light2_pos.xyz), (sc.receive_shadow & 1u) != 0u);" in shader
     assert "let vis2 = readableShadowVisibility(min(stableVis2, contactVis2));" in shader
     assert "let proj2 = projectedApertureFactor2(worldPos, sc.light2_pos.xyz, sc.light2_spot_params.w);" in shader
     assert "let litScale2 = vis2 * atten2 * spot2 * proj2;" in shader
-    assert "let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), sc.receive_shadow != 0u);" in shader
-    assert "let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), sc.receive_shadow != 0u);" in shader
+    assert "let stableVis3 = select(1.0, shadowMapVisibility3(worldPos, N), (sc.receive_shadow & 1u) != 0u);" in shader
+    assert "let contactVis3 = select(1.0, planarContactVisibility3(worldPos, sc.light3_pos.xyz), (sc.receive_shadow & 1u) != 0u);" in shader
     assert "let vis3 = readableShadowVisibility(min(stableVis3, contactVis3));" in shader
     assert "let proj3 = projectedApertureFactor3(worldPos, sc.light3_pos.xyz, sc.light3_spot_params.w);" in shader
     assert "let litScale3 = vis3 * atten3 * spot3 * proj3;" in shader
@@ -195,7 +196,7 @@ def test_transparent_faces_opt_out_of_shadow_receiving_unless_explicit() -> None
     uniform_fn = shader[shader.index("function buildUniform"):shader.index("function buildShadowUniform")]
     assert "var receiveShadow = !(meshLike && meshLike.receives_shadow === false);" in uniform_fn
     assert "meshLike.transparent === true && meshLike.receives_shadow !== true" in uniform_fn
-    assert "u32[71] = receiveShadow ? 1 : 0;" in uniform_fn
+    assert "u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);" in uniform_fn
 
 
 def test_shadow_passes_use_per_light_uniform_buffers() -> None:
@@ -428,12 +429,13 @@ def test_light_flares_are_depth_tested_against_scene_depth() -> None:
     flare_shader = shader[shader.index("var FLARE_SHADER = `"):shader.index("function segmentIntersectsAabb")]
     assert "v.axis.z" in flare_shader
     assert "let haloR = max(0.0, r - sourceRadiusPx);" in flare_shader
-    assert "let rays = outsideSource * (ray0 + ray1 + ray2 + ray3);" in flare_shader
-    assert "let glow = outsideSource * 0.26 * gaussian(haloR, sigmaGlow);" in flare_shader
-    assert "let discA = sourceDisc;" in flare_shader
-    assert "let whiteA = alpha * (core + glow + (0.72 * rays));" in flare_shader
-    assert "let tint = i.color.rgb * (1.20 * discA + tintA);" in flare_shader
-    assert "return vec4<f32>(white + tint, max(discA, max(whiteA, tintA)));" in flare_shader
+    assert "let radialFade = 1.0 - smoothstep(sizePx * 0.78, sizePx, r);" in flare_shader
+    assert "let rays = outsideSource * radialFade * (ray0 + ray1 + ray2 + ray3);" in flare_shader
+    assert "let glow = outsideSource * radialFade * 0.26 * gaussian(haloR, sigmaGlow);" in flare_shader
+    assert "let sourceHaloA = alpha * 0.72 * sourceHalo;" in flare_shader
+    assert "let whiteA = alpha * (glow + (0.72 * rays));" in flare_shader
+    assert "let tint = i.color.rgb * tintA;" in flare_shader
+    assert "return vec4<f32>(sourceTint + white + tint, max(sourceHaloA, max(whiteA, tintA)));" in flare_shader
     project_fn = shader[shader.index("function projectWorldToNdc"):shader.index("// Uniform buffer: scene + shadows")]
     assert "var cz =" in project_fn
     assert "return [cx / cw, cy / cw, cz / cw];" in project_fn
@@ -758,7 +760,7 @@ def test_grass_texture_kind_uses_procedural_grass_shader() -> None:
 
 def test_unlit_material_flag_uses_receive_shadow_flags_without_changing_uniform_layout() -> None:
     shader = WGPU_JS.read_text(encoding="utf-8")
-    assert "var unlitMaterial = meshLike && meshLike.receives_lighting === false;" in shader
+    assert "var unlitMaterial = meshLike && (meshLike.receives_lighting === false || meshLike.no_lighting === true);" in shader
     assert "u32[71] = (receiveShadow ? 1 : 0) | (unlitMaterial ? 2 : 0);" in shader
     assert "if ((sc.receive_shadow & 2u) != 0u)" in shader
 
@@ -1693,12 +1695,13 @@ def test_native_linked_camera_uses_rendered_mirror_payload() -> None:
     assert "part: mirrorPart" in linked_fn
 
 
-def test_native_scene_does_not_precompute_mirror_light_planes() -> None:
+def test_native_scene_leaves_mirror_light_projection_to_renderer() -> None:
     source = NATIVE_SCENE_JS.read_text(encoding="utf-8")
     assert "function quadApertureFrame(mesh)" not in source
     assert "function resolveLinkedMirrorLight" not in source
     assert "function resolveProjectedLightSpec" not in source
-    assert "projected_aperture" not in source
+    assert "projected_aperture:" not in source
+    assert 'entityProp(light, "projected_aperture", null)' in source
 
 
 def test_mirror_light_paths_fail_loudly_instead_of_falling_back() -> None:
@@ -3149,9 +3152,12 @@ def test_native_timed_scene_marks_mirror_sources_dirty_each_frame() -> None:
     assert "return chessActive || sceneHasNativeWorldAnimations();" in runtime
     assert "var dirtyVersion = currentSceneWorldDirtyVersion(seconds);" in runtime
     assert "var nativeWorldAnimationPresence = null;" in runtime
-    assert "if (heldCameraKeyActive && useVisibleFrame && !worldAnimationActive && visibleSpec) {" in runtime
+    assert "function canUseCameraLightFastPath(" in runtime
+    assert "if (heldCameraKeyActive && useVisibleFrame && visibleSpec && canUseCameraLightFastPath(" in runtime
+    assert "presentVisibleCameraFrame(renderCamera" in runtime
     assert "pushVisibleRender(rendered, { defer_update: true });" in runtime
-    visible_full_path = runtime.index("pushVisibleRender(rendered, { defer_update: true });")
+    visible_full_path = runtime.index("function presentVisibleFullFrame(")
+    visible_full_path = runtime.index("pushVisibleRender(rendered, { defer_update: true });", visible_full_path)
     dependent_trigger = runtime.index("triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });", visible_full_path)
     visible_present = runtime.index("global.VfDisplay.requestDynamicGeomFrameUpdate(watchedFrameId, { immediate: true });", dependent_trigger)
     assert visible_full_path < dependent_trigger < visible_present

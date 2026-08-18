@@ -30,10 +30,10 @@ def _compile_harness(tmp_path: Path) -> Path:
 #include <string>
 
 int main() {
-    const std::string input(
+    const std::string input{
         std::istreambuf_iterator<char>(std::cin),
         std::istreambuf_iterator<char>()
-    );
+    };
     try {
         const auto module = vkf::wasm::parse_typed_module(vf::parse_json(input));
         vf::JsonValue::Array aliases;

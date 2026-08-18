@@ -57,6 +57,7 @@ class CallExpr:
     args: list[IRNode] = field(default_factory=list)
     kwargs: list[tuple[str, IRNode]] = field(default_factory=list)
     spreads: list[IRNode] = field(default_factory=list)
+    argument_order: list[tuple[str, int]] = field(default_factory=list, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +465,14 @@ def lower_stmt(
             resolved_type = _resolve_type_refs(node.value, type_registry)
             type_registry[node.target.name] = resolved_type
             return TypeDef(node.target.name, resolved_type)
+        if (
+            isinstance(node.target, ast.Ident)
+            and node.declared_type is None
+            and isinstance(node.value, ast.Ident)
+            and node.value.name in {"num", "str", "bit"}
+        ):
+            defaults: dict[str, Any] = {"num": 0.0, "str": "", "bit": False}
+            return StoreName(node.target.name, Const(defaults[node.value.name]), None)
         declared_type = None if node.declared_type is None else _resolve_type_refs(node.declared_type, type_registry)
         if (
             isinstance(node.target, ast.Ident)
@@ -650,15 +659,19 @@ def lower_expr(node: Any) -> IRNode:
         args: list[IRNode] = []
         kwargs: list[tuple[str, IRNode]] = []
         spreads: list[IRNode] = []
+        argument_order: list[tuple[str, int]] = []
         for a in node.args:
             if isinstance(a, ast.NamedCallArg):
                 kwargs.append((a.name, lower_expr(a.value)))
+                argument_order.append(("named", len(kwargs) - 1))
                 continue
             if isinstance(a, ast.SpreadArg):
                 spreads.append(lower_expr(a.expr))
+                argument_order.append(("spread", len(spreads) - 1))
                 continue
             args.append(lower_expr(a))
-        return CallExpr(lower_expr(node.func), args, kwargs, spreads)
+            argument_order.append(("positional", len(args) - 1))
+        return CallExpr(lower_expr(node.func), args, kwargs, spreads, argument_order)
     if isinstance(node, ast.ListLit):
         elements: list[IRNode] = []
         literal_zero_elements: set[int] = set()

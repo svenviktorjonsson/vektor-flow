@@ -26,6 +26,8 @@ from .errors import (
 )
 from .runtime.multiset import (
     Multiset,
+    multiset_count_floor_div,
+    multiset_count_mod,
     multiset_countwise_floordiv,
     multiset_difference,
     multiset_scalar_add,
@@ -76,6 +78,7 @@ from .runtime import (
     make_vmap,
 )
 from .runtime.type_surface import runtime_type_member_callable, runtime_type_surface_metadata
+from .runtime.operator_semantics import mixed_string_binary
 from .runtime.axis_broadcast import axis_broadcast_binary
 from .runtime.axis_tagged import AxisTaggedValue
 from .runtime.lazy_range import LazyInfiniteIterator, LazyList
@@ -126,6 +129,7 @@ OPERATOR_SYMBOLS = frozenset(
         "\\/",
         "><",
         "~",
+        "::",
     }
 )
 
@@ -137,6 +141,7 @@ _PRIMITIVE_VALUE_TYPES_FOR_OVERLOAD = frozenset(
 
 DISPLAY_FULL_SEQUENCE_LIMIT = 24
 DISPLAY_EDGE_ITEMS = 3
+_STRUCT_PUBLIC_FIELDS_KEY = "__vf_struct_public_fields__"
 
 
 def _param_is_custom_typed(p: ast.Param) -> bool:
@@ -206,6 +211,16 @@ def _collect_field_sources(body: Any) -> dict[str, Any]:
             if isinstance(st, ast.Bind) and isinstance(st.target, ast.Ident):
                 out[st.target.name] = st.value
     return out
+
+
+def _collect_struct_field_names(body: Any) -> set[str]:
+    """Names explicitly declared by a constructor body."""
+    names = set(_collect_field_sources(body))
+    if isinstance(body, ast.Block):
+        names.update(
+            stmt.name for stmt in body.statements if isinstance(stmt, ast.FuncDef)
+        )
+    return names
 
 
 def _expr_refs_param(expr: Any, param_names: set[str]) -> bool:
@@ -321,6 +336,8 @@ def _spill_value_as_record(value: Any) -> dict[str, Any]:
 
 
 def _spill_expr_record(value: Any) -> dict[str, Any]:
+    if isinstance(value, (ast.TypeExpr, ast.TupleTypeExpr, ast.NamedTypeSpec)):
+        return with_spill_base(None, value, dict(_type_member_fields(value)))
     type_surface = runtime_type_surface_metadata(value)
     if type_surface is not None:
         return with_spill_base(None, value, type_surface)
@@ -328,6 +345,8 @@ def _spill_expr_record(value: Any) -> dict[str, Any]:
 
 
 def _spill_values_for_vector(value: Any) -> tuple[Any, ...]:
+    if isinstance(value, (ast.TypeExpr, ast.TupleTypeExpr, ast.NamedTypeSpec)):
+        return tuple(member_type for _, member_type in _type_member_fields(value))
     type_surface = runtime_type_surface_metadata(value)
     if type_surface is not None:
         return tuple(type_surface.values())
@@ -350,6 +369,8 @@ def _spill_values_for_vector(value: Any) -> tuple[Any, ...]:
 
 
 def _spill_keys_for_multiset(value: Any) -> Any:
+    if isinstance(value, (ast.TypeExpr, ast.TupleTypeExpr, ast.NamedTypeSpec)):
+        return runtime_collection_to_multiset(name for name, _ in _type_member_fields(value))
     type_surface = runtime_type_surface_metadata(value)
     if type_surface is not None:
         return runtime_collection_to_multiset(type_surface.keys())
@@ -358,12 +379,23 @@ def _spill_keys_for_multiset(value: Any) -> Any:
     return runtime_collection_to_multiset(value)
 
 
+def _type_member_fields(value: Any) -> list[tuple[str, Any]]:
+    """Return the declared member surface of a struct-like type value."""
+    if isinstance(value, ast.NamedTypeSpec):
+        value = value.type_expr
+    if isinstance(value, ast.TypeExpr):
+        return list(value.fields)
+    if isinstance(value, ast.TupleTypeExpr):
+        return [(str(index), inner) for index, inner in enumerate(value.elements)]
+    raise EvalError("type member spill requires a struct or tuple type value")
+
+
 def _local_scope_as_record(env: dict[str, Any]) -> dict[str, Any]:
     """Snapshot of current locals; preserves spilled full-object base when present."""
     out = {
         k: v
         for k, v in env.items()
-        if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+        if k not in (VF_TYPE_KEY, VF_SPILL_BASE_KEY, _STRUCT_PUBLIC_FIELDS_KEY)
     }
     if VF_SPILL_BASE_KEY in env:
         return with_spill_base(None, env[VF_SPILL_BASE_KEY], out)
@@ -657,7 +689,7 @@ def _structural_compare(op: str, a: Any, b: Any) -> Any:
         return VFVector(_structural_compare(op, x, b) for x in a)
     if isinstance(b, VFVector) and isinstance(a, (int, float, complex, bool)):
         return VFVector(_structural_compare(op, a, y) for y in b)
-    return _binop(op, a, b)
+    return _try_scalar_relational_derivation(op, a, b)
 
 
 def _type_matches(
@@ -931,15 +963,9 @@ def _format_param_list_display(params: list[ast.Param]) -> str:
         if p.param_func_type is not None:
             head = f"{_format_nested_func_type_for_param(p.param_func_type)} {head}"
         elif p.type_ref is not None:
-            if p.variadic_named or p.variadic_positional:
-                head = f"{head}:{_format_type_ast_for_stringify(p.type_ref)}"
-            else:
-                head = f"{_format_type_ast_for_stringify(p.type_ref)} {head}"
+            head = f"{head}:{_format_type_ast_for_stringify(p.type_ref)}"
         elif p.type_name:
-            if p.variadic_named or p.variadic_positional:
-                head = f"{head}:{p.type_name}"
-            else:
-                head = f"{p.type_name} {head}"
+            head = f"{head}:{p.type_name}"
         if p.default_expr is not None:
             head = f"{head}={_expr_to_compact_string(p.default_expr)}"
         parts.append(head)
@@ -1049,12 +1075,12 @@ def _format_untagged_dict_as_record(
 
 
 def _format_vfunction_display(vf: VFunction) -> str:
-    label = vf.name if vf.name is not None else "$"
+    label = vf.name if vf.name is not None else ""
     pl = _format_param_list_display(vf.params)
     if vf.func_type is not None:
         tail = _format_ft_codomain_part(vf.func_type.codomain)
-        return f"{label}({pl}) -> {tail}"
-    return f"{label}({pl})"
+        return f"{label}({pl}) -> {tail}" if label else f"({pl}) -> {tail}"
+    return f"{label}({pl})" if label else f"({pl})"
 
 
 def _format_vstruct_ctor_display(c: VStructCtor) -> str:
@@ -1121,7 +1147,7 @@ class Interpreter:
         self.globals: dict[str, Any] = {}
         self.types: dict[str, ast.TypeExpr | ast.FuncType] = {}
         self.op_overloads: dict[str, list[VFunction]] = {}
-        self.display_overloads: list[VFunction] = []
+        self.emit_overloads: list[VFunction] = []
         self.cast_overloads: dict[str, list[VFunction]] = {}
         # `@:` may only return to the nearest callable `:` scope.
         self._return_scope_depth: int = 0
@@ -1158,15 +1184,15 @@ class Interpreter:
             from .ir_executor import IRExecutor
 
             lowered = lower_module(module)
-            child = IRExecutor(self.file_path)
-            child.builtin = dict(self.builtin)
-            child.globals = self.globals
-            child.types = self.types
-            result = child.run_module(lowered)
-            self.last_execution_engine = "ir"
-            return True, result
-        except Exception:
+        except (ImportError, NotImplementedError):
             return False, None
+        child = IRExecutor(self.file_path, host_interpreter=self)
+        child.builtin = dict(self.builtin)
+        child.globals = self.globals
+        child.types = self.types
+        result = child.run_module(lowered)
+        self.last_execution_engine = "ir"
+        return True, result
 
     def _merge_stdlibs(self) -> None:
         for name in ("math", "capture", "io", "collections", "stat"):
@@ -1485,6 +1511,10 @@ class Interpreter:
         ):
             return None
         current = env[target.name]
+        updater = getattr(current, "__vf_update__", None)
+        if callable(updater):
+            updater(value.op, self.eval_expr(value.right, env))
+            return current
         if not isinstance(current, VFVector):
             return None
         updated = self.eval_expr(value, env)
@@ -1611,6 +1641,9 @@ class Interpreter:
             fields = type_surface if type_surface is not None else _spill_public_fields(value)
             for key, field_value in fields.items():
                 env[key] = field_value
+            public_fields = env.get(_STRUCT_PUBLIC_FIELDS_KEY)
+            if isinstance(public_fields, set):
+                public_fields.update(fields)
             env[VF_SPILL_BASE_KEY] = _struct_or_self_base(value)
             return value
         if isinstance(node, ast.StdioReadLine):
@@ -1687,10 +1720,6 @@ class Interpreter:
                 )
                 self.types[node.name] = type_expr
                 ctor = VStructCtor(node.name, node.params, dict(env), body, node.docstring, ip=self)
-                if node.name == "display" and len(node.params) == 1:
-                    raise EvalError(
-                        "display overload must be a function with a body, not a struct constructor"
-                    )
                 env[node.name] = ctor
                 return None
             closure = dict(env)
@@ -1705,9 +1734,9 @@ class Interpreter:
             )
             vf.ip = self
             closure[node.name] = vf
-            if node.name == "display" and len(node.params) == 1:
-                _validate_custom_unary_overload(node.params, "display(value: T)")
-                self.display_overloads.append(vf)
+            if node.name == "::" and len(node.params) == 1:
+                _validate_custom_unary_overload(node.params, "::(value: T)")
+                self.emit_overloads.append(vf)
             elif node.name in ("num", "str", "bit", "chr") and len(node.params) == 1:
                 _validate_custom_unary_overload(node.params, f"{node.name}(value: T)")
                 self.cast_overloads.setdefault(node.name, []).append(vf)
@@ -2332,7 +2361,7 @@ class Interpreter:
                             fn.func_type,
                             self.types,
                         )
-                        child = IRExecutor(self.file_path)
+                        child = IRExecutor(self.file_path, host_interpreter=self)
                         child.builtin = dict(self.builtin)
                         child.globals = loc
                         child.types = self.types
@@ -2359,7 +2388,7 @@ class Interpreter:
             from .ir_executor import IRExecutor, IRFunctionValue
 
             if isinstance(fn, IRFunctionValue):
-                child = IRExecutor(self.file_path)
+                child = IRExecutor(self.file_path, host_interpreter=self)
                 child.builtin = dict(self.builtin)
                 child.globals = self.globals
                 child.types = self.types
@@ -2397,6 +2426,7 @@ class Interpreter:
                         raw_args,
                         env,
                         callee_name=fn.name,
+                        base_env=fn.closure,
                     )
                 else:
                     fixed = _fixed_params(fn.params)
@@ -2427,8 +2457,18 @@ class Interpreter:
                         fn.name,
                         {p.name: loc[p.name] for p in fn.params},
                     )
+                loc[_STRUCT_PUBLIC_FIELDS_KEY] = set()
                 result = self._eval_function_body(fn.body, loc)
                 if isinstance(result, dict):
+                    if _is_struct_ctor_body(fn.body, fn.docstring):
+                        field_names = {p.name for p in fn.params}
+                        field_names.update(_collect_struct_field_names(fn.body))
+                        field_names.update(loc[_STRUCT_PUBLIC_FIELDS_KEY])
+                        result = {
+                            key: value
+                            for key, value in result.items()
+                            if key in field_names or key in (VF_TYPE_KEY, VF_SPILL_BASE_KEY)
+                        }
                     if struct_has_spill_base(result):
                         return with_spill_base(
                             fn.name,
@@ -2469,6 +2509,11 @@ class Interpreter:
             self._return_scope_depth -= 1
 
     def _print_value(self, val: Any, env: dict[str, Any]) -> None:
+        if self.emit_overloads:
+            emit_fn = self._pick_unary_overload(self.emit_overloads, val)
+            if emit_fn is not None:
+                self._call(emit_fn, [val], env)
+                return
         s = self._stringify_for_display(val, env)
         print(s, end="" if s.endswith("\n") else "\n", flush=True)
 
@@ -2530,11 +2575,6 @@ class Interpreter:
     def _stringify_for_display(self, val: Any, env: dict[str, Any]) -> str:
         if isinstance(val, PrimitiveSignature):
             return _stringify(val, self.types)
-        if self.display_overloads:
-            best_fn = self._pick_unary_overload(self.display_overloads, val)
-            if best_fn is not None:
-                shown = self._call(best_fn, [val], env)
-                return _stringify(shown, self.types)
         str_variants = self.cast_overloads.get("str") or []
         if str_variants:
             cast_fn = self._pick_unary_overload(str_variants, val)
@@ -2835,6 +2875,7 @@ class Interpreter:
                 "MINUS",
                 "STAR",
                 "SLASH",
+                "FLOORDIV",
                 "PERCENT",
                 "CARET",
             ):
@@ -2851,16 +2892,11 @@ class Interpreter:
             raise EvalError(
                 f"no overload for {sym} on two structs; define {sym}(a, b): …"
             )
-        if node.op == "PLUS":
-            if isinstance(a, str) and not isinstance(b, str):
-                return a + _stringify(b, self.types)
-            if isinstance(b, str) and not isinstance(a, str):
-                return _stringify(a, self.types) + b
-        if node.op == "AMPERSAND":
-            if isinstance(a, str) and not isinstance(b, str):
-                return a + _stringify(b, self.types)
-            if isinstance(b, str) and not isinstance(a, str):
-                return _stringify(a, self.types) + b
+        mixed_string, mixed_value = mixed_string_binary(
+            node.op, a, b, lambda value: _stringify(value, self.types)
+        )
+        if mixed_string:
+            return mixed_value
         return _binop(node.op, a, b)
 
     def _eval_dot_module(self, path: ast.DotModulePath) -> Any:
@@ -2927,7 +2963,7 @@ class Interpreter:
         self.types.update(child.types)
         for k, vs in child.op_overloads.items():
             self.op_overloads.setdefault(k, []).extend(vs)
-        self.display_overloads.extend(child.display_overloads)
+        self.emit_overloads.extend(child.emit_overloads)
         return _exports(child.globals)
 
     def _load_folder(self, folder: Path) -> dict[str, Any]:
@@ -2974,10 +3010,7 @@ def _exports(env: dict[str, Any]) -> dict[str, Any]:
 
 
 def _spill_exports(env: dict[str, Any], short_name: str) -> dict[str, Any]:
-    return {
-        k: v for k, v in _exports(env).items()
-        if k != short_name
-    }
+    return _exports(env)
 
 
 def _builtin_take(n: Any, seq: Any) -> tuple[Any, ...]:
@@ -3745,16 +3778,6 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             return _multiset_division_struct(a, b)
         return a / b
     if op == "FLOORDIV":
-        if isinstance(a, Multiset) and isinstance(b, Multiset):
-            try:
-                result = multiset_countwise_floordiv(a, b)
-            except KeyError as e:
-                raise EvalError(str(e)) from e
-            return wrap_typed_multiset_result(result, combine_typed_multiset_types(a, b))
-        if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
-            return wrap_typed_multiset_result(multiset_scalar_floordiv(a, b), typed_multiset_type_of(a))
-        return a // b
-    if op == "FLOORDIV":
         if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
                 raise EvalError("vector length mismatch for //")
@@ -3763,8 +3786,17 @@ def _binop(op: str, a: Any, b: Any) -> Any:
             return _wrap_vector_result_if_typed(op, (a // x for x in b), a, b)
         if isinstance(a, VFVector) and isinstance(b, (int, float)):
             return _wrap_vector_result_if_typed(op, (x // b for x in a), a, b)
+        if isinstance(a, Multiset) and isinstance(b, Multiset):
+            result = multiset_count_floor_div(a, b)
+            return wrap_typed_multiset_result(result, combine_typed_multiset_types(a, b))
+        if isinstance(a, Multiset) and isinstance(b, int) and not isinstance(b, bool):
+            return wrap_typed_multiset_result(multiset_scalar_floordiv(a, b), typed_multiset_type_of(a))
         return a // b
     if op == "PERCENT":
+        if isinstance(a, Multiset) and isinstance(b, Multiset):
+            return wrap_typed_multiset_result(
+                multiset_count_mod(a, b), combine_typed_multiset_types(a, b)
+            )
         if isinstance(a, VFVector) and isinstance(b, VFVector):
             if len(a) != len(b):
                 raise EvalError("vector length mismatch for %")
@@ -3784,24 +3816,12 @@ def _binop(op: str, a: Any, b: Any) -> Any:
         if isinstance(a, VFVector) and isinstance(b, (int, float)):
             return _wrap_vector_result_if_typed(op, (x**float(b) for x in a), a, b)
         return a**b
-    if op in ("EQ", "NEQ", "STRUCT_NEQ", "LT", "LE", "GT", "GE"):
-        if isinstance(a, tuple) and isinstance(b, tuple):
-            if len(a) != len(b):
-                raise EvalError("tuple length mismatch for relational op")
-            return tuple(_binop(op, x, y) for x, y in zip(a, b))
-        if isinstance(a, (int, float, bool)) and isinstance(b, tuple):
-            return tuple(_binop(op, a, y) for y in b)
-        if isinstance(a, tuple) and isinstance(b, (int, float, bool)):
-            return tuple(_binop(op, x, b) for x in a)
-        if isinstance(a, VFVector) and isinstance(b, VFVector):
-            if len(a) != len(b):
-                raise EvalError("vector length mismatch for relational op")
-            return VFVector(_binop(op, x, y) for x, y in zip(a, b))
-        if isinstance(a, (int, float, bool)) and isinstance(b, VFVector):
-            return VFVector(_binop(op, a, y) for y in b)
-        if isinstance(a, VFVector) and isinstance(b, (int, float, bool)):
-            return VFVector(_binop(op, x, b) for x in a)
-        return _try_scalar_relational_derivation(op, a, b)
+    if op == "EXACT_EQ":
+        return _exact_eq(a, b)
+    if op == "NEQ":
+        return not _exact_eq(a, b)
+    if op in ("EQ", "STRUCT_NEQ", "LT", "LE", "GT", "GE"):
+        return _structural_compare(op, a, b)
     if op == "AND":
         if _is_bool_structure(a) or _is_bool_structure(b):
             return _logical_structure_binop(op, a, b)
@@ -3841,12 +3861,11 @@ def _combine_field_values_for_struct(
         if op == "STAR":
             raise EvalError("operator * is not defined for multiset fields")
         if op == "SLASH":
-            return _multiset_division_struct(av, bv)
+            raise EvalError("operator / is not defined for multiset fields")
         if op == "FLOORDIV":
-            try:
-                return multiset_countwise_floordiv(av, bv)
-            except KeyError as e:
-                raise EvalError(str(e)) from e
+            return multiset_count_floor_div(av, bv)
+        if op == "PERCENT":
+            return multiset_count_mod(av, bv)
         raise EvalError(f"operator {op} is not defined for multiset fields")
     if isinstance(av, dict) and isinstance(bv, dict) and is_struct_dict(av) and is_struct_dict(bv):
         inner = _default_struct_elementwise_binop(op, av, bv, types)

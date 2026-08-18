@@ -32,7 +32,7 @@ center_bonus(piece:Piece) -> num:
     @: 0
 
 pawn_advance_bonus(piece:Piece) -> num:
-    piece.role != PieceRole.pawn? @: 0
+    piece.role ~= PieceRole.pawn? @: 0
     piece.side = Side.white? @: (piece.rank - 2) * 12
     @: (7 - piece.rank) * 12
 
@@ -51,7 +51,7 @@ protected_bonus(board:any, piece:Piece) -> num:
     @: 0
 
 castled_king_bonus(piece:Piece) -> num:
-    piece.role != PieceRole.king? @: 0
+    piece.role ~= PieceRole.king? @: 0
     piece.side = Side.white?
         piece.rank = 1?
             piece.file = 7? @: 55
@@ -148,7 +148,7 @@ scan_ray_reply(state:GameState, best:BotChoice, piece:Piece, df:num, dr:num, per
             done: true
         done = false?
             best: consider_target_reply(state, best, piece, f, r, perspective)
-            state_lib.piece_at(state.board, f, r).side != Side.none?
+            state_lib.piece_at(state.board, f, r).side ~= Side.none?
                 done: true
         done = false?
             f: f + df
@@ -244,7 +244,7 @@ scan_ray_2ply(state:GameState, best:BotChoice, piece:Piece, df:num, dr:num, pers
             done: true
         done = false?
             best: consider_target_2ply(state, best, piece, f, r, perspective)
-            state_lib.piece_at(state.board, f, r).side != Side.none?
+            state_lib.piece_at(state.board, f, r).side ~= Side.none?
                 done: true
         done = false?
             f: f + df

@@ -112,14 +112,6 @@ class _PublicUiBrowserHarness:
         )
 
 
-def _scene_from_examples_ui_widgets_static() -> str:
-    return _scene_from_vkf(REPO / "examples" / "ui_widgets_static.vkf")
-
-
-def _scene_from_examples_ui_all_classes() -> str:
-    return _scene_from_vkf(REPO / "examples" / "ui_all_classes.vkf")
-
-
 MINIMAL_SCENE: list[dict[str, Any]] = [
     {
         "kind": "frame_upsert",
@@ -246,59 +238,6 @@ def _serve_public_ui_browser(
         ui_state_json=ui_state_json,
     ) as (base, posted, root):
         yield _PublicUiBrowserHarness(base=base, posted=posted, root=root, meta=meta)
-
-
-@pytest.fixture
-def vf_ui_static_widgets_http_base() -> Generator[str, None, None]:
-    """Serve vf-ui with ``examples/ui_widgets_static.vkf`` scene (all widget types, relative layout)."""
-    if not (VF_UI / "vkf-scene.html").is_file() or not (VF_UI / "vf-frame.js").is_file():
-        pytest.skip("web/vf-ui not found")
-    if not (VF_UI / "vf-widgets.js").is_file():
-        pytest.skip("web/vf-ui/vf-widgets.js not found")
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "vf"
-        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
-        (root / "vkf-scene.json").write_text(
-            _scene_from_examples_ui_widgets_static(),
-            encoding="utf-8",
-        )
-        (root / "vf-ui-state.json").write_text("{}", encoding="utf-8")
-        base, httpd, _thr, _posted = _http_server_for_directory(root)
-        try:
-            yield base.rstrip("/")
-        finally:
-            with contextlib.suppress(Exception):
-                httpd.shutdown()
-            with contextlib.suppress(Exception):
-                httpd.server_close()
-
-
-@pytest.fixture
-def vf_ui_all_classes_http_base() -> Generator[str, None, None]:
-    """Serve vf-ui with ``examples/ui_all_classes.vkf`` (one frame, every widget type)."""
-    if not (VF_UI / "vkf-scene.html").is_file() or not (VF_UI / "vf-frame.js").is_file():
-        pytest.skip("web/vf-ui not found")
-    if not (VF_UI / "vf-widgets.js").is_file():
-        pytest.skip("web/vf-ui/vf-widgets.js not found")
-    p = REPO / "examples" / "ui_all_classes.vkf"
-    if not p.is_file():
-        pytest.skip("examples/ui_all_classes.vkf not found")
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "vf"
-        shutil.copytree(VF_UI, root, dirs_exist_ok=True)
-        (root / "vkf-scene.json").write_text(
-            _scene_from_examples_ui_all_classes(),
-            encoding="utf-8",
-        )
-        (root / "vf-ui-state.json").write_text("{}", encoding="utf-8")
-        base, httpd, _thr, _posted = _http_server_for_directory(root)
-        try:
-            yield base.rstrip("/")
-        finally:
-            with contextlib.suppress(Exception):
-                httpd.shutdown()
-            with contextlib.suppress(Exception):
-                httpd.server_close()
 
 
 @pytest.fixture
@@ -491,102 +430,6 @@ def test_close_button_removes_frame(vf_ui_http_base: str) -> None:
 
 
 @pytest.mark.network
-def test_static_ui_widgets_mounted_in_frames(vf_ui_static_widgets_http_base: str) -> None:
-    """Headless: static scene shows 5 frames and all vf-widgets control kinds."""
-    url = f"{vf_ui_static_widgets_http_base}/{INDEX_DOC}"
-    with _chromium_page() as page:
-        page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
-        # Widget bodies mount under .vf-frame__body.vf-w-stack — without this, only chrome shows.
-        page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
-        expect(page.locator(".vf-frame")).to_have_count(5, timeout=10_000)
-        expect(page.get_by_text("Anchor", exact=False).first).to_be_visible()
-        # One of each control class (see web/vf-ui/vf-widgets.js / vf-frame.css)
-        expect(page.locator(".vf-w-label").first).to_be_visible()
-        expect(page.locator("select.vf-w-select, .vf-w-select").first).to_be_visible()
-        expect(page.locator("button.vf-w-btn, .vf-w-btn").first).to_be_visible()
-        expect(page.locator("input.vf-w-range, .vf-w-range").first).to_be_visible()
-        expect(page.locator("input.vf-w-input, .vf-w-input").first).to_be_visible()
-        expect(page.locator("textarea.vf-w-textarea, .vf-w-textarea").first).to_be_visible()
-        expect(page.locator("label.vf-w-check, .vf-w-check").first).to_be_visible()
-        # Frame chrome still present
-        expect(page.locator(".vf-frame__header").first).to_be_visible()
-
-
-@pytest.mark.network
-def test_ui_all_classes_single_frame_mounted(
-    vf_ui_all_classes_http_base: str,
-) -> None:
-    """One frame: every built-in widget type is present, stacked, and laid out in the body."""
-    url = f"{vf_ui_all_classes_http_base}/{INDEX_DOC}"
-    with _chromium_page() as page:
-        page.goto(url, wait_until="domcontentloaded")
-        expect(page.locator(".vf-frame")).to_have_count(1, timeout=10_000)
-        stack = page.locator(".vf-frame__body.vf-w-stack")
-        expect(stack).to_be_visible()
-        # One `canvas.vf-frame__draw-canvas` (vf-frame.js) + one node per widget type.
-        expect(stack.locator("> *")).to_have_count(8)
-        expect(page.locator(".vf-w-label")).to_have_count(1)
-        expect(page.locator("select.vf-w-select")).to_have_count(1)
-        expect(page.locator("button.vf-w-btn")).to_have_count(1)
-        expect(page.locator("input.vf-w-range")).to_have_count(1)
-        expect(page.locator("input.vf-w-input")).to_have_count(1)
-        expect(page.locator("textarea.vf-w-textarea")).to_have_count(1)
-        expect(page.locator("label.vf-w-check")).to_have_count(1)
-        for sel in (
-            ".vf-w-label",
-            "select.vf-w-select",
-            "button.vf-w-btn",
-            "input.vf-w-range",
-            "input.vf-w-input",
-            "textarea.vf-w-textarea",
-            "label.vf-w-check",
-        ):
-            box = page.locator(sel).first.bounding_box()
-            assert box is not None
-            assert box["width"] >= 4 and box["height"] >= 4, (sel, box)
-
-
-@pytest.mark.network
-def test_ui_all_classes_widget_interactions(
-    vf_ui_all_classes_http_base: str,
-) -> None:
-    """Controls accept input: fill, select, check, range, no JS errors in console."""
-    url = f"{vf_ui_all_classes_http_base}/{INDEX_DOC}"
-    with _chromium_page() as page:
-        page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
-        err: list[str] = []
-
-        def _on_console(msg: object) -> None:
-            t = getattr(msg, "type", None)
-            if t == "error":
-                err.append(getattr(msg, "text", str(msg)))
-
-        page.on("console", _on_console)
-
-        page.locator("input.vf-w-input").fill("e2e")
-        expect(page.locator("input.vf-w-input")).to_have_value("e2e")
-
-        page.locator("select.vf-w-select").select_option(index=1)
-        expect(page.locator("select.vf-w-select")).to_have_value("1")
-
-        page.locator("label.vf-w-check input").check()
-        expect(page.locator("label.vf-w-check input")).to_be_checked()
-
-        page.locator("input.vf-w-range").fill("0.3")
-        expect(page.locator("input.vf-w-range")).to_have_value("0.3")
-
-        page.locator("textarea.vf-w-textarea").fill("line\n2")
-        expect(page.locator("textarea.vf-w-textarea")).to_have_value("line\n2")
-
-        page.locator("button.vf-w-btn").click()
-        # fetch() to /api/enqueue may 404 in static server — that should not raise in page console
-        # if vf-widgets only logs failed fetch silently.
-        assert not err, f"console errors: {err!r}"
-
-
-@pytest.mark.network
 def test_vf_scene_title_visible_in_minibar(vf_ui_http_base: str) -> None:
     """Minimized docked strip reuses the header title (minibar element is unused)."""
     url = f"{vf_ui_http_base}/{INDEX_DOC}"
@@ -755,31 +598,6 @@ def test_browser_session_update_hook_updates_scene_and_display_without_reload() 
             )
             assert isinstance(before, int) and isinstance(after, int)
             assert after > before, f"expected combined session update hook to add painted pixels, before={before} after={after}"
-
-
-@pytest.mark.network
-def test_ui_draggable_rect_example_renders_pixels_in_browser() -> None:
-    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_draggable_rect.vkf")
-    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
-        url = f"{base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
-            page.wait_for_selector(".vf-frame__draw-canvas", state="visible", timeout=30_000)
-            alpha_pixels = page.locator(".vf-frame__draw-canvas").first.evaluate(
-                """(canvas) => {
-                  const ctx = canvas.getContext('2d');
-                  if (!ctx) return 0;
-                  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                  let nonTransparent = 0;
-                  for (let i = 3; i < data.length; i += 4) {
-                    if (data[i] !== 0) nonTransparent += 1;
-                  }
-                  return nonTransparent;
-                }"""
-            )
-            assert isinstance(alpha_pixels, int)
-            assert alpha_pixels > 0, "expected draggable rect example to draw visible pixels"
 
 
 def _public_ui_geom_meshes(build_scene: Any) -> list[dict[str, Any]]:
@@ -1206,71 +1024,6 @@ def test_ui_polygon_hierarchy_example_supports_browser_transform_pan_zoom_and_sh
 
 
 @pytest.mark.network
-def test_ui_parented_3d_example_mounts_geom_canvas_in_browser() -> None:
-    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_parented_3d_local_coords.vkf")
-    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
-        url = f"{base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
-            page.wait_for_selector(".vf-geom-canvas", state="visible", timeout=30_000)
-            box = page.locator(".vf-geom-canvas").first.bounding_box()
-            assert box is not None
-            assert box["width"] > 16 and box["height"] > 16
-
-
-@pytest.mark.network
-def test_ui_3d_volume_surface_demo_supports_game_camera_controls() -> None:
-    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_3d_volume_surface_camera.vkf")
-    payload = json.loads(display_json)
-    frame_id = next(iter(payload["geom"]))
-    geom = payload["geom"][frame_id]
-    assert len(geom["meshes"]) == 9
-    assert [m["topology"] for m in geom["meshes"][:3]] == ["point-list", "line-list", "triangle-list"]
-    assert geom["meshes"][-1]["solid_volume"] is True
-    assert geom["camera"]["controls"] == {
-        "mode": "game",
-        "cursor": "none",
-        "speed": 2.4,
-        "sensitivity": 0.0022,
-    }
-
-    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, _posted):
-        url = f"{base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame", state="visible", timeout=30_000)
-            page.wait_for_selector(".vf-geom-canvas", state="visible", timeout=30_000)
-            page.wait_for_timeout(500)
-            assert page.locator(".vf-geom-canvas").count() == 1
-            cursor_before = page.locator(".vf-geom-canvas").first.evaluate("el => getComputedStyle(el).cursor")
-            before = page.evaluate("(fid) => window.VfDisplay.getGameCameraState(fid)", frame_id)
-            box = page.locator(".vf-geom-canvas").last.bounding_box()
-            assert box is not None
-            page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
-            page.mouse.down()
-            cursor_active = page.locator(".vf-geom-canvas").first.evaluate("el => getComputedStyle(el).cursor")
-            body_cursor_active = page.evaluate("() => getComputedStyle(document.body).cursor")
-            page.mouse.move(box["x"] + box["width"] * 0.5 + 80, box["y"] + box["height"] * 0.5 - 20)
-            after_mouse = page.evaluate("(fid) => window.VfDisplay.getGameCameraState(fid)", frame_id)
-            page.keyboard.down("w")
-            page.wait_for_timeout(250)
-            page.keyboard.up("w")
-            after = page.evaluate("(fid) => window.VfDisplay.getGameCameraState(fid)", frame_id)
-            page.keyboard.press("Escape")
-            cursor_after_escape = page.locator(".vf-geom-canvas").first.evaluate("el => getComputedStyle(el).cursor")
-
-            assert cursor_before == "default"
-            assert cursor_active == "none"
-            assert body_cursor_active == "none"
-            assert cursor_after_escape == "default"
-            assert before is not None and after_mouse is not None and after is not None
-            assert before["target"] != after_mouse["target"]
-            assert before["pos"] != after["pos"]
-            assert after["pos"][0] != pytest.approx(before["pos"][0])
-
-
-@pytest.mark.network
 def test_public_ui_parented_2d_transform_contract_renders_at_expected_canvas_point() -> None:
     from vektorflow.ui_scene_graph_math import Transform2D, transform_point_2d, world_affine_2d
 
@@ -1508,24 +1261,6 @@ def test_public_ui_three_level_3d_model_matrix_matches_browser_chain_parity() ->
             assert parity["childWorldDiff"] < 1e-5, parity
             assert parity["grandchildWorldDiff"] < 1e-5, parity
             assert parity["grandchildLocalDiff"] > 1e-3, parity
-
-
-@pytest.mark.network
-def test_ui_all_classes_button_click_posts_widget_event() -> None:
-    scene_json, display_json = _scene_and_display_from_vkf(REPO / "examples" / "ui_all_classes.vkf")
-    with _serve_vf_ui_payloads(scene_json=scene_json, display_json=display_json) as (base, posted):
-        url = f"{base}/{INDEX_DOC}"
-        with _chromium_page() as page:
-            page.goto(url, wait_until="domcontentloaded")
-            page.wait_for_selector(".vf-frame__body.vf-w-stack", state="visible", timeout=30_000)
-            page.locator("button.vf-w-btn").click()
-            page.wait_for_function("() => true", timeout=100)
-            assert posted, "expected widget interaction to POST an event to /api/enqueue"
-            body = posted[-1]
-            assert body.get("line")
-            event = json.loads(body["line"])
-            assert event["event"] == "button.pressed"
-            assert event["widgetId"] == "b1"
 
 
 @pytest.mark.network

@@ -24,7 +24,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from .cpp_backend import CppEmitError, compile_cpp_source
+from .cpp_backend import CppEmitError, compile_cpp_source, planned_cpp_artifacts
 
 
 def _native_parser_proto_cpp_source() -> str:
@@ -945,23 +945,25 @@ public:
             return emit_expression_cpp(program);
         }
         if (
+            token_lines.size() == 3 &&
+            token_lines[0].size() == 9 &&
+            token_lines[0][1].kind == "LPAREN"
+        ) {
+            HelloProgram program;
+            parse_hello_header(token_lines[0], program);
+            parse_hello_body(token_lines[1], program);
+            parse_hello_emit(token_lines[2], program);
+            return emit_hello_cpp(program);
+        }
+        if (
             token_lines.size() >= 2 &&
-            token_lines[0].size() >= 2 &&
-            token_lines[0][0].kind == "IDENT" &&
-            token_lines[0][1].kind == "LPAREN" &&
+            is_numeric_inline_function_signature_line(token_lines[0]) &&
             !token_lines.back().empty() &&
             token_lines.back()[0].kind == "EMIT"
         ) {
             InlineFunctionProgram program;
             parse_inline_function_program(token_lines, program);
             return emit_inline_function_cpp(program);
-        }
-        if (token_lines.size() == 3) {
-            HelloProgram program;
-            parse_hello_header(token_lines[0], program);
-            parse_hello_body(token_lines[1], program);
-            parse_hello_emit(token_lines[2], program);
-            return emit_hello_cpp(program);
         }
         if (token_lines.size() == 5) {
             VectorProgram program;
@@ -987,6 +989,20 @@ public:
             parse_records_emit(token_lines[9], program);
             validate_records_program(program);
             return emit_records_cpp(program);
+        }
+        if (token_lines.size() == 9) {
+            NumericProgram program;
+            parse_numeric_module_binding(token_lines[0], "math");
+            parse_numeric_module_binding(token_lines[1], "stat");
+            parse_numeric_binding(token_lines[2], program.xs_binding);
+            parse_numeric_binding(token_lines[3], program.ys_binding);
+            parse_numeric_emit_sin(token_lines[4]);
+            parse_numeric_emit_pi(token_lines[5]);
+            parse_numeric_emit_mean(token_lines[6], program);
+            parse_numeric_emit_normalize(token_lines[7], program);
+            parse_numeric_emit_correlation(token_lines[8], program);
+            validate_numeric_program(program);
+            return emit_numeric_cpp(program);
         }
         if (token_lines.size() == 7) {
             if (
@@ -1772,6 +1788,54 @@ private:
         return tokens.size() >= 2 && tokens[0].kind == "IDENT" && tokens[1].kind == "LPAREN";
     }
 
+    static bool is_numeric_inline_function_signature_line(const std::vector<Token>& tokens) {
+        if (!is_inline_function_signature_line(tokens)) {
+            return false;
+        }
+        std::size_t position = 2;
+        bool expect_param = true;
+        while (position < tokens.size()) {
+            if (tokens[position].kind == "RPAREN") {
+                position += 1;
+                break;
+            }
+            if (!expect_param) {
+                if (tokens[position].kind != "COMMA") {
+                    return false;
+                }
+                position += 1;
+            }
+            if (position >= tokens.size() || tokens[position].kind != "IDENT") {
+                return false;
+            }
+            position += 1;
+            if (position < tokens.size() && tokens[position].kind == "COLON") {
+                position += 1;
+                if (
+                    position >= tokens.size() ||
+                    tokens[position].kind != "IDENT" ||
+                    tokens[position].text != "num"
+                ) {
+                    return false;
+                }
+                position += 1;
+            }
+            expect_param = false;
+        }
+        if (position < tokens.size() && tokens[position].kind == "ARROW") {
+            position += 1;
+            if (
+                position >= tokens.size() ||
+                tokens[position].kind != "IDENT" ||
+                tokens[position].text != "num"
+            ) {
+                return false;
+            }
+            position += 1;
+        }
+        return position < tokens.size() && tokens[position].kind == "COLON";
+    }
+
     static bool inline_signature_line_has_inline_body(const std::vector<Token>& tokens) {
         return !tokens.empty() && tokens.back().kind != "COLON";
     }
@@ -1836,7 +1900,10 @@ private:
         }
         std::size_t emit_index = token_lines.size() - 1;
         std::size_t line_index = 0;
-        bool parsing_top_level_bindings = false;
+        bool parsing_top_level_bindings =
+            token_lines[0].size() >= 3 &&
+            token_lines[0][0].kind == "IDENT" &&
+            token_lines[0][1].kind == "COLON";
         std::vector<std::string> top_level_identifiers;
         while (line_index < emit_index) {
             if (parsing_top_level_bindings) {
@@ -1884,8 +1951,8 @@ private:
             }
             line_index = next_index;
         }
-        if (program.functions.empty()) {
-            throw std::runtime_error("native parser prototype expected at least one inline helper declaration");
+        if (program.functions.empty() && program.top_level_bindings.empty()) {
+            throw std::runtime_error("native parser prototype expected a helper or top-level binding declaration");
         }
         parse_inline_function_emit(token_lines.back(), program);
     }
@@ -2190,7 +2257,11 @@ private:
 
     static void expect_kind(const std::vector<Token>& tokens, std::size_t index, const char* kind) {
         if (index >= tokens.size() || tokens[index].kind != kind) {
-            throw std::runtime_error(std::string("native parser prototype expected token kind ") + kind);
+            const std::string actual = index >= tokens.size() ? "<end>" : tokens[index].kind;
+            throw std::runtime_error(
+                std::string("native parser prototype expected token kind ") + kind +
+                " at index " + std::to_string(index) + ", got " + actual
+            );
         }
     }
 
@@ -2381,6 +2452,19 @@ private:
         binding.values = parse_number_list(tokens, 3, tokens.size() - 1);
         if (binding.values.empty()) {
             throw std::runtime_error("native parser prototype numeric-native bindings must be non-empty");
+        }
+    }
+
+    static void parse_numeric_module_binding(const std::vector<Token>& tokens, const std::string& module_name) {
+        if (tokens.size() != 4) {
+            throw std::runtime_error("native parser prototype expected numeric-native module binding shape");
+        }
+        expect_kind(tokens, 0, "IDENT");
+        expect_kind(tokens, 1, "COLON");
+        expect_kind(tokens, 2, "DOT");
+        expect_kind(tokens, 3, "IDENT");
+        if (tokens[0].text != module_name || tokens[3].text != module_name) {
+            throw std::runtime_error("native parser prototype numeric-native module alias must match its module");
         }
     }
 
@@ -8139,11 +8223,10 @@ def build_native_parser_proto() -> Path:
     exe_stem = f"vf_native_parser_proto_{digest}"
     last_error: OSError | None = None
     for out_dir in _native_parser_proto_cache_dirs():
-        compiler_output = out_dir / f"{exe_stem}.cpp"
-        exe_path = out_dir / (f"{exe_stem}.exe" if os.name == "nt" else exe_stem)
-        if compiler_output.is_file() and exe_path.is_file():
-            return exe_path
         try:
+            _, compiler_output, exe_path = planned_cpp_artifacts(out_dir, exe_name=exe_stem)
+            if compiler_output.is_file() and exe_path.is_file():
+                return exe_path
             return compile_cpp_source(source, out_dir, exe_name=exe_stem)
         except OSError as exc:
             last_error = exc

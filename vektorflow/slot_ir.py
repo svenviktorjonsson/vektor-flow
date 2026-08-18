@@ -68,7 +68,13 @@ def _lower_expr(expr: Any, slots: dict[str, int]) -> Any:
     if isinstance(expr, ir.BinaryExpr):
         return ir.BinaryExpr(expr.op, _lower_expr(expr.left, slots), _lower_expr(expr.right, slots))
     if isinstance(expr, ir.CallExpr):
-        return ir.CallExpr(_lower_expr(expr.func, slots), [_lower_expr(a, slots) for a in expr.args])
+        return ir.CallExpr(
+            _lower_expr(expr.func, slots),
+            [_lower_expr(a, slots) for a in expr.args],
+            [(name, _lower_expr(value, slots)) for name, value in expr.kwargs],
+            [_lower_expr(value, slots) for value in expr.spreads],
+            list(expr.argument_order),
+        )
     if isinstance(expr, ir.ListExpr):
         return ir.ListExpr(
             [_lower_expr(e, slots) for e in expr.elements],

@@ -45,7 +45,7 @@ f(x:num) -> num: x + 1
     lines = _run(src).splitlines()
     assert lines[0] in ("4", "4.0")
     assert lines[1] in ("3.14", "3.1400000000000001")
-    assert "j" in lines[2]
+    assert lines[2] == "i"
 
 
 def test_prefix_typed_bind_coerces_values() -> None:
@@ -81,7 +81,7 @@ v : [1, 2, 3, 4]
 [v.:3] rows: [[1,2,3,4], [5,6,7,8], [9,10,11,12]]
 :: rows.
 """
-    assert _run(src) == "[[num:4]:3]"
+    assert _run(src) == "[[int:4]:3]"
 
 
 def test_trailing_dot_on_call_result_is_typeof_call_result() -> None:
@@ -100,9 +100,9 @@ def test_parenthesized_typeof_stays_grouping_but_trailing_comma_makes_tuple_type
 :: t.
 """
     lines = _run(src).splitlines()
-    assert lines[0] == "num"
-    assert lines[1] == "(num,)"
-    assert lines[2] == "(num,)"
+    assert lines[0] == "int"
+    assert lines[1] == "(int,)"
+    assert lines[2] == "(int,)"
 
 
 def test_trailing_dot_type_works_in_multiset_and_fixed_vector_type_positions() -> None:
@@ -114,7 +114,7 @@ def test_trailing_dot_type_works_in_multiset_and_fixed_vector_type_positions() -
 """
     lines = _run(src).splitlines()
     assert lines[0] == "{num}"
-    assert lines[1] == "[num:3]"
+    assert lines[1] == "[int:3]"
 
 
 def test_typeof_interpolation_uses_surface_type_format() -> None:
@@ -127,8 +127,8 @@ f(x:num) -> num: x
 :: "f. = $(f.)"
 """
     lines = _run(src).splitlines()
-    assert lines[0] == "p. = (x:num, y:num)"
-    assert lines[1] == "xs. = [num:3]"
+    assert lines[0] == "p. = (x:int, y:int)"
+    assert lines[1] == "xs. = [int:3]"
     assert lines[2] == "f. = (x:num) -> num"
 
 

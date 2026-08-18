@@ -4,6 +4,7 @@ edge cases, error handling, and VKF-level integration via the interpreter."""
 from __future__ import annotations
 
 import contextlib
+import cmath
 import math as pymath
 from io import StringIO
 from pathlib import Path
@@ -130,10 +131,11 @@ class TestInverseTrig:
         assert _approx(m["atan2"](1, -1), 3 * pymath.pi / 4)
         assert _approx(m["atan2"](0, 1), 0.0)
 
-    def test_asin_out_of_range(self) -> None:
+    def test_asin_outside_real_range_returns_complex(self) -> None:
         m = build_math_namespace()
-        with pytest.raises((ValueError, Exception)):
-            m["asin"](2.0)
+        result = m["asin"](2.0)
+        assert isinstance(result, complex)
+        assert abs(m["sin"](result) - 2.0) < 1e-12
 
     def test_roundtrip_sin_asin(self) -> None:
         m = build_math_namespace()
@@ -253,15 +255,13 @@ class TestExpLog:
         with pytest.raises(ValueError):
             m["log"](10.0, 0.0)
 
-    def test_log_negative_base_raises(self) -> None:
+    def test_log_negative_base_returns_complex(self) -> None:
         m = build_math_namespace()
-        with pytest.raises(ValueError):
-            m["log"](10.0, -2.0)
+        assert abs(m["log"](10.0, -2.0) - cmath.log(10.0) / cmath.log(-2.0)) < 1e-12
 
-    def test_log_negative_arg_raises(self) -> None:
+    def test_log_negative_arg_returns_complex(self) -> None:
         m = build_math_namespace()
-        with pytest.raises(ValueError):
-            m["log"](-5.0, 2.0)
+        assert abs(m["log"](-5.0, 2.0) - cmath.log(-5.0) / cmath.log(2.0)) < 1e-12
 
     def test_log_zero_arg_raises(self) -> None:
         m = build_math_namespace()
@@ -294,10 +294,9 @@ class TestSqrtAndConstants:
         m = build_math_namespace()
         assert _approx(m["sqrt"](2.0), pymath.sqrt(2))
 
-    def test_sqrt_negative_raises(self) -> None:
+    def test_sqrt_negative_returns_complex(self) -> None:
         m = build_math_namespace()
-        with pytest.raises((ValueError, Exception)):
-            m["sqrt"](-1.0)
+        assert m["sqrt"](-1.0) == 1j
 
     def test_pi_value(self) -> None:
         m = build_math_namespace()

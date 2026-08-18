@@ -187,13 +187,15 @@ def _run_driver(source_path: Path, smoke_exes: dict[str, Path], *, run: bool = F
     ]
     if run:
         args.append("--run")
-    return subprocess.run(
+    proc = subprocess.run(
         args,
         cwd=ROOT,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert proc.returncode == 0, proc.stderr
+    return proc
 
 
 def test_compiler_source_parses_and_names_manifest_artifact_ownership() -> None:
@@ -1146,7 +1148,7 @@ process.stdout.write(JSON.stringify({
     assert payload["input"] == {"delta": 5, "offsets": {"values": [7, 8, 9]}}
 
 
-def test_wasm_artifact_smoke_fails_hard_on_unsupported_stmt_kind(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:
+def test_wasm_artifact_smoke_fails_hard_on_unsupported_function(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:
     source_path = tmp_path / "bad.vkf"
     typed_ir_path = tmp_path / "bad.typed-ir.json"
     source_path.write_text("bad", encoding="utf-8")
@@ -1158,6 +1160,7 @@ def test_wasm_artifact_smoke_fails_hard_on_unsupported_stmt_kind(tmp_path: Path,
                     {
                         "kind": "function",
                         "name": "f",
+                        "type": "fn()->num",
                         "params": [],
                         "return_type": "num",
                         "body": {"kind": "const", "type": "num", "value": 1},
@@ -1175,7 +1178,7 @@ def test_wasm_artifact_smoke_fails_hard_on_unsupported_stmt_kind(tmp_path: Path,
         text=True,
     )
     assert proc.returncode == 1
-    assert "unsupported typed IR statement kind function" in proc.stderr
+    assert "unsupported typed IR function f for wasm artifact emission" in proc.stderr
 
 
 def test_wasm_artifact_smoke_rejects_bad_update_signature(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:
@@ -2119,7 +2122,10 @@ def test_webgpu_artifact_smoke_emits_float_scalar_local_binding_update_shader(
     )
 
     result = json.loads(_run_webgpu_artifact(smoke_exes["webgpu_artifact"], source_path, typed_ir_path).stdout)
-    shader = Path(result["artifact_path"]).read_text(encoding="utf-8")
+    artifact_path = Path(result["artifact_path"])
+    shader = artifact_path.read_text(encoding="utf-8")
+    assert len(artifact_path.parent.name) <= 24
+    assert artifact_path.name.startswith(f"{artifact_path.parent.name}.")
     assert "const bias: f32 = 0.5;" in shader
     assert "let next_value: f32 = ((state.value + input.value) + bias);" in shader
 
@@ -4281,6 +4287,28 @@ def test_artifact_script_prints_string_load(tmp_path: Path, smoke_exes: dict[str
 
     assert result["status"] == "compiled"
     assert _run_cmd_artifact(Path(result["artifact_path"])).stdout.strip() == "Ada"
+
+
+def test_artifact_executes_index_update_inside_local_function(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source = """\
+Point : (x:num)
+step(points:[Point:1]) -> [Point:1]:
+    points.0: (x:points.0.x + 1)
+    points
+out: step([(x:1)])
+:: out.0.x
+"""
+    source_path = tmp_path / "local_index_update.vkf"
+    typed_ir_path = tmp_path / "local_index_update.typed-ir.json"
+    source_path.write_text(source, encoding="utf-8")
+    typed_ir_path.write_text(_typed_ir_json(source, smoke_exes), encoding="utf-8")
+
+    result = json.loads(_run_artifact(smoke_exes["artifact"], source_path, typed_ir_path).stdout)
+
+    assert _run_cmd_artifact(Path(result["artifact_path"])).stdout.strip() == "2"
 
 
 def test_artifact_smoke_accepts_axis_aligned_bind_as_compile_only_placeholder(

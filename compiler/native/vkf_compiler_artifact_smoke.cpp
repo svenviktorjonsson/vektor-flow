@@ -173,6 +173,17 @@ std::string stem_of(const std::filesystem::path& source) {
     return stem.empty() ? "stdin" : stem;
 }
 
+std::string artifact_stem_of(const std::filesystem::path& source) {
+    const std::string stem = stem_of(source);
+    constexpr std::size_t max_stem_length = 24;
+    if (stem.size() <= max_stem_length) {
+        return stem;
+    }
+    constexpr std::size_t hash_length = 8;
+    constexpr std::size_t prefix_length = max_stem_length - hash_length - 1;
+    return stem.substr(0, prefix_length) + "-" + stable_hash(stem).substr(0, hash_length);
+}
+
 std::string render_value_summary(const vf::JsonValue& value);
 
 std::string render_array_summary(const vf::JsonValue::Array& values) {
@@ -238,6 +249,7 @@ void validate_value(const vf::JsonValue& value) {
             && full_name != "math.cos"
             && full_name != "math.exp"
             && full_name != "stat.mean"
+            && full_name != "stat.sum"
             && full_name != "stat.std"
             && full_name != "stat.median"
             && full_name != "stat.iqr"
@@ -526,15 +538,18 @@ std::vector<std::pair<std::string, std::string>> parse_flat_record_string(const 
     std::vector<std::pair<std::string, std::string>> fields;
     std::string current;
     int depth = 0;
+    bool invalid = false;
     auto flush = [&]() {
-        if (current.empty()) {
+        if (current.empty() || invalid) {
             return;
         }
         const std::string part = trim_copy(current);
         current.clear();
         const std::size_t colon = part.find(':');
         if (colon == std::string::npos) {
-            throw ArtifactFailure("invalid rendered record field");
+            fields.clear();
+            invalid = true;
+            return;
         }
         fields.push_back({trim_copy(part.substr(0, colon)), trim_copy(part.substr(colon + 1))});
     };
@@ -552,6 +567,9 @@ std::vector<std::pair<std::string, std::string>> parse_flat_record_string(const 
         current.push_back(ch);
     }
     flush();
+    if (invalid) {
+        return {};
+    }
     return fields;
 }
 
@@ -1522,7 +1540,15 @@ std::string eval_call(
         }
         if (starts_with(full_name, "stat.")) {
             const auto& args = array_of(field(object, "args", "call"), "call.args");
-            if (full_name == "stat.mean" || full_name == "stat.std" || full_name == "stat.median"
+            if (full_name == "stat.sum" && args.size() == 4) {
+                std::string rendered = "sum(";
+                for (std::size_t i = 0; i < args.size(); ++i) {
+                    if (i > 0) rendered += ", ";
+                    rendered += eval_value(args[i], values, imports, functions, stdlib_exports, ctor_name);
+                }
+                return rendered + ")";
+            }
+            if (full_name == "stat.sum" || full_name == "stat.mean" || full_name == "stat.std" || full_name == "stat.median"
                 || full_name == "stat.iqr" || full_name == "stat.zscore" || full_name == "stat.normalize"
                 || full_name == "stat.range" || full_name == "stat.count") {
                 if (args.size() != 1) {
@@ -1532,6 +1558,11 @@ std::string eval_call(
                     eval_value(args.front(), values, imports, functions, stdlib_exports, ctor_name),
                     full_name
                 );
+                if (full_name == "stat.sum") {
+                    double total = 0.0;
+                    for (double x : xs) total += x;
+                    return format_number(total);
+                }
                 if (full_name == "stat.mean") {
                     return format_number(stat_mean(xs));
                 }
@@ -1693,6 +1724,9 @@ std::string eval_call(
             if (function_name == "set_mode") {
                 return "__ui_noop__";
             }
+            if (function_name == "event_loop") {
+                return "__ui_event_loop__";
+            }
             if (function_name == "axis_2d") {
                 return "__ui_axis2d__";
             }
@@ -1709,9 +1743,81 @@ std::string eval_call(
             }
         }
         if (have_rendered_base && rendered_base == "__ui_frame__") {
-            if (function_name == "add_frame" || function_name == "add_camera" || function_name == "add") {
+            if (function_name == "impostor_renderer") {
+                return "__ui_impostor_renderer__";
+            }
+            if (function_name == "add_frame"
+                || function_name == "add_camera"
+                || function_name == "add_light"
+                || function_name == "set_geom_options"
+                || function_name == "draw_rect"
+                || function_name == "add_oval"
+                || function_name == "add") {
                 return "__ui_noop__";
             }
+        }
+        if (have_rendered_base && rendered_base == "__ui_event_loop__" && function_name == "run") {
+            return "capture";
+        }
+        if (have_rendered_base && rendered_base == "__physics_module__") {
+            const auto named_value = [&](const std::string& name, const std::string& fallback) {
+                const auto found = object.find("named_args");
+                if (found == object.end() || !found->second.is_array()) {
+                    return fallback;
+                }
+                for (const auto& named_arg : found->second.as_array()) {
+                    const auto& named_object = object_of(named_arg, "physics named_arg");
+                    if (string_field(named_object, "name", "physics named_arg") == name) {
+                        return eval_value(
+                            field(named_object, "value", "physics named_arg"),
+                            values,
+                            imports,
+                            functions,
+                            stdlib_exports,
+                            ctor_name
+                        );
+                    }
+                }
+                return fallback;
+            };
+            if (function_name == "demo_hard_spheres" || function_name == "demo_hard_discs") {
+                const auto& args = array_of(field(object, "args", "call"), "call.args");
+                const std::string count = named_value(
+                    "count",
+                    args.empty() ? "1000" : eval_value(args.front(), values, imports, functions, stdlib_exports, ctor_name)
+                );
+                return render_flat_record_string({
+                    {"kind", function_name == "demo_hard_spheres" ? "hard_sphere_seed" : "hard_disc_seed"},
+                    {"particle_count", count},
+                });
+            }
+            if (function_name == "hard_sphere_gpu_runtime"
+                || function_name == "hard_disc_gpu_runtime"
+                || function_name == "hard_disc_world") {
+                const auto& args = array_of(field(object, "args", "call"), "call.args");
+                if (args.empty()) {
+                    throw ArtifactFailure(function_name + " expects a particle seed");
+                }
+                const std::string seed = eval_value(args.front(), values, imports, functions, stdlib_exports, ctor_name);
+                const auto seed_fields = parse_flat_record_string(seed);
+                std::string count = "0";
+                for (const auto& pair : seed_fields) {
+                    if (pair.first == "particle_count") {
+                        count = pair.second;
+                    }
+                }
+                const std::string kind = function_name == "hard_sphere_gpu_runtime"
+                    ? "hard_sphere_3d"
+                    : (function_name == "hard_disc_gpu_runtime" ? "hard_disc_2d" : "hard_disc_world_2d");
+                return render_flat_record_string({{"kind", kind}, {"particle_count", count}});
+            }
+            if (function_name == "gpu_placeholder_axis") {
+                return "[0]";
+            }
+            if (function_name == "hard_disc_impostor_driver") {
+                return "__physics_driver__";
+            }
+            throw ArtifactFailure("unsupported physics runtime call physics." + function_name);
         }
         if (have_rendered_base && (rendered_base == "__ui_axis2d__" || rendered_base == "__ui_axis3d__")) {
             if (function_name == "crosshair"
@@ -2228,6 +2334,98 @@ std::string eval_block_value(const vf::JsonValue& block, ValueTable& values, con
             );
             continue;
         }
+        if (stmt_kind == "update_attr") {
+            const std::string base_name = string_field(stmt_object, "base_name", "update_attr");
+            const std::string field_name = string_field(stmt_object, "field", "update_attr");
+            const std::string rendered = values.get(base_name);
+            auto fields = parse_flat_record_string(rendered);
+            if (fields.empty() && rendered != "{}") {
+                throw ArtifactFailure("update_attr requires rendered record base");
+            }
+            const std::string field_value = eval_value(
+                field(stmt_object, "value", "update_attr"),
+                values,
+                imports,
+                functions,
+                stdlib_exports,
+                ctor_name
+            );
+            bool updated = false;
+            for (auto& pair : fields) {
+                if (pair.first == field_name) {
+                    pair.second = field_value;
+                    updated = true;
+                    break;
+                }
+            }
+            if (!updated) {
+                fields.push_back({field_name, field_value});
+            }
+            values.set(base_name, render_flat_record_string(fields));
+            continue;
+        }
+        if (stmt_kind == "update_index") {
+            const std::string base_name = string_field(stmt_object, "base_name", "update_index");
+            const std::string rendered = values.get(base_name);
+            const auto& indices = array_of(field(stmt_object, "indices", "update_index"), "update_index.indices");
+            if (indices.size() != 1) {
+                throw ArtifactFailure("update_index only supports one index");
+            }
+            const auto& index_object = object_of(indices.front(), "update_index.index");
+            if (string_field(index_object, "kind", "update_index.index") != "const") {
+                throw ArtifactFailure("update_index only supports constant indices");
+            }
+            const vf::JsonValue& raw_index = field(index_object, "value", "update_index.index");
+            if (raw_index.is_number()) {
+                const std::size_t index = static_cast<std::size_t>(raw_index.as_number());
+                auto items = parse_flat_sequence_string(rendered, '[', ']');
+                if (items.empty() && rendered != "[]") {
+                    throw ArtifactFailure("update_index requires rendered list base");
+                }
+                if (index >= items.size()) {
+                    throw ArtifactFailure("update_index out of range");
+                }
+                items[index] = eval_value(
+                    field(stmt_object, "value", "update_index"),
+                    values,
+                    imports,
+                    functions,
+                    stdlib_exports,
+                    ctor_name
+                );
+                values.set(base_name, render_flat_sequence_string(items, '[', ']'));
+                continue;
+            }
+            if (raw_index.is_string()) {
+                auto fields = parse_flat_record_string(rendered);
+                if (fields.empty() && rendered != "{}") {
+                    throw ArtifactFailure("update_index requires rendered record base for string key");
+                }
+                const std::string key = raw_index.as_string();
+                const std::string new_value = eval_value(
+                    field(stmt_object, "value", "update_index"),
+                    values,
+                    imports,
+                    functions,
+                    stdlib_exports,
+                    ctor_name
+                );
+                bool updated = false;
+                for (auto& pair : fields) {
+                    if (pair.first == key) {
+                        pair.second = new_value;
+                        updated = true;
+                        break;
+                    }
+                }
+                if (!updated) {
+                    fields.push_back({key, new_value});
+                }
+                values.set(base_name, render_flat_record_string(fields));
+                continue;
+            }
+            throw ArtifactFailure("update_index only supports constant numeric or string indices");
+        }
         if (stmt_kind == "expr_stmt") {
             const vf::JsonValue& expr_value = field(stmt_object, "expr", "expr_stmt");
             const auto& expr_object = object_of(expr_value, "expr_stmt");
@@ -2611,12 +2809,24 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                     || segments.front().as_string() == "stat"
                     || segments.front().as_string() == "collections"
                     || segments.front().as_string() == "ui"
-                    || segments.front().as_string() == "symbolic");
+                    || segments.front().as_string() == "symbolic"
+                    || segments.front().as_string() == "physics");
             if (is_stdlib_path) {
                 const std::string module_name = segments.front().as_string();
+                if (module_name == "physics" && alias_value.is_null()) {
+                    const std::filesystem::path physics_path = std::filesystem::absolute(
+                        std::filesystem::path("compiler") / "self_hosted" / "stdlib" / "physics.vkf"
+                    );
+                    imports[""] = parse_imported_module_file(physics_path);
+                    discovered_dependencies.push_back({"import:<spill>", physics_path, stable_hash(read_file(physics_path))});
+                    script += "rem stdlib import\r\n";
+                    continue;
+                }
                 if (alias_value.is_string()) {
                     if (module_name == "ui") {
                         values.set(alias_value.as_string(), "__ui_module__");
+                    } else if (module_name == "physics") {
+                        values.set(alias_value.as_string(), "__physics_module__");
                     } else {
                         stdlib_exports[alias_value.as_string()] = module_name;
                     }
@@ -2628,6 +2838,7 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                         stdlib_exports["exp"] = "math.exp";
                     } else if (module_name == "stat") {
                         stdlib_exports["mean"] = "stat.mean";
+                        stdlib_exports["sum"] = "stat.sum";
                         stdlib_exports["std"] = "stat.std";
                         stdlib_exports["median"] = "stat.median";
                         stdlib_exports["iqr"] = "stat.iqr";
@@ -2645,6 +2856,8 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                         values.set("ui", "__ui_module__");
                     } else if (module_name == "symbolic") {
                         values.set("symbolic", "__symbolic_module__");
+                    } else if (module_name == "physics") {
+                        values.set("physics", "__physics_module__");
                     }
                 } else {
                     throw ArtifactFailure("unsupported stdlib import alias shape");
@@ -2883,9 +3096,10 @@ int main(int argc, char** argv) {
         const std::string source_hash = stable_hash(source_text);
         const std::string typed_ir_hash = stable_hash(typed_ir_text);
         const std::string artifact_content_hash = stable_hash(artifact_text);
-        const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / stem_of(args.source);
+        const std::string artifact_stem = artifact_stem_of(args.source);
+        const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / artifact_stem;
         const auto manifest_path = build_dir / "manifest.json";
-        const auto artifact_path = build_dir / (stem_of(args.source) + ".artifact.cmd");
+        const auto artifact_path = build_dir / (artifact_stem + ".artifact.cmd");
         const std::string desired_manifest_hash = stable_hash(
             manifest_key(source_hash, typed_ir_hash, artifact_content_hash, dependencies, artifact_path)
         );

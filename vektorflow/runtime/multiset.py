@@ -53,8 +53,11 @@ class Multiset:
                 yield k
 
     def items_sorted(self) -> list[tuple[Any, int]]:
-        """Deterministic iteration: sorted by Python's default ``<`` on keys."""
-        return sorted(self._c.items(), key=lambda kv: kv[0])
+        """Deterministic iteration across heterogeneous and complex keys."""
+        return sorted(
+            self._c.items(),
+            key=lambda pair: (type(pair[0]).__name__, str(pair[0])),
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Multiset):

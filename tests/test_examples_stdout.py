@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import contextlib
+from io import StringIO
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
+
+from vektorflow.interpreter import Interpreter
+from vektorflow.parser import parse_module
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,6 +19,8 @@ UI_EXAMPLES = {
     "110_mirror_showcase.vkf",
     "111_mirror_smoke.vkf",
     "112_scene3d_smoke.vkf",
+    "114_grass_texture_cube.vkf",
+    "physics_rigid_polygons_2d.vkf",
 }
 EXPECTED_STDOUT = json.loads(STDOUT_EXPECTATIONS_PATH.read_text(encoding="utf-8"))
 
@@ -43,13 +48,9 @@ def test_curated_example_stdout_matches_manifest(
     expected_stdout: str,
 ) -> None:
     example_path = EXAMPLES_DIR / example_name
-    proc = subprocess.run(
-        [sys.executable, "-m", "vektorflow.cli", str(example_path)],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, (
-        f"{example_name} failed with stderr:\n{proc.stderr}"
-    )
-    assert proc.stdout.rstrip("\r\n") == expected_stdout
+    source = example_path.read_text(encoding="utf-8")
+    module = parse_module(source, filename=str(example_path))
+    output = StringIO()
+    with contextlib.redirect_stdout(output):
+        Interpreter(example_path).run_module(module)
+    assert output.getvalue().rstrip("\r\n") == expected_stdout

@@ -24,8 +24,8 @@ SymbolicProgram: (
 )
 SymbolicDraft: (
     latex:str,
-    complete:bool,
-    recoverable:bool,
+    complete:bit,
+    recoverable:bit,
     diagnostics:any
 )
 SymbolicDocument: (
@@ -35,9 +35,9 @@ SymbolicDocument: (
     programs:any,
     program:any,
     diagnostics:any,
-    complete:bool,
-    recoverable:bool,
-    plottable:bool
+    complete:bit,
+    recoverable:bit,
+    plottable:bit
 )
 SymbolicWorkspace: any
 SymbolicEvaluation: (x:num, y:num, z:num, t:num, context:any)
@@ -3950,7 +3950,7 @@ symbolic_sample_color_field(
     builder:any,
     xIndex:num,
     yIndex:num,
-    complexField:bool
+    complexField:bit
 ):
     xIndex >= view.fieldXSteps - 1?
         @: builder
@@ -4008,7 +4008,7 @@ symbolic_push_color_field_cell(
     v11:any,
     v01:any,
     style:any,
-    complexField:bool
+    complexField:bit
 ):
     bottomLeft: symbolic_color_field_vertex(x0, y0, v00, style, complexField)
     bottomRight: symbolic_color_field_vertex(x1, y0, v10, style, complexField)
@@ -4546,7 +4546,7 @@ symbolic_face_vertex(x:num, y:num, style:any):
     third: vkf_list_pair(style.faceB, style.faceA)
     first & second & third
 
-symbolic_color_field_vertex(x:num, y:num, value:any, style:any, complexField:bool):
+symbolic_color_field_vertex(x:num, y:num, value:any, style:any, complexField:bit):
     complexField?
         @: symbolic_complex_field_vertex(x, y, value, style)
     symbolic_field_vertex(x, y, value, style)

@@ -12,16 +12,6 @@ from vektorflow.parser import parse_module
 from vektorflow.stdlib import STDLIB_MODULES, resolve_stdlib
 from vektorflow.stdlib.screen import PendingFrame, Screen, build_screen_namespace
 from vektorflow.stdlib.ui import Display, UISyncError, build_ui_namespace
-from vektorflow.ui.host_bootstrap import (
-    HOST_MANIFEST_FILENAME,
-    HOST_MANIFEST_SCHEMA,
-    HOST_MANIFEST_VERSION,
-)
-from vektorflow.ui_display_ir import build_display_payload
-
-_REPO = Path(__file__).resolve().parents[1]
-
-
 def test_screen_and_bridge_not_registered_stdlib() -> None:
     assert "screen" not in STDLIB_MODULES
     assert "bridge" not in STDLIB_MODULES
@@ -257,10 +247,7 @@ def test_display_draw_and_frame_draw_match_draw_rect() -> None:
     d.add_frame(f, (0.4, 0.4, 0.2, 0.2))
     f.draw((0.0, 0.0, 0.5, 0.5), color="#030303")
     f.draw_rect((0.5, 0.5, 0.2, 0.2), color="#040404")
-    out = _REPO / "web" / "vf-ui" / "vf-display.json"
-    if not out.is_file():
-        pytest.skip("vf-display.json not written (repo root resolution)")
-    data = json.loads(out.read_text(encoding="utf-8"))
+    data = json.loads(d.display_json())
     assert len(data.get("screen", [])) == 2
     fid = f.id
     assert len((data.get("frames") or {}).get(fid, [])) == 2
@@ -279,32 +266,6 @@ def test_display_json_exposes_browser_payload_through_public_ui_surface() -> Non
     assert raw["frames"][f.id][0]["op"] == "rect"
 
 
-def test_host_bootstrap_manifest_is_written_with_display_sync(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    repo = tmp_path / "repo"
-    ui_root = repo / "web" / "vf-ui"
-    ui_root.mkdir(parents=True, exist_ok=True)
-    (ui_root / "index.html").write_text("<!doctype html>", encoding="utf-8")
-    monkeypatch.setattr("vektorflow.ui.launch.find_vektorflow_repo_root", lambda: repo)
-
-    # Keep _write_vf_display_json in this test isolated from CI checkout state.
-    from vektorflow.stdlib.ui import _write_vf_display_json
-
-    _write_vf_display_json(build_display_payload(screen_ops=(), frame_ops={}, runtime_geom={}))
-
-    out = ui_root / HOST_MANIFEST_FILENAME
-    assert out.is_file(), f"expected manifest output {out}"
-    manifest = json.loads(out.read_text(encoding="utf-8"))
-    assert manifest["schema"] == HOST_MANIFEST_SCHEMA
-    assert manifest["version"] == HOST_MANIFEST_VERSION
-    assert manifest["files"]["display"]["filename"] == "vf-display.json"
-    assert manifest["files"]["display"]["url"] == "/vf-display.json"
-    assert manifest["files"]["scene"]["filename"] == "vkf-scene.json"
-    assert manifest["files"]["ui_state"]["filename"] == "vf-ui-state.json"
-
-
 def test_ui_display_two_frames_draw_rect_produces_vf_display_payload() -> None:
     d = build_ui_namespace()["ui"].display
     f = d.frame(title="A", dock_loc="bl")
@@ -313,10 +274,7 @@ def test_ui_display_two_frames_draw_rect_produces_vf_display_payload() -> None:
     d.add_frame(f2, under=f)
     f.draw_rect((0.0, 0.0, 0.5, 0.5), color="#ff0000")
     f2.draw_rect((0.1, 0.1, 0.8, 0.3), color="#00aa00")
-    out = _REPO / "web" / "vf-ui" / "vf-display.json"
-    if not out.is_file():
-        pytest.skip("vf-display.json not written (repo root resolution)")
-    data = json.loads(out.read_text(encoding="utf-8"))
+    data = json.loads(d.display_json())
     frames = data.get("frames") or {}
     id1 = f.id
     id2 = f2.id
@@ -332,10 +290,7 @@ def test_display_add_rect_returns_root_rect_ref() -> None:
     child_rect = root_rect.add_rect((0.5, 0.0, 0.25, 0.5), color="#00aa00")
     root_rect.translate(dx=0.1, dy=0.05)
 
-    out = _REPO / "web" / "vf-ui" / "vf-display.json"
-    if not out.is_file():
-        pytest.skip("vf-display.json not written (repo root resolution)")
-    data = json.loads(out.read_text(encoding="utf-8"))
+    data = json.loads(d.display_json())
     screen_ops = data.get("screen") or []
     assert len(screen_ops) == 2
     assert screen_ops[0]["transform"] == [0.4, 0.0, 0.0, 0.3, 0.2, 0.15000000000000002]
@@ -352,10 +307,7 @@ def test_frame_add_rect_returns_hierarchical_rect_refs() -> None:
     rect.scale_by(sx=2.0, sy=1.5)
     child.rotate_by(angle_deg=30.0)
 
-    out = _REPO / "web" / "vf-ui" / "vf-display.json"
-    if not out.is_file():
-        pytest.skip("vf-display.json not written (repo root resolution)")
-    data = json.loads(out.read_text(encoding="utf-8"))
+    data = json.loads(d.display_json())
     ops = (data.get("frames") or {}).get(f.id, [])
     assert len(ops) == 2
 

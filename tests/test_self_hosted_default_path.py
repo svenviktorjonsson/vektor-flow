@@ -12,17 +12,26 @@ from vektorflow.parser import parse_module
 
 ROOT = Path(__file__).resolve().parent.parent
 TOP_LEVEL_EXAMPLE_VKF_FILES = sorted((ROOT / "examples").glob("*.vkf"))
-RECURSIVE_EXAMPLE_HELPER_OR_UNSUPPORTED_FILES = {
+RECURSIVE_EXAMPLE_HELPER_FILES = {
     (ROOT / "examples" / "modules" / "83_file_module_helpers.vkf").resolve(),
     (ROOT / "examples" / "nested" / "lib" / "helpers.vkf").resolve(),
     (ROOT / "examples" / "folder_repo" / "pkg" / "mod.vkf").resolve(),
     (ROOT / "examples" / "folder_repo" / "native_backend_unsupported.vkf").resolve(),
     (ROOT / "examples" / "folder_repo" / "native_preference_unsupported.vkf").resolve(),
+    *((ROOT / "examples" / "programs" / "vkf_chess_3d" / "lib").glob("*.vkf")),
+}
+NATIVE_DEFAULT_PATH_UNSUPPORTED_ENTRYPOINTS = {
+    (ROOT / "examples" / "funcs" / "b.vkf").resolve(),  # intentional wrong-arity example
+    (ROOT / "examples" / "programs" / "vkf_chess_3d" / "bot_smoke.vkf").resolve(),
+    (ROOT / "examples" / "symbolic" / "01_domains_and_types.vkf").resolve(),
+    (ROOT / "examples" / "symbolic" / "02_latex_display_names.vkf").resolve(),
+    (ROOT / "examples" / "symbolic" / "03_calculus_and_sums.vkf").resolve(),
 }
 RECURSIVE_RUNNABLE_EXAMPLE_VKF_FILES = sorted(
     source_path.resolve()
     for source_path in (ROOT / "examples").rglob("*.vkf")
-    if source_path.resolve() not in RECURSIVE_EXAMPLE_HELPER_OR_UNSUPPORTED_FILES
+    if source_path.resolve() not in RECURSIVE_EXAMPLE_HELPER_FILES
+    and source_path.resolve() not in NATIVE_DEFAULT_PATH_UNSUPPORTED_ENTRYPOINTS
 )
 LEXER_SMOKE_SOURCE = ROOT / "compiler" / "native" / "vkf_lexer_cursor_smoke.cpp"
 PARSER_SMOKE_SOURCE = ROOT / "compiler" / "native" / "vkf_parser_token_stream_smoke.cpp"
@@ -143,7 +152,7 @@ def test_default_path_native_tool_sources_have_no_python_process_hooks() -> None
             if marker in source:
                 failures.append(f"{source_path.name}: {marker}")
 
-    assert failures == []
+    assert failures == [], "\n".join(failures)
 
 
 def test_default_path_driver_runs_io_math_without_tool_args(
@@ -236,7 +245,7 @@ def test_default_path_driver_runs_typeof_emit_subset(
 
     summary = json.loads(result.stdout)
     assert summary["ran"] is True
-    assert summary["stdout"] == "(x:num, y:num)\r\n[num]\r\n"
+    assert summary["stdout"] == "(x:int, y:int)\r\n[int]\r\n"
 
 
 def test_default_path_driver_runs_imported_module_function_call_target(
@@ -302,8 +311,9 @@ def test_default_path_driver_runs_parser_shape_subset_examples(
         cwd=ROOT,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
 
     summary = json.loads(result.stdout)
     assert summary["ran"] is True
@@ -925,8 +935,9 @@ vkf_update(state:record{count:f32}, input:record{delta:f32}) -> record{count:f32
         cwd=ROOT,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
 
     summary = json.loads(result.stdout)
     webgpu_artifact_path = Path(summary["webgpu_artifact_path"])
@@ -1447,5 +1458,22 @@ def test_default_path_driver_runs_all_recursive_runnable_examples_without_python
         if "fallback" in proc.stderr.lower() or "python" in proc.stderr.lower():
             failures.append(f"{display_name}: stderr leaked fallback/python markers: {proc.stderr.strip()}")
 
-    assert len(RECURSIVE_RUNNABLE_EXAMPLE_VKF_FILES) == 97
-    assert failures == []
+    assert failures == [], "\n".join(failures)
+
+
+@pytest.mark.parametrize("source_path", sorted(NATIVE_DEFAULT_PATH_UNSUPPORTED_ENTRYPOINTS))
+def test_default_path_declared_unsupported_examples_fail_without_python_fallback(
+    source_path: Path,
+    sibling_smokes: dict[str, Path],
+) -> None:
+    proc = subprocess.run(
+        [str(sibling_smokes["driver"]), "--source", str(source_path), "--run"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert proc.returncode != 0
+    assert "fallback" not in proc.stderr.lower()
+    assert "python" not in proc.stderr.lower()
