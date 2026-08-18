@@ -161,9 +161,7 @@ const plot = kernel.plot(
   },
   11,
 );
-const vertices = Array.from(
-  new Float32Array(kernel.memory.buffer, plot.pointer, plot.count * 6),
-);
+const vertices = Array.from(plot.data);
 function plotSource(source, revision, stylePatch = {}, viewPatch = {}) {
   const program = kernel.compile(source);
   const localWorkspace = kernel.createWorkspace();
@@ -188,9 +186,7 @@ function plotSource(source, revision, stylePatch = {}, viewPatch = {}) {
   return {
     classification: program.value.classification,
     result,
-    vertices: Array.from(
-      new Float32Array(kernel.memory.buffer, result.pointer, result.count * 6),
-    ),
+    vertices: Array.from(result.data),
   };
 }
 const relations = {
@@ -258,7 +254,7 @@ process.stdout.write(JSON.stringify({
     assert payload["plot"]["stride"] == 24
     assert payload["plot"]["revision"] == 11
     assert payload["plot"]["ranges"] == [
-        {"mode": "time-curve", "first": 0, "count": 17}
+        {"mode": "time-curve", "part": "edge", "first": 0, "count": 17}
     ]
     assert payload["vertices"][:6] == pytest.approx(
         [-2, 4 + 3.141592653589793, 1, 1, 1, 1]
@@ -267,7 +263,12 @@ process.stdout.write(JSON.stringify({
     sine_x = sine_vertices[0::6]
     sine_y = sine_vertices[1::6]
     assert payload["sine"]["result"]["ranges"] == [
-        {"mode": "time-curve", "first": 0, "count": len(sine_x)}
+        {
+            "mode": "time-curve",
+            "part": "edge",
+            "first": 0,
+            "count": len(sine_x),
+        }
     ]
     assert all(left < right for left, right in zip(sine_x, sine_x[1:]))
     assert sine_y == pytest.approx([math.sin(x) for x in sine_x], abs=1e-6)
@@ -306,7 +307,16 @@ process.stdout.write(JSON.stringify({
         edge_offset = ranges[1]["first"] * 6 + 2
         assert relation["vertices"][edge_offset : edge_offset + 4] == pytest.approx([1, 1, 1, 1])
     assert payload["tuple"]["classification"] == "linked-tuple"
-    assert payload["tuple"]["result"]["count"] == 2
+    assert payload["tuple"]["result"]["count"] == 4
+    assert payload["tuple"]["result"]["ranges"] == [
+        {"mode": "points", "part": "edge", "first": 0, "count": 2},
+        {
+            "mode": "linked-line-segments",
+            "part": "edge",
+            "first": 2,
+            "count": 2,
+        },
+    ]
     assert payload["tuple"]["vertices"][:12] == pytest.approx(
         [1, 2, 1, 1, 1, 1, 3, 4, 1, 1, 1, 1]
     )

@@ -171,11 +171,14 @@ static SmokeToken scan_number(VkfCursor& cursor) {
             continue;
         }
         if (scalar == "." && !saw_dot) {
-            if (peek_literal(cursor, "..")) {
+            VkfCursor after_dot = vkf_cursor_advance_scalar(cursor);
+            if (peek_literal(cursor, "..")
+                || vkf_string_eof(after_dot.source, after_dot.index)
+                || !is_ascii_digit(vkf_string_peek_scalar(after_dot.source, after_dot.index))) {
                 break;
             }
             saw_dot = true;
-            cursor = vkf_cursor_advance_scalar(cursor);
+            cursor = after_dot;
             continue;
         }
         break;

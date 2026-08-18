@@ -16,28 +16,22 @@ def _is_axis_sequence(value: Any) -> bool:
     return isinstance(value, (tuple, VFVector))
 
 
-def _map_right_tensor(
-    fn: Callable[[Any, Any], Any],
-    left_leaf: Any,
-    right: Any,
-) -> Any:
-    if isinstance(right, tuple):
-        return tuple(_map_right_tensor(fn, left_leaf, item) for item in right)
-    if isinstance(right, VFVector):
-        return VFVector(_map_right_tensor(fn, left_leaf, item) for item in right)
-    return fn(left_leaf, right)
+def _axis_shape(value: Any, rank: int) -> tuple[int, ...]:
+    shape: list[int] = []
+    level = value
+    for _ in range(rank):
+        if not _is_axis_sequence(level):
+            raise EvalError("axis-tagged data rank does not match its axis signature")
+        shape.append(len(level))
+        level = level[0] if level else ()
+    return tuple(shape)
 
 
-def _append_right_axis(
-    fn: Callable[[Any, Any], Any],
-    left: Any,
-    right: Any,
-) -> Any:
-    if isinstance(left, tuple):
-        return tuple(_append_right_axis(fn, item, right) for item in left)
-    if isinstance(left, VFVector):
-        return VFVector(_append_right_axis(fn, item, right) for item in left)
-    return _map_right_tensor(fn, left, right)
+def _axis_get(value: Any, indices: tuple[int, ...]) -> Any:
+    out = value
+    for index in indices:
+        out = out[index]
+    return out
 
 
 def axis_broadcast_binary(
@@ -54,10 +48,37 @@ def axis_broadcast_binary(
     ad, bd = a.data, b.data
     if isinstance(ad, Multiset) or isinstance(bd, Multiset):
         raise EvalError("axis broadcast is not supported for multisets")
-    if _is_axis_sequence(ad) and _is_axis_sequence(bd):
-        rows = _append_right_axis(fn, ad, bd)
-        return AxisTaggedValue(rows, f"{a.idx}{b.idx}")
-    raise EvalError(
-        "axis broadcast needs both operands to be vectors or tuples "
-        f"(got {type(ad).__name__!r} vs {type(bd).__name__!r})"
-    )
+    if not _is_axis_sequence(ad) or not _is_axis_sequence(bd):
+        raise EvalError(
+            "axis broadcast needs both operands to be vectors or tuples "
+            f"(got {type(ad).__name__!r} vs {type(bd).__name__!r})"
+        )
+
+    a_axes = str(a.idx)
+    b_axes = str(b.idx)
+    out_axes = a_axes + "".join(axis for axis in b_axes if axis not in a_axes)
+    a_shape = _axis_shape(ad, len(a_axes))
+    b_shape = _axis_shape(bd, len(b_axes))
+    sizes = {axis: a_shape[index] for index, axis in enumerate(a_axes)}
+    for index, axis in enumerate(b_axes):
+        if axis in sizes and sizes[axis] != b_shape[index]:
+            raise EvalError(
+                f"axis length mismatch for {axis!r}: {sizes[axis]} != {b_shape[index]}"
+            )
+        sizes[axis] = b_shape[index]
+
+    coordinates: dict[str, int] = {}
+
+    def build(depth: int) -> Any:
+        if depth == len(out_axes):
+            left_indices = tuple(coordinates[axis] for axis in a_axes)
+            right_indices = tuple(coordinates[axis] for axis in b_axes)
+            return fn(_axis_get(ad, left_indices), _axis_get(bd, right_indices))
+        axis = out_axes[depth]
+        values = []
+        for index in range(sizes[axis]):
+            coordinates[axis] = index
+            values.append(build(depth + 1))
+        return VFVector(values)
+
+    return AxisTaggedValue(build(0), out_axes)

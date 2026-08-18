@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import tomllib
 
 import pytest
 
+from vektorflow import __version__
 from vektorflow.release_bundle import (
     build_release_manifest,
     default_release_channel_for_platform,
@@ -15,6 +18,24 @@ from vektorflow.release_bundle import (
     release_readme_text,
     release_sample_sources,
 )
+
+
+def test_repo_release_surfaces_share_one_version() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    package_lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
+    vscode_package = json.loads((root / "vscode" / "package.json").read_text(encoding="utf-8"))
+
+    versions = {
+        __version__,
+        pyproject["project"]["version"],
+        package["version"],
+        package_lock["version"],
+        package_lock["packages"][""]["version"],
+        vscode_package["version"],
+    }
+    assert len(versions) == 1, versions
 
 
 def test_release_channels_expose_expected_names() -> None:

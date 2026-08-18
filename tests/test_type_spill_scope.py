@@ -86,8 +86,8 @@ ops: (:S)
     assert _emit(src).splitlines() == [
         "ops.length: (value:str) -> int",
         "ops.count: (value:str, item:any) -> int",
-        "ops.has: (value:str, item:any) -> bool",
-        "ops.is_bool: (value:str) -> bool",
+        "ops.has: (value:str, item:any) -> bit",
+        "ops.is_bool: (value:str) -> bit",
     ]
 
 
@@ -107,11 +107,11 @@ vals: [:str]
         "vals.length(): 7",
         "vals.(0): (value:str) -> int",
         "vals.(1): (value:str) -> int",
-        "vals.(2): (value:str, item:any) -> bool",
+        "vals.(2): (value:str, item:any) -> bit",
         "vals.(3): (value:str, item:any) -> int",
-        "vals.(4): (value:str) -> bool",
-        "vals.(5): (value:str) -> bool",
-        "vals.(6): (value:str) -> bool",
+        "vals.(4): (value:str) -> bit",
+        "vals.(5): (value:str) -> bit",
+        "vals.(6): (value:str) -> bit",
     ]
 
 

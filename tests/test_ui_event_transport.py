@@ -49,7 +49,7 @@ def test_overlay_port_resolver_caches_then_resets(monkeypatch) -> None:
     assert seen == ["read", "read"]
 
 
-def test_runtime_payload_ingress_dedupes_repeated_payloads_and_keeps_snapshot() -> None:
+def test_runtime_payload_ingress_preserves_repeated_payloads_and_keeps_snapshot() -> None:
     ingress = RuntimePayloadIngress()
     received: list[dict[str, Any]] = []
     payload = {"type": "vf_event", "event": "hover", "frame_id": "f1"}
@@ -58,8 +58,8 @@ def test_runtime_payload_ingress_dedupes_repeated_payloads_and_keeps_snapshot() 
     ingress.publish(payload)
     ingress.publish(payload)
 
-    assert received == [payload]
-    assert ingress.snapshot().published_payloads == (payload,)
+    assert received == [payload, payload]
+    assert ingress.snapshot().published_payloads == (payload, payload)
 
 
 def test_runtime_payload_ingress_reports_subscriber_errors_and_keeps_fanout() -> None:
@@ -75,7 +75,7 @@ def test_runtime_payload_ingress_reports_subscriber_errors_and_keeps_fanout() ->
     assert received == [{"type": "vf_event", "event": "down"}]
 
 
-def test_runtime_payload_ingress_before_publish_runs_once_for_new_payload() -> None:
+def test_runtime_payload_ingress_before_publish_runs_for_every_payload() -> None:
     seen: list[dict[str, Any]] = []
     ingress = RuntimePayloadIngress(before_publish=lambda evt: seen.append(evt))
 
@@ -83,7 +83,7 @@ def test_runtime_payload_ingress_before_publish_runs_once_for_new_payload() -> N
     ingress.publish({"event": "hover"})
     ingress.publish({"event": "down"})
 
-    assert seen == [{"event": "hover"}, {"event": "down"}]
+    assert seen == [{"event": "hover"}, {"event": "hover"}, {"event": "down"}]
 
 
 def test_overlay_runtime_event_service_resets_global_poller_and_ingress() -> None:

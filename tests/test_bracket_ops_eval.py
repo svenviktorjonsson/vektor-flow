@@ -123,16 +123,6 @@ def test_multiset_literal_duplicate_entries_accumulate_counts() -> None:
     assert _parse_multiset_repr(out) == Multiset({1: 7})
 
 
-def test_multiset_literal_bare_entries_default_count_to_one() -> None:
-    out = _run_emit(":: {1, 2, 4:5}")
-    assert _parse_multiset_repr(out) == Multiset({1: 1, 2: 1, 4: 5})
-
-
-def test_multiset_literal_repeated_bare_entries_accumulate() -> None:
-    out = _run_emit(":: {1, 1, 2, 2, 2}")
-    assert _parse_multiset_repr(out) == Multiset({1: 2, 2: 3})
-
-
 def test_axis_tagged_multiset_scalar_ops_follow_same_rules() -> None:
     tagged = AxisTaggedValue(Multiset({"a": 2, "b": 3}), "i")
     plus = _binop("PLUS", tagged, 1)

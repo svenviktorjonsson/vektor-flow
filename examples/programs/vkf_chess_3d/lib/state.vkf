@@ -59,7 +59,7 @@ path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bit:
             r = to_rank?
                 done: true
         done = false?
-            piece_at(board, f, r).side != Side.none?
+            piece_at(board, f, r).side ~= Side.none?
                 clear: false
                 done: true
         done = false?
@@ -162,7 +162,7 @@ is_destination_piece(slot:Piece, to_file:num, to_rank:num) -> bit:
 is_en_passant_captured_piece(slot:Piece, piece:Piece, to_file:num, to_rank:num, en_passant:bit) -> bit:
     """Return true when a board slot is the pawn removed by en passant."""
     en_passant?
-        slot.side != piece.side?
+        slot.side ~= piece.side?
             slot.role = PieceRole.pawn?
                 slot.file = to_file?
                     slot.rank = en_passant_capture_rank(piece)? @: true
@@ -182,7 +182,7 @@ rook_to_file_for_castle(castle_side:num) -> num:
 
 is_castling_rook(slot:Piece, piece:Piece, castle_side:num) -> bit:
     """Return true when a board slot is the rook moved by castling."""
-    castle_side != CastleSide.none?
+    castle_side ~= CastleSide.none?
         slot.side = piece.side?
             slot.role = PieceRole.rook?
                 slot.file = rook_from_file_for_castle(castle_side)?
@@ -304,7 +304,7 @@ move_intent(piece:Piece, to_file:num, to_rank:num, notation_text:str, capture:bi
 
 capture_flag(target_side:num, en_passant:bit) -> bit:
     """Return true when the move captures normally or by en passant."""
-    target_side != Side.none? @: true
+    target_side ~= Side.none? @: true
     en_passant? @: true
     @: false
 
@@ -447,7 +447,7 @@ direction_has_legal_move(state:GameState, piece:Piece, df:num, dr:num) -> bit:
                 found: true
                 done: true
         done = false?
-            piece_at(state.board, f, r).side != Side.none?
+            piece_at(state.board, f, r).side ~= Side.none?
                 done: true
         done = false?
             f: f + df
@@ -512,7 +512,7 @@ king_has_legal_move(state:GameState, piece:Piece) -> bit:
 
 piece_has_legal_move_from_board(state:GameState, piece:Piece) -> bit:
     """Return true when a side-to-move piece can legally move somewhere."""
-    piece.side != state.turn? @: false
+    piece.side ~= state.turn? @: false
     piece.captured? @: false
     piece.role = PieceRole.pawn? @: pawn_has_legal_move(state, piece)
     piece.role = PieceRole.knight? @: knight_has_legal_move(state, piece)

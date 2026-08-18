@@ -1,4 +1,4 @@
-"""Tests for VFunction.__call__ — calling vkf functions/lambdas from Python.
+"""Tests for calling VKF functions and lambdas from host Python.
 
 Covers:
   - Named functions called from Python via __call__
@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from vektorflow.interpreter import VFunction, Interpreter
+from vektorflow.ir_executor import IRFunctionValue
 from vektorflow.parser import parse_module
 from vektorflow.stdlib.events import UIMouse
 
@@ -46,9 +47,11 @@ def _run(src: str) -> Interpreter:
         os.unlink(fname)
 
 
-def _vfunc(ip: Interpreter, name: str) -> VFunction:
+def _vfunc(ip: Interpreter, name: str) -> VFunction | IRFunctionValue:
     fn = ip.globals[name]
-    assert isinstance(fn, VFunction), f"Expected VFunction, got {type(fn).__name__}"
+    assert isinstance(fn, (VFunction, IRFunctionValue)), (
+        f"Expected a VKF function value, got {type(fn).__name__}"
+    )
     return fn
 
 

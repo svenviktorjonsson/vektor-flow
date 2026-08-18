@@ -137,6 +137,13 @@ def _python_token_stream_payload(source: str) -> dict[str, object]:
     return json.loads(token_stream_to_json(tokenize(source, filename="<cursor-smoke>")))
 
 
+def _without_native_raw_number_metadata(payload: dict[str, object]) -> dict[str, object]:
+    clone = json.loads(json.dumps(payload))
+    for token in clone.get("tokens", []):
+        token.pop("raw", None)
+    return clone
+
+
 def test_native_cursor_smoke_scans_identifier_and_number_without_python(cursor_smoke_exe: Path) -> None:
     assert _run_cursor_smoke(cursor_smoke_exe, "alpha 123 beta45 6.7") == [
         {"kind": "IDENT", "value": "alpha", "file": "<cursor-smoke>", "line": 1, "column": 1},
@@ -348,6 +355,7 @@ def test_native_cursor_smoke_reports_unterminated_string_errors(
     "source",
     [
         "alpha 123 beta45 6.7",
+        "points.0.x scene.camera.fov",
         "true false null",
         '"hi"',
         "'''a\nb'''",
@@ -364,4 +372,6 @@ def test_native_cursor_smoke_versioned_token_stream_payload_matches_python(
     cursor_smoke_exe: Path,
     source: str,
 ) -> None:
-    assert _run_cursor_smoke_payload(cursor_smoke_exe, source) == _python_token_stream_payload(source)
+    assert _without_native_raw_number_metadata(
+        _run_cursor_smoke_payload(cursor_smoke_exe, source)
+    ) == _python_token_stream_payload(source)

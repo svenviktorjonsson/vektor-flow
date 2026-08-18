@@ -132,8 +132,8 @@ is_en_passant(piece:Piece, target_side:num, to_file:num, to_rank:num, last_doubl
     """Validate en passant from the last double-pawn move stored in GameState."""
     piece.role = PieceRole.pawn?
         target_side = Side.none?
-            last_double_pawn_side != Side.none?
-                last_double_pawn_side != piece.side?
+            last_double_pawn_side ~= Side.none?
+                last_double_pawn_side ~= piece.side?
                     abs_num(to_file - piece.file) = 1?
                         to_file = last_double_pawn_file?
                             piece.side = Side.white?
@@ -148,6 +148,6 @@ is_en_passant(piece:Piece, target_side:num, to_file:num, to_rank:num, last_doubl
 legal_shape_ext(piece:Piece, target_side:num, to_file:num, to_rank:num, path_clear:bit, king_safe_after:bit, castle_path_safe:bit, rook_available:bit, can_castle_king:bit, can_castle_queen:bit, last_double_pawn_side:num, last_double_pawn_file:num, last_double_pawn_rank:num) -> bit:
     """Validate normal moves plus state-owned castling and en passant cases."""
     legal_shape(piece, target_side, to_file, to_rank, path_clear, king_safe_after)? @: true
-    castle_side(piece, to_file, to_rank, path_clear, king_safe_after, castle_path_safe, rook_available, can_castle_king, can_castle_queen) != CastleSide.none? @: true
+    castle_side(piece, to_file, to_rank, path_clear, king_safe_after, castle_path_safe, rook_available, can_castle_king, can_castle_queen) ~= CastleSide.none? @: true
     king_safe_after? @: is_en_passant(piece, target_side, to_file, to_rank, last_double_pawn_side, last_double_pawn_file, last_double_pawn_rank)
     @: false

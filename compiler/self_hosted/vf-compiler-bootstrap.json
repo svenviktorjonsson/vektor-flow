@@ -9,17 +9,17 @@
   "sources": [
     {
       "path": "compiler/self_hosted/lexer.vkf",
-      "source_sha256": "1da0d9be7c798225e6826ce1fd4bb6baae893c8dcd0162e06bd6c952aaaae117",
+      "source_sha256": "f50410f4ec6c0b629086b889a122a90554aa3562fa04978c40f26ea3cedbf139",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/parser.vkf",
-      "source_sha256": "7e5e855cb34eddc2b2a256909f4783ca833f9ca2724a1b9caada75fc2d0964f3",
+      "source_sha256": "e69b13f8bfa36d817e4f45b6add74f20c81b1ba6f916a777350426acbd0abd22",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/typed_ir.vkf",
-      "source_sha256": "550f8ae80e90f2246293e70c11b1da79a6c6eb3ca8f918d5807c2b5e282f1864",
+      "source_sha256": "12b64f13a0f76a28063db0a439e3d841857472d6c238216e7ff7a623d996251f",
       "parsed_with_native_parser": true
     },
     {
@@ -29,12 +29,12 @@
     },
     {
       "path": "compiler/self_hosted/native_scene_compiler.vkf",
-      "source_sha256": "e64123d92c74d84aa68d6f582db83e34252d15bf1f550389e0b96b2f3229e2d0",
+      "source_sha256": "446bfa491d5319b44b282866d2480105a5fccba31a380aa8668ee5d7db8f0906",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/stdlib.vkf",
-      "source_sha256": "36dbc44f54aa1d328428a9cc32b6aee0fe760013ad9b9692e2824ec271b51f0e",
+      "source_sha256": "274321b0426d2af6ce3b621dbb7f2b35376ebb07b2962825a3ff7b9ccd701789",
       "parsed_with_native_parser": true
     },
     {
@@ -59,5 +59,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 8,
-  "bundle_sha256": "4eaae63ef74d40c50b1f98a3e2f6da025f64bf8b517c0d92c8458b7d6af29c10"
+  "bundle_sha256": "7d38dfd4659750fcd44ee75661e78b99420f0209deb404bb67f07d8a167e2914"
 }

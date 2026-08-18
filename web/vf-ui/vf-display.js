@@ -2806,7 +2806,7 @@
     var c = document.createElement("canvas");
     c.className = "vf-geom-canvas " + cls;
     c.setAttribute("tabindex", "-1");
-    c.style.cssText = "display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:1;pointer-events:auto;background:transparent;object-fit:contain;object-position:center center;";
+    c.style.cssText = "display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;pointer-events:auto;background:transparent;object-fit:contain;object-position:center center;";
     body.style.position = "relative";
     body.style.pointerEvents = "auto";
     body.appendChild(c);

@@ -15,6 +15,8 @@ import random as _random
 import math as _m
 from typing import Any, Sequence
 
+from vektorflow.runtime import runtime_collection_values
+
 
 def _to_floats(seq: Any) -> list[float]:
     """Convert any iterable of numerics to a list[float]."""
@@ -47,14 +49,19 @@ def _shape_to_dims(shape: Any) -> tuple[int, ...]:
             raise ValueError(f"stat: shape sizes must be non-negative, got {dim}")
         return (dim,)
 
-    if isinstance(shape, (list, tuple)):
-        dims: list[int] = []
-        for axis in shape:
-            dims.extend(_shape_to_dims(axis))
-        return tuple(dims)
+    if not isinstance(shape, (str, bytes, bytearray)):
+        try:
+            axes = runtime_collection_values(shape)
+        except TypeError:
+            pass
+        else:
+            dims: list[int] = []
+            for axis in axes:
+                dims.extend(_shape_to_dims(axis))
+            return tuple(dims)
 
     raise TypeError(
-        "stat: shape must be a non-negative integer or a nested list/tuple of integers"
+        "stat: shape must be a non-negative integer or a nested vector/list of integers"
     )
 
 

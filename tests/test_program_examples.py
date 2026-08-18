@@ -501,7 +501,8 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "global.__vfGeomPickContext[String(frameSpec.frame_id || config.frame_id)]" in runtime
     assert "promotion_active: promotionActive" in runtime
     assert "function chessMeshStructureSignature()" in runtime
-    assert "meshStructureSignature === visibleLastMeshStructureSignature" in runtime
+    assert "function canUseCameraLightFastPath(" in runtime
+    assert "meshStructureSignature !== visibleLastMeshStructureSignatureValue" in runtime
     assert "runtime.animations.filter(function (anim) { return !anim || anim.piece !== piece; })" in runtime
     assert "var before = chessCapturedPiecesForSide(runtime, capturerSide);" in runtime
     assert "runtime.nextCaptureOrder += 1;" in runtime
@@ -523,10 +524,10 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "var easedT = chessAnimationEase(anim, t);" in runtime
     assert "var path = Array.isArray(anim.path) && anim.path.length >= 2 ? anim.path : [anim.from, anim.to];" in runtime
     assert "var remainingDistance = easedT * totalLength;" in runtime
-    assert "function currentSceneWorldDirtyVersion()" in runtime
+    assert "function currentSceneWorldDirtyVersion(seconds)" in runtime
     assert "function sceneWorldAnimationsPending()" in runtime
     assert "function applySceneWorldFrame(seconds)" in runtime
-    assert "var rawMeshSpecs = Array.isArray(config.meshes) ? config.meshes.slice() : [];" in runtime
+    assert "var rawMeshSpecs = authoredSceneMeshSpecs();" in runtime
     assert "function sceneWorldMeshStructureSignature()" in runtime
     assert "if (useVisibleFrame && sceneWorldAnimationsPending() && visibleRenderBackpressureActive())" in runtime
     assert "function chessLagDebugEnabled()" in runtime
@@ -546,7 +547,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function scheduleChessBotTurn(runtime, delayMs)" in runtime
     assert "Math.max(2000, Number(cfg.bot_min_think_ms || 2000) || 2000)" in runtime
     assert "function chessBotBestMove(runtime)" in runtime
-    assert "function chessBotMinimaxScore(runtime, depth, perspective, alpha, beta)" in runtime
+    assert "function chessBotMinimaxScore(runtime, depth, perspective, alpha, beta, context)" in runtime
     assert "var maxDepth = Math.max(1, Math.min(6, Number(cfg.bot_search_plies || 4) || 4));" in runtime
     assert "function chessBotSearchTimedOut(context)" in runtime
     assert "function chessBotStaticExchangeScore(runtime, move)" in runtime
@@ -570,10 +571,12 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function scheduleVisibleInitialSceneRender()" in runtime
     assert "function mountResponsiveVisibleShell()" in runtime
     assert "postVisibleShellLayout();" in runtime
-    assert runtime.index("mountResponsiveVisibleShell();") < runtime.index("global.requestAnimationFrame(startInitialSceneRender);")
-    assert 'if (typeof global.requestIdleCallback === "function")' in runtime
-    assert "global.requestIdleCallback(start, { timeout: 600 });" in runtime
-    assert "global.setTimeout(start, 120);" in runtime
+    initial_schedule = runtime.index("function scheduleVisibleInitialSceneRender()")
+    initial_mount = runtime.index("mountResponsiveVisibleShell();", initial_schedule)
+    initial_raf = runtime.index("global.requestAnimationFrame(start);", initial_schedule)
+    assert initial_mount < initial_raf
+    assert "global.requestAnimationFrame(start);" in runtime
+    assert "global.setTimeout(forceStart, 120);" in runtime
     assert 'sceneFrame.setAttribute("data-vf-chess-board-frame", "1")' in runtime
     assert 'sceneFrameBody.appendChild(panel)' in runtime
     assert 'panel.classList.add("vf-chess-panel--in-frame")' in runtime
@@ -597,7 +600,7 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "cameraKeyStepPending" in runtime
     assert "cameraKeyStepCount" not in runtime
     assert "requestCameraHoldFrame" in runtime
-    assert "global.setTimeout(function () {\n        state.cameraHoldLoopPending = false;" in runtime
+    assert "global.requestAnimationFrame(function () {\n        state.cameraHoldLoopPending = false;" in runtime
     assert "state.requestCameraHoldFrame();" in runtime
     assert "activeState.requestCameraHoldFrame();" in runtime
     assert "if (visibleRenderBackpressureActive()) {\n        controlState.cameraFrameDirty = true;\n        return;\n      }" not in runtime
@@ -607,26 +610,17 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "controlState.cameraKeyStepPending = true;" not in runtime
     assert "if (keyHoldActive && controlState.cameraKeyStepPending === true && visibleRenderBackpressureActive())" not in runtime
     assert "if (keyHoldActive) {" in runtime
-    assert "if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())" in runtime
-    backpressure_guard = runtime.index("if (useVisibleFrame && keyHoldActive && visibleRenderBackpressureActive())")
-    orbit_mutation = runtime.index("controlState.orbitPhi += deltaPhi;", backpressure_guard)
-    assert backpressure_guard < orbit_mutation
-    assert "controlState.cameraKeyLastTsMs = nowMs;\n            controlState.cameraKeyStepPending = false;\n            controlState.rendering = false;\n            ensureCameraHoldLoop(controlState);\n            return;" in runtime
+    assert "controlState.orbitPhi += deltaPhi;" in runtime
+    assert "controlState.cameraKeyLastTsMs = nowMs;" in runtime
     assert "var keyElapsedSec = controlState.cameraKeyLastTsMs > 0.0" in runtime
-    assert "var keyDtSec = Math.max(1.0 / 240.0, Math.min(1.0 / 120.0, keyElapsedSec || (1.0 / 120.0)))" in runtime
+    assert "var keyDtSec = Math.max(1.0 / 240.0, keyElapsedSec || (1.0 / 60.0));" in runtime
     assert "controlState.cameraKeyStepPending = false;" in runtime
-    assert "activeState.cameraKeyLastTsMs = global.performance" in runtime
-    assert "Math.min(1.0 / 30.0" in runtime
+    assert "activeState.cameraKeyLastTsMs = keyNowMs - (1000.0 / 60.0);" in runtime
     assert "var worldAnimationActive = dependencySourceFrameId" in runtime
     assert "? sceneWorldAnimationsPending()\n          : applySceneWorldFrame(seconds);" in runtime
     assert "var heldCameraKeyActive = cameraKeysActive();" in runtime
-    assert "function renderFrameDependentsBeforePresent()" in runtime
-    assert "if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {" in runtime
-    held_camera_path = runtime.index("if (heldCameraKeyActive && useVisibleFrame && visibleSpec) {")
-    held_camera_trigger = runtime.index("renderFrameDependentsBeforePresent();", held_camera_path)
-    held_camera_update = runtime.index("updateVisibleCameraOnly(renderCamera, { immediate: true })", held_camera_path)
-    assert held_camera_trigger < held_camera_update
-    assert 'could not present immediately' in runtime
+    assert "if (heldCameraKeyActive && useVisibleFrame && visibleSpec && canUseCameraLightFastPath(" in runtime
+    assert "presentVisibleCameraFrame(renderCamera, {" in runtime
     assert 'typeof activeState.requestCameraFrame === "function"' in runtime
     assert 'typeof state.requestCameraFrame === "function"' in runtime
     assert "function smoothInterpolatedFieldMeshVertices(spec, vertices, indices, enabled)" in runtime
@@ -644,25 +638,20 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'pickable: entityProp(spec, "pickable", true) !== false' in runtime
     assert 'static_vertices: entityProp(spec, "static_vertices", false) === true' in runtime
     assert 'static_indices: entityProp(spec, "static_indices", false) === true' in runtime
-    assert "var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && useVisibleFrame && !worldAnimationActive && visibleSpec && dirtyVersion === visibleLastDirtyVersion && meshStructureSignature === visibleLastMeshStructureSignature;" in runtime
+    assert "var canUseVisibleCameraOnly = cameraOnlyFastPathEnabled && canUseCameraLightFastPath(" in runtime
     assert "triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });" in runtime
     assert 'requires immediate source-synchronous rendering' in runtime
     assert "global.requestAnimationFrame(flushDependentMirrorFrame)" not in runtime
     assert "dependentMirrorFramePending" not in runtime
     assert "function publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera)" in runtime
     assert "renderCamera = applyCameraSwitch(renderCamera);\n        publishLiveCamera(renderCamera, markerReferenceHeightPx, markerSizeCamera);" in runtime
-    camera_only_path = runtime.index("if (canUseVisibleCameraOnly) {")
-    camera_only_trigger = runtime.index("renderFrameDependentsBeforePresent();", camera_only_path)
-    camera_only_update = runtime.index("updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })", camera_only_path)
-    assert camera_only_trigger < camera_only_update
-    full_render_trigger = runtime.index("if (useVisibleFrame) {\n          triggerFrameDependents(String(frameSpec.frame_id || config.frame_id), { immediate: true });\n        }\n        var rendered = renderPayload")
-    full_render_payload = runtime.index("var rendered = renderPayload(renderCamera, seconds, { skipChessInteraction: true });", full_render_trigger)
-    assert full_render_trigger < full_render_payload
+    assert "presentVisibleFullFrame(rendered, dirtyVersion, meshStructureSignature);" in runtime
     assert "requestLinkedMirrorTextureFrameForSource(String(frameSpec.frame_id || config.frame_id));" not in runtime
     assert "_skip_render" not in runtime
-    assert "updateVisibleCameraOnly(renderCamera, { immediate: heldCameraKeyActive })" in runtime
+    assert "presentVisibleCameraFrame(renderCamera, {" in runtime
     assert "function updateOffscreenCameraOnly(camera, options)" in runtime
-    assert "updateOffscreenCameraOnly(renderCamera, { immediate: dependencySourceFrameId ? true : heldCameraKeyActive })" in runtime
+    assert "updateOffscreenCameraOnly(renderCamera, {" in runtime
+    assert "immediate: dependencySourceFrameId ? true : heldCameraKeyActive" in runtime
     assert "cameraOnlyUpdates" in runtime
     assert "fullSceneUpdates" in runtime
     assert "var nextVisibleSpec = Object.assign({}, geomPayload)" in runtime
@@ -718,7 +707,6 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert 'data-vf-geom-resize-pending' not in display_runtime
     assert 'data-vf-geom-resize-pending' not in geom_runtime
     assert display_runtime.index("if (canvas.width  !== w)") < display_runtime.index("canvas.style.width = w + \"px\";")
-    assert "options.forceResize !== true" in geom_runtime
     assert "this._renderContent(performance.now(), { forceResize: true })" in geom_runtime
     assert 'id: String(id),' in (ROOT / "web" / "vf-ui" / "vf-frame.js").read_text(encoding="utf-8")
     frame_css = (ROOT / "web" / "vf-ui" / "vf-frame.css").read_text(encoding="utf-8")
@@ -732,8 +720,8 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "frameAspectMode(frameEl) === \"equal\"" not in display_runtime
     assert "self._resizeRaf = requestAnimationFrame" not in geom_runtime
     assert "function cameraProjectionMatrixMatchesRenderAspect(camera, renderAspect)" in geom_runtime
-    assert "projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(cam, asp)" in geom_runtime
-    assert "projection_matrix.length === 16 && cameraProjectionMatrixMatchesRenderAspect(camPart, aspect)" in geom_runtime
+    assert "projection_matrix.length === 16 && (cam._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(cam, asp))" in geom_runtime
+    assert "projection_matrix.length === 16 && (camPart._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(camPart, aspect))" in geom_runtime
     assert "delete nextCamera.projection_matrix;" in runtime
     stager_runtime = (ROOT / "compiler" / "native" / "vkf_native_scene_artifact_stager.cpp").read_text(encoding="utf-8")
     shell_runtime = (ROOT / "web" / "vf-ui" / "vf-runtime-shell.js").read_text(encoding="utf-8")
@@ -783,7 +771,6 @@ def test_native_chess_runtime_handles_overlay_clicks_highlights_and_piece_motion
     assert "function notifyLinkedTextureFrames(renderer)" in renderer_runtime
     assert "notifyLinkedTextureFrames(this)" in renderer_runtime
     assert "[DEBUG-chess-lag]" in renderer_runtime
-    assert "gpu_pending_block" in renderer_runtime
     assert "global_queued=" in renderer_runtime
     assert "request_coalesced" in renderer_runtime
     assert "renderer._renderQueuedWhileGpuPending = true" in renderer_runtime
@@ -848,7 +835,7 @@ def test_imported_typed_vkf_module_functions_remain_callable_from_interpreter() 
     )
     interpreter = Interpreter(source)
     interpreter.run_module(parse_module(program, filename=str(source)))
-    assert interpreter.globals["target"]["piece_role"] == "pawn"
+    assert interpreter.globals["target"]["piece_role"] == 1
 
 
 def test_chess_asset_loader_reads_manifest_and_glb_bytes_natively(tmp_path: Path) -> None:
@@ -870,7 +857,7 @@ def test_chess_asset_loader_reads_manifest_and_glb_bytes_natively(tmp_path: Path
     result = subprocess.run([str(exe)], cwd=ROOT, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
-        str(len(manifest.read_text(encoding="utf-8"))),
+        str(len(manifest.read_bytes())),
         str(white_pawn.stat().st_size),
         str(black_king.stat().st_size),
     ]

@@ -75,8 +75,6 @@ class RuntimePayloadIngress:
 
     def publish(self, payload: dict[str, Any]) -> None:
         evt = dict(payload)
-        if self._history and self._history[-1] == evt:
-            return
         if self._before_publish is not None:
             self._before_publish(dict(evt))
         self._history.append(evt)

@@ -69,7 +69,7 @@ def test_runtime_match_specificity_matches_runtime_type_value() -> None:
 def test_runtime_match_specificity_matches_specific_error_type() -> None:
     specificity = runtime_match_specificity(
         KeyError("missing"),
-        ERROR_NAMESPACE["KEY_ERROR"],
+        ERROR_NAMESPACE["KeyError"],
         {},
         lambda a, b: a == b,
     )

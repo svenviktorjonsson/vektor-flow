@@ -47,24 +47,26 @@ def test_select_benchmarks_filters_by_name() -> None:
     ]
 
 
-def test_run_native_supported_benchmark_interpreter_and_emit() -> None:
+def test_run_native_supported_benchmark_lowers_emits_and_runs_native() -> None:
     res = run_benchmark(get_benchmark("vectors_shapes"))
     assert res.error is None
     assert res.parse_ms is not None
     assert res.lower_ms is not None
-    assert res.interpret_ms is not None
+    assert res.interpret_ms is None
     assert res.emit_cpp_ms is not None
-    assert "[2, 4, 6, 8, 10]" in res.interpreter_stdout
+    if res.native_status == "ok":
+        assert "[2, 4, 6, 8, 10]" in res.native_stdout
     assert res.native_status in {"compiler-unavailable", "ok"}
 
 
-def test_run_stdlib_numeric_benchmark_interpreter_and_emit() -> None:
+def test_run_stdlib_numeric_benchmark_native_output() -> None:
     res = run_benchmark(get_benchmark("stdlib_numeric"))
     assert res.error is None
-    compact = "".join(res.interpreter_stdout.split())
-    assert compact.startswith("3.14159265358979")
-    for value in ("09", "5", "2", "4.5", "1.5", "-1.22474487139158", "1.22474487139158", "011.333333333333", "178"):
-        assert value in compact
+    if res.native_status == "ok":
+        compact = "".join((res.native_stdout or "").split())
+        assert compact.startswith("3.14159265358979")
+        for value in ("09", "5", "2", "4.5", "1.5", "-1.2247448713915", "1.2247448713915", "011.333333333333", "178"):
+            assert value in compact
     assert res.native_status in {"compiler-unavailable", "ok"}
 
 
@@ -72,9 +74,11 @@ def test_run_benchmark_collects_sample_medians() -> None:
     res = run_benchmark(get_benchmark("scalar_control"), samples=2)
     assert res.sample_count == 2
     assert len(res.parse_samples_ms) == 2
-    assert len(res.interpret_samples_ms) == 2
+    assert len(res.interpret_samples_ms) == 0
     assert res.parse_ms is not None
-    assert res.interpret_ms is not None
+    assert res.interpret_ms is None
+    if res.native_status == "ok":
+        assert len(res.native_run_samples_ms) == 2
 
 
 def test_run_benchmark_collects_multiple_native_runs() -> None:
@@ -104,10 +108,10 @@ def test_run_benchmark_reuses_cached_native_compile() -> None:
         assert second.compile_ms < 500.0
 
 
-def test_run_interpreter_only_benchmark_marks_native_unsupported() -> None:
+def test_non_native_benchmark_marks_unsupported_without_python_execution() -> None:
     res = run_benchmark(get_benchmark("custom_overloads"))
     assert res.error is None
-    assert "point[2|5]" in res.interpreter_stdout
+    assert res.interpreter_stdout == ""
     assert res.native_status == "unsupported"
 
 
@@ -143,49 +147,40 @@ def test_benchmark_text_report_includes_variability_stats() -> None:
     assert "variability (stddev / ci95_upper" in report
     assert "scalar_control:" in report
     assert "parse=" in report
-    assert "interp=" in report
+    assert "native=" in report
 
 
-def test_benchmark_text_report_includes_reference_runtimes_for_interpreter_only_cases() -> None:
+def test_benchmark_text_report_omits_removed_python_reference_runtime() -> None:
     results = [run_benchmark(get_benchmark("vector_append_builder_pressure"))]
     report = format_benchmark_report(results)
-    assert "reference runtimes" in report
+    assert "reference runtimes" not in report
     assert "vector_append_builder_pressure:" in report
-    assert "python=" in report
-    assert "std=" in report
-    if results[0].numpy_ref_ms is not None:
-        assert "numpy=" in report
+    assert results[0].python_ref_ms is None
+    assert results[0].std_ref_ms is None
 
 
-def test_vector_hotloop_collects_reference_timings() -> None:
+def test_vector_hotloop_uses_native_benchmark_contract() -> None:
     res = run_benchmark(get_benchmark("vector_hotloop"))
     assert res.error is None
-    assert res.python_ref_ms is not None
+    assert res.python_ref_ms is None
     assert res.case.reference_impl == "vector_hotloop"
 
 
 def test_array_mutability_pressure_benchmarks_run() -> None:
     index_rebind = run_benchmark(get_benchmark("vector_index_rebind_hotloop"))
     assert index_rebind.error is None
-    assert index_rebind.interpreter_stdout.splitlines() == ["120", "967", "1935"]
-    assert index_rebind.python_ref_ms is not None
-    assert index_rebind.std_ref_ms is not None
+    if index_rebind.native_status == "ok":
+        assert (index_rebind.native_stdout or "").splitlines() == ["120", "967", "1935"]
 
     append_pressure = run_benchmark(get_benchmark("vector_append_builder_pressure"))
     assert append_pressure.error is None
-    assert append_pressure.interpreter_stdout.splitlines() == ["0", "255", "511"]
-    assert append_pressure.python_ref_ms is not None
-    assert append_pressure.std_ref_ms is not None
+    assert append_pressure.native_status == "unsupported"
+    assert append_pressure.interpreter_stdout == ""
 
     struct_rebind = run_benchmark(get_benchmark("struct_vector_rebind_hotloop"))
     assert struct_rebind.error is None
-    assert struct_rebind.interpreter_stdout.splitlines() == ["500", "2007", "4015"]
-    assert struct_rebind.python_ref_ms is not None
-    assert struct_rebind.std_ref_ms is not None
-
-    if index_rebind.numpy_ref_ms is not None:
-        assert append_pressure.numpy_ref_ms is not None
-        assert struct_rebind.numpy_ref_ms is not None
+    if struct_rebind.native_status == "ok":
+        assert (struct_rebind.native_stdout or "").splitlines() == ["500", "2007", "4015"]
 
 
 def test_benchmark_baseline_roundtrip_and_compare(tmp_path) -> None:

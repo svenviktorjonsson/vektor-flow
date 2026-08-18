@@ -98,7 +98,7 @@ v.idx : "ij"
 v : [1, 2]_i
 :: v
 """
-        assert _emit(src) == "(1, 2)"
+        assert _emit(src) == "[1, 2]"
 
     def test_same_axis_add(self) -> None:
         src = """

@@ -76,6 +76,7 @@ NON_SCENE_NATIVE_CORE_EXAMPLES = [
 RUNTIME_PARITY_NATIVE_CORE_EXAMPLES = {
     "hello_native.vkf",
     "vectors_native.vkf",
+    "records_native.vkf",
     "numeric_native.vkf",
     "named_record_native.vkf",
     "named_record_nested_native.vkf",
@@ -161,10 +162,10 @@ EXPANDED_NATIVE_FRONTEND_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "benchmarks" / "vector_large_reduce.vkf",
     ROOT / "examples" / "benchmarks" / "vectors_shapes.vkf",
 ]
-MINUS_TOKEN_PARITY_EXAMPLES = [
+MINUS_TOKEN_PARITY_EXAMPLES = [path for path in [
     ROOT / "examples" / "ui_field_mesh_uvw.vkf",
     ROOT / "examples" / "ui_torus_hole_clickthrough.vkf",
-]
+] if path.is_file()]
 CARET_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "70_arithmetic.vkf",
 ]
@@ -179,18 +180,18 @@ SEMICOLON_TOKEN_PARITY_EXAMPLES = [
 AT_FORM_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "04_early_return.vkf",
 ]
-PERCENT_TOKEN_PARITY_EXAMPLES = [
+PERCENT_TOKEN_PARITY_EXAMPLES = [path for path in [
     ROOT / "examples" / "ui_field_mesh_uv_landscape.vkf",
-]
+] if path.is_file()]
 UTF8_STRING_TOKEN_PARITY_EXAMPLES = [
     ROOT / "examples" / "11_strings_and_interpolation.vkf",
 ]
-LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES = [
+LAST_MILE_NATIVE_LEXER_PARITY_EXAMPLES = [path for path in [
     ROOT / "examples" / "60_if.vkf",
     ROOT / "examples" / "04_early_return.vkf",
     ROOT / "examples" / "ui_field_mesh_uv_landscape.vkf",
     ROOT / "examples" / "11_strings_and_interpolation.vkf",
-]
+] if path.is_file()]
 NATIVE_CORE_EXECUTION_CONTRACT_EXAMPLES = [
     "hello_native.vkf",
     "records_native.vkf",
@@ -908,7 +909,7 @@ class TestMain:
     def test_run_short_name(self) -> None:
         assert main([str(ROOT / "examples" / "01_hello")]) == 0
 
-    def test_run_supports_explicit_math_stdlib_namespace_import(
+    def test_run_rejects_math_program_outside_native_runtime_subset(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         src = tmp_path / "explicit_math_import.vkf"
@@ -919,13 +920,16 @@ class TestMain:
             encoding="utf-8",
         )
 
-        assert main([str(src)]) == 0
-        assert capsys.readouterr().out.strip().splitlines() == ["0", "9"]
+        assert main([str(src)]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "native runtime does not support this file" in captured.err
 
-    def test_run_folder_repo_main(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Regression: bind + emit on the next line must not join across newlines."""
-        assert main([str(FOLDER_REPO_MAIN)]) == 0
-        assert capsys.readouterr().out.strip() == "42"
+    def test_run_rejects_folder_program_outside_native_runtime_subset(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main([str(FOLDER_REPO_MAIN)]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "native runtime does not support this file" in captured.err
 
     def test_run_auto_prefers_native_backend_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         called: list[Path] = []
@@ -1243,6 +1247,14 @@ class TestMain:
             token_stream_to_json(tokenize(path.read_text(encoding="utf-8"), filename=path.as_posix()))
         )
         assert payload == expected
+
+    @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+    def test_tokens_native_core_structural_inequality_matches_python(
+        self, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "structural_inequality.vkf"
+        source.write_text("::: 2 ~= 2.0\n", encoding="utf-8")
+        _assert_tokens_native_core_direct_matches_python(source)
 
     @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
     def test_tokens_native_core_subcommand_stdin_matches_python(

@@ -435,7 +435,7 @@ int main(int argc, char** argv) {
             ? std::filesystem::absolute(args.source).string()
             : std::string("<cli>");
         const ProcessResult tokens = run_checked(
-            {args.lexer.string(), lexer_source_text, source_label},
+            {args.lexer.string(), "--file", args.source.string(), source_label},
             "lexer"
         );
         const auto lexer_finished = Clock::now();

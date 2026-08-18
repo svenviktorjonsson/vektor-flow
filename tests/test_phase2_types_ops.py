@@ -223,7 +223,7 @@ point: (x:3, y:4)
 members: (:point.)
 :: members
 """
-        assert _run_emit(src) == "(x:num, y:num)"
+        assert _run_emit(src) == "(x:int, y:int)"
 
     def test_struct_type_spills_to_vector_of_member_types(self) -> None:
         src = """
@@ -231,7 +231,7 @@ point: (x:3, y:4)
 members: [:point.]
 :: members
 """
-        assert _run_emit(src) == "[num, num]"
+        assert _run_emit(src) == "[int, int]"
 
     def test_struct_type_spills_to_multiset_of_member_keys(self) -> None:
         src = """
