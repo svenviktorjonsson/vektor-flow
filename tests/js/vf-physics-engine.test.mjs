@@ -117,6 +117,55 @@ test('an exact circular body stops tangent to an authored static segment', () =>
   assert.deepEqual(next.bodies[0].shape, { type: 'circle', radius: 0.25 });
 });
 
+test('a moving rigid segment transfers impact momentum to a circular body', () => {
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 1 / 1000,
+    segments: [{
+      id: 'rod',
+      from: [-1, -0.5],
+      to: [1, -0.5],
+      fromVelocity: [0, 12],
+      toVelocity: [0, 12],
+      e_n: 0.5,
+      mu_s: 0,
+      mu_d: 0
+    }],
+    bodies: [{
+      id: 'disc',
+      shape: { type: 'circle', radius: 0.2 },
+      position: [0, 0.2],
+      velocity: [0, 0],
+      e_n: 0.5,
+      mu_s: 0,
+      mu_d: 0
+    }]
+  }, 0.05);
+
+  assert.ok(next.bodies[0].velocity[1] > 17.9);
+  assert.ok(next.bodies[0].position[1] >= 0.3 - 1e-12);
+  assert.ok(Math.abs(next.segments[0].from[1] - 0.1) < 1e-12);
+});
+
+test('fast rigid motion cannot tunnel through a segment between authored steps', () => {
+  const next = stepRigidPolygonWorld2D({
+    gravity: [0, 0],
+    maxStep: 0.05,
+    segments: [{ from: [0, -1], to: [0, 1], e_n: 0, mu_s: 0, mu_d: 0 }],
+    bodies: [{
+      shape: { type: 'circle', radius: 0.2 },
+      position: [-1, 0],
+      velocity: [40, 0],
+      e_n: 0,
+      mu_s: 0,
+      mu_d: 0
+    }]
+  }, 0.05).bodies[0];
+
+  assert.ok(next.position[0] <= -0.2 + 1e-12);
+  assert.ok(Math.abs(next.velocity[0]) < 1e-12);
+});
+
 test('exact circles exchange impulse without polygonizing their boundaries', () => {
   const next = stepRigidPolygonWorld2D({
     gravity: [0, 0],

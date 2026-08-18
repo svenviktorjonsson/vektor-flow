@@ -183,11 +183,19 @@ export function stepRigidPolygonWorld2D(world, dt) {
     world.sleepContactGrace ?? world.sleep_contact_grace ?? 0.05,
     'sleep contact grace'
   );
-  const substeps = Math.max(1, Math.ceil(step / maxStep));
-  const h = substeps ? step / substeps : 0;
   const bodies = (world.bodies || []).map(normalizeRigidPolygonBody);
   const segments = (world.segments || []).map(normalizeRigidSegment);
+  const motionMaxStep = rigidMotionMaxStep(bodies, segments);
+  const effectiveMaxStep = Math.min(maxStep, motionMaxStep);
+  const substeps = Math.max(1, Math.ceil(step / effectiveMaxStep));
+  const h = substeps ? step / substeps : 0;
   for (let substep = 0; substep < substeps; substep += 1) {
+    for (const segment of segments) {
+      segment.from[0] += segment.fromVelocity[0] * h;
+      segment.from[1] += segment.fromVelocity[1] * h;
+      segment.to[0] += segment.toVelocity[0] * h;
+      segment.to[1] += segment.toVelocity[1] * h;
+    }
     for (const body of bodies) {
       body.hadContact = false;
       if (body.inverseMass === 0 || body.sleeping) continue;
@@ -227,6 +235,13 @@ export function stepRigidPolygonWorld2D(world, dt) {
     ...world,
     ...(width == null ? {} : { width, height }),
     gravity,
+    segments: segments.map(({ authored, from, to, fromVelocity, toVelocity }) => ({
+      ...authored,
+      from: [...from],
+      to: [...to],
+      fromVelocity: [...fromVelocity],
+      toVelocity: [...toVelocity]
+    })),
     bodies: bodies.map(({ authored, position, velocity, angle, angularVelocity, sleeping, sleepTimer, contactMemory }) => ({
       ...authored,
       position: [...position],
@@ -238,6 +253,22 @@ export function stepRigidPolygonWorld2D(world, dt) {
       sleep_contact_time: contactMemory
     }))
   };
+}
+
+function rigidMotionMaxStep(bodies, segments) {
+  if (bodies.length === 0 || (segments.length === 0 && bodies.length < 2)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const minimumRadius = Math.min(...bodies.map(({ material }) => material.contactRadius));
+  const bodySpeed = Math.max(0, ...bodies.map((body) => (
+    Math.hypot(...body.velocity) + Math.abs(body.angularVelocity) * body.material.contactRadius
+  )));
+  const segmentSpeed = Math.max(0, ...segments.flatMap((segment) => [
+    Math.hypot(...segment.fromVelocity),
+    Math.hypot(...segment.toVelocity)
+  ]));
+  const maximumSpeed = Math.max(bodySpeed, segmentSpeed);
+  return maximumSpeed > 0 ? minimumRadius / (4 * maximumSpeed) : Number.POSITIVE_INFINITY;
 }
 
 export function stepThermalNetwork(network, dt) {
@@ -879,6 +910,14 @@ function rigidShapeContactRadius(shape, localVertices) {
 function normalizeRigidSegment(segment, index) {
   const from = vector2(segment.from, `segment ${segment.id ?? index} from`);
   const to = vector2(segment.to, `segment ${segment.id ?? index} to`);
+  const fromVelocity = vector2(
+    segment.fromVelocity ?? segment.from_velocity ?? [0, 0],
+    `segment ${segment.id ?? index} from velocity`
+  );
+  const toVelocity = vector2(
+    segment.toVelocity ?? segment.to_velocity ?? [0, 0],
+    `segment ${segment.id ?? index} to velocity`
+  );
   if (!(Math.hypot(to[0] - from[0], to[1] - from[1]) > 1e-12)) {
     throw new RangeError(`rigid segment ${segment.id ?? index} requires distinct endpoints`);
   }
@@ -887,7 +926,14 @@ function normalizeRigidSegment(segment, index) {
     static: true,
     localVertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]]
   }, `segment ${segment.id ?? index}`);
-  return { authored: { ...segment, from, to }, from, to, material: materialBody.material };
+  return {
+    authored: { ...segment, from, to },
+    from,
+    to,
+    fromVelocity,
+    toVelocity,
+    material: materialBody.material
+  };
 }
 
 function resolveRigidBoundary(body, width, height) {
@@ -918,8 +964,18 @@ function resolveRigidSegment(body, segment) {
     manifold.normal,
     manifold.penetration,
     manifold.contact,
-    mixRigidContactMaterial(body, { material: segment.material })
+    mixRigidContactMaterial(body, { material: segment.material }),
+    rigidSegmentVelocityAt(segment, manifold.contact)
   );
+}
+
+function rigidSegmentVelocityAt(segment, contact) {
+  const direction = subtract2(segment.to, segment.from);
+  const lengthSquared = dot2(direction, direction);
+  const t = lengthSquared > 1e-24
+    ? Math.max(0, Math.min(1, dot2(subtract2(contact, segment.from), direction) / lengthSquared))
+    : 0;
+  return add2(scale2(segment.fromVelocity, 1 - t), scale2(segment.toVelocity, t));
 }
 
 function rigidShapeSegmentManifold(body, segment) {
@@ -944,12 +1000,12 @@ function rigidShapeSegmentManifold(body, segment) {
   };
 }
 
-function resolveRigidStaticContact(body, normal, penetration, contact, material) {
+function resolveRigidStaticContact(body, normal, penetration, contact, material, surfaceVelocity = [0, 0]) {
   body.hadContact = true;
   body.position[0] += normal[0] * penetration;
   body.position[1] += normal[1] * penetration;
   const r = subtract2(contact, body.position);
-  const normalSpeed = dot2(velocityAtRigidPoint(body, r), normal);
+  const normalSpeed = dot2(subtract2(velocityAtRigidPoint(body, r), surfaceVelocity), normal);
   if (normalSpeed >= 0) return;
   const rn = cross2(r, normal);
   const isImpact = -normalSpeed > material.restitutionThreshold;
@@ -957,7 +1013,7 @@ function resolveRigidStaticContact(body, normal, penetration, contact, material)
   const normalImpulse = -(1 + restitution) * normalSpeed
     / (body.inverseMass + rn * rn * body.inverseInertia);
   applyRigidImpulse(body, scale2(normal, normalImpulse), r);
-  applyRigidContactFriction(null, body, [0, 0], r, normal, normalImpulse, material, isImpact);
+  applyRigidContactFriction(null, body, [0, 0], r, normal, normalImpulse, material, isImpact, surfaceVelocity);
 }
 
 function resolveRigidPair(a, b) {
@@ -1179,7 +1235,7 @@ function resolveRigidPairManifold(a, b, { normal, penetration, contact }) {
   applyRigidContactFriction(a, b, rA, rB, normal, normalImpulse, material, isImpact);
 }
 
-function applyRigidContactFriction(a, b, rA, rB, normal, normalImpulse, material, isImpact) {
+function applyRigidContactFriction(a, b, rA, rB, normal, normalImpulse, material, isImpact, staticVelocity = [0, 0]) {
   if (!(normalImpulse > 0) || (!(material.muS > 0) && !(material.muR > 0))) return;
   const tangent = [-normal[1], normal[0]];
   const inverseMassA = a?.inverseMass ?? 0;
@@ -1194,7 +1250,7 @@ function applyRigidContactFriction(a, b, rA, rB, normal, normalImpulse, material
   const kLL = inverseInertiaA + inverseInertiaB;
   if (!(kTT > 1e-12)) return;
 
-  const velocityA = a ? velocityAtRigidPoint(a, rA) : [0, 0];
+  const velocityA = a ? velocityAtRigidPoint(a, rA) : staticVelocity;
   const velocityB = b ? velocityAtRigidPoint(b, rB) : [0, 0];
   const relativeVelocity = subtract2(velocityB, velocityA);
   const tangentSpeed = dot2(relativeVelocity, tangent);
