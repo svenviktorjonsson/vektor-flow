@@ -14,15 +14,15 @@ import {
 test('lists geometry properties reachable in spatial and temporal contexts', () => {
   assert.deepEqual(
     reachablePropertyDescriptors({ geometryKinds: ['vertex'], dimension: 2 }).map(({ name }) => name),
-    ['p', 'x', 'y', 'm', 'q', 'T', 'epsilon', 'mu', 'sigma_e', 'kappa', 'alpha', 'c_p', 'eta', 'nu', 'P', 'E', 'B', 'phi', 'c']
+    ['p', 'x', 'y', 'vertex_px_radius', 'vertex_radius', 'm', 'q', 'T', 'epsilon', 'mu', 'sigma_e', 'kappa', 'alpha', 'c_p', 'eta', 'nu', 'P', 'E', 'B', 'phi', 'c']
   );
   assert.deepEqual(
     reachablePropertyDescriptors({ geometryKinds: ['vertex'], dimension: 3, temporal: true }).map(({ name }) => name),
-    ['p', 'x', 'y', 'z', 'v', 'vx', 'vy', 'vz', 'a', 'm', 'q', 'T', 'epsilon', 'mu', 'sigma_e', 'kappa', 'alpha', 'c_p', 'eta', 'nu', 'P', 'E', 'B', 'phi', 'c']
+    ['p', 'x', 'y', 'z', 'v', 'vx', 'vy', 'vz', 'a', 'vertex_px_radius', 'vertex_radius', 'm', 'q', 'T', 'epsilon', 'mu', 'sigma_e', 'kappa', 'alpha', 'c_p', 'eta', 'nu', 'P', 'E', 'B', 'phi', 'c']
   );
   assert.deepEqual(
     reachablePropertyDescriptors({ geometryKinds: ['edge', 'face'] }).map(({ name }) => name),
-    ['L', 'k', 'k_theta', 'lambda_m', 'lambda_q', 'sigma_m', 'sigma_q', 'T', 'epsilon', 'mu', 'sigma_e', 'kappa', 'alpha', 'c_p', 'h', 'epsilon_rad', 'eta', 'nu', 'P', 'E', 'B', 'phi', 'c']
+    ['L', 'edge_px_width', 'edge_width', 'k', 'k_theta', 'lambda_m', 'lambda_q', 'sigma_m', 'sigma_q', 'T', 'epsilon', 'mu', 'sigma_e', 'kappa', 'alpha', 'c_p', 'h', 'epsilon_rad', 'eta', 'nu', 'P', 'E', 'B', 'phi', 'c']
   );
   assert.equal(
     reachablePropertyDescriptors({ geometryKinds: ['face'] }).find(({ name }) => name === 'kappa').field,
@@ -31,6 +31,8 @@ test('lists geometry properties reachable in spatial and temporal contexts', () 
   const edgeProperties = reachablePropertyDescriptors({ geometryKinds: ['edge'] });
   assert.deepEqual(edgeProperties.find(({ name }) => name === 'k').dimension, [0, 1, -2, 0, 0, 0, 0]);
   assert.deepEqual(edgeProperties.find(({ name }) => name === 'k_theta').dimension, [2, 1, -2, 0, 0, 0, 0]);
+  assert.equal(edgeProperties.find(({ name }) => name === 'edge_px_width').quantity, 'screen-length');
+  assert.equal(edgeProperties.find(({ name }) => name === 'edge_width').quantity, 'length');
 });
 
 test('parses dot properties plus ordinary VKF bindings and functions', () => {
