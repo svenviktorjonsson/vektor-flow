@@ -1,4 +1,6 @@
 export const STEFAN_BOLTZMANN = 5.670374419e-8;
+export const VACUUM_PERMITTIVITY = 8.8541878128e-12;
+export const VACUUM_PERMEABILITY = 1.25663706212e-6;
 
 export const MAXWELL_BOUNDARIES = Object.freeze({
   PERIODIC: 'periodic',
@@ -260,6 +262,486 @@ export function stepChargedParticleCloud3D(cloud, dt, {
   }
   cloud.time = time;
   return cloud;
+}
+
+/**
+ * Allocate the field half of a self-consistent 3D electromagnetic
+ * particle-in-cell simulation. Particle buffers remain in the compact charged
+ * cloud so rendering and physics share one stable topology allocation.
+ */
+export function createElectromagneticPicGrid3D({
+  bounds = [[-1, 1], [-1, 1], [-1, 1]],
+  shape = [17, 17, 17],
+  permittivity = VACUUM_PERMITTIVITY,
+  permeability = VACUUM_PERMEABILITY,
+  conductivity = 0,
+  electric = null,
+  magnetic = null,
+  boundary = MAXWELL_BOUNDARIES.PEC,
+  particleBoundary = 'absorb',
+  particleShape = 'cic',
+  poissonIterations = 24,
+  time = 0
+} = {}) {
+  const gridShape = normalizedPicShape3(shape);
+  const gridBounds = normalizedPicBounds3(bounds);
+  const spacing = gridShape.map((size, axis) => (
+    (gridBounds[axis][1] - gridBounds[axis][0]) / (size - 1)
+  ));
+  const cells = cellCount(gridShape);
+  if (!Object.values(MAXWELL_BOUNDARIES).includes(boundary)) {
+    throw new RangeError(`Unknown Maxwell boundary: ${boundary}`);
+  }
+  if (!['absorb', 'periodic'].includes(particleBoundary)) {
+    throw new RangeError(`Unknown particle boundary: ${particleBoundary}`);
+  }
+  if (!['cic', 'ngp'].includes(particleShape)) {
+    throw new RangeError(`Unknown particle shape: ${particleShape}`);
+  }
+  return {
+    bounds: gridBounds,
+    shape: gridShape,
+    spacing,
+    electric: picVectorField(electric, cells, 'electric'),
+    magnetic: picVectorField(magnetic, cells, 'magnetic'),
+    current: new Float64Array(cells * 3),
+    chargeDensity: new Float64Array(cells),
+    permittivity: picScalarField(permittivity, cells, VACUUM_PERMITTIVITY, 'permittivity'),
+    permeability: picScalarField(permeability, cells, VACUUM_PERMEABILITY, 'permeability'),
+    conductivity: picScalarField(conductivity, cells, 0, 'conductivity'),
+    boundary,
+    particleBoundary,
+    particleShape,
+    poissonIterations: Math.max(1, Math.trunc(finitePositive(poissonIterations, 'poisson iterations'))),
+    time: finiteNumber(time, 'grid time'),
+    _neighbors: picNeighborTable(gridShape, boundary),
+    _nextElectric: new Float64Array(cells * 3),
+    _nextMagnetic: new Float64Array(cells * 3),
+    _potential: new Float64Array(cells),
+    _nextPotential: new Float64Array(cells),
+    _divergenceResidual: new Float64Array(cells)
+  };
+}
+
+/**
+ * Advance a compact charged cloud and its dynamic Maxwell grid in place.
+ * Charge and current are deposited with cloud-in-cell weights, Gauss's law is
+ * restored by a Poisson projection, and the resulting E/B fields feed the
+ * Boris particle push. No pair-force approximation is used.
+ */
+export function stepElectromagneticPicCloud3D(grid, cloud, dt, {
+  externalElectricField = [0, 0, 0],
+  externalMagneticField = [0, 0, 0]
+} = {}) {
+  requireElectromagneticPicGrid3D(grid);
+  requireChargedParticleCloud3D(cloud);
+  const step = finiteNonNegative(dt, 'dt');
+  const cflLimit = electromagneticPicCflLimit(grid);
+  const maxStep = Math.min(cflLimit * 0.95, cloud.maxStep);
+  const substeps = Math.max(1, Math.ceil(step / maxStep));
+  const h = substeps ? step / substeps : 0;
+  let absorbed = 0;
+  for (let substep = 0; substep < substeps; substep += 1) {
+    depositPicChargeAndCurrent(grid, cloud);
+    stepPicMaxwellFields(grid, h);
+    projectPicGaussLaw(grid);
+    absorbed += pushPicParticles(grid, cloud, h, {
+      externalElectricField,
+      externalMagneticField,
+      time: grid.time + h * 0.5
+    });
+    grid.time += h;
+  }
+  depositPicChargeAndCurrent(grid, cloud);
+  return Object.freeze({ substeps, absorbed, cflLimit, count: cloud.count });
+}
+
+export function electromagneticPicCflLimit(grid) {
+  requireElectromagneticPicGrid3D(grid);
+  let maxWaveSpeed = 0;
+  for (let index = 0; index < grid.permittivity.length; index += 1) {
+    maxWaveSpeed = Math.max(maxWaveSpeed, 1 / Math.sqrt(
+      finitePositive(grid.permittivity[index], 'permittivity')
+      * finitePositive(grid.permeability[index], 'permeability')
+    ));
+  }
+  return 1 / (maxWaveSpeed * Math.sqrt(
+    grid.spacing.reduce((sum, value) => sum + 1 / (value * value), 0)
+  ));
+}
+
+function depositPicChargeAndCurrent(grid, cloud) {
+  grid.chargeDensity.fill(0);
+  grid.current.fill(0);
+  const inverseVolume = 1 / grid.spacing.reduce((product, value) => product * value, 1);
+  const cells = new Int32Array(8);
+  const weights = new Float64Array(8);
+  for (let particle = 0; particle < cloud.count; particle += 1) {
+    const offset = particle * 3;
+    if (grid.particleShape === 'ngp') {
+      const cell = picNearestCell(grid, cloud.positions[offset], cloud.positions[offset + 1], cloud.positions[offset + 2]);
+      const density = cloud.charge * inverseVolume;
+      grid.chargeDensity[cell] += density;
+      grid.current[cell * 3] += density * cloud.velocities[offset];
+      grid.current[cell * 3 + 1] += density * cloud.velocities[offset + 1];
+      grid.current[cell * 3 + 2] += density * cloud.velocities[offset + 2];
+      continue;
+    }
+    picCellWeights(grid, cloud.positions[offset], cloud.positions[offset + 1], cloud.positions[offset + 2], cells, weights);
+    for (let corner = 0; corner < 8; corner += 1) {
+      const cell = cells[corner];
+      const density = cloud.charge * weights[corner] * inverseVolume;
+      grid.chargeDensity[cell] += density;
+      grid.current[cell * 3] += density * cloud.velocities[offset];
+      grid.current[cell * 3 + 1] += density * cloud.velocities[offset + 1];
+      grid.current[cell * 3 + 2] += density * cloud.velocities[offset + 2];
+    }
+  }
+}
+
+function stepPicMaxwellFields(grid, dt) {
+  const cells = grid.chargeDensity.length;
+  const sourceElectric = grid.electric;
+  const sourceMagnetic = grid.magnetic;
+  const nextElectric = grid._nextElectric;
+  const nextMagnetic = grid._nextMagnetic;
+  nextMagnetic.set(sourceMagnetic);
+  for (let cell = 0; cell < cells; cell += 1) {
+    const offset = cell * 3;
+    const curlX = picDerivative(grid, sourceElectric, cell, 2, 1)
+      - picDerivative(grid, sourceElectric, cell, 1, 2);
+    const curlY = picDerivative(grid, sourceElectric, cell, 0, 2)
+      - picDerivative(grid, sourceElectric, cell, 2, 0);
+    const curlZ = picDerivative(grid, sourceElectric, cell, 1, 0)
+      - picDerivative(grid, sourceElectric, cell, 0, 1);
+    nextMagnetic[offset] -= dt * curlX;
+    nextMagnetic[offset + 1] -= dt * curlY;
+    nextMagnetic[offset + 2] -= dt * curlZ;
+  }
+  nextElectric.set(sourceElectric);
+  for (let cell = 0; cell < cells; cell += 1) {
+    const offset = cell * 3;
+    const inverseMu = 1 / grid.permeability[cell];
+    const inverseEpsilon = 1 / grid.permittivity[cell];
+    const curlX = picDerivative(grid, nextMagnetic, cell, 2, 1)
+      - picDerivative(grid, nextMagnetic, cell, 1, 2);
+    const curlY = picDerivative(grid, nextMagnetic, cell, 0, 2)
+      - picDerivative(grid, nextMagnetic, cell, 2, 0);
+    const curlZ = picDerivative(grid, nextMagnetic, cell, 1, 0)
+      - picDerivative(grid, nextMagnetic, cell, 0, 1);
+    const damping = grid.conductivity[cell];
+    nextElectric[offset] += dt * (curlX * inverseMu - grid.current[offset]
+      - damping * sourceElectric[offset]) * inverseEpsilon;
+    nextElectric[offset + 1] += dt * (curlY * inverseMu - grid.current[offset + 1]
+      - damping * sourceElectric[offset + 1]) * inverseEpsilon;
+    nextElectric[offset + 2] += dt * (curlZ * inverseMu - grid.current[offset + 2]
+      - damping * sourceElectric[offset + 2]) * inverseEpsilon;
+  }
+  if (grid.boundary === MAXWELL_BOUNDARIES.PEC) zeroPicElectricBoundary(grid, nextElectric);
+  grid.electric = nextElectric;
+  grid.magnetic = nextMagnetic;
+  grid._nextElectric = sourceElectric;
+  grid._nextMagnetic = sourceMagnetic;
+}
+
+function projectPicGaussLaw(grid) {
+  const cells = grid.chargeDensity.length;
+  const residual = grid._divergenceResidual;
+  for (let cell = 0; cell < cells; cell += 1) {
+    const divergence = picDerivative(grid, grid.electric, cell, 0, 0)
+      + picDerivative(grid, grid.electric, cell, 1, 1)
+      + picDerivative(grid, grid.electric, cell, 2, 2);
+    residual[cell] = grid.chargeDensity[cell] - grid.permittivity[cell] * divergence;
+  }
+  let potential = grid._potential;
+  let next = grid._nextPotential;
+  const wx = 1 / (grid.spacing[0] ** 2);
+  const wy = 1 / (grid.spacing[1] ** 2);
+  const wz = 1 / (grid.spacing[2] ** 2);
+  const denominator = 2 * (wx + wy + wz);
+  for (let iteration = 0; iteration < grid.poissonIterations; iteration += 1) {
+    next.fill(0);
+    for (let cell = 0; cell < cells; cell += 1) {
+      if (picBoundaryCell(grid, cell)) continue;
+      const base = cell * 6;
+      next[cell] = (
+        wx * (potential[grid._neighbors[base]] + potential[grid._neighbors[base + 1]])
+        + wy * (potential[grid._neighbors[base + 2]] + potential[grid._neighbors[base + 3]])
+        + wz * (potential[grid._neighbors[base + 4]] + potential[grid._neighbors[base + 5]])
+        + residual[cell] / grid.permittivity[cell]
+      ) / denominator;
+    }
+    const swap = potential;
+    potential = next;
+    next = swap;
+  }
+  grid._potential = potential;
+  grid._nextPotential = next;
+  for (let cell = 0; cell < cells; cell += 1) {
+    const offset = cell * 3;
+    grid.electric[offset] -= picDerivative(grid, potential, cell, 0, 0, 1);
+    grid.electric[offset + 1] -= picDerivative(grid, potential, cell, 0, 1, 1);
+    grid.electric[offset + 2] -= picDerivative(grid, potential, cell, 0, 2, 1);
+  }
+  if (grid.boundary === MAXWELL_BOUNDARIES.PEC) zeroPicElectricBoundary(grid, grid.electric);
+}
+
+function pushPicParticles(grid, cloud, dt, fields) {
+  const electric = new Float64Array(3);
+  const magnetic = new Float64Array(3);
+  const externalElectric = new Float64Array(3);
+  const externalMagnetic = new Float64Array(3);
+  const cells = new Int32Array(8);
+  const weights = new Float64Array(8);
+  const halfAcceleration = cloud.charge * dt / (2 * cloud.mass);
+  let absorbed = 0;
+  let particle = 0;
+  while (particle < cloud.count) {
+    const offset = particle * 3;
+    const x = cloud.positions[offset];
+    const y = cloud.positions[offset + 1];
+    const z = cloud.positions[offset + 2];
+    if (grid.particleShape === 'ngp') {
+      const cell = picNearestCell(grid, x, y, z);
+      const fieldOffset = cell * 3;
+      electric[0] = grid.electric[fieldOffset];
+      electric[1] = grid.electric[fieldOffset + 1];
+      electric[2] = grid.electric[fieldOffset + 2];
+      magnetic[0] = grid.magnetic[fieldOffset];
+      magnetic[1] = grid.magnetic[fieldOffset + 1];
+      magnetic[2] = grid.magnetic[fieldOffset + 2];
+    } else {
+      picCellWeights(grid, x, y, z, cells, weights);
+      samplePicVector(grid.electric, cells, weights, electric);
+      samplePicVector(grid.magnetic, cells, weights, magnetic);
+    }
+    sampleVectorFieldComponents3(fields.externalElectricField, x, y, z, fields.time, externalElectric);
+    sampleVectorFieldComponents3(fields.externalMagneticField, x, y, z, fields.time, externalMagnetic);
+    const ex = electric[0] + externalElectric[0];
+    const ey = electric[1] + externalElectric[1];
+    const ez = electric[2] + externalElectric[2];
+    const bx = magnetic[0] + externalMagnetic[0];
+    const by = magnetic[1] + externalMagnetic[1];
+    const bz = magnetic[2] + externalMagnetic[2];
+    const oldVx = cloud.velocities[offset];
+    const oldVy = cloud.velocities[offset + 1];
+    const oldVz = cloud.velocities[offset + 2];
+    const vmx = oldVx + ex * halfAcceleration;
+    const vmy = oldVy + ey * halfAcceleration;
+    const vmz = oldVz + ez * halfAcceleration;
+    const tx = bx * halfAcceleration;
+    const ty = by * halfAcceleration;
+    const tz = bz * halfAcceleration;
+    const rotationScale = 2 / (1 + tx * tx + ty * ty + tz * tz);
+    const vpx = vmx + vmy * tz - vmz * ty;
+    const vpy = vmy + vmz * tx - vmx * tz;
+    const vpz = vmz + vmx * ty - vmy * tx;
+    const sx = tx * rotationScale;
+    const sy = ty * rotationScale;
+    const sz = tz * rotationScale;
+    const nextVx = vmx + vpy * sz - vpz * sy + ex * halfAcceleration;
+    const nextVy = vmy + vpz * sx - vpx * sz + ey * halfAcceleration;
+    const nextVz = vmz + vpx * sy - vpy * sx + ez * halfAcceleration;
+    const nextX = x + (oldVx + nextVx) * dt * 0.5;
+    const nextY = y + (oldVy + nextVy) * dt * 0.5;
+    const nextZ = z + (oldVz + nextVz) * dt * 0.5;
+    if (!picPointInside(grid.bounds, nextX, nextY, nextZ)) {
+      if (grid.particleBoundary === 'periodic') {
+        cloud.positions[offset] = picWrap(nextX, grid.bounds[0]);
+        cloud.positions[offset + 1] = picWrap(nextY, grid.bounds[1]);
+        cloud.positions[offset + 2] = picWrap(nextZ, grid.bounds[2]);
+      } else {
+        removePicParticle(cloud, particle);
+        absorbed += 1;
+        continue;
+      }
+    } else {
+      cloud.positions[offset] = nextX;
+      cloud.positions[offset + 1] = nextY;
+      cloud.positions[offset + 2] = nextZ;
+    }
+    cloud.velocities[offset] = nextVx;
+    cloud.velocities[offset + 1] = nextVy;
+    cloud.velocities[offset + 2] = nextVz;
+    particle += 1;
+  }
+  return absorbed;
+}
+
+function samplePicVector(values, cells, weights, output) {
+  output.fill(0);
+  for (let corner = 0; corner < 8; corner += 1) {
+    const cell = cells[corner];
+    const weight = weights[corner];
+    const offset = cell * 3;
+    output[0] += values[offset] * weight;
+    output[1] += values[offset + 1] * weight;
+    output[2] += values[offset + 2] * weight;
+  }
+}
+
+function picCellWeights(grid, x, y, z, cells, weights) {
+  const gx = (x - grid.bounds[0][0]) / grid.spacing[0];
+  const gy = (y - grid.bounds[1][0]) / grid.spacing[1];
+  const gz = (z - grid.bounds[2][0]) / grid.spacing[2];
+  const ix = Math.max(0, Math.min(grid.shape[0] - 2, Math.floor(gx)));
+  const iy = Math.max(0, Math.min(grid.shape[1] - 2, Math.floor(gy)));
+  const iz = Math.max(0, Math.min(grid.shape[2] - 2, Math.floor(gz)));
+  const fx = Math.max(0, Math.min(1, gx - ix));
+  const fy = Math.max(0, Math.min(1, gy - iy));
+  const fz = Math.max(0, Math.min(1, gz - iz));
+  const nx = grid.shape[0];
+  const nxy = nx * grid.shape[1];
+  let corner = 0;
+  for (let dz = 0; dz <= 1; dz += 1) {
+    const wz = dz ? fz : 1 - fz;
+    for (let dy = 0; dy <= 1; dy += 1) {
+      const wy = dy ? fy : 1 - fy;
+      for (let dx = 0; dx <= 1; dx += 1) {
+        const wx = dx ? fx : 1 - fx;
+        cells[corner] = ix + dx + (iy + dy) * nx + (iz + dz) * nxy;
+        weights[corner] = wx * wy * wz;
+        corner += 1;
+      }
+    }
+  }
+}
+
+function picNearestCell(grid, x, y, z) {
+  const ix = Math.max(0, Math.min(grid.shape[0] - 1, Math.round(
+    (x - grid.bounds[0][0]) / grid.spacing[0]
+  )));
+  const iy = Math.max(0, Math.min(grid.shape[1] - 1, Math.round(
+    (y - grid.bounds[1][0]) / grid.spacing[1]
+  )));
+  const iz = Math.max(0, Math.min(grid.shape[2] - 1, Math.round(
+    (z - grid.bounds[2][0]) / grid.spacing[2]
+  )));
+  return ix + iy * grid.shape[0] + iz * grid.shape[0] * grid.shape[1];
+}
+
+function picDerivative(grid, field, cell, component, axis, scalarStride = 3) {
+  const base = cell * 6 + axis * 2;
+  const low = grid._neighbors[base];
+  const high = grid._neighbors[base + 1];
+  const lowValue = low < 0 ? 0 : field[low * scalarStride + component];
+  const highValue = high < 0 ? 0 : field[high * scalarStride + component];
+  return (highValue - lowValue) / (2 * grid.spacing[axis]);
+}
+
+function zeroPicElectricBoundary(grid, electric) {
+  for (let cell = 0; cell < grid.chargeDensity.length; cell += 1) {
+    if (!picBoundaryCell(grid, cell)) continue;
+    electric[cell * 3] = 0;
+    electric[cell * 3 + 1] = 0;
+    electric[cell * 3 + 2] = 0;
+  }
+}
+
+function picBoundaryCell(grid, cell) {
+  const nx = grid.shape[0];
+  const ny = grid.shape[1];
+  const x = cell % nx;
+  const y = Math.floor(cell / nx) % ny;
+  const z = Math.floor(cell / (nx * ny));
+  return x === 0 || y === 0 || z === 0
+    || x === nx - 1 || y === ny - 1 || z === grid.shape[2] - 1;
+}
+
+function picNeighborTable(shape, boundary) {
+  const [nx, ny, nz] = shape;
+  const cells = nx * ny * nz;
+  const neighbors = new Int32Array(cells * 6);
+  for (let cell = 0; cell < cells; cell += 1) {
+    const x = cell % nx;
+    const y = Math.floor(cell / nx) % ny;
+    const z = Math.floor(cell / (nx * ny));
+    const coordinates = [x, y, z];
+    for (let axis = 0; axis < 3; axis += 1) {
+      for (let side = 0; side < 2; side += 1) {
+        const next = [...coordinates];
+        next[axis] += side ? 1 : -1;
+        if (next[axis] < 0 || next[axis] >= shape[axis]) {
+          if (boundary === MAXWELL_BOUNDARIES.PERIODIC) {
+            next[axis] = (next[axis] + shape[axis]) % shape[axis];
+          } else {
+            neighbors[cell * 6 + axis * 2 + side] = -1;
+            continue;
+          }
+        }
+        neighbors[cell * 6 + axis * 2 + side] = next[0] + next[1] * nx + next[2] * nx * ny;
+      }
+    }
+  }
+  return neighbors;
+}
+
+function normalizedPicShape3(value) {
+  const shape = normalizedShape(value);
+  if (shape.length !== 3) throw new RangeError('particle-in-cell shape must have three dimensions');
+  if (shape.some((size) => size < 3)) throw new RangeError('particle-in-cell shape dimensions must be at least 3');
+  return shape;
+}
+
+function normalizedPicBounds3(value) {
+  if (!Array.isArray(value) || value.length !== 3) {
+    throw new TypeError('particle-in-cell bounds must contain x, y, and z intervals');
+  }
+  return value.map((interval) => {
+    if (!Array.isArray(interval) || interval.length !== 2) throw new TypeError('particle-in-cell bounds require [minimum, maximum]');
+    const result = interval.map(Number);
+    if (!result.every(Number.isFinite) || !(result[1] > result[0])) throw new RangeError('particle-in-cell bounds must increase');
+    return result;
+  });
+}
+
+function picVectorField(value, cells, name) {
+  if (value == null) return new Float64Array(cells * 3);
+  if (Array.isArray(value) && value.length === 3 && value.every(Number.isFinite)) {
+    const field = new Float64Array(cells * 3);
+    for (let cell = 0; cell < cells; cell += 1) field.set(value, cell * 3);
+    return field;
+  }
+  return Float64Array.from(numericArray(value, name, cells * 3));
+}
+
+function picScalarField(value, cells, fallback, name) {
+  const field = value == null || typeof value === 'number'
+    ? new Float64Array(cells).fill(Number(value ?? fallback))
+    : Float64Array.from(numericArray(value, name, cells));
+  if (name === 'conductivity') field.forEach((entry) => finiteNonNegative(entry, name));
+  else field.forEach((entry) => finitePositive(entry, name));
+  return field;
+}
+
+function requireElectromagneticPicGrid3D(grid) {
+  if (!grid || !Array.isArray(grid.shape) || grid.shape.length !== 3
+    || !(grid.electric instanceof Float64Array)
+    || !(grid.magnetic instanceof Float64Array)
+    || !(grid.chargeDensity instanceof Float64Array)
+    || !(grid.current instanceof Float64Array)) {
+    throw new TypeError('electromagnetic particle-in-cell grid is invalid');
+  }
+}
+
+function picPointInside(bounds, x, y, z) {
+  return x >= bounds[0][0] && x <= bounds[0][1]
+    && y >= bounds[1][0] && y <= bounds[1][1]
+    && z >= bounds[2][0] && z <= bounds[2][1];
+}
+
+function picWrap(value, bounds) {
+  const length = bounds[1] - bounds[0];
+  return bounds[0] + ((value - bounds[0]) % length + length) % length;
+}
+
+function removePicParticle(cloud, index) {
+  const last = cloud.count - 1;
+  if (index !== last) {
+    cloud.positions.copyWithin(index * 3, last * 3, last * 3 + 3);
+    cloud.velocities.copyWithin(index * 3, last * 3, last * 3 + 3);
+  }
+  cloud.count = last;
 }
 
 function chargedParticleBuffer(value, capacity, name) {

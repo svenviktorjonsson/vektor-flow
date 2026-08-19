@@ -5,6 +5,7 @@ import {
   MAXWELL_BOUNDARIES,
   appendChargedParticleCloud3D,
   createChargedParticleCloud3D,
+  createElectromagneticPicGrid3D,
   createGlobalFieldRegistry,
   createPhysicsScope,
   maxwellCflLimit,
@@ -14,6 +15,7 @@ import {
   stepChargedParticleWorld3D,
   stepChargedParticleCloud3D,
   stepDoublePendulum,
+  stepElectromagneticPicCloud3D,
   stepHeatField,
   stepInertialBodies,
   stepMaxwellField,
@@ -138,6 +140,53 @@ test('compact charged-particle cloud advances 100,000 points in one contiguous p
   assert.equal(cloud.count, count);
   assert.ok(cloud.positions[0] > -0.0495);
   assert.ok(elapsed < 100, `100k compact step took ${elapsed.toFixed(1)} ms`);
+});
+
+test('particle-in-cell Maxwell coupling makes identical electrons repel through their solved field', () => {
+  const cloud = createChargedParticleCloud3D({
+    capacity: 2, charge: -1, mass: 1, maxStep: 0.01
+  });
+  appendChargedParticleCloud3D(cloud, { position: [-0.25, 0, 0] });
+  appendChargedParticleCloud3D(cloud, { position: [0.25, 0, 0] });
+  const grid = createElectromagneticPicGrid3D({
+    bounds: [[-1, 1], [-1, 1], [-1, 1]],
+    shape: [9, 9, 9],
+    permittivity: 1,
+    permeability: 1,
+    poissonIterations: 120
+  });
+
+  for (let index = 0; index < 8; index += 1) {
+    stepElectromagneticPicCloud3D(grid, cloud, 0.01);
+  }
+
+  const depositedCharge = grid.chargeDensity.reduce((sum, value) => sum + value, 0)
+    * grid.spacing.reduce((product, value) => product * value, 1);
+  assert.ok(cloud.velocities[0] < 0);
+  assert.ok(cloud.velocities[3] > 0);
+  assert.ok(Math.abs(cloud.velocities[0] + cloud.velocities[3]) < 1e-8);
+  assert.ok(Math.abs(depositedCharge + 2) < 1e-12);
+  assert.ok(grid.electric.some((value) => value !== 0));
+  assert.ok(grid.magnetic.every(Number.isFinite));
+});
+
+test('particle-in-cell boundaries absorb electrons that strike or leave the apparatus', () => {
+  const cloud = createChargedParticleCloud3D({
+    capacity: 1, charge: -1, mass: 1, maxStep: 0.01
+  });
+  appendChargedParticleCloud3D(cloud, { position: [0.9, 0, 0], velocity: [2, 0, 0] });
+  const grid = createElectromagneticPicGrid3D({
+    bounds: [[-1, 1], [-1, 1], [-1, 1]],
+    shape: [9, 9, 9],
+    permittivity: 1,
+    permeability: 1,
+    particleBoundary: 'absorb'
+  });
+
+  const result = stepElectromagneticPicCloud3D(grid, cloud, 0.1);
+
+  assert.equal(result.absorbed, 1);
+  assert.equal(cloud.count, 0);
 });
 
 test('double pendulum advances two horizontal one-metre links under gravity', () => {
