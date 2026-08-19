@@ -105,6 +105,76 @@ export function stepInertialBodies(bodies, dt) {
   });
 }
 
+/**
+ * Advance point charges in three dimensions with the Boris integrator.
+ * Positions are metres, velocities metres/second, charge coulombs, mass
+ * kilograms, E volts/metre, B teslas, and time seconds.
+ */
+export function stepChargedParticleWorld3D(world, dt) {
+  const step = finiteNonNegative(dt, 'dt');
+  const maxStep = finitePositive(world.maxStep ?? world.step_dt ?? (step || 1), 'maxStep');
+  const substeps = Math.max(1, Math.ceil(step / maxStep));
+  const h = substeps ? step / substeps : 0;
+  let time = finiteNumber(world.time ?? 0, 'world time');
+  const particles = (world.particles || []).map((particle) => ({
+    ...particle,
+    position: vector(particle.position, 3),
+    velocity: vector(particle.velocity, 3),
+    charge: finiteNumber(particle.charge, 'particle charge'),
+    mass: finitePositive(particle.mass, 'particle mass')
+  }));
+
+  for (let substep = 0; substep < substeps; substep += 1) {
+    for (const particle of particles) {
+      const oldVelocity = particle.velocity;
+      const sampleTime = time + h * 0.5;
+      const electric = sampleVectorField3(world.electricField ?? world.E ?? [0, 0, 0], particle.position, sampleTime);
+      const magnetic = sampleVectorField3(world.magneticField ?? world.B ?? [0, 0, 0], particle.position, sampleTime);
+      const halfAcceleration = particle.charge * h / (2 * particle.mass);
+      const velocityMinus = add(oldVelocity, scale(electric, halfAcceleration));
+      const rotation = scale(magnetic, halfAcceleration);
+      const rotationScale = 2 / (1 + dot3(rotation, rotation));
+      const velocityPrime = add(velocityMinus, cross3(velocityMinus, rotation));
+      const velocityPlus = add(velocityMinus, scale(cross3(velocityPrime, rotation), rotationScale));
+      const nextVelocity = add(velocityPlus, scale(electric, halfAcceleration));
+      particle.position = add(particle.position, scale(add(oldVelocity, nextVelocity), h * 0.5));
+      particle.velocity = nextVelocity;
+    }
+    time += h;
+  }
+
+  return {
+    ...world,
+    time,
+    particles: particles.map((particle) => ({
+      ...particle,
+      position: [...particle.position],
+      velocity: [...particle.velocity]
+    }))
+  };
+}
+
+function sampleVectorField3(field, position, time) {
+  const sampled = typeof field === 'function'
+    ? field([...position], { time })
+    : typeof field?.sample === 'function'
+      ? field.sample([...position], { time })
+      : field;
+  return vector(sampled, 3);
+}
+
+function dot3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function cross3(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0]
+  ];
+}
+
 /** Advance a planar double pendulum with an RK4 integration step.
  * Angles are measured from the downward vertical, in radians.
  */

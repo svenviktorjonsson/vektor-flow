@@ -9,6 +9,7 @@ import {
   rigidBoundaryMassProperties2D,
   solveElectrostaticPotential,
   sampleGlobalField,
+  stepChargedParticleWorld3D,
   stepDoublePendulum,
   stepHeatField,
   stepInertialBodies,
@@ -16,6 +17,9 @@ import {
   stepRigidPolygonWorld2D,
   stepThermalNetwork
 } from '../../web/vf-ui/vf-physics-engine.mjs';
+
+const ELEMENTARY_CHARGE = 1.602176634e-19;
+const ELECTRON_MASS = 9.1093837139e-31;
 
 const stadiumBoundary = Object.freeze({
   type: 'boundary',
@@ -25,6 +29,53 @@ const stadiumBoundary = Object.freeze({
     Object.freeze({ type: 'segment', from: [1, 1], to: [-1, 1] }),
     Object.freeze({ type: 'arc', center: [-1, 0], radius: 1, startAngle: Math.PI / 2, sweepAngle: Math.PI })
   ])
+});
+
+test('charged-particle world follows the analytic 3D electron orbit in a uniform magnetic field', () => {
+  const magneticFluxDensity = 1e-3;
+  const kineticEnergy = 100 * ELEMENTARY_CHARGE;
+  const speed = Math.sqrt(2 * kineticEnergy / ELECTRON_MASS);
+  const angularFrequency = ELEMENTARY_CHARGE * magneticFluxDensity / ELECTRON_MASS;
+  const radius = speed / angularFrequency;
+  const period = 2 * Math.PI / angularFrequency;
+  const initial = {
+    electricField: [0, 0, 0],
+    magneticField: [0, 0, magneticFluxDensity],
+    maxStep: period / 4000,
+    particles: [{
+      id: 'electron',
+      position: [0, 0, 0],
+      velocity: [speed, 0, 0],
+      charge: -ELEMENTARY_CHARGE,
+      mass: ELECTRON_MASS
+    }]
+  };
+
+  const electron = stepChargedParticleWorld3D(initial, period / 4).particles[0];
+
+  assert.ok(Math.abs(Math.hypot(...electron.velocity) / speed - 1) < 1e-12);
+  assert.ok(Math.abs(electron.position[0] - radius) < radius * 2e-3);
+  assert.ok(Math.abs(electron.position[1] - radius) < radius * 2e-3);
+  assert.ok(Math.abs(electron.position[2]) < 1e-15);
+});
+
+test('charged-particle world samples 3D electric fields and advances through 100 electron-volts', () => {
+  const gap = 0.01;
+  const potential = 100;
+  const accelerationTime = Math.sqrt(2 * gap * ELECTRON_MASS / (ELEMENTARY_CHARGE * potential / gap));
+  const result = stepChargedParticleWorld3D({
+    electricField: [-potential / gap, 0, 0],
+    magneticField: [0, 0, 0],
+    maxStep: accelerationTime / 2000,
+    particles: [{
+      id: 'electron', position: [0, 0, 0], velocity: [0, 0, 0],
+      charge: -ELEMENTARY_CHARGE, mass: ELECTRON_MASS
+    }]
+  }, accelerationTime).particles[0];
+  const kineticEnergy = 0.5 * ELECTRON_MASS * Math.hypot(...result.velocity) ** 2;
+
+  assert.ok(Math.abs(result.position[0] - gap) < gap * 1e-9);
+  assert.ok(Math.abs(kineticEnergy / ELEMENTARY_CHARGE - potential) < 1e-7);
 });
 
 test('double pendulum advances two horizontal one-metre links under gravity', () => {
