@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  createScreenSpacePointCloudRenderer,
   projectPointCloud3DToScreen
 } from '../../web/vf-ui/geom/vf-screen-point-cloud-renderer.mjs';
 
@@ -20,6 +21,18 @@ test('projects a compact 3D point cloud into one packed screen buffer', () => {
 
   assert.ok(projected instanceof Float32Array);
   assert.deepEqual([...projected], [411, 276, 388, 293]);
+});
+
+test('accepts packed 3D float positions for projection in the GPU vertex shader', () => {
+  const renderer = createScreenSpacePointCloudRenderer({ getContext: () => null });
+  const positions = new Float32Array([1, 2, 3, -1, 0, 2]);
+  assert.doesNotThrow(() => renderer.setWorldPoints(positions, {
+    worldOrigin: [0, 0, 0],
+    screenOrigin: [400, 300],
+    xAxis: [10, 1],
+    yAxis: [2, -8],
+    zAxis: [-1, -3]
+  }, { count: 2, pointSize: 8 }));
 });
 
 test('projects 100,000 points without expanding them into marker triangles', () => {

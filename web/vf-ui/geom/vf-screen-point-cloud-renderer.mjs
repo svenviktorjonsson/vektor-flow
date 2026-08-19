@@ -35,7 +35,15 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   let viewportLocation = null;
   let pointSizeLocation = null;
   let colorLocation = null;
+  let worldModeLocation = null;
+  let worldOriginLocation = null;
+  let screenOriginLocation = null;
+  let xAxisLocation = null;
+  let yAxisLocation = null;
+  let zAxisLocation = null;
   let points = new Float32Array();
+  let components = 2;
+  let projection = null;
   let count = 0;
   let pointSize = 4;
   let color = [...DEFAULT_COLOR];
@@ -57,6 +65,12 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     viewportLocation = gl.getUniformLocation(program, 'u_viewport');
     pointSizeLocation = gl.getUniformLocation(program, 'u_point_size');
     colorLocation = gl.getUniformLocation(program, 'u_color');
+    worldModeLocation = gl.getUniformLocation(program, 'u_world_mode');
+    worldOriginLocation = gl.getUniformLocation(program, 'u_world_origin');
+    screenOriginLocation = gl.getUniformLocation(program, 'u_screen_origin');
+    xAxisLocation = gl.getUniformLocation(program, 'u_x_axis');
+    yAxisLocation = gl.getUniformLocation(program, 'u_y_axis');
+    zAxisLocation = gl.getUniformLocation(program, 'u_z_axis');
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     render();
@@ -71,7 +85,25 @@ export function createScreenSpacePointCloudRenderer(canvas) {
       throw new RangeError('screen point count exceeds the packed buffer');
     }
     points = nextPoints;
+    components = 2;
+    projection = null;
     count = nextCount;
+    pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
+    color = normalizeColor(options.color ?? color);
+    render();
+  }
+
+  function setWorldPoints(nextPoints, nextProjection, options = {}) {
+    assertAlive();
+    if (!(nextPoints instanceof Float32Array)) throw new TypeError('world points must be a Float32Array');
+    const nextCount = options.count == null ? nextPoints.length / 3 : Number(options.count);
+    if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * 3) {
+      throw new RangeError('world point count exceeds the packed buffer');
+    }
+    points = nextPoints;
+    components = 3;
+    count = nextCount;
+    projection = normalizeProjection(nextProjection);
     pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
     color = normalizeColor(options.color ?? color);
     render();
@@ -94,17 +126,25 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (!count) return;
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    const requiredBytes = count * 2 * Float32Array.BYTES_PER_ELEMENT;
+    const requiredBytes = count * components * Float32Array.BYTES_PER_ELEMENT;
     if (requiredBytes > capacityBytes) {
       capacityBytes = growCapacity(capacityBytes, requiredBytes);
       gl.bufferData(gl.ARRAY_BUFFER, capacityBytes, gl.DYNAMIC_DRAW);
     }
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, points, 0, count * 2);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, points, 0, count * components);
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(0, components, gl.FLOAT, false, 0, 0);
     gl.uniform2f(viewportLocation, canvas.width, canvas.height);
     gl.uniform1f(pointSizeLocation, pointSize);
     gl.uniform4fv(colorLocation, color);
+    gl.uniform1i(worldModeLocation, components === 3 ? 1 : 0);
+    if (components === 3) {
+      gl.uniform3fv(worldOriginLocation, projection.worldOrigin);
+      gl.uniform2fv(screenOriginLocation, projection.screenOrigin);
+      gl.uniform2fv(xAxisLocation, projection.xAxis);
+      gl.uniform2fv(yAxisLocation, projection.yAxis);
+      gl.uniform2fv(zAxisLocation, projection.zAxis);
+    }
     gl.drawArrays(gl.POINTS, 0, count);
   }
 
@@ -124,7 +164,17 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (destroyed) throw new Error('screen-space point-cloud renderer is destroyed');
   }
 
-  return Object.freeze({ initialize, setPoints, resize, destroy, get backend() { return gl ? 'webgl2-points' : null; } });
+  return Object.freeze({ initialize, setPoints, setWorldPoints, resize, destroy, get backend() { return gl ? 'webgl2-points' : null; } });
+}
+
+function normalizeProjection(value) {
+  return Object.freeze({
+    worldOrigin: Object.freeze(finiteVector(value?.worldOrigin, 3, 'worldOrigin')),
+    screenOrigin: Object.freeze(finiteVector(value?.screenOrigin, 2, 'screenOrigin')),
+    xAxis: Object.freeze(finiteVector(value?.xAxis, 2, 'xAxis')),
+    yAxis: Object.freeze(finiteVector(value?.yAxis, 2, 'yAxis')),
+    zAxis: Object.freeze(finiteVector(value?.zAxis, 2, 'zAxis'))
+  });
 }
 
 function finiteVector(value, length, name) {
@@ -176,13 +226,27 @@ function createShader(gl, type, source) {
 }
 
 const VERTEX_SHADER = `#version 300 es
-layout(location = 0) in vec2 a_position;
+layout(location = 0) in vec3 a_position;
 uniform vec2 u_viewport;
 uniform float u_point_size;
+uniform bool u_world_mode;
+uniform vec3 u_world_origin;
+uniform vec2 u_screen_origin;
+uniform vec2 u_x_axis;
+uniform vec2 u_y_axis;
+uniform vec2 u_z_axis;
 void main() {
+  vec2 screen_position = a_position.xy;
+  if (u_world_mode) {
+    vec3 relative = a_position - u_world_origin;
+    screen_position = u_screen_origin
+      + relative.x * u_x_axis
+      + relative.y * u_y_axis
+      + relative.z * u_z_axis;
+  }
   gl_Position = vec4(
-    a_position.x / u_viewport.x * 2.0 - 1.0,
-    1.0 - a_position.y / u_viewport.y * 2.0,
+    screen_position.x / u_viewport.x * 2.0 - 1.0,
+    1.0 - screen_position.y / u_viewport.y * 2.0,
     0.0,
     1.0
   );
