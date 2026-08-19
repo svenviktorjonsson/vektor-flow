@@ -17,6 +17,7 @@ test("package root resolves to the deterministic browser module manifest", () =>
     propertyProgram: "vektor-flow/property-program",
     selectionInteraction: "vektor-flow/selection-interaction",
     spatialGeometry: "vektor-flow/spatial-geometry",
+    screenPointCloudRenderer: "vektor-flow/screen-point-cloud-renderer",
     screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
     symbolicKernel: "vektor-flow/symbolic-kernel",
     symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",
@@ -42,6 +43,7 @@ test("named browser exports resolve to their implemented modules", async () => {
   const selectionInteraction = await import("vektor-flow/selection-interaction");
   const spatialGeometry = await import("vektor-flow/spatial-geometry");
   const renderer = await import("vektor-flow/screen-simplex-renderer");
+  const pointCloudRenderer = await import("vektor-flow/screen-point-cloud-renderer");
   const symbolicKernel = await import("vektor-flow/symbolic-kernel");
   const symbolicPlot = await import("vektor-flow/symbolic-plot-renderer");
   const symbolicPlotController = await import("vektor-flow/symbolic-plot-controller");
@@ -54,6 +56,8 @@ test("named browser exports resolve to their implemented modules", async () => {
   assert.equal(typeof colorScale.normalizeColorScale, "function");
   assert.equal(typeof colorField.rasterizeColorField, "function");
   assert.equal(typeof renderer.createScreenSpaceSimplexRenderer, "function");
+  assert.equal(typeof pointCloudRenderer.createScreenSpacePointCloudRenderer, "function");
+  assert.equal(typeof pointCloudRenderer.projectPointCloud3DToScreen, "function");
   assert.equal(typeof colorbar.createColorbarView, "function");
   assert.equal(typeof colorbar.createColorbarGestureController, "function");
   assert.equal(typeof interpolation.interpolateDirectedPath, "function");

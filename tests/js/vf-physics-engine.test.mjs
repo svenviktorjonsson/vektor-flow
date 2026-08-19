@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   MAXWELL_BOUNDARIES,
+  appendChargedParticleCloud3D,
+  createChargedParticleCloud3D,
   createGlobalFieldRegistry,
   createPhysicsScope,
   maxwellCflLimit,
@@ -10,6 +12,7 @@ import {
   solveElectrostaticPotential,
   sampleGlobalField,
   stepChargedParticleWorld3D,
+  stepChargedParticleCloud3D,
   stepDoublePendulum,
   stepHeatField,
   stepInertialBodies,
@@ -76,6 +79,65 @@ test('charged-particle world samples 3D electric fields and advances through 100
 
   assert.ok(Math.abs(result.position[0] - gap) < gap * 1e-9);
   assert.ok(Math.abs(kineticEnergy / ELEMENTARY_CHARGE - potential) < 1e-7);
+});
+
+test('compact charged-particle cloud preserves the Boris orbit without per-particle objects', () => {
+  const magneticFluxDensity = 1e-3;
+  const kineticEnergy = 100 * ELEMENTARY_CHARGE;
+  const speed = Math.sqrt(2 * kineticEnergy / ELECTRON_MASS);
+  const angularFrequency = ELEMENTARY_CHARGE * magneticFluxDensity / ELECTRON_MASS;
+  const radius = speed / angularFrequency;
+  const period = 2 * Math.PI / angularFrequency;
+  const cloud = createChargedParticleCloud3D({
+    capacity: 4,
+    charge: -ELEMENTARY_CHARGE,
+    mass: ELECTRON_MASS,
+    maxStep: period / 4000
+  });
+  appendChargedParticleCloud3D(cloud, { position: [0, 0, 0], velocity: [speed, 0, 0] });
+
+  stepChargedParticleCloud3D(cloud, period / 4, {
+    electricField: [0, 0, 0],
+    magneticField: [0, 0, magneticFluxDensity]
+  });
+
+  assert.equal(cloud.count, 1);
+  assert.ok(cloud.positions instanceof Float64Array);
+  assert.ok(cloud.velocities instanceof Float64Array);
+  assert.ok(Math.abs(Math.hypot(...cloud.velocities.subarray(0, 3)) / speed - 1) < 1e-12);
+  assert.ok(Math.abs(cloud.positions[0] - radius) < radius * 2e-3);
+  assert.ok(Math.abs(cloud.positions[1] - radius) < radius * 2e-3);
+});
+
+test('compact charged-particle cloud advances 100,000 points in one contiguous pass', () => {
+  const count = 100_000;
+  const cloud = createChargedParticleCloud3D({
+    capacity: count,
+    count,
+    charge: -ELEMENTARY_CHARGE,
+    mass: ELECTRON_MASS,
+    maxStep: 0.2e-9
+  });
+  for (let index = 0; index < count; index += 1) {
+    cloud.positions[index * 3] = -0.0495 + index * 1e-12;
+  }
+
+  const started = performance.now();
+  stepChargedParticleCloud3D(cloud, 1 / 60 * 10e-9, {
+    electricField: {
+      sampleComponents(x, _y, _z, _time, out) {
+        out[0] = x < -0.0395 ? -10_000 : 0;
+        out[1] = 0;
+        out[2] = 0;
+      }
+    },
+    magneticField: [0, 0, 1e-3]
+  });
+  const elapsed = performance.now() - started;
+
+  assert.equal(cloud.count, count);
+  assert.ok(cloud.positions[0] > -0.0495);
+  assert.ok(elapsed < 100, `100k compact step took ${elapsed.toFixed(1)} ms`);
 });
 
 test('double pendulum advances two horizontal one-metre links under gravity', () => {

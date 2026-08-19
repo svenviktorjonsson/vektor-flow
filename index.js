@@ -10,6 +10,7 @@ const browserModules = Object.freeze({
   propertyProgram: "vektor-flow/property-program",
   selectionInteraction: "vektor-flow/selection-interaction",
   spatialGeometry: "vektor-flow/spatial-geometry",
+  screenPointCloudRenderer: "vektor-flow/screen-point-cloud-renderer",
   screenSimplexRenderer: "vektor-flow/screen-simplex-renderer",
   symbolicKernel: "vektor-flow/symbolic-kernel",
   symbolicKernelManifest: "vektor-flow/symbolic-kernel-manifest",

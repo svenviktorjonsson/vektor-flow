@@ -154,6 +154,159 @@ export function stepChargedParticleWorld3D(world, dt) {
   };
 }
 
+/**
+ * Allocate a mutable, struct-of-arrays point-charge cloud. This is the
+ * high-throughput counterpart to stepChargedParticleWorld3D: generated free
+ * vertices remain VKF geometry, but do not require one JavaScript object each.
+ */
+export function createChargedParticleCloud3D({
+  capacity = 0,
+  count = 0,
+  positions = null,
+  velocities = null,
+  charge,
+  mass,
+  maxStep = 1 / 120,
+  time = 0
+} = {}) {
+  const initialCount = Math.max(0, Math.trunc(finiteNonNegative(count, 'particle count')));
+  const initialCapacity = Math.max(
+    initialCount,
+    Math.max(0, Math.trunc(finiteNonNegative(capacity, 'particle capacity')))
+  );
+  const positionBuffer = chargedParticleBuffer(positions, initialCapacity, 'positions');
+  const velocityBuffer = chargedParticleBuffer(velocities, initialCapacity, 'velocities');
+  return {
+    count: initialCount,
+    capacity: initialCapacity,
+    positions: positionBuffer,
+    velocities: velocityBuffer,
+    charge: finiteNumber(charge, 'particle charge'),
+    mass: finitePositive(mass, 'particle mass'),
+    maxStep: finitePositive(maxStep, 'maxStep'),
+    time: finiteNumber(time, 'world time')
+  };
+}
+
+/** Append one point charge to a compact cloud, growing its buffers geometrically. */
+export function appendChargedParticleCloud3D(cloud, { position = [0, 0, 0], velocity = [0, 0, 0] } = {}) {
+  requireChargedParticleCloud3D(cloud);
+  if (cloud.count >= cloud.capacity) growChargedParticleCloud3D(cloud, Math.max(16, cloud.capacity * 2));
+  const offset = cloud.count * 3;
+  const p = vector(position, 3);
+  const v = vector(velocity, 3);
+  cloud.positions.set(p, offset);
+  cloud.velocities.set(v, offset);
+  cloud.count += 1;
+  return cloud.count - 1;
+}
+
+/**
+ * Advance a compact cloud in place with the same Boris update as the object
+ * world. Fields may expose sampleComponents(x,y,z,time,out) to avoid hot-loop
+ * allocations; ordinary vectors, functions, and {sample()} fields also work.
+ */
+export function stepChargedParticleCloud3D(cloud, dt, {
+  electricField = [0, 0, 0],
+  magneticField = [0, 0, 0]
+} = {}) {
+  requireChargedParticleCloud3D(cloud);
+  const step = finiteNonNegative(dt, 'dt');
+  const substeps = Math.max(1, Math.ceil(step / cloud.maxStep));
+  const h = substeps ? step / substeps : 0;
+  const halfAcceleration = cloud.charge * h / (2 * cloud.mass);
+  const electric = new Float64Array(3);
+  const magnetic = new Float64Array(3);
+  let time = cloud.time;
+
+  for (let substep = 0; substep < substeps; substep += 1) {
+    const sampleTime = time + h * 0.5;
+    for (let index = 0; index < cloud.count; index += 1) {
+      const offset = index * 3;
+      const x = cloud.positions[offset];
+      const y = cloud.positions[offset + 1];
+      const z = cloud.positions[offset + 2];
+      sampleVectorFieldComponents3(electricField, x, y, z, sampleTime, electric);
+      sampleVectorFieldComponents3(magneticField, x, y, z, sampleTime, magnetic);
+
+      const oldVx = cloud.velocities[offset];
+      const oldVy = cloud.velocities[offset + 1];
+      const oldVz = cloud.velocities[offset + 2];
+      const vmx = oldVx + electric[0] * halfAcceleration;
+      const vmy = oldVy + electric[1] * halfAcceleration;
+      const vmz = oldVz + electric[2] * halfAcceleration;
+      const tx = magnetic[0] * halfAcceleration;
+      const ty = magnetic[1] * halfAcceleration;
+      const tz = magnetic[2] * halfAcceleration;
+      const rotationScale = 2 / (1 + tx * tx + ty * ty + tz * tz);
+      const vpx = vmx + vmy * tz - vmz * ty;
+      const vpy = vmy + vmz * tx - vmx * tz;
+      const vpz = vmz + vmx * ty - vmy * tx;
+      const sx = tx * rotationScale;
+      const sy = ty * rotationScale;
+      const sz = tz * rotationScale;
+      const nextVx = vmx + vpy * sz - vpz * sy + electric[0] * halfAcceleration;
+      const nextVy = vmy + vpz * sx - vpx * sz + electric[1] * halfAcceleration;
+      const nextVz = vmz + vpx * sy - vpy * sx + electric[2] * halfAcceleration;
+
+      cloud.positions[offset] = x + (oldVx + nextVx) * h * 0.5;
+      cloud.positions[offset + 1] = y + (oldVy + nextVy) * h * 0.5;
+      cloud.positions[offset + 2] = z + (oldVz + nextVz) * h * 0.5;
+      cloud.velocities[offset] = nextVx;
+      cloud.velocities[offset + 1] = nextVy;
+      cloud.velocities[offset + 2] = nextVz;
+    }
+    time += h;
+  }
+  cloud.time = time;
+  return cloud;
+}
+
+function chargedParticleBuffer(value, capacity, name) {
+  const requiredLength = capacity * 3;
+  if (value == null) return new Float64Array(requiredLength);
+  if (!(value instanceof Float64Array)) throw new TypeError(`${name} must be a Float64Array`);
+  if (value.length < requiredLength) throw new RangeError(`${name} does not cover particle capacity`);
+  return value;
+}
+
+function requireChargedParticleCloud3D(cloud) {
+  if (!cloud || !(cloud.positions instanceof Float64Array) || !(cloud.velocities instanceof Float64Array)) {
+    throw new TypeError('charged-particle cloud requires Float64Array positions and velocities');
+  }
+  if (cloud.positions.length < cloud.capacity * 3 || cloud.velocities.length < cloud.capacity * 3) {
+    throw new RangeError('charged-particle cloud buffers do not cover capacity');
+  }
+  if (cloud.count < 0 || cloud.count > cloud.capacity) throw new RangeError('charged-particle cloud count exceeds capacity');
+}
+
+function growChargedParticleCloud3D(cloud, capacity) {
+  const nextCapacity = Math.max(cloud.count, Math.trunc(capacity));
+  const positions = new Float64Array(nextCapacity * 3);
+  const velocities = new Float64Array(nextCapacity * 3);
+  positions.set(cloud.positions.subarray(0, cloud.count * 3));
+  velocities.set(cloud.velocities.subarray(0, cloud.count * 3));
+  cloud.positions = positions;
+  cloud.velocities = velocities;
+  cloud.capacity = nextCapacity;
+}
+
+function sampleVectorFieldComponents3(field, x, y, z, time, output) {
+  if (typeof field?.sampleComponents === 'function') {
+    field.sampleComponents(x, y, z, time, output);
+    return output;
+  }
+  const sampled = typeof field === 'function'
+    ? field([x, y, z], { time })
+    : typeof field?.sample === 'function'
+      ? field.sample([x, y, z], { time })
+      : field;
+  output[0] = finiteNumber(sampled?.[0] ?? 0, 'field x');
+  output[1] = finiteNumber(sampled?.[1] ?? 0, 'field y');
+  output[2] = finiteNumber(sampled?.[2] ?? 0, 'field z');
+  return output;
+}
+
 function sampleVectorField3(field, position, time) {
   const sampled = typeof field === 'function'
     ? field([...position], { time })

@@ -18,6 +18,7 @@
     "./selection-interaction": "./web/vf-ui/vf-selection-interaction.mjs",
     "./spatial-geometry": "./web/vf-ui/vf-spatial-geometry.mjs",
     "./screen-simplex-renderer": "./web/vf-ui/geom/vf-screen-simplex-renderer.mjs",
+    "./screen-point-cloud-renderer": "./web/vf-ui/geom/vf-screen-point-cloud-renderer.mjs",
     "./layered-screen-scene": "./web/vf-ui/vf-layered-screen-scene.mjs",
     "./symbolic-kernel": "./web/vf-ui/vf-symbolic-kernel-runtime.mjs",
     "./symbolic-plot-renderer": "./web/vf-ui/geom/vf-symbolic-plot-renderer.mjs",
