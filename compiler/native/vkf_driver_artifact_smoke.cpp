@@ -1109,13 +1109,12 @@ int run_inherited(const std::filesystem::path& executable) {
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
     const auto absolute_executable = std::filesystem::absolute(executable);
-    const std::string working_directory = absolute_executable.parent_path().string();
     std::string command = command_line({absolute_executable.string()});
     std::vector<char> mutable_command(command.begin(), command.end());
     mutable_command.push_back('\0');
     if (!CreateProcessA(
             nullptr, mutable_command.data(), nullptr, nullptr, TRUE, 0, nullptr,
-            working_directory.c_str(), &startup, &process)) {
+            nullptr, &startup, &process)) {
         throw DriverFailure("could not run cached executable " + executable.string());
     }
     WaitForSingleObject(process.hProcess, INFINITE);
@@ -1745,17 +1744,18 @@ int main(int argc, char** argv) {
         }
 #endif
         const bool ran_program = parsed_args.run;
+#ifdef VKF_STRICT_DIRECT_ONLY
+        // Strict CLI execution inherits the caller's streams directly. This
+        // preserves byte-exact interactive/stdin behavior and avoids running a
+        // freshly signed Mach-O behind the compiler's capture pipes.
+        if (ran_program) parsed_args.run = false;
+#endif
         const std::string rendered = compile_one(std::move(parsed_args));
 #ifdef VKF_STRICT_DIRECT_ONLY
         if (ran_program) {
             const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
-#ifdef _WIN32
-            // Child stdout already contains the program's exact CR/LF bytes.
-            // Text-mode re-emission would expand every LF again on Windows.
-            _setmode(_fileno(stdout), _O_BINARY);
-#endif
-            std::cout << string_field(summary, "stdout", "strict direct summary");
-            std::cerr << string_field(summary, "stderr", "strict direct summary");
+            return run_inherited(std::filesystem::path(
+                string_field(summary, "artifact_path", "strict direct summary")));
         } else {
             const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
             std::cout << "Built "
