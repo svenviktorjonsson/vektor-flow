@@ -1,4 +1,4 @@
-export const TEXTMATE_GRAMMAR_SHA256 = '72eb04bf1d3eb567cad00d01a4b17c1c53559c4b21deb1adf5af5b45e95c8316';
+export const TEXTMATE_GRAMMAR_SHA256 = '9f4d414a8a02ecf36c9caaa1724cd3835eda5d70840adec1f4a80eda5b70cc0c';
 
 export function registerVektorFlowPrism(Prism) {
   if (!Prism?.languages) throw new TypeError('Prism.languages is required.');

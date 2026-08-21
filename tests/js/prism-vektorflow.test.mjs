@@ -10,7 +10,8 @@ import {
 
 test('Prism grammar is pinned to the VS Code TextMate grammar', async () => {
   const grammar = await readFile(new URL('../../vscode/syntaxes/vektorflow.tmLanguage.json', import.meta.url));
-  assert.equal(createHash('sha256').update(grammar).digest('hex'), TEXTMATE_GRAMMAR_SHA256);
+  const canonicalGrammar = grammar.toString('utf8').replaceAll('\r\n', '\n');
+  assert.equal(createHash('sha256').update(canonicalGrammar).digest('hex'), TEXTMATE_GRAMMAR_SHA256);
 });
 
 test('Prism grammar registers VKF aliases and language-specific tokens', () => {
