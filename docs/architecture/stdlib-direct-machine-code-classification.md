@@ -38,13 +38,11 @@ Rules:
 
 ## Current promotion
 
-Machine IR v12 includes `stat.variance` and `stat.std` with population semantics
-(`ddof = 0`) and sample semantics (`ddof:1`) for numeric fixed vectors and
+Machine IR v12 includes `stat.variance` and `stat.std` with any non-negative
+constant `ddof` smaller than the input count for numeric fixed vectors and
 owned/borrowed dynamic numeric lists.
 Backends use two passes: mean, then squared deviations, matching the established
 stdlib oracle. Empty dynamic inputs fail instead of producing a silent NaN.
-Other `ddof` values remain Stage 0. Direct lowering rejects them instead of
-silently changing the denominator.
 It also includes `stat.range` for fixed vectors and owned/borrowed
 dynamic numeric lists. Backends compute maximum minus minimum in one pass;
 empty dynamic inputs fail.

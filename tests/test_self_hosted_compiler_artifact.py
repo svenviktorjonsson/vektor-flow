@@ -6482,7 +6482,9 @@ def test_x64_and_arm64_artifacts_compute_variance_and_std_for_fixed_and_dynamic_
         "stat.std(collections.list(-2, 0, 2), ddof:1) + "
         "stat.variance(fixed) + stat.variance(dynamic) + "
         "stat.variance([2, 4, 4, 4, 5, 5, 7, 9]) + "
-        "stat.variance(collections.list(-2, 0, 2), ddof:1)\n",
+        "stat.variance(collections.list(-2, 0, 2), ddof:1) + "
+        "stat.variance([0, 2, 4], ddof:2) + "
+        "stat.variance(collections.list(0, 2, 4), ddof:2)\n",
         encoding="utf-8",
     )
     typed_ir_path = tmp_path / "stat-std.typed-ir.json"
@@ -6517,7 +6519,7 @@ def test_x64_and_arm64_artifacts_compute_variance_and_std_for_fixed_and_dynamic_
         if instruction["kind"] == "variance_f64_list"
     ]
 
-    assert float(result.stdout.strip()) == 26
+    assert float(result.stdout.strip()) == 42
     # Fixed literals are materialized once; reductions operate on fixed locals
     # or owned lists rather than rebuilding transient value packs.
     assert {
@@ -6529,7 +6531,7 @@ def test_x64_and_arm64_artifacts_compute_variance_and_std_for_fixed_and_dynamic_
     assert {instruction["owns_input"] for instruction in list_reductions} == {False, True}
     assert {instruction["ddof"] for instruction in list_reductions} == {0, 1}
     assert {instruction["owns_input"] for instruction in variance_list_reductions} == {False, True}
-    assert {instruction["ddof"] for instruction in variance_list_reductions} == {0, 1}
+    assert {instruction["ddof"] for instruction in variance_list_reductions} == {0, 1, 2}
     assert Path(arm64["raw_code_path"]).stat().st_size > 0
 
 
@@ -6617,7 +6619,7 @@ def test_direct_stat_reductions_reject_unsupported_named_arguments(
     smoke_exes: dict[str, Path],
 ) -> None:
     for name, source, message in (
-        ("std-ddof", ":: stat.std([1, 2], ddof:2)\n", "ddof must be constant 0 or 1"),
+        ("std-ddof", ":: stat.std([1, 2], ddof:1.5)\n", "ddof must be a non-negative integer constant"),
         ("mean-named", ":: stat.mean([1, 2], ddof:1)\n", "does not accept named arguments"),
     ):
         source_path = tmp_path / f"{name}.vkf"

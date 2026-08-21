@@ -3430,13 +3430,13 @@ private:
                     if (opcode == Opcode::MeanF64List || opcode == Opcode::VarianceF64List ||
                         opcode == Opcode::StdDevF64List) {
                         code_.raw({0x49, 0x89, 0xc8});
-                        code_.raw({0x49, 0x83, 0xf8,
-                                   static_cast<std::uint8_t>(
-                                       (opcode == Opcode::VarianceF64List ||
-                                        opcode == Opcode::StdDevF64List)
-                                           ? instruction.degrees_of_freedom
-                                           : 0u),
-                                   0x0f, 0x87});
+                        code_.raw({0x49, 0x81, 0xf8});
+                        code_.i32(static_cast<std::int32_t>(
+                            (opcode == Opcode::VarianceF64List ||
+                             opcode == Opcode::StdDevF64List)
+                                ? instruction.degrees_of_freedom
+                                : 0u));
+                        code_.raw({0x0f, 0x87});
                         const auto enough_values = code_.rel32_placeholder();
                         emit_abort();
                         code_.patch_rel32(enough_values, code_.position());
@@ -3467,8 +3467,9 @@ private:
                         const auto variance_repeat = code_.rel32_placeholder();
                         code_.patch_rel32(variance_repeat, variance_loop);
                         if (instruction.degrees_of_freedom != 0) {
-                            code_.raw({0x49, 0x83, 0xe8,
-                                       static_cast<std::uint8_t>(instruction.degrees_of_freedom)});
+                            code_.raw({0x49, 0x81, 0xe8});
+                            code_.i32(static_cast<std::int32_t>(
+                                instruction.degrees_of_freedom));
                         }
                         code_.raw({0xf2, 0x49, 0x0f, 0x2a, 0xd0,
                                    0xf2, 0x0f, 0x5e, 0xca});

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -7934,8 +7935,10 @@ inline ValueLayout lower_expression(
                     if (string_field(value, "kind", "stat.std ddof value") != "const" ||
                         !raw.is_number() || !std::isfinite(raw.as_number()) ||
                         std::floor(raw.as_number()) != raw.as_number() ||
-                        raw.as_number() < 0 || raw.as_number() > 1) {
-                        throw LoweringFailure("stat." + name + " ddof must be constant 0 or 1");
+                        raw.as_number() < 0 ||
+                        raw.as_number() > static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
+                        throw LoweringFailure(
+                            "stat." + name + " ddof must be a non-negative integer constant");
                     }
                     degrees_of_freedom = static_cast<std::uint32_t>(raw.as_number());
                 }

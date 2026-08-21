@@ -2474,8 +2474,8 @@ private:
                         const auto ddof = (opcode == Opcode::VarianceF64List ||
                                            opcode == Opcode::StdDevF64List)
                             ? instruction.degrees_of_freedom : 0u;
-                        if (ddof > 4095) throw EncodingFailure("arm64 stat.std ddof is too large");
-                        words_.emit(0xf100019fu | (ddof << 10));
+                        emit_u64(17, ddof);
+                        words_.emit(0xeb11019fu);
                         const auto nonempty = words_.emit(0x54000008u);
                         emit_abort();
                         words_.patch_compare_branch19(nonempty, words_.offset());
@@ -2511,8 +2511,8 @@ private:
                         const auto variance_repeat = words_.emit(0x54000001u);
                         words_.patch_compare_branch19(variance_repeat, variance_loop);
                         if (instruction.degrees_of_freedom != 0) {
-                            words_.emit(0xd100018cu |
-                                (instruction.degrees_of_freedom << 10));
+                            emit_u64(17, instruction.degrees_of_freedom);
+                            words_.emit(0xcb11018cu);
                         }
                         words_.emit(0x9e620182u);
                         words_.emit(0x1e621821u);
