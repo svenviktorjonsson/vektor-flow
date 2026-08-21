@@ -4714,7 +4714,7 @@ def test_x64_artifact_emits_runnable_machine_code(tmp_path: Path, smoke_exes: di
         assert artifact_path.stat().st_size < 8192
     assert Path(manifest["code_path"]).read_bytes()
     assert manifest["code_bytes"] > 0
-    assert manifest["machine_ir_version"] == 17
+    assert manifest["machine_ir_version"] == 18
     assert manifest["runtime_abi_version"] == 12
     assert Path(manifest["machine_ir"]) == Path(summary["machine_ir_path"])
     assert machine_ir["schema"] == "vektorflow.machine_ir"
@@ -4788,7 +4788,7 @@ def test_arm64_artifact_emits_apple_abi_machine_code(tmp_path: Path, smoke_exes:
     assert manifest["target_object_format"] == "macho"
     assert manifest["artifact_bytes"] == len(executable)
     assert manifest["code_bytes"] == len(code)
-    assert manifest["machine_ir_version"] == 17
+    assert manifest["machine_ir_version"] == 18
     assert manifest["runtime_abi_version"] == 12
     assert manifest["runtime_imports_complete"] is True
     assert manifest["result_transport"] == "stdout-f64"
@@ -5132,6 +5132,67 @@ def test_io_stdlib_appends_and_routes_stderr_on_x64_and_arm64(
     assert b"_write\0" in arm64_artifact
     for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
         assert forbidden not in arm64_artifact.lower()
+
+
+def test_io_file_failures_propagate_typed_errors_on_x64_and_arm64(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "direct-io-errors.vkf"
+    source_path.write_text(
+        "io_api: .io\n"
+        "errors: .errors\n\n"
+        "read_missing() -> str:\n"
+        '    io_api.read_text("missing-native-file.txt")\n\n'
+        "read_caught: 0\n"
+        "write_caught: 0\n"
+        'read_message: ""\n'
+        'write_message: ""\n'
+        "read_missing()!?\n"
+        "    errors.Error => read_caught: 1\n"
+        "    errors.FileNotFoundError =>\n"
+        "        read_caught: 2\n"
+        "        read_message: $.message\n"
+        'io_api.write_text("missing-native-directory/child.txt", "x")!?\n'
+        "    errors.Error => write_caught: 1\n"
+        "    errors.RuntimeError =>\n"
+        "        write_caught: 2\n"
+        "        write_message: $.message\n"
+        ":: read_caught * 10 + write_caught\n"
+        ":: read_message\n"
+        ":: write_message\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "direct-io-errors.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    executable_path = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(executable_path)], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    io_instructions = [
+        instruction
+        for function in [machine_ir["entry"], *machine_ir["functions"]]
+        for instruction in function["instructions"]
+        if instruction["kind"] in {"read_file_string", "write_file_string"}
+    ]
+
+    assert executed.stdout.replace("\r", "") == (
+        "22\nfile read failed\nfile write failed\n"
+    )
+    assert all(instruction["may_error"] for instruction in io_instructions)
+    assert any(instruction["has_error_handler"] for instruction in io_instructions)
+    assert Path(arm64["raw_code_path"]).stat().st_size > 0
 
 
 def test_io_read_line_grows_and_strips_line_endings_on_x64_and_arm64(
@@ -7290,6 +7351,57 @@ def test_x64_and_arm64_artifacts_catch_invalid_int_by_value_error_type(
 
     assert result.stdout == "2\n"
     assert validation["error_type_mask"] != 0
+    assert Path(arm64["raw_code_path"]).stat().st_size > 0
+
+
+def test_x64_and_arm64_artifacts_construct_raise_and_catch_explicit_errors(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "explicit-error.vkf"
+    source_path.write_text(
+        "errors: .errors\n\n"
+        "raise_value(message:str) -> num:\n"
+        "    errors.ValueError(message)!\n"
+        "    0\n\n"
+        "caught: 0\n"
+        "message: \"\"\n"
+        "raise_value(\"explicit value\")!?\n"
+        "    errors.Error => caught: 1\n"
+        "    errors.ValueError =>\n"
+        "        message: $.message\n"
+        "        caught: 2\n"
+        ":: message\n"
+        ":: caught\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "explicit-error.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    artifact = Path(x64["artifact_path"])
+    result = subprocess.run(
+        [str(artifact)], cwd=artifact.parent, capture_output=True, text=True, check=True
+    )
+    machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    raises = [
+        instruction
+        for function in machine_ir["functions"]
+        for instruction in function["instructions"]
+        if instruction["kind"] == "raise_error_value"
+    ]
+
+    assert result.stdout.replace("\r", "") == "explicit value\n2\n"
+    assert len(raises) == 1
+    assert raises[0]["owns_input"] is True
     assert Path(arm64["raw_code_path"]).stat().st_size > 0
 
 

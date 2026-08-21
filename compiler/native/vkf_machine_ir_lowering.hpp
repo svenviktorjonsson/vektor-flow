@@ -1012,6 +1012,7 @@ inline void collect_error_effects(
     const auto kind = object.find("kind");
     if (kind != object.end() && kind->second.is_string()) {
         if (kind->second.as_string() == "assert_expr" ||
+            kind->second.as_string() == "raise_expr" ||
             kind->second.as_string() == "dotted_index" ||
             kind->second.as_string() == "update_index") {
             directly_raises = true;
@@ -1027,6 +1028,19 @@ inline void collect_error_effects(
                     callee_name != callee_object.end() && callee_name->second.is_string()) {
                     if (callee_name->second.as_string() == "int") directly_raises = true;
                     callees.push_back(callee_name->second.as_string());
+                } else if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
+                           callee_kind->second.as_string() == "stdlib_function") {
+                    const auto module = callee_object.find("module");
+                    if (module != callee_object.end() && module->second.is_string() &&
+                        module->second.as_string() == "io" &&
+                        callee_name != callee_object.end() && callee_name->second.is_string()) {
+                        const std::string name = callee_name->second.as_string();
+                        if (name == "read_text" || name == "read_bytes" ||
+                            name == "write_text" || name == "write_bytes" ||
+                            name == "append_text") {
+                            directly_raises = true;
+                        }
+                    }
                 }
             }
         } else if (kind->second.as_string() == "binary_op") {
@@ -2936,6 +2950,9 @@ public:
         } else if (opcode == Opcode::ProcessRun) {
             require_stack(2 + instruction.argument_count * 2);
             stack_depth_ = stack_depth_ - 2 - instruction.argument_count * 2 + 5;
+        } else if (opcode == Opcode::RaiseErrorValue) {
+            require_stack(5);
+            stack_depth_ -= 4;
         } else if (opcode == Opcode::CaptureRegex) {
             require_stack(2);
             stack_depth_ = stack_depth_ - 2 + instruction.argument_count * 2;
@@ -7664,6 +7681,35 @@ inline ValueLayout lower_expression(
         builder.emit({*opcode});
         return {};
     }
+    if (kind == "raise_expr") {
+        const auto& value = object_of(
+            field(expression, "value", "raise expression"), "raise error value");
+        const auto layout = lower_expression(value, builder, signatures, strings);
+        const auto message = layout.selectors.find("message");
+        const auto type_name = layout.selectors.find("type");
+        const auto mask = layout.selectors.find("mask");
+        if (layout.kind != ValueKind::Aggregate || layout.width != 5 ||
+            message == layout.selectors.end() || message->second.offset != 0 ||
+            message->second.width != 2 || message->second.kind != ValueKind::String ||
+            type_name == layout.selectors.end() || type_name->second.offset != 2 ||
+            type_name->second.width != 2 || type_name->second.kind != ValueKind::String ||
+            mask == layout.selectors.end() || mask->second.offset != 4 ||
+            mask->second.width != 1) {
+            throw LoweringFailure("machine IR `!` expects an error value");
+        }
+        ensure_independent_value(value, layout, builder, signatures);
+        Instruction raise;
+        raise.opcode = Opcode::RaiseErrorValue;
+        raise.owns_input = true;
+        if (const auto handler = builder.error_handler()) {
+            raise.has_error_handler = true;
+            raise.label = *handler;
+            raise.error_value_local = *builder.error_value_local();
+            raise.error_type_local = *builder.error_type_local();
+        }
+        builder.emit(std::move(raise));
+        return {1, ValueKind::Null, {}};
+    }
     if (kind == "assert_expr") {
         const auto condition = lower_expression(
             object_of(field(expression, "condition", "assert expression"), "assert condition"),
@@ -7809,6 +7855,16 @@ inline ValueLayout lower_expression(
                 Instruction read;
                 read.opcode = Opcode::ReadFileString;
                 read.owns_input = true;
+                const std::string message = "file read failed";
+                read.error_message_offset = strings.intern(message);
+                read.byte_count = static_cast<std::uint32_t>(message.size());
+                read.may_error = true;
+                if (const auto handler = builder.error_handler()) {
+                    read.has_error_handler = true;
+                    read.label = *handler;
+                    read.error_value_local = *builder.error_value_local();
+                    read.error_type_local = *builder.error_type_local();
+                }
                 builder.emit(std::move(read));
                 return {2, ValueKind::String, {}};
             }
@@ -7841,6 +7897,16 @@ inline ValueLayout lower_expression(
                 write.index = name == "append_text" ? 1u : 0u;
                 write.owns_left = true;
                 write.owns_right = data_owned;
+                const std::string message = "file write failed";
+                write.error_message_offset = strings.intern(message);
+                write.byte_count = static_cast<std::uint32_t>(message.size());
+                write.may_error = true;
+                if (const auto handler = builder.error_handler()) {
+                    write.has_error_handler = true;
+                    write.label = *handler;
+                    write.error_value_local = *builder.error_value_local();
+                    write.error_type_local = *builder.error_type_local();
+                }
                 builder.emit(std::move(write));
                 return {1, ValueKind::Null, {}};
             }

@@ -1596,6 +1596,18 @@ private:
             out["value"] = vf::JsonValue(nullptr);
             return vf::JsonValue(std::move(out));
         }
+        if (kind == "raise_expr") {
+            vf::JsonValue value = lower_expr(field(object, "value", "raise expression"), env);
+            const std::string value_type = string_field(
+                value.as_object(), "type", "raise expression value");
+            if (value_type != "record{message:str,type:str,mask:num}") {
+                throw IRFailure("`!` expects an error value");
+            }
+            auto out = node("raise_expr");
+            out["value"] = std::move(value);
+            out["type"] = vf::JsonValue("any");
+            return vf::JsonValue(std::move(out));
+        }
         if (kind == "identifier") {
             const std::string name = string_field(object, "name", "identifier");
             if ((name == "i" || name == "j") && !env.contains(name)) {
@@ -2019,6 +2031,52 @@ private:
                 }
             }
             const auto& callee_ir = object_of(callee, "call callee IR");
+            if (string_field(callee_ir, "kind", "call callee IR") == "error_type") {
+                if (!named_args.empty() || !spread_args.empty() || args.size() > 1) {
+                    throw IRFailure("error constructors accept at most one positional message");
+                }
+                vf::JsonValue message;
+                if (args.empty()) {
+                    auto empty = node("const");
+                    empty["type"] = vf::JsonValue("str");
+                    empty["value"] = vf::JsonValue("");
+                    message = vf::JsonValue(std::move(empty));
+                } else {
+                    const std::string message_type = string_field(
+                        args.front().as_object(), "type", "error constructor message");
+                    if (message_type != "str") {
+                        throw IRFailure("error constructor message must be str");
+                    }
+                    message = std::move(args.front());
+                }
+                const std::string error_name = string_field(
+                    callee_ir, "name", "error constructor type");
+                const auto& mask_value = field(callee_ir, "mask", "error constructor type");
+                if (!mask_value.is_number()) {
+                    throw IRFailure("error constructor type needs a mask");
+                }
+                auto type_name = node("const");
+                type_name["type"] = vf::JsonValue("str");
+                type_name["value"] = vf::JsonValue(error_name);
+                auto mask = node("const");
+                mask["type"] = vf::JsonValue("num");
+                mask["value"] = mask_value;
+                vf::JsonValue::Array fields;
+                const auto add_field = [&](std::string name, std::string type, vf::JsonValue value) {
+                    auto record_field = node("record_field");
+                    record_field["name"] = vf::JsonValue(std::move(name));
+                    record_field["value"] = std::move(value);
+                    record_field["type"] = vf::JsonValue(std::move(type));
+                    fields.emplace_back(std::move(record_field));
+                };
+                add_field("message", "str", std::move(message));
+                add_field("type", "str", vf::JsonValue(std::move(type_name)));
+                add_field("mask", "num", vf::JsonValue(std::move(mask)));
+                auto error = node("record");
+                error["fields"] = vf::JsonValue(std::move(fields));
+                error["type"] = vf::JsonValue("record{message:str,type:str,mask:num}");
+                return vf::JsonValue(std::move(error));
+            }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
                 string_field(callee_ir, "module", "call callee IR") == "collections" &&
                 string_field(callee_ir, "name", "call callee IR") == "map") {

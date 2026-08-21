@@ -113,6 +113,7 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::JumpIfParameterProvided: return "jump_if_parameter_provided";
         case Opcode::ErrorTypeMatches: return "error_type_matches";
         case Opcode::RethrowError: return "rethrow_error";
+        case Opcode::RaiseErrorValue: return "raise_error_value";
         case Opcode::AssertTruthy: return "assert_truthy";
         case Opcode::AssertTruthyString: return "assert_truthy_string";
         case Opcode::ExitProgram: return "exit_program";
@@ -217,6 +218,21 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         object["owns_left"] = instruction.owns_left;
         object["owns_right"] = instruction.owns_right;
     }
+    if (instruction.opcode == Opcode::ReadFileString ||
+        instruction.opcode == Opcode::WriteFileString) {
+        object["may_error"] = instruction.may_error;
+        object["has_error_handler"] = instruction.has_error_handler;
+        object["error_message_offset"] =
+            static_cast<double>(instruction.error_message_offset);
+        object["byte_count"] = static_cast<double>(instruction.byte_count);
+        if (instruction.has_error_handler) {
+            object["error_label"] = static_cast<double>(instruction.label);
+            object["error_value_local"] =
+                static_cast<double>(instruction.error_value_local);
+            object["error_type_local"] =
+                static_cast<double>(instruction.error_type_local);
+        }
+    }
     if (instruction.opcode == Opcode::StoreF64ListIndex ||
         instruction.opcode == Opcode::StoreF64LocalsIndex) {
         object["index"] = static_cast<double>(instruction.index);
@@ -261,9 +277,15 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
     if (instruction.opcode == Opcode::ReturnValues) {
         object["result_count"] = static_cast<double>(instruction.result_count);
     }
-    if (instruction.opcode == Opcode::AssertTruthy) {
+    if (instruction.opcode == Opcode::AssertTruthy ||
+        instruction.opcode == Opcode::RaiseErrorValue) {
         object["has_error_handler"] = instruction.has_error_handler;
-        object["error_type_mask"] = static_cast<double>(instruction.error_type_mask);
+        if (instruction.opcode == Opcode::AssertTruthy) {
+            object["error_type_mask"] = static_cast<double>(instruction.error_type_mask);
+        }
+        if (instruction.opcode == Opcode::RaiseErrorValue) {
+            object["owns_input"] = instruction.owns_input;
+        }
         if (instruction.has_error_handler) {
             object["error_label"] = static_cast<double>(instruction.label);
             object["error_value_local"] = static_cast<double>(instruction.error_value_local);

@@ -1514,6 +1514,39 @@ private:
         }
     }
 
+    void emit_instruction_error(
+        const vkf::machine_ir::Function& function,
+        const Frame& frame,
+        const vkf::machine_ir::Instruction& instruction,
+        std::uint32_t type_mask,
+        bool entry,
+        std::vector<MachineBranchPatch>& branches
+    ) {
+        emit_error_message_registers(
+            instruction.error_message_offset, instruction.byte_count);
+        if (instruction.has_error_handler) {
+            store_error_message_local(frame, instruction.error_value_local);
+            store_error_type_constant(frame, instruction.error_type_local, type_mask);
+            code_.byte(0xe9);
+            branches.push_back({code_.rel32_placeholder(), instruction.label});
+            return;
+        }
+        if (entry) {
+            emit_abort();
+            return;
+        }
+        code_.raw({0x4c, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.error_pointer_slot));
+        store_xmm(2, frame.displacement(frame.error_length_slot));
+        emit_error_cleanup(function, frame);
+        code_.raw({0x4c, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.error_pointer_slot));
+        load_xmm(2, frame.displacement(frame.error_length_slot));
+        code_.raw({0x41, 0xb9});
+        code_.i32(static_cast<std::int32_t>(type_mask));
+        epilogue();
+    }
+
     [[gnu::noinline]] void emit_normalize_f64_multiset(const Frame& frame, unsigned first) {
         code_.raw({0x48, 0x8b, 0x85});
         code_.i32(frame.displacement(frame.temp_base + first));
@@ -2046,13 +2079,22 @@ private:
         store_xmm(0, frame.displacement(frame.temp_base + first + 1));
     }
 
-    void emit_read_file_string(const Frame& frame, unsigned first, bool owns_path) {
+    void emit_read_file_string(
+        const vkf::machine_ir::Function& function,
+        const Frame& frame,
+        unsigned first,
+        const vkf::machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<MachineBranchPatch>& branches
+    ) {
+        const bool owns_path = instruction.owns_input;
 #ifdef _WIN32
         // _open(path, _O_RDONLY | _O_BINARY)
         code_.raw({0x48, 0x8b, 0x8d});
         code_.i32(frame.displacement(frame.temp_base + first));
         code_.raw({0xba, 0x00, 0x80, 0x00, 0x00, 0x45, 0x31, 0xc0});
         call_runtime_slot(20);
+        code_.raw({0x48, 0x63, 0xc0});
 #else
         // open(path, O_RDONLY)
         code_.raw({0x48, 0x8b, 0xbd});
@@ -2061,7 +2103,14 @@ private:
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
         const auto opened = code_.rel32_placeholder();
-        emit_abort();
+        if (owns_path) {
+            release_owned_string(
+                frame.displacement(frame.temp_base + first),
+                frame.displacement(frame.temp_base + first + 1));
+        }
+        emit_instruction_error(
+            function, frame, instruction,
+            vkf::machine_ir::file_not_found_error_mask, entry, branches);
         code_.patch_rel32(opened, code_.position());
         code_.raw({0x48, 0x89, 0x85});
         code_.i32(frame.displacement(frame.scratch_slot));
@@ -2080,17 +2129,26 @@ private:
 #ifdef _WIN32
         code_.raw({0x89, 0xc1, 0x31, 0xd2, 0x41, 0xb8, 0x02, 0x00, 0x00, 0x00});
         call_runtime_slot(23);
+        code_.raw({0x48, 0x63, 0xc0});
 #else
         code_.raw({0x48, 0x89, 0xc7, 0x31, 0xf6, 0xba, 0x02, 0x00, 0x00, 0x00,
                    0xb8, 0x08, 0x00, 0x00, 0x00, 0x0f, 0x05});
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
         const auto sized = code_.rel32_placeholder();
-        emit_abort();
-        code_.patch_rel32(sized, code_.position());
 #ifdef _WIN32
-        code_.raw({0x48, 0x63, 0xc0});
+        code_.raw({0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        call_runtime_slot(22);
+#else
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0xb8, 0x03, 0x00, 0x00, 0x00, 0x0f, 0x05});
 #endif
+        emit_instruction_error(
+            function, frame, instruction,
+            vkf::machine_ir::runtime_error_mask, entry, branches);
+        code_.patch_rel32(sized, code_.position());
         code_.raw({0x48, 0x89, 0x85});
         code_.i32(frame.displacement(frame.temp_base + first + 1));
 
@@ -2100,6 +2158,7 @@ private:
         code_.i32(frame.displacement(frame.temp_base + first));
         code_.raw({0x31, 0xd2, 0x45, 0x31, 0xc0});
         call_runtime_slot(23);
+        code_.raw({0x48, 0x63, 0xc0});
 #else
         code_.raw({0x48, 0x8b, 0xbd});
         code_.i32(frame.displacement(frame.temp_base + first));
@@ -2107,7 +2166,18 @@ private:
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
         const auto rewound = code_.rel32_placeholder();
-        emit_abort();
+#ifdef _WIN32
+        code_.raw({0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        call_runtime_slot(22);
+#else
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0xb8, 0x03, 0x00, 0x00, 0x00, 0x0f, 0x05});
+#endif
+        emit_instruction_error(
+            function, frame, instruction,
+            vkf::machine_ir::runtime_error_mask, entry, branches);
         code_.patch_rel32(rewound, code_.position());
 
         // Owned strings store their byte length in an eight-byte header.
@@ -2136,6 +2206,7 @@ private:
         code_.raw({0x8b, 0x8d});
         code_.i32(frame.displacement(frame.temp_base + first));
         call_runtime_slot(21);
+        code_.raw({0x48, 0x63, 0xc0});
 #else
         code_.raw({0x48, 0x8b, 0xbd});
         code_.i32(frame.displacement(frame.temp_base + first));
@@ -2148,7 +2219,21 @@ private:
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
         const auto read_ok = code_.rel32_placeholder();
-        emit_abort();
+#ifdef _WIN32
+        code_.raw({0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        call_runtime_slot(22);
+#else
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0xb8, 0x03, 0x00, 0x00, 0x00, 0x0f, 0x05});
+#endif
+        code_.raw({0x48, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        release_pointer_in_rax();
+        emit_instruction_error(
+            function, frame, instruction,
+            vkf::machine_ir::runtime_error_mask, entry, branches);
         code_.patch_rel32(read_ok, code_.position());
 #ifdef _WIN32
         code_.raw({0x4c, 0x63, 0xc0});
@@ -2181,7 +2266,16 @@ private:
     }
 
     void emit_write_file_string(
-        const Frame& frame, unsigned first, bool owns_path, bool owns_data, bool append) {
+        const vkf::machine_ir::Function& function,
+        const Frame& frame,
+        unsigned first,
+        const vkf::machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<MachineBranchPatch>& branches
+    ) {
+        const bool owns_path = instruction.owns_left;
+        const bool owns_data = instruction.owns_right;
+        const bool append = instruction.index != 0;
 #ifdef _WIN32
         // _open(path, _O_WRONLY | _O_CREAT | (_O_APPEND or _O_TRUNC) | _O_BINARY, 0600)
         code_.raw({0x48, 0x8b, 0x8d});
@@ -2189,6 +2283,7 @@ private:
         code_.raw({0xba}); code_.i32(append ? 0x8109 : 0x8301);
         code_.raw({0x41, 0xb8, 0x80, 0x01, 0x00, 0x00});
         call_runtime_slot(20);
+        code_.raw({0x48, 0x63, 0xc0});
 #else
         code_.raw({0x48, 0x8b, 0xbd});
         code_.i32(frame.displacement(frame.temp_base + first));
@@ -2198,7 +2293,19 @@ private:
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
         const auto opened = code_.rel32_placeholder();
-        emit_abort();
+        if (owns_path) {
+            release_owned_string(
+                frame.displacement(frame.temp_base + first),
+                frame.displacement(frame.temp_base + first + 1));
+        }
+        if (owns_data) {
+            release_owned_string(
+                frame.displacement(frame.temp_base + first + 2),
+                frame.displacement(frame.temp_base + first + 3));
+        }
+        emit_instruction_error(
+            function, frame, instruction,
+            vkf::machine_ir::runtime_error_mask, entry, branches);
         code_.patch_rel32(opened, code_.position());
         code_.raw({0x48, 0x89, 0x85});
         code_.i32(frame.displacement(frame.scratch_slot));
@@ -2221,6 +2328,7 @@ private:
         code_.raw({0x8b, 0x8d});
         code_.i32(frame.displacement(frame.scratch_slot));
         call_runtime_slot(13);
+        code_.raw({0x48, 0x63, 0xc0});
 #else
         code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
                    0x48, 0x85, 0xd2, 0x0f, 0x89});
@@ -2235,7 +2343,23 @@ private:
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
         const auto wrote = code_.rel32_placeholder();
-        emit_abort();
+#ifdef _WIN32
+        code_.raw({0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        call_runtime_slot(22);
+#else
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        code_.raw({0xb8, 0x03, 0x00, 0x00, 0x00, 0x0f, 0x05});
+#endif
+        if (owns_data) {
+            release_owned_string(
+                frame.displacement(frame.temp_base + first + 2),
+                frame.displacement(frame.temp_base + first + 3));
+        }
+        emit_instruction_error(
+            function, frame, instruction,
+            vkf::machine_ir::runtime_error_mask, entry, branches);
         code_.patch_rel32(wrote, code_.position());
 
 #ifdef _WIN32
@@ -2494,14 +2618,14 @@ private:
             } else if (opcode == Opcode::ReadFileString) {
                 require_stack(stack_depth, 2);
                 const unsigned first = stack_depth - 2;
-                emit_read_file_string(frame, first, instruction.owns_input);
+                emit_read_file_string(
+                    function, frame, first, instruction, entry, branches);
                 stack_depth = first + 2;
             } else if (opcode == Opcode::WriteFileString) {
                 require_stack(stack_depth, 4);
                 const unsigned first = stack_depth - 4;
                 emit_write_file_string(
-                    frame, first, instruction.owns_left, instruction.owns_right,
-                    instruction.index != 0);
+                    function, frame, first, instruction, entry, branches);
                 stack_depth = first + 1;
             } else if (opcode == Opcode::StringEqual || opcode == Opcode::StringNotEqual ||
                        opcode == Opcode::StringLess || opcode == Opcode::StringLessEqual ||
@@ -3782,6 +3906,43 @@ private:
                     code_.raw({0xf2, 0x0f, 0x2c, 0xc0, 0x41, 0x89, 0xc1});
                     epilogue();
                 }
+            } else if (opcode == Opcode::RaiseErrorValue) {
+                require_stack(stack_depth, 5);
+                const unsigned first = stack_depth - 5;
+                if (instruction.owns_input) {
+                    release_owned_string(
+                        frame.displacement(frame.temp_base + first + 2),
+                        frame.displacement(frame.temp_base + first + 3));
+                }
+                code_.raw({0x4c, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.temp_base + first));
+                load_xmm(2, frame.displacement(frame.temp_base + first + 1));
+                load_xmm(0, frame.displacement(frame.temp_base + first + 4));
+                code_.raw({0xf2, 0x0f, 0x2c, 0xc0, 0x41, 0x89, 0xc1});
+                if (instruction.has_error_handler) {
+                    store_error_message_local(frame, instruction.error_value_local);
+                    store_error_type_local(frame, instruction.error_type_local);
+                    code_.byte(0xe9);
+                    branches.push_back({code_.rel32_placeholder(), instruction.label});
+                } else if (entry) {
+                    emit_abort();
+                } else {
+                    code_.raw({0x4c, 0x89, 0x85});
+                    code_.i32(frame.displacement(frame.error_pointer_slot));
+                    store_xmm(2, frame.displacement(frame.error_length_slot));
+                    load_xmm(0, frame.displacement(frame.temp_base + first + 4));
+                    store_xmm(0, frame.displacement(frame.error_type_slot));
+                    emit_error_cleanup(function, frame);
+                    code_.raw({0x4c, 0x8b, 0x85});
+                    code_.i32(frame.displacement(frame.error_pointer_slot));
+                    load_xmm(2, frame.displacement(frame.error_length_slot));
+                    load_xmm(0, frame.displacement(frame.error_type_slot));
+                    code_.raw({0xf2, 0x0f, 0x2c, 0xc0, 0x41, 0x89, 0xc1});
+                    epilogue();
+                }
+                emit_number(vkf::machine_ir::null_value());
+                store_xmm(0, frame.displacement(frame.temp_base + first));
+                stack_depth = first + 1;
             } else if (opcode == Opcode::AssertTruthyString) {
                 require_stack(stack_depth, 3);
                 const unsigned first = stack_depth - 3;

@@ -9,7 +9,7 @@
 
 namespace vkf::machine_ir {
 
-inline constexpr std::uint32_t schema_version = 17;
+inline constexpr std::uint32_t schema_version = 18;
 // The native entry ABI owns slots 0..36. Keep returned aggregate components
 // beyond that table so adding host functions cannot silently corrupt output.
 inline constexpr std::uint32_t runtime_slot_count = 37;
@@ -17,6 +17,8 @@ inline constexpr std::uint32_t runtime_output_base = 320;
 inline constexpr std::uint32_t assertion_error_mask = 0b1000011;
 inline constexpr std::uint32_t index_error_mask = 0b1000100001;
 inline constexpr std::uint32_t value_error_mask = 0b10100001;
+inline constexpr std::uint32_t file_not_found_error_mask = 0b10000100001;
+inline constexpr std::uint32_t runtime_error_mask = 0b100000100001;
 inline constexpr std::uint64_t null_value_bits = 0x7ff8000000000001ull;
 
 inline double null_value() {
@@ -166,6 +168,7 @@ enum class Opcode : std::uint8_t {
     JumpIfParameterProvided,
     ErrorTypeMatches,
     RethrowError,
+    RaiseErrorValue,
     AssertTruthy,
     AssertTruthyString,
     ExitProgram,

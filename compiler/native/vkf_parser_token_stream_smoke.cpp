@@ -1506,6 +1506,13 @@ private:
                 expr = vf::JsonValue(std::move(out));
                 continue;
             }
+            if (is_at("BANG")) {
+                advance();
+                auto out = node("raise_expr");
+                out["value"] = std::move(expr);
+                expr = vf::JsonValue(std::move(out));
+                continue;
+            }
             break;
         }
         return expr;
