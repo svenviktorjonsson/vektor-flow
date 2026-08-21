@@ -1612,6 +1612,10 @@ private:
                 frame.offset(frame.temp_base + first + 2),
                 frame.offset(frame.temp_base + first + 3));
         }
+        if (append && entry) {
+            emit_u64(0, 81);
+            call_runtime_slot(14);
+        }
         emit_instruction_error(
             function, frame, instruction,
             machine_ir::runtime_error_mask, entry, branches);
@@ -1637,6 +1641,10 @@ private:
                     frame.offset(frame.temp_base + first + 2),
                     frame.offset(frame.temp_base + first + 3));
             }
+            if (entry) {
+                emit_u64(0, 82);
+                call_runtime_slot(14);
+            }
             emit_instruction_error(
                 function, frame, instruction,
                 machine_ir::runtime_error_mask, entry, branches);
@@ -1661,6 +1669,10 @@ private:
             release_owned_string(
                 frame.offset(frame.temp_base + first + 2),
                 frame.offset(frame.temp_base + first + 3));
+        }
+        if (append && entry) {
+            emit_u64(0, 83);
+            call_runtime_slot(14);
         }
         emit_instruction_error(
             function, frame, instruction,
