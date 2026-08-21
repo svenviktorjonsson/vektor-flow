@@ -364,7 +364,7 @@ function interleavedNativeProcessSamples(processTimer, entries, warmups, runs) {
   return samples;
 }
 
-function languageDefinitions(tools, nativeCompiler) {
+function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
   const nativeRuntimeBatch = nativeCompiler.processTimer
     ? (output, warmups, runs) => nativeProcessSamples(
         nativeCompiler.processTimer, output, warmups, runs)
@@ -387,25 +387,8 @@ function languageDefinitions(tools, nativeCompiler) {
       value: Number(payload.result)
     };
   };
-  const pythonRuntime = (source) => runCommand(
-    tools.python.command,
-    [...tools.python.prefix, source],
-    { env: { PYTHONDONTWRITEBYTECODE: '1' } }
-  );
-  const pythonCompile = (source, output) => runCommand(tools.python.command, [
-    ...tools.python.prefix,
-    '-c',
-    'import py_compile,sys;py_compile.compile(sys.argv[1],cfile=sys.argv[2],doraise=True)',
-    source,
-    output
-  ], { env: { PYTHONDONTWRITEBYTECODE: '1' } });
-  const pythonVersion = toolVersion(tools.python);
-  const packageVersions = runCommand(tools.python.command, [
-    ...tools.python.prefix,
-    '-c',
-    "import numpy,scipy;print(f'NumPy {numpy.__version__}; SciPy {scipy.__version__}')"
-  ]).stdout.trim();
-  return Object.freeze([
+  const enabled = (language) => requestedLanguages === null || requestedLanguages.has(language);
+  const definitions = [
     Object.freeze({
       id: 'vkf',
       extension: 'vkf',
@@ -451,7 +434,8 @@ function languageDefinitions(tools, nativeCompiler) {
       },
       nativeRuntimeBatch: nativeEntryRuntimeBatch
     }),
-    Object.freeze({
+  ];
+  if (enabled('c')) definitions.push(Object.freeze({
       id: 'c',
       extension: 'c',
       version: toolVersion(tools.c),
@@ -466,8 +450,8 @@ function languageDefinitions(tools, nativeCompiler) {
         return runCommand(output, []);
       },
       runtimeBatch: nativeRuntimeBatch
-    }),
-    Object.freeze({
+    }));
+  if (enabled('cpp')) definitions.push(Object.freeze({
       id: 'cpp',
       extension: 'cpp',
       version: toolVersion(tools.cpp),
@@ -482,8 +466,27 @@ function languageDefinitions(tools, nativeCompiler) {
         return runCommand(output, []);
       },
       runtimeBatch: nativeRuntimeBatch
-    }),
-    Object.freeze({
+    }));
+  if (enabled('python-efficient')) {
+    const pythonRuntime = (source) => runCommand(
+      tools.python.command,
+      [...tools.python.prefix, source],
+      { env: { PYTHONDONTWRITEBYTECODE: '1' } }
+    );
+    const pythonCompile = (source, output) => runCommand(tools.python.command, [
+      ...tools.python.prefix,
+      '-c',
+      'import py_compile,sys;py_compile.compile(sys.argv[1],cfile=sys.argv[2],doraise=True)',
+      source,
+      output
+    ], { env: { PYTHONDONTWRITEBYTECODE: '1' } });
+    const pythonVersion = toolVersion(tools.python);
+    const packageVersions = runCommand(tools.python.command, [
+      ...tools.python.prefix,
+      '-c',
+      "import numpy,scipy;print(f'NumPy {numpy.__version__}; SciPy {scipy.__version__}')"
+    ]).stdout.trim();
+    definitions.push(Object.freeze({
       id: 'python-efficient',
       extension: null,
       version: `${pythonVersion}; ${packageVersions}`,
@@ -492,8 +495,9 @@ function languageDefinitions(tools, nativeCompiler) {
       runtime(_output, source) {
         return pythonRuntime(source);
       }
-    }),
-    Object.freeze({
+    }));
+  }
+  if (enabled('rust')) definitions.push(Object.freeze({
       id: 'rust',
       extension: 'rs',
       version: toolVersion(tools.rust),
@@ -505,8 +509,8 @@ function languageDefinitions(tools, nativeCompiler) {
         return runCommand(output, []);
       },
       runtimeBatch: nativeRuntimeBatch
-    })
-  ]);
+    }));
+  return Object.freeze(definitions);
 }
 
 function parseNumericOutput(stdout, languageId, caseId) {
@@ -764,7 +768,19 @@ export function main(argv = process.argv.slice(2)) {
     ? cases
     : cases.filter((benchmarkCase) => requestedCases.has(benchmarkCase.id));
   if (selectedCases.length === 0) throw new Error(`unknown benchmark case: ${options.caseId}`);
-  const python = firstTool([
+  const requestedLanguages = options.languageId === null
+    ? null
+    : new Set(options.languageId.split(',').filter(Boolean));
+  const supportedLanguages = new Set(['vkf', 'c', 'cpp', 'python-efficient', 'rust']);
+  if (requestedLanguages) {
+    for (const languageId of requestedLanguages) {
+      if (!supportedLanguages.has(languageId)) {
+        throw new Error(`unknown benchmark language: ${languageId}`);
+      }
+    }
+  }
+  const python = requestedLanguages === null || requestedLanguages.has('python-efficient')
+    ? firstTool([
     {
       command: 'py',
       prefix: ['-3.13'],
@@ -789,7 +805,8 @@ export function main(argv = process.argv.slice(2)) {
       versionArgs: ['--version'],
       probeArgs: ['-c', 'import numpy,scipy']
     }
-  ], 'Python');
+      ], 'Python')
+    : null;
   const tools = Object.freeze({
     python,
     c: firstTool([
@@ -801,22 +818,14 @@ export function main(argv = process.argv.slice(2)) {
       { command: 'clang++', versionArgs: ['--version'] },
       { command: 'g++', versionArgs: ['--version'] }
     ], 'C++ compiler'),
-    rust: firstTool([{ command: 'rustc', versionArgs: ['--version'] }], 'Rust compiler')
+    rust: requestedLanguages === null || requestedLanguages.has('rust')
+      ? firstTool([{ command: 'rustc', versionArgs: ['--version'] }], 'Rust compiler')
+      : null
   });
   cleanWorkRoot();
   const nativeCompiler = buildNativeCompilerTools(tools);
-  const languages = languageDefinitions(tools, nativeCompiler);
+  const languages = languageDefinitions(tools, nativeCompiler, requestedLanguages);
   const languageById = new Map(languages.map((language) => [language.id, language]));
-  const requestedLanguages = options.languageId === null
-    ? null
-    : new Set(options.languageId.split(',').filter(Boolean));
-  if (requestedLanguages) {
-    for (const languageId of requestedLanguages) {
-      if (!languageById.has(languageId)) {
-        throw new Error(`unknown benchmark language: ${languageId}`);
-      }
-    }
-  }
   const results = [];
   for (const benchmarkCase of selectedCases) {
     const caseWork = resolve(workRoot, benchmarkCase.id);
