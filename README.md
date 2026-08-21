@@ -282,11 +282,11 @@ latest GitHub release. The installer can add `vkf` to the current user's `PATH`.
 It installs the native compiler and VKF standard library; Python,
 a C++ compiler, and an assembler are not required.
 
-The downloadable native release is deliberately strict and incomplete. It
-ships only the proven direct core plus `math`, `stat`, `random`, `time`, native
-`io`, `physics`, and the `rigid_body` compatibility import. Incomplete modules
-such as `collections` and `errors` are excluded. Unsupported source fails with a
-compiler error; the release never switches to a C++, Python, or assembler path.
+The downloadable 0.1 native release is deliberately strict. It ships the direct
+core plus `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`,
+`system`, `process`, and `regex`. The partial `physics`, `ui`, and `symbolic`
+modules are not present. Unsupported source fails with a compiler error; the
+release never switches to a C++, Python, or assembler path.
 
 After opening a new terminal:
 

@@ -14,7 +14,7 @@ vkf -e ':: "release ready"'
 
 For first macOS/Linux bundle bring-up from source, use:
 
-- [BUNDLE_BRINGUP.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\BUNDLE_BRINGUP.md)
+- [BUNDLE_BRINGUP.md](BUNDLE_BRINGUP.md)
 
 ## Before You Start
 
@@ -49,16 +49,10 @@ the exact PATH entry created by the installer.
 
 Python, a C++ compiler, and an assembler are not runtime dependencies.
 
-This installer is the strict native edition. It contains only `math`, `stat`,
-`random`, `time`, `physics`, and `rigid_body`. Other standard-library modules
-remain absent until their complete public surfaces are direct-native. There is
+This installer is the strict 0.1 native edition. It contains `math`, `stat`,
+`random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and
+`regex`. The partial `physics`, `ui`, and `symbolic` modules are absent. There is
 no compatibility fallback.
-
-Current UI modes:
-
-- `overlay`
-- `browser`
-- `headless`
 
 ### Install
 
@@ -96,41 +90,7 @@ If the release bundle includes sample `.vkf` files, you can also run those
 directly. The inline snippet above is the safest first check because it depends
 only on the packaged `vkf.exe`.
 
-### Use The Overlay
-
-Windows is the only platform that currently supports the native transparent
-overlay host.
-
-If a UI program uses the default Windows UI path, it can use:
-
-- `overlay`
-- `browser`
-- `headless`
-
-### Run The Python-Free Fast UI Demo
-
-This demo opens the shared-memory runtime in the native Windows overlay. It does
-not require Chrome, does not start a Python server, and does not use JSON polling
-for pointer movement.
-
-By default the launcher uses the native `vkf.exe` overlay runtime.
-
-```powershell
-.\run-shared-runtime-demo.ps1
-```
-
-If you are running from source instead of a release bundle:
-
-```powershell
-.\scripts\run-shared-runtime-demo.ps1
-```
-
 ## macOS
-
-Current UI modes:
-
-- `browser`
-- `headless`
 
 ### Install
 
@@ -163,27 +123,6 @@ If the release bundle includes sample `.vkf` files, you can also run those
 directly. The inline snippet above is the safest first check because it depends
 only on the packaged `vkf`.
 
-### UI Note
-
-macOS currently uses:
-
-- `browser`
-- `headless`
-
-There is not yet a macOS native transparent overlay host.
-
-### Run The Python-Free Fast UI Demo
-
-```bash
-./run-shared-runtime-demo.sh
-```
-
-From source:
-
-```bash
-./scripts/run-shared-runtime-demo.sh
-```
-
 ## Linux
 
 On Debian/Ubuntu, install `vektor-flow-linux-x64.deb`. Other distributions can
@@ -197,11 +136,6 @@ vkf -e ':: "hello, world"'
 This installs under `~/.local/opt/vektor-flow` and creates commands under
 `~/.local/bin`. It does not install or invoke Python, a C++ compiler, or an
 assembler.
-
-Current UI modes:
-
-- `browser`
-- `headless`
 
 ### Install
 
@@ -234,34 +168,13 @@ If the release bundle includes sample `.vkf` files, you can also run those
 directly. The inline snippet above is the safest first check because it depends
 only on the packaged `vkf`.
 
-### UI Note
-
-Linux currently uses:
-
-- `browser`
-- `headless`
-
-There is not yet a Linux native transparent overlay host.
-
-### Run The Python-Free Fast UI Demo
-
-```bash
-./run-shared-runtime-demo.sh
-```
-
-From source:
-
-```bash
-./scripts/run-shared-runtime-demo.sh
-```
-
 ## VS Code
 
 If you want editor integration after the platform install succeeds, continue
 with:
 
-- [vscode/README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\vscode\README.md)
-- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
+- [vscode/README.md](vscode/README.md)
+- [TESTING.md](TESTING.md)
 
 Recommended settings:
 
@@ -295,6 +208,6 @@ That is the contributor path, not the main tester path.
 
 See:
 
-- [README.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\README.md)
-- [RELEASES.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\RELEASES.md)
-- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
+- [README.md](README.md)
+- [RELEASES.md](RELEASES.md)
+- [TESTING.md](TESTING.md)

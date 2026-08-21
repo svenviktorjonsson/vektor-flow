@@ -1,8 +1,7 @@
 # Vektor Flow Beta Testing Guide
 
-This is the fastest path for community testers who want to help us find bugs,
-installation friction, packaging problems, UI issues, and VS Code integration
-rough edges.
+This is the fastest path for community testers who want to help us find compiler,
+standard-library, installation, packaging, and VS Code integration problems.
 
 ## Start Here
 
@@ -14,7 +13,7 @@ rough edges.
 
 If you are looking for platform-specific install steps, start with:
 
-- [INSTALL.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\INSTALL.md)
+- [INSTALL.md](INSTALL.md)
 
 If you are the maintainer preparing a tester bundle, verify it before sharing:
 
@@ -29,9 +28,9 @@ python scripts/verify_release_bundle.py dist/releases/<channel>
 From the extracted bundle folder:
 
 ```powershell
-.\vkf.exe -e ':: "hello, world"'
-.\vkf.exe .\samples\01_hello.vkf
-.\vkf.exe .\samples\100_axis_4_panel.vkf
+.\bin\vkf.exe -e ':: "hello, world"'
+.\bin\vkf.exe .\samples\01_hello.vkf
+.\bin\vkf.exe .\samples\64_axis_tags_and_broadcast.vkf
 ```
 
 ### macOS / Linux
@@ -39,57 +38,10 @@ From the extracted bundle folder:
 From the extracted bundle folder:
 
 ```bash
-./vkf -e ':: "hello, world"'
-./vkf ./samples/01_hello.vkf
-./vkf ./samples/100_axis_4_panel.vkf
+./bin/vkf -e ':: "hello, world"'
+./bin/vkf ./samples/01_hello.vkf
+./bin/vkf ./samples/64_axis_tags_and_broadcast.vkf
 ```
-
-## UI Smoke Tests
-
-Current supported modes by platform:
-
-- Windows:
-  - `overlay`
-  - `browser`
-  - `headless`
-- macOS:
-  - `browser`
-  - `headless`
-- Linux:
-  - `browser`
-  - `headless`
-
-The best beta signal right now is whether:
-
-- the program launches
-- the expected UI host opens
-- the UI output matches the sample program
-- the host closes cleanly and can be relaunched
-
-### Python-Free Shared Runtime Demo
-
-This is the fastest UI path to test right now. On Windows it runs inside the
-native overlay using static UI assets:
-
-- no Chrome dependency on Windows
-- no Python server
-- no `vf-display.json` polling during pointer movement
-- typed event and transform arenas on the hot path
-
-Windows:
-
-```powershell
-.\run-shared-runtime-demo.ps1
-```
-
-macOS / Linux:
-
-```bash
-./run-shared-runtime-demo.sh
-```
-
-Expected result: a browser window opens with one draggable rectangle. Dragging
-the rectangle should feel immediate.
 
 ## VS Code Extension Smoke Test
 
@@ -137,8 +89,7 @@ We especially want to hear about:
 - install friction
 - missing bundled files
 - `vkf` command failures
-- browser-mode UI failures on macOS or Linux
-- overlay problems on Windows
+- cross-platform differences in native standard-library behavior
 - VS Code extension setup friction
 - examples that work from source but fail from a packaged bundle
 
@@ -160,7 +111,6 @@ When reporting a bug, include:
    - install
    - compiler/runtime
    - package/launcher
-   - UI
    - extension/editor
 
 If the problem involves a packaged native program, also include:
