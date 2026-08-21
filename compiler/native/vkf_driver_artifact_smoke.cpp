@@ -746,11 +746,14 @@ Arm64DirectArtifact compile_arm64_direct(
         const auto encoded = vkf::arm64::encode(machine_ir);
         const std::string stem = source.stem().string().empty()
             ? "program" : source.stem().string();
-        const auto build_dir = std::filesystem::absolute(source).parent_path() / ".vkfbuild";
+        const auto build_dir = build_dir_for(source);
         const auto artifact_path = requested_artifact.empty()
             ? build_dir / stem
             : std::filesystem::absolute(requested_artifact);
         std::filesystem::create_directories(artifact_path.parent_path());
+        const auto code_path = build_dir / "arm64-code.bin";
+        const auto data_path = build_dir / "arm64-data.bin";
+        const auto manifest_path = build_dir / "arm64-manifest.json";
         const auto executable = vkf::macho::executable_arm64(
             encoded.code, stem, machine_ir.string_data,
             machine_ir.output_kind == vkf::machine_ir::OutputKind::String,
@@ -759,13 +762,21 @@ Arm64DirectArtifact compile_arm64_direct(
                 ? machine_ir.output_count : 0u,
             machine_ir.outputs, machine_ir.output_tokens);
         write_binary_file(artifact_path, executable.bytes);
+        write_binary_file(code_path, encoded.code);
+        write_binary_file(data_path, machine_ir.string_data);
+        vf::JsonValue::Object manifest;
+        manifest["artifact_path"] = std::filesystem::absolute(artifact_path).string();
+        manifest["code_path"] = std::filesystem::absolute(code_path).string();
+        manifest["data_path"] = std::filesystem::absolute(data_path).string();
+        manifest["target_architecture"] = "arm64";
+        write_file(manifest_path, vf::json_stringify(vf::JsonValue(manifest), 2) + "\n");
         std::filesystem::permissions(
             artifact_path,
             std::filesystem::perms::owner_exec
                 | std::filesystem::perms::group_exec
                 | std::filesystem::perms::others_exec,
             std::filesystem::perm_options::add);
-        return {artifact_path, build_dir / (stem + "-arm64-manifest.json")};
+        return {artifact_path, manifest_path};
     } catch (const std::exception& error) {
         throw DriverFailure(std::string("direct arm64 backend unsupported: ") + error.what());
     }
@@ -1714,6 +1725,7 @@ int main(int argc, char** argv) {
                 if (!source.empty() && source.back() == '\r') source.pop_back();
                 if (source.empty()) continue;
                 Args args;
+                args.self = argv[0];
                 args.source = source;
                 args.aot = true;
                 fill_default_tool_paths(args);

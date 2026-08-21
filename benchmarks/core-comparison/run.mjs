@@ -295,12 +295,7 @@ function buildNativeCompilerTools(tools) {
   ]);
   const jsonSource = resolve(repoRoot, 'native', 'VfOverlay', 'vf', 'json.cpp');
   const arm64Host = platform() === 'darwin' && process.arch === 'arm64';
-  const definitions = [
-    ...(!arm64Host
-      ? [['x64Template', 'vkf_x64_runner_template.cpp', false, 'vkf_x64_runner_template']]
-      : []),
-    ['driver', 'vkf_driver_artifact_smoke.cpp', true]
-  ];
+  const definitions = [['driver', 'vkf_driver_artifact_smoke.cpp', true]];
   const built = {};
   if (platform() === 'win32') built.processTimer = processTimer;
   built.entryTimer = entryTimer;

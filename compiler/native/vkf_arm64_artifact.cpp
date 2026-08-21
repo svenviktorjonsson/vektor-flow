@@ -74,11 +74,13 @@ int main(int argc, char** argv) {
             ? "program" : args.source.stem().string();
         const auto build_dir = std::filesystem::absolute(args.source).parent_path() / ".vkfbuild" / stem;
         const auto code_path = build_dir / "arm64-code.bin";
+        const auto data_path = build_dir / "arm64-data.bin";
         const auto artifact_path = build_dir / (stem + "-arm64");
         const auto machine_ir_path = build_dir / "machine-ir.json";
         const auto manifest_path = build_dir / "arm64-manifest.json";
         std::filesystem::create_directories(build_dir);
         write_bytes(code_path, encoded.code);
+        write_bytes(data_path, machine_ir.string_data);
         const auto executable = vkf::macho::executable_arm64(
             encoded.code, stem, machine_ir.string_data,
             machine_ir.output_kind == vkf::machine_ir::OutputKind::String,
@@ -108,6 +110,7 @@ int main(int argc, char** argv) {
         manifest["backend"] = "arm64-macho";
         manifest["code_bytes"] = static_cast<double>(encoded.code.size());
         manifest["code_path"] = std::filesystem::absolute(code_path).string();
+        manifest["data_path"] = std::filesystem::absolute(data_path).string();
         manifest["entry_offset"] = static_cast<double>(executable.entry_offset);
         manifest["function_offsets"] = vf::JsonValue(std::move(function_offsets));
         manifest["machine_ir"] = std::filesystem::absolute(machine_ir_path).string();
