@@ -2046,17 +2046,19 @@ private:
     }
 
     void emit_write_file_string(
-        const Frame& frame, unsigned first, bool owns_path, bool owns_data) {
+        const Frame& frame, unsigned first, bool owns_path, bool owns_data, bool append) {
 #ifdef _WIN32
-        // _open(path, _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, 0600)
+        // _open(path, _O_WRONLY | _O_CREAT | (_O_APPEND or _O_TRUNC) | _O_BINARY, 0600)
         code_.raw({0x48, 0x8b, 0x8d});
         code_.i32(frame.displacement(frame.temp_base + first));
-        code_.raw({0xba, 0x01, 0x83, 0x00, 0x00, 0x41, 0xb8, 0x80, 0x01, 0x00, 0x00});
+        code_.raw({0xba}); code_.i32(append ? 0x8109 : 0x8301);
+        code_.raw({0x41, 0xb8, 0x80, 0x01, 0x00, 0x00});
         call_runtime_slot(20);
 #else
         code_.raw({0x48, 0x8b, 0xbd});
         code_.i32(frame.displacement(frame.temp_base + first));
-        code_.raw({0xbe, 0x41, 0x02, 0x00, 0x00, 0xba, 0x80, 0x01, 0x00, 0x00,
+        code_.raw({0xbe}); code_.i32(append ? 0x441 : 0x241);
+        code_.raw({0xba, 0x80, 0x01, 0x00, 0x00,
                    0xb8, 0x02, 0x00, 0x00, 0x00, 0x0f, 0x05});
 #endif
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
@@ -2327,7 +2329,7 @@ private:
                 code_.patch_rel32(decoded, code_.position());
                 code_.raw({0x48, 0x8b, 0x95});
                 code_.i32(frame.displacement(frame.temp_base + first));
-                code_.raw({0xb9, 0x01, 0x00, 0x00, 0x00});
+                code_.raw({0xb9}); code_.i32(static_cast<std::int32_t>(instruction.index));
                 call_runtime_slot(13);
 #else
                 code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0,
@@ -2338,7 +2340,8 @@ private:
                 code_.patch_rel32(decoded, code_.position());
                 code_.raw({0x48, 0x8b, 0xb5});
                 code_.i32(frame.displacement(frame.temp_base + first));
-                code_.raw({0xbf, 0x01, 0x00, 0x00, 0x00,
+                code_.raw({0xbf}); code_.i32(static_cast<std::int32_t>(instruction.index));
+                code_.raw({
                            0xb8, 0x01, 0x00, 0x00, 0x00,
                            0x0f, 0x05});
 #endif
@@ -2358,7 +2361,8 @@ private:
                 require_stack(stack_depth, 4);
                 const unsigned first = stack_depth - 4;
                 emit_write_file_string(
-                    frame, first, instruction.owns_left, instruction.owns_right);
+                    frame, first, instruction.owns_left, instruction.owns_right,
+                    instruction.index != 0);
                 stack_depth = first + 1;
             } else if (opcode == Opcode::StringEqual || opcode == Opcode::StringNotEqual ||
                        opcode == Opcode::StringLess || opcode == Opcode::StringLessEqual ||

@@ -248,7 +248,7 @@ void fill_default_tool_paths(Args& args) {
         args.artifact = sibling_tool_path(args.self, args.aot ? "vkf_x64_artifact" : "vkf_compiler_artifact_smoke");
     }
     if (args.aot) {
-#if defined(__APPLE__)
+#if defined(__APPLE__) && defined(VKF_X64_BACKEND_LIBRARY)
         if (args.x64_template.empty()) args.x64_template = sibling_tool_path(args.self, "vkf_x64_runner_template");
 #endif
     }
@@ -1587,6 +1587,7 @@ int main(int argc, char** argv) {
 
         bool ran = false;
         std::string run_stdout;
+        std::string run_stderr;
         double run_ms = 0.0;
         if (args.run) {
             const auto run_started = Clock::now();
@@ -1597,6 +1598,7 @@ int main(int argc, char** argv) {
             const auto run_finished = Clock::now();
             ran = true;
             run_stdout = run_result.stdout_text;
+            run_stderr = run_result.stderr_text;
             run_ms = std::chrono::duration<double, std::milli>(run_finished - run_started).count();
         }
         const auto total_finished = Clock::now();
@@ -1623,6 +1625,7 @@ int main(int argc, char** argv) {
         summary["run_ms"] = vf::JsonValue(run_ms);
         summary["status"] = vf::JsonValue(status);
         summary["stdout"] = vf::JsonValue(run_stdout);
+        summary["stderr"] = vf::JsonValue(run_stderr);
         if (materialize_frontend) summary["token_path"] = vf::JsonValue(token_path.string());
         summary["total_ms"] = vf::JsonValue(std::chrono::duration<double, std::milli>(total_finished - total_started).count());
         if (materialize_frontend) summary["typed_ir_path"] = vf::JsonValue(typed_ir_path.string());
@@ -1752,6 +1755,7 @@ int main(int argc, char** argv) {
             _setmode(_fileno(stdout), _O_BINARY);
 #endif
             std::cout << string_field(summary, "stdout", "strict direct summary");
+            std::cerr << string_field(summary, "stderr", "strict direct summary");
         } else {
             const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
             std::cout << "Built "

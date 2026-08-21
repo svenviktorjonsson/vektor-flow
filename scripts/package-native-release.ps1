@@ -99,12 +99,18 @@ try {
     @"
 io: .io
 io.write_text("native-io.txt", "native UTF-8: hej")
+io.append_text("native-io.txt", " + appended")
 io.write_bytes("native-io.bin", "byte exact")
+io.eprint("native stderr")
 :: io.read_text("native-io.txt")
 :: io.read_bytes("native-io.bin")
 "@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_io.vkf") -Encoding utf8
-    $ioOutput = & $compiler (Join-Path $smokeRoot "installed_io.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($ioOutput -join "`n").Trim() -ne "native UTF-8: hej`nbyte exact") {
+    $ioErrorPath = Join-Path $smokeRoot "io.err"
+    $ioOutput = & $compiler (Join-Path $smokeRoot "installed_io.vkf") 2> $ioErrorPath
+    $ioError = (Get-Content -LiteralPath $ioErrorPath -Raw).Trim()
+    if ($LASTEXITCODE -ne 0 -or
+        ($ioOutput -join "`n").Trim() -ne "native UTF-8: hej + appended`nbyte exact" -or
+        $ioError -ne "native stderr") {
         throw "Packaged native IO smoke failed"
     }
     @"

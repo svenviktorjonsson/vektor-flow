@@ -4714,11 +4714,11 @@ def test_x64_artifact_emits_runnable_machine_code(tmp_path: Path, smoke_exes: di
         assert artifact_path.stat().st_size < 8192
     assert Path(manifest["code_path"]).read_bytes()
     assert manifest["code_bytes"] > 0
-    assert manifest["machine_ir_version"] == 13
+    assert manifest["machine_ir_version"] == 16
     assert manifest["runtime_abi_version"] == 12
     assert Path(manifest["machine_ir"]) == Path(summary["machine_ir_path"])
     assert machine_ir["schema"] == "vektorflow.machine_ir"
-    assert machine_ir["version"] == 13
+    assert machine_ir["version"] == 16
     assert machine_ir["entry"]["name"] == "$entry"
     assert [function["name"] for function in machine_ir["functions"]] == ["advance", "run"]
     assert any(
@@ -4787,7 +4787,7 @@ def test_arm64_artifact_emits_apple_abi_machine_code(tmp_path: Path, smoke_exes:
     assert manifest["target_object_format"] == "macho"
     assert manifest["artifact_bytes"] == len(executable)
     assert manifest["code_bytes"] == len(code)
-    assert manifest["machine_ir_version"] == 13
+    assert manifest["machine_ir_version"] == 16
     assert manifest["runtime_abi_version"] == 12
     assert manifest["runtime_imports_complete"] is True
     assert manifest["result_transport"] == "stdout-f64"
@@ -5068,6 +5068,61 @@ def test_time_stdlib_is_direct_and_has_no_language_toolchain_runtime(
     arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
     for runtime_import in (b"_clock_gettime\0", b"_nanosleep\0", b"_localtime_r\0"):
         assert runtime_import in arm64_artifact
+    for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
+        assert forbidden not in arm64_artifact.lower()
+
+
+def test_io_stdlib_appends_and_routes_stderr_on_x64_and_arm64(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "direct-io-streams.vkf"
+    source_path.write_text(
+        "io_api: .io\n"
+        'io_api.write_text("native-io.txt", "first")\n'
+        'io_api.append_text("native-io.txt", "+second")\n'
+        'io_api.eprint("native stderr")\n'
+        ':: io_api.read_text("native-io.txt")\n',
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "direct-io-streams.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    executable_path = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(executable_path)], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert executed.stdout == "first+second\n"
+    assert executed.stderr == "native stderr\n"
+    assert (tmp_path / "native-io.txt").read_text(encoding="utf-8") == "first+second"
+
+    machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
+    instructions = [
+        instruction
+        for function in [machine_ir["entry"], *machine_ir["functions"]]
+        for instruction in function["instructions"]
+    ]
+    assert any(
+        instruction["kind"] == "write_file_string" and instruction["append"]
+        for instruction in instructions
+    )
+    assert any(
+        instruction["kind"] == "write_string" and instruction["file_descriptor"] == 2
+        for instruction in instructions
+    )
+
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
+    assert b"_open\0" in arm64_artifact
+    assert b"_write\0" in arm64_artifact
     for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
         assert forbidden not in arm64_artifact.lower()
 

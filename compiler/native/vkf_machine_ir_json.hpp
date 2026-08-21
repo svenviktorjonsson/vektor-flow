@@ -195,6 +195,9 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         instruction.opcode == Opcode::CountF64List) {
         object["owns_input"] = instruction.owns_input;
     }
+    if (instruction.opcode == Opcode::WriteString) {
+        object["file_descriptor"] = static_cast<double>(instruction.index);
+    }
     if (instruction.opcode == Opcode::ProcessRun) {
         object["argument_count"] = static_cast<double>(instruction.argument_count);
         object["offset"] = static_cast<double>(instruction.index);
@@ -209,6 +212,7 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         object["offset"] = static_cast<double>(instruction.index);
     }
     if (instruction.opcode == Opcode::WriteFileString) {
+        object["append"] = instruction.index != 0;
         object["owns_left"] = instruction.owns_left;
         object["owns_right"] = instruction.owns_right;
     }

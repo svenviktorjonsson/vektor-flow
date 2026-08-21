@@ -80,13 +80,16 @@ EOF
   cat > installed_io.vkf <<'EOF'
 io: .io
 io.write_text("native-io.txt", "native UTF-8: hej")
+io.append_text("native-io.txt", " + appended")
 io.write_bytes("native-io.bin", "byte exact")
+io.eprint("native stderr")
 :: io.read_text("native-io.txt")
 :: io.read_bytes("native-io.bin")
 EOF
-  "$stage_root/bin/vkf" installed_io.vkf > io.txt
-  test "$(cat io.txt)" = "native UTF-8: hej
+  "$stage_root/bin/vkf" installed_io.vkf > io.txt 2> io.err
+  test "$(cat io.txt)" = "native UTF-8: hej + appended
 byte exact"
+  test "$(cat io.err)" = "native stderr"
   cat > installed_collections_errors.vkf <<'EOF'
 c: .collections
 errors: .errors

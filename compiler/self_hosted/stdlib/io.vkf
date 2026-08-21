@@ -6,8 +6,5 @@ io_stdlib_capability:
     name: "io"
     source_policy: ["UTF-8 text", "string-backed byte buffers"]
     runtime_abi: ["stdout", "open", "read", "write", "seek", "close"]
-    direct: ["print", "read_text", "write_text", "read_bytes", "write_bytes"]
+    direct: ["print", "eprint", "read_text", "write_text", "append_text", "read_bytes", "write_bytes"]
     :
-
-print(value:any):
-    @: value

@@ -7747,7 +7747,7 @@ inline ValueLayout lower_expression(
         if (callee_kind == "stdlib_function") {
             const std::string module = string_field(callee, "module", "stdlib callee");
             const std::string name = string_field(callee, "name", "stdlib callee");
-            if (module == "io" && name == "print") {
+            if (module == "io" && (name == "print" || name == "eprint")) {
                 if (args.size() != 1) {
                     throw LoweringFailure("machine IR print requires one argument");
                 }
@@ -7766,6 +7766,7 @@ inline ValueLayout lower_expression(
                 emit_interpolation_concat(builder, owns_text, false);
                 Instruction write;
                 write.opcode = Opcode::WriteString;
+                write.index = name == "eprint" ? 2u : 1u;
                 write.owns_input = true;
                 builder.emit(std::move(write));
                 for (std::uint32_t component = 0; component < layout.width; ++component) {
@@ -7802,7 +7803,8 @@ inline ValueLayout lower_expression(
                 builder.emit(std::move(read));
                 return {2, ValueKind::String, {}};
             }
-            if (module == "io" && (name == "write_text" || name == "write_bytes")) {
+            if (module == "io" &&
+                (name == "write_text" || name == "write_bytes" || name == "append_text")) {
                 if (args.size() != 2 || !named_args.empty()) {
                     throw LoweringFailure(
                         "machine IR io." + name + " requires path and data; direct files are byte-exact UTF-8");
@@ -7827,6 +7829,7 @@ inline ValueLayout lower_expression(
                 }
                 Instruction write;
                 write.opcode = Opcode::WriteFileString;
+                write.index = name == "append_text" ? 1u : 0u;
                 write.owns_left = true;
                 write.owns_right = data_owned;
                 builder.emit(std::move(write));

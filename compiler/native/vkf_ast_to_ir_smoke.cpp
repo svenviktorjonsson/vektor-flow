@@ -236,7 +236,9 @@ vf::JsonValue stdlib_function(std::string module, std::string name) {
         }
     } else if (module == "io") {
         if (name == "read_text" || name == "read_bytes") type = "fn(str)->str";
-        else if (name == "write_text" || name == "write_bytes") type = "fn(str,str)->null";
+        else if (name == "write_text" || name == "write_bytes" || name == "append_text") {
+            type = "fn(str,str)->null";
+        } else if (name == "print" || name == "eprint") type = "fn(any)->any";
     } else if (module == "system") {
         if (name == "os_name" || name == "arch_name" || name == "cwd_native") type = "fn()->str";
         else if (name == "cpu_count_native") type = "fn()->int";
@@ -2715,9 +2717,10 @@ private:
                     throw IRFailure("unknown stdlib collections member " + field_name);
                 }
                 if (canonical_module == "io") {
-                    if (field_name == "print" || field_name == "read_text" ||
+                    if (field_name == "print" || field_name == "eprint" ||
+                        field_name == "read_text" ||
                         field_name == "write_text" || field_name == "read_bytes" ||
-                        field_name == "write_bytes") {
+                        field_name == "write_bytes" || field_name == "append_text") {
                         return stdlib_function("io", field_name);
                     }
                     throw IRFailure("unknown stdlib io member " + field_name);

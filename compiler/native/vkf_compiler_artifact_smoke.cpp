@@ -262,10 +262,12 @@ void validate_value(const vf::JsonValue& value) {
     if (kind == "stdlib_function") {
         const std::string full_name = string_field(object, "full_name", "stdlib_function");
         if (full_name != "io.print"
+            && full_name != "io.eprint"
             && full_name != "io.read_text"
             && full_name != "io.write_text"
             && full_name != "io.read_bytes"
             && full_name != "io.write_bytes"
+            && full_name != "io.append_text"
             && full_name != "math.sqrt"
             && full_name != "math.sin"
             && full_name != "math.cos"
@@ -1599,7 +1601,7 @@ std::string eval_call(
         }
     } else if (callee_kind == "stdlib_function") {
         const std::string full_name = string_field(callee, "full_name", "call.callee");
-        if (full_name == "io.print") {
+        if (full_name == "io.print" || full_name == "io.eprint") {
             std::string line;
             for (const auto& arg : array_of(field(object, "args", "call"), "call.args")) {
                 line += eval_value(arg, values, imports, functions, stdlib_exports, ctor_name);

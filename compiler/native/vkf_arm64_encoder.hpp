@@ -1414,9 +1414,10 @@ private:
     }
 
     void emit_write_file_string(
-        const Frame& frame, std::uint32_t first, bool owns_path, bool owns_data) {
+        const Frame& frame, std::uint32_t first, bool owns_path, bool owns_data,
+        bool append) {
         load_x(0, frame.offset(frame.temp_base + first));
-        emit_u64(1, 0x601u);
+        emit_u64(1, append ? 0x209u : 0x601u);
         emit_u64(2, 0600u);
         call_runtime_slot(20);
         words_.emit(0xf100001fu);
@@ -1672,7 +1673,7 @@ private:
                 words_.emit(0xcb0203e2u);
                 words_.emit(0xd1000442u);
                 words_.patch_compare_branch19(decoded, words_.offset());
-                words_.emit(0xd2800020u);
+                emit_u64(0, instruction.index);
                 call_runtime_slot(13);
                 if (instruction.owns_input) {
                     load_x(0, frame.offset(frame.temp_base + first));
@@ -1689,7 +1690,8 @@ private:
                 require_stack(stack_depth, 4);
                 const auto first = stack_depth - 4;
                 emit_write_file_string(
-                    frame, first, instruction.owns_left, instruction.owns_right);
+                    frame, first, instruction.owns_left, instruction.owns_right,
+                    instruction.index != 0);
                 stack_depth = first + 1;
             } else if (opcode == Opcode::StringEqual || opcode == Opcode::StringNotEqual ||
                        opcode == Opcode::StringLess || opcode == Opcode::StringLessEqual ||
