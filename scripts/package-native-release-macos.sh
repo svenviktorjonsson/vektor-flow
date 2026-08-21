@@ -73,7 +73,9 @@ m: .math
 EOF
 (
   cd "$smoke_root"
+  printf '%s\n' '[DEBUG-mac-package-01] compile math' >&2
   "$stage_root/bin/vkf" -b installed_math.vkf > build.txt
+  printf '%s\n' '[DEBUG-mac-package-01] execute math' >&2
   grep -q '^Built ' build.txt
   test -x installed_math
   test "$(./installed_math)" = "0"
@@ -87,6 +89,7 @@ io.eprint("native stderr")
 :: io.read_text("native-io.txt")
 :: io.read_bytes("native-io.bin")
 EOF
+  printf '%s\n' '[DEBUG-mac-package-01] execute io' >&2
   "$stage_root/bin/vkf" installed_io.vkf > io.txt 2> io.err
   test "$(cat io.txt)" = "native UTF-8: hej + appended
 byte exact"
@@ -105,6 +108,7 @@ caught: 0
     errors.AssertionError => caught: 1
 :: first + second + point.x + point.y + caught
 EOF
+  printf '%s\n' '[DEBUG-mac-package-01] execute collections-errors' >&2
   test "$("$stage_root/bin/vkf" installed_collections_errors.vkf)" = "34"
   cat > installed_system.vkf <<'EOF'
 system: .system
@@ -116,6 +120,7 @@ missing: system.env("VKF_MISSING_RELEASE_TEST_0_1_0")
 :: present.found
 :: missing.found
 EOF
+  printf '%s\n' '[DEBUG-mac-package-01] execute system' >&2
   test "$("$stage_root/bin/vkf" installed_system.vkf)" = "macos
 arm64
 true
@@ -128,6 +133,7 @@ result: process.run("/bin/sh", ["-c", "printf hello; printf error >&2; exit 7"])
 :: result.out
 :: result.err
 EOF
+  printf '%s\n' '[DEBUG-mac-package-01] execute process' >&2
   test "$("$stage_root/bin/vkf" installed_process.vkf)" = "7
 hello
 error"
@@ -137,6 +143,7 @@ result: capture.regex("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>
 :: result.a
 :: result.b
 EOF
+  printf '%s\n' '[DEBUG-mac-package-01] execute capture' >&2
   test "$("$stage_root/bin/vkf" installed_capture.vkf)" = "123
 45"
   test "$("$stage_root/bin/vkf" installed_math.vkf -o app)" = "0"
