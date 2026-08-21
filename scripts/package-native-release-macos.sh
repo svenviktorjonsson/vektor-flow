@@ -86,16 +86,11 @@ EOF
   test ! -e .vkfbuild
   cat > installed_io.vkf <<'EOF'
 io: .io
-io.eprint("debug: write_text")
 io.write_text("native-io.txt", "native UTF-8: hej")
-io.eprint("debug: append_text")
 io.append_text("native-io.txt", " + appended")
-io.eprint("debug: write_bytes")
 io.write_bytes("native-io.bin", "byte exact")
-io.eprint("debug: read_text")
 io.eprint("native stderr")
 :: io.read_text("native-io.txt")
-io.eprint("debug: read_bytes")
 :: io.read_bytes("native-io.bin")
 EOF
   printf '%s\n' '[DEBUG-mac-package-01] execute io' >&2
