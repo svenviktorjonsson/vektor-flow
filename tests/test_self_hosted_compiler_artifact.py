@@ -5450,6 +5450,55 @@ def test_capture_stdlib_compiles_typed_linear_patterns_to_native_code(
         assert forbidden not in arm64_artifact.lower()
 
 
+def test_capture_no_match_is_a_native_value_error(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "capture-no-match.vkf"
+    source_path.write_text(
+        "capture_api: .capture\n"
+        "errors: .errors\n\n"
+        "match_or_message(source:str) -> str:\n"
+        "    result: \"\"\n"
+        "    capture_api.regex(source, '^(?P<number>\\d+)$')!?\n"
+        "        errors.ValueError => result: $.message\n"
+        "    result\n\n"
+        ":: match_or_message(\"not-a-number\")\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "capture-no-match.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    artifact = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(artifact)], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    match_function = next(
+        function for function in machine_ir["functions"]
+        if function["name"] == "match_or_message"
+    )
+    capture = next(
+        instruction for instruction in match_function["instructions"]
+        if instruction["kind"] == "capture_regex"
+    )
+
+    assert executed.stdout == "regular expression did not match\n"
+    assert match_function["may_error"] is True
+    assert capture["may_error"] is True
+    assert capture["has_error_handler"] is True
+    assert Path(arm64["raw_code_path"]).stat().st_size > 0
+
+
 def test_driver_eval_shorthand_does_not_invent_stdlib_dependency(
     tmp_path: Path,
     smoke_exes: dict[str, Path],

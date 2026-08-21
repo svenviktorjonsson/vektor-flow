@@ -219,7 +219,8 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         object["owns_right"] = instruction.owns_right;
     }
     if (instruction.opcode == Opcode::ReadFileString ||
-        instruction.opcode == Opcode::WriteFileString) {
+        instruction.opcode == Opcode::WriteFileString ||
+        instruction.opcode == Opcode::CaptureRegex) {
         object["may_error"] = instruction.may_error;
         object["has_error_handler"] = instruction.has_error_handler;
         object["error_message_offset"] =

@@ -939,9 +939,12 @@ private:
     }
 
     void emit_capture_regex(
+        const vkf::machine_ir::Function& function,
         const Frame& frame,
         unsigned first,
-        const vkf::machine_ir::Instruction& instruction
+        const vkf::machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<MachineBranchPatch>& branches
     ) {
         const auto pattern = vkf::capture::parse(instruction.symbol);
         if (pattern.group_names.size() != instruction.argument_count) {
@@ -1058,8 +1061,19 @@ private:
 
         const auto failed = code_.position();
         for (const auto patch : failures) code_.patch_rel32(patch, failed);
+        const auto emit_no_match = [&]() {
+            if (instruction.owns_input) {
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                code_.raw({0x48, 0x83, 0xe8, 0x08});
+                release_pointer_in_rax();
+            }
+            emit_instruction_error(
+                function, frame, instruction,
+                vkf::machine_ir::value_error_mask, entry, branches);
+        };
         if (pattern.anchor_start) {
-            emit_abort();
+            emit_no_match();
         } else {
             code_.raw({0x48, 0x8b, 0x85});
             code_.i32(frame.displacement(frame.scratch_slot + 2));
@@ -1070,7 +1084,7 @@ private:
             code_.raw({0x0f, 0x86});
             const auto retry = code_.rel32_placeholder();
             code_.patch_rel32(retry, search);
-            emit_abort();
+            emit_no_match();
         }
         code_.patch_rel32(done, code_.position());
     }
@@ -3079,7 +3093,7 @@ private:
             } else if (opcode == Opcode::CaptureRegex) {
                 require_stack(stack_depth, 2);
                 const unsigned first = stack_depth - 2;
-                emit_capture_regex(frame, first, instruction);
+                emit_capture_regex(function, frame, first, instruction, entry, branches);
                 stack_depth = first + instruction.argument_count * 2u;
             } else if (opcode == Opcode::RangeF64Values) {
                 require_stack(stack_depth, instruction.argument_count);

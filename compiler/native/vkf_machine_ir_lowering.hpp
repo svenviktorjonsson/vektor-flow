@@ -1040,6 +1040,12 @@ inline void collect_error_effects(
                             name == "append_text") {
                             directly_raises = true;
                         }
+                    } else if (module != callee_object.end() && module->second.is_string() &&
+                               module->second.as_string() == "capture" &&
+                               callee_name != callee_object.end() &&
+                               callee_name->second.is_string()) {
+                        const std::string name = callee_name->second.as_string();
+                        if (name == "regex" || name == "groups") directly_raises = true;
                     }
                 }
             }
@@ -8111,6 +8117,16 @@ inline ValueLayout lower_expression(
                 capture.argument_count = static_cast<std::uint32_t>(pattern.group_names.size());
                 capture.symbol = value->second.as_string();
                 capture.owns_input = expression_transfers_string_value(source, signatures);
+                const std::string message = "regular expression did not match";
+                capture.error_message_offset = strings.intern(message);
+                capture.byte_count = static_cast<std::uint32_t>(message.size());
+                capture.may_error = true;
+                if (const auto handler = builder.error_handler()) {
+                    capture.has_error_handler = true;
+                    capture.label = *handler;
+                    capture.error_value_local = *builder.error_value_local();
+                    capture.error_type_local = *builder.error_type_local();
+                }
                 builder.emit(std::move(capture));
                 ValueLayout result{
                     static_cast<std::uint32_t>(pattern.group_names.size() * 2u),

@@ -411,9 +411,12 @@ private:
     }
 
     void emit_capture_regex(
+        const machine_ir::Function& function,
         const Frame& frame,
         std::uint32_t first,
-        const machine_ir::Instruction& instruction
+        const machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<BranchPatch>& branches
     ) {
         const auto pattern = capture::parse(instruction.symbol);
         if (pattern.group_names.size() != instruction.argument_count) {
@@ -520,8 +523,18 @@ private:
         const auto done = words_.emit(0x14000000u);
         const auto failed = words_.offset();
         for (const auto patch : failures) words_.patch_compare_branch19(patch, failed);
+        const auto emit_no_match = [&]() {
+            if (instruction.owns_input) {
+                load_x(0, frame.offset(frame.scratch_slot));
+                words_.emit(0xd1002000u);
+                call_runtime_slot(9);
+            }
+            emit_instruction_error(
+                function, frame, instruction,
+                machine_ir::value_error_mask, entry, branches);
+        };
         if (pattern.anchor_start) {
-            emit_abort();
+            emit_no_match();
         } else {
             load_x(9, frame.offset(frame.scratch_slot + 2));
             words_.emit(0x91000529u);
@@ -530,7 +543,7 @@ private:
             words_.emit(0xeb0a013fu);
             const auto retry = words_.emit(0x54000009u);
             words_.patch_compare_branch19(retry, search);
-            emit_abort();
+            emit_no_match();
         }
         words_.patch_branch26(done, words_.offset());
     }
@@ -1469,6 +1482,7 @@ private:
         emit_u64(1, 0);
         emit_u64(2, 0);
         call_runtime_slot(20);
+        words_.emit(0x93407c00u);
         words_.emit(0xf100001fu);
         const auto opened = words_.emit(0x5400000au);
         if (owns_path) {
@@ -1579,9 +1593,13 @@ private:
         const bool owns_data = instruction.owns_right;
         const bool append = instruction.index != 0;
         load_x(0, frame.offset(frame.temp_base + first));
-        emit_u64(1, append ? 0x209u : 0x601u);
+        // Darwin's open() returns a 32-bit int. Sign-extend it before testing
+        // errors. Append currently targets the single-process release contract:
+        // open without truncation, then seek to the current end before writing.
+        emit_u64(1, append ? 0x201u : 0x601u);
         emit_u64(2, 0600u);
         call_runtime_slot(20);
+        words_.emit(0x93407c00u);
         words_.emit(0xf100001fu);
         const auto opened = words_.emit(0x5400000au);
         if (owns_path) {
@@ -1603,6 +1621,26 @@ private:
             load_x(0, frame.offset(frame.temp_base + first));
             words_.emit(0xd1002000u);
             call_runtime_slot(9);
+        }
+
+        if (append) {
+            load_x(0, frame.offset(frame.scratch_slot));
+            emit_u64(1, 0);
+            emit_u64(2, 2);
+            call_runtime_slot(23);
+            words_.emit(0xf100001fu);
+            const auto positioned = words_.emit(0x5400000au);
+            load_x(0, frame.offset(frame.scratch_slot));
+            call_runtime_slot(22);
+            if (owns_data) {
+                release_owned_string(
+                    frame.offset(frame.temp_base + first + 2),
+                    frame.offset(frame.temp_base + first + 3));
+            }
+            emit_instruction_error(
+                function, frame, instruction,
+                machine_ir::runtime_error_mask, entry, branches);
+            words_.patch_compare_branch19(positioned, words_.offset());
         }
 
         load_x(1, frame.offset(frame.temp_base + first + 2));
@@ -2142,7 +2180,7 @@ private:
             } else if (opcode == Opcode::CaptureRegex) {
                 require_stack(stack_depth, 2);
                 const std::uint32_t first = stack_depth - 2;
-                emit_capture_regex(frame, first, instruction);
+                emit_capture_regex(function, frame, first, instruction, entry, branches);
                 stack_depth = first + instruction.argument_count * 2u;
             } else if (opcode == Opcode::RangeF64Values) {
                 require_stack(stack_depth, instruction.argument_count);
