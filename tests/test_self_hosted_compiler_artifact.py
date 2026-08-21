@@ -5128,6 +5128,24 @@ def test_io_stdlib_appends_and_routes_stderr_on_x64_and_arm64(
         _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
     )
     arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
+    arm64_code = Path(arm64["raw_code_path"]).read_bytes()
+    arm64_words = struct.unpack(f"<{len(arm64_code) // 4}I", arm64_code)
+    apple_open_varargs = (
+        0xD10043FF,  # sub sp, sp, #16
+        0xD2803009,  # mov x9, #0600
+        0xF2A00009,
+        0xF2C00009,
+        0xF2E00009,
+        0xF90003E9,  # str x9, [sp]
+        0xF9405269,  # ldr x9, [x19, #160] (_open)
+        0xD63F0120,  # blr x9
+        0x910043FF,  # add sp, sp, #16
+        0x93407C00,  # sxtw x0, w0
+    )
+    assert any(
+        tuple(arm64_words[index:index + len(apple_open_varargs)]) == apple_open_varargs
+        for index in range(len(arm64_words) - len(apple_open_varargs) + 1)
+    )
     assert b"_open\0" in arm64_artifact
     assert b"_write\0" in arm64_artifact
     for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
