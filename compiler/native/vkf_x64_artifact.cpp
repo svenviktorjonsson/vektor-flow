@@ -680,17 +680,26 @@ private:
             function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
                 return instruction.opcode == vkf::machine_ir::Opcode::ProcessRun;
             });
-        const bool needs_capture_scratch = std::any_of(
-            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
-                return instruction.opcode == vkf::machine_ir::Opcode::CaptureRegex;
-            });
+        unsigned capture_scratch_slots = 0;
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode != vkf::machine_ir::Opcode::CaptureRegex) continue;
+            const auto pattern = vkf::capture::parse(instruction.symbol);
+            const auto atoms = static_cast<unsigned>(std::count_if(
+                pattern.ops.begin(), pattern.ops.end(), [](const auto& op) {
+                    return op.kind == vkf::capture::OpKind::Atom;
+                }));
+            capture_scratch_slots = std::max(capture_scratch_slots, 3u + atoms * 2u);
+        }
         const bool needs_line_scratch = std::any_of(
             function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
                 return instruction.opcode == vkf::machine_ir::Opcode::ReadLineString;
             });
-        frame.scratch_slots = needs_process_scratch ? 9u
-            : (needs_capture_scratch || needs_line_scratch) ? 4u
-            : static_cast<unsigned>(needs_scratch);
+        frame.scratch_slots = std::max({
+            needs_process_scratch ? 9u : 0u,
+            needs_line_scratch ? 4u : 0u,
+            capture_scratch_slots,
+            static_cast<unsigned>(needs_scratch),
+        });
         frame.error_pointer_slot = frame.scratch_slot + frame.scratch_slots;
         frame.error_length_slot = frame.error_pointer_slot + 1u;
         frame.error_type_slot = frame.error_length_slot + 1u;
@@ -972,7 +981,13 @@ private:
         code_.i32(frame.displacement(frame.scratch_slot + 1));
         code_.raw({0x48, 0x8b, 0x95});
         code_.i32(frame.displacement(frame.scratch_slot + 2));
-        std::vector<std::size_t> failures;
+        struct RegexFailurePatch {
+            std::size_t branch = 0;
+            unsigned processed_atoms = 0;
+        };
+        std::vector<RegexFailurePatch> failures;
+        std::vector<std::size_t> resumes;
+        std::vector<vkf::capture::Op> atoms;
 
         for (const auto& op : pattern.ops) {
             if (op.kind == vkf::capture::OpKind::BeginCapture ||
@@ -1029,11 +1044,17 @@ private:
             code_.raw({0x48, 0x81, 0xf9});
             code_.i32(static_cast<std::int32_t>(op.minimum));
             code_.raw({0x0f, 0x82});
-            failures.push_back(code_.rel32_placeholder());
+            failures.push_back({code_.rel32_placeholder(), static_cast<unsigned>(atoms.size())});
+            code_.raw({0x48, 0x89, 0x8d});
+            code_.i32(frame.displacement(frame.scratch_slot + 3u + atoms.size() * 2u));
+            code_.raw({0x48, 0x89, 0x95});
+            code_.i32(frame.displacement(frame.scratch_slot + 4u + atoms.size() * 2u));
+            atoms.push_back(op);
+            resumes.push_back(code_.position());
         }
         if (pattern.anchor_end) {
             code_.raw({0x4c, 0x39, 0xca, 0x0f, 0x85});
-            failures.push_back(code_.rel32_placeholder());
+            failures.push_back({code_.rel32_placeholder(), static_cast<unsigned>(atoms.size())});
         }
         if (pattern.synthetic_full_capture) {
             code_.raw({0x48, 0x8b, 0x85});
@@ -1059,8 +1080,44 @@ private:
         code_.byte(0xe9);
         const auto done = code_.rel32_placeholder();
 
+        std::vector<std::size_t> failure_labels(atoms.size() + 1u);
+        std::vector<std::size_t> no_candidate_jumps;
+        for (unsigned processed = 0; processed <= atoms.size(); ++processed) {
+            failure_labels[processed] = code_.position();
+            for (unsigned candidate = processed; candidate > 0; --candidate) {
+                const unsigned index = candidate - 1u;
+                const auto& atom = atoms[index];
+                if (atom.maximum == atom.minimum) continue;
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 3u + index * 2u));
+                code_.raw({0x48, 0x81, 0xf8});
+                code_.i32(static_cast<std::int32_t>(atom.minimum));
+                code_.raw({0x0f, 0x86});
+                const auto exhausted = code_.rel32_placeholder();
+                code_.raw({0x48, 0xff, 0xc8, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 3u + index * 2u));
+                code_.raw({0x48, 0x8b, 0x95});
+                code_.i32(frame.displacement(frame.scratch_slot + 4u + index * 2u));
+                code_.raw({0x48, 0xff, 0xca, 0x48, 0x89, 0x95});
+                code_.i32(frame.displacement(frame.scratch_slot + 4u + index * 2u));
+                code_.raw({0x4c, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                code_.raw({0x4c, 0x8b, 0x8d});
+                code_.i32(frame.displacement(frame.scratch_slot + 1));
+                code_.byte(0xe9);
+                const auto resume = code_.rel32_placeholder();
+                code_.patch_rel32(resume, resumes[index]);
+                code_.patch_rel32(exhausted, code_.position());
+            }
+            code_.byte(0xe9);
+            no_candidate_jumps.push_back(code_.rel32_placeholder());
+        }
+
         const auto failed = code_.position();
-        for (const auto patch : failures) code_.patch_rel32(patch, failed);
+        for (const auto& failure : failures) {
+            code_.patch_rel32(failure.branch, failure_labels[failure.processed_atoms]);
+        }
+        for (const auto patch : no_candidate_jumps) code_.patch_rel32(patch, failed);
         const auto emit_no_match = [&]() {
             if (instruction.owns_input) {
                 code_.raw({0x48, 0x8b, 0x85});

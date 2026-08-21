@@ -5427,12 +5427,16 @@ def test_regex_stdlib_compiles_typed_patterns_to_native_code(
         "whole: regex.match(\"prefix needle suffix\", 'needle')\n"
         "anchored: regex.match(\"2026-08\", "
         "'^(?P<year>\\d{4})-(?P<month>\\d{2})$')\n"
+        "greedy: regex.match(\"prefix needle suffix\", '(?P<before>.*)needle')\n"
+        "digits: regex.match(\"123\", '^(?P<head>\\d+)\\d$')\n"
         ":: named.a\n"
         ":: named.b\n"
         ":: positional.(0)\n"
         ":: whole._\n"
         ":: anchored.year\n"
-        ":: anchored.month\n",
+        ":: anchored.month\n"
+        ":: greedy.before\n"
+        ":: digits.head\n",
         encoding="utf-8",
     )
     typed_ir_path = tmp_path / "direct-regex.typed-ir.json"
@@ -5448,7 +5452,9 @@ def test_regex_stdlib_compiles_typed_patterns_to_native_code(
     executed = subprocess.run(
         [str(executable_path)], cwd=tmp_path, capture_output=True, text=True, check=True
     )
-    assert executed.stdout.splitlines() == ["123", "45", "A_19", "needle", "2026", "08"]
+    assert executed.stdout.splitlines() == [
+        "123", "45", "A_19", "needle", "2026", "08", "prefix ", "12"
+    ]
     machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
     captures = [
         instruction
@@ -5456,8 +5462,8 @@ def test_regex_stdlib_compiles_typed_patterns_to_native_code(
         for instruction in function["instructions"]
         if instruction["kind"] == "capture_regex"
     ]
-    assert len(captures) == 4
-    assert [capture["group_count"] for capture in captures] == [2, 1, 1, 2]
+    assert len(captures) == 6
+    assert [capture["group_count"] for capture in captures] == [2, 1, 1, 2, 1, 1]
 
     arm64 = json.loads(
         _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout

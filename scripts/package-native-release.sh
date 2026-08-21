@@ -142,7 +142,7 @@ error
 0"
   cat > installed_regex.vkf <<'EOF'
 regex: .regex
-result: regex.match("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')
+result: regex.match("values are 123 and 45", 'values are (?P<a>.*) and (?P<b>\d+)')
 :: result.a
 :: result.b
 EOF

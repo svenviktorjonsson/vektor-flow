@@ -158,17 +158,26 @@ private:
             function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
                 return instruction.opcode == machine_ir::Opcode::ProcessRun;
             });
-        const bool needs_capture_scratch = std::any_of(
-            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
-                return instruction.opcode == machine_ir::Opcode::CaptureRegex;
-            });
+        std::uint32_t capture_scratch_slots = 0;
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode != machine_ir::Opcode::CaptureRegex) continue;
+            const auto pattern = capture::parse(instruction.symbol);
+            const auto atoms = static_cast<std::uint32_t>(std::count_if(
+                pattern.ops.begin(), pattern.ops.end(), [](const auto& op) {
+                    return op.kind == capture::OpKind::Atom;
+                }));
+            capture_scratch_slots = std::max(capture_scratch_slots, 3u + atoms * 2u);
+        }
         const bool needs_line_scratch = std::any_of(
             function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
                 return instruction.opcode == machine_ir::Opcode::ReadLineString;
             });
-        frame.scratch_slots = needs_process_scratch ? 9u
-            : (needs_capture_scratch || needs_line_scratch) ? 4u
-            : static_cast<std::uint32_t>(needs_scratch);
+        frame.scratch_slots = std::max({
+            needs_process_scratch ? 9u : 0u,
+            needs_line_scratch ? 4u : 0u,
+            capture_scratch_slots,
+            static_cast<std::uint32_t>(needs_scratch),
+        });
         frame.error_pointer_slot = frame.scratch_slot + frame.scratch_slots;
         frame.error_length_slot = frame.error_pointer_slot + 1u;
         frame.error_type_slot = frame.error_length_slot + 1u;
@@ -438,7 +447,13 @@ private:
         load_x(12, frame.offset(frame.scratch_slot));
         load_x(13, frame.offset(frame.scratch_slot + 1));
         load_x(14, frame.offset(frame.scratch_slot + 2));
-        std::vector<std::size_t> failures;
+        struct RegexFailurePatch {
+            std::size_t branch = 0;
+            std::uint32_t processed_atoms = 0;
+        };
+        std::vector<RegexFailurePatch> failures;
+        std::vector<std::uint32_t> resumes;
+        std::vector<capture::Op> atoms;
         for (const auto& op : pattern.ops) {
             if (op.kind == capture::OpKind::BeginCapture ||
                 op.kind == capture::OpKind::EndCapture) {
@@ -497,11 +512,19 @@ private:
             }
             emit_u64(17, op.minimum);
             words_.emit(0xeb1101ffu);
-            failures.push_back(words_.emit(0x54000003u));
+            failures.push_back({
+                words_.emit(0x54000003u), static_cast<std::uint32_t>(atoms.size())});
+            store_x(15, frame.offset(
+                frame.scratch_slot + 3u + static_cast<std::uint32_t>(atoms.size()) * 2u));
+            store_x(14, frame.offset(
+                frame.scratch_slot + 4u + static_cast<std::uint32_t>(atoms.size()) * 2u));
+            atoms.push_back(op);
+            resumes.push_back(words_.offset());
         }
         if (pattern.anchor_end) {
             words_.emit(0xeb0d01dfu);
-            failures.push_back(words_.emit(0x54000001u));
+            failures.push_back({
+                words_.emit(0x54000001u), static_cast<std::uint32_t>(atoms.size())});
         }
         if (pattern.synthetic_full_capture) {
             load_x(9, frame.offset(frame.scratch_slot + 2));
@@ -521,8 +544,39 @@ private:
             call_runtime_slot(9);
         }
         const auto done = words_.emit(0x14000000u);
+
+        std::vector<std::uint32_t> failure_labels(atoms.size() + 1u);
+        std::vector<std::size_t> no_candidate_jumps;
+        for (std::uint32_t processed = 0; processed <= atoms.size(); ++processed) {
+            failure_labels[processed] = words_.offset();
+            for (std::uint32_t candidate = processed; candidate > 0; --candidate) {
+                const std::uint32_t index = candidate - 1u;
+                const auto& atom = atoms[index];
+                if (atom.maximum == atom.minimum) continue;
+                load_x(9, frame.offset(frame.scratch_slot + 3u + index * 2u));
+                emit_u64(10, atom.minimum);
+                words_.emit(0xeb0a013fu);
+                const auto exhausted = words_.emit(0x54000009u);
+                words_.emit(0xd1000529u);
+                store_x(9, frame.offset(frame.scratch_slot + 3u + index * 2u));
+                load_x(14, frame.offset(frame.scratch_slot + 4u + index * 2u));
+                words_.emit(0xd10005ceu);
+                store_x(14, frame.offset(frame.scratch_slot + 4u + index * 2u));
+                load_x(12, frame.offset(frame.scratch_slot));
+                load_x(13, frame.offset(frame.scratch_slot + 1));
+                const auto resume = words_.emit(0x14000000u);
+                words_.patch_branch26(resume, resumes[index]);
+                words_.patch_compare_branch19(exhausted, words_.offset());
+            }
+            no_candidate_jumps.push_back(words_.emit(0x14000000u));
+        }
+
         const auto failed = words_.offset();
-        for (const auto patch : failures) words_.patch_compare_branch19(patch, failed);
+        for (const auto& failure : failures) {
+            words_.patch_compare_branch19(
+                failure.branch, failure_labels[failure.processed_atoms]);
+        }
+        for (const auto patch : no_candidate_jumps) words_.patch_branch26(patch, failed);
         const auto emit_no_match = [&]() {
             if (instruction.owns_input) {
                 load_x(0, frame.offset(frame.scratch_slot));
