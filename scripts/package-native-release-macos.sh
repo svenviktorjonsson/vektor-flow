@@ -105,8 +105,9 @@ io: .io
 io.write_text("probe.txt", "hello")
 :: 1
 EOF
-    cat > io_append_text.vkf <<'EOF'
+cat > io_append_text.vkf <<'EOF'
 io: .io
+io.eprint(io.read_text("probe.txt"))
 io.append_text("probe.txt", " world")
 :: 2
 EOF
