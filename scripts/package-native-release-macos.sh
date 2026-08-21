@@ -87,10 +87,21 @@ io.eprint("native stderr")
 :: io.read_text("native-io.txt")
 :: io.read_bytes("native-io.bin")
 EOF
+  set +e
   "$stage_root/bin/vkf" installed_io.vkf > io.txt 2> io.err
-  test "$(cat io.txt)" = "native UTF-8: hej + appended
-byte exact"
-  test "$(cat io.err)" = "native stderr"
+  io_status=$?
+  set -e
+  io_output=$(cat io.txt)
+  io_error=$(cat io.err)
+  if [ "$io_status" -ne 0 ] || [ "$io_output" != "native UTF-8: hej + appended
+byte exact" ] || [ "$io_error" != "native stderr" ]; then
+    echo "macOS IO smoke failed (status $io_status)" >&2
+    echo "stdout:" >&2
+    cat io.txt >&2
+    echo "stderr:" >&2
+    cat io.err >&2
+    exit 1
+  fi
   cat > installed_read_line.vkf <<'EOF'
 io: .io
 :: io.read_line()
