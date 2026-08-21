@@ -13,9 +13,10 @@ vkf -e ':: "hello, world"'
 The installed compiler/runtime has no Python, C++ compiler, or assembler
 dependency.
 
-The installer is strict-native and deliberately incomplete. It ships only the
-direct core plus `math`, `stat`, `random`, `time`, `physics`, and `rigid_body`.
-Unsupported modules hard-fail instead of activating a compatibility path.
+The installer is strict-native. It ships direct core plus `math`, `stat`,
+`random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and
+`regex`. The partial `physics`, `ui`, and `symbolic` modules are absent;
+unsupported imports hard-fail instead of activating a compatibility path.
 
 1. Download and extract the Windows package
 2. Open PowerShell in the extracted folder
@@ -41,8 +42,8 @@ Then try:
 For the supported native subset, `vkf.exe <file.vkf>` uses the native
 Python-free default path. If the native frontend classifies a file as supported
 and native execution fails, that is a hard error rather than a Python retry.
-Unsupported UI/scene programs remain outside this guarantee until their native
-lowering is complete.
+Programs requiring `physics`, `ui`, or `symbolic` remain outside this release
+until those modules are complete.
 
 Packages built for the supported subset expose a Python-free manifest contract:
 `runtime_contract.python_required_to_build=false`,
@@ -95,9 +96,8 @@ Then try:
 For the supported native subset, `vkf <file.vkf>` uses the native Python-free
 path. Unsupported UI/scene programs hard-fail in this release.
 
-Supported-subset package manifests carry the same Python-free contract. UI and
-scene packages remain excluded from that guarantee until their native lowering
-is complete.
+Package manifests carry the same Python-free contract. `physics`, `ui`, and
+`symbolic` remain excluded until their native lowering is complete.
 
 ## Need more detail?
 
