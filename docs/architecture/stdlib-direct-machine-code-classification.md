@@ -18,7 +18,7 @@ or a generated C++ translation unit.
 | `io` | UTF-8 text and string-backed byte-buffer policy | string ownership at the capability boundary | stdout and files | print plus text/byte read/write direct on Windows x64 and Linux x64; macOS ARM64 emission direct; `read_numbers`, alternate encodings, and typed file-error propagation remain Stage 0 |
 | `errors` | domain error constructors | all public type masks, propagation, catch ranking, unwind | process abort for uncaught errors | every public error type value direct; assertion/index/value construction and propagation direct; explicit constructors and file-error translation remain Stage 0 |
 | `physics` | collision, contact, material, rigid-body mass, inertia, and momentum algorithms | numeric vector/matrix primitives only | none | rigid smoke slices execute directly on Windows/Linux x64 and emit macOS ARM64; `rigid_body` is a compatibility import only |
-| `capture` | capture-result shaping | none | regex engine | Stage 0 |
+| `regex` | result shaping and compile-time pattern validation | search and capture extraction | none | direct native engine; advanced syntax remains under implementation |
 | `events` | event decoding, specificity, state transitions | event match primitive | host event queue | Stage 0 |
 | `time` | validation, portable formatting, and pure Gregorian UTC conversion | local calendar-parts record construction | wall/monotonic clock, sleep, and local-time conversion | direct on Windows x64, Linux x64, and macOS ARM64 emission |
 | `screen` / `ui` | scene, widget, geometry, styling, packet construction | typed arena/buffer layout where required | window/input/GPU host seam | Stage 0 except existing WASM/WebGPU packet slices |

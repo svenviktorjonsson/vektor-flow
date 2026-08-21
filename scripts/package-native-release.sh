@@ -28,7 +28,7 @@ mkdir -p "$stage_root/bin" "$stage_root/compiler/self_hosted/stdlib" "$stage_roo
 test -x "$binary_root/vkf-strict" || { echo "missing release compiler: $binary_root/vkf-strict" >&2; exit 1; }
 cp "$binary_root/vkf-strict" "$stage_root/bin/vkf"
 
-for module in math stat random time io collections errors system process capture; do
+for module in math stat random time io collections errors system process regex; do
   cp "$repo_root/compiler/self_hosted/stdlib/$module.vkf" "$stage_root/compiler/self_hosted/stdlib/"
 done
 cp "$repo_root/examples/01_hello.vkf" "$stage_root/samples/"
@@ -45,7 +45,7 @@ cat > "$stage_root/vektorflow-release.json" <<EOF
   "platform": "linux-x64",
   "entrypoint": "bin/vkf",
   "test_command": "vkf -t",
-  "stdlib_modules": ["math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "capture"],
+  "stdlib_modules": ["math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex"],
   "not_included_partial_modules": ["physics", "ui", "symbolic"],
   "strict_direct": true,
   "compatibility_fallback": false,
@@ -140,13 +140,13 @@ EOF
 hello
 error
 0"
-  cat > installed_capture.vkf <<'EOF'
-capture: .capture
-result: capture.regex("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')
+  cat > installed_regex.vkf <<'EOF'
+regex: .regex
+result: regex.match("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')
 :: result.a
 :: result.b
 EOF
-  test "$("$stage_root/bin/vkf" installed_capture.vkf)" = "123
+  test "$("$stage_root/bin/vkf" installed_regex.vkf)" = "123
 45"
   test "$("$stage_root/bin/vkf" "$smoke_root/installed_math.vkf" -o app)" = "0"
   test -x "$smoke_root/app"

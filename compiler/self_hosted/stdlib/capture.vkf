@@ -1,9 +1,0 @@
-# Native compiler-specialized linear regular expressions. Patterns are compile-time
-# constants; source text remains runtime data. Supported atoms: literals, `.`,
-# character classes, \d/\w/\s and inverses, captures, anchors, and atom repetition.
-
-capture_stdlib_capability:
-    name: "capture"
-    pattern_policy: "compile-time portable linear regex"
-    direct: ["regex", "groups"]
-    :

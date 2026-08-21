@@ -30,7 +30,7 @@ Copy-Item -LiteralPath $compilerSource -Destination (Join-Path $stageRoot "bin/v
 
 $stdlibTarget = Join-Path $stageRoot "compiler/self_hosted/stdlib"
 New-Item -ItemType Directory -Path $stdlibTarget -Force | Out-Null
-$directModules = @("math.vkf", "stat.vkf", "random.vkf", "time.vkf", "io.vkf", "collections.vkf", "errors.vkf", "system.vkf", "process.vkf", "capture.vkf")
+$directModules = @("math.vkf", "stat.vkf", "random.vkf", "time.vkf", "io.vkf", "collections.vkf", "errors.vkf", "system.vkf", "process.vkf", "regex.vkf")
 foreach ($module in $directModules) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "compiler/self_hosted/stdlib/$module") -Destination $stdlibTarget
 }
@@ -51,7 +51,7 @@ $manifest = [ordered]@{
     platform = "windows-x64"
     entrypoint = "bin/vkf.exe"
     test_command = "vkf -t"
-    stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "capture")
+    stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex")
     not_included_partial_modules = @("physics", "ui", "symbolic")
     strict_direct = $true
     compatibility_fallback = $false
@@ -168,14 +168,14 @@ shell_result: process.shell("exit /b 0")
         throw "Packaged native process smoke failed"
     }
     @"
-capture: .capture
-result: capture.regex("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')
+regex: .regex
+result: regex.match("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')
 :: result.a
 :: result.b
-"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_capture.vkf") -Encoding utf8
-    $captureOutput = & $compiler (Join-Path $smokeRoot "installed_capture.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($captureOutput -join "`n").Trim() -ne "123`n45") {
-        throw "Packaged native capture smoke failed"
+"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_regex.vkf") -Encoding utf8
+    $regexOutput = & $compiler (Join-Path $smokeRoot "installed_regex.vkf")
+    if ($LASTEXITCODE -ne 0 -or ($regexOutput -join "`n").Trim() -ne "123`n45") {
+        throw "Packaged native regex smoke failed"
     }
     $namedOutput = & $compiler $smokeSource -o app.exe
     if ($LASTEXITCODE -ne 0 -or ($namedOutput -join "`n").Trim() -ne "0" -or

@@ -5414,18 +5414,18 @@ def test_process_shell_is_explicit_and_uses_the_platform_shell(
     assert b"_execvp\0" in arm64_artifact
 
 
-def test_capture_stdlib_compiles_typed_linear_patterns_to_native_code(
+def test_regex_stdlib_compiles_typed_patterns_to_native_code(
     tmp_path: Path,
     smoke_exes: dict[str, Path],
 ) -> None:
-    source_path = tmp_path / "direct-capture.vkf"
+    source_path = tmp_path / "direct-regex.vkf"
     source_path.write_text(
-        "capture_api: .capture\n"
-        "named: capture_api.regex(\"values are 123 and 45\", "
+        "regex: .regex\n"
+        "named: regex.match(\"values are 123 and 45\", "
         "'values are (?P<a>\\d+) and (?P<b>\\d+)')\n"
-        "positional: capture_api.groups(\"id=A_19\", 'id=([A-Z]\\w+)')\n"
-        "whole: capture_api.regex(\"prefix needle suffix\", 'needle')\n"
-        "anchored: capture_api.regex(\"2026-08\", "
+        "positional: regex.groups(\"id=A_19\", 'id=([A-Z]\\w+)')\n"
+        "whole: regex.match(\"prefix needle suffix\", 'needle')\n"
+        "anchored: regex.match(\"2026-08\", "
         "'^(?P<year>\\d{4})-(?P<month>\\d{2})$')\n"
         ":: named.a\n"
         ":: named.b\n"
@@ -5435,7 +5435,7 @@ def test_capture_stdlib_compiles_typed_linear_patterns_to_native_code(
         ":: anchored.month\n",
         encoding="utf-8",
     )
-    typed_ir_path = tmp_path / "direct-capture.typed-ir.json"
+    typed_ir_path = tmp_path / "direct-regex.typed-ir.json"
     typed_ir_path.write_text(
         _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
         encoding="utf-8",
@@ -5468,23 +5468,23 @@ def test_capture_stdlib_compiles_typed_linear_patterns_to_native_code(
         assert forbidden not in arm64_artifact.lower()
 
 
-def test_capture_no_match_is_a_native_value_error(
+def test_regex_no_match_is_a_native_value_error(
     tmp_path: Path,
     smoke_exes: dict[str, Path],
 ) -> None:
-    source_path = tmp_path / "capture-no-match.vkf"
+    source_path = tmp_path / "regex-no-match.vkf"
     source_path.write_text(
-        "capture_api: .capture\n"
+        "regex: .regex\n"
         "errors: .errors\n\n"
         "match_or_message(source:str) -> str:\n"
         "    result: \"\"\n"
-        "    capture_api.regex(source, '^(?P<number>\\d+)$')!?\n"
+        "    regex.match(source, '^(?P<number>\\d+)$')!?\n"
         "        errors.ValueError => result: $.message\n"
         "    result\n\n"
         ":: match_or_message(\"not-a-number\")\n",
         encoding="utf-8",
     )
-    typed_ir_path = tmp_path / "capture-no-match.typed-ir.json"
+    typed_ir_path = tmp_path / "regex-no-match.typed-ir.json"
     typed_ir_path.write_text(
         _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
         encoding="utf-8",

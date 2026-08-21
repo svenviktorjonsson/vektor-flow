@@ -1478,7 +1478,7 @@ Current public modules:
 - `time`: timing surface; use `time.sleep(seconds)`, `time.current_time()`, `time.time_stamp()`.
 - `io`: file IO: `read_text`, `write_text`, `read_bytes`, `write_bytes`, `read_numbers`.
 - `collections`: mutable runtime containers: `map`, `list`, `queue`.
-- `capture`: regex helpers: `regex`, `groups`.
+- `regex`: regular-expression helpers: `match`, `groups`.
 - `errors`: catchable error types such as `ParseError`, `EvalError`, `TypeError`.
 - `symbolic`: symbolic domains, expression transforms, LaTeX, solving, `diff`, `integ`, and `grad`.
 - `ui`: interactive display namespace. `sleep` is not in `ui`; import `time` for delays.

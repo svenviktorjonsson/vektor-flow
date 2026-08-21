@@ -247,7 +247,7 @@ vf::JsonValue stdlib_function(std::string module, std::string name) {
     } else if (module == "process") {
         if (name == "run_native") type = "fn(str,any)->record{code:int,out:str,err:str}";
         else if (name == "shell_native") type = "fn(str)->record{code:int,out:str,err:str}";
-    } else if (module == "capture" && (name == "regex" || name == "groups")) {
+    } else if (module == "regex" && (name == "match" || name == "groups")) {
         type = "fn(str,str)->any";
     }
     out["type"] = vf::JsonValue(type);
@@ -2145,18 +2145,18 @@ private:
                 call_type = "list<" + element_type + ">";
             }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
-                string_field(callee_ir, "module", "call callee IR") == "capture") {
-                const std::string capture_name = string_field(
-                    callee_ir, "name", "capture call");
+                string_field(callee_ir, "module", "call callee IR") == "regex") {
+                const std::string regex_name = string_field(
+                    callee_ir, "name", "regex call");
                 if (args.size() != 2 || !named_args.empty() || !spread_args.empty()) {
-                    throw IRFailure("capture." + capture_name +
+                    throw IRFailure("regex." + regex_name +
                         " requires source and a constant pattern");
                 }
-                const auto& pattern_value = object_of(args[1], "capture pattern");
+                const auto& pattern_value = object_of(args[1], "regex pattern");
                 const auto value = pattern_value.find("value");
-                if (string_field(pattern_value, "kind", "capture pattern") != "const" ||
+                if (string_field(pattern_value, "kind", "regex pattern") != "const" ||
                     value == pattern_value.end() || !value->second.is_string()) {
-                    throw IRFailure("capture pattern must be a compile-time string constant");
+                    throw IRFailure("regex pattern must be a compile-time string constant");
                 }
                 vkf::capture::Pattern pattern;
                 try {
@@ -2164,14 +2164,14 @@ private:
                 } catch (const vkf::capture::PatternFailure& error) {
                     throw IRFailure(error.what());
                 }
-                if (capture_name == "regex") {
+                if (regex_name == "match") {
                     call_type = "record{";
                     for (std::size_t index = 0; index < pattern.group_names.size(); ++index) {
                         if (index != 0) call_type += ",";
                         call_type += pattern.group_names[index] + ":str";
                     }
                     call_type += "}";
-                } else if (capture_name == "groups") {
+                } else if (regex_name == "groups") {
                     call_type = "tuple<";
                     for (std::size_t index = 0; index < pattern.group_names.size(); ++index) {
                         if (index != 0) call_type += ",";
@@ -2179,7 +2179,7 @@ private:
                     }
                     call_type += ">";
                 } else {
-                    throw IRFailure("unknown stdlib capture member " + capture_name);
+                    throw IRFailure("unknown stdlib regex member " + regex_name);
                 }
                 callee_type = "fn(str,str)->" + call_type;
                 callee.as_object()["type"] = vf::JsonValue(callee_type);
@@ -2799,11 +2799,11 @@ private:
                     }
                     throw IRFailure("unknown stdlib process member " + field_name);
                 }
-                if (canonical_module == "capture") {
-                    if (field_name == "regex" || field_name == "groups") {
-                        return stdlib_function("capture", field_name);
+                if (canonical_module == "regex") {
+                    if (field_name == "match" || field_name == "groups") {
+                        return stdlib_function("regex", field_name);
                     }
-                    throw IRFailure("unknown stdlib capture member " + field_name);
+                    throw IRFailure("unknown stdlib regex member " + field_name);
                 }
             }
             vf::JsonValue object_ir = lower_expr(field(object, "object", "attribute"), env);

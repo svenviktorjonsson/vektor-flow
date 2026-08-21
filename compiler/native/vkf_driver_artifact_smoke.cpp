@@ -323,8 +323,8 @@ std::vector<Dependency> resolve_stdlib_dependencies(const std::string& source_te
     if (source_text.find(".process") != std::string::npos || source_text.find("process.") != std::string::npos) {
         add_dep("process", stdlib_root / "process.vkf");
     }
-    if (source_text.find(".capture") != std::string::npos || source_text.find("capture.") != std::string::npos) {
-        add_dep("capture", stdlib_root / "capture.vkf");
+    if (source_text.find(".regex") != std::string::npos || source_text.find("regex.") != std::string::npos) {
+        add_dep("regex", stdlib_root / "regex.vkf");
     }
     if (source_text.find(".random") != std::string::npos || source_text.find("random.") != std::string::npos) {
         add_dep("random", stdlib_root / "random.vkf");

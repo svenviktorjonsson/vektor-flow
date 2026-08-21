@@ -1041,11 +1041,11 @@ inline void collect_error_effects(
                             directly_raises = true;
                         }
                     } else if (module != callee_object.end() && module->second.is_string() &&
-                               module->second.as_string() == "capture" &&
+                               module->second.as_string() == "regex" &&
                                callee_name != callee_object.end() &&
                                callee_name->second.is_string()) {
                         const std::string name = callee_name->second.as_string();
-                        if (name == "regex" || name == "groups") directly_raises = true;
+                        if (name == "match" || name == "groups") directly_raises = true;
                     }
                 }
             }
@@ -8090,21 +8090,21 @@ inline ValueLayout lower_expression(
                 result.selectors["err"] = {3, 2, ValueKind::String};
                 return result;
             }
-            if (module == "capture" && (name == "regex" || name == "groups")) {
+            if (module == "regex" && (name == "match" || name == "groups")) {
                 if (args.size() != 2) {
-                    throw LoweringFailure("machine IR capture." + name +
+                    throw LoweringFailure("machine IR regex." + name +
                         " requires source and pattern");
                 }
-                const auto& source = object_of(args[0], "capture source");
+                const auto& source = object_of(args[0], "regex source");
                 const auto source_layout = lower_expression(source, builder, signatures, strings);
                 if (source_layout.kind != ValueKind::String || source_layout.width != 2) {
-                    throw LoweringFailure("machine IR capture source must be str");
+                    throw LoweringFailure("machine IR regex source must be str");
                 }
-                const auto& pattern_value = object_of(args[1], "capture pattern");
+                const auto& pattern_value = object_of(args[1], "regex pattern");
                 const auto value = pattern_value.find("value");
-                if (string_field(pattern_value, "kind", "capture pattern") != "const" ||
+                if (string_field(pattern_value, "kind", "regex pattern") != "const" ||
                     value == pattern_value.end() || !value->second.is_string()) {
-                    throw LoweringFailure("capture pattern must be a compile-time string constant");
+                    throw LoweringFailure("regex pattern must be a compile-time string constant");
                 }
                 vkf::capture::Pattern pattern;
                 try {
@@ -8133,7 +8133,7 @@ inline ValueLayout lower_expression(
                     ValueKind::Aggregate,
                     {}};
                 for (std::uint32_t index = 0; index < pattern.group_names.size(); ++index) {
-                    const std::string selector = name == "regex"
+                    const std::string selector = name == "match"
                         ? pattern.group_names[index] : std::to_string(index);
                     result.selectors[selector] = {index * 2u, 2, ValueKind::String};
                 }

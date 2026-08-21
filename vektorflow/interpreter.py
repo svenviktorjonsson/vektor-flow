@@ -1195,7 +1195,7 @@ class Interpreter:
         return True, result
 
     def _merge_stdlibs(self) -> None:
-        for name in ("math", "capture", "io", "collections", "stat"):
+        for name in ("math", "regex", "io", "collections", "stat"):
             if name in STDLIB_MODULES:
                 try:
                     namespace = resolve_stdlib(name)
