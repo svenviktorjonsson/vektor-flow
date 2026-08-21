@@ -112,6 +112,28 @@ test('distinguishes open fills from equality boundaries and rejects unsupported 
   }), null);
 });
 
+test('compiles a chained inequality as the intersection of its relations', () => {
+  const chain = {
+    kind: 'binary', op: 'and',
+    left: {
+      kind: 'binary', op: '<',
+      left: { kind: 'number', value: 0 }, right: variable('x')
+    },
+    right: {
+      kind: 'binary', op: '<',
+      left: variable('x'), right: variable('t')
+    }
+  };
+
+  const shader = compileSymbolicRelationShader(chain);
+
+  assert.equal(shader.operator, 'group');
+  assert.equal(shader.hasFill, true);
+  assert.equal(shader.hasBoundary, false);
+  assert.match(shader.glslInsideResidual, /x/);
+  assert.match(shader.glslInsideResidual, /t/);
+});
+
 test('both GPU backends derive antialiased coverage from the analytic residual', () => {
   const shader = compileSymbolicRelationShader({
     kind: 'binary', op: '<=', left: call('sin', variable('x')), right: call('cos', variable('y'))

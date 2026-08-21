@@ -42,3 +42,4 @@ web/vf-ui/vf-host-bootstrap.json
 web/sessions/
 captures/
 .vf-bench-cache/
+.vkftest/

@@ -1,0 +1,20 @@
+_identity(x:num) -> num:
+    x
+
+_method(f:num->num, x:num) -> num->num:
+    g(y:num) -> num:
+        f(f(x*y)*y)
+    g
+
+higher_order_function_result_keeps_closure() -> bit:
+    (_method(_identity, 2)(3) = 18)?!
+
+_captured_scale: 2
+
+_multiply_by_captured_scale(x:num) -> num:
+    x * _captured_scale
+
+_captured_scale: 5
+
+function_definition_captures_module_snapshot() -> bit:
+    (_multiply_by_captured_scale(3) = 6)?!

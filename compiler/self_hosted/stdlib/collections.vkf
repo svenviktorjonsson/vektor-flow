@@ -1,0 +1,13 @@
+# Collection algorithms are VKF source; canonical list/map/queue storage and
+# ownership are compiler intrinsics. Statically named maps use ordinary typed
+# record layout, preserving exact metadata types without a hash-table penalty.
+
+collections_stdlib_capability:
+    name: "collections"
+    constructors: ["map", "list", "queue"]
+    direct: [
+        "numeric dynamic list construction, indexing, update, ownership, and concatenation",
+        "statically named heterogeneous maps through typed record layout",
+        "numeric FIFO queues through an owned list plus monotonic head index"
+    ]
+    :

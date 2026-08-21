@@ -456,6 +456,22 @@ Status: **done for supported-subset default-path purposes**. Moved **92% -> 99%*
   lower into explicit IR nodes, type-check as `str`, and execute through the
   IR executor instead of forcing that whole module to stay on the old
   interpolation-specific lowering failure
+- machine IR v6 promotes population/sample `stat.variance` and `stat.std` for
+  fixed and dynamic numeric containers. PE, ELF, and Mach-O backends compute
+  mean then squared deviations directly, preserve owned-list cleanup, and do
+  not call Python or a generated C++ helper
+- machine IR v6 promotes `stat.range` for fixed and dynamic numeric containers.
+  PE, ELF, and Mach-O backends compute max minus min directly and preserve
+  owned-list cleanup
+- machine IR v7 and runtime ABI v9 add synchronous UTF-8 writes. Function-local
+  `:::` output now preserves execution order, inferred bit/string display
+  shapes, owned-string cleanup, and direct Windows, Linux, and macOS lowering
+- machine IR v7 renders owned dynamic numeric lists inside interpolation,
+  including empty lists, without Python, generated C++, or runtime helpers
+- machine IR v8 adds direct x64 and ARM64 numeric-multiset normalization and
+  count algebra, plus checked runtime indexing of scalarized fixed vectors on
+  both architectures. Empty numeric lists can refine into owned dynamic lists and grow
+  through ordinary `&` inside loops; no builder-specific runtime path exists
 - tuple literals and tuple spread now lower, type-check, and execute through
   shared IR instead of forcing fallback; that reclaimed `examples/12_tuples.vkf`,
   `examples/72_concat.vkf`, and let `examples/100_axis_4_panel.vkf` clear the
@@ -691,6 +707,68 @@ Remaining truthful blockers before 100%:
 ## Performance Budgets
 
 - Freshness check: **< 50 ms** for common examples.
-- Fresh compile, small file: **< 250 ms** after compiler warm cache.
+- Fresh compile, 20,000-step scalar control: **< 100 ms mean over 100 fresh
+  builds**. Current source-to-runnable results are **52.405 ± 19.205 ms** on
+  Windows x64 and **4.042 ± 1.191 ms** in Linux x64 Docker. Generated entry
+  execution is **0.384 ± 0.090 ms** and **0.924 ± 0.682 ms**, respectively.
+  Typed-IR-only or wrapper creation does not count.
+- Normal direct AOT compilation now keeps frontend and backend diagnostics in
+  memory and writes only the executable. `--diagnostics` remains the explicit
+  sidecar path. Against the immediately preceding Windows scalar proof this
+  reduced compile mean by **1.296 ms** and raw runtime by **0.096 ms**, with an
+  identical generated-code hash.
+- Matched Windows x64 Welford proof, 100 runs: VKF compile
+  **455.656 ± 144.262 ms**, Rust **5180.135 ± 1893.358 ms**; VKF process runtime
+  **16.009 ± 5.534 ms**, Rust **16.952 ± 5.970 ms**; VKF raw entry
+  **0.335 ± 0.104 ms**. Both sources contain the same 6,400 `f64` literals and
+  execute the same single-pass algorithm.
+- After recursive module linking, ordered numeric output, machine-IR v6, and
+  large-frame ARM64 support, the 100-run Windows Welford guard improved to
+  **331.137 ± 53.831 ms** compile and **0.268 ± 0.069 ms** raw entry. Its
+  generated-code hash remains identical to the preceding matched VKF/Rust run.
+- Selective Windows PE math imports removed unused CRT loader work. A fresh
+  matched 100-run Welford proof measured VKF/Rust compile at
+  **419.511 ± 60.159 / 3505.080 ± 603.535 ms**, process runtime at
+  **15.777 ± 6.378 / 16.534 ± 5.830 ms**, and VKF raw entry at
+  **0.283 ± 0.020 ms**. Runtime means favor VKF, with overlapping confidence
+  intervals.
+- Executable-rooted function reachability now removes uncalled linked functions,
+  so unsupported dead library primitives do not block a valid artifact. This
+  moved the full self-hosted lexer seed through direct x64 and ARM64 emission;
+  ARM64 now materializes frame addresses beyond its 32,760-byte scaled-offset
+  range. Top-level existing record-field and fixed-index rebinding also shares
+  normal function update lowering.
+- Machine-IR v4 carries logical output tokens separately from flattened ABI
+  components. Compiler-owned PE, ELF, and Mach-O wrappers now print recursive
+  bits, nulls, tuples, records, fixed vectors, named constructors, and ordered
+  mixed sequences without compile-time value substitution.
+- Clean-core 100-run Windows 20,000-step scalar guard: compile
+  **66.272 ± 25.410 ms**, fresh-process runtime **11.825 ± 4.010 ms**, raw entry
+  **0.435 ± 0.152 ms**. Compile and raw entry improved against the preceding
+  **67.863 ± 31.211 / 0.610 ± 0.124 ms** proof. The generated-code SHA-256 is
+  unchanged, proving the broader core lowering did not alter this benchmark's
+  machine code.
+- Exact interactive compile + run + output: **< 103 ms mean over 100 runs**;
+  current means are **32.615 ms** on Windows and **7.347 ms** on Linux Docker.
 - Fresh compile, scene file: **< 1 s** after compiler warm cache.
 - Current artifact run: **< 100 ms** before overlay/window readiness cost.
+
+## Python retirement order
+
+1. Keep the native compiler Interface canonical: source to tokens to AST to
+   typed IR to artifact, with no Python process or Python module import.
+2. Keep evaluation out of compilation. A compiled artifact contains emitted
+   machine code; program work begins only when that executable runs.
+3. Build `vkf` and its native sibling tools directly with CMake/C++17. Python
+   remains test/bootstrap history, not a compiler build dependency.
+4. Consolidate the four child-process stages behind one deep compiler Module.
+   This removes process-startup variance and creates room for richer scenes
+   while preserving the 200 ms budget.
+5. Deepen the direct x64 backend beyond its scalar numeric core. Unsupported IR
+   currently falls back to lean generated C++ and Clang/lld; records, vectors,
+   strings, and platform ABIs should move to direct native lowering in slices.
+   Keep this path explicit as `vkf --aot` until the full language suite passes;
+   then make it the default artifact path.
+6. The installed Python `vkf` project script is removed. Keep the legacy Python
+   CLI module callable only by explicit bootstrap tests until native diagnostic
+   command parity lets that module be deleted too.

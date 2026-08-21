@@ -329,6 +329,61 @@ def test_pipeline_lowers_file_module_alias_import_shape(
     }
 
 
+def test_pipeline_lowers_catch_arm_error_types(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    module = _pipeline_ir(
+        "errors: .errors\n"
+        "out: 0\n"
+        "((1 == 2)?!)!?\n"
+        "    errors.Error => out: 1\n"
+        "    errors.AssertionError => out: 2",
+        lexer_smoke_exe,
+        parser_smoke_exe,
+        ast_to_ir_smoke_exe,
+    )
+    catch = module["body"][2]["expr"]
+
+    assert catch["kind"] == "match_stmt"
+    assert catch["catch"] is True
+    assert catch["arms"][0]["condition"] == {
+        "kind": "error_type",
+        "name": "Error",
+        "mask": 1,
+        "type": "error_type",
+    }
+    assert catch["arms"][1]["condition"] == {
+        "kind": "error_type",
+        "name": "AssertionError",
+        "mask": 67,
+        "type": "error_type",
+    }
+
+
+def test_pipeline_lowers_match_arm_primitive_type_patterns(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    module = _pipeline_ir(
+        "x: 3\nx??\n    any => out: 5\n    num => out: 4\n    int|str => out: 3\n    num&int => out: 2\n    int => out: 1",
+        lexer_smoke_exe,
+        parser_smoke_exe,
+        ast_to_ir_smoke_exe,
+    )
+    match = module["body"][1]["expr"]
+
+    assert [arm["condition"] for arm in match["arms"]] == [
+        {"kind": "type_pattern", "name": "any", "type": "type_pattern"},
+        {"kind": "type_pattern", "name": "num", "type": "type_pattern"},
+        {"kind": "type_pattern", "name": "int|str", "type": "type_pattern"},
+        {"kind": "type_pattern", "name": "num&int", "type": "type_pattern"},
+        {"kind": "type_pattern", "name": "int", "type": "type_pattern"},
+    ]
+
+
 def test_pipeline_lowers_finite_pipe_subset_to_typed_list(
     lexer_smoke_exe: Path,
     parser_smoke_exe: Path,
@@ -529,6 +584,33 @@ def test_pipeline_lowers_function_shell_with_typed_return(
                 },
             }
         ],
+    }
+
+
+def test_pipeline_types_numeric_variadic_parameter_as_list_in_body(
+    lexer_smoke_exe: Path,
+    parser_smoke_exe: Path,
+    ast_to_ir_smoke_exe: Path,
+) -> None:
+    function = _pipeline_ir(
+        "sum_rest(...rest:num) -> num:\n    stat.sum(rest)",
+        lexer_smoke_exe,
+        parser_smoke_exe,
+        ast_to_ir_smoke_exe,
+    )["body"][0]
+
+    assert function["params"][0] == {
+        "kind": "param",
+        "name": "rest",
+        "type": "num",
+        "default": None,
+        "variadic_positional": True,
+        "variadic_named": False,
+    }
+    assert function["body"]["body"][0]["expr"]["args"][0] == {
+        "kind": "load",
+        "name": "rest",
+        "type": "list<num>",
     }
 
 

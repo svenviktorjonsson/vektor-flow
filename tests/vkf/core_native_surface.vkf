@@ -1,0 +1,156 @@
+vector_repeat_expands_values() -> bit:
+    values: [3:4, 5:2]
+    (values == [3, 3, 3, 3, 5, 5])?!
+
+bind_expression_stores_and_returns_value() -> bit:
+    b: 42
+    ((a:b) = 42 /\ a = 42)?!
+
+primitive_types_reflect_function_shapes() -> bit:
+    (bit. == "(any) -> bit" /\ chr. == "(any) -> chr" /\ int. == "(any) -> int" /\ num. == "(any, any = 0) -> num" /\ str. == "(any) -> str")?!
+
+primitive_sizes_are_bits() -> bit:
+    (bit.size(true) = 1 /\ chr.size(chr(65)) = 8 /\ int.size(1) = 64 /\ num.size(num(1)) = 128)?!
+
+fixed_multi_index_get_and_update() -> bit:
+    values: [1, 2, 3, 4]
+    selected: values.(0, 2)
+    values.(0, 2): (10, 30)
+    (selected.0 = 1 /\ selected.1 = 3 /\ values.0 = 10 /\ values.2 = 30)?!
+
+dynamic_multi_index_get_and_update(...values:num) -> bit:
+    selected: values.(0, 2)
+    values.(0, 2): (10, 30)
+    (selected.0 = 1 /\ selected.1 = 3 /\ values.0 = 10 /\ values.2 = 30)?!
+
+dynamic_multi_index_surface() -> bit:
+    dynamic_multi_index_get_and_update(1, 2, 3, 4)?!
+
+compound_updates_cover_numeric_and_boolean_ops() -> bit:
+    x: 10
+    x //: 3
+    x %: 2
+    truth: true
+    truth /\: false
+    (x = 1 /\ truth == false)?!
+
+complex_integer_power_preserves_components() -> bit:
+    (str(num(1, 1)^2) == "2i" /\ str(num(1, 1)^-1) == "0.5 - 0.5i")?!
+
+_direct_local_call(value:num) -> num:
+    add_one(x:num) -> num:
+        x + 1
+    add_one(value)
+
+direct_local_function_call_works() -> bit:
+    (_direct_local_call(2) = 3)?!
+
+_local_default_call() -> num:
+    add(x:num, y:num=2) -> num:
+        x + y
+    add(y:3, x:4)
+
+direct_local_function_named_defaults_work() -> bit:
+    (_local_default_call() = 7)?!
+
+_local_recursive_call(value:num) -> num:
+    offset: 1
+    factorial(x:num) -> num:
+        x <= 1?
+            @: offset
+        x * factorial(x - 1)
+    factorial(value)
+
+recursive_local_function_keeps_capture() -> bit:
+    (_local_recursive_call(5) = 120)?!
+
+numeric_multiset_pipe_preserves_counts() -> bit:
+    values: {1:2, 2:1} >> $ * 2
+    (values == {2:2, 4:1})?!
+
+_string_before_c(value:str) -> str:
+    value >>
+        $ == chr(99)?
+            @|
+        $
+
+string_pipe_break_stops_before_current_character() -> bit:
+    (_string_before_c("abcd") == "ab")?!
+
+_runtime_range_text(end:num) -> str:
+    str(1..end)
+
+runtime_range_display_is_stable() -> bit:
+    (_runtime_range_text(4) == "range from 1")?!
+
+dynamic_assertion_passes_and_releases_message() -> bit:
+    message: "owned " & "message"
+    (true?! message)?!
+
+UnaryPoint: (x:num,)
+
+-(point:UnaryPoint) -> num:
+    point.x
+
+unary_operator_overload_dispatches_custom_value() -> bit:
+    UnaryPoint point: (x:3,)
+    (-point = 3)?!
+
+ReachPair: (x:num, y:num)
+
+.(pair:ReachPair, key:str) -> num:
+    key = "left"? @: pair.x
+    key = "right"? @: pair.y
+    @: 0
+
+dot_operator_overload_handles_field_and_index_syntax() -> bit:
+    ReachPair pair: (x:3, y:4)
+    (pair.left = 3 /\ pair.("right") = 4)?!
+
+_nested_shape_identity(value:[[num:n]:m]) -> [[num:n]:m]:
+    value
+
+nested_compile_time_shapes_survive_call() -> bit:
+    [[num:2]:2] grid: [[1, 2], [3, 4]]
+    result: _nested_shape_identity(grid)
+    (result.(0).(1) = 2 /\ result.(1).(0) = 3)?!
+
+OverloadPoint: (x:num,)
+
++(point:OverloadPoint, value:num) -> num:
+    point.x + value
+
++(left:OverloadPoint, right:OverloadPoint) -> num:
+    left.x + right.x
+
+operator_overload_family_selects_by_parameter_type() -> bit:
+    OverloadPoint left: (x:3,)
+    OverloadPoint right: (x:5,)
+    (+(left, 4) = 7 /\ (left + 4) = 7 /\ (left + right) = 8)?!
+
+type_member_spills_preserve_names_types_and_order() -> bit:
+    point: (x:3, y:4)
+    record_members: (:point.)
+    vector_members: [:point.]
+    member_names: {:point.}
+    (record_members.x == "int" /\ record_members.y == "int" /\
+     vector_members == ["int", "int"] /\ member_names == {"x":1, "y":1})?!
+
+primitive_type_values_can_be_aliased_called_and_reflected() -> bit:
+    integer_type: int
+    (integer_type(7.0) == 7 /\ integer_type.size(1) = 64 /\
+     integer_type. == "(any) -> int")?!
+
+primitive_type_spill_exposes_core_members() -> bit:
+    integer_members: (:int)
+    string_members: [:str]
+    string_member_names: {:str}
+    (integer_members.size == "(value:int) -> int" /\
+     string_members.0 == "(value:str) -> int" /\
+     string_members.6 == "(value:str) -> bit" /\
+     string_member_names == {"size":1, "length":1, "has":1, "count":1,
+                             "is_num":1, "is_int":1, "is_bool":1})?!
+
+primitive_statement_spill_exposes_callable_size() -> bit:
+    :int
+    (size(1) = 64)?!

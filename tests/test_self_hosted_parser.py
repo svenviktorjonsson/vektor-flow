@@ -230,6 +230,12 @@ def _normalized_node(node: Any) -> dict[str, Any]:
             "loop": node.loop,
             "catch": node.catch,
         }
+    if isinstance(node, ast.AssertExpr):
+        return {
+            "kind": "assert_expr",
+            "condition": _normalized_node(node.condition),
+            "message": None if node.message is None else _normalized_node(node.message),
+        }
     if isinstance(node, ast.FuncDef):
         return_type = None
         if node.func_type is not None:
@@ -484,10 +490,13 @@ def test_bootstrap_parser_rejects_unsupported_token_stream_without_source_retry(
             "from_zero: [..3]",
             'pick(kind:str):\n    kind??\n        "a" => "x"\n        "fallback"',
             'kind: "edge"\nkind??\n    "edge" => color: "green"',
+            'x: 3\nx??\n    any => out: 3\n    num => out: 2\n    int => out: 1',
+            'errors: .errors\nout: 0\n((1 == 2)?!)!?\n    errors.AssertionError => out: 1',
             "answer: 42\nprint(answer)",
         'first: "Viktor"; last: "Jonsson"\n:: first & " " & last',
         "point: (3, 4)\n:: point\n:: point.0\n:: point.1",
         "double(x:num) -> num:\n    @: x",
+        "sum_rest(head:num, ...rest:num) -> num:\n    head\nvalues: [1, 2]\n:: sum_rest(0, :values)",
         "vkf_update(state:axis<u>:list<num>, input:num) -> axis<u>:list<num>:\n    @: state + input",
         "greet(name:str):\n    print(name)",
         "main():\n    answer: 42\n    print(answer)",

@@ -1,0 +1,215 @@
+# Self-hosted VKF machine IR contract.
+#
+# Target-neutral stack IR between canonical typed IR and platform encoders.
+# Stage 0 currently executes this contract in native C++; Stage 1 will execute
+# the same construction and lowering rules from VKF source.
+
+MachineInstruction: (
+    kind:str,
+    value:any,
+    index:num,
+    byte_count:num,
+    argument_count:num,
+    provided_parameter_mask:num,
+    uses_parameter_mask:bit,
+    result_count:num,
+    label:num,
+    owns_input:bit,
+    owns_left:bit,
+    owns_right:bit,
+    may_error:bit,
+    error_type_mask:num,
+    has_error_handler:bit,
+    error_value_local:num,
+    error_type_local:num,
+    error_message_offset:num,
+    handler_error_value_local:num,
+    handler_error_type_local:num,
+    symbol:str
+)
+
+MachineFunction: (
+    name:str,
+    parameters:any,
+    locals:any,
+    owned_f64_list_locals:any,
+    owned_string_locals:any,
+    parameter_mask_local:any,
+    may_error:bit,
+    instructions:any,
+    max_stack:num
+)
+
+MachineModule: (
+    schema:str,
+    version:num,
+    output_kind:str,
+    output_count:num,
+    outputs:any,
+    output_tokens:any,
+    string_data:any,
+    entry:MachineFunction,
+    functions:any
+)
+
+mir_simple(kind:str):
+    (kind: kind)
+
+mir_push_f64(value:num):
+    (kind: "push_f64", value: value)
+
+mir_push_string(index:num, byte_count:num):
+    (kind: "push_string", index: index, byte_count: byte_count)
+
+mir_local(kind:str, index:num):
+    (kind: kind, index: index)
+
+mir_call(symbol:str, argument_count:num, result_count:num, provided_parameter_mask:num=0, uses_parameter_mask:bit=false, may_error:bit=false, has_error_handler:bit=false, error_label:num=0, error_value_local:num=0, error_type_local:num=0):
+    (kind: "call", symbol: symbol, argument_count: argument_count, result_count: result_count, provided_parameter_mask: provided_parameter_mask, uses_parameter_mask: uses_parameter_mask, may_error: may_error, has_error_handler: has_error_handler, error_label: error_label, error_value_local: error_value_local, error_type_local: error_type_local)
+
+mir_reduce(kind:str, argument_count:num):
+    (kind: kind, argument_count: argument_count)
+
+mir_dynamic_list_consumer(kind:str, owns_input:bit):
+    (kind: kind, owns_input: owns_input)
+
+mir_branch(kind:str, label:num):
+    (kind: kind, label: label)
+
+mir_function(name:str, parameters:any, locals:any, instructions:any, max_stack:num):
+    (
+        name: name,
+        parameters: parameters,
+        locals: locals,
+        owned_f64_list_locals: [],
+        owned_string_locals: [],
+        parameter_mask_local: null,
+        may_error: false,
+        instructions: instructions,
+        max_stack: max_stack
+    )
+
+mir_module(entry:MachineFunction, functions:any, output_kind:str, string_data:any, output_count:num=0, outputs:any=[], output_tokens:any=[]):
+    (
+        schema: "vektorflow.machine_ir",
+        version: 4,
+        output_kind: output_kind,
+        output_count: output_count,
+        outputs: outputs,
+        output_tokens: output_tokens,
+        string_data: string_data,
+        entry: entry,
+        functions: functions
+    )
+
+machine_ir_opcode_catalog:
+    [
+        "push_f64",
+        "push_null",
+        "push_string",
+        "clone_string",
+        "concat_strings",
+        "string_equal",
+        "string_not_equal",
+        "string_less",
+        "string_less_equal",
+        "string_greater",
+        "string_greater_equal",
+        "release_string_value",
+        "release_string_local",
+        "load_local",
+        "store_local",
+        "drop",
+        "duplicate",
+        "identity_f64",
+        "negate_f64",
+        "logical_not_f64",
+        "booleanize_f64",
+        "add_f64",
+        "subtract_f64",
+        "multiply_f64",
+        "divide_f64",
+        "floor_divide_f64",
+        "abs_f64",
+        "sqrt_f64",
+        "sin_f64",
+        "cos_f64",
+        "exp_f64",
+        "ln_f64",
+        "monotonic_f64",
+        "wall_time_f64",
+        "sleep_f64",
+        "local_time_parts",
+        "sum_f64_values",
+        "mean_f64_values",
+        "count_values",
+        "sum_f64_locals",
+        "mean_f64_locals",
+        "count_local_values",
+        "make_owned_f64_list",
+        "make_owned_f64_list_literal",
+        "load_f64_list_index",
+        "store_f64_list_index",
+        "sum_f64_list",
+        "mean_f64_list",
+        "count_f64_list",
+        "clone_f64_list",
+        "concat_f64_lists",
+        "release_f64_list_value",
+        "release_f64_list_local",
+        "remainder_f64",
+        "power_f64",
+        "logical_xor_f64",
+        "ordered_less_f64",
+        "ordered_less_equal_f64",
+        "ordered_greater_f64",
+        "ordered_greater_equal_f64",
+        "ordered_equal_f64",
+        "unordered_not_equal_f64",
+        "equal_bits",
+        "not_equal_bits",
+        "call",
+        "label",
+        "jump",
+        "jump_if_false",
+        "jump_if_true",
+        "jump_if_parameter_provided",
+        "error_type_matches",
+        "rethrow_error",
+        "assert_truthy",
+        "return_f64",
+        "return_values"
+    ]
+
+machine_ir_capability:
+    schema: "vektorflow.machine_ir"
+    version: 1
+    ownership: [
+        "typed IR lowers once into target-neutral machine IR",
+        "platform encoders consume machine IR instead of typed IR JSON",
+        "control-flow labels preserve short-circuit semantics",
+        "assert_truthy preserves its condition and aborts only when falsy",
+        "default arguments evaluate in callee order and can read earlier parameters",
+        "runtime calls use a versioned runtime ABI",
+        "Windows Linux and macOS share opcode semantics"
+    ]
+    current_value_classes: ["f64", "i64", "bit", "address", "aggregate"]
+    direct_layout_slices: ["fixed vector", "numeric record", "owned-or-borrowed UTF-8 string", "owned dynamic numeric list"]
+    direct_container_algorithms: ["UTF-8 string comparison", "bulk constant numeric-list initialization", "dynamic index", "dynamic concatenation", "stat.sum", "stat.mean", "stat.count"]
+    ownership_model: [
+        "fresh dynamic list values own malloc storage",
+        "owned strings encode ownership in signed length and keep byte length in an allocation header",
+        "aggregate resource leaves are recursively cloned released and transferred",
+        "string loads clone before escaping and string concatenation transfers unique ownership",
+        "function parameters borrow dynamic lists",
+        "borrowed values clone when ownership must escape",
+        "function results transfer unique dynamic-list ownership",
+        "fresh call arguments release immediately after borrowed calls",
+        "temporary consumers release owned inputs",
+        "local rebinding and function exit release owned storage",
+        "bounds failures propagate typed IndexError values without reading invalid memory",
+        "runtime validation instructions carry their concrete error type mask",
+        "catch dispatch selects the most-specific runtime error type before broader types"
+    ]
+    next_layout_slices: ["dynamic list growth", "heterogeneous dynamic collection"]
+    :

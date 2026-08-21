@@ -1,6 +1,7 @@
 import { normalizeColorScale } from './vf-color-scale.mjs';
 import { loadPackagedSymbolicKernel } from './vf-symbolic-kernel-runtime.mjs';
 import { createSymbolicPlotRenderer } from './geom/vf-symbolic-plot-renderer.mjs';
+import { describeSymbolicConstraint } from './vf-symbolic-constraints.mjs';
 
 const IDENTITY_AFFINE = Object.freeze([1, 0, 0, 1, 0, 0]);
 const MIN_CURVE_STEPS = 65;
@@ -202,7 +203,41 @@ export async function createSymbolicPlotController({
       || analyticScalarField
     );
     if (analyticalPlot) {
-      nextSnapGeometry = symbolicPlotSnapGeometry(null);
+      const snapCurvePrograms = allPrograms.filter((member) => (
+        member?.classification === 'implicit-curve'
+        || isExplicitSymbolicCurve(member?.classification)
+      ));
+      const snapVariants = compiled.program != null
+        && allPrograms.length === 1
+        && allPrograms[0]?.variants?.length > 1
+        && typeof kernel.plotVariant === 'function'
+        ? allPrograms[0].variants
+        : null;
+      const snapArena = compiled.program != null
+        && snapCurvePrograms.length > 0
+        && snapCurvePrograms.length === allPrograms.length
+        ? snapVariants
+          ? combineSymbolicPlotArenas(await Promise.all(snapVariants.map((_, variantIndex) => (
+              snapshotSymbolicPlotArena(
+                kernel.plotVariant(
+                  compiled.program,
+                  executionWorkspace,
+                  view,
+                  style,
+                  revision,
+                  variantIndex
+                ),
+                kernel.memory,
+                requestOrder
+              )
+            ))), requestOrder)
+          : snapshotSymbolicPlotArena(
+              await kernel.plot(compiled.program, executionWorkspace, view, style, revision),
+              kernel.memory,
+              requestOrder
+            )
+        : null;
+      nextSnapGeometry = symbolicPlotSnapGeometry(snapArena);
       nextArena = emptyArena(requestOrder);
     } else if (result.diagnostics.length === 0) {
       const sampledPrograms = allPrograms.filter((member) => (
@@ -790,11 +825,23 @@ export async function createSymbolicCompiler({
     compileScopedProgram(source, {
       scopeId = null,
       context = globalSymbolicContext(),
-      clip = null
+      clip = null,
+      definitions = [],
+      constraints = []
     } = {}) {
-      const scopedWorkspace = appendDefinitions(
+      const definitionScope = appendDefinitions(
         definitionWorkspace,
         localDefinitions.get(String(scopeId)) || [],
+        context
+      );
+      const normalizedConstraints = (constraints || []).map((constraint, index) => (
+        typeof constraint === 'string'
+          ? Object.freeze({ id: `constraint:${index}`, source: constraint })
+          : Object.freeze({ ...constraint, source: String(constraint?.source ?? '') })
+      ));
+      const scopedWorkspace = appendDefinitions(
+        appendDefinitions(definitionScope, definitions, context),
+        normalizedConstraints.map(({ source: constraintSource }) => constraintSource),
         context
       );
       const compiled = kernel.workspaceCompile(
@@ -809,10 +856,17 @@ export async function createSymbolicCompiler({
         context,
         clip
       );
+      const compiledProgram = compiled.value?.program ?? compiled.value;
+      const parameterName = compiledProgram?.classification === 'parametric'
+        ? compiledProgram.variables?.find((name) => !['x', 'y', 'z', 't', 'n', 'N', 'r', 'phi'].includes(name))
+        : null;
       return Object.freeze({
         ...compiled,
+        constraints: Object.freeze(normalizedConstraints.map((constraint) => (
+          describeSymbolicConstraint(constraint, { parameterName })
+        ))),
         result: scopedPublicProgramResult(
-          compiled.value?.program ?? compiled.value,
+          compiledProgram,
           [...globalDefinitionSources, ...(localDefinitions.get(String(scopeId)) || [])]
         )
       });
@@ -950,8 +1004,8 @@ export function buildSymbolicPlotView(viewport, context = globalSymbolicContext(
     fieldYInterval,
     fieldXSteps,
     fieldYSteps,
-    tMin: finite(viewport.tMin ?? xMin, 'viewport.tMin'),
-    tMax: finite(viewport.tMax ?? xMax, 'viewport.tMax'),
+    tMin: finite(viewport.tMin ?? 0, 'viewport.tMin'),
+    tMax: finite(viewport.tMax ?? 1, 'viewport.tMax'),
     tSteps: Math.max(xSteps, ySteps),
     t: finite(viewport.t ?? 0, 'viewport.t'),
     vectorScale: finite(viewport.vectorScale ?? glyphUnit * 0.35, 'viewport.vectorScale'),
@@ -1381,6 +1435,7 @@ const PLOTTABLE_CLASSIFICATIONS = new Set([
   'implicit-curve',
   'open-region',
   'closed-region',
+  'boundary-constraint',
   'plot-group'
 ]);
 

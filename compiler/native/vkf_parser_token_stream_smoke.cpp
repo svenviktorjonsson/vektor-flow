@@ -1,5 +1,7 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "compiler/native/vkf_native_frontend.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -25,6 +27,7 @@ struct Token {
     vf::JsonValue value;
     std::string raw;
     Location location;
+    vf::JsonValue interpolations;
 };
 
 class ParseFailure : public std::runtime_error {
@@ -95,12 +98,13 @@ Token read_token(const vf::JsonValue& value) {
         token.raw = raw_field->second.as_string();
     }
     token.location = location;
+    const auto interpolations_field = object.find("interpolations");
+    if (interpolations_field != object.end()) token.interpolations = interpolations_field->second;
     return token;
 }
 
-std::vector<Token> read_envelope(const std::string& text) {
+std::vector<Token> read_envelope(const vf::JsonValue& root) {
     const Location fallback{"<token-stream>", 1, 1};
-    const vf::JsonValue root = vf::parse_json(text);
     if (!root.is_object()) {
         throw ParseFailure("expected token-stream object", fallback);
     }
@@ -136,6 +140,10 @@ std::vector<Token> read_envelope(const std::string& text) {
         throw ParseFailure("missing EOF at end of token stream", tokens.back().location);
     }
     return tokens;
+}
+
+std::vector<Token> read_envelope(const std::string& text) {
+    return read_envelope(vf::parse_json(text));
 }
 
 vf::JsonValue::Object node(std::string kind) {
@@ -180,7 +188,9 @@ public:
                 skip_newlines();
                 continue;
             }
-            if (is_at("IDENT") || is_at("EMIT") || is_at("DOT") || is_at("COLON") || is_at("AT_COLON") || is_at("LBRACKET")) {
+            if (starts_function_definition() || is_at("IDENT") || is_at("EMIT") ||
+                is_at("DOT") || is_at("COLON") || is_at("AT_COLON") ||
+                is_at("LBRACKET")) {
                 continue;
             }
             if (!is_at("EOF")) {
@@ -191,6 +201,14 @@ public:
         auto out = node("module");
         out["body"] = vf::JsonValue(std::move(body));
         return vf::JsonValue(std::move(out));
+    }
+
+    vf::JsonValue parse_interpolation_expression() {
+        skip_newlines();
+        auto expression = parse_expression();
+        skip_newlines();
+        expect("EOF");
+        return expression;
     }
 
 private:
@@ -253,6 +271,7 @@ private:
             || name == "range_expr"
             || name == "pipe_chain"
             || name == "conditional_expr"
+            || name == "assert_expr"
             || name == "record_literal"
             || name == "type_of"
             || name == "abs_expr";
@@ -275,6 +294,22 @@ private:
         }
         const std::string& text = token.value.as_string();
         return text == "bit" || text == "int" || text == "num" || text == "chr" || text == "str";
+    }
+
+    static bool is_node_kind(const vf::JsonValue& value, std::string_view expected) {
+        if (!value.is_object()) return false;
+        const auto kind = value.as_object().find("kind");
+        return kind != value.as_object().end() && kind->second.is_string() &&
+            kind->second.as_string() == expected;
+    }
+
+    bool starts_statement() const {
+        return is_at("IDENT") || is_at("EMIT") || is_at("DOT") || is_at("COLON") ||
+            is_at("AT_COLON") || is_at("LBRACKET") || is_at("LBRACE") ||
+            is_at("LPAREN") || is_at("NUMBER") || is_at("STRING") ||
+            is_at("STRING_RAW") || is_at("TRUE") || is_at("FALSE") ||
+            is_at("NULL") || is_at("BAR") || is_at("DOLLAR") ||
+            is_at("MINUS") || is_at("NOT") || is_at("RANGE");
     }
 
     const Token& peek() const {
@@ -345,6 +380,23 @@ private:
             && tokens_[index_ + 2].kind == "COLON";
     }
 
+    bool starts_bracket_declared_bind() const {
+        if (!is_at("LBRACKET")) return false;
+        int depth = 0;
+        for (std::size_t cursor = index_; cursor < tokens_.size(); ++cursor) {
+            if (tokens_[cursor].kind == "LBRACKET") depth += 1;
+            else if (tokens_[cursor].kind == "RBRACKET") {
+                depth -= 1;
+                if (depth == 0) {
+                    return cursor + 2 < tokens_.size()
+                        && tokens_[cursor + 1].kind == "IDENT"
+                        && tokens_[cursor + 2].kind == "COLON";
+                }
+            }
+        }
+        return false;
+    }
+
     bool starts_type_alias_stmt() const {
         if (!is_upper_ident_token(peek()) || index_ + 2 >= tokens_.size() || tokens_[index_ + 1].kind != "COLON") {
             return false;
@@ -354,7 +406,7 @@ private:
     }
 
     vf::JsonValue parse_statement() {
-        if (is_at("LBRACKET")) {
+        if (starts_bracket_declared_bind()) {
             vf::JsonValue declared_type = parse_declared_bind_type();
             const Token& name = expect("IDENT");
             expect("COLON");
@@ -431,9 +483,46 @@ private:
             out["value"] = parse_expression();
             return vf::JsonValue(std::move(out));
         }
+        if (is_at("AT")) {
+            advance();
+            auto out = node("return");
+            out["value"] = vf::JsonValue(node("null_literal"));
+            return vf::JsonValue(std::move(out));
+        }
+        if (is_at("AT_GT")) {
+            advance();
+            return vf::JsonValue(node("continue"));
+        }
+        if (is_at("AT_BAR")) {
+            advance();
+            return vf::JsonValue(node("break"));
+        }
+        if (is_at("AT_BANG")) {
+            advance();
+            return vf::JsonValue(node("exit_program"));
+        }
         if (is_at("IDENT")) {
             const std::size_t start_index = index_;
             const Token& name = advance();
+            if ((is_at("PLUS") || is_at("MINUS") || is_at("STAR") || is_at("SLASH") ||
+                 is_at("FLOORDIV") || is_at("PERCENT") || is_at("AND") ||
+                 is_at("OR") || is_at("XOR")) &&
+                index_ + 1 < tokens_.size() && tokens_[index_ + 1].kind == "COLON") {
+                const Token& operation = advance();
+                expect("COLON");
+                vf::JsonValue right = is_at("NEWLINE")
+                    ? parse_indented_suite(true, true)
+                    : parse_expression();
+                auto binary = node("binary_op");
+                binary["op"] = vf::JsonValue(operation.kind);
+                binary["left"] = ident_node(name);
+                binary["right"] = std::move(right);
+                auto out = node("bind");
+                out["target"] = ident_node(name);
+                out["value"] = vf::JsonValue(std::move(binary));
+                out["update"] = vf::JsonValue(true);
+                return vf::JsonValue(std::move(out));
+            }
             if (is_at("COLON")) {
                 advance();
                 if (is_at("DOT")) {
@@ -456,6 +545,25 @@ private:
             index_ = start_index;
             vf::JsonValue bind_target;
             if (try_parse_bind_target(bind_target)) {
+                if ((is_at("PLUS") || is_at("MINUS") || is_at("STAR") || is_at("SLASH") ||
+                     is_at("FLOORDIV") || is_at("PERCENT") || is_at("AND") ||
+                     is_at("OR") || is_at("XOR")) &&
+                    index_ + 1 < tokens_.size() && tokens_[index_ + 1].kind == "COLON") {
+                    const Token& operation = advance();
+                    expect("COLON");
+                    vf::JsonValue right = is_at("NEWLINE")
+                        ? parse_indented_suite(true, true)
+                        : parse_expression();
+                    auto binary = node("binary_op");
+                    binary["op"] = vf::JsonValue(operation.kind);
+                    binary["left"] = bind_target;
+                    binary["right"] = std::move(right);
+                    auto out = node("bind");
+                    out["target"] = std::move(bind_target);
+                    out["value"] = vf::JsonValue(std::move(binary));
+                    out["update"] = vf::JsonValue(true);
+                    return vf::JsonValue(std::move(out));
+                }
                 expect("COLON");
                 vf::JsonValue value;
                 if (is_at("NEWLINE")) {
@@ -523,7 +631,11 @@ private:
             index_ = original_index;
             return false;
         }
-        if (!saw_postfix || !is_at("COLON")) {
+        const bool update = (is_at("PLUS") || is_at("MINUS") || is_at("STAR") ||
+            is_at("SLASH") || is_at("FLOORDIV") || is_at("PERCENT") ||
+            is_at("AND") || is_at("OR") || is_at("XOR")) &&
+            index_ + 1 < tokens_.size() && tokens_[index_ + 1].kind == "COLON";
+        if (!saw_postfix || (!is_at("COLON") && !update)) {
             index_ = original_index;
             return false;
         }
@@ -576,23 +688,26 @@ private:
     vf::JsonValue parse_function_definition() {
         const Token& name = advance();
         expect("LPAREN");
+        skip_newlines();
         vf::JsonValue::Array params;
         if (!is_at("RPAREN")) {
             while (true) {
                 params.push_back(parse_param());
                 if (is_at("COMMA")) {
                     advance();
+                    skip_newlines();
                     continue;
                 }
                 break;
             }
         }
+        skip_newlines();
         expect("RPAREN");
 
         vf::JsonValue return_type(nullptr);
         if (is_at("ARROW")) {
             advance();
-            return_type = parse_type_annotation();
+            return_type = parse_type_annotation(true);
         }
         expect("COLON");
         vf::JsonValue body = parse_function_body();
@@ -651,6 +766,24 @@ private:
         return kind != "NEWLINE" && kind != "INDENT" && kind != "DEDENT" && kind != "EOF";
     }
 
+    bool later_top_level_colon_on_line() const {
+        int depth = 0;
+        for (std::size_t cursor = index_ + 1; cursor < tokens_.size(); ++cursor) {
+            const std::string& kind = tokens_[cursor].kind;
+            if (kind == "NEWLINE" || kind == "INDENT" || kind == "DEDENT" || kind == "EOF") {
+                return false;
+            }
+            if (kind == "LT" || kind == "LBRACKET" || kind == "LBRACE" || kind == "LPAREN") {
+                ++depth;
+            } else if (kind == "GT" || kind == "RBRACKET" || kind == "RBRACE" || kind == "RPAREN") {
+                if (depth > 0) --depth;
+            } else if (kind == "COLON" && depth == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static std::string type_token_text(const Token& token) {
         if (token.kind == "IDENT") {
             return token.value.as_string();
@@ -680,7 +813,7 @@ private:
         throw ParseFailure("unsupported token in type annotation", token.location);
     }
 
-    vf::JsonValue parse_type_annotation() {
+    vf::JsonValue parse_type_annotation(bool stop_at_colon = false) {
         std::string name;
         int angle_depth = 0;
         int bracket_depth = 0;
@@ -689,11 +822,14 @@ private:
         bool consumed = false;
         while (!is_at("EOF")) {
             if (angle_depth == 0 && bracket_depth == 0 && brace_depth == 0 && paren_depth == 0) {
-                if (is_at("COMMA") || is_at("RPAREN") || is_at("NEWLINE") || is_at("INDENT") || is_at("DEDENT")) {
+                if (is_at("EQ") || is_at("COMMA") || is_at("RPAREN") || is_at("NEWLINE") || is_at("INDENT") || is_at("DEDENT")) {
                     break;
                 }
-                if (is_at("COLON") && !colon_continues_type_annotation()) {
-                    break;
+                if (is_at("COLON")) {
+                    const bool terminates_return = stop_at_colon && !later_top_level_colon_on_line();
+                    if (terminates_return || (!stop_at_colon && !colon_continues_type_annotation())) {
+                        break;
+                    }
                 }
             }
             const Token token = advance();
@@ -725,11 +861,34 @@ private:
 
     vf::JsonValue parse_expression() {
         vf::JsonValue expr = parse_pipe_expr();
-        while (is_at("QUESTION")) {
+        while (is_at("QUESTION") || is_at("BANG_QUESTION")) {
+            if (is_at("BANG_QUESTION")) {
+                advance();
+                expr = parse_match_stmt(std::move(expr), true);
+                continue;
+            }
             advance();
             if (is_at("QUESTION")) {
                 advance();
-                expr = parse_match_stmt(std::move(expr));
+                bool loop = false;
+                if (is_at("GT")) {
+                    advance();
+                    loop = true;
+                }
+                expr = parse_match_stmt(std::move(expr), false, loop);
+                continue;
+            }
+            if (is_at("BANG")) {
+                advance();
+                auto out = node("assert_expr");
+                out["condition"] = std::move(expr);
+                if (is_at("NEWLINE") || is_at("EOF") || is_at("SEMICOLON") ||
+                    is_at("RPAREN") || is_at("DEDENT")) {
+                    out["message"] = vf::JsonValue(nullptr);
+                } else {
+                    out["message"] = parse_expression();
+                }
+                expr = vf::JsonValue(std::move(out));
                 continue;
             }
             bool loop = false;
@@ -758,7 +917,30 @@ private:
         vf::JsonValue::Array segments;
         while (is_at("PIPE")) {
             advance();
-            segments.push_back(parse_range_expr());
+            if (is_at("NEWLINE")) {
+                segments.push_back(parse_indented_suite(false, false));
+            } else if (is_at("EMIT")) {
+                vf::JsonValue first = parse_statement();
+                if (!is_at("SEMICOLON")) {
+                    segments.push_back(std::move(first));
+                } else {
+                    vf::JsonValue::Array statements;
+                    statements.push_back(std::move(first));
+                    while (is_at("SEMICOLON")) {
+                        advance();
+                        if (is_at("NEWLINE") || is_at("DEDENT") || is_at("EOF") || is_at("PIPE")) break;
+                        statements.push_back(parse_statement());
+                    }
+                    auto onward = node("identifier");
+                    onward["name"] = vf::JsonValue("$");
+                    statements.emplace_back(std::move(onward));
+                    auto block = node("block");
+                    block["statements"] = vf::JsonValue(std::move(statements));
+                    segments.emplace_back(std::move(block));
+                }
+            } else {
+                segments.push_back(parse_range_expr());
+            }
         }
         if (segments.empty()) {
             return source;
@@ -802,10 +984,12 @@ private:
         skip_newlines();
         expect("INDENT");
         vf::JsonValue::Array statements;
+        bool trailing_identity = false;
         skip_newlines();
         while (!is_at("DEDENT") && !is_at("EOF")) {
             if (allow_trailing_colon && is_at("COLON")) {
                 advance();
+                trailing_identity = true;
                 skip_newlines();
                 break;
             }
@@ -823,10 +1007,11 @@ private:
             }
             if (allow_trailing_colon && is_at("COLON")) {
                 advance();
+                trailing_identity = true;
                 skip_newlines();
                 break;
             }
-            if (is_at("IDENT") || is_at("EMIT") || is_at("DOT") || is_at("COLON") || is_at("AT_COLON") || is_at("LBRACKET")) {
+            if (starts_statement()) {
                 continue;
             }
             if (!is_at("DEDENT")) {
@@ -834,6 +1019,10 @@ private:
             }
         }
         expect("DEDENT");
+
+        if (trailing_identity) {
+            statements.push_back(vf::JsonValue(node("struct_identity")));
+        }
 
         if (unwrap_single_expression && statements.size() == 1 && is_expression_node(statements.front())) {
             return statements.front();
@@ -848,6 +1037,7 @@ private:
         vf::JsonValue left = parse_and_expr();
         while (is_at("OR") || is_at("XOR")) {
             const Token& op = advance();
+            skip_newlines();
             left = binary_node(op.kind, std::move(left), parse_and_expr());
         }
         return left;
@@ -890,12 +1080,112 @@ private:
             || is_at("STRING_RAW");
     }
 
+    static bool builtin_type_name(const std::string& name) {
+        static const std::vector<std::string> builtin_types = {
+            "any", "bit", "chr", "int", "num", "f32", "f64", "str",
+            "list", "map", "multiset", "tuple", "struct", "vector"
+        };
+        return std::find(builtin_types.begin(), builtin_types.end(), name) != builtin_types.end();
+    }
+
+    bool match_arm_has_type_pattern() const {
+        if (index_ < tokens_.size() && tokens_[index_].kind == "LPAREN") {
+            std::size_t cursor = index_ + 1;
+            bool saw_field = false;
+            while (cursor + 2 < tokens_.size()) {
+                if (tokens_[cursor].kind != "IDENT" || tokens_[cursor + 1].kind != "COLON" ||
+                    tokens_[cursor + 2].kind != "IDENT" ||
+                    !builtin_type_name(tokens_[cursor + 2].value.as_string())) {
+                    break;
+                }
+                saw_field = true;
+                cursor += 3;
+                if (tokens_[cursor].kind == "COMMA") {
+                    ++cursor;
+                    continue;
+                }
+                if (tokens_[cursor].kind == "RPAREN" && cursor + 1 < tokens_.size() &&
+                    tokens_[cursor + 1].kind == "FAT_ARROW") {
+                    return saw_field;
+                }
+                break;
+            }
+            cursor = index_ + 1;
+            bool saw_element = false;
+            bool saw_comma = false;
+            while (cursor < tokens_.size()) {
+                if (tokens_[cursor].kind != "IDENT" ||
+                    !builtin_type_name(tokens_[cursor].value.as_string())) {
+                    break;
+                }
+                saw_element = true;
+                ++cursor;
+                if (tokens_[cursor].kind == "COMMA") {
+                    saw_comma = true;
+                    ++cursor;
+                    continue;
+                }
+                if (tokens_[cursor].kind == "RPAREN" && cursor + 1 < tokens_.size() &&
+                    tokens_[cursor + 1].kind == "FAT_ARROW") {
+                    return saw_element && saw_comma;
+                }
+                break;
+            }
+        }
+        if (index_ + 5 < tokens_.size() &&
+            tokens_[index_].kind == "LBRACKET" &&
+            tokens_[index_ + 1].kind == "IDENT" &&
+            builtin_type_name(tokens_[index_ + 1].value.as_string()) &&
+            tokens_[index_ + 2].kind == "COLON" &&
+            tokens_[index_ + 3].kind == "NUMBER" &&
+            tokens_[index_ + 4].kind == "RBRACKET" &&
+            tokens_[index_ + 5].kind == "FAT_ARROW") {
+            return true;
+        }
+        std::size_t cursor = index_;
+        bool expect_type = true;
+        bool saw_operator = false;
+        while (cursor < tokens_.size()) {
+            const Token& token = tokens_[cursor];
+            if (token.kind == "FAT_ARROW") {
+                return !expect_type && (saw_operator || cursor == index_ + 1);
+            }
+            if (expect_type) {
+                if (token.kind != "IDENT" || !builtin_type_name(token.value.as_string())) return false;
+                expect_type = false;
+            } else {
+                if (token.kind != "BAR" && token.kind != "AMPERSAND") return false;
+                saw_operator = true;
+                expect_type = true;
+            }
+            ++cursor;
+        }
+        return false;
+    }
+
+    vf::JsonValue parse_match_arm_type_pattern() {
+        std::string name;
+        while (!is_at("FAT_ARROW")) {
+            name += type_token_text(advance());
+        }
+        auto type = node("type_annotation");
+        type["name"] = vf::JsonValue(std::move(name));
+        return vf::JsonValue(std::move(type));
+    }
+
     vf::JsonValue parse_match_arm() {
         if (line_has_fat_arrow()) {
-            vf::JsonValue condition = parse_expression();
+            vf::JsonValue condition;
+            if (match_arm_has_type_pattern()) {
+                condition = parse_match_arm_type_pattern();
+            } else {
+                condition = parse_expression();
+            }
             expect("FAT_ARROW");
-            vf::JsonValue body = parse_statement();
-            if (!is_expression_node(body)) {
+            vf::JsonValue body = is_at("NEWLINE")
+                ? parse_indented_suite(true, false)
+                : parse_statement();
+            if (!is_expression_node(body) && !is_node_kind(body, "block")) {
                 vf::JsonValue::Array statements;
                 statements.push_back(std::move(body));
                 auto block = node("block");
@@ -907,8 +1197,10 @@ private:
             out["body"] = std::move(body);
             return vf::JsonValue(std::move(out));
         }
-        vf::JsonValue body = parse_statement();
-        if (!is_expression_node(body)) {
+        vf::JsonValue body = is_at("NEWLINE")
+            ? parse_indented_suite(true, false)
+            : parse_statement();
+        if (!is_expression_node(body) && !is_node_kind(body, "block")) {
             vf::JsonValue::Array statements;
             statements.push_back(std::move(body));
             auto block = node("block");
@@ -921,10 +1213,25 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
-    vf::JsonValue parse_match_stmt(vf::JsonValue discriminant) {
+    vf::JsonValue parse_match_stmt(
+        vf::JsonValue discriminant,
+        bool catch_errors,
+        bool loop = false
+    ) {
         vf::JsonValue::Array arms;
         skip_newlines();
-        if (is_at("INDENT")) {
+        if (is_at("LPAREN")) {
+            advance();
+            while (!is_at("RPAREN")) {
+                arms.push_back(parse_match_arm());
+                if (is_at("COMMA") || is_at("SEMICOLON")) {
+                    advance();
+                    continue;
+                }
+                break;
+            }
+            expect("RPAREN");
+        } else if (is_at("INDENT")) {
             expect("INDENT");
             bool saw_default = false;
             skip_newlines();
@@ -944,6 +1251,9 @@ private:
                     skip_newlines();
                     continue;
                 }
+                if (line_has_fat_arrow()) {
+                    continue;
+                }
                 if (!is_at("DEDENT")) {
                     fail_here("expected newline or dedent after match arm");
                 }
@@ -958,8 +1268,8 @@ private:
         auto out = node("match_stmt");
         out["discriminant"] = std::move(discriminant);
         out["arms"] = vf::JsonValue(std::move(arms));
-        out["loop"] = vf::JsonValue(false);
-        out["catch"] = vf::JsonValue(false);
+        out["loop"] = vf::JsonValue(loop);
+        out["catch"] = vf::JsonValue(catch_errors);
         return vf::JsonValue(std::move(out));
     }
 
@@ -967,6 +1277,7 @@ private:
         vf::JsonValue left = parse_cmp_expr();
         while (is_at("AND")) {
             const Token& op = advance();
+            skip_newlines();
             left = binary_node(op.kind, std::move(left), parse_cmp_expr());
         }
         return left;
@@ -977,6 +1288,7 @@ private:
         while (is_at("EQ") || is_at("EXACT_EQ") || is_at("NEQ") || is_at("STRUCT_NEQ")
             || is_at("LT") || is_at("LE") || is_at("GT") || is_at("GE")) {
             const Token& op = advance();
+            skip_newlines();
             left = binary_node(op.kind, std::move(left), parse_add_expr());
         }
         return left;
@@ -986,6 +1298,7 @@ private:
         vf::JsonValue left = parse_mul_expr();
         while (is_at("PLUS") || is_at("MINUS") || is_at("AMPERSAND")) {
             const Token& op = advance();
+            skip_newlines();
             left = binary_node(op.kind, std::move(left), parse_mul_expr());
         }
         return left;
@@ -996,6 +1309,7 @@ private:
         while (true) {
             if (is_at("STAR") || is_at("SLASH") || is_at("FLOORDIV") || is_at("PERCENT")) {
                 const Token& op = advance();
+                skip_newlines();
                 left = binary_node(op.kind, std::move(left), parse_pow_expr());
                 continue;
             }
@@ -1012,6 +1326,7 @@ private:
         vf::JsonValue left = parse_unary_expr();
         if (is_at("CARET")) {
             const Token& op = advance();
+            skip_newlines();
             return binary_node(op.kind, std::move(left), parse_pow_expr());
         }
         return left;
@@ -1160,6 +1475,22 @@ private:
                 expr = vf::JsonValue(std::move(out));
                 continue;
             }
+            if (is_at("QUESTION") && index_ + 1 < tokens_.size() &&
+                tokens_[index_ + 1].kind == "BANG" && index_ > 0 &&
+                tokens_[index_ - 1].kind == "RPAREN") {
+                advance();
+                advance();
+                auto out = node("assert_expr");
+                out["condition"] = std::move(expr);
+                if (is_at("NEWLINE") || is_at("EOF") || is_at("SEMICOLON") ||
+                    is_at("RPAREN") || is_at("DEDENT") || is_at("COMMA")) {
+                    out["message"] = vf::JsonValue(nullptr);
+                } else {
+                    out["message"] = parse_expression();
+                }
+                expr = vf::JsonValue(std::move(out));
+                continue;
+            }
             break;
         }
         return expr;
@@ -1167,6 +1498,13 @@ private:
 
     vf::JsonValue parse_atom() {
         const Token& token = peek();
+        if (is_function_name_kind(token.kind) && token.kind != "IDENT" &&
+            index_ + 1 < tokens_.size() && tokens_[index_ + 1].kind == "LPAREN") {
+            advance();
+            auto out = node("identifier");
+            out["name"] = vf::JsonValue(function_name_text(token));
+            return vf::JsonValue(std::move(out));
+        }
         if (token.kind == "MINUS") {
             advance();
             const Token& value = expect("NUMBER");
@@ -1196,6 +1534,36 @@ private:
             auto out = node("string_literal");
             out["value"] = vf::JsonValue(token.value.as_string());
             out["raw"] = vf::JsonValue(token.kind == "STRING_RAW");
+            if (token.kind == "STRING" && token.interpolations.is_array()) {
+                vf::JsonValue::Array interpolations;
+                for (const auto& raw_interpolation : token.interpolations.as_array()) {
+                    if (!raw_interpolation.is_object()) {
+                        throw ParseFailure("expected interpolation object", token.location);
+                    }
+                    const auto& interpolation = raw_interpolation.as_object();
+                    const auto& raw_tokens = field(interpolation, "tokens", token.location);
+                    if (!raw_tokens.is_array()) {
+                        throw ParseFailure("expected interpolation token array", token.location);
+                    }
+                    std::vector<Token> nested_tokens;
+                    for (const auto& raw_nested : raw_tokens.as_array()) {
+                        nested_tokens.push_back(read_token(raw_nested));
+                    }
+                    auto item = node("string_interpolation");
+                    item["start"] = vf::JsonValue(static_cast<double>(require_int(
+                        field(interpolation, "start", token.location),
+                        "interpolation.start", token.location)));
+                    item["end"] = vf::JsonValue(static_cast<double>(require_int(
+                        field(interpolation, "end", token.location),
+                        "interpolation.end", token.location)));
+                    item["format"] = vf::JsonValue(require_string(
+                        field(interpolation, "format", token.location),
+                        "interpolation.format", token.location));
+                    item["expression"] = Parser(std::move(nested_tokens)).parse_interpolation_expression();
+                    interpolations.emplace_back(std::move(item));
+                }
+                out["interpolations"] = vf::JsonValue(std::move(interpolations));
+            }
             return vf::JsonValue(std::move(out));
         }
         if (token.kind == "TRUE" || token.kind == "FALSE") {
@@ -1222,6 +1590,7 @@ private:
             return vf::JsonValue(std::move(out));
         }
         if (token.kind == "LPAREN") {
+            if (starts_lambda_literal()) return parse_lambda_literal();
             return parse_record_literal();
         }
         if (token.kind == "IDENT") {
@@ -1240,9 +1609,24 @@ private:
     vf::JsonValue parse_list_literal() {
         expect("LBRACKET");
         vf::JsonValue::Array items;
+        if (is_at("COLON")) {
+            advance();
+            vf::JsonValue spread = parse_expression();
+            if (is_at("RBRACKET")) {
+                advance();
+                auto out = node("container_spill");
+                out["container"] = vf::JsonValue("vector");
+                out["value"] = std::move(spread);
+                return vf::JsonValue(std::move(out));
+            }
+            auto item = node("spread_element");
+            item["expr"] = std::move(spread);
+            items.emplace_back(std::move(item));
+            expect("COMMA");
+        }
         if (!is_at("RBRACKET")) {
             while (true) {
-                items.push_back(parse_expression());
+                items.push_back(parse_literal_element());
                 if (is_at("COMMA")) {
                     advance();
                     continue;
@@ -1256,8 +1640,33 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    vf::JsonValue parse_literal_element() {
+        if (is_at("COLON")) {
+            advance();
+            auto out = node("spread_element");
+            out["expr"] = parse_expression();
+            return vf::JsonValue(std::move(out));
+        }
+        vf::JsonValue value = parse_expression();
+        if (!is_at("COLON")) return value;
+        advance();
+        auto out = node("repeat_element");
+        out["value"] = std::move(value);
+        out["count"] = parse_expression();
+        return vf::JsonValue(std::move(out));
+    }
+
     vf::JsonValue parse_multiset_literal() {
         expect("LBRACE");
+        if (is_at("COLON")) {
+            advance();
+            vf::JsonValue spread = parse_expression();
+            expect("RBRACE");
+            auto out = node("container_spill");
+            out["container"] = vf::JsonValue("multiset");
+            out["value"] = std::move(spread);
+            return vf::JsonValue(std::move(out));
+        }
         vf::JsonValue::Array pairs;
         if (!is_at("RBRACE")) {
             while (true) {
@@ -1288,6 +1697,42 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    bool starts_lambda_literal() const {
+        if (!is_at("LPAREN")) return false;
+        std::size_t cursor = index_ + 1u;
+        bool expect_name = true;
+        while (cursor < tokens_.size() && tokens_[cursor].kind != "RPAREN") {
+            if (expect_name) {
+                if (tokens_[cursor].kind != "IDENT") return false;
+            } else if (tokens_[cursor].kind != "COMMA") {
+                return false;
+            }
+            expect_name = !expect_name;
+            ++cursor;
+        }
+        return cursor < tokens_.size() && tokens_[cursor].kind == "RPAREN" &&
+            cursor + 1u < tokens_.size() && tokens_[cursor + 1u].kind == "COLON" &&
+            (cursor == index_ + 1u || !expect_name);
+    }
+
+    vf::JsonValue parse_lambda_literal() {
+        expect("LPAREN");
+        vf::JsonValue::Array params;
+        if (!is_at("RPAREN")) {
+            while (true) {
+                params.emplace_back(expect("IDENT").value.as_string());
+                if (!is_at("COMMA")) break;
+                advance();
+            }
+        }
+        expect("RPAREN");
+        expect("COLON");
+        auto out = node("lambda_expr");
+        out["params"] = vf::JsonValue(std::move(params));
+        out["body"] = parse_expression();
+        return vf::JsonValue(std::move(out));
+    }
+
     vf::JsonValue parse_record_literal() {
         expect("LPAREN");
         if (is_at("RPAREN")) {
@@ -1296,12 +1741,38 @@ private:
             out["fields"] = vf::JsonValue(vf::JsonValue::Array{});
             return vf::JsonValue(std::move(out));
         }
+        if (is_at("COLON")) {
+            advance();
+            vf::JsonValue spread = parse_expression();
+            if (is_at("RPAREN")) {
+                advance();
+                auto out = node("container_spill");
+                out["container"] = vf::JsonValue("record");
+                out["value"] = std::move(spread);
+                return vf::JsonValue(std::move(out));
+            }
+            vf::JsonValue::Array elements;
+            auto first = node("spread_element");
+            first["expr"] = std::move(spread);
+            elements.emplace_back(std::move(first));
+            expect("COMMA");
+            while (true) {
+                elements.push_back(parse_literal_element());
+                if (!is_at("COMMA")) break;
+                advance();
+            }
+            expect("RPAREN");
+            auto out = node("tuple_literal");
+            out["elements"] = vf::JsonValue(std::move(elements));
+            return vf::JsonValue(std::move(out));
+        }
 
         const bool named_record = is_at("IDENT")
             && index_ + 1 < tokens_.size()
             && tokens_[index_ + 1].kind == "COLON";
         if (named_record) {
             vf::JsonValue::Array fields;
+            bool saw_separator = false;
             while (true) {
                 const Token& name = expect("IDENT");
                 expect("COLON");
@@ -1311,11 +1782,20 @@ private:
                 fields.push_back(vf::JsonValue(std::move(field)));
                 if (is_at("COMMA")) {
                     advance();
+                    saw_separator = true;
+                    if (is_at("RPAREN")) break;
                     continue;
                 }
                 break;
             }
             expect("RPAREN");
+            if (fields.size() == 1u && !saw_separator) {
+                auto field = std::move(fields.front().as_object());
+                auto out = node("bind_expr");
+                out["name"] = std::move(field.at("name"));
+                out["value"] = std::move(field.at("value"));
+                return vf::JsonValue(std::move(out));
+            }
             auto out = node("record_literal");
             out["fields"] = vf::JsonValue(std::move(fields));
             return vf::JsonValue(std::move(out));
@@ -1323,7 +1803,7 @@ private:
 
         vf::JsonValue::Array elements;
         while (true) {
-            elements.push_back(parse_expression());
+            elements.push_back(parse_literal_element());
             if (is_at("COMMA")) {
                 advance();
                 continue;
@@ -1434,11 +1914,24 @@ std::string input_text(int argc, char** argv) {
 
 }  // namespace
 
+vf::JsonValue vkf::native_frontend::parse_value(const vf::JsonValue& token_stream) {
+    std::vector<Token> tokens = read_envelope(token_stream);
+    Parser parser(std::move(tokens));
+    return parser.parse_module();
+}
+
+vf::JsonValue vkf::native_frontend::parse_value(const std::string& token_stream_json) {
+    return parse_value(vf::parse_json(token_stream_json));
+}
+
+std::string vkf::native_frontend::parse(const std::string& token_stream_json) {
+    return vf::json_stringify(parse_value(token_stream_json), -1) + "\n";
+}
+
+#ifndef VKF_NATIVE_FRONTEND_LIBRARY
 int main(int argc, char** argv) {
     try {
-        std::vector<Token> tokens = read_envelope(input_text(argc, argv));
-        Parser parser(std::move(tokens));
-        std::cout << vf::json_stringify(parser.parse_module(), -1) << "\n";
+        std::cout << vkf::native_frontend::parse(input_text(argc, argv));
         return 0;
     } catch (const ParseFailure& failure) {
         const Location& location = failure.location();
@@ -1449,4 +1942,6 @@ int main(int argc, char** argv) {
         std::cerr << "<token-stream>:1:1: " << exc.what() << "\n";
         return 1;
     }
+
 }
+#endif

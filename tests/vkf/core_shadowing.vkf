@@ -1,0 +1,8 @@
+[num:3] n: [10, 20, 30]
+
+_local_scalar_formula() -> num:
+    n: 3
+    (n - 1) * 2
+
+local_scalar_layout_shadows_module_vector() -> bit:
+    (_local_scalar_formula() = 4)?!

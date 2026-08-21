@@ -1,0 +1,15 @@
+advance(x:num, i:num) -> num:
+    y: x * 1.00000011920929 + i * 0.0000001
+    y > 1000?
+        @: y - 999.5
+    y
+
+run(n:num) -> num:
+    i: 0
+    x: 1
+    i < n?>
+        x: advance(x, i)
+        i: i + 1
+    x
+
+:: run({{COUNT}})

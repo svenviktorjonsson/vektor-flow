@@ -16,6 +16,7 @@ _SOURCE_ORDER = (
     "compiler/self_hosted/lexer.vkf",
     "compiler/self_hosted/parser.vkf",
     "compiler/self_hosted/typed_ir.vkf",
+    "compiler/self_hosted/machine_ir.vkf",
     "compiler/self_hosted/compiler.vkf",
     "compiler/self_hosted/native_scene_compiler.vkf",
     "compiler/self_hosted/stdlib.vkf",

@@ -1,0 +1,65 @@
+record_scalar_fields() -> bit:
+    value: (x: 3, y: 4)
+    (value.x + value.y == 7)?!
+
+record_resources_own_storage() -> bit:
+    [num] values: [1, 2]
+    original: (text: "hel" & "lo", values: values)
+    copied: original
+    (copied.text == "hello" /\ stat.sum(copied.values) == 3)?!
+
+record_field_update() -> bit:
+    value: (x: 3, y: 4)
+    value.x: 8
+    (value.x + value.y == 12)?!
+
+record_field_extension_adds_new_field() -> bit:
+    value: (x: 3, y: 4)
+    value.z: 5
+    (value.x + value.y + value.z == 12)?!
+
+_base_point(x, y):
+    x: x
+    y: y
+    :
+
+_colored_point(x, y, color):
+    : _base_point(x, y)
+    color: color
+    :
+
+record_spill_composes_constructor_scope() -> bit:
+    value: _colored_point(3, 4, "red")
+    (value.x + value.y == 7 /\ value.color == "red")?!
+
+record_resource_update() -> bit:
+    [num] initial: [1, 2]
+    value: (text: "hel" & "lo", values: initial)
+    value.text: "good" & "bye"
+    value.values: collections.list(3, 4)
+    (value.text == "goodbye" /\ stat.sum(value.values) == 7)?!
+
+_copy_record(value: (text:str,values:[num])) -> (text:str,values:[num]):
+    value
+
+record_argument_and_result_own_storage() -> bit:
+    copied: _copy_record((text: "hel" & "lo", values: collections.list(2, 5)))
+    (copied.text == "hello" /\ stat.sum(copied.values) == 7)?!
+
+_rank_record(value: (x:num,y:num,z:num)) -> num:
+    value??
+        (x:any,y:num) => 20
+        (x:num,y:num) => 10
+        30
+
+record_match_prefers_specific_open_shape() -> bit:
+    (_rank_record((x: 1, y: 2, z: 3)) = 10)?!
+
+CorePoint: (x:num, y:num)
+
++(a:CorePoint, b:CorePoint):
+    (x: a.x + b.x, y: a.y + b.y)
+
+record_operator_overload_dispatches() -> bit:
+    result: (x: 1, y: 2) + (x: 3, y: 4)
+    (result.x = 4 /\ result.y = 6)?!

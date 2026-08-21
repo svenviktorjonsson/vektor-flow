@@ -1,0 +1,10 @@
+label_prints_scalar_values() -> bit:
+    ::: 3
+    ::: true
+    ::: "ok"
+    true?!
+
+label_prints_fixed_core_values() -> bit:
+    ::: (3, "ok")
+    ::: [1, 2, 3]
+    true?!

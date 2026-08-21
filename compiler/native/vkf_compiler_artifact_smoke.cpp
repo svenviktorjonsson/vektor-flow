@@ -20,7 +20,7 @@
 
 namespace {
 
-constexpr const char* compiler_version = "vkf-artifact-smoke-0.1";
+constexpr const char* compiler_version = "vkf-artifact-smoke-0.2";
 
 class ArtifactFailure : public std::runtime_error {
 public:
@@ -175,7 +175,7 @@ std::string stem_of(const std::filesystem::path& source) {
 
 std::string artifact_stem_of(const std::filesystem::path& source) {
     const std::string stem = stem_of(source);
-    constexpr std::size_t max_stem_length = 24;
+    constexpr std::size_t max_stem_length = 16;
     if (stem.size() <= max_stem_length) {
         return stem;
     }
@@ -230,6 +230,24 @@ void validate_value(const vf::JsonValue& value) {
         (void)field(object, "value", "const");
         return;
     }
+    if (kind == "interpolated_string") {
+        for (const auto& segment_value : array_of(
+                 field(object, "segments", "interpolated_string"),
+                 "interpolated_string.segments")) {
+            const auto& segment = object_of(segment_value, "interpolation segment");
+            const std::string segment_kind = string_field(
+                segment, "kind", "interpolation segment");
+            if (segment_kind == "interpolation_text") {
+                (void)string_field(segment, "value", "interpolation text");
+            } else if (segment_kind == "interpolation_value") {
+                validate_value(field(segment, "value", "interpolation value"));
+                (void)string_field(segment, "format", "interpolation value");
+            } else {
+                throw ArtifactFailure("unsupported interpolation segment " + segment_kind);
+            }
+        }
+        return;
+    }
     if (kind == "load") {
         (void)string_field(object, "name", "load");
         (void)string_field(object, "type", "load");
@@ -244,12 +262,18 @@ void validate_value(const vf::JsonValue& value) {
     if (kind == "stdlib_function") {
         const std::string full_name = string_field(object, "full_name", "stdlib_function");
         if (full_name != "io.print"
+            && full_name != "io.read_text"
+            && full_name != "io.write_text"
+            && full_name != "io.read_bytes"
+            && full_name != "io.write_bytes"
             && full_name != "math.sqrt"
             && full_name != "math.sin"
             && full_name != "math.cos"
             && full_name != "math.exp"
+            && full_name != "math.ln"
             && full_name != "stat.mean"
             && full_name != "stat.sum"
+            && full_name != "stat.variance"
             && full_name != "stat.std"
             && full_name != "stat.median"
             && full_name != "stat.iqr"
@@ -747,6 +771,50 @@ std::filesystem::path resolve_dot_module_path(
     return resolved;
 }
 
+bool dependency_exists(const std::vector<Dependency>& dependencies, const std::filesystem::path& path) {
+    const auto absolute_path = std::filesystem::absolute(path).lexically_normal();
+    for (const auto& dependency : dependencies) {
+        if (std::filesystem::absolute(dependency.path).lexically_normal() == absolute_path) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void collect_import_dependencies(
+    const vf::JsonValue& root,
+    const std::filesystem::path& source_path,
+    std::vector<Dependency>& dependencies
+) {
+    const auto& module = object_of(root, "typed IR module");
+    for (const auto& stmt : array_of(field(module, "body", "typed_module"), "typed_module.body")) {
+        const auto& object = object_of(stmt, "typed IR stmt");
+        if (string_field(object, "kind", "typed IR stmt") != "module_import") {
+            continue;
+        }
+        const auto& path_value = field(object, "path", "module_import");
+        const auto& path_object = object_of(path_value, "module_import.path");
+        const auto& segments = array_of(field(path_object, "segments", "module_import.path"), "module_import.path.segments");
+        if (segments.size() == 1 && segments.front().is_string()) {
+            const std::string module_name = segments.front().as_string();
+            if (module_name == "math" || module_name == "stat" || module_name == "collections"
+                || module_name == "ui" || module_name == "symbolic" || module_name == "physics") {
+                continue;
+            }
+        }
+        const std::filesystem::path resolved_path = resolve_dot_module_path(path_value, source_path);
+        if (!dependency_exists(dependencies, resolved_path)) {
+            const vf::JsonValue& alias_value = field(object, "alias", "module_import");
+            const std::string alias = alias_value.is_string() ? alias_value.as_string() : "";
+            dependencies.push_back({
+                "import:" + (alias.empty() ? std::string("<spill>") : alias),
+                resolved_path,
+                stable_hash(read_file(resolved_path)),
+            });
+        }
+    }
+}
+
 std::vector<double> require_numeric_vector(const std::string& rendered, const std::string& context) {
     std::vector<double> values = parse_numeric_sequence_string(rendered);
     if (values.empty() && rendered != "[]" && rendered != "()") {
@@ -777,6 +845,19 @@ double stat_std(const std::vector<double>& xs) {
         total += d * d;
     }
     return std::sqrt(total / static_cast<double>(xs.size()));
+}
+
+double stat_variance(const std::vector<double>& xs) {
+    if (xs.empty()) {
+        throw ArtifactFailure("stat.variance requires non-empty sequence");
+    }
+    const double mu = stat_mean(xs);
+    double total = 0.0;
+    for (double x : xs) {
+        const double d = x - mu;
+        total += d * d;
+    }
+    return total / static_cast<double>(xs.size());
 }
 
 double stat_median(std::vector<double> xs) {
@@ -1136,6 +1217,10 @@ private:
         if (name == "sqrt") {
             if (args.size() != 1) throw ArtifactFailure("wrong arity for sqrt");
             return ImportedValue(std::sqrt(args[0].number("sqrt")));
+        }
+        if (name == "ln") {
+            if (args.size() != 1) throw ArtifactFailure("wrong arity for ln");
+            return ImportedValue(std::log(args[0].number("ln")));
         }
         const auto found = module_.functions.find(name);
         if (found == module_.functions.end()) {
@@ -1521,7 +1606,8 @@ std::string eval_call(
             }
             return line;
         }
-        if (full_name == "math.sqrt" || full_name == "math.sin" || full_name == "math.cos" || full_name == "math.exp") {
+        if (full_name == "math.sqrt" || full_name == "math.sin" || full_name == "math.cos" ||
+            full_name == "math.exp" || full_name == "math.ln") {
             const auto& args = array_of(field(object, "args", "call"), "call.args");
             if (args.size() != 1) {
                 throw ArtifactFailure(full_name + " expects exactly one argument");
@@ -1536,6 +1622,9 @@ std::string eval_call(
             if (full_name == "math.cos") {
                 return format_number(std::cos(input));
             }
+            if (full_name == "math.ln") {
+                return format_number(std::log(input));
+            }
             return format_number(std::exp(input));
         }
         if (starts_with(full_name, "stat.")) {
@@ -1548,7 +1637,7 @@ std::string eval_call(
                 }
                 return rendered + ")";
             }
-            if (full_name == "stat.sum" || full_name == "stat.mean" || full_name == "stat.std" || full_name == "stat.median"
+            if (full_name == "stat.sum" || full_name == "stat.mean" || full_name == "stat.variance" || full_name == "stat.std" || full_name == "stat.median"
                 || full_name == "stat.iqr" || full_name == "stat.zscore" || full_name == "stat.normalize"
                 || full_name == "stat.range" || full_name == "stat.count") {
                 if (args.size() != 1) {
@@ -1568,6 +1657,9 @@ std::string eval_call(
                 }
                 if (full_name == "stat.std") {
                     return format_number(stat_std(xs));
+                }
+                if (full_name == "stat.variance") {
+                    return format_number(stat_variance(xs));
                 }
                 if (full_name == "stat.median") {
                     return format_number(stat_median(xs));
@@ -1870,6 +1962,53 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
     const std::string kind = string_field(object, "kind", "typed IR value");
     if (kind == "const") {
         return value_to_script_text(field(object, "value", "const"));
+    }
+    if (kind == "interpolated_string") {
+        std::string out;
+        for (const auto& segment_value : array_of(
+                 field(object, "segments", "interpolated_string"),
+                 "interpolated_string.segments")) {
+            const auto& segment = object_of(segment_value, "interpolation segment");
+            const std::string segment_kind = string_field(
+                segment, "kind", "interpolation segment");
+            if (segment_kind == "interpolation_text") {
+                out += string_field(segment, "value", "interpolation text");
+                continue;
+            }
+            if (segment_kind != "interpolation_value") {
+                throw ArtifactFailure("unsupported interpolation segment " + segment_kind);
+            }
+            const auto& expression = field(segment, "value", "interpolation value");
+            const std::string format = string_field(segment, "format", "interpolation value");
+            const std::string rendered = eval_value(
+                expression, values, imports, functions, stdlib_exports, ctor_name, output_lines);
+            if (format.empty()) {
+                out += rendered;
+                continue;
+            }
+            const char specifier = format.back();
+            const char lower_specifier = static_cast<char>(
+                std::tolower(static_cast<unsigned char>(specifier)));
+            if (lower_specifier != 'f' && lower_specifier != 'e' && lower_specifier != 'g') {
+                throw ArtifactFailure("unsupported numeric interpolation format " + format);
+            }
+            const std::string precision_text = format.substr(0, format.size() - 1);
+            if (!std::all_of(precision_text.begin(), precision_text.end(), [](unsigned char ch) {
+                    return std::isdigit(ch) != 0;
+                })) {
+                throw ArtifactFailure("unsupported numeric interpolation format " + format);
+            }
+            std::ostringstream formatted;
+            if (specifier != lower_specifier) formatted << std::uppercase;
+            if (lower_specifier == 'f') formatted << std::fixed;
+            else if (lower_specifier == 'e') formatted << std::scientific;
+            else formatted << std::defaultfloat;
+            formatted << std::setprecision(
+                             precision_text.empty() ? 6 : std::stoi(precision_text))
+                      << std::stod(rendered);
+            out += formatted.str();
+        }
+        return out;
     }
     if (kind == "load") {
         return values.get(string_field(object, "name", "load"));
@@ -2680,13 +2819,65 @@ std::string escape_cmd_echo(std::string text) {
     return out;
 }
 
-std::string emit_artifact_script(const vf::JsonValue& root, const std::filesystem::path& source_path, std::vector<Dependency>& discovered_dependencies) {
+std::string quote_batch_arg(const std::filesystem::path& path) {
+    std::string text = std::filesystem::absolute(path).string();
+    if (text.find('"') != std::string::npos) {
+        throw ArtifactFailure("batch artifact path contains a quote");
+    }
+    std::string escaped;
+    for (char ch : text) {
+        escaped += ch == '%' ? "%%" : std::string(1, ch);
+    }
+    return "\"" + escaped + "\"";
+}
+
+std::string emit_deferred_artifact_script(
+    const std::filesystem::path& runtime_path,
+    const std::filesystem::path& source_path,
+    const std::filesystem::path& typed_ir_path,
+    const std::string& typed_ir_hash
+) {
+    return "@echo off\r\n@" + quote_batch_arg(runtime_path)
+        + " --run-typed-ir --source " + quote_batch_arg(source_path)
+        + " --typed-ir " + quote_batch_arg(typed_ir_path)
+        + " --typed-ir-hash " + typed_ir_hash + "\r\nexit /b %errorlevel%\r\n";
+}
+
+struct EvaluatedArtifact {
+    std::string script;
+    std::vector<std::string> stdout_lines;
+};
+
+class ArtifactOutput {
+public:
+    ArtifactOutput() : script_("@echo off\r\n") {}
+
+    void comment(const std::string& text) {
+        script_ += "rem " + escape_cmd_echo(text) + "\r\n";
+    }
+
+    void print(const std::string& text) {
+        script_ += "echo " + escape_cmd_echo(text) + "\r\n";
+        stdout_lines_.push_back(text);
+    }
+
+    EvaluatedArtifact finish() {
+        script_ += "exit /b 0\r\n";
+        return {std::move(script_), std::move(stdout_lines_)};
+    }
+
+private:
+    std::string script_;
+    std::vector<std::string> stdout_lines_;
+};
+
+EvaluatedArtifact evaluate_artifact(const vf::JsonValue& root, const std::filesystem::path& source_path, std::vector<Dependency>& discovered_dependencies) {
     const auto& module = object_of(root, "typed IR module");
     ValueTable values;
     ImportTable imports;
     LocalFunctionTable functions;
     StdlibExportTable stdlib_exports;
-    std::string script = "@echo off\r\n";
+    ArtifactOutput output;
     for (const auto& stmt : array_of(field(module, "body", "typed_module"), "typed_module.body")) {
         const auto& object = object_of(stmt, "typed IR stmt");
         if (string_field(object, "kind", "typed IR stmt") != "function") {
@@ -2819,7 +3010,7 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                     );
                     imports[""] = parse_imported_module_file(physics_path);
                     discovered_dependencies.push_back({"import:<spill>", physics_path, stable_hash(read_file(physics_path))});
-                    script += "rem stdlib import\r\n";
+                    output.comment("stdlib import");
                     continue;
                 }
                 if (alias_value.is_string()) {
@@ -2836,9 +3027,11 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                         stdlib_exports["sin"] = "math.sin";
                         stdlib_exports["cos"] = "math.cos";
                         stdlib_exports["exp"] = "math.exp";
+                        stdlib_exports["ln"] = "math.ln";
                     } else if (module_name == "stat") {
                         stdlib_exports["mean"] = "stat.mean";
                         stdlib_exports["sum"] = "stat.sum";
+                        stdlib_exports["variance"] = "stat.variance";
                         stdlib_exports["std"] = "stat.std";
                         stdlib_exports["median"] = "stat.median";
                         stdlib_exports["iqr"] = "stat.iqr";
@@ -2862,23 +3055,23 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                 } else {
                     throw ArtifactFailure("unsupported stdlib import alias shape");
                 }
-                script += "rem stdlib import\r\n";
+                output.comment("stdlib import");
                 continue;
             }
             const std::filesystem::path resolved_path = resolve_dot_module_path(field(object, "path", "module_import"), source_path);
             const std::string alias = alias_value.is_string() ? alias_value.as_string() : "";
             imports[alias] = parse_imported_module_file(resolved_path);
             discovered_dependencies.push_back({"import:" + (alias.empty() ? "<spill>" : alias), resolved_path, stable_hash(read_file(resolved_path))});
-            script += "rem module import\r\n";
+            output.comment("module import");
             continue;
         }
         if (kind == "type_alias") {
-            script += "rem type alias\r\n";
+            output.comment("type alias");
             continue;
         }
         if (kind == "spill_stmt") {
             const std::string spilled = eval_value(field(object, "value", "spill_stmt"), values, imports, functions, stdlib_exports);
-            script += "echo " + escape_cmd_echo(spilled) + "\r\n";
+            output.print(spilled);
             continue;
         }
         if (kind == "expr_stmt") {
@@ -2913,7 +3106,7 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                                 const std::string front = items.front();
                                 items.erase(items.begin());
                                 values.set(base_name, "queue" + render_flat_sequence_string(items, '[', ']'));
-                                script += "echo " + escape_cmd_echo(front) + "\r\n";
+                                output.print(front);
                                 continue;
                             }
                         }
@@ -2925,14 +3118,14 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                     continue;
                 }
                 for (const auto& line : output_lines) {
-                    script += "echo " + escape_cmd_echo(line) + "\r\n";
+                    output.print(line);
                 }
                 if (output_lines.empty() || !rendered.empty()) {
-                    script += "echo " + escape_cmd_echo(rendered) + "\r\n";
+                    output.print(rendered);
                 }
                 continue;
             }
-            script += "rem expr " + escape_cmd_echo(render_value_summary(field(object, "expr", "expr_stmt"))) + "\r\n";
+            output.comment("expr " + render_value_summary(field(object, "expr", "expr_stmt")));
             continue;
         }
         if (kind == "label_print") {
@@ -2956,7 +3149,7 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
                                 items.erase(items.begin());
                                 values.set(base_name, "queue" + render_flat_sequence_string(items, '[', ']'));
                                 const std::string line = string_field(object, "label", "label_print") + ": " + front;
-                                script += "echo " + escape_cmd_echo(line) + "\r\n";
+                                output.print(line);
                                 continue;
                             }
                         }
@@ -2965,21 +3158,20 @@ std::string emit_artifact_script(const vf::JsonValue& root, const std::filesyste
             }
             const std::string rendered = eval_value(label_value, values, imports, functions, stdlib_exports);
             const std::string line = string_field(object, "label", "label_print") + ": " + rendered;
-            script += "echo " + escape_cmd_echo(line) + "\r\n";
+            output.print(line);
             continue;
         }
         if (kind == "function") {
-            script += "rem function " + escape_cmd_echo(string_field(object, "name", "function")) + "\r\n";
+            output.comment("function " + string_field(object, "name", "function"));
             continue;
         }
         if (kind == "return") {
-            script += "rem return " + escape_cmd_echo(render_value_summary(field(object, "value", "return"))) + "\r\n";
+            output.comment("return " + render_value_summary(field(object, "value", "return")));
             continue;
         }
         throw ArtifactFailure("unsupported typed IR statement kind " + kind);
     }
-    script += "exit /b 0\r\n";
-    return script;
+    return output.finish();
 }
 
 vf::JsonValue::Object manifest_payload(
@@ -3047,6 +3239,9 @@ struct Args {
     std::filesystem::path source;
     std::filesystem::path typed_ir;
     std::vector<std::pair<std::string, std::filesystem::path>> dependencies;
+    std::string typed_ir_hash;
+    bool deferred = false;
+    bool run_typed_ir = false;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -3059,6 +3254,18 @@ Args parse_args(int argc, char** argv) {
         }
         if (arg == "--typed-ir" && i + 1 < argc) {
             args.typed_ir = argv[++i];
+            continue;
+        }
+        if (arg == "--typed-ir-hash" && i + 1 < argc) {
+            args.typed_ir_hash = argv[++i];
+            continue;
+        }
+        if (arg == "--deferred") {
+            args.deferred = true;
+            continue;
+        }
+        if (arg == "--run-typed-ir") {
+            args.run_typed_ir = true;
             continue;
         }
         if (arg == "--dependency" && i + 1 < argc) {
@@ -3083,23 +3290,41 @@ Args parse_args(int argc, char** argv) {
 int main(int argc, char** argv) {
     try {
         const Args args = parse_args(argc, argv);
-        const std::string source_text = read_file(args.source);
         const std::string typed_ir_text = read_file(args.typed_ir);
+        const std::string typed_ir_hash = stable_hash(typed_ir_text);
+        if (!args.typed_ir_hash.empty() && args.typed_ir_hash != typed_ir_hash) {
+            throw ArtifactFailure("typed IR changed after compilation");
+        }
         const vf::JsonValue typed_ir = vf::parse_json(typed_ir_text);
         validate_typed_ir(typed_ir);
+        if (args.run_typed_ir) {
+            std::vector<Dependency> runtime_dependencies;
+            const EvaluatedArtifact evaluated = evaluate_artifact(typed_ir, args.source, runtime_dependencies);
+            for (const auto& line : evaluated.stdout_lines) {
+                std::cout << line << "\n";
+            }
+            return 0;
+        }
+
+        const std::string source_text = read_file(args.source);
         std::vector<Dependency> dependencies;
         for (const auto& dependency : args.dependencies) {
             dependencies.push_back({dependency.first, dependency.second, stable_hash(read_file(dependency.second))});
         }
-        const std::string artifact_text = emit_artifact_script(typed_ir, args.source, dependencies);
+        const std::filesystem::path runtime_path = std::filesystem::absolute(argv[0]).lexically_normal();
+        if (args.deferred) {
+            collect_import_dependencies(typed_ir, args.source, dependencies);
+        }
+        const std::string artifact_text = args.deferred
+            ? emit_deferred_artifact_script(runtime_path, args.source, args.typed_ir, typed_ir_hash)
+            : evaluate_artifact(typed_ir, args.source, dependencies).script;
 
         const std::string source_hash = stable_hash(source_text);
-        const std::string typed_ir_hash = stable_hash(typed_ir_text);
         const std::string artifact_content_hash = stable_hash(artifact_text);
         const std::string artifact_stem = artifact_stem_of(args.source);
         const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / artifact_stem;
         const auto manifest_path = build_dir / "manifest.json";
-        const auto artifact_path = build_dir / (artifact_stem + ".artifact.cmd");
+        const auto artifact_path = build_dir / (artifact_stem + ".cmd");
         const std::string desired_manifest_hash = stable_hash(
             manifest_key(source_hash, typed_ir_hash, artifact_content_hash, dependencies, artifact_path)
         );

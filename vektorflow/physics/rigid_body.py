@@ -1,6 +1,6 @@
 """Compatibility adapters for the canonical VKF rigid-body kernel.
 
-Physics formulas live in ``compiler/self_hosted/stdlib/rigid_body.vkf``. Native
+Physics formulas live in ``compiler/self_hosted/stdlib/physics.vkf``. Native
 and WASM hosts compile that source; this module preserves the historical Python
 API for tooling and tests without maintaining a second implementation.
 """
@@ -16,7 +16,7 @@ from vektorflow.physics.properties import Number, PhysicsGeometry
 
 Mat3 = tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
 Vec3 = tuple[float, float, float]
-_KERNEL_PATH = Path(__file__).resolve().parents[2] / "compiler" / "self_hosted" / "stdlib" / "rigid_body.vkf"
+_KERNEL_PATH = Path(__file__).resolve().parents[2] / "compiler" / "self_hosted" / "stdlib" / "physics.vkf"
 
 
 def _real(value: Any) -> float:

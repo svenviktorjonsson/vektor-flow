@@ -1,0 +1,11 @@
+string_pipe_maps_unicode_characters() -> bit:
+    result: "ab" >> $ & $
+    (result == "aabb")?!
+
+string_pipe_decodes_and_encodes_utf8() -> bit:
+    result: "åA" >> $ & $
+    (result == "ååAA")?!
+
+string_pipe_decodes_four_byte_utf8() -> bit:
+    result: "😀" >> $ & $
+    (result == "😀😀")?!

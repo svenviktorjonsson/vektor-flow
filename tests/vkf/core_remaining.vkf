@@ -1,0 +1,72 @@
+_bare_return():
+    @
+
+bare_return_produces_null() -> bit:
+    (_bare_return() == null)?!
+
+_runtime_abs(value:num) -> num:
+    |value|
+
+runtime_absolute_value() -> bit:
+    (_runtime_abs(-7) = 7)?!
+
+_runtime_norm(value:[num:2]) -> num:
+    |value|
+
+runtime_vector_norm() -> bit:
+    (_runtime_norm([3, 4]) = 5)?!
+
+primitive_conversions() -> bit:
+    (bit(2) /\ int(7.0) == 7 /\ num(3) = 3 /\ str(12) == "12")?!
+
+type_reflection_returns_surface_shape() -> bit:
+    (([1, 2].) == "[int:2]")?!
+
+_pipe_square(value:num) -> num:
+    value * value
+
+_map_squares(values:[num:3]) -> [num:3]:
+    values >> _pipe_square($)
+
+runtime_pipe_maps_fixed_vector() -> bit:
+    values: _map_squares([1, 2, 3])
+    (values == [1.0, 4.0, 9.0])?!
+
+conditional_block_returns_last_value() -> bit:
+    value: true?
+        ignored: 2
+        ignored + 3
+    (value = 5)?!
+
+_heterogeneous_rest(...rest:any):
+    (rest.0, rest.1)
+
+heterogeneous_positional_variadic_keeps_values() -> bit:
+    value: _heterogeneous_rest(3, "x")
+    (value.0 == 3 /\ value.1 == "x")?!
+
+_make_offset(offset:num) -> num->num:
+    add(value:num) -> num:
+        value + offset
+    add
+
+stored_closure_keeps_capture() -> bit:
+    add_two: _make_offset(2)
+    (add_two(5) = 7)?!
+
+aggregate_exact_equality_handles_resources() -> bit:
+    (("a", 1) == ("a", 1))?!
+
+complex_num_arithmetic_keeps_real_and_imaginary_parts() -> bit:
+    z: num(2, 3)
+    squared: z * z
+    (str(num(0, 1)) == "i" /\ str(squared) == "-5 + 12i" /\ i * i = -1)?!
+
+_complex_square(z:num) -> num:
+    z * z
+
+complex_num_function_abi_keeps_both_components() -> bit:
+    (str(_complex_square(num(2, 3))) == "-5 + 12i")?!
+
+real_num_ordering_accepts_complex_representation() -> bit:
+    (num(2, 0) < 3 /\ 3 > num(2, 0))?!

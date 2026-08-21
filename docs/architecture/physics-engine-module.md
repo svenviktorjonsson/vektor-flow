@@ -106,7 +106,7 @@ body collision or contact solving.
 
 ### Rigid Body Core
 
-Canonical source: `compiler/self_hosted/stdlib/rigid_body.vkf`
+Canonical source: `compiler/self_hosted/stdlib/physics.vkf`
 
 Compatibility adapter: `vektorflow/physics/rigid_body.py`
 

@@ -23,6 +23,9 @@ stdlib_function(module:str, name:str, type:str):
 math_pi:
     stdlib_constant("math", "pi", "num", 3.141592653589793)
 
+math_e:
+    stdlib_constant("math", "e", "num", 2.718281828459045)
+
 math_tau:
     stdlib_constant("math", "tau", "num", 6.283185307179586)
 
@@ -47,11 +50,11 @@ physics_coupled_contact_impulse3:
 physics_solid_contact_impulse3:
     stdlib_function("physics", "solid_contact_impulse3", "fn(any,[num:3],[num:3],[num:3],[num:3],[num:3],num,num,any)->any")
 
-rigid_body_tetra_mass_properties3:
-    stdlib_function("rigid_body", "tetra_mass_properties3", "fn(any,any,any,any,num)->any")
+physics_tetra_mass_properties3:
+    stdlib_function("physics", "tetra_mass_properties3", "fn(any,any,any,any,num)->any")
 
-rigid_body_step_momentum3:
-    stdlib_function("rigid_body", "step_rigid_body_momentum3", "fn(any,any,num,any,any)->any")
+physics_step_rigid_body_momentum3:
+    stdlib_function("physics", "step_rigid_body_momentum3", "fn(any,any,num,any,any)->any")
 
 stdlib_dependency_capability:
     name: "self_hosted_stdlib_seed"
@@ -68,6 +71,7 @@ stdlib_dependency_capability:
     ]
     math_exports: [
         "math.pi",
+        "math.e",
         "math.tau"
     ]
     io_exports: [
@@ -81,8 +85,8 @@ stdlib_dependency_capability:
         "physics.contact_material",
         "physics.coupled_contact_impulse3",
         "physics.solid_contact_impulse3",
-        "rigid_body.tetra_mass_properties3",
-        "rigid_body.step_rigid_body_momentum3"
+        "physics.tetra_mass_properties3",
+        "physics.step_rigid_body_momentum3"
     ]
     pipeline: [
         "source uses math.pi or math.tau",

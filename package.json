@@ -23,6 +23,7 @@
     "./symbolic-kernel": "./web/vf-ui/vf-symbolic-kernel-runtime.mjs",
     "./symbolic-plot-renderer": "./web/vf-ui/geom/vf-symbolic-plot-renderer.mjs",
     "./symbolic-plot-controller": "./web/vf-ui/vf-symbolic-plot-controller.mjs",
+    "./symbolic-constraints": "./web/vf-ui/vf-symbolic-constraints.mjs",
     "./symbolic-document-runtime": "./web/vf-ui/vf-symbolic-document-runtime.mjs",
     "./symbolic-surface-constraints": "./web/vf-ui/vf-symbolic-surface-constraints.mjs",
     "./symbolic-kernel-manifest": "./web/vf-ui/artifacts/vkf-symbolic-kernel.json",

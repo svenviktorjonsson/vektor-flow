@@ -1,0 +1,20 @@
+r: .random
+
+same_seed_repeats_and_next_seed_advances() -> bit:
+    first: r.next(12345)
+    repeated: r.next(12345)
+    second: r.next(first.seed)
+    (first == repeated /\ second.seed != first.seed /\
+     first.value > 0 /\ first.value < 1)?!
+
+uniform_respects_bounds_and_threads_seed() -> bit:
+    sample: r.uniform(42, -3, 7)
+    (sample.value >= -3 /\ sample.value <= 7 /\ sample.seed != 42)?!
+
+normal_is_deterministic_for_a_seed() -> bit:
+    first: r.normal(99, 10, 4)
+    second: r.normal(99, 10, 4)
+    (first == second)?!
+
+clock_seed_is_positive() -> bit:
+    (r.clock_seed() > 0)?!

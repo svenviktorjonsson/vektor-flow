@@ -1,0 +1,613 @@
+{
+  "schema": "vektor-flow/core-language-comparison-v1",
+  "generatedAt": "2026-08-21T01:38:56.690Z",
+  "environment": {
+    "platform": "win32 10.0.26200",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "logicalCpuCount": 14,
+    "node": "v24.11.0"
+  },
+  "cases": [
+    {
+      "template": "scalar-control",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "largeCount": 2000000,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-9,
+      "pythonExtension": "py",
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "python-efficient",
+        "rust"
+      ],
+      "id": "scalar-control-small",
+      "size": "small",
+      "count": 20000
+    },
+    {
+      "template": "fixed-vector",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "largeCount": 750000,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-7,
+      "pythonExtension": "numpy.py",
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "python-efficient",
+        "rust"
+      ],
+      "id": "fixed-vector-medium",
+      "size": "medium",
+      "count": 75000
+    },
+    {
+      "id": "welford-large",
+      "template": "welford",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "explicitF64Values": true,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-12,
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "rust"
+      ]
+    }
+  ],
+  "options": {
+    "caseId": "scalar-control-small,fixed-vector-medium,welford-large",
+    "languageId": "vkf,c,cpp,rust",
+    "outputStem": "core-final-windows-100",
+    "compileRuns": 100,
+    "compileWarmups": 1,
+    "runs": 100,
+    "warmups": 5
+  },
+  "results": [
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 228,
+        "lines": 15
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 78.84929,
+        "medianMs": 72.69435,
+        "minMs": 57.0279,
+        "maxMs": 142.1555,
+        "p95Ms": 120.7873,
+        "stddevMs": 17.717275,
+        "ci95LowerMs": 75.376704,
+        "ci95UpperMs": 82.321876
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 17.850741,
+        "medianMs": 17.78255,
+        "minMs": 9.0818,
+        "maxMs": 32.9241,
+        "p95Ms": 26.5862,
+        "stddevMs": 5.493213,
+        "ci95LowerMs": 16.774071,
+        "ci95UpperMs": 18.927411,
+        "startupAdjustedMeanMs": 17.850741
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 0.700098,
+        "medianMs": 0.6088,
+        "minMs": 0.5937,
+        "maxMs": 1.3617,
+        "p95Ms": 1.0431,
+        "stddevMs": 0.156455,
+        "ci95LowerMs": 0.669433,
+        "ci95UpperMs": 0.730763
+      },
+      "nativeCodeSha256": "768e609de0b1ef7dceefd0976ad7516af65ff9daabc5cf580a68547375d9630f",
+      "value": 21.017288693559877
+    },
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "c",
+      "version": "clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Clang -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 422,
+        "lines": 22
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 502.169944,
+        "medianMs": 478.1223,
+        "minMs": 369.9296,
+        "maxMs": 764.2327,
+        "p95Ms": 673.4752,
+        "stddevMs": 94.354384,
+        "ci95LowerMs": 483.676485,
+        "ci95UpperMs": 520.663403
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 19.132111,
+        "medianMs": 18.9763,
+        "minMs": 9.2491,
+        "maxMs": 36.7324,
+        "p95Ms": 29.5397,
+        "stddevMs": 6.334418,
+        "ci95LowerMs": 17.890565,
+        "ci95UpperMs": 20.373657,
+        "startupAdjustedMeanMs": 19.132111
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 21.017288693559927
+    },
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "cpp",
+      "version": "clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Clang++ -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 428,
+        "lines": 22
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 416.067102,
+        "medianMs": 391.1631,
+        "minMs": 335.5149,
+        "maxMs": 645.7373,
+        "p95Ms": 553.537,
+        "stddevMs": 67.514882,
+        "ci95LowerMs": 402.834185,
+        "ci95UpperMs": 429.300019
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 19.180478,
+        "medianMs": 19.2444,
+        "minMs": 9.3635,
+        "maxMs": 43.5988,
+        "p95Ms": 29.4239,
+        "stddevMs": 6.791377,
+        "ci95LowerMs": 17.849368,
+        "ci95UpperMs": 20.511588,
+        "startupAdjustedMeanMs": 19.180478
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 21.017288693559927
+    },
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "rust",
+      "version": "rustc 1.91.1 (ed61e7d7e 2025-11-07)",
+      "compileModel": "rustc -O -C target-cpu=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 350,
+        "lines": 18
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 520.179704,
+        "medianMs": 488.5437,
+        "minMs": 424.2734,
+        "maxMs": 830.5037,
+        "p95Ms": 679.6002,
+        "stddevMs": 82.774285,
+        "ci95LowerMs": 503.955944,
+        "ci95UpperMs": 536.403464
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 20.6018,
+        "medianMs": 20.85515,
+        "minMs": 10.6793,
+        "maxMs": 39.565,
+        "p95Ms": 32.3656,
+        "stddevMs": 6.708919,
+        "ci95LowerMs": 19.286852,
+        "ci95UpperMs": 21.916748,
+        "startupAdjustedMeanMs": 20.6018
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 21.017288693559877
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 351,
+        "lines": 17
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 86.068736,
+        "medianMs": 77.0601,
+        "minMs": 60.1631,
+        "maxMs": 211.4733,
+        "p95Ms": 134.1221,
+        "stddevMs": 25.038828,
+        "ci95LowerMs": 81.161126,
+        "ci95UpperMs": 90.976346
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 21.161288,
+        "medianMs": 20.97355,
+        "minMs": 9.6623,
+        "maxMs": 40.4467,
+        "p95Ms": 31.1978,
+        "stddevMs": 6.641528,
+        "ci95LowerMs": 19.859549,
+        "ci95UpperMs": 22.463027,
+        "startupAdjustedMeanMs": 21.161288
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 2.721135,
+        "medianMs": 1.9637,
+        "minMs": 1.7873,
+        "maxMs": 6.2242,
+        "p95Ms": 4.9465,
+        "stddevMs": 1.191919,
+        "ci95LowerMs": 2.487519,
+        "ci95UpperMs": 2.954751
+      },
+      "nativeCodeSha256": "0d5f028c82ceb075f4a6107595c256e0be74e558d5d6cbe7cb1513f1fd587ad9",
+      "value": 10.099567298080487
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "c",
+      "version": "clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Clang -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 618,
+        "lines": 28
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 484.851514,
+        "medianMs": 466.59615,
+        "minMs": 371.9996,
+        "maxMs": 694.3279,
+        "p95Ms": 623.5411,
+        "stddevMs": 68.989844,
+        "ci95LowerMs": 471.329505,
+        "ci95UpperMs": 498.373523
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 23.401587,
+        "medianMs": 21.713,
+        "minMs": 9.6984,
+        "maxMs": 197.7895,
+        "p95Ms": 30.7117,
+        "stddevMs": 20.217416,
+        "ci95LowerMs": 19.438973,
+        "ci95UpperMs": 27.364201,
+        "startupAdjustedMeanMs": 23.401587
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 10.099567298080492
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "cpp",
+      "version": "clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Clang++ -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 618,
+        "lines": 28
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 429.657071,
+        "medianMs": 397.3511,
+        "minMs": 334.5889,
+        "maxMs": 903.2353,
+        "p95Ms": 606.4383,
+        "stddevMs": 101.0495,
+        "ci95LowerMs": 409.851369,
+        "ci95UpperMs": 449.462773
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 21.331311,
+        "medianMs": 21.19355,
+        "minMs": 10.5052,
+        "maxMs": 50.5263,
+        "p95Ms": 31.6837,
+        "stddevMs": 7.409619,
+        "ci95LowerMs": 19.879026,
+        "ci95UpperMs": 22.783596,
+        "startupAdjustedMeanMs": 21.331311
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 10.099567298080492
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "rust",
+      "version": "rustc 1.91.1 (ed61e7d7e 2025-11-07)",
+      "compileModel": "rustc -O -C target-cpu=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 545,
+        "lines": 25
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 560.625052,
+        "medianMs": 516.10305,
+        "minMs": 440.6313,
+        "maxMs": 821.242,
+        "p95Ms": 744.1493,
+        "stddevMs": 95.970514,
+        "ci95LowerMs": 541.814831,
+        "ci95UpperMs": 579.435273
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 22.243768,
+        "medianMs": 21.5151,
+        "minMs": 10.4422,
+        "maxMs": 45.0494,
+        "p95Ms": 33.2165,
+        "stddevMs": 6.7493,
+        "ci95LowerMs": 20.920905,
+        "ci95UpperMs": 23.566631,
+        "startupAdjustedMeanMs": 22.243768
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 10.099567298080487
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50616,
+        "lines": 22
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 676.697571,
+        "medianMs": 649.1668,
+        "minMs": 579.6785,
+        "maxMs": 891.1058,
+        "p95Ms": 810.1928,
+        "stddevMs": 77.11477,
+        "ci95LowerMs": 661.583076,
+        "ci95UpperMs": 691.812066
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 18.982526,
+        "medianMs": 17.91845,
+        "minMs": 8.3062,
+        "maxMs": 45.6818,
+        "p95Ms": 31.1546,
+        "stddevMs": 7.809696,
+        "ci95LowerMs": 17.451825,
+        "ci95UpperMs": 20.513227,
+        "startupAdjustedMeanMs": 18.982526
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 0.41604,
+        "medianMs": 0.36145,
+        "minMs": 0.352,
+        "maxMs": 0.8356,
+        "p95Ms": 0.7473,
+        "stddevMs": 0.130208,
+        "ci95LowerMs": 0.390519,
+        "ci95UpperMs": 0.441561
+      },
+      "nativeCodeSha256": "04e17e5da78c352f4df8585d8061af4031bf405dff367e9f6c5202a57be3d1c0",
+      "value": 1847.5208388540575
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "c",
+      "version": "clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Clang -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50914,
+        "lines": 31
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 521.146128,
+        "medianMs": 476.95265,
+        "minMs": 389.2958,
+        "maxMs": 992.3654,
+        "p95Ms": 758.9712,
+        "stddevMs": 115.74739,
+        "ci95LowerMs": 498.45964,
+        "ci95UpperMs": 543.832616
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 18.560862,
+        "medianMs": 18.64815,
+        "minMs": 9.4249,
+        "maxMs": 38.6669,
+        "p95Ms": 29.7794,
+        "stddevMs": 6.329571,
+        "ci95LowerMs": 17.320266,
+        "ci95UpperMs": 19.801458,
+        "startupAdjustedMeanMs": 18.560862
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 1847.5208388540575
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "cpp",
+      "version": "clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "Clang++ -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50914,
+        "lines": 31
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 477.503374,
+        "medianMs": 447.4376,
+        "minMs": 381.3301,
+        "maxMs": 890.7513,
+        "p95Ms": 630.251,
+        "stddevMs": 84.367508,
+        "ci95LowerMs": 460.967342,
+        "ci95UpperMs": 494.039406
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 19.301765,
+        "medianMs": 19.86305,
+        "minMs": 8.7964,
+        "maxMs": 44.6364,
+        "p95Ms": 30.8996,
+        "stddevMs": 7.345566,
+        "ci95LowerMs": 17.862034,
+        "ci95UpperMs": 20.741496,
+        "startupAdjustedMeanMs": 19.301765
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 1847.5208388540575
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "rust",
+      "version": "rustc 1.91.1 (ed61e7d7e 2025-11-07)",
+      "compileModel": "rustc -O -C target-cpu=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50767,
+        "lines": 27
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 5538.019126,
+        "medianMs": 5498.8469,
+        "minMs": 4698.0575,
+        "maxMs": 9376.4805,
+        "p95Ms": 6294.2479,
+        "stddevMs": 595.003409,
+        "ci95LowerMs": 5421.398458,
+        "ci95UpperMs": 5654.639794
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 19.879973,
+        "medianMs": 19.63295,
+        "minMs": 9.902,
+        "maxMs": 42.1906,
+        "p95Ms": 33.0906,
+        "stddevMs": 7.052782,
+        "ci95LowerMs": 18.497628,
+        "ci95UpperMs": 21.262318,
+        "startupAdjustedMeanMs": 19.879973
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 1847.5208388540575
+    }
+  ]
+}

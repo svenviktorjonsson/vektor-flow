@@ -1,0 +1,87 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(vektor_flow_native_compiler LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+get_filename_component(VKF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(VKF_JSON_SOURCE "${VKF_REPO_ROOT}/native/VfOverlay/vf/json.cpp")
+
+function(vkf_native_target target source uses_json)
+    add_executable(${target} "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
+    if(uses_json)
+        target_sources(${target} PRIVATE "${VKF_JSON_SOURCE}")
+    endif()
+    target_include_directories(${target} PRIVATE
+        "${VKF_REPO_ROOT}"
+        "${VKF_REPO_ROOT}/native/VfOverlay"
+    )
+    set_target_properties(${target} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+endfunction()
+
+vkf_native_target(vkf vkf_driver_artifact_smoke.cpp TRUE)
+target_sources(vkf PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/vkf_lexer_cursor_smoke.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
+)
+target_compile_definitions(vkf PRIVATE VKF_NATIVE_FRONTEND_LIBRARY)
+vkf_native_target(vkf_lexer_cursor_smoke vkf_lexer_cursor_smoke.cpp FALSE)
+vkf_native_target(vkf_parser_token_stream_smoke vkf_parser_token_stream_smoke.cpp TRUE)
+vkf_native_target(vkf_ast_to_ir_smoke vkf_ast_to_ir_smoke.cpp TRUE)
+vkf_native_target(vkf_compiler_artifact_smoke vkf_compiler_artifact_smoke.cpp TRUE)
+vkf_native_target(vkf_arm64_artifact vkf_arm64_artifact.cpp TRUE)
+set(VKF_AOT_TARGETS)
+if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|x86_64)")
+    vkf_native_target(vkf_x64_artifact vkf_x64_artifact.cpp TRUE)
+    vkf_native_target(vkf_x64_runner_template vkf_x64_runner_template.cpp FALSE)
+    vkf_native_target(vkftest vkftest.cpp TRUE)
+    target_sources(vkftest PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_lexer_cursor_smoke.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp"
+    )
+    target_compile_definitions(vkftest PRIVATE VKF_NATIVE_FRONTEND_LIBRARY VKF_X64_BACKEND_LIBRARY)
+    target_sources(vkf PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp")
+    target_compile_definitions(vkf PRIVATE VKF_X64_BACKEND_LIBRARY)
+    if(WIN32)
+        vkf_native_target(vkf_cpp_aot_artifact vkf_cpp_aot_artifact.cpp TRUE)
+        target_link_options(vkf_x64_runner_template PRIVATE "/NODEFAULTLIB")
+        target_link_libraries(vkf_x64_runner_template PRIVATE
+            legacy_stdio_definitions.lib
+            legacy_stdio_wide_specifiers.lib
+            ucrt.lib
+            kernel32.lib
+        )
+        list(APPEND VKF_AOT_TARGETS vkf_cpp_aot_artifact)
+    elseif(UNIX AND NOT APPLE)
+        # Stage 0 links this template once. Per-program direct artifacts only
+        # replace the executable code slot, and avoid dynamic-loader startup.
+        target_link_options(vkf_x64_runner_template PRIVATE "-static" "-s")
+    endif()
+    list(APPEND VKF_AOT_TARGETS
+        vkf_x64_artifact
+        vkf_x64_runner_template
+        vkftest
+    )
+endif()
+vkf_native_target(vkf_wasm_artifact_smoke vkf_wasm_artifact_smoke.cpp TRUE)
+vkf_native_target(vkf_webgpu_artifact_smoke vkf_webgpu_artifact_smoke.cpp TRUE)
+
+install(TARGETS
+    vkf
+    vkf_lexer_cursor_smoke
+    vkf_parser_token_stream_smoke
+    vkf_ast_to_ir_smoke
+    vkf_compiler_artifact_smoke
+    vkf_arm64_artifact
+    ${VKF_AOT_TARGETS}
+    vkf_wasm_artifact_smoke
+    vkf_webgpu_artifact_smoke
+    RUNTIME DESTINATION bin
+)

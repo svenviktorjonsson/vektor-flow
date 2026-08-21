@@ -1,0 +1,16 @@
+copy(values:[num]) -> [num]:
+    values
+
+make() -> [num]:
+    [1, 2, 3]
+
+fresh() -> [num]:
+    collections.list(6, 7)
+
+discard() -> num:
+    collections.list(99)
+    1
+
+[num] values: make()
+[num] copied: values
+:: stat.sum(values) + stat.sum(copied) + stat.sum(copy(collections.list(4, 5))) + fresh().(1) + discard()

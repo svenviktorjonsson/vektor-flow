@@ -1,4 +1,4 @@
-:.rigid_body
+:.physics
 
 props: tetra_mass_properties3(
     [0, 0, 0],

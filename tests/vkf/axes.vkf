@@ -1,0 +1,25 @@
+distinct_axes_form_a_matrix() -> bit:
+    matrix: [1, 2, 3]->i * [1, 2, 3]->j
+    first: matrix.0
+    second: matrix.1
+    third: matrix.2
+    (first.0 = 1 /\ first.1 = 2 /\ first.2 = 3)?!
+    (second.0 = 2 /\ second.1 = 4 /\ second.2 = 6)?!
+    (third.0 = 3 /\ third.1 = 6 /\ third.2 = 9)?!
+
+matching_axes_stay_elementwise() -> bit:
+    values: [1, 2, 3]->i * [4, 5, 6]->i
+    (values.0 = 4 /\ values.1 = 10 /\ values.2 = 18)?!
+
+additional_distinct_axes_preserve_tensor_rank() -> bit:
+    tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
+    first_plane: tensor.0
+    second_plane: tensor.1
+    first_first: first_plane.0
+    first_second: first_plane.1
+    second_first: second_plane.0
+    second_second: second_plane.1
+    (first_first.0 = 15 /\ first_first.1 = 18)?!
+    (first_second.0 = 20 /\ first_second.1 = 24)?!
+    (second_first.0 = 30 /\ second_first.1 = 36)?!
+    (second_second.0 = 40 /\ second_second.1 = 48)?!

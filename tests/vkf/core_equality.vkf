@@ -1,0 +1,9 @@
+fixed_vector_exact_equality_reduces_to_bit() -> bit:
+    ([1, 2] == [1, 2])?!
+
+fixed_vector_exact_inequality_reduces_to_bit() -> bit:
+    ([1, 2] != [1, 3])?!
+
+fixed_vector_semantic_equality_stays_elementwise() -> bit:
+    result: [1, 2] = [1, 2]
+    (result.0 /\ result.1)?!

@@ -1,0 +1,13 @@
+copy(value:str) -> str:
+    value
+
+suffix(value:str) -> str:
+    value & "!"
+
+discard() -> str:
+    "x" & "y"
+    "ok"
+
+str message: "hello" & " world"
+str cloned: message
+:: copy(cloned) & " / " & suffix(discard())

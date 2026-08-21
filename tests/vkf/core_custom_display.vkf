@@ -1,0 +1,9 @@
+_Person(name:str, age:num):
+    :
+
+str(p:_Person):
+    p.name & ", " & p.age
+
+custom_str_overload_renders_value() -> bit:
+    person: _Person("Ada", 42)
+    (str(person) == "Ada, 42")?!

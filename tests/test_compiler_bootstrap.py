@@ -74,6 +74,7 @@ def test_compiler_bootstrap_sources_follow_declared_handoff_order() -> None:
         "compiler/self_hosted/lexer.vkf",
         "compiler/self_hosted/parser.vkf",
         "compiler/self_hosted/typed_ir.vkf",
+        "compiler/self_hosted/machine_ir.vkf",
         "compiler/self_hosted/compiler.vkf",
         "compiler/self_hosted/native_scene_compiler.vkf",
         "compiler/self_hosted/stdlib.vkf",
@@ -84,7 +85,13 @@ def test_compiler_bootstrap_sources_follow_declared_handoff_order() -> None:
 
 def test_compiler_bootstrap_manifest_declares_native_parser_handoff() -> None:
     manifest = build_compiler_bootstrap_manifest(ROOT)
+    checked_in = json.loads(
+        (ROOT / "compiler" / "self_hosted" / COMPILER_BOOTSTRAP_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
 
+    assert checked_in == manifest
     assert manifest["schema"] == COMPILER_BOOTSTRAP_SCHEMA
     assert manifest["version"] == COMPILER_BOOTSTRAP_VERSION
     assert manifest["bootstrap_boundary"] == {
@@ -92,7 +99,7 @@ def test_compiler_bootstrap_manifest_declares_native_parser_handoff() -> None:
         "scope": "self-hosted compiler source set",
         "handoff_goal": "next compiler change parsed by VKF-owned native compiler path",
     }
-    assert manifest["source_count"] == 8
+    assert manifest["source_count"] == 9
     assert manifest["source_order"] == [entry["path"] for entry in manifest["sources"]]
     assert len(manifest["bundle_sha256"]) == 64
 
@@ -135,7 +142,7 @@ def test_native_bootstrap_manifest_smoke_consumes_declared_compiler_bundle(tmp_p
     assert payload["version"] == COMPILER_BOOTSTRAP_VERSION
     assert payload["bootstrap_parser"] == "native-bootstrap"
     assert payload["handoff_goal"] == "next compiler change parsed by VKF-owned native compiler path"
-    assert payload["source_count"] == 8
+    assert payload["source_count"] == 9
     assert len(payload["bundle_sha256"]) == 64
     assert [entry["path"] for entry in payload["sources"]] == manifest["source_order"]
     assert all(entry["parsed_with_native_parser"] is True for entry in payload["sources"])
@@ -180,7 +187,7 @@ def test_native_bootstrap_bundle_lexer_smoke_tokenizes_declared_compiler_bundle(
     payload = json.loads(proc.stdout)
     assert payload["schema"] == COMPILER_BOOTSTRAP_SCHEMA
     assert payload["version"] == COMPILER_BOOTSTRAP_VERSION
-    assert payload["source_count"] == 8
+    assert payload["source_count"] == 9
     assert [unit["path"] for unit in payload["units"]] == manifest["source_order"]
     for unit in payload["units"]:
         token_path = Path(unit["token_path"])
@@ -220,7 +227,7 @@ def test_native_bootstrap_bundle_parser_smoke_parses_declared_compiler_bundle(tm
     payload = json.loads(proc.stdout)
     assert payload["schema"] == COMPILER_BOOTSTRAP_SCHEMA
     assert payload["version"] == COMPILER_BOOTSTRAP_VERSION
-    assert payload["source_count"] == 8
+    assert payload["source_count"] == 9
     assert payload["status"] == "ok"
     assert payload["parsed_count"] == payload["source_count"]
     assert [unit["path"] for unit in payload["units"]] == manifest["source_order"]
@@ -263,7 +270,7 @@ def test_native_bootstrap_bundle_artifact_smoke_emits_placeholder_artifacts_for_
     assert payload["schema"] == COMPILER_BOOTSTRAP_SCHEMA
     assert payload["version"] == COMPILER_BOOTSTRAP_VERSION
     assert payload["status"] == "ok"
-    assert payload["artifact_count"] == payload["source_count"] == 8
+    assert payload["artifact_count"] == payload["source_count"] == 9
     assert [unit["path"] for unit in payload["units"]] == manifest["source_order"]
     for unit in payload["units"]:
         assert Path(unit["token_path"]).is_file()

@@ -1,0 +1,59 @@
+:.math
+
+elementary_math_lifts_over_nested_structures() -> bit:
+    values: (pair: (0.5, 0.5), vector: [0.5, 0.5])
+    positive: (pair: (2, 2), vector: [2, 2])
+    abs_values: abs(values)
+    roots: sqrt(positive)
+    sines: sin(values)
+    cosines: cos(values)
+    exponentials: exp(values)
+    logarithms: ln(positive)
+    (abs_values.pair.0 = 0.5 /\ roots.vector.1 > 1.4142 /\
+     sines.pair.0 > 0.47 /\ cosines.vector.1 > 0.87 /\
+     exponentials.pair.0 > 1.64 /\ logarithms.vector.1 > 0.69)?!
+
+trigonometric_math_lifts_over_nested_structures() -> bit:
+    values: (pair: (0.5, 0.5), vector: [0.5, 0.5])
+    positive: (pair: (2, 2), vector: [2, 2])
+    tangents: tan(values)
+    secants: sec(values)
+    cotangents: cot(values)
+    cosecants: csc(values)
+    inverse_tangents: atan(values)
+    quadrant_angles: atan2(values, 1)
+    inverse_sines: asin(values)
+    inverse_cosines: acos(values)
+    inverse_cotangents: acot(values)
+    inverse_secants: asec(positive)
+    inverse_cosecants: acsc(positive)
+    (tangents.pair.0 > 0.54 /\ secants.vector.1 > 1.13 /\
+     cotangents.pair.0 > 1.83 /\ cosecants.vector.1 > 2.08 /\
+     inverse_tangents.pair.0 > 0.46 /\ quadrant_angles.vector.1 > 0.46 /\
+     inverse_sines.pair.0 > 0.52 /\ inverse_cosines.vector.1 > 1.04 /\
+     inverse_cotangents.pair.0 > 1.10 /\ inverse_secants.vector.1 > 1.04 /\
+     inverse_cosecants.pair.0 > 0.52)?!
+
+hyperbolic_math_lifts_over_nested_structures() -> bit:
+    values: (pair: (0.5, 0.5), vector: [0.5, 0.5])
+    positive: (pair: (2, 2), vector: [2, 2])
+    sines: sinh(values)
+    cosines: cosh(values)
+    tangents: tanh(values)
+    inverse_sines: asinh(values)
+    inverse_cosines: acosh(positive)
+    inverse_tangents: atanh(values)
+    (sines.pair.0 > 0.52 /\ cosines.vector.1 > 1.12 /\ tangents.pair.0 > 0.46 /\
+     inverse_sines.vector.1 > 0.48 /\ inverse_cosines.pair.0 > 1.31 /\
+     inverse_tangents.vector.1 > 0.54)?!
+
+logarithmic_and_special_math_lift_over_nested_structures() -> bit:
+    positive: (pair: (2, 2), vector: [2, 2])
+    half: (pair: (0.5, 0.5), vector: [0.5, 0.5])
+    base_ten: lg(positive)
+    base_two: lg2(positive)
+    selected_base: log(positive, 2)
+    gammas: gamma(half)
+    errors: erf(half)
+    (base_ten.pair.0 > 0.30 /\ base_two.vector.1 > 0.99 /\
+     selected_base.pair.0 > 0.99 /\ gammas.vector.1 > 1.77 /\ errors.pair.0 > 0.52)?!

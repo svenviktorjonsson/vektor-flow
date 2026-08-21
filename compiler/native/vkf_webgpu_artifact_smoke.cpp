@@ -182,7 +182,7 @@ std::string stem_of(const std::filesystem::path& source) {
 
 std::string artifact_stem_of(const std::filesystem::path& source) {
     const std::string stem = stem_of(source);
-    constexpr std::size_t max_stem_length = 24;
+    constexpr std::size_t max_stem_length = 16;
     if (stem.size() <= max_stem_length) {
         return stem;
     }
@@ -1302,7 +1302,7 @@ int main(int argc, char** argv) {
         const std::string artifact_stem = artifact_stem_of(args.source);
         const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / artifact_stem;
         const auto manifest_path = build_dir / "webgpu-manifest.json";
-        const auto artifact_path = build_dir / (artifact_stem + ".artifact.wgsl");
+        const auto artifact_path = build_dir / (artifact_stem + ".wgsl");
         const std::string desired_manifest_hash = stable_hash(
             manifest_key(source_hash, typed_ir_hash, artifact_hash, dependencies, artifact_path)
         );

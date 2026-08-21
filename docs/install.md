@@ -38,6 +38,23 @@ tools, and browser-mode bundles can also ship a native `vf-browser-server`
 helper so `vf-ui` serving does not need a Python helper process. Legacy native-core package
 metadata is separate and may still describe bootstrap-time Python tooling.
 
+### Build the compiler from source
+
+The Windows compiler build uses Clang/C++17. It does not invoke Python. Clang
+is selected because the current multi-process compiler meets its latency budget
+with these low-startup binaries:
+
+```powershell
+.\scripts\build-native-compiler.ps1
+.\build\native-compiler-clang\bin\vkf.exe -e ':: "hello"'
+.\build\native-compiler-clang\bin\vkf.exe --aot .\samples\numeric.vkf
+```
+
+`compiler/native/CMakeLists.txt` remains the portable build Interface.
+`--aot` produces a real executable: scalar numeric typed IR lowers directly to
+x64 machine code; supported records and vectors currently use the lean
+C++/Clang fallback. It remains opt-in until full language parity is proven.
+
 ## macOS / Linux
 
 1. Download and extract the package for your OS

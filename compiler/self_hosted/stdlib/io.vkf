@@ -1,4 +1,13 @@
-# Native smoke stdlib fixture: io functions only.
+# Direct I/O keeps presentation policy in VKF and exposes only capabilities
+# that must cross the operating-system boundary. File byte buffers use `str`
+# storage because the language deliberately has no separate bytes primitive.
+
+io_stdlib_capability:
+    name: "io"
+    source_policy: ["UTF-8 text", "string-backed byte buffers"]
+    runtime_abi: ["stdout", "open", "read", "write", "seek", "close"]
+    direct: ["print", "read_text", "write_text", "read_bytes", "write_bytes"]
+    :
 
 print(value:any):
     @: value

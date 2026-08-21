@@ -1,0 +1,105 @@
+fixed_vector_sum() -> bit:
+    [num:4] values: [1, 2, 3, 4]
+    (stat.sum(values) = 10)?!
+
+fixed_vector_mean() -> bit:
+    [num:4] values: [2, 4, 6, 8]
+    (stat.mean(values) = 5)?!
+
+fixed_vector_count() -> bit:
+    [num:3] values: [2, 4, 6]
+    (stat.count(values) = 3)?!
+
+fixed_vector_population_std() -> bit:
+    [num:8] values: [2, 4, 4, 4, 5, 5, 7, 9]
+    (stat.std(values) = 2)?!
+
+fixed_vector_sample_std() -> bit:
+    [num:3] values: [-2, 0, 2]
+    (stat.std(values, ddof:1) = 2)?!
+
+fixed_vector_population_variance() -> bit:
+    [num:8] values: [2, 4, 4, 4, 5, 5, 7, 9]
+    (stat.variance(values) = 4)?!
+
+fixed_vector_sample_variance() -> bit:
+    [num:3] values: [-2, 0, 2]
+    (stat.variance(values, ddof:1) = 4)?!
+
+fixed_vector_range() -> bit:
+    [num:5] values: [-2, 0, 3, 5, 1]
+    (stat.range(values) = 7)?!
+
+fixed_vector_indexing() -> bit:
+    [num:3] values: [5, 8, 13]
+    (values.(2) = 13)?!
+
+fixed_vector_update() -> bit:
+    [num:3] values: [5, 8, 13]
+    values.(1): 21
+    (values.(1) = 21)?!
+
+_sum_fixed_vector(values:[num:4]) -> num:
+    index: 0
+    total: 0
+    index < 4?>
+        total: total + values.(index)
+        index: index + 1
+    total
+
+fixed_vector_runtime_indexing() -> bit:
+    (_sum_fixed_vector([1, 2, 3, 4]) = 10)?!
+
+_build_numeric_list(limit:num) -> [num]:
+    index: 0
+    values: []
+    index < limit?>
+        values: values & [index]
+        index: index + 1
+    values
+
+dynamic_list_builder_grows_from_empty() -> bit:
+    values: _build_numeric_list(512)
+    (values.0 = 0 /\ values.255 = 255 /\ values.511 = 511)?!
+
+_copy_vector(values: [num:3]) -> [num:3]:
+    values
+
+fixed_vector_argument_and_result_keep_shape() -> bit:
+    [num:3] copied: _copy_vector([2, 5, 7])
+    (stat.sum(copied) = 14)?!
+
+_rank_fixed_vector(value: [num:4]) -> num:
+    value??
+        [any:4] => 20
+        [num:4] => 10
+        30
+
+fixed_vector_match_prefers_exact_shape() -> bit:
+    (_rank_fixed_vector([2, 5, 7, 9]) = 10)?!
+
+_join_shapes(x:[num:n], y:[num:m]) -> [num:n+m]:
+    x & y
+
+compile_time_shapes_compose_on_concat() -> bit:
+    [num:5] joined: _join_shapes([1, 2], [3, 4, 5])
+    (joined.(0) = 1 /\ joined.(4) = 5 /\ stat.count(joined) = 5)?!
+
+fixed_vector_concat_preserves_elements() -> bit:
+    joined: [1, 2] & [3, 4]
+    (joined.0 == 1 /\ joined.3 == 4)?!
+
+axis_broadcast_builds_outer_product() -> bit:
+    a: [1, 2] -> i
+    b: [10, 20] -> j
+    outer: a * b
+    (outer.(0).(0) = 10 /\ outer.(0).(1) = 20 /\
+     outer.(1).(0) = 20 /\ outer.(1).(1) = 40)?!
+
+_dynamic_single_index_update(values:[num:3], index:num) -> [num:3]:
+    values.(index): 9
+    values
+
+runtime_index_updates_fixed_vector() -> bit:
+    [num:3] expected: [1, 9, 3]
+    (_dynamic_single_index_update([1, 2, 3], 1) == expected)?!

@@ -1,0 +1,24 @@
+finite_range_uses_implicit_zero_start() -> bit:
+    values: [..3]
+    (values.0 = 0 /\ values.1 = 1 /\ values.2 = 2 /\ values.3 = 3)?!
+
+finite_range_infers_descending_step() -> bit:
+    values: [3..0]
+    (values.0 = 3 /\ values.1 = 2 /\ values.2 = 1 /\ values.3 = 0)?!
+
+parenthesized_finite_range_keeps_tuple_identity() -> bit:
+    (str((0..2)) == "(0, 1, 2)")?!
+
+_runtime_range(end:num):
+    (1..end) >> $
+
+runtime_range_endpoint_materializes_inclusively() -> bit:
+    values: _runtime_range(4)
+    (values.length() = 4 /\ values.0 = 1 /\ values.3 = 4)?!
+
+infinite_range_pipe_stops_at_break() -> bit:
+    values: (1..) >>
+        $ > 4?
+            @|
+        $
+    (values.length() = 4 /\ values.0 = 1 /\ values.3 = 4)?!

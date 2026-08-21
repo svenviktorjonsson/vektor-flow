@@ -1,0 +1,13 @@
+# Error types are compiler-owned values because catch ranking and unwinding need
+# stable bit masks. This records the public, host-independent namespace; no
+# Python exception class participates in direct artifacts.
+
+errors_stdlib_capability:
+    name: "errors"
+    types: [
+        "Error", "VektorFlowError", "LexError", "ParseError", "EvalError",
+        "AssertionError", "PythonError", "TypeError", "ValueError",
+        "KeyError", "IndexError", "FileNotFoundError", "RuntimeError"
+    ]
+    implementation: "compiler intrinsic type masks, propagation, catch ranking, and unwind"
+    :

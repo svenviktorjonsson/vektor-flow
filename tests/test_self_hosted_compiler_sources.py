@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 from vektorflow.interpreter import Interpreter
@@ -10,7 +11,10 @@ ROOT = Path(__file__).resolve().parent.parent
 COMPILER_RULES_PATH = ROOT / "compiler" / "self_hosted" / "COMPILER_SOURCE_RULES.md"
 PARSER_SOURCE_PATH = ROOT / "compiler" / "self_hosted" / "parser.vkf"
 TYPED_IR_SOURCE_PATH = ROOT / "compiler" / "self_hosted" / "typed_ir.vkf"
+MACHINE_IR_SOURCE_PATH = ROOT / "compiler" / "self_hosted" / "machine_ir.vkf"
 NATIVE_SCENE_COMPILER_SOURCE_PATH = ROOT / "compiler" / "self_hosted" / "native_scene_compiler.vkf"
+NATIVE_COMPILER_CMAKE_PATH = ROOT / "compiler" / "native" / "CMakeLists.txt"
+NATIVE_COMPILER_BUILD_SCRIPT = ROOT / "scripts" / "build-native-compiler.ps1"
 
 
 def test_self_hosted_lexer_source_parses_with_bootstrap_parser() -> None:
@@ -23,6 +27,73 @@ def test_self_hosted_lexer_source_parses_with_bootstrap_parser() -> None:
     assert "self_hosted_lexer_seed" in rendered
     assert "is_digit" in rendered
     assert "token_kind_catalog" in rendered
+
+
+def test_self_hosted_machine_ir_source_parses_and_owns_canonical_schema() -> None:
+    source = MACHINE_IR_SOURCE_PATH.read_text(encoding="utf-8")
+    module = parse_module(source, filename=MACHINE_IR_SOURCE_PATH.as_posix())
+    rendered = repr(module)
+
+    assert "MachineModule" in rendered
+    assert "mir_module" in rendered
+    assert "machine_ir_opcode_catalog" in rendered
+    assert "vektorflow.machine_ir" in source
+    assert "jump_if_false" in source
+    assert "jump_if_true" in source
+    assert "power_f64" in source
+    assert "floor_divide_f64" in source
+    assert "sqrt_f64" in source
+    assert "push_string" in source
+    assert "push_null" in source
+    assert "clone_string" in source
+    assert "concat_strings" in source
+    assert "string_equal" in source
+    assert "string_not_equal" in source
+    assert "string_less" in source
+    assert "string_less_equal" in source
+    assert "string_greater" in source
+    assert "string_greater_equal" in source
+    assert "equal_bits" in source
+    assert "not_equal_bits" in source
+    assert "release_string_value" in source
+    assert "release_string_local" in source
+    assert "owned_string_locals" in source
+    assert "sin_f64" in source
+    assert "cos_f64" in source
+    assert "exp_f64" in source
+    assert "sum_f64_values" in source
+    assert "mean_f64_values" in source
+    assert "count_values" in source
+    assert "sum_f64_locals" in source
+    assert "mean_f64_locals" in source
+    assert "count_local_values" in source
+    assert "make_owned_f64_list" in source
+    assert "make_owned_f64_list_literal" in source
+    assert "clone_f64_list" in source
+    assert "concat_f64_lists" in source
+    assert "release_f64_list_value" in source
+    assert "load_f64_list_index" in source
+    assert "sum_f64_list" in source
+    assert "mean_f64_list" in source
+    assert "count_f64_list" in source
+    assert "release_f64_list_local" in source
+    assert "owned_f64_list_locals" in source
+    assert "error_type_mask" in source
+    assert "remainder_f64" in source
+    assert "return_values" in source
+
+
+def test_native_compiler_is_the_only_installed_vkf_entrypoint() -> None:
+    package = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "vkf" not in package["project"].get("scripts", {})
+
+    cmake = NATIVE_COMPILER_CMAKE_PATH.read_text(encoding="utf-8")
+    assert "vkf_native_target(vkf vkf_driver_artifact_smoke.cpp TRUE)" in cmake
+    assert "install(TARGETS" in cmake
+
+    build_script = NATIVE_COMPILER_BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "Get-Command clang++" in build_script
+    assert "python" not in build_script.lower()
 
 
 def test_self_hosted_lexer_declares_burst_2_scanner_capabilities() -> None:

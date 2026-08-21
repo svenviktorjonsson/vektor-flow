@@ -676,6 +676,7 @@ class RuntimeFeatures:
     uses_heap_vector_format: bool = False
     uses_array_stats: bool = False
     uses_file_io: bool = False
+    uses_symbolic: bool = False
 
 
 CPP_STD_CONFLICT_NAMES: set[str] = {"advance"}
@@ -721,6 +722,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
     uses_heap_vector_format = False
     uses_array_stats = False
     uses_file_io = False
+    uses_symbolic = False
 
     def require_value_format_for_type(t: Any) -> None:
         nonlocal uses_value_format, uses_fixed_array_format, uses_heap_vector_format
@@ -742,8 +744,11 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
             uses_value_format = True
 
     def visit_type(t: Any) -> None:
-        nonlocal uses_arrays, uses_fixed_arrays, uses_heap_vectors, uses_multisets, uses_dynamic
+        nonlocal uses_arrays, uses_fixed_arrays, uses_heap_vectors, uses_multisets, uses_dynamic, uses_symbolic
         t = _normalize_type(t)
+        if _is_symbolic_type(t) or isinstance(t, ast.SymbolicDomainType):
+            uses_symbolic = True
+            return
         if isinstance(t, ast.FixedVectorType):
             uses_arrays = True
             if _fixed_vector_uses_heap(t):
@@ -900,6 +905,7 @@ def _collect_runtime_features(module: ir.Module, typed: TypedModuleInfo) -> Runt
         uses_heap_vector_format=uses_heap_vector_format,
         uses_array_stats=uses_array_stats,
         uses_file_io=uses_file_io,
+        uses_symbolic=uses_symbolic,
     )
 
 
@@ -941,7 +947,8 @@ def _emit_symbolic_runtime_support() -> list[str]:
 def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
     lines = [
         "static std::string vf_format_num(double v) {",
-        "    if (std::floor(v) == v) {",
+        "    const double integer_limit = std::ldexp(1.0, 63);",
+        "    if (std::floor(v) == v && v >= -integer_limit && v < integer_limit) {",
         "        return std::to_string(static_cast<long long>(v));",
         "    }",
         "    char buf[64];",
@@ -993,7 +1000,7 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
         "    return std::to_string(v.n) + std::string(\"/\") + std::to_string(v.d);",
         "}",
         "static double vf_to_num(const vf_rational& v) { return static_cast<double>(v.n) / static_cast<double>(v.d); }",
-        *_emit_symbolic_runtime_support(),
+        *(_emit_symbolic_runtime_support() if features.uses_symbolic else []),
     ]
     if features.uses_value_format:
         lines.extend(
@@ -1020,12 +1027,17 @@ def _emit_runtime_support(features: RuntimeFeatures) -> list[str]:
                 "inline std::string vf_format_value<vf_rational>(const vf_rational& v) {",
                 "    return vf_format_rational(v);",
                 "}",
-                "template <>",
-                "inline std::string vf_format_value<vf_symbolic>(const vf_symbolic& v) {",
-                "    return vf_format_symbolic(v);",
-                "}",
             ]
         )
+        if features.uses_symbolic:
+            lines.extend(
+                [
+                    "template <>",
+                    "inline std::string vf_format_value<vf_symbolic>(const vf_symbolic& v) {",
+                    "    return vf_format_symbolic(v);",
+                    "}",
+                ]
+            )
     if features.uses_file_io:
         lines.extend(
             [

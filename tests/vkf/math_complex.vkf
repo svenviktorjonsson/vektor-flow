@@ -1,0 +1,11 @@
+complex_elementary_math_uses_the_complex_plane() -> bit:
+    root: math.sqrt(num(-1, 0))
+    exponential: math.exp(num(0, 3.141592653589793))
+    sine: math.sin(num(0, 1))
+    cosine: math.cos(num(0, 1))
+    logarithm: math.ln(num(-1, 0))
+    (|root - i| < 0.000000001 /\ |exponential + 1| < 0.000000001 /\
+     |sine - num(0, 1.1752011936438014)| < 0.000000001 /\
+     |cosine - 1.5430806348152437| < 0.000000001 /\
+     |logarithm - num(0, 3.141592653589793)| < 0.000000001 /\
+     math.abs(num(3, 4)) = 5)?!

@@ -1,0 +1,22 @@
+:.math
+
+[num] values: [{{VALUES}}]
+
+welford_step(state:any, value:num) -> any:
+    next:
+        count: state.count + 1
+        delta: value - state.mean
+        mean: state.mean + delta / count
+        delta2: value - mean
+        (count: count, mean: mean, m2: state.m2 + delta * delta2)
+    next
+
+population_stddev(data:[num], n:num) -> num:
+    i: 0
+    state: (count: 0, mean: 0, m2: 0)
+    i < n?>
+        state: welford_step(state, data.(i))
+        i: i + 1
+    sqrt(state.m2 / state.count)
+
+:: population_stddev(values, {{COUNT}})

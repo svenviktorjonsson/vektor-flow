@@ -1,0 +1,29 @@
+arithmetic_precedence() -> bit:
+    (2 + 3 * 4 == 14)?!
+
+division_and_remainder() -> bit:
+    (17 // 5 == 3 /\ 17 % 5 == 2)?!
+
+power_is_numeric() -> bit:
+    (2 ^ 8 = 256)?!
+
+ordered_comparisons() -> bit:
+    (2 < 3 /\ 3 <= 3 /\ 4 > 3 /\ 4 >= 4)?!
+
+boolean_short_circuit() -> bit:
+    ((1 < 2) /\ (2 < 3))?!
+
+unary_negation() -> bit:
+    (-5 + 8 == 3)?!
+
+logical_negation() -> bit:
+    (~(2 > 3))?!
+
+logical_xor() -> bit:
+    ((1 >< 0) /\ ~(1 >< 1))?!
+
+logical_and_short_circuits() -> bit:
+    (~(0 /\ (0)?!))?!
+
+logical_or_short_circuits() -> bit:
+    (1 \/ (0)?!)?!

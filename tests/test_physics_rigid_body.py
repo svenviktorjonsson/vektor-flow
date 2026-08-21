@@ -20,7 +20,7 @@ from vektorflow.physics_properties import PhysicsGeometry
 def test_python_rigid_body_is_only_a_vkf_compatibility_adapter() -> None:
     root = Path(__file__).resolve().parents[1]
     adapter = (root / "vektorflow" / "physics" / "rigid_body.py").read_text(encoding="utf-8")
-    kernel = (root / "compiler" / "self_hosted" / "stdlib" / "rigid_body.vkf").read_text(encoding="utf-8")
+    kernel = (root / "compiler" / "self_hosted" / "stdlib" / "physics.vkf").read_text(encoding="utf-8")
 
     assert "tetra_mass_properties3" in kernel
     assert "step_rigid_body_momentum3" in kernel

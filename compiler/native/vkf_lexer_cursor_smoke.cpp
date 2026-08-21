@@ -1,4 +1,5 @@
 #include "compiler/native/vkf_string_primitives.hpp"
+#include "compiler/native/vkf_native_frontend.hpp"
 
 #include <cctype>
 #include <fstream>
@@ -15,6 +16,15 @@ struct SourceArgs {
     std::string filename;
 };
 
+struct SmokeToken;
+
+struct SmokeInterpolation {
+    std::size_t start = 0;
+    std::size_t end = 0;
+    std::string format;
+    std::vector<SmokeToken> tokens;
+};
+
 struct SmokeToken {
     std::string kind;
     std::string value;
@@ -22,6 +32,7 @@ struct SmokeToken {
     std::string file;
     std::size_t line;
     std::size_t column;
+    std::vector<SmokeInterpolation> interpolations;
 };
 
 static bool is_ascii_alpha_or_underscore(const std::string& scalar) {
@@ -135,6 +146,10 @@ static std::string normalize_number_json(std::string value) {
 
 static bool peek_literal(const VkfCursor& cursor, std::string_view literal);
 static void advance_bytes(VkfCursor& cursor, std::size_t byte_count);
+static std::vector<SmokeInterpolation> scan_interpolations(
+    const std::string& text,
+    const std::string& file
+);
 
 static SmokeToken scan_identifier(VkfCursor& cursor) {
     const VkfCursor start = cursor;
@@ -158,6 +173,7 @@ static SmokeToken scan_identifier(VkfCursor& cursor) {
         std::string(start.file),
         start.line,
         start.column,
+        {},
     };
 }
 
@@ -190,6 +206,7 @@ static SmokeToken scan_number(VkfCursor& cursor) {
         std::string(start.file),
         start.line,
         start.column,
+        {},
     };
 }
 
@@ -583,7 +600,9 @@ static std::vector<SmokeToken> scan_tokens(std::string_view source, std::string_
             continue;
         }
         if (scalar == "\"") {
-            tokens.push_back(scan_double_string(cursor));
+            auto token = scan_double_string(cursor);
+            token.interpolations = scan_interpolations(token.value, token.file);
+            tokens.push_back(std::move(token));
             continue;
         }
         if (scalar == "'") {
@@ -608,48 +627,233 @@ static std::vector<SmokeToken> scan_tokens(std::string_view source, std::string_
     return tokens;
 }
 
+static std::vector<SmokeToken> scan_tokens(std::string_view source, std::string_view file);
+
+static bool interpolation_identifier_start(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+static bool interpolation_identifier_continue(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+static std::string interpolation_format(
+    const std::string& text,
+    std::size_t& cursor,
+    const std::string& context
+) {
+    if (cursor >= text.size() || text[cursor] != '.') return {};
+    const std::size_t dot = cursor++;
+    const std::size_t start = cursor;
+    while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor]))) ++cursor;
+    const std::size_t letters = cursor;
+    while (cursor < text.size() && std::isalpha(static_cast<unsigned char>(text[cursor]))) ++cursor;
+    if (cursor == letters) {
+        throw std::runtime_error("expected format after " + context + ".");
+    }
+    return text.substr(start, cursor - start);
+}
+
+static std::vector<SmokeInterpolation> scan_interpolations(
+    const std::string& text,
+    const std::string& file
+) {
+    std::vector<SmokeInterpolation> result;
+    std::size_t cursor = 0;
+    while (cursor < text.size()) {
+        if (text[cursor] == '\\' && cursor + 1 < text.size() && text[cursor + 1] == '$') {
+            cursor += 2;
+            continue;
+        }
+        if (text[cursor] != '$') {
+            ++cursor;
+            continue;
+        }
+        SmokeInterpolation interpolation;
+        interpolation.start = cursor;
+        std::string expression;
+        if (cursor + 1 < text.size() && text[cursor + 1] == '(') {
+            std::size_t scan = cursor + 2;
+            const std::size_t expression_start = scan;
+            unsigned depth = 1;
+            char quote = '\0';
+            bool escaped = false;
+            while (scan < text.size() && depth != 0) {
+                const char ch = text[scan];
+                if (quote != '\0') {
+                    if (escaped) escaped = false;
+                    else if (ch == '\\') escaped = true;
+                    else if (ch == quote) quote = '\0';
+                } else if (ch == '\'' || ch == '"') {
+                    quote = ch;
+                } else if (ch == '(') {
+                    ++depth;
+                } else if (ch == ')') {
+                    --depth;
+                }
+                ++scan;
+            }
+            if (depth != 0) throw std::runtime_error("unclosed $(...) in string");
+            expression = text.substr(expression_start, scan - expression_start - 1);
+            cursor = scan;
+            interpolation.format = interpolation_format(text, cursor, "$(...)");
+        } else {
+            std::size_t scan = cursor + 1;
+            if (scan >= text.size() || !interpolation_identifier_start(text[scan])) {
+                throw std::runtime_error("invalid $ in string");
+            }
+            const std::size_t path_start = scan++;
+            while (scan < text.size() && interpolation_identifier_continue(text[scan])) ++scan;
+            while (scan < text.size() && text[scan] == '.') {
+                const std::size_t segment = scan + 1;
+                if (segment < text.size() && interpolation_identifier_start(text[segment])) {
+                    scan = segment + 1;
+                    while (scan < text.size() && interpolation_identifier_continue(text[scan])) ++scan;
+                    continue;
+                }
+                break;
+            }
+            expression = text.substr(path_start, scan - path_start);
+            cursor = scan;
+            interpolation.format = interpolation_format(text, cursor, "$path");
+        }
+        const auto first = expression.find_first_not_of(" \t\r\n");
+        const auto last = expression.find_last_not_of(" \t\r\n");
+        if (first == std::string::npos) throw std::runtime_error("empty interpolation expression");
+        expression = expression.substr(first, last - first + 1);
+        interpolation.end = cursor;
+        interpolation.tokens = scan_tokens(expression, file);
+        result.push_back(std::move(interpolation));
+    }
+    return result;
+}
+
+#ifdef VKF_NATIVE_FRONTEND_LIBRARY
+vf::JsonValue vkf::native_frontend::lex_value(
+    const std::string& source,
+    const std::string& filename
+) {
+    vf::JsonValue::Array values;
+    const auto tokens = scan_tokens(source, filename);
+    values.reserve(tokens.size());
+    const auto token_value = [&](const auto& self, const SmokeToken& token) -> vf::JsonValue {
+        vf::JsonValue::Object value;
+        value["kind"] = vf::JsonValue(token.kind);
+        if (token.kind == "NUMBER") {
+            value["value"] = vf::JsonValue(std::stod(normalize_number_json(token.value)));
+            value["raw"] = vf::JsonValue(token.value);
+        } else if (token_has_string_payload(token.kind)) {
+            value["value"] = vf::JsonValue(token.value);
+        } else if (token.raw_value || token_has_raw_payload(token.kind)) {
+            vf::JsonValue::Array pair;
+            pair.push_back(vf::JsonValue(token.value.rfind("[true", 0) == 0));
+            pair.push_back(vf::JsonValue(token.value.find(",true") != std::string::npos));
+            value["value"] = vf::JsonValue(std::move(pair));
+        } else {
+            value["value"] = vf::JsonValue(nullptr);
+        }
+        vf::JsonValue::Object location;
+        location["file"] = vf::JsonValue(token.file);
+        location["line"] = vf::JsonValue(static_cast<double>(token.line));
+        location["column"] = vf::JsonValue(static_cast<double>(token.column));
+        value["location"] = vf::JsonValue(std::move(location));
+        if (!token.interpolations.empty()) {
+            vf::JsonValue::Array interpolations;
+            for (const auto& interpolation : token.interpolations) {
+                vf::JsonValue::Object item;
+                item["start"] = vf::JsonValue(static_cast<double>(interpolation.start));
+                item["end"] = vf::JsonValue(static_cast<double>(interpolation.end));
+                item["format"] = vf::JsonValue(interpolation.format);
+                vf::JsonValue::Array nested;
+                for (const auto& child : interpolation.tokens) nested.push_back(self(self, child));
+                item["tokens"] = vf::JsonValue(std::move(nested));
+                interpolations.emplace_back(std::move(item));
+            }
+            value["interpolations"] = vf::JsonValue(std::move(interpolations));
+        }
+        return vf::JsonValue(std::move(value));
+    };
+    for (const auto& token : tokens) {
+        values.push_back(token_value(token_value, token));
+    }
+    vf::JsonValue::Object envelope;
+    envelope["schema"] = vf::JsonValue("vektorflow.token_stream");
+    envelope["version"] = vf::JsonValue(1.0);
+    envelope["tokens"] = vf::JsonValue(std::move(values));
+    return vf::JsonValue(std::move(envelope));
+}
+#endif
+
+std::string vkf::native_frontend::lex(const std::string& source, const std::string& filename) {
+    const auto tokens = scan_tokens(source, filename);
+    std::ostringstream output;
+    output << "{\n  \"schema\": \"vektorflow.token_stream\",\n  \"version\": 1,\n  \"tokens\": [\n";
+    const auto write_token = [&](const auto& self, const SmokeToken& token, unsigned indent) -> void {
+        const std::string pad(indent, ' ');
+        output << pad << "{\n"
+               << pad << "  \"kind\": \"" << token.kind << "\",\n"
+               << pad << "  \"value\": ";
+        if (token.raw_value || token_has_raw_payload(token.kind)) {
+            if (token.kind == "NUMBER") {
+                output << normalize_number_json(token.value);
+            } else {
+                output << token.value;
+            }
+        } else if (token_has_string_payload(token.kind)) {
+            output << "\"" << escaped_value(token.value) << "\"";
+        } else {
+            output << "null";
+        }
+        if (token.kind == "NUMBER") {
+            output << ",\n" << pad << "  \"raw\": \"" << escaped_value(token.value) << "\"";
+        }
+        output << ",\n" << pad << "  \"location\": {\n"
+               << pad << "    \"file\": \"" << escaped_value(token.file) << "\",\n"
+               << pad << "    \"line\": " << token.line << ",\n"
+               << pad << "    \"column\": " << token.column << "\n"
+               << pad << "  }";
+        if (!token.interpolations.empty()) {
+            output << ",\n" << pad << "  \"interpolations\": [\n";
+            for (std::size_t index = 0; index < token.interpolations.size(); ++index) {
+                const auto& interpolation = token.interpolations[index];
+                output << pad << "    {\n"
+                       << pad << "      \"start\": " << interpolation.start << ",\n"
+                       << pad << "      \"end\": " << interpolation.end << ",\n"
+                       << pad << "      \"format\": \"" << escaped_value(interpolation.format) << "\",\n"
+                       << pad << "      \"tokens\": [\n";
+                for (std::size_t child = 0; child < interpolation.tokens.size(); ++child) {
+                    self(self, interpolation.tokens[child], indent + 8);
+                    if (child + 1 < interpolation.tokens.size()) output << ',';
+                    output << '\n';
+                }
+                output << pad << "      ]\n" << pad << "    }";
+                if (index + 1 < token.interpolations.size()) output << ',';
+                output << '\n';
+            }
+            output << pad << "  ]";
+        }
+        output << '\n' << pad << '}';
+    };
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        write_token(write_token, tokens[index], 4);
+        if (index + 1 < tokens.size()) {
+            output << ",";
+        }
+        output << "\n";
+    }
+    output << "  ]\n}\n";
+    return output.str();
+}
+
+#ifndef VKF_NATIVE_FRONTEND_LIBRARY
 int main(int argc, char** argv) {
     const SourceArgs input = parse_source_args(argc, argv);
-    std::vector<SmokeToken> tokens;
     try {
-        tokens = scan_tokens(input.source, input.filename);
+        std::cout << vkf::native_frontend::lex(input.source, input.filename);
+        return 0;
     } catch (const std::exception& exc) {
         std::cerr << exc.what() << "\n";
         return 1;
     }
-    std::cout << "{\n  \"schema\": \"vektorflow.token_stream\",\n  \"version\": 1,\n  \"tokens\": [\n";
-    for (std::size_t index = 0; index < tokens.size(); ++index) {
-        const auto& token = tokens[index];
-        std::cout << "    {\n"
-                  << "      \"kind\": \"" << token.kind << "\",\n"
-                  << "      \"value\": ";
-        if (token.raw_value || token_has_raw_payload(token.kind)) {
-            if (token.kind == "NUMBER") {
-                std::cout << normalize_number_json(token.value);
-            } else {
-                std::cout << token.value;
-            }
-        } else if (token_has_string_payload(token.kind)) {
-            std::cout << "\"" << escaped_value(token.value) << "\"";
-        } else {
-            std::cout << "null";
-        }
-        if (token.kind == "NUMBER") {
-            std::cout << ",\n"
-                      << "      \"raw\": \"" << escaped_value(token.value) << "\"";
-        }
-        std::cout << ",\n"
-                  << "      \"location\": {\n"
-                  << "        \"file\": \"" << escaped_value(token.file) << "\",\n"
-                  << "        \"line\": " << token.line << ",\n"
-                  << "        \"column\": " << token.column << "\n"
-                  << "      }\n"
-                  << "    }";
-        if (index + 1 < tokens.size()) {
-            std::cout << ",";
-        }
-        std::cout << "\n";
-    }
-    std::cout << "  ]\n}\n";
-    return 0;
 }
+#endif

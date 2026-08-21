@@ -1,0 +1,4 @@
+.docker-work/
+.fsharp-work/
+bin/
+obj/

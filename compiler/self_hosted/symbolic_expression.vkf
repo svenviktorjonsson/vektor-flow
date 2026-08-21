@@ -270,6 +270,22 @@ symbolic_scan_operator(cursor:SymbolicCursor):
         next: symbolic_cursor_at(cursor, end)
     )
 
+symbolic_is_logical_or(cursor:SymbolicCursor):
+    symbolic_cursor_peek(cursor) != 92?
+        @: false
+    next: symbolic_cursor_advance(cursor)
+    symbolic_cursor_eof(next)?
+        @: false
+    symbolic_cursor_peek(next) = 47
+
+symbolic_is_logical_and(cursor:SymbolicCursor):
+    symbolic_cursor_peek(cursor) != 47?
+        @: false
+    next: symbolic_cursor_advance(cursor)
+    symbolic_cursor_eof(next)?
+        @: false
+    symbolic_cursor_peek(next) = 92
+
 symbolic_cursor_at(cursor:SymbolicCursor, offset:num):
     symbolic_location_cursor(
         cursor.source,
@@ -295,6 +311,28 @@ symbolic_tokenize_step(cursor:SymbolicCursor, tokens:any, diagnostics:any):
             tokens,
             diagnostics
         )
+
+    symbolic_is_logical_or(cursor)?
+        after_backslash: symbolic_cursor_advance(cursor)
+        after_or: symbolic_cursor_advance(after_backslash)
+        or_token: symbolic_token(
+            "OR",
+            "\\/",
+            "\\/",
+            symbolic_cursor_location(cursor)
+        )
+        @: symbolic_tokenize_step(after_or, tokens & [or_token], diagnostics)
+
+    symbolic_is_logical_and(cursor)?
+        after_slash: symbolic_cursor_advance(cursor)
+        after_and: symbolic_cursor_advance(after_slash)
+        and_token: symbolic_token(
+            "AND",
+            "/\\",
+            "/\\",
+            symbolic_cursor_location(cursor)
+        )
+        @: symbolic_tokenize_step(after_and, tokens & [and_token], diagnostics)
 
     symbolic_is_digit(ch)?
         number_scan: symbolic_scan_number(cursor)
@@ -701,6 +739,56 @@ symbolic_parse_range_right(left:SymbolicParseResult, operator:SymbolicToken):
     )
 
 symbolic_parse_relation(state:SymbolicParseState):
+    left: symbolic_parse_and(state)
+    symbolic_parse_or_tail(left)
+
+symbolic_parse_or_tail(left:SymbolicParseResult):
+    current: symbolic_state_current(left.next)
+    current.kind = "OR"?
+        right: symbolic_parse_and(symbolic_state_advance(left.next))
+        combined: symbolic_parse_result(
+            symbolic_binary(
+                "or",
+                symbolic_logical_relation_operand(left.ast),
+                symbolic_logical_relation_operand(right.ast),
+                current.location
+            ),
+            right.next
+        )
+        @: symbolic_parse_or_tail(combined)
+    left
+
+symbolic_parse_and(state:SymbolicParseState):
+    left: symbolic_parse_relation_chain(state)
+    symbolic_parse_and_tail(left)
+
+symbolic_parse_and_tail(left:SymbolicParseResult):
+    current: symbolic_state_current(left.next)
+    current.kind = "AND"?
+        right: symbolic_parse_relation_chain(symbolic_state_advance(left.next))
+        combined: symbolic_parse_result(
+            symbolic_binary(
+                "and",
+                symbolic_logical_relation_operand(left.ast),
+                symbolic_logical_relation_operand(right.ast),
+                current.location
+            ),
+            right.next
+        )
+        @: symbolic_parse_and_tail(combined)
+    left
+
+symbolic_logical_relation_operand(ast:any):
+    ast.kind = "definition" /\ vkf_list_length(ast.parameters) = 0?
+        @: symbolic_binary(
+            "=",
+            symbolic_variable(ast.name, ast.location),
+            ast.value,
+            ast.location
+        )
+    ast
+
+symbolic_parse_relation_chain(state:SymbolicParseState):
     left: symbolic_parse_range(state)
     current: symbolic_state_current(left.next)
     current.kind??
@@ -717,10 +805,35 @@ symbolic_parse_relation_right(
     op:str
 ):
     right: symbolic_parse_range(symbolic_state_advance(left.next))
-    symbolic_parse_result(
+    combined: symbolic_parse_result(
         symbolic_relation_node(left.ast, op, right.ast, operator.location),
         right.next
     )
+    symbolic_parse_relation_tail(combined, right.ast)
+
+symbolic_parse_relation_tail(combined:SymbolicParseResult, middle:any):
+    current: symbolic_state_current(combined.next)
+    current.kind??
+        "EQ" => symbolic_parse_relation_tail_right(combined, middle, current, "=")
+        "LT" => symbolic_parse_relation_tail_right(combined, middle, current, "<")
+        "GT" => symbolic_parse_relation_tail_right(combined, middle, current, ">")
+        "LE" => symbolic_parse_relation_tail_right(combined, middle, current, "<=")
+        "GE" => symbolic_parse_relation_tail_right(combined, middle, current, ">=")
+        combined
+
+symbolic_parse_relation_tail_right(
+    combined:SymbolicParseResult,
+    middle:any,
+    operator:SymbolicToken,
+    op:str
+):
+    right: symbolic_parse_range(symbolic_state_advance(combined.next))
+    relation: symbolic_relation_node(middle, op, right.ast, operator.location)
+    joined: symbolic_parse_result(
+        symbolic_binary("and", combined.ast, relation, operator.location),
+        right.next
+    )
+    symbolic_parse_relation_tail(joined, right.ast)
 
 symbolic_relation_node(left:any, op:str, right:any, location:SymbolicLocation):
     op = "="?
@@ -782,6 +895,8 @@ symbolic_precedence(node:any):
 
 symbolic_binary_precedence(op:str):
     op??
+        "or" => 0
+        "and" => 1
         "=" => 1
         "<" => 1
         ">" => 1
@@ -967,6 +1082,8 @@ symbolic_greek_identifier(name:str):
 
 symbolic_binary_latex(node:any, precedence:num):
     node.op??
+        "or" => symbolic_latex_at(node.left, precedence) & " \\lor " & symbolic_latex_at(node.right, precedence)
+        "and" => symbolic_latex_at(node.left, precedence) & " \\land " & symbolic_latex_at(node.right, precedence)
         "+" => symbolic_latex_at(node.left, precedence) & " + " & symbolic_latex_at(node.right, precedence)
         "-" => symbolic_latex_at(node.left, precedence) & " - " & symbolic_latex_at(node.right, precedence + 1)
         "*" => symbolic_multiplication_latex(node, precedence)
@@ -1147,6 +1264,9 @@ symbolic_variable_value(
     parameterNames:any,
     parameterValues:any
 ):
+    parameterValue: symbolic_parameter_value(parameterNames, parameterValues, 0, name)
+    parameterValue != null?
+        @: parameterValue
     name??
         "x" => evaluation.x
         "y" => evaluation.y
@@ -1367,6 +1487,8 @@ symbolic_scalar_binary(op:str, left:any, right:any):
         ">" => left > right
         "<=" => left <= right
         ">=" => left >= right
+        "and" => left /\ right
+        "or" => left \/ right
         null
 
 symbolic_real_power(base:num, exponent:num):
@@ -1556,6 +1678,14 @@ symbolic_list_contains(items:any, index:num, expected:str):
         @: true
     symbolic_list_contains(items, index + 1, expected)
 
+symbolic_unique_variables(items:any, index:num, unique:any):
+    index >= vkf_list_length(items)?
+        @: unique
+    current: items.(index)
+    symbolic_list_contains(unique, 0, current)?
+        @: symbolic_unique_variables(items, index + 1, unique)
+    symbolic_unique_variables(items, index + 1, unique & vkf_list_single(current))
+
 symbolic_value_kind(node:any):
     node.kind??
         "number" => "scalar"
@@ -1626,7 +1756,7 @@ symbolic_right_value_kind(rightKind:str, fallback:str):
         fallback
 
 symbolic_is_relation(op:str):
-    op = "=" \/ op = "<" \/ op = ">" \/ op = "<=" \/ op = ">="
+    op = "=" \/ op = "<" \/ op = ">" \/ op = "<=" \/ op = ">=" \/ op = "and" \/ op = "or"
 
 symbolic_items_variables(items:any, index:num):
     index >= vkf_list_length(items)?
@@ -2014,7 +2144,23 @@ symbolic_binary_classification(ast:any, variables:any, valueKind:str):
         ">" => "open-region"
         "<=" => "closed-region"
         ">=" => "closed-region"
+        "and" => symbolic_chained_relation_classification(ast)
+        "or" => "boundary-constraint"
         symbolic_variable_classification(variables, valueKind)
+
+symbolic_chained_relation_classification(ast:any):
+    symbolic_chained_relation_is_open(ast)?
+        @: "open-region"
+    @: "closed-region"
+
+symbolic_chained_relation_is_open(ast:any):
+    ast.kind != "binary"?
+        @: false
+    ast.op = "<" \/ ast.op = ">"?
+        @: true
+    ast.op = "and"?
+        @: symbolic_chained_relation_is_open(ast.left) \/ symbolic_chained_relation_is_open(ast.right)
+    @: false
 
 symbolic_parameter_variable_count(variables:any, index:num):
     index >= vkf_list_length(variables)?
@@ -2431,6 +2577,7 @@ symbolic_draft_token_latex(tokens:any, index:num):
         "GT" => " > "
         "LE" => " \\le "
         "GE" => " \\ge "
+        "OR" => " \\lor "
         current.text
 
 symbolic_draft_identifier_latex(tokens:any, index:num):
@@ -2444,7 +2591,7 @@ symbolic_compile_with_context(source:str, context:any, clip:any):
     lexed: symbolic_tokenize(source)
     parsed: symbolic_parse_tokens(lexed)
     semantic_ast: symbolic_strip_groups(parsed.ast)
-    variables: symbolic_variables(semantic_ast)
+    variables: symbolic_unique_variables(symbolic_variables(semantic_ast), 0, vkf_list_empty())
     active_context: symbolic_owned_context(context)
     value_kind: symbolic_value_kind_for_context(semantic_ast, active_context)
     classification: symbolic_classification(semantic_ast, variables, value_kind)
@@ -2700,6 +2847,17 @@ symbolic_plot(
     program.classification = "x-of-y"?
         markedY: symbolic_append_closed_y_constraint_points(program, workspace, view, style, sampled, 0)
         @: symbolic_constrained_curve_plot_result(markedY, "x-of-y", view.ySteps)
+    program.classification = "parametric"?
+        markedParameter: symbolic_append_closed_parameter_constraint_points(
+            program,
+            workspace,
+            view,
+            style,
+            sampled,
+            symbolic_program_parameter_name(program),
+            0
+        )
+        @: symbolic_constrained_curve_plot_result(markedParameter, "parametric", view.tSteps)
     program.classification = "closed-region"?
         @: symbolic_closed_region_plot_result(
             program,
@@ -2849,6 +3007,12 @@ symbolic_plot_capacity(program:any, workspace:any, view:any):
         @: base * vkf_list_length(program.variants)
     program.classification = "y-of-x" \/ program.classification = "x-of-y"?
         @: base + vkf_list_length(workspace)
+    program.classification = "parametric"?
+        @: base + symbolic_workspace_closed_parameter_boundary_count(
+            workspace,
+            symbolic_program_parameter_name(program),
+            0
+        )
     base
 
 symbolic_plot_single_capacity(program:any, workspace:any, view:any):
@@ -3492,6 +3656,7 @@ symbolic_plot_into_builder(
         "implicit-curve" => symbolic_sample_implicit(program, workspace, view, style, builder, 0, 0)
         "open-region" => symbolic_sample_region(program, workspace, view, style, builder, 0, 0)
         "closed-region" => symbolic_sample_region(program, workspace, view, style, builder, 0, 0)
+        "boundary-constraint" => builder
         symbolic_plot_literal(program, workspace, view.t, style, builder)
 
 symbolic_power_family_value(program:any, workspace:any, x:num, y:num, frameTime:num, exponentIndex:num):
@@ -3574,7 +3739,7 @@ symbolic_sample_explicit_x_chunk(program:any, workspace:any, view:any, style:any
         workspace
     )
     resolvedY: symbolic_resolve_explicit_x_sample(program, workspace, view, x, rawY)
-    allowed: symbolic_workspace_point_within_constraints(program, workspace, x, resolvedY, 0, view.t, 0)
+    allowed: symbolic_workspace_point_within_constraints(program, workspace, x, resolvedY, 0, view.t, vkf_list_empty(), vkf_list_empty(), 0)
     y: symbolic_constrained_value(allowed, resolvedY)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
     symbolic_sample_explicit_x_chunk(
@@ -3614,7 +3779,7 @@ symbolic_sample_explicit_y_chunk(program:any, workspace:any, view:any, style:any
         workspace
     )
     resolvedX: symbolic_resolve_explicit_y_sample(program, workspace, view, y, rawX)
-    allowed: symbolic_workspace_point_within_constraints(program, workspace, resolvedX, y, 0, view.t, 0)
+    allowed: symbolic_workspace_point_within_constraints(program, workspace, resolvedX, y, 0, view.t, vkf_list_empty(), vkf_list_empty(), 0)
     x: symbolic_constrained_value(allowed, resolvedX)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, y, style))
     symbolic_sample_explicit_y_chunk(
@@ -3642,25 +3807,32 @@ symbolic_constrained_value(allowed:bit, value:num):
     zero: 0
     zero / zero
 
-symbolic_workspace_point_within_constraints(program:any, workspace:any, localX:num, localY:num, z:num, t:num, index:num):
+symbolic_workspace_point_within_constraints(program:any, workspace:any, localX:num, localY:num, z:num, t:num, parameterNames:any, parameterValues:any, index:num):
     index >= vkf_list_length(workspace)?
         @: 1 = 1
     constraint: workspace.(index)
-    constraint.classification = "open-region" \/ constraint.classification = "closed-region"?
+    constraint.classification = "open-region" \/ constraint.classification = "closed-region" \/ constraint.classification = "boundary-constraint"?
         worldX: program.context.originX + program.context.basisXX * localX + program.context.basisYX * localY
         worldY: program.context.originY + program.context.basisXY * localX + program.context.basisYY * localY
-        symbolic_constraint_contains_or_borders(constraint, workspace, worldX, worldY, z, t)?
-            @: symbolic_workspace_point_within_constraints(program, workspace, localX, localY, z, t, index + 1)
+        symbolic_constraint_contains_or_borders(constraint, workspace, worldX, worldY, z, t, parameterNames, parameterValues)?
+            @: symbolic_workspace_point_within_constraints(program, workspace, localX, localY, z, t, parameterNames, parameterValues, index + 1)
         @: 0 = 1
-    symbolic_workspace_point_within_constraints(program, workspace, localX, localY, z, t, index + 1)
+    symbolic_workspace_point_within_constraints(program, workspace, localX, localY, z, t, parameterNames, parameterValues, index + 1)
 
-symbolic_constraint_contains_or_borders(constraint:any, workspace:any, worldX:num, worldY:num, z:num, t:num):
+symbolic_constraint_contains_or_borders(constraint:any, workspace:any, worldX:num, worldY:num, z:num, t:num, parameterNames:any, parameterValues:any):
     evaluation: symbolic_evaluation(worldX, worldY, z, t, constraint.context)
-    value: symbolic_evaluate(constraint.ast, evaluation, workspace, vkf_list_empty(), vkf_list_empty())
+    symbolic_constraint_ast_contains_or_borders(constraint.ast, evaluation, workspace, parameterNames, parameterValues)
+
+symbolic_constraint_ast_contains_or_borders(ast:any, evaluation:any, workspace:any, parameterNames:any, parameterValues:any):
+    ast.kind = "binary" /\ ast.op = "and"?
+        @: symbolic_constraint_ast_contains_or_borders(ast.left, evaluation, workspace, parameterNames, parameterValues) /\ symbolic_constraint_ast_contains_or_borders(ast.right, evaluation, workspace, parameterNames, parameterValues)
+    ast.kind = "binary" /\ ast.op = "or"?
+        @: symbolic_constraint_ast_contains_or_borders(ast.left, evaluation, workspace, parameterNames, parameterValues) \/ symbolic_constraint_ast_contains_or_borders(ast.right, evaluation, workspace, parameterNames, parameterValues)
+    value: symbolic_evaluate(ast, evaluation, workspace, parameterNames, parameterValues)
     value?
         @: 1 = 1
-    left: symbolic_evaluate(constraint.ast.left, evaluation, workspace, vkf_list_empty(), vkf_list_empty())
-    right: symbolic_evaluate(constraint.ast.right, evaluation, workspace, vkf_list_empty(), vkf_list_empty())
+    left: symbolic_evaluate(ast.left, evaluation, workspace, parameterNames, parameterValues)
+    right: symbolic_evaluate(ast.right, evaluation, workspace, parameterNames, parameterValues)
     tolerance: 0.000000001 * (1 + vkf_math_abs(left) + vkf_math_abs(right))
     vkf_math_abs(left - right) <= tolerance
 
@@ -3703,6 +3875,71 @@ symbolic_append_closed_y_constraint_points(program:any, workspace:any, view:any,
     x: symbolic_program_evaluate_local_at(program, 0, boundary, 0, view.t, workspace)
     pushed: symbolic_plot_builder_push(builder, symbolic_line_vertex(x, boundary, style))
     symbolic_append_closed_y_constraint_points(program, workspace, view, style, pushed, index + 1)
+
+symbolic_workspace_closed_parameter_boundary_count(workspace:any, parameterName:str, index:num):
+    index >= vkf_list_length(workspace)?
+        @: 0
+    current: symbolic_closed_parameter_boundary_count(workspace.(index).ast, parameterName)
+    current + symbolic_workspace_closed_parameter_boundary_count(workspace, parameterName, index + 1)
+
+symbolic_closed_parameter_boundary_count(ast:any, parameterName:str):
+    ast.kind != "binary"?
+        @: 0
+    ast.op = "and" \/ ast.op = "or"?
+        @: symbolic_closed_parameter_boundary_count(ast.left, parameterName) + symbolic_closed_parameter_boundary_count(ast.right, parameterName)
+    ast.op != "<=" /\ ast.op != ">=" /\ ast.op != "="?
+        @: 0
+    boundary: symbolic_parameter_boundary_expression(ast, parameterName)
+    boundary = null?
+        @: 0
+    count: 1
+    count
+
+symbolic_parameter_boundary_expression(ast:any, parameterName:str):
+    ast.left.kind = "variable" /\ ast.left.name = parameterName /\ symbolic_list_contains(symbolic_variables(ast.right), 0, parameterName) = false?
+        @: ast.right
+    ast.right.kind = "variable" /\ ast.right.name = parameterName /\ symbolic_list_contains(symbolic_variables(ast.left), 0, parameterName) = false?
+        @: ast.left
+    missing: null
+    missing
+
+symbolic_append_closed_parameter_constraint_points(program:any, workspace:any, view:any, style:any, builder:any, parameterName:str, index:num):
+    index >= vkf_list_length(workspace)?
+        @: builder
+    marked: symbolic_append_closed_parameter_ast_points(
+        program,
+        workspace.(index).ast,
+        workspace,
+        view,
+        style,
+        builder,
+        parameterName
+    )
+    symbolic_append_closed_parameter_constraint_points(program, workspace, view, style, marked, parameterName, index + 1)
+
+symbolic_append_closed_parameter_ast_points(program:any, ast:any, workspace:any, view:any, style:any, builder:any, parameterName:str):
+    ast.kind != "binary"?
+        @: builder
+    ast.op = "and" \/ ast.op = "or"?
+        leftMarked: symbolic_append_closed_parameter_ast_points(program, ast.left, workspace, view, style, builder, parameterName)
+        @: symbolic_append_closed_parameter_ast_points(program, ast.right, workspace, view, style, leftMarked, parameterName)
+    ast.op != "<=" /\ ast.op != ">=" /\ ast.op != "="?
+        @: builder
+    expression: symbolic_parameter_boundary_expression(ast, parameterName)
+    expression = null?
+        @: builder
+    boundary: symbolic_evaluate(
+        expression,
+        symbolic_local_evaluation(0, 0, 0, view.t, program.context),
+        workspace,
+        vkf_list_empty(),
+        vkf_list_empty()
+    )
+    boundary < view.tMin \/ boundary > view.tMax?
+        @: builder
+    value: symbolic_program_evaluate_parameter_at(program, boundary, view.t, workspace)
+    point: symbolic_plot_point(value, boundary)
+    symbolic_plot_builder_push(builder, symbolic_line_vertex(point.(0), point.(1), style))
 
 symbolic_constrained_curve_plot_result(builder:any, classification:str, lineCount:num):
     metadata: symbolic_plot_builder_metadata(builder)
@@ -3760,9 +3997,27 @@ symbolic_sample_parametric(
         workspace
     )
     point: symbolic_plot_point(value, parameter)
+    parameterName: symbolic_program_parameter_name(program)
+    parameterNames: vkf_list_single(parameterName)
+    parameterValues: vkf_list_single(parameter)
+    allowed: symbolic_workspace_point_within_constraints(
+        program,
+        workspace,
+        point.(0),
+        point.(1),
+        0,
+        view.t,
+        parameterNames,
+        parameterValues,
+        0
+    )
     pushed: symbolic_plot_builder_push(
         builder,
-        symbolic_line_vertex(point.(0), point.(1), style)
+        symbolic_line_vertex(
+            symbolic_constrained_value(allowed, point.(0)),
+            symbolic_constrained_value(allowed, point.(1)),
+            style
+        )
     )
     symbolic_sample_parametric(
         program,
@@ -3779,13 +4034,25 @@ symbolic_program_evaluate_parameter_at(
     frameTime:num,
     workspace:any
 ):
-    symbolic_list_contains(program.variables, 0, "x")?
-        @: symbolic_program_evaluate_local_at(program, parameter, 0, 0, frameTime, workspace)
-    symbolic_list_contains(program.variables, 0, "y")?
-        @: symbolic_program_evaluate_local_at(program, 0, parameter, 0, frameTime, workspace)
-    symbolic_list_contains(program.variables, 0, "z")?
-        @: symbolic_program_evaluate_local_at(program, 0, 0, parameter, frameTime, workspace)
-    symbolic_program_evaluate_local_at(program, parameter, 0, 0, frameTime, workspace)
+    parameterName: symbolic_program_parameter_name(program)
+    symbolic_evaluate(
+        program.ast,
+        symbolic_local_evaluation(0, 0, 0, frameTime, program.context),
+        workspace,
+        vkf_list_single(parameterName),
+        vkf_list_single(parameter)
+    )
+
+symbolic_program_parameter_name(program:any):
+    symbolic_parameter_name(program.variables, 0)
+
+symbolic_parameter_name(variables:any, index:num):
+    index >= vkf_list_length(variables)?
+        @: "x"
+    name: variables.(index)
+    name = "t" \/ name = "n" \/ name = "N"?
+        @: symbolic_parameter_name(variables, index + 1)
+    name
 
 symbolic_plot_point(value:any, parameter:num):
     value.kind??
@@ -4795,6 +5062,7 @@ symbolic_expression_capability:
         "implicit-curve",
         "open-region",
         "closed-region",
+        "boundary-constraint",
         "scalar-field",
         "complex-field",
         "vector-field"

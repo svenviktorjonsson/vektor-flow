@@ -154,6 +154,38 @@ test('resolves global definitions and isolates local overrides by expression sco
   ), 16 + 16 - 16);
 });
 
+test('appends per-plot constraints to a scoped program workspace', async () => {
+  const kernel = await createKernel();
+  const compiler = await createSymbolicCompiler({ kernel });
+  const compiled = compiler.compileScopedProgram('[cos(u),sin(u)]', {
+    constraints: [{
+      id: 'range', expressionId: 'bounds', segmentId: 'math:0',
+      source: '0<=u<=t', classification: 'closed-region'
+    }]
+  });
+  const plot = kernel.plot(compiled.program, compiled.workspace, {
+    xMin: -2, xMax: 2, yMin: -2, yMax: 2,
+    xSteps: 9, ySteps: 9, fieldXSteps: 9, fieldYSteps: 9,
+    tMin: 0, tMax: 1, tSteps: 9, t: 0.5, vectorScale: 0.1
+  }, {
+    edgeR: 1, edgeG: 0, edgeB: 0, edgeA: 1,
+    faceR: 0, faceG: 0, faceB: 1, faceA: 0.5,
+    valueMin: -1, valueMax: 1
+  }, 1);
+
+  assert.deepEqual(compiled.constraints, [{
+    id: 'range', expressionId: 'bounds', segmentId: 'math:0',
+    source: '0<=u<=t', classification: 'closed-region',
+    plotParts: ['face', 'edge'],
+    boundaries: [
+      { index: 0, target: 'vertex:0', inclusive: true },
+      { index: 1, target: 'vertex:1', inclusive: true }
+    ]
+  }]);
+  assert.equal(Number.isFinite(plot.data[4 * 6]), true);
+  assert.equal(Number.isFinite(plot.data[5 * 6]), false);
+});
+
 test('expands $name and $(expression) for presentation and identical evaluation', async () => {
   const kernel = await createKernel();
   const compiler = await createSymbolicCompiler({ kernel });

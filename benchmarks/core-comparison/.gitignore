@@ -1,0 +1,7 @@
+.work/
+.test-tmp/
+results/*
+!results/core-final-linux-100.json
+!results/core-final-linux-100.md
+!results/core-final-windows-100.json
+!results/core-final-windows-100.md

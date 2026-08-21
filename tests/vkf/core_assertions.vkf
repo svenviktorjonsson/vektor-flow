@@ -1,0 +1,8 @@
+addition_is_exact() -> bit:
+    (2 + 2 == 4)?!
+
+comparison_is_ordered() -> bit:
+    (3 < 4)?!
+
+string_values_compare() -> bit:
+    ("vektor" & "-flow" == "vektor-flow")?!

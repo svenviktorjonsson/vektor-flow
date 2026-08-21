@@ -1,0 +1,4 @@
+greeting: "alpha"
+:: greeting
+:: 42
+:: "omega"

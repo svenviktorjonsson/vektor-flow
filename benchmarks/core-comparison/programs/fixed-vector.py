@@ -1,0 +1,19 @@
+def advance(v: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    return (
+        v[0] * 1.0000001 + v[1] * 0.000001,
+        v[1] * 0.9999999 - v[2] * 0.000001,
+        v[2] * 1.0000002 + v[3] * 0.000001,
+        v[3] * 0.9999998 - v[0] * 0.000001,
+    )
+
+
+def run(n: float) -> float:
+    i = 0.0
+    v = (1.0, 2.0, 3.0, 4.0)
+    while i < n:
+        v = advance(v)
+        i += 1.0
+    return v[0] + v[1] + v[2] + v[3]
+
+
+print(format(run(750000.0), '.17g'))

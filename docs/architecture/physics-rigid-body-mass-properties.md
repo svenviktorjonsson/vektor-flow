@@ -7,7 +7,7 @@ moment matrix is integrated over the tetra volume before converting to the
 inertia tensor.
 
 The canonical equations live in
-`compiler/self_hosted/stdlib/rigid_body.vkf`. Native and WASM artifacts compile
+`compiler/self_hosted/stdlib/physics.vkf`. Native and WASM artifacts compile
 that module. `vektorflow.physics.rigid_body` is a compatibility adapter and must
 not duplicate the equations in Python.
 

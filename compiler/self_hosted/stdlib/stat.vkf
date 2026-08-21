@@ -1,0 +1,135 @@
+# Deterministic statistics implemented in VKF source.
+# Random sampling stays a host-capability slice; every pure statistic lives here.
+
+min(values:[num:n]) -> num:
+    percentile(values, 0)
+
+max(values:[num:n]) -> num:
+    percentile(values, 100)
+
+percentile(values:[num:n], p:num) -> num:
+    n: stat.count(values)
+    (n > 0)?! "stat.percentile: sequence must be non-empty"
+    (p >= 0 /\ p <= 100)?! "stat.percentile: p must be in [0, 100]"
+    sorted: values >> $
+    sort_i: 0
+    smallest: 0
+    sort_j: 0
+    sort_i < n?>
+        smallest: sort_i
+        sort_j: sort_i + 1
+        sort_j < n?>
+            sorted.(sort_j) < sorted.(smallest)?
+                smallest: sort_j
+            sort_j: sort_j + 1
+        smallest != sort_i?
+            temporary: sorted.(sort_i)
+            sorted.(sort_i): sorted.(smallest)
+            sorted.(smallest): temporary
+        sort_i: sort_i + 1
+    n = 1? @: sorted.0
+    rank: (p / 100) * (n - 1)
+    lower: int(rank // 1)
+    upper: lower + 1
+    upper >= n? @: sorted.(lower)
+    fraction: rank - lower
+    sorted.(lower) + fraction * (sorted.(upper) - sorted.(lower))
+
+median(values:[num:n]) -> num:
+    percentile(values, 50)
+
+iqr(values:[num:n]) -> num:
+    percentile(values, 75) - percentile(values, 25)
+
+mode(values:[num:n]) -> num:
+    n: stat.count(values)
+    (n > 0)?! "stat.mode: sequence must be non-empty"
+    sorted: values >> $
+    sort_i: 0
+    smallest: 0
+    sort_j: 0
+    sort_i < n?>
+        smallest: sort_i
+        sort_j: sort_i + 1
+        sort_j < n?>
+            sorted.(sort_j) < sorted.(smallest)?
+                smallest: sort_j
+            sort_j: sort_j + 1
+        smallest != sort_i?
+            temporary: sorted.(sort_i)
+            sorted.(sort_i): sorted.(smallest)
+            sorted.(smallest): temporary
+        sort_i: sort_i + 1
+    best: sorted.0
+    best_count: 1
+    current: sorted.0
+    current_count: 1
+    i: 1
+    i < n?>
+        sorted.(i) = current?
+            current_count: current_count + 1
+        sorted.(i) != current?
+            current: sorted.(i)
+            current_count: 1
+        current_count > best_count?
+            best: current
+            best_count: current_count
+        i: i + 1
+    best
+
+zscore(values:[num:n]) -> [num:n]:
+    n: stat.count(values)
+    (n > 0)?! "stat.zscore: sequence must be non-empty"
+    sigma: stat.std(values)
+    sigma = 0? @: values >> 0
+    mu: stat.mean(values)
+    result: values >> $
+    i: 0
+    i < n?>
+        result.(i): (result.(i) - mu) / sigma
+        i: i + 1
+    result
+
+normalize(values:[num:n]) -> [num:n]:
+    n: stat.count(values)
+    (n > 0)?! "stat.normalize: sequence must be non-empty"
+    lo: min(values)
+    hi: max(values)
+    hi = lo? @: values >> 0
+    result: values >> $
+    i: 0
+    i < n?>
+        result.(i): (result.(i) - lo) / (hi - lo)
+        i: i + 1
+    result
+
+covariance(x:[num:n], y:[num:m], ddof:num=0) -> num:
+    n: stat.count(x)
+    (n = stat.count(y))?! "stat.covariance: sequences must have equal length"
+    (n >= ddof + 1)?! "stat.covariance: insufficient elements"
+    mean_x: stat.mean(x)
+    mean_y: stat.mean(y)
+    i: 0
+    total: 0
+    i < n?>
+        total: total + (x.(i) - mean_x) * (y.(i) - mean_y)
+        i: i + 1
+    total / (n - ddof)
+
+correlation(x:[num:n], y:[num:m]) -> num:
+    n: stat.count(x)
+    (n = stat.count(y) /\ n > 0)?! "stat.correlation: sequences must be equal and non-empty"
+    sigma_x: stat.std(x)
+    sigma_y: stat.std(y)
+    (sigma_x = 0 \/ sigma_y = 0)? @: 0
+    covariance(x, y) / (sigma_x * sigma_y)
+
+clamp(value:num, lower:num, upper:num) -> num:
+    value < lower? @: lower
+    value > upper? @: upper
+    value
+
+sign(value:num) -> num:
+    value > 0? @: 1
+    value < 0? @: -1
+    0

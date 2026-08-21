@@ -1,0 +1,9 @@
+immediate_lambda_call_uses_argument() -> bit:
+    (((x): x^2)(5) = 25)?!
+
+zero_argument_lambda_call_returns_value() -> bit:
+    (((): 3)() = 3)?!
+
+lambda_captures_lexical_value() -> bit:
+    offset: 4
+    (((x): x + offset)(3) = 7)?!

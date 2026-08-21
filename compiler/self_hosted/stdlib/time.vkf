@@ -1,0 +1,81 @@
+# Public time API. Clock and blocking capabilities are direct runtime-ABI
+# primitives; validation and presentation remain ordinary VKF source.
+
+wall_time() -> num:
+    time.wall_seconds()
+
+monotonic() -> num:
+    time.monotonic_seconds()
+
+sleep(seconds:num):
+    (seconds >= 0)?! "time.sleep: seconds must be non-negative"
+    time.sleep_seconds(seconds)
+
+time_stamp() -> str:
+    seconds: time.wall_seconds()
+    "$seconds.6f"
+
+_two_digits(value:num) -> str:
+    value < 10? @: "0" & str(int(value))
+    str(int(value))
+
+_four_digits(value:num) -> str:
+    value < 10? @: "000" & str(int(value))
+    value < 100? @: "00" & str(int(value))
+    value < 1000? @: "0" & str(int(value))
+    str(int(value))
+
+_utc_parts(seconds:num):
+    whole: seconds // 1
+    days: whole // 86400
+    remaining: whole - days * 86400
+    hour: remaining // 3600
+    remaining: remaining - hour * 3600
+    minute: remaining // 60
+    second: remaining - minute * 60
+    z: days + 719468
+    era: z // 146097
+    doe: z - era * 146097
+    yoe: (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    year: yoe + era * 400
+    doy: doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp: (5 * doy + 2) // 153
+    day: doy - (153 * mp + 2) // 5 + 1
+    month: mp + 3
+    mp >= 10?
+        month: mp - 9
+    month <= 2?
+        year: year + 1
+    (second: second, minute: minute, hour: hour, day: day, month: month,
+     year: year, weekday: (days + 4) % 7, yearday: doy, dst: 0)
+
+_format_parts(parts:any, fmt:str) -> str:
+    year: _four_digits(parts.year)
+    month: _two_digits(parts.month)
+    day: _two_digits(parts.day)
+    hour: _two_digits(parts.hour)
+    minute: _two_digits(parts.minute)
+    second: _two_digits(parts.second)
+    fmt = "%Y-%m-%d %H:%M:%S"? @: year & "-" & month & "-" & day & " " & hour & ":" & minute & ":" & second
+    fmt = "%Y-%m-%d"? @: year & "-" & month & "-" & day
+    fmt = "%H:%M:%S"? @: hour & ":" & minute & ":" & second
+    fmt = "%Y-%m-%dT%H:%M:%SZ"? @: year & "-" & month & "-" & day & "T" & hour & ":" & minute & ":" & second & "Z"
+    fmt = "%Y/%m/%d"? @: year & "/" & month & "/" & day
+    fmt = "%H:%M"? @: hour & ":" & minute
+    fmt = "%Y"? @: year
+    fmt = "%m"? @: month
+    fmt = "%d"? @: day
+    fmt = "%H"? @: hour
+    fmt = "%M"? @: minute
+    fmt = "%S"? @: second
+    false?! "time format is not in the portable VKF format set"
+    ""
+
+format_time(seconds:num, fmt:str="%Y-%m-%d %H:%M:%S", utc:bit=false) -> str:
+    parts: time.local_parts(seconds)
+    utc?
+        parts: _utc_parts(seconds)
+    _format_parts(parts, fmt)
+
+current_time(fmt:str="%Y-%m-%d %H:%M:%S", utc:bit=false) -> str:
+    format_time(time.wall_seconds(), fmt, utc)

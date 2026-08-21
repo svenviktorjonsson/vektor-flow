@@ -1,0 +1,102 @@
+:.math
+m: .math
+
+square_root() -> bit:
+    (math.sqrt(81) == 9)?!
+
+zero_sine() -> bit:
+    (math.sin(0) == 0)?!
+
+zero_cosine() -> bit:
+    (math.cos(0) == 1)?!
+
+zero_exponential() -> bit:
+    (math.exp(0) == 1)?!
+
+quarter_turn_tangent() -> bit:
+    value: tan(pi / 4)
+    (value > 0.999999 /\ value < 1.000001)?!
+
+natural_logarithm_of_e() -> bit:
+    value: ln(e)
+    (value > 0.999999 /\ value < 1.000001)?!
+
+source_owned_trig_and_hyperbolic_functions() -> bit:
+    (sec(0) = 1 /\ csc(pi / 2) > 0.999999 /\ cot(pi / 4) > 0.999999 /\
+     sinh(0) = 0 /\ cosh(0) = 1 /\ tanh(0) = 0)?!
+
+source_owned_logarithm_functions() -> bit:
+    (lg(1000) > 2.999999 /\ lg(1000) < 3.000001 /\
+     lg2(8) > 2.999999 /\ lg2(8) < 3.000001 /\ log(256, 2) = 8)?!
+
+source_owned_inverse_hyperbolic_functions() -> bit:
+    (asinh(0) = 0 /\ acosh(1) = 0 /\ atanh(0) = 0)?!
+
+source_owned_inverse_trigonometric_functions() -> bit:
+    (atan(1) > 0.785397 /\ atan(1) < 0.785399 /\
+     asin(1) > 1.570795 /\ asin(1) < 1.570797 /\
+     acos(-1) > 3.141591 /\ acos(-1) < 3.141594 /\
+     atan2(1, -1) > 2.356193 /\ atan2(1, -1) < 2.356196 /\
+     acot(1) > 0.785397 /\ asec(1) = 0 /\ acsc(1) > 1.570795)?!
+
+source_owned_special_functions() -> bit:
+    (gamma(5) > 23.99999 /\ gamma(5) < 24.00001 /\
+     gamma(0.5) > 1.77245 /\ gamma(0.5) < 1.77246 /\
+     gamma(-0.5) > -3.54492 /\ gamma(-0.5) < -3.54490 /\
+     erf(0) = 0 /\ erf(1) > 0.84270 /\ erf(1) < 0.84271 /\
+     erf(-1) > -0.84271 /\ erf(-1) < -0.84270)?!
+
+absolute_value() -> bit:
+    (math.abs(-3.5) == 3.5 /\ math.abs(2) == 2)?!
+
+constants_are_available() -> bit:
+    (math.e > 2.718 /\ math.pi > 3.14 /\ math.tau > 6.28)?!
+
+spilled_constants_and_functions_are_available() -> bit:
+    (sqrt(81) == 9 /\ e > 2.718 /\ pi > 3.14 /\ tau > 6.28)?!
+
+aliased_source_owned_math_is_available() -> bit:
+    (m.tan(m.pi / 4) > 0.999999 /\ m.gamma(5) > 23.99999 /\ m.erf(1) > 0.84270)?!
+
+lifted_sine_preserves_fixed_vector_shape() -> bit:
+    values: sin([0, pi / 2, pi])
+    (values.0 = 0 /\ values.1 > 0.999999 /\ values.2 < 0.000001)?!
+
+primitive_math_preserves_tuple_and_struct_shape() -> bit:
+    roots: sqrt((1, 4, 9))
+    exponentials: exp((x: 0, y: 1))
+    (roots.0 = 1 /\ roots.1 = 2 /\ roots.2 = 3 /\
+     exponentials.x = 1 /\ exponentials.y > 2.71828 /\ exponentials.y < 2.71829)?!
+
+source_math_preserves_struct_shape() -> bit:
+    values: tan((zero: 0, quarter_turn: pi / 4))
+    (values.zero = 0 /\ values.quarter_turn > 0.999999 /\ values.quarter_turn < 1.000001)?!
+
+multi_argument_math_broadcasts_scalars_and_preserves_shape() -> bit:
+    angles: atan2((up: 1, left: 0), (up: 0, left: -1))
+    logs: log((ten: 10, hundred: 100), 10)
+    (angles.up > 1.570795 /\ angles.up < 1.570797 /\
+     angles.left > 3.141591 /\ angles.left < 3.141594 /\
+     logs.ten > 0.999999 /\ logs.ten < 1.000001 /\
+     logs.hundred > 1.999999 /\ logs.hundred < 2.000001)?!
+
+log_broadcasts_scalar_base_over_struct() -> bit:
+    logs: log((ten: 10, hundred: 100), 10)
+    (logs.ten > 0.999999 /\ logs.ten < 1.000001 /\
+     logs.hundred > 1.999999 /\ logs.hundred < 2.000001)?!
+
+aliased_math_lifting_preserves_nested_shape() -> bit:
+    result: m.tanh((point: (0, 1), vector: (0, 1)))
+    (result.point.0 = 0 /\ result.point.1 > 0.76159 /\ result.point.1 < 0.76160 /\
+     result.vector.0 = 0 /\ result.vector.1 > 0.76159 /\ result.vector.1 < 0.76160)?!
+
+math_skips_metadata_and_transforms_compatible_fields() -> bit:
+    point: (name: "north", enabled: true, x: 0, y: pi / 2)
+    sines: sin(point)
+    (sines.name = "north" /\ sines.enabled /\ sines.x = 0 /\ sines.y > 0.999999)?!
+
+source_math_skips_metadata_and_transforms_compatible_fields() -> bit:
+    point: (name: "north", enabled: true, x: 0, y: pi / 2)
+    hyperbolic: tanh(point)
+    (hyperbolic.name = "north" /\ hyperbolic.enabled /\ hyperbolic.x = 0 /\
+     hyperbolic.y > 0.91715 /\ hyperbolic.y < 0.91716)?!

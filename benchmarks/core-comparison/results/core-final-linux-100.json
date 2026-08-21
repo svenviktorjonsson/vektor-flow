@@ -1,0 +1,613 @@
+{
+  "schema": "vektor-flow/core-language-comparison-v1",
+  "generatedAt": "2026-08-21T01:13:58.042Z",
+  "environment": {
+    "platform": "linux 6.6.87.2-microsoft-standard-WSL2",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "logicalCpuCount": 14,
+    "node": "v18.19.1"
+  },
+  "cases": [
+    {
+      "template": "scalar-control",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "largeCount": 2000000,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-9,
+      "pythonExtension": "py",
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "python-efficient",
+        "rust"
+      ],
+      "id": "scalar-control-small",
+      "size": "small",
+      "count": 20000
+    },
+    {
+      "template": "fixed-vector",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "largeCount": 750000,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-7,
+      "pythonExtension": "numpy.py",
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "python-efficient",
+        "rust"
+      ],
+      "id": "fixed-vector-medium",
+      "size": "medium",
+      "count": 75000
+    },
+    {
+      "id": "welford-large",
+      "template": "welford",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "explicitF64Values": true,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-12,
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "rust"
+      ]
+    }
+  ],
+  "options": {
+    "caseId": "scalar-control-small,fixed-vector-medium,welford-large",
+    "languageId": "vkf,c,cpp,rust",
+    "outputStem": "core-final-linux-100",
+    "compileRuns": 100,
+    "compileWarmups": 1,
+    "runs": 100,
+    "warmups": 5
+  },
+  "results": [
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 228,
+        "lines": 15
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 11.49811,
+        "medianMs": 11.176217,
+        "minMs": 6.235448,
+        "maxMs": 22.455588,
+        "p95Ms": 17.127704,
+        "stddevMs": 3.202624,
+        "ci95LowerMs": 10.870396,
+        "ci95UpperMs": 12.125824
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 5.665815,
+        "medianMs": 5.457537,
+        "minMs": 3.383414,
+        "maxMs": 9.665622,
+        "p95Ms": 8.360431,
+        "stddevMs": 1.486252,
+        "ci95LowerMs": 5.37451,
+        "ci95UpperMs": 5.95712,
+        "startupAdjustedMeanMs": 5.665815
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 0.96388,
+        "medianMs": 0.986215,
+        "minMs": 0.624477,
+        "maxMs": 1.670832,
+        "p95Ms": 1.443423,
+        "stddevMs": 0.239384,
+        "ci95LowerMs": 0.916961,
+        "ci95UpperMs": 1.010799
+      },
+      "nativeCodeSha256": "c948dc94ed22269841174249c9324f693f179ac811942a2994abb4c8c68bc2a1",
+      "value": 21.017288693559877
+    },
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "c",
+      "version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Clang -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 422,
+        "lines": 22
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 173.378074,
+        "medianMs": 164.45607,
+        "minMs": 126.796009,
+        "maxMs": 303.058285,
+        "p95Ms": 241.15937,
+        "stddevMs": 35.343559,
+        "ci95LowerMs": 166.450737,
+        "ci95UpperMs": 180.305412
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 6.166087,
+        "medianMs": 5.906127,
+        "minMs": 3.482713,
+        "maxMs": 11.752765,
+        "p95Ms": 8.818,
+        "stddevMs": 1.467498,
+        "ci95LowerMs": 5.878457,
+        "ci95UpperMs": 6.453716,
+        "startupAdjustedMeanMs": 6.166087
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 21.017288693559927
+    },
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "cpp",
+      "version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Clang++ -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 428,
+        "lines": 22
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 255.356775,
+        "medianMs": 237.142381,
+        "minMs": 189.734982,
+        "maxMs": 444.683189,
+        "p95Ms": 368.11451,
+        "stddevMs": 52.166745,
+        "ci95LowerMs": 245.132093,
+        "ci95UpperMs": 265.581457
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 7.235574,
+        "medianMs": 7.114906,
+        "minMs": 3.939214,
+        "maxMs": 17.358671,
+        "p95Ms": 9.988114,
+        "stddevMs": 1.988531,
+        "ci95LowerMs": 6.845822,
+        "ci95UpperMs": 7.625326,
+        "startupAdjustedMeanMs": 7.235574
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 21.017288693559927
+    },
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "rust",
+      "version": "rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)",
+      "compileModel": "rustc -O -C target-cpu=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 350,
+        "lines": 18
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 502.149359,
+        "medianMs": 475.14298,
+        "minMs": 391.790711,
+        "maxMs": 920.810627,
+        "p95Ms": 678.960496,
+        "stddevMs": 94.78926,
+        "ci95LowerMs": 483.570664,
+        "ci95UpperMs": 520.728054
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 4.895762,
+        "medianMs": 4.869143,
+        "minMs": 2.915714,
+        "maxMs": 7.125291,
+        "p95Ms": 6.844778,
+        "stddevMs": 1.110268,
+        "ci95LowerMs": 4.67815,
+        "ci95UpperMs": 5.113374,
+        "startupAdjustedMeanMs": 4.895762
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 21.017288693559877
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 351,
+        "lines": 17
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 10.391595,
+        "medianMs": 10.193181,
+        "minMs": 7.064794,
+        "maxMs": 16.405541,
+        "p95Ms": 14.725938,
+        "stddevMs": 2.261233,
+        "ci95LowerMs": 9.948393,
+        "ci95UpperMs": 10.834796
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 7.828338,
+        "medianMs": 7.608339,
+        "minMs": 4.739739,
+        "maxMs": 12.110243,
+        "p95Ms": 11.01016,
+        "stddevMs": 1.854887,
+        "ci95LowerMs": 7.46478,
+        "ci95UpperMs": 8.191896,
+        "startupAdjustedMeanMs": 7.828338
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 3.736493,
+        "medianMs": 3.902919,
+        "minMs": 1.896283,
+        "maxMs": 6.196275,
+        "p95Ms": 5.715424,
+        "stddevMs": 1.473004,
+        "ci95LowerMs": 3.447784,
+        "ci95UpperMs": 4.025202
+      },
+      "nativeCodeSha256": "a744c903a703825cb564d00440a98ffece0ecdee10c61890eefce4f4eb672d4e",
+      "value": 10.099567298080487
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "c",
+      "version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Clang -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 618,
+        "lines": 28
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 177.572575,
+        "medianMs": 161.667386,
+        "minMs": 127.887821,
+        "maxMs": 327.318402,
+        "p95Ms": 276.040425,
+        "stddevMs": 44.427385,
+        "ci95LowerMs": 168.864808,
+        "ci95UpperMs": 186.280342
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 5.353748,
+        "medianMs": 5.245695,
+        "minMs": 3.099747,
+        "maxMs": 12.964849,
+        "p95Ms": 7.769719,
+        "stddevMs": 1.531338,
+        "ci95LowerMs": 5.053606,
+        "ci95UpperMs": 5.65389,
+        "startupAdjustedMeanMs": 5.353748
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 10.099567298080492
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "cpp",
+      "version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Clang++ -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 618,
+        "lines": 28
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 255.265934,
+        "medianMs": 238.311019,
+        "minMs": 193.020795,
+        "maxMs": 457.870091,
+        "p95Ms": 333.081967,
+        "stddevMs": 49.833895,
+        "ci95LowerMs": 245.498491,
+        "ci95UpperMs": 265.033378
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 6.521516,
+        "medianMs": 6.365582,
+        "minMs": 3.913372,
+        "maxMs": 10.896495,
+        "p95Ms": 9.135408,
+        "stddevMs": 1.476621,
+        "ci95LowerMs": 6.232098,
+        "ci95UpperMs": 6.810933,
+        "startupAdjustedMeanMs": 6.521516
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 10.099567298080492
+    },
+    {
+      "case": "fixed-vector-medium",
+      "operation": "linear recurrence",
+      "data": "vector[4] f64",
+      "size": "medium",
+      "count": 75000,
+      "language": "rust",
+      "version": "rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)",
+      "compileModel": "rustc -O -C target-cpu=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 545,
+        "lines": 25
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 540.270032,
+        "medianMs": 519.275011,
+        "minMs": 396.994483,
+        "maxMs": 904.005399,
+        "p95Ms": 722.059178,
+        "stddevMs": 105.32238,
+        "ci95LowerMs": 519.626845,
+        "ci95UpperMs": 560.913218
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 6.83659,
+        "medianMs": 6.642524,
+        "minMs": 3.671121,
+        "maxMs": 16.009656,
+        "p95Ms": 10.089978,
+        "stddevMs": 1.973986,
+        "ci95LowerMs": 6.449689,
+        "ci95UpperMs": 7.223491,
+        "startupAdjustedMeanMs": 6.83659
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 10.099567298080487
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50616,
+        "lines": 22
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 202.734689,
+        "medianMs": 193.287615,
+        "minMs": 148.411158,
+        "maxMs": 470.85613,
+        "p95Ms": 277.182708,
+        "stddevMs": 43.5502,
+        "ci95LowerMs": 194.19885,
+        "ci95UpperMs": 211.270528
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 3.919694,
+        "medianMs": 3.831134,
+        "minMs": 2.68986,
+        "maxMs": 6.965122,
+        "p95Ms": 5.160671,
+        "stddevMs": 0.753003,
+        "ci95LowerMs": 3.772105,
+        "ci95UpperMs": 4.067282,
+        "startupAdjustedMeanMs": 3.919694
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 0.453812,
+        "medianMs": 0.362706,
+        "minMs": 0.351836,
+        "maxMs": 0.909841,
+        "p95Ms": 0.717589,
+        "stddevMs": 0.145245,
+        "ci95LowerMs": 0.425344,
+        "ci95UpperMs": 0.48228
+      },
+      "nativeCodeSha256": "6405fc69ca1410c470703e17fa82c50677179ccfc458ca76a9266176cb27a720",
+      "value": 1847.5208388540575
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "c",
+      "version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Clang -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50914,
+        "lines": 31
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 223.978426,
+        "medianMs": 210.845523,
+        "minMs": 156.258147,
+        "maxMs": 360.271861,
+        "p95Ms": 311.173442,
+        "stddevMs": 43.199928,
+        "ci95LowerMs": 215.51124,
+        "ci95UpperMs": 232.445612
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 3.595858,
+        "medianMs": 3.591623,
+        "minMs": 2.355849,
+        "maxMs": 6.422451,
+        "p95Ms": 4.719786,
+        "stddevMs": 0.704361,
+        "ci95LowerMs": 3.457803,
+        "ci95UpperMs": 3.733912,
+        "startupAdjustedMeanMs": 3.595858
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 1847.5208388540575
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "cpp",
+      "version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+      "compileModel": "Clang++ -O3 -march=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50914,
+        "lines": 31
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 645.301843,
+        "medianMs": 619.036673,
+        "minMs": 492.78896,
+        "maxMs": 961.857526,
+        "p95Ms": 836.703997,
+        "stddevMs": 101.214881,
+        "ci95LowerMs": 625.463726,
+        "ci95UpperMs": 665.13996
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 4.649255,
+        "medianMs": 4.568934,
+        "minMs": 3.226127,
+        "maxMs": 7.075971,
+        "p95Ms": 6.342486,
+        "stddevMs": 0.887376,
+        "ci95LowerMs": 4.47533,
+        "ci95UpperMs": 4.823181,
+        "startupAdjustedMeanMs": 4.649255
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 1847.5208388540575
+    },
+    {
+      "case": "welford-large",
+      "operation": "Welford population standard deviation",
+      "data": "dynamic container f64",
+      "size": "large",
+      "count": 6400,
+      "language": "rust",
+      "version": "rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)",
+      "compileModel": "rustc -O -C target-cpu=native native link",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 50767,
+        "lines": 27
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 12929.037953,
+        "medianMs": 11544.265971,
+        "minMs": 10416.272097,
+        "maxMs": 17587.13553,
+        "p95Ms": 16687.663739,
+        "stddevMs": 2231.702015,
+        "ci95LowerMs": 12491.624358,
+        "ci95UpperMs": 13366.451548
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 3.55319,
+        "medianMs": 3.445268,
+        "minMs": 2.393092,
+        "maxMs": 8.005653,
+        "p95Ms": 4.790894,
+        "stddevMs": 0.818169,
+        "ci95LowerMs": 3.392829,
+        "ci95UpperMs": 3.713551,
+        "startupAdjustedMeanMs": 3.55319
+      },
+      "nativeRuntime": null,
+      "nativeCodeSha256": null,
+      "value": 1847.5208388540575
+    }
+  ]
+}

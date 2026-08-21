@@ -149,9 +149,7 @@ def test_physics_stdlib_source_parses_and_names_collision_matrix_contract() -> N
     source = PHYSICS_FIXTURE.read_text(encoding="utf-8")
 
     module = parse_module(source, filename=PHYSICS_FIXTURE.as_posix())
-    rendered = repr(module) + repr(parse_module(
-        RIGID_BODY_FIXTURE.read_text(encoding="utf-8"), filename=RIGID_BODY_FIXTURE.as_posix()
-    ))
+    rendered = repr(module)
 
     assert "physics_collision_matrix_seed" in rendered
     assert "collision_matrix3" in rendered
@@ -195,7 +193,8 @@ def test_physics_contact_model_couples_linear_and_angular_impulses(
 
 
 def test_rigid_body_vkf_source_owns_mass_inertia_and_momentum_stepping(capsys: pytest.CaptureFixture[str]) -> None:
-    source = PHYSICS_RIGID_BODY_SMOKE.read_text(encoding="utf-8")
+    smoke = PHYSICS_RIGID_BODY_SMOKE.read_text(encoding="utf-8").replace(":.physics\n", "", 1)
+    source = PHYSICS_FIXTURE.read_text(encoding="utf-8") + "\n" + smoke
     module = parse_module(source, filename=PHYSICS_RIGID_BODY_SMOKE.as_posix())
     Interpreter(file_path=PHYSICS_RIGID_BODY_SMOKE).run_module(module)
 
@@ -210,8 +209,8 @@ def test_rigid_body_vkf_compiles_to_native_binary(tmp_path: Path, smoke_exes: di
         [1.0, 0.25, 0.075, 0.1, 1.4]
     )
     manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
-    assert {dependency["name"] for dependency in manifest["dependencies"]} == {"import:<spill>"}
-    assert {Path(dependency["path"]).stem for dependency in manifest["dependencies"]} == {"rigid_body"}
+    assert {dependency["name"] for dependency in manifest["dependencies"]} == {"physics"}
+    assert {Path(dependency["path"]).stem for dependency in manifest["dependencies"]} == {"physics"}
 
 
 def test_rigid_body_vkf_compiles_to_wasm(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:

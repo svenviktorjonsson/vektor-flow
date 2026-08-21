@@ -1,0 +1,92 @@
+_double(value:int) -> int:
+    value * 2
+
+_halve(value:num) -> num:
+    value / 2
+
+_translate(point:(x:int,y:int)) -> (x:int,y:int):
+    (x: point.x + 10, y: point.y - 10)
+
+_shift_row(row:[int:2]) -> [int:2]:
+    row + 100
+
+_shift_dynamic_row(row:[int]) -> [int]:
+    row + 100
+
+_sum_dynamic_row(row:[int]) -> int:
+    row.0 + row.1
+
+_rotate_whole(values:[int:3]) -> [int:3]:
+    [values.2, values.0, values.1]
+
+NamedPoint: (x:int,y:int)
+
+_translate_named(point:NamedPoint) -> NamedPoint:
+    (x: point.x + 1, y: point.y + 2)
+
+scalar_function_maps_only_compatible_struct_fields() -> bit:
+    point: (name: "origin", enabled: true, x: 2, y: 3)
+    result: _double(point)
+    (result.name = "origin" /\ result.enabled /\ result.x = 4 /\ result.y = 6)?!
+
+call_with_no_compatible_fields_preserves_the_value() -> bit:
+    metadata: (name: "origin", enabled: true)
+    result: _double(metadata)
+    (result.name = "origin" /\ result.enabled)?!
+
+normal_conversion_rules_select_compatible_fields() -> bit:
+    sample: (name: "mixed", count: 1, ratio: 3.0)
+    result: _halve(sample)
+    (result.name = "mixed" /\ result.count = 0.5 /\ result.ratio = 1.5)?!
+
+scalar_function_maps_over_a_fixed_vector() -> bit:
+    [int:3] values: [1, 2, 3]
+    result: _double(values)
+    [int:3] expected: [2, 4, 6]
+    (result == expected)?!
+
+scalar_function_maps_over_a_dynamic_vector() -> bit:
+    [int] values: collections.list(1, 2, 3)
+    [int] result: _double(values)
+    (result.0 = 2 /\ result.1 = 4 /\ result.2 = 6)?!
+
+scalar_function_recurses_through_metadata_records() -> bit:
+    points: [(name: "a", x: 1, y: 2), (name: "b", x: 3, y: 4)]
+    result: _double(points)
+    (result.0.name = "a" /\ result.0.x = 2 /\ result.0.y = 4 /\
+     result.1.name = "b" /\ result.1.x = 6 /\ result.1.y = 8)?!
+
+record_function_maps_over_a_vector_of_records() -> bit:
+    points: [(x: 1, y: 20), (x: 3, y: 40)]
+    result: _translate(points)
+    (result.0.x = 11 /\ result.0.y = 10 /\ result.1.x = 13 /\ result.1.y = 30)?!
+
+named_record_function_maps_over_a_vector_of_records() -> bit:
+    points: [(x: 1, y: 2), (x: 3, y: 4)]
+    result: _translate_named(points)
+    (result.0.x = 2 /\ result.0.y = 4 /\ result.1.x = 4 /\ result.1.y = 6)?!
+
+fixed_row_function_maps_over_the_outer_matrix_axis() -> bit:
+    matrix: [[1, 2], [3, 4]]
+    result: _shift_row(matrix)
+    first: result.0
+    second: result.1
+    (first.0 = 101 /\ first.1 = 102 /\ second.0 = 103 /\ second.1 = 104)?!
+
+dynamic_row_function_maps_over_the_outer_matrix_axis() -> bit:
+    matrix: [[1, 2], [3, 4]]
+    result: _shift_dynamic_row(matrix)
+    first: result.0
+    second: result.1
+    (first.0 = 101 /\ first.1 = 102 /\ second.0 = 103 /\ second.1 = 104)?!
+
+container_function_result_replaces_each_compatible_row() -> bit:
+    matrix: [[1, 2], [3, 4]]
+    result: _sum_dynamic_row(matrix)
+    (result.0 = 3 /\ result.1 = 7)?!
+
+exact_container_match_is_not_elementwise() -> bit:
+    [int:3] values: [1, 2, 3]
+    result: _rotate_whole(values)
+    [int:3] expected: [3, 1, 2]
+    (result == expected)?!

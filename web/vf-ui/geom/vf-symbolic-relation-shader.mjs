@@ -42,6 +42,12 @@ export function compileSymbolicComplexFieldShader(ast, style = {}) {
 }
 
 export function compileSymbolicRelationShader(ast, variants = null, style = {}) {
+  if (ast?.kind === 'binary' && ast.op === 'and' && !(Array.isArray(variants) && variants.length)) {
+    return compileSymbolicRelationShaderGroup(
+      chainedRelationMembers(ast).map((relation) => ({ ast: relation })),
+      style
+    );
+  }
   const relations = Array.isArray(variants) && variants.length ? variants : [ast];
   if (!relations.every((relation) => relation?.kind === 'binary' && RELATION_OPERATORS.has(relation.op))) return null;
   if (!relations.every((relation) => relation.op === ast.op)) return null;
@@ -74,6 +80,11 @@ export function compileSymbolicRelationShader(ast, variants = null, style = {}) 
     colorScaleMode: style.colorScaleMode === 'cyclic' ? 'cyclic' : 'clamp',
     colormapPoints: normalizedShaderColormap(style)
   });
+}
+
+function chainedRelationMembers(ast) {
+  if (ast?.kind !== 'binary' || ast.op !== 'and') return [ast];
+  return [...chainedRelationMembers(ast.left), ...chainedRelationMembers(ast.right)];
 }
 
 export function compileSymbolicRelationShaderGroup(programs, style = {}) {

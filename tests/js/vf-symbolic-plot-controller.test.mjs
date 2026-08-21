@@ -96,7 +96,8 @@ test('renders a four-member curve family analytically on the GPU', async () => {
 
   assert.equal(result.plottable, true);
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
+  assert.equal(controller.snapGeometry.segments.length, 4);
   assert.equal(calls.find(([name]) => name === 'relations')[1].length, 4);
   const arenas = calls.filter(([name]) => name === 'arena');
   assert.equal(arenas.length, 1);
@@ -377,8 +378,12 @@ test('adapts curve and field samples to pixel coverage', () => {
   const view = buildSymbolicPlotView(viewport);
   assert.equal(view.xSteps, 1026);
   assert.equal(view.ySteps, 643);
+  assert.deepEqual([view.tMin, view.tMax], [0, 1]);
   assert.equal(view.fieldXSteps, 17);
   assert.equal(view.fieldYSteps, 17);
+
+  const overridden = buildSymbolicPlotView({ ...viewport, tMin: -2, tMax: 3 });
+  assert.deepEqual([overridden.tMin, overridden.tMax], [-2, 3]);
 });
 
 test('counts and colors ordered graph ranges across a shared label domain', () => {
@@ -568,9 +573,9 @@ test('controller compiles an explicit curve into analytic GPU geometry', async (
 
   assert.equal(result.classification, 'y-of-x');
   assert.equal(result.plottable, true);
-  assert.deepEqual(controller.snapGeometry.segments, []);
-  assert.equal(controller.hitTest([328, 177], 2), null);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
+  assert.deepEqual(controller.snapGeometry.segments, [[[1, 2], [3, 4]]]);
+  assert.equal(controller.hitTest([328, 177], 2)?.kind, 'segment');
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
   assert.deepEqual(await controller.pick([328, 177], 8), { kind: 'segment', index: 0 });
   assert.deepEqual(calls.find(([name]) => name === 'pick').slice(1), [[328, 177], 8]);
   controller.setInteractionState('selected');
@@ -587,7 +592,7 @@ test('controller compiles an explicit curve into analytic GPU geometry', async (
     edge: 'normal', face: 'hovered'
   });
   assert.equal(calls.filter(([name]) => name === 'compile').length, 1);
-  assert.equal(calls.filter(([name]) => name === 'plot').length, 0);
+  assert.equal(calls.filter(([name]) => name === 'plot').length, 1);
   assert.equal(calls.find(([name]) => name === 'compile')[4], clipRegion);
   assert.deepEqual(calls.find(([name]) => name === 'clip')[1], clipRegion);
   assert.equal(calls.filter(([name]) => name === 'render').length, 4);
@@ -648,6 +653,51 @@ test('routes relations directly to the GPU without invoking the sampled CPU plot
   assert.equal(sampled, 0);
   assert.deepEqual(analyticInput.variants, program.variants);
   assert.deepEqual(controller.snapGeometry, { points: [], segments: [] });
+});
+
+test('retains sampled snap segments for an analytically rendered implicit curve', async () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  new Float32Array(memory.buffer, 0, 12).set([
+    -1, 0, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0
+  ]);
+  const program = {
+    diagnostics: [], variables: ['x', 'y'], classification: 'implicit-curve',
+    valueKind: 'relation', ast: { kind: 'binary', op: '=', left: {}, right: {} }
+  };
+  const renderedArenas = [];
+  const controller = await createSymbolicPlotController({
+    canvas: { hidden: false },
+    kernel: {
+      memory,
+      compileWithContext() { return { value: program }; },
+      createWorkspace() { return { handle: 1 }; },
+      workspaceCompile() {
+        return { value: { program }, program: 7, workspace: 1 };
+      },
+      plot() {
+        return {
+          pointer: 0, count: 2, stride: 24, revision: 1,
+          ranges: [{ topology: 'line-list', mode: 'linked-line-segments', first: 0, count: 2 }]
+        };
+      }
+    },
+    createRenderer: () => ({
+      async initialize() {},
+      setAnalyticRelation(value) { return value; },
+      updateTransform() {}, updateClip() {}, updateAppearance() {},
+      setArena(value) { renderedArenas.push(value); },
+      render() {}, resize() {}, destroy() {}
+    })
+  });
+
+  await controller.plot({
+    source: 'x^2+y^2=1', viewport,
+    colors: { edge: '#ffffff', face: '#00000000' }
+  });
+
+  assert.deepEqual(controller.snapGeometry.segments, [[[-1, 0], [1, 0]]]);
+  assert.deepEqual(renderedArenas[0].ranges, []);
 });
 
 test('keeps configured edge width while interaction state changes', async () => {

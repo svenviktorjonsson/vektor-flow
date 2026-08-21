@@ -1,0 +1,10 @@
+io: .io
+
+path: "build/native-extended-libs/io-direct-" & "smoke.txt"
+text: "direct UTF-8: " & "hej"
+io.write_text(path, text)
+:: io.read_text(path)
+
+bytes_path: "build/native-extended-libs/io-direct-smoke.bin"
+io.write_bytes(bytes_path, "byte-exact UTF-8")
+:: io.read_bytes(bytes_path)

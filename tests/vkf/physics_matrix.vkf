@@ -1,0 +1,10 @@
+:.physics
+
+nested_matrix_results_keep_fixed_shape() -> bit:
+    outer: rb_outer3([1, 2, 3], [4, 5, 6])
+    identity: rb_identity3()
+    scaled: rb_scale_mat3(2, identity)
+    added: rb_add_mat3(identity, scaled)
+    (outer.(0).(0) = 4 /\ outer.(1).(2) = 12 /\
+     identity.(2).(2) = 1 /\ scaled.(1).(1) = 2 /\
+     added.(0).(0) = 3)?!

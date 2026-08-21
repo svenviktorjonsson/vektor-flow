@@ -1,0 +1,17 @@
+values() -> [num]:
+    [num] result: [1, 2]
+    result
+
+make() -> (text:str, values:[num]):
+    (text: "hel" & "lo", values: values())
+
+copy(value:(text:str, values:[num])) -> (text:str, values:[num]):
+    value
+
+measure(value:(text:str, values:[num])) -> num:
+    stat.sum(value.values)
+
+first: make()
+second: first
+third: copy(second)
+:: stat.sum(third.values) + (third.text == "hello") + measure(make())

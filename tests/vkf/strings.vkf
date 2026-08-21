@@ -1,0 +1,57 @@
+string_concatenation() -> bit:
+    str value: "vektor" & "-flow"
+    (value == "vektor-flow")?!
+
+string_ordering() -> bit:
+    ("alpha" < "beta")?!
+
+string_copy_owns_storage() -> bit:
+    str first: "owned" & " value"
+    str second: first
+    (second == "owned value")?!
+
+string_inequality() -> bit:
+    ("left" != "right")?!
+
+string_less_equal() -> bit:
+    ("alpha" <= "alpha")?!
+
+string_greater() -> bit:
+    ("beta" > "alpha")?!
+
+string_greater_equal() -> bit:
+    ("beta" >= "beta")?!
+
+_copy_string(value: str) -> str:
+    value
+
+string_argument_and_result_own_storage() -> bit:
+    copied: _copy_string("owned" & " result")
+    (copied == "owned result")?!
+
+string_concat_coerces_numeric_operand() -> bit:
+    (1 & "\n" == "1\n")?!
+
+string_interpolation_paths_and_expressions() -> bit:
+    name: "världen"
+    value: 2
+    ("Hej $name $(value + 3)" == "Hej världen 5")?!
+
+string_interpolation_formats_numbers() -> bit:
+    value: 4.2345
+    ("value=$value.2f" == "value=4.23")?!
+
+string_interpolation_renders_fixed_core_values() -> bit:
+    point: (x: 2, y: false)
+    values: [1, 2]
+    ("point=$point values=$values cost=\$5" ==
+        "point=(x:2, y:false) values=[1, 2] cost=\$5")?!
+
+_render_dynamic_values(...values:num) -> str:
+    "$values"
+
+dynamic_list_interpolation_renders_elements() -> bit:
+    (_render_dynamic_values(1, 2, 3) == "[1, 2, 3]")?!
+
+dynamic_list_interpolation_renders_empty_list() -> bit:
+    (_render_dynamic_values() == "[]")?!

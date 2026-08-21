@@ -1,0 +1,69 @@
+c: .collections
+
+dynamic_list_sum() -> bit:
+    [num] values: [1, 2, 3, 4]
+    (stat.sum(values) == 10)?!
+
+dynamic_list_mean() -> bit:
+    [num] values: [2, 4, 6, 8]
+    (stat.mean(values) == 5)?!
+
+dynamic_list_count() -> bit:
+    [num] values: [2, 4, 6]
+    (stat.count(values) == 3)?!
+
+dynamic_list_population_std() -> bit:
+    [num] values: collections.list(2, 4, 4, 4, 5, 5, 7, 9)
+    (stat.std(values) == 2)?!
+
+dynamic_list_sample_std() -> bit:
+    [num] values: collections.list(-2, 0, 2)
+    (stat.std(values, ddof:1) == 2)?!
+
+dynamic_list_population_variance() -> bit:
+    [num] values: collections.list(2, 4, 4, 4, 5, 5, 7, 9)
+    (stat.variance(values) == 4)?!
+
+dynamic_list_sample_variance() -> bit:
+    [num] values: collections.list(-2, 0, 2)
+    (stat.variance(values, ddof:1) == 4)?!
+
+dynamic_list_range() -> bit:
+    [num] values: collections.list(-2, 0, 3, 5, 1)
+    (stat.range(values) == 7)?!
+
+concatenated_lists_own_storage() -> bit:
+    [num] left: [1, 2]
+    [num] right: [3, 4]
+    [num] combined: left & right
+    (stat.sum(combined) == 10)?!
+
+dynamic_list_indexing() -> bit:
+    [num] values: [5, 8, 13]
+    (values.(1) = 8)?!
+
+dynamic_list_update() -> bit:
+    [num] values: [5, 8, 13]
+    values.(1): 21
+    (values.(1) = 21)?!
+
+_copy_list(values: [num]) -> [num]:
+    values
+
+dynamic_list_argument_and_result_own_storage() -> bit:
+    [num] copied: _copy_list(collections.list(2, 5))
+    (stat.sum(copied) == 7)?!
+
+aliased_named_map_uses_typed_record_storage() -> bit:
+    point: c.map(name:"origin", x:1, y:2)
+    point.z: 3
+    (point.name = "origin" /\ point.x + point.y + point.z = 6)?!
+
+numeric_queue_is_fifo_and_empty_get_returns_null() -> bit:
+    q: c.queue()
+    q.put(10)
+    q.put(20)
+    first: q.get()
+    second: q.get()
+    missing: q.get()
+    (first = 10 /\ second = 20 /\ missing = null /\ q.empty())?!

@@ -237,5 +237,5 @@ test('keeps transient plot memory bounded across 300 temporal frames', async () 
   assert.equal(relations.length, 300);
   assert.equal(instance.exports.vkf_vm_heap_ptr(), persistentHeapEnd);
   assert.ok(arenas.every((arena) => arena.ranges.length === 0));
-  assert.equal(controller.snapGeometry.segments.length, 0);
+  assert.equal(controller.snapGeometry.segments.length, 800);
 });

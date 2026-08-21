@@ -1,0 +1,35 @@
+tuple_pipe_maps_each_element() -> bit:
+    values: (1, 2, 3) >> $ * 2
+    (values.0 = 2 /\ values.2 = 6)?!
+
+scalar_pipe_binds_one_onward_value() -> bit:
+    (4 >> $^2 = 16)?!
+
+_dynamic_pipe(...values:num):
+    values >> $ * 2
+
+dynamic_numeric_pipe_maps_each_element() -> bit:
+    values: _dynamic_pipe(1, 2, 3)
+    (values.length() = 3 /\ values.0 = 2 /\ values.2 = 6)?!
+
+complex_vector_pipe_preserves_element_boundaries() -> bit:
+    values: [num(1, 2), num(3, 4)] >> $ * $
+    (str(values.0) == "-3 + 4i" /\ str(values.1) == "-7 + 24i")?!
+
+pipe_block_return_is_local_to_each_element() -> bit:
+    values: (0..3) >>
+        $ < 2?
+            @: $ + 10
+        $ + 20
+    (values.0 = 10 /\ values.1 = 11 /\ values.2 = 22 /\ values.3 = 23)?!
+
+_pipe_block_return_values():
+    values: (0..2) >>
+        $ = 1?
+            @: 99
+        $
+    values
+
+pipe_block_return_does_not_exit_outer_function() -> bit:
+    values: _pipe_block_return_values()
+    (values.0 = 0 /\ values.1 = 99 /\ values.2 = 2)?!

@@ -1,0 +1,6 @@
+m: .math
+
+alias_only_math_lifts_nested_structures() -> bit:
+    result: m.tanh((point: (0, 1), samples: [0, 1]))
+    (result.point.0 = 0 /\ result.point.1 > 0.76159 /\ result.point.1 < 0.76160 /\
+     result.samples.0 = 0 /\ result.samples.1 > 0.76159 /\ result.samples.1 < 0.76160)?!

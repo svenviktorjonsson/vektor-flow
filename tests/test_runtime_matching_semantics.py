@@ -141,3 +141,16 @@ def test_intersection_specificity_outranks_union_for_same_actual_type() -> None:
     assert union_score is not None
     assert intersection_score is not None
     assert intersection_score > union_score
+
+
+def test_exact_tuple_type_outranks_broader_tuple_type() -> None:
+    src = """
+x : (1, 2)
+r : 0
+x??
+  (any,int) => r : 1
+  (int,int) => r : 2
+  r : 9
+:: r
+"""
+    assert _run(src) == "2"

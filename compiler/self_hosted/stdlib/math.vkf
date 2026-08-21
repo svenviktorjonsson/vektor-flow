@@ -1,4 +1,140 @@
-# Native smoke stdlib fixture: math constants only.
+# Mathematical constants and composed functions owned by VKF source.
+# Elementary scalar primitives such as sin/cos/exp are compiler/runtime ABI
+# operations; compositions remain ordinary inspectable VKF.
 
 pi: 3.141592653589793
+e: 2.718281828459045
 tau: 6.283185307179586
+
+tan(value:num) -> num:
+    math.sin(value) / math.cos(value)
+
+sec(value:num) -> num:
+    1 / math.cos(value)
+
+cot(value:num) -> num:
+    math.cos(value) / math.sin(value)
+
+csc(value:num) -> num:
+    1 / math.sin(value)
+
+sinh(value:num) -> num:
+    (math.exp(value) - math.exp(-value)) / 2
+
+cosh(value:num) -> num:
+    (math.exp(value) + math.exp(-value)) / 2
+
+tanh(value:num) -> num:
+    sinh(value) / cosh(value)
+
+lg(value:num) -> num:
+    math.ln(value) / math.ln(10)
+
+lg2(value:num) -> num:
+    math.ln(value) / math.ln(2)
+
+log(value:num, base:num) -> num:
+    (base > 0 /\ base != 1)?! "math.log: base must be positive and not 1"
+    (value > 0)?! "math.log: value must be positive"
+    math.ln(value) / math.ln(base)
+
+asinh(value:num) -> num:
+    math.ln(value + math.sqrt(value * value + 1))
+
+acosh(value:num) -> num:
+    (value >= 1)?! "math.acosh: real input must be at least 1"
+    math.ln(value + math.sqrt(value * value - 1))
+
+atanh(value:num) -> num:
+    (value > -1 /\ value < 1)?! "math.atanh: real input must be between -1 and 1"
+    math.ln((1 + value) / (1 - value)) / 2
+
+# Range-reduced Gregory series. The reduction keeps |z| <= tan(pi/8), so
+# sixteen terms provide substantially better than f64 display precision here.
+atan(value:num) -> num:
+    negative: value < 0
+    magnitude: math.abs(value)
+    inverted: magnitude > 1
+    z: magnitude
+    inverted?
+        z: 1 / z
+    offset: 0
+    z > 0.41421356237309503?
+        z: (z - 1) / (z + 1)
+        offset: pi / 4
+    z_squared: z * z
+    term: z
+    series: z
+    i: 1
+    i < 16?>
+        term: 0 - term * z_squared
+        series: series + term / (2 * i + 1)
+        i: i + 1
+    result: offset + series
+    inverted?
+        result: pi / 2 - result
+    negative?
+        result: 0 - result
+    result
+
+atan2(y:num, x:num) -> num:
+    x > 0? @: atan(y / x)
+    x < 0 /\ y >= 0? @: atan(y / x) + pi
+    x < 0 /\ y < 0? @: atan(y / x) - pi
+    y > 0? @: pi / 2
+    y < 0? @: 0 - pi / 2
+    0
+
+asin(value:num) -> num:
+    (value >= -1 /\ value <= 1)?! "math.asin: real input must be in [-1, 1]"
+    atan2(value, math.sqrt(1 - value * value))
+
+acos(value:num) -> num:
+    (value >= -1 /\ value <= 1)?! "math.acos: real input must be in [-1, 1]"
+    atan2(math.sqrt(1 - value * value), value)
+
+acot(value:num) -> num:
+    value = 0? @: pi / 2
+    atan(1 / value)
+
+asec(value:num) -> num:
+    (math.abs(value) >= 1)?! "math.asec: real input magnitude must be at least 1"
+    acos(1 / value)
+
+acsc(value:num) -> num:
+    (math.abs(value) >= 1)?! "math.acsc: real input magnitude must be at least 1"
+    asin(1 / value)
+
+# Lanczos approximation (g=7), with reflection for the negative real branch.
+gamma(value:num) -> num:
+    value < 0.5? @: pi / (math.sin(pi * value) * gamma(1 - value))
+    z: value - 1
+    coefficients: [
+        0.99999999999980993,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.32342877765313,
+        -176.61502916214059,
+        12.507343278686905,
+        -0.13857109526572012,
+        0.0000099843695780195716,
+        0.00000015056327351493116
+    ]
+    estimate: coefficients.0
+    i: 1
+    i < 9?>
+        estimate: estimate + coefficients.(i) / (z + i)
+        i: i + 1
+    t: z + 7.5
+    math.sqrt(2 * pi) * (t ^ (z + 0.5)) * math.exp(0 - t) * estimate
+
+# Abramowitz-Stegun 7.1.26. Maximum absolute error is about 1.5e-7.
+erf(value:num) -> num:
+    value = 0? @: 0
+    sign_value: 1
+    value < 0?
+        sign_value: -1
+    x: math.abs(value)
+    t: 1 / (1 + 0.3275911 * x)
+    polynomial: (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t
+    sign_value * (1 - polynomial * math.exp(0 - x * x))

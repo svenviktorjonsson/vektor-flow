@@ -55,6 +55,16 @@ def test_cpp_lowering_includes_print_stmt() -> None:
 
 
 @pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
+def test_cpp_formats_integral_numbers_beyond_int64_without_overflow(tmp_path: Path) -> None:
+    module = lower_module(parse_module(":: 1e20", filename="<cpp-test>"))
+    executable = compile_cpp_source(emit_cpp_module(module), tmp_path, exe_name="large_num")
+    result = run_cpp_executable(executable)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1e+20\n"
+
+
+@pytest.mark.skipif(discover_cpp_compiler() is None, reason="no C++ compiler available on PATH")
 @pytest.mark.parametrize(("filename", "expected"), sorted(SYMBOLIC_EXAMPLE_EXPECTATIONS.items()))
 def test_symbolic_examples_compile_and_run_natively(tmp_path: Path, filename: str, expected: str) -> None:
     source = SYMBOLIC_EXAMPLES / filename
@@ -91,6 +101,7 @@ num a: 3
     assert "vf_map_make" not in cpp
     assert "vf_list_make" not in cpp
     assert "vf_mset_make" not in cpp
+    assert '#include "compiler/native/vkf_symbolic.hpp"' not in cpp
 
 
 def test_run_cpp_executable_launches_only_the_built_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

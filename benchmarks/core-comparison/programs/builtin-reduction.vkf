@@ -1,0 +1,2 @@
+values: [{{VALUES}}]
+:: stat.sum(values) + stat.mean(values) + stat.count(values)

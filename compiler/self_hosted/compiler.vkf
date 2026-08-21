@@ -52,7 +52,7 @@ compiler_artifact_smoke_capability:
     ]
     writes: [
         ".vkfbuild/<stem>/manifest.json",
-        ".vkfbuild/<stem>/<stem>.artifact.cmd"
+        ".vkfbuild/<stem>/<stem>.cmd"
     ]
     manifest_fields: [
         "source_path",
@@ -105,7 +105,7 @@ wasm_artifact_smoke_capability:
     ]
     writes: [
         ".vkfbuild/<stem>/wasm-manifest.json",
-        ".vkfbuild/<stem>/<stem>.artifact.wasm"
+        ".vkfbuild/<stem>/<stem>.wasm"
     ]
     exports: [
         "vkf_init",
@@ -149,7 +149,7 @@ webgpu_artifact_smoke_capability:
     ]
     writes: [
         ".vkfbuild/<stem>/webgpu-manifest.json",
-        ".vkfbuild/<stem>/<stem>.artifact.wgsl"
+        ".vkfbuild/<stem>/<stem>.wgsl"
     ]
     exports: [
         "wgsl compute entry vkf_update",
@@ -181,6 +181,8 @@ compiler_capability:
         "native lexer smoke token stream",
         "native parser smoke AST JSON",
         "native ast_to_ir smoke typed IR JSON",
+        "typed IR to versioned target-neutral machine IR",
+        "machine IR to Windows Linux or macOS platform machine code",
         "native compiler artifact smoke manifest and artifact",
         "native wasm artifact smoke manifest and wasm artifact",
         "native webgpu artifact smoke manifest and wgsl artifact",
@@ -245,7 +247,7 @@ compiler_capability:
         "typed IR now also lowers through a first real wasm artifact smoke path with lifecycle exports const binding getters and explicit input state runtime surface",
         "typed IR now also lowers through a first webgpu artifact smoke path with wgsl compute vkf_update and manifest-declared storage layouts",
         "native driver smoke now compiles the full declared compiler bundle through source token ast typed_ir artifact outputs",
-        "native parser bundle takeover now covers lexer.vkf parser.vkf typed_ir.vkf compiler.vkf stdlib.vkf math.vkf io.vkf",
+        "native parser bundle takeover now covers lexer.vkf parser.vkf typed_ir.vkf machine_ir.vkf compiler.vkf stdlib.vkf math.vkf io.vkf",
         "compiled compiler takes declared compiler bundle instead of rediscovering files ad hoc"
     ]
     vkf_file_flow: "vkf <file> compile/run orchestration is native-owned at smoke level"

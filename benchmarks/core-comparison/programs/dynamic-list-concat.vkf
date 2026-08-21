@@ -1,0 +1,4 @@
+[num] a: [1, 2]
+[num] b: [3, 4]
+[num] c: a & b
+:: stat.sum(c) + stat.sum(collections.list(5) & collections.list(6, 7)) + stat.sum(a & collections.list(8)) + stat.sum(collections.list(9) & b)

@@ -1,0 +1,50 @@
+tuple_numeric_fields() -> bit:
+    point: (3, 4)
+    (point.0 + point.1 == 7)?!
+
+tuple_field_update() -> bit:
+    point: (3, 4)
+    point.0: 8
+    (point.0 + point.1 == 12)?!
+
+tuple_resources_own_storage() -> bit:
+    [num] initial: [1, 2]
+    original: ("hel" & "lo", initial)
+    copied: original
+    (copied.0 == "hello" /\ stat.sum(copied.1) == 3)?!
+
+tuple_resource_update() -> bit:
+    [num] initial: [1, 2]
+    value: ("hel" & "lo", initial)
+    value.0: "good" & "bye"
+    value.1: collections.list(3, 4)
+    (value.0 == "goodbye" /\ stat.sum(value.1) == 7)?!
+
+_sum_pair(pair: tuple<num,num>) -> num:
+    pair.0 + pair.1
+
+tuple_argument_keeps_shape() -> bit:
+    (_sum_pair((3, 4)) = 7)?!
+
+_swap(pair: tuple<num,num>) -> tuple<num,num>:
+    (pair.1, pair.0)
+
+tuple_result_keeps_shape() -> bit:
+    swapped: _swap((3, 4))
+    (swapped.0 == 4 /\ swapped.1 == 3)?!
+
+_copy_resource_tuple(value: tuple<str,[num]>) -> tuple<str,[num]>:
+    value
+
+tuple_resource_argument_and_result_own_storage() -> bit:
+    copied: _copy_resource_tuple(("hel" & "lo", collections.list(2, 5)))
+    (copied.0 == "hello" /\ stat.sum(copied.1) == 7)?!
+
+_rank_tuple(value: (num,num)) -> num:
+    value??
+        (any,num) => 20
+        (num,num) => 10
+        30
+
+tuple_match_prefers_specific_shape() -> bit:
+    (_rank_tuple((1, 2)) = 10)?!

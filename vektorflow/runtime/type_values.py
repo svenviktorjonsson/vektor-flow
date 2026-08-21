@@ -490,7 +490,15 @@ def type_match_specificity(
 ) -> int | None:
     actual = normalize_type_expr(actual, type_registry)
     pattern = normalize_type_expr(pattern, type_registry)
-    if types_equal(actual, pattern):
+    structural_types = (
+        ast.FixedVectorType,
+        ast.MultisetType,
+        ast.TupleTypeExpr,
+        ast.TypeExpr,
+        ast.MapValueType,
+        ast.LinkedListValueType,
+    )
+    if types_equal(actual, pattern) and not isinstance(actual, structural_types):
         return 1_000
 
     if isinstance(pattern, ast.TypeUnionExpr):

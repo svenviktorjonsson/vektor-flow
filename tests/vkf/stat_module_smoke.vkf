@@ -1,0 +1,43 @@
+stat: .stat
+
+median_handles_even_and_odd_vectors() -> bit:
+    (stat.median([2, 4, 4, 4, 5, 5, 7, 9]) = 4.5 /\ stat.median([9, 1, 5]) = 5)?!
+
+mode_uses_smallest_value_for_ties() -> bit:
+    (stat.mode([3, 2, 3, 2, 9]) = 2)?!
+
+percentile_and_iqr_use_linear_interpolation() -> bit:
+    values: [2, 4, 4, 4, 5, 5, 7, 9]
+    (stat.percentile(values, 25) = 4 /\ stat.percentile(values, 75) = 5.5 /\ stat.iqr(values) = 1.5)?!
+
+zscore_and_normalize_keep_vector_shape() -> bit:
+    z: stat.zscore([1, 2, 3])
+    normalized: stat.normalize([1, 2, 3])
+    [num:3] expected: [0, 0.5, 1]
+    (z.0 < -1.22 /\ z.2 > 1.22 /\ normalized == expected)?!
+
+constant_vectors_normalize_to_zero() -> bit:
+    [num:3] expected: [0, 0, 0]
+    (stat.normalize([7, 7, 7]) == expected /\ stat.zscore([7, 7, 7]) == expected)?!
+
+covariance_and_correlation_match_linear_data() -> bit:
+    x: [1, 2, 3]
+    y: [2, 4, 6]
+    covariance: stat.covariance(x, y)
+    (covariance > 1.333 /\ covariance < 1.334 /\ stat.correlation(x, y) = 1)?!
+
+min_max_clamp_and_sign_are_source_owned() -> bit:
+    (stat.min([4, -2, 8]) = -2 /\ stat.max([4, -2, 8]) = 8 /\
+     stat.clamp(12, 0, 10) = 10 /\ stat.sign(-4) = -1 /\ stat.sign(0) = 0)?!
+
+deterministic_statistics_accept_dynamic_lists() -> bit:
+    [num] values: collections.list(1, 2, 3, 4)
+    (stat.min(values) = 1 /\ stat.max(values) = 4 /\
+     stat.median(values) = 2.5 /\ stat.percentile(values, 25) = 1.75)?!
+
+stat_transforms_preserve_dynamic_list_shape() -> bit:
+    [num] values: collections.list(1, 2, 3)
+    [num] normalized: stat.normalize(values)
+    [num] scores: stat.zscore(values)
+    (normalized.0 = 0 /\ normalized.1 = 0.5 /\ normalized.2 = 1 /\
+     scores.0 < -1.22 /\ scores.2 > 1.22)?!

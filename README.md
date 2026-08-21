@@ -279,10 +279,13 @@ Read this as:
 
 Install from this repository:
 
-```bash
-git submodule update --init --recursive
-pip install -e .[dev]
+```powershell
+.\scripts\build-native-compiler.ps1
+$env:Path = "$(Resolve-Path build/native-compiler-clang/bin);$env:Path"
 ```
+
+Python is only needed for legacy/bootstrap tests (`pip install -e .[dev]`), not
+for installing, compiling, or running VKF.
 
 Run a file:
 

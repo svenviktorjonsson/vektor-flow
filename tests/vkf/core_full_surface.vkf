@@ -1,0 +1,42 @@
+chr_conversion_preserves_unicode_scalar() -> bit:
+    (str(chr(65)) == "A" /\ str(chr(229)) == "å")?!
+
+fixed_chr_vector_keeps_character_values() -> bit:
+    chars: [chr(97), chr(98), chr(99)]
+    (str(chars.0) == "a" /\ str(chars.2) == "c")?!
+
+tuple_spread_flattens_fixed_values() -> bit:
+    values: (:(1, 2), :[3, 4])
+    (values.0 = 1 /\ values.3 = 4)?!
+
+_make_accumulator(start:num) -> num->num:
+    add(value:num) -> num:
+        intermediate: start + value
+        intermediate * 2
+    add
+
+_make_offset(offset:num) -> num->num:
+    add(value:num) -> num:
+        value + offset
+    add
+
+_heterogeneous_rest(...rest:any):
+    rest
+
+stored_multiline_closure_keeps_capture() -> bit:
+    accumulator: _make_accumulator(3)
+    (accumulator(4) = 14)?!
+
+_apply_twice(f:num->num, value:num) -> num:
+    f(f(value))
+
+stored_function_value_can_be_passed() -> bit:
+    add_two: _make_offset(2)
+    (_apply_twice(add_two, 3) = 7)?!
+
+empty_heterogeneous_variadic_is_empty() -> bit:
+    value: _heterogeneous_rest()
+    (value.length() = 0)?!
+
+string_multiset_exact_equality() -> bit:
+    ({"a":2, "b":1} == {"b":1, "a":2})?!

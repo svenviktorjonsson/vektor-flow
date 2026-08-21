@@ -1,0 +1,19 @@
+State : (x:num, y:num, vx:num, vy:num)
+
+advance(state:State) -> State:
+    (
+        x: state.x + state.vx,
+        y: state.y + state.vy,
+        vx: state.vx * 0.999999 + state.y * 0.000001,
+        vy: state.vy * 0.999998 - state.x * 0.000001
+    )
+
+run(n:num) -> num:
+    i: 0
+    state: (x:1, y:2, vx:0.01, vy:0.02)
+    i < n?>
+        state: advance(state)
+        i: i + 1
+    state.x + state.y + state.vx + state.vy
+
+:: run({{COUNT}})

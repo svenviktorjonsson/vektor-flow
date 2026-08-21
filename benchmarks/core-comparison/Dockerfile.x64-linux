@@ -1,0 +1,103 @@
+FROM ubuntu:24.04 AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential cmake ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /repo
+COPY compiler/native compiler/native
+COPY compiler/self_hosted/stdlib/math.vkf compiler/self_hosted/stdlib/math.vkf
+COPY compiler/self_hosted/stdlib/stat.vkf compiler/self_hosted/stdlib/stat.vkf
+COPY compiler/self_hosted/stdlib.vkf compiler/self_hosted/stdlib.vkf
+COPY examples/benchmarks/stdlib_numeric.vkf examples/benchmarks/stdlib_numeric.vkf
+COPY native/VfOverlay/vf/json.cpp native/VfOverlay/vf/json.cpp
+COPY native/VfOverlay/vf/json.hpp native/VfOverlay/vf/json.hpp
+COPY benchmarks/core-comparison/programs/scalar-control.vkf benchmarks/core-comparison/programs/scalar-control.vkf
+COPY benchmarks/core-comparison/programs/fixed-vector.vkf benchmarks/core-comparison/programs/fixed-vector.vkf
+COPY benchmarks/core-comparison/programs/builtin-reduction.vkf benchmarks/core-comparison/programs/builtin-reduction.vkf
+COPY benchmarks/core-comparison/programs/dynamic-list.vkf benchmarks/core-comparison/programs/dynamic-list.vkf
+COPY benchmarks/core-comparison/programs/dynamic-list-return.vkf benchmarks/core-comparison/programs/dynamic-list-return.vkf
+COPY benchmarks/core-comparison/programs/dynamic-list-concat.vkf benchmarks/core-comparison/programs/dynamic-list-concat.vkf
+COPY benchmarks/core-comparison/programs/owned-string.vkf benchmarks/core-comparison/programs/owned-string.vkf
+COPY benchmarks/core-comparison/programs/string-comparison.vkf benchmarks/core-comparison/programs/string-comparison.vkf
+COPY benchmarks/core-comparison/programs/nested-ownership.vkf benchmarks/core-comparison/programs/nested-ownership.vkf
+COPY benchmarks/core-comparison/programs/mixed-output.vkf benchmarks/core-comparison/programs/mixed-output.vkf
+COPY benchmarks/core-comparison/programs/structured-output.vkf benchmarks/core-comparison/programs/structured-output.vkf
+COPY benchmarks/core-comparison/programs/bit-output.vkf benchmarks/core-comparison/programs/bit-output.vkf
+COPY benchmarks/core-comparison/programs/numeric-multisets.vkf benchmarks/core-comparison/programs/numeric-multisets.vkf
+COPY examples/benchmarks/vector_append_builder_pressure.vkf examples/benchmarks/vector_append_builder_pressure.vkf
+COPY tests/vkf tests/vkf
+
+RUN cmake -S compiler/native -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /build --parallel
+COPY benchmarks/core-comparison/native_process_timer.c benchmarks/core-comparison/native_process_timer.c
+COPY benchmarks/core-comparison/native_entry_timer.c benchmarks/core-comparison/native_entry_timer.c
+
+FROM build AS verification
+RUN set -eux; mkdir -p /bench \
+    && sed 's/{{COUNT}}/20000/g' benchmarks/core-comparison/programs/scalar-control.vkf > /bench/scalar.vkf \
+    && sed 's/{{COUNT}}/10/g' benchmarks/core-comparison/programs/fixed-vector.vkf > /bench/fixed-vector.vkf \
+    && values="$(seq -s ', ' 1 160)" \
+    && sed "s/{{VALUES}}/$values/g" benchmarks/core-comparison/programs/builtin-reduction.vkf > /bench/builtin-reduction.vkf \
+    && /build/bin/vkf --aot --diagnostics --source /bench/scalar.vkf > /bench/compile-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /bench/fixed-vector.vkf > /bench/fixed-vector-compile-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /bench/builtin-reduction.vkf > /bench/builtin-reduction-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/examples/benchmarks/stdlib_numeric.vkf > /bench/stdlib-cache-cold.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/examples/benchmarks/stdlib_numeric.vkf > /bench/stdlib-cache-warm.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/dynamic-list.vkf > /bench/dynamic-list-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/dynamic-list-return.vkf > /bench/dynamic-list-return-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/dynamic-list-concat.vkf > /bench/dynamic-list-concat-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/owned-string.vkf > /bench/owned-string-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/string-comparison.vkf > /bench/string-comparison-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/nested-ownership.vkf > /bench/nested-ownership-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/mixed-output.vkf > /bench/mixed-output-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/structured-output.vkf > /bench/structured-output-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/bit-output.vkf > /bench/bit-output-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/benchmarks/core-comparison/programs/numeric-multisets.vkf > /bench/multiset-summary.json \
+    && /build/bin/vkf --aot --diagnostics --source /repo/examples/benchmarks/vector_append_builder_pressure.vkf > /bench/dynamic-list-builder-summary.json \
+    && /build/bin/vkftest /repo/tests/vkf > /bench/vkftest-summary.txt \
+    && /build/bin/vkf --aot -e ':: math.sqrt(81) + math.sin(0) + math.cos(0) + math.exp(0)' > /bench/math-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/compile-summary.json \
+    && grep -q '"backend": "x64-elf"' /bench/.vkfbuild/scalar/x64-manifest.json \
+    && grep -q '"artifact_writer": "compiler-owned"' /bench/.vkfbuild/scalar/x64-manifest.json \
+    && grep -q '"template_bytes": 0' /bench/.vkfbuild/scalar/x64-manifest.json \
+    && grep -q '"artifact_fallback":false' /bench/fixed-vector-compile-summary.json \
+    && grep -q '"artifact_writer": "compiler-owned"' /bench/.vkfbuild/fixed-vector/x64-manifest.json \
+    && grep -q '"artifact_fallback":false' /bench/builtin-reduction-summary.json \
+    && grep -q '"stdlib_ast_cache_hits":0' /bench/stdlib-cache-cold.json \
+    && grep -q '"stdlib_ast_cache_misses":2' /bench/stdlib-cache-cold.json \
+    && grep -q '"stdlib_ast_cache_hits":2' /bench/stdlib-cache-warm.json \
+    && grep -q '"stdlib_ast_cache_misses":0' /bench/stdlib-cache-warm.json \
+    && grep -q '"artifact_fallback":false' /bench/dynamic-list-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/dynamic-list-return-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/dynamic-list-concat-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/owned-string-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/string-comparison-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/nested-ownership-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/mixed-output-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/structured-output-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/bit-output-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/multiset-summary.json \
+    && grep -q '"artifact_fallback":false' /bench/dynamic-list-builder-summary.json \
+    && grep -q '222 passed, 0 failed' /bench/vkftest-summary.txt \
+    && grep -q '"artifact_fallback":false' /bench/math-summary.json \
+    && grep -q '"stdout":"11\\n"' /bench/math-summary.json \
+    && test "$(/bench/.vkfbuild/scalar/scalar)" = "21.017288693559877" \
+    && test "$(/bench/.vkfbuild/fixed-vector/fixed-vector)" = "10.000016999554949" \
+    && test "$(/bench/.vkfbuild/builtin-reduction/builtin-reduction)" = "13120.5" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/dynamic-list/dynamic-list)" = "38.5" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/dynamic-list-return/dynamic-list-return)" = "29" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/dynamic-list-concat/dynamic-list-concat)" = "55" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/owned-string/owned-string)" = "hello world / ok!" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/string-comparison/string-comparison)" = "true" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/nested-ownership/nested-ownership)" = "7" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/mixed-output/mixed-output)" = "$(printf 'alpha\n42\nomega')" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/structured-output/structured-output)" = "$(printf 'true\nnull\n(3, 4)\n(x:3, y:4)\n[1, 2, 3, 4]')" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/bit-output/bit-output)" = "true" \
+    && test "$(/repo/benchmarks/core-comparison/programs/.vkfbuild/numeric-multisets/numeric-multisets)" = "$(printf '{1:6, 2:3}\n{1:2, 2:1}\n{1:2, 2:2}')" \
+    && test "$(/repo/examples/benchmarks/.vkfbuild/vector_append_builder_pressure/vector_append_builder_pressure)" = "$(printf '0\n255\n511')" \
+    && cc -O2 -std=c17 benchmarks/core-comparison/native_process_timer.c -lm -o /bench/native-process-timer \
+    && cc -O2 -std=c17 benchmarks/core-comparison/native_entry_timer.c -lm -o /bench/native-entry-timer
+
+CMD ["/bench/native-process-timer", "/bench/.vkfbuild/scalar/scalar", "10", "100"]

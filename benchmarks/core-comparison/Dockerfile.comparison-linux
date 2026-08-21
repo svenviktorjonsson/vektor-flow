@@ -1,0 +1,18 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        clang nodejs python3 python3-numpy python3-scipy rustc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /repo
+
+COPY compiler/native compiler/native
+COPY native/VfOverlay/vf/json.cpp native/VfOverlay/vf/json.cpp
+COPY native/VfOverlay/vf/json.hpp native/VfOverlay/vf/json.hpp
+COPY benchmarks/core-comparison/run.mjs benchmarks/core-comparison/run.mjs
+COPY benchmarks/core-comparison/native_process_timer.c benchmarks/core-comparison/native_process_timer.c
+COPY benchmarks/core-comparison/native_entry_timer.c benchmarks/core-comparison/native_entry_timer.c
+COPY benchmarks/core-comparison/programs benchmarks/core-comparison/programs
+RUN mkdir -p benchmarks/core-comparison/results
