@@ -1596,7 +1596,7 @@ private:
         // Darwin's open() returns a 32-bit int. Sign-extend it before testing
         // errors. Append currently targets the single-process release contract:
         // open without truncation, then seek to the current end before writing.
-        emit_u64(1, append ? 0x201u : 0x601u);
+        emit_u64(1, append ? 0x001u : 0x601u);
         emit_u64(2, 0600u);
         call_runtime_slot(20);
         words_.emit(0x93407c00u);
