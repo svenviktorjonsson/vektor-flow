@@ -115,9 +115,10 @@ parts. Target writers map them directly to platform APIs:
 
 No direct time artifact embeds or launches Python, generated C++, an assembler,
 a compiler, or a linker. OS/C runtime calls are the versioned capability ABI,
-not a language implementation dependency. Direct `current_time` currently
-accepts the portable set `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%Y-%m-%d`,
-`%Y/%m/%d`, `%H:%M`, `%H:%M:%S`, `%Y-%m-%d %H:%M:%S`, and RFC 3339 UTC
-`%Y-%m-%dT%H:%M:%SZ`. Both `format_time` and `current_time` accept an explicit
-`utc` flag. Arbitrary `strftime` programs remain an explicit unsupported
-surface because portable output may not delegate formatting to a host library.
+not a language implementation dependency. Direct `format_time` and
+`current_time` parse arbitrary portable format programs in VKF source. Literal
+text may freely compose `%Y`, `%y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%j`, `%w`,
+`%u`, `%F`, `%T`, and `%%`; unsupported or incomplete directives fail
+explicitly. Both functions accept an explicit `utc` flag. The implementation
+does not delegate formatting to a host library, so output stays identical
+across the three release targets.

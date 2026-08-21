@@ -25,6 +25,33 @@ _four_digits(value:num) -> str:
     value < 1000? @: "0" & str(int(value))
     str(int(value))
 
+_three_digits(value:num) -> str:
+    value < 10? @: "00" & str(int(value))
+    value < 100? @: "0" & str(int(value))
+    str(int(value))
+
+_iso_weekday(weekday:num) -> str:
+    weekday = 0? @: "7"
+    str(int(weekday))
+
+_year_day(year:num, month:num, day:num) -> num:
+    result: day - 1
+    month > 1? result: result + 31
+    month > 2?
+        result: result + 28
+        (year % 4 = 0 /\ (year % 100 != 0 \/ year % 400 = 0))?
+            result: result + 1
+    month > 3? result: result + 31
+    month > 4? result: result + 30
+    month > 5? result: result + 31
+    month > 6? result: result + 30
+    month > 7? result: result + 31
+    month > 8? result: result + 31
+    month > 9? result: result + 30
+    month > 10? result: result + 31
+    month > 11? result: result + 30
+    result
+
 _utc_parts(seconds:num):
     whole: seconds // 1
     days: whole // 86400
@@ -46,30 +73,49 @@ _utc_parts(seconds:num):
         month: mp - 9
     month <= 2?
         year: year + 1
+    weekday: (days + 4) % 7
+    weekday < 0? weekday: weekday + 7
     (second: second, minute: minute, hour: hour, day: day, month: month,
-     year: year, weekday: (days + 4) % 7, yearday: doy, dst: 0)
+     year: year, weekday: weekday,
+     yearday: _year_day(year, month, day), dst: 0)
 
-_format_parts(parts:any, fmt:str) -> str:
+_format_directive(parts:any, directive:chr) -> str:
     year: _four_digits(parts.year)
     month: _two_digits(parts.month)
     day: _two_digits(parts.day)
     hour: _two_digits(parts.hour)
     minute: _two_digits(parts.minute)
     second: _two_digits(parts.second)
-    fmt = "%Y-%m-%d %H:%M:%S"? @: year & "-" & month & "-" & day & " " & hour & ":" & minute & ":" & second
-    fmt = "%Y-%m-%d"? @: year & "-" & month & "-" & day
-    fmt = "%H:%M:%S"? @: hour & ":" & minute & ":" & second
-    fmt = "%Y-%m-%dT%H:%M:%SZ"? @: year & "-" & month & "-" & day & "T" & hour & ":" & minute & ":" & second & "Z"
-    fmt = "%Y/%m/%d"? @: year & "/" & month & "/" & day
-    fmt = "%H:%M"? @: hour & ":" & minute
-    fmt = "%Y"? @: year
-    fmt = "%m"? @: month
-    fmt = "%d"? @: day
-    fmt = "%H"? @: hour
-    fmt = "%M"? @: minute
-    fmt = "%S"? @: second
-    false?! "time format is not in the portable VKF format set"
+    directive = chr(37)? @: "%"
+    directive = chr(89)? @: year
+    directive = chr(121)? @: _two_digits(parts.year % 100)
+    directive = chr(109)? @: month
+    directive = chr(100)? @: day
+    directive = chr(72)? @: hour
+    directive = chr(77)? @: minute
+    directive = chr(83)? @: second
+    directive = chr(106)? @: _three_digits(parts.yearday + 1)
+    directive = chr(119)? @: str(int(parts.weekday))
+    directive = chr(117)? @: _iso_weekday(parts.weekday)
+    directive = chr(70)? @: year & "-" & month & "-" & day
+    directive = chr(84)? @: hour & ":" & minute & ":" & second
+    false?! "unsupported portable time format directive"
     ""
+
+_format_parts(parts:any, fmt:str) -> str:
+    escaped: false
+    formatted: fmt >>
+        was_escaped: escaped
+        output: str($)
+        was_escaped?
+            output: _format_directive(parts, $)
+            escaped: false
+        (~was_escaped /\ $ = chr(37))?
+            output: ""
+            escaped: true
+        output
+    (~escaped)?! "time format ends with an incomplete directive"
+    formatted
 
 format_time(seconds:num, fmt:str="%Y-%m-%d %H:%M:%S", utc:bit=false) -> str:
     parts: time.local_parts(seconds)

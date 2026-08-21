@@ -23,3 +23,12 @@ utc_epoch_and_rfc3339_are_portable_source_formatting() -> bit:
 portable_individual_tokens_are_supported() -> bit:
     (format_time(0, "%Y", true) = "1970" /\ format_time(0, "%m", true) = "01" /\
      format_time(0, "%d", true) = "01" /\ format_time(0, "%H:%M", true) = "00:00")?!
+
+portable_directives_compose_in_arbitrary_formats() -> bit:
+    formatted: format_time(
+        0, "year=%Y short=%y date=%F time=%T day=%j week=%w/%u %%", true)
+    (formatted = "year=1970 short=70 date=1970-01-01 time=00:00:00 day=001 week=4/4 %")?!
+
+portable_utc_formatting_handles_pre_epoch_weekdays() -> bit:
+    (format_time(-86400, "%F day=%j week=%w/%u", true) =
+     "1969-12-31 day=365 week=3/3")?!
