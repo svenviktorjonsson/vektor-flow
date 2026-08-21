@@ -294,7 +294,11 @@ function buildNativeCompilerTools(tools) {
     ...(platform() === 'win32' ? [] : ['-lm'])
   ]);
   const jsonSource = resolve(repoRoot, 'native', 'VfOverlay', 'vf', 'json.cpp');
+  const arm64Host = platform() === 'darwin' && process.arch === 'arm64';
   const definitions = [
+    ...(!arm64Host
+      ? [['x64Template', 'vkf_x64_runner_template.cpp', false, 'vkf_x64_runner_template']]
+      : []),
     ['driver', 'vkf_driver_artifact_smoke.cpp', true]
   ];
   const built = {};
@@ -306,12 +310,16 @@ function buildNativeCompilerTools(tools) {
     const compileArgs = [];
     if (name === 'driver') {
       sources.push(
-        resolve(repoRoot, 'compiler', 'native', 'vkf_x64_artifact.cpp'),
         resolve(repoRoot, 'compiler', 'native', 'vkf_lexer_cursor_smoke.cpp'),
         resolve(repoRoot, 'compiler', 'native', 'vkf_parser_token_stream_smoke.cpp'),
         resolve(repoRoot, 'compiler', 'native', 'vkf_ast_to_ir_smoke.cpp')
       );
-      compileArgs.push('-DVKF_X64_BACKEND_LIBRARY', '-DVKF_NATIVE_FRONTEND_LIBRARY');
+      if (arm64Host) {
+        compileArgs.push('-DVKF_ARM64_BACKEND_LIBRARY', '-DVKF_NATIVE_FRONTEND_LIBRARY');
+      } else {
+        sources.push(resolve(repoRoot, 'compiler', 'native', 'vkf_x64_artifact.cpp'));
+        compileArgs.push('-DVKF_X64_BACKEND_LIBRARY', '-DVKF_NATIVE_FRONTEND_LIBRARY');
+      }
     }
     if (needsJson) sources.push(jsonSource);
     const linkArgs = name === 'x64Template' && platform() === 'win32'
@@ -393,7 +401,7 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
       id: 'vkf',
       extension: 'vkf',
       version: `Vektor Flow 0.1.0 native compiler; ${toolVersion(tools.cpp)}`,
-      compileModel: 'persistent Python-free integrated frontend + compiler-owned direct x64 artifact',
+      compileModel: `persistent Python-free integrated frontend + compiler-owned direct ${process.arch} artifact`,
       freshSourcePerCompile: true,
       compileBatch(sources, manifestPath) {
         writeFileSync(manifestPath, `${sources.join('\n')}\n`, 'utf8');
