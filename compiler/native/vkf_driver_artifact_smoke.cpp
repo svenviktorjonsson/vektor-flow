@@ -750,6 +750,7 @@ Arm64DirectArtifact compile_arm64_direct(
         const auto artifact_path = requested_artifact.empty()
             ? build_dir / stem
             : std::filesystem::absolute(requested_artifact);
+        std::filesystem::create_directories(build_dir);
         std::filesystem::create_directories(artifact_path.parent_path());
         const auto code_path = build_dir / "arm64-code.bin";
         const auto data_path = build_dir / "arm64-data.bin";
@@ -1542,6 +1543,13 @@ int main(int argc, char** argv) {
                 std::filesystem::remove(generated_artifact.parent_path(), ignore);
             }
             artifact_path = requested_output.string();
+        }
+        if (!materialize_frontend && !args.output.empty()) {
+            std::error_code ignore;
+            const auto transient_build_dir = build_dir_for(args.source);
+            std::filesystem::remove_all(transient_build_dir, ignore);
+            ignore.clear();
+            std::filesystem::remove(transient_build_dir.parent_path(), ignore);
         }
         const auto artifact_finished = Clock::now();
         std::string wasm_status;
