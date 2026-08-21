@@ -19,6 +19,7 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::CloneString: return "clone_string";
         case Opcode::ConcatStrings: return "concat_strings";
         case Opcode::WriteString: return "write_string";
+        case Opcode::ReadLineString: return "read_line_string";
         case Opcode::ReadFileString: return "read_file_string";
         case Opcode::WriteFileString: return "write_file_string";
         case Opcode::StringEqual: return "string_equal";

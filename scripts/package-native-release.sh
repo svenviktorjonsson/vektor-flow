@@ -90,6 +90,13 @@ EOF
   test "$(cat io.txt)" = "native UTF-8: hej + appended
 byte exact"
   test "$(cat io.err)" = "native stderr"
+  cat > installed_read_line.vkf <<'EOF'
+io: .io
+:: io.read_line()
+EOF
+  long_line=$(printf '%600s' '' | tr ' ' x)
+  printf '%s\r\n' "$long_line" | "$stage_root/bin/vkf" installed_read_line.vkf > read-line.txt
+  test "$(cat read-line.txt)" = "$long_line"
   cat > installed_collections_errors.vkf <<'EOF'
 c: .collections
 errors: .errors

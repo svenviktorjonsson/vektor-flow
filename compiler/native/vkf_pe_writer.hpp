@@ -51,6 +51,7 @@ inline MathImports math_imports_for(const vkf::machine_ir::Module& module) {
             imports.ln = imports.ln || instruction.opcode == Opcode::LnF64;
             imports.write = imports.write || instruction.opcode == Opcode::WriteString;
             imports.files = imports.files || instruction.opcode == Opcode::ReadFileString ||
+                instruction.opcode == Opcode::ReadLineString ||
                 instruction.opcode == Opcode::WriteFileString ||
                 instruction.opcode == Opcode::ProcessRun;
         }

@@ -162,8 +162,13 @@ private:
             function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
                 return instruction.opcode == machine_ir::Opcode::CaptureRegex;
             });
+        const bool needs_line_scratch = std::any_of(
+            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
+                return instruction.opcode == machine_ir::Opcode::ReadLineString;
+            });
         frame.scratch_slots = needs_process_scratch ? 9u
-            : needs_capture_scratch ? 4u : static_cast<std::uint32_t>(needs_scratch);
+            : (needs_capture_scratch || needs_line_scratch) ? 4u
+            : static_cast<std::uint32_t>(needs_scratch);
         frame.error_pointer_slot = frame.scratch_slot + frame.scratch_slots;
         frame.error_length_slot = frame.error_pointer_slot + 1u;
         frame.error_type_slot = frame.error_length_slot + 1u;
@@ -1331,6 +1336,97 @@ private:
         store_d(0, frame.offset(frame.temp_base + first));
     }
 
+    void emit_read_line_string(const Frame& frame, std::uint32_t first) {
+        constexpr std::uint64_t initial_capacity = 256u;
+        emit_u64(9, initial_capacity);
+        store_x(9, frame.offset(frame.scratch_slot + 1));
+        store_x(31, frame.offset(frame.scratch_slot + 2));
+        emit_u64(0, initial_capacity + 9u);
+        call_runtime_slot(8);
+        const auto allocated = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(allocated, words_.offset());
+        store_x(0, frame.offset(frame.scratch_slot));
+
+        const auto read_loop = words_.offset();
+        load_x(1, frame.offset(frame.scratch_slot));
+        words_.emit(0x91002021u);
+        load_x(9, frame.offset(frame.scratch_slot + 2));
+        words_.emit(0x8b090021u);
+        words_.emit(0xaa1f03e0u);
+        emit_u64(2, 1u);
+        call_runtime_slot(21);
+        words_.emit(0xf100001fu);
+        const auto eof = words_.emit(0x54000000u);
+        const auto read_ok = words_.emit(0x5400000au);
+        emit_abort();
+        words_.patch_compare_branch19(read_ok, words_.offset());
+
+        load_x(10, frame.offset(frame.scratch_slot));
+        words_.emit(0x9100214au);
+        load_x(11, frame.offset(frame.scratch_slot + 2));
+        words_.emit(0x386b6949u);
+        words_.emit(0x7100293fu);
+        const auto newline = words_.emit(0x54000000u);
+        words_.emit(0x9100056bu);
+        store_x(11, frame.offset(frame.scratch_slot + 2));
+        load_x(10, frame.offset(frame.scratch_slot + 1));
+        words_.emit(0xeb0a017fu);
+        const auto continue_reading = words_.emit(0x54000001u);
+
+        words_.emit(0x8b0a0149u);
+        store_x(9, frame.offset(frame.scratch_slot + 1));
+        words_.emit(0x91002520u);
+        call_runtime_slot(8);
+        const auto grown = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(grown, words_.offset());
+        store_x(0, frame.offset(frame.scratch_slot + 3));
+        words_.emit(0x91002000u);
+        load_x(1, frame.offset(frame.scratch_slot));
+        words_.emit(0x91002021u);
+        load_x(2, frame.offset(frame.scratch_slot + 2));
+        call_runtime_slot(28);
+        load_x(0, frame.offset(frame.scratch_slot));
+        call_runtime_slot(9);
+        load_x(9, frame.offset(frame.scratch_slot + 3));
+        store_x(9, frame.offset(frame.scratch_slot));
+        const auto repeat_after_grow = words_.emit(0x14000000u);
+
+        const auto repeat = words_.offset();
+        words_.patch_compare_branch19(continue_reading, repeat);
+        const auto repeat_without_grow = words_.emit(0x14000000u);
+        words_.patch_branch26(repeat_after_grow, read_loop);
+        words_.patch_branch26(repeat_without_grow, read_loop);
+
+        const auto complete = words_.offset();
+        words_.patch_compare_branch19(eof, complete);
+        words_.patch_compare_branch19(newline, complete);
+        load_x(10, frame.offset(frame.scratch_slot + 2));
+        const auto no_carriage_return = words_.emit(0xb400000au);
+        load_x(9, frame.offset(frame.scratch_slot));
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x39401d69u);
+        words_.emit(0x7100353fu);
+        const auto keep_length = words_.emit(0x54000001u);
+        words_.emit(0xd100054au);
+        store_x(10, frame.offset(frame.scratch_slot + 2));
+        const auto finalized_length = words_.offset();
+        words_.patch_compare_branch19(no_carriage_return, finalized_length);
+        words_.patch_compare_branch19(keep_length, finalized_length);
+        load_x(9, frame.offset(frame.scratch_slot));
+        load_x(10, frame.offset(frame.scratch_slot + 2));
+        words_.emit(0xf900012au);
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x3900217fu);
+        words_.emit(0x91002129u);
+        store_x(9, frame.offset(frame.temp_base + first));
+        words_.emit(0x9100054au);
+        words_.emit(0xcb0a03eau);
+        words_.emit(0x9e620140u);
+        store_d(0, frame.offset(frame.temp_base + first + 1));
+    }
+
     void emit_read_file_string(const Frame& frame, std::uint32_t first, bool owns_path) {
         load_x(0, frame.offset(frame.temp_base + first));
         emit_u64(1, 0);
@@ -1681,6 +1777,10 @@ private:
                     call_runtime_slot(9);
                 }
                 stack_depth = first;
+            } else if (opcode == Opcode::ReadLineString) {
+                const std::uint32_t first = stack_depth;
+                emit_read_line_string(frame, first);
+                stack_depth = first + 2;
             } else if (opcode == Opcode::ReadFileString) {
                 require_stack(stack_depth, 2);
                 const auto first = stack_depth - 2;

@@ -114,6 +114,15 @@ io.eprint("native stderr")
         throw "Packaged native IO smoke failed"
     }
     @"
+io: .io
+:: io.read_line()
+"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_read_line.vkf") -Encoding utf8
+    $readLineInput = "x" * 600
+    $readLineOutput = $readLineInput | & $compiler (Join-Path $smokeRoot "installed_read_line.vkf")
+    if ($LASTEXITCODE -ne 0 -or ($readLineOutput -join "`n").Trim() -ne $readLineInput) {
+        throw "Packaged native read-line smoke failed"
+    }
+    @"
 c: .collections
 errors: .errors
 q: c.queue()

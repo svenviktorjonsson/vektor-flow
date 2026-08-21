@@ -2956,6 +2956,8 @@ public:
         } else if (opcode == Opcode::WriteString) {
             require_stack(2);
             stack_depth_ -= 2;
+        } else if (opcode == Opcode::ReadLineString) {
+            stack_depth_ += 2;
         } else if (opcode == Opcode::ReadFileString) {
             require_stack(2);
         } else if (opcode == Opcode::WriteFileString) {
@@ -7783,6 +7785,13 @@ inline ValueLayout lower_expression(
             if (!spread_args.empty()) {
                 throw LoweringFailure(
                     "direct machine IR stdlib calls do not accept spread arguments");
+            }
+            if (module == "io" && name == "read_line") {
+                if (!args.empty() || !named_args.empty()) {
+                    throw LoweringFailure("machine IR io.read_line takes no arguments");
+                }
+                builder.emit({Opcode::ReadLineString});
+                return {2, ValueKind::String, {}};
             }
             if (module == "io" && (name == "read_text" || name == "read_bytes")) {
                 if (args.size() != 1 || !named_args.empty()) {

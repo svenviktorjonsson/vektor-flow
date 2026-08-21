@@ -263,6 +263,7 @@ void validate_value(const vf::JsonValue& value) {
         const std::string full_name = string_field(object, "full_name", "stdlib_function");
         if (full_name != "io.print"
             && full_name != "io.eprint"
+            && full_name != "io.read_line"
             && full_name != "io.read_text"
             && full_name != "io.write_text"
             && full_name != "io.read_bytes"

@@ -75,10 +75,14 @@ EOF
   cd "$smoke_root"
   printf '%s\n' '[DEBUG-mac-package-01] compile math' >&2
   "$stage_root/bin/vkf" -b installed_math.vkf > build.txt
-  printf '%s\n' '[DEBUG-mac-package-01] execute math' >&2
+  printf '[DEBUG-mac-package-01] build output: ' >&2
+  cat build.txt >&2
   grep -q '^Built ' build.txt
   test -x installed_math
-  test "$(./installed_math)" = "0"
+  printf '%s\n' '[DEBUG-mac-package-01] execute math' >&2
+  math_output=$(./installed_math)
+  printf '[DEBUG-mac-package-01] math output: %s\n' "$math_output" >&2
+  test "$math_output" = "0"
   test ! -e .vkfbuild
   cat > installed_io.vkf <<'EOF'
 io: .io
@@ -94,6 +98,14 @@ EOF
   test "$(cat io.txt)" = "native UTF-8: hej + appended
 byte exact"
   test "$(cat io.err)" = "native stderr"
+  cat > installed_read_line.vkf <<'EOF'
+io: .io
+:: io.read_line()
+EOF
+  printf '%s\n' '[DEBUG-mac-package-01] execute read-line' >&2
+  long_line=$(printf '%600s' '' | tr ' ' x)
+  printf '%s\r\n' "$long_line" | "$stage_root/bin/vkf" installed_read_line.vkf > read-line.txt
+  test "$(cat read-line.txt)" = "$long_line"
   cat > installed_collections_errors.vkf <<'EOF'
 c: .collections
 errors: .errors

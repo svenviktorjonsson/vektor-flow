@@ -9,7 +9,7 @@
 
 namespace vkf::machine_ir {
 
-inline constexpr std::uint32_t schema_version = 16;
+inline constexpr std::uint32_t schema_version = 17;
 inline constexpr std::uint32_t runtime_output_base = 192;
 inline constexpr std::uint32_t assertion_error_mask = 0b1000011;
 inline constexpr std::uint32_t index_error_mask = 0b1000100001;
@@ -69,6 +69,7 @@ enum class Opcode : std::uint8_t {
     CloneString,
     ConcatStrings,
     WriteString,
+    ReadLineString,
     ReadFileString,
     WriteFileString,
     StringEqual,

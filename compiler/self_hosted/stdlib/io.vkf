@@ -5,6 +5,6 @@
 io_stdlib_capability:
     name: "io"
     source_policy: ["UTF-8 text", "string-backed byte buffers"]
-    runtime_abi: ["stdout", "open", "read", "write", "seek", "close"]
-    direct: ["print", "eprint", "read_text", "write_text", "append_text", "read_bytes", "write_bytes"]
+    runtime_abi: ["stdin", "stdout", "stderr", "open", "read", "write", "seek", "close"]
+    direct: ["print", "eprint", "read_line", "read_text", "write_text", "append_text", "read_bytes", "write_bytes"]
     :
