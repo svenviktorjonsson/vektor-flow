@@ -4778,6 +4778,7 @@ def test_arm64_artifact_emits_apple_abi_machine_code(tmp_path: Path, smoke_exes:
     executable = artifact_path.read_bytes()
     code = Path(summary["raw_code_path"]).read_bytes()
     words = struct.unpack(f"<{len(code) // 4}I", code)
+    wrapper_words = struct.unpack_from("<176I", executable, manifest["entry_offset"])
 
     assert manifest["artifact_format"] == "macho-executable"
     assert manifest["backend"] == "arm64-macho"
@@ -4793,6 +4794,12 @@ def test_arm64_artifact_emits_apple_abi_machine_code(tmp_path: Path, smoke_exes:
     assert manifest["result_transport"] == "stdout-f64"
     assert machine_ir["schema"] == "vektorflow.machine_ir"
     assert len(code) > 0 and len(code) % 4 == 0
+    # Slots 0..36 occupy bytes 0..295. The wrapper must preserve FP/LR after
+    # that table and before aggregate output starts at byte 320.
+    assert wrapper_words[:3] == (0xD10503FF, 0xA9137BFD, 0x9104C3FD)
+    assert 0xA9537BFD in wrapper_words
+    assert 0xA9087BFD not in wrapper_words
+    assert 0xA9487BFD not in wrapper_words
     assert words[:5] == (0xD10083FF, 0xA9007BFD, 0x910003FD, 0xF9000BB3, 0xAA0003F3)
     assert words[-1] == 0xD65F03C0
     assert any((word & 0xFC000000) == 0x94000000 for word in words)
