@@ -137,10 +137,22 @@ shell_result: process.shell("exit 0")
 :: result.err
 :: shell_result.code
 EOF
-  test "$("$stage_root/bin/vkf" installed_process.vkf)" = "7
+  set +e
+  "$stage_root/bin/vkf" installed_process.vkf > process.txt 2> process.err
+  process_status=$?
+  set -e
+  process_output=$(cat process.txt)
+  if [ "$process_status" -ne 0 ] || [ "$process_output" != "7
 hello
 error
-0"
+0" ]; then
+    echo "macOS process smoke failed (status $process_status)" >&2
+    echo "stdout:" >&2
+    cat process.txt >&2
+    echo "stderr:" >&2
+    cat process.err >&2
+    exit 1
+  fi
   cat > installed_capture.vkf <<'EOF'
 capture: .capture
 result: capture.regex("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')
