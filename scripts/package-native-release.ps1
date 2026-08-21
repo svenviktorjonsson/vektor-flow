@@ -140,6 +140,10 @@ caught: 0
     if ($LASTEXITCODE -ne 0 -or ($collectionsOutput -join "`n").Trim() -ne "34") {
         throw "Packaged native collections/errors smoke failed"
     }
+    $stdlibProof = & $compiler -t (Join-Path $repoRoot "tests/release_stdlibs.vkf")
+    if ($LASTEXITCODE -ne 0 -or ($stdlibProof -join "`n") -notmatch "(?m)^4 passed, 0 failed$") {
+        throw "Packaged native math/stat/random/time proof failed"
+    }
     @"
 system: .system
 present: system.env("PATH")

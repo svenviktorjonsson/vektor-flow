@@ -124,6 +124,8 @@ caught: 0
 :: first + second + point.x + point.y + caught
 EOF
   test "$("$stage_root/bin/vkf" installed_collections_errors.vkf)" = "34"
+  "$stage_root/bin/vkf" -t "$repo_root/tests/release_stdlibs.vkf" > stdlibs.txt
+  grep -q '^4 passed, 0 failed$' stdlibs.txt
   cat > installed_system.vkf <<'EOF'
 system: .system
 present: system.env("PATH")
