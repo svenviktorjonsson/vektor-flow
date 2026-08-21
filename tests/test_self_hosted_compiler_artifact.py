@@ -4718,12 +4718,17 @@ def test_x64_artifact_emits_runnable_machine_code(tmp_path: Path, smoke_exes: di
     assert manifest["runtime_abi_version"] == 12
     assert Path(manifest["machine_ir"]) == Path(summary["machine_ir_path"])
     assert machine_ir["schema"] == "vektorflow.machine_ir"
-    assert machine_ir["version"] == 17
+    assert machine_ir["version"] == 18
     assert machine_ir["entry"]["name"] == "$entry"
     assert [function["name"] for function in machine_ir["functions"]] == ["advance", "run"]
     assert any(
         instruction["kind"] == "call" and instruction["symbol"] == "run"
         for instruction in machine_ir["entry"]["instructions"]
+    )
+    run_ir = next(function for function in machine_ir["functions"] if function["name"] == "run")
+    assert not any(
+        instruction["kind"] == "call" and instruction.get("symbol") == "advance"
+        for instruction in run_ir["instructions"]
     )
     assert manifest["target_architecture"] == "x64"
     assert manifest["target_calling_convention"] == ("windows-x64" if os.name == "nt" else "sysv-x64")
@@ -4811,6 +4816,8 @@ def test_arm64_artifact_emits_apple_abi_machine_code(tmp_path: Path, smoke_exes:
     assert signature_offset % 16 == 0
     assert b"/usr/lib/libSystem.B.dylib" in executable
     assert b"_printf\0" in executable
+    assert b"%.17g\n\0" in executable
+    assert b"%.17g\0" in executable
     assert b"_pow\0" in executable
     assert b"_fmod\0" in executable
     assert b"_floor\0" in executable

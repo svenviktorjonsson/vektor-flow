@@ -2486,9 +2486,57 @@ private:
         unsigned stack_depth = 0;
         std::map<std::uint32_t, std::size_t> labels;
         std::vector<MachineBranchPatch> branches;
-        for (const auto& instruction : function.instructions) {
+        for (std::size_t instruction_index = 0;
+             instruction_index < function.instructions.size(); ++instruction_index) {
+            const auto& instruction = function.instructions[instruction_index];
             using vkf::machine_ir::Opcode;
             const auto opcode = instruction.opcode;
+            if (instruction_index + 2 < function.instructions.size()) {
+                const auto& left = function.instructions[instruction_index];
+                const auto& right = function.instructions[instruction_index + 1];
+                const auto fused_opcode = function.instructions[instruction_index + 2].opcode;
+                const bool left_operand = left.opcode == Opcode::LoadLocal || left.opcode == Opcode::PushF64;
+                const bool right_operand = right.opcode == Opcode::LoadLocal || right.opcode == Opcode::PushF64;
+                const bool fused_arithmetic = fused_opcode == Opcode::AddF64 ||
+                    fused_opcode == Opcode::SubtractF64 || fused_opcode == Opcode::MultiplyF64 ||
+                    fused_opcode == Opcode::DivideF64;
+                const bool fused_comparison = fused_opcode == Opcode::OrderedLessF64 ||
+                    fused_opcode == Opcode::OrderedLessEqualF64 ||
+                    fused_opcode == Opcode::OrderedGreaterF64 ||
+                    fused_opcode == Opcode::OrderedGreaterEqualF64 ||
+                    fused_opcode == Opcode::OrderedEqualF64 ||
+                    fused_opcode == Opcode::UnorderedNotEqualF64;
+                if (left_operand && right_operand && (fused_arithmetic || fused_comparison)) {
+                    const auto load_operand = [&](const vkf::machine_ir::Instruction& operand, unsigned reg) {
+                        if (operand.opcode == Opcode::PushF64) {
+                            emit_number(operand.f64, reg);
+                        } else {
+                            if (operand.index >= frame.local_count) {
+                                throw BackendFailure("invalid fused x64 local slot");
+                            }
+                            load_xmm(reg, frame.displacement(operand.index));
+                        }
+                    };
+                    load_operand(left, 1);
+                    load_operand(right, 0);
+                    if (fused_arithmetic) {
+                        const unsigned machine = fused_opcode == Opcode::AddF64 ? 0x58
+                            : fused_opcode == Opcode::SubtractF64 ? 0x5c
+                            : fused_opcode == Opcode::MultiplyF64 ? 0x59 : 0x5e;
+                        code_.raw({0xf2, 0x0f, machine, 0xc8,
+                                   0x66, 0x0f, 0x28, 0xc1});
+                    } else {
+                        emit_comparison(fused_opcode);
+                    }
+                    store_xmm(0, frame.displacement(frame.temp_base + stack_depth));
+                    ++stack_depth;
+                    instruction_index += 2;
+                    if (stack_depth > frame.max_stack) {
+                        throw BackendFailure("x64 machine IR stack exceeds frame");
+                    }
+                    continue;
+                }
+            }
             if (opcode == Opcode::PushF64) {
                 emit_number(instruction.f64);
                 store_xmm(0, frame.displacement(frame.temp_base + stack_depth));

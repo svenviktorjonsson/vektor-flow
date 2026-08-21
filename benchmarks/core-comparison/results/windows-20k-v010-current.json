@@ -1,6 +1,6 @@
 {
   "schema": "vektor-flow/core-language-comparison-v1",
-  "generatedAt": "2026-08-21T21:21:34.442Z",
+  "generatedAt": "2026-08-21T21:55:11.995Z",
   "environment": {
     "platform": "win32 10.0.26200",
     "architecture": "x64",
@@ -56,39 +56,39 @@
       },
       "compile": {
         "count": 100,
-        "meanMs": 7.367348,
-        "medianMs": 6.1983,
-        "minMs": 3.5978,
-        "maxMs": 16.8722,
-        "p95Ms": 15.4177,
-        "stddevMs": 3.583517,
-        "ci95LowerMs": 6.664979,
-        "ci95UpperMs": 8.069717
+        "meanMs": 4.996851,
+        "medianMs": 4.5464,
+        "minMs": 3.7227,
+        "maxMs": 10.7957,
+        "p95Ms": 7.5834,
+        "stddevMs": 1.336343,
+        "ci95LowerMs": 4.734928,
+        "ci95UpperMs": 5.258774
       },
       "runtime": {
         "count": 100,
-        "meanMs": 11.766514,
-        "medianMs": 10.7187,
-        "minMs": 8.003,
-        "maxMs": 29.7052,
-        "p95Ms": 23.1344,
-        "stddevMs": 3.834938,
-        "ci95LowerMs": 11.014866,
-        "ci95UpperMs": 12.518162,
-        "startupAdjustedMeanMs": 11.766514
+        "meanMs": 11.583873,
+        "medianMs": 10.11335,
+        "minMs": 7.6449,
+        "maxMs": 35.2216,
+        "p95Ms": 24.0371,
+        "stddevMs": 5.081056,
+        "ci95LowerMs": 10.587986,
+        "ci95UpperMs": 12.57976,
+        "startupAdjustedMeanMs": 11.583873
       },
       "nativeRuntime": {
         "count": 100,
-        "meanMs": 0.412861,
-        "medianMs": 0.40755,
-        "minMs": 0.3789,
-        "maxMs": 0.5418,
-        "p95Ms": 0.4568,
-        "stddevMs": 0.026292,
-        "ci95LowerMs": 0.407708,
-        "ci95UpperMs": 0.418014
+        "meanMs": 0.18905,
+        "medianMs": 0.1725,
+        "minMs": 0.1639,
+        "maxMs": 0.3071,
+        "p95Ms": 0.2719,
+        "stddevMs": 0.034175,
+        "ci95LowerMs": 0.182352,
+        "ci95UpperMs": 0.195748
       },
-      "nativeCodeSha256": "768e609de0b1ef7dceefd0976ad7516af65ff9daabc5cf580a68547375d9630f",
+      "nativeCodeSha256": "76a41701a70ded54c37511fcfaee275f5b9f7745f34138bfb9707a01c79babc0",
       "value": 21.017288693559877
     }
   ]

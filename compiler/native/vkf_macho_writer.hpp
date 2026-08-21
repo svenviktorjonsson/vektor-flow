@@ -173,9 +173,9 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
         ? numeric_output_count : static_cast<std::uint32_t>(sequence_outputs.size());
     const std::uint32_t wrapper_size = 704u + sequence_count * 96u;
     const std::uint32_t generated_offset = entry_offset + wrapper_size;
-    const std::string numeric_format = "%g\n";
+    const std::string numeric_format = "%.17g\n";
     const std::string string_format = "%.*s\n";
-    const std::string token_numeric_format = "%g";
+    const std::string token_numeric_format = "%.17g";
     const std::string token_string_format = "%.*s";
     const auto numeric_format_offset = detail::align_up(
         generated_offset + static_cast<std::uint32_t>(generated_code.size()), 4);
